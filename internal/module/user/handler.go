@@ -23,6 +23,14 @@ func NewHandler(service InitService) *Handler {
 }
 
 func (h *Handler) Init(c *gin.Context) {
+	h.respondWithCurrentUser(c)
+}
+
+func (h *Handler) Me(c *gin.Context) {
+	h.respondWithCurrentUser(c)
+}
+
+func (h *Handler) respondWithCurrentUser(c *gin.Context) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
 		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
