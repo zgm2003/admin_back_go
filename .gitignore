@@ -1,0 +1,13 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test/build outputs
+*.test
+coverage.out
+
+# Local env
+.env
+.env.*.local

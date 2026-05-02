@@ -1,6 +1,10 @@
 package response
 
-import "github.com/gin-gonic/gin"
+import (
+	"admin_back_go/internal/apperror"
+
+	"github.com/gin-gonic/gin"
+)
 
 type Body struct {
 	Code int    `json:"code"`
@@ -9,9 +13,37 @@ type Body struct {
 }
 
 func OK(c *gin.Context, data any) {
+	OKWithMessage(c, data, "ok")
+}
+
+func OKWithMessage(c *gin.Context, data any, message string) {
 	c.JSON(200, Body{
-		Code: 0,
+		Code: apperror.CodeOK,
 		Data: data,
-		Msg:  "ok",
+		Msg:  message,
 	})
+}
+
+func Error(c *gin.Context, err *apperror.Error) {
+	ErrorWithData(c, err, gin.H{})
+}
+
+func ErrorWithData(c *gin.Context, err *apperror.Error, data any) {
+	if err == nil {
+		err = apperror.Internal("系统错误")
+	}
+	if data == nil {
+		data = gin.H{}
+	}
+
+	c.JSON(err.HTTPStatus, Body{
+		Code: err.Code,
+		Data: data,
+		Msg:  err.Message,
+	})
+}
+
+func Abort(c *gin.Context, err *apperror.Error) {
+	Error(c, err)
+	c.Abort()
 }
