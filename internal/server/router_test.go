@@ -15,7 +15,9 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/session"
+	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/readiness"
 )
 
@@ -40,6 +42,17 @@ func (fakeAuthService) Refresh(ctx context.Context, input session.RefreshInput) 
 
 func (fakeAuthService) Logout(ctx context.Context, accessToken string) *apperror.Error {
 	return nil
+}
+
+type fakeRouterUserService struct {
+	input  user.InitInput
+	result *user.InitResponse
+	err    *apperror.Error
+}
+
+func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
+	f.input = input
+	return f.result, f.err
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {
@@ -253,6 +266,52 @@ func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
 	data := mustRouterData(t, body)
 	if data["access_token"] != "new-access" {
 		t.Fatalf("expected refresh endpoint response, got %#v", data)
+	}
+}
+
+func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
+	var authInput middleware.TokenInput
+	userService := &fakeRouterUserService{result: &user.InitResponse{
+		UserID:      1,
+		Username:    "admin",
+		Avatar:      "avatar.png",
+		RoleName:    "管理员",
+		Permissions: []permission.MenuItem{{Index: "1", Label: "系统", Children: []permission.MenuItem{}}},
+		Router:      []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index"}},
+		ButtonCodes: []string{"user_add"},
+		QuickEntry:  []user.QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
+	}}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			authInput = input
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: input.Platform}, nil
+		},
+		UserService: userService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("platform", "admin")
+	request.Header.Set("device-id", "desktop-1")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if authInput.AccessToken != "access-token" || authInput.Platform != "admin" || authInput.DeviceID != "desktop-1" {
+		t.Fatalf("unexpected auth input: %#v", authInput)
+	}
+	if userService.input.UserID != 1 || userService.input.Platform != "admin" {
+		t.Fatalf("unexpected user service input: %#v", userService.input)
+	}
+	body := decodeRouterBody(t, recorder)
+	data := mustRouterData(t, body)
+	if data["username"] != "admin" || data["role_name"] != "管理员" {
+		t.Fatalf("unexpected users/me payload: %#v", data)
+	}
+	if _, ok := data["buttonCodes"]; !ok {
+		t.Fatalf("missing buttonCodes in users/me payload: %#v", data)
 	}
 }
 
