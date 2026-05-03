@@ -14,4 +14,3 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	v1.DELETE("/:id", handler.DeleteOne)
 	v1.DELETE("", handler.DeleteBatch)
 }
-

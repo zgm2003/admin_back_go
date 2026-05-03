@@ -115,4 +115,3 @@ func assertRoleStatus(t *testing.T, router *gin.Engine, method string, path stri
 		t.Fatalf("%s %s expected %d got %d body=%s", method, path, want, recorder.Code, recorder.Body.String())
 	}
 }
-

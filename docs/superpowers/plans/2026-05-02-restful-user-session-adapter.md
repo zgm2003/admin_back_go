@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `GET /api/v1/users/me`, switch the frontend bootstrap call to it, and move token refresh to `POST /api/v1/auth/refresh` without changing MySQL schema.
+**Goal:** Add `GET /api/admin/v1/users/me`, switch the frontend bootstrap call to it, and move token refresh to `POST /api/admin/v1/auth/refresh` without changing MySQL schema.
 
 **Architecture:** Keep the existing Go shape: `route -> handler -> service -> repository -> model`. Reuse the existing user init service for both the legacy adapter and the new REST endpoint, with one private handler helper so the old and new paths cannot drift. On the frontend, change only the API boundary and session refresh URL; keep Pinia state assignment and router bootstrap behavior stable.
 
@@ -12,12 +12,12 @@
 
 ## File structure
 
-- Modify `internal/module/user/handler_test.go`: add a handler-level test for `GET /api/v1/users/me` and prove it uses `AuthIdentity` exactly like legacy init.
+- Modify `internal/module/user/handler_test.go`: add a handler-level test for `GET /api/admin/v1/users/me` and prove it uses `AuthIdentity` exactly like legacy init.
 - Modify `internal/module/user/handler.go`: add `Me(c *gin.Context)` and move shared current-user response logic into `respondWithCurrentUser(c *gin.Context)`.
-- Modify `internal/module/user/route.go`: register `GET /api/v1/users/me` while keeping `POST /api/Users/init`.
-- Modify `internal/server/router_test.go`: add an integration test proving `/api/v1/users/me` is protected by `AuthToken`, forwards headers into the authenticator, and returns user init payload through the router.
+- Modify `internal/module/user/route.go`: register `GET /api/admin/v1/users/me` while keeping `POST /api/Users/init`.
+- Modify `internal/server/router_test.go`: add an integration test proving `/api/admin/v1/users/me` is protected by `AuthToken`, forwards headers into the authenticator, and returns user init payload through the router.
 - Modify `src/api/user/users.ts`: define one `fetchCurrentUser()` function and bind both `UsersApi.me` and `UsersApi.init` to it.
-- Modify `src/lib/http/auth-session.ts`: change refresh URL and 401 self-check from legacy refresh to `/api/v1/auth/refresh`.
+- Modify `src/lib/http/auth-session.ts`: change refresh URL and 401 self-check from legacy refresh to `/api/admin/v1/auth/refresh`.
 - Modify `tests/shared/user/users-api.test.ts`: fix the stale absolute `e:/admin` fixture path to `process.cwd()` and add static contract tests for the RESTful user/session URLs.
 
 No table files or migration files are touched.
@@ -50,7 +50,7 @@ func TestHandlerMeUsesAuthIdentityAndReturnsData(t *testing.T) {
 	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -156,7 +156,7 @@ import "github.com/gin-gonic/gin"
 func RegisterRoutes(router *gin.Engine, service InitService) {
 	handler := NewHandler(service)
 
-	v1 := router.Group("/api/v1/users")
+	v1 := router.Group("/api/admin/v1/users")
 	v1.GET("/me", handler.Me)
 
 	legacy := router.Group("/api/Users")
@@ -264,7 +264,7 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("platform", "admin")
 	request.Header.Set("device-id", "desktop-1")
@@ -367,7 +367,7 @@ describe('users api auth contract', () => {
   it('uses the RESTful current-user endpoint for session bootstrap', () => {
     const source = readUsersApiSource()
 
-    expect(source).toContain("request.get<UserInitResponse>('/api/v1/users/me')")
+    expect(source).toContain("request.get<UserInitResponse>('/api/admin/v1/users/me')")
     expect(source).toContain('me: fetchCurrentUser')
     expect(source).toContain('init: fetchCurrentUser')
     expect(source).not.toContain("request.post<UserInitResponse>('/api/Users/init'")
@@ -376,8 +376,8 @@ describe('users api auth contract', () => {
   it('uses the RESTful auth refresh endpoint', () => {
     const source = readAuthSessionSource()
 
-    expect(source).toContain('`${baseURL}/api/v1/auth/refresh`')
-    expect(source).toContain("originalRequest.url?.includes('/api/v1/auth/refresh')")
+    expect(source).toContain('`${baseURL}/api/admin/v1/auth/refresh`')
+    expect(source).toContain("originalRequest.url?.includes('/api/admin/v1/auth/refresh')")
     expect(source).not.toContain('`${baseURL}/api/Users/refresh`')
     expect(source).not.toContain("originalRequest.url?.includes('/api/Users/refresh')")
   })
@@ -395,8 +395,8 @@ npm run test -- tests/shared/user/users-api.test.ts
 Expected failure lines include:
 
 ```text
-expected "..." to contain "request.get<UserInitResponse>('/api/v1/users/me')"
-expected "..." to contain "`${baseURL}/api/v1/auth/refresh`"
+expected "..." to contain "request.get<UserInitResponse>('/api/admin/v1/users/me')"
+expected "..." to contain "`${baseURL}/api/admin/v1/auth/refresh`"
 ```
 
 - [ ] **Step 3: Switch users API bootstrap to RESTful GET**
@@ -405,7 +405,7 @@ In `src/api/user/users.ts`, replace the current `UsersApi` opening with this cod
 
 ```ts
 const fetchCurrentUser = () =>
-  request.get<UserInitResponse>('/api/v1/users/me')
+  request.get<UserInitResponse>('/api/admin/v1/users/me')
 
 export const UsersApi = {
   me: fetchCurrentUser,
@@ -425,7 +425,7 @@ Run from `E:\admin_go\admin_front_ts`:
 npm run test -- tests/shared/user/users-api.test.ts
 ```
 
-Expected failure lines now mention only `/api/v1/auth/refresh` because Task 4 has not changed `auth-session.ts` yet.
+Expected failure lines now mention only `/api/admin/v1/auth/refresh` because Task 4 has not changed `auth-session.ts` yet.
 
 - [ ] **Step 5: Commit frontend users API switch**
 
@@ -461,7 +461,7 @@ In `src/lib/http/auth-session.ts`, replace:
 with:
 
 ```ts
-      `${baseURL}/api/v1/auth/refresh`,
+      `${baseURL}/api/admin/v1/auth/refresh`,
 ```
 
 - [ ] **Step 2: Change refresh self-check URL**
@@ -475,7 +475,7 @@ In `src/lib/http/auth-session.ts`, replace:
 with:
 
 ```ts
-    if (originalRequest.url?.includes('/api/v1/auth/refresh') || originalRequest._retry) {
+    if (originalRequest.url?.includes('/api/admin/v1/auth/refresh') || originalRequest._retry) {
 ```
 
 - [ ] **Step 3: Run the focused frontend contract test and verify it passes**
@@ -581,7 +581,7 @@ This remaining `UsersApi.refresh` entry is allowed because login and direct lega
 Run from `E:\admin_go`:
 
 ```powershell
-rg -n "/api/v1/users/me|/api/v1/auth/refresh" admin_back_go/internal admin_front_ts/src admin_front_ts/tests/shared/user/users-api.test.ts
+rg -n "/api/admin/v1/users/me|/api/admin/v1/auth/refresh" admin_back_go/internal admin_front_ts/src admin_front_ts/tests/shared/user/users-api.test.ts
 ```
 
 Expected output includes matches in:
@@ -617,10 +617,10 @@ admin_back_go may still show pre-existing scaffold files from earlier Go skeleto
 
 Spec coverage:
 
-- `GET /api/v1/users/me`: Task 1 and Task 2.
+- `GET /api/admin/v1/users/me`: Task 1 and Task 2.
 - Keep `POST /api/Users/init`: Task 1 route keeps it.
 - Frontend bootstrap switch: Task 3.
-- Refresh switch to `/api/v1/auth/refresh`: Task 4.
+- Refresh switch to `/api/admin/v1/auth/refresh`: Task 4.
 - No MySQL schema change: file structure and Task 5 status check.
 - No frontend fallback fields: Task 3 uses the existing `UserInitResponse` shape and keeps store assignment unchanged.
 - Verification: Task 5.

@@ -12,4 +12,3 @@ func RegisterRoutes(router *gin.Engine, service InitService) {
 	users.GET("/init", handler.Init)
 	users.GET("/me", handler.Me)
 }
-

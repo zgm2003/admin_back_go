@@ -56,4 +56,3 @@ func TestRecorderPersistsOperationMetadataWithoutRequestBodyFallback(t *testing.
 		t.Fatalf("operation log must not invent request body fallback: %#v", request)
 	}
 }
-

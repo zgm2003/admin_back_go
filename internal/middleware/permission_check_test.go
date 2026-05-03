@@ -130,4 +130,3 @@ func assertMiddlewareJSONError(t *testing.T, recorder *httptest.ResponseRecorder
 		t.Fatalf("unexpected error body: %#v", body)
 	}
 }
-

@@ -17,7 +17,7 @@ This slice exists to make the frontend start consuming Go through a real RESTful
 Use:
 
 ```text
-GET /api/v1/users/me
+GET /api/admin/v1/users/me
 ```
 
 as the new current authenticated user aggregate endpoint.
@@ -45,7 +45,7 @@ The user allowed Redis key renames, but this slice does not need one. Keep cache
 ### New Go REST endpoint
 
 ```text
-GET /api/v1/users/me
+GET /api/admin/v1/users/me
 ```
 
 Auth:
@@ -71,8 +71,8 @@ Legacy-compatible adapter only. Keep it working during migration.
 ### Existing Go auth endpoints used by frontend refresh
 
 ```text
-POST /api/v1/auth/refresh
-POST /api/v1/auth/logout
+POST /api/admin/v1/auth/refresh
+POST /api/admin/v1/auth/logout
 ```
 
 Refresh is public and receives `refresh_token`.
@@ -93,7 +93,7 @@ Legacy-compatible adapter only.
 
 ## Request schema
 
-### `GET /api/v1/users/me`
+### `GET /api/admin/v1/users/me`
 
 Headers:
 
@@ -161,14 +161,14 @@ No fallback fields are added.
 500 repository or unexpected server failure
 ```
 
-Redis button-cache writes remain best-effort. Cache write failure must not fail `GET /api/v1/users/me`.
+Redis button-cache writes remain best-effort. Cache write failure must not fail `GET /api/admin/v1/users/me`.
 
 ## Legacy mapping
 
 ```text
-POST /api/Users/init  -> GET /api/v1/users/me
-POST /api/Users/refresh -> POST /api/v1/auth/refresh
-POST /api/Users/logout  -> POST /api/v1/auth/logout
+POST /api/Users/init  -> GET /api/admin/v1/users/me
+POST /api/Users/refresh -> POST /api/admin/v1/auth/refresh
+POST /api/Users/logout  -> POST /api/admin/v1/auth/logout
 ```
 
 This mapping is a migration bridge. It is not permission to keep adding new legacy-style endpoints.
@@ -179,15 +179,15 @@ Change only the session/bootstrap HTTP boundary first:
 
 ```text
 src/api/user/users.ts
-  UsersApi.me()   -> request.get<UserInitResponse>('/api/v1/users/me')
+  UsersApi.me()   -> request.get<UserInitResponse>('/api/admin/v1/users/me')
   UsersApi.init() -> same implementation or store switches to UsersApi.me()
 
 src/store/user.ts
   fetchUserInfo() keeps the current assignment logic.
 
 src/lib/http/auth-session.ts
-  refreshToken() posts to /api/v1/auth/refresh.
-  401 self-check must recognize /api/v1/auth/refresh.
+  refreshToken() posts to /api/admin/v1/auth/refresh.
+  401 self-check must recognize /api/admin/v1/auth/refresh.
 ```
 
 Do not modify:
@@ -218,14 +218,14 @@ Frontend targeted checks:
 ```text
 type check or build:check if the local Node process is healthy
 static grep proving the bootstrap path no longer calls /api/Users/init
-static grep proving refresh calls /api/v1/auth/refresh
+static grep proving refresh calls /api/admin/v1/auth/refresh
 ```
 
 Runtime smoke when services are available:
 
 ```text
 1. Use the existing PHP login flow to obtain token.
-2. Call GET /api/v1/users/me against Go with Bearer token.
+2. Call GET /api/admin/v1/users/me against Go with Bearer token.
 3. Confirm code=0 and non-empty router/buttonCodes for the known admin account.
 4. Confirm frontend dynamic route bootstrap still uses the returned router array.
 ```

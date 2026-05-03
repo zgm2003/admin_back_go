@@ -54,4 +54,3 @@ func TestHandlerGenerateReturnsSlideChallenge(t *testing.T) {
 		t.Fatalf("unexpected captcha response: %#v", data)
 	}
 }
-

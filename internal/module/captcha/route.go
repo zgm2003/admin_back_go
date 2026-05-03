@@ -9,4 +9,3 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	v1 := router.Group("/api/admin/v1/auth")
 	v1.GET("/captcha", handler.Generate)
 }
-

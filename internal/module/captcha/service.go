@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultTTL     = 2 * time.Minute
-	defaultPadding = 5
+	defaultPadding = 10
 )
 
 // IDGenerator creates challenge identifiers.

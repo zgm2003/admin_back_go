@@ -90,4 +90,3 @@ func TestCORSExposesRequestIDOnActualRequest(t *testing.T) {
 		t.Fatalf("expected exposed X-Request-Id, got %q", got)
 	}
 }
-

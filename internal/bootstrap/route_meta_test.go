@@ -76,4 +76,3 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		})
 	}
 }
-

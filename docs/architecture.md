@@ -257,6 +257,9 @@ single_session / max_sessions 登录时撤销旧会话
 新 Go 接口必须是 RESTful：
 
 ```text
+/api/{scope}/v1/resources
+scope 当前为 admin，未来预留 app
+
 GET    /api/admin/v1/resources
 POST   /api/admin/v1/resources
 PUT    /api/admin/v1/resources/:id

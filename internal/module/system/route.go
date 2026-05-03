@@ -12,4 +12,3 @@ func RegisterRoutes(router *gin.Engine, readiness ReadinessChecker) {
 	api := router.Group("/api/admin/v1")
 	api.GET("/ping", handler.Ping)
 }
-

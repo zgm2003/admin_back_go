@@ -643,4 +643,3 @@ func assertRequestID(t *testing.T, recorder *httptest.ResponseRecorder) {
 		t.Fatalf("expected X-Request-Id header")
 	}
 }
-

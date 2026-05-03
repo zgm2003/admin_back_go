@@ -14,17 +14,17 @@ import (
 )
 
 type fakeManagementService struct {
-	initResult   *InitResponse
-	listResult   []PermissionListItem
-	createdID    int64
-	err          *apperror.Error
-	listQuery    PermissionListQuery
-	createInput  PermissionMutationInput
-	updateID     int64
-	updateInput  PermissionMutationInput
-	deleteIDs    []int64
-	statusID     int64
-	statusValue  int
+	initResult  *InitResponse
+	listResult  []PermissionListItem
+	createdID   int64
+	err         *apperror.Error
+	listQuery   PermissionListQuery
+	createInput PermissionMutationInput
+	updateID    int64
+	updateInput PermissionMutationInput
+	deleteIDs   []int64
+	statusID    int64
+	statusValue int
 }
 
 func (f *fakeManagementService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
@@ -164,4 +164,3 @@ func permissionRequestBody(permissionType int) map[string]any {
 	}
 	return body
 }
-

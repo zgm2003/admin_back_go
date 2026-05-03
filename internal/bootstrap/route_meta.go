@@ -75,4 +75,3 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 		},
 	}
 }
-

@@ -32,6 +32,7 @@ func (h *Handler) LoginConfig(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("登录服务未配置"))
 		return
 	}
+	
 	result, appErr := h.service.LoginConfig(c.Request.Context(), c.GetHeader("platform"))
 	if appErr != nil {
 		response.Error(c, appErr)

@@ -104,7 +104,7 @@ func Load() Config {
 		Captcha: CaptchaConfig{
 			TTL:          envDuration("CAPTCHA_TTL", 2*time.Minute),
 			RedisPrefix:  envString("CAPTCHA_REDIS_PREFIX", "captcha:slide:"),
-			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 5),
+			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 10),
 		},
 		CORS: corsConfig,
 	}

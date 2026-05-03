@@ -199,4 +199,3 @@ func decodeAuthBody(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 	}
 	return body
 }
-

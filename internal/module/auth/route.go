@@ -17,4 +17,3 @@ func RegisterRoutes(router *gin.Engine, service SessionService) {
 	legacy.POST("/refresh", handler.Refresh)
 	legacy.POST("/logout", handler.Logout)
 }
-

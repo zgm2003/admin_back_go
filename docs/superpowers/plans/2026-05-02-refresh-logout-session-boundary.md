@@ -4,7 +4,7 @@
 
 **Goal:** Add refresh-token rotation and logout revocation on top of the existing session authenticator, without implementing full login or RBAC.
 
-**Architecture:** Keep `AuthToken` middleware thin. Put token generation, refresh hash lookup, session rotation, token cache deletion, and logout revocation in `internal/module/session`. Put HTTP request parsing in `internal/module/auth` and register both new `/api/v1/auth/*` and legacy-compatible `/api/Users/*` refresh/logout routes.
+**Architecture:** Keep `AuthToken` middleware thin. Put token generation, refresh hash lookup, session rotation, token cache deletion, and logout revocation in `internal/module/session`. Put HTTP request parsing in `internal/module/auth` and register both new `/api/admin/v1/auth/*` and legacy-compatible `/api/Users/*` refresh/logout routes.
 
 **Tech Stack:** Go, Gin, GORM, go-redis, existing config/resources/response/app-error packages.
 
@@ -34,7 +34,7 @@
 - [x] Implement access token cache deletion and single-session pointer handling.
 - [x] Implement logout revoke + token/pointer cache cleanup.
 - [x] Implement `auth` module routes and handlers.
-- [x] Register `/api/v1/auth/refresh`, `/api/v1/auth/logout`, `/api/Users/refresh`, `/api/Users/logout`.
+- [x] Register `/api/admin/v1/auth/refresh`, `/api/admin/v1/auth/logout`, `/api/Users/refresh`, `/api/Users/logout`.
 - [x] Keep refresh public and logout protected.
 
 ## Task 3: Verification
@@ -44,4 +44,3 @@
 - [x] Run empty-env smoke for health/ready/refresh/logout.
 - [x] Run masked legacy `.env` readiness smoke.
 - [x] Confirm frontend repo remains clean.
-

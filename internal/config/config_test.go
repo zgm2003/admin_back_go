@@ -59,8 +59,8 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Captcha.RedisPrefix != "captcha:slide:" {
 		t.Fatalf("expected captcha redis prefix captcha:slide:, got %q", cfg.Captcha.RedisPrefix)
 	}
-	if cfg.Captcha.SlidePadding != 5 {
-		t.Fatalf("expected captcha slide padding 5, got %d", cfg.Captcha.SlidePadding)
+	if cfg.Captcha.SlidePadding != 10 {
+		t.Fatalf("expected captcha slide padding 10, got %d", cfg.Captcha.SlidePadding)
 	}
 	wantOrigins := []string{
 		"http://localhost:5173",

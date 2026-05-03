@@ -125,4 +125,3 @@ func newOperationLogTestRouter(cfg OperationLogConfig, identity *AuthIdentity) *
 	router.Use(OperationLog(cfg))
 	return router
 }
-

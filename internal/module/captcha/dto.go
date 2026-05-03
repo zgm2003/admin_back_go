@@ -1,6 +1,8 @@
 package captcha
 
-const TypeSlide = "slide"
+import "admin_back_go/internal/enum"
+
+const TypeSlide = enum.CaptchaTypeSlide
 
 // Answer is the public user answer submitted with the login request.
 type Answer struct {
