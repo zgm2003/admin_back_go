@@ -62,6 +62,39 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Captcha.SlidePadding != 10 {
 		t.Fatalf("expected captcha slide padding 10, got %d", cfg.Captcha.SlidePadding)
 	}
+	if !cfg.Queue.Enabled {
+		t.Fatalf("expected queue to be enabled by default")
+	}
+	if cfg.Queue.RedisDB != 3 {
+		t.Fatalf("expected queue redis db 3, got %d", cfg.Queue.RedisDB)
+	}
+	if cfg.Queue.Concurrency != 10 {
+		t.Fatalf("expected queue concurrency 10, got %d", cfg.Queue.Concurrency)
+	}
+	if cfg.Queue.DefaultQueue != "default" {
+		t.Fatalf("expected default queue name default, got %q", cfg.Queue.DefaultQueue)
+	}
+	if cfg.Queue.CriticalWeight != 6 || cfg.Queue.DefaultWeight != 3 || cfg.Queue.LowWeight != 1 {
+		t.Fatalf("unexpected queue weights: %#v", cfg.Queue)
+	}
+	if cfg.Queue.ShutdownTimeout != 10*time.Second {
+		t.Fatalf("expected queue shutdown timeout 10s, got %s", cfg.Queue.ShutdownTimeout)
+	}
+	if cfg.Queue.DefaultMaxRetry != 3 {
+		t.Fatalf("expected queue default max retry 3, got %d", cfg.Queue.DefaultMaxRetry)
+	}
+	if cfg.Queue.DefaultTimeout != 30*time.Second {
+		t.Fatalf("expected queue default timeout 30s, got %s", cfg.Queue.DefaultTimeout)
+	}
+	if !cfg.Scheduler.Enabled {
+		t.Fatalf("expected scheduler to be enabled by default")
+	}
+	if cfg.Scheduler.Timezone != "Asia/Shanghai" {
+		t.Fatalf("expected scheduler timezone Asia/Shanghai, got %q", cfg.Scheduler.Timezone)
+	}
+	if cfg.Scheduler.LockPrefix != "admin_go:scheduler:" {
+		t.Fatalf("expected scheduler lock prefix admin_go:scheduler:, got %q", cfg.Scheduler.LockPrefix)
+	}
 	wantOrigins := []string{
 		"http://localhost:5173",
 		"http://127.0.0.1:5173",
@@ -107,6 +140,19 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("CAPTCHA_TTL", "3m")
 	t.Setenv("CAPTCHA_REDIS_PREFIX", "captcha-test:")
 	t.Setenv("CAPTCHA_SLIDE_PADDING", "8")
+	t.Setenv("QUEUE_ENABLED", "false")
+	t.Setenv("QUEUE_REDIS_DB", "4")
+	t.Setenv("QUEUE_CONCURRENCY", "22")
+	t.Setenv("QUEUE_DEFAULT_QUEUE", "admin")
+	t.Setenv("QUEUE_CRITICAL_WEIGHT", "8")
+	t.Setenv("QUEUE_DEFAULT_WEIGHT", "4")
+	t.Setenv("QUEUE_LOW_WEIGHT", "2")
+	t.Setenv("QUEUE_SHUTDOWN_TIMEOUT", "12s")
+	t.Setenv("QUEUE_DEFAULT_MAX_RETRY", "5")
+	t.Setenv("QUEUE_DEFAULT_TIMEOUT", "45s")
+	t.Setenv("SCHEDULER_ENABLED", "false")
+	t.Setenv("SCHEDULER_TIMEZONE", "UTC")
+	t.Setenv("SCHEDULER_LOCK_PREFIX", "test:scheduler:")
 	t.Setenv("CORS_ALLOW_ORIGINS", "https://admin.example.com, http://localhost:5173")
 	t.Setenv("CORS_ALLOW_HEADERS", "Content-Type,Authorization,X-Custom")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
@@ -143,6 +189,24 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Captcha.TTL != 3*time.Minute || cfg.Captcha.RedisPrefix != "captcha-test:" || cfg.Captcha.SlidePadding != 8 {
 		t.Fatalf("unexpected captcha config: %#v", cfg.Captcha)
+	}
+	if cfg.Queue.Enabled {
+		t.Fatalf("expected queue enabled override to false")
+	}
+	if cfg.Queue.RedisDB != 4 || cfg.Queue.Concurrency != 22 || cfg.Queue.DefaultQueue != "admin" {
+		t.Fatalf("unexpected queue config: %#v", cfg.Queue)
+	}
+	if cfg.Queue.CriticalWeight != 8 || cfg.Queue.DefaultWeight != 4 || cfg.Queue.LowWeight != 2 {
+		t.Fatalf("unexpected queue weights: %#v", cfg.Queue)
+	}
+	if cfg.Queue.ShutdownTimeout != 12*time.Second || cfg.Queue.DefaultMaxRetry != 5 || cfg.Queue.DefaultTimeout != 45*time.Second {
+		t.Fatalf("unexpected queue retry/timeout config: %#v", cfg.Queue)
+	}
+	if cfg.Scheduler.Enabled {
+		t.Fatalf("expected scheduler enabled override to false")
+	}
+	if cfg.Scheduler.Timezone != "UTC" || cfg.Scheduler.LockPrefix != "test:scheduler:" {
+		t.Fatalf("unexpected scheduler config: %#v", cfg.Scheduler)
 	}
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, []string{"https://admin.example.com", "http://localhost:5173"}) {
 		t.Fatalf("unexpected cors origins: %#v", cfg.CORS.AllowOrigins)

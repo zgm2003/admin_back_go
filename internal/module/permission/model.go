@@ -1,12 +1,14 @@
 package permission
 
-const (
-	CommonYes = 1
-	CommonNo  = 2
+import "admin_back_go/internal/enum"
 
-	TypeDir    = 1
-	TypePage   = 2
-	TypeButton = 3
+const (
+	CommonYes = enum.CommonYes
+	CommonNo  = enum.CommonNo
+
+	TypeDir    = enum.PermissionTypeDir
+	TypePage   = enum.PermissionTypePage
+	TypeButton = enum.PermissionTypeButton
 
 	RootParentID = 0
 	StatusActive = 1

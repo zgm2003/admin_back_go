@@ -6,6 +6,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/response"
 
@@ -32,7 +33,7 @@ func (h *Handler) LoginConfig(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("登录服务未配置"))
 		return
 	}
-	
+
 	result, appErr := h.service.LoginConfig(c.Request.Context(), c.GetHeader("platform"))
 	if appErr != nil {
 		response.Error(c, appErr)
@@ -57,7 +58,7 @@ func (h *Handler) Login(c *gin.Context) {
 		Password:      req.Password,
 		Code:          req.Code,
 		CaptchaID:     req.CaptchaID,
-		CaptchaAnswer: req.CaptchaAnswer,
+		CaptchaAnswer: captchaAnswerFromRequest(req.CaptchaAnswer),
 		Platform:      c.GetHeader("platform"),
 		DeviceID:      c.GetHeader("device-id"),
 		ClientIP:      c.ClientIP(),
@@ -115,4 +116,11 @@ func (h *Handler) Logout(c *gin.Context) {
 		return
 	}
 	response.OKWithMessage(c, gin.H{}, "退出成功")
+}
+
+func captchaAnswerFromRequest(req *captchaAnswerRequest) *captcha.Answer {
+	if req == nil {
+		return nil
+	}
+	return &captcha.Answer{X: req.X, Y: req.Y}
 }

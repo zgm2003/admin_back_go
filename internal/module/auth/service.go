@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 
@@ -14,15 +15,16 @@ import (
 )
 
 const (
-	LoginTypeEmail    = "email"
-	LoginTypePhone    = "phone"
-	LoginTypePassword = "password"
+	LoginTypeEmail    = enum.LoginTypeEmail
+	LoginTypePhone    = enum.LoginTypePhone
+	LoginTypePassword = enum.LoginTypePassword
 )
 
 var phonePattern = regexp.MustCompile(`^1[3-9]\d{9}$`)
 
-type LoginTypeProvider interface {
+type PlatformConfigProvider interface {
 	LoginTypes(ctx context.Context, platform string) ([]string, error)
+	CaptchaType(ctx context.Context, platform string) (string, error)
 }
 
 type SessionManager interface {
@@ -37,15 +39,15 @@ type CaptchaVerifier interface {
 
 type Service struct {
 	repository      Repository
-	loginTypes      LoginTypeProvider
+	platformConfig  PlatformConfigProvider
 	sessionManager  SessionManager
 	captchaVerifier CaptchaVerifier
 }
 
-func NewService(repository Repository, loginTypes LoginTypeProvider, sessionManager SessionManager, captchaVerifier CaptchaVerifier) *Service {
+func NewService(repository Repository, platformConfig PlatformConfigProvider, sessionManager SessionManager, captchaVerifier CaptchaVerifier) *Service {
 	return &Service{
 		repository:      repository,
-		loginTypes:      loginTypes,
+		platformConfig:  platformConfig,
 		sessionManager:  sessionManager,
 		captchaVerifier: captchaVerifier,
 	}
@@ -62,10 +64,14 @@ func (s *Service) LoginConfig(ctx context.Context, platform string) (*LoginConfi
 			options = append(options, LoginTypeOption{Label: loginTypeLabel(loginType), Value: loginType})
 		}
 	}
+	captchaType, appErr := s.captchaType(ctx, platform)
+	if appErr != nil {
+		return nil, appErr
+	}
 	return &LoginConfigResponse{
 		LoginTypeArr:   options,
 		CaptchaEnabled: true,
-		CaptchaType:    captcha.TypeSlide,
+		CaptchaType:    captchaType,
 	}, nil
 }
 
@@ -159,10 +165,10 @@ func (s *Service) allowedLoginTypes(ctx context.Context, platform string) ([]str
 	if platform == "" {
 		return nil, apperror.BadRequest("缺少平台标识")
 	}
-	if s == nil || s.loginTypes == nil {
+	if s == nil || s.platformConfig == nil {
 		return nil, apperror.Unauthorized("平台策略未配置")
 	}
-	loginTypes, err := s.loginTypes.LoginTypes(ctx, platform)
+	loginTypes, err := s.platformConfig.LoginTypes(ctx, platform)
 	if err != nil {
 		return nil, apperror.Internal("平台登录配置查询失败")
 	}
@@ -170,6 +176,24 @@ func (s *Service) allowedLoginTypes(ctx context.Context, platform string) ([]str
 		return nil, apperror.BadRequest("无效的平台标识")
 	}
 	return loginTypes, nil
+}
+
+func (s *Service) captchaType(ctx context.Context, platform string) (string, *apperror.Error) {
+	platform = strings.TrimSpace(platform)
+	if platform == "" {
+		return "", apperror.BadRequest("缺少平台标识")
+	}
+	if s == nil || s.platformConfig == nil {
+		return "", apperror.Unauthorized("平台策略未配置")
+	}
+	captchaType, err := s.platformConfig.CaptchaType(ctx, platform)
+	if err != nil {
+		return "", apperror.Internal("平台验证码配置查询失败")
+	}
+	if !enum.IsCaptchaType(captchaType) {
+		return "", apperror.BadRequest("无效的验证码类型")
+	}
+	return captchaType, nil
 }
 
 func (s *Service) assertLoginTypeAllowed(ctx context.Context, platform string, loginType string) *apperror.Error {

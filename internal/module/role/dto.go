@@ -1,6 +1,9 @@
 package role
 
-import "admin_back_go/internal/module/permission"
+import (
+	"admin_back_go/internal/dict"
+	"admin_back_go/internal/module/permission"
+)
 
 type InitResponse struct {
 	Dict InitDict `json:"dict"`
@@ -8,7 +11,7 @@ type InitResponse struct {
 
 type InitDict struct {
 	PermissionTree        []permission.PermissionTreeNode `json:"permission_tree"`
-	PermissionPlatformArr []permission.DictOption[string] `json:"permission_platform_arr"`
+	PermissionPlatformArr []dict.Option[string]           `json:"permission_platform_arr"`
 }
 
 type ListQuery struct {

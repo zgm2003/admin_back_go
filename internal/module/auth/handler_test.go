@@ -135,6 +135,23 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	}
 }
 
+func TestHandlerLoginRejectsInvalidEnumInputBeforeService(t *testing.T) {
+	service := &fakeSessionService{}
+	router := newAuthTestRouter(service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"wechat","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.loginInput.LoginAccount != "" {
+		t.Fatalf("service should not be called for invalid login_type: %#v", service.loginInput)
+	}
+}
+
 func TestHandlerRefreshReturnsTokenResult(t *testing.T) {
 	service := &fakeSessionService{refreshResult: &session.TokenResult{
 		AccessToken:      "new-access",

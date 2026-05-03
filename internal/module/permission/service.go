@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/dict"
 )
 
 type Service struct {
@@ -327,11 +328,11 @@ func (s *Service) platformLabels() map[string]string {
 	return labels
 }
 
-func (s *Service) platformOptions() []DictOption[string] {
+func (s *Service) platformOptions() []dict.Option[string] {
 	labels := s.platformLabels()
-	options := make([]DictOption[string], 0, len(s.allowedPlatforms))
+	options := make([]dict.Option[string], 0, len(s.allowedPlatforms))
 	for platform := range s.allowedPlatforms {
-		options = append(options, DictOption[string]{Label: labels[platform], Value: platform})
+		options = append(options, dict.Option[string]{Label: labels[platform], Value: platform})
 	}
 	sort.Slice(options, func(i, j int) bool {
 		return options[i].Value < options[j].Value
@@ -536,12 +537,8 @@ func ButtonCacheKey(userID int64, platform string) string {
 	return fmt.Sprintf("auth_perm_uid_%d_%s_%s", userID, platform, ButtonCacheKeySchema)
 }
 
-func permissionTypeOptions() []DictOption[int] {
-	return []DictOption[int]{
-		{Label: "目录", Value: TypeDir},
-		{Label: "页面", Value: TypePage},
-		{Label: "按钮", Value: TypeButton},
-	}
+func permissionTypeOptions() []dict.Option[int] {
+	return dict.PermissionTypeOptions()
 }
 
 func typeName(permissionType int) string {

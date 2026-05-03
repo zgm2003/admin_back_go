@@ -200,6 +200,8 @@ func main() {
 
   $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
   $init = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
+  $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/init" -Headers $authHeaders -TimeoutSec 10
+  $authPlatformList = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms?current_page=1&page_size=50" -Headers $authHeaders -TimeoutSec 10
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $permissionBody = @{
     platform = $Platform
@@ -249,6 +251,10 @@ func main() {
     init_code = $init.code
     router_count = @($init.data.router).Count
     button_code_count = @($init.data.buttonCodes).Count
+    auth_platform_init_code = $authPlatformInit.code
+    auth_platform_captcha_dict_count = @($authPlatformInit.data.dict.auth_platform_captcha_type_arr).Count
+    auth_platform_list_code = $authPlatformList.code
+    auth_platform_count = @($authPlatformList.data.list).Count
     permission_create_code = $permissionCreate.code
     permission_delete_code = $permissionDelete.code
     logout_code = $logout.code
@@ -281,4 +287,3 @@ func main() {
     Write-Host "Smoke logs kept: $outLog $errLog"
   }
 }
-

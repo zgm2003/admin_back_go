@@ -46,21 +46,18 @@ func (h *ManagementHandler) List(c *gin.Context) {
 		return
 	}
 
-	query := PermissionListQuery{
-		Platform: c.Query("platform"),
-		Name:     c.Query("name"),
-		Path:     c.Query("path"),
-	}
-	if typeValue := c.Query("type"); typeValue != "" {
-		parsed, err := strconv.Atoi(typeValue)
-		if err != nil {
-			response.Error(c, apperror.BadRequest("无效的权限类型"))
-			return
-		}
-		query.Type = parsed
+	var req permissionListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequest("列表参数错误"))
+		return
 	}
 
-	result, appErr := h.service.List(c.Request.Context(), query)
+	result, appErr := h.service.List(c.Request.Context(), PermissionListQuery{
+		Platform: req.Platform,
+		Name:     req.Name,
+		Path:     req.Path,
+		Type:     req.Type,
+	})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -195,26 +192,4 @@ func bindPermissionMutation(c *gin.Context) (PermissionMutationInput, bool) {
 		Sort:      req.Sort,
 		ShowMenu:  req.ShowMenu,
 	}, true
-}
-
-type permissionMutationRequest struct {
-	Platform  string `json:"platform"`
-	Type      int    `json:"type"`
-	Name      string `json:"name"`
-	ParentID  int64  `json:"parent_id"`
-	Icon      string `json:"icon"`
-	Path      string `json:"path"`
-	Component string `json:"component"`
-	I18nKey   string `json:"i18n_key"`
-	Code      string `json:"code"`
-	Sort      int    `json:"sort"`
-	ShowMenu  int    `json:"show_menu"`
-}
-
-type deleteBatchRequest struct {
-	IDs []int64 `json:"ids"`
-}
-
-type statusRequest struct {
-	Status int `json:"status"`
 }

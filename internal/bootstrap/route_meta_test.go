@@ -25,6 +25,11 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/roles/:id/default", "permission_role_setDefault"},
 		{http.MethodDelete, "/api/admin/v1/roles/:id", "permission_role_del"},
 		{http.MethodDelete, "/api/admin/v1/roles", "permission_role_del"},
+		{http.MethodPost, "/api/admin/v1/auth-platforms", "permission_authPlatform_add"},
+		{http.MethodPut, "/api/admin/v1/auth-platforms/:id", "permission_authPlatform_edit"},
+		{http.MethodPatch, "/api/admin/v1/auth-platforms/:id/status", "permission_authPlatform_status"},
+		{http.MethodDelete, "/api/admin/v1/auth-platforms/:id", "permission_authPlatform_del"},
+		{http.MethodDelete, "/api/admin/v1/auth-platforms", "permission_authPlatform_del"},
 	}
 
 	for _, tt := range tests {
@@ -65,6 +70,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/roles/:id/default", "set_default"},
 		{http.MethodDelete, "/api/admin/v1/roles/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/roles", "delete_batch"},
+		{http.MethodPost, "/api/admin/v1/auth-platforms", "create"},
+		{http.MethodPut, "/api/admin/v1/auth-platforms/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/auth-platforms/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/auth-platforms/:id", "delete"},
+		{http.MethodDelete, "/api/admin/v1/auth-platforms", "delete_batch"},
 	}
 
 	for _, tt := range tests {

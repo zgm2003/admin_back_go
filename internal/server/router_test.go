@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
@@ -151,6 +152,38 @@ func (f *fakeRouterRoleService) Delete(ctx context.Context, ids []int64) *apperr
 }
 
 func (f *fakeRouterRoleService) SetDefault(ctx context.Context, id int64) *apperror.Error {
+	return nil
+}
+
+type fakeRouterAuthPlatformService struct {
+	listQuery authplatform.ListQuery
+}
+
+func (f *fakeRouterAuthPlatformService) Init(ctx context.Context) (*authplatform.InitResponse, *apperror.Error) {
+	return (&authplatform.Service{}).Init(ctx)
+}
+
+func (f *fakeRouterAuthPlatformService) List(ctx context.Context, query authplatform.ListQuery) (*authplatform.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &authplatform.ListResponse{
+		List: []authplatform.ListItem{{ID: 1, Code: "admin", Name: "PC后台", CaptchaType: captcha.TypeSlide}},
+		Page: authplatform.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterAuthPlatformService) Create(ctx context.Context, input authplatform.CreateInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (f *fakeRouterAuthPlatformService) Update(ctx context.Context, id int64, input authplatform.UpdateInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAuthPlatformService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAuthPlatformService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	return nil
 }
 
@@ -380,7 +413,7 @@ func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 	}
 
 	loginRecorder := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("platform", "admin")
 	router.ServeHTTP(loginRecorder, loginRequest)
@@ -539,6 +572,33 @@ func TestRouterInstallsRoleRESTRoutes(t *testing.T) {
 	}
 	if roleService.listQuery.CurrentPage != 1 || roleService.listQuery.PageSize != 50 || roleService.listQuery.Name != "管理" {
 		t.Fatalf("role list query mismatch: %#v", roleService.listQuery)
+	}
+}
+
+func TestRouterInstallsAuthPlatformRESTRoutes(t *testing.T) {
+	authPlatformService := &fakeRouterAuthPlatformService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		AuthPlatformService: authPlatformService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth-platforms?current_page=1&page_size=50&status=1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if authPlatformService.listQuery.CurrentPage != 1 || authPlatformService.listQuery.PageSize != 50 || authPlatformService.listQuery.Status == nil || *authPlatformService.listQuery.Status != 1 {
+		t.Fatalf("auth platform list query mismatch: %#v", authPlatformService.listQuery)
+	}
+	body := decodeRouterBody(t, recorder)
+	data := mustRouterData(t, body)
+	if _, ok := data["list"]; !ok {
+		t.Fatalf("missing list in auth-platforms response: %#v", data)
 	}
 }
 

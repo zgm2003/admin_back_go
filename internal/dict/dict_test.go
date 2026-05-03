@@ -21,4 +21,14 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	if len(captchaTypes) != 1 || captchaTypes[0].Value != enum.CaptchaTypeSlide || captchaTypes[0].Label != "滑块验证" {
 		t.Fatalf("unexpected auth platform captcha type options: %#v", captchaTypes)
 	}
+
+	permissionTypes := PermissionTypeOptions()
+	if len(permissionTypes) != 3 || permissionTypes[0].Value != enum.PermissionTypeDir || permissionTypes[1].Value != enum.PermissionTypePage || permissionTypes[2].Value != enum.PermissionTypeButton {
+		t.Fatalf("unexpected permission type options: %#v", permissionTypes)
+	}
+
+	platforms := PlatformOptions()
+	if len(platforms) != 2 || platforms[0].Value != enum.PlatformAdmin || platforms[1].Value != enum.PlatformApp {
+		t.Fatalf("unexpected platform options: %#v", platforms)
+	}
 }

@@ -1,18 +1,15 @@
 package permission
 
-type DictOption[T string | int] struct {
-	Label string `json:"label"`
-	Value T      `json:"value"`
-}
+import "admin_back_go/internal/dict"
 
 type InitResponse struct {
 	Dict PermissionDict `json:"dict"`
 }
 
 type PermissionDict struct {
-	PermissionTree        []PermissionTreeNode `json:"permission_tree"`
-	PermissionTypeArr     []DictOption[int]    `json:"permission_type_arr"`
-	PermissionPlatformArr []DictOption[string] `json:"permission_platform_arr"`
+	PermissionTree        []PermissionTreeNode  `json:"permission_tree"`
+	PermissionTypeArr     []dict.Option[int]    `json:"permission_type_arr"`
+	PermissionPlatformArr []dict.Option[string] `json:"permission_platform_arr"`
 }
 
 type PermissionTreeNode struct {

@@ -150,29 +150,16 @@ func (h *Handler) SetDefault(c *gin.Context) {
 }
 
 func bindListQuery(c *gin.Context) (ListQuery, bool) {
-	currentPage, ok := parseRequiredPositiveInt(c, "current_page", "当前页无效")
-	if !ok {
-		return ListQuery{}, false
-	}
-	pageSize, ok := parseRequiredPositiveInt(c, "page_size", "每页数量无效")
-	if !ok {
+	var req listRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequest("列表参数错误"))
 		return ListQuery{}, false
 	}
 	return ListQuery{
-		CurrentPage: currentPage,
-		PageSize:    pageSize,
-		Name:        c.Query("name"),
+		CurrentPage: req.CurrentPage,
+		PageSize:    req.PageSize,
+		Name:        req.Name,
 	}, true
-}
-
-func parseRequiredPositiveInt(c *gin.Context, key string, message string) (int, bool) {
-	value := c.Query(key)
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		response.Error(c, apperror.BadRequest(message))
-		return 0, false
-	}
-	return parsed, true
 }
 
 func bindMutation(c *gin.Context) (MutationInput, bool) {
@@ -194,13 +181,4 @@ func routeID(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return id, true
-}
-
-type mutationRequest struct {
-	Name          string  `json:"name"`
-	PermissionIDs []int64 `json:"permission_id"`
-}
-
-type deleteBatchRequest struct {
-	IDs []int64 `json:"ids"`
 }

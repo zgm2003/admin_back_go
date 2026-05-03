@@ -1,8 +1,13 @@
 package auth
 
-import "github.com/gin-gonic/gin"
+import (
+	"admin_back_go/internal/validate"
+
+	"github.com/gin-gonic/gin"
+)
 
 func RegisterRoutes(router *gin.Engine, service SessionService) {
+	validate.MustRegister()
 	handler := NewHandler(service)
 
 	v1 := router.Group("/api/admin/v1/auth")

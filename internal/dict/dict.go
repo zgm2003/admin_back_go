@@ -34,3 +34,18 @@ func AuthPlatformCaptchaTypeOptions() []Option[string] {
 		{Label: "滑块验证", Value: enum.CaptchaTypeSlide},
 	}
 }
+
+func PermissionTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "目录", Value: enum.PermissionTypeDir},
+		{Label: "页面", Value: enum.PermissionTypePage},
+		{Label: "按钮", Value: enum.PermissionTypeButton},
+	}
+}
+
+func PlatformOptions() []Option[string] {
+	return []Option[string]{
+		{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
+		{Label: enum.PlatformApp, Value: enum.PlatformApp},
+	}
+}

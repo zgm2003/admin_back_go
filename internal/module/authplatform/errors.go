@@ -1,5 +1,9 @@
 package authplatform
 
-import "errors"
+import "admin_back_go/internal/apperror"
 
-var ErrRepositoryNotConfigured = errors.New("auth platform repository is not configured")
+const ErrManagementRepositoryNotConfiguredMessage = "认证平台管理仓储未配置"
+
+func managementRepositoryNotConfigured() *apperror.Error {
+	return apperror.Internal(ErrManagementRepositoryNotConfiguredMessage)
+}

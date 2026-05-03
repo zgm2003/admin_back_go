@@ -7,7 +7,8 @@
 ```text
 database
 redis
-queue
+taskqueue
+scheduler
 storage
 ai client
 mail/sms client
@@ -46,6 +47,8 @@ platform/redis 拼 RBAC 业务规则
 config.MySQL -> platform/database
 config.Redis -> platform/redis
 config.Token -> auth/session service
+config.Queue -> platform/taskqueue
+config.Scheduler -> platform/scheduler
 ```
 
 禁止在 config 包里打开连接。
@@ -118,3 +121,33 @@ module/repository 只使用注入进来的资源
 ```
 
 禁止模块自己调用 `database.Open` 或 `redisclient.Open`。
+
+## Queue / scheduler boundary
+
+`internal/platform/taskqueue` 是唯一允许直接使用 Asynq 的地方。
+
+它只负责：
+
+```text
+创建 Asynq client/server
+映射 Redis DB / queue 权重 / retry / timeout
+提供项目自己的 Task / Enqueuer / Mux
+```
+
+它不负责：
+
+```text
+决定业务 task type
+解析业务 payload
+直接调用业务 repository
+```
+
+`internal/platform/scheduler` 是唯一允许直接使用 gocron/v2 的地方。
+
+规则：
+
+```text
+scheduler 注册定时触发
+scheduler task 只投递 queue task
+真正业务执行发生在 worker handler
+```

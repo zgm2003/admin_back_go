@@ -10,12 +10,12 @@ import (
 )
 
 type fakeManagementRepository struct {
-	active *Platform
-	rows   []Platform
-	total  int64
-	gotCreate *Platform
-	updates []map[string]any
-	deleted []int64
+	active     *Platform
+	rows       []Platform
+	total      int64
+	gotCreate  *Platform
+	updates    []map[string]any
+	deleted    []int64
 	statusRows map[int64]Platform
 	existsCode bool
 }

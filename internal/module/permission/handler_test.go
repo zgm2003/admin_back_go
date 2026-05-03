@@ -107,6 +107,19 @@ func TestPermissionHandlerRejectsInvalidRouteID(t *testing.T) {
 	assertPermissionStatus(t, router, http.MethodPut, "/api/admin/v1/permissions/bad", permissionRequestBody(TypeDir), http.StatusBadRequest)
 }
 
+func TestPermissionHandlerRejectsInvalidEnumInputsBeforeService(t *testing.T) {
+	service := &fakeManagementService{}
+	router := newPermissionTestRouter(service)
+
+	assertPermissionStatus(t, router, http.MethodGet, "/api/admin/v1/permissions?platform=crm", nil, http.StatusBadRequest)
+	assertPermissionStatus(t, router, http.MethodPost, "/api/admin/v1/permissions", permissionRequestBody(99), http.StatusBadRequest)
+	assertPermissionStatus(t, router, http.MethodPatch, "/api/admin/v1/permissions/9/status", map[string]int{"status": 9}, http.StatusBadRequest)
+
+	if service.listQuery.Platform != "" || service.createInput.Name != "" || service.statusID != 0 {
+		t.Fatalf("service should not be called for invalid enum inputs: query=%#v create=%#v statusID=%d", service.listQuery, service.createInput, service.statusID)
+	}
+}
+
 func newPermissionTestRouter(service ManagementService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()

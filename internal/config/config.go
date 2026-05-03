@@ -8,13 +8,15 @@ import (
 )
 
 type Config struct {
-	App     AppConfig
-	HTTP    HTTPConfig
-	MySQL   MySQLConfig
-	Redis   RedisConfig
-	Token   TokenConfig
-	Captcha CaptchaConfig
-	CORS    CORSConfig
+	App       AppConfig
+	HTTP      HTTPConfig
+	MySQL     MySQLConfig
+	Redis     RedisConfig
+	Token     TokenConfig
+	Captcha   CaptchaConfig
+	Queue     QueueConfig
+	Scheduler SchedulerConfig
+	CORS      CORSConfig
 }
 
 type AppConfig struct {
@@ -54,6 +56,25 @@ type CaptchaConfig struct {
 	TTL          time.Duration
 	RedisPrefix  string
 	SlidePadding int
+}
+
+type QueueConfig struct {
+	Enabled         bool
+	RedisDB         int
+	Concurrency     int
+	DefaultQueue    string
+	CriticalWeight  int
+	DefaultWeight   int
+	LowWeight       int
+	ShutdownTimeout time.Duration
+	DefaultMaxRetry int
+	DefaultTimeout  time.Duration
+}
+
+type SchedulerConfig struct {
+	Enabled    bool
+	Timezone   string
+	LockPrefix string
 }
 
 type CORSConfig struct {
@@ -105,6 +126,23 @@ func Load() Config {
 			TTL:          envDuration("CAPTCHA_TTL", 2*time.Minute),
 			RedisPrefix:  envString("CAPTCHA_REDIS_PREFIX", "captcha:slide:"),
 			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 10),
+		},
+		Queue: QueueConfig{
+			Enabled:         envBool("QUEUE_ENABLED", true),
+			RedisDB:         envInt("QUEUE_REDIS_DB", 3),
+			Concurrency:     envInt("QUEUE_CONCURRENCY", 10),
+			DefaultQueue:    envString("QUEUE_DEFAULT_QUEUE", "default"),
+			CriticalWeight:  envInt("QUEUE_CRITICAL_WEIGHT", 6),
+			DefaultWeight:   envInt("QUEUE_DEFAULT_WEIGHT", 3),
+			LowWeight:       envInt("QUEUE_LOW_WEIGHT", 1),
+			ShutdownTimeout: envDuration("QUEUE_SHUTDOWN_TIMEOUT", 10*time.Second),
+			DefaultMaxRetry: envInt("QUEUE_DEFAULT_MAX_RETRY", 3),
+			DefaultTimeout:  envDuration("QUEUE_DEFAULT_TIMEOUT", 30*time.Second),
+		},
+		Scheduler: SchedulerConfig{
+			Enabled:    envBool("SCHEDULER_ENABLED", true),
+			Timezone:   envString("SCHEDULER_TIMEZONE", "Asia/Shanghai"),
+			LockPrefix: envString("SCHEDULER_LOCK_PREFIX", "admin_go:scheduler:"),
 		},
 		CORS: corsConfig,
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/dict"
 	"admin_back_go/internal/module/permission"
 )
 
@@ -188,7 +189,7 @@ func (f *fakeRepository) UserIDsByRoleIDs(ctx context.Context, roleIDs []int64) 
 func TestServiceInitUsesPermissionDictionary(t *testing.T) {
 	dict := &fakePermissionDict{result: &permission.InitResponse{Dict: permission.PermissionDict{
 		PermissionTree:        []permission.PermissionTreeNode{{ID: 1, Label: "系统", Value: 1}},
-		PermissionPlatformArr: []permission.DictOption[string]{{Label: "admin", Value: "admin"}},
+		PermissionPlatformArr: []dict.Option[string]{{Label: "admin", Value: "admin"}},
 	}}}
 	svc := NewService(&fakeRepository{}, dict, nil, nil)
 

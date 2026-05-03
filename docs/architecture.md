@@ -35,6 +35,10 @@ internal/module/permission RBAC read context 计算边界
 internal/module/user Users/init legacy-compatible read adapter
 internal/middleware/PermissionCheck 显式 route metadata 边界
 internal/middleware/OperationLog 显式 route metadata 边界
+cmd/admin-worker queue consumer / scheduler 独立进程边界
+internal/platform/taskqueue Asynq 封装边界
+internal/platform/scheduler gocron/v2 封装边界
+internal/jobs 版本化任务注册边界
 ```
 
 未允许：
@@ -43,7 +47,7 @@ internal/middleware/OperationLog 显式 route metadata 边界
 批量迁移所有 RBAC 写路径
 短信/邮箱验证码登录迁移
 AI 应用接入
-队列和定时任务
+把业务模块批量异步化
 ```
 
 ## 固定调用链
@@ -318,6 +322,8 @@ MySQL
 Redis
 Token
 Captcha
+Queue
+Scheduler
 ```
 
 当前环境变量：
@@ -344,6 +350,19 @@ TOKEN_SINGLE_SESSION_POINTER_TTL
 CAPTCHA_TTL
 CAPTCHA_REDIS_PREFIX
 CAPTCHA_SLIDE_PADDING
+QUEUE_ENABLED
+QUEUE_REDIS_DB
+QUEUE_CONCURRENCY
+QUEUE_DEFAULT_QUEUE
+QUEUE_CRITICAL_WEIGHT
+QUEUE_DEFAULT_WEIGHT
+QUEUE_LOW_WEIGHT
+QUEUE_SHUTDOWN_TIMEOUT
+QUEUE_DEFAULT_MAX_RETRY
+QUEUE_DEFAULT_TIMEOUT
+SCHEDULER_ENABLED
+SCHEDULER_TIMEZONE
+SCHEDULER_LOCK_PREFIX
 CORS_ALLOW_ORIGINS
 CORS_ALLOW_HEADERS
 CORS_ALLOW_CREDENTIALS
@@ -386,7 +405,7 @@ captcha service -> go-captcha slide answer cache
 permission module -> RBAC button grant cache contract
 ```
 
-当前只建立 Redis client 边界。默认 Redis 连接给通用缓存预留；TokenRedis 使用同一 Redis 地址和密码，但 DB 来自 `TOKEN_REDIS_DB`，默认 2，对齐旧 PHP token 连接。	
+当前只建立 Redis client 边界。默认 Redis 连接给通用缓存预留；TokenRedis 使用同一 Redis 地址和密码，但 DB 来自 `TOKEN_REDIS_DB`，默认 2，对齐旧 PHP token 连接。
 
 ## Bootstrap resources baseline
 
@@ -417,6 +436,94 @@ Ping 放到后续 health/readiness 或运维检查里
 ```
 
 模块以后通过依赖注入拿资源，不允许自己创建 DB/Redis client。
+
+## Queue / worker baseline
+
+后台任务第一期不是微服务，而是单体内多进程：
+
+```text
+cmd/admin-api     # HTTP API，不消费队列，不跑 cron
+cmd/admin-worker  # 队列消费 + scheduler
+```
+
+组件选择：
+
+```text
+queue     = github.com/hibiken/asynq
+scheduler = github.com/go-co-op/gocron/v2
+```
+
+当前目录：
+
+```text
+internal/platform/taskqueue  # 项目自己的 Task / Enqueuer / Mux / Server 封装
+internal/platform/scheduler  # 项目自己的 Scheduler 封装
+internal/jobs                # 任务 type 和 handler 注册
+```
+
+jobs 要分层，但不按 `fast/slow` 目录分。快慢是队列 lane 和 worker 配置，不是业务代码所有权。
+
+当前 lane：
+
+```text
+critical # 高优先级短任务：登录日志、权限缓存刷新、通知触发
+default  # 普通异步业务
+low      # 慢任务/批量任务：报表、导入导出、AI 后处理
+```
+
+代码所有权。当前最小骨架只有 `internal/jobs/noop.go`；任务增多后再拆，不提前造空目录：
+
+```text
+internal/jobs/registry.go        # 全局注册入口，保持薄，任务多了再拆
+internal/jobs/types.go           # 跨模块任务类型命名规则，任务多了再拆
+internal/jobs/system/*.go        # 系统级探针、维护任务，任务多了再拆
+internal/module/<name>/jobs.go   # 业务模块自己的 task 构造和 handler
+```
+
+禁止：
+
+```text
+internal/jobs/fast
+internal/jobs/slow
+按速度给业务代码分包
+让慢任务和登录/RBAC/操作日志抢同一个 worker lane
+```
+
+当前只注册一个链路探针任务：
+
+```text
+system:no-op:v1
+```
+
+规则：
+
+```text
+任务 type 必须版本化
+scheduler 只能投递 queue task，不直接跑业务
+worker handler 必须幂等，Asynq 是 at-least-once 语义
+业务模块后续用 module/<name>/jobs.go 暴露 task 构造和 handler，不复用 HTTP handler
+需要 DB + queue 强一致时再加 outbox，不用 Redis queue 假装事务
+```
+
+## Go worker concurrency baseline
+
+Go 的并发单位是 goroutine，不是 PHP-FPM 那种固定请求进程模型。
+
+```text
+goroutine          # 轻量协程，由 Go runtime 调度
+OS thread          # runtime 按需使用系统线程
+GOMAXPROCS         # 同时执行 Go 代码的 CPU 核心数上限，默认按机器 CPU
+QUEUE_CONCURRENCY  # Asynq worker 同时处理多少个 task handler
+```
+
+规则：
+
+```text
+I/O 密集任务可以适当提高 QUEUE_CONCURRENCY
+CPU 密集任务不能无限开 goroutine，要进 low queue 或独立 worker
+慢任务必须 timeout + context cancellation + 幂等
+扩容优先多开 cmd/admin-worker 进程或拆 low/AI worker，不改业务代码
+```
 
 ## Auth login/refresh/logout baseline
 
@@ -555,3 +662,15 @@ email/phone code login
 完整业务模块迁移
 ```
 
+
+## Enum / Dict / Validation Baseline
+
+Go 后端从认证平台开始建立统一基础件：
+
+- `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型。
+- `internal/dict` 负责把 enum 转成前端 `dict` 选项，不允许业务页面自己手写一份枚举标签。
+- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
+- 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
+- HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
+- `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
+- 新 REST 接口继续走 `/api/admin/v1/...`，旧 PHP 全 POST 只作为业务事实参考。

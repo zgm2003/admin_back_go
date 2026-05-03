@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/dict"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,7 +58,7 @@ func (f *fakeHTTPService) SetDefault(ctx context.Context, id int64) *apperror.Er
 
 func TestHandlerInstallsRoleRESTRoutes(t *testing.T) {
 	service := &fakeHTTPService{
-		initResult: &InitResponse{Dict: InitDict{PermissionPlatformArr: []permission.DictOption[string]{{Label: "admin", Value: "admin"}}}},
+		initResult: &InitResponse{Dict: InitDict{PermissionPlatformArr: []dict.Option[string]{{Label: "admin", Value: "admin"}}}},
 		listResult: &ListResponse{List: []ListItem{}, Page: Page{CurrentPage: 1, PageSize: 50, Total: 0, TotalPage: 0}},
 	}
 	router := newRoleTestRouter(service)

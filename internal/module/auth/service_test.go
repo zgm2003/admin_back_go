@@ -36,12 +36,17 @@ func (f *fakeAuthRepository) RecordLoginAttempt(ctx context.Context, attempt Log
 }
 
 type fakeLoginTypeProvider struct {
-	types []string
-	err   error
+	types       []string
+	captchaType string
+	err         error
 }
 
 func (f fakeLoginTypeProvider) LoginTypes(ctx context.Context, platform string) ([]string, error) {
 	return f.types, f.err
+}
+
+func (f fakeLoginTypeProvider) CaptchaType(ctx context.Context, platform string) (string, error) {
+	return f.captchaType, f.err
 }
 
 type fakeSessionCreator struct {
@@ -74,7 +79,7 @@ func (f *fakeCaptchaVerifier) Verify(ctx context.Context, input captcha.VerifyIn
 }
 
 func TestServiceLoginConfigReturnsImplementedPasswordOnly(t *testing.T) {
-	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: captcha.TypeSlide}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
 
 	result, appErr := service.LoginConfig(context.Background(), "admin")
 

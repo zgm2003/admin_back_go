@@ -6,34 +6,38 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/system"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Dependencies struct {
-	Readiness         system.ReadinessChecker
-	Logger            *slog.Logger
-	CORS              config.CORSConfig
-	Authenticator     middleware.TokenAuthenticator
-	PermissionChecker middleware.PermissionChecker
-	PermissionRules   map[middleware.RouteKey]string
-	OperationRecorder middleware.OperationRecorder
-	OperationRules    map[middleware.RouteKey]middleware.OperationRule
-	AuthService       auth.SessionService
-	CaptchaService    captcha.HTTPService
-	UserService       user.InitService
-	PermissionService permission.ManagementService
-	RoleService       role.HTTPService
-	AuthSkipPaths     map[string]struct{}
+	Readiness           system.ReadinessChecker
+	Logger              *slog.Logger
+	CORS                config.CORSConfig
+	Authenticator       middleware.TokenAuthenticator
+	PermissionChecker   middleware.PermissionChecker
+	PermissionRules     map[middleware.RouteKey]string
+	OperationRecorder   middleware.OperationRecorder
+	OperationRules      map[middleware.RouteKey]middleware.OperationRule
+	AuthService         auth.SessionService
+	CaptchaService      captcha.HTTPService
+	UserService         user.InitService
+	PermissionService   permission.ManagementService
+	RoleService         role.HTTPService
+	AuthPlatformService authplatform.HTTPService
+	AuthSkipPaths       map[string]struct{}
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
+	validate.MustRegister()
 
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -60,6 +64,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	user.RegisterRoutes(router, deps.UserService)
 	permission.RegisterRoutes(router, deps.PermissionService)
 	role.RegisterRoutes(router, deps.RoleService)
+	authplatform.RegisterRoutes(router, deps.AuthPlatformService)
 
 	return router
 }
