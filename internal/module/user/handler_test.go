@@ -77,7 +77,7 @@ func TestHandlerInitUsesAuthIdentityAndReturnsData(t *testing.T) {
 	}
 }
 
-func TestHandlerMeUsesAuthIdentityAndMatchesLegacyInitData(t *testing.T) {
+func TestHandlerRESTInitAndMeUseAuthIdentityAndMatchLegacyInitData(t *testing.T) {
 	service := &fakeInitService{result: &InitResponse{
 		UserID:   1,
 		Username: "admin",
@@ -104,20 +104,25 @@ func TestHandlerMeUsesAuthIdentityAndMatchesLegacyInitData(t *testing.T) {
 	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
 
 	legacyData := requestUserData(t, router, http.MethodPost, "/api/Users/init")
+	restInitData := requestUserData(t, router, http.MethodGet, "/api/v1/users/init")
 	meData := requestUserData(t, router, http.MethodGet, "/api/v1/users/me")
 
-	if len(service.inputs) != 2 {
-		t.Fatalf("expected service called twice, got %d inputs=%#v", len(service.inputs), service.inputs)
+	if len(service.inputs) != 3 {
+		t.Fatalf("expected service called three times, got %d inputs=%#v", len(service.inputs), service.inputs)
 	}
 	for _, input := range service.inputs {
 		if input.UserID != 1 || input.Platform != "admin" {
 			t.Fatalf("service input mismatch: %#v", input)
 		}
 	}
+	if !reflect.DeepEqual(legacyData, restInitData) {
+		t.Fatalf("REST init data payload mismatch with legacy init:\nlegacy=%#v\nrestInit=%#v", legacyData, restInitData)
+	}
 	if !reflect.DeepEqual(legacyData, meData) {
-		t.Fatalf("REST data payload mismatch with legacy init:\nlegacy=%#v\nme=%#v", legacyData, meData)
+		t.Fatalf("REST me data payload mismatch with legacy init:\nlegacy=%#v\nme=%#v", legacyData, meData)
 	}
 	for _, key := range []string{"permissions", "router", "buttonCodes", "quick_entry"} {
+		assertPayloadFieldEqual(t, key, legacyData, restInitData)
 		assertPayloadFieldEqual(t, key, legacyData, meData)
 	}
 }

@@ -14,16 +14,6 @@ const (
 	ButtonCacheKeySchema = "rbac_page_grants"
 )
 
-type Role struct {
-	ID    int64  `gorm:"column:id"`
-	Name  string `gorm:"column:name"`
-	IsDel int    `gorm:"column:is_del"`
-}
-
-func (Role) TableName() string {
-	return "roles"
-}
-
 type Permission struct {
 	ID        int64  `gorm:"column:id"`
 	Name      string `gorm:"column:name"`

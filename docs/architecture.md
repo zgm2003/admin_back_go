@@ -6,6 +6,7 @@
 
 ```text
 E:\admin_go\docs\architecture\04-go-backend-framework.md
+E:\admin_go\docs\architecture\05-development-quality-rules.md
 ```
 
 ## 当前阶段
@@ -31,14 +32,15 @@ internal/module/authplatform 平台认证策略读取边界
 internal/module/auth refresh/logout HTTP 边界
 internal/module/permission RBAC read context 计算边界
 internal/module/user Users/init legacy-compatible read adapter
+internal/middleware/PermissionCheck 显式 route metadata 边界
+internal/middleware/OperationLog 显式 route metadata 边界
 ```
 
 未允许：
 
 ```text
-RBAC 写路径和 PermissionCheck 中间件
+批量迁移所有 RBAC 写路径
 登录迁移
-前端适配
 AI 应用接入
 队列和定时任务
 ```
@@ -93,10 +95,12 @@ RequestID
 AccessLog
 CORS
 AuthToken
+PermissionCheck
+OperationLog
 module routes
 ```
 
-后续 middleware 必须一个一个加，并且必须有测试：
+middleware 必须一个一个加，并且必须有测试：
 
 ```text
 AccessLog
@@ -105,6 +109,8 @@ AuthToken
 PermissionCheck
 OperationLog
 ```
+
+`PermissionCheck` / `OperationLog` 禁止注解、反射、handler 名字猜测。Go 里用显式 route metadata；没有 metadata 就不假装有权限规则。
 
 ## Access log baseline
 
@@ -237,10 +243,36 @@ MySQL 条件：revoked_at IS NULL、is_del = 2、expires_at > now
 
 ```text
 登录签发 token
-RBAC PermissionCheck
 ```
 
 这些下一步按 service 边界继续接，不塞回 middleware。
+
+## API contract baseline
+
+新 Go 接口必须是 RESTful：
+
+```text
+GET    /api/v1/resources
+POST   /api/v1/resources
+PUT    /api/v1/resources/:id
+PATCH  /api/v1/resources/:id/status
+DELETE /api/v1/resources/:id
+```
+
+禁止新接口继续 `/api/admin/Xxx/add|edit|del|status` 全 POST。旧 PHP 接口只能是 legacy adapter，不能定义新世界。
+
+## No fallback-field baseline
+
+禁止写静默兜底字段：
+
+```text
+不同时接受 user_id/userId/id
+不同时接受 id/ids/permission_id/permissionIds
+不对缺失关键字段静默补空字符串继续写库
+不让前端用 any/Record<string, any> 吞掉契约漂移
+```
+
+允许的默认值必须是业务规则本身，例如根节点 `parent_id=0`。兼容必须显式命名为 legacy adapter，并且不能污染 module service。
 
 ## App error baseline
 
@@ -338,7 +370,7 @@ Redis 连接属于 `internal/platform/redisclient`，缓存语义属于模块 se
 config.Redis -> platform/redisclient.Open -> *redis.Client
 session service -> token/session cache keys, using TokenRedis DB
 authplatform service -> auth_platforms policy read path
-permission service -> RBAC permission cache keys
+permission module -> RBAC button grant cache contract
 ```
 
 当前只建立 Redis client 边界。默认 Redis 连接给通用缓存预留；TokenRedis 使用同一 Redis 地址和密码，但 DB 来自 `TOKEN_REDIS_DB`，默认 2，对齐旧 PHP token 连接。	
@@ -443,6 +475,9 @@ service 不依赖 gin.Context
 permission service 只计算 permissions/router/buttonCodes
 button cache key 保持 auth_perm_uid_{userId}_{platform}_rbac_page_grants
 Redis button cache 写入是 best-effort，不影响 init 返回
+PermissionCheck 先验证 user/role，再按 button cache 命中优先，未命中才计算 RBAC context
+角色授权变更通过同一个 button grant cache contract 清理绑定用户缓存
+cache 是性能边界，不是权限真相源；miss 或 cache error 必须回源计算，不能放行
 ```
 
 仍未实现：
@@ -450,8 +485,6 @@ Redis button cache 写入是 best-effort，不影响 init 返回
 ```text
 login
 captcha / go-captcha
-PermissionCheck
-RBAC 写路径
-前端改造
+完整登录链路
+完整业务模块迁移
 ```
-

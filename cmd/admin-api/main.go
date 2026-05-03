@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+	_ = config.LoadDotEnv()
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 

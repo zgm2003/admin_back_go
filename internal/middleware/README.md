@@ -18,6 +18,8 @@ RequestID
 AccessLog
 CORS
 AuthToken
+PermissionCheck
+OperationLog
 ```
 
 `RequestID` 负责：
@@ -91,7 +93,36 @@ POST /api/Users/refresh
 
 logout 不跳过。logout 先认证当前 access token，再由 auth handler 调 session service 撤销。
 
-## 后续顺序目标
+`PermissionCheck` 负责：
+
+```text
+按显式 RouteKey(method + path) 查权限码
+从 AuthToken 挂载的 AuthIdentity 读取 user/session/platform
+把检查交给注入的 PermissionChecker
+无规则的路由直接放行
+```
+
+`PermissionCheck` 不负责：
+
+```text
+扫描注解
+反射 handler 名称
+自己查 users/roles/permissions 表
+自己拼 RBAC 缓存 key
+```
+
+`OperationLog` 负责：
+
+```text
+按显式 RouteKey(method + path) 查操作日志规则
+在 handler 执行后收集 status/success/request_id/client_ip/latency
+把记录交给注入的 OperationRecorder
+记录失败不改变业务响应
+```
+
+`OperationLog` 当前只是 HTTP 边界骨架。后续写库必须放到 operationlog module/repository，不要塞进 middleware。
+
+## 当前全局顺序
 
 ```text
 Recovery
@@ -104,4 +135,4 @@ OperationLog
 Handler
 ```
 
-不要一次性全加。每个 middleware 必须有测试和真实使用场景。
+每个 middleware 必须有测试和真实使用场景。

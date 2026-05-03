@@ -18,6 +18,7 @@ route -> handler -> service -> repository -> model
 ```text
 E:\admin_go\AGENTS.md
 E:\admin_go\docs\architecture\04-go-backend-framework.md
+E:\admin_go\docs\architecture\05-development-quality-rules.md
 docs\architecture.md
 internal\module\README.md
 internal\platform\README.md
@@ -33,8 +34,10 @@ internal\platform\README.md
 禁止 handler 直接查 DB/Redis
 禁止 service 依赖 gin.Context
 禁止在 RBAC 契约未固定前实现权限业务
+禁止写兜底字段、猜字段、吞未知 DTO
+禁止新接口继续全 POST 动作 URL
 ```
 
 ## 当前阶段
 
-当前只做架构骨架。业务迁移还没开始。
+当前已经进入 Auth + RBAC core 的最小迁移期。只允许迁移登录态、Users/init、菜单/权限、角色、操作日志这些核心闭环；业务模块继续按阶段迁移。

@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/readiness"
@@ -53,6 +54,67 @@ type fakeRouterUserService struct {
 func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
 	f.input = input
 	return f.result, f.err
+}
+
+type fakeRouterPermissionService struct {
+	listQuery permission.PermissionListQuery
+}
+
+func (f *fakeRouterPermissionService) Init(ctx context.Context) (*permission.InitResponse, *apperror.Error) {
+	return &permission.InitResponse{Dict: permission.PermissionDict{}}, nil
+}
+
+func (f *fakeRouterPermissionService) List(ctx context.Context, query permission.PermissionListQuery) ([]permission.PermissionListItem, *apperror.Error) {
+	f.listQuery = query
+	return []permission.PermissionListItem{{ID: 1, Name: "系统"}}, nil
+}
+
+func (f *fakeRouterPermissionService) Create(ctx context.Context, input permission.PermissionMutationInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (f *fakeRouterPermissionService) Update(ctx context.Context, id int64, input permission.PermissionMutationInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterPermissionService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterPermissionService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return nil
+}
+
+type fakeRouterRoleService struct {
+	listQuery role.ListQuery
+}
+
+func (f *fakeRouterRoleService) Init(ctx context.Context) (*role.InitResponse, *apperror.Error) {
+	return &role.InitResponse{}, nil
+}
+
+func (f *fakeRouterRoleService) List(ctx context.Context, query role.ListQuery) (*role.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &role.ListResponse{
+		List: []role.ListItem{{ID: 1, Name: "管理员"}},
+		Page: role.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterRoleService) Create(ctx context.Context, input role.MutationInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (f *fakeRouterRoleService) Update(ctx context.Context, id int64, input role.MutationInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterRoleService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterRoleService) SetDefault(ctx context.Context, id int64) *apperror.Error {
+	return nil
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {
@@ -312,6 +374,156 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 	}
 	if _, ok := data["buttonCodes"]; !ok {
 		t.Fatalf("missing buttonCodes in users/me payload: %#v", data)
+	}
+}
+
+func TestRouterInstallsUsersInitAsProtectedRESTPath(t *testing.T) {
+	var authInput middleware.TokenInput
+	userService := &fakeRouterUserService{result: &user.InitResponse{
+		UserID:      1,
+		Username:    "admin",
+		Avatar:      "avatar.png",
+		RoleName:    "管理员",
+		Permissions: []permission.MenuItem{{Index: "1", Label: "系统", Children: []permission.MenuItem{}}},
+		Router:      []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index"}},
+		ButtonCodes: []string{"user_add"},
+		QuickEntry:  []user.QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
+	}}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			authInput = input
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: input.Platform}, nil
+		},
+		UserService: userService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("platform", "admin")
+	request.Header.Set("device-id", "desktop-1")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if authInput.AccessToken != "access-token" || authInput.Platform != "admin" || authInput.DeviceID != "desktop-1" {
+		t.Fatalf("unexpected auth input: %#v", authInput)
+	}
+	if userService.input.UserID != 1 || userService.input.Platform != "admin" {
+		t.Fatalf("unexpected user service input: %#v", userService.input)
+	}
+	body := decodeRouterBody(t, recorder)
+	data := mustRouterData(t, body)
+	if data["username"] != "admin" || data["role_name"] != "管理员" {
+		t.Fatalf("unexpected users/init payload: %#v", data)
+	}
+	if _, ok := data["buttonCodes"]; !ok {
+		t.Fatalf("missing buttonCodes in users/init payload: %#v", data)
+	}
+}
+
+func TestRouterInstallsPermissionRESTRoutes(t *testing.T) {
+	permissionService := &fakeRouterPermissionService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionService: permissionService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/permissions?platform=admin", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if permissionService.listQuery.Platform != "admin" {
+		t.Fatalf("permission list query mismatch: %#v", permissionService.listQuery)
+	}
+}
+
+func TestRouterInstallsRoleRESTRoutes(t *testing.T) {
+	roleService := &fakeRouterRoleService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		RoleService: roleService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/roles?current_page=1&page_size=50&name=管理", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if roleService.listQuery.CurrentPage != 1 || roleService.listQuery.PageSize != 50 || roleService.listQuery.Name != "管理" {
+		t.Fatalf("role list query mismatch: %#v", roleService.listQuery)
+	}
+}
+
+func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/v1/users/me"): "user:me",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			if input.UserID != 1 || input.Code != "user:me" {
+				t.Fatalf("unexpected permission input: %#v", input)
+			}
+			return apperror.Forbidden("无接口权限")
+		},
+		UserService: &fakeRouterUserService{},
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+	body := decodeRouterBody(t, recorder)
+	if body["msg"] != "无接口权限" {
+		t.Fatalf("expected permission denial, got %#v", body)
+	}
+}
+
+func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
+	var got middleware.OperationInput
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		OperationRules: map[middleware.RouteKey]middleware.OperationRule{
+			middleware.NewRouteKey(http.MethodGet, "/api/v1/users/me"): {Module: "user", Action: "me", Title: "查看当前用户"},
+		},
+		OperationRecorder: func(ctx context.Context, input middleware.OperationInput) error {
+			got = input
+			return nil
+		},
+		UserService: &fakeRouterUserService{result: &user.InitResponse{UserID: 1, Username: "admin"}},
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if got.UserID != 1 || got.Module != "user" || got.Action != "me" || got.Status != http.StatusOK || !got.Success {
+		t.Fatalf("unexpected operation input: %#v", got)
 	}
 }
 

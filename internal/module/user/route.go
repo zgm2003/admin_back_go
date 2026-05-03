@@ -9,5 +9,6 @@ func RegisterRoutes(router *gin.Engine, service InitService) {
 	legacy.POST("/init", handler.Init)
 
 	users := router.Group("/api/v1/users")
+	users.GET("/init", handler.Init)
 	users.GET("/me", handler.Me)
 }

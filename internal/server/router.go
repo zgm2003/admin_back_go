@@ -6,6 +6,8 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/system"
 	"admin_back_go/internal/module/user"
 
@@ -13,13 +15,19 @@ import (
 )
 
 type Dependencies struct {
-	Readiness     system.ReadinessChecker
-	Logger        *slog.Logger
-	CORS          config.CORSConfig
-	Authenticator middleware.TokenAuthenticator
-	AuthService   auth.SessionService
-	UserService   user.InitService
-	AuthSkipPaths map[string]struct{}
+	Readiness         system.ReadinessChecker
+	Logger            *slog.Logger
+	CORS              config.CORSConfig
+	Authenticator     middleware.TokenAuthenticator
+	PermissionChecker middleware.PermissionChecker
+	PermissionRules   map[middleware.RouteKey]string
+	OperationRecorder middleware.OperationRecorder
+	OperationRules    map[middleware.RouteKey]middleware.OperationRule
+	AuthService       auth.SessionService
+	UserService       user.InitService
+	PermissionService permission.ManagementService
+	RoleService       role.HTTPService
+	AuthSkipPaths     map[string]struct{}
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
@@ -34,10 +42,21 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		Authenticator: deps.Authenticator,
 		SkipPaths:     authSkipPaths(deps.AuthSkipPaths),
 	}))
+	router.Use(middleware.PermissionCheck(middleware.PermissionCheckConfig{
+		Checker: deps.PermissionChecker,
+		Rules:   deps.PermissionRules,
+	}))
+	router.Use(middleware.OperationLog(middleware.OperationLogConfig{
+		Recorder: deps.OperationRecorder,
+		Rules:    deps.OperationRules,
+		Logger:   deps.Logger,
+	}))
 
 	system.RegisterRoutes(router, deps.Readiness)
 	auth.RegisterRoutes(router, deps.AuthService)
 	user.RegisterRoutes(router, deps.UserService)
+	permission.RegisterRoutes(router, deps.PermissionService)
+	role.RegisterRoutes(router, deps.RoleService)
 
 	return router
 }

@@ -2,12 +2,10 @@ package user
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/platform/redisclient"
 )
 
 const defaultButtonCacheTTL = 30 * time.Minute
@@ -18,28 +16,6 @@ type PermissionBuilder interface {
 
 type ButtonCache interface {
 	Set(ctx context.Context, key string, values []string, ttl time.Duration) error
-}
-
-type RedisButtonCache struct {
-	client *redisclient.Client
-}
-
-func NewRedisButtonCache(client *redisclient.Client) ButtonCache {
-	if client == nil || client.Redis == nil {
-		return nil
-	}
-	return &RedisButtonCache{client: client}
-}
-
-func (c *RedisButtonCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
-	if c == nil || c.client == nil || c.client.Redis == nil {
-		return nil
-	}
-	payload, err := json.Marshal(values)
-	if err != nil {
-		return err
-	}
-	return c.client.Redis.Set(ctx, key, payload, ttl).Err()
 }
 
 type Service struct {
@@ -90,9 +66,15 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 
-	perm, appErr := s.permissionBuilder.BuildContextByRole(ctx, currentUser.RoleID, input.Platform)
-	if appErr != nil {
-		return nil, appErr
+	roleName := ""
+	perm := permission.Context{}
+	if role != nil {
+		roleName = role.Name
+		var appErr *apperror.Error
+		perm, appErr = s.permissionBuilder.BuildContextByRole(ctx, role.ID, input.Platform)
+		if appErr != nil {
+			return nil, appErr
+		}
 	}
 
 	quickEntry, err := s.repository.QuickEntries(ctx, currentUser.ID)
@@ -100,17 +82,13 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询快捷入口失败", err)
 	}
 
-	if s.buttonCache != nil {
+	if role != nil && s.buttonCache != nil {
 		_ = s.buttonCache.Set(ctx, permission.ButtonCacheKey(currentUser.ID, input.Platform), perm.ButtonCodes, s.buttonCacheTTL)
 	}
 
 	avatar := ""
 	if profile != nil {
 		avatar = profile.Avatar
-	}
-	roleName := ""
-	if role != nil {
-		roleName = role.Name
 	}
 
 	return &InitResponse{

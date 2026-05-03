@@ -8,14 +8,10 @@ import (
 )
 
 type fakeRepository struct {
-	role       *Role
-	grantedIDs []int64
-	perms      []Permission
-	err        error
-}
-
-func (f fakeRepository) FindRole(ctx context.Context, roleID int64) (*Role, error) {
-	return f.role, f.err
+	grantedIDs     []int64
+	perms          []Permission
+	err            error
+	findRoleCalled int
 }
 
 func (f fakeRepository) PermissionIDsByRoleID(ctx context.Context, roleID int64) ([]int64, error) {
@@ -26,10 +22,67 @@ func (f fakeRepository) AllActivePermissions(ctx context.Context) ([]Permission,
 	return f.perms, f.err
 }
 
-func TestServiceBuildContextReturnsEmptyWhenRoleMissing(t *testing.T) {
-	svc := NewService(fakeRepository{}, []string{"admin"})
+func (f fakeRepository) ListPermissions(ctx context.Context, query PermissionListQuery) ([]Permission, error) {
+	return f.perms, f.err
+}
 
-	got, appErr := svc.BuildContextByRole(context.Background(), 1, "admin")
+func (f fakeRepository) GetPermission(ctx context.Context, id int64) (*Permission, error) {
+	for _, item := range f.perms {
+		if item.ID == id {
+			return &item, f.err
+		}
+	}
+	return nil, f.err
+}
+
+func (f fakeRepository) ExistsByPlatformCode(ctx context.Context, platform string, code string, excludeID int64) (bool, error) {
+	return false, f.err
+}
+
+func (f fakeRepository) ExistsByPlatformPath(ctx context.Context, platform string, path string, excludeID int64) (bool, error) {
+	return false, f.err
+}
+
+func (f fakeRepository) ExistsByPlatformI18nKey(ctx context.Context, platform string, i18nKey string, excludeID int64) (bool, error) {
+	return false, f.err
+}
+
+func (f fakeRepository) FindDeletedByPlatformCode(ctx context.Context, platform string, code string) (*Permission, error) {
+	return nil, f.err
+}
+
+func (f fakeRepository) CreatePermission(ctx context.Context, row Permission) (int64, error) {
+	return row.ID, f.err
+}
+
+func (f fakeRepository) RestoreDeletedPermission(ctx context.Context, id int64, row Permission) error {
+	return f.err
+}
+
+func (f fakeRepository) UpdatePermission(ctx context.Context, id int64, fields map[string]any) error {
+	return f.err
+}
+
+func (f fakeRepository) HasChildrenOutsideIDs(ctx context.Context, ids []int64) (bool, error) {
+	return false, f.err
+}
+
+func (f fakeRepository) CascadeIDs(ctx context.Context, ids []int64) ([]int64, error) {
+	return ids, f.err
+}
+
+func (f fakeRepository) ActiveChildren(ctx context.Context, parentID int64) ([]Permission, error) {
+	return nil, f.err
+}
+
+func (f fakeRepository) DeletePermissions(ctx context.Context, ids []int64) error {
+	return f.err
+}
+
+func TestServiceBuildContextReturnsEmptyForInvalidRoleID(t *testing.T) {
+	svc := NewService(&fakeRepository{}, []string{"admin"})
+
+	got, appErr := svc.BuildContextByRole(context.Background(), 0, "admin")
 
 	if appErr != nil {
 		t.Fatalf("expected no app error, got %v", appErr)
@@ -38,8 +91,7 @@ func TestServiceBuildContextReturnsEmptyWhenRoleMissing(t *testing.T) {
 }
 
 func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) {
-	svc := NewService(fakeRepository{
-		role:       &Role{ID: 7, Name: "管理员"},
+	repo := &fakeRepository{
 		grantedIDs: []int64{3},
 		perms: []Permission{
 			{ID: 1, Name: "系统", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/system", Icon: "setting", Sort: 20, ShowMenu: 1},
@@ -47,7 +99,8 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 			{ID: 3, Name: "新增", ParentID: 2, Type: TypeButton, Platform: "admin", Code: "user_add", Sort: 30},
 			{ID: 4, Name: "别的平台", ParentID: 0, Type: TypePage, Platform: "app", Path: "/app", Component: "/app/index", Sort: 1},
 		},
-	}, []string{"admin", "app"})
+	}
+	svc := NewService(repo, []string{"admin", "app"})
 
 	got, appErr := svc.BuildContextByRole(context.Background(), 7, "admin")
 
@@ -66,6 +119,9 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 	if len(got.Permissions) != 1 || got.Permissions[0].Index != "1" {
 		t.Fatalf("root menu mismatch: %#v", got.Permissions)
 	}
+	if repo.findRoleCalled != 0 {
+		t.Fatalf("permission context builder must not re-query role, got %d role lookups", repo.findRoleCalled)
+	}
 	child := got.Permissions[0].Children[0]
 	if child.Index != "2" || child.Label != "用户" || child.I18nKey != "menu.user" || child.ShowMenu != 2 || child.ParentID != 1 {
 		t.Fatalf("child menu mismatch: %#v", child)
@@ -73,8 +129,7 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 }
 
 func TestServiceBuildContextKeepsChildrenWhenParentSortsBeforeChild(t *testing.T) {
-	svc := NewService(fakeRepository{
-		role:       &Role{ID: 9, Name: "管理员"},
+	svc := NewService(&fakeRepository{
 		grantedIDs: []int64{3},
 		perms: []Permission{
 			{ID: 1, Name: "系统", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/system", Sort: 1, ShowMenu: 1},
@@ -94,8 +149,7 @@ func TestServiceBuildContextKeepsChildrenWhenParentSortsBeforeChild(t *testing.T
 }
 
 func TestServiceBuildContextKeepsNestedChildrenWhenAncestorsSortBeforeDescendants(t *testing.T) {
-	svc := NewService(fakeRepository{
-		role:       &Role{ID: 10, Name: "管理员"},
+	svc := NewService(&fakeRepository{
 		grantedIDs: []int64{4},
 		perms: []Permission{
 			{ID: 1, Name: "系统", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/system", Sort: 1, ShowMenu: 1},
@@ -115,8 +169,7 @@ func TestServiceBuildContextKeepsNestedChildrenWhenAncestorsSortBeforeDescendant
 	}
 }
 func TestServiceBuildContextAllowsRootButtonOnlyPlatform(t *testing.T) {
-	svc := NewService(fakeRepository{
-		role:       &Role{ID: 8, Name: "APP"},
+	svc := NewService(&fakeRepository{
 		grantedIDs: []int64{11},
 		perms: []Permission{
 			{ID: 11, Name: "APP根按钮", ParentID: 0, Type: TypeButton, Platform: "app", Code: "app_root_button", Sort: 1},
@@ -137,7 +190,7 @@ func TestServiceBuildContextAllowsRootButtonOnlyPlatform(t *testing.T) {
 }
 
 func TestServiceBuildContextRejectsInvalidPlatform(t *testing.T) {
-	svc := NewService(fakeRepository{role: &Role{ID: 1}}, []string{"admin"})
+	svc := NewService(&fakeRepository{}, []string{"admin"})
 
 	_, appErr := svc.BuildContextByRole(context.Background(), 1, "unknown")
 
@@ -147,7 +200,7 @@ func TestServiceBuildContextRejectsInvalidPlatform(t *testing.T) {
 }
 
 func TestServiceBuildContextWrapsRepositoryError(t *testing.T) {
-	svc := NewService(fakeRepository{err: errors.New("db down")}, []string{"admin"})
+	svc := NewService(&fakeRepository{err: errors.New("db down")}, []string{"admin"})
 
 	_, appErr := svc.BuildContextByRole(context.Background(), 1, "admin")
 

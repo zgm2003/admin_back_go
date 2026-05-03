@@ -36,6 +36,7 @@ func (f fakeUserRepository) QuickEntries(ctx context.Context, userID int64) ([]Q
 }
 
 type fakePermissionBuilder struct {
+	called   bool
 	roleID   int64
 	platform string
 	ctx      permission.Context
@@ -43,12 +44,14 @@ type fakePermissionBuilder struct {
 }
 
 func (f *fakePermissionBuilder) BuildContextByRole(ctx context.Context, roleID int64, platform string) (permission.Context, *apperror.Error) {
+	f.called = true
 	f.roleID = roleID
 	f.platform = platform
 	return f.ctx, f.err
 }
 
 type fakeButtonCache struct {
+	called bool
 	key    string
 	values []string
 	ttl    time.Duration
@@ -56,6 +59,7 @@ type fakeButtonCache struct {
 }
 
 func (f *fakeButtonCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
+	f.called = true
 	f.key = key
 	f.values = values
 	f.ttl = ttl
@@ -100,7 +104,10 @@ func TestServiceInitReturnsLegacyResponseAndCachesButtons(t *testing.T) {
 
 func TestServiceInitIgnoresButtonCacheFailure(t *testing.T) {
 	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}}}
-	svc := NewService(fakeUserRepository{user: &User{ID: 1, Username: "admin", RoleID: 7}}, builder, &fakeButtonCache{err: errors.New("redis down")}, time.Minute)
+	svc := NewService(fakeUserRepository{
+		user: &User{ID: 1, Username: "admin", RoleID: 7},
+		role: &Role{ID: 7, Name: "管理员"},
+	}, builder, &fakeButtonCache{err: errors.New("redis down")}, time.Minute)
 
 	_, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "admin"})
 
@@ -119,6 +126,35 @@ func TestServiceInitReturnsNotFoundWhenUserMissing(t *testing.T) {
 	}
 }
 
+func TestServiceInitSkipsPermissionBuildWhenRoleMissing(t *testing.T) {
+	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}}}
+	cache := &fakeButtonCache{}
+	svc := NewService(fakeUserRepository{
+		user:    &User{ID: 1, Username: "admin", RoleID: 7},
+		profile: &Profile{UserID: 1, Avatar: "avatar.png"},
+		role:    nil,
+		entries: []QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
+	}, builder, cache, time.Minute)
+
+	got, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "admin"})
+
+	if appErr != nil {
+		t.Fatalf("expected init to succeed with empty permissions, got %v", appErr)
+	}
+	if builder.called {
+		t.Fatalf("expected permission builder to be skipped when role is missing")
+	}
+	if cache.called {
+		t.Fatalf("expected button cache write to be skipped when role is missing")
+	}
+	if got.RoleName != "" || len(got.ButtonCodes) != 0 || len(got.Permissions) != 0 || len(got.Router) != 0 {
+		t.Fatalf("expected empty permission payload when role is missing, got %#v", got)
+	}
+	if len(got.QuickEntry) != 1 || got.QuickEntry[0].ID != 3 {
+		t.Fatalf("quick_entry should still be returned, got %#v", got.QuickEntry)
+	}
+}
+
 func TestServiceInitWrapsRepositoryError(t *testing.T) {
 	svc := NewService(fakeUserRepository{err: errors.New("db down")}, &fakePermissionBuilder{}, nil, time.Minute)
 
@@ -131,7 +167,10 @@ func TestServiceInitWrapsRepositoryError(t *testing.T) {
 
 func TestServiceInitPropagatesPermissionError(t *testing.T) {
 	builder := &fakePermissionBuilder{err: apperror.BadRequest("无效的平台标识: unknown")}
-	svc := NewService(fakeUserRepository{user: &User{ID: 1, Username: "admin", RoleID: 7}}, builder, nil, time.Minute)
+	svc := NewService(fakeUserRepository{
+		user: &User{ID: 1, Username: "admin", RoleID: 7},
+		role: &Role{ID: 7, Name: "管理员"},
+	}, builder, nil, time.Minute)
 
 	_, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "unknown"})
 

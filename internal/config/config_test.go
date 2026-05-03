@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -183,6 +185,50 @@ func TestLoadBuildsRedisAddrFromLegacyRedisEnvironment(t *testing.T) {
 	if cfg.Redis.Addr != "127.0.0.1:6380" {
 		t.Fatalf("expected redis addr 127.0.0.1:6380, got %q", cfg.Redis.Addr)
 	}
+}
+
+func TestLoadDotEnvReadsLocalEnvFile(t *testing.T) {
+	unsetEnvForTest(t, "APP_NAME")
+	unsetEnvForTest(t, "HTTP_ADDR")
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("APP_NAME=admin-api-dotenv\nHTTP_ADDR=:19090\n"), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	if err := LoadDotEnv(envPath); err != nil {
+		t.Fatalf("LoadDotEnv returned error: %v", err)
+	}
+
+	cfg := Load()
+	if cfg.App.Name != "admin-api-dotenv" {
+		t.Fatalf("expected app name from .env, got %q", cfg.App.Name)
+	}
+	if cfg.HTTP.Addr != ":19090" {
+		t.Fatalf("expected http addr from .env, got %q", cfg.HTTP.Addr)
+	}
+}
+
+func TestLoadDotEnvAllowsMissingLocalEnvFile(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), ".env")
+
+	if err := LoadDotEnv(missingPath); err != nil {
+		t.Fatalf("expected missing .env to be ignored, got %v", err)
+	}
+}
+
+func unsetEnvForTest(t *testing.T, key string) {
+	t.Helper()
+	oldValue, hadValue := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset env %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		if hadValue {
+			_ = os.Setenv(key, oldValue)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
 }
 
 func containsString(values []string, want string) bool {

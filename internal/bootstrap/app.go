@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/server"
 )
@@ -37,10 +40,23 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 
 	sessionAuthenticator := NewSessionAuthenticator(resources, cfg)
 	permissionService := permission.NewService(permission.NewGormRepository(resources.DB), nil)
-	userService := user.NewService(
-		user.NewGormRepository(resources.DB),
+	buttonGrantCache := permission.NewRedisButtonGrantCache(resources.Redis)
+	roleService := role.NewService(
+		role.NewGormRepository(resources.DB),
 		permissionService,
-		user.NewRedisButtonCache(resources.Redis),
+		buttonGrantCache,
+		nil,
+	)
+	userRepository := user.NewGormRepository(resources.DB)
+	operationRepository := operationlog.NewGormRepository(resources.DB)
+	var operationRecorder middleware.OperationRecorder
+	if operationRepository != nil {
+		operationRecorder = operationlog.NewRecorder(operationRepository)
+	}
+	userService := user.NewService(
+		userRepository,
+		permissionService,
+		buttonGrantCache,
 		0,
 	)
 	router := server.NewRouter(server.Dependencies{
@@ -48,8 +64,19 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		Logger:        logger,
 		CORS:          cfg.CORS,
 		Authenticator: TokenAuthenticatorFor(sessionAuthenticator),
-		AuthService:   sessionAuthenticator,
-		UserService:   userService,
+		PermissionChecker: PermissionCheckerFor(
+			userRepository,
+			permissionService,
+			buttonGrantCache,
+			0,
+		),
+		PermissionRules:   permissionRouteRules(),
+		OperationRecorder: operationRecorder,
+		OperationRules:    operationRouteRules(),
+		AuthService:       sessionAuthenticator,
+		UserService:       userService,
+		PermissionService: permissionService,
+		RoleService:       roleService,
 	})
 	return &App{
 		cfg:       cfg,
