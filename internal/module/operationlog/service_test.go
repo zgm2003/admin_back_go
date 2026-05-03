@@ -27,7 +27,7 @@ func TestRecorderPersistsOperationMetadataWithoutRequestBodyFallback(t *testing.
 		SessionID: 10,
 		Platform:  "admin",
 		Method:    "POST",
-		Path:      "/api/v1/permissions",
+		Path:      "/api/admin/v1/permissions",
 		Module:    "permission",
 		Action:    "create",
 		Title:     "新增菜单",
@@ -49,10 +49,11 @@ func TestRecorderPersistsOperationMetadataWithoutRequestBodyFallback(t *testing.
 	if err := json.Unmarshal([]byte(repo.row.RequestData), &request); err != nil {
 		t.Fatalf("invalid request data json: %v", err)
 	}
-	if request["method"] != "POST" || request["path"] != "/api/v1/permissions" || request["module"] != "permission" {
+	if request["method"] != "POST" || request["path"] != "/api/admin/v1/permissions" || request["module"] != "permission" {
 		t.Fatalf("request metadata mismatch: %#v", request)
 	}
 	if _, ok := request["body"]; ok {
 		t.Fatalf("operation log must not invent request body fallback: %#v", request)
 	}
 }
+

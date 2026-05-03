@@ -16,6 +16,7 @@ type Session struct {
 	DeviceID         string     `gorm:"column:device_id"`
 	IP               string     `gorm:"column:ip"`
 	UserAgent        string     `gorm:"column:ua"`
+	LastSeenAt       time.Time  `gorm:"column:last_seen_at"`
 	ExpiresAt        time.Time  `gorm:"column:expires_at"`
 	RefreshExpiresAt time.Time  `gorm:"column:refresh_expires_at"`
 	RevokedAt        *time.Time `gorm:"column:revoked_at"`

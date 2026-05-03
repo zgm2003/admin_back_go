@@ -8,12 +8,13 @@ import (
 )
 
 type Config struct {
-	App   AppConfig
-	HTTP  HTTPConfig
-	MySQL MySQLConfig
-	Redis RedisConfig
-	Token TokenConfig
-	CORS  CORSConfig
+	App     AppConfig
+	HTTP    HTTPConfig
+	MySQL   MySQLConfig
+	Redis   RedisConfig
+	Token   TokenConfig
+	Captcha CaptchaConfig
+	CORS    CORSConfig
 }
 
 type AppConfig struct {
@@ -47,6 +48,12 @@ type TokenConfig struct {
 	SessionCacheTTL         time.Duration
 	SingleSessionPointerTTL time.Duration
 	RedisDB                 int
+}
+
+type CaptchaConfig struct {
+	TTL          time.Duration
+	RedisPrefix  string
+	SlidePadding int
 }
 
 type CORSConfig struct {
@@ -93,6 +100,11 @@ func Load() Config {
 			SessionCacheTTL:         envDuration("TOKEN_SESSION_CACHE_TTL", 30*time.Minute),
 			SingleSessionPointerTTL: envDuration("TOKEN_SINGLE_SESSION_POINTER_TTL", 30*24*time.Hour),
 			RedisDB:                 envInt("TOKEN_REDIS_DB", 2),
+		},
+		Captcha: CaptchaConfig{
+			TTL:          envDuration("CAPTCHA_TTL", 2*time.Minute),
+			RedisPrefix:  envString("CAPTCHA_REDIS_PREFIX", "captcha:slide:"),
+			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 5),
 		},
 		CORS: corsConfig,
 	}

@@ -9,6 +9,7 @@ func RegisterRoutes(router *gin.Engine, readiness ReadinessChecker) {
 	router.GET("/health", handler.Health)
 	router.GET("/ready", handler.Ready)
 
-	api := router.Group("/api/v1")
+	api := router.Group("/api/admin/v1")
 	api.GET("/ping", handler.Ping)
 }
+

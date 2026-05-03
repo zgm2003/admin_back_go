@@ -87,7 +87,7 @@ auth_platforms -> authplatform service -> session authenticator
 公开 refresh 路由必须跳过 `AuthToken`：
 
 ```text
-POST /api/v1/auth/refresh
+POST /api/admin/v1/auth/refresh
 POST /api/Users/refresh
 ```
 
@@ -136,3 +136,4 @@ Handler
 ```
 
 每个 middleware 必须有测试和真实使用场景。
+

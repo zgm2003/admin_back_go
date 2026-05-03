@@ -6,6 +6,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/system"
@@ -24,6 +25,7 @@ type Dependencies struct {
 	OperationRecorder middleware.OperationRecorder
 	OperationRules    map[middleware.RouteKey]middleware.OperationRule
 	AuthService       auth.SessionService
+	CaptchaService    captcha.HTTPService
 	UserService       user.InitService
 	PermissionService permission.ManagementService
 	RoleService       role.HTTPService
@@ -53,6 +55,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	}))
 
 	system.RegisterRoutes(router, deps.Readiness)
+	captcha.RegisterRoutes(router, deps.CaptchaService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	user.RegisterRoutes(router, deps.UserService)
 	permission.RegisterRoutes(router, deps.PermissionService)

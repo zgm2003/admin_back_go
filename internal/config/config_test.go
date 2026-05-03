@@ -53,6 +53,15 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Token.RedisDB != 2 {
 		t.Fatalf("expected token redis db 2, got %d", cfg.Token.RedisDB)
 	}
+	if cfg.Captcha.TTL != 2*time.Minute {
+		t.Fatalf("expected captcha ttl 2m, got %s", cfg.Captcha.TTL)
+	}
+	if cfg.Captcha.RedisPrefix != "captcha:slide:" {
+		t.Fatalf("expected captcha redis prefix captcha:slide:, got %q", cfg.Captcha.RedisPrefix)
+	}
+	if cfg.Captcha.SlidePadding != 5 {
+		t.Fatalf("expected captcha slide padding 5, got %d", cfg.Captcha.SlidePadding)
+	}
 	wantOrigins := []string{
 		"http://localhost:5173",
 		"http://127.0.0.1:5173",
@@ -95,6 +104,9 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("TOKEN_SESSION_CACHE_TTL", "45m")
 	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "720h")
 	t.Setenv("TOKEN_REDIS_DB", "5")
+	t.Setenv("CAPTCHA_TTL", "3m")
+	t.Setenv("CAPTCHA_REDIS_PREFIX", "captcha-test:")
+	t.Setenv("CAPTCHA_SLIDE_PADDING", "8")
 	t.Setenv("CORS_ALLOW_ORIGINS", "https://admin.example.com, http://localhost:5173")
 	t.Setenv("CORS_ALLOW_HEADERS", "Content-Type,Authorization,X-Custom")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
@@ -128,6 +140,9 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Token.RedisDB != 5 {
 		t.Fatalf("expected token redis db 5, got %d", cfg.Token.RedisDB)
+	}
+	if cfg.Captcha.TTL != 3*time.Minute || cfg.Captcha.RedisPrefix != "captcha-test:" || cfg.Captcha.SlidePadding != 8 {
+		t.Fatalf("unexpected captcha config: %#v", cfg.Captcha)
 	}
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, []string{"https://admin.example.com", "http://localhost:5173"}) {
 		t.Fatalf("unexpected cors origins: %#v", cfg.CORS.AllowOrigins)

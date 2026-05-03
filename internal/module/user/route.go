@@ -8,7 +8,8 @@ func RegisterRoutes(router *gin.Engine, service InitService) {
 	legacy := router.Group("/api/Users")
 	legacy.POST("/init", handler.Init)
 
-	users := router.Group("/api/v1/users")
+	users := router.Group("/api/admin/v1/users")
 	users.GET("/init", handler.Init)
 	users.GET("/me", handler.Me)
 }
+

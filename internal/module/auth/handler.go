@@ -13,6 +13,8 @@ import (
 )
 
 type SessionService interface {
+	Login(ctx context.Context, input LoginInput) (*session.TokenResult, *apperror.Error)
+	LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error)
 	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
 	Logout(ctx context.Context, accessToken string) *apperror.Error
 }
@@ -23,6 +25,48 @@ type Handler struct {
 
 func NewHandler(service SessionService) *Handler {
 	return &Handler{service: service}
+}
+
+func (h *Handler) LoginConfig(c *gin.Context) {
+	if h.service == nil {
+		response.Error(c, apperror.Unauthorized("登录服务未配置"))
+		return
+	}
+	result, appErr := h.service.LoginConfig(c.Request.Context(), c.GetHeader("platform"))
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *Handler) Login(c *gin.Context) {
+	if h.service == nil {
+		response.Error(c, apperror.Unauthorized("登录服务未配置"))
+		return
+	}
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("登录参数错误"))
+		return
+	}
+	result, appErr := h.service.Login(c.Request.Context(), LoginInput{
+		LoginAccount:  req.LoginAccount,
+		LoginType:     req.LoginType,
+		Password:      req.Password,
+		Code:          req.Code,
+		CaptchaID:     req.CaptchaID,
+		CaptchaAnswer: req.CaptchaAnswer,
+		Platform:      c.GetHeader("platform"),
+		DeviceID:      c.GetHeader("device-id"),
+		ClientIP:      c.ClientIP(),
+		UserAgent:     c.GetHeader("User-Agent"),
+	})
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
 }
 
 func (h *Handler) Refresh(c *gin.Context) {

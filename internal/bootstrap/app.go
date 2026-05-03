@@ -9,6 +9,9 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/authplatform"
+	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
@@ -39,8 +42,31 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	}
 
 	sessionAuthenticator := NewSessionAuthenticator(resources, cfg)
-	permissionService := permission.NewService(permission.NewGormRepository(resources.DB), nil)
+	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
+	var captchaService *captcha.Service
+	captchaEngine, captchaErr := captcha.NewSlideEngine()
+	if captchaErr != nil {
+		logger.Error("failed to initialize captcha engine", "error", captchaErr)
+	} else {
+		captchaService = captcha.NewService(
+			captchaEngine,
+			captcha.NewRedisStore(resources.Redis, cfg.Captcha.RedisPrefix),
+			captcha.WithTTL(cfg.Captcha.TTL),
+			captcha.WithPadding(cfg.Captcha.SlidePadding),
+		)
+	}
+	authService := auth.NewService(
+		auth.NewGormRepository(resources.DB),
+		authPlatformService,
+		sessionAuthenticator,
+		captchaService,
+	)
 	buttonGrantCache := permission.NewRedisButtonGrantCache(resources.Redis)
+	permissionService := permission.NewService(
+		permission.NewGormRepository(resources.DB),
+		nil,
+		permission.WithCacheInvalidator(buttonGrantCache),
+	)
 	roleService := role.NewService(
 		role.NewGormRepository(resources.DB),
 		permissionService,
@@ -73,7 +99,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		PermissionRules:   permissionRouteRules(),
 		OperationRecorder: operationRecorder,
 		OperationRules:    operationRouteRules(),
-		AuthService:       sessionAuthenticator,
+		AuthService:       authService,
+		CaptchaService:    captchaService,
 		UserService:       userService,
 		PermissionService: permissionService,
 		RoleService:       roleService,

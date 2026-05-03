@@ -49,7 +49,11 @@ Manager/Factory 滥用
 system   # health / ready / ping
 session  # token hash + TokenRedis/MySQL session lookup
 authplatform # auth_platforms read path for session policy
-auth # refresh/logout HTTP boundary
+captcha # go-captcha slide generation/verification boundary
+auth # password login/refresh/logout HTTP boundary
+user # current user/init RBAC read context
+permission # RBAC menus/routes/buttons and permission management
+role # role list/mutation and grant cache invalidation
 ```
 
 RBAC 模块要等现有 PHP 契约文档固定后再迁移。
@@ -67,14 +71,25 @@ allow_register
 
 它不是 RBAC PermissionCheck，也不负责菜单/按钮权限。
 
-`auth` 当前只开放 refresh/logout：
+`captcha` 当前只负责登录区滑块验证：
 
 ```text
-refresh -> session.Refresh
-logout  -> session.Logout
+GET /api/admin/v1/auth/captcha -> captcha.Generate
+Redis key = CAPTCHA_REDIS_PREFIX + captcha_id
+TTL = CAPTCHA_TTL
+Verify 使用 Redis GETDEL，一次性消费
 ```
 
-不要把密码登录、验证码、用户资料、RBAC init 一次性塞进 `auth`。这些要按阶段继续拆。
+`auth` 当前开放 password login / refresh / logout：
+
+```text
+login-config -> auth.LoginConfig
+login         -> captcha.Verify -> password check -> session.Create
+refresh       -> session.Refresh
+logout        -> session.Logout
+```
+
+不要把短信/邮箱验证码登录、自动注册、用户资料、RBAC 写路径一次性塞进 `auth`。这些要按阶段继续拆。
 
 ## 错误规则
 
@@ -92,3 +107,4 @@ service import gin
 repository 返回 HTTP 状态码
 model 返回业务错误文本
 ```
+

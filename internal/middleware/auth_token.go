@@ -86,14 +86,19 @@ func GetAuthIdentity(c *gin.Context) *AuthIdentity {
 
 func DefaultAuthSkipPaths() map[string]struct{} {
 	return map[string]struct{}{
-		"/health":              {},
-		"/ready":               {},
-		"/api/v1/ping":         {},
-		"/api/v1/auth/refresh": {},
-		"/api/Users/refresh":   {},
-		"/favicon.ico":         {},
-		"/robots.txt":          {},
-		"/openapi.json":        {},
+		"/health":                   {},
+		"/ready":                    {},
+		"/api/admin/v1/ping":              {},
+		"/api/admin/v1/auth/captcha":      {},
+		"/api/admin/v1/auth/login-config": {},
+		"/api/admin/v1/auth/login":        {},
+		"/api/admin/v1/auth/refresh":      {},
+		"/api/Users/getLoginConfig": {},
+		"/api/Users/login":          {},
+		"/api/Users/refresh":        {},
+		"/favicon.ico":              {},
+		"/robots.txt":               {},
+		"/openapi.json":             {},
 	}
 }
 
@@ -122,3 +127,4 @@ func ParseBearerToken(value string) (string, *apperror.Error) {
 	}
 	return token, nil
 }
+

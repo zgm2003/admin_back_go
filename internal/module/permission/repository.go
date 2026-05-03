@@ -27,6 +27,8 @@ type Repository interface {
 	CascadeIDs(ctx context.Context, ids []int64) ([]int64, error)
 	ActiveChildren(ctx context.Context, parentID int64) ([]Permission, error)
 	DeletePermissions(ctx context.Context, ids []int64) error
+	RoleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64) ([]int64, error)
+	UserIDsByRoleIDs(ctx context.Context, roleIDs []int64) ([]int64, error)
 }
 
 type GormRepository struct {
@@ -332,6 +334,51 @@ func (r *GormRepository) DeletePermissions(ctx context.Context, ids []int64) err
 			Where("is_del = ?", CommonNo).
 			Update("is_del", CommonYes).Error
 	})
+}
+
+func (r *GormRepository) RoleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64) ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	permissionIDs = normalizeIDsForMutation(permissionIDs)
+	if len(permissionIDs) == 0 {
+		return []int64{}, nil
+	}
+
+	var roleIDs []int64
+	err := r.db.WithContext(ctx).
+		Model(&RolePermission{}).
+		Where("permission_id IN ?", permissionIDs).
+		Where("is_del = ?", CommonNo).
+		Distinct("role_id").
+		Order("role_id asc").
+		Pluck("role_id", &roleIDs).Error
+	if err != nil {
+		return nil, err
+	}
+	return roleIDs, nil
+}
+
+func (r *GormRepository) UserIDsByRoleIDs(ctx context.Context, roleIDs []int64) ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	roleIDs = normalizeIDsForMutation(roleIDs)
+	if len(roleIDs) == 0 {
+		return []int64{}, nil
+	}
+
+	var userIDs []int64
+	err := r.db.WithContext(ctx).
+		Table("users").
+		Where("role_id IN ?", roleIDs).
+		Where("is_del = ?", CommonNo).
+		Order("id asc").
+		Pluck("id", &userIDs).Error
+	if err != nil {
+		return nil, err
+	}
+	return userIDs, nil
 }
 
 type permissionWriteRow struct {

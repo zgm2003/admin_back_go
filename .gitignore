@@ -7,6 +7,9 @@
 # Go test/build outputs
 *.test
 coverage.out
+.tmp/*.exe
+.tmp/*.go
+.tmp/*.log
 
 # Local env
 .env

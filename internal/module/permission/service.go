@@ -13,20 +13,46 @@ import (
 type Service struct {
 	repository       Repository
 	allowedPlatforms map[string]struct{}
+	cacheInvalidator CacheInvalidator
+	platforms        []string
 }
 
-func NewService(repository Repository, allowedPlatforms []string) *Service {
+type CacheInvalidator interface {
+	Delete(ctx context.Context, key string) error
+}
+
+type ServiceOption func(*Service)
+
+func WithCacheInvalidator(cacheInvalidator CacheInvalidator) ServiceOption {
+	return func(s *Service) {
+		s.cacheInvalidator = cacheInvalidator
+	}
+}
+
+func NewService(repository Repository, allowedPlatforms []string, options ...ServiceOption) *Service {
 	if len(allowedPlatforms) == 0 {
 		allowedPlatforms = []string{"admin", "app"}
 	}
 	allowed := make(map[string]struct{}, len(allowedPlatforms))
+	platforms := make([]string, 0, len(allowedPlatforms))
 	for _, platform := range allowedPlatforms {
 		platform = strings.TrimSpace(platform)
 		if platform != "" {
 			allowed[platform] = struct{}{}
+			platforms = append(platforms, platform)
 		}
 	}
-	return &Service{repository: repository, allowedPlatforms: allowed}
+	service := &Service{
+		repository:       repository,
+		allowedPlatforms: allowed,
+		platforms:        normalizePlatformList(platforms),
+	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) BuildContextByRole(ctx context.Context, roleID int64, platform string) (Context, *apperror.Error) {
@@ -175,6 +201,9 @@ func (s *Service) Update(ctx context.Context, id int64, input PermissionMutation
 	if err := s.repository.UpdatePermission(ctx, id, permissionUpdateMap(input)); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "更新权限失败", err)
 	}
+	if appErr := s.invalidatePermissionUsers(ctx, []int64{id}, true); appErr != nil {
+		return appErr
+	}
 	return nil
 }
 
@@ -196,8 +225,15 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 		return apperror.BadRequest("存在子节点未被勾选，不能删除")
 	}
 
+	roleIDs, appErr := s.roleIDsByPermissionIDs(ctx, ids, false)
+	if appErr != nil {
+		return appErr
+	}
 	if err := s.repository.DeletePermissions(ctx, ids); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "删除权限失败", err)
+	}
+	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
+		return appErr
 	}
 	return nil
 }
@@ -214,6 +250,58 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	}
 	if err := s.repository.UpdatePermission(ctx, id, map[string]any{"status": status}); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "更新权限状态失败", err)
+	}
+	if appErr := s.invalidatePermissionUsers(ctx, []int64{id}, true); appErr != nil {
+		return appErr
+	}
+	return nil
+}
+
+func (s *Service) invalidatePermissionUsers(ctx context.Context, permissionIDs []int64, includeCascade bool) *apperror.Error {
+	roleIDs, appErr := s.roleIDsByPermissionIDs(ctx, permissionIDs, includeCascade)
+	if appErr != nil {
+		return appErr
+	}
+	return s.invalidateRoleUsers(ctx, roleIDs)
+}
+
+func (s *Service) roleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64, includeCascade bool) ([]int64, *apperror.Error) {
+	permissionIDs = normalizeIDsForMutation(permissionIDs)
+	if len(permissionIDs) == 0 || s.cacheInvalidator == nil {
+		return []int64{}, nil
+	}
+	if includeCascade {
+		cascadeIDs, err := s.repository.CascadeIDs(ctx, permissionIDs)
+		if err != nil {
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询子权限失败", err)
+		}
+		permissionIDs = normalizeIDsForMutation(cascadeIDs)
+	}
+	roleIDs, err := s.repository.RoleIDsByPermissionIDs(ctx, permissionIDs)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询权限角色失败", err)
+	}
+	return normalizeIDs(roleIDs), nil
+}
+
+func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *apperror.Error {
+	if s.cacheInvalidator == nil {
+		return nil
+	}
+	roleIDs = normalizeIDs(roleIDs)
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, roleIDs)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
+	}
+	for _, userID := range normalizeIDs(userIDs) {
+		for _, platform := range s.platforms {
+			if err := s.cacheInvalidator.Delete(ctx, ButtonCacheKey(userID, platform)); err != nil {
+				return apperror.Wrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
+			}
+		}
 	}
 	return nil
 }
@@ -763,6 +851,24 @@ func normalizeIDs(ids []int64) []int64 {
 		seen[id] = struct{}{}
 		result = append(result, id)
 	}
+	return result
+}
+
+func normalizePlatformList(platforms []string) []string {
+	seen := make(map[string]struct{}, len(platforms))
+	result := make([]string, 0, len(platforms))
+	for _, platform := range platforms {
+		platform = strings.TrimSpace(platform)
+		if platform == "" {
+			continue
+		}
+		if _, ok := seen[platform]; ok {
+			continue
+		}
+		seen[platform] = struct{}{}
+		result = append(result, platform)
+	}
+	sort.Strings(result)
 	return result
 }
 

@@ -79,6 +79,14 @@ func (f fakeRepository) DeletePermissions(ctx context.Context, ids []int64) erro
 	return f.err
 }
 
+func (f fakeRepository) RoleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64) ([]int64, error) {
+	return nil, f.err
+}
+
+func (f fakeRepository) UserIDsByRoleIDs(ctx context.Context, roleIDs []int64) ([]int64, error) {
+	return nil, f.err
+}
+
 func TestServiceBuildContextReturnsEmptyForInvalidRoleID(t *testing.T) {
 	svc := NewService(&fakeRepository{}, []string{"admin"})
 

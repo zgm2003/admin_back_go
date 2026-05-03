@@ -104,8 +104,8 @@ func TestHandlerRESTInitAndMeUseAuthIdentityAndMatchLegacyInitData(t *testing.T)
 	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
 
 	legacyData := requestUserData(t, router, http.MethodPost, "/api/Users/init")
-	restInitData := requestUserData(t, router, http.MethodGet, "/api/v1/users/init")
-	meData := requestUserData(t, router, http.MethodGet, "/api/v1/users/me")
+	restInitData := requestUserData(t, router, http.MethodGet, "/api/admin/v1/users/init")
+	meData := requestUserData(t, router, http.MethodGet, "/api/admin/v1/users/me")
 
 	if len(service.inputs) != 3 {
 		t.Fatalf("expected service called three times, got %d inputs=%#v", len(service.inputs), service.inputs)
@@ -185,3 +185,4 @@ func decodeUserBody(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 	}
 	return body
 }
+

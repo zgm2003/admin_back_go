@@ -63,13 +63,13 @@ func TestHandlerInstallsRoleRESTRoutes(t *testing.T) {
 	}
 	router := newRoleTestRouter(service)
 
-	assertRoleStatus(t, router, http.MethodGet, "/api/v1/roles/init", "", http.StatusOK)
-	assertRoleStatus(t, router, http.MethodGet, "/api/v1/roles?current_page=1&page_size=50&name=运营", "", http.StatusOK)
-	assertRoleStatus(t, router, http.MethodPost, "/api/v1/roles", `{"name":"运营","permission_id":[2,3]}`, http.StatusOK)
-	assertRoleStatus(t, router, http.MethodPut, "/api/v1/roles/9", `{"name":"运营","permission_id":[2]}`, http.StatusOK)
-	assertRoleStatus(t, router, http.MethodPatch, "/api/v1/roles/9/default", "", http.StatusOK)
-	assertRoleStatus(t, router, http.MethodDelete, "/api/v1/roles/9", "", http.StatusOK)
-	assertRoleStatus(t, router, http.MethodDelete, "/api/v1/roles", `{"ids":[7,8]}`, http.StatusOK)
+	assertRoleStatus(t, router, http.MethodGet, "/api/admin/v1/roles/init", "", http.StatusOK)
+	assertRoleStatus(t, router, http.MethodGet, "/api/admin/v1/roles?current_page=1&page_size=50&name=运营", "", http.StatusOK)
+	assertRoleStatus(t, router, http.MethodPost, "/api/admin/v1/roles", `{"name":"运营","permission_id":[2,3]}`, http.StatusOK)
+	assertRoleStatus(t, router, http.MethodPut, "/api/admin/v1/roles/9", `{"name":"运营","permission_id":[2]}`, http.StatusOK)
+	assertRoleStatus(t, router, http.MethodPatch, "/api/admin/v1/roles/9/default", "", http.StatusOK)
+	assertRoleStatus(t, router, http.MethodDelete, "/api/admin/v1/roles/9", "", http.StatusOK)
+	assertRoleStatus(t, router, http.MethodDelete, "/api/admin/v1/roles", `{"ids":[7,8]}`, http.StatusOK)
 
 	if service.listQuery.CurrentPage != 1 || service.listQuery.PageSize != 50 || service.listQuery.Name != "运营" {
 		t.Fatalf("list query mismatch: %#v", service.listQuery)
@@ -85,9 +85,9 @@ func TestHandlerInstallsRoleRESTRoutes(t *testing.T) {
 func TestHandlerRejectsInvalidRoleInput(t *testing.T) {
 	router := newRoleTestRouter(&fakeHTTPService{})
 
-	assertRoleStatus(t, router, http.MethodGet, "/api/v1/roles?current_page=0&page_size=50", "", http.StatusBadRequest)
-	assertRoleStatus(t, router, http.MethodPut, "/api/v1/roles/bad", `{"name":"运营","permission_id":[]}`, http.StatusBadRequest)
-	assertRoleStatus(t, router, http.MethodDelete, "/api/v1/roles", `{"ids":[]}`, http.StatusBadRequest)
+	assertRoleStatus(t, router, http.MethodGet, "/api/admin/v1/roles?current_page=0&page_size=50", "", http.StatusBadRequest)
+	assertRoleStatus(t, router, http.MethodPut, "/api/admin/v1/roles/bad", `{"name":"运营","permission_id":[]}`, http.StatusBadRequest)
+	assertRoleStatus(t, router, http.MethodDelete, "/api/admin/v1/roles", `{"ids":[]}`, http.StatusBadRequest)
 }
 
 func newRoleTestRouter(service HTTPService) *gin.Engine {
@@ -115,3 +115,4 @@ func assertRoleStatus(t *testing.T, router *gin.Engine, method string, path stri
 		t.Fatalf("%s %s expected %d got %d body=%s", method, path, want, recorder.Code, recorder.Body.String())
 	}
 }
+

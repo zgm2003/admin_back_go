@@ -53,10 +53,15 @@ type fakeSessionRepository struct {
 	session         *Session
 	refreshSession  *Session
 	latestSession   *Session
+	activeSessions  []Session
+	created         SessionCreate
+	createdID       int64
 	rotatedID       int64
 	rotation        Rotation
 	revokedID       int64
 	revokedAt       time.Time
+	revokedPlatform string
+	revokedUserID   int64
 	err             error
 }
 
@@ -83,6 +88,26 @@ func (f *fakeSessionRepository) Rotate(ctx context.Context, sessionID int64, rot
 
 func (f *fakeSessionRepository) Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error {
 	f.revokedID = sessionID
+	f.revokedAt = revokedAt
+	return f.err
+}
+
+func (f *fakeSessionRepository) Create(ctx context.Context, input SessionCreate) (int64, error) {
+	f.created = input
+	if f.createdID == 0 {
+		f.createdID = 77
+	}
+	return f.createdID, f.err
+}
+
+func (f *fakeSessionRepository) ListActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) ([]Session, error) {
+	f.findLatestKey = platform
+	return f.activeSessions, f.err
+}
+
+func (f *fakeSessionRepository) RevokeByUserPlatform(ctx context.Context, userID int64, platform string, revokedAt time.Time) error {
+	f.revokedUserID = userID
+	f.revokedPlatform = platform
 	f.revokedAt = revokedAt
 	return f.err
 }
@@ -570,6 +595,62 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 	}
 	if cache.deletedKey != "token:"+oldAccessHash {
 		t.Fatalf("expected old access cache deleted, got %q", cache.deletedKey)
+	}
+}
+
+func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
+	now := time.Date(2026, 5, 3, 12, 0, 0, 0, time.Local)
+	generator := &sequenceTokenGenerator{values: []string{"new-access-token", "new-refresh-token"}}
+	cache := &fakeSessionCache{values: map[string]string{}}
+	repo := &fakeSessionRepository{
+		createdID: 88,
+		activeSessions: []Session{
+			{ID: 55, UserID: 44, Platform: "admin", AccessTokenHash: "old-access-hash"},
+		},
+	}
+	auth := NewAuthenticator(AuthenticatorDeps{
+		Config: config.TokenConfig{
+			Pepper:                  "pepper-value",
+			RedisPrefix:             "token:",
+			SingleSessionPointerTTL: 30 * 24 * time.Hour,
+		},
+		Cache:      cache,
+		Repository: repo,
+		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
+			"admin": {BindPlatform: true, SingleSessionPerPlatform: true, AccessTTL: 4 * time.Hour, RefreshTTL: 14 * 24 * time.Hour},
+		}},
+		TokenGenerator: generator.MakeToken,
+		Now:            func() time.Time { return now },
+	})
+
+	result, appErr := auth.Create(context.Background(), CreateInput{
+		UserID:    44,
+		Platform:  "admin",
+		DeviceID:  "device-1",
+		ClientIP:  "127.0.0.1",
+		UserAgent: "test-agent",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected create to succeed, got %v", appErr)
+	}
+	if result.AccessToken != "new-access-token" || result.RefreshToken != "new-refresh-token" {
+		t.Fatalf("unexpected token result: %#v", result)
+	}
+	if repo.revokedUserID != 44 || repo.revokedPlatform != "admin" {
+		t.Fatalf("expected old admin sessions to be revoked, got user=%d platform=%q", repo.revokedUserID, repo.revokedPlatform)
+	}
+	if !containsString(cache.deletedKeys, "token:old-access-hash") {
+		t.Fatalf("expected old access cache to be deleted, got %#v", cache.deletedKeys)
+	}
+	if repo.created.UserID != 44 || repo.created.Platform != "admin" || repo.created.DeviceID != "device-1" {
+		t.Fatalf("unexpected created session: %#v", repo.created)
+	}
+	if !repo.created.ExpiresAt.Equal(now.Add(4*time.Hour)) || !repo.created.RefreshExpiresAt.Equal(now.Add(14*24*time.Hour)) {
+		t.Fatalf("unexpected session expiry: %#v", repo.created)
+	}
+	if cache.setKey != "token:cur_sess:admin:44" || cache.setValue != "88" {
+		t.Fatalf("expected single session pointer for new session, key=%q value=%q", cache.setKey, cache.setValue)
 	}
 }
 

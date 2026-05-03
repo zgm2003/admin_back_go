@@ -66,12 +66,12 @@ func TestPermissionRoutesUseRESTfulMethods(t *testing.T) {
 	}
 	router := newPermissionTestRouter(service)
 
-	assertPermissionStatus(t, router, http.MethodGet, "/api/v1/permissions/init", nil, http.StatusOK)
-	assertPermissionStatus(t, router, http.MethodGet, "/api/v1/permissions?platform=admin&name=系统", nil, http.StatusOK)
-	assertPermissionStatus(t, router, http.MethodPost, "/api/v1/permissions", permissionRequestBody(TypeDir), http.StatusOK)
-	assertPermissionStatus(t, router, http.MethodPut, "/api/v1/permissions/9", permissionRequestBody(TypePage), http.StatusOK)
-	assertPermissionStatus(t, router, http.MethodPatch, "/api/v1/permissions/9/status", map[string]int{"status": CommonNo}, http.StatusOK)
-	assertPermissionStatus(t, router, http.MethodDelete, "/api/v1/permissions/9", nil, http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodGet, "/api/admin/v1/permissions/init", nil, http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodGet, "/api/admin/v1/permissions?platform=admin&name=系统", nil, http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodPost, "/api/admin/v1/permissions", permissionRequestBody(TypeDir), http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodPut, "/api/admin/v1/permissions/9", permissionRequestBody(TypePage), http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodPatch, "/api/admin/v1/permissions/9/status", map[string]int{"status": CommonNo}, http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodDelete, "/api/admin/v1/permissions/9", nil, http.StatusOK)
 
 	if service.listQuery.Platform != "admin" || service.listQuery.Name != "系统" {
 		t.Fatalf("query mismatch: %#v", service.listQuery)
@@ -94,7 +94,7 @@ func TestPermissionBatchDeleteUsesDeleteBodyNotPostFallback(t *testing.T) {
 	service := &fakeManagementService{}
 	router := newPermissionTestRouter(service)
 
-	assertPermissionStatus(t, router, http.MethodDelete, "/api/v1/permissions", map[string][]int64{"ids": []int64{7, 8}}, http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodDelete, "/api/admin/v1/permissions", map[string][]int64{"ids": []int64{7, 8}}, http.StatusOK)
 
 	if len(service.deleteIDs) != 2 || service.deleteIDs[0] != 7 || service.deleteIDs[1] != 8 {
 		t.Fatalf("delete ids mismatch: %#v", service.deleteIDs)
@@ -104,7 +104,7 @@ func TestPermissionBatchDeleteUsesDeleteBodyNotPostFallback(t *testing.T) {
 func TestPermissionHandlerRejectsInvalidRouteID(t *testing.T) {
 	router := newPermissionTestRouter(&fakeManagementService{})
 
-	assertPermissionStatus(t, router, http.MethodPut, "/api/v1/permissions/bad", permissionRequestBody(TypeDir), http.StatusBadRequest)
+	assertPermissionStatus(t, router, http.MethodPut, "/api/admin/v1/permissions/bad", permissionRequestBody(TypeDir), http.StatusBadRequest)
 }
 
 func newPermissionTestRouter(service ManagementService) *gin.Engine {
@@ -164,3 +164,4 @@ func permissionRequestBody(permissionType int) map[string]any {
 	}
 	return body
 }
+

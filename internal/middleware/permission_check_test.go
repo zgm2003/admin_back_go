@@ -28,16 +28,16 @@ func TestPermissionCheckSkipsRoutesWithoutPermissionRule(t *testing.T) {
 func TestPermissionCheckCallsCheckerWithRoutePermissionCode(t *testing.T) {
 	var got PermissionInput
 	router := newPermissionCheckTestRouter(PermissionCheckConfig{
-		Rules: map[RouteKey]string{NewRouteKey(http.MethodPost, "/api/v1/permissions"): "permission:create"},
+		Rules: map[RouteKey]string{NewRouteKey(http.MethodPost, "/api/admin/v1/permissions"): "permission:create"},
 		Checker: func(ctx context.Context, input PermissionInput) *apperror.Error {
 			got = input
 			return nil
 		},
 	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
-	router.POST("/api/v1/permissions", func(c *gin.Context) { c.String(http.StatusOK, "created") })
+	router.POST("/api/admin/v1/permissions", func(c *gin.Context) { c.String(http.StatusOK, "created") })
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/permissions", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/permissions", nil)
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "created" {
@@ -46,7 +46,7 @@ func TestPermissionCheckCallsCheckerWithRoutePermissionCode(t *testing.T) {
 	if got.UserID != 12 || got.SessionID != 34 || got.Platform != "admin" || got.Code != "permission:create" {
 		t.Fatalf("unexpected permission input: %#v", got)
 	}
-	if got.Method != http.MethodPost || got.Path != "/api/v1/permissions" {
+	if got.Method != http.MethodPost || got.Path != "/api/admin/v1/permissions" {
 		t.Fatalf("unexpected route input: %#v", got)
 	}
 }
@@ -54,37 +54,37 @@ func TestPermissionCheckCallsCheckerWithRoutePermissionCode(t *testing.T) {
 func TestPermissionCheckMatchesGinFullPathForRouteParams(t *testing.T) {
 	var got PermissionInput
 	router := newPermissionCheckTestRouter(PermissionCheckConfig{
-		Rules: map[RouteKey]string{NewRouteKey(http.MethodPut, "/api/v1/permissions/:id"): "permission_permission_edit"},
+		Rules: map[RouteKey]string{NewRouteKey(http.MethodPut, "/api/admin/v1/permissions/:id"): "permission_permission_edit"},
 		Checker: func(ctx context.Context, input PermissionInput) *apperror.Error {
 			got = input
 			return nil
 		},
 	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
-	router.PUT("/api/v1/permissions/:id", func(c *gin.Context) { c.String(http.StatusOK, "updated") })
+	router.PUT("/api/admin/v1/permissions/:id", func(c *gin.Context) { c.String(http.StatusOK, "updated") })
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/permissions/9", nil)
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/permissions/9", nil)
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected route to continue, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if got.Code != "permission_permission_edit" || got.Path != "/api/v1/permissions/:id" {
+	if got.Code != "permission_permission_edit" || got.Path != "/api/admin/v1/permissions/:id" {
 		t.Fatalf("unexpected permission input: %#v", got)
 	}
 }
 
 func TestPermissionCheckRejectsWhenCheckerDenies(t *testing.T) {
 	router := newPermissionCheckTestRouter(PermissionCheckConfig{
-		Rules: map[RouteKey]string{NewRouteKey(http.MethodDelete, "/api/v1/permissions/1"): "permission:delete"},
+		Rules: map[RouteKey]string{NewRouteKey(http.MethodDelete, "/api/admin/v1/permissions/1"): "permission:delete"},
 		Checker: func(ctx context.Context, input PermissionInput) *apperror.Error {
 			return apperror.Forbidden("无接口权限")
 		},
 	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
-	router.DELETE("/api/v1/permissions/1", func(c *gin.Context) { c.String(http.StatusOK, "deleted") })
+	router.DELETE("/api/admin/v1/permissions/1", func(c *gin.Context) { c.String(http.StatusOK, "deleted") })
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodDelete, "/api/v1/permissions/1", nil)
+	request := httptest.NewRequest(http.MethodDelete, "/api/admin/v1/permissions/1", nil)
 	router.ServeHTTP(recorder, request)
 
 	assertMiddlewareJSONError(t, recorder, http.StatusForbidden, apperror.CodeForbidden, "无接口权限")
@@ -92,13 +92,13 @@ func TestPermissionCheckRejectsWhenCheckerDenies(t *testing.T) {
 
 func TestPermissionCheckFailsClosedWithoutAuthIdentity(t *testing.T) {
 	router := newPermissionCheckTestRouter(PermissionCheckConfig{
-		Rules:   map[RouteKey]string{NewRouteKey(http.MethodPost, "/api/v1/permissions"): "permission:create"},
+		Rules:   map[RouteKey]string{NewRouteKey(http.MethodPost, "/api/admin/v1/permissions"): "permission:create"},
 		Checker: func(ctx context.Context, input PermissionInput) *apperror.Error { return nil },
 	}, nil)
-	router.POST("/api/v1/permissions", func(c *gin.Context) { c.String(http.StatusOK, "created") })
+	router.POST("/api/admin/v1/permissions", func(c *gin.Context) { c.String(http.StatusOK, "created") })
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/permissions", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/permissions", nil)
 	router.ServeHTTP(recorder, request)
 
 	assertMiddlewareJSONError(t, recorder, http.StatusUnauthorized, apperror.CodeUnauthorized, "Token无效或已过期")
@@ -130,3 +130,4 @@ func assertMiddlewareJSONError(t *testing.T, recorder *httptest.ResponseRecorder
 		t.Fatalf("unexpected error body: %#v", body)
 	}
 }
+

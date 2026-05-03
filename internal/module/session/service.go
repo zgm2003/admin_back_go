@@ -73,11 +73,74 @@ type RefreshInput struct {
 	UserAgent    string
 }
 
+type CreateInput struct {
+	UserID    int64
+	Platform  string
+	DeviceID  string
+	ClientIP  string
+	UserAgent string
+}
+
 type TokenResult struct {
 	AccessToken      string `json:"access_token"`
 	RefreshToken     string `json:"refresh_token"`
 	ExpiresIn        int    `json:"expires_in"`
 	RefreshExpiresIn int    `json:"refresh_expires_in"`
+}
+
+func (a *Authenticator) Create(ctx context.Context, input CreateInput) (*TokenResult, *apperror.Error) {
+	if a == nil {
+		return nil, apperror.Unauthorized("Token认证未配置")
+	}
+	if input.UserID <= 0 {
+		return nil, apperror.BadRequest("无效的用户ID")
+	}
+	input.Platform = strings.TrimSpace(input.Platform)
+	if input.Platform == "" {
+		return nil, apperror.BadRequest("无效的平台标识")
+	}
+	if a.repository == nil {
+		return nil, apperror.Unauthorized("Token认证未配置")
+	}
+
+	policy, policyErr := a.policyForSession(ctx, input.Platform)
+	if policyErr != nil {
+		return nil, policyErr
+	}
+
+	now := a.now()
+	tokens, tokenErr := a.generateTokenPair(policy, now)
+	if tokenErr != nil {
+		return nil, tokenErr
+	}
+
+	if evictErr := a.evictSessions(ctx, input.UserID, input.Platform, policy, now); evictErr != nil {
+		return nil, evictErr
+	}
+
+	sessionID, err := a.repository.Create(ctx, SessionCreate{
+		UserID:           input.UserID,
+		AccessTokenHash:  tokens.AccessTokenHash,
+		RefreshTokenHash: tokens.RefreshTokenHash,
+		Platform:         input.Platform,
+		DeviceID:         input.DeviceID,
+		IP:               input.ClientIP,
+		UserAgent:        input.UserAgent,
+		LastSeenAt:       now,
+		ExpiresAt:        tokens.AccessExpiresAt,
+		RefreshExpiresAt: tokens.RefreshExpiresAt,
+	})
+	if err != nil {
+		return nil, apperror.Internal("创建登录会话失败")
+	}
+
+	a.updateSingleSessionPointer(ctx, &Session{ID: sessionID, UserID: input.UserID, Platform: input.Platform})
+	return &TokenResult{
+		AccessToken:      tokens.AccessToken,
+		RefreshToken:     tokens.RefreshToken,
+		ExpiresIn:        int(tokens.AccessTTL.Seconds()),
+		RefreshExpiresIn: int(tokens.RefreshTTL.Seconds()),
+	}, nil
 }
 
 func NewAuthenticator(deps AuthenticatorDeps) *Authenticator {
@@ -255,6 +318,50 @@ func (a *Authenticator) Logout(ctx context.Context, accessToken string) *apperro
 	a.deleteCache(ctx, a.cacheKey(accessHash))
 	a.clearPointerIfMatches(ctx, session)
 	return nil
+}
+
+func (a *Authenticator) evictSessions(ctx context.Context, userID int64, platform string, policy *AuthPolicy, now time.Time) *apperror.Error {
+	if policy == nil {
+		return nil
+	}
+	if policy.SingleSessionPerPlatform {
+		oldSessions, err := a.repository.ListActiveByUserPlatform(ctx, userID, platform, now)
+		if err != nil {
+			return apperror.Internal("查询旧会话失败")
+		}
+		if err := a.repository.RevokeByUserPlatform(ctx, userID, platform, now); err != nil {
+			return apperror.Internal("撤销旧会话失败")
+		}
+		a.deleteSessionCaches(ctx, oldSessions)
+		return nil
+	}
+	if policy.MaxSessions <= 0 {
+		return nil
+	}
+
+	activeSessions, err := a.repository.ListActiveByUserPlatform(ctx, userID, platform, now)
+	if err != nil {
+		return apperror.Internal("查询旧会话失败")
+	}
+	overCount := len(activeSessions) - policy.MaxSessions + 1
+	if overCount <= 0 {
+		return nil
+	}
+	for _, oldSession := range activeSessions[:overCount] {
+		if err := a.repository.Revoke(ctx, oldSession.ID, now); err != nil {
+			return apperror.Internal("撤销旧会话失败")
+		}
+		a.deleteCache(ctx, a.cacheKey(oldSession.AccessTokenHash))
+	}
+	return nil
+}
+
+func (a *Authenticator) deleteSessionCaches(ctx context.Context, sessions []Session) {
+	for _, session := range sessions {
+		if session.AccessTokenHash != "" {
+			a.deleteCache(ctx, a.cacheKey(session.AccessTokenHash))
+		}
+	}
 }
 
 func (a *Authenticator) sessionFromCache(ctx context.Context, cacheKey string) (*Session, *apperror.Error) {

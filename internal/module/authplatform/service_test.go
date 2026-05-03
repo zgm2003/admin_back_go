@@ -70,6 +70,41 @@ func TestServiceMapsLegacyYesNoFlagsToSessionPolicy(t *testing.T) {
 	}
 }
 
+func TestServiceReturnsLoginTypesInLegacyEnumOrder(t *testing.T) {
+	service := NewService(&fakeRepository{platform: &Platform{
+		Code:       "admin",
+		LoginTypes: `["password","email","phone","unknown"]`,
+	}})
+
+	loginTypes, err := service.LoginTypes(context.Background(), "admin")
+
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	want := []string{"email", "phone", "password"}
+	if len(loginTypes) != len(want) {
+		t.Fatalf("expected login types %#v, got %#v", want, loginTypes)
+	}
+	for i := range want {
+		if loginTypes[i] != want[i] {
+			t.Fatalf("expected login types %#v, got %#v", want, loginTypes)
+		}
+	}
+}
+
+func TestServiceReturnsNilLoginTypesWhenPlatformMissing(t *testing.T) {
+	service := NewService(&fakeRepository{})
+
+	loginTypes, err := service.LoginTypes(context.Background(), "missing")
+
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if loginTypes != nil {
+		t.Fatalf("expected nil login types, got %#v", loginTypes)
+	}
+}
+
 func TestServiceReturnsRepositoryError(t *testing.T) {
 	service := NewService(&fakeRepository{err: errors.New("mysql down")})
 

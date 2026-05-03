@@ -25,12 +25,12 @@ func TestCORSAllowsConfiguredFrontendPreflight(t *testing.T) {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
-	router.POST("/api/v1/ping", func(c *gin.Context) {
+	router.POST("/api/admin/v1/ping", func(c *gin.Context) {
 		handlerRan = true
 		c.String(http.StatusOK, "pong")
 	})
 
-	request := httptest.NewRequest(http.MethodOptions, "/api/v1/ping", nil)
+	request := httptest.NewRequest(http.MethodOptions, "/api/admin/v1/ping", nil)
 	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	request.Header.Set("Access-Control-Request-Headers", "Authorization, platform, device-id, X-Trace-Id")
@@ -90,3 +90,4 @@ func TestCORSExposesRequestIDOnActualRequest(t *testing.T) {
 		t.Fatalf("expected exposed X-Request-Id, got %q", got)
 	}
 }
+

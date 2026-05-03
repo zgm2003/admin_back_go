@@ -2,6 +2,7 @@ package authplatform
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ type Platform struct {
 	ID            int64  `gorm:"column:id"`
 	Code          string `gorm:"column:code"`
 	Name          string `gorm:"column:name"`
+	LoginTypes    string `gorm:"column:login_types"`
 	BindPlatform  int    `gorm:"column:bind_platform"`
 	BindDevice    int    `gorm:"column:bind_device"`
 	BindIP        int    `gorm:"column:bind_ip"`
@@ -70,4 +72,47 @@ func (s *Service) Policy(ctx context.Context, platform string) (*session.AuthPol
 		AccessTTL:                time.Duration(row.AccessTTL) * time.Second,
 		RefreshTTL:               time.Duration(row.RefreshTTL) * time.Second,
 	}, nil
+}
+
+func (s *Service) LoginTypes(ctx context.Context, platform string) ([]string, error) {
+	if s == nil || s.repository == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+
+	code := strings.TrimSpace(platform)
+	if code == "" {
+		return nil, nil
+	}
+
+	row, err := s.repository.FindActiveByCode(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, nil
+	}
+	return normalizeLoginTypes(row.LoginTypes), nil
+}
+
+func normalizeLoginTypes(raw string) []string {
+	var decoded []string
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return []string{}
+	}
+	allowed := make(map[string]struct{}, len(decoded))
+	for _, value := range decoded {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			allowed[value] = struct{}{}
+		}
+	}
+
+	ordered := []string{"email", "phone", "password"}
+	result := make([]string, 0, len(ordered))
+	for _, value := range ordered {
+		if _, ok := allowed[value]; ok {
+			result = append(result, value)
+		}
+	}
+	return result
 }

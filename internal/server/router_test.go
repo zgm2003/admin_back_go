@@ -15,6 +15,8 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
@@ -32,6 +34,23 @@ func (f fakeReadinessChecker) Readiness(ctx context.Context) readiness.Report {
 
 type fakeAuthService struct{}
 
+func (fakeAuthService) Login(ctx context.Context, input auth.LoginInput) (*session.TokenResult, *apperror.Error) {
+	return &session.TokenResult{
+		AccessToken:      "access-token",
+		RefreshToken:     "refresh-token",
+		ExpiresIn:        14400,
+		RefreshExpiresIn: 1209600,
+	}, nil
+}
+
+func (fakeAuthService) LoginConfig(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
+	return &auth.LoginConfigResponse{
+		LoginTypeArr:   []auth.LoginTypeOption{{Label: "密码登录", Value: auth.LoginTypePassword}},
+		CaptchaEnabled: true,
+		CaptchaType:    captcha.TypeSlide,
+	}, nil
+}
+
 func (fakeAuthService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
 	return &session.TokenResult{
 		AccessToken:      "new-access",
@@ -43,6 +62,24 @@ func (fakeAuthService) Refresh(ctx context.Context, input session.RefreshInput) 
 
 func (fakeAuthService) Logout(ctx context.Context, accessToken string) *apperror.Error {
 	return nil
+}
+
+type fakeCaptchaService struct{}
+
+func (fakeCaptchaService) Generate(ctx context.Context) (*captcha.ChallengeResponse, *apperror.Error) {
+	return &captcha.ChallengeResponse{
+		CaptchaID:   "captcha-id",
+		CaptchaType: captcha.TypeSlide,
+		MasterImage: "data:image/jpeg;base64,master",
+		TileImage:   "data:image/png;base64,tile",
+		TileX:       7,
+		TileY:       53,
+		TileWidth:   62,
+		TileHeight:  62,
+		ImageWidth:  300,
+		ImageHeight: 220,
+		ExpiresIn:   120,
+	}, nil
 }
 
 type fakeRouterUserService struct {
@@ -148,7 +185,7 @@ func TestPingEndpointReturnsPong(t *testing.T) {
 	router := newTestRouter(t, Dependencies{})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/ping", nil)
 	router.ServeHTTP(recorder, request)
 
 	assertRequestID(t, recorder)
@@ -298,7 +335,7 @@ func TestRouterInstallsAuthTokenForNonPublicPaths(t *testing.T) {
 	router := newTestRouter(t, Dependencies{})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/private", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/private", nil)
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusUnauthorized {
@@ -317,7 +354,7 @@ func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
 	router := newTestRouter(t, Dependencies{AuthService: fakeAuthService{}})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 
@@ -328,6 +365,44 @@ func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
 	data := mustRouterData(t, body)
 	if data["access_token"] != "new-access" {
 		t.Fatalf("expected refresh endpoint response, got %#v", data)
+	}
+}
+
+func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
+	router := newTestRouter(t, Dependencies{AuthService: fakeAuthService{}})
+
+	configRecorder := httptest.NewRecorder()
+	configRequest := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth/login-config", nil)
+	configRequest.Header.Set("platform", "admin")
+	router.ServeHTTP(configRecorder, configRequest)
+	if configRecorder.Code != http.StatusOK {
+		t.Fatalf("expected login config status %d, got %d body=%s", http.StatusOK, configRecorder.Code, configRecorder.Body.String())
+	}
+
+	loginRecorder := httptest.NewRecorder()
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRequest.Header.Set("platform", "admin")
+	router.ServeHTTP(loginRecorder, loginRequest)
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("expected login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())
+	}
+}
+
+func TestRouterInstallsCaptchaEndpointAsPublicPath(t *testing.T) {
+	router := newTestRouter(t, Dependencies{CaptchaService: fakeCaptchaService{}})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth/captcha", nil)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected captcha status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	body := decodeRouterBody(t, recorder)
+	data := mustRouterData(t, body)
+	if data["captcha_id"] != "captcha-id" || data["captcha_type"] != captcha.TypeSlide {
+		t.Fatalf("unexpected captcha response: %#v", data)
 	}
 }
 
@@ -352,7 +427,7 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("platform", "admin")
 	request.Header.Set("device-id", "desktop-1")
@@ -398,7 +473,7 @@ func TestRouterInstallsUsersInitAsProtectedRESTPath(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/init", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/init", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("platform", "admin")
 	request.Header.Set("device-id", "desktop-1")
@@ -433,7 +508,7 @@ func TestRouterInstallsPermissionRESTRoutes(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/permissions?platform=admin", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/permissions?platform=admin", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 
@@ -455,7 +530,7 @@ func TestRouterInstallsRoleRESTRoutes(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/roles?current_page=1&page_size=50&name=管理", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/roles?current_page=1&page_size=50&name=管理", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 
@@ -473,7 +548,7 @@ func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
 		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/v1/users/me"): "user:me",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/users/me"): "user:me",
 		},
 		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
 			if input.UserID != 1 || input.Code != "user:me" {
@@ -485,7 +560,7 @@ func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 
@@ -505,7 +580,7 @@ func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
 		OperationRules: map[middleware.RouteKey]middleware.OperationRule{
-			middleware.NewRouteKey(http.MethodGet, "/api/v1/users/me"): {Module: "user", Action: "me", Title: "查看当前用户"},
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/users/me"): {Module: "user", Action: "me", Title: "查看当前用户"},
 		},
 		OperationRecorder: func(ctx context.Context, input middleware.OperationInput) error {
 			got = input
@@ -515,7 +590,7 @@ func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 
@@ -568,3 +643,4 @@ func assertRequestID(t *testing.T, recorder *httptest.ResponseRecorder) {
 		t.Fatalf("expected X-Request-Id header")
 	}
 }
+
