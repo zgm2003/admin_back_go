@@ -35,13 +35,17 @@ func (f fakeReadinessChecker) Readiness(ctx context.Context) readiness.Report {
 
 type fakeAuthService struct{}
 
-func (fakeAuthService) Login(ctx context.Context, input auth.LoginInput) (*session.TokenResult, *apperror.Error) {
-	return &session.TokenResult{
+func (fakeAuthService) Login(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
+	return &auth.LoginResponse{
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
 		ExpiresIn:        14400,
 		RefreshExpiresIn: 1209600,
 	}, nil
+}
+
+func (fakeAuthService) SendCode(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
+	return "验证码发送成功(测试:123456)", nil
 }
 
 func (fakeAuthService) LoginConfig(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {

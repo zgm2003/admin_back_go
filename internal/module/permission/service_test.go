@@ -136,6 +136,60 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 	}
 }
 
+func TestServiceBuildContextButtonGrantImpliesParentPageRoute(t *testing.T) {
+	repo := &fakeRepository{
+		grantedIDs: []int64{3},
+		perms: []Permission{
+			{ID: 1, Name: "权限", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/permission", Sort: 1, ShowMenu: CommonYes},
+			{ID: 2, Name: "菜单", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/permission/menu", Component: "/permission/menu/index", Sort: 2, ShowMenu: CommonYes},
+			{ID: 3, Name: "新增菜单", ParentID: 2, Type: TypeButton, Platform: "admin", Code: "permission_menu_add", Sort: 3},
+		},
+	}
+	svc := NewService(repo, []string{"admin"})
+
+	got, appErr := svc.BuildContextByRole(context.Background(), 7, "admin")
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if !reflect.DeepEqual(got.ButtonCodes, []string{"permission_menu_add"}) {
+		t.Fatalf("buttonCodes mismatch: %#v", got.ButtonCodes)
+	}
+	if len(got.Router) != 1 || got.Router[0].Path != "/permission/menu" {
+		t.Fatalf("button grant must materialize parent page route, got %#v", got.Router)
+	}
+	if len(got.Permissions) != 1 || len(got.Permissions[0].Children) != 1 {
+		t.Fatalf("button grant must materialize parent menu tree, got %#v", got.Permissions)
+	}
+}
+
+func TestServiceBuildContextShowMenuDoesNotRemovePagePermissionTruth(t *testing.T) {
+	repo := &fakeRepository{
+		grantedIDs: []int64{2},
+		perms: []Permission{
+			{ID: 1, Name: "系统", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/system", Sort: 1, ShowMenu: CommonYes},
+			{ID: 2, Name: "隐藏页", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/system/hidden", Component: "/system/hidden/index", Sort: 2, ShowMenu: CommonNo},
+		},
+	}
+	svc := NewService(repo, []string{"admin"})
+
+	got, appErr := svc.BuildContextByRole(context.Background(), 7, "admin")
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if len(got.Router) != 1 || got.Router[0].Path != "/system/hidden" {
+		t.Fatalf("show_menu must not remove page route permission truth, got %#v", got.Router)
+	}
+	if len(got.Permissions) != 1 || len(got.Permissions[0].Children) != 1 {
+		t.Fatalf("expected hidden page to remain in permission tree with show_menu flag, got %#v", got.Permissions)
+	}
+	hidden := got.Permissions[0].Children[0]
+	if hidden.Index != "2" || hidden.ShowMenu != CommonNo {
+		t.Fatalf("expected hidden page show_menu=%d to be preserved, got %#v", CommonNo, hidden)
+	}
+}
+
 func TestServiceBuildContextKeepsChildrenWhenParentSortsBeforeChild(t *testing.T) {
 	svc := NewService(&fakeRepository{
 		grantedIDs: []int64{3},

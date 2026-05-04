@@ -20,6 +20,43 @@ func (UserCredential) TableName() string {
 	return "users"
 }
 
+type DefaultRole struct {
+	ID int64 `gorm:"column:id"`
+}
+
+func (DefaultRole) TableName() string {
+	return "roles"
+}
+
+type CreateUserInput struct {
+	Username string
+	RoleID   int64
+	Email    *string
+	Phone    *string
+}
+
+type CreateProfileInput struct {
+	UserID int64
+	Sex    int
+}
+
+type userCreateRow struct {
+	ID        int64     `gorm:"column:id"`
+	RoleID    int64     `gorm:"column:role_id"`
+	Username  string    `gorm:"column:username"`
+	Email     *string   `gorm:"column:email"`
+	Phone     *string   `gorm:"column:phone"`
+	Password  *string   `gorm:"column:password"`
+	Status    int       `gorm:"column:status"`
+	IsDel     int       `gorm:"column:is_del"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
+
+func (userCreateRow) TableName() string {
+	return "users"
+}
+
 type LoginAttempt struct {
 	UserID       *int64
 	LoginAccount string

@@ -2,12 +2,15 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
+	"admin_back_go/internal/platform/taskqueue"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -16,8 +19,12 @@ type fakeAuthRepository struct {
 	emailQuery string
 	phoneQuery string
 	credential *UserCredential
+	role       *DefaultRole
+	created    CreateUserInput
+	profile    CreateProfileInput
 	attempts   []LoginAttempt
 	err        error
+	txCalled   bool
 }
 
 func (f *fakeAuthRepository) FindCredentialByEmail(ctx context.Context, email string) (*UserCredential, error) {
@@ -35,10 +42,34 @@ func (f *fakeAuthRepository) RecordLoginAttempt(ctx context.Context, attempt Log
 	return f.err
 }
 
+func (f *fakeAuthRepository) WithTx(ctx context.Context, fn func(Repository) error) error {
+	f.txCalled = true
+	return fn(f)
+}
+
+func (f *fakeAuthRepository) FindDefaultRole(ctx context.Context) (*DefaultRole, error) {
+	return f.role, f.err
+}
+
+func (f *fakeAuthRepository) CreateUser(ctx context.Context, input CreateUserInput) (int64, error) {
+	f.created = input
+	return 99, f.err
+}
+
+func (f *fakeAuthRepository) CreateProfile(ctx context.Context, input CreateProfileInput) error {
+	f.profile = input
+	return f.err
+}
+
+func (f *fakeAuthRepository) FindCredentialByID(ctx context.Context, id int64) (*UserCredential, error) {
+	return &UserCredential{ID: id, Status: commonYes, IsDel: commonNo}, f.err
+}
+
 type fakeLoginTypeProvider struct {
-	types       []string
-	captchaType string
-	err         error
+	types         []string
+	captchaType   string
+	allowRegister bool
+	err           error
 }
 
 func (f fakeLoginTypeProvider) LoginTypes(ctx context.Context, platform string) ([]string, error) {
@@ -47,6 +78,10 @@ func (f fakeLoginTypeProvider) LoginTypes(ctx context.Context, platform string) 
 
 func (f fakeLoginTypeProvider) CaptchaType(ctx context.Context, platform string) (string, error) {
 	return f.captchaType, f.err
+}
+
+func (f fakeLoginTypeProvider) AllowRegister(ctx context.Context, platform string) (bool, error) {
+	return f.allowRegister, f.err
 }
 
 type fakeSessionCreator struct {
@@ -78,7 +113,53 @@ func (f *fakeCaptchaVerifier) Verify(ctx context.Context, input captcha.VerifyIn
 	return f.err
 }
 
-func TestServiceLoginConfigReturnsImplementedPasswordOnly(t *testing.T) {
+type fakeCodeStore struct {
+	values  map[string]string
+	setKey  string
+	setCode string
+	setTTL  time.Duration
+	deleted string
+	err     error
+}
+
+func (f *fakeCodeStore) Set(ctx context.Context, key string, code string, ttl time.Duration) error {
+	f.setKey = key
+	f.setCode = code
+	f.setTTL = ttl
+	if f.values == nil {
+		f.values = map[string]string{}
+	}
+	f.values[key] = code
+	return f.err
+}
+
+func (f *fakeCodeStore) Get(ctx context.Context, key string) (string, error) {
+	if f.values == nil {
+		return "", f.err
+	}
+	return f.values[key], f.err
+}
+
+func (f *fakeCodeStore) Delete(ctx context.Context, key string) error {
+	f.deleted = key
+	delete(f.values, key)
+	return f.err
+}
+
+type fakeLoginLogEnqueuer struct {
+	tasks []taskqueue.Task
+	err   error
+}
+
+func (f *fakeLoginLogEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
+	f.tasks = append(f.tasks, task)
+	if f.err != nil {
+		return taskqueue.EnqueueResult{}, f.err
+	}
+	return taskqueue.EnqueueResult{ID: "task-id", Queue: task.Queue, Type: task.Type}, nil
+}
+
+func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
 	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: captcha.TypeSlide}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
 
 	result, appErr := service.LoginConfig(context.Background(), "admin")
@@ -86,8 +167,14 @@ func TestServiceLoginConfigReturnsImplementedPasswordOnly(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected login config to succeed, got %v", appErr)
 	}
-	if len(result.LoginTypeArr) != 1 || result.LoginTypeArr[0].Value != LoginTypePassword {
-		t.Fatalf("expected password-only config, got %#v", result.LoginTypeArr)
+	want := []string{LoginTypeEmail, LoginTypePhone, LoginTypePassword}
+	if len(result.LoginTypeArr) != len(want) {
+		t.Fatalf("expected configured login types %v, got %#v", want, result.LoginTypeArr)
+	}
+	for i, value := range want {
+		if result.LoginTypeArr[i].Value != value {
+			t.Fatalf("expected login type %s at index %d, got %#v", value, i, result.LoginTypeArr)
+		}
 	}
 	if !result.CaptchaEnabled || result.CaptchaType != captcha.TypeSlide {
 		t.Fatalf("expected slide captcha config, got %#v", result)
@@ -147,6 +234,90 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 	}
 }
 
+func TestServiceLoginEnqueuesSuccessfulLoginLogWhenProducerConfigured(t *testing.T) {
+	hash := phpBcryptHash(t, "123456")
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:           1,
+		PasswordHash: hash,
+		Status:       commonYes,
+		IsDel:        commonNo,
+	}}
+	enqueuer := &fakeLoginLogEnqueuer{}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{"password"}},
+		&fakeSessionCreator{result: &session.TokenResult{AccessToken: "access-token", RefreshToken: "refresh-token"}},
+		&fakeCaptchaVerifier{},
+		WithLoginLogEnqueuer(enqueuer),
+	)
+
+	_, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount:  "15671628271",
+		LoginType:     LoginTypePassword,
+		Password:      "123456",
+		CaptchaID:     "captcha-id",
+		CaptchaAnswer: &captcha.Answer{X: 120, Y: 80},
+		Platform:      "admin",
+		ClientIP:      "127.0.0.1",
+		UserAgent:     "test-agent",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected login to succeed, got %v", appErr)
+	}
+	if len(repo.attempts) != 0 {
+		t.Fatalf("expected async queue path instead of sync repository write, got %#v", repo.attempts)
+	}
+	if len(enqueuer.tasks) != 1 {
+		t.Fatalf("expected one login log task, got %#v", enqueuer.tasks)
+	}
+	task := enqueuer.tasks[0]
+	if task.Type != TypeAuthLoginLogV1 || task.Queue != taskqueue.QueueCritical {
+		t.Fatalf("unexpected login log task metadata: %#v", task)
+	}
+	attempt, err := DecodeLoginLogPayload(task.Payload)
+	if err != nil {
+		t.Fatalf("decode login log payload: %v", err)
+	}
+	if attempt.UserID == nil || *attempt.UserID != 1 || attempt.IsSuccess != commonYes || attempt.Reason != "" {
+		t.Fatalf("unexpected login log payload: %#v", attempt)
+	}
+}
+
+func TestServiceLoginFallsBackToSyncLoginLogWhenEnqueueFails(t *testing.T) {
+	hash := phpBcryptHash(t, "123456")
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:           1,
+		PasswordHash: hash,
+		Status:       commonYes,
+		IsDel:        commonNo,
+	}}
+	enqueuer := &fakeLoginLogEnqueuer{err: errors.New("redis down")}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{"password"}},
+		&fakeSessionCreator{result: &session.TokenResult{AccessToken: "access-token", RefreshToken: "refresh-token"}},
+		&fakeCaptchaVerifier{},
+		WithLoginLogEnqueuer(enqueuer),
+	)
+
+	_, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount:  "15671628271",
+		LoginType:     LoginTypePassword,
+		Password:      "123456",
+		CaptchaID:     "captcha-id",
+		CaptchaAnswer: &captcha.Answer{X: 120, Y: 80},
+		Platform:      "admin",
+	})
+
+	if appErr != nil {
+		t.Fatalf("login must not fail because login-log enqueue fails, got %v", appErr)
+	}
+	if len(repo.attempts) != 1 || repo.attempts[0].IsSuccess != commonYes {
+		t.Fatalf("expected sync fallback login log, got %#v", repo.attempts)
+	}
+}
+
 func TestServiceLoginRejectsWrongPasswordAndLogsFailure(t *testing.T) {
 	hash := phpBcryptHash(t, "123456")
 	repo := &fakeAuthRepository{credential: &UserCredential{
@@ -181,6 +352,53 @@ func TestServiceLoginRejectsWrongPasswordAndLogsFailure(t *testing.T) {
 	}
 	if captchaVerifier.input.ID != "captcha-id" {
 		t.Fatalf("expected captcha to be verified before password check, got %#v", captchaVerifier.input)
+	}
+}
+
+func TestServiceLoginRejectsWrongPasswordAndEnqueuesFailure(t *testing.T) {
+	hash := phpBcryptHash(t, "123456")
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:           1,
+		PasswordHash: hash,
+		Status:       commonYes,
+		IsDel:        commonNo,
+	}}
+	enqueuer := &fakeLoginLogEnqueuer{}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{"password"}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithLoginLogEnqueuer(enqueuer),
+	)
+
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount:  "15671628271",
+		LoginType:     LoginTypePassword,
+		Password:      "bad-password",
+		CaptchaID:     "captcha-id",
+		CaptchaAnswer: &captcha.Answer{X: 120, Y: 80},
+		Platform:      "admin",
+	})
+
+	if result != nil {
+		t.Fatalf("expected nil result, got %#v", result)
+	}
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("expected wrong password error, got %#v", appErr)
+	}
+	if len(repo.attempts) != 0 {
+		t.Fatalf("expected queue path instead of sync repository write, got %#v", repo.attempts)
+	}
+	if len(enqueuer.tasks) != 1 {
+		t.Fatalf("expected one failed login task, got %#v", enqueuer.tasks)
+	}
+	attempt, err := DecodeLoginLogPayload(enqueuer.tasks[0].Payload)
+	if err != nil {
+		t.Fatalf("decode login log payload: %v", err)
+	}
+	if attempt.UserID == nil || *attempt.UserID != 1 || attempt.IsSuccess != commonNo || attempt.Reason != "wrong_password" {
+		t.Fatalf("unexpected wrong password payload: %#v", attempt)
 	}
 }
 
@@ -242,6 +460,165 @@ func TestServiceLoginRejectsInvalidCaptchaBeforeCredentialLookup(t *testing.T) {
 	}
 	if repo.phoneQuery != "" {
 		t.Fatalf("expected credential lookup to be skipped, got %q", repo.phoneQuery)
+	}
+}
+
+func TestServiceSendCodeStoresLocalPhoneLoginCode(t *testing.T) {
+	store := &fakeCodeStore{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), SendCodeInput{
+		Account: "15671628271",
+		Scene:   VerifyCodeSceneLogin,
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected send code to succeed, got %v", appErr)
+	}
+	if message != "验证码发送成功(测试:123456)" {
+		t.Fatalf("unexpected send message %q", message)
+	}
+	if store.setCode != "123456" || store.setTTL != 5*time.Minute {
+		t.Fatalf("unexpected code store write: code=%q ttl=%s", store.setCode, store.setTTL)
+	}
+	if store.setKey != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" {
+		t.Fatalf("unexpected verify code key %q", store.setKey)
+	}
+}
+
+func TestServicePhoneCodeLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	repo := &fakeAuthRepository{role: &DefaultRole{ID: 7}}
+	sessions := &fakeSessionCreator{result: &session.TokenResult{
+		AccessToken:      "access-token",
+		RefreshToken:     "refresh-token",
+		ExpiresIn:        14400,
+		RefreshExpiresIn: 1209600,
+	}}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}, allowRegister: true},
+		sessions,
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+	)
+
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePhone,
+		Code:         "123456",
+		Platform:     "admin",
+		DeviceID:     "device-1",
+		ClientIP:     "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected phone code login to succeed, got %v", appErr)
+	}
+	if result.AccessToken != "access-token" || !result.IsNewUser {
+		t.Fatalf("unexpected login result: %#v", result)
+	}
+	if !repo.txCalled || repo.created.RoleID != 7 || repo.created.Phone == nil || *repo.created.Phone != "15671628271" || repo.created.Email != nil {
+		t.Fatalf("unexpected auto register input: tx=%v created=%#v", repo.txCalled, repo.created)
+	}
+	if repo.profile.UserID != 99 || repo.profile.Sex != 0 {
+		t.Fatalf("unexpected profile input: %#v", repo.profile)
+	}
+	if store.deleted != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" {
+		t.Fatalf("expected verify code to be consumed, got deleted key %q", store.deleted)
+	}
+	if sessions.input.UserID != 99 || sessions.input.Platform != "admin" {
+		t.Fatalf("unexpected session input: %#v", sessions.input)
+	}
+}
+
+func TestServiceCodeLoginRejectsRegisterWhenPlatformDisallowsIt(t *testing.T) {
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	repo := &fakeAuthRepository{role: &DefaultRole{ID: 7}}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}, allowRegister: false},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+	)
+
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePhone,
+		Code:         "123456",
+		Platform:     "admin",
+	})
+
+	if result != nil {
+		t.Fatalf("expected nil result, got %#v", result)
+	}
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "暂未开放注册" {
+		t.Fatalf("expected register disabled error, got %#v", appErr)
+	}
+	if store.deleted != "" {
+		t.Fatalf("verify code must not be consumed when register is denied, got %q", store.deleted)
+	}
+	if repo.txCalled {
+		t.Fatalf("registration transaction should not run when register is denied")
+	}
+}
+
+func TestServiceCodeLoginRejectsInvalidCodeAndEnqueuesFailure(t *testing.T) {
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "654321",
+	}}
+	repo := &fakeAuthRepository{}
+	enqueuer := &fakeLoginLogEnqueuer{}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}, allowRegister: true},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+		WithLoginLogEnqueuer(enqueuer),
+	)
+
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePhone,
+		Code:         "123456",
+		Platform:     "admin",
+	})
+
+	if result != nil {
+		t.Fatalf("expected nil result, got %#v", result)
+	}
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("expected invalid code error, got %#v", appErr)
+	}
+	if len(repo.attempts) != 0 {
+		t.Fatalf("expected queue path instead of sync repository write, got %#v", repo.attempts)
+	}
+	if len(enqueuer.tasks) != 1 {
+		t.Fatalf("expected one invalid-code login task, got %#v", enqueuer.tasks)
+	}
+	attempt, err := DecodeLoginLogPayload(enqueuer.tasks[0].Payload)
+	if err != nil {
+		t.Fatalf("decode login log payload: %v", err)
+	}
+	if attempt.UserID != nil || attempt.IsSuccess != commonNo || attempt.Reason != "invalid_code" {
+		t.Fatalf("unexpected invalid code payload: %#v", attempt)
 	}
 }
 

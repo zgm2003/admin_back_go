@@ -8,15 +8,16 @@ import (
 )
 
 type Config struct {
-	App       AppConfig
-	HTTP      HTTPConfig
-	MySQL     MySQLConfig
-	Redis     RedisConfig
-	Token     TokenConfig
-	Captcha   CaptchaConfig
-	Queue     QueueConfig
-	Scheduler SchedulerConfig
-	CORS      CORSConfig
+	App        AppConfig
+	HTTP       HTTPConfig
+	MySQL      MySQLConfig
+	Redis      RedisConfig
+	Token      TokenConfig
+	Captcha    CaptchaConfig
+	VerifyCode VerifyCodeConfig
+	Queue      QueueConfig
+	Scheduler  SchedulerConfig
+	CORS       CORSConfig
 }
 
 type AppConfig struct {
@@ -56,6 +57,13 @@ type CaptchaConfig struct {
 	TTL          time.Duration
 	RedisPrefix  string
 	SlidePadding int
+}
+
+type VerifyCodeConfig struct {
+	TTL         time.Duration
+	RedisPrefix string
+	DevMode     bool
+	DevCode     string
 }
 
 type QueueConfig struct {
@@ -126,6 +134,12 @@ func Load() Config {
 			TTL:          envDuration("CAPTCHA_TTL", 2*time.Minute),
 			RedisPrefix:  envString("CAPTCHA_REDIS_PREFIX", "captcha:slide:"),
 			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 10),
+		},
+		VerifyCode: VerifyCodeConfig{
+			TTL:         envDuration("VERIFY_CODE_TTL", 5*time.Minute),
+			RedisPrefix: envString("VERIFY_CODE_REDIS_PREFIX", "auth:verify_code:"),
+			DevMode:     envBool("VERIFY_CODE_DEV_MODE", strings.EqualFold(envString("APP_ENV", "local"), "local")),
+			DevCode:     envString("VERIFY_CODE_DEV_CODE", "123456"),
 		},
 		Queue: QueueConfig{
 			Enabled:         envBool("QUEUE_ENABLED", true),

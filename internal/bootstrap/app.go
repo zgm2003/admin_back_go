@@ -16,16 +16,18 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
 )
 
 const shutdownTimeout = 5 * time.Second
 
 type App struct {
-	cfg       config.Config
-	logger    *slog.Logger
-	server    *http.Server
-	resources *Resources
+	cfg         config.Config
+	logger      *slog.Logger
+	server      *http.Server
+	resources   *Resources
+	queueClient *taskqueue.Client
 }
 
 func New(cfg config.Config, logger *slog.Logger) *App {
@@ -43,6 +45,17 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 
 	sessionAuthenticator := NewSessionAuthenticator(resources, cfg)
 	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
+	var loginLogEnqueuer taskqueue.Enqueuer
+	var queueClient *taskqueue.Client
+	if cfg.Queue.Enabled {
+		client, err := taskqueue.NewClient(cfg.Redis, cfg.Queue)
+		if err != nil {
+			logger.Error("failed to initialize login log queue producer", "error", err)
+		} else {
+			queueClient = client
+			loginLogEnqueuer = client
+		}
+	}
 	var captchaService *captcha.Service
 	captchaEngine, captchaErr := captcha.NewSlideEngine()
 	if captchaErr != nil {
@@ -60,6 +73,15 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		authPlatformService,
 		sessionAuthenticator,
 		captchaService,
+		auth.WithCodeStore(auth.NewRedisCodeStore(resources.Redis)),
+		auth.WithVerifyCodeOptions(auth.VerifyCodeOptions{
+			TTL:         cfg.VerifyCode.TTL,
+			RedisPrefix: cfg.VerifyCode.RedisPrefix,
+			DevMode:     cfg.VerifyCode.DevMode,
+			DevCode:     cfg.VerifyCode.DevCode,
+		}),
+		auth.WithLoginLogEnqueuer(loginLogEnqueuer),
+		auth.WithLogger(logger),
 	)
 	buttonGrantCache := permission.NewRedisButtonGrantCache(resources.Redis)
 	permissionService := permission.NewService(
@@ -107,9 +129,10 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthPlatformService: authPlatformService,
 	})
 	return &App{
-		cfg:       cfg,
-		logger:    logger,
-		resources: resources,
+		cfg:         cfg,
+		logger:      logger,
+		resources:   resources,
+		queueClient: queueClient,
 		server: &http.Server{
 			Addr:              cfg.HTTP.Addr,
 			Handler:           router,
@@ -134,6 +157,7 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 
 	shutdownErr := a.server.Shutdown(ctx)
+	queueErr := a.queueClient.Close()
 	resourceErr := a.resources.Close()
-	return errors.Join(shutdownErr, resourceErr)
+	return errors.Join(shutdownErr, queueErr, resourceErr)
 }

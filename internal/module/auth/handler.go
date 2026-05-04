@@ -14,7 +14,8 @@ import (
 )
 
 type SessionService interface {
-	Login(ctx context.Context, input LoginInput) (*session.TokenResult, *apperror.Error)
+	Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error)
+	SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error)
 	LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error)
 	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
 	Logout(ctx context.Context, accessToken string) *apperror.Error
@@ -69,6 +70,27 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func (h *Handler) SendCode(c *gin.Context) {
+	if h.service == nil {
+		response.Error(c, apperror.Unauthorized("登录服务未配置"))
+		return
+	}
+	var req SendCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("验证码参数错误"))
+		return
+	}
+	message, appErr := h.service.SendCode(c.Request.Context(), SendCodeInput{
+		Account: req.Account,
+		Scene:   req.Scene,
+	})
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OKWithMessage(c, gin.H{}, message)
 }
 
 func (h *Handler) Refresh(c *gin.Context) {

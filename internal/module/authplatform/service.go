@@ -114,6 +114,18 @@ func (s *Service) CaptchaType(ctx context.Context, platform string) (string, err
 	return captchaType, nil
 }
 
+func (s *Service) AllowRegister(ctx context.Context, platform string) (bool, error) {
+	if s == nil || s.repository == nil {
+		return false, ErrRepositoryNotConfigured
+	}
+
+	row, err := s.activePlatform(ctx, platform)
+	if err != nil || row == nil {
+		return false, err
+	}
+	return row.AllowRegister == enum.CommonYes, nil
+}
+
 func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
 		CommonStatusArr:            dict.CommonStatusOptions(),

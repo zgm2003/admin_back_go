@@ -13,3 +13,7 @@ func validateAuthPlatformLoginType(fl playground.FieldLevel) bool {
 func validateCaptchaType(fl playground.FieldLevel) bool {
 	return enum.IsCaptchaType(trimmedString(fl.Field()))
 }
+
+func validateVerifyCodeScene(fl playground.FieldLevel) bool {
+	return enum.IsVerifyCodeScene(trimmedString(fl.Field()))
+}

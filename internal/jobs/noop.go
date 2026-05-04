@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -14,7 +15,8 @@ const TypeSystemNoopV1 = "system:no-op:v1"
 
 // Dependencies are shared job handler dependencies.
 type Dependencies struct {
-	Logger *slog.Logger
+	Logger         *slog.Logger
+	AuthRepository auth.Repository
 }
 
 // NoopPayload is the payload for the system no-op probe task.
@@ -39,6 +41,7 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 		logger.InfoContext(ctx, "processed noop task", "type", task.Type, "message", payload.Message)
 		return nil
 	})
+	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
 }
 
 // NewNoopTask builds a versioned queue probe task.

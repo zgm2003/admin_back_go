@@ -17,8 +17,11 @@ import (
 
 type fakeSessionService struct {
 	loginInput     LoginInput
-	loginResult    *session.TokenResult
+	loginResult    *LoginResponse
 	loginErr       *apperror.Error
+	sendCodeInput  SendCodeInput
+	sendCodeMsg    string
+	sendCodeErr    *apperror.Error
 	configPlatform string
 	configResult   *LoginConfigResponse
 	configErr      *apperror.Error
@@ -29,9 +32,14 @@ type fakeSessionService struct {
 	logoutErr      *apperror.Error
 }
 
-func (f *fakeSessionService) Login(ctx context.Context, input LoginInput) (*session.TokenResult, *apperror.Error) {
+func (f *fakeSessionService) Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error) {
 	f.loginInput = input
 	return f.loginResult, f.loginErr
+}
+
+func (f *fakeSessionService) SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error) {
+	f.sendCodeInput = input
+	return f.sendCodeMsg, f.sendCodeErr
 }
 
 func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error) {
@@ -96,8 +104,29 @@ func TestHandlerLoginConfigUsesPlatformHeader(t *testing.T) {
 	}
 }
 
+func TestHandlerSendCodeUsesGoRestContract(t *testing.T) {
+	service := &fakeSessionService{sendCodeMsg: "验证码发送成功(测试:123456)"}
+	router := newAuthTestRouter(service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/send-code", strings.NewReader(`{"account":"15671628271","scene":"login"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.sendCodeInput.Account != "15671628271" || service.sendCodeInput.Scene != VerifyCodeSceneLogin {
+		t.Fatalf("unexpected send code input: %#v", service.sendCodeInput)
+	}
+	body := decodeAuthBody(t, recorder)
+	if body["msg"] != "验证码发送成功(测试:123456)" {
+		t.Fatalf("unexpected send-code message: %#v", body)
+	}
+}
+
 func TestHandlerLoginReturnsTokenResult(t *testing.T) {
-	service := &fakeSessionService{loginResult: &session.TokenResult{
+	service := &fakeSessionService{loginResult: &LoginResponse{
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
 		ExpiresIn:        14400,
@@ -132,6 +161,35 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	data := body["data"].(map[string]any)
 	if data["access_token"] != "access-token" || data["refresh_token"] != "refresh-token" {
 		t.Fatalf("unexpected token response: %#v", data)
+	}
+}
+
+func TestHandlerCodeLoginDoesNotRequirePasswordCaptchaFields(t *testing.T) {
+	service := &fakeSessionService{loginResult: &LoginResponse{
+		AccessToken:      "access-token",
+		RefreshToken:     "refresh-token",
+		ExpiresIn:        14400,
+		RefreshExpiresIn: 1209600,
+		IsNewUser:        true,
+	}}
+	router := newAuthTestRouter(service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"phone","code":"123456"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("platform", "admin")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.loginInput.LoginType != LoginTypePhone || service.loginInput.Code != "123456" || service.loginInput.Password != "" || service.loginInput.CaptchaID != "" || service.loginInput.CaptchaAnswer != nil {
+		t.Fatalf("unexpected code login input: %#v", service.loginInput)
+	}
+	body := decodeAuthBody(t, recorder)
+	data := body["data"].(map[string]any)
+	if data["is_new_user"] != true {
+		t.Fatalf("expected is_new_user true, got %#v", data)
 	}
 }
 

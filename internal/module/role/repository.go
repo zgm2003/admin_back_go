@@ -355,24 +355,14 @@ func (r *GormRepository) SyncPermissions(ctx context.Context, roleID int64, perm
 	}
 	currentIDs := normalizeIDs(currentMap[roleID])
 	nextIDs := normalizeIDs(permissionIDs)
-	currentSet := idSet(currentIDs)
-	nextSet := idSet(nextIDs)
+	toAdd, toRemove := diffRolePermissionIDs(currentIDs, nextIDs)
 
-	for _, permissionID := range nextIDs {
-		if _, ok := currentSet[permissionID]; ok {
-			continue
-		}
+	for _, permissionID := range toAdd {
 		if err := r.bindOrRestore(ctx, roleID, permissionID); err != nil {
 			return err
 		}
 	}
 
-	toRemove := make([]int64, 0)
-	for _, permissionID := range currentIDs {
-		if _, ok := nextSet[permissionID]; !ok {
-			toRemove = append(toRemove, permissionID)
-		}
-	}
 	if len(toRemove) == 0 {
 		return nil
 	}
@@ -382,6 +372,29 @@ func (r *GormRepository) SyncPermissions(ctx context.Context, roleID int64, perm
 		Where("permission_id IN ?", toRemove).
 		Where("is_del = ?", permission.CommonNo).
 		Update("is_del", permission.CommonYes).Error
+}
+
+func diffRolePermissionIDs(currentIDs []int64, nextIDs []int64) ([]int64, []int64) {
+	currentIDs = normalizeIDs(currentIDs)
+	nextIDs = normalizeIDs(nextIDs)
+	currentSet := idSet(currentIDs)
+	nextSet := idSet(nextIDs)
+
+	toAdd := make([]int64, 0)
+	for _, permissionID := range nextIDs {
+		if _, ok := currentSet[permissionID]; !ok {
+			toAdd = append(toAdd, permissionID)
+		}
+	}
+
+	toRemove := make([]int64, 0)
+	for _, permissionID := range currentIDs {
+		if _, ok := nextSet[permissionID]; !ok {
+			toRemove = append(toRemove, permissionID)
+		}
+	}
+
+	return toAdd, toRemove
 }
 
 func (r *GormRepository) DeleteRolePermissionsByRoleIDs(ctx context.Context, roleIDs []int64) error {

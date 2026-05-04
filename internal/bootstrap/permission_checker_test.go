@@ -112,6 +112,25 @@ func TestPermissionCheckerDoesNotFallbackWhenUserLookupFails(t *testing.T) {
 	}
 }
 
+func TestPermissionCheckerRejectsMissingUserWithoutBuildingContext(t *testing.T) {
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
+	checker := PermissionCheckerFor(
+		&fakePermissionUserRepository{user: nil, role: &user.Role{ID: 7, Name: "管理员"}},
+		builder,
+		nil,
+		0,
+	)
+
+	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 1, Platform: "admin", Code: "permission_permission_add"})
+
+	if appErr == nil || appErr.Code != apperror.CodeUnauthorized {
+		t.Fatalf("expected unauthorized, got %#v", appErr)
+	}
+	if builder.called {
+		t.Fatalf("expected permission builder to be skipped when user is missing")
+	}
+}
+
 func TestPermissionCheckerRejectsMissingRoleWithoutBuildingContext(t *testing.T) {
 	repo := &fakePermissionUserRepository{user: &user.User{ID: 1, RoleID: 7}, role: nil}
 	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
@@ -127,6 +146,49 @@ func TestPermissionCheckerRejectsMissingRoleWithoutBuildingContext(t *testing.T)
 	}
 	if builder.called {
 		t.Fatalf("expected permission builder to be skipped when role is missing")
+	}
+}
+
+func TestPermissionCheckerFallsBackToPermissionBuilderWhenCacheGetFails(t *testing.T) {
+	cache := &fakePermissionButtonCache{getErr: errors.New("redis down")}
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
+	checker := PermissionCheckerFor(
+		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
+		builder,
+		cache,
+		time.Minute,
+	)
+
+	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 12, Platform: "admin", Code: "permission_permission_add"})
+
+	if appErr != nil {
+		t.Fatalf("expected permission allowed after cache error fallback, got %v", appErr)
+	}
+	if !builder.called {
+		t.Fatalf("expected permission builder to run when cache get fails")
+	}
+	if cache.getKey != "auth_perm_uid_12_admin_rbac_page_grants" || cache.setKey != "auth_perm_uid_12_admin_rbac_page_grants" {
+		t.Fatalf("cache keys mismatch: get=%q set=%q", cache.getKey, cache.setKey)
+	}
+}
+
+func TestPermissionCheckerFailsClosedWhenPermissionBuilderFails(t *testing.T) {
+	builderErr := apperror.Internal("权限上下文计算失败")
+	builder := &fakePermissionContextBuilder{err: builderErr}
+	checker := PermissionCheckerFor(
+		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
+		builder,
+		nil,
+		time.Minute,
+	)
+
+	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 12, Platform: "admin", Code: "permission_permission_add"})
+
+	if appErr != builderErr {
+		t.Fatalf("expected builder error to be returned, got %#v", appErr)
+	}
+	if !builder.called {
+		t.Fatalf("expected permission builder to run")
 	}
 }
 

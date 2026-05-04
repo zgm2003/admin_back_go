@@ -67,6 +67,68 @@ function Assert-PortFree([string]$Addr) {
   }
 }
 
+function Assert-ApiOK($Response, [string]$Label) {
+  if ($Response.code -ne 0) {
+    throw "$Label failed: $($Response | ConvertTo-Json -Depth 12)"
+  }
+}
+
+function New-SmokePermission([string]$BaseURL, [hashtable]$Headers, [hashtable]$Body, [string]$Label) {
+  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/permissions" `
+    -Method Post `
+    -Headers $Headers `
+    -ContentType 'application/json' `
+    -Body ($Body | ConvertTo-Json -Depth 8) `
+    -TimeoutSec 10
+
+  Assert-ApiOK $response $Label
+  if ($response.data.id -le 0) {
+    throw "$Label returned invalid id: $($response | ConvertTo-Json -Depth 12)"
+  }
+  return [int64]$response.data.id
+}
+
+function Get-ObjectArray($Value) {
+  if ($null -eq $Value) { return @() }
+  return @($Value)
+}
+
+function Get-Int64Array($Value) {
+  $result = New-Object System.Collections.Generic.List[Int64]
+  foreach ($item in (Get-ObjectArray $Value)) {
+    if ($null -eq $item) { continue }
+    $result.Add([int64]$item)
+  }
+  return @($result.ToArray())
+}
+
+function Merge-Int64Array([Int64[]]$Left, [Int64[]]$Right) {
+  $seen = @{}
+  $result = New-Object System.Collections.Generic.List[Int64]
+  foreach ($item in @($Left + $Right)) {
+    if ($item -le 0) { continue }
+    $key = [string]$item
+    if ($seen.ContainsKey($key)) { continue }
+    $seen[$key] = $true
+    $result.Add($item)
+  }
+  return @($result.ToArray() | Sort-Object)
+}
+
+function Test-RoutePath($Routes, [string]$Path) {
+  foreach ($route in (Get-ObjectArray $Routes)) {
+    if ($route.path -eq $Path) { return $true }
+  }
+  return $false
+}
+
+function Test-StringListContains($Values, [string]$Expected) {
+  foreach ($value in (Get-ObjectArray $Values)) {
+    if ([string]$value -eq $Expected) { return $true }
+  }
+  return $false
+}
+
 Import-DotEnv (Join-Path $BackendRoot '.env')
 
 if ([string]::IsNullOrWhiteSpace($Account) -or [string]::IsNullOrWhiteSpace($Password)) {
@@ -77,19 +139,34 @@ Assert-PortFree $HTTPAddr
 
 New-Item -ItemType Directory -Force .tmp | Out-Null
 $serverExe = '.tmp/admin-api-smoke.exe'
+$workerExe = '.tmp/admin-worker-smoke.exe'
 $secretReader = '.tmp/read-captcha-secret.go'
+$loginLogReader = '.tmp/read-login-log-count.go'
 $outLog = '.tmp/basic-admin-smoke-out.log'
 $errLog = '.tmp/basic-admin-smoke-err.log'
+$workerOutLog = '.tmp/basic-admin-worker-smoke-out.log'
+$workerErrLog = '.tmp/basic-admin-worker-smoke-err.log'
 $completed = $false
-$createdPermissionID = $null
 $authHeaders = $null
 $baseURL = $null
+$workerProc = $null
+$createdPermissionIDs = New-Object System.Collections.Generic.List[Int64]
+$smokeRole = $null
+$originalRolePermissionIDs = $null
+$roleRestored = $false
 
-Remove-Item -Force $serverExe, $secretReader, $outLog, $errLog -ErrorAction SilentlyContinue
+Remove-Item -Force $serverExe, $workerExe, $secretReader, $loginLogReader, $outLog, $errLog, $workerOutLog, $workerErrLog -ErrorAction SilentlyContinue
 
 go build -o $serverExe ./cmd/admin-api
+go build -o $workerExe ./cmd/admin-worker
 
 $env:HTTP_ADDR = $HTTPAddr
+$workerProc = Start-Process -FilePath (Resolve-Path $workerExe) `
+  -PassThru `
+  -WindowStyle Hidden `
+  -RedirectStandardOutput $workerOutLog `
+  -RedirectStandardError $workerErrLog
+
 $proc = Start-Process -FilePath (Resolve-Path $serverExe) `
   -PassThru `
   -WindowStyle Hidden `
@@ -104,6 +181,44 @@ try {
   $loginConfig = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login-config" `
     -Headers @{ platform = $Platform } `
     -TimeoutSec 5
+
+  $verifyCode = if ([string]::IsNullOrWhiteSpace($env:VERIFY_CODE_DEV_CODE)) { '123456' } else { $env:VERIFY_CODE_DEV_CODE }
+  $sendCodeBody = @{
+    account = $Account
+    scene = 'login'
+  } | ConvertTo-Json -Depth 4
+  $sendCode = Invoke-RestMethod "$baseURL/api/admin/v1/auth/send-code" `
+    -Method Post `
+    -ContentType 'application/json' `
+    -Body $sendCodeBody `
+    -TimeoutSec 10
+
+  if ($sendCode.code -ne 0) {
+    throw "send-code failed: $($sendCode | ConvertTo-Json -Depth 8)"
+  }
+
+  $codeLoginType = if ($Account -match '^[^@\s]+@[^@\s]+\.[^@\s]+$') { 'email' } else { 'phone' }
+  $codeLoginBody = @{
+    login_account = $Account
+    login_type = $codeLoginType
+    code = $verifyCode
+  } | ConvertTo-Json -Depth 4
+  $codeLogin = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
+    -Method Post `
+    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code" } `
+    -ContentType 'application/json' `
+    -Body $codeLoginBody `
+    -TimeoutSec 10
+
+  if ($codeLogin.code -ne 0 -or [string]::IsNullOrWhiteSpace($codeLogin.data.access_token)) {
+    throw "code login failed: $($codeLogin | ConvertTo-Json -Depth 8)"
+  }
+
+  Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" `
+    -Method Post `
+    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code"; Authorization = "Bearer $($codeLogin.data.access_token)" } `
+    -TimeoutSec 10 | Out-Null
+
   $captcha = Invoke-RestMethod "$baseURL/api/admin/v1/auth/captcha" -TimeoutSec 10
 
   if ($captcha.code -ne 0 -or [string]::IsNullOrWhiteSpace($captcha.data.captcha_id)) {
@@ -198,55 +313,186 @@ func main() {
     Authorization = "Bearer $($login.data.access_token)"
   }
 
+  @"
+package main
+
+import (
+  "context"
+  "database/sql"
+  "fmt"
+  "os"
+  "time"
+
+  "admin_back_go/internal/config"
+
+  _ "github.com/go-sql-driver/mysql"
+)
+
+func main() {
+  if len(os.Args) != 3 {
+    fmt.Fprintln(os.Stderr, "usage: read-login-log-count <account> <platform>")
+    os.Exit(2)
+  }
+
+  cfg := config.Load()
+  if cfg.MySQL.DSN == "" {
+    fmt.Fprintln(os.Stderr, "MYSQL_DSN is empty")
+    os.Exit(2)
+  }
+
+  db, err := sql.Open("mysql", cfg.MySQL.DSN)
+  if err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+  defer db.Close()
+
+  ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+  defer cancel()
+
+  var count int
+  query := "SELECT COUNT(*) FROM users_login_log WHERE login_account = ? AND platform = ? AND is_del = 2 AND created_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)"
+  err = db.QueryRowContext(ctx, query, os.Args[1], os.Args[2]).Scan(&count)
+  if err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+  fmt.Print(count)
+}
+"@ | Set-Content -LiteralPath $loginLogReader -Encoding UTF8
+
+  $loginLogCount = 0
+  for ($i = 0; $i -lt 20; $i++) {
+    $loginLogCount = [int](go run $loginLogReader $Account $Platform)
+    if ($loginLogCount -ge 2) { break }
+    Start-Sleep -Milliseconds 300
+  }
+  if ($loginLogCount -lt 2) {
+    throw "login log count is too low, expected >= 2 within 5 minutes, got $loginLogCount"
+  }
+
   $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
   $init = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
   $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/init" -Headers $authHeaders -TimeoutSec 10
   $authPlatformList = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms?current_page=1&page_size=50" -Headers $authHeaders -TimeoutSec 10
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-  $permissionBody = @{
+  $dirBody = @{
     platform = $Platform
     type = 1
-    name = "Codex Smoke $permissionSuffix"
+    name = "Codex Smoke DIR $permissionSuffix"
     parent_id = 0
     icon = ''
     path = ''
     component = ''
-    i18n_key = "menu.codex_smoke_$permissionSuffix"
+    i18n_key = "menu.codex_smoke_dir_$permissionSuffix"
     code = ''
     sort = 999
     show_menu = 2
+  }
+  $dirPermissionID = New-SmokePermission $baseURL $authHeaders $dirBody 'permission dir create'
+  $createdPermissionIDs.Add($dirPermissionID) | Out-Null
+
+  $smokePagePath = "/codex-smoke/$permissionSuffix/page"
+  $pageBody = @{
+    platform = $Platform
+    type = 2
+    name = "Codex Smoke PAGE $permissionSuffix"
+    parent_id = $dirPermissionID
+    icon = ''
+    path = $smokePagePath
+    component = "/codex-smoke/$permissionSuffix/page/index"
+    i18n_key = "menu.codex_smoke_page_$permissionSuffix"
+    code = ''
+    sort = 999
+    show_menu = 2
+  }
+  $pagePermissionID = New-SmokePermission $baseURL $authHeaders $pageBody 'permission page create'
+  $createdPermissionIDs.Add($pagePermissionID) | Out-Null
+
+  $smokeButtonCode = "codex_smoke_button_$permissionSuffix"
+  $buttonBody = @{
+    platform = $Platform
+    type = 3
+    name = "Codex Smoke BUTTON $permissionSuffix"
+    parent_id = $pagePermissionID
+    icon = ''
+    path = ''
+    component = ''
+    i18n_key = ''
+    code = $smokeButtonCode
+    sort = 999
+    show_menu = 2
+  }
+  $buttonPermissionID = New-SmokePermission $baseURL $authHeaders $buttonBody 'permission button create'
+  $createdPermissionIDs.Add($buttonPermissionID) | Out-Null
+
+  $roleName = [uri]::EscapeDataString([string]$me.data.role_name)
+  $roleList = Invoke-RestMethod "$baseURL/api/admin/v1/roles?current_page=1&page_size=50&name=$roleName" -Headers $authHeaders -TimeoutSec 10
+  Assert-ApiOK $roleList 'role list'
+  $smokeRole = @(Get-ObjectArray $roleList.data.list | Where-Object { $_.name -eq $me.data.role_name } | Select-Object -First 1)[0]
+  if ($null -eq $smokeRole) {
+    throw "cannot find smoke account role by name: $($me.data.role_name)"
+  }
+  $originalRolePermissionIDs = Get-Int64Array $smokeRole.permission_id
+  $nextRolePermissionIDs = Merge-Int64Array $originalRolePermissionIDs @($pagePermissionID, $buttonPermissionID)
+  $roleUpdateBody = @{
+    name = $smokeRole.name
+    permission_id = $nextRolePermissionIDs
   } | ConvertTo-Json -Depth 8
-  $permissionCreate = Invoke-RestMethod "$baseURL/api/admin/v1/permissions" `
-    -Method Post `
+  $roleUpdate = Invoke-RestMethod "$baseURL/api/admin/v1/roles/$($smokeRole.id)" `
+    -Method Put `
     -Headers $authHeaders `
     -ContentType 'application/json' `
-    -Body $permissionBody `
+    -Body $roleUpdateBody `
     -TimeoutSec 10
+  Assert-ApiOK $roleUpdate 'role permission grant'
 
-  if ($permissionCreate.code -ne 0 -or $permissionCreate.data.id -le 0) {
-    throw "permission create failed: $($permissionCreate | ConvertTo-Json -Depth 8)"
+  $rbacInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
+  Assert-ApiOK $rbacInit 'users init after rbac grant'
+  if (-not (Test-RoutePath $rbacInit.data.router $smokePagePath)) {
+    throw "RBAC smoke route missing after page/button grant: $smokePagePath"
+  }
+  if (-not (Test-StringListContains $rbacInit.data.buttonCodes $smokeButtonCode)) {
+    throw "RBAC smoke button code missing after grant: $smokeButtonCode"
   }
 
-  $createdPermissionID = [int64]$permissionCreate.data.id
-  $permissionDelete = Invoke-RestMethod "$baseURL/api/admin/v1/permissions/$createdPermissionID" `
+  $restoreBody = @{
+    name = $smokeRole.name
+    permission_id = $originalRolePermissionIDs
+  } | ConvertTo-Json -Depth 8
+  $roleRestore = Invoke-RestMethod "$baseURL/api/admin/v1/roles/$($smokeRole.id)" `
+    -Method Put `
+    -Headers $authHeaders `
+    -ContentType 'application/json' `
+    -Body $restoreBody `
+    -TimeoutSec 10
+  Assert-ApiOK $roleRestore 'role permission restore'
+  $roleRestored = $true
+
+  $permissionDeleteBody = @{ ids = @($createdPermissionIDs.ToArray()) } | ConvertTo-Json -Depth 8
+  $permissionDelete = Invoke-RestMethod "$baseURL/api/admin/v1/permissions" `
     -Method Delete `
     -Headers $authHeaders `
+    -ContentType 'application/json' `
+    -Body $permissionDeleteBody `
     -TimeoutSec 10
-
-  if ($permissionDelete.code -ne 0) {
-    throw "permission delete failed: $($permissionDelete | ConvertTo-Json -Depth 8)"
-  }
-  $createdPermissionID = $null
+  Assert-ApiOK $permissionDelete 'permission subtree delete'
+  $createdPermissionIDs.Clear()
 
   $logout = Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" -Method Post -Headers $authHeaders -TimeoutSec 10
 
   $summary = [ordered]@{
     ready_code = $ready.code
     login_config_code = $loginConfig.code
+    login_config_types = (@($loginConfig.data.login_type_arr) | ForEach-Object { $_.value }) -join ','
+    send_code_code = $sendCode.code
+    code_login_code = $codeLogin.code
+    code_login_type = $codeLoginType
     captcha_code = $captcha.code
     captcha_type = $captcha.data.captcha_type
     login_code = $login.code
     access_token_present = -not [string]::IsNullOrWhiteSpace($login.data.access_token)
+    login_log_count = $loginLogCount
     me_code = $me.code
     init_code = $init.code
     router_count = @($init.data.router).Count
@@ -255,7 +501,11 @@ func main() {
     auth_platform_captcha_dict_count = @($authPlatformInit.data.dict.auth_platform_captcha_type_arr).Count
     auth_platform_list_code = $authPlatformList.code
     auth_platform_count = @($authPlatformList.data.list).Count
-    permission_create_code = $permissionCreate.code
+    rbac_smoke_role_id = $smokeRole.id
+    rbac_smoke_page_route_present = Test-RoutePath $rbacInit.data.router $smokePagePath
+    rbac_smoke_button_code_present = Test-StringListContains $rbacInit.data.buttonCodes $smokeButtonCode
+    rbac_smoke_role_restored = $roleRestored
+    permission_create_code = 0
     permission_delete_code = $permissionDelete.code
     logout_code = $logout.code
   }
@@ -263,27 +513,50 @@ func main() {
   $completed = $true
   $summary | ConvertTo-Json -Depth 6
 } finally {
-  if ($createdPermissionID -and $authHeaders -and $baseURL) {
+  if (-not $roleRestored -and $smokeRole -and $originalRolePermissionIDs -and $authHeaders -and $baseURL) {
     try {
-      Invoke-RestMethod "$baseURL/api/admin/v1/permissions/$createdPermissionID" `
-        -Method Delete `
+      $restoreBody = @{
+        name = $smokeRole.name
+        permission_id = $originalRolePermissionIDs
+      } | ConvertTo-Json -Depth 8
+      Invoke-RestMethod "$baseURL/api/admin/v1/roles/$($smokeRole.id)" `
+        -Method Put `
         -Headers $authHeaders `
+        -ContentType 'application/json' `
+        -Body $restoreBody `
         -TimeoutSec 5 | Out-Null
     } catch {
-      Write-Host "Failed to cleanup smoke permission id=$createdPermissionID"
+      Write-Host "Failed to restore smoke role id=$($smokeRole.id)"
+    }
+  }
+
+  if ($createdPermissionIDs.Count -gt 0 -and $authHeaders -and $baseURL) {
+    try {
+      $cleanupBody = @{ ids = @($createdPermissionIDs.ToArray()) } | ConvertTo-Json -Depth 8
+      Invoke-RestMethod "$baseURL/api/admin/v1/permissions" `
+        -Method Delete `
+        -Headers $authHeaders `
+        -ContentType 'application/json' `
+        -Body $cleanupBody `
+        -TimeoutSec 5 | Out-Null
+    } catch {
+      Write-Host "Failed to cleanup smoke permission ids=$($createdPermissionIDs.ToArray() -join ',')"
     }
   }
 
   if ($proc -and -not $proc.HasExited) {
     Stop-Process -Id $proc.Id -Force
   }
+  if ($workerProc -and -not $workerProc.HasExited) {
+    Stop-Process -Id $workerProc.Id -Force
+  }
 
   Start-Sleep -Milliseconds 300
-  Remove-Item -Force $serverExe, $secretReader -ErrorAction SilentlyContinue
+  Remove-Item -Force $serverExe, $workerExe, $secretReader, $loginLogReader -ErrorAction SilentlyContinue
 
   if ($completed) {
-    Remove-Item -Force $outLog, $errLog -ErrorAction SilentlyContinue
+    Remove-Item -Force $outLog, $errLog, $workerOutLog, $workerErrLog -ErrorAction SilentlyContinue
   } else {
-    Write-Host "Smoke logs kept: $outLog $errLog"
+    Write-Host "Smoke logs kept: $outLog $errLog $workerOutLog $workerErrLog"
   }
 }

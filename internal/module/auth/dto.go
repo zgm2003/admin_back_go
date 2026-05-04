@@ -29,4 +29,30 @@ type LoginInput struct {
 	UserAgent     string
 }
 
+type SendCodeInput struct {
+	Account string
+	Scene   string
+}
+
+type LoginResponse struct {
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	IsNewUser        bool   `json:"is_new_user"`
+}
+
 type RefreshResponse = session.TokenResult
+
+func loginResponseFromToken(result *session.TokenResult, isNewUser bool) *LoginResponse {
+	if result == nil {
+		return nil
+	}
+	return &LoginResponse{
+		AccessToken:      result.AccessToken,
+		RefreshToken:     result.RefreshToken,
+		ExpiresIn:        result.ExpiresIn,
+		RefreshExpiresIn: result.RefreshExpiresIn,
+		IsNewUser:        isNewUser,
+	}
+}

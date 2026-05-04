@@ -149,6 +149,67 @@ func TestManagementCreateRejectsUnsupportedCaptchaType(t *testing.T) {
 	}
 }
 
+func TestManagementUpdateRejectsUnsupportedCaptchaType(t *testing.T) {
+	repo := &fakeManagementRepository{statusRows: map[int64]Platform{
+		2: {ID: 2, Code: "mini", Status: enum.CommonYes},
+	}}
+	service := NewService(repo)
+
+	input := validUpdateInput()
+	input.CaptchaType = "click"
+
+	appErr := service.Update(context.Background(), 2, input)
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的验证码类型" {
+		t.Fatalf("expected captcha type validation error, got %#v", appErr)
+	}
+	if len(repo.updates) != 0 {
+		t.Fatalf("invalid captcha_type must not update repository, got %#v", repo.updates)
+	}
+}
+
+func TestManagementUpdateNormalizesLoginTypesAndStoresCaptchaType(t *testing.T) {
+	repo := &fakeManagementRepository{statusRows: map[int64]Platform{
+		2: {ID: 2, Code: "mini", Status: enum.CommonYes},
+	}}
+	service := NewService(repo)
+
+	input := validUpdateInput()
+	input.LoginTypes = []string{enum.LoginTypePassword, enum.LoginTypePhone, enum.LoginTypeEmail, enum.LoginTypePhone}
+	input.CaptchaType = enum.CaptchaTypeSlide
+
+	appErr := service.Update(context.Background(), 2, input)
+	if appErr != nil {
+		t.Fatalf("expected update to succeed, got %v", appErr)
+	}
+	if len(repo.updates) != 1 {
+		t.Fatalf("expected one update, got %#v", repo.updates)
+	}
+	if got := repo.updates[0]["login_types"]; got != `["email","phone","password"]` {
+		t.Fatalf("expected normalized login_types json, got %#v", got)
+	}
+	if got := repo.updates[0]["captcha_type"]; got != enum.CaptchaTypeSlide {
+		t.Fatalf("expected captcha_type stored, got %#v", got)
+	}
+}
+
+func TestManagementChangeStatusOnlyUpdatesStatus(t *testing.T) {
+	repo := &fakeManagementRepository{statusRows: map[int64]Platform{
+		2: {ID: 2, Code: "mini", CaptchaType: enum.CaptchaTypeSlide, Status: enum.CommonYes},
+	}}
+	service := NewService(repo)
+
+	appErr := service.ChangeStatus(context.Background(), 2, enum.CommonNo)
+	if appErr != nil {
+		t.Fatalf("expected status change to succeed, got %v", appErr)
+	}
+	if len(repo.updates) != 1 {
+		t.Fatalf("expected one update, got %#v", repo.updates)
+	}
+	if len(repo.updates[0]) != 1 || repo.updates[0]["status"] != enum.CommonNo {
+		t.Fatalf("status flow must only mutate status, got %#v", repo.updates[0])
+	}
+}
+
 func TestManagementDeleteAndDisableProtectAdminPlatform(t *testing.T) {
 	repo := &fakeManagementRepository{statusRows: map[int64]Platform{1: {ID: 1, Code: "admin", Status: enum.CommonYes}}}
 	service := NewService(repo)
@@ -158,5 +219,13 @@ func TestManagementDeleteAndDisableProtectAdminPlatform(t *testing.T) {
 	}
 	if appErr := service.ChangeStatus(context.Background(), 1, enum.CommonNo); appErr == nil || appErr.Message != "核心平台 [admin] 不允许禁用" {
 		t.Fatalf("expected admin disable protection, got %#v", appErr)
+	}
+}
+
+func validUpdateInput() UpdateInput {
+	return UpdateInput{
+		Name: "小程序", LoginTypes: []string{enum.LoginTypePassword}, CaptchaType: enum.CaptchaTypeSlide,
+		AccessTTL: 3600, RefreshTTL: 86400, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
+		BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
 	}
 }
