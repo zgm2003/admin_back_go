@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 type Config struct {
 	App        AppConfig
 	HTTP       HTTPConfig
+	Logging    LoggingConfig
 	MySQL      MySQLConfig
 	Redis      RedisConfig
 	Token      TokenConfig
@@ -29,6 +31,18 @@ type AppConfig struct {
 type HTTPConfig struct {
 	Addr              string
 	ReadHeaderTimeout time.Duration
+}
+
+type LoggingConfig struct {
+	EnableFile        bool
+	Dir               string
+	FileName          string
+	MaxTailLines      int
+	AllowedExtensions []string
+	FileMaxSizeMB     int
+	FileMaxBackups    int
+	FileMaxAgeDays    int
+	FileCompress      bool
 }
 
 type MySQLConfig struct {
@@ -122,6 +136,17 @@ func Load() Config {
 		HTTP: HTTPConfig{
 			Addr:              envString("HTTP_ADDR", ":8080"),
 			ReadHeaderTimeout: envDuration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
+		},
+		Logging: LoggingConfig{
+			EnableFile:        envBool("LOG_ENABLE_FILE", true),
+			Dir:               envString("LOG_DIR", filepath.Join("runtime", "logs")),
+			FileName:          envString("LOG_FILE_NAME", "admin-api.log"),
+			MaxTailLines:      envInt("LOG_MAX_TAIL_LINES", 2000),
+			AllowedExtensions: envCSV("LOG_ALLOWED_EXTENSIONS", []string{".log"}),
+			FileMaxSizeMB:     envInt("LOG_FILE_MAX_SIZE_MB", 64),
+			FileMaxBackups:    envInt("LOG_FILE_MAX_BACKUPS", 7),
+			FileMaxAgeDays:    envInt("LOG_FILE_MAX_AGE_DAYS", 14),
+			FileCompress:      envBool("LOG_FILE_COMPRESS", true),
 		},
 		MySQL: MySQLConfig{
 			DSN:             envString("MYSQL_DSN", legacyMySQLDSN()),

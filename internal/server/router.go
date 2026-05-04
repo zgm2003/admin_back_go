@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/system"
+	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/validate"
 
@@ -38,6 +39,7 @@ type Dependencies struct {
 	PermissionService   permission.ManagementService
 	QueueMonitorService queuemonitor.HTTPService
 	QueueMonitorUI      http.Handler
+	SystemLogService    systemlog.HTTPService
 	RealtimeHandler     *realtime.Handler
 	RoleService         role.HTTPService
 	AuthPlatformService authplatform.HTTPService
@@ -49,6 +51,8 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	validate.MustRegister()
 
 	router := gin.New()
+	router.UseRawPath = true
+	router.UnescapePathValues = false
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
 	router.Use(middleware.AccessLog(deps.Logger))
@@ -78,6 +82,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
+	systemlog.RegisterRoutes(router, deps.SystemLogService)
 	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)

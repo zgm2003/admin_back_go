@@ -37,6 +37,8 @@ func (s *Service) Ready(ctx context.Context) readiness.Report {
 			"database":    {Status: readiness.StatusDisabled},
 			"redis":       {Status: readiness.StatusDisabled},
 			"token_redis": {Status: readiness.StatusDisabled},
+			"queue_redis": {Status: readiness.StatusDisabled},
+			"realtime":    {Status: readiness.StatusDisabled},
 		})
 	}
 	return s.readiness.Readiness(ctx)

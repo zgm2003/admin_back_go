@@ -74,6 +74,14 @@ func TestPermissionCheckMatchesGinFullPathForRouteParams(t *testing.T) {
 	}
 }
 
+func TestNormalizedEscapedRoutePathMapsEscapedFileNames(t *testing.T) {
+	got := normalizedEscapedRoutePath("/api/admin/v1/system-logs/files/worker%2Fadmin-worker.log/lines")
+	want := "/api/admin/v1/system-logs/files/:name/lines"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestPermissionCheckRejectsWhenCheckerDenies(t *testing.T) {
 	router := newPermissionCheckTestRouter(PermissionCheckConfig{
 		Rules: map[RouteKey]string{NewRouteKey(http.MethodDelete, "/api/admin/v1/permissions/1"): "permission:delete"},

@@ -57,3 +57,23 @@ func SexOptions() []Option[int] {
 		{Label: "女", Value: enum.SexFemale},
 	}
 }
+
+func LogLevelOptions() []Option[string] {
+	return []Option[string]{
+		{Label: enum.LogLevelDebug, Value: enum.LogLevelDebug},
+		{Label: enum.LogLevelInfo, Value: enum.LogLevelInfo},
+		{Label: enum.LogLevelWarning, Value: enum.LogLevelWarning},
+		{Label: enum.LogLevelError, Value: enum.LogLevelError},
+		{Label: enum.LogLevelCritical, Value: enum.LogLevelCritical},
+	}
+}
+
+func LogTailOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "最近 100 行", Value: enum.LogTail100},
+		{Label: "最近 300 行", Value: enum.LogTail300},
+		{Label: "最近 500 行", Value: enum.LogTail500},
+		{Label: "最近 1000 行", Value: enum.LogTail1000},
+		{Label: "最近 2000 行", Value: enum.LogTail2000},
+	}
+}

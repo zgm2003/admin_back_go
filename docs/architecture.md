@@ -521,6 +521,54 @@ Ping 放到后续 health/readiness 或运维检查里
 
 模块以后通过依赖注入拿资源，不允许自己创建 DB/Redis client。
 
+
+## System log baseline
+
+系统日志第一期是 Go 运行日志文件的只读浏览，不和操作日志混用。
+
+边界：
+
+```text
+cmd/admin-api -> platform/logging -> slog JSON stdout + optional lumberjack file
+module/systemlog -> platform/logstore -> runtime/logs/*.log
+```
+
+规则：
+
+```text
+operationlog = 后台用户操作审计，DB 是事实源
+systemlog    = 系统运行日志文件，只读，文件系统是事实源
+logstore     = 唯一允许碰 OS 日志文件的边界
+```
+
+采用组件：
+
+```text
+log/slog                       # Go 官方结构化日志
+lumberjack.v2                  # 文件滚动
+Gin Recovery + project AccessLog # HTTP runtime log，不重复挂 gin.Logger
+```
+
+路由：
+
+```text
+GET /api/admin/v1/system-logs/init
+GET /api/admin/v1/system-logs/files
+GET /api/admin/v1/system-logs/files/:name/lines
+```
+
+安全限制：
+
+```text
+只读，不做 delete/clear/download
+只允许配置扩展名，默认 .log
+只扫描根目录和一级子目录
+禁止绝对路径、..、反斜杠路径、空字节
+读取行数受 LOG_MAX_TAIL_LINES 限制
+```
+
+`router.UseRawPath = true` 且 `UnescapePathValues = false`，用于让 `worker%2Fadmin-worker.log` 这种一级子目录文件名在 Gin 参数里保持 escaped slash 语义，不让路由把它误拆成多段路径。
+
 ## Queue / worker baseline
 
 后台任务第一期不是微服务，而是单体内多进程：
@@ -563,6 +611,7 @@ cookie token 认证只在该 UI 路径显式使用后台平台 admin 补齐 sess
 前端 iframe 必须使用 Go API origin 的绝对 URL，不能写成相对路径；否则浏览器会请求前端 SPA 自己的 /api/admin/v1/queue-monitor-ui 并落到前端 404
 asynqmon@v0.7.2 内置静态 UI handler 在 Windows 下会把 URL path 经 filepath.Abs 转成盘符路径，导致首页返回 400 unexpected path prefix；因此本项目仅复制官方 ui/build 静态文件并用薄 handler 渲染，/api 子路径仍交给官方 asynqmon handler
 保留 GET /api/admin/v1/queue-monitor 与 GET /api/admin/v1/queue-monitor/failed 作为轻量 JSON 摘要接口，服务 dashboard card/smoke，不复制 asynqmon 的完整任务管理能力
+configured lane 即使还没有 Asynq Redis key，也必须以 0 计数显示；只把 Asynq queue-not-found 归一化为空队列，Redis 连接/鉴权等真实错误必须继续失败可见
 前端队列监控页只是官方 asynqmon 的薄 iframe/新窗口包装，不维护第二套任务列表 UI
 ```
 
@@ -757,7 +806,13 @@ admin 核心平台不允许删除，不允许禁用
 MYSQL_DSN 为空：database check = disabled，不算失败
 REDIS_ADDR 为空：redis check = disabled，不算失败
 REDIS_ADDR 为空：token_redis check = disabled，不算失败
+QUEUE_ENABLED=false：queue_redis check = disabled，不算失败
+QUEUE_ENABLED=true 但 REDIS_ADDR 为空：queue_redis check = down，这是配置错误
 配置了 DB/Redis/TokenRedis：/ready 才 Ping 对应资源
+配置了 QueueRedis：/ready Ping QUEUE_REDIS_DB 对应 Redis DB
+REALTIME_ENABLED=false：realtime check = disabled
+REALTIME_ENABLED=true 且 REALTIME_PUBLISHER=local/noop/空：realtime check = up
+REALTIME_ENABLED=true 但 REALTIME_PUBLISHER 是未实现值，例如 redis：realtime check = down，不能假装 Redis fan-out 已实现
 Ping 失败：整体 status = not_ready，响应带 checks 明细
 ```
 
@@ -888,6 +943,7 @@ full smoke 规则：
 
 ```text
 先跑 basic smoke 作为基础链路
+只读探测 queue monitor JSON 摘要、failed pagination shape 和 asynqmon UI HEAD；不做 retry/delete/clear
 再单独验证 operation log init/list/delete
 用临时权限触发 `新增权限` 审计日志
 删除 operation log 行后必须确认它不再出现在列表里

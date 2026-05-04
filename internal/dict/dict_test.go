@@ -36,4 +36,14 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	if len(sex) != 3 || sex[0].Value != enum.SexUnknown || sex[1].Value != enum.SexMale || sex[2].Value != enum.SexFemale {
 		t.Fatalf("unexpected sex options: %#v", sex)
 	}
+
+	levels := LogLevelOptions()
+	if len(levels) != 5 || levels[0].Value != enum.LogLevelDebug || levels[4].Value != enum.LogLevelCritical {
+		t.Fatalf("unexpected log level options: %#v", levels)
+	}
+
+	tails := LogTailOptions()
+	if len(tails) != 5 || tails[0].Value != enum.LogTail100 || tails[4].Value != enum.LogTail2000 {
+		t.Fatalf("unexpected log tail options: %#v", tails)
+	}
 }

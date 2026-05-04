@@ -112,6 +112,67 @@ function Wait-NewOperationLog([string]$BaseURL, [hashtable]$Headers, [string]$Ac
   throw "operation log action=$Action was not written after id=$AfterID"
 }
 
+function Test-QueueMonitorItemShape($Item) {
+  if ($null -eq $Item) { return $false }
+  if ([string]::IsNullOrWhiteSpace([string]$Item.name)) { return $false }
+  if ([string]::IsNullOrWhiteSpace([string]$Item.label)) { return $false }
+  if ([string]::IsNullOrWhiteSpace([string]$Item.group)) { return $false }
+
+  foreach ($field in @('waiting', 'delayed', 'failed', 'pending', 'active', 'scheduled', 'retry', 'archived', 'completed', 'processed', 'failed_today', 'processed_total', 'failed_total', 'latency_ms')) {
+    if ($null -eq $Item.$field) { return $false }
+  }
+
+  if ($null -eq $Item.paused) { return $false }
+  return $true
+}
+
+function Assert-QueueMonitorList($Response) {
+  Assert-ApiOK $Response 'queue monitor list'
+
+  $items = Get-ObjectArray $Response.data
+  if ($items.Count -le 0) {
+    throw "queue monitor list returned no queues: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $critical = $null
+  foreach ($item in $items) {
+    if (-not (Test-QueueMonitorItemShape $item)) {
+      throw "queue monitor item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]$item.name -eq 'critical') {
+      $critical = $item
+    }
+  }
+
+  if ($null -eq $critical) {
+    throw "queue monitor list missing critical queue: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return $items.Count
+}
+
+function Assert-QueueFailedList($Response) {
+  Assert-ApiOK $Response 'queue monitor failed list'
+
+  if ($null -eq $Response.data.page) {
+    throw "queue monitor failed list missing page: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.list) {
+    throw "queue monitor failed list missing list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([string]::IsNullOrWhiteSpace([string]$item.id)) {
+      throw "queue monitor failed task missing id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.state)) {
+      throw "queue monitor failed task missing state: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [int64]$Response.data.page.total
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -287,6 +348,24 @@ func main() {
     Authorization = "Bearer $($login.data.access_token)"
   }
 
+  $queueMonitorList = Invoke-RestMethod "$baseURL/api/admin/v1/queue-monitor" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $queueMonitorQueueCount = Assert-QueueMonitorList $queueMonitorList
+
+  $queueMonitorFailed = Invoke-RestMethod "$baseURL/api/admin/v1/queue-monitor/failed?queue=critical&current_page=1&page_size=5" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $queueMonitorFailedTotal = Assert-QueueFailedList $queueMonitorFailed
+
+  $queueMonitorUI = Invoke-WebRequest "$baseURL/api/admin/v1/queue-monitor-ui" `
+    -Method Head `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  if ($queueMonitorUI.StatusCode -ne 200) {
+    throw "queue monitor UI HEAD returned status $($queueMonitorUI.StatusCode)"
+  }
+
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -336,6 +415,11 @@ func main() {
 
   $summary = [ordered]@{
     basic = $basicSummary
+    queue_monitor_list_code = $queueMonitorList.code
+    queue_monitor_queue_count = $queueMonitorQueueCount
+    queue_monitor_failed_code = $queueMonitorFailed.code
+    queue_monitor_failed_total = $queueMonitorFailedTotal
+    queue_monitor_ui_status = $queueMonitorUI.StatusCode
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

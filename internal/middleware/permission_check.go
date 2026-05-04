@@ -40,6 +40,9 @@ func PermissionCheck(cfg PermissionCheckConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := matchedRoutePath(c)
 		code := strings.TrimSpace(cfg.Rules[NewRouteKey(c.Request.Method, path)])
+		if code == "" {
+			code = strings.TrimSpace(cfg.Rules[NewRouteKey(c.Request.Method, normalizedEscapedRoutePath(path))])
+		}
 		if code == "" || c.Request.Method == http.MethodOptions {
 			c.Next()
 			return
@@ -79,4 +82,17 @@ func matchedRoutePath(c *gin.Context) string {
 		return path
 	}
 	return c.Request.URL.Path
+}
+
+func normalizedEscapedRoutePath(path string) string {
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if strings.Contains(part, "%2F") || strings.Contains(part, "%2f") {
+			parts[i] = ":name"
+		}
+	}
+	return strings.Join(parts, "/")
 }

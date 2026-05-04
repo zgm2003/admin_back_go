@@ -37,6 +37,8 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/users", "user_userManager_del"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs/:id", "devTools_operationLog_del"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs", "devTools_operationLog_del"},
+		{http.MethodGet, "/api/admin/v1/system-logs/files", "system_log_files"},
+		{http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines", "system_log_content"},
 	}
 
 	for _, tt := range tests {

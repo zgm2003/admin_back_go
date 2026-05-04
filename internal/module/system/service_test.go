@@ -46,6 +46,8 @@ func TestServiceReadyUsesInjectedChecker(t *testing.T) {
 		"database":    {Status: readiness.StatusUp},
 		"redis":       {Status: readiness.StatusDisabled},
 		"token_redis": {Status: readiness.StatusDisabled},
+		"queue_redis": {Status: readiness.StatusDisabled},
+		"realtime":    {Status: readiness.StatusDisabled},
 	})
 	service := NewService(fakeReadinessChecker{report: expected})
 
@@ -59,6 +61,12 @@ func TestServiceReadyUsesInjectedChecker(t *testing.T) {
 	}
 	if got.Checks["token_redis"].Status != readiness.StatusDisabled {
 		t.Fatalf("expected token_redis disabled, got %#v", got.Checks["token_redis"])
+	}
+	if got.Checks["queue_redis"].Status != readiness.StatusDisabled {
+		t.Fatalf("expected queue_redis disabled, got %#v", got.Checks["queue_redis"])
+	}
+	if got.Checks["realtime"].Status != readiness.StatusDisabled {
+		t.Fatalf("expected realtime disabled, got %#v", got.Checks["realtime"])
 	}
 }
 

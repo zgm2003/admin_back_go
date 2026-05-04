@@ -25,6 +25,7 @@ import (
 	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
+	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/user"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/readiness"
@@ -260,6 +261,25 @@ func (f *fakeRouterOperationLogService) Delete(ctx context.Context, ids []int64)
 	return nil
 }
 
+type fakeRouterSystemLogService struct {
+	filesCalled bool
+	linesQuery  systemlog.LinesQuery
+}
+
+func (f *fakeRouterSystemLogService) Init(ctx context.Context) (*systemlog.InitResponse, *apperror.Error) {
+	return systemlog.NewService(nil).Init(ctx)
+}
+
+func (f *fakeRouterSystemLogService) Files(ctx context.Context) (*systemlog.FilesResponse, *apperror.Error) {
+	f.filesCalled = true
+	return &systemlog.FilesResponse{List: []systemlog.FileItem{{Name: "admin-api.log", Size: 1, SizeHuman: "1 B", MTime: "2026-05-04 10:00:00"}}}, nil
+}
+
+func (f *fakeRouterSystemLogService) Lines(ctx context.Context, query systemlog.LinesQuery) (*systemlog.LinesResponse, *apperror.Error) {
+	f.linesQuery = query
+	return &systemlog.LinesResponse{Filename: query.Filename, Total: 1, Lines: []systemlog.LineItem{{Number: 1, Level: "ERROR", Content: "ERROR boom"}}}, nil
+}
+
 type fakeRouterQueueMonitorService struct {
 	listCalled      bool
 	failedListQuery queuemonitor.FailedListQuery
@@ -368,6 +388,14 @@ func TestReadyEndpointReturnsReadyWhenResourcesAreDisabled(t *testing.T) {
 	database, ok := checks["database"].(map[string]any)
 	if !ok || database["status"] != readiness.StatusDisabled {
 		t.Fatalf("expected disabled database check, got %#v", checks["database"])
+	}
+	queueRedis, ok := checks["queue_redis"].(map[string]any)
+	if !ok || queueRedis["status"] != readiness.StatusDisabled {
+		t.Fatalf("expected disabled queue_redis check, got %#v", checks["queue_redis"])
+	}
+	realtimeCheck, ok := checks["realtime"].(map[string]any)
+	if !ok || realtimeCheck["status"] != readiness.StatusDisabled {
+		t.Fatalf("expected disabled realtime check, got %#v", checks["realtime"])
 	}
 }
 
@@ -774,6 +802,40 @@ func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(operationLogService.deleteIDs, []int64{9}) {
 		t.Fatalf("operation log delete mismatch: %#v", operationLogService.deleteIDs)
+	}
+}
+
+func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {
+	systemLogService := &fakeRouterSystemLogService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		SystemLogService: systemLogService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-logs/files", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected system log files status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !systemLogService.filesCalled {
+		t.Fatalf("expected system log files service call")
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-logs/files/admin-api.log/lines?tail=500&level=ERROR&keyword=boom", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected system log lines status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if systemLogService.linesQuery.Filename != "admin-api.log" || systemLogService.linesQuery.Tail != 500 || systemLogService.linesQuery.Level != "ERROR" || systemLogService.linesQuery.Keyword != "boom" {
+		t.Fatalf("system log lines query mismatch: %#v", systemLogService.linesQuery)
 	}
 }
 

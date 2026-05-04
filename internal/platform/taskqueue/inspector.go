@@ -3,6 +3,8 @@ package taskqueue
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"admin_back_go/internal/config"
@@ -78,12 +80,32 @@ func (i *Inspector) QueueInfo(ctx context.Context, queue string) (QueueInfo, err
 	}
 	info, err := i.inspector.GetQueueInfo(queue)
 	if err != nil {
-		if errors.Is(err, asynq.ErrQueueNotFound) {
+		if err = normalizeQueueInfoError(queue, err); errors.Is(err, ErrQueueNotFound) {
 			return QueueInfo{}, ErrQueueNotFound
 		}
 		return QueueInfo{}, err
 	}
 	return mapQueueInfo(info), nil
+}
+
+func normalizeQueueInfoError(queue string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, asynq.ErrQueueNotFound) || isAsynqCurrentStatsQueueNotFound(queue, err) {
+		return fmt.Errorf("%w: queue=%q", ErrQueueNotFound, strings.TrimSpace(queue))
+	}
+	return err
+}
+
+func isAsynqCurrentStatsQueueNotFound(queue string, err error) bool {
+	queue = strings.TrimSpace(queue)
+	if queue == "" || err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "NOT_FOUND:") &&
+		strings.Contains(message, fmt.Sprintf("queue %q does not exist", queue))
 }
 
 // RetryTasks lists tasks waiting for retry.
