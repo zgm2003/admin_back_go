@@ -18,6 +18,7 @@ import (
 	"admin_back_go/internal/module/system"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
+	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/validate"
 
@@ -42,6 +43,7 @@ type Dependencies struct {
 	QueueMonitorUI       http.Handler
 	SystemSettingService systemsetting.HTTPService
 	SystemLogService     systemlog.HTTPService
+	UploadConfigService  uploadconfig.HTTPService
 	RealtimeHandler      *realtime.Handler
 	RoleService          role.HTTPService
 	AuthPlatformService  authplatform.HTTPService
@@ -86,6 +88,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
 	systemsetting.RegisterRoutes(router, deps.SystemSettingService)
 	systemlog.RegisterRoutes(router, deps.SystemLogService)
+	uploadconfig.RegisterRoutes(router, deps.UploadConfigService)
 	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)

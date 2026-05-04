@@ -20,6 +20,7 @@ type Config struct {
 	Queue      QueueConfig
 	Realtime   RealtimeConfig
 	Scheduler  SchedulerConfig
+	Secretbox  SecretboxConfig
 	CORS       CORSConfig
 }
 
@@ -112,6 +113,10 @@ type SchedulerConfig struct {
 	LockPrefix string
 }
 
+type SecretboxConfig struct {
+	Key string
+}
+
 type CORSConfig struct {
 	AllowOrigins     []string
 	AllowMethods     []string
@@ -201,6 +206,9 @@ func Load() Config {
 			Enabled:    envBool("SCHEDULER_ENABLED", true),
 			Timezone:   envString("SCHEDULER_TIMEZONE", "Asia/Shanghai"),
 			LockPrefix: envString("SCHEDULER_LOCK_PREFIX", "admin_go:scheduler:"),
+		},
+		Secretbox: SecretboxConfig{
+			Key: envString("VAULT_KEY", ""),
 		},
 		CORS: corsConfig,
 	}

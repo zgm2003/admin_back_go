@@ -34,6 +34,9 @@ func Register() error {
 			"user_sex":                  validateUserSex,
 			"log_level":                 validateLogLevel,
 			"system_setting_value_type": validateSystemSettingValueType,
+			"upload_driver":             validateUploadDriver,
+			"upload_image_ext":          validateUploadImageExt,
+			"upload_file_ext":           validateUploadFileExt,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

@@ -18,9 +18,11 @@ import (
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
+	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/logstore"
 	platformrealtime "admin_back_go/internal/platform/realtime"
+	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
 )
@@ -83,6 +85,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	}
 	systemLogService := systemlog.NewService(logstore.New(cfg.Logging.Dir, logstore.Options{AllowedExtensions: cfg.Logging.AllowedExtensions, MaxTailLines: cfg.Logging.MaxTailLines}))
 	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
+	secretBox := secretbox.New(cfg.Secretbox.Key)
+	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
 	queueMonitorService := queuemonitor.NewService(
 		queuemonitor.NewTaskqueueInspector(queueInspector),
 		queuemonitor.Options{QueueNames: []string{
@@ -167,6 +171,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		QueueMonitorUI:       queueMonitorUI,
 		SystemSettingService: systemSettingService,
 		SystemLogService:     systemLogService,
+		UploadConfigService:  uploadConfigService,
 		RealtimeHandler:      realtimeStack.handler,
 		RoleService:          roleService,
 		AuthPlatformService:  authPlatformService,

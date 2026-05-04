@@ -226,6 +226,224 @@ function Assert-SystemSettingList($Response) {
   }
 }
 
+function Assert-UploadDriverInit($Response) {
+  Assert-ApiOK $Response 'upload driver init'
+
+  $options = Get-ObjectArray $Response.data.dict.upload_driver_arr
+  if ($options.Count -lt 2) {
+    throw "upload driver dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $values = @($options | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('cos', 'oss')) {
+    if (-not ($values -contains $expected)) {
+      throw "upload driver dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return $options.Count
+}
+
+function Assert-UploadDriverList($Response) {
+  Assert-ApiOK $Response 'upload driver list'
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "upload driver list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.driver)) {
+      throw "upload driver item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -ne $item.secret_id_enc -or $null -ne $item.secret_key_enc -or $null -ne $item.secret_id -or $null -ne $item.secret_key) {
+      throw "upload driver list leaked secret fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-UploadRuleInit($Response) {
+  Assert-ApiOK $Response 'upload rule init'
+  $imageExts = Get-ObjectArray $Response.data.dict.upload_image_ext_arr
+  $fileExts = Get-ObjectArray $Response.data.dict.upload_file_ext_arr
+  if ($imageExts.Count -le 0 -or $fileExts.Count -le 0) {
+    throw "upload rule init missing ext dicts: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  return [pscustomobject]@{
+    ImageExtCount = $imageExts.Count
+    FileExtCount = $fileExts.Count
+  }
+}
+
+function Assert-UploadRuleList($Response) {
+  Assert-ApiOK $Response 'upload rule list'
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "upload rule list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "upload rule item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.image_exts -or $null -eq $item.file_exts) {
+      throw "upload rule item missing ext arrays: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-UploadSettingInit($Response) {
+  Assert-ApiOK $Response 'upload setting init'
+  if ($null -eq $Response.data.dict.common_status_arr) {
+    throw "upload setting init missing status dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $statusOptions = Get-ObjectArray $Response.data.dict.common_status_arr
+  if ($statusOptions.Count -ne 2) {
+    throw "upload setting status dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  return [pscustomobject]@{
+    DriverDictCount = (Get-ObjectArray $Response.data.dict.upload_driver_list).Count
+    RuleDictCount = (Get-ObjectArray $Response.data.dict.upload_rule_list).Count
+    StatusDictCount = $statusOptions.Count
+  }
+}
+
+function Assert-UploadSettingList($Response) {
+  Assert-ApiOK $Response 'upload setting list'
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "upload setting list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or $null -eq $item.status -or [string]::IsNullOrWhiteSpace([string]$item.status_name)) {
+      throw "upload setting item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [string]$Suffix) {
+  if ([string]::IsNullOrWhiteSpace($env:VAULT_KEY)) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_vault_key'
+      DriverID = 0
+      RuleID = 0
+      SettingID = 0
+    }
+  }
+
+  [int64]$driverID = 0
+  [int64]$ruleID = 0
+  [int64]$settingID = 0
+
+  try {
+    $driverBody = @{
+      driver = 'cos'
+      secret_id = "codex-secret-id-$Suffix"
+      secret_key = "codex-secret-key-$Suffix"
+      bucket = "codex-full-smoke-$Suffix"
+      region = 'ap-nanjing'
+      appid = '1314'
+      endpoint = ''
+      bucket_domain = ''
+      role_arn = ''
+    } | ConvertTo-Json -Depth 8
+
+    $driver = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-drivers" `
+      -Method Post `
+      -Headers $Headers `
+      -ContentType 'application/json' `
+      -Body $driverBody `
+      -TimeoutSec 10
+    Assert-ApiOK $driver 'upload driver write probe create'
+    $driverID = [int64]$driver.data.id
+    if ($driverID -le 0) { throw "upload driver write probe returned invalid id: $($driver | ConvertTo-Json -Depth 12)" }
+
+    $ruleBody = @{
+      title = "Codex Full Smoke Upload Rule $Suffix"
+      max_size_mb = 1
+      image_exts = @('png')
+      file_exts = @('pdf')
+    } | ConvertTo-Json -Depth 8
+
+    $rule = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-rules" `
+      -Method Post `
+      -Headers $Headers `
+      -ContentType 'application/json' `
+      -Body $ruleBody `
+      -TimeoutSec 10
+    Assert-ApiOK $rule 'upload rule write probe create'
+    $ruleID = [int64]$rule.data.id
+    if ($ruleID -le 0) { throw "upload rule write probe returned invalid id: $($rule | ConvertTo-Json -Depth 12)" }
+
+    $settingBody = @{
+      driver_id = $driverID
+      rule_id = $ruleID
+      status = 2
+      remark = "codex full smoke disabled setting $Suffix"
+    } | ConvertTo-Json -Depth 8
+
+    $setting = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings" `
+      -Method Post `
+      -Headers $Headers `
+      -ContentType 'application/json' `
+      -Body $settingBody `
+      -TimeoutSec 10
+    Assert-ApiOK $setting 'upload setting write probe create'
+    $settingID = [int64]$setting.data.id
+    if ($settingID -le 0) { throw "upload setting write probe returned invalid id: $($setting | ConvertTo-Json -Depth 12)" }
+
+    $settingList = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings?current_page=1&page_size=20&driver_id=$driverID&rule_id=$ruleID" `
+      -Headers $Headers `
+      -TimeoutSec 10
+    Assert-ApiOK $settingList 'upload setting write probe verify list'
+    $matched = $false
+    foreach ($item in (Get-ObjectArray $settingList.data.list)) {
+      if ([int64]$item.id -eq $settingID -and [int]$item.status -eq 2) {
+        $matched = $true
+      }
+    }
+    if (-not $matched) {
+      throw "upload setting write probe row not found as disabled: $($settingList | ConvertTo-Json -Depth 12)"
+    }
+
+    return [pscustomobject]@{
+      Status = 'ok'
+      DriverID = $driverID
+      RuleID = $ruleID
+      SettingID = $settingID
+    }
+  } finally {
+    if ($settingID -gt 0) {
+      try {
+        Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings/$settingID" -Method Delete -Headers $Headers -TimeoutSec 5 | Out-Null
+        $settingID = 0
+      } catch {
+        Write-Host "Failed to cleanup upload setting id=$settingID"
+      }
+    }
+    if ($ruleID -gt 0) {
+      try {
+        Invoke-RestMethod "$BaseURL/api/admin/v1/upload-rules/$ruleID" -Method Delete -Headers $Headers -TimeoutSec 5 | Out-Null
+        $ruleID = 0
+      } catch {
+        Write-Host "Failed to cleanup upload rule id=$ruleID"
+      }
+    }
+    if ($driverID -gt 0) {
+      try {
+        Invoke-RestMethod "$BaseURL/api/admin/v1/upload-drivers/$driverID" -Method Delete -Headers $Headers -TimeoutSec 5 | Out-Null
+        $driverID = 0
+      } catch {
+        Write-Host "Failed to cleanup upload driver id=$driverID"
+      }
+    }
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -429,6 +647,38 @@ func main() {
     -TimeoutSec 10
   $systemSettingListSummary = Assert-SystemSettingList $systemSettingList
 
+  $uploadDriverInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-drivers/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $uploadDriverDictCount = Assert-UploadDriverInit $uploadDriverInit
+
+  $uploadDriverList = Invoke-RestMethod "$baseURL/api/admin/v1/upload-drivers?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $uploadDriverListSummary = Assert-UploadDriverList $uploadDriverList
+
+  $uploadRuleInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-rules/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $uploadRuleDictSummary = Assert-UploadRuleInit $uploadRuleInit
+
+  $uploadRuleList = Invoke-RestMethod "$baseURL/api/admin/v1/upload-rules?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $uploadRuleListSummary = Assert-UploadRuleList $uploadRuleList
+
+  $uploadSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-settings/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $uploadSettingDictSummary = Assert-UploadSettingInit $uploadSettingInit
+
+  $uploadSettingList = Invoke-RestMethod "$baseURL/api/admin/v1/upload-settings?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $uploadSettingListSummary = Assert-UploadSettingList $uploadSettingList
+
+  $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -488,6 +738,28 @@ func main() {
     system_setting_list_code = $systemSettingList.code
     system_setting_list_count = $systemSettingListSummary.ListCount
     system_setting_total = $systemSettingListSummary.Total
+    upload_driver_init_code = $uploadDriverInit.code
+    upload_driver_dict_count = $uploadDriverDictCount
+    upload_driver_list_code = $uploadDriverList.code
+    upload_driver_list_count = $uploadDriverListSummary.ListCount
+    upload_driver_total = $uploadDriverListSummary.Total
+    upload_rule_init_code = $uploadRuleInit.code
+    upload_rule_image_ext_count = $uploadRuleDictSummary.ImageExtCount
+    upload_rule_file_ext_count = $uploadRuleDictSummary.FileExtCount
+    upload_rule_list_code = $uploadRuleList.code
+    upload_rule_list_count = $uploadRuleListSummary.ListCount
+    upload_rule_total = $uploadRuleListSummary.Total
+    upload_setting_init_code = $uploadSettingInit.code
+    upload_setting_driver_dict_count = $uploadSettingDictSummary.DriverDictCount
+    upload_setting_rule_dict_count = $uploadSettingDictSummary.RuleDictCount
+    upload_setting_status_dict_count = $uploadSettingDictSummary.StatusDictCount
+    upload_setting_list_code = $uploadSettingList.code
+    upload_setting_list_count = $uploadSettingListSummary.ListCount
+    upload_setting_total = $uploadSettingListSummary.Total
+    upload_write_probe = $uploadWriteProbe.Status
+    upload_write_probe_driver_id = $uploadWriteProbe.DriverID
+    upload_write_probe_rule_id = $uploadWriteProbe.RuleID
+    upload_write_probe_setting_id = $uploadWriteProbe.SettingID
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

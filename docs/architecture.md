@@ -364,6 +364,7 @@ Captcha
 Queue
 Realtime
 Scheduler
+Secretbox
 ```
 
 当前环境变量：
@@ -411,6 +412,7 @@ CORS_ALLOW_ORIGINS
 CORS_ALLOW_HEADERS
 CORS_ALLOW_CREDENTIALS
 CORS_MAX_AGE
+VAULT_KEY
 ```
 
 规则：
@@ -421,6 +423,23 @@ config 不连接 Redis
 config 不读取业务表
 platform 层以后根据 config 创建 client
 ```
+
+## Secretbox baseline
+
+上传驱动密钥使用 `internal/platform/secretbox`，只做 AES-GCM 加解密，不知道上传业务。
+
+当前规则：
+
+```text
+env = VAULT_KEY
+key derivation = sha256(VAULT_KEY)
+cipher = AES-256-GCM
+nonce/iv = 12 bytes
+tag = 16 bytes
+storage = base64(iv + tag + ciphertext)
+```
+
+这是为了兼容旧 PHP KeyVault 已有密文格式。`VAULT_KEY` 为空时 encrypt/decrypt 必须明确失败；不能假加密，不能明文落库。
 
 ## Realtime / WebSocket baseline
 
@@ -971,6 +990,9 @@ full smoke 规则：
 ```text
 先跑 basic smoke 作为基础链路
 只读探测 queue monitor JSON 摘要、failed pagination shape 和 asynqmon UI HEAD；不做 retry/delete/clear
+只读探测 upload-drivers/upload-rules/upload-settings init/list shape
+VAULT_KEY 为空时跳过 upload config 写探针，并输出 upload_write_probe=skipped_no_vault_key
+VAULT_KEY 存在时只创建 disabled 临时 driver/rule/setting，再按 setting -> rule -> driver 反向清理；永远不启用临时 setting，也不修改现有 enabled setting
 再单独验证 operation log init/list/delete
 用临时权限触发 `新增权限` 审计日志
 删除 operation log 行后必须确认它不再出现在列表里
@@ -984,6 +1006,7 @@ full smoke 规则：
 
 ```text
 完整业务模块迁移
+上传 runtime/token、COS STS、服务端上传；OSS runtime 只作为可选扩展
 ```
 
 
@@ -998,3 +1021,29 @@ Go 后端从认证平台开始建立统一基础件：
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
 - `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
 - 新 REST 接口继续走 `/api/admin/v1/...`，旧 PHP 全 POST 只作为业务事实参考。
+
+上传配置当前新增：
+
+```text
+internal/enum/upload.go      # cos/oss、上传扩展名、上传 folder 白名单
+internal/dict.Upload*Options # upload driver/image ext/file ext dict
+internal/validate/upload.go  # upload_driver/upload_image_ext/upload_file_ext
+```
+
+`internal/module/uploadconfig` 只管理配置事实源：
+
+```text
+GET/POST/PUT/DELETE /api/admin/v1/upload-drivers
+GET/POST/PUT/DELETE /api/admin/v1/upload-rules
+GET/POST/PUT/PATCH/DELETE /api/admin/v1/upload-settings
+```
+
+规则：
+
+```text
+driver secret 永远不返回明文或密文，只返回 hint
+driver/rule 被 setting 引用时不能删除
+setting 启用互斥必须在 repository transaction 内完成，不能靠前端猜或两条普通 update 碰运气
+uploadconfig 不做 /api/getUploadToken，不安装任何云 SDK，不做真实上传
+后续 upload runtime 默认只接受 COS 依赖；OSS SDK 不进入默认 go.mod/package.json，缺少可选实现时必须显式报错
+```

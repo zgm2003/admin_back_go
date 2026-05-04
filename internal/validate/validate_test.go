@@ -22,6 +22,9 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Sex         int    `binding:"user_sex"`
 		LogLevel    string `binding:"required,log_level"`
 		ValueType   int    `binding:"required,system_setting_value_type"`
+		Driver      string `binding:"required,upload_driver"`
+		ImageExt    string `binding:"required,upload_image_ext"`
+		FileExt     string `binding:"required,upload_file_ext"`
 	}
 
 	valid := request{
@@ -35,6 +38,9 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Sex:         1,
 		LogLevel:    "ERROR",
 		ValueType:   4,
+		Driver:      "cos",
+		ImageExt:    "png",
+		FileExt:     "pdf",
 	}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid request, got %v", err)
@@ -62,5 +68,40 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	invalid.ValueType = 9
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid system setting value type to fail")
+	}
+}
+
+func TestRegisterRejectsInvalidUploadValidators(t *testing.T) {
+	if err := Register(); err != nil {
+		t.Fatalf("register validators: %v", err)
+	}
+
+	type request struct {
+		Driver   string `binding:"required,upload_driver"`
+		ImageExt string `binding:"required,upload_image_ext"`
+		FileExt  string `binding:"required,upload_file_ext"`
+	}
+
+	valid := request{Driver: "oss", ImageExt: "webp", FileExt: "xlsx"}
+	if err := binding.Validator.ValidateStruct(valid); err != nil {
+		t.Fatalf("expected valid upload request, got %v", err)
+	}
+
+	invalid := valid
+	invalid.Driver = "s3"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid upload driver to fail")
+	}
+
+	invalid = valid
+	invalid.ImageExt = "exe"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid image ext to fail")
+	}
+
+	invalid = valid
+	invalid.FileExt = "php"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid file ext to fail")
 	}
 }

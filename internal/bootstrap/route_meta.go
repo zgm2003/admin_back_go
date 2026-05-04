@@ -35,6 +35,19 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/system-settings/:id/status"):  "system_setting_status",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/system-settings/:id"):        "system_setting_del",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/system-settings"):            "system_setting_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-drivers"):               "system_uploadConfig_driverAdd",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/upload-drivers/:id"):            "system_uploadConfig_driverEdit",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-drivers/:id"):         "system_uploadConfig_driverDel",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-drivers"):             "system_uploadConfig_driverDel",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-rules"):                 "system_uploadConfig_ruleAdd",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/upload-rules/:id"):              "system_uploadConfig_ruleEdit",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-rules/:id"):           "system_uploadConfig_ruleDel",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-rules"):               "system_uploadConfig_ruleDel",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-settings"):              "system_uploadConfig_settingAdd",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/upload-settings/:id"):           "system_uploadConfig_settingEdit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/upload-settings/:id/status"):  "system_uploadConfig_settingStatus",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings/:id"):        "system_uploadConfig_settingDel",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings"):            "system_uploadConfig_settingDel",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files"):             "system_log_files",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines"): "system_log_content",
 	}
@@ -176,6 +189,71 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "system_setting",
 			Action: "delete_batch",
 			Title:  "批量删除系统设置",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-drivers"): {
+			Module: "upload_driver",
+			Action: "create",
+			Title:  "新增上传驱动",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/upload-drivers/:id"): {
+			Module: "upload_driver",
+			Action: "update",
+			Title:  "编辑上传驱动",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-drivers/:id"): {
+			Module: "upload_driver",
+			Action: "delete",
+			Title:  "删除上传驱动",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-drivers"): {
+			Module: "upload_driver",
+			Action: "delete_batch",
+			Title:  "批量删除上传驱动",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-rules"): {
+			Module: "upload_rule",
+			Action: "create",
+			Title:  "新增上传规则",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/upload-rules/:id"): {
+			Module: "upload_rule",
+			Action: "update",
+			Title:  "编辑上传规则",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-rules/:id"): {
+			Module: "upload_rule",
+			Action: "delete",
+			Title:  "删除上传规则",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-rules"): {
+			Module: "upload_rule",
+			Action: "delete_batch",
+			Title:  "批量删除上传规则",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-settings"): {
+			Module: "upload_setting",
+			Action: "create",
+			Title:  "新增上传设置",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/upload-settings/:id"): {
+			Module: "upload_setting",
+			Action: "update",
+			Title:  "编辑上传设置",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/upload-settings/:id/status"): {
+			Module: "upload_setting",
+			Action: "change_status",
+			Title:  "修改上传设置状态",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings/:id"): {
+			Module: "upload_setting",
+			Action: "delete",
+			Title:  "删除上传设置",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings"): {
+			Module: "upload_setting",
+			Action: "delete_batch",
+			Title:  "批量删除上传设置",
 		},
 	}
 }

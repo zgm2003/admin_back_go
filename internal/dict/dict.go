@@ -86,3 +86,33 @@ func SystemSettingValueTypeOptions() []Option[int] {
 		{Label: "JSON", Value: enum.SystemSettingValueJSON},
 	}
 }
+
+func UploadDriverOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.UploadDrivers))
+	for _, value := range enum.UploadDrivers {
+		options = append(options, Option[string]{
+			Label: enum.UploadDriverLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func UploadImageExtOptions() []Option[string] {
+	return uploadExtOptions(enum.UploadImageExts)
+}
+
+func UploadFileExtOptions() []Option[string] {
+	return uploadExtOptions(enum.UploadFileExts)
+}
+
+func uploadExtOptions(values []string) []Option[string] {
+	options := make([]Option[string], 0, len(values))
+	for _, value := range values {
+		options = append(options, Option[string]{
+			Label: value,
+			Value: value,
+		})
+	}
+	return options
+}
