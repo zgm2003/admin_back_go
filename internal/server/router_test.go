@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,11 +19,16 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
+	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/user"
+	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/readiness"
+
+	"github.com/gorilla/websocket"
 )
 
 type fakeReadinessChecker struct {
@@ -88,14 +94,49 @@ func (fakeCaptchaService) Generate(ctx context.Context) (*captcha.ChallengeRespo
 }
 
 type fakeRouterUserService struct {
-	input  user.InitInput
-	result *user.InitResponse
-	err    *apperror.Error
+	input          user.InitInput
+	result         *user.InitResponse
+	err            *apperror.Error
+	pageInitCalled bool
+	listQuery      user.ListQuery
+	listResult     *user.ListResponse
 }
 
 func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
 	f.input = input
 	return f.result, f.err
+}
+
+func (f *fakeRouterUserService) PageInit(ctx context.Context) (*user.PageInitResponse, *apperror.Error) {
+	f.pageInitCalled = true
+	return &user.PageInitResponse{}, f.err
+}
+
+func (f *fakeRouterUserService) List(ctx context.Context, query user.ListQuery) (*user.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	if f.listResult != nil {
+		return f.listResult, f.err
+	}
+	return &user.ListResponse{
+		List: []user.ListItem{{ID: 1, Username: "admin"}},
+		Page: user.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, f.err
+}
+
+func (f *fakeRouterUserService) Update(ctx context.Context, id int64, input user.UpdateInput) *apperror.Error {
+	return f.err
+}
+
+func (f *fakeRouterUserService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return f.err
+}
+
+func (f *fakeRouterUserService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	return f.err
+}
+
+func (f *fakeRouterUserService) BatchUpdateProfile(ctx context.Context, input user.BatchProfileUpdate) *apperror.Error {
+	return f.err
 }
 
 type fakeRouterPermissionService struct {
@@ -188,6 +229,33 @@ func (f *fakeRouterAuthPlatformService) Delete(ctx context.Context, ids []int64)
 }
 
 func (f *fakeRouterAuthPlatformService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return nil
+}
+
+type fakeRouterOperationLogService struct {
+	initCalled bool
+	listQuery  operationlog.ListQuery
+	deleteIDs  []int64
+	listResult *operationlog.ListResponse
+}
+
+func (f *fakeRouterOperationLogService) Init(ctx context.Context) (*operationlog.InitResponse, *apperror.Error) {
+	f.initCalled = true
+	return &operationlog.InitResponse{}, nil
+}
+
+func (f *fakeRouterOperationLogService) List(ctx context.Context, query operationlog.ListQuery) (*operationlog.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	if f.listResult != nil {
+		return f.listResult, nil
+	}
+	return &operationlog.ListResponse{
+		Page: operationlog.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterOperationLogService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	f.deleteIDs = ids
 	return nil
 }
 
@@ -535,6 +603,36 @@ func TestRouterInstallsUsersInitAsProtectedRESTPath(t *testing.T) {
 	}
 }
 
+func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
+	userService := &fakeRouterUserService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		UserService: userService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users?current_page=1&page_size=20&username=admin", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if userService.listQuery.CurrentPage != 1 || userService.listQuery.PageSize != 20 || userService.listQuery.Username != "admin" {
+		t.Fatalf("user list query mismatch: %#v", userService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !userService.pageInitCalled {
+		t.Fatalf("expected users page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), userService.pageInitCalled)
+	}
+}
+
 func TestRouterInstallsPermissionRESTRoutes(t *testing.T) {
 	permissionService := &fakeRouterPermissionService{}
 	router := newTestRouter(t, Dependencies{
@@ -606,6 +704,46 @@ func TestRouterInstallsAuthPlatformRESTRoutes(t *testing.T) {
 	}
 }
 
+func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
+	operationLogService := &fakeRouterOperationLogService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs/:id"): "devTools_operationLog_del",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		OperationLogService: operationLogService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/operation-logs?current_page=1&page_size=20&action=编辑&date=2026-05-01,2026-05-04", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if operationLogService.listQuery.CurrentPage != 1 || operationLogService.listQuery.PageSize != 20 || operationLogService.listQuery.Action != "编辑" {
+		t.Fatalf("operation log list query mismatch: %#v", operationLogService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/operation-logs/9", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected delete status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !reflect.DeepEqual(operationLogService.deleteIDs, []int64{9}) {
+		t.Fatalf("operation log delete mismatch: %#v", operationLogService.deleteIDs)
+	}
+}
+
 func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
@@ -663,6 +801,40 @@ func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 	}
 	if got.UserID != 1 || got.Module != "user" || got.Action != "me" || got.Status != http.StatusOK || !got.Success {
 		t.Fatalf("unexpected operation input: %#v", got)
+	}
+}
+
+func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
+		},
+		RealtimeHandler: realtimemodule.NewHandler(
+			realtimemodule.NewService(25*time.Second),
+			platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
+			platformrealtime.NewManager(),
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+		),
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+"/api/admin/v1/realtime/ws", http.Header{
+		"Authorization": []string{"Bearer access-token"},
+		"platform":      []string{"admin"},
+		"device-id":     []string{"codex-test"},
+	})
+	if err != nil {
+		t.Fatalf("dial realtime: %v", err)
+	}
+	defer client.Close()
+
+	var connected map[string]any
+	if err := client.ReadJSON(&connected); err != nil {
+		t.Fatalf("read connected: %v", err)
+	}
+	if connected["type"] != realtimemodule.TypeConnectedV1 {
+		t.Fatalf("expected connected event, got %#v", connected)
 	}
 }
 

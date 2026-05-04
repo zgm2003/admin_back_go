@@ -1,8 +1,13 @@
 package user
 
-import "github.com/gin-gonic/gin"
+import (
+	"admin_back_go/internal/validate"
 
-func RegisterRoutes(router *gin.Engine, service InitService) {
+	"github.com/gin-gonic/gin"
+)
+
+func RegisterRoutes(router *gin.Engine, service HTTPService) {
+	validate.MustRegister()
 	handler := NewHandler(service)
 
 	legacy := router.Group("/api/Users")
@@ -11,4 +16,11 @@ func RegisterRoutes(router *gin.Engine, service InitService) {
 	users := router.Group("/api/admin/v1/users")
 	users.GET("/init", handler.Init)
 	users.GET("/me", handler.Me)
+	users.GET("/page-init", handler.PageInit)
+	users.GET("", handler.List)
+	users.PUT("/:id", handler.Update)
+	users.PATCH("/:id/status", handler.ChangeStatus)
+	users.PATCH("", handler.BatchUpdateProfile)
+	users.DELETE("/:id", handler.DeleteOne)
+	users.DELETE("", handler.DeleteBatch)
 }

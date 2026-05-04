@@ -3,6 +3,7 @@ package taskqueue
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"admin_back_go/internal/config"
@@ -88,5 +89,18 @@ func TestMuxHandleFuncPassesProjectTask(t *testing.T) {
 	}
 	if string(got.Payload) != `{"message":"ok"}` {
 		t.Fatalf("unexpected payload %q", string(got.Payload))
+	}
+}
+
+func TestMuxRejectsUnknownTaskTypeVisibly(t *testing.T) {
+	mux := NewMux()
+
+	err := mux.ProcessProjectTask(context.Background(), Task{Type: "system:unknown:v1"})
+
+	if !errors.Is(err, ErrHandlerNotRegistered) {
+		t.Fatalf("expected ErrHandlerNotRegistered, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "system:unknown:v1") {
+		t.Fatalf("expected error to include task type, got %v", err)
 	}
 }

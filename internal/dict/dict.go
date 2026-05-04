@@ -49,3 +49,11 @@ func PlatformOptions() []Option[string] {
 		{Label: enum.PlatformApp, Value: enum.PlatformApp},
 	}
 }
+
+func SexOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "未知", Value: enum.SexUnknown},
+		{Label: "男", Value: enum.SexMale},
+		{Label: "女", Value: enum.SexFemale},
+	}
+}

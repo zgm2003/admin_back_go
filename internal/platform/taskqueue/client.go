@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	ErrRedisAddrRequired   = errors.New("queue redis addr is required")
-	ErrTaskTypeRequired    = errors.New("task type is required")
-	ErrQueueRequired       = errors.New("task queue is required")
-	ErrClientNotReady      = errors.New("task queue client is not ready")
-	ErrQueueWeightRequired = errors.New("at least one queue weight is required")
-	ErrHandlerRequired     = errors.New("task handler is required")
+	ErrRedisAddrRequired    = errors.New("queue redis addr is required")
+	ErrTaskTypeRequired     = errors.New("task type is required")
+	ErrQueueRequired        = errors.New("task queue is required")
+	ErrClientNotReady       = errors.New("task queue client is not ready")
+	ErrQueueWeightRequired  = errors.New("at least one queue weight is required")
+	ErrHandlerRequired      = errors.New("task handler is required")
+	ErrHandlerNotRegistered = errors.New("task handler is not registered")
 )
 
 // Task is the project-owned queue contract. Business code should build this

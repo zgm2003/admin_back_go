@@ -31,6 +31,7 @@ func Register() error {
 			"auth_platform_login_type": validateAuthPlatformLoginType,
 			"captcha_type":             validateCaptchaType,
 			"verify_code_scene":        validateVerifyCodeScene,
+			"user_sex":                 validateUserSex,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

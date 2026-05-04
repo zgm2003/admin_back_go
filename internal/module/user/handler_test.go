@@ -1,6 +1,7 @@
 package user
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -20,12 +21,53 @@ type fakeInitService struct {
 	inputs []InitInput
 	result *InitResponse
 	err    *apperror.Error
+
+	pageInitResult *PageInitResponse
+	listQuery      ListQuery
+	listResult     *ListResponse
+	updateID       int64
+	updateInput    UpdateInput
+	statusID       int64
+	statusValue    int
+	deleteIDs      []int64
+	batchInput     BatchProfileUpdate
 }
 
 func (f *fakeInitService) Init(ctx context.Context, input InitInput) (*InitResponse, *apperror.Error) {
 	f.input = input
 	f.inputs = append(f.inputs, input)
 	return f.result, f.err
+}
+
+func (f *fakeInitService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
+	return f.pageInitResult, f.err
+}
+
+func (f *fakeInitService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return f.listResult, f.err
+}
+
+func (f *fakeInitService) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
+	f.updateID = id
+	f.updateInput = input
+	return f.err
+}
+
+func (f *fakeInitService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusID = id
+	f.statusValue = status
+	return f.err
+}
+
+func (f *fakeInitService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	f.deleteIDs = ids
+	return f.err
+}
+
+func (f *fakeInitService) BatchUpdateProfile(ctx context.Context, input BatchProfileUpdate) *apperror.Error {
+	f.batchInput = input
+	return f.err
 }
 
 func TestHandlerInitRequiresAuthIdentity(t *testing.T) {
@@ -127,7 +169,117 @@ func TestHandlerRESTInitAndMeUseAuthIdentityAndMatchLegacyInitData(t *testing.T)
 	}
 }
 
-func newUserTestRouter(service InitService, identity *middleware.AuthIdentity) *gin.Engine {
+func TestHandlerPageInitUsesDedicatedRouteWithoutOverloadingUsersInit(t *testing.T) {
+	service := &fakeInitService{pageInitResult: &PageInitResponse{
+		Dict: PageInitDict{
+			RoleArr: []RoleOption{{Label: "管理员", Value: 1}},
+			AuthAddressTree: []AddressTreeNode{{
+				Label: "中国",
+				Value: 1,
+			}},
+			SexArr:      []SexOption{{Label: "未知", Value: 0}},
+			PlatformArr: []PlatformOption{{Label: "admin", Value: "admin"}},
+		},
+	}}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
+
+	data := requestUserData(t, router, http.MethodGet, "/api/admin/v1/users/page-init")
+
+	dict := data["dict"].(map[string]any)
+	if _, ok := dict["roleArr"]; !ok {
+		t.Fatalf("missing roleArr in page-init: %#v", data)
+	}
+	if len(service.inputs) != 0 {
+		t.Fatalf("page-init must not call current-user Init, inputs=%#v", service.inputs)
+	}
+}
+
+func TestHandlerListBindsRESTQueryAndCommaAddressIDs(t *testing.T) {
+	service := &fakeInitService{listResult: &ListResponse{
+		List: []ListItem{{ID: 1, Username: "alice"}},
+		Page: Page{CurrentPage: 1, PageSize: 20, Total: 1, TotalPage: 1},
+	}}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
+
+	data := requestUserData(t, router, http.MethodGet, "/api/admin/v1/users?current_page=1&page_size=20&username=alice&address_id=3,4&sex=1")
+
+	if service.listQuery.CurrentPage != 1 || service.listQuery.PageSize != 20 || service.listQuery.Username != "alice" {
+		t.Fatalf("list query mismatch: %#v", service.listQuery)
+	}
+	if !reflect.DeepEqual(service.listQuery.AddressIDs, []int64{3, 4}) {
+		t.Fatalf("address ids mismatch: %#v", service.listQuery.AddressIDs)
+	}
+	if service.listQuery.Sex == nil || *service.listQuery.Sex != 1 {
+		t.Fatalf("sex query mismatch: %#v", service.listQuery.Sex)
+	}
+	if _, ok := data["list"]; !ok {
+		t.Fatalf("missing list in response: %#v", data)
+	}
+}
+
+func TestHandlerUpdateRequiresAddressIDNotLegacyAddressAlias(t *testing.T) {
+	service := &fakeInitService{}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
+
+	validBody := []byte(`{"username":"alice","avatar":"a.png","role_id":2,"sex":1,"address_id":3,"detail_address":"玄武区","bio":"bio"}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/users/9", bytes.NewReader(validBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected valid update 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.updateID != 9 || service.updateInput.AddressID != 3 || service.updateInput.Username != "alice" {
+		t.Fatalf("update input mismatch: id=%d input=%#v", service.updateID, service.updateInput)
+	}
+
+	legacyAliasBody := []byte(`{"username":"alice","avatar":"a.png","role_id":2,"sex":1,"address":3}`)
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/users/9", bytes.NewReader(legacyAliasBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected legacy address alias to be rejected, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestHandlerStatusDeleteAndBatchProfileRoutes(t *testing.T) {
+	service := &fakeInitService{}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/users/9/status", bytes.NewReader([]byte(`{"status":2}`)))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || service.statusID != 9 || service.statusValue != 2 {
+		t.Fatalf("status route mismatch: code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), service)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/users/9", nil)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !reflect.DeepEqual(service.deleteIDs, []int64{9}) {
+		t.Fatalf("delete one route mismatch: code=%d body=%s ids=%#v", recorder.Code, recorder.Body.String(), service.deleteIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/users", bytes.NewReader([]byte(`{"ids":[8,9]}`)))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !reflect.DeepEqual(service.deleteIDs, []int64{8, 9}) {
+		t.Fatalf("delete batch route mismatch: code=%d body=%s ids=%#v", recorder.Code, recorder.Body.String(), service.deleteIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/users", bytes.NewReader([]byte(`{"ids":[8,9],"field":"address_id","address_id":3}`)))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || service.batchInput.Field != BatchProfileFieldAddressID || service.batchInput.AddressID != 3 {
+		t.Fatalf("batch profile route mismatch: code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.batchInput)
+	}
+}
+
+func newUserTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	if identity != nil {

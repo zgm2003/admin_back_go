@@ -31,4 +31,9 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	if len(platforms) != 2 || platforms[0].Value != enum.PlatformAdmin || platforms[1].Value != enum.PlatformApp {
 		t.Fatalf("unexpected platform options: %#v", platforms)
 	}
+
+	sex := SexOptions()
+	if len(sex) != 3 || sex[0].Value != enum.SexUnknown || sex[1].Value != enum.SexMale || sex[2].Value != enum.SexFemale {
+		t.Fatalf("unexpected sex options: %#v", sex)
+	}
 }

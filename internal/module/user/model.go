@@ -6,6 +6,8 @@ type User struct {
 	ID        int64     `gorm:"column:id"`
 	RoleID    int64     `gorm:"column:role_id"`
 	Username  string    `gorm:"column:username"`
+	Email     string    `gorm:"column:email"`
+	Phone     string    `gorm:"column:phone"`
 	Status    int       `gorm:"column:status"`
 	IsDel     int       `gorm:"column:is_del"`
 	CreatedAt time.Time `gorm:"column:created_at"`
@@ -17,9 +19,15 @@ func (User) TableName() string {
 }
 
 type Profile struct {
-	UserID int64  `gorm:"column:user_id"`
-	Avatar string `gorm:"column:avatar"`
-	IsDel  int    `gorm:"column:is_del"`
+	UserID        int64     `gorm:"column:user_id"`
+	Avatar        string    `gorm:"column:avatar"`
+	Bio           string    `gorm:"column:bio"`
+	Sex           int       `gorm:"column:sex"`
+	AddressID     int64     `gorm:"column:address_id"`
+	DetailAddress string    `gorm:"column:detail_address"`
+	IsDel         int       `gorm:"column:is_del"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 func (Profile) TableName() string {
@@ -27,9 +35,12 @@ func (Profile) TableName() string {
 }
 
 type Role struct {
-	ID    int64  `gorm:"column:id"`
-	Name  string `gorm:"column:name"`
-	IsDel int    `gorm:"column:is_del"`
+	ID        int64     `gorm:"column:id"`
+	Name      string    `gorm:"column:name"`
+	IsDefault int       `gorm:"column:is_default"`
+	IsDel     int       `gorm:"column:is_del"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
 
 func (Role) TableName() string {
@@ -46,4 +57,18 @@ type QuickEntry struct {
 
 func (QuickEntry) TableName() string {
 	return "users_quick_entry"
+}
+
+type Address struct {
+	ID        int64     `gorm:"column:id"`
+	ParentID  int64     `gorm:"column:parent_id"`
+	Code      string    `gorm:"column:code"`
+	Name      string    `gorm:"column:name"`
+	IsDel     int       `gorm:"column:is_del"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
+
+func (Address) TableName() string {
+	return "address"
 }

@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/user"
+	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
 )
@@ -23,11 +24,13 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 type App struct {
-	cfg         config.Config
-	logger      *slog.Logger
-	server      *http.Server
-	resources   *Resources
-	queueClient *taskqueue.Client
+	cfg               config.Config
+	logger            *slog.Logger
+	server            *http.Server
+	resources         *Resources
+	queueClient       *taskqueue.Client
+	realtimeManager   *platformrealtime.Manager
+	realtimePublisher platformrealtime.Publisher
 }
 
 func New(cfg config.Config, logger *slog.Logger) *App {
@@ -97,6 +100,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	)
 	userRepository := user.NewGormRepository(resources.DB)
 	operationRepository := operationlog.NewGormRepository(resources.DB)
+	operationService := operationlog.NewService(operationRepository)
 	var operationRecorder middleware.OperationRecorder
 	if operationRepository != nil {
 		operationRecorder = operationlog.NewRecorder(operationRepository)
@@ -107,6 +111,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		buttonGrantCache,
 		0,
 	)
+	realtimeStack := newRealtimeStack(cfg.Realtime, logger)
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
 		Logger:        logger,
@@ -124,15 +129,19 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthService:         authService,
 		CaptchaService:      captchaService,
 		UserService:         userService,
+		OperationLogService: operationService,
 		PermissionService:   permissionService,
+		RealtimeHandler:     realtimeStack.handler,
 		RoleService:         roleService,
 		AuthPlatformService: authPlatformService,
 	})
 	return &App{
-		cfg:         cfg,
-		logger:      logger,
-		resources:   resources,
-		queueClient: queueClient,
+		cfg:               cfg,
+		logger:            logger,
+		resources:         resources,
+		queueClient:       queueClient,
+		realtimeManager:   realtimeStack.manager,
+		realtimePublisher: realtimeStack.publisher,
 		server: &http.Server{
 			Addr:              cfg.HTTP.Addr,
 			Handler:           router,
@@ -157,6 +166,9 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 
 	shutdownErr := a.server.Shutdown(ctx)
+	if a.realtimeManager != nil {
+		a.realtimeManager.CloseAll()
+	}
 	queueErr := a.queueClient.Close()
 	resourceErr := a.resources.Close()
 	return errors.Join(shutdownErr, queueErr, resourceErr)

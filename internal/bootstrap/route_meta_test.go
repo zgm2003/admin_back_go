@@ -30,6 +30,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/auth-platforms/:id/status", "permission_authPlatform_status"},
 		{http.MethodDelete, "/api/admin/v1/auth-platforms/:id", "permission_authPlatform_del"},
 		{http.MethodDelete, "/api/admin/v1/auth-platforms", "permission_authPlatform_del"},
+		{http.MethodPut, "/api/admin/v1/users/:id", "user_userManager_edit"},
+		{http.MethodPatch, "/api/admin/v1/users/:id/status", "user_userManager_edit"},
+		{http.MethodPatch, "/api/admin/v1/users", "user_userManager_batchEdit"},
+		{http.MethodDelete, "/api/admin/v1/users/:id", "user_userManager_del"},
+		{http.MethodDelete, "/api/admin/v1/users", "user_userManager_del"},
+		{http.MethodDelete, "/api/admin/v1/operation-logs/:id", "devTools_operationLog_del"},
+		{http.MethodDelete, "/api/admin/v1/operation-logs", "devTools_operationLog_del"},
 	}
 
 	for _, tt := range tests {
@@ -75,6 +82,13 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/auth-platforms/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/auth-platforms/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/auth-platforms", "delete_batch"},
+		{http.MethodPut, "/api/admin/v1/users/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/users/:id/status", "change_status"},
+		{http.MethodPatch, "/api/admin/v1/users", "batch_update_profile"},
+		{http.MethodDelete, "/api/admin/v1/users/:id", "delete"},
+		{http.MethodDelete, "/api/admin/v1/users", "delete_batch"},
+		{http.MethodDelete, "/api/admin/v1/operation-logs/:id", "delete"},
+		{http.MethodDelete, "/api/admin/v1/operation-logs", "delete_batch"},
 	}
 
 	for _, tt := range tests {

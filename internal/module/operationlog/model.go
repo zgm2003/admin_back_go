@@ -22,3 +22,13 @@ type Log struct {
 func (Log) TableName() string {
 	return "operation_logs"
 }
+
+type User struct {
+	ID    int64  `gorm:"column:id"`
+	Name  string `gorm:"column:username"`
+	Email string `gorm:"column:email"`
+}
+
+func (User) TableName() string {
+	return "users"
+}

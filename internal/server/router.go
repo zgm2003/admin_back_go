@@ -8,7 +8,9 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/system"
 	"admin_back_go/internal/module/user"
@@ -28,8 +30,10 @@ type Dependencies struct {
 	OperationRules      map[middleware.RouteKey]middleware.OperationRule
 	AuthService         auth.SessionService
 	CaptchaService      captcha.HTTPService
-	UserService         user.InitService
+	UserService         user.HTTPService
+	OperationLogService operationlog.HTTPService
 	PermissionService   permission.ManagementService
+	RealtimeHandler     *realtime.Handler
 	RoleService         role.HTTPService
 	AuthPlatformService authplatform.HTTPService
 	AuthSkipPaths       map[string]struct{}
@@ -62,7 +66,9 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	captcha.RegisterRoutes(router, deps.CaptchaService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	user.RegisterRoutes(router, deps.UserService)
+	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	permission.RegisterRoutes(router, deps.PermissionService)
+	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)
 

@@ -23,6 +23,13 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/auth-platforms/:id/status"): "permission_authPlatform_status",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/auth-platforms/:id"):       "permission_authPlatform_del",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/auth-platforms"):           "permission_authPlatform_del",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/users/:id"):                   "user_userManager_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/users/:id/status"):          "user_userManager_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/users"):                     "user_userManager_batchEdit",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users/:id"):                "user_userManager_del",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users"):                    "user_userManager_del",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs/:id"):       "devTools_operationLog_del",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs"):           "devTools_operationLog_del",
 	}
 }
 
@@ -102,6 +109,41 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "auth_platform",
 			Action: "delete_batch",
 			Title:  "批量删除认证平台",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/users/:id"): {
+			Module: "user",
+			Action: "update",
+			Title:  "编辑用户",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/users/:id/status"): {
+			Module: "user",
+			Action: "change_status",
+			Title:  "修改用户状态",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/users"): {
+			Module: "user",
+			Action: "batch_update_profile",
+			Title:  "批量修改用户资料",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users/:id"): {
+			Module: "user",
+			Action: "delete",
+			Title:  "删除用户",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users"): {
+			Module: "user",
+			Action: "delete_batch",
+			Title:  "批量删除用户",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs/:id"): {
+			Module: "operation_log",
+			Action: "delete",
+			Title:  "删除操作日志",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs"): {
+			Module: "operation_log",
+			Action: "delete_batch",
+			Title:  "批量删除操作日志",
 		},
 	}
 }

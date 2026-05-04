@@ -129,6 +129,8 @@ function Test-StringListContains($Values, [string]$Expected) {
   return $false
 }
 
+
+
 Import-DotEnv (Join-Path $BackendRoot '.env')
 
 if ([string]::IsNullOrWhiteSpace($Account) -or [string]::IsNullOrWhiteSpace($Password)) {
@@ -142,6 +144,7 @@ $serverExe = '.tmp/admin-api-smoke.exe'
 $workerExe = '.tmp/admin-worker-smoke.exe'
 $secretReader = '.tmp/read-captcha-secret.go'
 $loginLogReader = '.tmp/read-login-log-count.go'
+$realtimeSmoke = '.tmp/realtime-smoke.go'
 $outLog = '.tmp/basic-admin-smoke-out.log'
 $errLog = '.tmp/basic-admin-smoke-err.log'
 $workerOutLog = '.tmp/basic-admin-worker-smoke-out.log'
@@ -155,7 +158,7 @@ $smokeRole = $null
 $originalRolePermissionIDs = $null
 $roleRestored = $false
 
-Remove-Item -Force $serverExe, $workerExe, $secretReader, $loginLogReader, $outLog, $errLog, $workerOutLog, $workerErrLog -ErrorAction SilentlyContinue
+Remove-Item -Force $serverExe, $workerExe, $secretReader, $loginLogReader, $realtimeSmoke, $outLog, $errLog, $workerOutLog, $workerErrLog -ErrorAction SilentlyContinue
 
 go build -o $serverExe ./cmd/admin-api
 go build -o $workerExe ./cmd/admin-worker
@@ -317,6 +320,113 @@ func main() {
 package main
 
 import (
+  "encoding/json"
+  "fmt"
+  "net/http"
+  "net/url"
+  "os"
+  "strings"
+  "time"
+
+  "github.com/gorilla/websocket"
+)
+
+type Envelope struct {
+  Type      string         ``json:"type"``
+  RequestID string         ``json:"request_id,omitempty"``
+  Data      map[string]any ``json:"data"``
+}
+
+func main() {
+  if len(os.Args) != 5 {
+    fmt.Fprintln(os.Stderr, "usage: realtime-smoke <base-url> <access-token> <platform> <device-id>")
+    os.Exit(2)
+  }
+
+  base, err := url.Parse(os.Args[1])
+  if err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(2)
+  }
+  switch base.Scheme {
+  case "https":
+    base.Scheme = "wss"
+  default:
+    base.Scheme = "ws"
+  }
+  base.Path = "/api/admin/v1/realtime/ws"
+  base.RawQuery = ""
+
+  headers := http.Header{}
+  headers.Set("Authorization", "Bearer "+os.Args[2])
+  headers.Set("platform", os.Args[3])
+  headers.Set("device-id", os.Args[4])
+
+  conn, _, err := (&websocket.Dialer{HandshakeTimeout: 5 * time.Second}).Dial(base.String(), headers)
+  if err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+  defer conn.Close()
+
+  if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+
+  var connected Envelope
+  if err := conn.ReadJSON(&connected); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+  if connected.Type != "realtime.connected.v1" || connected.Data["platform"] != os.Args[3] {
+    b, _ := json.Marshal(connected)
+    fmt.Fprintf(os.Stderr, "unexpected connected event: %s\n", b)
+    os.Exit(1)
+  }
+
+  if err := conn.WriteJSON(Envelope{
+    Type:      "realtime.ping.v1",
+    RequestID: "smoke-realtime-ping",
+    Data:      map[string]any{},
+  }); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+
+  var pong Envelope
+  if err := conn.ReadJSON(&pong); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+  if pong.Type != "realtime.pong.v1" || pong.RequestID != "smoke-realtime-ping" || strings.TrimSpace(fmt.Sprint(pong.Data["server_time"])) == "" {
+    b, _ := json.Marshal(pong)
+    fmt.Fprintf(os.Stderr, "unexpected pong event: %s\n", b)
+    os.Exit(1)
+  }
+
+  summary := map[string]any{
+    "connected_type": connected.Type,
+    "pong_type": pong.Type,
+    "heartbeat_interval_ms": connected.Data["heartbeat_interval_ms"],
+  }
+  if err := json.NewEncoder(os.Stdout).Encode(summary); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+}
+"@ | Set-Content -LiteralPath $realtimeSmoke -Encoding UTF8
+
+  $realtimeOutput = go run $realtimeSmoke $baseURL $login.data.access_token $Platform $DeviceID 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "realtime websocket smoke failed: $($realtimeOutput | Out-String)"
+  }
+  $realtime = ($realtimeOutput | Out-String).Trim() | ConvertFrom-Json
+
+  @"
+package main
+
+import (
   "context"
   "database/sql"
   "fmt"
@@ -373,8 +483,12 @@ func main() {
 
   $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
   $init = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
+  $usersPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/page-init" -Headers $authHeaders -TimeoutSec 10
+  $usersList = Invoke-RestMethod "$baseURL/api/admin/v1/users?current_page=1&page_size=10" -Headers $authHeaders -TimeoutSec 10
   $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/init" -Headers $authHeaders -TimeoutSec 10
   $authPlatformList = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms?current_page=1&page_size=50" -Headers $authHeaders -TimeoutSec 10
+  Assert-ApiOK $usersPageInit 'users page-init'
+  Assert-ApiOK $usersList 'users list'
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $dirBody = @{
     platform = $Platform
@@ -493,10 +607,18 @@ func main() {
     login_code = $login.code
     access_token_present = -not [string]::IsNullOrWhiteSpace($login.data.access_token)
     login_log_count = $loginLogCount
+    realtime_connected_type = $realtime.connected_type
+    realtime_pong_type = $realtime.pong_type
+    realtime_heartbeat_interval_ms = $realtime.heartbeat_interval_ms
     me_code = $me.code
     init_code = $init.code
     router_count = @($init.data.router).Count
     button_code_count = @($init.data.buttonCodes).Count
+    users_page_init_code = $usersPageInit.code
+    users_role_dict_count = @($usersPageInit.data.dict.roleArr).Count
+    users_address_tree_count = @($usersPageInit.data.dict.auth_address_tree).Count
+    users_list_code = $usersList.code
+    users_list_count = @($usersList.data.list).Count
     auth_platform_init_code = $authPlatformInit.code
     auth_platform_captcha_dict_count = @($authPlatformInit.data.dict.auth_platform_captcha_type_arr).Count
     auth_platform_list_code = $authPlatformList.code
@@ -552,7 +674,7 @@ func main() {
   }
 
   Start-Sleep -Milliseconds 300
-  Remove-Item -Force $serverExe, $workerExe, $secretReader, $loginLogReader -ErrorAction SilentlyContinue
+  Remove-Item -Force $serverExe, $workerExe, $secretReader, $loginLogReader, $realtimeSmoke -ErrorAction SilentlyContinue
 
   if ($completed) {
     Remove-Item -Force $outLog, $errLog, $workerOutLog, $workerErrLog -ErrorAction SilentlyContinue

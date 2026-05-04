@@ -15,19 +15,21 @@ type OperationRule struct {
 }
 
 type OperationInput struct {
-	UserID    int64
-	SessionID int64
-	Platform  string
-	Method    string
-	Path      string
-	Module    string
-	Action    string
-	Title     string
-	RequestID string
-	ClientIP  string
-	Status    int
-	Success   bool
-	LatencyMs int64
+	UserID          int64
+	SessionID       int64
+	Platform        string
+	Method          string
+	Path            string
+	Module          string
+	Action          string
+	Title           string
+	RequestID       string
+	ClientIP        string
+	Status          int
+	Success         bool
+	LatencyMs       int64
+	RequestPayload  any
+	ResponsePayload any
 }
 
 type OperationRecorder func(ctx context.Context, input OperationInput) error

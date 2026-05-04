@@ -16,6 +16,7 @@ type Config struct {
 	Captcha    CaptchaConfig
 	VerifyCode VerifyCodeConfig
 	Queue      QueueConfig
+	Realtime   RealtimeConfig
 	Scheduler  SchedulerConfig
 	CORS       CORSConfig
 }
@@ -77,6 +78,18 @@ type QueueConfig struct {
 	ShutdownTimeout time.Duration
 	DefaultMaxRetry int
 	DefaultTimeout  time.Duration
+}
+
+const (
+	RealtimePublisherLocal = "local"
+	RealtimePublisherNoop  = "noop"
+)
+
+type RealtimeConfig struct {
+	Enabled           bool
+	Publisher         string
+	HeartbeatInterval time.Duration
+	SendBuffer        int
 }
 
 type SchedulerConfig struct {
@@ -152,6 +165,12 @@ func Load() Config {
 			ShutdownTimeout: envDuration("QUEUE_SHUTDOWN_TIMEOUT", 10*time.Second),
 			DefaultMaxRetry: envInt("QUEUE_DEFAULT_MAX_RETRY", 3),
 			DefaultTimeout:  envDuration("QUEUE_DEFAULT_TIMEOUT", 30*time.Second),
+		},
+		Realtime: RealtimeConfig{
+			Enabled:           envBool("REALTIME_ENABLED", true),
+			Publisher:         envString("REALTIME_PUBLISHER", RealtimePublisherLocal),
+			HeartbeatInterval: envDuration("REALTIME_HEARTBEAT_INTERVAL", 25*time.Second),
+			SendBuffer:        envInt("REALTIME_SEND_BUFFER", 16),
 		},
 		Scheduler: SchedulerConfig{
 			Enabled:    envBool("SCHEDULER_ENABLED", true),

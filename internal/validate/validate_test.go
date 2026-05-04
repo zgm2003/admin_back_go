@@ -19,6 +19,7 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		LoginType   string `binding:"required,auth_platform_login_type"`
 		CaptchaType string `binding:"required,captcha_type"`
 		Scene       string `binding:"required,verify_code_scene"`
+		Sex         int    `binding:"user_sex"`
 	}
 
 	valid := request{
@@ -29,6 +30,7 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		LoginType:   "password",
 		CaptchaType: "slide",
 		Scene:       "login",
+		Sex:         1,
 	}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid request, got %v", err)
@@ -38,5 +40,11 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	invalid.CaptchaType = "click"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid captcha_type to fail")
+	}
+
+	invalid = valid
+	invalid.Sex = 9
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid user sex to fail")
 	}
 }

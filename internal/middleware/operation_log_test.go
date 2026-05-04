@@ -112,6 +112,34 @@ func TestOperationLogDoesNotBreakResponseWhenRecorderFails(t *testing.T) {
 	}
 }
 
+func TestOperationLogRecordsFailedConfiguredRouteWithStatusAndSuccess(t *testing.T) {
+	var got OperationInput
+	router := newOperationLogTestRouter(OperationLogConfig{
+		Rules: map[RouteKey]OperationRule{
+			NewRouteKey(http.MethodPut, "/api/admin/v1/users/:id"): {Module: "user", Action: "update", Title: "编辑用户"},
+		},
+		Recorder: func(ctx context.Context, input OperationInput) error {
+			got = input
+			return nil
+		},
+	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
+	router.PUT("/api/admin/v1/users/:id", func(c *gin.Context) { c.JSON(http.StatusBadRequest, gin.H{"code": 100, "msg": "参数错误"}) })
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/users/9", nil)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad request response, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got.Status != http.StatusBadRequest || got.Success {
+		t.Fatalf("failed configured route should be logged with status/success=false: %#v", got)
+	}
+	if got.Path != "/api/admin/v1/users/:id" || got.Module != "user" || got.Action != "update" {
+		t.Fatalf("route metadata mismatch: %#v", got)
+	}
+}
+
 func newOperationLogTestRouter(cfg OperationLogConfig, identity *AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

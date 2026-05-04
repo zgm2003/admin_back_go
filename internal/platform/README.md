@@ -150,4 +150,5 @@ module/repository 只使用注入进来的资源
 scheduler 注册定时触发
 scheduler task 只投递 queue task
 真正业务执行发生在 worker handler
+unknown task type 必须显式失败，不允许静默吞掉
 ```

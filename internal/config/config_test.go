@@ -86,6 +86,18 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Queue.DefaultTimeout != 30*time.Second {
 		t.Fatalf("expected queue default timeout 30s, got %s", cfg.Queue.DefaultTimeout)
 	}
+	if !cfg.Realtime.Enabled {
+		t.Fatalf("expected realtime to be enabled by default")
+	}
+	if cfg.Realtime.Publisher != RealtimePublisherLocal {
+		t.Fatalf("expected realtime publisher local, got %q", cfg.Realtime.Publisher)
+	}
+	if cfg.Realtime.HeartbeatInterval != 25*time.Second {
+		t.Fatalf("expected realtime heartbeat interval 25s, got %s", cfg.Realtime.HeartbeatInterval)
+	}
+	if cfg.Realtime.SendBuffer != 16 {
+		t.Fatalf("expected realtime send buffer 16, got %d", cfg.Realtime.SendBuffer)
+	}
 	if !cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler to be enabled by default")
 	}
@@ -150,6 +162,10 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("QUEUE_SHUTDOWN_TIMEOUT", "12s")
 	t.Setenv("QUEUE_DEFAULT_MAX_RETRY", "5")
 	t.Setenv("QUEUE_DEFAULT_TIMEOUT", "45s")
+	t.Setenv("REALTIME_ENABLED", "false")
+	t.Setenv("REALTIME_PUBLISHER", "noop")
+	t.Setenv("REALTIME_HEARTBEAT_INTERVAL", "10s")
+	t.Setenv("REALTIME_SEND_BUFFER", "32")
 	t.Setenv("SCHEDULER_ENABLED", "false")
 	t.Setenv("SCHEDULER_TIMEZONE", "UTC")
 	t.Setenv("SCHEDULER_LOCK_PREFIX", "test:scheduler:")
@@ -201,6 +217,15 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Queue.ShutdownTimeout != 12*time.Second || cfg.Queue.DefaultMaxRetry != 5 || cfg.Queue.DefaultTimeout != 45*time.Second {
 		t.Fatalf("unexpected queue retry/timeout config: %#v", cfg.Queue)
+	}
+	if cfg.Realtime.Enabled {
+		t.Fatalf("expected realtime enabled override to false")
+	}
+	if cfg.Realtime.Publisher != RealtimePublisherNoop {
+		t.Fatalf("expected realtime publisher noop, got %q", cfg.Realtime.Publisher)
+	}
+	if cfg.Realtime.HeartbeatInterval != 10*time.Second || cfg.Realtime.SendBuffer != 32 {
+		t.Fatalf("unexpected realtime config: %#v", cfg.Realtime)
 	}
 	if cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler enabled override to false")
