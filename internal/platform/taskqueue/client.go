@@ -19,6 +19,7 @@ var (
 	ErrQueueWeightRequired  = errors.New("at least one queue weight is required")
 	ErrHandlerRequired      = errors.New("task handler is required")
 	ErrHandlerNotRegistered = errors.New("task handler is not registered")
+	ErrQueueNotFound        = errors.New("queue not found")
 )
 
 // Task is the project-owned queue contract. Business code should build this
@@ -146,4 +147,11 @@ func redisOpt(redisCfg config.RedisConfig, db int) (asynq.RedisClientOpt, error)
 		Password: redisCfg.Password,
 		DB:       db,
 	}, nil
+}
+
+// RedisConnOpt returns the Asynq Redis connection option for components that
+// must integrate with official Asynq tooling, such as asynqmon. Keep this as a
+// platform boundary; modules should not build Asynq options directly.
+func RedisConnOpt(redisCfg config.RedisConfig, queueCfg config.QueueConfig) (asynq.RedisClientOpt, error) {
+	return redisOpt(redisCfg, queueCfg.RedisDB)
 }

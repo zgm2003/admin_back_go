@@ -21,6 +21,7 @@ import (
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
@@ -257,6 +258,38 @@ func (f *fakeRouterOperationLogService) List(ctx context.Context, query operatio
 func (f *fakeRouterOperationLogService) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	f.deleteIDs = ids
 	return nil
+}
+
+type fakeRouterQueueMonitorService struct {
+	listCalled      bool
+	failedListQuery queuemonitor.FailedListQuery
+}
+
+type fakeQueueMonitorUI struct {
+	called bool
+	path   string
+	method string
+}
+
+func (f *fakeQueueMonitorUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.called = true
+	f.path = r.URL.Path
+	f.method = r.Method
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("queue monitor ui"))
+}
+
+func (f *fakeRouterQueueMonitorService) List(ctx context.Context) ([]queuemonitor.QueueItem, *apperror.Error) {
+	f.listCalled = true
+	return []queuemonitor.QueueItem{{Name: "critical", Label: "高优先级队列", Group: "critical"}}, nil
+}
+
+func (f *fakeRouterQueueMonitorService) FailedList(ctx context.Context, query queuemonitor.FailedListQuery) (*queuemonitor.FailedListResponse, *apperror.Error) {
+	f.failedListQuery = query
+	return &queuemonitor.FailedListResponse{
+		List: []queuemonitor.FailedTaskItem{{ID: "task-1", State: "retry"}},
+		Page: queuemonitor.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {
@@ -741,6 +774,75 @@ func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(operationLogService.deleteIDs, []int64{9}) {
 		t.Fatalf("operation log delete mismatch: %#v", operationLogService.deleteIDs)
+	}
+}
+
+func TestRouterInstallsQueueMonitorReadOnlyRESTRoutes(t *testing.T) {
+	queueMonitorService := &fakeRouterQueueMonitorService{}
+	queueMonitorUI := &fakeQueueMonitorUI{}
+	var uiAuthToken string
+	var uiAuthPlatform string
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			if strings.HasPrefix(input.AccessToken, "cookie-") {
+				uiAuthToken = input.AccessToken
+				uiAuthPlatform = input.Platform
+			}
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		QueueMonitorService: queueMonitorService,
+		QueueMonitorUI:      queueMonitorUI,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/queue-monitor", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !queueMonitorService.listCalled {
+		t.Fatalf("expected queue monitor list call")
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/queue-monitor/failed?queue=critical&current_page=2&page_size=10", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if queueMonitorService.failedListQuery.Queue != "critical" || queueMonitorService.failedListQuery.CurrentPage != 2 || queueMonitorService.failedListQuery.PageSize != 10 {
+		t.Fatalf("queue monitor failed query mismatch: %#v", queueMonitorService.failedListQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, queuemonitor.UIPath+"/api/queues", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected queue monitor UI status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !queueMonitorUI.called || queueMonitorUI.path != queuemonitor.UIPath+"/api/queues" || queueMonitorUI.method != http.MethodGet {
+		t.Fatalf("queue monitor UI handler not called as expected: %#v", queueMonitorUI)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, queuemonitor.UIPath, nil)
+	request.AddCookie(&http.Cookie{Name: middleware.DefaultAccessTokenCookie, Value: "cookie-access-token"})
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected queue monitor UI cookie status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if uiAuthToken != "cookie-access-token" {
+		t.Fatalf("expected queue monitor UI to authenticate with cookie token, got %q", uiAuthToken)
+	}
+	if uiAuthPlatform != "admin" {
+		t.Fatalf("expected queue monitor UI cookie auth to use admin platform, got %q", uiAuthPlatform)
 	}
 }
 

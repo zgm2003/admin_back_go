@@ -14,6 +14,7 @@ import (
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/user"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -29,6 +30,8 @@ type App struct {
 	server            *http.Server
 	resources         *Resources
 	queueClient       *taskqueue.Client
+	queueInspector    *taskqueue.Inspector
+	queueMonitorUI    *queuemonitor.MonitorUI
 	realtimeManager   *platformrealtime.Manager
 	realtimePublisher platformrealtime.Publisher
 }
@@ -50,6 +53,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
 	var loginLogEnqueuer taskqueue.Enqueuer
 	var queueClient *taskqueue.Client
+	var queueInspector *taskqueue.Inspector
+	var queueMonitorUI *queuemonitor.MonitorUI
 	if cfg.Queue.Enabled {
 		client, err := taskqueue.NewClient(cfg.Redis, cfg.Queue)
 		if err != nil {
@@ -58,7 +63,29 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			queueClient = client
 			loginLogEnqueuer = client
 		}
+		inspector, err := taskqueue.NewInspector(cfg.Redis, cfg.Queue)
+		if err != nil {
+			logger.Error("failed to initialize queue inspector", "error", err)
+		} else {
+			queueInspector = inspector
+			monitorUI, err := queuemonitor.NewMonitorUI(cfg.Redis, cfg.Queue)
+			if err != nil {
+				if !queuemonitor.IsUIConfigError(err) {
+					logger.Error("failed to initialize queue monitor UI", "error", err)
+				}
+			} else {
+				queueMonitorUI = monitorUI
+			}
+		}
 	}
+	queueMonitorService := queuemonitor.NewService(
+		queuemonitor.NewTaskqueueInspector(queueInspector),
+		queuemonitor.Options{QueueNames: []string{
+			taskqueue.QueueCritical,
+			taskqueue.QueueDefault,
+			taskqueue.QueueLow,
+		}},
+	)
 	var captchaService *captcha.Service
 	captchaEngine, captchaErr := captcha.NewSlideEngine()
 	if captchaErr != nil {
@@ -131,6 +158,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		UserService:         userService,
 		OperationLogService: operationService,
 		PermissionService:   permissionService,
+		QueueMonitorService: queueMonitorService,
+		QueueMonitorUI:      queueMonitorUI,
 		RealtimeHandler:     realtimeStack.handler,
 		RoleService:         roleService,
 		AuthPlatformService: authPlatformService,
@@ -140,6 +169,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		logger:            logger,
 		resources:         resources,
 		queueClient:       queueClient,
+		queueInspector:    queueInspector,
+		queueMonitorUI:    queueMonitorUI,
 		realtimeManager:   realtimeStack.manager,
 		realtimePublisher: realtimeStack.publisher,
 		server: &http.Server{
@@ -170,6 +201,8 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.realtimeManager.CloseAll()
 	}
 	queueErr := a.queueClient.Close()
+	inspectorErr := a.queueInspector.Close()
+	monitorErr := a.queueMonitorUI.Close()
 	resourceErr := a.resources.Close()
-	return errors.Join(shutdownErr, queueErr, resourceErr)
+	return errors.Join(shutdownErr, queueErr, inspectorErr, monitorErr, resourceErr)
 }

@@ -534,6 +534,7 @@ cmd/admin-worker  # 队列消费 + scheduler
 
 ```text
 queue     = github.com/hibiken/asynq
+monitor   = github.com/hibiken/asynqmon
 scheduler = github.com/go-co-op/gocron/v2
 ```
 
@@ -543,7 +544,29 @@ scheduler = github.com/go-co-op/gocron/v2
 internal/platform/taskqueue  # 项目自己的 Task / Enqueuer / Mux / Server 封装
 internal/platform/scheduler  # 项目自己的 Scheduler 封装
 internal/jobs                # 任务 type 和 handler 注册
+internal/module/queuemonitor # asynq inspector read model + official asynqmon UI mount
 ```
+
+队列监控不从零手写完整 dashboard。Gin 只负责 HTTP 路由；真正的 Asynq 队列监控采用 Asynq 官方生态 `github.com/hibiken/asynqmon`，通过 `gin` 挂载到认证后的后台命名空间：
+
+```text
+GET/ANY /api/admin/v1/queue-monitor-ui/*
+```
+
+当前策略：
+
+```text
+asynqmon 以 ReadOnly=true 运行，POST/DELETE 等破坏性操作由 asynqmon 自身拒绝
+AuthToken middleware 仍然保护 /api/admin/v1/queue-monitor-ui/*
+由于 iframe/new window 不能主动附加 Authorization header，AuthToken 只对 /api/admin/v1/queue-monitor-ui 的 GET/HEAD 文档请求允许读取现有 access_token cookie；普通 JSON API 不启用 cookie token fallback，POST/DELETE 也不启用
+cookie token 认证只在该 UI 路径显式使用后台平台 admin 补齐 session policy 入参；不要把这个扩展成全局默认平台
+前端 iframe 必须使用 Go API origin 的绝对 URL，不能写成相对路径；否则浏览器会请求前端 SPA 自己的 /api/admin/v1/queue-monitor-ui 并落到前端 404
+asynqmon@v0.7.2 内置静态 UI handler 在 Windows 下会把 URL path 经 filepath.Abs 转成盘符路径，导致首页返回 400 unexpected path prefix；因此本项目仅复制官方 ui/build 静态文件并用薄 handler 渲染，/api 子路径仍交给官方 asynqmon handler
+保留 GET /api/admin/v1/queue-monitor 与 GET /api/admin/v1/queue-monitor/failed 作为轻量 JSON 摘要接口，服务 dashboard card/smoke，不复制 asynqmon 的完整任务管理能力
+前端队列监控页只是官方 asynqmon 的薄 iframe/新窗口包装，不维护第二套任务列表 UI
+```
+
+注意：`asynqmon@v0.7.2` 是 Asynq 官方生态当前可用监控组件，README 的兼容表只写到 Asynq `0.23.x -> 0.7.x`，而本项目用 `asynq v0.26.0`。已通过本地编译/单元测试验证当前 API 可用；后续升级 Asynq 时必须优先复测 `internal/module/queuemonitor`。
 
 jobs 要分层，但不按 `fast/slow` 目录分。快慢是队列 lane 和 worker 配置，不是业务代码所有权。
 

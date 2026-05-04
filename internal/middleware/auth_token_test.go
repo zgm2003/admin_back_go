@@ -100,6 +100,122 @@ func TestAuthTokenStoresIdentityReturnedByAuthenticator(t *testing.T) {
 	}
 }
 
+func TestAuthTokenAllowsCookieOnlyForConfiguredReadOnlyPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var gotInput TokenInput
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
+			gotInput = input
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"}, nil
+		},
+		CookieTokenPath: CookieTokenPathConfig{
+			PathPrefixes: []string{"/api/admin/v1/queue-monitor-ui"},
+			Platform:     "admin",
+		},
+	}))
+	router.GET("/api/admin/v1/queue-monitor-ui", func(c *gin.Context) {
+		c.String(http.StatusOK, "monitor")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/queue-monitor-ui", nil)
+	request.AddCookie(&http.Cookie{Name: DefaultAccessTokenCookie, Value: "cookie-token"})
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if gotInput.AccessToken != "cookie-token" {
+		t.Fatalf("expected cookie token, got %q", gotInput.AccessToken)
+	}
+	if gotInput.Platform != "admin" {
+		t.Fatalf("expected configured cookie platform admin, got %q", gotInput.Platform)
+	}
+}
+
+func TestAuthTokenDoesNotDefaultPlatformForBearerRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var gotInput TokenInput
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
+			gotInput = input
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"}, nil
+		},
+		CookieTokenPath: CookieTokenPathConfig{
+			PathPrefixes: []string{"/api/admin/v1/queue-monitor-ui"},
+			Platform:     "admin",
+		},
+	}))
+	router.GET("/api/admin/v1/queue-monitor-ui", func(c *gin.Context) {
+		c.String(http.StatusOK, "monitor")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/queue-monitor-ui", nil)
+	request.Header.Set("Authorization", "Bearer bearer-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if gotInput.AccessToken != "bearer-token" {
+		t.Fatalf("expected bearer token, got %q", gotInput.AccessToken)
+	}
+	if gotInput.Platform != "" {
+		t.Fatalf("expected bearer request without platform to stay empty, got %q", gotInput.Platform)
+	}
+}
+
+func TestAuthTokenDoesNotUseCookieForNormalAPIPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
+			t.Fatalf("authenticator should not be called")
+			return nil, nil
+		},
+		CookieTokenPath: CookieTokenPathConfig{
+			PathPrefixes: []string{"/api/admin/v1/queue-monitor-ui"},
+		},
+	}))
+	router.GET("/api/admin/v1/users/me", func(c *gin.Context) {
+		c.String(http.StatusOK, "me")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
+	request.AddCookie(&http.Cookie{Name: DefaultAccessTokenCookie, Value: "cookie-token"})
+	router.ServeHTTP(recorder, request)
+
+	assertJSONError(t, recorder, http.StatusUnauthorized, apperror.CodeUnauthorized, "缺少Token")
+}
+
+func TestAuthTokenDoesNotUseCookieForMutatingRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
+			t.Fatalf("authenticator should not be called")
+			return nil, nil
+		},
+		CookieTokenPath: CookieTokenPathConfig{
+			PathPrefixes: []string{"/api/admin/v1/queue-monitor-ui"},
+		},
+	}))
+	router.POST("/api/admin/v1/queue-monitor-ui/api/queues/critical:pause", func(c *gin.Context) {
+		c.String(http.StatusOK, "pause")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/queue-monitor-ui/api/queues/critical:pause", nil)
+	request.AddCookie(&http.Cookie{Name: DefaultAccessTokenCookie, Value: "cookie-token"})
+	router.ServeHTTP(recorder, request)
+
+	assertJSONError(t, recorder, http.StatusUnauthorized, apperror.CodeUnauthorized, "缺少Token")
+}
+
 func newAuthTokenTestRouter(cfg AuthTokenConfig) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

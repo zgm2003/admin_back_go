@@ -13,6 +13,8 @@ import (
 
 const (
 	ContextAuthIdentity = "auth_identity"
+
+	DefaultAccessTokenCookie = "access_token"
 )
 
 type TokenAuthenticator func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error)
@@ -31,8 +33,24 @@ type AuthIdentity struct {
 }
 
 type AuthTokenConfig struct {
-	Authenticator TokenAuthenticator
-	SkipPaths     map[string]struct{}
+	Authenticator   TokenAuthenticator
+	SkipPaths       map[string]struct{}
+	CookieTokenPath CookieTokenPathConfig
+}
+
+// CookieTokenPathConfig allows browser document requests to authenticate with
+// the existing access_token cookie for explicitly configured read-only path
+// prefixes. This is intentionally narrow: normal API calls still use the
+// Authorization header so cookie auth does not become a hidden global fallback.
+type CookieTokenPathConfig struct {
+	CookieName   string
+	PathPrefixes []string
+	Platform     string
+}
+
+type requestToken struct {
+	value      string
+	fromCookie bool
 }
 
 func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
@@ -42,7 +60,7 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 
-		token, tokenErr := ParseBearerToken(c.GetHeader("Authorization"))
+		token, tokenErr := tokenFromRequest(c.Request, cfg.CookieTokenPath)
 		if tokenErr != nil {
 			response.Abort(c, tokenErr)
 			return
@@ -52,9 +70,14 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 
+		platform := c.GetHeader("platform")
+		if token.fromCookie && strings.TrimSpace(platform) == "" {
+			platform = strings.TrimSpace(cfg.CookieTokenPath.Platform)
+		}
+
 		identity, err := cfg.Authenticator(c.Request.Context(), TokenInput{
-			AccessToken: token,
-			Platform:    c.GetHeader("platform"),
+			AccessToken: token.value,
+			Platform:    platform,
 			DeviceID:    c.GetHeader("device-id"),
 			ClientIP:    c.ClientIP(),
 		})
@@ -70,6 +93,32 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 		c.Set(ContextAuthIdentity, identity)
 		c.Next()
 	}
+}
+
+func TokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (string, *apperror.Error) {
+	token, err := tokenFromRequest(request, cookieCfg)
+	if err != nil {
+		return "", err
+	}
+	return token.value, nil
+}
+
+func tokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (requestToken, *apperror.Error) {
+	if request == nil {
+		return requestToken{}, apperror.Unauthorized("缺少Token")
+	}
+
+	if value := strings.TrimSpace(request.Header.Get("Authorization")); value != "" {
+		token, err := ParseBearerToken(value)
+		if err != nil {
+			return requestToken{}, err
+		}
+		return requestToken{value: token}, nil
+	}
+	if token, ok := cookieTokenForPath(request, cookieCfg); ok {
+		return requestToken{value: token, fromCookie: true}, nil
+	}
+	return requestToken{}, apperror.Unauthorized("缺少Token")
 }
 
 func GetAuthIdentity(c *gin.Context) *AuthIdentity {
@@ -128,4 +177,40 @@ func ParseBearerToken(value string) (string, *apperror.Error) {
 		return "", apperror.Unauthorized("Token格式错误")
 	}
 	return token, nil
+}
+
+func cookieTokenForPath(request *http.Request, cfg CookieTokenPathConfig) (string, bool) {
+	if request == nil || request.URL == nil {
+		return "", false
+	}
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		return "", false
+	}
+	if !matchesCookieTokenPath(request.URL.Path, cfg.PathPrefixes) {
+		return "", false
+	}
+
+	cookieName := strings.TrimSpace(cfg.CookieName)
+	if cookieName == "" {
+		cookieName = DefaultAccessTokenCookie
+	}
+	cookie, err := request.Cookie(cookieName)
+	if err != nil {
+		return "", false
+	}
+	token := strings.TrimSpace(cookie.Value)
+	return token, token != ""
+}
+
+func matchesCookieTokenPath(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
+		if prefix == "" {
+			continue
+		}
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }

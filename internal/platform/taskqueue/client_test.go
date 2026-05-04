@@ -58,6 +58,20 @@ func TestNewClientMapsRedisAndQueueDefaults(t *testing.T) {
 	}
 }
 
+func TestRedisConnOptUsesQueueRedisDB(t *testing.T) {
+	opt, err := RedisConnOpt(config.RedisConfig{
+		Addr:     "127.0.0.1:6379",
+		Password: "secret",
+		DB:       0,
+	}, config.QueueConfig{RedisDB: 4})
+	if err != nil {
+		t.Fatalf("RedisConnOpt returned error: %v", err)
+	}
+	if opt.Addr != "127.0.0.1:6379" || opt.Password != "secret" || opt.DB != 4 {
+		t.Fatalf("redis option mismatch: %#v", opt)
+	}
+}
+
 func TestNormalizeTaskUsesConfiguredDefaults(t *testing.T) {
 	client := &Client{
 		defaultQueue:    "default",

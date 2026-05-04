@@ -2,14 +2,17 @@ package server
 
 import (
 	"log/slog"
+	"net/http"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/system"
@@ -33,6 +36,8 @@ type Dependencies struct {
 	UserService         user.HTTPService
 	OperationLogService operationlog.HTTPService
 	PermissionService   permission.ManagementService
+	QueueMonitorService queuemonitor.HTTPService
+	QueueMonitorUI      http.Handler
 	RealtimeHandler     *realtime.Handler
 	RoleService         role.HTTPService
 	AuthPlatformService authplatform.HTTPService
@@ -51,6 +56,10 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	router.Use(middleware.AuthToken(middleware.AuthTokenConfig{
 		Authenticator: deps.Authenticator,
 		SkipPaths:     authSkipPaths(deps.AuthSkipPaths),
+		CookieTokenPath: middleware.CookieTokenPathConfig{
+			PathPrefixes: []string{queuemonitor.UIPath},
+			Platform:     enum.PlatformAdmin,
+		},
 	}))
 	router.Use(middleware.PermissionCheck(middleware.PermissionCheckConfig{
 		Checker: deps.PermissionChecker,
@@ -68,6 +77,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	user.RegisterRoutes(router, deps.UserService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	permission.RegisterRoutes(router, deps.PermissionService)
+	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
 	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)
