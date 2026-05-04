@@ -37,6 +37,11 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/users", "user_userManager_del"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs/:id", "devTools_operationLog_del"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs", "devTools_operationLog_del"},
+		{http.MethodPost, "/api/admin/v1/system-settings", "system_setting_add"},
+		{http.MethodPut, "/api/admin/v1/system-settings/:id", "system_setting_edit"},
+		{http.MethodPatch, "/api/admin/v1/system-settings/:id/status", "system_setting_status"},
+		{http.MethodDelete, "/api/admin/v1/system-settings/:id", "system_setting_del"},
+		{http.MethodDelete, "/api/admin/v1/system-settings", "system_setting_del"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files", "system_log_files"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines", "system_log_content"},
 	}
@@ -91,6 +96,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/users", "delete_batch"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs", "delete_batch"},
+		{http.MethodPost, "/api/admin/v1/system-settings", "create"},
+		{http.MethodPut, "/api/admin/v1/system-settings/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/system-settings/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/system-settings/:id", "delete"},
+		{http.MethodDelete, "/api/admin/v1/system-settings", "delete_batch"},
 	}
 
 	for _, tt := range tests {

@@ -173,6 +173,59 @@ function Assert-QueueFailedList($Response) {
   return [int64]$Response.data.page.total
 }
 
+function Assert-SystemSettingInit($Response) {
+  Assert-ApiOK $Response 'system settings init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "system settings init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $options = Get-ObjectArray $Response.data.dict.system_setting_value_type_arr
+  if ($options.Count -ne 4) {
+    throw "system settings value type dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $values = @($options | ForEach-Object { [int]$_.value })
+  foreach ($expected in @(1, 2, 3, 4)) {
+    if (-not ($values -contains $expected)) {
+      throw "system settings value type dict missing value=${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return $options.Count
+}
+
+function Assert-SystemSettingList($Response) {
+  Assert-ApiOK $Response 'system settings list'
+
+  if ($null -eq $Response.data.page) {
+    throw "system settings list missing page: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.list) {
+    throw "system settings list missing list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "system settings item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.setting_key)) {
+      throw "system settings item missing setting_key: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.value_type -or [string]::IsNullOrWhiteSpace([string]$item.value_type_name)) {
+      throw "system settings item missing value type fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.status -or [string]::IsNullOrWhiteSpace([string]$item.status_name)) {
+      throw "system settings item missing status fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -366,6 +419,16 @@ func main() {
     throw "queue monitor UI HEAD returned status $($queueMonitorUI.StatusCode)"
   }
 
+  $systemSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-settings/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $systemSettingValueTypeCount = Assert-SystemSettingInit $systemSettingInit
+
+  $systemSettingList = Invoke-RestMethod "$baseURL/api/admin/v1/system-settings?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $systemSettingListSummary = Assert-SystemSettingList $systemSettingList
+
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -420,6 +483,11 @@ func main() {
     queue_monitor_failed_code = $queueMonitorFailed.code
     queue_monitor_failed_total = $queueMonitorFailedTotal
     queue_monitor_ui_status = $queueMonitorUI.StatusCode
+    system_setting_init_code = $systemSettingInit.code
+    system_setting_value_type_count = $systemSettingValueTypeCount
+    system_setting_list_code = $systemSettingList.code
+    system_setting_list_count = $systemSettingListSummary.ListCount
+    system_setting_total = $systemSettingListSummary.Total
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

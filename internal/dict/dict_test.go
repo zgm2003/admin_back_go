@@ -46,4 +46,9 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	if len(tails) != 5 || tails[0].Value != enum.LogTail100 || tails[4].Value != enum.LogTail2000 {
 		t.Fatalf("unexpected log tail options: %#v", tails)
 	}
+
+	valueTypes := SystemSettingValueTypeOptions()
+	if len(valueTypes) != 4 || valueTypes[0].Value != enum.SystemSettingValueString || valueTypes[3].Value != enum.SystemSettingValueJSON {
+		t.Fatalf("unexpected system setting value type options: %#v", valueTypes)
+	}
 }

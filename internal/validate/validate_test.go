@@ -21,6 +21,7 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Scene       string `binding:"required,verify_code_scene"`
 		Sex         int    `binding:"user_sex"`
 		LogLevel    string `binding:"required,log_level"`
+		ValueType   int    `binding:"required,system_setting_value_type"`
 	}
 
 	valid := request{
@@ -33,6 +34,7 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Scene:       "login",
 		Sex:         1,
 		LogLevel:    "ERROR",
+		ValueType:   4,
 	}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid request, got %v", err)
@@ -54,5 +56,11 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	invalid.LogLevel = "TRACE"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid log level to fail")
+	}
+
+	invalid = valid
+	invalid.ValueType = 9
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid system setting value type to fail")
 	}
 }

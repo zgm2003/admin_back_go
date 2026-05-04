@@ -17,6 +17,7 @@ import (
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/systemlog"
+	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/logstore"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -81,6 +82,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		}
 	}
 	systemLogService := systemlog.NewService(logstore.New(cfg.Logging.Dir, logstore.Options{AllowedExtensions: cfg.Logging.AllowedExtensions, MaxTailLines: cfg.Logging.MaxTailLines}))
+	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
 	queueMonitorService := queuemonitor.NewService(
 		queuemonitor.NewTaskqueueInspector(queueInspector),
 		queuemonitor.Options{QueueNames: []string{
@@ -153,20 +155,21 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			buttonGrantCache,
 			0,
 		),
-		PermissionRules:     permissionRouteRules(),
-		OperationRecorder:   operationRecorder,
-		OperationRules:      operationRouteRules(),
-		AuthService:         authService,
-		CaptchaService:      captchaService,
-		UserService:         userService,
-		OperationLogService: operationService,
-		PermissionService:   permissionService,
-		QueueMonitorService: queueMonitorService,
-		QueueMonitorUI:      queueMonitorUI,
-		SystemLogService:    systemLogService,
-		RealtimeHandler:     realtimeStack.handler,
-		RoleService:         roleService,
-		AuthPlatformService: authPlatformService,
+		PermissionRules:      permissionRouteRules(),
+		OperationRecorder:    operationRecorder,
+		OperationRules:       operationRouteRules(),
+		AuthService:          authService,
+		CaptchaService:       captchaService,
+		UserService:          userService,
+		OperationLogService:  operationService,
+		PermissionService:    permissionService,
+		QueueMonitorService:  queueMonitorService,
+		QueueMonitorUI:       queueMonitorUI,
+		SystemSettingService: systemSettingService,
+		SystemLogService:     systemLogService,
+		RealtimeHandler:      realtimeStack.handler,
+		RoleService:          roleService,
+		AuthPlatformService:  authPlatformService,
 	})
 	return &App{
 		cfg:               cfg,

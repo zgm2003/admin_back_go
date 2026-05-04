@@ -569,6 +569,33 @@ GET /api/admin/v1/system-logs/files/:name/lines
 
 `router.UseRawPath = true` 且 `UnescapePathValues = false`，用于让 `worker%2Fadmin-worker.log` 这种一级子目录文件名在 Gin 参数里保持 escaped slash 语义，不让路由把它误拆成多段路径。
 
+
+## System settings boundary
+
+系统设置菜单页已经迁到 Go REST：
+
+```text
+GET    /api/admin/v1/system-settings/init
+GET    /api/admin/v1/system-settings
+POST   /api/admin/v1/system-settings
+PUT    /api/admin/v1/system-settings/:id
+PATCH  /api/admin/v1/system-settings/:id/status
+DELETE /api/admin/v1/system-settings/:id
+DELETE /api/admin/v1/system-settings
+```
+
+边界规则：
+
+```text
+system_settings 是少量 typed key/value 配置的管理入口，不是所有模块的垃圾抽屉
+value_type 只来自 internal/enum -> internal/dict，handler 用 validator 拒绝非法 type
+service 做值类型校验：数字、布尔、JSON object/array
+key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
+写入、状态、删除必须清理 Redis cache；key 规则继承 legacy：sys_setting_raw_ + setting key 中的 "." 替换为 "_"
+```
+
+旧 PHP 的 `devtools_queue_monitor_queues` 不再属于 Go system-settings 契约。Go 队列监控已经使用 `QUEUE_*` env、Asynq Redis lane 和官方 asynqmon UI；迁移时只清理这条旧配置项，不删除队列监控功能。
+
 ## Queue / worker baseline
 
 后台任务第一期不是微服务，而是单体内多进程：

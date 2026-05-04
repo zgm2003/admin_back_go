@@ -23,16 +23,17 @@ func Register() error {
 		}
 
 		validators := map[string]playground.Func{
-			"common_yes_no":            validateCommonYesNo,
-			"common_status":            validateCommonStatus,
-			"platform_scope":           validatePlatformScope,
-			"platform_code":            validatePlatformCode,
-			"permission_type":          validatePermissionType,
-			"auth_platform_login_type": validateAuthPlatformLoginType,
-			"captcha_type":             validateCaptchaType,
-			"verify_code_scene":        validateVerifyCodeScene,
-			"user_sex":                 validateUserSex,
-			"log_level":                validateLogLevel,
+			"common_yes_no":             validateCommonYesNo,
+			"common_status":             validateCommonStatus,
+			"platform_scope":            validatePlatformScope,
+			"platform_code":             validatePlatformCode,
+			"permission_type":           validatePermissionType,
+			"auth_platform_login_type":  validateAuthPlatformLoginType,
+			"captcha_type":              validateCaptchaType,
+			"verify_code_scene":         validateVerifyCodeScene,
+			"user_sex":                  validateUserSex,
+			"log_level":                 validateLogLevel,
+			"system_setting_value_type": validateSystemSettingValueType,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

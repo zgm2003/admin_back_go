@@ -26,6 +26,7 @@ import (
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/systemlog"
+	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/user"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/readiness"
@@ -278,6 +279,42 @@ func (f *fakeRouterSystemLogService) Files(ctx context.Context) (*systemlog.File
 func (f *fakeRouterSystemLogService) Lines(ctx context.Context, query systemlog.LinesQuery) (*systemlog.LinesResponse, *apperror.Error) {
 	f.linesQuery = query
 	return &systemlog.LinesResponse{Filename: query.Filename, Total: 1, Lines: []systemlog.LineItem{{Number: 1, Level: "ERROR", Content: "ERROR boom"}}}, nil
+}
+
+type fakeRouterSystemSettingService struct {
+	listQuery systemsetting.ListQuery
+	statusID  int64
+	status    int
+}
+
+func (f *fakeRouterSystemSettingService) Init(ctx context.Context) (*systemsetting.InitResponse, *apperror.Error) {
+	return systemsetting.NewService(nil).Init(ctx)
+}
+
+func (f *fakeRouterSystemSettingService) List(ctx context.Context, query systemsetting.ListQuery) (*systemsetting.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &systemsetting.ListResponse{
+		List: []systemsetting.ListItem{{ID: 1, SettingKey: "user.default_avatar"}},
+		Page: systemsetting.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterSystemSettingService) Create(ctx context.Context, input systemsetting.CreateInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (f *fakeRouterSystemSettingService) Update(ctx context.Context, id int64, input systemsetting.UpdateInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterSystemSettingService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterSystemSettingService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusID = id
+	f.status = status
+	return nil
 }
 
 type fakeRouterQueueMonitorService struct {
@@ -802,6 +839,47 @@ func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(operationLogService.deleteIDs, []int64{9}) {
 		t.Fatalf("operation log delete mismatch: %#v", operationLogService.deleteIDs)
+	}
+}
+
+func TestRouterInstallsSystemSettingRESTRoutes(t *testing.T) {
+	systemSettingService := &fakeRouterSystemSettingService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/system-settings/:id/status"): "system_setting_status",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		SystemSettingService: systemSettingService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-settings?current_page=1&page_size=20&key=user.&status=1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected system settings list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if systemSettingService.listQuery.CurrentPage != 1 || systemSettingService.listQuery.PageSize != 20 || systemSettingService.listQuery.Key != "user." || systemSettingService.listQuery.Status == nil || *systemSettingService.listQuery.Status != 1 {
+		t.Fatalf("system setting list query mismatch: %#v", systemSettingService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/system-settings/2/status", strings.NewReader(`{"status":2}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status change status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if systemSettingService.statusID != 2 || systemSettingService.status != 2 {
+		t.Fatalf("system setting status mismatch: id=%d status=%d", systemSettingService.statusID, systemSettingService.status)
 	}
 }
 

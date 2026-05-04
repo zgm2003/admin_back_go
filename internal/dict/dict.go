@@ -77,3 +77,12 @@ func LogTailOptions() []Option[int] {
 		{Label: "最近 2000 行", Value: enum.LogTail2000},
 	}
 }
+
+func SystemSettingValueTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "字符串", Value: enum.SystemSettingValueString},
+		{Label: "数字", Value: enum.SystemSettingValueNumber},
+		{Label: "布尔", Value: enum.SystemSettingValueBool},
+		{Label: "JSON", Value: enum.SystemSettingValueJSON},
+	}
+}

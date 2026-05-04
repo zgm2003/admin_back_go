@@ -30,6 +30,11 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users"):                      "user_userManager_del",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs/:id"):         "devTools_operationLog_del",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs"):             "devTools_operationLog_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/system-settings"):              "system_setting_add",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/system-settings/:id"):           "system_setting_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/system-settings/:id/status"):  "system_setting_status",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/system-settings/:id"):        "system_setting_del",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/system-settings"):            "system_setting_del",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files"):             "system_log_files",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines"): "system_log_content",
 	}
@@ -146,6 +151,31 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "operation_log",
 			Action: "delete_batch",
 			Title:  "批量删除操作日志",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/system-settings"): {
+			Module: "system_setting",
+			Action: "create",
+			Title:  "新增系统设置",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/system-settings/:id"): {
+			Module: "system_setting",
+			Action: "update",
+			Title:  "编辑系统设置",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/system-settings/:id/status"): {
+			Module: "system_setting",
+			Action: "change_status",
+			Title:  "修改系统设置状态",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/system-settings/:id"): {
+			Module: "system_setting",
+			Action: "delete",
+			Title:  "删除系统设置",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/system-settings"): {
+			Module: "system_setting",
+			Action: "delete_batch",
+			Title:  "批量删除系统设置",
 		},
 	}
 }
