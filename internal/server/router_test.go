@@ -786,6 +786,29 @@ func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
 	}
 }
 
+func TestRouterRefreshEndpointIncludesCORSHeaders(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		CORS:        config.DefaultCORSConfig(),
+		AuthService: fakeAuthService{},
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://127.0.0.1:5173")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "http://127.0.0.1:5173" {
+		t.Fatalf("expected refresh CORS allow origin, got %q", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("expected refresh CORS credentials true, got %q", got)
+	}
+}
+
 func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 	router := newTestRouter(t, Dependencies{AuthService: fakeAuthService{}})
 
