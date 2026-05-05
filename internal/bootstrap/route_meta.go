@@ -54,6 +54,19 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/notification-tasks"):             "system_notificationTask_add",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/notification-tasks/:id/cancel"): "system_notificationTask_cancel",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/notification-tasks/:id"):       "system_notificationTask_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/pay-channels"):                   "pay_channel_add",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/pay-channels/:id"):                "pay_channel_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-channels/:id/status"):       "pay_channel_status",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/pay-channels/:id"):             "pay_channel_del",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-transactions/page-init"):      "pay_transaction_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-transactions"):                "pay_transaction_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-transactions/:id"):            "pay_transaction_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders/page-init"):            "pay_recharge_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders/status-count"):         "pay_recharge_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders"):                      "pay_recharge_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders/:id"):                  "pay_recharge_list",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/close"):          "pay_order_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark"):         "pay_order_edit",
 	}
 }
 
@@ -298,6 +311,36 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "notification_task",
 			Action: "delete",
 			Title:  "删除通知任务",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/pay-channels"): {
+			Module: "pay_channel",
+			Action: "create",
+			Title:  "新增支付渠道",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/pay-channels/:id"): {
+			Module: "pay_channel",
+			Action: "update",
+			Title:  "编辑支付渠道",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-channels/:id/status"): {
+			Module: "pay_channel",
+			Action: "change_status",
+			Title:  "切换支付渠道状态",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/pay-channels/:id"): {
+			Module: "pay_channel",
+			Action: "delete",
+			Title:  "删除支付渠道",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/close"): {
+			Module: "pay_order",
+			Action: "close",
+			Title:  "关闭订单",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark"): {
+			Module: "pay_order",
+			Action: "remark",
+			Title:  "备注订单",
 		},
 	}
 }

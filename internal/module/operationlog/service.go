@@ -189,7 +189,7 @@ func shouldMaskField(field string, maskGenericCode bool) bool {
 	case "password", "old_password", "new_password", "newpassword", "confirm_password",
 		"refresh_token", "access_token", "token", "authorization", "secret", "secret_id",
 		"secret_id_enc", "secret_key", "secret_key_enc", "api_key", "captcha", "captcha_code",
-		"sms_code", "email_code", "verification_code":
+		"sms_code", "email_code", "verification_code", "app_private_key", "app_private_key_enc":
 		return true
 	default:
 		return false

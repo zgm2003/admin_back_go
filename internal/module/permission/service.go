@@ -935,7 +935,7 @@ func buildContext(enabledIDs []int64, permMap map[int64]Permission) Context {
 			continue
 		}
 
-		if permission.Type == TypeButton && strings.TrimSpace(permission.Code) != "" {
+		if (permission.Type == TypePage || permission.Type == TypeButton) && strings.TrimSpace(permission.Code) != "" {
 			if _, ok := seenButton[permission.Code]; !ok {
 				seenButton[permission.Code] = struct{}{}
 				buttonCodes = append(buttonCodes, permission.Code)

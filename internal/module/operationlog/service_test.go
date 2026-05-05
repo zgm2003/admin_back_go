@@ -87,10 +87,12 @@ func TestRecorderMasksExplicitSensitivePayloadFields(t *testing.T) {
 		Status:  400,
 		Success: false,
 		RequestPayload: map[string]any{
-			"login_account":  "15671628271",
-			"password":       "123456",
-			"secret_id_enc":  "cipher-id",
-			"secret_key_enc": "cipher-key",
+			"login_account":       "15671628271",
+			"password":            "123456",
+			"secret_id_enc":       "cipher-id",
+			"secret_key_enc":      "cipher-key",
+			"app_private_key":     "plain-payment-private-key",
+			"app_private_key_enc": "cipher-payment-private-key",
 			"captcha_answer": map[string]any{
 				"x": 99,
 			},
@@ -120,6 +122,9 @@ func TestRecorderMasksExplicitSensitivePayloadFields(t *testing.T) {
 	}
 	if payload["secret_id_enc"] != "******" || payload["secret_key_enc"] != "******" {
 		t.Fatalf("request encrypted secret fields were not masked: %#v", payload)
+	}
+	if payload["app_private_key"] != "******" || payload["app_private_key_enc"] != "******" {
+		t.Fatalf("request payment private key fields were not masked: %#v", payload)
 	}
 	captcha := payload["captcha_answer"].(map[string]any)
 	if captcha["x"] != "******" {

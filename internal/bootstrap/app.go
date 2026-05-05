@@ -15,6 +15,9 @@ import (
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
+	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
@@ -92,6 +95,9 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
 	secretBox := secretbox.New(cfg.Secretbox.Key)
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
+	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
+	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
+	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
 	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
 	if cfg.UploadToken.COS.Enabled {
 		cosSigner = storagecos.NewSigner(storagecos.Config{
@@ -198,6 +204,9 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,
+		PayChannelService:       payChannelService,
+		PayOrderService:         payOrderService,
+		PayTransactionService:   payTransactionService,
 		PermissionService:       permissionService,
 		QueueMonitorService:     queueMonitorService,
 		QueueMonitorUI:          queueMonitorUI,

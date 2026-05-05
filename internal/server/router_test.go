@@ -22,6 +22,9 @@ import (
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
+	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
@@ -32,6 +35,7 @@ import (
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	platformrealtime "admin_back_go/internal/platform/realtime"
+	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/readiness"
 
 	"github.com/gorilla/websocket"
@@ -499,6 +503,114 @@ func (f *fakeRouterSystemSettingService) Delete(ctx context.Context, ids []int64
 func (f *fakeRouterSystemSettingService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	f.statusID = id
 	f.status = status
+	return nil
+}
+
+type fakeRouterPayChannelService struct {
+	listQuery   paychannel.ListQuery
+	createInput paychannel.CreateInput
+	updateID    int64
+	statusID    int64
+	status      int
+	deleteID    int64
+}
+
+type fakeRouterPayTransactionService struct {
+	listQuery paytransaction.ListQuery
+	detailID  int64
+}
+
+type fakeRouterPayOrderService struct {
+	statusCountQuery payorder.StatusCountQuery
+	listQuery        payorder.ListQuery
+	detailID         int64
+	remarkID         int64
+	remark           string
+	closeID          int64
+	closeReason      string
+}
+
+func (f *fakeRouterPayTransactionService) Init(ctx context.Context) (*paytransaction.InitResponse, *apperror.Error) {
+	return paytransaction.NewService(nil).Init(ctx)
+}
+
+func (f *fakeRouterPayTransactionService) List(ctx context.Context, query paytransaction.ListQuery) (*paytransaction.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &paytransaction.ListResponse{
+		List: []paytransaction.ListItem{{ID: 1, TransactionNo: "T1"}},
+		Page: paytransaction.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterPayTransactionService) Detail(ctx context.Context, id int64) (*paytransaction.DetailResponse, *apperror.Error) {
+	f.detailID = id
+	return &paytransaction.DetailResponse{Transaction: paytransaction.DetailTransaction{ID: id, TransactionNo: "T1"}}, nil
+}
+
+func (f *fakeRouterPayOrderService) Init(ctx context.Context) (*payorder.InitResponse, *apperror.Error) {
+	return payorder.NewService(nil).Init(ctx)
+}
+
+func (f *fakeRouterPayOrderService) StatusCount(ctx context.Context, query payorder.StatusCountQuery) ([]payorder.StatusCountItem, *apperror.Error) {
+	f.statusCountQuery = query
+	return []payorder.StatusCountItem{{Label: "已支付", Value: 3, Count: 1}}, nil
+}
+
+func (f *fakeRouterPayOrderService) List(ctx context.Context, query payorder.ListQuery) (*payorder.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &payorder.ListResponse{
+		List: []payorder.ListItem{{ID: 1, OrderNo: "R1"}},
+		Page: payorder.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterPayOrderService) Detail(ctx context.Context, id int64) (*payorder.DetailResponse, *apperror.Error) {
+	f.detailID = id
+	return &payorder.DetailResponse{Order: payorder.DetailOrder{ID: id, OrderNo: "R1"}}, nil
+}
+
+func (f *fakeRouterPayOrderService) Remark(ctx context.Context, id int64, input payorder.RemarkInput) *apperror.Error {
+	f.remarkID = id
+	f.remark = input.Remark
+	return nil
+}
+
+func (f *fakeRouterPayOrderService) Close(ctx context.Context, id int64, input payorder.CloseInput) *apperror.Error {
+	f.closeID = id
+	f.closeReason = input.Reason
+	return nil
+}
+
+func (f *fakeRouterPayChannelService) Init(ctx context.Context) (*paychannel.InitResponse, *apperror.Error) {
+	return paychannel.NewService(nil, secretbox.New("")).Init(ctx)
+}
+
+func (f *fakeRouterPayChannelService) List(ctx context.Context, query paychannel.ListQuery) (*paychannel.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &paychannel.ListResponse{
+		List: []paychannel.ListItem{{ID: 1, Name: "支付宝"}},
+		Page: paychannel.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterPayChannelService) Create(ctx context.Context, input paychannel.CreateInput) (int64, *apperror.Error) {
+	f.createInput = input
+	return 1, nil
+}
+
+func (f *fakeRouterPayChannelService) Update(ctx context.Context, id int64, input paychannel.UpdateInput) *apperror.Error {
+	f.updateID = id
+	return nil
+}
+
+func (f *fakeRouterPayChannelService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusID = id
+	f.status = status
+	return nil
+}
+
+func (f *fakeRouterPayChannelService) Delete(ctx context.Context, id int64) *apperror.Error {
+	f.deleteID = id
 	return nil
 }
 
@@ -1328,6 +1440,177 @@ func TestRouterInstallsSystemSettingRESTRoutes(t *testing.T) {
 	}
 	if systemSettingService.statusID != 2 || systemSettingService.status != 2 {
 		t.Fatalf("system setting status mismatch: id=%d status=%d", systemSettingService.statusID, systemSettingService.status)
+	}
+}
+
+func TestRouterInstallsPayChannelRESTRoutes(t *testing.T) {
+	payChannelService := &fakeRouterPayChannelService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/pay-channels"): "pay_channel_add",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		PayChannelService: payChannelService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-channels/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay channel init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-channels?current_page=1&page_size=20&name=ali&channel=2&status=1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay channel list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if payChannelService.listQuery.CurrentPage != 1 || payChannelService.listQuery.PageSize != 20 || payChannelService.listQuery.Name != "ali" {
+		t.Fatalf("pay channel list query mismatch: %#v", payChannelService.listQuery)
+	}
+	if payChannelService.listQuery.Channel == nil || *payChannelService.listQuery.Channel != 2 || payChannelService.listQuery.Status == nil || *payChannelService.listQuery.Status != 1 {
+		t.Fatalf("pay channel optional filters mismatch: %#v", payChannelService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/pay-channels", strings.NewReader(`{"name":"支付宝","channel":2,"supported_methods":["web"],"mch_id":"mch","is_sandbox":1,"status":1}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payChannelService.createInput.Channel != 2 {
+		t.Fatalf("expected pay channel create route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), payChannelService.createInput)
+	}
+}
+
+func TestRouterInstallsPayTransactionReadOnlyRESTRoutes(t *testing.T) {
+	payTransactionService := &fakeRouterPayTransactionService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-transactions"): "pay_transaction_list",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		PayTransactionService: payTransactionService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-transactions/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay transaction init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-transactions?current_page=2&page_size=30&order_no=R1&transaction_no=T1&user_id=7&channel=2&status=3&start_date=2026-04-01&end_date=2026-04-30", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay transaction list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	query := payTransactionService.listQuery
+	if query.CurrentPage != 2 || query.PageSize != 30 || query.OrderNo != "R1" || query.TransactionNo != "T1" || query.StartDate != "2026-04-01" || query.EndDate != "2026-04-30" {
+		t.Fatalf("pay transaction list query mismatch: %#v", query)
+	}
+	if query.UserID == nil || *query.UserID != 7 || query.Channel == nil || *query.Channel != 2 || query.Status == nil || *query.Status != 3 {
+		t.Fatalf("pay transaction optional filters mismatch: %#v", query)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-transactions/9", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payTransactionService.detailID != 9 {
+		t.Fatalf("expected pay transaction detail route, code=%d id=%d body=%s", recorder.Code, payTransactionService.detailID, recorder.Body.String())
+	}
+}
+
+func TestRouterInstallsPayOrderAdminRESTRoutes(t *testing.T) {
+	payOrderService := &fakeRouterPayOrderService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders"):              "pay_recharge_list",
+			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark"): "pay_order_edit",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		PayOrderService: payOrderService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay order init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders/status-count?order_no=R1&user_id=7", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay order status-count status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if payOrderService.statusCountQuery.OrderNo != "R1" || payOrderService.statusCountQuery.UserID == nil || *payOrderService.statusCountQuery.UserID != 7 {
+		t.Fatalf("pay order status-count query mismatch: %#v", payOrderService.statusCountQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders?current_page=2&page_size=30&order_no=R1&user_id=7&order_type=1&pay_status=3&start_date=2026-04-01&end_date=2026-04-30", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay order list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	query := payOrderService.listQuery
+	if query.CurrentPage != 2 || query.PageSize != 30 || query.OrderNo != "R1" || query.StartDate != "2026-04-01" || query.EndDate != "2026-04-30" {
+		t.Fatalf("pay order list query mismatch: %#v", query)
+	}
+	if query.UserID == nil || *query.UserID != 7 || query.OrderType == nil || *query.OrderType != 1 || query.PayStatus == nil || *query.PayStatus != 3 {
+		t.Fatalf("pay order optional filters mismatch: %#v", query)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders/9", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payOrderService.detailID != 9 {
+		t.Fatalf("expected pay order detail route, code=%d id=%d body=%s", recorder.Code, payOrderService.detailID, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/pay-orders/9/remark", strings.NewReader(`{"remark":"ok"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payOrderService.remarkID != 9 || payOrderService.remark != "ok" {
+		t.Fatalf("expected pay order remark route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payOrderService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/pay-orders/9/close", strings.NewReader(`{"reason":"admin"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payOrderService.closeID != 9 || payOrderService.closeReason != "admin" {
+		t.Fatalf("expected pay order close route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payOrderService)
 	}
 }
 

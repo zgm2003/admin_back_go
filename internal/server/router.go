@@ -13,6 +13,9 @@ import (
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
+	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/realtime"
@@ -43,6 +46,9 @@ type Dependencies struct {
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlog.HTTPService
+	PayChannelService       paychannel.HTTPService
+	PayOrderService         payorder.HTTPService
+	PayTransactionService   paytransaction.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
 	QueueMonitorUI          http.Handler
@@ -92,6 +98,9 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	notification.RegisterRoutes(router, deps.NotificationService)
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
+	paychannel.RegisterRoutes(router, deps.PayChannelService)
+	payorder.RegisterRoutes(router, deps.PayOrderService)
+	paytransaction.RegisterRoutes(router, deps.PayTransactionService)
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
 	systemsetting.RegisterRoutes(router, deps.SystemSettingService)

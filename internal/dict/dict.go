@@ -142,6 +142,80 @@ func NotificationTaskStatusOptions() []Option[int] {
 	}
 }
 
+func PayChannelOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PayChannels))
+	for _, value := range enum.PayChannels {
+		options = append(options, Option[int]{
+			Label: enum.PayChannelLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func PayMethodOptions() []Option[string] {
+	return payMethodOptions(enum.PayMethods)
+}
+
+func PayMethodOptionsForChannel(channel int) []Option[string] {
+	return payMethodOptions(enum.PayDefaultSupportedMethods(channel))
+}
+
+func PayTxnStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PayTxnStatuses))
+	for _, value := range enum.PayTxnStatuses {
+		options = append(options, Option[int]{
+			Label: enum.PayTxnStatusLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func PayOrderTypeOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PayOrderTypes))
+	for _, value := range enum.PayOrderTypes {
+		options = append(options, Option[int]{
+			Label: enum.PayOrderTypeLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func PayStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PayStatuses))
+	for _, value := range enum.PayStatuses {
+		options = append(options, Option[int]{
+			Label: enum.PayStatusLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func PayBizStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PayBizStatuses))
+	for _, value := range enum.PayBizStatuses {
+		options = append(options, Option[int]{
+			Label: enum.PayBizStatusLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func RechargePresetOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.RechargePresets))
+	for _, item := range enum.RechargePresets {
+		options = append(options, Option[int]{
+			Label: item.Label,
+			Value: item.Value,
+		})
+	}
+	return options
+}
+
 func UploadDriverOptions() []Option[string] {
 	options := make([]Option[string], 0, len(enum.UploadDrivers))
 	for _, value := range enum.UploadDrivers {
@@ -159,6 +233,17 @@ func UploadImageExtOptions() []Option[string] {
 
 func UploadFileExtOptions() []Option[string] {
 	return uploadExtOptions(enum.UploadFileExts)
+}
+
+func payMethodOptions(values []string) []Option[string] {
+	options := make([]Option[string], 0, len(values))
+	for _, value := range values {
+		options = append(options, Option[string]{
+			Label: enum.PayMethodLabels[value],
+			Value: value,
+		})
+	}
+	return options
 }
 
 func uploadExtOptions(values []string) []Option[string] {

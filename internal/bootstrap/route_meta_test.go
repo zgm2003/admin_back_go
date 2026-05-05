@@ -61,6 +61,19 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/notification-tasks", "system_notificationTask_add"},
 		{http.MethodPatch, "/api/admin/v1/notification-tasks/:id/cancel", "system_notificationTask_cancel"},
 		{http.MethodDelete, "/api/admin/v1/notification-tasks/:id", "system_notificationTask_del"},
+		{http.MethodPost, "/api/admin/v1/pay-channels", "pay_channel_add"},
+		{http.MethodPut, "/api/admin/v1/pay-channels/:id", "pay_channel_edit"},
+		{http.MethodPatch, "/api/admin/v1/pay-channels/:id/status", "pay_channel_status"},
+		{http.MethodDelete, "/api/admin/v1/pay-channels/:id", "pay_channel_del"},
+		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init", "pay_transaction_list"},
+		{http.MethodGet, "/api/admin/v1/pay-transactions", "pay_transaction_list"},
+		{http.MethodGet, "/api/admin/v1/pay-transactions/:id", "pay_transaction_list"},
+		{http.MethodGet, "/api/admin/v1/pay-orders/page-init", "pay_recharge_list"},
+		{http.MethodGet, "/api/admin/v1/pay-orders/status-count", "pay_recharge_list"},
+		{http.MethodGet, "/api/admin/v1/pay-orders", "pay_recharge_list"},
+		{http.MethodGet, "/api/admin/v1/pay-orders/:id", "pay_recharge_list"},
+		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "pay_order_edit"},
+		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "pay_order_edit"},
 	}
 
 	for _, tt := range tests {
@@ -167,6 +180,12 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/notification-tasks", "create"},
 		{http.MethodPatch, "/api/admin/v1/notification-tasks/:id/cancel", "cancel"},
 		{http.MethodDelete, "/api/admin/v1/notification-tasks/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/pay-channels", "create"},
+		{http.MethodPut, "/api/admin/v1/pay-channels/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/pay-channels/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/pay-channels/:id", "delete"},
+		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "close"},
+		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "remark"},
 	}
 
 	for _, tt := range tests {
@@ -182,6 +201,9 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init"},
+		{http.MethodGet, "/api/admin/v1/pay-transactions"},
+		{http.MethodGet, "/api/admin/v1/pay-transactions/:id"},
 		{http.MethodPatch, "/api/admin/v1/notifications/:id/read"},
 		{http.MethodPatch, "/api/admin/v1/notifications/read"},
 		{http.MethodDelete, "/api/admin/v1/notifications/:id"},

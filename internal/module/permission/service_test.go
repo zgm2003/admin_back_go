@@ -136,6 +136,29 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 	}
 }
 
+func TestServiceBuildContextPageCodeIsButtonGrantForReadOnlyRoutes(t *testing.T) {
+	repo := &fakeRepository{
+		grantedIDs: []int64{2},
+		perms: []Permission{
+			{ID: 1, Name: "支付管理", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/pay", Sort: 1, ShowMenu: CommonYes},
+			{ID: 2, Name: "支付流水", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/pay/transaction", Component: "/pay/transaction/index", Code: "pay_transaction_list", Sort: 2, ShowMenu: CommonYes},
+		},
+	}
+	svc := NewService(repo, []string{"admin"})
+
+	got, appErr := svc.BuildContextByRole(context.Background(), 7, "admin")
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if !reflect.DeepEqual(got.ButtonCodes, []string{"pay_transaction_list"}) {
+		t.Fatalf("page code must be usable by PermissionCheck, got %#v", got.ButtonCodes)
+	}
+	if len(got.Router) != 1 || got.Router[0].Path != "/pay/transaction" {
+		t.Fatalf("expected page route to remain, got %#v", got.Router)
+	}
+}
+
 func TestServiceBuildContextButtonGrantImpliesParentPageRoute(t *testing.T) {
 	repo := &fakeRepository{
 		grantedIDs: []int64{3},

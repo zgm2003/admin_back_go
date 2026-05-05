@@ -44,6 +44,12 @@ func Register() error {
 			"notification_target_type":   validateNotificationTargetType,
 			"notification_task_status":   validateNotificationTaskStatus,
 			"notification_task_platform": validateNotificationTaskPlatform,
+			"pay_channel":                validatePayChannel,
+			"pay_method":                 validatePayMethod,
+			"pay_txn_status":             validatePayTxnStatus,
+			"pay_order_type":             validatePayOrderType,
+			"pay_status":                 validatePayStatus,
+			"pay_biz_status":             validatePayBizStatus,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

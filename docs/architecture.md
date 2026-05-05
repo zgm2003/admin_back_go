@@ -1152,7 +1152,7 @@ Go 后端从认证平台开始建立统一基础件：
 
 - `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景、通知类型/级别。
 - `internal/dict` 负责把 enum 转成前端 `dict` 选项，不允许业务页面自己手写一份枚举标签。
-- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
+- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`pay_channel`、`pay_method`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
 - 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
 - `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
@@ -1182,6 +1182,79 @@ driver/rule 被 setting 引用时不能删除
 setting 启用互斥必须在 repository transaction 内完成，不能靠前端猜或两条普通 update 碰运气
 uploadconfig 不做 /api/getUploadToken，不安装任何云 SDK，不做真实上传
 upload runtime 默认只接受 COS 依赖；OSS SDK 不进入默认 go.mod/package.json，缺少可选实现时必须显式报错
+```
+
+支付渠道当前新增：
+
+```text
+internal/enum/pay.go          # 微信/支付宝渠道、支付方式、渠道支持方式、支付流水状态规则
+internal/dict.Pay*Options     # pay channel/method dict
+internal/validate/pay.go      # pay_channel/pay_method/pay_txn_status
+internal/module/paychannel    # 支付渠道配置管理 REST
+internal/module/paytransaction # 支付流水只读 REST
+internal/module/payorder       # 后台统一订单管理 REST
+```
+
+`internal/module/paychannel` 只管理 `pay_channel` 配置事实源：
+
+```text
+GET    /api/admin/v1/pay-channels/page-init
+GET    /api/admin/v1/pay-channels
+POST   /api/admin/v1/pay-channels
+PUT    /api/admin/v1/pay-channels/:id
+PATCH  /api/admin/v1/pay-channels/:id/status
+DELETE /api/admin/v1/pay-channels/:id
+```
+
+规则：
+
+```text
+本切片不接支付 SDK、不发起充值、不处理回调、不改钱包余额。
+app_private_key 只在 service 内通过 secretbox 加密成 app_private_key_enc，并保存 app_private_key_hint；响应和 operation log 不允许泄露明文或密文。
+supported_methods 存在 pay_channel.extra_config.supported_methods；service 负责按 channel 校验微信/支付宝支持方式。
+同一 channel+mch_id+app_id 不允许重复。
+被 orders.channel_id 或 pay_transactions.channel_id 引用的渠道不能删除，只能禁用，避免破坏历史订单/流水可审计性。
+新 REST DELETE 只删除单个 path id，不接受 legacy id 数组批量删除。
+```
+
+`internal/module/paytransaction` 只读 `pay_transactions` 流水事实：
+
+```text
+GET /api/admin/v1/pay-transactions/page-init
+GET /api/admin/v1/pay-transactions
+GET /api/admin/v1/pay-transactions/:id
+```
+
+规则：
+
+```text
+本切片只做只读查询，不接支付 SDK、不发起支付、不重试回调、不改钱包余额、不执行对账。
+repository 可以 left join orders/users/pay_channel 生成展示事实，但不能 select pay_channel.app_private_key 或 app_private_key_enc。
+handler 用 pay_txn_status/pay_channel validator 拦非法查询值；service 只做分页默认值、trim、时间/JSON 展示归一化。
+channel_resp/raw_notify 空或非法 JSON 统一归一成 `{}`，不是字符串兜底，也不是前端猜格式。
+只读路由只注册 permission metadata `pay_transaction_list`，不注册 operation log metadata。
+```
+
+`internal/module/payorder` 管理后台统一订单页：
+
+```text
+GET   /api/admin/v1/pay-orders/page-init
+GET   /api/admin/v1/pay-orders/status-count
+GET   /api/admin/v1/pay-orders
+GET   /api/admin/v1/pay-orders/:id
+PATCH /api/admin/v1/pay-orders/:id/remark
+PATCH /api/admin/v1/pay-orders/:id/close
+```
+
+规则：
+
+```text
+本切片只做后台订单查询、状态统计、详情、备注和 Go 本地关闭订单。
+read route permission code 使用 DB 里真实存在的 `pay_recharge_list`，不是凭页面名发明 `pay_order_list`。
+close/remark 使用 `pay_order_edit`，并显式注册 operation log metadata：module=pay_order，action=close/remark。
+close 只允许 pay_status=PENDING/PAYING；repository transaction 内更新 orders 并关闭最后一条 active pay_transactions。
+close 不调用第三方支付 SDK，不查单，不关第三方平台订单，不改钱包余额；第三方支付 runtime 后续独立迁移。
+status-count 永远按 pay_status enum 顺序返回完整项，前端不能自己猜 label/count shape。
 ```
 
 `internal/module/uploadtoken` 管理运行时 token 签发：

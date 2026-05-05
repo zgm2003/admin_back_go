@@ -467,6 +467,308 @@ function Assert-UploadSettingList($Response) {
   }
 }
 
+function Assert-PayChannelInit($Response) {
+  Assert-ApiOK $Response 'pay channel init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "pay channel init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $channels = Get-ObjectArray $Response.data.dict.channel_arr
+  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
+  $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
+  if ($channels.Count -ne 2 -or $methods.Count -ne 6 -or $statuses.Count -ne 2) {
+    throw "pay channel init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ChannelCount = $channels.Count
+    MethodCount = $methods.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-PayChannelList($Response) {
+  Assert-ApiOK $Response 'pay channel list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "pay channel list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
+      throw "pay channel item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.supported_methods -or [string]::IsNullOrWhiteSpace([string]$item.supported_methods_text)) {
+      throw "pay channel item missing supported method fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
+      throw "pay channel list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-PayTransactionInit($Response) {
+  Assert-ApiOK $Response 'pay transaction init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "pay transaction init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $channels = Get-ObjectArray $Response.data.dict.channel_arr
+  $statuses = Get-ObjectArray $Response.data.dict.txn_status_arr
+  if ($channels.Count -ne 2 -or $statuses.Count -ne 5) {
+    throw "pay transaction init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ChannelCount = $channels.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-PayTransactionList($Response) {
+  Assert-ApiOK $Response 'pay transaction list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "pay transaction list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.transaction_no) -or [string]::IsNullOrWhiteSpace([string]$item.order_no)) {
+      throw "pay transaction item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
+      throw "pay transaction list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-PayTransactionDetail($Response) {
+  Assert-ApiOK $Response 'pay transaction detail'
+
+  if ($null -eq $Response.data.transaction -or [int64]$Response.data.transaction.id -le 0) {
+    throw "pay transaction detail missing transaction: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.transaction.channel_resp -or $null -eq $Response.data.transaction.raw_notify) {
+    throw "pay transaction detail missing json payload objects: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -ne $Response.data.channel) {
+    if ($null -ne $Response.data.channel.app_private_key -or $null -ne $Response.data.channel.app_private_key_enc) {
+      throw "pay transaction detail leaked private key fields: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ID = [int64]$Response.data.transaction.id
+  }
+}
+
+function Assert-PayOrderInit($Response) {
+  Assert-ApiOK $Response 'pay order init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "pay order init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $orderTypes = Get-ObjectArray $Response.data.dict.order_type_arr
+  $payStatuses = Get-ObjectArray $Response.data.dict.pay_status_arr
+  $bizStatuses = Get-ObjectArray $Response.data.dict.biz_status_arr
+  $rechargePresets = Get-ObjectArray $Response.data.dict.recharge_preset_arr
+  if ($orderTypes.Count -ne 3 -or $payStatuses.Count -ne 5 -or $bizStatuses.Count -ne 6 -or $rechargePresets.Count -ne 6) {
+    throw "pay order init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    OrderTypeCount = $orderTypes.Count
+    PayStatusCount = $payStatuses.Count
+    BizStatusCount = $bizStatuses.Count
+    RechargePresetCount = $rechargePresets.Count
+  }
+}
+
+function Assert-PayOrderStatusCount($Response) {
+  Assert-ApiOK $Response 'pay order status count'
+
+  $items = Get-ObjectArray $Response.data
+  if ($items.Count -ne 5) {
+    throw "pay order status count item count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in $items) {
+    if ([string]::IsNullOrWhiteSpace([string]$item.label) -or $null -eq $item.value -or $null -eq $item.count) {
+      throw "pay order status count item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return $items.Count
+}
+
+function Assert-PayOrderList($Response) {
+  Assert-ApiOK $Response 'pay order list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "pay order list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no) -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "pay order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.order_type_text -or $null -eq $item.pay_status_text -or $null -eq $item.biz_status_text) {
+      throw "pay order item missing label fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-PayOrderDetail($Response) {
+  Assert-ApiOK $Response 'pay order detail'
+
+  if ($null -eq $Response.data.order -or [int64]$Response.data.order.id -le 0) {
+    throw "pay order detail missing order: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.items) {
+    throw "pay order detail missing items: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.order.extra) {
+    throw "pay order detail missing extra object: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ID = [int64]$Response.data.order.id
+    PayStatus = [int]$Response.data.order.pay_status
+    AdminRemark = [string]$Response.data.order.admin_remark
+  }
+}
+
+function Invoke-PayOrderRemarkProbe([string]$BaseURL, [hashtable]$Headers, $OrderDetailSummary) {
+  if ($null -eq $OrderDetailSummary -or [int64]$OrderDetailSummary.ID -le 0) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_orders'
+      Code = $null
+      OrderID = 0
+    }
+  }
+
+  $orderID = [int64]$OrderDetailSummary.ID
+  $originalRemark = [string]$OrderDetailSummary.AdminRemark
+  $newRemark = "codex smoke remark $([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+  $restoreRemark = if ([string]::IsNullOrWhiteSpace($originalRemark)) { 'codex smoke restored blank remark' } else { $originalRemark }
+
+  $update = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/pay-orders/$orderID/remark" $Headers @{ remark = $newRemark }
+  Assert-ApiOK $update 'pay order remark update'
+
+  $restore = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/pay-orders/$orderID/remark" $Headers @{ remark = $restoreRemark }
+  Assert-ApiOK $restore 'pay order remark restore'
+
+  return [pscustomobject]@{
+    Status = 'passed'
+    Code = $update.code
+    OrderID = $orderID
+    RestoredOriginalBlank = [string]::IsNullOrWhiteSpace($originalRemark)
+  }
+}
+
+function Invoke-PayOrderCloseProbe([string]$BaseURL, [hashtable]$Headers) {
+  $pendingList = Invoke-RestMethod "$BaseURL/api/admin/v1/pay-orders?current_page=1&page_size=1&pay_status=1" `
+    -Headers $Headers `
+    -TimeoutSec 10
+  Assert-ApiOK $pendingList 'pay order close probe pending list'
+
+  $rows = Get-ObjectArray $pendingList.data.list
+  if ($rows.Count -eq 0) {
+    $payingList = Invoke-RestMethod "$BaseURL/api/admin/v1/pay-orders?current_page=1&page_size=1&pay_status=2" `
+      -Headers $Headers `
+      -TimeoutSec 10
+    Assert-ApiOK $payingList 'pay order close probe paying list'
+    $rows = Get-ObjectArray $payingList.data.list
+  }
+
+  if ($rows.Count -eq 0) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_pending_or_paying_orders'
+      Code = $null
+      OrderID = 0
+    }
+  }
+
+  $orderID = [int64]$rows[0].id
+  $response = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/pay-orders/$orderID/close" $Headers @{ reason = 'codex full smoke local close' }
+  Assert-ApiOK $response 'pay order close probe'
+
+  return [pscustomobject]@{
+    Status = 'passed'
+    Code = $response.code
+    OrderID = $orderID
+  }
+}
+
+function Clear-UserButtonCache([int64]$UserID, [string]$CachePlatform) {
+  if ($UserID -le 0 -or [string]::IsNullOrWhiteSpace($CachePlatform)) { return }
+
+  $cacheClearer = '.tmp/clear-user-button-cache.go'
+  @"
+package main
+
+import (
+  "context"
+  "fmt"
+  "os"
+  "strconv"
+
+  "github.com/redis/go-redis/v9"
+)
+
+func main() {
+  if len(os.Args) != 3 {
+    fmt.Fprintln(os.Stderr, "usage: clear-user-button-cache <user-id> <platform>")
+    os.Exit(2)
+  }
+
+  db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+  if err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(2)
+  }
+
+  client := redis.NewClient(&redis.Options{
+    Addr:     os.Getenv("REDIS_ADDR"),
+    Password: os.Getenv("REDIS_PASSWORD"),
+    DB:       db,
+  })
+  defer client.Close()
+
+  key := "auth_perm_uid_" + os.Args[1] + "_" + os.Args[2] + "_rbac_page_grants"
+  if err := client.Del(context.Background(), key).Err(); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+}
+"@ | Set-Content -LiteralPath $cacheClearer -Encoding UTF8
+
+  $env:REDIS_ADDR = Get-RedisAddr
+  $env:REDIS_DB = Get-RedisDB
+  go run $cacheClearer ([string]$UserID) $CachePlatform
+  if ($LASTEXITCODE -ne 0) {
+    throw "failed to clear RBAC button cache for user=$UserID platform=$CachePlatform"
+  }
+  Remove-Item -Force $cacheClearer -ErrorAction SilentlyContinue
+}
+
 function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [string]$Suffix) {
   if ([string]::IsNullOrWhiteSpace($env:VAULT_KEY)) {
     return [pscustomobject]@{
@@ -1017,6 +1319,10 @@ func main() {
     Authorization = "Bearer $($login.data.access_token)"
   }
 
+  $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
+  Assert-ApiOK $me 'full smoke users me'
+  Clear-UserButtonCache ([int64]$me.data.user_id) $Platform
+
   $queueMonitorList = Invoke-RestMethod "$baseURL/api/admin/v1/queue-monitor" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -1085,6 +1391,68 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $uploadSettingListSummary = Assert-UploadSettingList $uploadSettingList
+
+  $payChannelInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-channels/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payChannelInitSummary = Assert-PayChannelInit $payChannelInit
+
+  $payChannelList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-channels?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payChannelListSummary = Assert-PayChannelList $payChannelList
+
+  $payTransactionInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payTransactionInitSummary = Assert-PayTransactionInit $payTransactionInit
+
+  $payTransactionList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payTransactionListSummary = Assert-PayTransactionList $payTransactionList
+  $payTransactionDetailCode = $null
+  $payTransactionDetailID = 0
+  $payTransactionRows = Get-ObjectArray $payTransactionList.data.list
+  if ($payTransactionRows.Count -gt 0) {
+    $firstPayTransaction = $payTransactionRows[0]
+    $payTransactionDetail = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions/$($firstPayTransaction.id)" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $payTransactionDetailSummary = Assert-PayTransactionDetail $payTransactionDetail
+    $payTransactionDetailCode = $payTransactionDetail.code
+    $payTransactionDetailID = $payTransactionDetailSummary.ID
+  }
+
+  $payOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payOrderInitSummary = Assert-PayOrderInit $payOrderInit
+
+  $payOrderStatusCount = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/status-count" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payOrderStatusCountItems = Assert-PayOrderStatusCount $payOrderStatusCount
+
+  $payOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payOrderListSummary = Assert-PayOrderList $payOrderList
+  $payOrderDetailCode = $null
+  $payOrderDetailID = 0
+  $payOrderDetailSummary = $null
+  $payOrderRows = Get-ObjectArray $payOrderList.data.list
+  if ($payOrderRows.Count -gt 0) {
+    $firstPayOrder = $payOrderRows[0]
+    $payOrderDetail = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/$($firstPayOrder.id)" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $payOrderDetailSummary = Assert-PayOrderDetail $payOrderDetail
+    $payOrderDetailCode = $payOrderDetail.code
+    $payOrderDetailID = $payOrderDetailSummary.ID
+  }
+  $payOrderRemarkProbe = Invoke-PayOrderRemarkProbe $baseURL $authHeaders $payOrderDetailSummary
+  $payOrderCloseProbe = Invoke-PayOrderCloseProbe $baseURL $authHeaders
 
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
   $uploadTokenProbe = Invoke-UploadTokenProbe $baseURL $authHeaders
@@ -1241,6 +1609,38 @@ func main() {
     upload_setting_list_code = $uploadSettingList.code
     upload_setting_list_count = $uploadSettingListSummary.ListCount
     upload_setting_total = $uploadSettingListSummary.Total
+    pay_channel_init_code = $payChannelInit.code
+    pay_channel_dict_count = $payChannelInitSummary.ChannelCount
+    pay_channel_method_count = $payChannelInitSummary.MethodCount
+    pay_channel_status_count = $payChannelInitSummary.StatusCount
+    pay_channel_list_code = $payChannelList.code
+    pay_channel_list_count = $payChannelListSummary.ListCount
+    pay_channel_total = $payChannelListSummary.Total
+    pay_transaction_init_code = $payTransactionInit.code
+    pay_transaction_channel_dict_count = $payTransactionInitSummary.ChannelCount
+    pay_transaction_status_dict_count = $payTransactionInitSummary.StatusCount
+    pay_transaction_list_code = $payTransactionList.code
+    pay_transaction_list_count = $payTransactionListSummary.ListCount
+    pay_transaction_total = $payTransactionListSummary.Total
+    pay_transaction_detail_code = $payTransactionDetailCode
+    pay_transaction_detail_id = $payTransactionDetailID
+    pay_order_init_code = $payOrderInit.code
+    pay_order_type_dict_count = $payOrderInitSummary.OrderTypeCount
+    pay_order_pay_status_dict_count = $payOrderInitSummary.PayStatusCount
+    pay_order_biz_status_dict_count = $payOrderInitSummary.BizStatusCount
+    pay_order_recharge_preset_dict_count = $payOrderInitSummary.RechargePresetCount
+    pay_order_status_count_code = $payOrderStatusCount.code
+    pay_order_status_count_items = $payOrderStatusCountItems
+    pay_order_list_code = $payOrderList.code
+    pay_order_list_count = $payOrderListSummary.ListCount
+    pay_order_total = $payOrderListSummary.Total
+    pay_order_detail_code = $payOrderDetailCode
+    pay_order_detail_id = $payOrderDetailID
+    pay_order_remark_probe = $payOrderRemarkProbe.Status
+    pay_order_remark_probe_order_id = $payOrderRemarkProbe.OrderID
+    pay_order_remark_probe_restored_original_blank = $payOrderRemarkProbe.RestoredOriginalBlank
+    pay_order_close_probe = $payOrderCloseProbe.Status
+    pay_order_close_probe_order_id = $payOrderCloseProbe.OrderID
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID
