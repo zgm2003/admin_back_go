@@ -583,6 +583,7 @@ Ping 放到后续 health/readiness 或运维检查里
 
 ```text
 cmd/admin-api -> platform/logging -> slog JSON stdout + optional lumberjack file
+cmd/admin-worker -> platform/logging -> slog JSON stdout + optional lumberjack file
 module/systemlog -> platform/logstore -> runtime/logs/*.log
 ```
 
@@ -600,6 +601,16 @@ logstore     = 唯一允许碰 OS 日志文件的边界
 log/slog                       # Go 官方结构化日志
 lumberjack.v2                  # 文件滚动
 Gin Recovery + project AccessLog # HTTP runtime log，不重复挂 gin.Logger
+```
+
+文件策略：
+
+```text
+LOG_FILE_MAX_SIZE_MB / LOG_FILE_MAX_BACKUPS / LOG_FILE_MAX_AGE_DAYS / LOG_FILE_COMPRESS 控制轮转，不允许单个日志无限增长。
+admin-api 默认写 runtime/logs/admin-api.log。
+admin-worker 默认写 runtime/logs/admin-worker.log。
+LOG_FILE_NAME 保留为兼容基线；进程入口会用 LOG_API_FILE_NAME / LOG_WORKER_FILE_NAME 覆盖实际文件名。
+如果后续拆 admin-realtime，也必须给独立进程文件名，不能和 admin-api 混写。
 ```
 
 路由：

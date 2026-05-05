@@ -39,12 +39,32 @@ type LoggingConfig struct {
 	EnableFile        bool
 	Dir               string
 	FileName          string
+	APIFileName       string
+	WorkerFileName    string
 	MaxTailLines      int
 	AllowedExtensions []string
 	FileMaxSizeMB     int
 	FileMaxBackups    int
 	FileMaxAgeDays    int
 	FileCompress      bool
+}
+
+func (c LoggingConfig) ForProcess(process string) LoggingConfig {
+	next := c
+	switch strings.TrimSpace(process) {
+	case "admin-api":
+		if strings.TrimSpace(c.APIFileName) != "" {
+			next.FileName = strings.TrimSpace(c.APIFileName)
+		}
+	case "admin-worker":
+		if strings.TrimSpace(c.WorkerFileName) != "" {
+			next.FileName = strings.TrimSpace(c.WorkerFileName)
+		}
+	}
+	if strings.TrimSpace(next.FileName) == "" {
+		next.FileName = strings.TrimSpace(process) + ".log"
+	}
+	return next
 }
 
 type MySQLConfig struct {
@@ -146,6 +166,8 @@ func Load() Config {
 	corsConfig.AllowCredentials = envBool("CORS_ALLOW_CREDENTIALS", corsConfig.AllowCredentials)
 	corsConfig.MaxAge = envDuration("CORS_MAX_AGE", corsConfig.MaxAge)
 
+	logFileName := envString("LOG_FILE_NAME", "admin-api.log")
+
 	return Config{
 		App: AppConfig{
 			Name: envString("APP_NAME", "admin-api"),
@@ -158,7 +180,9 @@ func Load() Config {
 		Logging: LoggingConfig{
 			EnableFile:        envBool("LOG_ENABLE_FILE", true),
 			Dir:               envString("LOG_DIR", filepath.Join("runtime", "logs")),
-			FileName:          envString("LOG_FILE_NAME", "admin-api.log"),
+			FileName:          logFileName,
+			APIFileName:       envString("LOG_API_FILE_NAME", logFileName),
+			WorkerFileName:    envString("LOG_WORKER_FILE_NAME", "admin-worker.log"),
 			MaxTailLines:      envInt("LOG_MAX_TAIL_LINES", 2000),
 			AllowedExtensions: envCSV("LOG_ALLOWED_EXTENSIONS", []string{".log"}),
 			FileMaxSizeMB:     envInt("LOG_FILE_MAX_SIZE_MB", 64),

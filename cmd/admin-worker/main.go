@@ -16,7 +16,7 @@ import (
 func main() {
 	_ = config.LoadDotEnv()
 	cfg := config.Load()
-	logger, logCloser, err := logging.NewLogger(cfg.Logging, os.Stdout)
+	logger, logCloser, err := logging.NewLogger(cfg.Logging.ForProcess("admin-worker"), os.Stdout)
 	if err != nil {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 		logger.Error("failed to initialize logger", "error", err)
