@@ -90,6 +90,22 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 			t.Fatalf("current profile security route %s must not require user-manager button permission", path)
 		}
 	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/admin/v1/notifications/init"},
+		{http.MethodGet, "/api/admin/v1/notifications"},
+		{http.MethodGet, "/api/admin/v1/notifications/unread-count"},
+		{http.MethodPatch, "/api/admin/v1/notifications/:id/read"},
+		{http.MethodPatch, "/api/admin/v1/notifications/read"},
+		{http.MethodDelete, "/api/admin/v1/notifications/:id"},
+		{http.MethodDelete, "/api/admin/v1/notifications"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("current-user notification route %s %s must not require RBAC button permission", tt.method, tt.path)
+		}
+	}
 }
 
 func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
@@ -154,5 +170,19 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 				t.Fatalf("unexpected operation rule: %#v", got)
 			}
 		})
+	}
+
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPatch, "/api/admin/v1/notifications/:id/read"},
+		{http.MethodPatch, "/api/admin/v1/notifications/read"},
+		{http.MethodDelete, "/api/admin/v1/notifications/:id"},
+		{http.MethodDelete, "/api/admin/v1/notifications"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("current-user notification route %s %s must not write operation log by implicit metadata", tt.method, tt.path)
+		}
 	}
 }

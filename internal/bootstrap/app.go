@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -156,6 +157,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	userRepository := user.NewGormRepository(resources.DB)
 	operationRepository := operationlog.NewGormRepository(resources.DB)
 	operationService := operationlog.NewService(operationRepository)
+	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
 	var operationRecorder middleware.OperationRecorder
 	if operationRepository != nil {
 		operationRecorder = operationlog.NewRecorder(operationRepository)
@@ -185,6 +187,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthService:          authService,
 		CaptchaService:       captchaService,
 		UserService:          userService,
+		NotificationService:  notificationService,
 		OperationLogService:  operationService,
 		PermissionService:    permissionService,
 		QueueMonitorService:  queueMonitorService,

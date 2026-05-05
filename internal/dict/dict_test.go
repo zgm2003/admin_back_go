@@ -56,4 +56,19 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	if len(valueTypes) != 4 || valueTypes[0].Value != enum.SystemSettingValueString || valueTypes[3].Value != enum.SystemSettingValueJSON {
 		t.Fatalf("unexpected system setting value type options: %#v", valueTypes)
 	}
+
+	notificationTypes := NotificationTypeOptions()
+	if len(notificationTypes) != 4 || notificationTypes[0].Value != enum.NotificationTypeInfo || notificationTypes[3].Value != enum.NotificationTypeError {
+		t.Fatalf("unexpected notification type options: %#v", notificationTypes)
+	}
+
+	notificationLevels := NotificationLevelOptions()
+	if len(notificationLevels) != 2 || notificationLevels[0].Value != enum.NotificationLevelNormal || notificationLevels[1].Value != enum.NotificationLevelUrgent {
+		t.Fatalf("unexpected notification level options: %#v", notificationLevels)
+	}
+
+	readStatus := NotificationReadStatusOptions()
+	if len(readStatus) != 2 || readStatus[0].Value != enum.CommonYes || readStatus[1].Value != enum.CommonNo {
+		t.Fatalf("unexpected notification read status options: %#v", readStatus)
+	}
 }

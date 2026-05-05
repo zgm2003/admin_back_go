@@ -10,6 +10,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -38,6 +39,7 @@ type Dependencies struct {
 	AuthService          auth.SessionService
 	CaptchaService       captcha.HTTPService
 	UserService          user.HTTPService
+	NotificationService  notification.HTTPService
 	OperationLogService  operationlog.HTTPService
 	PermissionService    permission.ManagementService
 	QueueMonitorService  queuemonitor.HTTPService
@@ -85,6 +87,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	captcha.RegisterRoutes(router, deps.CaptchaService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	user.RegisterRoutes(router, deps.UserService)
+	notification.RegisterRoutes(router, deps.NotificationService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)

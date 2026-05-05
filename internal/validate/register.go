@@ -39,6 +39,8 @@ func Register() error {
 			"upload_image_ext":          validateUploadImageExt,
 			"upload_file_ext":           validateUploadFileExt,
 			"upload_folder":             validateUploadFolder,
+			"notification_type":         validateNotificationType,
+			"notification_level":        validateNotificationLevel,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

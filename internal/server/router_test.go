@@ -19,6 +19,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -289,6 +290,62 @@ func (f *fakeRouterOperationLogService) List(ctx context.Context, query operatio
 func (f *fakeRouterOperationLogService) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	f.deleteIDs = ids
 	return nil
+}
+
+type fakeRouterNotificationService struct {
+	listQuery      notification.ListQuery
+	unreadIdentity notification.Identity
+	markIdentity   notification.Identity
+	markIDs        []int64
+	deleteIdentity notification.Identity
+	deleteIDs      []int64
+}
+
+func (f *fakeRouterNotificationService) Init(ctx context.Context) (*notification.InitResponse, *apperror.Error) {
+	return notification.NewService(&fakeRepositoryForNotificationRouter{}).Init(ctx)
+}
+
+func (f *fakeRouterNotificationService) List(ctx context.Context, query notification.ListQuery) (*notification.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &notification.ListResponse{
+		List: []notification.ListItem{{ID: 1, Title: "通知"}},
+		Page: notification.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterNotificationService) UnreadCount(ctx context.Context, identity notification.Identity) (*notification.UnreadCountResponse, *apperror.Error) {
+	f.unreadIdentity = identity
+	return &notification.UnreadCountResponse{Count: 2}, nil
+}
+
+func (f *fakeRouterNotificationService) MarkRead(ctx context.Context, identity notification.Identity, ids []int64) *apperror.Error {
+	f.markIdentity = identity
+	f.markIDs = append([]int64{}, ids...)
+	return nil
+}
+
+func (f *fakeRouterNotificationService) Delete(ctx context.Context, identity notification.Identity, ids []int64) *apperror.Error {
+	f.deleteIdentity = identity
+	f.deleteIDs = append([]int64{}, ids...)
+	return nil
+}
+
+type fakeRepositoryForNotificationRouter struct{}
+
+func (fakeRepositoryForNotificationRouter) List(ctx context.Context, query notification.ListQuery) ([]notification.Notification, int64, error) {
+	return nil, 0, nil
+}
+
+func (fakeRepositoryForNotificationRouter) UnreadCount(ctx context.Context, userID int64, platform string) (int64, error) {
+	return 0, nil
+}
+
+func (fakeRepositoryForNotificationRouter) MarkRead(ctx context.Context, input notification.MarkReadInput) (int64, error) {
+	return 0, nil
+}
+
+func (fakeRepositoryForNotificationRouter) Delete(ctx context.Context, input notification.DeleteInput) (int64, error) {
+	return 0, nil
 }
 
 type fakeRouterSystemLogService struct {
@@ -803,6 +860,129 @@ func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || userService.profileUserID != 9 || userService.profileViewer != 1 {
 		t.Fatalf("expected target profile route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userService)
+	}
+}
+
+func TestRouterInstallsNotificationListAsCurrentUserRESTPath(t *testing.T) {
+	notificationService := &fakeRouterNotificationService{}
+	var authInput middleware.TokenInput
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			authInput = input
+			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: input.Platform}, nil
+		},
+		NotificationService: notificationService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/notifications?current_page=1&page_size=5&keyword=%E5%AF%BC%E5%87%BA&type=2&level=2&is_read=2", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("platform", "admin")
+	request.Header.Set("device-id", "desktop-1")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected notification list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if authInput.AccessToken != "access-token" || authInput.Platform != "admin" || authInput.DeviceID != "desktop-1" {
+		t.Fatalf("unexpected auth input: %#v", authInput)
+	}
+	query := notificationService.listQuery
+	if query.UserID != 12 || query.Platform != "admin" || query.CurrentPage != 1 || query.PageSize != 5 || query.Keyword != "导出" {
+		t.Fatalf("notification list query mismatch: %#v", query)
+	}
+	if query.Type == nil || *query.Type != 2 || query.Level == nil || *query.Level != 2 || query.IsRead == nil || *query.IsRead != 2 {
+		t.Fatalf("notification list filters mismatch: %#v", query)
+	}
+	body := decodeRouterBody(t, recorder)
+	data := mustRouterData(t, body)
+	if _, ok := data["list"]; !ok {
+		t.Fatalf("missing notification list in response: %#v", data)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/notifications/unread-count", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("platform", "admin")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected notification unread-count status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if notificationService.unreadIdentity.UserID != 12 || notificationService.unreadIdentity.Platform != "admin" {
+		t.Fatalf("notification unread identity mismatch: %#v", notificationService.unreadIdentity)
+	}
+}
+
+func TestRouterInstallsNotificationReadAndDeleteRoutes(t *testing.T) {
+	notificationService := &fakeRouterNotificationService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: "admin"}, nil
+		},
+		NotificationService: notificationService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/notifications/7/read", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected mark-one-read status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if notificationService.markIdentity.UserID != 12 || notificationService.markIdentity.Platform != "admin" || !reflect.DeepEqual(notificationService.markIDs, []int64{7}) {
+		t.Fatalf("notification mark-one-read mismatch: identity=%#v ids=%#v", notificationService.markIdentity, notificationService.markIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/notifications/read", strings.NewReader(`{"ids":[3,4]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected mark-batch-read status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !reflect.DeepEqual(notificationService.markIDs, []int64{3, 4}) {
+		t.Fatalf("notification mark-batch-read ids mismatch: %#v", notificationService.markIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/notifications/read", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected mark-all-read status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if len(notificationService.markIDs) != 0 {
+		t.Fatalf("notification mark-all-read must pass empty ids, got %#v", notificationService.markIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/notifications/9", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected delete-one status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if notificationService.deleteIdentity.UserID != 12 || notificationService.deleteIdentity.Platform != "admin" || !reflect.DeepEqual(notificationService.deleteIDs, []int64{9}) {
+		t.Fatalf("notification delete-one mismatch: identity=%#v ids=%#v", notificationService.deleteIdentity, notificationService.deleteIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/notifications", strings.NewReader(`{"ids":[1,2]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected delete-batch status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if !reflect.DeepEqual(notificationService.deleteIDs, []int64{1, 2}) {
+		t.Fatalf("notification delete-batch ids mismatch: %#v", notificationService.deleteIDs)
 	}
 }
 

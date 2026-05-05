@@ -27,6 +27,8 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		FileExt     string `binding:"required,upload_file_ext"`
 		Folder      string `binding:"required,upload_folder"`
 		VerifyType  string `binding:"required,user_verify_type"`
+		NotifyType  int    `binding:"required,notification_type"`
+		NotifyLevel int    `binding:"required,notification_level"`
 	}
 
 	valid := request{
@@ -45,6 +47,8 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		FileExt:     "pdf",
 		Folder:      "images",
 		VerifyType:  "password",
+		NotifyType:  1,
+		NotifyLevel: 2,
 	}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid request, got %v", err)
@@ -84,6 +88,18 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	invalid.VerifyType = "totp"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid user verify type to fail")
+	}
+
+	invalid = valid
+	invalid.NotifyType = 9
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid notification type to fail")
+	}
+
+	invalid = valid
+	invalid.NotifyLevel = 9
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid notification level to fail")
 	}
 }
 

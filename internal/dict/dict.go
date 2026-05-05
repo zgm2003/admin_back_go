@@ -94,6 +94,29 @@ func SystemSettingValueTypeOptions() []Option[int] {
 	}
 }
 
+func NotificationTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeInfo], Value: enum.NotificationTypeInfo},
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeSuccess], Value: enum.NotificationTypeSuccess},
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeWarning], Value: enum.NotificationTypeWarning},
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeError], Value: enum.NotificationTypeError},
+	}
+}
+
+func NotificationLevelOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationLevelLabels[enum.NotificationLevelNormal], Value: enum.NotificationLevelNormal},
+		{Label: enum.NotificationLevelLabels[enum.NotificationLevelUrgent], Value: enum.NotificationLevelUrgent},
+	}
+}
+
+func NotificationReadStatusOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "已读", Value: enum.CommonYes},
+		{Label: "未读", Value: enum.CommonNo},
+	}
+}
+
 func UploadDriverOptions() []Option[string] {
 	options := make([]Option[string], 0, len(enum.UploadDrivers))
 	for _, value := range enum.UploadDrivers {

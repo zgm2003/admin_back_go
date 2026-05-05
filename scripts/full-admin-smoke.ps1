@@ -702,6 +702,68 @@ function Assert-AccountSecurityFailureProbe([string]$BaseURL, [hashtable]$Header
   }
 }
 
+function Assert-NotificationInit($Response) {
+  Assert-ApiOK $Response 'notification init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "notification init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $types = Get-ObjectArray $Response.data.dict.notification_type_arr
+  $levels = Get-ObjectArray $Response.data.dict.notification_level_arr
+  $readStatuses = Get-ObjectArray $Response.data.dict.notification_read_status_arr
+  if ($types.Count -ne 4 -or $levels.Count -ne 2 -or $readStatuses.Count -ne 2) {
+    throw "notification init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    TypeCount = $types.Count
+    LevelCount = $levels.Count
+    ReadStatusCount = $readStatuses.Count
+  }
+}
+
+function Assert-NotificationList($Response) {
+  Assert-ApiOK $Response 'notification list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "notification list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "notification item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "notification item missing title: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.type -or [string]::IsNullOrWhiteSpace([string]$item.type_text)) {
+      throw "notification item missing type fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.level -or [string]::IsNullOrWhiteSpace([string]$item.level_text)) {
+      throw "notification item missing level fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.is_read) {
+      throw "notification item missing is_read: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-NotificationUnreadCount($Response) {
+  Assert-ApiOK $Response 'notification unread-count'
+
+  if ($null -eq $Response.data.count -or [int64]$Response.data.count -lt 0) {
+    throw "notification unread-count shape mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [int64]$Response.data.count
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -985,6 +1047,21 @@ func main() {
 
   $accountSecurityProbe = Assert-AccountSecurityFailureProbe $baseURL $authHeaders
 
+  $notificationInit = Invoke-RestMethod "$baseURL/api/admin/v1/notifications/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $notificationInitSummary = Assert-NotificationInit $notificationInit
+
+  $notificationList = Invoke-RestMethod "$baseURL/api/admin/v1/notifications?current_page=1&page_size=5" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $notificationListSummary = Assert-NotificationList $notificationList
+
+  $notificationUnreadCount = Invoke-RestMethod "$baseURL/api/admin/v1/notifications/unread-count" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $notificationUnreadTotal = Assert-NotificationUnreadCount $notificationUnreadCount
+
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -1090,6 +1167,15 @@ func main() {
     account_security_wrong_old_password_code = $accountSecurityProbe.WrongOldPasswordCode
     account_security_invalid_email_code = $accountSecurityProbe.InvalidEmailCode
     account_security_invalid_phone_code = $accountSecurityProbe.InvalidPhoneCode
+    notification_init_code = $notificationInit.code
+    notification_type_count = $notificationInitSummary.TypeCount
+    notification_level_count = $notificationInitSummary.LevelCount
+    notification_read_status_count = $notificationInitSummary.ReadStatusCount
+    notification_list_code = $notificationList.code
+    notification_list_count = $notificationListSummary.ListCount
+    notification_total = $notificationListSummary.Total
+    notification_unread_count_code = $notificationUnreadCount.code
+    notification_unread_total = $notificationUnreadTotal
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

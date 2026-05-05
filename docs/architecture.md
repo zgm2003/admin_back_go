@@ -963,6 +963,31 @@ users/init 仍只做当前登录用户 bootstrap；用户管理页字典使用 u
 export 暂时保留显式 legacy adapter，等待 Go export-task 队列模块迁移；这不是 silent fallback。
 ```
 
+## Notification Current-User Read/List Slice
+
+通知中心当前迁移的是用户自己的 read/list/read/delete 基础链路，不是通知发布系统：
+
+```text
+GET    /api/admin/v1/notifications/init
+GET    /api/admin/v1/notifications
+GET    /api/admin/v1/notifications/unread-count
+PATCH  /api/admin/v1/notifications/:id/read
+PATCH  /api/admin/v1/notifications/read
+DELETE /api/admin/v1/notifications/:id
+DELETE /api/admin/v1/notifications
+```
+
+关键边界：
+
+```text
+handler 只从 AuthToken middleware 读取当前 user_id/platform，不查 DB。
+service 做 enum 和 identity 业务归一化，不依赖 gin.Context。
+repository 所有查询/更新固定带 user_id、platform IN(current,'all')、is_del=2。
+PATCH /read 空 ids 表示标记当前用户可见全部未读通知；DELETE 空 ids 必须拒绝。
+当前用户通知 read/delete 不挂 RBAC button permission，也不写 OperationLog。
+notification_task 发布任务、Redis fan-out、notification.created.v1 业务推送仍是后续切片，不能冒充已完成。
+```
+
 ## Profile + Avatar Upload Slice
 
 个人资料是第一个真实上传业务闭环。它仍归 `internal/module/user`，因为表事实是 `users` + `user_profiles`，没有必要为了“看起来规范”新开空模块。
@@ -1074,9 +1099,9 @@ COS_STS_ENABLED=true 时 POST /api/admin/v1/upload-tokens 只校验 provider/key
 
 Go 后端从认证平台开始建立统一基础件：
 
-- `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景。
+- `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景、通知类型/级别。
 - `internal/dict` 负责把 enum 转成前端 `dict` 选项，不允许业务页面自己手写一份枚举标签。
-- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
+- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
 - 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
 - `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
