@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -71,6 +72,37 @@ func TestRegisterHandlesAuthLoginLogTask(t *testing.T) {
 	}
 }
 
+func TestRegisterHandlesNotificationTaskHandlers(t *testing.T) {
+	service := &fakeNotificationTaskJobService{}
+	mux := taskqueue.NewMux()
+	Register(mux, Dependencies{
+		Logger:                  slog.Default(),
+		NotificationTaskService: service,
+	})
+
+	task, err := notificationtask.NewDispatchDueTask(notificationtask.DispatchDuePayload{Limit: 9})
+	if err != nil {
+		t.Fatalf("NewDispatchDueTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
+		t.Fatalf("ProcessProjectTask dispatch returned error: %v", err)
+	}
+	if service.dispatchLimit != 9 {
+		t.Fatalf("expected dispatch limit 9, got %d", service.dispatchLimit)
+	}
+
+	task, err = notificationtask.NewSendTask(77)
+	if err != nil {
+		t.Fatalf("NewSendTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
+		t.Fatalf("ProcessProjectTask send returned error: %v", err)
+	}
+	if service.sendTaskID != 77 {
+		t.Fatalf("expected send task id 77, got %d", service.sendTaskID)
+	}
+}
+
 func TestRegisterScheduleDefinitionsOnlyEnqueuesTaskWhenTriggered(t *testing.T) {
 	registrar := &fakeScheduleRegistrar{}
 	enqueuer := &fakeEnqueuer{}
@@ -110,8 +142,49 @@ func TestRegisterScheduleDefinitionsOnlyEnqueuesTaskWhenTriggered(t *testing.T) 
 	}
 }
 
+func TestRegisterSchedulesRegistersNotificationDispatchDue(t *testing.T) {
+	registrar := &fakeScheduleRegistrar{}
+	enqueuer := &fakeEnqueuer{}
+
+	err := RegisterSchedules(registrar, enqueuer, slog.Default())
+	if err != nil {
+		t.Fatalf("RegisterSchedules returned error: %v", err)
+	}
+	if len(registrar.everyCalls) != 1 {
+		t.Fatalf("expected one registered interval schedule, got %#v", registrar.everyCalls)
+	}
+	call := registrar.everyCalls[0]
+	if call.name != notificationtask.ScheduleDispatchDueName || call.interval != notificationtask.ScheduleDispatchDueInterval {
+		t.Fatalf("unexpected schedule call: %#v", call)
+	}
+	if len(enqueuer.tasks) != 0 {
+		t.Fatalf("registration should not enqueue immediately, got %#v", enqueuer.tasks)
+	}
+	if err := call.task(context.Background()); err != nil {
+		t.Fatalf("scheduled task returned error: %v", err)
+	}
+	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != notificationtask.TypeDispatchDueV1 {
+		t.Fatalf("expected dispatch-due enqueue on trigger, got %#v", enqueuer.tasks)
+	}
+}
+
 type fakeAuthRepository struct {
 	attempts []auth.LoginAttempt
+}
+
+type fakeNotificationTaskJobService struct {
+	dispatchLimit int
+	sendTaskID    int64
+}
+
+func (f *fakeNotificationTaskJobService) DispatchDue(ctx context.Context, input notificationtask.DispatchDueInput) (*notificationtask.DispatchDueResult, error) {
+	f.dispatchLimit = input.Limit
+	return &notificationtask.DispatchDueResult{Claimed: 1, Queued: 1}, nil
+}
+
+func (f *fakeNotificationTaskJobService) SendTask(ctx context.Context, input notificationtask.SendTaskInput) (*notificationtask.SendTaskResult, error) {
+	f.sendTaskID = input.TaskID
+	return &notificationtask.SendTaskResult{TaskID: input.TaskID, Sent: 1}, nil
 }
 
 type fakeScheduleRegistrar struct {

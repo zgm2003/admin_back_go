@@ -20,6 +20,7 @@ import (
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/notification"
+	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -327,6 +328,104 @@ func (f *fakeRouterNotificationService) MarkRead(ctx context.Context, identity n
 func (f *fakeRouterNotificationService) Delete(ctx context.Context, identity notification.Identity, ids []int64) *apperror.Error {
 	f.deleteIdentity = identity
 	f.deleteIDs = append([]int64{}, ids...)
+	return nil
+}
+
+type fakeRouterNotificationTaskService struct {
+	statusCountQuery notificationtask.StatusCountQuery
+	listQuery        notificationtask.ListQuery
+	createInput      notificationtask.CreateInput
+	cancelID         int64
+	deleteID         int64
+}
+
+func (f *fakeRouterNotificationTaskService) Init(ctx context.Context) (*notificationtask.InitResponse, *apperror.Error) {
+	return notificationtask.NewService(&fakeRepositoryForNotificationTaskRouter{}).Init(ctx)
+}
+
+func (f *fakeRouterNotificationTaskService) StatusCount(ctx context.Context, query notificationtask.StatusCountQuery) ([]notificationtask.StatusCountItem, *apperror.Error) {
+	f.statusCountQuery = query
+	return []notificationtask.StatusCountItem{{Label: "待发送", Value: 1, Num: 2}}, nil
+}
+
+func (f *fakeRouterNotificationTaskService) List(ctx context.Context, query notificationtask.ListQuery) (*notificationtask.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &notificationtask.ListResponse{
+		List: []notificationtask.ListItem{{ID: 1, Title: "发布通知"}},
+		Page: notificationtask.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterNotificationTaskService) Create(ctx context.Context, input notificationtask.CreateInput) (*notificationtask.CreateResponse, *apperror.Error) {
+	f.createInput = input
+	return &notificationtask.CreateResponse{ID: 7, Queued: true}, nil
+}
+
+func (f *fakeRouterNotificationTaskService) Cancel(ctx context.Context, id int64) *apperror.Error {
+	f.cancelID = id
+	return nil
+}
+
+func (f *fakeRouterNotificationTaskService) Delete(ctx context.Context, id int64) *apperror.Error {
+	f.deleteID = id
+	return nil
+}
+
+type fakeRepositoryForNotificationTaskRouter struct{}
+
+func (fakeRepositoryForNotificationTaskRouter) List(ctx context.Context, query notificationtask.ListQuery) ([]notificationtask.Task, int64, error) {
+	return nil, 0, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) CountByStatus(ctx context.Context, query notificationtask.StatusCountQuery) (map[int]int64, error) {
+	return nil, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) Create(ctx context.Context, row notificationtask.Task) (int64, error) {
+	return 0, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) Get(ctx context.Context, id int64) (*notificationtask.Task, error) {
+	return nil, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) CancelPending(ctx context.Context, id int64) (int64, error) {
+	return 0, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) Delete(ctx context.Context, id int64) (int64, error) {
+	return 0, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) CountTargetUsers(ctx context.Context, targetType int, targetIDs []int64) (int, error) {
+	return 0, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]int64, error) {
+	return nil, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) ClaimSendTask(ctx context.Context, id int64) (*notificationtask.Task, bool, error) {
+	return nil, false, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) TargetUserIDs(ctx context.Context, task notificationtask.Task) ([]int64, error) {
+	return nil, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) InsertNotifications(ctx context.Context, rows []notificationtask.Notification) error {
+	return nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) UpdateProgress(ctx context.Context, id int64, sentCount int, totalCount int) error {
+	return nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) MarkSuccess(ctx context.Context, id int64, sentCount int, totalCount int) error {
+	return nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) MarkFailed(ctx context.Context, id int64, errMsg string) error {
 	return nil
 }
 
@@ -983,6 +1082,77 @@ func TestRouterInstallsNotificationReadAndDeleteRoutes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(notificationService.deleteIDs, []int64{1, 2}) {
 		t.Fatalf("notification delete-batch ids mismatch: %#v", notificationService.deleteIDs)
+	}
+}
+
+func TestRouterInstallsNotificationTaskRESTRoutes(t *testing.T) {
+	notificationTaskService := &fakeRouterNotificationTaskService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: "admin"}, nil
+		},
+		NotificationTaskService: notificationTaskService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks/init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected notification task init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks/status-count?title=%E5%8F%91%E5%B8%83", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || notificationTaskService.statusCountQuery.Title != "发布" {
+		t.Fatalf("expected notification task status-count route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), notificationTaskService.statusCountQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks?current_page=2&page_size=10&status=1&title=%E9%80%9A%E7%9F%A5", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected notification task list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if notificationTaskService.listQuery.CurrentPage != 2 || notificationTaskService.listQuery.PageSize != 10 || notificationTaskService.listQuery.Title != "通知" {
+		t.Fatalf("notification task list query mismatch: %#v", notificationTaskService.listQuery)
+	}
+	if notificationTaskService.listQuery.Status == nil || *notificationTaskService.listQuery.Status != 1 {
+		t.Fatalf("notification task list status mismatch: %#v", notificationTaskService.listQuery.Status)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/notification-tasks", strings.NewReader(`{"title":"发布通知","target_type":2,"target_ids":[3,4],"platform":"admin"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected notification task create status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if notificationTaskService.createInput.CreatedBy != 12 || notificationTaskService.createInput.Title != "发布通知" || notificationTaskService.createInput.Platform != "admin" {
+		t.Fatalf("notification task create input mismatch: %#v", notificationTaskService.createInput)
+	}
+	if !reflect.DeepEqual(notificationTaskService.createInput.TargetIDs, []int64{3, 4}) {
+		t.Fatalf("notification task create target ids mismatch: %#v", notificationTaskService.createInput.TargetIDs)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/notification-tasks/7/cancel", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || notificationTaskService.cancelID != 7 {
+		t.Fatalf("expected notification task cancel route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), notificationTaskService.cancelID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/notification-tasks/8", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || notificationTaskService.deleteID != 8 {
+		t.Fatalf("expected notification task delete route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), notificationTaskService.deleteID)
 	}
 }
 

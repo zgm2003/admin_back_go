@@ -8,6 +8,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -60,9 +61,14 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	}
 	worker.queueServer = queueServer
 	worker.mux = taskqueue.NewMux()
+	notificationTaskService := notificationtask.NewService(
+		notificationtask.NewGormRepository(resources.DB),
+		notificationtask.WithEnqueuer(queueClient),
+	)
 	jobs.Register(worker.mux, jobs.Dependencies{
-		Logger:         logger,
-		AuthRepository: auth.NewGormRepository(resources.DB),
+		Logger:                  logger,
+		AuthRepository:          auth.NewGormRepository(resources.DB),
+		NotificationTaskService: notificationTaskService,
 	})
 
 	if cfg.Scheduler.Enabled {

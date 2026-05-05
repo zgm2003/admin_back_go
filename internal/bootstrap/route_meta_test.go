@@ -58,6 +58,9 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/upload-tokens", "system_uploadToken_create"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files", "system_log_files"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines", "system_log_content"},
+		{http.MethodPost, "/api/admin/v1/notification-tasks", "system_notificationTask_add"},
+		{http.MethodPatch, "/api/admin/v1/notification-tasks/:id/cancel", "system_notificationTask_cancel"},
+		{http.MethodDelete, "/api/admin/v1/notification-tasks/:id", "system_notificationTask_del"},
 	}
 
 	for _, tt := range tests {
@@ -161,6 +164,9 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/upload-settings/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings", "delete_batch"},
 		{http.MethodPost, "/api/admin/v1/upload-tokens", "create"},
+		{http.MethodPost, "/api/admin/v1/notification-tasks", "create"},
+		{http.MethodPatch, "/api/admin/v1/notification-tasks/:id/cancel", "cancel"},
+		{http.MethodDelete, "/api/admin/v1/notification-tasks/:id", "delete"},
 	}
 
 	for _, tt := range tests {

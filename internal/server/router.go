@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/notification"
+	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -28,30 +29,31 @@ import (
 )
 
 type Dependencies struct {
-	Readiness            system.ReadinessChecker
-	Logger               *slog.Logger
-	CORS                 config.CORSConfig
-	Authenticator        middleware.TokenAuthenticator
-	PermissionChecker    middleware.PermissionChecker
-	PermissionRules      map[middleware.RouteKey]string
-	OperationRecorder    middleware.OperationRecorder
-	OperationRules       map[middleware.RouteKey]middleware.OperationRule
-	AuthService          auth.SessionService
-	CaptchaService       captcha.HTTPService
-	UserService          user.HTTPService
-	NotificationService  notification.HTTPService
-	OperationLogService  operationlog.HTTPService
-	PermissionService    permission.ManagementService
-	QueueMonitorService  queuemonitor.HTTPService
-	QueueMonitorUI       http.Handler
-	SystemSettingService systemsetting.HTTPService
-	SystemLogService     systemlog.HTTPService
-	UploadConfigService  uploadconfig.HTTPService
-	UploadTokenService   uploadtoken.HTTPService
-	RealtimeHandler      *realtime.Handler
-	RoleService          role.HTTPService
-	AuthPlatformService  authplatform.HTTPService
-	AuthSkipPaths        map[string]struct{}
+	Readiness               system.ReadinessChecker
+	Logger                  *slog.Logger
+	CORS                    config.CORSConfig
+	Authenticator           middleware.TokenAuthenticator
+	PermissionChecker       middleware.PermissionChecker
+	PermissionRules         map[middleware.RouteKey]string
+	OperationRecorder       middleware.OperationRecorder
+	OperationRules          map[middleware.RouteKey]middleware.OperationRule
+	AuthService             auth.SessionService
+	CaptchaService          captcha.HTTPService
+	UserService             user.HTTPService
+	NotificationService     notification.HTTPService
+	NotificationTaskService notificationtask.HTTPService
+	OperationLogService     operationlog.HTTPService
+	PermissionService       permission.ManagementService
+	QueueMonitorService     queuemonitor.HTTPService
+	QueueMonitorUI          http.Handler
+	SystemSettingService    systemsetting.HTTPService
+	SystemLogService        systemlog.HTTPService
+	UploadConfigService     uploadconfig.HTTPService
+	UploadTokenService      uploadtoken.HTTPService
+	RealtimeHandler         *realtime.Handler
+	RoleService             role.HTTPService
+	AuthPlatformService     authplatform.HTTPService
+	AuthSkipPaths           map[string]struct{}
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
@@ -88,6 +90,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	auth.RegisterRoutes(router, deps.AuthService)
 	user.RegisterRoutes(router, deps.UserService)
 	notification.RegisterRoutes(router, deps.NotificationService)
+	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)

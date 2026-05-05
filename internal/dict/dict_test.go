@@ -32,6 +32,11 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 		t.Fatalf("unexpected platform options: %#v", platforms)
 	}
 
+	taskPlatforms := NotificationTaskPlatformOptions()
+	if len(taskPlatforms) != 3 || taskPlatforms[0].Value != enum.PlatformAll || taskPlatforms[1].Value != enum.PlatformAdmin || taskPlatforms[2].Value != enum.PlatformApp {
+		t.Fatalf("unexpected notification task platform options: %#v", taskPlatforms)
+	}
+
 	sex := SexOptions()
 	if len(sex) != 3 || sex[0].Value != enum.SexUnknown || sex[1].Value != enum.SexMale || sex[2].Value != enum.SexFemale {
 		t.Fatalf("unexpected sex options: %#v", sex)
@@ -70,5 +75,15 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	readStatus := NotificationReadStatusOptions()
 	if len(readStatus) != 2 || readStatus[0].Value != enum.CommonYes || readStatus[1].Value != enum.CommonNo {
 		t.Fatalf("unexpected notification read status options: %#v", readStatus)
+	}
+
+	targetTypes := NotificationTargetTypeOptions()
+	if len(targetTypes) != 3 || targetTypes[0].Value != enum.NotificationTargetAll || targetTypes[1].Value != enum.NotificationTargetUsers || targetTypes[2].Value != enum.NotificationTargetRoles {
+		t.Fatalf("unexpected notification target type options: %#v", targetTypes)
+	}
+
+	taskStatuses := NotificationTaskStatusOptions()
+	if len(taskStatuses) != 4 || taskStatuses[0].Value != enum.NotificationTaskStatusPending || taskStatuses[3].Value != enum.NotificationTaskStatusFailed {
+		t.Fatalf("unexpected notification task status options: %#v", taskStatuses)
 	}
 }

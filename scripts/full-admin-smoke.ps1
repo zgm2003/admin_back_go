@@ -764,6 +764,84 @@ function Assert-NotificationUnreadCount($Response) {
   return [int64]$Response.data.count
 }
 
+function Assert-NotificationTaskInit($Response) {
+  Assert-ApiOK $Response 'notification task init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "notification task init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $types = Get-ObjectArray $Response.data.dict.notification_type_arr
+  $levels = Get-ObjectArray $Response.data.dict.notification_level_arr
+  $targets = Get-ObjectArray $Response.data.dict.notification_target_type_arr
+  $statuses = Get-ObjectArray $Response.data.dict.notification_task_status_arr
+  $platforms = Get-ObjectArray $Response.data.dict.platformArr
+  if ($types.Count -ne 4 -or $levels.Count -ne 2 -or $targets.Count -ne 3 -or $statuses.Count -ne 4 -or $platforms.Count -lt 3) {
+    throw "notification task init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ([string]$platforms[0].value -ne 'all') {
+    throw "notification task platform all must be first: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    TypeCount = $types.Count
+    LevelCount = $levels.Count
+    TargetTypeCount = $targets.Count
+    StatusCount = $statuses.Count
+    PlatformCount = $platforms.Count
+  }
+}
+
+function Assert-NotificationTaskStatusCount($Response) {
+  Assert-ApiOK $Response 'notification task status-count'
+
+  $items = Get-ObjectArray $Response.data
+  if ($items.Count -ne 4) {
+    throw "notification task status-count count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in $items) {
+    if ($null -eq $item.value -or [string]::IsNullOrWhiteSpace([string]$item.label) -or $null -eq $item.num) {
+      throw "notification task status-count item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([int64]$item.num -lt 0) {
+      throw "notification task status-count num cannot be negative: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return $items.Count
+}
+
+function Assert-NotificationTaskList($Response) {
+  Assert-ApiOK $Response 'notification task list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "notification task list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "notification task item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "notification task item missing title: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.status -or [string]::IsNullOrWhiteSpace([string]$item.status_text)) {
+      throw "notification task item missing status fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.target_type -or [string]::IsNullOrWhiteSpace([string]$item.target_type_text)) {
+      throw "notification task item missing target fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.total_count -or $null -eq $item.sent_count) {
+      throw "notification task item missing progress fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -1062,6 +1140,21 @@ func main() {
     -TimeoutSec 10
   $notificationUnreadTotal = Assert-NotificationUnreadCount $notificationUnreadCount
 
+  $notificationTaskInit = Invoke-RestMethod "$baseURL/api/admin/v1/notification-tasks/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $notificationTaskInitSummary = Assert-NotificationTaskInit $notificationTaskInit
+
+  $notificationTaskStatusCount = Invoke-RestMethod "$baseURL/api/admin/v1/notification-tasks/status-count" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $notificationTaskStatusCountTotal = Assert-NotificationTaskStatusCount $notificationTaskStatusCount
+
+  $notificationTaskList = Invoke-RestMethod "$baseURL/api/admin/v1/notification-tasks?current_page=1&page_size=5" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $notificationTaskListSummary = Assert-NotificationTaskList $notificationTaskList
+
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -1176,6 +1269,17 @@ func main() {
     notification_total = $notificationListSummary.Total
     notification_unread_count_code = $notificationUnreadCount.code
     notification_unread_total = $notificationUnreadTotal
+    notification_task_init_code = $notificationTaskInit.code
+    notification_task_type_count = $notificationTaskInitSummary.TypeCount
+    notification_task_level_count = $notificationTaskInitSummary.LevelCount
+    notification_task_target_type_count = $notificationTaskInitSummary.TargetTypeCount
+    notification_task_status_dict_count = $notificationTaskInitSummary.StatusCount
+    notification_task_platform_count = $notificationTaskInitSummary.PlatformCount
+    notification_task_status_count_code = $notificationTaskStatusCount.code
+    notification_task_status_count_items = $notificationTaskStatusCountTotal
+    notification_task_list_code = $notificationTaskList.code
+    notification_task_list_count = $notificationTaskListSummary.ListCount
+    notification_task_total = $notificationTaskListSummary.Total
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

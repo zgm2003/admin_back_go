@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -24,8 +25,9 @@ var (
 
 // Dependencies are shared job handler dependencies.
 type Dependencies struct {
-	Logger         *slog.Logger
-	AuthRepository auth.Repository
+	Logger                  *slog.Logger
+	AuthRepository          auth.Repository
+	NotificationTaskService notificationtask.JobService
 }
 
 // ScheduleRegistrar is the worker-owned boundary used by job schedule
@@ -69,6 +71,7 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 		return nil
 	})
 	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
+	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
 }
 
 // NewNoopTask builds a versioned queue probe task.
@@ -86,7 +89,15 @@ func NewNoopTask(payload NoopPayload) (taskqueue.Task, error) {
 // RegisterSchedules is the single place for cron-to-queue wiring. It is empty
 // until a real business schedule exists; fake cron jobs are worse than no cron.
 func RegisterSchedules(registrar ScheduleRegistrar, enqueuer taskqueue.Enqueuer, logger *slog.Logger) error {
-	return registerScheduleDefinitions(registrar, enqueuer, logger, nil)
+	return registerScheduleDefinitions(registrar, enqueuer, logger, []ScheduledTaskDefinition{
+		{
+			Name:  notificationtask.ScheduleDispatchDueName,
+			Every: notificationtask.ScheduleDispatchDueInterval,
+			BuildTask: func() (taskqueue.Task, error) {
+				return notificationtask.NewDispatchDueTask(notificationtask.DispatchDuePayload{})
+			},
+		},
+	})
 }
 
 func registerScheduleDefinitions(registrar ScheduleRegistrar, enqueuer taskqueue.Enqueuer, logger *slog.Logger, definitions []ScheduledTaskDefinition) error {

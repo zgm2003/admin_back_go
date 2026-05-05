@@ -726,6 +726,8 @@ internal/jobs/slow
 ```text
 system:no-op:v1
 auth:login-log:v1
+notification:dispatch-due:v1
+notification:send-task:v1
 ```
 
 规则：
@@ -745,7 +747,7 @@ taskqueue.Mux 保存显式 handler registry；未知 task type 返回 ErrHandler
 jobs.Register 是唯一 worker handler 注册入口
 jobs.RegisterSchedules 是唯一 cron-to-queue 注册入口
 ScheduledTaskDefinition 只能 build queue task；scheduler callback 只调用 Enqueuer.Enqueue
-当前没有真实 cron job；没有业务需求前不加假定时任务
+当前第一条真实业务 schedule 是 notification-task-dispatch-due：每 1 分钟只投递 notification:dispatch-due:v1，不在 scheduler callback 里扫描 DB 或写通知
 ```
 
 worker 配置含义：
@@ -965,7 +967,9 @@ export 暂时保留显式 legacy adapter，等待 Go export-task 队列模块迁
 
 ## Notification Current-User Read/List Slice
 
-通知中心当前迁移的是用户自己的 read/list/read/delete 基础链路，不是通知发布系统：
+通知中心已分成两条线：当前用户通知 read/list/read/delete，以及后台通知任务发布/调度。
+
+当前用户通知接口：
 
 ```text
 GET    /api/admin/v1/notifications/init
@@ -985,7 +989,39 @@ service 做 enum 和 identity 业务归一化，不依赖 gin.Context。
 repository 所有查询/更新固定带 user_id、platform IN(current,'all')、is_del=2。
 PATCH /read 空 ids 表示标记当前用户可见全部未读通知；DELETE 空 ids 必须拒绝。
 当前用户通知 read/delete 不挂 RBAC button permission，也不写 OperationLog。
-notification_task 发布任务、Redis fan-out、notification.created.v1 业务推送仍是后续切片，不能冒充已完成。
+```
+
+后台通知任务接口：
+
+```text
+GET    /api/admin/v1/notification-tasks/init
+GET    /api/admin/v1/notification-tasks/status-count
+GET    /api/admin/v1/notification-tasks
+POST   /api/admin/v1/notification-tasks
+PATCH  /api/admin/v1/notification-tasks/:id/cancel
+DELETE /api/admin/v1/notification-tasks/:id
+```
+
+发布/调度边界：
+
+```text
+notificationtask service 拥有 target_type/platform/send_at 业务校验。
+POST 无 send_at：写 notification_task pending 后立即 enqueue notification:send-task:v1。
+POST 有 send_at：只写 pending，等待 admin-worker scheduler。
+admin-worker 的 notification-task-dispatch-due schedule 每 1 分钟 enqueue notification:dispatch-due:v1。
+dispatch-due handler claim 到期 pending 任务并 enqueue send-task；scheduler 本身不扫 DB。
+send-task handler 解析目标用户、批量写 notifications、更新 sent_count/status；handler 必须幂等，允许 Asynq at-least-once 重投。
+当前 DB 写入 + Redis enqueue 不是强事务；需要强一致时再加 outbox，不用 Redis queue 假装事务。
+Redis fan-out / notification.created.v1 分布式业务推送仍是 planned；本切片以 DB notifications 写入为真相。
+```
+
+RBAC 数据迁移：
+
+```text
+database/migrations/20260505_add_notification_task_button_permissions.sql
+为通知管理页面补齐 system_notificationTask_add / cancel / del 三个 BUTTON 权限。
+迁移只给已经拥有 /system/notificationTask PAGE 权限的角色补按钮授权，不创建隐藏超级管理员绕过。
+执行后如果用户已有旧 RBAC button cache，需要等待 TTL 或删除 auth_perm_uid_{userId}_admin_rbac_page_grants 后重新计算。
 ```
 
 ## Profile + Avatar Upload Slice

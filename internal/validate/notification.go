@@ -15,3 +15,17 @@ func validateNotificationLevel(fl playground.FieldLevel) bool {
 	value, ok := intValue(fl.Field())
 	return ok && enum.IsNotificationLevel(value)
 }
+
+func validateNotificationTargetType(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && enum.IsNotificationTargetType(value)
+}
+
+func validateNotificationTaskStatus(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && enum.IsNotificationTaskStatus(value)
+}
+
+func validateNotificationTaskPlatform(fl playground.FieldLevel) bool {
+	return enum.IsNotificationTaskPlatform(trimmedString(fl.Field()))
+}

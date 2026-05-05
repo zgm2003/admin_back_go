@@ -50,6 +50,14 @@ func PlatformOptions() []Option[string] {
 	}
 }
 
+func NotificationTaskPlatformOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "全平台", Value: enum.PlatformAll},
+		{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
+		{Label: enum.PlatformApp, Value: enum.PlatformApp},
+	}
+}
+
 func SexOptions() []Option[int] {
 	return []Option[int]{
 		{Label: "未知", Value: enum.SexUnknown},
@@ -114,6 +122,23 @@ func NotificationReadStatusOptions() []Option[int] {
 	return []Option[int]{
 		{Label: "已读", Value: enum.CommonYes},
 		{Label: "未读", Value: enum.CommonNo},
+	}
+}
+
+func NotificationTargetTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationTargetTypeLabels[enum.NotificationTargetAll], Value: enum.NotificationTargetAll},
+		{Label: enum.NotificationTargetTypeLabels[enum.NotificationTargetUsers], Value: enum.NotificationTargetUsers},
+		{Label: enum.NotificationTargetTypeLabels[enum.NotificationTargetRoles], Value: enum.NotificationTargetRoles},
+	}
+}
+
+func NotificationTaskStatusOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusPending], Value: enum.NotificationTaskStatusPending},
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusSending], Value: enum.NotificationTaskStatusSending},
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusSuccess], Value: enum.NotificationTaskStatusSuccess},
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusFailed], Value: enum.NotificationTaskStatusFailed},
 	}
 }
 
