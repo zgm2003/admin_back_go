@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -137,6 +138,44 @@ func TestOperationLogRecordsFailedConfiguredRouteWithStatusAndSuccess(t *testing
 	}
 	if got.Path != "/api/admin/v1/users/:id" || got.Module != "user" || got.Action != "update" {
 		t.Fatalf("route metadata mismatch: %#v", got)
+	}
+}
+
+func TestOperationLogCapturesRequestAndResponsePayloadWithoutBreakingHandler(t *testing.T) {
+	var got OperationInput
+	router := newOperationLogTestRouter(OperationLogConfig{
+		Rules: map[RouteKey]OperationRule{
+			NewRouteKey(http.MethodPost, "/api/admin/v1/notification-tasks"): {Module: "notification_task", Action: "create", Title: "发布通知任务"},
+		},
+		Recorder: func(ctx context.Context, input OperationInput) error {
+			got = input
+			return nil
+		},
+	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
+	router.POST("/api/admin/v1/notification-tasks", func(c *gin.Context) {
+		var payload map[string]any
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 100, "msg": "bad"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"id": 99, "queued": true}, "msg": "ok"})
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/notification-tasks", strings.NewReader(`{"title":"hello","password":"secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected route response to stay intact, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	requestPayload, ok := got.RequestPayload.(map[string]any)
+	if !ok || requestPayload["title"] != "hello" || requestPayload["password"] != "secret" {
+		t.Fatalf("expected decoded request payload before recorder sanitization, got %#v", got.RequestPayload)
+	}
+	responsePayload, ok := got.ResponsePayload.(map[string]any)
+	if !ok || responsePayload["code"] != float64(0) {
+		t.Fatalf("expected decoded response payload, got %#v", got.ResponsePayload)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -293,6 +294,35 @@ func TestDispatchDueClaimsAndEnqueuesSendTasks(t *testing.T) {
 	}
 	if len(enqueuer.tasks) != 2 || enqueuer.tasks[0].Type != TypeSendTaskV1 {
 		t.Fatalf("unexpected enqueued send tasks: %#v", enqueuer.tasks)
+	}
+}
+
+func TestDispatchDueBackfillsImmediatePendingTasks(t *testing.T) {
+	repo := &fakeRepository{dueIDs: []int64{8}}
+	enqueuer := &fakeEnqueuer{}
+
+	got, err := NewService(repo, WithEnqueuer(enqueuer)).DispatchDue(context.Background(), DispatchDueInput{})
+
+	if err != nil {
+		t.Fatalf("DispatchDue returned error: %v", err)
+	}
+	if got.Claimed != 1 || got.Queued != 1 {
+		t.Fatalf("unexpected dispatch result: %#v", got)
+	}
+	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != TypeSendTaskV1 {
+		t.Fatalf("expected immediate pending task to be re-enqueued, got %#v", enqueuer.tasks)
+	}
+}
+
+func TestPendingDispatchQueryIncludesImmediateAndDueScheduledTasks(t *testing.T) {
+	if !strings.Contains(pendingDispatchSendAtCondition, "send_at IS NULL") {
+		t.Fatalf("dispatch condition must include immediate pending tasks, got %q", pendingDispatchSendAtCondition)
+	}
+	if !strings.Contains(pendingDispatchSendAtCondition, "send_at <= ?") {
+		t.Fatalf("dispatch condition must include due scheduled tasks, got %q", pendingDispatchSendAtCondition)
+	}
+	if !strings.Contains(pendingDispatchOrder, "send_at IS NULL") {
+		t.Fatalf("dispatch order must make immediate backfill deterministic, got %q", pendingDispatchOrder)
 	}
 }
 

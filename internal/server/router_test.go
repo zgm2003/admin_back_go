@@ -1605,6 +1605,45 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 	}
 }
 
+func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		CORS: config.CORSConfig{
+			AllowOrigins:     []string{"http://127.0.0.1:5173"},
+			AllowMethods:     []string{"GET", "OPTIONS"},
+			AllowHeaders:     []string{"Authorization", "platform", "device-id"},
+			AllowCredentials: true,
+		},
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
+		},
+		RealtimeHandler: realtimemodule.NewHandler(
+			realtimemodule.NewService(25*time.Second),
+			platformrealtime.NewUpgrader(platformrealtime.NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})),
+			platformrealtime.NewManager(),
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+		),
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimemodule.WSPath, http.Header{
+		"Cookie": []string{middleware.DefaultAccessTokenCookie + "=cookie-access-token"},
+		"Origin": []string{"http://127.0.0.1:5173"},
+	})
+	if err != nil {
+		t.Fatalf("dial realtime from configured origin: %v", err)
+	}
+	defer client.Close()
+
+	var connected map[string]any
+	if err := client.ReadJSON(&connected); err != nil {
+		t.Fatalf("read connected: %v", err)
+	}
+	if connected["type"] != realtimemodule.TypeConnectedV1 {
+		t.Fatalf("expected connected event, got %#v", connected)
+	}
+}
+
 func newTestRouter(t *testing.T, deps Dependencies) http.Handler {
 	t.Helper()
 	if deps.Logger == nil {

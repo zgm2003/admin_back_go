@@ -3,6 +3,8 @@ package realtime
 import (
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -27,6 +29,58 @@ func NewUpgrader(checkOrigin func(*http.Request) bool) *Upgrader {
 			CheckOrigin: checkOrigin,
 		},
 	}
+}
+
+// NewAllowedOriginChecker builds the browser WebSocket origin policy from the
+// same explicit origins used by CORS. Browsers do not run CORS preflight for a
+// WebSocket upgrade, so gorilla/websocket needs this policy directly.
+//
+// Empty Origin is allowed for non-browser clients. Same host upgrades are
+// allowed. Cross-port browser dev origins must be explicitly configured.
+func NewAllowedOriginChecker(allowedOrigins []string) func(*http.Request) bool {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, raw := range allowedOrigins {
+		origin := normalizeOrigin(raw)
+		if origin == "" {
+			continue
+		}
+		allowed[origin] = struct{}{}
+	}
+
+	return func(request *http.Request) bool {
+		if request == nil {
+			return false
+		}
+		rawOrigin := strings.TrimSpace(request.Header.Get("Origin"))
+		if rawOrigin == "" {
+			return true
+		}
+		originURL, err := url.Parse(rawOrigin)
+		if err != nil || originURL.Scheme == "" || originURL.Host == "" {
+			return false
+		}
+		if sameHost(originURL.Host, request.Host) {
+			return true
+		}
+		_, ok := allowed[originURL.Scheme+"://"+originURL.Host]
+		return ok
+	}
+}
+
+func normalizeOrigin(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+func sameHost(left string, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
 }
 
 // Upgrade upgrades a Gin/http request to WebSocket.

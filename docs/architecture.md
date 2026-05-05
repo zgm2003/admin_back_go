@@ -182,7 +182,8 @@ response_payload
 
 ```text
 没有 metadata 就不记录。
-request_data / response_data 存 JSON 字符串摘要，敏感字段先遮蔽再落库。
+OperationLog middleware 会在不破坏 handler 读取的前提下捕获 mutating request JSON body，并包裹 ResponseWriter 捕获 JSON response 摘要。
+request_data / response_data 存 JSON 字符串摘要，敏感字段先遮蔽再落库；最大捕获 64KB，避免大响应把日志表打爆。
 captcha_answer 需要递归遮蔽，不允许把真实验证码坐标写进审计日志。
 delete 只开放 devTools_operationLog_del 对应的显式 REST 路由。
 ```
@@ -461,7 +462,7 @@ storage = base64(iv + tag + ciphertext)
 
 ## Realtime / WebSocket baseline
 
-Realtime 当前只做基建，不做通知业务，不做 AI streaming 业务，不做 Redis fan-out 假实现。
+Realtime 当前已完成 admin WebSocket 基建和通知任务最小 Redis Pub/Sub fan-out，不做 AI streaming 业务。
 
 当前路由：
 
@@ -483,7 +484,8 @@ ticket auth 只作为跨域、网关隔离、多端部署后的 planned 方案
 
 ```text
 REALTIME_ENABLED=true              # false 时明确拒绝 WebSocket upgrade，返回 503
-REALTIME_PUBLISHER=local           # 当前只支持 local / noop
+REALTIME_PUBLISHER=local|noop|redis
+REALTIME_REDIS_CHANNEL=admin_go:realtime:publish
 REALTIME_HEARTBEAT_INTERVAL=25s    # server ping interval，也返回给 connected envelope
 REALTIME_SEND_BUFFER=16            # 每连接 bounded send queue，满了关闭慢客户端
 ```
@@ -496,6 +498,7 @@ bootstrap.newRealtimeStack
   -> platform/realtime.Publisher
       local = LocalPublisher -> Manager.Send
       noop  = NoopPublisher  -> 显式丢弃 publication
+      redis = RedisPublisher + RedisSubscriber -> LocalPublisher -> Manager.Send
   -> module/realtime.Handler
 ```
 
@@ -504,7 +507,8 @@ bootstrap.newRealtimeStack
 ```text
 REALTIME_ENABLED=false 是功能关闭，不是静默兜底；upgrade 直接 503。
 REALTIME_PUBLISHER=noop 只允许用于未接业务推送或测试场景；WebSocket connect/ping/pong 仍可运行。
-Redis Pub/Sub / Redis Streams fan-out 仍是 planned；没有实现前不接受 redis publisher，也不假装分布式广播已经可用。
+REALTIME_PUBLISHER=redis 用 Redis Pub/Sub 做跨进程 best-effort fan-out；DB notifications 仍是真相源。
+WebSocket Origin 不走普通 CORS 预检，gorilla/websocket 需要单独 CheckOrigin；当前复用 CORS_ALLOW_ORIGINS 白名单并允许非浏览器空 Origin / 同 host upgrade。
 admin-api 当前可以承载第一期 WebSocket I/O goroutine，但不能在 handler 里跑 CPU-heavy AI 或报表任务。
 App.Shutdown 会关闭本机 realtime Manager 下的连接，避免进程停机时遗留连接状态。
 Vue runtime 已从旧 ws://127.0.0.1:7272 和 /api/admin/WebSocket/bind 切到 Go baseline：/api/admin/v1/realtime/ws + versioned type/request_id/data envelope。
@@ -1009,10 +1013,10 @@ notificationtask service 拥有 target_type/platform/send_at 业务校验。
 POST 无 send_at：写 notification_task pending 后立即 enqueue notification:send-task:v1。
 POST 有 send_at：只写 pending，等待 admin-worker scheduler。
 admin-worker 的 notification-task-dispatch-due schedule 每 1 分钟 enqueue notification:dispatch-due:v1。
-dispatch-due handler claim 到期 pending 任务并 enqueue send-task；scheduler 本身不扫 DB。
+dispatch-due handler claim `send_at IS NULL` 的立即 pending 任务和到期定时 pending 任务并 enqueue send-task；这给“DB 已写入但 enqueue/旧 worker 失败”的立即任务提供补偿路径。
 send-task handler 解析目标用户、批量写 notifications、更新 sent_count/status；handler 必须幂等，允许 Asynq at-least-once 重投。
 当前 DB 写入 + Redis enqueue 不是强事务；需要强一致时再加 outbox，不用 Redis queue 假装事务。
-Redis fan-out / notification.created.v1 分布式业务推送仍是 planned；本切片以 DB notifications 写入为真相。
+notification.created.v1 通过 worker RedisPublisher -> admin-api RedisSubscriber -> 本机 WebSocket Manager 做 best-effort 推送；DB notifications 写入仍是真相。
 ```
 
 RBAC 数据迁移：

@@ -160,7 +160,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	operationRepository := operationlog.NewGormRepository(resources.DB)
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
-	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, resources.Redis, logger)
+	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),

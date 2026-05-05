@@ -65,3 +65,38 @@ func TestUpgraderExchangesProjectEnvelopes(t *testing.T) {
 		t.Fatalf("unexpected reply data: %#v", data)
 	}
 }
+
+func TestAllowedOriginCheckerAllowsConfiguredCrossPortBrowserOrigin(t *testing.T) {
+	check := NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/admin/v1/realtime/ws", nil)
+	request.Header.Set("Origin", "http://127.0.0.1:5173")
+
+	if !check(request) {
+		t.Fatalf("expected configured dev origin to be allowed")
+	}
+}
+
+func TestAllowedOriginCheckerAllowsMissingOriginAndSameHost(t *testing.T) {
+	check := NewAllowedOriginChecker(nil)
+
+	withoutOrigin := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/admin/v1/realtime/ws", nil)
+	if !check(withoutOrigin) {
+		t.Fatalf("expected non-browser request without Origin to be allowed")
+	}
+
+	sameHost := httptest.NewRequest(http.MethodGet, "http://admin.example.test/api/admin/v1/realtime/ws", nil)
+	sameHost.Header.Set("Origin", "http://admin.example.test")
+	if !check(sameHost) {
+		t.Fatalf("expected same-host browser upgrade to be allowed")
+	}
+}
+
+func TestAllowedOriginCheckerRejectsUnconfiguredOrigin(t *testing.T) {
+	check := NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/admin/v1/realtime/ws", nil)
+	request.Header.Set("Origin", "http://evil.example.test")
+
+	if check(request) {
+		t.Fatalf("expected unconfigured origin to be rejected")
+	}
+}

@@ -15,6 +15,11 @@ import (
 
 var ErrRepositoryNotConfigured = errors.New("notification task repository is not configured")
 
+const (
+	pendingDispatchSendAtCondition = "(send_at IS NULL OR send_at <= ?)"
+	pendingDispatchOrder           = "CASE WHEN send_at IS NULL THEN 0 ELSE 1 END asc, send_at asc, id asc"
+)
+
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]Task, int64, error)
 	CountByStatus(ctx context.Context, query StatusCountQuery) (map[int]int64, error)
@@ -192,15 +197,7 @@ func (r *GormRepository) ClaimDueTasks(ctx context.Context, now time.Time, limit
 	var ids []int64
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []Task
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Select("id").
-			Where("status = ?", enum.NotificationTaskStatusPending).
-			Where("is_del = ?", enum.CommonNo).
-			Where("send_at IS NOT NULL").
-			Where("send_at <= ?", now).
-			Order("send_at asc, id asc").
-			Limit(limit).
-			Find(&rows).Error; err != nil {
+		if err := pendingDispatchQuery(tx, now, limit).Find(&rows).Error; err != nil {
 			return err
 		}
 		ids = make([]int64, 0, len(rows))
@@ -220,6 +217,16 @@ func (r *GormRepository) ClaimDueTasks(ctx context.Context, now time.Time, limit
 		return nil, err
 	}
 	return ids, nil
+}
+
+func pendingDispatchQuery(db *gorm.DB, now time.Time, limit int) *gorm.DB {
+	return db.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+		Select("id").
+		Where("status = ?", enum.NotificationTaskStatusPending).
+		Where("is_del = ?", enum.CommonNo).
+		Where(pendingDispatchSendAtCondition, now).
+		Order(gorm.Expr(pendingDispatchOrder)).
+		Limit(limit)
 }
 
 func (r *GormRepository) ClaimSendTask(ctx context.Context, id int64) (*Task, bool, error) {

@@ -18,10 +18,10 @@ type realtimeStack struct {
 }
 
 func newRealtimeStack(cfg config.RealtimeConfig, loggers ...*slog.Logger) realtimeStack {
-	return newRealtimeStackWithRedis(cfg, nil, loggers...)
+	return newRealtimeStackWithRedis(cfg, nil, nil, loggers...)
 }
 
-func newRealtimeStackWithRedis(cfg config.RealtimeConfig, redis *redisclient.Client, loggers ...*slog.Logger) realtimeStack {
+func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []string, redis *redisclient.Client, loggers ...*slog.Logger) realtimeStack {
 	logger := slog.Default()
 	if len(loggers) > 0 && loggers[0] != nil {
 		logger = loggers[0]
@@ -34,7 +34,7 @@ func newRealtimeStackWithRedis(cfg config.RealtimeConfig, redis *redisclient.Cli
 	service := modulerealtime.NewService(cfg.HeartbeatInterval)
 	handler := modulerealtime.NewHandler(
 		service,
-		platformrealtime.NewUpgrader(nil),
+		platformrealtime.NewUpgrader(platformrealtime.NewAllowedOriginChecker(allowedOrigins)),
 		manager,
 		logger,
 		modulerealtime.WithEnabled(enabled),
