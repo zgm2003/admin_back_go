@@ -64,10 +64,30 @@ func TestNewRealtimeStackUsesNoopPublisherWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestNewRealtimeStackUsesRedisPublisherAndSubscriberWhenConfigured(t *testing.T) {
+	stack := newRealtimeStack(config.RealtimeConfig{
+		Enabled:           true,
+		Publisher:         config.RealtimePublisherRedis,
+		RedisChannel:      "admin_go:realtime:test",
+		HeartbeatInterval: 10 * time.Second,
+		SendBuffer:        8,
+	})
+
+	if !stack.enabled {
+		t.Fatalf("expected realtime stack to be enabled")
+	}
+	if _, ok := stack.publisher.(*platformrealtime.RedisPublisher); !ok {
+		t.Fatalf("expected redis publisher, got %T", stack.publisher)
+	}
+	if stack.subscriber == nil {
+		t.Fatalf("expected redis subscriber")
+	}
+}
+
 func TestNewRealtimeStackRejectsUnknownPublisherExplicitly(t *testing.T) {
 	stack := newRealtimeStack(config.RealtimeConfig{
 		Enabled:           true,
-		Publisher:         "redis",
+		Publisher:         "unknown",
 		HeartbeatInterval: 10 * time.Second,
 		SendBuffer:        8,
 	})

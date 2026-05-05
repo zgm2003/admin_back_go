@@ -214,11 +214,30 @@ func TestResourcesReadinessReportsDownWhenQueueEnabledWithoutRedisAddr(t *testin
 	}
 }
 
+func TestResourcesReadinessAcceptsRedisRealtimePublisher(t *testing.T) {
+	resources, err := NewResources(config.Config{
+		Realtime: config.RealtimeConfig{
+			Enabled:   true,
+			Publisher: config.RealtimePublisherRedis,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected resources to build, got %v", err)
+	}
+	defer resources.Close()
+
+	report := resources.Readiness(t.Context())
+
+	if got := report.Checks["realtime"]; got.Status != "up" {
+		t.Fatalf("expected realtime up for redis publisher, got %#v", got)
+	}
+}
+
 func TestResourcesReadinessFailsOnUnknownRealtimePublisher(t *testing.T) {
 	resources, err := NewResources(config.Config{
 		Realtime: config.RealtimeConfig{
 			Enabled:   true,
-			Publisher: "redis",
+			Publisher: "unknown",
 		},
 	})
 	if err != nil {

@@ -95,6 +95,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Realtime.SendBuffer != 16 {
 		t.Fatalf("expected realtime send buffer 16, got %d", cfg.Realtime.SendBuffer)
 	}
+	if cfg.Realtime.RedisChannel != "admin_go:realtime:publish" {
+		t.Fatalf("expected realtime redis channel default, got %q", cfg.Realtime.RedisChannel)
+	}
 	if !cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler to be enabled by default")
 	}
@@ -161,6 +164,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("REALTIME_PUBLISHER", "noop")
 	t.Setenv("REALTIME_HEARTBEAT_INTERVAL", "10s")
 	t.Setenv("REALTIME_SEND_BUFFER", "32")
+	t.Setenv("REALTIME_REDIS_CHANNEL", "test:realtime")
 	t.Setenv("SCHEDULER_ENABLED", "false")
 	t.Setenv("SCHEDULER_TIMEZONE", "UTC")
 	t.Setenv("SCHEDULER_LOCK_PREFIX", "test:scheduler:")
@@ -219,7 +223,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Realtime.Publisher != RealtimePublisherNoop {
 		t.Fatalf("expected realtime publisher noop, got %q", cfg.Realtime.Publisher)
 	}
-	if cfg.Realtime.HeartbeatInterval != 10*time.Second || cfg.Realtime.SendBuffer != 32 {
+	if cfg.Realtime.HeartbeatInterval != 10*time.Second || cfg.Realtime.SendBuffer != 32 || cfg.Realtime.RedisChannel != "test:realtime" {
 		t.Fatalf("unexpected realtime config: %#v", cfg.Realtime)
 	}
 	if cfg.Scheduler.Enabled {

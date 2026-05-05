@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	platformrealtime "admin_back_go/internal/platform/realtime"
 )
 
 func TestNewWorkerAllowsQueueDisabledWithoutRedis(t *testing.T) {
@@ -79,5 +80,23 @@ func TestNewWorkerBuildsQueueAndSchedulerWithoutPingingRedis(t *testing.T) {
 	}
 	if worker.scheduler == nil {
 		t.Fatalf("expected scheduler")
+	}
+}
+
+func TestRealtimePublisherForWorkerUsesRedisOnlyForCrossProcessFanout(t *testing.T) {
+	workerPublisher := realtimePublisherForWorker(config.Config{
+		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherRedis, RedisChannel: "admin_go:realtime:test"},
+	}, &Resources{})
+	if _, ok := workerPublisher.(*platformrealtime.RedisPublisher); !ok {
+		t.Fatalf("expected worker redis publisher, got %T", workerPublisher)
+	}
+}
+
+func TestRealtimePublisherForWorkerDoesNotFakeLocalDelivery(t *testing.T) {
+	workerPublisher := realtimePublisherForWorker(config.Config{
+		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherLocal},
+	}, &Resources{})
+	if _, ok := workerPublisher.(platformrealtime.NoopPublisher); !ok {
+		t.Fatalf("expected worker local mode to stay noop, got %T", workerPublisher)
 	}
 }

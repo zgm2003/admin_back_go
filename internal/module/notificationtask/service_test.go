@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/taskqueue"
 )
 
@@ -114,6 +115,16 @@ func (f *fakeRepository) MarkFailed(ctx context.Context, id int64, errMsg string
 type fakeEnqueuer struct {
 	tasks []taskqueue.Task
 	err   error
+}
+
+type fakeRealtimePublisher struct {
+	publications []platformrealtime.Publication
+	err          error
+}
+
+func (f *fakeRealtimePublisher) Publish(ctx context.Context, publication platformrealtime.Publication) error {
+	f.publications = append(f.publications, publication)
+	return f.err
 }
 
 func (f *fakeEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
@@ -300,6 +311,65 @@ func TestSendTaskWritesNotificationsAndMarksSuccess(t *testing.T) {
 	}
 	if repo.inserted[0].IsRead != enum.CommonNo || repo.inserted[0].IsDel != enum.CommonNo {
 		t.Fatalf("unexpected notification row: %#v", repo.inserted[0])
+	}
+}
+
+func TestSendTaskPublishesRealtimeNotifications(t *testing.T) {
+	repo := &fakeRepository{
+		sendTask:      &Task{ID: 7, Title: "hello", Content: "world", Type: enum.NotificationTypeWarning, Level: enum.NotificationLevelUrgent, Link: "/notification", Platform: enum.PlatformAdmin, TargetType: enum.NotificationTargetUsers, TargetIDs: `[1,2]`},
+		sendClaimed:   true,
+		targetUserIDs: []int64{1, 2},
+	}
+	publisher := &fakeRealtimePublisher{}
+	got, err := NewService(repo, WithRealtimePublisher(publisher)).SendTask(context.Background(), SendTaskInput{TaskID: 7})
+	if err != nil {
+		t.Fatalf("SendTask returned error: %v", err)
+	}
+	if got.Sent != 2 || len(publisher.publications) != 2 {
+		t.Fatalf("unexpected send result=%#v publications=%#v", got, publisher.publications)
+	}
+	first := publisher.publications[0]
+	if first.Platform != enum.PlatformAdmin || first.UserID != 1 || first.Envelope.Type != "notification.created.v1" {
+		t.Fatalf("unexpected publication target/envelope: %#v", first)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(first.Envelope.Data, &data); err != nil {
+		t.Fatalf("invalid publication data: %v", err)
+	}
+	if data["level"] != "urgent" || data["notification_type"] != "warning" || data["title"] != "hello" {
+		t.Fatalf("unexpected publication data: %#v", data)
+	}
+}
+
+func TestSendTaskRealtimePublishFailureDoesNotFailDBTask(t *testing.T) {
+	repo := &fakeRepository{
+		sendTask:      &Task{ID: 8, Title: "hello", Type: enum.NotificationTypeInfo, Level: enum.NotificationLevelNormal, Platform: enum.PlatformAdmin, TargetType: enum.NotificationTargetUsers, TargetIDs: `[1]`},
+		sendClaimed:   true,
+		targetUserIDs: []int64{1},
+	}
+	publisher := &fakeRealtimePublisher{err: errors.New("redis down")}
+	got, err := NewService(repo, WithRealtimePublisher(publisher)).SendTask(context.Background(), SendTaskInput{TaskID: 8})
+	if err != nil {
+		t.Fatalf("SendTask should not fail on realtime publish error, got %v", err)
+	}
+	if got.Sent != 1 || repo.successSent != 1 || repo.failedMsg != "" {
+		t.Fatalf("expected DB task success despite realtime error, got result=%#v repo=%#v", got, repo)
+	}
+}
+
+func TestSendTaskSkipsAppRealtimeUntilAppWebSocketExists(t *testing.T) {
+	repo := &fakeRepository{
+		sendTask:      &Task{ID: 9, Title: "app only", Type: enum.NotificationTypeInfo, Level: enum.NotificationLevelNormal, Platform: enum.PlatformApp, TargetType: enum.NotificationTargetUsers, TargetIDs: `[1]`},
+		sendClaimed:   true,
+		targetUserIDs: []int64{1},
+	}
+	publisher := &fakeRealtimePublisher{}
+	got, err := NewService(repo, WithRealtimePublisher(publisher)).SendTask(context.Background(), SendTaskInput{TaskID: 9})
+	if err != nil {
+		t.Fatalf("SendTask returned error: %v", err)
+	}
+	if got.Sent != 1 || len(publisher.publications) != 0 {
+		t.Fatalf("expected app task DB send without admin realtime publish, got result=%#v publications=%#v", got, publisher.publications)
 	}
 }
 

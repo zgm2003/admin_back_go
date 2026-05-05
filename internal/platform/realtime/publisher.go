@@ -10,10 +10,12 @@ var ErrPublicationTargetRequired = errors.New("realtime publication target requi
 
 // Publication is one server-side realtime message delivery request. It is an
 // internal contract; business modules publish envelopes without knowing whether
-// delivery is local-only or Redis-backed later.
+// delivery is local-only, Redis Pub/Sub, or another fan-out implementation.
 type Publication struct {
-	SessionKey string
-	Envelope   Envelope
+	SessionKey string   `json:"session_key,omitempty"`
+	Platform   string   `json:"platform,omitempty"`
+	UserID     int64    `json:"user_id,omitempty"`
+	Envelope   Envelope `json:"envelope"`
 }
 
 // Publisher sends realtime envelopes to connected clients. Implementations may
@@ -22,8 +24,7 @@ type Publisher interface {
 	Publish(context.Context, Publication) error
 }
 
-// LocalPublisher publishes to the in-process Manager only. It is the first
-// foundation step, not a distributed fan-out implementation.
+// LocalPublisher publishes to the in-process Manager only.
 type LocalPublisher struct {
 	manager *Manager
 }
@@ -33,19 +34,24 @@ func NewLocalPublisher(manager *Manager) *LocalPublisher {
 	return &LocalPublisher{manager: manager}
 }
 
-// Publish sends one envelope to a local session key.
+// Publish sends one envelope to a local session key or all local sessions for
+// a platform user.
 func (p *LocalPublisher) Publish(ctx context.Context, publication Publication) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	key := strings.TrimSpace(publication.SessionKey)
-	if key == "" {
-		return ErrPublicationTargetRequired
-	}
 	if p == nil || p.manager == nil {
 		return ErrSessionNotFound
 	}
-	return p.manager.Send(key, publication.Envelope)
+	key := strings.TrimSpace(publication.SessionKey)
+	if key != "" {
+		return p.manager.Send(key, publication.Envelope)
+	}
+	platform := strings.TrimSpace(publication.Platform)
+	if platform == "" || publication.UserID <= 0 {
+		return ErrPublicationTargetRequired
+	}
+	return p.manager.SendToUser(platform, publication.UserID, publication.Envelope)
 }
 
 // NoopPublisher intentionally drops publications. Use it only when realtime

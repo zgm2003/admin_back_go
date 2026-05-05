@@ -34,15 +34,16 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 type App struct {
-	cfg               config.Config
-	logger            *slog.Logger
-	server            *http.Server
-	resources         *Resources
-	queueClient       *taskqueue.Client
-	queueInspector    *taskqueue.Inspector
-	queueMonitorUI    *queuemonitor.MonitorUI
-	realtimeManager   *platformrealtime.Manager
-	realtimePublisher platformrealtime.Publisher
+	cfg                config.Config
+	logger             *slog.Logger
+	server             *http.Server
+	resources          *Resources
+	queueClient        *taskqueue.Client
+	queueInspector     *taskqueue.Inspector
+	queueMonitorUI     *queuemonitor.MonitorUI
+	realtimeManager    *platformrealtime.Manager
+	realtimePublisher  platformrealtime.Publisher
+	realtimeSubscriber *platformrealtime.RedisSubscriber
 }
 
 func New(cfg config.Config, logger *slog.Logger) *App {
@@ -159,9 +160,12 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	operationRepository := operationlog.NewGormRepository(resources.DB)
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
+	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, resources.Redis, logger)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
+		notificationtask.WithRealtimePublisher(realtimeStack.publisher),
+		notificationtask.WithLogger(logger),
 	)
 	var operationRecorder middleware.OperationRecorder
 	if operationRepository != nil {
@@ -174,7 +178,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		0,
 		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis), cfg.VerifyCode.RedisPrefix),
 	)
-	realtimeStack := newRealtimeStack(cfg.Realtime, logger)
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
 		Logger:        logger,
@@ -207,14 +210,15 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthPlatformService:     authPlatformService,
 	})
 	return &App{
-		cfg:               cfg,
-		logger:            logger,
-		resources:         resources,
-		queueClient:       queueClient,
-		queueInspector:    queueInspector,
-		queueMonitorUI:    queueMonitorUI,
-		realtimeManager:   realtimeStack.manager,
-		realtimePublisher: realtimeStack.publisher,
+		cfg:                cfg,
+		logger:             logger,
+		resources:          resources,
+		queueClient:        queueClient,
+		queueInspector:     queueInspector,
+		queueMonitorUI:     queueMonitorUI,
+		realtimeManager:    realtimeStack.manager,
+		realtimePublisher:  realtimeStack.publisher,
+		realtimeSubscriber: realtimeStack.subscriber,
 		server: &http.Server{
 			Addr:              cfg.HTTP.Addr,
 			Handler:           router,
@@ -224,6 +228,11 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 }
 
 func (a *App) Run() error {
+	if a.realtimeSubscriber != nil {
+		if err := a.realtimeSubscriber.Start(context.Background()); err != nil {
+			a.logger.Error("failed to start realtime redis subscriber", "error", err)
+		}
+	}
 	a.logger.Info("starting admin api", "addr", a.cfg.HTTP.Addr, "env", a.cfg.App.Env)
 	if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -239,6 +248,10 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 
 	shutdownErr := a.server.Shutdown(ctx)
+	var realtimeErr error
+	if a.realtimeSubscriber != nil {
+		realtimeErr = a.realtimeSubscriber.Shutdown(ctx)
+	}
 	if a.realtimeManager != nil {
 		a.realtimeManager.CloseAll()
 	}
@@ -246,5 +259,5 @@ func (a *App) Shutdown(ctx context.Context) error {
 	inspectorErr := a.queueInspector.Close()
 	monitorErr := a.queueMonitorUI.Close()
 	resourceErr := a.resources.Close()
-	return errors.Join(shutdownErr, queueErr, inspectorErr, monitorErr, resourceErr)
+	return errors.Join(shutdownErr, realtimeErr, queueErr, inspectorErr, monitorErr, resourceErr)
 }

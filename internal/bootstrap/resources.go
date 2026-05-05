@@ -137,7 +137,7 @@ func (r *Resources) realtimeReadiness() readiness.Check {
 		return readiness.Check{Status: readiness.StatusDisabled}
 	}
 	switch r.realtimePublisher {
-	case "", config.RealtimePublisherLocal, config.RealtimePublisherNoop:
+	case "", config.RealtimePublisherLocal, config.RealtimePublisherNoop, config.RealtimePublisherRedis:
 		return readiness.Check{Status: readiness.StatusUp}
 	default:
 		return readiness.Check{Status: readiness.StatusDown, Message: "unsupported realtime publisher: " + r.realtimePublisher}

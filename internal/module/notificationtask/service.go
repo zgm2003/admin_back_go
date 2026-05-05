@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -12,18 +13,22 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
+	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/taskqueue"
 )
 
 const (
-	defaultDispatchLimit = 100
-	sendBatchSize        = 100
+	defaultDispatchLimit          = 100
+	sendBatchSize                 = 100
+	realtimeNotificationCreatedV1 = "notification.created.v1"
 )
 
 type Service struct {
-	repository Repository
-	enqueuer   taskqueue.Enqueuer
-	now        func() time.Time
+	repository        Repository
+	enqueuer          taskqueue.Enqueuer
+	realtimePublisher platformrealtime.Publisher
+	logger            *slog.Logger
+	now               func() time.Time
 }
 
 type Option func(*Service)
@@ -31,6 +36,20 @@ type Option func(*Service)
 func WithEnqueuer(enqueuer taskqueue.Enqueuer) Option {
 	return func(s *Service) {
 		s.enqueuer = enqueuer
+	}
+}
+
+func WithRealtimePublisher(publisher platformrealtime.Publisher) Option {
+	return func(s *Service) {
+		s.realtimePublisher = publisher
+	}
+}
+
+func WithLogger(logger *slog.Logger) Option {
+	return func(s *Service) {
+		if logger != nil {
+			s.logger = logger
+		}
 	}
 }
 
@@ -45,6 +64,7 @@ func WithNow(now func() time.Time) Option {
 func NewService(repository Repository, options ...Option) *Service {
 	service := &Service{
 		repository: repository,
+		logger:     slog.Default(),
 		now:        time.Now,
 	}
 	for _, option := range options {
@@ -283,6 +303,7 @@ func (s *Service) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskR
 			_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
 			return nil, fmt.Errorf("insert notification task %d batch: %w", input.TaskID, err)
 		}
+		s.publishRealtimeNotifications(ctx, *task, rows)
 		sentCount += len(rows)
 		if err := repo.UpdateProgress(ctx, input.TaskID, sentCount, totalCount); err != nil {
 			_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
@@ -472,4 +493,65 @@ func truncateRunes(value string, max int) string {
 		return string(runes)
 	}
 	return string(runes[:max])
+}
+
+func (s *Service) publishRealtimeNotifications(ctx context.Context, task Task, rows []Notification) {
+	if s == nil || s.realtimePublisher == nil || len(rows) == 0 {
+		return
+	}
+	platform := realtimePlatform(task.Platform)
+	if platform == "" {
+		return
+	}
+	for _, row := range rows {
+		envelope, err := platformrealtime.NewEnvelope(realtimeNotificationCreatedV1, fmt.Sprintf("notification-task-%d-%d", task.ID, row.UserID), map[string]any{
+			"task_id":           task.ID,
+			"title":             row.Title,
+			"content":           row.Content,
+			"link":              row.Link,
+			"level":             notificationLevelKey(row.Level),
+			"notification_type": notificationTypeKey(row.Type),
+		})
+		if err != nil {
+			continue
+		}
+		if err := s.realtimePublisher.Publish(ctx, platformrealtime.Publication{
+			Platform: platform,
+			UserID:   row.UserID,
+			Envelope: envelope,
+		}); err != nil && s.logger != nil {
+			s.logger.WarnContext(ctx, "failed to publish notification realtime event", "task_id", task.ID, "user_id", row.UserID, "platform", platform, "error", err)
+		}
+	}
+}
+
+func realtimePlatform(platform string) string {
+	switch strings.TrimSpace(platform) {
+	case enum.PlatformAdmin, enum.PlatformAll:
+		return enum.PlatformAdmin
+	default:
+		return ""
+	}
+}
+
+func notificationLevelKey(level int) string {
+	switch level {
+	case enum.NotificationLevelUrgent:
+		return "urgent"
+	default:
+		return "normal"
+	}
+}
+
+func notificationTypeKey(value int) string {
+	switch value {
+	case enum.NotificationTypeSuccess:
+		return "success"
+	case enum.NotificationTypeWarning:
+		return "warning"
+	case enum.NotificationTypeError:
+		return "error"
+	default:
+		return "info"
+	}
 }

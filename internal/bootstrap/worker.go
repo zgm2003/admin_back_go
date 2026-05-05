@@ -9,6 +9,7 @@ import (
 	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/notificationtask"
+	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -61,9 +62,12 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	}
 	worker.queueServer = queueServer
 	worker.mux = taskqueue.NewMux()
+	realtimePublisher := realtimePublisherForWorker(cfg, resources)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
+		notificationtask.WithRealtimePublisher(realtimePublisher),
+		notificationtask.WithLogger(logger),
 	)
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
@@ -143,4 +147,29 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func realtimePublisherForWorker(cfg config.Config, resources *Resources) platformrealtime.Publisher {
+	if !cfg.Realtime.Enabled {
+		return platformrealtime.NoopPublisher{}
+	}
+	publisherName := cfg.Realtime.Publisher
+	if publisherName == "" {
+		publisherName = config.RealtimePublisherLocal
+	}
+	switch publisherName {
+	case config.RealtimePublisherRedis:
+		if resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
+			return platformrealtime.NewRedisPublisher(nil, cfg.Realtime.RedisChannel)
+		}
+		return platformrealtime.NewRedisPublisher(resources.Redis.Redis, cfg.Realtime.RedisChannel)
+	case config.RealtimePublisherNoop:
+		return platformrealtime.NoopPublisher{}
+	case config.RealtimePublisherLocal:
+		// Worker has no WebSocket sessions. Local mode would be a fake cross-process
+		// fan-out, so keep it explicitly disabled in the worker.
+		return platformrealtime.NoopPublisher{}
+	default:
+		return platformrealtime.NoopPublisher{}
+	}
 }
