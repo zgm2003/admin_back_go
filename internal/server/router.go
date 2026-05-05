@@ -67,7 +67,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		Authenticator: deps.Authenticator,
 		SkipPaths:     authSkipPaths(deps.AuthSkipPaths),
 		CookieTokenPath: middleware.CookieTokenPathConfig{
-			PathPrefixes: []string{queuemonitor.UIPath},
+			PathPrefixes: []string{queuemonitor.UIPath, realtime.WSPath},
 			Platform:     enum.PlatformAdmin,
 		},
 	}))

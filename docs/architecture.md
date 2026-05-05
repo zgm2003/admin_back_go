@@ -269,6 +269,18 @@ platform/device-id 作为请求输入传入认证服务
 最终可信 platform 来自 session identity，不盲信 header
 ```
 
+浏览器不能给部分特殊入口稳定附加 `Authorization` header，所以 `AuthToken` 允许**路径限定 cookie token**，但这不是全局 cookie 登录：
+
+```text
+允许：GET/HEAD /api/admin/v1/queue-monitor-ui/* 从 access_token cookie 取 token
+允许：GET/HEAD /api/admin/v1/realtime/ws 从 access_token cookie 取 token
+禁止：普通 JSON API 从 cookie token 静默兜底
+禁止：POST/PUT/PATCH/DELETE 从 cookie token 静默兜底
+禁止：/api/admin/v1/realtime/ws?access_token=... query-string token
+```
+
+这条边界很重要：cookie fallback 只服务浏览器 UI/upgrade 限制，不改变 REST API 的认证契约。
+
 这里没有直接套通用 JWT Gin middleware。原因很简单：当前系统不是纯 JWT stateless auth，而是 token hash + Redis session + DB fallback + 平台/设备/IP/单端策略。成熟中间件能用就用，但不能用错地方。
 
 ## Session authenticator baseline
@@ -457,6 +469,16 @@ Realtime 当前只做基建，不做通知业务，不做 AI streaming 业务，
 GET /api/admin/v1/realtime/ws
 ```
 
+认证规则：
+
+```text
+优先 Authorization: Bearer <access_token>
+浏览器 Vue runtime 使用 GET /api/admin/v1/realtime/ws + access_token cookie 完成 upgrade
+cookie token 只对该 WebSocket path 生效；普通 JSON API 不继承这个能力
+从 cookie 取 token 时 platform 固定为 admin，用于 session policy 校验
+ticket auth 只作为跨域、网关隔离、多端部署后的 planned 方案
+```
+
 当前配置：
 
 ```text
@@ -485,6 +507,7 @@ REALTIME_PUBLISHER=noop 只允许用于未接业务推送或测试场景；WebSo
 Redis Pub/Sub / Redis Streams fan-out 仍是 planned；没有实现前不接受 redis publisher，也不假装分布式广播已经可用。
 admin-api 当前可以承载第一期 WebSocket I/O goroutine，但不能在 handler 里跑 CPU-heavy AI 或报表任务。
 App.Shutdown 会关闭本机 realtime Manager 下的连接，避免进程停机时遗留连接状态。
+Vue runtime 已从旧 ws://127.0.0.1:7272 和 /api/admin/WebSocket/bind 切到 Go baseline：/api/admin/v1/realtime/ws + versioned type/request_id/data envelope。
 ```
 
 ## Database platform baseline

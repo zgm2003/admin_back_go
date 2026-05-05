@@ -1192,6 +1192,46 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 	}
 }
 
+func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing.T) {
+	var gotInput middleware.TokenInput
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			gotInput = input
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
+		},
+		RealtimeHandler: realtimemodule.NewHandler(
+			realtimemodule.NewService(25*time.Second),
+			platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
+			platformrealtime.NewManager(),
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+		),
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimemodule.WSPath, http.Header{
+		"Cookie": []string{middleware.DefaultAccessTokenCookie + "=cookie-access-token"},
+	})
+	if err != nil {
+		t.Fatalf("dial realtime with cookie token: %v", err)
+	}
+	defer client.Close()
+
+	var connected map[string]any
+	if err := client.ReadJSON(&connected); err != nil {
+		t.Fatalf("read connected: %v", err)
+	}
+	if connected["type"] != realtimemodule.TypeConnectedV1 {
+		t.Fatalf("expected connected event, got %#v", connected)
+	}
+	if gotInput.AccessToken != "cookie-access-token" {
+		t.Fatalf("expected cookie access token, got %q", gotInput.AccessToken)
+	}
+	if gotInput.Platform != "admin" {
+		t.Fatalf("expected cookie websocket auth to default platform admin, got %q", gotInput.Platform)
+	}
+}
+
 func newTestRouter(t *testing.T, deps Dependencies) http.Handler {
 	t.Helper()
 	if deps.Logger == nil {
