@@ -27,6 +27,7 @@ import (
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
+	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/readiness"
@@ -101,6 +102,8 @@ type fakeRouterUserService struct {
 	result         *user.InitResponse
 	err            *apperror.Error
 	pageInitCalled bool
+	profileUserID  int64
+	profileViewer  int64
 	listQuery      user.ListQuery
 	listResult     *user.ListResponse
 }
@@ -113,6 +116,32 @@ func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) 
 func (f *fakeRouterUserService) PageInit(ctx context.Context) (*user.PageInitResponse, *apperror.Error) {
 	f.pageInitCalled = true
 	return &user.PageInitResponse{}, f.err
+}
+
+func (f *fakeRouterUserService) Profile(ctx context.Context, userID int64, currentUserID int64) (*user.ProfileResponse, *apperror.Error) {
+	f.profileUserID = userID
+	f.profileViewer = currentUserID
+	return &user.ProfileResponse{Profile: user.ProfileDetail{UserID: userID, Username: "admin"}}, f.err
+}
+
+func (f *fakeRouterUserService) UpdateProfile(ctx context.Context, input user.UpdateProfileInput) *apperror.Error {
+	f.profileUserID = input.UserID
+	return f.err
+}
+
+func (f *fakeRouterUserService) UpdatePassword(ctx context.Context, input user.UpdatePasswordInput) *apperror.Error {
+	f.profileUserID = input.UserID
+	return f.err
+}
+
+func (f *fakeRouterUserService) UpdateEmail(ctx context.Context, input user.UpdateEmailInput) *apperror.Error {
+	f.profileUserID = input.UserID
+	return f.err
+}
+
+func (f *fakeRouterUserService) UpdatePhone(ctx context.Context, input user.UpdatePhoneInput) *apperror.Error {
+	f.profileUserID = input.UserID
+	return f.err
 }
 
 func (f *fakeRouterUserService) List(ctx context.Context, query user.ListQuery) (*user.ListResponse, *apperror.Error) {
@@ -315,6 +344,36 @@ func (f *fakeRouterSystemSettingService) ChangeStatus(ctx context.Context, id in
 	f.statusID = id
 	f.status = status
 	return nil
+}
+
+type fakeRouterUploadTokenService struct {
+	input uploadtoken.CreateInput
+}
+
+func (f *fakeRouterUploadTokenService) Create(ctx context.Context, input uploadtoken.CreateInput) (*uploadtoken.CreateResponse, *apperror.Error) {
+	f.input = input
+	return &uploadtoken.CreateResponse{
+		Provider: "cos",
+		Bucket:   "bucket-a",
+		Region:   "ap-nanjing",
+		Key:      "images/2026/05/05/demo.png",
+		Credentials: uploadtoken.CredentialsDTO{
+			TmpSecretID:  "tmp-id",
+			TmpSecretKey: "tmp-key",
+			SessionToken: "session-token",
+		},
+		StartTime:   100,
+		ExpiredTime: 200,
+		Rule: uploadtoken.UploadRuleDTO{
+			MaxSizeMB: 2,
+			ImageExts: []string{
+				"png",
+			},
+			FileExts: []string{
+				"pdf",
+			},
+		},
+	}, nil
 }
 
 type fakeRouterQueueMonitorService struct {
@@ -729,6 +788,22 @@ func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 	if recorder.Code != http.StatusOK || !userService.pageInitCalled {
 		t.Fatalf("expected users page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), userService.pageInitCalled)
 	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/profile", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || userService.profileUserID != 1 || userService.profileViewer != 1 {
+		t.Fatalf("expected current profile route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/9/profile", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || userService.profileUserID != 9 || userService.profileViewer != 1 {
+		t.Fatalf("expected target profile route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userService)
+	}
 }
 
 func TestRouterInstallsPermissionRESTRoutes(t *testing.T) {
@@ -914,6 +989,43 @@ func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {
 	}
 	if systemLogService.linesQuery.Filename != "admin-api.log" || systemLogService.linesQuery.Tail != 500 || systemLogService.linesQuery.Level != "ERROR" || systemLogService.linesQuery.Keyword != "boom" {
 		t.Fatalf("system log lines query mismatch: %#v", systemLogService.linesQuery)
+	}
+}
+
+func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
+	uploadTokenService := &fakeRouterUploadTokenService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"): "system_uploadToken_create",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			if input.Code != "system_uploadToken_create" {
+				t.Fatalf("unexpected permission code %q", input.Code)
+			}
+			return nil
+		},
+		UploadTokenService: uploadTokenService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/upload-tokens", strings.NewReader(`{"folder":"images","file_name":"demo.png","file_size":1024,"file_kind":"image"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected upload token status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if uploadTokenService.input.Folder != "images" || uploadTokenService.input.FileName != "demo.png" || uploadTokenService.input.FileSize != 1024 || uploadTokenService.input.FileKind != "image" {
+		t.Fatalf("upload token input mismatch: %#v", uploadTokenService.input)
+	}
+	body := decodeRouterBody(t, recorder)
+	data := mustRouterData(t, body)
+	if data["provider"] != "cos" {
+		t.Fatalf("expected cos provider, got %#v", data["provider"])
 	}
 }
 

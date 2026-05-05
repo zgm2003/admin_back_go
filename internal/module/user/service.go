@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -10,11 +11,21 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/permission"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const defaultButtonCacheTTL = 30 * time.Minute
 const timeLayout = "2006-01-02 15:04:05"
+const birthdayLayout = "2006-01-02"
+const defaultVerifyCodePrefix = "auth:verify_code:"
+
+var (
+	userPhonePattern = regexp.MustCompile(`^1[3-9]\d{9}$`)
+	userEmailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+)
 
 type PermissionBuilder interface {
 	BuildContextByRole(ctx context.Context, roleID int64, platform string) (permission.Context, *apperror.Error)
@@ -25,12 +36,21 @@ type ButtonCache interface {
 	Delete(ctx context.Context, key string) error
 }
 
+type VerifyCodeStore interface {
+	Get(ctx context.Context, key string) (string, error)
+	Delete(ctx context.Context, key string) error
+}
+
+type Option func(*Service)
+
 type Service struct {
 	repository        Repository
 	permissionBuilder PermissionBuilder
 	buttonCache       ButtonCache
 	buttonCacheTTL    time.Duration
 	platforms         []string
+	verifyCodeStore   VerifyCodeStore
+	verifyCodePrefix  string
 }
 
 type addressTreeMutableNode struct {
@@ -41,16 +61,34 @@ type addressTreeMutableNode struct {
 	Children []*addressTreeMutableNode
 }
 
-func NewService(repository Repository, permissionBuilder PermissionBuilder, buttonCache ButtonCache, buttonCacheTTL time.Duration) *Service {
+func NewService(repository Repository, permissionBuilder PermissionBuilder, buttonCache ButtonCache, buttonCacheTTL time.Duration, opts ...Option) *Service {
 	if buttonCacheTTL <= 0 {
 		buttonCacheTTL = defaultButtonCacheTTL
 	}
-	return &Service{
+	service := &Service{
 		repository:        repository,
 		permissionBuilder: permissionBuilder,
 		buttonCache:       buttonCache,
 		buttonCacheTTL:    buttonCacheTTL,
 		platforms:         normalizePlatforms(enum.Platforms),
+		verifyCodePrefix:  defaultVerifyCodePrefix,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(service)
+		}
+	}
+	service.verifyCodePrefix = strings.TrimSpace(service.verifyCodePrefix)
+	if service.verifyCodePrefix == "" {
+		service.verifyCodePrefix = defaultVerifyCodePrefix
+	}
+	return service
+}
+
+func WithVerifyCodeStore(store VerifyCodeStore, prefix string) Option {
+	return func(s *Service) {
+		s.verifyCodeStore = store
+		s.verifyCodePrefix = prefix
 	}
 }
 
@@ -152,6 +190,50 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	}, nil
 }
 
+func (s *Service) Profile(ctx context.Context, userID int64, currentUserID int64) (*ProfileResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.BadRequest("无效的用户ID")
+	}
+	if s == nil || s.repository == nil {
+		return nil, apperror.Internal("用户仓储未配置")
+	}
+
+	currentUser, err := s.repository.FindUser(ctx, userID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+	}
+	if currentUser == nil {
+		return nil, apperror.NotFound("用户不存在")
+	}
+
+	profile, err := s.repository.FindProfile(ctx, userID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户资料失败", err)
+	}
+	if profile == nil {
+		profile = &Profile{UserID: userID, Sex: enum.SexUnknown}
+	}
+
+	role, findRoleErr := s.repository.FindRole(ctx, currentUser.RoleID)
+	if findRoleErr != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", findRoleErr)
+	}
+
+	addresses, findAddressErr := s.repository.ActiveAddresses(ctx)
+	if findAddressErr != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", findAddressErr)
+	}
+
+	return &ProfileResponse{
+		Profile: buildProfileDetail(currentUser, profile, role, currentUserID),
+		Dict: ProfileDict{
+			AuthAddressTree: buildAddressTree(addresses),
+			SexArr:          dict.SexOptions(),
+			VerifyTypeArr:   dict.UserVerifyTypeOptions(),
+		},
+	}, nil
+}
+
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("用户仓储未配置")
@@ -241,6 +323,172 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	return nil
 }
 
+func (s *Service) UpdateProfile(ctx context.Context, input UpdateProfileInput) *apperror.Error {
+	if input.UserID <= 0 {
+		return apperror.Unauthorized("Token无效或已过期")
+	}
+	if s == nil || s.repository == nil {
+		return apperror.Internal("用户仓储未配置")
+	}
+
+	currentUser, err := s.repository.FindUser(ctx, input.UserID)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+	}
+	if currentUser == nil {
+		return apperror.NotFound("用户不存在")
+	}
+	normalized, birthday, appErr := normalizeUpdateProfileInput(input)
+	if appErr != nil {
+		return appErr
+	}
+
+	if err := s.repository.WithTx(ctx, func(tx Repository) error {
+		if err := tx.UpdateUser(ctx, input.UserID, map[string]any{
+			"username": normalized.Username,
+		}); err != nil {
+			return err
+		}
+		if _, err := ensureProfileWithRepository(ctx, tx, input.UserID); err != nil {
+			return err
+		}
+		return tx.UpdateProfile(ctx, input.UserID, map[string]any{
+			"avatar":         normalized.Avatar,
+			"sex":            normalized.Sex,
+			"birthday":       birthday,
+			"address_id":     normalized.AddressID,
+			"detail_address": normalized.DetailAddress,
+			"bio":            normalized.Bio,
+		})
+	}); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "更新个人资料失败", err)
+	}
+	return nil
+}
+
+func (s *Service) UpdatePassword(ctx context.Context, input UpdatePasswordInput) *apperror.Error {
+	if input.UserID <= 0 {
+		return apperror.Unauthorized("Token无效或已过期")
+	}
+	if s == nil || s.repository == nil {
+		return apperror.Internal("用户仓储未配置")
+	}
+	normalized, appErr := normalizeUpdatePasswordInput(input)
+	if appErr != nil {
+		return appErr
+	}
+
+	currentUser, err := s.repository.FindUser(ctx, input.UserID)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+	}
+	if currentUser == nil {
+		return apperror.NotFound("用户不存在")
+	}
+
+	switch normalized.VerifyType {
+	case enum.VerifyTypePassword:
+		if currentUser.Password == nil || strings.TrimSpace(*currentUser.Password) == "" {
+			return apperror.BadRequest("该账号未设置密码，请使用验证码设置密码")
+		}
+		if !verifyUserPassword(normalized.OldPassword, *currentUser.Password) {
+			return apperror.BadRequest("旧密码错误")
+		}
+	case enum.VerifyTypeCode:
+		if appErr := s.verifyOwnedAccountCode(ctx, currentUser, normalized.Account, normalized.Code, enum.VerifyCodeSceneChangePassword); appErr != nil {
+			return appErr
+		}
+	default:
+		return apperror.BadRequest("无效的验证方式")
+	}
+
+	hash, err := hashUserPassword(normalized.NewPassword)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "密码加密失败", err)
+	}
+	if err := s.repository.UpdateUser(ctx, input.UserID, map[string]any{
+		"password":   hash,
+		"updated_at": time.Now(),
+	}); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "更新密码失败", err)
+	}
+	return nil
+}
+
+func (s *Service) UpdateEmail(ctx context.Context, input UpdateEmailInput) *apperror.Error {
+	if input.UserID <= 0 {
+		return apperror.Unauthorized("Token无效或已过期")
+	}
+	if s == nil || s.repository == nil {
+		return apperror.Internal("用户仓储未配置")
+	}
+	normalized, appErr := normalizeUpdateEmailInput(input)
+	if appErr != nil {
+		return appErr
+	}
+	currentUser, err := s.repository.FindUser(ctx, input.UserID)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+	}
+	if currentUser == nil {
+		return apperror.NotFound("用户不存在")
+	}
+	exists, err := s.repository.ExistsEmailForOtherUser(ctx, input.UserID, normalized.Email)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "校验邮箱失败", err)
+	}
+	if exists {
+		return apperror.BadRequest("邮箱已被绑定")
+	}
+	if appErr := s.verifyCode(ctx, enum.LoginTypeEmail, enum.VerifyCodeSceneBindEmail, normalized.Email, normalized.Code); appErr != nil {
+		return appErr
+	}
+	if err := s.repository.UpdateUser(ctx, input.UserID, map[string]any{
+		"email":      normalized.Email,
+		"updated_at": time.Now(),
+	}); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "更新邮箱失败", err)
+	}
+	return nil
+}
+
+func (s *Service) UpdatePhone(ctx context.Context, input UpdatePhoneInput) *apperror.Error {
+	if input.UserID <= 0 {
+		return apperror.Unauthorized("Token无效或已过期")
+	}
+	if s == nil || s.repository == nil {
+		return apperror.Internal("用户仓储未配置")
+	}
+	normalized, appErr := normalizeUpdatePhoneInput(input)
+	if appErr != nil {
+		return appErr
+	}
+	currentUser, err := s.repository.FindUser(ctx, input.UserID)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+	}
+	if currentUser == nil {
+		return apperror.NotFound("用户不存在")
+	}
+	exists, err := s.repository.ExistsPhoneForOtherUser(ctx, input.UserID, normalized.Phone)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "校验手机号失败", err)
+	}
+	if exists {
+		return apperror.BadRequest("手机号已被绑定")
+	}
+	if appErr := s.verifyCode(ctx, enum.LoginTypePhone, enum.VerifyCodeSceneBindPhone, normalized.Phone, normalized.Code); appErr != nil {
+		return appErr
+	}
+	if err := s.repository.UpdateUser(ctx, input.UserID, map[string]any{
+		"phone":      normalized.Phone,
+		"updated_at": time.Now(),
+	}); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "更新手机号失败", err)
+	}
+	return nil
+}
+
 func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	if id <= 0 {
 		return apperror.BadRequest("无效的用户ID")
@@ -295,6 +543,27 @@ func (s *Service) BatchUpdateProfile(ctx context.Context, input BatchProfileUpda
 	return nil
 }
 
+func ensureProfileWithRepository(ctx context.Context, repository Repository, userID int64) (*Profile, error) {
+	profile, err := repository.FindProfile(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if profile != nil {
+		return profile, nil
+	}
+	profile = &Profile{
+		UserID:    userID,
+		Sex:       enum.SexUnknown,
+		IsDel:     enum.CommonNo,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := repository.EnsureProfile(ctx, *profile); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
 func (s *Service) invalidateUserButtonCache(ctx context.Context, userID int64) *apperror.Error {
 	if s.buttonCache == nil {
 		return nil
@@ -347,6 +616,207 @@ func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
 		return input, apperror.BadRequest("无效的地址")
 	}
 	return input, nil
+}
+
+func normalizeUpdateProfileInput(input UpdateProfileInput) (UpdateProfileInput, *time.Time, *apperror.Error) {
+	input.Username = strings.TrimSpace(input.Username)
+	input.Avatar = strings.TrimSpace(input.Avatar)
+	input.DetailAddress = strings.TrimSpace(input.DetailAddress)
+	input.Bio = strings.TrimSpace(input.Bio)
+	if input.Username == "" {
+		return input, nil, apperror.BadRequest("用户名不能为空")
+	}
+	if len([]rune(input.Username)) > 64 {
+		return input, nil, apperror.BadRequest("用户名不能超过64个字符")
+	}
+	if !enum.IsSex(input.Sex) {
+		return input, nil, apperror.BadRequest("无效的性别")
+	}
+	if input.AddressID < 0 {
+		return input, nil, apperror.BadRequest("无效的地址")
+	}
+
+	birthday, appErr := parseBirthday(input.Birthday)
+	if appErr != nil {
+		return input, nil, appErr
+	}
+	return input, birthday, nil
+}
+
+func parseBirthday(value *string) (*time.Time, *apperror.Error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(*value)
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := time.ParseInLocation(birthdayLayout, raw, time.Local)
+	if err != nil {
+		return nil, apperror.BadRequest("生日格式错误")
+	}
+	return &parsed, nil
+}
+
+func normalizeUpdatePasswordInput(input UpdatePasswordInput) (UpdatePasswordInput, *apperror.Error) {
+	input.VerifyType = strings.TrimSpace(input.VerifyType)
+	input.OldPassword = strings.TrimSpace(input.OldPassword)
+	input.Account = strings.TrimSpace(input.Account)
+	input.Code = strings.TrimSpace(input.Code)
+	input.NewPassword = strings.TrimSpace(input.NewPassword)
+	input.ConfirmPassword = strings.TrimSpace(input.ConfirmPassword)
+	if !enum.IsUserVerifyType(input.VerifyType) {
+		return input, apperror.BadRequest("无效的验证方式")
+	}
+	if input.NewPassword == "" || input.ConfirmPassword == "" {
+		return input, apperror.BadRequest("请输入新密码")
+	}
+	if input.NewPassword != input.ConfirmPassword {
+		return input, apperror.BadRequest("两次输入的密码不一致")
+	}
+	passwordLength := len([]rune(input.NewPassword))
+	if passwordLength < 6 || passwordLength > 128 {
+		return input, apperror.BadRequest("密码长度必须为6-128位")
+	}
+	switch input.VerifyType {
+	case enum.VerifyTypePassword:
+		if input.OldPassword == "" {
+			return input, apperror.BadRequest("请输入旧密码")
+		}
+	case enum.VerifyTypeCode:
+		if input.Account == "" {
+			return input, apperror.BadRequest("验证码接收账号不能为空")
+		}
+		if input.Code == "" {
+			return input, apperror.BadRequest("请输入验证码")
+		}
+	}
+	return input, nil
+}
+
+func normalizeUpdateEmailInput(input UpdateEmailInput) (UpdateEmailInput, *apperror.Error) {
+	input.Email = strings.TrimSpace(input.Email)
+	input.Code = strings.TrimSpace(input.Code)
+	if !userEmailPattern.MatchString(input.Email) {
+		return input, apperror.BadRequest("邮箱格式不正确")
+	}
+	if input.Code == "" {
+		return input, apperror.BadRequest("请输入验证码")
+	}
+	return input, nil
+}
+
+func normalizeUpdatePhoneInput(input UpdatePhoneInput) (UpdatePhoneInput, *apperror.Error) {
+	input.Phone = strings.TrimSpace(input.Phone)
+	input.Code = strings.TrimSpace(input.Code)
+	if !userPhonePattern.MatchString(input.Phone) {
+		return input, apperror.BadRequest("手机号格式不正确")
+	}
+	if input.Code == "" {
+		return input, apperror.BadRequest("请输入验证码")
+	}
+	return input, nil
+}
+
+func (s *Service) verifyOwnedAccountCode(ctx context.Context, currentUser *User, account string, code string, scene string) *apperror.Error {
+	accountType := accountTypeOf(account)
+	if accountType == "" {
+		return apperror.BadRequest("请输入正确的邮箱或手机号")
+	}
+	switch accountType {
+	case enum.LoginTypeEmail:
+		if strings.TrimSpace(currentUser.Email) == "" {
+			return apperror.BadRequest("请先绑定邮箱或手机号")
+		}
+		if strings.TrimSpace(currentUser.Email) != account {
+			return apperror.BadRequest("验证码账号不属于当前用户")
+		}
+	case enum.LoginTypePhone:
+		if strings.TrimSpace(currentUser.Phone) == "" {
+			return apperror.BadRequest("请先绑定邮箱或手机号")
+		}
+		if strings.TrimSpace(currentUser.Phone) != account {
+			return apperror.BadRequest("验证码账号不属于当前用户")
+		}
+	}
+	return s.verifyCode(ctx, accountType, scene, account, code)
+}
+
+func (s *Service) verifyCode(ctx context.Context, accountType string, scene string, account string, code string) *apperror.Error {
+	if s == nil || s.verifyCodeStore == nil {
+		return apperror.Internal("验证码缓存未配置")
+	}
+	key := auth.VerifyCodeCacheKey(s.verifyCodePrefix, accountType, scene, account)
+	cached, err := s.verifyCodeStore.Get(ctx, key)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "验证码缓存读取失败", err)
+	}
+	if cached == "" || cached != strings.TrimSpace(code) {
+		return apperror.BadRequest("验证码错误或已失效")
+	}
+	if err := s.verifyCodeStore.Delete(ctx, key); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "验证码消费失败", err)
+	}
+	return nil
+}
+
+func accountTypeOf(value string) string {
+	value = strings.TrimSpace(value)
+	if userEmailPattern.MatchString(value) {
+		return enum.LoginTypeEmail
+	}
+	if userPhonePattern.MatchString(value) {
+		return enum.LoginTypePhone
+	}
+	return ""
+}
+
+func hashUserPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(string(hash), "$2a$", "$2y$", 1), nil
+}
+
+func verifyUserPassword(password string, hash string) bool {
+	hash = strings.TrimSpace(hash)
+	if strings.HasPrefix(hash, "$2y$") {
+		hash = "$2a$" + strings.TrimPrefix(hash, "$2y$")
+	}
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+func buildProfileDetail(currentUser *User, profile *Profile, role *Role, currentUserID int64) ProfileDetail {
+	roleName := ""
+	if role != nil {
+		roleName = role.Name
+	}
+	isSelf := enum.CommonNo
+	if currentUserID > 0 && currentUser.ID == currentUserID {
+		isSelf = enum.CommonYes
+	}
+	detail := ProfileDetail{
+		UserID:      currentUser.ID,
+		Username:    currentUser.Username,
+		Email:       currentUser.Email,
+		Phone:       currentUser.Phone,
+		RoleID:      currentUser.RoleID,
+		RoleName:    roleName,
+		IsSelf:      isSelf,
+		HasPassword: currentUser.Password != nil && strings.TrimSpace(*currentUser.Password) != "",
+	}
+	if profile != nil {
+		detail.Avatar = profile.Avatar
+		detail.AddressID = profile.AddressID
+		detail.DetailAddress = profile.DetailAddress
+		detail.Sex = profile.Sex
+		detail.Bio = profile.Bio
+		if profile.Birthday != nil && !profile.Birthday.IsZero() {
+			detail.Birthday = profile.Birthday.Format(birthdayLayout)
+		}
+	}
+	return detail
 }
 
 func normalizeBatchProfileUpdate(input BatchProfileUpdate) (BatchProfileUpdate, *apperror.Error) {

@@ -9,19 +9,20 @@ import (
 )
 
 type Config struct {
-	App        AppConfig
-	HTTP       HTTPConfig
-	Logging    LoggingConfig
-	MySQL      MySQLConfig
-	Redis      RedisConfig
-	Token      TokenConfig
-	Captcha    CaptchaConfig
-	VerifyCode VerifyCodeConfig
-	Queue      QueueConfig
-	Realtime   RealtimeConfig
-	Scheduler  SchedulerConfig
-	Secretbox  SecretboxConfig
-	CORS       CORSConfig
+	App         AppConfig
+	HTTP        HTTPConfig
+	Logging     LoggingConfig
+	MySQL       MySQLConfig
+	Redis       RedisConfig
+	Token       TokenConfig
+	Captcha     CaptchaConfig
+	VerifyCode  VerifyCodeConfig
+	Queue       QueueConfig
+	Realtime    RealtimeConfig
+	Scheduler   SchedulerConfig
+	Secretbox   SecretboxConfig
+	UploadToken UploadTokenConfig
+	CORS        CORSConfig
 }
 
 type AppConfig struct {
@@ -61,8 +62,6 @@ type RedisConfig struct {
 
 type TokenConfig struct {
 	Pepper                  string
-	AccessTTL               time.Duration
-	RefreshTTL              time.Duration
 	RedisPrefix             string
 	SessionCacheTTL         time.Duration
 	SingleSessionPointerTTL time.Duration
@@ -117,6 +116,18 @@ type SecretboxConfig struct {
 	Key string
 }
 
+type UploadTokenConfig struct {
+	TTL            time.Duration
+	KeyRandomBytes int
+	COS            COSSTSConfig
+}
+
+type COSSTSConfig struct {
+	Enabled  bool
+	Endpoint string
+	Region   string
+}
+
 type CORSConfig struct {
 	AllowOrigins     []string
 	AllowMethods     []string
@@ -166,8 +177,6 @@ func Load() Config {
 		},
 		Token: TokenConfig{
 			Pepper:                  envString("TOKEN_PEPPER", ""),
-			AccessTTL:               envDuration("TOKEN_ACCESS_TTL", 2*time.Hour),
-			RefreshTTL:              envDuration("TOKEN_REFRESH_TTL", 7*24*time.Hour),
 			RedisPrefix:             envString("TOKEN_REDIS_PREFIX", "token:"),
 			SessionCacheTTL:         envDuration("TOKEN_SESSION_CACHE_TTL", 30*time.Minute),
 			SingleSessionPointerTTL: envDuration("TOKEN_SINGLE_SESSION_POINTER_TTL", 30*24*time.Hour),
@@ -209,6 +218,15 @@ func Load() Config {
 		},
 		Secretbox: SecretboxConfig{
 			Key: envString("VAULT_KEY", ""),
+		},
+		UploadToken: UploadTokenConfig{
+			TTL:            envDuration("UPLOAD_TOKEN_TTL", 15*time.Minute),
+			KeyRandomBytes: envInt("UPLOAD_KEY_RANDOM_BYTES", 4),
+			COS: COSSTSConfig{
+				Enabled:  envBool("COS_STS_ENABLED", false),
+				Endpoint: envString("COS_STS_ENDPOINT", "sts.tencentcloudapi.com"),
+				Region:   envString("COS_STS_REGION", "ap-guangzhou"),
+			},
 		},
 		CORS: corsConfig,
 	}

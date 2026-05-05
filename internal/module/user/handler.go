@@ -19,6 +19,11 @@ type InitService interface {
 type HTTPService interface {
 	InitService
 	PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error)
+	Profile(ctx context.Context, userID int64, currentUserID int64) (*ProfileResponse, *apperror.Error)
+	UpdateProfile(ctx context.Context, input UpdateProfileInput) *apperror.Error
+	UpdatePassword(ctx context.Context, input UpdatePasswordInput) *apperror.Error
+	UpdateEmail(ctx context.Context, input UpdateEmailInput) *apperror.Error
+	UpdatePhone(ctx context.Context, input UpdatePhoneInput) *apperror.Error
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error
 	ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error
@@ -53,6 +58,141 @@ func (h *Handler) PageInit(c *gin.Context) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func (h *Handler) CurrentProfile(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	h.respondWithProfile(c, identity.UserID, identity.UserID)
+}
+
+func (h *Handler) UserProfile(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	id, ok := routeID(c)
+	if !ok {
+		return
+	}
+	h.respondWithProfile(c, id, identity.UserID)
+}
+
+func (h *Handler) UpdateCurrentProfile(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	if h.service == nil {
+		response.Error(c, apperror.Internal("用户管理服务未配置"))
+		return
+	}
+	var req updateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("参数错误"))
+		return
+	}
+	if appErr := h.service.UpdateProfile(c.Request.Context(), UpdateProfileInput{
+		UserID:        identity.UserID,
+		Username:      req.Username,
+		Avatar:        req.Avatar,
+		Sex:           req.Sex,
+		Birthday:      req.Birthday,
+		AddressID:     *req.AddressID,
+		DetailAddress: req.DetailAddress,
+		Bio:           req.Bio,
+	}); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
+}
+
+func (h *Handler) UpdatePassword(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	if h.service == nil {
+		response.Error(c, apperror.Internal("用户管理服务未配置"))
+		return
+	}
+	var req updatePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("参数错误"))
+		return
+	}
+	if appErr := h.service.UpdatePassword(c.Request.Context(), UpdatePasswordInput{
+		UserID:          identity.UserID,
+		VerifyType:      req.VerifyType,
+		OldPassword:     req.OldPassword,
+		Account:         req.Account,
+		Code:            req.Code,
+		NewPassword:     req.NewPassword,
+		ConfirmPassword: req.ConfirmPassword,
+	}); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
+}
+
+func (h *Handler) UpdateEmail(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	if h.service == nil {
+		response.Error(c, apperror.Internal("用户管理服务未配置"))
+		return
+	}
+	var req updateEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("参数错误"))
+		return
+	}
+	if appErr := h.service.UpdateEmail(c.Request.Context(), UpdateEmailInput{
+		UserID: identity.UserID,
+		Email:  req.Email,
+		Code:   req.Code,
+	}); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
+}
+
+func (h *Handler) UpdatePhone(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	if h.service == nil {
+		response.Error(c, apperror.Internal("用户管理服务未配置"))
+		return
+	}
+	var req updatePhoneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("参数错误"))
+		return
+	}
+	if appErr := h.service.UpdatePhone(c.Request.Context(), UpdatePhoneInput{
+		UserID: identity.UserID,
+		Phone:  req.Phone,
+		Code:   req.Code,
+	}); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
 }
 
 func (h *Handler) List(c *gin.Context) {
@@ -212,6 +352,19 @@ func (h *Handler) respondWithCurrentUser(c *gin.Context) {
 		UserID:   identity.UserID,
 		Platform: identity.Platform,
 	})
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *Handler) respondWithProfile(c *gin.Context, userID int64, currentUserID int64) {
+	if h.service == nil {
+		response.Error(c, apperror.Internal("用户管理服务未配置"))
+		return
+	}
+	result, appErr := h.service.Profile(c.Request.Context(), userID, currentUserID)
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

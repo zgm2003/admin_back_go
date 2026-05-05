@@ -23,6 +23,13 @@ type fakeInitService struct {
 	err    *apperror.Error
 
 	pageInitResult *PageInitResponse
+	profileUserID  int64
+	profileViewer  int64
+	profileResult  *ProfileResponse
+	updateProfile  UpdateProfileInput
+	updatePassword UpdatePasswordInput
+	updateEmail    UpdateEmailInput
+	updatePhone    UpdatePhoneInput
 	listQuery      ListQuery
 	listResult     *ListResponse
 	updateID       int64
@@ -41,6 +48,35 @@ func (f *fakeInitService) Init(ctx context.Context, input InitInput) (*InitRespo
 
 func (f *fakeInitService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
 	return f.pageInitResult, f.err
+}
+
+func (f *fakeInitService) Profile(ctx context.Context, userID int64, currentUserID int64) (*ProfileResponse, *apperror.Error) {
+	f.profileUserID = userID
+	f.profileViewer = currentUserID
+	if f.profileResult != nil {
+		return f.profileResult, f.err
+	}
+	return &ProfileResponse{Profile: ProfileDetail{UserID: userID, IsSelf: enumCommonNoForTest(currentUserID, userID)}}, f.err
+}
+
+func (f *fakeInitService) UpdateProfile(ctx context.Context, input UpdateProfileInput) *apperror.Error {
+	f.updateProfile = input
+	return f.err
+}
+
+func (f *fakeInitService) UpdatePassword(ctx context.Context, input UpdatePasswordInput) *apperror.Error {
+	f.updatePassword = input
+	return f.err
+}
+
+func (f *fakeInitService) UpdateEmail(ctx context.Context, input UpdateEmailInput) *apperror.Error {
+	f.updateEmail = input
+	return f.err
+}
+
+func (f *fakeInitService) UpdatePhone(ctx context.Context, input UpdatePhoneInput) *apperror.Error {
+	f.updatePhone = input
+	return f.err
 }
 
 func (f *fakeInitService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -194,6 +230,90 @@ func TestHandlerPageInitUsesDedicatedRouteWithoutOverloadingUsersInit(t *testing
 	}
 }
 
+func TestHandlerProfileRoutesUseAuthIdentityAndExplicitAddressIDContract(t *testing.T) {
+	service := &fakeInitService{profileResult: &ProfileResponse{
+		Profile: ProfileDetail{UserID: 1, Username: "admin", IsSelf: 1},
+		Dict:    ProfileDict{SexArr: []SexOption{{Label: "未知", Value: 0}}},
+	}}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
+
+	data := requestUserData(t, router, http.MethodGet, "/api/admin/v1/profile")
+	if service.profileUserID != 1 || service.profileViewer != 1 {
+		t.Fatalf("current profile service input mismatch: userID=%d viewer=%d", service.profileUserID, service.profileViewer)
+	}
+	if _, ok := data["profile"]; !ok {
+		t.Fatalf("missing profile payload: %#v", data)
+	}
+
+	_ = requestUserData(t, router, http.MethodGet, "/api/admin/v1/users/9/profile")
+	if service.profileUserID != 9 || service.profileViewer != 1 {
+		t.Fatalf("target profile service input mismatch: userID=%d viewer=%d", service.profileUserID, service.profileViewer)
+	}
+
+	birthday := "2026-05-05"
+	validBody := []byte(`{"username":"alice","avatar":"a.png","sex":1,"birthday":"` + birthday + `","address_id":3,"detail_address":"玄武区","bio":"bio"}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/profile", bytes.NewReader(validBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected valid update 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.updateProfile.UserID != 1 || service.updateProfile.AddressID != 3 || service.updateProfile.Birthday == nil || *service.updateProfile.Birthday != birthday {
+		t.Fatalf("update profile input mismatch: %#v", service.updateProfile)
+	}
+
+	legacyAliasBody := []byte(`{"username":"alice","avatar":"a.png","sex":1,"address":3}`)
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/profile", bytes.NewReader(legacyAliasBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected legacy address alias to be rejected, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestHandlerProfileSecurityRoutesUseCurrentIdentity(t *testing.T) {
+	service := &fakeInitService{}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"})
+
+	passwordBody := []byte(`{"verify_type":"code","account":"alice@example.com","code":"123456","new_password":"new-secret","confirm_password":"new-secret"}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/profile/security/password", bytes.NewReader(passwordBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected password update 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.updatePassword.UserID != 1 || service.updatePassword.VerifyType != "code" || service.updatePassword.Account != "alice@example.com" {
+		t.Fatalf("password input mismatch: %#v", service.updatePassword)
+	}
+
+	emailBody := []byte(`{"email":"new@example.com","code":"123456"}`)
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/profile/security/email", bytes.NewReader(emailBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected email update 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.updateEmail.UserID != 1 || service.updateEmail.Email != "new@example.com" || service.updateEmail.Code != "123456" {
+		t.Fatalf("email input mismatch: %#v", service.updateEmail)
+	}
+
+	phoneBody := []byte(`{"phone":"15671628271","code":"123456"}`)
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/profile/security/phone", bytes.NewReader(phoneBody))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected phone update 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.updatePhone.UserID != 1 || service.updatePhone.Phone != "15671628271" || service.updatePhone.Code != "123456" {
+		t.Fatalf("phone input mismatch: %#v", service.updatePhone)
+	}
+}
+
 func TestHandlerListBindsRESTQueryAndCommaAddressIDs(t *testing.T) {
 	service := &fakeInitService{listResult: &ListResponse{
 		List: []ListItem{{ID: 1, Username: "alice"}},
@@ -336,4 +456,11 @@ func decodeUserBody(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 		t.Fatalf("invalid json response: %v", err)
 	}
 	return body
+}
+
+func enumCommonNoForTest(currentUserID int64, userID int64) int {
+	if currentUserID > 0 && currentUserID == userID {
+		return 1
+	}
+	return 2
 }

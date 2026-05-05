@@ -58,6 +58,13 @@ func SexOptions() []Option[int] {
 	}
 }
 
+func UserVerifyTypeOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "密码验证", Value: enum.VerifyTypePassword},
+		{Label: "验证码验证", Value: enum.VerifyTypeCode},
+	}
+}
+
 func LogLevelOptions() []Option[string] {
 	return []Option[string]{
 		{Label: enum.LogLevelDebug, Value: enum.LogLevelDebug},

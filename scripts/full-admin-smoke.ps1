@@ -88,6 +88,54 @@ function Get-MaxOperationLogID($Response) {
   return $maxID
 }
 
+function Invoke-JsonRequestAllowFailure([string]$Method, [string]$URL, [hashtable]$Headers, $Body) {
+  $jsonBody = $Body | ConvertTo-Json -Depth 8
+
+  try {
+    return Invoke-RestMethod $URL `
+      -Method $Method `
+      -Headers $Headers `
+      -ContentType 'application/json' `
+      -Body $jsonBody `
+      -TimeoutSec 10
+  } catch {
+    $response = $_.Exception.Response
+    if ($null -eq $response) { throw }
+
+    $text = [string]$_.ErrorDetails.Message
+    if ([string]::IsNullOrWhiteSpace($text) -and $response -is [System.Net.Http.HttpResponseMessage]) {
+      try {
+        $text = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+      } catch {
+        $text = ''
+      }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($text) -and -not ($response -is [System.Net.Http.HttpResponseMessage])) {
+      $stream = $response.GetResponseStream()
+      if ($null -eq $stream) { throw }
+
+      $reader = New-Object System.IO.StreamReader($stream)
+      try {
+        $text = $reader.ReadToEnd()
+      } finally {
+        $reader.Dispose()
+      }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($text)) { throw }
+    return $text | ConvertFrom-Json
+  }
+}
+
+function Assert-ApiFailureCode($Response, [string]$Label, [int]$ExpectedCode = 100) {
+  if ($Response.code -ne $ExpectedCode) {
+    throw "$Label expected code=$ExpectedCode, got: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [int]$Response.code
+}
+
 function Get-OperationLogList([string]$BaseURL, [hashtable]$Headers, [string]$Action) {
   $actionQuery = [uri]::EscapeDataString($Action)
   return Invoke-RestMethod "$BaseURL/api/admin/v1/operation-logs?current_page=1&page_size=20&action=$actionQuery" `
@@ -223,6 +271,100 @@ function Assert-SystemSettingList($Response) {
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-SystemLogInit($Response) {
+  Assert-ApiOK $Response 'system log init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "system log init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $levels = Get-ObjectArray $Response.data.dict.log_level_arr
+  $tails = Get-ObjectArray $Response.data.dict.log_tail_arr
+  if ($levels.Count -ne 5) {
+    throw "system log level dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($tails.Count -ne 5) {
+    throw "system log tail dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($expected in @('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')) {
+    if (-not (@($levels | ForEach-Object { [string]$_.value }) -contains $expected)) {
+      throw "system log level dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    LevelCount = $levels.Count
+    TailCount = $tails.Count
+  }
+}
+
+function Assert-SystemLogFiles($Response) {
+  Assert-ApiOK $Response 'system log files'
+
+  if ($null -eq $Response.data.list) {
+    throw "system log files missing list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $items = Get-ObjectArray $Response.data.list
+  foreach ($item in $items) {
+    if ([string]::IsNullOrWhiteSpace([string]$item.name)) {
+      throw "system log file missing name: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.size -or [int64]$item.size -lt 0) {
+      throw "system log file invalid size: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.size_human) -or [string]::IsNullOrWhiteSpace([string]$item.mtime)) {
+      throw "system log file metadata incomplete: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    Count = $items.Count
+    FirstName = if ($items.Count -gt 0) { [string]$items[0].name } else { $null }
+  }
+}
+
+function Invoke-SystemLogLinesProbe([string]$BaseURL, [hashtable]$Headers, [string]$Filename) {
+  if ([string]::IsNullOrWhiteSpace($Filename)) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_log_files'
+      Code = $null
+      Filename = $null
+      Total = 0
+    }
+  }
+
+  $encodedName = [uri]::EscapeDataString($Filename)
+  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/system-logs/files/$encodedName/lines?tail=20" `
+    -Headers $Headers `
+    -TimeoutSec 10
+  Assert-ApiOK $response 'system log lines'
+
+  if ([string]::IsNullOrWhiteSpace([string]$response.data.filename)) {
+    throw "system log lines missing filename: $($response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $response.data.total -or $null -eq $response.data.lines) {
+    throw "system log lines missing total/list: $($response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($line in (Get-ObjectArray $response.data.lines)) {
+    if ($null -eq $line.number -or [int]$line.number -le 0) {
+      throw "system log line invalid number: $($line | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $line.level -or $null -eq $line.content) {
+      throw "system log line missing level/content: $($line | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    Status = 'passed'
+    Code = [int]$response.code
+    Filename = [string]$response.data.filename
+    Total = [int]$response.data.total
   }
 }
 
@@ -444,6 +586,122 @@ function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [s
   }
 }
 
+function Invoke-UploadTokenProbe([string]$BaseURL, [hashtable]$Headers) {
+  if ($env:COS_STS_ENABLED -ne 'true') {
+    return [pscustomobject]@{
+      Status = 'skipped_cos_sts_disabled'
+      Code = $null
+      Provider = $null
+      Key = $null
+    }
+  }
+
+  $body = @{
+    folder = 'images'
+    file_name = 'smoke.png'
+    file_size = 1024
+    file_kind = 'image'
+  } | ConvertTo-Json -Depth 4
+
+  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-tokens" `
+    -Method Post `
+    -Headers $Headers `
+    -ContentType 'application/json' `
+    -Body $body `
+    -TimeoutSec 15
+
+  Assert-ApiOK $response 'upload token probe'
+  if ($response.data.provider -ne 'cos') {
+    throw "upload token provider mismatch: $($response | ConvertTo-Json -Depth 12)"
+  }
+  if (-not ([string]$response.data.key).StartsWith('images/')) {
+    throw "upload token key mismatch: $($response | ConvertTo-Json -Depth 12)"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$response.data.credentials.tmp_secret_id) `
+    -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.tmp_secret_key) `
+    -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.session_token)) {
+    throw "upload token credentials shape mismatch: $($response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    Status = 'passed'
+    Code = $response.code
+    Provider = $response.data.provider
+    Key = $response.data.key
+  }
+}
+
+function Assert-ProfilePayload($Response, [string]$Label) {
+  Assert-ApiOK $Response $Label
+
+  if ($null -eq $Response.data.profile) {
+    throw "$Label missing profile: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.dict) {
+    throw "$Label missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ([int64]$Response.data.profile.user_id -le 0) {
+    throw "$Label profile missing user_id: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.profile.address_id) {
+    throw "$Label profile missing address_id: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -ne $Response.data.profile.address) {
+    throw "$Label leaked legacy address alias: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ((Get-ObjectArray $Response.data.dict.sexArr).Count -ne 3) {
+    throw "$Label sex dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $verifyTypes = @(Get-ObjectArray $Response.data.dict.verify_type_arr | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('password', 'code')) {
+    if (-not ($verifyTypes -contains $expected)) {
+      throw "$Label verify type dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+}
+
+function Assert-ProfileUpdateOperationLog([string]$BaseURL, [hashtable]$Headers, [int64]$AfterID) {
+  $createdLog = Wait-NewOperationLog $BaseURL $Headers '编辑个人资料' $AfterID
+  $requestData = $createdLog.request_data | ConvertFrom-Json
+  if ($requestData.module -ne 'profile' -or $requestData.action -ne 'update_profile') {
+    throw "profile operation log metadata mismatch: $($createdLog.request_data)"
+  }
+  return [pscustomobject]@{
+    ID = [int64]$createdLog.id
+    Module = [string]$requestData.module
+    Action = [string]$requestData.action
+  }
+}
+
+function Assert-AccountSecurityFailureProbe([string]$BaseURL, [hashtable]$Headers) {
+  $wrongPassword = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/profile/security/password" $Headers @{
+    verify_type = 'password'
+    old_password = 'codex-wrong-old-password'
+    new_password = 'codex-smoke-new-password'
+    confirm_password = 'codex-smoke-new-password'
+  }
+  $wrongPasswordCode = Assert-ApiFailureCode $wrongPassword 'account security wrong old password probe'
+
+  $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $invalidEmail = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/profile/security/email" $Headers @{
+    email = "codex-invalid-$suffix@example.com"
+    code = '000000'
+  }
+  $invalidEmailCode = Assert-ApiFailureCode $invalidEmail 'account security invalid email code probe'
+
+  $invalidPhone = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/profile/security/phone" $Headers @{
+    phone = '15671628272'
+    code = '000000'
+  }
+  $invalidPhoneCode = Assert-ApiFailureCode $invalidPhone 'account security invalid phone code probe'
+
+  return [pscustomobject]@{
+    WrongOldPasswordCode = $wrongPasswordCode
+    InvalidEmailCode = $invalidEmailCode
+    InvalidPhoneCode = $invalidPhoneCode
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -637,6 +895,17 @@ func main() {
     throw "queue monitor UI HEAD returned status $($queueMonitorUI.StatusCode)"
   }
 
+  $systemLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-logs/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $systemLogInitSummary = Assert-SystemLogInit $systemLogInit
+
+  $systemLogFiles = Invoke-RestMethod "$baseURL/api/admin/v1/system-logs/files" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $systemLogFilesSummary = Assert-SystemLogFiles $systemLogFiles
+  $systemLogLinesProbe = Invoke-SystemLogLinesProbe $baseURL $authHeaders $systemLogFilesSummary.FirstName
+
   $systemSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-settings/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -678,6 +947,43 @@ func main() {
   $uploadSettingListSummary = Assert-UploadSettingList $uploadSettingList
 
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+  $uploadTokenProbe = Invoke-UploadTokenProbe $baseURL $authHeaders
+
+  $profile = Invoke-RestMethod "$baseURL/api/admin/v1/profile" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  Assert-ProfilePayload $profile 'profile read'
+  $profileUserID = [int64]$profile.data.profile.user_id
+
+  $targetProfile = Invoke-RestMethod "$baseURL/api/admin/v1/users/$profileUserID/profile" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  Assert-ProfilePayload $targetProfile 'target profile read'
+
+  $profileBeforeLogs = Get-OperationLogList $baseURL $authHeaders '编辑个人资料'
+  Assert-ApiOK $profileBeforeLogs 'profile operation log before list'
+  $profileBeforeMaxID = Get-MaxOperationLogID $profileBeforeLogs
+
+  $profileUpdateBody = @{
+    username = [string]$profile.data.profile.username
+    avatar = [string]$profile.data.profile.avatar
+    sex = [int]$profile.data.profile.sex
+    birthday = if ([string]::IsNullOrWhiteSpace([string]$profile.data.profile.birthday)) { $null } else { [string]$profile.data.profile.birthday }
+    address_id = [int64]$profile.data.profile.address_id
+    detail_address = [string]$profile.data.profile.detail_address
+    bio = [string]$profile.data.profile.bio
+  } | ConvertTo-Json -Depth 8
+
+  $profileUpdate = Invoke-RestMethod "$baseURL/api/admin/v1/profile" `
+    -Method Put `
+    -Headers $authHeaders `
+    -ContentType 'application/json' `
+    -Body $profileUpdateBody `
+    -TimeoutSec 10
+  Assert-ApiOK $profileUpdate 'profile safe self update'
+  $profileOperationLog = Assert-ProfileUpdateOperationLog $baseURL $authHeaders $profileBeforeMaxID
+
+  $accountSecurityProbe = Assert-AccountSecurityFailureProbe $baseURL $authHeaders
 
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
@@ -733,6 +1039,15 @@ func main() {
     queue_monitor_failed_code = $queueMonitorFailed.code
     queue_monitor_failed_total = $queueMonitorFailedTotal
     queue_monitor_ui_status = $queueMonitorUI.StatusCode
+    system_log_init_code = $systemLogInit.code
+    system_log_level_count = $systemLogInitSummary.LevelCount
+    system_log_tail_count = $systemLogInitSummary.TailCount
+    system_log_files_code = $systemLogFiles.code
+    system_log_file_count = $systemLogFilesSummary.Count
+    system_log_lines_probe = $systemLogLinesProbe.Status
+    system_log_lines_code = $systemLogLinesProbe.Code
+    system_log_lines_filename = $systemLogLinesProbe.Filename
+    system_log_lines_total = $systemLogLinesProbe.Total
     system_setting_init_code = $systemSettingInit.code
     system_setting_value_type_count = $systemSettingValueTypeCount
     system_setting_list_code = $systemSettingList.code
@@ -760,6 +1075,21 @@ func main() {
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID
     upload_write_probe_setting_id = $uploadWriteProbe.SettingID
+    upload_token_probe = $uploadTokenProbe.Status
+    upload_token_code = $uploadTokenProbe.Code
+    upload_token_provider = $uploadTokenProbe.Provider
+    upload_token_key = $uploadTokenProbe.Key
+    profile_read_code = $profile.code
+    profile_user_id = $profileUserID
+    profile_is_self = $profile.data.profile.is_self
+    target_profile_read_code = $targetProfile.code
+    profile_update_code = $profileUpdate.code
+    profile_operation_log_id = $profileOperationLog.ID
+    profile_operation_log_module = $profileOperationLog.Module
+    profile_operation_log_action = $profileOperationLog.Action
+    account_security_wrong_old_password_code = $accountSecurityProbe.WrongOldPasswordCode
+    account_security_invalid_email_code = $accountSecurityProbe.InvalidEmailCode
+    account_security_invalid_phone_code = $accountSecurityProbe.InvalidPhoneCode
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

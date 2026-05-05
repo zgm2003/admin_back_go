@@ -10,3 +10,7 @@ func validateUserSex(fl playground.FieldLevel) bool {
 	value, ok := intValue(fl.Field())
 	return ok && enum.IsSex(value)
 }
+
+func validateUserVerifyType(fl playground.FieldLevel) bool {
+	return enum.IsUserVerifyType(trimmedString(fl.Field()))
+}

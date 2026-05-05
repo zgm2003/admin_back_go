@@ -19,10 +19,12 @@ import (
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadconfig"
+	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/logstore"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/secretbox"
+	storagecos "admin_back_go/internal/platform/storage/cos"
 	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
 )
@@ -87,6 +89,23 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
 	secretBox := secretbox.New(cfg.Secretbox.Key)
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
+	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
+	if cfg.UploadToken.COS.Enabled {
+		cosSigner = storagecos.NewSigner(storagecos.Config{
+			Enabled:  true,
+			Endpoint: cfg.UploadToken.COS.Endpoint,
+			Region:   cfg.UploadToken.COS.Region,
+		})
+	}
+	uploadTokenService := uploadtoken.NewService(
+		uploadtoken.NewGormRepository(resources.DB),
+		secretBox,
+		cosSigner,
+		uploadtoken.Options{
+			TTL:         cfg.UploadToken.TTL,
+			RandomBytes: cfg.UploadToken.KeyRandomBytes,
+		},
+	)
 	queueMonitorService := queuemonitor.NewService(
 		queuemonitor.NewTaskqueueInspector(queueInspector),
 		queuemonitor.Options{QueueNames: []string{
@@ -146,6 +165,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		permissionService,
 		buttonGrantCache,
 		0,
+		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis), cfg.VerifyCode.RedisPrefix),
 	)
 	realtimeStack := newRealtimeStack(cfg.Realtime, logger)
 	router := server.NewRouter(server.Dependencies{
@@ -172,6 +192,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		SystemSettingService: systemSettingService,
 		SystemLogService:     systemLogService,
 		UploadConfigService:  uploadConfigService,
+		UploadTokenService:   uploadTokenService,
 		RealtimeHandler:      realtimeStack.handler,
 		RoleService:          roleService,
 		AuthPlatformService:  authPlatformService,

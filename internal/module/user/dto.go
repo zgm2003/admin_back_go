@@ -38,6 +38,58 @@ type PageInitDict struct {
 	PlatformArr     []PlatformOption  `json:"platformArr"`
 }
 
+type VerifyTypeOption = dict.Option[string]
+
+type UpdatePasswordInput struct {
+	UserID          int64
+	VerifyType      string
+	OldPassword     string
+	Account         string
+	Code            string
+	NewPassword     string
+	ConfirmPassword string
+}
+
+type UpdateEmailInput struct {
+	UserID int64
+	Email  string
+	Code   string
+}
+
+type UpdatePhoneInput struct {
+	UserID int64
+	Phone  string
+	Code   string
+}
+
+type ProfileResponse struct {
+	Profile ProfileDetail `json:"profile"`
+	Dict    ProfileDict   `json:"dict"`
+}
+
+type ProfileDict struct {
+	AuthAddressTree []AddressTreeNode  `json:"auth_address_tree"`
+	SexArr          []SexOption        `json:"sexArr"`
+	VerifyTypeArr   []VerifyTypeOption `json:"verify_type_arr"`
+}
+
+type ProfileDetail struct {
+	UserID        int64  `json:"user_id"`
+	Username      string `json:"username"`
+	Email         string `json:"email"`
+	Avatar        string `json:"avatar"`
+	Phone         string `json:"phone"`
+	RoleID        int64  `json:"role_id"`
+	RoleName      string `json:"role_name"`
+	AddressID     int64  `json:"address_id"`
+	DetailAddress string `json:"detail_address"`
+	Sex           int    `json:"sex"`
+	Birthday      string `json:"birthday"`
+	Bio           string `json:"bio"`
+	IsSelf        int    `json:"is_self"`
+	HasPassword   bool   `json:"has_password"`
+}
+
 type AddressTreeNode struct {
 	ID       int64             `json:"id"`
 	ParentID int64             `json:"parent_id"`
@@ -110,6 +162,17 @@ type UpdateInput struct {
 	Avatar        string
 	RoleID        int64
 	Sex           int
+	AddressID     int64
+	DetailAddress string
+	Bio           string
+}
+
+type UpdateProfileInput struct {
+	UserID        int64
+	Username      string
+	Avatar        string
+	Sex           int
+	Birthday      *string
 	AddressID     int64
 	DetailAddress string
 	Bio           string

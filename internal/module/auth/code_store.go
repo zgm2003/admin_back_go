@@ -64,3 +64,7 @@ func verifyCodeKey(accountType string, scene string, account string) string {
 	sum := md5.Sum([]byte(strings.TrimSpace(account)))
 	return accountType + ":" + strings.TrimSpace(scene) + ":" + hex.EncodeToString(sum[:])
 }
+
+func VerifyCodeCacheKey(prefix string, accountType string, scene string, account string) string {
+	return strings.TrimSpace(prefix) + verifyCodeKey(accountType, scene, account)
+}

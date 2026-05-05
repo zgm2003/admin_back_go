@@ -151,12 +151,6 @@ func NewAuthenticator(deps AuthenticatorDeps) *Authenticator {
 	if deps.Config.RedisPrefix == "" {
 		deps.Config.RedisPrefix = "token:"
 	}
-	if deps.Config.AccessTTL == 0 {
-		deps.Config.AccessTTL = 2 * time.Hour
-	}
-	if deps.Config.RefreshTTL == 0 {
-		deps.Config.RefreshTTL = 7 * 24 * time.Hour
-	}
 	if deps.Config.SessionCacheTTL == 0 {
 		deps.Config.SessionCacheTTL = 30 * time.Minute
 	}
@@ -449,10 +443,10 @@ func (a *Authenticator) policyForSession(ctx context.Context, platform string) (
 		return nil, apperror.Unauthorized("平台未配置或已禁用")
 	}
 	if policy.AccessTTL <= 0 {
-		policy.AccessTTL = a.cfg.AccessTTL
+		return nil, apperror.Internal("认证平台Token有效期未配置")
 	}
 	if policy.RefreshTTL <= 0 {
-		policy.RefreshTTL = a.cfg.RefreshTTL
+		return nil, apperror.Internal("认证平台Token有效期未配置")
 	}
 	return policy, nil
 }

@@ -37,6 +37,11 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 		t.Fatalf("unexpected sex options: %#v", sex)
 	}
 
+	verifyTypes := UserVerifyTypeOptions()
+	if len(verifyTypes) != 2 || verifyTypes[0].Value != enum.VerifyTypePassword || verifyTypes[1].Value != enum.VerifyTypeCode {
+		t.Fatalf("unexpected user verify type options: %#v", verifyTypes)
+	}
+
 	levels := LogLevelOptions()
 	if len(levels) != 5 || levels[0].Value != enum.LogLevelDebug || levels[4].Value != enum.LogLevelCritical {
 		t.Fatalf("unexpected log level options: %#v", levels)

@@ -654,6 +654,62 @@ func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 	}
 }
 
+func TestAuthenticatorCreateRejectsPolicyWithoutTokenTTL(t *testing.T) {
+	auth := NewAuthenticator(AuthenticatorDeps{
+		Config: config.TokenConfig{
+			Pepper:      "pepper-value",
+			RedisPrefix: "token:",
+		},
+		Repository: &fakeSessionRepository{},
+		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
+			"admin": {BindPlatform: true},
+		}},
+		TokenGenerator: (&sequenceTokenGenerator{values: []string{"new-access-token", "new-refresh-token"}}).MakeToken,
+	})
+
+	result, appErr := auth.Create(context.Background(), CreateInput{UserID: 44, Platform: "admin"})
+
+	if result != nil {
+		t.Fatalf("expected nil token result, got %#v", result)
+	}
+	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "认证平台Token有效期未配置" {
+		t.Fatalf("expected missing platform ttl error, got %#v", appErr)
+	}
+}
+
+func TestAuthenticatorRefreshRejectsPolicyWithoutAccessTTL(t *testing.T) {
+	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
+	refreshHash, err := HashToken("old-refresh-token", "pepper-value")
+	if err != nil {
+		t.Fatalf("hash refresh token: %v", err)
+	}
+	repo := &fakeSessionRepository{refreshSession: &Session{
+		ID:               55,
+		UserID:           44,
+		RefreshTokenHash: refreshHash,
+		Platform:         "admin",
+		RefreshExpiresAt: now.Add(2 * time.Hour),
+	}}
+	auth := NewAuthenticator(AuthenticatorDeps{
+		Config:     config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:"},
+		Repository: repo,
+		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
+			"admin": {RefreshTTL: 14 * 24 * time.Hour},
+		}},
+		TokenGenerator: (&sequenceTokenGenerator{values: []string{"new-access-token", "new-refresh-token"}}).MakeToken,
+		Now:            func() time.Time { return now },
+	})
+
+	result, appErr := auth.Refresh(context.Background(), RefreshInput{RefreshToken: "old-refresh-token"})
+
+	if result != nil {
+		t.Fatalf("expected nil token result, got %#v", result)
+	}
+	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "认证平台Token有效期未配置" {
+		t.Fatalf("expected missing platform ttl error, got %#v", appErr)
+	}
+}
+
 func TestAuthenticatorRefreshRejectsInvalidRefreshToken(t *testing.T) {
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:"},

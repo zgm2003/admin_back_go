@@ -35,9 +35,6 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Redis.DB != 0 {
 		t.Fatalf("expected redis db 0, got %d", cfg.Redis.DB)
 	}
-	if cfg.Token.AccessTTL != 2*time.Hour {
-		t.Fatalf("expected token access ttl 2h, got %s", cfg.Token.AccessTTL)
-	}
 	if cfg.Token.Pepper != "" {
 		t.Fatalf("expected empty token pepper by default, got %q", cfg.Token.Pepper)
 	}
@@ -143,8 +140,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("REDIS_PASSWORD", "secret")
 	t.Setenv("REDIS_DB", "2")
 	t.Setenv("TOKEN_PEPPER", "pepper")
-	t.Setenv("TOKEN_ACCESS_TTL", "15m")
-	t.Setenv("TOKEN_REFRESH_TTL", "24h")
 	t.Setenv("TOKEN_REDIS_PREFIX", "token-test:")
 	t.Setenv("TOKEN_SESSION_CACHE_TTL", "45m")
 	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "720h")
@@ -191,7 +186,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Redis.Addr != "127.0.0.1:6380" || cfg.Redis.Password != "secret" || cfg.Redis.DB != 2 {
 		t.Fatalf("unexpected redis config: %#v", cfg.Redis)
 	}
-	if cfg.Token.Pepper != "pepper" || cfg.Token.AccessTTL != 15*time.Minute || cfg.Token.RefreshTTL != 24*time.Hour {
+	if cfg.Token.Pepper != "pepper" {
 		t.Fatalf("unexpected token config: %#v", cfg.Token)
 	}
 	if cfg.Token.RedisPrefix != "token-test:" || cfg.Token.SessionCacheTTL != 45*time.Minute {
@@ -250,7 +245,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 func TestLoadFallsBackOnInvalidNumericAndDurationValues(t *testing.T) {
 	t.Setenv("MYSQL_MAX_OPEN_CONNS", "garbage")
 	t.Setenv("REDIS_DB", "garbage")
-	t.Setenv("TOKEN_ACCESS_TTL", "garbage")
 
 	cfg := Load()
 
@@ -259,9 +253,6 @@ func TestLoadFallsBackOnInvalidNumericAndDurationValues(t *testing.T) {
 	}
 	if cfg.Redis.DB != 0 {
 		t.Fatalf("expected fallback redis db 0, got %d", cfg.Redis.DB)
-	}
-	if cfg.Token.AccessTTL != 2*time.Hour {
-		t.Fatalf("expected fallback token access ttl 2h, got %s", cfg.Token.AccessTTL)
 	}
 }
 

@@ -28,7 +28,10 @@ type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	RoleByID(ctx context.Context, id int64) (*Role, error)
 	UpdateUser(ctx context.Context, id int64, fields map[string]any) error
+	ExistsEmailForOtherUser(ctx context.Context, userID int64, email string) (bool, error)
+	ExistsPhoneForOtherUser(ctx context.Context, userID int64, phone string) (bool, error)
 	UpdateProfile(ctx context.Context, userID int64, fields map[string]any) error
+	EnsureProfile(ctx context.Context, profile Profile) error
 	UpdateStatus(ctx context.Context, id int64, status int) error
 	SoftDelete(ctx context.Context, ids []int64) error
 	BatchUpdateProfile(ctx context.Context, input BatchProfileUpdate) error
@@ -196,6 +199,34 @@ func (r *GormRepository) UpdateUser(ctx context.Context, id int64, fields map[st
 		Updates(fields).Error
 }
 
+func (r *GormRepository) ExistsEmailForOtherUser(ctx context.Context, userID int64, email string) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrRepositoryNotConfigured
+	}
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&User{}).
+		Where("email = ?", email).
+		Where("id <> ?", userID).
+		Where("is_del = ?", commonNo).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *GormRepository) ExistsPhoneForOtherUser(ctx context.Context, userID int64, phone string) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrRepositoryNotConfigured
+	}
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&User{}).
+		Where("phone = ?", phone).
+		Where("id <> ?", userID).
+		Where("is_del = ?", commonNo).
+		Count(&count).Error
+	return count > 0, err
+}
+
 func (r *GormRepository) UpdateProfile(ctx context.Context, userID int64, fields map[string]any) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
@@ -208,6 +239,26 @@ func (r *GormRepository) UpdateProfile(ctx context.Context, userID int64, fields
 		Where("user_id = ?", userID).
 		Where("is_del = ?", commonNo).
 		Updates(fields).Error
+}
+
+func (r *GormRepository) EnsureProfile(ctx context.Context, profile Profile) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	if profile.UserID <= 0 {
+		return nil
+	}
+	now := time.Now()
+	if profile.CreatedAt.IsZero() {
+		profile.CreatedAt = now
+	}
+	if profile.UpdatedAt.IsZero() {
+		profile.UpdatedAt = now
+	}
+	if profile.IsDel == 0 {
+		profile.IsDel = commonNo
+	}
+	return r.db.WithContext(ctx).Create(&profile).Error
 }
 
 func (r *GormRepository) UpdateStatus(ctx context.Context, id int64, status int) error {

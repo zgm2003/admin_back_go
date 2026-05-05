@@ -25,6 +25,8 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Driver      string `binding:"required,upload_driver"`
 		ImageExt    string `binding:"required,upload_image_ext"`
 		FileExt     string `binding:"required,upload_file_ext"`
+		Folder      string `binding:"required,upload_folder"`
+		VerifyType  string `binding:"required,user_verify_type"`
 	}
 
 	valid := request{
@@ -41,6 +43,8 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Driver:      "cos",
 		ImageExt:    "png",
 		FileExt:     "pdf",
+		Folder:      "images",
+		VerifyType:  "password",
 	}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid request, got %v", err)
@@ -69,6 +73,18 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid system setting value type to fail")
 	}
+
+	invalid = valid
+	invalid.Folder = "private"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid upload folder to fail")
+	}
+
+	invalid = valid
+	invalid.VerifyType = "totp"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid user verify type to fail")
+	}
 }
 
 func TestRegisterRejectsInvalidUploadValidators(t *testing.T) {
@@ -80,9 +96,10 @@ func TestRegisterRejectsInvalidUploadValidators(t *testing.T) {
 		Driver   string `binding:"required,upload_driver"`
 		ImageExt string `binding:"required,upload_image_ext"`
 		FileExt  string `binding:"required,upload_file_ext"`
+		Folder   string `binding:"required,upload_folder"`
 	}
 
-	valid := request{Driver: "oss", ImageExt: "webp", FileExt: "xlsx"}
+	valid := request{Driver: "oss", ImageExt: "webp", FileExt: "xlsx", Folder: "avatars"}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid upload request, got %v", err)
 	}
@@ -103,5 +120,11 @@ func TestRegisterRejectsInvalidUploadValidators(t *testing.T) {
 	invalid.FileExt = "php"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid file ext to fail")
+	}
+
+	invalid = valid
+	invalid.Folder = "tmp"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid upload folder to fail")
 	}
 }

@@ -17,3 +17,7 @@ func validateUploadImageExt(fl playground.FieldLevel) bool {
 func validateUploadFileExt(fl playground.FieldLevel) bool {
 	return enum.IsUploadFileExt(trimmedString(fl.Field()))
 }
+
+func validateUploadFolder(fl playground.FieldLevel) bool {
+	return enum.IsUploadFolder(trimmedString(fl.Field()))
+}

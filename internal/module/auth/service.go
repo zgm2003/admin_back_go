@@ -487,7 +487,7 @@ func (s *Service) verifyCode(ctx context.Context, account string, code string, s
 }
 
 func (s *Service) verifyCodeCacheKey(accountType string, scene string, account string) string {
-	return s.verifyCodeOptions.RedisPrefix + verifyCodeKey(accountType, scene, account)
+	return VerifyCodeCacheKey(s.verifyCodeOptions.RedisPrefix, accountType, scene, account)
 }
 
 func (s *Service) generateVerifyCode() (string, error) {

@@ -55,6 +55,7 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/upload-settings/:id/status", "system_uploadConfig_settingStatus"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings/:id", "system_uploadConfig_settingDel"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings", "system_uploadConfig_settingDel"},
+		{http.MethodPost, "/api/admin/v1/upload-tokens", "system_uploadToken_create"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files", "system_log_files"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines", "system_log_content"},
 	}
@@ -76,6 +77,18 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	}
 	if _, ok := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/Permission/add")]; ok {
 		t.Fatalf("new route rules must not carry legacy all-post endpoints")
+	}
+	if _, ok := rules[middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile")]; ok {
+		t.Fatalf("current profile update must not require user-manager button permission")
+	}
+	for _, path := range []string{
+		"/api/admin/v1/profile/security/password",
+		"/api/admin/v1/profile/security/email",
+		"/api/admin/v1/profile/security/phone",
+	} {
+		if _, ok := rules[middleware.NewRouteKey(http.MethodPut, path)]; ok {
+			t.Fatalf("current profile security route %s must not require user-manager button permission", path)
+		}
 	}
 }
 
@@ -107,6 +120,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/users", "batch_update_profile"},
 		{http.MethodDelete, "/api/admin/v1/users/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/users", "delete_batch"},
+		{http.MethodPut, "/api/admin/v1/profile", "update_profile"},
+		{http.MethodPut, "/api/admin/v1/profile/security/password", "update_password"},
+		{http.MethodPut, "/api/admin/v1/profile/security/email", "update_email"},
+		{http.MethodPut, "/api/admin/v1/profile/security/phone", "update_phone"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/operation-logs", "delete_batch"},
 		{http.MethodPost, "/api/admin/v1/system-settings", "create"},
@@ -127,6 +144,7 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/upload-settings/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings", "delete_batch"},
+		{http.MethodPost, "/api/admin/v1/upload-tokens", "create"},
 	}
 
 	for _, tt := range tests {

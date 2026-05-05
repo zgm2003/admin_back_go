@@ -19,6 +19,7 @@ import (
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadconfig"
+	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/validate"
 
@@ -44,6 +45,7 @@ type Dependencies struct {
 	SystemSettingService systemsetting.HTTPService
 	SystemLogService     systemlog.HTTPService
 	UploadConfigService  uploadconfig.HTTPService
+	UploadTokenService   uploadtoken.HTTPService
 	RealtimeHandler      *realtime.Handler
 	RoleService          role.HTTPService
 	AuthPlatformService  authplatform.HTTPService
@@ -89,6 +91,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	systemsetting.RegisterRoutes(router, deps.SystemSettingService)
 	systemlog.RegisterRoutes(router, deps.SystemLogService)
 	uploadconfig.RegisterRoutes(router, deps.UploadConfigService)
+	uploadtoken.RegisterRoutes(router, deps.UploadTokenService)
 	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)

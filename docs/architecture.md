@@ -43,6 +43,8 @@ cmd/admin-worker queue consumer / scheduler 独立进程边界
 internal/platform/taskqueue Asynq 封装边界
 internal/platform/scheduler gocron/v2 封装边界
 internal/jobs 版本化任务注册边界
+internal/module/uploadtoken COS-first 上传临时凭证签发边界
+internal/platform/storage/cos 腾讯云 COS STS signer 边界
 internal/platform/realtime gorilla/websocket 薄封装、Session/Manager/Publisher 边界
 internal/module/realtime admin WebSocket upgrade、envelope、heartbeat、subscribe 基础边界
 ```
@@ -75,6 +77,8 @@ user
 permission
 role
 operationlog
+uploadconfig
+uploadtoken
 ```
 
 `system` 用来证明架构能跑。RBAC 从 `auth/session/permission/role/user` 开始迁移。
@@ -282,6 +286,7 @@ Redis 未命中 -> MySQL user_sessions.access_token_hash
 MySQL 条件：revoked_at IS NULL、is_del = 2、expires_at > now
 命中 MySQL 后回写 Redis，并按 TOKEN_SESSION_CACHE_TTL 续期
 按 auth_platforms 执行 current platform、bind_platform、bind_device、bind_ip、single_session 策略
+access/refresh token 有效期只来自 auth_platforms.access_ttl / auth_platforms.refresh_ttl
 最终 AuthIdentity.Platform 来自 session.platform
 ```
 
@@ -289,6 +294,7 @@ MySQL 条件：revoked_at IS NULL、is_del = 2、expires_at > now
 
 ```text
 password login 通过 session.Create 签发 access/refresh token
+refresh 重新签发 access token 时继续读取当前 session.platform 对应 auth_platforms.access_ttl
 single_session / max_sessions 登录时撤销旧会话
 登录前必须通过 go-captcha slide 验证
 ```
@@ -382,8 +388,6 @@ REDIS_ADDR
 REDIS_PASSWORD
 REDIS_DB
 TOKEN_PEPPER
-TOKEN_ACCESS_TTL
-TOKEN_REFRESH_TTL
 TOKEN_REDIS_PREFIX
 TOKEN_REDIS_DB
 TOKEN_SESSION_CACHE_TTL
@@ -422,6 +426,8 @@ config 不连接 DB
 config 不连接 Redis
 config 不读取业务表
 platform 层以后根据 config 创建 client
+TOKEN_REDIS_PREFIX / TOKEN_REDIS_DB / TOKEN_SESSION_CACHE_TTL / TOKEN_SINGLE_SESSION_POINTER_TTL 是部署级 Redis/session 基础设施配置，保留 env
+TOKEN_ACCESS_TTL / TOKEN_REFRESH_TTL 不再存在；业务 token TTL 只在 auth_platforms 表中配置和管理
 ```
 
 ## Secretbox baseline
@@ -534,6 +540,7 @@ MYSQL_DSN 可由旧 PHP 环境变量 DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_
 REDIS_ADDR 可由旧 PHP 环境变量 REDIS_HOST/REDIS_PORT 组合得到
 Token Redis 使用独立 DB，默认 TOKEN_REDIS_DB = 2，对齐旧 PHP token 连接
 单端登录指针 TTL 默认 TOKEN_SINGLE_SESSION_POINTER_TTL = 720h，对齐旧 PHP 30 天指针
+access/refresh token TTL 不在 bootstrap/config 里生成；登录和 refresh 必须经 auth_platforms 平台策略读取
 构造资源不 Ping 外部服务
 Ping 放到后续 health/readiness 或运维检查里
 ```
@@ -933,6 +940,33 @@ users/init 仍只做当前登录用户 bootstrap；用户管理页字典使用 u
 export 暂时保留显式 legacy adapter，等待 Go export-task 队列模块迁移；这不是 silent fallback。
 ```
 
+## Profile + Avatar Upload Slice
+
+个人资料是第一个真实上传业务闭环。它仍归 `internal/module/user`，因为表事实是 `users` + `user_profiles`，没有必要为了“看起来规范”新开空模块。
+
+```text
+GET /api/admin/v1/profile            # 当前 token 用户资料
+GET /api/admin/v1/users/:id/profile  # 用户管理跳转只读查看
+PUT /api/admin/v1/profile            # 当前 token 用户编辑自己的资料
+PUT /api/admin/v1/profile/security/password # 当前 token 用户修改/设置登录密码
+PUT /api/admin/v1/profile/security/email    # 当前 token 用户绑定或换绑邮箱
+PUT /api/admin/v1/profile/security/phone    # 当前 token 用户绑定或换绑手机号
+```
+
+关键规则：
+
+```text
+GET 不创建缺失的 user_profiles；只按默认值返回，避免读接口偷偷写库。
+PUT 只允许改 username/avatar/sex/birthday/address_id/detail_address/bio。
+PUT 不接受 address 旧别名，只接受 address_id。
+PUT 不允许改 email/phone/role_id/password/has_password/is_self。
+用户编辑自己资料不挂 user_userManager_edit；只需要登录态，并记录 OperationLog(profile.update_profile)。
+头像上传不做服务端转存；前端 UpMedia 继续通过 POST /api/admin/v1/upload-tokens 获取 COS 临时凭证，folder=avatars。
+手机号、邮箱、密码安全流程已迁到 Go REST，仍归 user module；只需要登录态，不挂 user_userManager_edit。
+账号安全验证码复用 auth/send-code 的 Redis key 规则，service 通过最小 VerifyCodeStore 接口消费，不让 handler 或 repository 碰 Redis。
+OperationLog route metadata 固定为 profile_security.update_password / update_email / update_phone，敏感字段必须被 sanitizer 遮蔽。
+```
+
 ## Basic admin smoke gate
 
 当前“基本 admin 能跑”的最小门禁不是全业务迁移完成，而是这条链路稳定：
@@ -990,9 +1024,12 @@ full smoke 规则：
 ```text
 先跑 basic smoke 作为基础链路
 只读探测 queue monitor JSON 摘要、failed pagination shape 和 asynqmon UI HEAD；不做 retry/delete/clear
+只读探测 system-logs init/files shape；文件列表非空时读取第一份日志 tail lines，不做 delete/clear/download
 只读探测 upload-drivers/upload-rules/upload-settings init/list shape
 VAULT_KEY 为空时跳过 upload config 写探针，并输出 upload_write_probe=skipped_no_vault_key
 VAULT_KEY 存在时只创建 disabled 临时 driver/rule/setting，再按 setting -> rule -> driver 反向清理；永远不启用临时 setting，也不修改现有 enabled setting
+COS_STS_ENABLED=false 时跳过 upload token 探针，并输出 upload_token_probe=skipped_cos_sts_disabled
+COS_STS_ENABLED=true 时 POST /api/admin/v1/upload-tokens 只校验 provider/key/credentials shape，不上传真实文件
 再单独验证 operation log init/list/delete
 用临时权限触发 `新增权限` 审计日志
 删除 operation log 行后必须确认它不再出现在列表里
@@ -1006,7 +1043,7 @@ VAULT_KEY 存在时只创建 disabled 临时 driver/rule/setting，再按 settin
 
 ```text
 完整业务模块迁移
-上传 runtime/token、COS STS、服务端上传；OSS runtime 只作为可选扩展
+服务端上传；OSS runtime 只作为可选扩展
 ```
 
 
@@ -1027,7 +1064,7 @@ Go 后端从认证平台开始建立统一基础件：
 ```text
 internal/enum/upload.go      # cos/oss、上传扩展名、上传 folder 白名单
 internal/dict.Upload*Options # upload driver/image ext/file ext dict
-internal/validate/upload.go  # upload_driver/upload_image_ext/upload_file_ext
+internal/validate/upload.go  # upload_driver/upload_image_ext/upload_file_ext/upload_folder
 ```
 
 `internal/module/uploadconfig` 只管理配置事实源：
@@ -1045,5 +1082,60 @@ driver secret 永远不返回明文或密文，只返回 hint
 driver/rule 被 setting 引用时不能删除
 setting 启用互斥必须在 repository transaction 内完成，不能靠前端猜或两条普通 update 碰运气
 uploadconfig 不做 /api/getUploadToken，不安装任何云 SDK，不做真实上传
-后续 upload runtime 默认只接受 COS 依赖；OSS SDK 不进入默认 go.mod/package.json，缺少可选实现时必须显式报错
+upload runtime 默认只接受 COS 依赖；OSS SDK 不进入默认 go.mod/package.json，缺少可选实现时必须显式报错
+```
+
+`internal/module/uploadtoken` 管理运行时 token 签发：
+
+```text
+POST /api/admin/v1/upload-tokens
+```
+
+规则：
+
+```text
+只读取当前 enabled upload_setting，并 join driver/rule；不改 upload_* 表结构
+只接受 driver=cos；driver=oss 必须显式报“当前上传驱动未启用 COS runtime”
+folder/file_name/file_size/file_kind 在 handler/service 双层校验，folder 来自 enum.UploadFolders
+object key 由服务端生成：{folder}/{yyyy}/{mm}/{dd}/{unix_ms}-{randomhex}-{safe_file_name}
+rule.max_size_mb/image_exts/file_exts 是上传限制真相；前端校验只做体验优化
+secret_id_enc/secret_key_enc 只在 service 内用 secretbox 解密并传给 signer，响应和 operation log 不返回明文
+COS_STS_ENABLED=false 时 signer 返回 ErrDisabled，接口明确报 COS 临时凭证未启用
+```
+
+上传业务归属规则：
+
+```text
+uploadtoken 只签发临时凭证，不定义业务。
+禁止新建无业务归属的 upload scene；folder 只能服务已经存在或正在迁移的业务实体。
+业务模块先定义自己的表字段、状态、权限、操作日志和 REST contract，再接 upload token/client。
+业务模块负责保存 object key/url 等引用；uploadtoken 不落业务引用、不创建“无主文件”事实源。
+后续 AI agent avatar、chat attachment、rich text image 等都必须作为对应业务模块的一部分迁移，不能为了“上传页面”单独偷跑。
+```
+
+`internal/platform/storage/cos` 是唯一 COS STS 供应商边界：
+
+```text
+采用 github.com/tencentyun/qcloud-cos-sts-sdk/go 签发 STS 临时凭证
+module 只依赖 CredentialSigner 小接口，不知道 SDK 类型
+STS policy 只授权当前生成 key 的 PutObject/PostObject，不给 bucket 全量写权限
+所有网络调用必须接收 context，并由 signer 加 timeout
+测试用 fake requester / httptest server，不打真实腾讯网络
+```
+
+开源取舍：
+
+```text
+qcloud-cos-sts-sdk/go 是本阶段合适的轻量依赖，因为这里只签临时凭证，不做服务端 object 操作
+cos-go-sdk-v5 暂不引入，避免把服务端上传/下载 client 伪装成 runtime token 的必要依赖
+阿里云 OSS Go/JS SDK 不进入默认依赖；OSS 只保留配置事实源和未来 optional extension 入口
+```
+
+前端共享上传客户端：
+
+```text
+src/api/system/uploadToken.ts 定义 Go REST typed API
+src/lib/upload/uploadClient.ts 只保留 cos-js-sdk-v5 动态加载
+不再使用 legacyRequest、/api/getUploadToken、ali-oss、any/as any/Record<string, any>
+OSS runtime 不是默认能力；请求到 OSS 必须显式错误，不能静默 fallback 到 COS
 ```

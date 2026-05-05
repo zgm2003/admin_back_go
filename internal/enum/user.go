@@ -20,3 +20,22 @@ func IsSex(value int) bool {
 	}
 	return false
 }
+
+const (
+	VerifyTypePassword = "password"
+	VerifyTypeCode     = "code"
+)
+
+var UserVerifyTypes = []string{
+	VerifyTypePassword,
+	VerifyTypeCode,
+}
+
+func IsUserVerifyType(value string) bool {
+	for _, item := range UserVerifyTypes {
+		if value == item {
+			return true
+		}
+	}
+	return false
+}

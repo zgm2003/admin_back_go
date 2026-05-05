@@ -48,6 +48,7 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/upload-settings/:id/status"):  "system_uploadConfig_settingStatus",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings/:id"):        "system_uploadConfig_settingDel",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings"):            "system_uploadConfig_settingDel",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"):                "system_uploadToken_create",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files"):             "system_log_files",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines"): "system_log_content",
 	}
@@ -155,6 +156,26 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Action: "delete_batch",
 			Title:  "批量删除用户",
 		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile"): {
+			Module: "profile",
+			Action: "update_profile",
+			Title:  "编辑个人资料",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile/security/password"): {
+			Module: "profile_security",
+			Action: "update_password",
+			Title:  "修改登录密码",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile/security/email"): {
+			Module: "profile_security",
+			Action: "update_email",
+			Title:  "绑定或换绑邮箱",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile/security/phone"): {
+			Module: "profile_security",
+			Action: "update_phone",
+			Title:  "绑定或换绑手机号",
+		},
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs/:id"): {
 			Module: "operation_log",
 			Action: "delete",
@@ -254,6 +275,11 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "upload_setting",
 			Action: "delete_batch",
 			Title:  "批量删除上传设置",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"): {
+			Module: "upload_token",
+			Action: "create",
+			Title:  "签发上传凭证",
 		},
 	}
 }

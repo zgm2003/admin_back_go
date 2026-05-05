@@ -22,12 +22,19 @@ type fakeUserRepository struct {
 	listTotal            int64
 	entries              []QuickEntry
 	rolesByID            map[int64]*Role
+	emailUsed            bool
+	phoneUsed            bool
+	existsEmailUserID    int64
+	existsEmail          string
+	existsPhoneUserID    int64
+	existsPhone          string
 	listQuery            ListQuery
 	txCalled             bool
 	updatedUserID        int64
 	updatedUserFields    map[string]any
 	updatedProfileUserID int64
 	updatedProfileFields map[string]any
+	ensuredProfile       *Profile
 	statusUserID         int64
 	statusValue          int
 	deletedIDs           []int64
@@ -88,9 +95,26 @@ func (f *fakeUserRepository) UpdateUser(ctx context.Context, id int64, fields ma
 	return f.err
 }
 
+func (f *fakeUserRepository) ExistsEmailForOtherUser(ctx context.Context, userID int64, email string) (bool, error) {
+	f.existsEmailUserID = userID
+	f.existsEmail = email
+	return f.emailUsed, f.err
+}
+
+func (f *fakeUserRepository) ExistsPhoneForOtherUser(ctx context.Context, userID int64, phone string) (bool, error) {
+	f.existsPhoneUserID = userID
+	f.existsPhone = phone
+	return f.phoneUsed, f.err
+}
+
 func (f *fakeUserRepository) UpdateProfile(ctx context.Context, userID int64, fields map[string]any) error {
 	f.updatedProfileUserID = userID
 	f.updatedProfileFields = fields
+	return f.err
+}
+
+func (f *fakeUserRepository) EnsureProfile(ctx context.Context, profile Profile) error {
+	f.ensuredProfile = &profile
 	return f.err
 }
 
@@ -147,6 +171,33 @@ func (f *fakeButtonCache) Delete(ctx context.Context, key string) error {
 	f.values = nil
 	f.ttl = 0
 	return f.err
+}
+
+type fakeVerifyCodeStore struct {
+	values     map[string]string
+	deletedKey string
+	err        error
+}
+
+func (f *fakeVerifyCodeStore) Get(ctx context.Context, key string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.values[key], nil
+}
+
+func (f *fakeVerifyCodeStore) Delete(ctx context.Context, key string) error {
+	f.deletedKey = key
+	return f.err
+}
+
+func mustUserPasswordHash(t *testing.T, password string) string {
+	t.Helper()
+	hash, err := hashUserPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	return hash
 }
 
 func TestServiceInitReturnsLegacyResponseAndCachesButtons(t *testing.T) {
@@ -289,6 +340,227 @@ func TestServicePageInitReturnsRoleSexPlatformAndAddressTree(t *testing.T) {
 	tree := got.Dict.AuthAddressTree
 	if len(tree) != 1 || tree[0].Value != 1 || len(tree[0].Children) != 1 || tree[0].Children[0].Children[0].Value != 3 {
 		t.Fatalf("address tree mismatch: %#v", tree)
+	}
+}
+
+func TestServiceProfileReturnsDetailDictAndSelfFlag(t *testing.T) {
+	password := "$2y$10$hash"
+	birthday := time.Date(2000, 1, 2, 0, 0, 0, 0, time.Local)
+	svc := NewService(&fakeUserRepository{
+		user: &User{ID: 8, Username: "alice", Email: "alice@example.com", Phone: "15600000000", RoleID: 2, Password: &password},
+		profile: &Profile{
+			UserID:        8,
+			Avatar:        "avatar.png",
+			Sex:           enum.SexFemale,
+			Birthday:      &birthday,
+			AddressID:     3,
+			DetailAddress: "玄武区",
+			Bio:           "bio",
+		},
+		role: &Role{ID: 2, Name: "运营"},
+		addresses: []Address{
+			{ID: 1, ParentID: 0, Name: "中国"},
+			{ID: 3, ParentID: 1, Name: "南京"},
+		},
+	}, &fakePermissionBuilder{}, nil, time.Minute)
+
+	got, appErr := svc.Profile(context.Background(), 8, 8)
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if got.Profile.UserID != 8 || got.Profile.Username != "alice" || got.Profile.Avatar != "avatar.png" {
+		t.Fatalf("profile base mismatch: %#v", got.Profile)
+	}
+	if got.Profile.RoleName != "运营" || got.Profile.Birthday != "2000-01-02" || !got.Profile.HasPassword || got.Profile.IsSelf != enum.CommonYes {
+		t.Fatalf("profile derived fields mismatch: %#v", got.Profile)
+	}
+	if len(got.Dict.SexArr) != 3 || len(got.Dict.VerifyTypeArr) != 2 || got.Dict.VerifyTypeArr[0].Value != "password" || got.Dict.VerifyTypeArr[1].Value != "code" {
+		t.Fatalf("profile dict mismatch: %#v", got.Dict)
+	}
+	if len(got.Dict.AuthAddressTree) != 1 || got.Dict.AuthAddressTree[0].Value != 1 {
+		t.Fatalf("address tree mismatch: %#v", got.Dict.AuthAddressTree)
+	}
+}
+
+func TestServiceUpdatePasswordWithOldPasswordWritesBcryptHash(t *testing.T) {
+	hash := mustUserPasswordHash(t, "old-secret")
+	repo := &fakeUserRepository{user: &User{ID: 9, Password: &hash}}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute)
+
+	appErr := svc.UpdatePassword(context.Background(), UpdatePasswordInput{
+		UserID:          9,
+		VerifyType:      enum.VerifyTypePassword,
+		OldPassword:     " old-secret ",
+		NewPassword:     "new-secret",
+		ConfirmPassword: "new-secret",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	gotHash, ok := repo.updatedUserFields["password"].(string)
+	if !ok || gotHash == "" || gotHash == hash {
+		t.Fatalf("expected new password hash, got fields=%#v", repo.updatedUserFields)
+	}
+	if gotHash[:4] != "$2y$" {
+		t.Fatalf("expected stored hash to use $2y$ prefix, got %q", gotHash[:4])
+	}
+	if !verifyUserPassword("new-secret", gotHash) {
+		t.Fatalf("new password hash does not verify")
+	}
+}
+
+func TestServiceUpdatePasswordWithCodeConsumesOwnedAccountCode(t *testing.T) {
+	store := &fakeVerifyCodeStore{values: map[string]string{
+		"auth:verify_code:email:change_password:c160f8cc69a4f0bf2b0362752353d060": "123456",
+	}}
+	repo := &fakeUserRepository{user: &User{ID: 9, Email: "alice@example.com"}}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+
+	appErr := svc.UpdatePassword(context.Background(), UpdatePasswordInput{
+		UserID:          9,
+		VerifyType:      enum.VerifyTypeCode,
+		Account:         " alice@example.com ",
+		Code:            "123456",
+		NewPassword:     "new-secret",
+		ConfirmPassword: "new-secret",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if store.deletedKey == "" {
+		t.Fatalf("expected verification code to be consumed")
+	}
+	if _, ok := repo.updatedUserFields["password"].(string); !ok {
+		t.Fatalf("expected password update, got %#v", repo.updatedUserFields)
+	}
+}
+
+func TestServiceUpdateEmailConsumesBindEmailCodeAndRejectsDuplicate(t *testing.T) {
+	store := &fakeVerifyCodeStore{values: map[string]string{
+		"auth:verify_code:email:bind_email:b681d72feaf8bf6a93d9a8ab86679ec3": "123456",
+	}}
+	repo := &fakeUserRepository{user: &User{ID: 9}}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+
+	appErr := svc.UpdateEmail(context.Background(), UpdateEmailInput{UserID: 9, Email: " new@example.com ", Code: "123456"})
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if repo.existsEmailUserID != 9 || repo.existsEmail != "new@example.com" {
+		t.Fatalf("duplicate email check mismatch: %#v", repo)
+	}
+	if repo.updatedUserFields["email"] != "new@example.com" || store.deletedKey == "" {
+		t.Fatalf("email update/code consume mismatch: fields=%#v deleted=%q", repo.updatedUserFields, store.deletedKey)
+	}
+
+	dupRepo := &fakeUserRepository{user: &User{ID: 9}, emailUsed: true}
+	dupSvc := NewService(dupRepo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	appErr = dupSvc.UpdateEmail(context.Background(), UpdateEmailInput{UserID: 9, Email: "used@example.com", Code: "123456"})
+	if appErr == nil || appErr.Message != "邮箱已被绑定" {
+		t.Fatalf("expected duplicate email error, got %#v", appErr)
+	}
+}
+
+func TestServiceUpdatePhoneConsumesBindPhoneCodeAndRejectsDuplicate(t *testing.T) {
+	store := &fakeVerifyCodeStore{values: map[string]string{
+		"auth:verify_code:phone:bind_phone:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	repo := &fakeUserRepository{user: &User{ID: 9}}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+
+	appErr := svc.UpdatePhone(context.Background(), UpdatePhoneInput{UserID: 9, Phone: " 15671628271 ", Code: "123456"})
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if repo.existsPhoneUserID != 9 || repo.existsPhone != "15671628271" {
+		t.Fatalf("duplicate phone check mismatch: %#v", repo)
+	}
+	if repo.updatedUserFields["phone"] != "15671628271" || store.deletedKey == "" {
+		t.Fatalf("phone update/code consume mismatch: fields=%#v deleted=%q", repo.updatedUserFields, store.deletedKey)
+	}
+
+	dupRepo := &fakeUserRepository{user: &User{ID: 9}, phoneUsed: true}
+	dupSvc := NewService(dupRepo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	appErr = dupSvc.UpdatePhone(context.Background(), UpdatePhoneInput{UserID: 9, Phone: "15671628271", Code: "123456"})
+	if appErr == nil || appErr.Message != "手机号已被绑定" {
+		t.Fatalf("expected duplicate phone error, got %#v", appErr)
+	}
+}
+
+func TestServiceProfileReturnsDefaultsWhenProfileMissing(t *testing.T) {
+	repo := &fakeUserRepository{
+		user: &User{ID: 9, Username: "bob", RoleID: 2},
+		role: &Role{ID: 2, Name: "运营"},
+	}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute)
+
+	got, appErr := svc.Profile(context.Background(), 9, 8)
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if repo.ensuredProfile != nil {
+		t.Fatalf("read path must not create missing profile: %#v", repo.ensuredProfile)
+	}
+	if got.Profile.IsSelf != enum.CommonNo || got.Profile.AddressID != 0 || got.Profile.Birthday != "" {
+		t.Fatalf("profile defaults mismatch: %#v", got.Profile)
+	}
+}
+
+func TestServiceUpdateProfileUpdatesOnlyCurrentUserSafeFields(t *testing.T) {
+	birthday := "2026-05-05"
+	repo := &fakeUserRepository{
+		user:    &User{ID: 9, Username: "old", RoleID: 1},
+		profile: &Profile{UserID: 9},
+	}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute)
+
+	appErr := svc.UpdateProfile(context.Background(), UpdateProfileInput{
+		UserID:        9,
+		Username:      " new name ",
+		Avatar:        " avatar.png ",
+		Sex:           enum.SexMale,
+		Birthday:      &birthday,
+		AddressID:     0,
+		DetailAddress: " 玄武区 ",
+		Bio:           " bio ",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if !repo.txCalled || repo.updatedUserID != 9 || repo.updatedUserFields["username"] != "new name" {
+		t.Fatalf("user update mismatch: %#v fields=%#v", repo, repo.updatedUserFields)
+	}
+	if repo.updatedProfileUserID != 9 {
+		t.Fatalf("profile user id mismatch: %d", repo.updatedProfileUserID)
+	}
+	if repo.updatedProfileFields["avatar"] != "avatar.png" || repo.updatedProfileFields["sex"] != enum.SexMale || repo.updatedProfileFields["address_id"] != int64(0) {
+		t.Fatalf("profile update fields mismatch: %#v", repo.updatedProfileFields)
+	}
+	if got, ok := repo.updatedProfileFields["birthday"].(*time.Time); !ok || got == nil || got.Format("2006-01-02") != "2026-05-05" {
+		t.Fatalf("birthday was not parsed as date pointer: %#v", repo.updatedProfileFields["birthday"])
+	}
+}
+
+func TestServiceUpdateProfileRejectsInvalidBirthday(t *testing.T) {
+	birthday := "2026/05/05"
+	svc := NewService(&fakeUserRepository{user: &User{ID: 9}}, &fakePermissionBuilder{}, nil, time.Minute)
+
+	appErr := svc.UpdateProfile(context.Background(), UpdateProfileInput{
+		UserID:   9,
+		Username: "alice",
+		Sex:      enum.SexUnknown,
+		Birthday: &birthday,
+	})
+
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "生日格式错误" {
+		t.Fatalf("expected invalid birthday error, got %#v", appErr)
 	}
 }
 

@@ -8,6 +8,7 @@ type User struct {
 	Username  string    `gorm:"column:username"`
 	Email     string    `gorm:"column:email"`
 	Phone     string    `gorm:"column:phone"`
+	Password  *string   `gorm:"column:password"`
 	Status    int       `gorm:"column:status"`
 	IsDel     int       `gorm:"column:is_del"`
 	CreatedAt time.Time `gorm:"column:created_at"`
@@ -19,15 +20,16 @@ func (User) TableName() string {
 }
 
 type Profile struct {
-	UserID        int64     `gorm:"column:user_id"`
-	Avatar        string    `gorm:"column:avatar"`
-	Bio           string    `gorm:"column:bio"`
-	Sex           int       `gorm:"column:sex"`
-	AddressID     int64     `gorm:"column:address_id"`
-	DetailAddress string    `gorm:"column:detail_address"`
-	IsDel         int       `gorm:"column:is_del"`
-	CreatedAt     time.Time `gorm:"column:created_at"`
-	UpdatedAt     time.Time `gorm:"column:updated_at"`
+	UserID        int64      `gorm:"column:user_id"`
+	Avatar        string     `gorm:"column:avatar"`
+	Bio           string     `gorm:"column:bio"`
+	Sex           int        `gorm:"column:sex"`
+	Birthday      *time.Time `gorm:"column:birthday"`
+	AddressID     int64      `gorm:"column:address_id"`
+	DetailAddress string     `gorm:"column:detail_address"`
+	IsDel         int        `gorm:"column:is_del"`
+	CreatedAt     time.Time  `gorm:"column:created_at"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at"`
 }
 
 func (Profile) TableName() string {
