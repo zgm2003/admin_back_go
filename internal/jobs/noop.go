@@ -86,18 +86,11 @@ func NewNoopTask(payload NoopPayload) (taskqueue.Task, error) {
 	}, nil
 }
 
-// RegisterSchedules is the single place for cron-to-queue wiring. It is empty
-// until a real business schedule exists; fake cron jobs are worse than no cron.
+// RegisterSchedules intentionally registers no static schedule. DB-backed cron
+// tasks are owned by internal/module/crontask.SchedulerService so the System
+// Management page remains the runtime truth for enabled schedules.
 func RegisterSchedules(registrar ScheduleRegistrar, enqueuer taskqueue.Enqueuer, logger *slog.Logger) error {
-	return registerScheduleDefinitions(registrar, enqueuer, logger, []ScheduledTaskDefinition{
-		{
-			Name:  notificationtask.ScheduleDispatchDueName,
-			Every: notificationtask.ScheduleDispatchDueInterval,
-			BuildTask: func() (taskqueue.Task, error) {
-				return notificationtask.NewDispatchDueTask(notificationtask.DispatchDuePayload{})
-			},
-		},
-	})
+	return registerScheduleDefinitions(registrar, enqueuer, logger, nil)
 }
 
 func registerScheduleDefinitions(registrar ScheduleRegistrar, enqueuer taskqueue.Enqueuer, logger *slog.Logger, definitions []ScheduledTaskDefinition) error {

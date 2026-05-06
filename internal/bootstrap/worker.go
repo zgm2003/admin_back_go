@@ -8,6 +8,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notificationtask"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/scheduler"
@@ -84,6 +85,19 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 			return nil, err
 		}
 		worker.scheduler = s
+		cronScheduler := crontask.NewSchedulerService(
+			crontask.NewGormRepository(resources.DB),
+			crontask.NewDefaultRegistry(),
+			queueClient,
+			logger,
+		)
+		if err := cronScheduler.RegisterEnabled(context.Background(), s); err != nil {
+			_ = s.Shutdown(context.Background())
+			worker.queueServer.Shutdown()
+			_ = queueClient.Close()
+			_ = resources.Close()
+			return nil, err
+		}
 		if err := jobs.RegisterSchedules(s, queueClient, logger); err != nil {
 			_ = s.Shutdown(context.Background())
 			worker.queueServer.Shutdown()

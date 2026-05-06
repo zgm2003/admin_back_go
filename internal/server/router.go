@@ -10,6 +10,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -44,6 +45,7 @@ type Dependencies struct {
 	OperationRules          map[middleware.RouteKey]middleware.OperationRule
 	AuthService             auth.SessionService
 	CaptchaService          captcha.HTTPService
+	CronTaskService         crontask.HTTPService
 	UserService             user.HTTPService
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
@@ -101,6 +103,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	user.RegisterRoutes(router, deps.UserService)
 	notification.RegisterRoutes(router, deps.NotificationService)
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
+	crontask.RegisterRoutes(router, deps.CronTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	paychannel.RegisterRoutes(router, deps.PayChannelService)
 	payorder.RegisterRoutes(router, deps.PayOrderService)

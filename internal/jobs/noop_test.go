@@ -142,7 +142,7 @@ func TestRegisterScheduleDefinitionsOnlyEnqueuesTaskWhenTriggered(t *testing.T) 
 	}
 }
 
-func TestRegisterSchedulesRegistersNotificationDispatchDue(t *testing.T) {
+func TestRegisterSchedulesDoesNotRegisterStaticNotificationDispatchDue(t *testing.T) {
 	registrar := &fakeScheduleRegistrar{}
 	enqueuer := &fakeEnqueuer{}
 
@@ -150,21 +150,11 @@ func TestRegisterSchedulesRegistersNotificationDispatchDue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterSchedules returned error: %v", err)
 	}
-	if len(registrar.everyCalls) != 1 {
-		t.Fatalf("expected one registered interval schedule, got %#v", registrar.everyCalls)
-	}
-	call := registrar.everyCalls[0]
-	if call.name != notificationtask.ScheduleDispatchDueName || call.interval != notificationtask.ScheduleDispatchDueInterval {
-		t.Fatalf("unexpected schedule call: %#v", call)
+	if len(registrar.everyCalls) != 0 || len(registrar.cronCalls) != 0 {
+		t.Fatalf("static schedules must stay empty; DB-backed cron task service owns registration, every=%#v cron=%#v", registrar.everyCalls, registrar.cronCalls)
 	}
 	if len(enqueuer.tasks) != 0 {
 		t.Fatalf("registration should not enqueue immediately, got %#v", enqueuer.tasks)
-	}
-	if err := call.task(context.Background()); err != nil {
-		t.Fatalf("scheduled task returned error: %v", err)
-	}
-	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != notificationtask.TypeDispatchDueV1 {
-		t.Fatalf("expected dispatch-due enqueue on trigger, got %#v", enqueuer.tasks)
 	}
 }
 

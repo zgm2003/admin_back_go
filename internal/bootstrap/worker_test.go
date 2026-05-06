@@ -43,7 +43,7 @@ func TestNewWorkerRejectsQueueEnabledWithoutRedis(t *testing.T) {
 	}
 }
 
-func TestNewWorkerBuildsQueueAndSchedulerWithoutPingingRedis(t *testing.T) {
+func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 	worker, err := NewWorker(config.Config{
 		Redis: config.RedisConfig{
 			Addr:     "127.0.0.1:1",
@@ -62,13 +62,10 @@ func TestNewWorkerBuildsQueueAndSchedulerWithoutPingingRedis(t *testing.T) {
 			DefaultMaxRetry: 3,
 			DefaultTimeout:  30 * time.Second,
 		},
-		Scheduler: config.SchedulerConfig{
-			Enabled:  true,
-			Timezone: "UTC",
-		},
+		Scheduler: config.SchedulerConfig{Enabled: false},
 	}, slog.Default())
 	if err != nil {
-		t.Fatalf("expected worker to build without pinging redis, got %v", err)
+		t.Fatalf("expected worker queue to build without pinging redis, got %v", err)
 	}
 	defer worker.Shutdown(t.Context())
 
@@ -78,8 +75,33 @@ func TestNewWorkerBuildsQueueAndSchedulerWithoutPingingRedis(t *testing.T) {
 	if worker.queueClient == nil {
 		t.Fatalf("expected queue client")
 	}
-	if worker.scheduler == nil {
-		t.Fatalf("expected scheduler")
+	if worker.scheduler != nil {
+		t.Fatalf("expected nil scheduler when scheduler disabled")
+	}
+}
+
+func TestNewWorkerRejectsSchedulerEnabledWithoutDatabase(t *testing.T) {
+	worker, err := NewWorker(config.Config{
+		Redis: config.RedisConfig{Addr: "127.0.0.1:1"},
+		Queue: config.QueueConfig{
+			Enabled:         true,
+			RedisDB:         3,
+			Concurrency:     2,
+			DefaultQueue:    "default",
+			CriticalWeight:  6,
+			DefaultWeight:   3,
+			LowWeight:       1,
+			ShutdownTimeout: time.Second,
+			DefaultMaxRetry: 3,
+			DefaultTimeout:  30 * time.Second,
+		},
+		Scheduler: config.SchedulerConfig{Enabled: true, Timezone: "UTC"},
+	}, slog.Default())
+	if err == nil {
+		t.Fatalf("expected scheduler enabled without database to fail")
+	}
+	if worker != nil {
+		t.Fatalf("expected nil worker on scheduler configuration error")
 	}
 }
 

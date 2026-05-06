@@ -20,6 +20,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -452,6 +453,85 @@ func (fakeRepositoryForNotificationRouter) MarkRead(ctx context.Context, input n
 
 func (fakeRepositoryForNotificationRouter) Delete(ctx context.Context, input notification.DeleteInput) (int64, error) {
 	return 0, nil
+}
+
+type fakeRouterCronTaskService struct {
+	listQuery crontask.ListQuery
+	statusID  int64
+	status    int
+	logsQuery crontask.LogsQuery
+}
+
+func (f *fakeRouterCronTaskService) Init(ctx context.Context) (*crontask.InitResponse, *apperror.Error) {
+	return crontask.NewService(&fakeCronTaskRepositoryForRouter{}, crontask.NewDefaultRegistry()).Init(ctx)
+}
+
+func (f *fakeRouterCronTaskService) List(ctx context.Context, query crontask.ListQuery) (*crontask.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &crontask.ListResponse{
+		List: []crontask.ListItem{{ID: 1, Name: "notification_task_scheduler", RegistryStatus: crontask.RegistryStatusRegistered}},
+		Page: crontask.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterCronTaskService) Create(ctx context.Context, input crontask.SaveInput) (*crontask.ListItem, *apperror.Error) {
+	return &crontask.ListItem{ID: 1, Name: input.Name, Title: input.Title}, nil
+}
+
+func (f *fakeRouterCronTaskService) Update(ctx context.Context, id int64, input crontask.SaveInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterCronTaskService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusID = id
+	f.status = status
+	return nil
+}
+
+func (f *fakeRouterCronTaskService) Delete(ctx context.Context, ids []int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterCronTaskService) Logs(ctx context.Context, query crontask.LogsQuery) (*crontask.LogsResponse, *apperror.Error) {
+	f.logsQuery = query
+	return &crontask.LogsResponse{List: []crontask.LogItem{}, Page: crontask.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+type fakeCronTaskRepositoryForRouter struct{}
+
+func (fakeCronTaskRepositoryForRouter) List(ctx context.Context, query crontask.ListQuery) ([]crontask.Task, int64, error) {
+	return nil, 0, nil
+}
+func (fakeCronTaskRepositoryForRouter) ListAll(ctx context.Context, query crontask.ListQuery) ([]crontask.Task, error) {
+	return nil, nil
+}
+func (fakeCronTaskRepositoryForRouter) NameExists(ctx context.Context, name string, excludeID int64) (bool, error) {
+	return false, nil
+}
+func (fakeCronTaskRepositoryForRouter) Create(ctx context.Context, row crontask.Task) (int64, error) {
+	return 0, nil
+}
+func (fakeCronTaskRepositoryForRouter) Get(ctx context.Context, id int64) (*crontask.Task, error) {
+	return nil, crontask.ErrTaskNotFound
+}
+func (fakeCronTaskRepositoryForRouter) Update(ctx context.Context, id int64, row crontask.Task) error {
+	return nil
+}
+func (fakeCronTaskRepositoryForRouter) UpdateStatus(ctx context.Context, id int64, status int) error {
+	return nil
+}
+func (fakeCronTaskRepositoryForRouter) Delete(ctx context.Context, ids []int64) error { return nil }
+func (fakeCronTaskRepositoryForRouter) Logs(ctx context.Context, query crontask.LogsQuery) ([]crontask.TaskLog, int64, error) {
+	return nil, 0, nil
+}
+func (fakeCronTaskRepositoryForRouter) ListEnabled(ctx context.Context) ([]crontask.Task, error) {
+	return nil, nil
+}
+func (fakeCronTaskRepositoryForRouter) LogStart(ctx context.Context, task crontask.Task, now time.Time) (int64, error) {
+	return 0, nil
+}
+func (fakeCronTaskRepositoryForRouter) LogEnd(ctx context.Context, logID int64, success bool, result string, errMsg string, now time.Time) error {
+	return nil
 }
 
 type fakeRouterSystemLogService struct {
@@ -1509,6 +1589,50 @@ func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(operationLogService.deleteIDs, []int64{9}) {
 		t.Fatalf("operation log delete mismatch: %#v", operationLogService.deleteIDs)
+	}
+}
+
+func TestRouterInstallsCronTaskRESTRoutes(t *testing.T) {
+	cronTaskService := &fakeRouterCronTaskService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/cron-tasks/:id/status"): "devTools_cronTask_status",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		CronTaskService: cronTaskService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks?current_page=1&page_size=20&status=1&registry_status=registered&title=通知", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected cron task list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if cronTaskService.listQuery.CurrentPage != 1 || cronTaskService.listQuery.PageSize != 20 || cronTaskService.listQuery.RegistryStatus != crontask.RegistryStatusRegistered || cronTaskService.listQuery.Title != "通知" {
+		t.Fatalf("cron task list query mismatch: %#v", cronTaskService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/cron-tasks/2/status", strings.NewReader(`{"status":2}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || cronTaskService.statusID != 2 || cronTaskService.status != enum.CommonNo {
+		t.Fatalf("cron task status mismatch: code=%d body=%s id=%d status=%d", recorder.Code, recorder.Body.String(), cronTaskService.statusID, cronTaskService.status)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks/2/logs?current_page=1&page_size=20&status=1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || cronTaskService.logsQuery.TaskID != 2 {
+		t.Fatalf("cron task logs mismatch: code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), cronTaskService.logsQuery)
 	}
 }
 

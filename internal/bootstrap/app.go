@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -199,6 +200,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		notificationtask.WithRealtimePublisher(realtimeStack.publisher),
 		notificationtask.WithLogger(logger),
 	)
+	cronTaskService := crontask.NewService(crontask.NewGormRepository(resources.DB), crontask.NewDefaultRegistry())
 	var operationRecorder middleware.OperationRecorder
 	if operationRepository != nil {
 		operationRecorder = operationlog.NewRecorder(operationRepository)
@@ -226,6 +228,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		OperationRules:          operationRouteRules(),
 		AuthService:             authService,
 		CaptchaService:          captchaService,
+		CronTaskService:         cronTaskService,
 		UserService:             userService,
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,

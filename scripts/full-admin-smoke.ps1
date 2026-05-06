@@ -1510,6 +1510,89 @@ function Assert-NotificationTaskList($Response) {
   }
 }
 
+function Assert-CronTaskInit($Response) {
+  Assert-ApiOK $Response 'cron task init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "cron task init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $presets = Get-ObjectArray $Response.data.dict.cron_preset_arr
+  $statuses = Get-ObjectArray $Response.data.dict.cron_task_status_arr
+  $registryStatuses = Get-ObjectArray $Response.data.dict.cron_task_registry_status_arr
+  $logStatuses = Get-ObjectArray $Response.data.dict.cron_task_log_status_arr
+  if ($presets.Count -le 0 -or $statuses.Count -ne 2 -or $registryStatuses.Count -ne 4 -or $logStatuses.Count -ne 3) {
+    throw "cron task init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    PresetCount = $presets.Count
+    StatusCount = $statuses.Count
+    RegistryStatusCount = $registryStatuses.Count
+    LogStatusCount = $logStatuses.Count
+  }
+}
+
+function Assert-CronTaskList($Response) {
+  Assert-ApiOK $Response 'cron task list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "cron task list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $registeredNotification = $false
+  $missingLegacy = $false
+  $firstID = 0
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "cron task item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "cron task item missing name/title: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.registry_status) -or [string]::IsNullOrWhiteSpace([string]$item.registry_status_text)) {
+      throw "cron task item missing registry status fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($firstID -eq 0) { $firstID = [int64]$item.id }
+    if ([string]$item.name -eq 'notification_task_scheduler' -and [string]$item.registry_status -eq 'registered') {
+      $registeredNotification = $true
+    }
+    if ([string]$item.registry_status -eq 'missing') {
+      $missingLegacy = $true
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+    NotificationRegistered = $registeredNotification
+    MissingLegacyPresent = $missingLegacy
+    FirstID = $firstID
+  }
+}
+
+function Assert-CronTaskLogs($Response) {
+  Assert-ApiOK $Response 'cron task logs'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "cron task logs missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "cron task log item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.status -or [string]::IsNullOrWhiteSpace([string]$item.status_name)) {
+      throw "cron task log item missing status fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -1943,6 +2026,26 @@ func main() {
     -TimeoutSec 10
   $notificationTaskListSummary = Assert-NotificationTaskList $notificationTaskList
 
+  $cronTaskInit = Invoke-RestMethod "$baseURL/api/admin/v1/cron-tasks/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $cronTaskInitSummary = Assert-CronTaskInit $cronTaskInit
+
+  $cronTaskList = Invoke-RestMethod "$baseURL/api/admin/v1/cron-tasks?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $cronTaskListSummary = Assert-CronTaskList $cronTaskList
+
+  $cronTaskLogsCode = $null
+  $cronTaskLogsSummary = [pscustomobject]@{ ListCount = 0; Total = 0 }
+  if ($cronTaskListSummary.FirstID -gt 0) {
+    $cronTaskLogs = Invoke-RestMethod "$baseURL/api/admin/v1/cron-tasks/$($cronTaskListSummary.FirstID)/logs?current_page=1&page_size=5" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $cronTaskLogsCode = $cronTaskLogs.code
+    $cronTaskLogsSummary = Assert-CronTaskLogs $cronTaskLogs
+  }
+
   $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2140,6 +2243,17 @@ func main() {
     notification_task_list_code = $notificationTaskList.code
     notification_task_list_count = $notificationTaskListSummary.ListCount
     notification_task_total = $notificationTaskListSummary.Total
+    cron_task_init_code = $cronTaskInit.code
+    cron_task_preset_count = $cronTaskInitSummary.PresetCount
+    cron_task_registry_status_count = $cronTaskInitSummary.RegistryStatusCount
+    cron_task_list_code = $cronTaskList.code
+    cron_task_list_count = $cronTaskListSummary.ListCount
+    cron_task_total = $cronTaskListSummary.Total
+    cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
+    cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent
+    cron_task_logs_code = $cronTaskLogsCode
+    cron_task_logs_count = $cronTaskLogsSummary.ListCount
+    cron_task_logs_total = $cronTaskLogsSummary.Total
     operation_log_init_code = $operationLogInit.code
     operation_log_before_max_id = $beforeMaxID
     operation_log_created_row_id = $operationLogRowID

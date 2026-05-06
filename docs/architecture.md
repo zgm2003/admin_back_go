@@ -660,6 +660,36 @@ key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
 
 旧 PHP 的 `devtools_queue_monitor_queues` 不再属于 Go system-settings 契约。Go 队列监控已经使用 `QUEUE_*` env、Asynq Redis lane 和官方 asynqmon UI；迁移时只清理这条旧配置项，不删除队列监控功能。
 
+
+## System cron task boundary
+
+系统管理的定时任务页已经迁到 Go REST：
+
+```text
+GET/POST/PUT/PATCH/DELETE /api/admin/v1/cron-tasks
+GET /api/admin/v1/cron-tasks/:id/logs
+```
+
+运行时边界：
+
+```text
+cron_task DB 只负责配置、状态、cron 表达式和页面展示
+Go crontask registry 才是可执行任务真相源
+admin-worker 启动时读取启用的 cron_task，并只注册 registry 中存在且 cron 合法的任务
+scheduler callback 只写 cron_task_log 并 enqueue Asynq task
+业务执行必须在 Asynq handler 内完成
+```
+
+当前唯一注册任务：
+
+```text
+notification_task_scheduler -> notification:dispatch-due:v1
+```
+
+`cron_task.handler` 保留为 legacy provenance/display，不允许按字符串动态执行 PHP/Go handler。未迁 Go 的 pay/AI/chat 等任务必须显示 `registry_status=missing`，不能注册假任务。
+
+修改 cron_task 后当前不做 worker 热重载；需要重启 admin-worker。未来多 worker 部署再引入 scheduler lock/reload，不在 admin-api 里跑 cron。
+
 ## Queue / worker baseline
 
 后台任务第一期不是微服务，而是单体内多进程：
@@ -760,9 +790,8 @@ worker handler 必须幂等，Asynq 是 at-least-once 语义
 ```text
 taskqueue.Mux 保存显式 handler registry；未知 task type 返回 ErrHandlerNotRegistered: <type>
 jobs.Register 是唯一 worker handler 注册入口
-jobs.RegisterSchedules 是唯一 cron-to-queue 注册入口
-ScheduledTaskDefinition 只能 build queue task；scheduler callback 只调用 Enqueuer.Enqueue
-当前第一条真实业务 schedule 是 notification-task-dispatch-due：每 1 分钟只投递 notification:dispatch-due:v1，不在 scheduler callback 里扫描 DB 或写通知
+cron-to-queue 注册入口迁到 internal/module/crontask.SchedulerService.RegisterEnabled，数据源是 cron_task 表 + Go registry
+当前第一条真实 Go cron registry 是 notification_task_scheduler：scheduler callback 写 cron_task_log 并 enqueue notification:dispatch-due:v1，不在 callback 里扫描业务表或写通知
 ```
 
 worker 配置含义：
@@ -1023,7 +1052,7 @@ DELETE /api/admin/v1/notification-tasks/:id
 notificationtask service 拥有 target_type/platform/send_at 业务校验。
 POST 无 send_at：写 notification_task pending 后立即 enqueue notification:send-task:v1。
 POST 有 send_at：只写 pending，等待 admin-worker scheduler。
-admin-worker 的 notification-task-dispatch-due schedule 每 1 分钟 enqueue notification:dispatch-due:v1。
+admin-worker 通过 cron_task 表里的 notification_task_scheduler 配置注册 gocron，触发后 enqueue notification:dispatch-due:v1。
 dispatch-due handler claim `send_at IS NULL` 的立即 pending 任务和到期定时 pending 任务并 enqueue send-task；这给“DB 已写入但 enqueue/旧 worker 失败”的立即任务提供补偿路径。
 send-task handler 解析目标用户、批量写 notifications、更新 sent_count/status；handler 必须幂等，允许 Asynq at-least-once 重投。
 当前 DB 写入 + Redis enqueue 不是强事务；需要强一致时再加 outbox，不用 Redis queue 假装事务。
