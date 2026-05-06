@@ -55,7 +55,6 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/upload-settings/:id/status", "system_uploadConfig_settingStatus"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings/:id", "system_uploadConfig_settingDel"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings", "system_uploadConfig_settingDel"},
-		{http.MethodPost, "/api/admin/v1/upload-tokens", "system_uploadToken_create"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files", "system_log_files"},
 		{http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines", "system_log_content"},
 		{http.MethodPost, "/api/admin/v1/notification-tasks", "system_notificationTask_add"},
@@ -106,6 +105,9 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	}
 	if _, ok := rules[middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile")]; ok {
 		t.Fatalf("current profile update must not require user-manager button permission")
+	}
+	if _, ok := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens")]; ok {
+		t.Fatalf("upload token create must be current-user capability and must not require RBAC button permission")
 	}
 	for _, path := range []string{
 		"/api/admin/v1/profile/security/password",
@@ -194,7 +196,6 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/upload-settings/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/upload-settings", "delete_batch"},
-		{http.MethodPost, "/api/admin/v1/upload-tokens", "create"},
 		{http.MethodPost, "/api/admin/v1/notification-tasks", "create"},
 		{http.MethodPatch, "/api/admin/v1/notification-tasks/:id/cancel", "cancel"},
 		{http.MethodDelete, "/api/admin/v1/notification-tasks/:id", "delete"},
@@ -219,6 +220,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 				t.Fatalf("unexpected operation rule: %#v", got)
 			}
 		})
+	}
+
+	if _, ok := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens")]; ok {
+		t.Fatalf("upload token create must not be operation-logged because the response contains temporary STS credentials")
 	}
 
 	walletRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments")]

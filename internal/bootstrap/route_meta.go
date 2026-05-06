@@ -48,7 +48,6 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/upload-settings/:id/status"):    "system_uploadConfig_settingStatus",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings/:id"):          "system_uploadConfig_settingDel",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/upload-settings"):              "system_uploadConfig_settingDel",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"):                  "system_uploadToken_create",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files"):               "system_log_files",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/system-logs/files/:name/lines"):   "system_log_content",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/notification-tasks"):             "system_notificationTask_add",
@@ -301,11 +300,6 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "upload_setting",
 			Action: "delete_batch",
 			Title:  "批量删除上传设置",
-		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"): {
-			Module: "upload_token",
-			Action: "create",
-			Title:  "签发上传凭证",
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/notification-tasks"): {
 			Module: "notification_task",

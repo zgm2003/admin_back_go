@@ -1349,6 +1349,8 @@ POST /api/admin/v1/upload-tokens
 规则：
 
 ```text
+只要求 AuthToken；这是登录用户头像/聊天/富文本/文件字段会复用的 current-user capability，不要求 system_uploadToken_create 或其他 RBAC button 权限
+不注册 OperationLog route metadata；响应包含临时 STS credentials，真正保存上传对象引用的业务模块负责自己的操作日志
 只读取当前 enabled upload_setting，并 join driver/rule；不改 upload_* 表结构
 只接受 driver=cos；driver=oss 必须显式报“当前上传驱动未启用 COS runtime”
 folder/file_name/file_size/file_kind 在 handler/service 双层校验，folder 来自 enum.UploadFolders

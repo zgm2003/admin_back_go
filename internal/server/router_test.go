@@ -2036,17 +2036,14 @@ func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
 	uploadTokenService := &fakeRouterUploadTokenService{}
+	permissionChecked := false
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"): "system_uploadToken_create",
-		},
+		PermissionRules: map[middleware.RouteKey]string{},
 		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			if input.Code != "system_uploadToken_create" {
-				t.Fatalf("unexpected permission code %q", input.Code)
-			}
+			permissionChecked = true
 			return nil
 		},
 		UploadTokenService: uploadTokenService,
@@ -2060,6 +2057,9 @@ func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected upload token status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if permissionChecked {
+		t.Fatalf("upload token create must only require login and must not run RBAC permission checker")
 	}
 	if uploadTokenService.input.Folder != "images" || uploadTokenService.input.FileName != "demo.png" || uploadTokenService.input.FileSize != 1024 || uploadTokenService.input.FileKind != "image" {
 		t.Fatalf("upload token input mismatch: %#v", uploadTokenService.input)
