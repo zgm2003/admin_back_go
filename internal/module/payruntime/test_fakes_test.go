@@ -16,10 +16,19 @@ type fakeRepository struct {
 	createdTxn                  *PayTransaction
 	notifyTxn                   *PayTransaction
 	paySuccessResult            *PaySuccessResult
+	currentUserOrders           []CurrentUserOrderRow
+	currentUserOrderTotal       int64
+	lastCurrentUserOrderQuery   CurrentUserOrderListQuery
+	walletSummary               *WalletSummaryRow
+	walletBills                 []WalletBillRow
+	walletBillsTotal            int64
+	lastWalletBillsQuery        WalletBillsQuery
 	createdRechargeOrder        bool
 	createdTransaction          bool
 	createdTransactionAttemptNo int
 	closedPreviousTxn           bool
+	closedCurrentUserOrder      bool
+	closedCurrentUserReason     string
 	markedWaiting               bool
 	markedFailed                bool
 	notifyFailed                bool
@@ -45,8 +54,39 @@ func (r *fakeRepository) CreateRechargeOrder(ctx context.Context, input Recharge
 	return &RechargeOrderCreated{OrderID: 1, OrderNo: input.OrderNo, PayAmount: input.Amount, ExpireTime: input.ExpireTime}, nil
 }
 
+func (r *fakeRepository) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) ([]CurrentUserOrderRow, int64, error) {
+	r.lastCurrentUserOrderQuery = query
+	return r.currentUserOrders, r.currentUserOrderTotal, nil
+}
+
+func (r *fakeRepository) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
+	return r.orderForUpdate, nil
+}
+
 func (r *fakeRepository) GetOrderByNoForUpdate(ctx context.Context, orderNo string) (*Order, error) {
 	return r.orderForUpdate, nil
+}
+
+func (r *fakeRepository) FindLastAnyTransactionForOrder(ctx context.Context, orderID int64, successTxnID int64) (*PayTransaction, error) {
+	if r.lastTxn != nil {
+		return r.lastTxn, nil
+	}
+	return r.notifyTxn, nil
+}
+
+func (r *fakeRepository) CloseCurrentUserRechargeOrder(ctx context.Context, orderID int64, currentStatus int, reason string, now time.Time) (int64, error) {
+	r.closedCurrentUserOrder = true
+	r.closedCurrentUserReason = reason
+	return 1, nil
+}
+
+func (r *fakeRepository) CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryRow, error) {
+	return r.walletSummary, nil
+}
+
+func (r *fakeRepository) CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) ([]WalletBillRow, int64, error) {
+	r.lastWalletBillsQuery = query
+	return r.walletBills, r.walletBillsTotal, nil
 }
 
 func (r *fakeRepository) FindLastActiveTransactionForUpdate(ctx context.Context, orderID int64) (*PayTransaction, error) {

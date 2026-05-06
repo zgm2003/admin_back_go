@@ -20,9 +20,15 @@ type Repository interface {
 	FindActiveAlipayChannel(ctx context.Context, channelID int64) (*Channel, error)
 	FindLatestOngoingRechargeByUser(ctx context.Context, userID int64) (*Order, error)
 	CreateRechargeOrder(ctx context.Context, input RechargeOrderMutation) (*RechargeOrderCreated, error)
+	ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) ([]CurrentUserOrderRow, int64, error)
+	GetOrderByNo(ctx context.Context, orderNo string) (*Order, error)
 	GetOrderByNoForUpdate(ctx context.Context, orderNo string) (*Order, error)
+	FindLastAnyTransactionForOrder(ctx context.Context, orderID int64, successTxnID int64) (*PayTransaction, error)
 	FindLastActiveTransactionForUpdate(ctx context.Context, orderID int64) (*PayTransaction, error)
+	CloseCurrentUserRechargeOrder(ctx context.Context, orderID int64, currentStatus int, reason string, now time.Time) (int64, error)
 	CloseTransaction(ctx context.Context, txnID int64, now time.Time) error
+	CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryRow, error)
+	CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) ([]WalletBillRow, int64, error)
 	CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error)
 	MarkTransactionWaiting(ctx context.Context, txnID int64, raw map[string]any, now time.Time) error
 	MarkTransactionFailed(ctx context.Context, txnID int64, reason string, now time.Time) error
@@ -133,6 +139,62 @@ func (r *GormRepository) CreateRechargeOrder(ctx context.Context, input Recharge
 	return created, err
 }
 
+func (r *GormRepository) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) ([]CurrentUserOrderRow, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, ErrRepositoryNotConfigured
+	}
+	db := r.db.WithContext(ctx).
+		Table("orders AS o").
+		Joins("LEFT JOIN pay_channel AS pc ON pc.id = o.channel_id AND pc.is_del = ?", enum.CommonNo).
+		Joins("LEFT JOIN pay_transactions AS pt ON pt.id = (SELECT ptx.id FROM pay_transactions AS ptx WHERE ptx.order_id = o.id AND ptx.is_del = ? ORDER BY ptx.attempt_no DESC, ptx.id DESC LIMIT 1)", enum.CommonNo).
+		Where("o.user_id = ?", userID).
+		Where("o.order_type = ?", enum.PayOrderRecharge).
+		Where("o.is_del = ?", enum.CommonNo)
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var rows []CurrentUserOrderRow
+	err := db.Select(`
+			o.id,
+			o.order_no,
+			o.title,
+			o.pay_amount,
+			o.pay_status,
+			o.biz_status,
+			o.pay_time,
+			o.created_at,
+			o.expire_time,
+			o.channel_id,
+			pc.name AS channel_name,
+			o.pay_method,
+			pt.transaction_no,
+			pt.status AS transaction_status
+		`).
+		Order("o.id desc").
+		Limit(query.PageSize).
+		Offset((query.CurrentPage - 1) * query.PageSize).
+		Scan(&rows).Error
+	return rows, total, err
+}
+
+func (r *GormRepository) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row Order
+	err := r.db.WithContext(ctx).
+		Where("order_no = ?", strings.TrimSpace(orderNo)).
+		Where("is_del = ?", enum.CommonNo).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
 func (r *GormRepository) GetOrderByNoForUpdate(ctx context.Context, orderNo string) (*Order, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
@@ -165,6 +227,90 @@ func (r *GormRepository) FindLastActiveTransactionForUpdate(ctx context.Context,
 		return nil, nil
 	}
 	return &row, err
+}
+
+func (r *GormRepository) FindLastAnyTransactionForOrder(ctx context.Context, orderID int64, successTxnID int64) (*PayTransaction, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row PayTransaction
+	db := r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
+	if successTxnID > 0 {
+		db = db.Where("id = ?", successTxnID)
+	} else {
+		db = db.Where("order_id = ?", orderID).Order("attempt_no desc, id desc")
+	}
+	err := db.First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
+func (r *GormRepository) CloseCurrentUserRechargeOrder(ctx context.Context, orderID int64, currentStatus int, reason string, now time.Time) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrRepositoryNotConfigured
+	}
+	result := r.db.WithContext(ctx).
+		Model(&Order{}).
+		Where("id = ?", orderID).
+		Where("order_type = ?", enum.PayOrderRecharge).
+		Where("pay_status = ?", currentStatus).
+		Where("is_del = ?", enum.CommonNo).
+		Updates(map[string]any{"pay_status": enum.PayStatusClosed, "close_time": now, "close_reason": reason, "updated_at": now})
+	return result.RowsAffected, result.Error
+}
+
+func (r *GormRepository) CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var wallet UserWallet
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Where("is_del = ?", enum.CommonNo).
+		First(&wallet).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return &WalletSummaryRow{Exists: false}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &WalletSummaryRow{Exists: true, Balance: wallet.Balance, Frozen: wallet.Frozen, TotalRecharge: wallet.TotalRecharge, TotalConsume: wallet.TotalConsume, CreatedAt: &wallet.CreatedAt}, nil
+}
+
+func (r *GormRepository) CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) ([]WalletBillRow, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, ErrRepositoryNotConfigured
+	}
+	db := r.db.WithContext(ctx).
+		Table("wallet_transactions AS wt").
+		Where("wt.user_id = ?", userID).
+		Where("wt.is_del = ?", enum.CommonNo)
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []WalletBillRow
+	err := db.Select(`
+			wt.id,
+			wt.biz_action_no,
+			wt.type,
+			wt.available_delta,
+			wt.frozen_delta,
+			wt.balance_before,
+			wt.balance_after,
+			wt.title,
+			wt.remark,
+			wt.order_no,
+			wt.created_at
+		`).
+		Order("wt.id desc").
+		Limit(query.PageSize).
+		Offset((query.CurrentPage - 1) * query.PageSize).
+		Scan(&rows).Error
+	return rows, total, err
 }
 
 func (r *GormRepository) CloseTransaction(ctx context.Context, txnID int64, now time.Time) error {

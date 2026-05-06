@@ -17,7 +17,23 @@ import (
 type fakeHTTPService struct {
 	createRechargeOrderCalled bool
 	createPayAttemptCalled    bool
+	listOrdersCalled          bool
+	queryResultCalled         bool
+	cancelOrderCalled         bool
+	walletSummaryCalled       bool
+	walletBillsCalled         bool
 	notifyCalled              bool
+
+	listOrdersUserID    int64
+	listOrdersQuery     CurrentUserOrderListQuery
+	queryResultUserID   int64
+	queryResultOrderNo  string
+	cancelOrderUserID   int64
+	cancelOrderOrderNo  string
+	cancelOrderInput    CancelOrderInput
+	walletSummaryUserID int64
+	walletBillsUserID   int64
+	walletBillsQuery    WalletBillsQuery
 }
 
 func (f *fakeHTTPService) CreateRechargeOrder(ctx context.Context, userID int64, input RechargeOrderCreateInput) (*RechargeOrderCreateResponse, *apperror.Error) {
@@ -28,6 +44,41 @@ func (f *fakeHTTPService) CreateRechargeOrder(ctx context.Context, userID int64,
 func (f *fakeHTTPService) CreatePayAttempt(ctx context.Context, userID int64, orderNo string, input PayAttemptCreateInput) (*PayAttemptCreateResponse, *apperror.Error) {
 	f.createPayAttemptCalled = true
 	return &PayAttemptCreateResponse{}, nil
+}
+
+func (f *fakeHTTPService) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) (*CurrentUserOrderListResponse, *apperror.Error) {
+	f.listOrdersCalled = true
+	f.listOrdersUserID = userID
+	f.listOrdersQuery = query
+	return &CurrentUserOrderListResponse{List: []CurrentUserOrderItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (f *fakeHTTPService) QueryCurrentUserRechargeResult(ctx context.Context, userID int64, orderNo string) (*OrderQueryResultResponse, *apperror.Error) {
+	f.queryResultCalled = true
+	f.queryResultUserID = userID
+	f.queryResultOrderNo = orderNo
+	return &OrderQueryResultResponse{OrderNo: orderNo}, nil
+}
+
+func (f *fakeHTTPService) CancelCurrentUserRechargeOrder(ctx context.Context, userID int64, orderNo string, input CancelOrderInput) *apperror.Error {
+	f.cancelOrderCalled = true
+	f.cancelOrderUserID = userID
+	f.cancelOrderOrderNo = orderNo
+	f.cancelOrderInput = input
+	return nil
+}
+
+func (f *fakeHTTPService) CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryResponse, *apperror.Error) {
+	f.walletSummaryCalled = true
+	f.walletSummaryUserID = userID
+	return &WalletSummaryResponse{WalletExists: 1}, nil
+}
+
+func (f *fakeHTTPService) CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) (*WalletBillsResponse, *apperror.Error) {
+	f.walletBillsCalled = true
+	f.walletBillsUserID = userID
+	f.walletBillsQuery = query
+	return &WalletBillsResponse{List: []WalletBillItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
 func (f *fakeHTTPService) HandleAlipayNotify(ctx context.Context, input AlipayNotifyInput) (string, *apperror.Error) {
@@ -73,6 +124,47 @@ func TestHandlerRejectsInvalidPayMethodBeforeService(t *testing.T) {
 				t.Fatalf("service must not be called for invalid pay_method")
 			}
 		})
+	}
+}
+
+func TestHandlerInstallsCurrentUserWalletRuntimeRoutes(t *testing.T) {
+	service := &fakeHTTPService{}
+	router := newHandlerTestRouter(service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/recharge-orders?current_page=2&page_size=30", nil)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.listOrdersCalled || service.listOrdersUserID != 1 || service.listOrdersQuery.CurrentPage != 2 || service.listOrdersQuery.PageSize != 30 {
+		t.Fatalf("expected list current-user recharge orders route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), service)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/recharge-orders/R1/result", nil)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.queryResultCalled || service.queryResultOrderNo != "R1" || service.queryResultUserID != 1 {
+		t.Fatalf("expected query result route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), service)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/recharge-orders/R1/cancel", strings.NewReader(`{"reason":"用户取消"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.cancelOrderCalled || service.cancelOrderOrderNo != "R1" || service.cancelOrderInput.Reason != "用户取消" {
+		t.Fatalf("expected cancel order route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), service)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet/summary", nil)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.walletSummaryCalled || service.walletSummaryUserID != 1 {
+		t.Fatalf("expected wallet summary route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), service)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet/bills?current_page=3&page_size=10", nil)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.walletBillsCalled || service.walletBillsUserID != 1 || service.walletBillsQuery.CurrentPage != 3 || service.walletBillsQuery.PageSize != 10 {
+		t.Fatalf("expected wallet bills route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), service)
 	}
 }
 

@@ -57,6 +57,71 @@ func (h *Handler) CreatePayAttempt(c *gin.Context) {
 	writeResult(c, result, appErr)
 }
 
+func (h *Handler) ListCurrentUserRechargeOrders(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("未登录"))
+		return
+	}
+	var req currentUserListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequest("充值订单列表参数错误"))
+		return
+	}
+	result, appErr := h.requireService().ListCurrentUserRechargeOrders(c.Request.Context(), identity.UserID, CurrentUserOrderListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize})
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) QueryCurrentUserRechargeResult(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("未登录"))
+		return
+	}
+	result, appErr := h.requireService().QueryCurrentUserRechargeResult(c.Request.Context(), identity.UserID, c.Param("order_no"))
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) CancelCurrentUserRechargeOrder(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("未登录"))
+		return
+	}
+	var req cancelOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("取消订单参数错误"))
+		return
+	}
+	appErr := h.requireService().CancelCurrentUserRechargeOrder(c.Request.Context(), identity.UserID, c.Param("order_no"), CancelOrderInput{Reason: req.Reason})
+	writeResult(c, gin.H{}, appErr)
+}
+
+func (h *Handler) CurrentUserWalletSummary(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("未登录"))
+		return
+	}
+	result, appErr := h.requireService().CurrentUserWalletSummary(c.Request.Context(), identity.UserID)
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) CurrentUserWalletBills(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("未登录"))
+		return
+	}
+	var req walletBillsRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequest("钱包流水参数错误"))
+		return
+	}
+	result, appErr := h.requireService().CurrentUserWalletBills(c.Request.Context(), identity.UserID, WalletBillsQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize})
+	writeResult(c, result, appErr)
+}
+
 func (h *Handler) AlipayNotify(c *gin.Context) {
 	form := make(map[string]string, len(c.Request.PostForm))
 	if err := c.Request.ParseForm(); err == nil {
@@ -102,6 +167,26 @@ func (nilHTTPService) CreateRechargeOrder(ctx context.Context, userID int64, inp
 }
 
 func (nilHTTPService) CreatePayAttempt(ctx context.Context, userID int64, orderNo string, input PayAttemptCreateInput) (*PayAttemptCreateResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付运行时服务未配置")
+}
+
+func (nilHTTPService) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) (*CurrentUserOrderListResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付运行时服务未配置")
+}
+
+func (nilHTTPService) QueryCurrentUserRechargeResult(ctx context.Context, userID int64, orderNo string) (*OrderQueryResultResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付运行时服务未配置")
+}
+
+func (nilHTTPService) CancelCurrentUserRechargeOrder(ctx context.Context, userID int64, orderNo string, input CancelOrderInput) *apperror.Error {
+	return apperror.Internal("支付运行时服务未配置")
+}
+
+func (nilHTTPService) CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付运行时服务未配置")
+}
+
+func (nilHTTPService) CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) (*WalletBillsResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付运行时服务未配置")
 }
 

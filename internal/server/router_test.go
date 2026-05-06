@@ -539,6 +539,16 @@ type fakeRouterPayRuntimeService struct {
 	createAttemptUserID  int64
 	createAttemptOrderNo string
 	createAttemptInput   payruntime.PayAttemptCreateInput
+	listOrderUserID      int64
+	listOrderQuery       payruntime.CurrentUserOrderListQuery
+	queryResultUserID    int64
+	queryResultOrderNo   string
+	cancelOrderUserID    int64
+	cancelOrderOrderNo   string
+	cancelOrderInput     payruntime.CancelOrderInput
+	walletSummaryUserID  int64
+	walletBillsUserID    int64
+	walletBillsQuery     payruntime.WalletBillsQuery
 	notifyInput          payruntime.AlipayNotifyInput
 	notifyBody           string
 }
@@ -560,6 +570,36 @@ func (f *fakeRouterPayRuntimeService) CreatePayAttempt(ctx context.Context, user
 	f.createAttemptOrderNo = orderNo
 	f.createAttemptInput = input
 	return &payruntime.PayAttemptCreateResponse{TransactionNo: "T1", TransactionID: 2, OrderNo: orderNo, PayAmount: 1000, Channel: enum.PayChannelAlipay, PayMethod: input.PayMethod, PayData: map[string]any{"content": "pay-url"}}, nil
+}
+
+func (f *fakeRouterPayRuntimeService) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query payruntime.CurrentUserOrderListQuery) (*payruntime.CurrentUserOrderListResponse, *apperror.Error) {
+	f.listOrderUserID = userID
+	f.listOrderQuery = query
+	return &payruntime.CurrentUserOrderListResponse{List: []payruntime.CurrentUserOrderItem{{ID: 1, OrderNo: "R1"}}, Page: payruntime.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1}}, nil
+}
+
+func (f *fakeRouterPayRuntimeService) QueryCurrentUserRechargeResult(ctx context.Context, userID int64, orderNo string) (*payruntime.OrderQueryResultResponse, *apperror.Error) {
+	f.queryResultUserID = userID
+	f.queryResultOrderNo = orderNo
+	return &payruntime.OrderQueryResultResponse{OrderNo: orderNo}, nil
+}
+
+func (f *fakeRouterPayRuntimeService) CancelCurrentUserRechargeOrder(ctx context.Context, userID int64, orderNo string, input payruntime.CancelOrderInput) *apperror.Error {
+	f.cancelOrderUserID = userID
+	f.cancelOrderOrderNo = orderNo
+	f.cancelOrderInput = input
+	return nil
+}
+
+func (f *fakeRouterPayRuntimeService) CurrentUserWalletSummary(ctx context.Context, userID int64) (*payruntime.WalletSummaryResponse, *apperror.Error) {
+	f.walletSummaryUserID = userID
+	return &payruntime.WalletSummaryResponse{WalletExists: enum.CommonYes}, nil
+}
+
+func (f *fakeRouterPayRuntimeService) CurrentUserWalletBills(ctx context.Context, userID int64, query payruntime.WalletBillsQuery) (*payruntime.WalletBillsResponse, *apperror.Error) {
+	f.walletBillsUserID = userID
+	f.walletBillsQuery = query
+	return &payruntime.WalletBillsResponse{List: []payruntime.WalletBillItem{}, Page: payruntime.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
 func (f *fakeRouterPayRuntimeService) HandleAlipayNotify(ctx context.Context, input payruntime.AlipayNotifyInput) (string, *apperror.Error) {
@@ -1775,6 +1815,47 @@ func TestRouterInstallsPayRuntimeRoutesAndRawNotify(t *testing.T) {
 	}
 	if payRuntimeService.createAttemptUserID != 7 || payRuntimeService.createAttemptOrderNo != "R1" || payRuntimeService.createAttemptInput.PayMethod != "h5" {
 		t.Fatalf("pay attempt input mismatch: %#v service=%#v", payRuntimeService.createAttemptInput, payRuntimeService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/recharge-orders?current_page=2&page_size=30", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payRuntimeService.listOrderUserID != 7 || payRuntimeService.listOrderQuery.CurrentPage != 2 || payRuntimeService.listOrderQuery.PageSize != 30 {
+		t.Fatalf("expected current-user recharge list route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/recharge-orders/R1/result", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payRuntimeService.queryResultUserID != 7 || payRuntimeService.queryResultOrderNo != "R1" {
+		t.Fatalf("expected current-user recharge result route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/recharge-orders/R1/cancel", strings.NewReader(`{"reason":"用户取消"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payRuntimeService.cancelOrderUserID != 7 || payRuntimeService.cancelOrderOrderNo != "R1" || payRuntimeService.cancelOrderInput.Reason != "用户取消" {
+		t.Fatalf("expected current-user recharge cancel route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet/summary", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payRuntimeService.walletSummaryUserID != 7 {
+		t.Fatalf("expected current-user wallet summary route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet/bills?current_page=3&page_size=10", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payRuntimeService.walletBillsUserID != 7 || payRuntimeService.walletBillsQuery.CurrentPage != 3 || payRuntimeService.walletBillsQuery.PageSize != 10 {
+		t.Fatalf("expected current-user wallet bills route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
 	}
 
 	recorder = httptest.NewRecorder()

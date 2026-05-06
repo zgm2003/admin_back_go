@@ -184,3 +184,95 @@ func TestHandleAlipayNotifySuccessReturnsRawSuccessBody(t *testing.T) {
 		t.Fatalf("expected notify log marked success")
 	}
 }
+
+func TestListCurrentUserRechargeOrdersMapsRowsAndLatestTransaction(t *testing.T) {
+	channelID := int64(9)
+	txnNo := "T1"
+	txnStatus := 2
+	repo := &fakeRepository{
+		currentUserOrders: []CurrentUserOrderRow{{
+			ID: 1, OrderNo: "R1", Title: "钱包充值 10 元", PayAmount: 1000, PayStatus: 1, BizStatus: 1,
+			CreatedAt: fixedNow(), ExpireTime: timePtr(fixedNow().Add(30 * time.Minute)), ChannelID: &channelID,
+			ChannelName: "支付宝沙盒", PayMethod: "web", TransactionNo: &txnNo, TransactionStatus: &txnStatus,
+		}},
+		currentUserOrderTotal: 1,
+	}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	got, appErr := service.ListCurrentUserRechargeOrders(context.Background(), 7, CurrentUserOrderListQuery{CurrentPage: 1, PageSize: 20})
+
+	if appErr != nil {
+		t.Fatalf("unexpected app error: %v", appErr)
+	}
+	if repo.lastCurrentUserOrderQuery.CurrentPage != 1 || repo.lastCurrentUserOrderQuery.PageSize != 20 {
+		t.Fatalf("unexpected query: %#v", repo.lastCurrentUserOrderQuery)
+	}
+	if got.Page.Total != 1 || len(got.List) != 1 {
+		t.Fatalf("unexpected response: %#v", got)
+	}
+	item := got.List[0]
+	if item.OrderNo != "R1" || item.PayStatusText != "待支付" || item.BizStatusText != "初始化" || item.PayMethodText != "PC网页支付" || item.ChannelName != "支付宝沙盒" {
+		t.Fatalf("unexpected order item: %#v", item)
+	}
+	if item.TransactionNo == nil || *item.TransactionNo != "T1" || item.TransactionStatus == nil || *item.TransactionStatus != 2 {
+		t.Fatalf("unexpected transaction summary: %#v", item)
+	}
+}
+
+func TestCurrentUserRuntimeRejectsOtherUsersOrder(t *testing.T) {
+	repo := &fakeRepository{orderForUpdate: &Order{ID: 10, OrderNo: "R1", UserID: 99, OrderType: 1, PayStatus: 1}}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	queryRes, queryErr := service.QueryCurrentUserRechargeResult(context.Background(), 7, "R1")
+	cancelErr := service.CancelCurrentUserRechargeOrder(context.Background(), 7, "R1", CancelOrderInput{})
+
+	if queryErr == nil || queryRes != nil {
+		t.Fatalf("expected query forbidden, got result=%#v err=%v", queryRes, queryErr)
+	}
+	if cancelErr == nil {
+		t.Fatalf("expected cancel forbidden")
+	}
+	if repo.closedCurrentUserOrder {
+		t.Fatalf("must not close another user's order")
+	}
+}
+
+func TestCancelCurrentUserRechargeOrderClosesOrderAndActiveTransactionInOneRepositoryTx(t *testing.T) {
+	repo := &fakeRepository{orderForUpdate: &Order{ID: 10, OrderNo: "R1", UserID: 7, OrderType: 1, PayStatus: 2}, lastTxn: &PayTransaction{ID: 20, Status: 2}}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	appErr := service.CancelCurrentUserRechargeOrder(context.Background(), 7, "R1", CancelOrderInput{Reason: "用户取消"})
+
+	if appErr != nil {
+		t.Fatalf("unexpected app error: %v", appErr)
+	}
+	if !repo.closedCurrentUserOrder || !repo.closedPreviousTxn || repo.closedCurrentUserReason != "用户取消" {
+		t.Fatalf("expected order and active txn closed, repo=%#v", repo)
+	}
+}
+
+func TestCurrentUserWalletSummaryAndBills(t *testing.T) {
+	repo := &fakeRepository{
+		walletSummary:    &WalletSummaryRow{Exists: true, Balance: 1000, Frozen: 100, TotalRecharge: 2000, TotalConsume: 500, CreatedAt: timePtr(fixedNow())},
+		walletBills:      []WalletBillRow{{ID: 3, BizActionNo: "WALLET:RECHARGE:R1", Type: 1, AvailableDelta: 1000, BalanceAfter: 1000, Title: "充值入账", OrderNo: "R1", CreatedAt: fixedNow()}},
+		walletBillsTotal: 1,
+	}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	summary, summaryErr := service.CurrentUserWalletSummary(context.Background(), 7)
+	bills, billsErr := service.CurrentUserWalletBills(context.Background(), 7, WalletBillsQuery{CurrentPage: 1, PageSize: 20})
+
+	if summaryErr != nil || billsErr != nil {
+		t.Fatalf("unexpected errors summary=%v bills=%v", summaryErr, billsErr)
+	}
+	if summary.WalletExists != 1 || summary.Balance != 1000 || summary.CreatedAt == "" {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if bills.Page.Total != 1 || len(bills.List) != 1 || bills.List[0].TypeText != "充值入账" {
+		t.Fatalf("unexpected bills: %#v", bills)
+	}
+}
+
+func timePtr(value time.Time) *time.Time {
+	return &value
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -252,6 +253,170 @@ func (s *Service) CreatePayAttempt(ctx context.Context, userID int64, orderNo st
 	}, nil
 }
 
+func (s *Service) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) (*CurrentUserOrderListResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.Unauthorized("未登录")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	query = normalizeCurrentUserOrderListQuery(query)
+	rows, total, err := repo.ListCurrentUserRechargeOrders(ctx, userID, query)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询充值订单失败", err)
+	}
+	list := make([]CurrentUserOrderItem, 0, len(rows))
+	for _, row := range rows {
+		list = append(list, currentUserOrderItem(row))
+	}
+	return &CurrentUserOrderListResponse{
+		List: list,
+		Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
+	}, nil
+}
+
+func (s *Service) QueryCurrentUserRechargeResult(ctx context.Context, userID int64, orderNo string) (*OrderQueryResultResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.Unauthorized("未登录")
+	}
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return nil, apperror.BadRequest("订单号不能为空")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	order, err := repo.GetOrderByNo(ctx, orderNo)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询订单失败", err)
+	}
+	if order == nil || order.OrderType != enum.PayOrderRecharge {
+		return nil, apperror.NotFound("订单不存在")
+	}
+	if order.UserID != userID {
+		return nil, apperror.Forbidden("无权查看该订单")
+	}
+	txn, err := repo.FindLastAnyTransactionForOrder(ctx, order.ID, order.SuccessTransactionID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询支付流水失败", err)
+	}
+	return orderQueryResult(order, txn), nil
+}
+
+func (s *Service) CancelCurrentUserRechargeOrder(ctx context.Context, userID int64, orderNo string, input CancelOrderInput) *apperror.Error {
+	if userID <= 0 {
+		return apperror.Unauthorized("未登录")
+	}
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return apperror.BadRequest("订单号不能为空")
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "用户取消订单"
+	}
+	if len([]rune(reason)) > 100 {
+		return apperror.BadRequest("取消原因不能超过100个字符")
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = s.now()
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return appErr
+	}
+	var cancelErr *apperror.Error
+	err := repo.WithTx(ctx, func(tx Repository) error {
+		order, err := tx.GetOrderByNoForUpdate(ctx, orderNo)
+		if err != nil {
+			return err
+		}
+		if order == nil || order.OrderType != enum.PayOrderRecharge {
+			cancelErr = apperror.NotFound("订单不存在")
+			return nil
+		}
+		if order.UserID != userID {
+			cancelErr = apperror.Forbidden("无权操作该订单")
+			return nil
+		}
+		if order.PayStatus != enum.PayStatusPending && order.PayStatus != enum.PayStatusPaying {
+			cancelErr = apperror.BadRequest("该订单状态不允许取消")
+			return nil
+		}
+		affected, err := tx.CloseCurrentUserRechargeOrder(ctx, order.ID, order.PayStatus, reason, now)
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			cancelErr = apperror.BadRequest("订单状态已变更，请刷新后重试")
+			return nil
+		}
+		lastTxn, err := tx.FindLastActiveTransactionForUpdate(ctx, order.ID)
+		if err != nil {
+			return err
+		}
+		if lastTxn != nil {
+			return tx.CloseTransaction(ctx, lastTxn.ID, now)
+		}
+		return nil
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "取消充值订单失败", err)
+	}
+	return cancelErr
+}
+
+func (s *Service) CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.Unauthorized("未登录")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	row, err := repo.CurrentUserWalletSummary(ctx, userID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询钱包失败", err)
+	}
+	if row == nil || !row.Exists {
+		return &WalletSummaryResponse{WalletExists: enum.CommonNo}, nil
+	}
+	createdAt := ""
+	if row.CreatedAt != nil {
+		createdAt = formatTime(*row.CreatedAt)
+	}
+	return &WalletSummaryResponse{
+		WalletExists: enum.CommonYes, Balance: row.Balance, Frozen: row.Frozen,
+		TotalRecharge: row.TotalRecharge, TotalConsume: row.TotalConsume, CreatedAt: createdAt,
+	}, nil
+}
+
+func (s *Service) CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) (*WalletBillsResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.Unauthorized("未登录")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	query = normalizeWalletBillsQuery(query)
+	rows, total, err := repo.CurrentUserWalletBills(ctx, userID, query)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询钱包流水失败", err)
+	}
+	list := make([]WalletBillItem, 0, len(rows))
+	for _, row := range rows {
+		list = append(list, walletBillItem(row))
+	}
+	return &WalletBillsResponse{
+		List: list,
+		Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
+	}, nil
+}
+
 func (s *Service) HandleAlipayNotify(ctx context.Context, input AlipayNotifyInput) (string, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -466,6 +631,76 @@ func truncateSubject(title string) string {
 		return string(runes[:128])
 	}
 	return title
+}
+
+func normalizeCurrentUserOrderListQuery(query CurrentUserOrderListQuery) CurrentUserOrderListQuery {
+	if query.CurrentPage <= 0 {
+		query.CurrentPage = 1
+	}
+	if query.PageSize <= 0 {
+		query.PageSize = 10
+	}
+	if query.PageSize > enum.PageSizeMax {
+		query.PageSize = enum.PageSizeMax
+	}
+	return query
+}
+
+func normalizeWalletBillsQuery(query WalletBillsQuery) WalletBillsQuery {
+	if query.CurrentPage <= 0 {
+		query.CurrentPage = 1
+	}
+	if query.PageSize <= 0 {
+		query.PageSize = 20
+	}
+	if query.PageSize > enum.PageSizeMax {
+		query.PageSize = enum.PageSizeMax
+	}
+	return query
+}
+
+func currentUserOrderItem(row CurrentUserOrderRow) CurrentUserOrderItem {
+	return CurrentUserOrderItem{
+		ID: row.ID, OrderNo: row.OrderNo, Title: row.Title, PayAmount: row.PayAmount,
+		PayStatus: row.PayStatus, PayStatusText: enum.PayStatusLabels[row.PayStatus],
+		BizStatus: row.BizStatus, BizStatusText: enum.PayBizStatusLabels[row.BizStatus],
+		PayTime: formatOptionalTime(row.PayTime), CreatedAt: formatTime(row.CreatedAt), ExpireTime: formatOptionalTime(row.ExpireTime),
+		ChannelID: row.ChannelID, ChannelName: row.ChannelName, PayMethod: row.PayMethod,
+		PayMethodText: enum.PayMethodLabels[row.PayMethod], TransactionNo: row.TransactionNo, TransactionStatus: row.TransactionStatus,
+	}
+}
+
+func orderQueryResult(order *Order, txn *PayTransaction) *OrderQueryResultResponse {
+	result := &OrderQueryResultResponse{
+		OrderNo: order.OrderNo, PayStatus: order.PayStatus, BizStatus: order.BizStatus, PayTime: formatOptionalTime(order.PayTime),
+	}
+	if txn != nil {
+		result.Transaction = &TransactionSummary{TransactionNo: txn.TransactionNo, Status: txn.Status, TradeNo: txn.TradeNo}
+	}
+	return result
+}
+
+func walletBillItem(row WalletBillRow) WalletBillItem {
+	return WalletBillItem{
+		ID: row.ID, BizActionNo: row.BizActionNo, Type: row.Type, TypeText: enum.WalletTypeLabels[row.Type],
+		AvailableDelta: row.AvailableDelta, FrozenDelta: row.FrozenDelta, BalanceBefore: row.BalanceBefore, BalanceAfter: row.BalanceAfter,
+		Title: row.Title, Remark: row.Remark, OrderNo: row.OrderNo, CreatedAt: formatTime(row.CreatedAt),
+	}
+}
+
+func formatOptionalTime(value *time.Time) *string {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	text := value.Format(timeLayout)
+	return &text
+}
+
+func totalPage(total int64, pageSize int) int {
+	if total <= 0 || pageSize <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(total) / float64(pageSize)))
 }
 
 func formatTime(value time.Time) string {

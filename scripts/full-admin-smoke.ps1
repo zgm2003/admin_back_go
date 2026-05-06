@@ -683,6 +683,67 @@ function Assert-PayOrderDetail($Response) {
   }
 }
 
+function Assert-CurrentUserWalletSummary($Response) {
+  Assert-ApiOK $Response 'current-user wallet summary'
+
+  if ($Response.data.wallet_exists -notin @(1, 2)) {
+    throw "current-user wallet summary wallet_exists mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($field in @('balance', 'frozen', 'total_recharge', 'total_consume')) {
+    if ($null -eq $Response.data.$field) {
+      throw "current-user wallet summary missing money field $field`: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    WalletExists = [int]$Response.data.wallet_exists
+    Balance = [int]$Response.data.balance
+    Frozen = [int]$Response.data.frozen
+  }
+}
+
+function Assert-CurrentUserWalletBills($Response) {
+  Assert-ApiOK $Response 'current-user wallet bills'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "current-user wallet bills missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.biz_action_no)) {
+      throw "current-user wallet bill item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.type_text -or $null -eq $item.available_delta -or $null -eq $item.balance_before -or $null -eq $item.balance_after) {
+      throw "current-user wallet bill item missing label/money fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-CurrentUserRechargeOrders($Response) {
+  Assert-ApiOK $Response 'current-user recharge orders'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "current-user recharge orders missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no) -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "current-user recharge order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.pay_status_text -or $null -eq $item.biz_status_text) {
+      throw "current-user recharge order item missing status text: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Assert-WalletInit($Response) {
   Assert-ApiOK $Response 'wallet init'
 
@@ -850,6 +911,9 @@ function Invoke-PaymentRuntimeProbe([string]$BaseURL, [hashtable]$Headers, $Chan
       Status = 'skipped_flag_disabled'
       OrderCode = $null
       AttemptCode = $null
+      ResultCode = $null
+      CancelCode = $null
+      CleanupStatus = 'not_created'
       ChannelID = [int64]$ChannelReady.ChannelID
       OrderNo = ''
       TransactionNo = ''
@@ -862,6 +926,9 @@ function Invoke-PaymentRuntimeProbe([string]$BaseURL, [hashtable]$Headers, $Chan
       Status = 'skipped_no_enabled_alipay_channel'
       OrderCode = $null
       AttemptCode = $null
+      ResultCode = $null
+      CancelCode = $null
+      CleanupStatus = 'not_created'
       ChannelID = 0
       OrderNo = ''
       TransactionNo = ''
@@ -870,39 +937,87 @@ function Invoke-PaymentRuntimeProbe([string]$BaseURL, [hashtable]$Headers, $Chan
     }
   }
 
-  $orderBody = @{
-    amount = 1000
-    pay_method = 'web'
-    channel_id = [int64]$ChannelReady.ChannelID
-  }
-  $order = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders" $Headers $orderBody
-  Assert-ApiOK $order 'payment runtime recharge order create'
-  if ([string]::IsNullOrWhiteSpace([string]$order.data.order_no) -or [int]$order.data.pay_amount -ne 1000) {
-    throw "payment runtime recharge order shape mismatch: $($order | ConvertTo-Json -Depth 12)"
+  $order = $null
+  $attempt = $null
+  $result = $null
+  $cancel = $null
+  $orderNo = ''
+  $transactionNo = ''
+  $payDataMode = ''
+  $payDataHasContent = $false
+  $cleanupStatus = 'not_created'
+  $failure = $null
+
+  try {
+    $orderBody = @{
+      amount = 1000
+      pay_method = 'web'
+      channel_id = [int64]$ChannelReady.ChannelID
+    }
+    $order = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders" $Headers $orderBody
+    Assert-ApiOK $order 'payment runtime recharge order create'
+    if ([string]::IsNullOrWhiteSpace([string]$order.data.order_no) -or [int]$order.data.pay_amount -ne 1000) {
+      throw "payment runtime recharge order shape mismatch: $($order | ConvertTo-Json -Depth 12)"
+    }
+    $orderNo = [string]$order.data.order_no
+    $cleanupStatus = 'created_not_cleaned'
+
+    $attemptBody = @{
+      pay_method = 'web'
+      return_url = "$BaseURL/__codex-payment-return"
+    }
+    $attempt = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders/$orderNo/pay-attempts" $Headers $attemptBody
+    Assert-ApiOK $attempt 'payment runtime pay attempt create'
+    if ([string]::IsNullOrWhiteSpace([string]$attempt.data.transaction_no) -or $null -eq $attempt.data.pay_data) {
+      throw "payment runtime pay attempt shape mismatch: $($attempt | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)) {
+      throw "payment runtime pay attempt returned empty pay_data.content: $($attempt | ConvertTo-Json -Depth 12)"
+    }
+    $transactionNo = [string]$attempt.data.transaction_no
+    $payDataMode = [string]$attempt.data.pay_data.mode
+    $payDataHasContent = -not [string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)
+
+    $result = Invoke-RestMethod "$BaseURL/api/admin/v1/recharge-orders/$orderNo/result" `
+      -Headers $Headers `
+      -TimeoutSec 10
+    Assert-ApiOK $result 'payment runtime query result'
+    if ([string]$result.data.order_no -ne $orderNo) {
+      throw "payment runtime query result order mismatch: expected=$orderNo response=$($result | ConvertTo-Json -Depth 12)"
+    }
+  } catch {
+    $failure = $_
   }
 
-  $attemptBody = @{
-    pay_method = 'web'
-    return_url = "$BaseURL/__codex-payment-return"
+  if (-not [string]::IsNullOrWhiteSpace($orderNo)) {
+    try {
+      $cancel = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/recharge-orders/$orderNo/cancel" $Headers @{ reason = 'codex full smoke cleanup' }
+      Assert-ApiOK $cancel 'payment runtime smoke order cancel'
+      $cleanupStatus = 'cancelled'
+    } catch {
+      $cleanupStatus = "cancel_failed: $($_.Exception.Message)"
+      if ($null -eq $failure) {
+        $failure = $_
+      }
+    }
   }
-  $attempt = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders/$($order.data.order_no)/pay-attempts" $Headers $attemptBody
-  Assert-ApiOK $attempt 'payment runtime pay attempt create'
-  if ([string]::IsNullOrWhiteSpace([string]$attempt.data.transaction_no) -or $null -eq $attempt.data.pay_data) {
-    throw "payment runtime pay attempt shape mismatch: $($attempt | ConvertTo-Json -Depth 12)"
-  }
-  if ([string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)) {
-    throw "payment runtime pay attempt returned empty pay_data.content: $($attempt | ConvertTo-Json -Depth 12)"
+
+  if ($null -ne $failure) {
+    throw "payment runtime probe failed; cleanup=$cleanupStatus; error=$($failure.Exception.Message)"
   }
 
   return [pscustomobject]@{
     Status = 'ok'
     OrderCode = [int]$order.code
     AttemptCode = [int]$attempt.code
+    ResultCode = [int]$result.code
+    CancelCode = [int]$cancel.code
+    CleanupStatus = $cleanupStatus
     ChannelID = [int64]$ChannelReady.ChannelID
-    OrderNo = [string]$order.data.order_no
-    TransactionNo = [string]$attempt.data.transaction_no
-    PayDataMode = [string]$attempt.data.pay_data.mode
-    PayDataHasContent = -not [string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)
+    OrderNo = $orderNo
+    TransactionNo = $transactionNo
+    PayDataMode = $payDataMode
+    PayDataHasContent = $payDataHasContent
   }
 }
 
@@ -1654,6 +1769,21 @@ func main() {
   $payChannelListSummary = Assert-PayChannelList $payChannelList
   $payRuntimeChannelReady = Assert-PayRuntimeChannelReady $payChannelList
 
+  $currentUserWalletSummary = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/summary" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $currentUserWalletSummaryResult = Assert-CurrentUserWalletSummary $currentUserWalletSummary
+
+  $currentUserWalletBills = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/bills?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $currentUserWalletBillsSummary = Assert-CurrentUserWalletBills $currentUserWalletBills
+
+  $currentUserRechargeOrders = Invoke-RestMethod "$baseURL/api/admin/v1/recharge-orders?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $currentUserRechargeOrdersSummary = Assert-CurrentUserRechargeOrders $currentUserRechargeOrders
+
   $payTransactionInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -1909,9 +2039,22 @@ func main() {
     pay_runtime_channel_status = $payRuntimeChannelReady.Status
     pay_runtime_channel_id = $payRuntimeChannelReady.ChannelID
     pay_runtime_channel_supported_methods_count = $payRuntimeChannelReady.SupportedMethodsCount
+    pay_runtime_wallet_summary_code = $currentUserWalletSummary.code
+    pay_runtime_wallet_exists = $currentUserWalletSummaryResult.WalletExists
+    pay_runtime_wallet_balance = $currentUserWalletSummaryResult.Balance
+    pay_runtime_wallet_frozen = $currentUserWalletSummaryResult.Frozen
+    pay_runtime_wallet_bills_code = $currentUserWalletBills.code
+    pay_runtime_wallet_bills_count = $currentUserWalletBillsSummary.ListCount
+    pay_runtime_wallet_bills_total = $currentUserWalletBillsSummary.Total
+    pay_runtime_recharge_orders_code = $currentUserRechargeOrders.code
+    pay_runtime_recharge_orders_count = $currentUserRechargeOrdersSummary.ListCount
+    pay_runtime_recharge_orders_total = $currentUserRechargeOrdersSummary.Total
     pay_runtime_probe_status = $paymentRuntimeProbe.Status
     pay_runtime_probe_order_code = $paymentRuntimeProbe.OrderCode
     pay_runtime_probe_attempt_code = $paymentRuntimeProbe.AttemptCode
+    pay_runtime_probe_result_code = $paymentRuntimeProbe.ResultCode
+    pay_runtime_probe_cancel_code = $paymentRuntimeProbe.CancelCode
+    pay_runtime_probe_cleanup_status = $paymentRuntimeProbe.CleanupStatus
     pay_runtime_probe_order_no = $paymentRuntimeProbe.OrderNo
     pay_runtime_probe_transaction_no = $paymentRuntimeProbe.TransactionNo
     pay_runtime_probe_pay_data_mode = $paymentRuntimeProbe.PayDataMode

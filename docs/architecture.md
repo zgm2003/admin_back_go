@@ -1283,7 +1283,12 @@ idempotency_key 最长 50，因为 wallet_transactions.biz_action_no varchar(64)
 `internal/module/payruntime` 管理第一条真实支付运行时闭环：
 
 ```text
+GET  /api/admin/v1/wallet/summary
+GET  /api/admin/v1/wallet/bills
+GET  /api/admin/v1/recharge-orders
 POST /api/admin/v1/recharge-orders
+GET  /api/admin/v1/recharge-orders/:order_no/result
+PATCH /api/admin/v1/recharge-orders/:order_no/cancel
 POST /api/admin/v1/recharge-orders/:order_no/pay-attempts
 POST /api/pay/notify/alipay
 ```
@@ -1292,15 +1297,17 @@ POST /api/pay/notify/alipay
 
 ```text
 当前只实现 Alipay sandbox/web/h5 充值闭环，不实现微信、退款、对账、第三方查单/关单。
+wallet/summary、wallet/bills、recharge-orders list/result/cancel 都是 current-user runtime endpoint：只读/只改当前 token user 自己的数据，不复用后台钱包管理权限。
 第三方 SDK 只允许出现在 internal/platform/payment/alipay；业务模块只能依赖 Gateway 小接口。
 cert path 由 internal/platform/payment.CertPathResolver 解析，默认可复用 legacy admin_back/runtime/cert/alipay 路径，但不读取或输出证书正文。
 app_private_key_enc 只在 service 内经 secretbox 解密后传给 gopay wrapper；响应、operation log、smoke 输出都不能泄露明文或密文。
 创建充值订单只写本地 orders/order_items，订单号由 Redis INCR 生成；未过期 PENDING/PAYING 充值单会阻止新单，避免用户并发创建一堆待支付单。
 创建支付尝试用 Redis lock 防重复；DB transaction 内锁订单、关闭上一条 active pay_transaction、创建新流水；支付宝 SDK 调用发生在 DB transaction 外。
+取消本人待支付充值单只做本地 close order + close active pay_transaction，不调用第三方支付平台关单。
 支付宝回调是 public raw callback，必须返回 text/plain success/fail，不走 response.OK/Error。
 回调先写 pay_notify_logs pending 审计，再验签；使用 gopay VerifySignWithCert，不手写 RSA。
 回调入账在一个 MySQL transaction 内完成 pay_transaction success、order paid/biz success、order_fulfillments、user_wallets、wallet_transactions；唯一键/idempotency_key 保证重复回调不重复加钱。
-当前 current-user recharge-orders/pay-attempts 只要求 AuthToken，不发明 pay_runtime_create 这种后台按钮权限；public notify 不进入 PermissionCheck/OperationLog route metadata。
+当前 current-user wallet/recharge runtime 只要求 AuthToken，不发明 pay_runtime_create 这种后台按钮权限；public notify 不进入 PermissionCheck/OperationLog route metadata。
 PAYMENT_ALIPAY_TIMEOUT 已进入 config，SDK HTTP timeout wiring 仍是 planned，不能宣称已生效。
 ```
 

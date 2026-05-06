@@ -114,8 +114,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/admin/v1/recharge-orders"},
 		{http.MethodPost, "/api/admin/v1/recharge-orders"},
+		{http.MethodGet, "/api/admin/v1/recharge-orders/:order_no/result"},
+		{http.MethodPatch, "/api/admin/v1/recharge-orders/:order_no/cancel"},
 		{http.MethodPost, "/api/admin/v1/recharge-orders/:order_no/pay-attempts"},
+		{http.MethodGet, "/api/admin/v1/wallet/summary"},
+		{http.MethodGet, "/api/admin/v1/wallet/bills"},
 		{http.MethodPost, "/api/pay/notify/alipay"},
 		{http.MethodGet, "/api/admin/v1/notifications/init"},
 		{http.MethodGet, "/api/admin/v1/notifications"},
@@ -214,8 +219,13 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/admin/v1/recharge-orders"},
 		{http.MethodPost, "/api/admin/v1/recharge-orders"},
+		{http.MethodGet, "/api/admin/v1/recharge-orders/:order_no/result"},
+		{http.MethodPatch, "/api/admin/v1/recharge-orders/:order_no/cancel"},
 		{http.MethodPost, "/api/admin/v1/recharge-orders/:order_no/pay-attempts"},
+		{http.MethodGet, "/api/admin/v1/wallet/summary"},
+		{http.MethodGet, "/api/admin/v1/wallet/bills"},
 		{http.MethodPost, "/api/pay/notify/alipay"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions"},
