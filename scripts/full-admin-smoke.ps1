@@ -4,7 +4,8 @@ param(
   [string]$HTTPAddr = '127.0.0.1:18081',
   [string]$BasicHTTPAddr = '127.0.0.1:18080',
   [string]$Platform = 'admin',
-  [string]$DeviceID = 'codex-full-smoke'
+  [string]$DeviceID = 'codex-full-smoke',
+  [switch]$EnablePaymentRuntimeProbe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -513,6 +514,33 @@ function Assert-PayChannelList($Response) {
   }
 }
 
+function Assert-PayRuntimeChannelReady($Response) {
+  Assert-ApiOK $Response 'pay runtime channel readiness'
+
+  $rows = Get-ObjectArray $Response.data.list
+  foreach ($item in $rows) {
+    if ([int]$item.channel -ne 2) { continue }
+    if ([string]$item.status_name -ne '启用') { continue }
+    if ([string]::IsNullOrWhiteSpace([string]$item.public_cert_path) -or [string]::IsNullOrWhiteSpace([string]$item.platform_cert_path) -or [string]::IsNullOrWhiteSpace([string]$item.root_cert_path)) {
+      throw "enabled Alipay channel missing cert path fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
+      throw "pay runtime channel readiness leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    return [pscustomobject]@{
+      Status = 'ready'
+      ChannelID = [int64]$item.id
+      SupportedMethodsCount = (Get-ObjectArray $item.supported_methods).Count
+    }
+  }
+
+  return [pscustomobject]@{
+    Status = 'skipped_no_enabled_alipay_channel'
+    ChannelID = 0
+    SupportedMethodsCount = 0
+  }
+}
+
 function Assert-PayTransactionInit($Response) {
   Assert-ApiOK $Response 'pay transaction init'
 
@@ -813,6 +841,68 @@ function Invoke-WalletAdjustmentProbe([string]$BaseURL, [hashtable]$Headers, $Wa
       }
     }
     throw "wallet adjustment probe failed; restored=$restored; original=$originalBalance; error=$($_.Exception.Message)"
+  }
+}
+
+function Invoke-PaymentRuntimeProbe([string]$BaseURL, [hashtable]$Headers, $ChannelReady) {
+  if (-not $EnablePaymentRuntimeProbe) {
+    return [pscustomobject]@{
+      Status = 'skipped_flag_disabled'
+      OrderCode = $null
+      AttemptCode = $null
+      ChannelID = [int64]$ChannelReady.ChannelID
+      OrderNo = ''
+      TransactionNo = ''
+      PayDataMode = ''
+      PayDataHasContent = $false
+    }
+  }
+  if ([int64]$ChannelReady.ChannelID -le 0) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_enabled_alipay_channel'
+      OrderCode = $null
+      AttemptCode = $null
+      ChannelID = 0
+      OrderNo = ''
+      TransactionNo = ''
+      PayDataMode = ''
+      PayDataHasContent = $false
+    }
+  }
+
+  $orderBody = @{
+    amount = 1000
+    pay_method = 'web'
+    channel_id = [int64]$ChannelReady.ChannelID
+  }
+  $order = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders" $Headers $orderBody
+  Assert-ApiOK $order 'payment runtime recharge order create'
+  if ([string]::IsNullOrWhiteSpace([string]$order.data.order_no) -or [int]$order.data.pay_amount -ne 1000) {
+    throw "payment runtime recharge order shape mismatch: $($order | ConvertTo-Json -Depth 12)"
+  }
+
+  $attemptBody = @{
+    pay_method = 'web'
+    return_url = "$BaseURL/__codex-payment-return"
+  }
+  $attempt = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders/$($order.data.order_no)/pay-attempts" $Headers $attemptBody
+  Assert-ApiOK $attempt 'payment runtime pay attempt create'
+  if ([string]::IsNullOrWhiteSpace([string]$attempt.data.transaction_no) -or $null -eq $attempt.data.pay_data) {
+    throw "payment runtime pay attempt shape mismatch: $($attempt | ConvertTo-Json -Depth 12)"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)) {
+    throw "payment runtime pay attempt returned empty pay_data.content: $($attempt | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    Status = 'ok'
+    OrderCode = [int]$order.code
+    AttemptCode = [int]$attempt.code
+    ChannelID = [int64]$ChannelReady.ChannelID
+    OrderNo = [string]$order.data.order_no
+    TransactionNo = [string]$attempt.data.transaction_no
+    PayDataMode = [string]$attempt.data.pay_data.mode
+    PayDataHasContent = -not [string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)
   }
 }
 
@@ -1562,6 +1652,7 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $payChannelListSummary = Assert-PayChannelList $payChannelList
+  $payRuntimeChannelReady = Assert-PayRuntimeChannelReady $payChannelList
 
   $payTransactionInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions/page-init" `
     -Headers $authHeaders `
@@ -1614,6 +1705,7 @@ func main() {
   }
   $payOrderRemarkProbe = Invoke-PayOrderRemarkProbe $baseURL $authHeaders $payOrderDetailSummary
   $payOrderCloseProbe = Invoke-PayOrderCloseProbe $baseURL $authHeaders
+  $paymentRuntimeProbe = Invoke-PaymentRuntimeProbe $baseURL $authHeaders $payRuntimeChannelReady
 
   $walletInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallets/page-init" `
     -Headers $authHeaders `
@@ -1814,6 +1906,16 @@ func main() {
     pay_channel_list_code = $payChannelList.code
     pay_channel_list_count = $payChannelListSummary.ListCount
     pay_channel_total = $payChannelListSummary.Total
+    pay_runtime_channel_status = $payRuntimeChannelReady.Status
+    pay_runtime_channel_id = $payRuntimeChannelReady.ChannelID
+    pay_runtime_channel_supported_methods_count = $payRuntimeChannelReady.SupportedMethodsCount
+    pay_runtime_probe_status = $paymentRuntimeProbe.Status
+    pay_runtime_probe_order_code = $paymentRuntimeProbe.OrderCode
+    pay_runtime_probe_attempt_code = $paymentRuntimeProbe.AttemptCode
+    pay_runtime_probe_order_no = $paymentRuntimeProbe.OrderNo
+    pay_runtime_probe_transaction_no = $paymentRuntimeProbe.TransactionNo
+    pay_runtime_probe_pay_data_mode = $paymentRuntimeProbe.PayDataMode
+    pay_runtime_probe_pay_data_has_content = $paymentRuntimeProbe.PayDataHasContent
     pay_transaction_init_code = $payTransactionInit.code
     pay_transaction_channel_dict_count = $payTransactionInitSummary.ChannelCount
     pay_transaction_status_dict_count = $payTransactionInitSummary.StatusCount

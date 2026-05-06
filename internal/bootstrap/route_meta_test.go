@@ -114,6 +114,9 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/api/admin/v1/recharge-orders"},
+		{http.MethodPost, "/api/admin/v1/recharge-orders/:order_no/pay-attempts"},
+		{http.MethodPost, "/api/pay/notify/alipay"},
 		{http.MethodGet, "/api/admin/v1/notifications/init"},
 		{http.MethodGet, "/api/admin/v1/notifications"},
 		{http.MethodGet, "/api/admin/v1/notifications/unread-count"},
@@ -211,6 +214,9 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/api/admin/v1/recharge-orders"},
+		{http.MethodPost, "/api/admin/v1/recharge-orders/:order_no/pay-attempts"},
+		{http.MethodPost, "/api/pay/notify/alipay"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions/:id"},

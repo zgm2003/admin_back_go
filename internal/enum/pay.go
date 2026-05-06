@@ -104,6 +104,31 @@ const (
 	WalletSourceManual  = 2
 )
 
+const (
+	FulfillPending = 1
+	FulfillRunning = 2
+	FulfillSuccess = 3
+	FulfillFailed  = 4
+	FulfillManual  = 5
+)
+
+const (
+	FulfillActionRecharge = 1
+	FulfillActionConsume  = 2
+	FulfillActionGoods    = 3
+)
+
+const (
+	NotifyPay = 1
+)
+
+const (
+	NotifyProcessPending = 1
+	NotifyProcessSuccess = 2
+	NotifyProcessFailed  = 3
+	NotifyProcessIgnored = 4
+)
+
 var PayOrderTypes = []int{
 	PayOrderRecharge,
 	PayOrderConsume,
@@ -199,6 +224,48 @@ var WalletSourceLabels = map[int]string{
 	WalletSourceManual:  "人工",
 }
 
+var FulfillStatuses = []int{
+	FulfillPending,
+	FulfillRunning,
+	FulfillSuccess,
+	FulfillFailed,
+	FulfillManual,
+}
+
+var FulfillStatusLabels = map[int]string{
+	FulfillPending: "待执行",
+	FulfillRunning: "执行中",
+	FulfillSuccess: "执行成功",
+	FulfillFailed:  "执行失败",
+	FulfillManual:  "人工处理",
+}
+
+var FulfillActions = []int{
+	FulfillActionRecharge,
+	FulfillActionConsume,
+	FulfillActionGoods,
+}
+
+var FulfillActionLabels = map[int]string{
+	FulfillActionRecharge: "充值入账",
+	FulfillActionConsume:  "消费履约",
+	FulfillActionGoods:    "商品回调",
+}
+
+var NotifyProcessStatuses = []int{
+	NotifyProcessPending,
+	NotifyProcessSuccess,
+	NotifyProcessFailed,
+	NotifyProcessIgnored,
+}
+
+var NotifyProcessStatusLabels = map[int]string{
+	NotifyProcessPending: "待处理",
+	NotifyProcessSuccess: "处理成功",
+	NotifyProcessFailed:  "处理失败",
+	NotifyProcessIgnored: "已忽略",
+}
+
 type OptionPreset struct {
 	Label string
 	Value int
@@ -271,6 +338,33 @@ func IsWalletType(value int) bool {
 func IsWalletSource(value int) bool {
 	for _, source := range WalletSources {
 		if source == value {
+			return true
+		}
+	}
+	return false
+}
+
+func IsFulfillStatus(value int) bool {
+	for _, status := range FulfillStatuses {
+		if status == value {
+			return true
+		}
+	}
+	return false
+}
+
+func IsFulfillAction(value int) bool {
+	for _, action := range FulfillActions {
+		if action == value {
+			return true
+		}
+	}
+	return false
+}
+
+func IsNotifyProcessStatus(value int) bool {
+	for _, status := range NotifyProcessStatuses {
+		if status == value {
 			return true
 		}
 	}

@@ -246,6 +246,23 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadReadsPaymentConfig(t *testing.T) {
+	t.Setenv("PAYMENT_CERT_BASE_DIR", "E:/admin/admin_back")
+	t.Setenv("LEGACY_ADMIN_BACK_ROOT", "E:/admin/admin_back")
+	t.Setenv("PAYMENT_ALIPAY_TIMEOUT", "9s")
+	t.Setenv("PAYMENT_NOTIFY_LOCK_TTL", "40s")
+	t.Setenv("PAYMENT_ATTEMPT_LOCK_TTL", "41s")
+
+	cfg := Load()
+
+	if cfg.Payment.CertBaseDir != "E:/admin/admin_back" || cfg.Payment.LegacyAdminBackRoot != "E:/admin/admin_back" {
+		t.Fatalf("unexpected payment dirs: %#v", cfg.Payment)
+	}
+	if cfg.Payment.AlipayTimeout != 9*time.Second || cfg.Payment.NotifyLockTTL != 40*time.Second || cfg.Payment.AttemptLockTTL != 41*time.Second {
+		t.Fatalf("unexpected payment durations: %#v", cfg.Payment)
+	}
+}
+
 func TestLoadFallsBackOnInvalidNumericAndDurationValues(t *testing.T) {
 	t.Setenv("MYSQL_MAX_OPEN_CONNS", "garbage")
 	t.Setenv("REDIS_DB", "garbage")

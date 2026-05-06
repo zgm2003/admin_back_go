@@ -21,6 +21,7 @@ type Config struct {
 	Realtime    RealtimeConfig
 	Scheduler   SchedulerConfig
 	Secretbox   SecretboxConfig
+	Payment     PaymentConfig
 	UploadToken UploadTokenConfig
 	CORS        CORSConfig
 }
@@ -138,6 +139,14 @@ type SecretboxConfig struct {
 	Key string
 }
 
+type PaymentConfig struct {
+	CertBaseDir         string
+	LegacyAdminBackRoot string
+	AlipayTimeout       time.Duration
+	NotifyLockTTL       time.Duration
+	AttemptLockTTL      time.Duration
+}
+
 type UploadTokenConfig struct {
 	TTL            time.Duration
 	KeyRandomBytes int
@@ -245,6 +254,13 @@ func Load() Config {
 		},
 		Secretbox: SecretboxConfig{
 			Key: envString("VAULT_KEY", ""),
+		},
+		Payment: PaymentConfig{
+			CertBaseDir:         envString("PAYMENT_CERT_BASE_DIR", ""),
+			LegacyAdminBackRoot: envString("LEGACY_ADMIN_BACK_ROOT", ""),
+			AlipayTimeout:       envDuration("PAYMENT_ALIPAY_TIMEOUT", 10*time.Second),
+			NotifyLockTTL:       envDuration("PAYMENT_NOTIFY_LOCK_TTL", 30*time.Second),
+			AttemptLockTTL:      envDuration("PAYMENT_ATTEMPT_LOCK_TTL", 30*time.Second),
 		},
 		UploadToken: UploadTokenConfig{
 			TTL:            envDuration("UPLOAD_TOKEN_TTL", 15*time.Minute),

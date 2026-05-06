@@ -25,6 +25,7 @@ import (
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -532,10 +533,41 @@ type fakeRouterPayOrderService struct {
 	closeReason      string
 }
 
+type fakeRouterPayRuntimeService struct {
+	createOrderUserID    int64
+	createOrderInput     payruntime.RechargeOrderCreateInput
+	createAttemptUserID  int64
+	createAttemptOrderNo string
+	createAttemptInput   payruntime.PayAttemptCreateInput
+	notifyInput          payruntime.AlipayNotifyInput
+	notifyBody           string
+}
+
 type fakeRouterWalletService struct {
 	listQuery       wallet.ListQuery
 	txnQuery        wallet.TransactionListQuery
 	adjustmentInput wallet.CreateAdjustmentInput
+}
+
+func (f *fakeRouterPayRuntimeService) CreateRechargeOrder(ctx context.Context, userID int64, input payruntime.RechargeOrderCreateInput) (*payruntime.RechargeOrderCreateResponse, *apperror.Error) {
+	f.createOrderUserID = userID
+	f.createOrderInput = input
+	return &payruntime.RechargeOrderCreateResponse{OrderID: 1, OrderNo: "R1", PayAmount: input.Amount, ExpireTime: "2026-05-06 12:30:00"}, nil
+}
+
+func (f *fakeRouterPayRuntimeService) CreatePayAttempt(ctx context.Context, userID int64, orderNo string, input payruntime.PayAttemptCreateInput) (*payruntime.PayAttemptCreateResponse, *apperror.Error) {
+	f.createAttemptUserID = userID
+	f.createAttemptOrderNo = orderNo
+	f.createAttemptInput = input
+	return &payruntime.PayAttemptCreateResponse{TransactionNo: "T1", TransactionID: 2, OrderNo: orderNo, PayAmount: 1000, Channel: enum.PayChannelAlipay, PayMethod: input.PayMethod, PayData: map[string]any{"content": "pay-url"}}, nil
+}
+
+func (f *fakeRouterPayRuntimeService) HandleAlipayNotify(ctx context.Context, input payruntime.AlipayNotifyInput) (string, *apperror.Error) {
+	f.notifyInput = input
+	if f.notifyBody != "" {
+		return f.notifyBody, nil
+	}
+	return "success", nil
 }
 
 func (f *fakeRouterPayTransactionService) Init(ctx context.Context) (*paytransaction.InitResponse, *apperror.Error) {
@@ -1709,6 +1741,57 @@ func TestRouterInstallsWalletReadOnlyRESTRoutes(t *testing.T) {
 	}
 	if walletService.adjustmentInput.UserID != 7 || walletService.adjustmentInput.Delta != 100 || walletService.adjustmentInput.Reason != "人工修正" || walletService.adjustmentInput.OperatorID != 1 {
 		t.Fatalf("wallet adjustment input mismatch: %#v", walletService.adjustmentInput)
+	}
+}
+
+func TestRouterInstallsPayRuntimeRoutesAndRawNotify(t *testing.T) {
+	payRuntimeService := &fakeRouterPayRuntimeService{notifyBody: "success"}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
+		},
+		PayRuntimeService: payRuntimeService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/recharge-orders", strings.NewReader(`{"amount":1000,"pay_method":"web","channel_id":1}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected recharge order status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if payRuntimeService.createOrderUserID != 7 || payRuntimeService.createOrderInput.Amount != 1000 || payRuntimeService.createOrderInput.PayMethod != "web" || payRuntimeService.createOrderInput.ChannelID != 1 {
+		t.Fatalf("recharge order input mismatch: %#v user=%d", payRuntimeService.createOrderInput, payRuntimeService.createOrderUserID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/recharge-orders/R1/pay-attempts", strings.NewReader(`{"pay_method":"h5","return_url":"https://example.test/pay-return"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay attempt status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if payRuntimeService.createAttemptUserID != 7 || payRuntimeService.createAttemptOrderNo != "R1" || payRuntimeService.createAttemptInput.PayMethod != "h5" {
+		t.Fatalf("pay attempt input mismatch: %#v service=%#v", payRuntimeService.createAttemptInput, payRuntimeService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/pay/notify/alipay", strings.NewReader(`out_trade_no=T1&trade_no=A1`))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected notify status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if strings.TrimSpace(recorder.Body.String()) != "success" {
+		t.Fatalf("expected raw success body, got %q", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), `"code"`) {
+		t.Fatalf("notify must not use JSON envelope: %s", recorder.Body.String())
+	}
+	if payRuntimeService.notifyInput.Form["out_trade_no"] != "T1" {
+		t.Fatalf("notify form mismatch: %#v", payRuntimeService.notifyInput.Form)
 	}
 }
 

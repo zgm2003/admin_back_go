@@ -112,3 +112,23 @@ func TestWalletEnumsAreStable(t *testing.T) {
 		t.Fatalf("invalid wallet enums must be rejected")
 	}
 }
+
+func TestPayRuntimeEnumsAreStable(t *testing.T) {
+	if !reflect.DeepEqual(FulfillStatuses, []int{FulfillPending, FulfillRunning, FulfillSuccess, FulfillFailed, FulfillManual}) {
+		t.Fatalf("unexpected fulfill status order: %#v", FulfillStatuses)
+	}
+	if !reflect.DeepEqual(FulfillActions, []int{FulfillActionRecharge, FulfillActionConsume, FulfillActionGoods}) {
+		t.Fatalf("unexpected fulfill action order: %#v", FulfillActions)
+	}
+	if !reflect.DeepEqual(NotifyProcessStatuses, []int{NotifyProcessPending, NotifyProcessSuccess, NotifyProcessFailed, NotifyProcessIgnored}) {
+		t.Fatalf("unexpected notify process status order: %#v", NotifyProcessStatuses)
+	}
+	if FulfillStatusLabels[FulfillSuccess] != "执行成功" ||
+		FulfillActionLabels[FulfillActionRecharge] != "充值入账" ||
+		NotifyProcessStatusLabels[NotifyProcessSuccess] != "处理成功" {
+		t.Fatalf("unexpected pay runtime labels")
+	}
+	if IsFulfillStatus(999) || IsFulfillAction(999) || IsNotifyProcessStatus(999) {
+		t.Fatalf("invalid pay runtime enums must be rejected")
+	}
+}

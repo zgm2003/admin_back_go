@@ -15,6 +15,7 @@ import (
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -49,6 +50,7 @@ type Dependencies struct {
 	OperationLogService     operationlog.HTTPService
 	PayChannelService       paychannel.HTTPService
 	PayOrderService         payorder.HTTPService
+	PayRuntimeService       payruntime.HTTPService
 	PayTransactionService   paytransaction.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
@@ -102,6 +104,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	paychannel.RegisterRoutes(router, deps.PayChannelService)
 	payorder.RegisterRoutes(router, deps.PayOrderService)
+	payruntime.RegisterRoutes(router, deps.PayRuntimeService)
 	paytransaction.RegisterRoutes(router, deps.PayTransactionService)
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
