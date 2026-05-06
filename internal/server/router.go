@@ -26,6 +26,7 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
@@ -56,6 +57,7 @@ type Dependencies struct {
 	SystemLogService        systemlog.HTTPService
 	UploadConfigService     uploadconfig.HTTPService
 	UploadTokenService      uploadtoken.HTTPService
+	WalletService           wallet.HTTPService
 	RealtimeHandler         *realtime.Handler
 	RoleService             role.HTTPService
 	AuthPlatformService     authplatform.HTTPService
@@ -107,6 +109,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	systemlog.RegisterRoutes(router, deps.SystemLogService)
 	uploadconfig.RegisterRoutes(router, deps.UploadConfigService)
 	uploadtoken.RegisterRoutes(router, deps.UploadTokenService)
+	wallet.RegisterRoutes(router, deps.WalletService)
 	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)

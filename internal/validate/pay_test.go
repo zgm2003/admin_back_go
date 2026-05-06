@@ -15,6 +15,8 @@ type payValidatorSample struct {
 	OrderType  int    `validate:"pay_order_type"`
 	PayStatus  int    `validate:"pay_status"`
 	BizStatus  int    `validate:"pay_biz_status"`
+	WalletType int    `validate:"wallet_type"`
+	WalletSrc  int    `validate:"wallet_source"`
 }
 
 func TestPayValidators(t *testing.T) {
@@ -37,26 +39,38 @@ func TestPayValidators(t *testing.T) {
 	if err := validator.RegisterValidation("pay_biz_status", validatePayBizStatus); err != nil {
 		t.Fatalf("register pay_biz_status: %v", err)
 	}
+	if err := validator.RegisterValidation("wallet_type", validateWalletType); err != nil {
+		t.Fatalf("register wallet_type: %v", err)
+	}
+	if err := validator.RegisterValidation("wallet_source", validateWalletSource); err != nil {
+		t.Fatalf("register wallet_source: %v", err)
+	}
 
-	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess}); err != nil {
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err != nil {
 		t.Fatalf("expected valid pay sample: %v", err)
 	}
-	if err := validator.Struct(payValidatorSample{Channel: 9, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess}); err == nil {
+	if err := validator.Struct(payValidatorSample{Channel: 9, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err == nil {
 		t.Fatalf("expected invalid pay channel to fail")
 	}
-	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "bank", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess}); err == nil {
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "bank", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err == nil {
 		t.Fatalf("expected invalid pay method to fail")
 	}
-	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: 999, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess}); err == nil {
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: 999, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err == nil {
 		t.Fatalf("expected invalid pay transaction status to fail")
 	}
-	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: 999, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess}); err == nil {
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: 999, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err == nil {
 		t.Fatalf("expected invalid pay order type to fail")
 	}
-	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: 999, BizStatus: enum.PayBizSuccess}); err == nil {
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: 999, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err == nil {
 		t.Fatalf("expected invalid pay status to fail")
 	}
-	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: 999}); err == nil {
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: 999, WalletType: enum.WalletTypeAdjust, WalletSrc: enum.WalletSourceManual}); err == nil {
 		t.Fatalf("expected invalid pay biz status to fail")
+	}
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: 999, WalletSrc: enum.WalletSourceManual}); err == nil {
+		t.Fatalf("expected invalid wallet type to fail")
+	}
+	if err := validator.Struct(payValidatorSample{Channel: 1, Method: "scan", TxnStatus: enum.PayTxnSuccess, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaid, BizStatus: enum.PayBizSuccess, WalletType: enum.WalletTypeAdjust, WalletSrc: 999}); err == nil {
+		t.Fatalf("expected invalid wallet source to fail")
 	}
 }

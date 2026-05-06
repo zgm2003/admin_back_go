@@ -1193,6 +1193,7 @@ internal/validate/pay.go      # pay_channel/pay_method/pay_txn_status
 internal/module/paychannel    # 支付渠道配置管理 REST
 internal/module/paytransaction # 支付流水只读 REST
 internal/module/payorder       # 后台统一订单管理 REST
+internal/module/wallet         # 后台钱包 read-only REST
 ```
 
 `internal/module/paychannel` 只管理 `pay_channel` 配置事实源：
@@ -1255,6 +1256,25 @@ close/remark 使用 `pay_order_edit`，并显式注册 operation log metadata：
 close 只允许 pay_status=PENDING/PAYING；repository transaction 内更新 orders 并关闭最后一条 active pay_transactions。
 close 不调用第三方支付 SDK，不查单，不关第三方平台订单，不改钱包余额；第三方支付 runtime 后续独立迁移。
 status-count 永远按 pay_status enum 顺序返回完整项，前端不能自己猜 label/count shape。
+```
+
+`internal/module/wallet` 只读后台钱包和钱包流水事实：
+
+```text
+GET /api/admin/v1/wallets/page-init
+GET /api/admin/v1/wallets
+GET /api/admin/v1/wallet-transactions
+```
+
+规则：
+
+```text
+本切片只做只读查询，不做调账、不冻结/解冻、不提现、不接支付 SDK、不改钱包余额。
+repository 只读 user_wallets / wallet_transactions，并 left join users 生成展示事实。
+handler 用 wallet_type validator 拦非法流水类型；service 只做分页默认值、trim、时间/label 展示归一化。
+金额统一保持分，前端负责展示成元。
+只读路由只注册 permission metadata `pay_wallet_list`，不注册 operation log metadata。
+调账写路径暂时保留显式 LegacyWalletAdjustmentApi；未来必须单独做 `POST /api/admin/v1/wallet-adjustments`，并在 repository transaction 内写 wallet + transaction + operation log/idempotency 边界。
 ```
 
 `internal/module/uploadtoken` 管理运行时 token 签发：

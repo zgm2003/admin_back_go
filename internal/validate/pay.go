@@ -34,3 +34,13 @@ func validatePayBizStatus(fl playground.FieldLevel) bool {
 	value, ok := intValue(fl.Field())
 	return ok && enum.IsPayBizStatus(value)
 }
+
+func validateWalletType(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && enum.IsWalletType(value)
+}
+
+func validateWalletSource(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && enum.IsWalletSource(value)
+}

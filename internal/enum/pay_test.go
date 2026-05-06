@@ -94,3 +94,21 @@ func TestPayOrderEnumsAreStable(t *testing.T) {
 		t.Fatalf("invalid pay order enums must be rejected")
 	}
 }
+
+func TestWalletEnumsAreStable(t *testing.T) {
+	if !reflect.DeepEqual(WalletTypes, []int{WalletTypeRecharge, WalletTypeConsume, WalletTypeAdjust}) {
+		t.Fatalf("unexpected wallet type order: %#v", WalletTypes)
+	}
+	if WalletTypeLabels[WalletTypeRecharge] != "充值入账" || WalletTypeLabels[WalletTypeConsume] != "消费扣款" || WalletTypeLabels[WalletTypeAdjust] != "系统调账" {
+		t.Fatalf("unexpected wallet type labels: %#v", WalletTypeLabels)
+	}
+	if !reflect.DeepEqual(WalletSources, []int{WalletSourceNone, WalletSourceFulfill, WalletSourceManual}) {
+		t.Fatalf("unexpected wallet source order: %#v", WalletSources)
+	}
+	if WalletSourceLabels[WalletSourceNone] != "未关联" || WalletSourceLabels[WalletSourceFulfill] != "履约" || WalletSourceLabels[WalletSourceManual] != "人工" {
+		t.Fatalf("unexpected wallet source labels: %#v", WalletSourceLabels)
+	}
+	if IsWalletType(999) || IsWalletSource(999) {
+		t.Fatalf("invalid wallet enums must be rejected")
+	}
+}

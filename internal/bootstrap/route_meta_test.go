@@ -74,6 +74,9 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/pay-orders/:id", "pay_recharge_list"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "pay_order_edit"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "pay_order_edit"},
+		{http.MethodGet, "/api/admin/v1/wallets/page-init", "pay_wallet_list"},
+		{http.MethodGet, "/api/admin/v1/wallets", "pay_wallet_list"},
+		{http.MethodGet, "/api/admin/v1/wallet-transactions", "pay_wallet_list"},
 	}
 
 	for _, tt := range tests {
@@ -204,6 +207,9 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions/:id"},
+		{http.MethodGet, "/api/admin/v1/wallets/page-init"},
+		{http.MethodGet, "/api/admin/v1/wallets"},
+		{http.MethodGet, "/api/admin/v1/wallet-transactions"},
 		{http.MethodPatch, "/api/admin/v1/notifications/:id/read"},
 		{http.MethodPatch, "/api/admin/v1/notifications/read"},
 		{http.MethodDelete, "/api/admin/v1/notifications/:id"},

@@ -80,3 +80,27 @@ func TestPayOrderOptions(t *testing.T) {
 		t.Fatalf("unexpected recharge presets: %#v", presets)
 	}
 }
+
+func TestWalletOptions(t *testing.T) {
+	types := WalletTypeOptions()
+	if len(types) != len(enum.WalletTypes) {
+		t.Fatalf("unexpected wallet type options: %#v", types)
+	}
+	if types[0].Value != enum.WalletTypeRecharge || types[0].Label != enum.WalletTypeLabels[enum.WalletTypeRecharge] {
+		t.Fatalf("unexpected first wallet type option: %#v", types[0])
+	}
+	if types[2].Value != enum.WalletTypeAdjust || types[2].Label != "系统调账" {
+		t.Fatalf("unexpected adjust wallet type option: %#v", types[2])
+	}
+
+	sources := WalletSourceOptions()
+	if len(sources) != len(enum.WalletSources) {
+		t.Fatalf("unexpected wallet source options: %#v", sources)
+	}
+	if sources[0].Value != enum.WalletSourceNone || sources[0].Label != "未关联" {
+		t.Fatalf("unexpected first wallet source option: %#v", sources[0])
+	}
+	if sources[2].Value != enum.WalletSourceManual || sources[2].Label != "人工" {
+		t.Fatalf("unexpected manual wallet source option: %#v", sources[2])
+	}
+}

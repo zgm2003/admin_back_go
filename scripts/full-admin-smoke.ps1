@@ -655,6 +655,71 @@ function Assert-PayOrderDetail($Response) {
   }
 }
 
+function Assert-WalletInit($Response) {
+  Assert-ApiOK $Response 'wallet init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "wallet init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $walletTypes = Get-ObjectArray $Response.data.dict.wallet_type_arr
+  $walletSources = Get-ObjectArray $Response.data.dict.wallet_source_arr
+  if ($walletTypes.Count -ne 3 -or $walletSources.Count -ne 3) {
+    throw "wallet init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    WalletTypeCount = $walletTypes.Count
+    WalletSourceCount = $walletSources.Count
+  }
+}
+
+function Assert-WalletList($Response) {
+  Assert-ApiOK $Response 'wallet list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "wallet list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [int64]$item.user_id -le 0) {
+      throw "wallet item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    foreach ($field in @('balance', 'frozen', 'total_recharge', 'total_consume')) {
+      if ($null -eq $item.$field) {
+        throw "wallet item missing money field $field`: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-WalletTransactionList($Response) {
+  Assert-ApiOK $Response 'wallet transaction list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "wallet transaction list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [int64]$item.user_id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.biz_action_no)) {
+      throw "wallet transaction item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.type_text -or $null -eq $item.available_delta -or $null -eq $item.balance_before -or $null -eq $item.balance_after) {
+      throw "wallet transaction item missing label/money fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Invoke-PayOrderRemarkProbe([string]$BaseURL, [hashtable]$Headers, $OrderDetailSummary) {
   if ($null -eq $OrderDetailSummary -or [int64]$OrderDetailSummary.ID -le 0) {
     return [pscustomobject]@{
@@ -1454,6 +1519,21 @@ func main() {
   $payOrderRemarkProbe = Invoke-PayOrderRemarkProbe $baseURL $authHeaders $payOrderDetailSummary
   $payOrderCloseProbe = Invoke-PayOrderCloseProbe $baseURL $authHeaders
 
+  $walletInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallets/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletInitSummary = Assert-WalletInit $walletInit
+
+  $walletList = Invoke-RestMethod "$baseURL/api/admin/v1/wallets?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletListSummary = Assert-WalletList $walletList
+
+  $walletTransactionList = Invoke-RestMethod "$baseURL/api/admin/v1/wallet-transactions?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletTransactionListSummary = Assert-WalletTransactionList $walletTransactionList
+
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
   $uploadTokenProbe = Invoke-UploadTokenProbe $baseURL $authHeaders
 
@@ -1641,6 +1721,15 @@ func main() {
     pay_order_remark_probe_restored_original_blank = $payOrderRemarkProbe.RestoredOriginalBlank
     pay_order_close_probe = $payOrderCloseProbe.Status
     pay_order_close_probe_order_id = $payOrderCloseProbe.OrderID
+    wallet_init_code = $walletInit.code
+    wallet_type_dict_count = $walletInitSummary.WalletTypeCount
+    wallet_source_dict_count = $walletInitSummary.WalletSourceCount
+    wallet_list_code = $walletList.code
+    wallet_list_count = $walletListSummary.ListCount
+    wallet_total = $walletListSummary.Total
+    wallet_transaction_list_code = $walletTransactionList.code
+    wallet_transaction_list_count = $walletTransactionListSummary.ListCount
+    wallet_transaction_total = $walletTransactionListSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID

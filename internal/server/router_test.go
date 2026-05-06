@@ -15,6 +15,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
@@ -34,6 +35,7 @@ import (
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/wallet"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/readiness"
@@ -530,6 +532,11 @@ type fakeRouterPayOrderService struct {
 	closeReason      string
 }
 
+type fakeRouterWalletService struct {
+	listQuery wallet.ListQuery
+	txnQuery  wallet.TransactionListQuery
+}
+
 func (f *fakeRouterPayTransactionService) Init(ctx context.Context) (*paytransaction.InitResponse, *apperror.Error) {
 	return paytransaction.NewService(nil).Init(ctx)
 }
@@ -579,6 +586,26 @@ func (f *fakeRouterPayOrderService) Close(ctx context.Context, id int64, input p
 	f.closeID = id
 	f.closeReason = input.Reason
 	return nil
+}
+
+func (f *fakeRouterWalletService) Init(ctx context.Context) (*wallet.InitResponse, *apperror.Error) {
+	return wallet.NewService(nil).Init(ctx)
+}
+
+func (f *fakeRouterWalletService) List(ctx context.Context, query wallet.ListQuery) (*wallet.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &wallet.ListResponse{
+		List: []wallet.ListItem{{ID: 1, UserID: 7, UserName: "admin"}},
+		Page: wallet.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterWalletService) Transactions(ctx context.Context, query wallet.TransactionListQuery) (*wallet.TransactionListResponse, *apperror.Error) {
+	f.txnQuery = query
+	return &wallet.TransactionListResponse{
+		List: []wallet.TransactionItem{{ID: 1, UserID: 7, Type: 3, TypeText: "系统调账"}},
+		Page: wallet.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
 }
 
 func (f *fakeRouterPayChannelService) Init(ctx context.Context) (*paychannel.InitResponse, *apperror.Error) {
@@ -1611,6 +1638,53 @@ func TestRouterInstallsPayOrderAdminRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || payOrderService.closeID != 9 || payOrderService.closeReason != "admin" {
 		t.Fatalf("expected pay order close route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payOrderService)
+	}
+}
+
+func TestRouterInstallsWalletReadOnlyRESTRoutes(t *testing.T) {
+	walletService := &fakeRouterWalletService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets"):             "pay_wallet_list",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallet-transactions"): "pay_wallet_list",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		WalletService: walletService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallets/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected wallet init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallets?current_page=2&page_size=30&user_id=7&start_date=2026-05-01&end_date=2026-05-06", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected wallet list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if walletService.listQuery.CurrentPage != 2 || walletService.listQuery.PageSize != 30 || walletService.listQuery.UserID == nil || *walletService.listQuery.UserID != 7 || walletService.listQuery.StartDate != "2026-05-01" || walletService.listQuery.EndDate != "2026-05-06" {
+		t.Fatalf("wallet list query mismatch: %#v", walletService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet-transactions?current_page=1&page_size=10&user_id=7&type=3&start_date=2026-05-01&end_date=2026-05-06", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected wallet transaction list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if walletService.txnQuery.CurrentPage != 1 || walletService.txnQuery.PageSize != 10 || walletService.txnQuery.UserID == nil || *walletService.txnQuery.UserID != 7 || walletService.txnQuery.Type == nil || *walletService.txnQuery.Type != enum.WalletTypeAdjust {
+		t.Fatalf("wallet transaction query mismatch: %#v", walletService.txnQuery)
 	}
 }
 

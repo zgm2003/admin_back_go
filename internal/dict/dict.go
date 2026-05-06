@@ -216,6 +216,28 @@ func RechargePresetOptions() []Option[int] {
 	return options
 }
 
+func WalletTypeOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.WalletTypes))
+	for _, value := range enum.WalletTypes {
+		options = append(options, Option[int]{
+			Label: enum.WalletTypeLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func WalletSourceOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.WalletSources))
+	for _, value := range enum.WalletSources {
+		options = append(options, Option[int]{
+			Label: enum.WalletSourceLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
 func UploadDriverOptions() []Option[string] {
 	options := make([]Option[string], 0, len(enum.UploadDrivers))
 	for _, value := range enum.UploadDrivers {

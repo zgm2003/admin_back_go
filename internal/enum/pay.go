@@ -92,6 +92,18 @@ const (
 	PayTxnClosed  = 5
 )
 
+const (
+	WalletTypeRecharge = 1
+	WalletTypeConsume  = 2
+	WalletTypeAdjust   = 3
+)
+
+const (
+	WalletSourceNone    = 0
+	WalletSourceFulfill = 1
+	WalletSourceManual  = 2
+)
+
 var PayOrderTypes = []int{
 	PayOrderRecharge,
 	PayOrderConsume,
@@ -163,6 +175,30 @@ var PayTxnStatusLabels = map[int]string{
 	PayTxnClosed:  "已关闭",
 }
 
+var WalletTypes = []int{
+	WalletTypeRecharge,
+	WalletTypeConsume,
+	WalletTypeAdjust,
+}
+
+var WalletTypeLabels = map[int]string{
+	WalletTypeRecharge: "充值入账",
+	WalletTypeConsume:  "消费扣款",
+	WalletTypeAdjust:   "系统调账",
+}
+
+var WalletSources = []int{
+	WalletSourceNone,
+	WalletSourceFulfill,
+	WalletSourceManual,
+}
+
+var WalletSourceLabels = map[int]string{
+	WalletSourceNone:    "未关联",
+	WalletSourceFulfill: "履约",
+	WalletSourceManual:  "人工",
+}
+
 type OptionPreset struct {
 	Label string
 	Value int
@@ -217,6 +253,24 @@ func IsPayStatus(value int) bool {
 func IsPayBizStatus(value int) bool {
 	for _, status := range PayBizStatuses {
 		if status == value {
+			return true
+		}
+	}
+	return false
+}
+
+func IsWalletType(value int) bool {
+	for _, walletType := range WalletTypes {
+		if walletType == value {
+			return true
+		}
+	}
+	return false
+}
+
+func IsWalletSource(value int) bool {
+	for _, source := range WalletSources {
+		if source == value {
 			return true
 		}
 	}

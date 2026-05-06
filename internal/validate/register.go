@@ -50,6 +50,8 @@ func Register() error {
 			"pay_order_type":             validatePayOrderType,
 			"pay_status":                 validatePayStatus,
 			"pay_biz_status":             validatePayBizStatus,
+			"wallet_type":                validateWalletType,
+			"wallet_source":              validateWalletSource,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

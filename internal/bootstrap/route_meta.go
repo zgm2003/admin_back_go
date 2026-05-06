@@ -67,6 +67,9 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders/:id"):                  "pay_recharge_list",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/close"):          "pay_order_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark"):         "pay_order_edit",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets/page-init"):               "pay_wallet_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets"):                         "pay_wallet_list",
+		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallet-transactions"):             "pay_wallet_list",
 	}
 }
 

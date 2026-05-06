@@ -26,6 +26,7 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/platform/logstore"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/secretbox"
@@ -98,6 +99,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
 	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
 	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
+	walletService := wallet.NewService(wallet.NewGormRepository(resources.DB))
 	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
 	if cfg.UploadToken.COS.Enabled {
 		cosSigner = storagecos.NewSigner(storagecos.Config{
@@ -214,6 +216,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		SystemLogService:        systemLogService,
 		UploadConfigService:     uploadConfigService,
 		UploadTokenService:      uploadTokenService,
+		WalletService:           walletService,
 		RealtimeHandler:         realtimeStack.handler,
 		RoleService:             roleService,
 		AuthPlatformService:     authPlatformService,
