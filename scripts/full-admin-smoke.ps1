@@ -720,6 +720,102 @@ function Assert-WalletTransactionList($Response) {
   }
 }
 
+function Get-WalletBalance([string]$BaseURL, [hashtable]$Headers, [int64]$UserID) {
+  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/wallets?current_page=1&page_size=1&user_id=$UserID" `
+    -Headers $Headers `
+    -TimeoutSec 10
+  Assert-ApiOK $response 'wallet balance readback'
+
+  $rows = Get-ObjectArray $response.data.list
+  if ($rows.Count -eq 0) {
+    throw "wallet balance readback missing user_id=$UserID"
+  }
+
+  return [int]$rows[0].balance
+}
+
+function Invoke-WalletAdjustmentProbe([string]$BaseURL, [hashtable]$Headers, $WalletRow) {
+  if ($null -eq $WalletRow -or [int64]$WalletRow.user_id -le 0) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_wallet_rows'
+      UserID = 0
+      PlusCode = $null
+      DuplicateSameTransaction = $false
+      Restored = $false
+      PlusTransactionID = 0
+      MinusTransactionID = 0
+    }
+  }
+
+  $userID = [int64]$WalletRow.user_id
+  $originalBalance = [int]$WalletRow.balance
+  $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $plusBody = @{
+    user_id = $userID
+    delta = 100
+    reason = "codex-full-smoke-adjust-plus-$suffix"
+    idempotency_key = "codex-full-smoke-plus-$suffix"
+  }
+  $minusBody = @{
+    user_id = $userID
+    delta = -100
+    reason = "codex-full-smoke-adjust-restore-$suffix"
+    idempotency_key = "codex-full-smoke-minus-$suffix"
+  }
+  $restored = $false
+  $plus = $null
+  $minus = $null
+
+  try {
+    $plus = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $plusBody
+    Assert-ApiOK $plus 'wallet adjustment plus'
+    if ([int]$plus.data.balance_before -ne $originalBalance -or [int]$plus.data.balance_after -ne ($originalBalance + 100)) {
+      throw "wallet adjustment plus balance mismatch: original=$originalBalance response=$($plus | ConvertTo-Json -Depth 12)"
+    }
+
+    $duplicate = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $plusBody
+    Assert-ApiOK $duplicate 'wallet adjustment duplicate'
+    $duplicateSameTransaction = [int64]$duplicate.data.transaction_id -eq [int64]$plus.data.transaction_id
+    if (-not $duplicateSameTransaction) {
+      throw "wallet adjustment duplicate returned different transaction: first=$($plus.data.transaction_id) duplicate=$($duplicate.data.transaction_id)"
+    }
+
+    $balanceAfterDuplicate = Get-WalletBalance $BaseURL $Headers $userID
+    if ($balanceAfterDuplicate -ne ($originalBalance + 100)) {
+      throw "wallet adjustment duplicate mutated balance: expected=$($originalBalance + 100) actual=$balanceAfterDuplicate"
+    }
+
+    $minus = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $minusBody
+    Assert-ApiOK $minus 'wallet adjustment restore'
+    $finalBalance = Get-WalletBalance $BaseURL $Headers $userID
+    $restored = $finalBalance -eq $originalBalance
+    if (-not $restored) {
+      throw "wallet adjustment restore failed: original=$originalBalance final=$finalBalance"
+    }
+
+    return [pscustomobject]@{
+      Status = 'ok'
+      UserID = $userID
+      PlusCode = [int]$plus.code
+      DuplicateSameTransaction = $duplicateSameTransaction
+      Restored = $restored
+      PlusTransactionID = [int64]$plus.data.transaction_id
+      MinusTransactionID = [int64]$minus.data.transaction_id
+    }
+  } catch {
+    if ($null -ne $plus -and -not $restored) {
+      try {
+        $restoreAttempt = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $minusBody
+        Assert-ApiOK $restoreAttempt 'wallet adjustment restore after failure'
+        $restored = (Get-WalletBalance $BaseURL $Headers $userID) -eq $originalBalance
+      } catch {
+        # Keep the original failure below; the final hard failure still shows restore status.
+      }
+    }
+    throw "wallet adjustment probe failed; restored=$restored; original=$originalBalance; error=$($_.Exception.Message)"
+  }
+}
+
 function Invoke-PayOrderRemarkProbe([string]$BaseURL, [hashtable]$Headers, $OrderDetailSummary) {
   if ($null -eq $OrderDetailSummary -or [int64]$OrderDetailSummary.ID -le 0) {
     return [pscustomobject]@{
@@ -1533,6 +1629,28 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $walletTransactionListSummary = Assert-WalletTransactionList $walletTransactionList
+  $walletAdjustmentBeforeLogs = Get-OperationLogList $baseURL $authHeaders '钱包调账'
+  Assert-ApiOK $walletAdjustmentBeforeLogs 'wallet adjustment operation log before list'
+  $walletAdjustmentBeforeMaxID = Get-MaxOperationLogID $walletAdjustmentBeforeLogs
+  $walletRows = Get-ObjectArray $walletList.data.list
+  $walletAdjustmentProbe = if ($walletRows.Count -gt 0) {
+    Invoke-WalletAdjustmentProbe $baseURL $authHeaders $walletRows[0]
+  } else {
+    [pscustomobject]@{
+      Status = 'skipped_no_wallet_rows'
+      UserID = 0
+      PlusCode = $null
+      DuplicateSameTransaction = $false
+      Restored = $false
+      PlusTransactionID = 0
+      MinusTransactionID = 0
+    }
+  }
+  $walletAdjustmentOperationLog = if ($walletAdjustmentProbe.Status -eq 'ok') {
+    Wait-NewOperationLog $baseURL $authHeaders '钱包调账' $walletAdjustmentBeforeMaxID
+  } else {
+    $null
+  }
 
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
   $uploadTokenProbe = Invoke-UploadTokenProbe $baseURL $authHeaders
@@ -1730,6 +1848,14 @@ func main() {
     wallet_transaction_list_code = $walletTransactionList.code
     wallet_transaction_list_count = $walletTransactionListSummary.ListCount
     wallet_transaction_total = $walletTransactionListSummary.Total
+    wallet_adjustment_status = $walletAdjustmentProbe.Status
+    wallet_adjustment_user_id = $walletAdjustmentProbe.UserID
+    wallet_adjustment_plus_code = $walletAdjustmentProbe.PlusCode
+    wallet_adjustment_duplicate_same_transaction = $walletAdjustmentProbe.DuplicateSameTransaction
+    wallet_adjustment_restored = $walletAdjustmentProbe.Restored
+    wallet_adjustment_plus_transaction_id = $walletAdjustmentProbe.PlusTransactionID
+    wallet_adjustment_minus_transaction_id = $walletAdjustmentProbe.MinusTransactionID
+    wallet_adjustment_operation_log_id = if ($null -eq $walletAdjustmentOperationLog) { 0 } else { [int64]$walletAdjustmentOperationLog.id }
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID

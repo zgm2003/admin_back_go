@@ -70,6 +70,7 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets/page-init"):               "pay_wallet_list",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets"):                         "pay_wallet_list",
 		middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallet-transactions"):             "pay_wallet_list",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments"):             "pay_wallet_adjust",
 	}
 }
 
@@ -344,6 +345,11 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "pay_order",
 			Action: "remark",
 			Title:  "备注订单",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments"): {
+			Module: "pay_wallet",
+			Action: "adjust",
+			Title:  "钱包调账",
 		},
 	}
 }

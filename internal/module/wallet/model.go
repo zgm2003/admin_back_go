@@ -47,3 +47,12 @@ type WalletTransaction struct {
 func (WalletTransaction) TableName() string {
 	return "wallet_transactions"
 }
+
+type walletUser struct {
+	ID    int64 `gorm:"column:id;primaryKey"`
+	IsDel int   `gorm:"column:is_del"`
+}
+
+func (walletUser) TableName() string {
+	return "users"
+}

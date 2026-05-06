@@ -34,6 +34,37 @@ type TransactionListQuery struct {
 	EndDate     string
 }
 
+type CreateAdjustmentInput struct {
+	UserID         int64
+	Delta          int
+	Reason         string
+	IdempotencyKey string
+	OperatorID     int64
+}
+
+type AdjustmentMutation struct {
+	UserID         int64
+	Delta          int
+	Reason         string
+	IdempotencyKey string
+	BizActionNo    string
+	OperatorID     int64
+}
+
+type AdjustmentResult struct {
+	TransactionID int64
+	BizActionNo   string
+	BalanceBefore int
+	BalanceAfter  int
+}
+
+type WalletAdjustmentCreateResponse struct {
+	TransactionID int64  `json:"transaction_id"`
+	BizActionNo   string `json:"biz_action_no"`
+	BalanceBefore int    `json:"balance_before"`
+	BalanceAfter  int    `json:"balance_after"`
+}
+
 type Page struct {
 	PageSize    int   `json:"page_size"`
 	CurrentPage int   `json:"current_page"`
@@ -114,4 +145,5 @@ type HTTPService interface {
 	Init(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Transactions(ctx context.Context, query TransactionListQuery) (*TransactionListResponse, *apperror.Error)
+	CreateAdjustment(ctx context.Context, input CreateAdjustmentInput) (*WalletAdjustmentCreateResponse, *apperror.Error)
 }

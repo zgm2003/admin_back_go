@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
 type fakeHTTPService struct {
-	called    string
-	listQuery ListQuery
-	txnQuery  TransactionListQuery
+	called          string
+	listQuery       ListQuery
+	txnQuery        TransactionListQuery
+	adjustmentInput CreateAdjustmentInput
 }
 
 func (f *fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
@@ -34,6 +37,12 @@ func (f *fakeHTTPService) Transactions(ctx context.Context, query TransactionLis
 	f.called = "transactions"
 	f.txnQuery = query
 	return &TransactionListResponse{List: []TransactionItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (f *fakeHTTPService) CreateAdjustment(ctx context.Context, input CreateAdjustmentInput) (*WalletAdjustmentCreateResponse, *apperror.Error) {
+	f.called = "create_adjustment"
+	f.adjustmentInput = input
+	return &WalletAdjustmentCreateResponse{TransactionID: 8, BizActionNo: "WALLET:ADJUST:idem-0001", BalanceBefore: 1000, BalanceAfter: 1100}, nil
 }
 
 func TestHandlerRoutes(t *testing.T) {
@@ -86,10 +95,61 @@ func TestHandlerRejectsInvalidWalletTypeBeforeService(t *testing.T) {
 	}
 }
 
+func TestHandlerCreateAdjustmentUsesAuthIdentity(t *testing.T) {
+	router, service := newWalletHandlerRouterWithIdentity(&middleware.AuthIdentity{UserID: 3, SessionID: 9, Platform: "admin"})
+	body := strings.NewReader(`{"user_id":7,"delta":100,"reason":"人工修正","idempotency_key":"idem-0001"}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/wallet-adjustments", body)
+	request.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.called != "create_adjustment" {
+		t.Fatalf("expected create adjustment, status=%d called=%s body=%s", recorder.Code, service.called, recorder.Body.String())
+	}
+	if service.adjustmentInput.UserID != 7 ||
+		service.adjustmentInput.Delta != 100 ||
+		service.adjustmentInput.OperatorID != 3 ||
+		service.adjustmentInput.IdempotencyKey != "idem-0001" {
+		t.Fatalf("unexpected input: %#v", service.adjustmentInput)
+	}
+}
+
+func TestHandlerCreateAdjustmentRequiresAuthIdentity(t *testing.T) {
+	router, service := newWalletHandlerRouterWithIdentity(nil)
+	body := strings.NewReader(`{"user_id":7,"delta":100,"reason":"人工修正","idempotency_key":"idem-0001"}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/wallet-adjustments", body)
+	request.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.called != "" {
+		t.Fatalf("service should not be called")
+	}
+}
+
 func newWalletHandlerRouter() (*gin.Engine, *fakeHTTPService) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeHTTPService{}
 	router := gin.New()
+	RegisterRoutes(router, service)
+	return router, service
+}
+
+func newWalletHandlerRouterWithIdentity(identity *middleware.AuthIdentity) (*gin.Engine, *fakeHTTPService) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeHTTPService{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if identity != nil {
+			c.Set(middleware.ContextAuthIdentity, identity)
+		}
+		c.Next()
+	})
 	RegisterRoutes(router, service)
 	return router, service
 }

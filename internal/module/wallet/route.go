@@ -15,4 +15,5 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	wallets.GET("", handler.List)
 
 	router.GET("/api/admin/v1/wallet-transactions", handler.Transactions)
+	router.POST("/api/admin/v1/wallet-adjustments", handler.CreateAdjustment)
 }

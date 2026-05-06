@@ -77,6 +77,7 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/wallets/page-init", "pay_wallet_list"},
 		{http.MethodGet, "/api/admin/v1/wallets", "pay_wallet_list"},
 		{http.MethodGet, "/api/admin/v1/wallet-transactions", "pay_wallet_list"},
+		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "pay_wallet_adjust"},
 	}
 
 	for _, tt := range tests {
@@ -189,6 +190,7 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/pay-channels/:id", "delete"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "close"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "remark"},
+		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "adjust"},
 	}
 
 	for _, tt := range tests {
@@ -198,6 +200,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 				t.Fatalf("unexpected operation rule: %#v", got)
 			}
 		})
+	}
+
+	walletRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments")]
+	if walletRule.Module != "pay_wallet" || walletRule.Action != "adjust" || walletRule.Title != "钱包调账" {
+		t.Fatalf("wallet adjustment operation rule mismatch: %#v", walletRule)
 	}
 
 	for _, tt := range []struct {

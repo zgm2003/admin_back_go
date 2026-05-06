@@ -16,6 +16,9 @@ type fakeRepository struct {
 	transactionTotal int64
 	lastListQuery    ListQuery
 	lastTxnQuery     TransactionListQuery
+	adjustmentResult *AdjustmentResult
+	adjustmentErr    error
+	lastAdjustment   AdjustmentMutation
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
@@ -26,6 +29,22 @@ func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 func (f *fakeRepository) Transactions(ctx context.Context, query TransactionListQuery) ([]TransactionRow, int64, error) {
 	f.lastTxnQuery = query
 	return f.transactionRows, f.transactionTotal, nil
+}
+
+func (f *fakeRepository) CreateAdjustment(ctx context.Context, input AdjustmentMutation) (*AdjustmentResult, error) {
+	f.lastAdjustment = input
+	if f.adjustmentErr != nil {
+		return nil, f.adjustmentErr
+	}
+	if f.adjustmentResult != nil {
+		return f.adjustmentResult, nil
+	}
+	return &AdjustmentResult{
+		TransactionID: 1,
+		BizActionNo:   input.BizActionNo,
+		BalanceBefore: 1000,
+		BalanceAfter:  1000 + input.Delta,
+	}, nil
 }
 
 func TestInitReturnsWalletDicts(t *testing.T) {
@@ -102,5 +121,82 @@ func TestListRepositoryNotConfiguredFailsClearly(t *testing.T) {
 	_, appErr := service.List(context.Background(), ListQuery{})
 	if appErr == nil || appErr.Code != apperror.CodeInternal {
 		t.Fatalf("expected repository config error, got %#v", appErr)
+	}
+}
+
+func TestCreateAdjustmentValidatesInput(t *testing.T) {
+	service := NewService(&fakeRepository{})
+	tests := []struct {
+		name  string
+		input CreateAdjustmentInput
+	}{
+		{name: "missing user", input: CreateAdjustmentInput{Delta: 1, Reason: "修正", IdempotencyKey: "idem-0001", OperatorID: 1}},
+		{name: "zero delta", input: CreateAdjustmentInput{UserID: 7, Delta: 0, Reason: "修正", IdempotencyKey: "idem-0001", OperatorID: 1}},
+		{name: "blank reason", input: CreateAdjustmentInput{UserID: 7, Delta: 1, Reason: "  ", IdempotencyKey: "idem-0001", OperatorID: 1}},
+		{name: "bad idempotency", input: CreateAdjustmentInput{UserID: 7, Delta: 1, Reason: "修正", IdempotencyKey: "bad key with spaces", OperatorID: 1}},
+		{name: "missing operator", input: CreateAdjustmentInput{UserID: 7, Delta: 1, Reason: "修正", IdempotencyKey: "idem-0001", OperatorID: 0}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, appErr := service.CreateAdjustment(context.Background(), tc.input)
+			if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+				t.Fatalf("expected bad request, got %#v", appErr)
+			}
+		})
+	}
+}
+
+func TestCreateAdjustmentNormalizesInputAndReturnsResponse(t *testing.T) {
+	repo := &fakeRepository{adjustmentResult: &AdjustmentResult{
+		TransactionID: 9,
+		BizActionNo:   "WALLET:ADJUST:idem-0001",
+		BalanceBefore: 1000,
+		BalanceAfter:  1100,
+	}}
+	service := NewService(repo)
+
+	got, appErr := service.CreateAdjustment(context.Background(), CreateAdjustmentInput{
+		UserID:         7,
+		Delta:          100,
+		Reason:         "  人工修正  ",
+		IdempotencyKey: " idem-0001 ",
+		OperatorID:     3,
+	})
+	if appErr != nil {
+		t.Fatalf("expected success, got %v", appErr)
+	}
+	if repo.lastAdjustment.Reason != "人工修正" || repo.lastAdjustment.BizActionNo != "WALLET:ADJUST:idem-0001" {
+		t.Fatalf("unexpected mutation input: %#v", repo.lastAdjustment)
+	}
+	if got.TransactionID != 9 || got.BalanceBefore != 1000 || got.BalanceAfter != 1100 {
+		t.Fatalf("unexpected response: %#v", got)
+	}
+}
+
+func TestCreateAdjustmentMapsDomainErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code int
+		msg  string
+	}{
+		{name: "user not found", err: ErrUserNotFound, code: apperror.CodeNotFound, msg: "用户不存在"},
+		{name: "insufficient", err: ErrInsufficientBalance, code: apperror.CodeBadRequest, msg: "可用余额不足，无法调减"},
+		{name: "conflict", err: ErrAdjustmentConflict, code: apperror.CodeBadRequest, msg: "幂等键已被不同请求使用"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(&fakeRepository{adjustmentErr: tc.err})
+			_, appErr := service.CreateAdjustment(context.Background(), CreateAdjustmentInput{
+				UserID:         7,
+				Delta:          100,
+				Reason:         "修正",
+				IdempotencyKey: "idem-0001",
+				OperatorID:     3,
+			})
+			if appErr == nil || appErr.Code != tc.code || appErr.Message != tc.msg {
+				t.Fatalf("unexpected appErr: %#v", appErr)
+			}
+		})
 	}
 }

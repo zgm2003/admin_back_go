@@ -533,8 +533,9 @@ type fakeRouterPayOrderService struct {
 }
 
 type fakeRouterWalletService struct {
-	listQuery wallet.ListQuery
-	txnQuery  wallet.TransactionListQuery
+	listQuery       wallet.ListQuery
+	txnQuery        wallet.TransactionListQuery
+	adjustmentInput wallet.CreateAdjustmentInput
 }
 
 func (f *fakeRouterPayTransactionService) Init(ctx context.Context) (*paytransaction.InitResponse, *apperror.Error) {
@@ -605,6 +606,16 @@ func (f *fakeRouterWalletService) Transactions(ctx context.Context, query wallet
 	return &wallet.TransactionListResponse{
 		List: []wallet.TransactionItem{{ID: 1, UserID: 7, Type: 3, TypeText: "系统调账"}},
 		Page: wallet.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterWalletService) CreateAdjustment(ctx context.Context, input wallet.CreateAdjustmentInput) (*wallet.WalletAdjustmentCreateResponse, *apperror.Error) {
+	f.adjustmentInput = input
+	return &wallet.WalletAdjustmentCreateResponse{
+		TransactionID: 8,
+		BizActionNo:   "WALLET:ADJUST:idem-0001",
+		BalanceBefore: 1000,
+		BalanceAfter:  1100,
 	}, nil
 }
 
@@ -1650,6 +1661,7 @@ func TestRouterInstallsWalletReadOnlyRESTRoutes(t *testing.T) {
 		PermissionRules: map[middleware.RouteKey]string{
 			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets"):             "pay_wallet_list",
 			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallet-transactions"): "pay_wallet_list",
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments"): "pay_wallet_adjust",
 		},
 		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
 			return nil
@@ -1685,6 +1697,18 @@ func TestRouterInstallsWalletReadOnlyRESTRoutes(t *testing.T) {
 	}
 	if walletService.txnQuery.CurrentPage != 1 || walletService.txnQuery.PageSize != 10 || walletService.txnQuery.UserID == nil || *walletService.txnQuery.UserID != 7 || walletService.txnQuery.Type == nil || *walletService.txnQuery.Type != enum.WalletTypeAdjust {
 		t.Fatalf("wallet transaction query mismatch: %#v", walletService.txnQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/wallet-adjustments", strings.NewReader(`{"user_id":7,"delta":100,"reason":"人工修正","idempotency_key":"idem-0001"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected wallet adjustment status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if walletService.adjustmentInput.UserID != 7 || walletService.adjustmentInput.Delta != 100 || walletService.adjustmentInput.Reason != "人工修正" || walletService.adjustmentInput.OperatorID != 1 {
+		t.Fatalf("wallet adjustment input mismatch: %#v", walletService.adjustmentInput)
 	}
 }
 
