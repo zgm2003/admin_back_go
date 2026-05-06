@@ -127,6 +127,7 @@ func (s *Service) Create(ctx context.Context, input SaveInput) (*ListItem, *appe
 		return nil, apperror.BadRequest("定时任务名称已存在")
 	}
 	now := s.now()
+	input = s.applyRegistryTaskType(input)
 	id, err := repo.Create(ctx, Task{
 		Name: input.Name, Title: input.Title, Description: input.Description, Cron: input.Cron,
 		CronReadable: input.CronReadable, Handler: input.Handler, Status: input.Status, IsDel: CommonNo,
@@ -168,6 +169,7 @@ func (s *Service) Update(ctx context.Context, id int64, input SaveInput) *apperr
 	if exists {
 		return apperror.BadRequest("定时任务名称已存在")
 	}
+	input = s.applyRegistryTaskType(input)
 	if err := repo.Update(ctx, id, Task{Name: input.Name, Title: input.Title, Description: input.Description, Cron: input.Cron, CronReadable: input.CronReadable, Handler: input.Handler, Status: input.Status}); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "更新定时任务失败", err)
 	}
@@ -298,7 +300,7 @@ func normalizeSaveInput(input SaveInput) (SaveInput, *apperror.Error) {
 		return input, apperror.BadRequest("Cron 表达式无效")
 	}
 	if len([]rune(input.Handler)) > maxHandlerLen {
-		return input, apperror.BadRequest("Handler 不能超过255个字符")
+		return input, apperror.BadRequest("任务引用不能超过255个字符")
 	}
 	if !enum.IsCommonStatus(input.Status) {
 		return input, apperror.BadRequest("无效的状态")
@@ -306,11 +308,23 @@ func normalizeSaveInput(input SaveInput) (SaveInput, *apperror.Error) {
 	return input, nil
 }
 
+func (s *Service) applyRegistryTaskType(input SaveInput) SaveInput {
+	if s == nil {
+		return input
+	}
+	entry, ok := s.registry.Lookup(input.Name)
+	if ok {
+		input.Handler = entry.TaskType
+	}
+	return input
+}
+
 func (s *Service) listItemFromTask(row Task) ListItem {
 	entry, ok := s.registry.Lookup(row.Name)
 	registryStatus := RegistryStatusMissing
 	registryTaskType := ""
 	registryDescription := ""
+	handler := row.Handler
 	if row.Status == CommonNo {
 		registryStatus = RegistryStatusDisabled
 	} else if !isValidCronExpression(row.Cron) {
@@ -319,10 +333,11 @@ func (s *Service) listItemFromTask(row Task) ListItem {
 		registryStatus = RegistryStatusRegistered
 		registryTaskType = entry.TaskType
 		registryDescription = entry.Description
+		handler = entry.TaskType
 	}
 	return ListItem{
 		ID: row.ID, Name: row.Name, Title: row.Title, Description: row.Description,
-		Cron: row.Cron, CronReadable: row.CronReadable, Handler: row.Handler,
+		Cron: row.Cron, CronReadable: row.CronReadable, Handler: handler,
 		Status: row.Status, StatusName: statusName(row.Status), NextRunTime: nextRunTime(row.Cron),
 		RegistryStatus: registryStatus, RegistryStatusText: registryStatusName(registryStatus), RegistryTaskType: registryTaskType,
 		RegistryDescription: registryDescription, CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),

@@ -1555,6 +1555,9 @@ function Assert-CronTaskList($Response) {
     }
     if ($firstID -eq 0) { $firstID = [int64]$item.id }
     if ([string]$item.name -eq 'notification_task_scheduler' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'notification:dispatch-due:v1' -or [string]$item.handler -ne 'notification:dispatch-due:v1') {
+        throw "notification cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
       $registeredNotification = $true
     }
     if ([string]$item.registry_status -eq 'missing') {

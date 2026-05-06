@@ -686,7 +686,7 @@ scheduler callback 只写 cron_task_log 并 enqueue Asynq task
 notification_task_scheduler -> notification:dispatch-due:v1
 ```
 
-`cron_task.handler` 保留为 legacy provenance/display，不允许按字符串动态执行 PHP/Go handler。未迁 Go 的 pay/AI/chat 等任务必须显示 `registry_status=missing`，不能注册假任务。
+`cron_task.handler` 不允许按字符串动态执行 PHP/Go handler。已接入 Go registry 的任务必须保存/返回版本化 Asynq task type，例如 `notification_task_scheduler -> notification:dispatch-due:v1`；旧 PHP class 只允许在未迁 Go 的行上作为 legacy provenance/display，并且必须显示 `registry_status=missing`，不能注册假任务。
 
 修改 cron_task 后当前不做 worker 热重载；需要重启 admin-worker。未来多 worker 部署再引入 scheduler lock/reload，不在 admin-api 里跑 cron。
 

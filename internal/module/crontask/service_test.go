@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"admin_back_go/internal/module/notificationtask"
 )
 
 func TestServiceListDecoratesRegistryStatus(t *testing.T) {
@@ -30,6 +32,39 @@ func TestServiceListDecoratesRegistryStatus(t *testing.T) {
 	assertStatus(t, res.List[1], RegistryStatusMissing)
 	assertStatus(t, res.List[2], RegistryStatusDisabled)
 	assertStatus(t, res.List[3], RegistryStatusInvalidCron)
+}
+
+func TestServiceListUsesGoTaskTypeForRegisteredTaskHandler(t *testing.T) {
+	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
+	repo := &fakeRepository{
+		tasks: []Task{{
+			ID:        1,
+			Name:      "notification_task_scheduler",
+			Title:     "通知任务调度器",
+			Cron:      "0 * * * * *",
+			Handler:   "app\\process\\NotificationTaskScheduler",
+			Status:    CommonYes,
+			IsDel:     CommonNo,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	service := NewService(repo, NewDefaultRegistry())
+
+	res, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr != nil {
+		t.Fatalf("List returned appErr: %v", appErr)
+	}
+	if len(res.List) != 1 {
+		t.Fatalf("expected one item, got %#v", res.List)
+	}
+	item := res.List[0]
+	if item.RegistryTaskType != notificationtask.TypeDispatchDueV1 {
+		t.Fatalf("expected registry_task_type=%s, got %#v", notificationtask.TypeDispatchDueV1, item)
+	}
+	if item.Handler != notificationtask.TypeDispatchDueV1 {
+		t.Fatalf("registered Go cron task must expose Go task type as handler, got %#v", item)
+	}
 }
 
 func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {

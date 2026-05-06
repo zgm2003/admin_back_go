@@ -83,7 +83,7 @@ func TestCronTaskHandlerInitAndList(t *testing.T) {
 
 func TestCronTaskHandlerCreateUpdateStatusDeleteAndLogs(t *testing.T) {
 	router, service := newCronTaskHandlerRouter()
-	body := `{"name":"demo_task","title":"Demo","description":"desc","cron":"0 * * * * *","cron_readable":"每分钟","handler":"app\\process\\Demo","status":1}`
+	body := `{"name":"demo_task","title":"Demo","description":"desc","cron":"0 * * * * *","cron_readable":"每分钟","handler":"demo:task:v1","status":1}`
 
 	createRecorder := httptest.NewRecorder()
 	createReq := httptest.NewRequest(http.MethodPost, "/api/admin/v1/cron-tasks", strings.NewReader(body))
