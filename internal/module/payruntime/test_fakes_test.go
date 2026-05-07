@@ -22,6 +22,12 @@ type fakeRepository struct {
 	walletSummary               *WalletSummaryRow
 	walletBills                 []WalletBillRow
 	walletBillsTotal            int64
+	expiredOrders               []ExpiredRechargeOrder
+	pendingTxns                 []PendingTransaction
+	lastExpiredCutoff           time.Time
+	lastExpiredLimit            int
+	lastPendingCutoff           time.Time
+	lastPendingLimit            int
 	lastWalletBillsQuery        WalletBillsQuery
 	createdRechargeOrder        bool
 	createdTransaction          bool
@@ -98,6 +104,18 @@ func (r *fakeRepository) CloseTransaction(ctx context.Context, txnID int64, now 
 	return nil
 }
 
+func (r *fakeRepository) ListExpiredRechargeOrders(ctx context.Context, cutoff time.Time, limit int) ([]ExpiredRechargeOrder, error) {
+	r.lastExpiredCutoff = cutoff
+	r.lastExpiredLimit = limit
+	return r.expiredOrders, nil
+}
+
+func (r *fakeRepository) ListPendingAlipayTransactions(ctx context.Context, cutoff time.Time, limit int) ([]PendingTransaction, error) {
+	r.lastPendingCutoff = cutoff
+	r.lastPendingLimit = limit
+	return r.pendingTxns, nil
+}
+
 func (r *fakeRepository) CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error) {
 	r.createdTransaction = true
 	r.createdTransactionAttemptNo = input.AttemptNo
@@ -158,6 +176,10 @@ func (r *fakeRepository) MarkPaySuccessAndCreditRecharge(ctx context.Context, in
 type fakeGateway struct {
 	createResp   *payalipay.CreateResponse
 	createErr    error
+	queryResult  *payalipay.QueryResult
+	queryErr     error
+	closeCalled  bool
+	closeErr     error
 	notifyResult *payalipay.NotifyResult
 	verifyErr    error
 }
@@ -167,6 +189,18 @@ func (g *fakeGateway) Create(ctx context.Context, cfg payalipay.ChannelConfig, r
 		return nil, g.createErr
 	}
 	return g.createResp, nil
+}
+
+func (g *fakeGateway) Query(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.QueryRequest) (*payalipay.QueryResult, error) {
+	if g.queryErr != nil {
+		return nil, g.queryErr
+	}
+	return g.queryResult, nil
+}
+
+func (g *fakeGateway) Close(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.CloseRequest) error {
+	g.closeCalled = true
+	return g.closeErr
 }
 
 func (g *fakeGateway) VerifyNotify(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.NotifyRequest) (*payalipay.NotifyResult, error) {

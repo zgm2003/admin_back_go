@@ -10,12 +10,14 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/chat"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
@@ -46,6 +48,7 @@ type Dependencies struct {
 	OperationRules          map[middleware.RouteKey]middleware.OperationRule
 	AuthService             auth.SessionService
 	CaptchaService          captcha.HTTPService
+	ChatService             chat.HTTPService
 	ClientVersionService    clientversion.HTTPService
 	CronTaskService         crontask.HTTPService
 	UserService             user.HTTPService
@@ -53,6 +56,7 @@ type Dependencies struct {
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlog.HTTPService
 	PayChannelService       paychannel.HTTPService
+	PayNotifyLogService     paynotifylog.HTTPService
 	PayOrderService         payorder.HTTPService
 	PayRuntimeService       payruntime.HTTPService
 	PayTransactionService   paytransaction.HTTPService
@@ -101,6 +105,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 
 	system.RegisterRoutes(router, deps.Readiness)
 	captcha.RegisterRoutes(router, deps.CaptchaService)
+	chat.RegisterRoutes(router, deps.ChatService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	user.RegisterRoutes(router, deps.UserService)
@@ -109,6 +114,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	crontask.RegisterRoutes(router, deps.CronTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	paychannel.RegisterRoutes(router, deps.PayChannelService)
+	paynotifylog.RegisterRoutes(router, deps.PayNotifyLogService)
 	payorder.RegisterRoutes(router, deps.PayOrderService)
 	payruntime.RegisterRoutes(router, deps.PayRuntimeService)
 	paytransaction.RegisterRoutes(router, deps.PayTransactionService)

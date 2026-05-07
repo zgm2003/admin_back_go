@@ -2,19 +2,23 @@ package alipay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-pay/gopay"
 	gopayalipay "github.com/go-pay/gopay/alipay"
 )
 
-type GopayGateway struct{}
+type GopayGateway struct {
+	timeout time.Duration
+}
 
-func NewGopayGateway() *GopayGateway {
-	return &GopayGateway{}
+func NewGopayGateway(timeout time.Duration) *GopayGateway {
+	return &GopayGateway{timeout: timeout}
 }
 
 func (g *GopayGateway) Create(ctx context.Context, cfg ChannelConfig, req CreateRequest) (*CreateResponse, error) {
@@ -22,6 +26,8 @@ func (g *GopayGateway) Create(ctx context.Context, cfg ChannelConfig, req Create
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := withGatewayTimeout(ctx, g.timeout)
+	defer cancel()
 
 	bm := gopay.BodyMap{}
 	bm.Set("subject", strings.TrimSpace(req.Subject))
@@ -48,6 +54,63 @@ func (g *GopayGateway) Create(ctx context.Context, cfg ChannelConfig, req Create
 		Content: content,
 		Raw:     map[string]any{"content": content},
 	}, nil
+}
+
+func (g *GopayGateway) Query(ctx context.Context, cfg ChannelConfig, req QueryRequest) (*QueryResult, error) {
+	client, err := newClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := withGatewayTimeout(ctx, g.timeout)
+	defer cancel()
+
+	bm := gopay.BodyMap{}
+	if strings.TrimSpace(req.OutTradeNo) != "" {
+		bm.Set("out_trade_no", strings.TrimSpace(req.OutTradeNo))
+	}
+	if strings.TrimSpace(req.TradeNo) != "" {
+		bm.Set("trade_no", strings.TrimSpace(req.TradeNo))
+	}
+	resp, err := client.TradeQuery(ctx, bm)
+	if err != nil {
+		return nil, fmt.Errorf("alipay: query trade: %w", err)
+	}
+	if resp == nil || resp.Response == nil {
+		return nil, errors.New("alipay: empty query response")
+	}
+	cents, err := parseYuanToCents(resp.Response.TotalAmount)
+	if err != nil {
+		cents = 0
+	}
+	return &QueryResult{
+		OutTradeNo:       resp.Response.OutTradeNo,
+		TradeNo:          resp.Response.TradeNo,
+		TradeStatus:      resp.Response.TradeStatus,
+		TotalAmountCents: cents,
+		AppID:            cfg.AppID,
+		Raw:              structToMap(resp.Response),
+	}, nil
+}
+
+func (g *GopayGateway) Close(ctx context.Context, cfg ChannelConfig, req CloseRequest) error {
+	client, err := newClient(cfg)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := withGatewayTimeout(ctx, g.timeout)
+	defer cancel()
+
+	bm := gopay.BodyMap{}
+	if strings.TrimSpace(req.OutTradeNo) != "" {
+		bm.Set("out_trade_no", strings.TrimSpace(req.OutTradeNo))
+	}
+	if strings.TrimSpace(req.TradeNo) != "" {
+		bm.Set("trade_no", strings.TrimSpace(req.TradeNo))
+	}
+	if _, err := client.TradeClose(ctx, bm); err != nil {
+		return fmt.Errorf("alipay: close trade: %w", err)
+	}
+	return nil
 }
 
 func (g *GopayGateway) VerifyNotify(ctx context.Context, cfg ChannelConfig, req NotifyRequest) (*NotifyResult, error) {
@@ -90,6 +153,13 @@ func (g *GopayGateway) SuccessBody() string {
 
 func (g *GopayGateway) FailureBody() string {
 	return "fail"
+}
+
+func withGatewayTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func newClient(cfg ChannelConfig) (*gopayalipay.Client, error) {
@@ -176,4 +246,16 @@ func bodyMapToMap(bm gopay.BodyMap) map[string]any {
 		return true
 	})
 	return raw
+}
+
+func structToMap(value any) map[string]any {
+	buf, err := json.Marshal(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(buf, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }

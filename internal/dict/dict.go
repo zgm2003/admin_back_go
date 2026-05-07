@@ -172,6 +172,28 @@ func PayTxnStatusOptions() []Option[int] {
 	return options
 }
 
+func PayNotifyTypeOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.NotifyTypes))
+	for _, value := range enum.NotifyTypes {
+		options = append(options, Option[int]{
+			Label: enum.NotifyTypeLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func PayNotifyProcessStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.NotifyProcessStatuses))
+	for _, value := range enum.NotifyProcessStatuses {
+		options = append(options, Option[int]{
+			Label: enum.NotifyProcessStatusLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
 func PayOrderTypeOptions() []Option[int] {
 	options := make([]Option[int], 0, len(enum.PayOrderTypes))
 	for _, value := range enum.PayOrderTypes {

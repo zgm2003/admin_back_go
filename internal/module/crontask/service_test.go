@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payruntime"
 )
 
 func TestServiceListDecoratesRegistryStatus(t *testing.T) {
@@ -29,7 +30,7 @@ func TestServiceListDecoratesRegistryStatus(t *testing.T) {
 		t.Fatalf("expected 4 items, got %#v", res.List)
 	}
 	assertStatus(t, res.List[0], RegistryStatusRegistered)
-	assertStatus(t, res.List[1], RegistryStatusMissing)
+	assertStatus(t, res.List[1], RegistryStatusRegistered)
 	assertStatus(t, res.List[2], RegistryStatusDisabled)
 	assertStatus(t, res.List[3], RegistryStatusInvalidCron)
 }
@@ -73,7 +74,7 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 		tasks: []Task{
 			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 			{ID: 2, Name: "pay_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 3, Name: "pay_refund_sync", Title: "退款同步", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
+			{ID: 3, Name: "pay_reconcile_daily", Title: "支付每日对账", Cron: "0 0 2 * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 		},
 	}
 	service := NewService(repo, NewDefaultRegistry())
@@ -82,11 +83,41 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
-	if len(res.List) != 1 || res.Page.Total != 2 || res.Page.TotalPage != 2 {
+	if len(res.List) != 1 || res.Page.Total != 1 || res.Page.TotalPage != 1 {
 		t.Fatalf("expected registry_status filter before paging, got list=%#v page=%#v", res.List, res.Page)
 	}
-	if res.List[0].Name != "pay_close_expired_order" {
+	if res.List[0].Name != "pay_reconcile_daily" {
 		t.Fatalf("unexpected first missing task after paging: %#v", res.List[0])
+	}
+}
+
+func TestServiceListUsesGoTaskTypeForRegisteredPayCronHandler(t *testing.T) {
+	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
+	repo := &fakeRepository{
+		tasks: []Task{{
+			ID:        2,
+			Name:      "pay_close_expired_order",
+			Title:     "支付超时关单",
+			Cron:      "0 * * * * *",
+			Handler:   "app\\process\\Pay\\PayCloseExpiredOrderTask",
+			Status:    CommonYes,
+			IsDel:     CommonNo,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	service := NewService(repo, NewDefaultRegistry())
+
+	res, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr != nil {
+		t.Fatalf("List returned appErr: %v", appErr)
+	}
+	item := res.List[0]
+	if item.RegistryTaskType != payruntime.TypeCloseExpiredOrderV1 {
+		t.Fatalf("expected registry_task_type=%s, got %#v", payruntime.TypeCloseExpiredOrderV1, item)
+	}
+	if item.Handler != payruntime.TypeCloseExpiredOrderV1 {
+		t.Fatalf("registered pay cron task must expose Go task type as handler, got %#v", item)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/enum"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 )
 
@@ -275,4 +276,179 @@ func TestCurrentUserWalletSummaryAndBills(t *testing.T) {
 
 func timePtr(value time.Time) *time.Time {
 	return &value
+}
+func TestCloseExpiredOrdersClosesUnpaidExpiredOrderAndActiveTransaction(t *testing.T) {
+	repo := &fakeRepository{
+		expiredOrders: []ExpiredRechargeOrder{{ID: 10, OrderNo: "R1"}},
+		orderForUpdate: &Order{ID: 10, OrderNo: "R1", UserID: 7, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaying,
+			ChannelID: 1, PayMethod: "web", PayAmount: 1000},
+		lastTxn: &PayTransaction{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000, Status: enum.PayTxnWaiting},
+		channel: activeAlipayChannel(),
+	}
+	gateway := &fakeGateway{queryResult: &payalipay.QueryResult{OutTradeNo: "T1", TradeStatus: "WAIT_BUYER_PAY", TotalAmountCents: 1000, AppID: "app-id"}}
+	service := NewService(Dependencies{Repository: repo, Gateway: gateway, Secretbox: fakeSecretbox{}, CertResolver: fakeCertResolver{}, Locker: noopLocker{}, Now: fixedNow})
+
+	result, err := service.CloseExpiredOrders(context.Background(), CloseExpiredOrderInput{Limit: 50})
+
+	if err != nil {
+		t.Fatalf("CloseExpiredOrders returned error: %v", err)
+	}
+	if result.Scanned != 1 || result.Closed != 1 || result.Paid != 0 || result.Deferred != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !repo.closedCurrentUserOrder || !repo.closedPreviousTxn || !gateway.closeCalled {
+		t.Fatalf("expected local close, txn close, and best-effort gateway close; repo=%#v gateway=%#v", repo, gateway)
+	}
+	if repo.markedPaySuccess {
+		t.Fatalf("must not credit wallet for unpaid query")
+	}
+}
+
+func TestCloseExpiredOrdersMarksPaidWhenAlipayQueryReturnsSuccess(t *testing.T) {
+	repo := &fakeRepository{
+		expiredOrders: []ExpiredRechargeOrder{{ID: 10, OrderNo: "R1"}},
+		orderForUpdate: &Order{ID: 10, OrderNo: "R1", UserID: 7, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaying,
+			ChannelID: 1, PayMethod: "web", PayAmount: 1000},
+		lastTxn:          &PayTransaction{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000, Status: enum.PayTxnWaiting},
+		channel:          activeAlipayChannel(),
+		paySuccessResult: &PaySuccessResult{OrderID: 10, OrderNo: "R1", TransactionID: 20},
+	}
+	gateway := &fakeGateway{queryResult: &payalipay.QueryResult{OutTradeNo: "T1", TradeNo: "A1", TradeStatus: "TRADE_SUCCESS", TotalAmountCents: 1000, AppID: "app-id", Raw: map[string]any{"trade_status": "TRADE_SUCCESS"}}}
+	service := NewService(Dependencies{Repository: repo, Gateway: gateway, Secretbox: fakeSecretbox{}, CertResolver: fakeCertResolver{}, NumberGenerator: staticNumberGenerator("D1"), Locker: noopLocker{}, Now: fixedNow})
+
+	result, err := service.CloseExpiredOrders(context.Background(), CloseExpiredOrderInput{Limit: 50})
+
+	if err != nil {
+		t.Fatalf("CloseExpiredOrders returned error: %v", err)
+	}
+	if result.Paid != 1 || result.Closed != 0 || result.Deferred != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !repo.markedPaySuccess || repo.closedCurrentUserOrder || gateway.closeCalled {
+		t.Fatalf("expected paid path only; repo=%#v gateway=%#v", repo, gateway)
+	}
+}
+
+func TestCloseExpiredOrdersDefersWhenAlipayQueryFails(t *testing.T) {
+	repo := &fakeRepository{
+		expiredOrders:  []ExpiredRechargeOrder{{ID: 10, OrderNo: "R1"}},
+		orderForUpdate: &Order{ID: 10, OrderNo: "R1", UserID: 7, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaying, ChannelID: 1, PayMethod: "web", PayAmount: 1000},
+		lastTxn:        &PayTransaction{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000, Status: enum.PayTxnWaiting},
+		channel:        activeAlipayChannel(),
+	}
+	gateway := &fakeGateway{queryErr: errors.New("alipay timeout")}
+	service := NewService(Dependencies{Repository: repo, Gateway: gateway, Secretbox: fakeSecretbox{}, CertResolver: fakeCertResolver{}, Locker: noopLocker{}, Now: fixedNow})
+
+	result, err := service.CloseExpiredOrders(context.Background(), CloseExpiredOrderInput{Limit: 50})
+
+	if err != nil {
+		t.Fatalf("CloseExpiredOrders returned error: %v", err)
+	}
+	if result.Deferred != 1 || result.Closed != 0 || result.Paid != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if repo.closedCurrentUserOrder || repo.closedPreviousTxn || repo.markedPaySuccess {
+		t.Fatalf("must not mutate state on query failure; repo=%#v", repo)
+	}
+}
+
+func TestCloseExpiredOrdersSkipsNonAlipayActiveTransaction(t *testing.T) {
+	repo := &fakeRepository{
+		expiredOrders: []ExpiredRechargeOrder{{ID: 10, OrderNo: "R1"}},
+		orderForUpdate: &Order{ID: 10, OrderNo: "R1", UserID: 7, OrderType: enum.PayOrderRecharge, PayStatus: enum.PayStatusPaying,
+			ChannelID: 1, PayMethod: "web", PayAmount: 1000},
+		lastTxn: &PayTransaction{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelWechat, PayMethod: "web", Amount: 1000, Status: enum.PayTxnWaiting},
+	}
+	service := NewService(Dependencies{Repository: repo, Gateway: &fakeGateway{}, Secretbox: fakeSecretbox{}, CertResolver: fakeCertResolver{}, Locker: noopLocker{}, Now: fixedNow})
+
+	result, err := service.CloseExpiredOrders(context.Background(), CloseExpiredOrderInput{Limit: 50})
+
+	if err != nil {
+		t.Fatalf("CloseExpiredOrders returned error: %v", err)
+	}
+	if result.Skipped != 1 || result.Closed != 0 || result.Paid != 0 || result.Deferred != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if repo.closedCurrentUserOrder || repo.closedPreviousTxn || repo.markedPaySuccess {
+		t.Fatalf("must not mutate non-alipay active transaction; repo=%#v", repo)
+	}
+}
+
+func TestSyncPendingTransactionsMarksPaidButLeavesUnpaidAlone(t *testing.T) {
+	repo := &fakeRepository{
+		pendingTxns:      []PendingTransaction{{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000}},
+		channel:          activeAlipayChannel(),
+		paySuccessResult: &PaySuccessResult{OrderID: 10, OrderNo: "R1", TransactionID: 20},
+	}
+	gateway := &fakeGateway{queryResult: &payalipay.QueryResult{OutTradeNo: "T1", TradeNo: "A1", TradeStatus: "TRADE_FINISHED", TotalAmountCents: 1000, AppID: "app-id", Raw: map[string]any{"trade_status": "TRADE_FINISHED"}}}
+	service := NewService(Dependencies{Repository: repo, Gateway: gateway, Secretbox: fakeSecretbox{}, CertResolver: fakeCertResolver{}, NumberGenerator: staticNumberGenerator("D1"), Now: fixedNow})
+
+	result, err := service.SyncPendingTransactions(context.Background(), SyncPendingTransactionInput{Limit: 100})
+
+	if err != nil {
+		t.Fatalf("SyncPendingTransactions returned error: %v", err)
+	}
+	if result.Scanned != 1 || result.Paid != 1 || result.Unpaid != 0 || result.Deferred != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !repo.markedPaySuccess {
+		t.Fatalf("expected pay success mutation")
+	}
+}
+
+func TestSyncPendingTransactionsDoesNotMutateUnpaidTransaction(t *testing.T) {
+	repo := &fakeRepository{
+		pendingTxns: []PendingTransaction{{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000}},
+		channel:     activeAlipayChannel(),
+	}
+	gateway := &fakeGateway{queryResult: &payalipay.QueryResult{OutTradeNo: "T1", TradeStatus: "WAIT_BUYER_PAY", TotalAmountCents: 1000, AppID: "app-id"}}
+	service := NewService(Dependencies{Repository: repo, Gateway: gateway, Secretbox: fakeSecretbox{}, CertResolver: fakeCertResolver{}, NumberGenerator: staticNumberGenerator("D1"), Now: fixedNow})
+
+	result, err := service.SyncPendingTransactions(context.Background(), SyncPendingTransactionInput{Limit: 100})
+
+	if err != nil {
+		t.Fatalf("SyncPendingTransactions returned error: %v", err)
+	}
+	if result.Unpaid != 1 || result.Paid != 0 || result.Deferred != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if repo.markedPaySuccess || repo.closedCurrentUserOrder || repo.closedPreviousTxn {
+		t.Fatalf("must not mutate unpaid pending transaction; repo=%#v", repo)
+	}
+}
+
+func TestCloseExpiredOrdersUsesLegacyCutoffAndDefaultLimit(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	_, err := service.CloseExpiredOrders(context.Background(), CloseExpiredOrderInput{})
+
+	if err != nil {
+		t.Fatalf("CloseExpiredOrders returned error: %v", err)
+	}
+	if repo.lastExpiredLimit != 50 {
+		t.Fatalf("expected default limit 50, got %d", repo.lastExpiredLimit)
+	}
+	expectedCutoff := fixedNow().Add(-30 * time.Minute)
+	if !repo.lastExpiredCutoff.Equal(expectedCutoff) {
+		t.Fatalf("expected cutoff %s, got %s", expectedCutoff, repo.lastExpiredCutoff)
+	}
+}
+
+func TestSyncPendingTransactionsUsesLegacyCutoffAndDefaultLimit(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	_, err := service.SyncPendingTransactions(context.Background(), SyncPendingTransactionInput{})
+
+	if err != nil {
+		t.Fatalf("SyncPendingTransactions returned error: %v", err)
+	}
+	if repo.lastPendingLimit != 100 {
+		t.Fatalf("expected default limit 100, got %d", repo.lastPendingLimit)
+	}
+	expectedCutoff := fixedNow().Add(-5 * time.Minute)
+	if !repo.lastPendingCutoff.Equal(expectedCutoff) {
+		t.Fatalf("expected cutoff %s, got %s", expectedCutoff, repo.lastPendingCutoff)
+	}
 }

@@ -17,6 +17,12 @@ import (
 )
 
 const timeLayout = "2006-01-02 15:04:05"
+const (
+	defaultCloseExpiredOrderLimit      = 50
+	defaultSyncPendingTransactionLimit = 100
+	rechargeOrderExpireDuration        = 30 * time.Minute
+	pendingTransactionSyncDelay        = 5 * time.Minute
+)
 
 type secretDecrypter interface {
 	Decrypt(ciphertext string) (string, error)
@@ -65,7 +71,7 @@ func NewService(deps Dependencies) *Service {
 	}
 	gateway := deps.Gateway
 	if gateway == nil {
-		gateway = payalipay.NewGopayGateway()
+		gateway = payalipay.NewGopayGateway(0)
 	}
 	box := deps.Secretbox
 	if box == nil {
@@ -511,11 +517,240 @@ func (s *Service) HandleAlipayNotify(ctx context.Context, input AlipayNotifyInpu
 	return s.gateway.SuccessBody(), nil
 }
 
+func (s *Service) CloseExpiredOrders(ctx context.Context, input CloseExpiredOrderInput) (*CloseExpiredOrderResult, error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = s.now()
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultCloseExpiredOrderLimit
+	}
+	rows, err := repo.ListExpiredRechargeOrders(ctx, now.Add(-rechargeOrderExpireDuration), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list expired recharge orders: %w", err)
+	}
+	result := &CloseExpiredOrderResult{Scanned: len(rows)}
+	for _, row := range rows {
+		switch s.syncPaidOrCloseOrder(ctx, strings.TrimSpace(row.OrderNo), "支付超时自动关闭", "cron_repair", now) {
+		case "paid":
+			result.Paid++
+		case "closed":
+			result.Closed++
+		case "deferred":
+			result.Deferred++
+		default:
+			result.Skipped++
+		}
+	}
+	return result, nil
+}
+
+func (s *Service) SyncPendingTransactions(ctx context.Context, input SyncPendingTransactionInput) (*SyncPendingTransactionResult, error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = s.now()
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultSyncPendingTransactionLimit
+	}
+	rows, err := repo.ListPendingAlipayTransactions(ctx, now.Add(-pendingTransactionSyncDelay), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending alipay transactions: %w", err)
+	}
+	result := &SyncPendingTransactionResult{Scanned: len(rows)}
+	for _, row := range rows {
+		status, err := s.queryTransactionAndMarkPaid(ctx, transactionFromPending(row), "cron_sync", now)
+		if err != nil {
+			result.Deferred++
+			continue
+		}
+		switch status {
+		case "paid":
+			result.Paid++
+		case "unpaid":
+			result.Unpaid++
+		default:
+			result.Skipped++
+		}
+	}
+	return result, nil
+}
+
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("支付运行时仓储未配置")
 	}
 	return s.repository, nil
+}
+
+func (s *Service) syncPaidOrCloseOrder(ctx context.Context, orderNo string, closeReason string, source string, now time.Time) string {
+	if orderNo == "" {
+		return "skipped"
+	}
+	if token, ok, appErr := s.lock(ctx, "pay_create_txn_"+orderNo, s.attemptLockTTL); appErr != nil || ok {
+		if appErr != nil {
+			return "deferred"
+		}
+		defer s.unlock(ctx, "pay_create_txn_"+orderNo, token)
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return "deferred"
+	}
+
+	var order *Order
+	var txn *PayTransaction
+	err := repo.WithTx(ctx, func(tx Repository) error {
+		var txErr error
+		order, txErr = tx.GetOrderByNoForUpdate(ctx, orderNo)
+		if txErr != nil {
+			return txErr
+		}
+		if order == nil || order.OrderType != enum.PayOrderRecharge {
+			return ErrOrderNotFound
+		}
+		if order.PayStatus != enum.PayStatusPending && order.PayStatus != enum.PayStatusPaying {
+			return ErrOrderConflict
+		}
+		txn, txErr = tx.FindLastActiveTransactionForUpdate(ctx, order.ID)
+		return txErr
+	})
+	if err != nil {
+		return "skipped"
+	}
+	if txn == nil {
+		return s.closeOrderAndTransaction(ctx, orderNo, closeReason, now)
+	}
+	if txn.Channel != enum.PayChannelAlipay {
+		return "skipped"
+	}
+
+	status, queryErr := s.queryTransactionAndMarkPaid(ctx, txn, source, now)
+	if queryErr != nil {
+		return "deferred"
+	}
+	if status == "paid" {
+		return "paid"
+	}
+	if s.closeOrderAndTransaction(ctx, orderNo, closeReason, now) != "closed" {
+		return "skipped"
+	}
+	s.closeAlipayTransactionBestEffort(ctx, txn)
+	return "closed"
+}
+
+func (s *Service) queryTransactionAndMarkPaid(ctx context.Context, txn *PayTransaction, source string, now time.Time) (string, error) {
+	if txn == nil || txn.Channel != enum.PayChannelAlipay {
+		return "skipped", nil
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return "skipped", appErr
+	}
+	channel, err := repo.FindActiveAlipayChannel(ctx, txn.ChannelID)
+	if err != nil {
+		return "skipped", err
+	}
+	if channel == nil {
+		return "skipped", nil
+	}
+	cfg, appErr := s.alipayConfig(channel)
+	if appErr != nil {
+		return "skipped", appErr
+	}
+	query, err := s.gateway.Query(ctx, cfg, payalipay.QueryRequest{OutTradeNo: txn.TransactionNo, TradeNo: txn.TradeNo})
+	if err != nil {
+		return "deferred", err
+	}
+	if !isAlipayPaidStatus(query.TradeStatus) {
+		return "unpaid", nil
+	}
+	if err := validateAlipayQueryResult(channel, txn, query); err != nil {
+		return "deferred", err
+	}
+	fulfillNo, appErr := s.nextNo(ctx, "D")
+	if appErr != nil {
+		return "deferred", appErr
+	}
+	_, err = repo.MarkPaySuccessAndCreditRecharge(ctx, PaySuccessMutation{
+		TransactionNo: query.OutTradeNo,
+		TradeNo:       query.TradeNo,
+		TradeStatus:   query.TradeStatus,
+		RawNotify:     mergePayQueryRaw(query.Raw, source),
+		PaidAt:        paidAtOrNow(query.Raw, now),
+		FulfillNo:     fulfillNo,
+	})
+	if err != nil {
+		return "deferred", err
+	}
+	return "paid", nil
+}
+
+func (s *Service) closeOrderAndTransaction(ctx context.Context, orderNo string, reason string, now time.Time) string {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return "deferred"
+	}
+	err := repo.WithTx(ctx, func(tx Repository) error {
+		order, err := tx.GetOrderByNoForUpdate(ctx, orderNo)
+		if err != nil {
+			return err
+		}
+		if order == nil || order.OrderType != enum.PayOrderRecharge {
+			return ErrOrderNotFound
+		}
+		if order.PayStatus != enum.PayStatusPending && order.PayStatus != enum.PayStatusPaying {
+			return ErrOrderConflict
+		}
+		affected, err := tx.CloseCurrentUserRechargeOrder(ctx, order.ID, order.PayStatus, reason, now)
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return ErrOrderConflict
+		}
+		lastTxn, err := tx.FindLastActiveTransactionForUpdate(ctx, order.ID)
+		if err != nil {
+			return err
+		}
+		if lastTxn != nil {
+			return tx.CloseTransaction(ctx, lastTxn.ID, now)
+		}
+		return nil
+	})
+	if err != nil {
+		return "skipped"
+	}
+	return "closed"
+}
+
+func (s *Service) closeAlipayTransactionBestEffort(ctx context.Context, txn *PayTransaction) {
+	if txn == nil || txn.Channel != enum.PayChannelAlipay {
+		return
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return
+	}
+	channel, err := repo.FindActiveAlipayChannel(ctx, txn.ChannelID)
+	if err != nil || channel == nil {
+		return
+	}
+	cfg, appErr := s.alipayConfig(channel)
+	if appErr != nil {
+		return
+	}
+	_ = s.gateway.Close(ctx, cfg, payalipay.CloseRequest{OutTradeNo: txn.TransactionNo, TradeNo: txn.TradeNo})
 }
 
 func (s *Service) nextNo(ctx context.Context, prefix string) (string, *apperror.Error) {
@@ -745,4 +980,64 @@ func validateAlipayNotifyResult(channel *Channel, txn *PayTransaction, result *p
 		return errors.New("支付宝回调交易状态未成功")
 	}
 	return nil
+}
+
+func validateAlipayQueryResult(channel *Channel, txn *PayTransaction, result *payalipay.QueryResult) error {
+	if result == nil {
+		return errors.New("支付宝查单结果为空")
+	}
+	if strings.TrimSpace(result.OutTradeNo) == "" || result.OutTradeNo != txn.TransactionNo {
+		return errors.New("支付宝查单交易号不匹配")
+	}
+	if strings.TrimSpace(result.AppID) != "" && strings.TrimSpace(result.AppID) != strings.TrimSpace(channel.AppID) {
+		return errors.New("支付宝查单应用ID不匹配")
+	}
+	if result.TotalAmountCents > 0 && result.TotalAmountCents != txn.Amount {
+		return errors.New("支付宝查单金额不匹配")
+	}
+	return nil
+}
+
+func isAlipayPaidStatus(status string) bool {
+	status = strings.TrimSpace(status)
+	return status == "TRADE_SUCCESS" || status == "TRADE_FINISHED"
+}
+
+func transactionFromPending(row PendingTransaction) *PayTransaction {
+	return &PayTransaction{
+		ID:            row.ID,
+		TransactionNo: row.TransactionNo,
+		OrderID:       row.OrderID,
+		OrderNo:       row.OrderNo,
+		ChannelID:     row.ChannelID,
+		Channel:       row.Channel,
+		PayMethod:     row.PayMethod,
+		Amount:        row.Amount,
+		TradeNo:       row.TradeNo,
+		Status:        row.Status,
+		CreatedAt:     row.CreatedAt,
+	}
+}
+
+func mergePayQueryRaw(raw map[string]any, source string) map[string]any {
+	out := make(map[string]any, len(raw)+1)
+	for k, v := range raw {
+		out[k] = v
+	}
+	out["source"] = source
+	return out
+}
+
+func paidAtOrNow(raw map[string]any, now time.Time) time.Time {
+	for _, key := range []string{"gmt_payment", "send_pay_date", "paid_time"} {
+		value, ok := raw[key].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		parsed, err := time.ParseInLocation(timeLayout, strings.TrimSpace(value), time.Local)
+		if err == nil {
+			return parsed
+		}
+	}
+	return now
 }

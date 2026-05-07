@@ -11,6 +11,7 @@ import (
 
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -28,6 +29,7 @@ type Dependencies struct {
 	Logger                  *slog.Logger
 	AuthRepository          auth.Repository
 	NotificationTaskService notificationtask.JobService
+	PayRuntimeService       payruntime.JobService
 }
 
 // ScheduleRegistrar is the worker-owned boundary used by job schedule
@@ -72,6 +74,7 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 	})
 	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
 	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
+	payruntime.RegisterHandlers(mux, deps.PayRuntimeService, logger)
 }
 
 // NewNoopTask builds a versioned queue probe task.

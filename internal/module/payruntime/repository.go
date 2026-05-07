@@ -27,6 +27,8 @@ type Repository interface {
 	FindLastActiveTransactionForUpdate(ctx context.Context, orderID int64) (*PayTransaction, error)
 	CloseCurrentUserRechargeOrder(ctx context.Context, orderID int64, currentStatus int, reason string, now time.Time) (int64, error)
 	CloseTransaction(ctx context.Context, txnID int64, now time.Time) error
+	ListExpiredRechargeOrders(ctx context.Context, cutoff time.Time, limit int) ([]ExpiredRechargeOrder, error)
+	ListPendingAlipayTransactions(ctx context.Context, cutoff time.Time, limit int) ([]PendingTransaction, error)
 	CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryRow, error)
 	CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) ([]WalletBillRow, int64, error)
 	CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error)
@@ -323,6 +325,50 @@ func (r *GormRepository) CloseTransaction(ctx context.Context, txnID int64, now 
 		Where("status IN ?", []int{enum.PayTxnCreated, enum.PayTxnWaiting}).
 		Where("is_del = ?", enum.CommonNo).
 		Updates(map[string]any{"status": enum.PayTxnClosed, "closed_at": now, "updated_at": now}).Error
+}
+
+func (r *GormRepository) ListExpiredRechargeOrders(ctx context.Context, cutoff time.Time, limit int) ([]ExpiredRechargeOrder, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if limit <= 0 {
+		limit = defaultCloseExpiredOrderLimit
+	}
+	var rows []ExpiredRechargeOrder
+	err := r.db.WithContext(ctx).
+		Table("orders").
+		Select("id, order_no").
+		Where("order_type = ?", enum.PayOrderRecharge).
+		Where("pay_status IN ?", []int{enum.PayStatusPending, enum.PayStatusPaying}).
+		Where("expire_time <= ?", cutoff).
+		Where("is_del = ?", enum.CommonNo).
+		Order("id asc").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (r *GormRepository) ListPendingAlipayTransactions(ctx context.Context, cutoff time.Time, limit int) ([]PendingTransaction, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if limit <= 0 {
+		limit = defaultSyncPendingTransactionLimit
+	}
+	var rows []PendingTransaction
+	err := r.db.WithContext(ctx).
+		Table("pay_transactions AS pt").
+		Joins("JOIN orders AS o ON o.id = pt.order_id AND o.is_del = ?", enum.CommonNo).
+		Select(`pt.id, pt.transaction_no, pt.order_id, pt.order_no, pt.channel_id, pt.channel, pt.pay_method, pt.amount, pt.trade_no, pt.status, pt.created_at`).
+		Where("pt.channel = ?", enum.PayChannelAlipay).
+		Where("pt.status IN ?", []int{enum.PayTxnCreated, enum.PayTxnWaiting}).
+		Where("o.pay_status IN ?", []int{enum.PayStatusPending, enum.PayStatusPaying}).
+		Where("pt.created_at <= ?", cutoff).
+		Where("pt.is_del = ?", enum.CommonNo).
+		Order("pt.id asc").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
 }
 
 func (r *GormRepository) CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error) {

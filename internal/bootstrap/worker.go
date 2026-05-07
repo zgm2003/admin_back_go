@@ -10,8 +10,13 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payruntime"
+	"admin_back_go/internal/platform/payment"
+	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
+	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
+	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/platform/taskqueue"
 )
 
@@ -70,10 +75,32 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		notificationtask.WithRealtimePublisher(realtimePublisher),
 		notificationtask.WithLogger(logger),
 	)
+	secretBox := secretbox.New(cfg.Secretbox.Key)
+	var payRuntimeLocker redislock.Locker
+	var payRuntimeNumberGenerator payruntime.NumberGenerator
+	if resources.Redis != nil && resources.Redis.Redis != nil {
+		payRuntimeLocker = redislock.New(resources.Redis.Redis)
+		payRuntimeNumberGenerator = payruntime.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
+	}
+	payRuntimeService := payruntime.NewService(payruntime.Dependencies{
+		Repository: payruntime.NewGormRepository(resources.DB),
+		Gateway:    payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout),
+		Secretbox:  secretBox,
+		CertResolver: payment.CertPathResolver{
+			CertBaseDir:         cfg.Payment.CertBaseDir,
+			LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
+			WorkingDir:          ".",
+		},
+		Locker:          payRuntimeLocker,
+		NumberGenerator: payRuntimeNumberGenerator,
+		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,
+		AttemptLockTTL:  cfg.Payment.AttemptLockTTL,
+	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		NotificationTaskService: notificationTaskService,
+		PayRuntimeService:       payRuntimeService,
 	})
 
 	if cfg.Scheduler.Enabled {

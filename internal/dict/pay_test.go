@@ -59,6 +59,17 @@ func TestPayTxnStatusOptions(t *testing.T) {
 	}
 }
 
+func TestPayNotifyOptions(t *testing.T) {
+	notifyTypes := PayNotifyTypeOptions()
+	if len(notifyTypes) != len(enum.NotifyTypes) || notifyTypes[0].Value != enum.NotifyPay || notifyTypes[0].Label != "支付回调" {
+		t.Fatalf("unexpected notify type options: %#v", notifyTypes)
+	}
+	processStatuses := PayNotifyProcessStatusOptions()
+	if len(processStatuses) != len(enum.NotifyProcessStatuses) || processStatuses[1].Value != enum.NotifyProcessSuccess || processStatuses[1].Label != "处理成功" {
+		t.Fatalf("unexpected notify process status options: %#v", processStatuses)
+	}
+}
+
 func TestPayOrderOptions(t *testing.T) {
 	orderTypes := PayOrderTypeOptions()
 	if len(orderTypes) != len(enum.PayOrderTypes) || orderTypes[0].Value != enum.PayOrderRecharge {

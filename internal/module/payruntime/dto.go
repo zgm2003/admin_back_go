@@ -201,6 +201,51 @@ type PaySuccessResult struct {
 	WalletAfter    int
 }
 
+type CloseExpiredOrderInput struct {
+	Limit int
+	Now   time.Time
+}
+
+type CloseExpiredOrderResult struct {
+	Scanned  int
+	Closed   int
+	Paid     int
+	Deferred int
+	Skipped  int
+}
+
+type SyncPendingTransactionInput struct {
+	Limit int
+	Now   time.Time
+}
+
+type SyncPendingTransactionResult struct {
+	Scanned  int
+	Paid     int
+	Unpaid   int
+	Deferred int
+	Skipped  int
+}
+
+type ExpiredRechargeOrder struct {
+	ID      int64
+	OrderNo string
+}
+
+type PendingTransaction struct {
+	ID            int64
+	TransactionNo string
+	OrderID       int64
+	OrderNo       string
+	ChannelID     int64
+	Channel       int
+	PayMethod     string
+	Amount        int
+	TradeNo       string
+	Status        int
+	CreatedAt     time.Time
+}
+
 type CurrentUserOrderRow struct {
 	ID                int64
 	OrderNo           string

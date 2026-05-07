@@ -680,13 +680,15 @@ scheduler callback 只写 cron_task_log 并 enqueue Asynq task
 业务执行必须在 Asynq handler 内完成
 ```
 
-当前唯一注册任务：
+当前已注册任务：
 
 ```text
 notification_task_scheduler -> notification:dispatch-due:v1
+pay_close_expired_order -> pay:close-expired-order:v1
+pay_sync_pending_transaction -> pay:sync-pending-transaction:v1
 ```
 
-`cron_task.handler` 不允许按字符串动态执行 PHP/Go handler。已接入 Go registry 的任务必须保存/返回版本化 Asynq task type，例如 `notification_task_scheduler -> notification:dispatch-due:v1`；旧 PHP class 只允许在未迁 Go 的行上作为 legacy provenance/display，并且必须显示 `registry_status=missing`，不能注册假任务。
+`cron_task.handler` 不允许按字符串动态执行 PHP/Go handler。已接入 Go registry 的任务必须保存/返回版本化 Asynq task type，例如：`notification_task_scheduler -> notification:dispatch-due:v1`、`pay_close_expired_order -> pay:close-expired-order:v1`、`pay_sync_pending_transaction -> pay:sync-pending-transaction:v1`。旧 PHP class 只允许在未迁 Go 的行上作为 legacy provenance/display，并且必须显示 `registry_status=missing`，不能注册假任务。
 
 修改 cron_task 后当前不做 worker 热重载；需要重启 admin-worker。未来多 worker 部署再引入 scheduler lock/reload，不在 admin-api 里跑 cron。
 
@@ -1325,19 +1327,27 @@ POST /api/pay/notify/alipay
 规则：
 
 ```text
-当前只实现 Alipay sandbox/web/h5 充值闭环；微信支付明确不在产品范围，不作为待办缺口。当前也不实现退款、对账、第三方查单/关单。
+当前只实现 Alipay sandbox/web/h5 充值闭环；微信支付和退款明确不在产品范围，不作为待办缺口。当前已迁 Go 支付补偿 cron：过期充值单先查支付宝再自动关闭/入账、待支付流水定时补查支付宝；当前不实现对账。
 wallet/summary、wallet/bills、recharge-orders list/result/cancel 都是 current-user runtime endpoint：只读/只改当前 token user 自己的数据，不复用后台钱包管理权限。
 第三方 SDK 只允许出现在 internal/platform/payment/alipay；业务模块只能依赖 Gateway 小接口。
 cert path 由 internal/platform/payment.CertPathResolver 解析，默认可复用 legacy admin_back/runtime/cert/alipay 路径，但不读取或输出证书正文。
 app_private_key_enc 只在 service 内经 secretbox 解密后传给 gopay wrapper；响应、operation log、smoke 输出都不能泄露明文或密文。
 创建充值订单只写本地 orders/order_items，订单号由 Redis INCR 生成；未过期 PENDING/PAYING 充值单会阻止新单，避免用户并发创建一堆待支付单。
 创建支付尝试用 Redis lock 防重复；DB transaction 内锁订单、关闭上一条 active pay_transaction、创建新流水；支付宝 SDK 调用发生在 DB transaction 外。
-取消本人待支付充值单只做本地 close order + close active pay_transaction，不调用第三方支付平台关单。
+取消本人待支付充值单只做本地 close order + close active pay_transaction，不调用第三方支付平台关单；自动过期关单 cron 才会先查支付宝并 best-effort 调用支付宝 close。
 支付宝回调是 public raw callback，必须返回 text/plain success/fail，不走 response.OK/Error。
 回调先写 pay_notify_logs pending 审计，再验签；使用 gopay VerifySignWithCert，不手写 RSA。
 回调入账在一个 MySQL transaction 内完成 pay_transaction success、order paid/biz success、order_fulfillments、user_wallets、wallet_transactions；唯一键/idempotency_key 保证重复回调不重复加钱。
 当前 current-user wallet/recharge runtime 只要求 AuthToken，不发明 pay_runtime_create 这种后台按钮权限；public notify 不进入 PermissionCheck/OperationLog route metadata。
-PAYMENT_ALIPAY_TIMEOUT 已进入 config，SDK HTTP timeout wiring 仍是 planned，不能宣称已生效。
+PAYMENT_ALIPAY_TIMEOUT 已进入 config，并在 API/worker bootstrap 注入 `internal/platform/payment/alipay.GopayGateway`；Create/Query/Close 第三方 SDK 网络调用统一通过 context deadline 生效。VerifyNotify 是本地验签，不额外包 SDK HTTP timeout。
+```
+
+数据迁移：
+
+```text
+database/migrations/20260507_pay_cron_task_go_handler_cleanup.sql
+pay_close_expired_order.handler = pay:close-expired-order:v1
+pay_sync_pending_transaction.handler = pay:sync-pending-transaction:v1
 ```
 
 `internal/module/uploadtoken` 管理运行时 token 签发：

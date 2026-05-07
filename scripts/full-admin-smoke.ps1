@@ -602,6 +602,64 @@ function Assert-PayTransactionDetail($Response) {
   }
 }
 
+function Assert-PayNotifyLogInit($Response) {
+  Assert-ApiOK $Response 'pay notify log init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "pay notify log init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $channels = Get-ObjectArray $Response.data.dict.channel_arr
+  $notifyTypes = Get-ObjectArray $Response.data.dict.notify_type_arr
+  $statuses = Get-ObjectArray $Response.data.dict.notify_process_status_arr
+  if ($channels.Count -ne 2 -or $notifyTypes.Count -ne 1 -or $statuses.Count -ne 4) {
+    throw "pay notify log init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ChannelCount = $channels.Count
+    NotifyTypeCount = $notifyTypes.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-PayNotifyLogList($Response) {
+  Assert-ApiOK $Response 'pay notify log list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "pay notify log list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.process_status_text)) {
+      throw "pay notify log item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.notify_type_text -or $null -eq $item.channel_text) {
+      throw "pay notify log item missing label fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-PayNotifyLogDetail($Response) {
+  Assert-ApiOK $Response 'pay notify log detail'
+
+  if ($null -eq $Response.data.log -or [int64]$Response.data.log.id -le 0) {
+    throw "pay notify log detail missing log: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.log.headers -or $null -eq $Response.data.log.raw_data) {
+    throw "pay notify log detail missing json payload objects: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ID = [int64]$Response.data.log.id
+  }
+}
+
 function Assert-PayOrderInit($Response) {
   Assert-ApiOK $Response 'pay order init'
 
@@ -1541,6 +1599,8 @@ function Assert-CronTaskList($Response) {
   }
 
   $registeredNotification = $false
+  $registeredPayCloseExpired = $false
+  $registeredPaySyncPending = $false
   $missingLegacy = $false
   $firstID = 0
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
@@ -1560,6 +1620,18 @@ function Assert-CronTaskList($Response) {
       }
       $registeredNotification = $true
     }
+    if ([string]$item.name -eq 'pay_close_expired_order' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'pay:close-expired-order:v1' -or [string]$item.handler -ne 'pay:close-expired-order:v1') {
+        throw "pay close-expired cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
+      $registeredPayCloseExpired = $true
+    }
+    if ([string]$item.name -eq 'pay_sync_pending_transaction' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'pay:sync-pending-transaction:v1' -or [string]$item.handler -ne 'pay:sync-pending-transaction:v1') {
+        throw "pay sync-pending cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
+      $registeredPaySyncPending = $true
+    }
     if ([string]$item.registry_status -eq 'missing') {
       $missingLegacy = $true
     }
@@ -1569,6 +1641,8 @@ function Assert-CronTaskList($Response) {
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
     NotificationRegistered = $registeredNotification
+    PayCloseExpiredRegistered = $registeredPayCloseExpired
+    PaySyncPendingRegistered = $registeredPaySyncPending
     MissingLegacyPresent = $missingLegacy
     FirstID = $firstID
   }
@@ -2014,6 +2088,28 @@ func main() {
     $payTransactionDetailID = $payTransactionDetailSummary.ID
   }
 
+  $payNotifyLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-notify-logs/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payNotifyLogInitSummary = Assert-PayNotifyLogInit $payNotifyLogInit
+
+  $payNotifyLogList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-notify-logs?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $payNotifyLogListSummary = Assert-PayNotifyLogList $payNotifyLogList
+  $payNotifyLogDetailCode = $null
+  $payNotifyLogDetailID = 0
+  $payNotifyLogRows = Get-ObjectArray $payNotifyLogList.data.list
+  if ($payNotifyLogRows.Count -gt 0) {
+    $firstPayNotifyLog = $payNotifyLogRows[0]
+    $payNotifyLogDetail = Invoke-RestMethod "$baseURL/api/admin/v1/pay-notify-logs/$($firstPayNotifyLog.id)" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $payNotifyLogDetailSummary = Assert-PayNotifyLogDetail $payNotifyLogDetail
+    $payNotifyLogDetailCode = $payNotifyLogDetail.code
+    $payNotifyLogDetailID = $payNotifyLogDetailSummary.ID
+  }
+
   $payOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2305,6 +2401,15 @@ func main() {
     pay_transaction_total = $payTransactionListSummary.Total
     pay_transaction_detail_code = $payTransactionDetailCode
     pay_transaction_detail_id = $payTransactionDetailID
+    pay_notify_log_init_code = $payNotifyLogInit.code
+    pay_notify_log_channel_dict_count = $payNotifyLogInitSummary.ChannelCount
+    pay_notify_log_type_dict_count = $payNotifyLogInitSummary.NotifyTypeCount
+    pay_notify_log_status_dict_count = $payNotifyLogInitSummary.StatusCount
+    pay_notify_log_list_code = $payNotifyLogList.code
+    pay_notify_log_list_count = $payNotifyLogListSummary.ListCount
+    pay_notify_log_total = $payNotifyLogListSummary.Total
+    pay_notify_log_detail_code = $payNotifyLogDetailCode
+    pay_notify_log_detail_id = $payNotifyLogDetailID
     pay_order_init_code = $payOrderInit.code
     pay_order_type_dict_count = $payOrderInitSummary.OrderTypeCount
     pay_order_pay_status_dict_count = $payOrderInitSummary.PayStatusCount
@@ -2385,6 +2490,8 @@ func main() {
     cron_task_list_count = $cronTaskListSummary.ListCount
     cron_task_total = $cronTaskListSummary.Total
     cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
+    cron_task_pay_close_expired_registered = $cronTaskListSummary.PayCloseExpiredRegistered
+    cron_task_pay_sync_pending_registered = $cronTaskListSummary.PaySyncPendingRegistered
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent
     cron_task_logs_code = $cronTaskLogsCode
     cron_task_logs_count = $cronTaskLogsSummary.ListCount

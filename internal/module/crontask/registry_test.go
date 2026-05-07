@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payruntime"
 )
 
 func TestDefaultRegistryContainsNotificationTaskSchedulerOnly(t *testing.T) {
@@ -28,7 +29,11 @@ func TestDefaultRegistryContainsNotificationTaskSchedulerOnly(t *testing.T) {
 		t.Fatalf("expected task type %s, got %s", notificationtask.TypeDispatchDueV1, task.Type)
 	}
 
-	if _, ok := registry.Lookup("pay_close_expired_order"); ok {
-		t.Fatalf("pay_close_expired_order must not be registered until pay cron handler migrates to Go")
+	payEntry, ok := registry.Lookup("pay_close_expired_order")
+	if !ok {
+		t.Fatalf("expected pay_close_expired_order registry entry")
+	}
+	if payEntry.TaskType != payruntime.TypeCloseExpiredOrderV1 {
+		t.Fatalf("expected pay task type %s, got %s", payruntime.TypeCloseExpiredOrderV1, payEntry.TaskType)
 	}
 }

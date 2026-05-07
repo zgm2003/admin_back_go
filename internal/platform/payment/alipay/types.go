@@ -40,8 +40,29 @@ type NotifyResult struct {
 	Raw              map[string]any
 }
 
+type QueryRequest struct {
+	OutTradeNo string
+	TradeNo    string
+}
+
+type QueryResult struct {
+	OutTradeNo       string
+	TradeNo          string
+	TradeStatus      string
+	TotalAmountCents int
+	AppID            string
+	Raw              map[string]any
+}
+
+type CloseRequest struct {
+	OutTradeNo string
+	TradeNo    string
+}
+
 type Gateway interface {
 	Create(ctx context.Context, cfg ChannelConfig, req CreateRequest) (*CreateResponse, error)
+	Query(ctx context.Context, cfg ChannelConfig, req QueryRequest) (*QueryResult, error)
+	Close(ctx context.Context, cfg ChannelConfig, req CloseRequest) error
 	VerifyNotify(ctx context.Context, cfg ChannelConfig, req NotifyRequest) (*NotifyResult, error)
 	SuccessBody() string
 	FailureBody() string

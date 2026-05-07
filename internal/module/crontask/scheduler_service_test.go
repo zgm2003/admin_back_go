@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -26,11 +27,14 @@ func TestSchedulerServiceRegistersOnlyEnabledRegisteredTasks(t *testing.T) {
 	if err := service.RegisterEnabled(context.Background(), registrar); err != nil {
 		t.Fatalf("RegisterEnabled returned error: %v", err)
 	}
-	if len(registrar.cronCalls) != 1 {
-		t.Fatalf("expected one cron registration, got %#v", registrar.cronCalls)
+	if len(registrar.cronCalls) != 2 {
+		t.Fatalf("expected two cron registrations, got %#v", registrar.cronCalls)
 	}
 	if registrar.cronCalls[0].name != "notification_task_scheduler" {
 		t.Fatalf("unexpected registered job: %#v", registrar.cronCalls[0])
+	}
+	if registrar.cronCalls[1].name != "pay_close_expired_order" {
+		t.Fatalf("unexpected registered pay job: %#v", registrar.cronCalls[1])
 	}
 }
 
@@ -53,6 +57,24 @@ func TestSchedulerTaskLogsAndEnqueues(t *testing.T) {
 	}
 	if len(repo.startedLogs) != 1 || len(repo.endedLogs) != 1 || !repo.endedLogs[0].success {
 		t.Fatalf("expected success scheduler log, start=%#v end=%#v", repo.startedLogs, repo.endedLogs)
+	}
+}
+
+func TestDefaultRegistryMapsPaymentCronTasksToVersionedTaskTypes(t *testing.T) {
+	registry := NewDefaultRegistry()
+	closeEntry, ok := registry.Lookup("pay_close_expired_order")
+	if !ok {
+		t.Fatalf("expected pay_close_expired_order to be registered")
+	}
+	if closeEntry.TaskType != payruntime.TypeCloseExpiredOrderV1 {
+		t.Fatalf("unexpected close expired task type: %s", closeEntry.TaskType)
+	}
+	syncEntry, ok := registry.Lookup("pay_sync_pending_transaction")
+	if !ok {
+		t.Fatalf("expected pay_sync_pending_transaction to be registered")
+	}
+	if syncEntry.TaskType != payruntime.TypeSyncPendingTransactionV1 {
+		t.Fatalf("unexpected sync pending task type: %s", syncEntry.TaskType)
 	}
 }
 

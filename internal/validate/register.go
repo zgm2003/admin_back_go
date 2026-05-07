@@ -47,6 +47,8 @@ func Register() error {
 			"notification_task_platform": validateNotificationTaskPlatform,
 			"pay_channel":                validatePayChannel,
 			"pay_method":                 validatePayMethod,
+			"pay_notify_type":            validatePayNotifyType,
+			"pay_notify_process_status":  validatePayNotifyProcessStatus,
 			"pay_txn_status":             validatePayTxnStatus,
 			"pay_order_type":             validatePayOrderType,
 			"pay_status":                 validatePayStatus,

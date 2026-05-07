@@ -26,6 +26,7 @@ import (
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
@@ -673,6 +674,11 @@ type fakeRouterPayTransactionService struct {
 	detailID  int64
 }
 
+type fakeRouterPayNotifyLogService struct {
+	listQuery paynotifylog.ListQuery
+	detailID  int64
+}
+
 type fakeRouterPayOrderService struct {
 	statusCountQuery payorder.StatusCountQuery
 	listQuery        payorder.ListQuery
@@ -775,6 +781,23 @@ func (f *fakeRouterPayTransactionService) List(ctx context.Context, query paytra
 func (f *fakeRouterPayTransactionService) Detail(ctx context.Context, id int64) (*paytransaction.DetailResponse, *apperror.Error) {
 	f.detailID = id
 	return &paytransaction.DetailResponse{Transaction: paytransaction.DetailTransaction{ID: id, TransactionNo: "T1"}}, nil
+}
+
+func (f *fakeRouterPayNotifyLogService) Init(ctx context.Context) (*paynotifylog.InitResponse, *apperror.Error) {
+	return paynotifylog.NewService(nil).Init(ctx)
+}
+
+func (f *fakeRouterPayNotifyLogService) List(ctx context.Context, query paynotifylog.ListQuery) (*paynotifylog.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &paynotifylog.ListResponse{
+		List: []paynotifylog.ListItem{{ID: 1, TransactionNo: "T1"}},
+		Page: paynotifylog.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterPayNotifyLogService) Detail(ctx context.Context, id int64) (*paynotifylog.DetailResponse, *apperror.Error) {
+	f.detailID = id
+	return &paynotifylog.DetailResponse{Log: paynotifylog.DetailLog{ID: id, TransactionNo: "T1"}}, nil
 }
 
 func (f *fakeRouterPayOrderService) Init(ctx context.Context) (*payorder.InitResponse, *apperror.Error) {
@@ -1961,6 +1984,53 @@ func TestRouterInstallsPayTransactionReadOnlyRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || payTransactionService.detailID != 9 {
 		t.Fatalf("expected pay transaction detail route, code=%d id=%d body=%s", recorder.Code, payTransactionService.detailID, recorder.Body.String())
+	}
+}
+
+func TestRouterInstallsPayNotifyLogReadOnlyRESTRoutes(t *testing.T) {
+	payNotifyLogService := &fakeRouterPayNotifyLogService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-notify-logs"): "pay_notify_view",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		PayNotifyLogService: payNotifyLogService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay notify log init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-notify-logs?current_page=2&page_size=30&transaction_no=T1&channel=2&notify_type=1&process_status=2&start_date=2026-05-01&end_date=2026-05-07", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay notify log list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	query := payNotifyLogService.listQuery
+	if query.CurrentPage != 2 || query.PageSize != 30 || query.TransactionNo != "T1" || query.StartDate != "2026-05-01" || query.EndDate != "2026-05-07" {
+		t.Fatalf("pay notify log list query mismatch: %#v", query)
+	}
+	if query.Channel == nil || *query.Channel != 2 || query.NotifyType == nil || *query.NotifyType != 1 || query.ProcessStatus == nil || *query.ProcessStatus != 2 {
+		t.Fatalf("pay notify log optional filters mismatch: %#v", query)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-notify-logs/9", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payNotifyLogService.detailID != 9 {
+		t.Fatalf("expected pay notify log detail route, code=%d id=%d body=%s", recorder.Code, payNotifyLogService.detailID, recorder.Body.String())
 	}
 }
 

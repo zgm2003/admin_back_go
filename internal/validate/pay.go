@@ -20,6 +20,16 @@ func validatePayTxnStatus(fl playground.FieldLevel) bool {
 	return ok && enum.IsPayTxnStatus(value)
 }
 
+func validatePayNotifyType(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && enum.IsNotifyType(value)
+}
+
+func validatePayNotifyProcessStatus(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && enum.IsNotifyProcessStatus(value)
+}
+
 func validatePayOrderType(fl playground.FieldLevel) bool {
 	value, ok := intValue(fl.Field())
 	return ok && enum.IsPayOrderType(value)

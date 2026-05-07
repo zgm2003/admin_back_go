@@ -1,7 +1,9 @@
 package alipay
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestFormatCents(t *testing.T) {
@@ -96,8 +98,81 @@ func TestValidateChannelConfigRejectsMissingRequiredFields(t *testing.T) {
 }
 
 func TestSuccessAndFailureBodies(t *testing.T) {
-	gateway := NewGopayGateway()
+	gateway := NewGopayGateway(0)
 	if gateway.SuccessBody() != "success" || gateway.FailureBody() != "fail" {
 		t.Fatalf("unexpected bodies: %q %q", gateway.SuccessBody(), gateway.FailureBody())
+	}
+}
+
+func TestWithGatewayTimeoutAddsDeadlineWhenParentHasNone(t *testing.T) {
+	ctx, cancel := withGatewayTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatalf("expected timeout deadline")
+	}
+	if time.Until(deadline) <= 0 || time.Until(deadline) > 100*time.Millisecond {
+		t.Fatalf("unexpected deadline: %s", deadline)
+	}
+}
+
+func TestWithGatewayTimeoutDoesNotExtendShorterParentDeadline(t *testing.T) {
+	parent, parentCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer parentCancel()
+	parentDeadline, _ := parent.Deadline()
+
+	ctx, cancel := withGatewayTimeout(parent, time.Second)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatalf("expected parent deadline")
+	}
+	if !deadline.Equal(parentDeadline) {
+		t.Fatalf("expected parent deadline %s, got %s", parentDeadline, deadline)
+	}
+}
+
+func TestWithGatewayTimeoutShortensLongerParentDeadline(t *testing.T) {
+	parent, parentCancel := context.WithTimeout(context.Background(), time.Second)
+	defer parentCancel()
+	parentDeadline, _ := parent.Deadline()
+
+	ctx, cancel := withGatewayTimeout(parent, 100*time.Millisecond)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatalf("expected timeout deadline")
+	}
+	if !deadline.Before(parentDeadline) {
+		t.Fatalf("expected gateway timeout to be before parent deadline %s, got %s", parentDeadline, deadline)
+	}
+	if time.Until(deadline) <= 0 || time.Until(deadline) > 100*time.Millisecond {
+		t.Fatalf("unexpected deadline: %s", deadline)
+	}
+}
+
+func TestWithGatewayTimeoutDisabledWhenNonPositive(t *testing.T) {
+	ctx, cancel := withGatewayTimeout(context.Background(), 0)
+	defer cancel()
+
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatalf("did not expect deadline when timeout is disabled")
+	}
+}
+
+func TestStructToMapPreservesAlipayJSONFieldNames(t *testing.T) {
+	raw := structToMap(struct {
+		OutTradeNo  string `json:"out_trade_no,omitempty"`
+		TradeStatus string `json:"trade_status,omitempty"`
+	}{
+		OutTradeNo:  "T1",
+		TradeStatus: "TRADE_SUCCESS",
+	})
+
+	if raw["out_trade_no"] != "T1" || raw["trade_status"] != "TRADE_SUCCESS" {
+		t.Fatalf("unexpected raw map: %#v", raw)
 	}
 }

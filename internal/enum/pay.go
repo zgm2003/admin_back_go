@@ -200,6 +200,14 @@ var PayTxnStatusLabels = map[int]string{
 	PayTxnClosed:  "已关闭",
 }
 
+var NotifyTypes = []int{
+	NotifyPay,
+}
+
+var NotifyTypeLabels = map[int]string{
+	NotifyPay: "支付回调",
+}
+
 var WalletTypes = []int{
 	WalletTypeRecharge,
 	WalletTypeConsume,
@@ -365,6 +373,15 @@ func IsFulfillAction(value int) bool {
 func IsNotifyProcessStatus(value int) bool {
 	for _, status := range NotifyProcessStatuses {
 		if status == value {
+			return true
+		}
+	}
+	return false
+}
+
+func IsNotifyType(value int) bool {
+	for _, notifyType := range NotifyTypes {
+		if notifyType == value {
 			return true
 		}
 	}
