@@ -59,11 +59,23 @@ type CloseRequest struct {
 	TradeNo    string
 }
 
+type BillDownloadRequest struct {
+	BillDate string
+	BillType string
+}
+
+type BillDownloadResponse struct {
+	BillDownloadURL string
+	Content         []byte
+	Raw             map[string]any
+}
+
 type Gateway interface {
 	Create(ctx context.Context, cfg ChannelConfig, req CreateRequest) (*CreateResponse, error)
 	Query(ctx context.Context, cfg ChannelConfig, req QueryRequest) (*QueryResult, error)
 	Close(ctx context.Context, cfg ChannelConfig, req CloseRequest) error
 	VerifyNotify(ctx context.Context, cfg ChannelConfig, req NotifyRequest) (*NotifyResult, error)
+	DownloadBill(ctx context.Context, cfg ChannelConfig, req BillDownloadRequest) (*BillDownloadResponse, error)
 	SuccessBody() string
 	FailureBody() string
 }

@@ -21,6 +21,7 @@ type Repository interface {
 	GetTaskForUpdate(ctx context.Context, id int64) (*Task, error)
 	MarkTaskStatus(ctx context.Context, id int64, status int, fields map[string]any) error
 	ListSuccessfulTransactionsForBill(ctx context.Context, channelID int64, date time.Time) ([]BillTransactionRow, error)
+	FindActiveAlipayChannel(ctx context.Context, channelID int64) (*Channel, error)
 	WithTx(ctx context.Context, fn func(Repository) error) error
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*Task, error)
@@ -162,6 +163,26 @@ func (r *GormRepository) ListSuccessfulTransactionsForBill(ctx context.Context, 
 		Order("paid_at asc").
 		Scan(&rows).Error
 	return rows, err
+}
+
+func (r *GormRepository) FindActiveAlipayChannel(ctx context.Context, channelID int64) (*Channel, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row Channel
+	err := r.db.WithContext(ctx).
+		Where("id = ?", channelID).
+		Where("channel = ?", enum.PayChannelAlipay).
+		Where("status = ?", enum.CommonYes).
+		Where("is_del = ?", enum.CommonNo).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {

@@ -2,6 +2,7 @@ package payreconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	payalipay "admin_back_go/internal/platform/payment/alipay"
 )
 
 type fakeRepository struct {
@@ -22,6 +24,7 @@ type fakeRepository struct {
 	createdTasks         []Task
 	pendingTasks         []Task
 	billRows             []BillTransactionRow
+	channel              *Channel
 	markedStatuses       []int
 	markedFields         []map[string]any
 	lastQuery            ListQuery
@@ -96,6 +99,13 @@ func (f *fakeRepository) MarkTaskStatus(ctx context.Context, id int64, status in
 
 func (f *fakeRepository) ListSuccessfulTransactionsForBill(ctx context.Context, channelID int64, reconcileDate time.Time) ([]BillTransactionRow, error) {
 	return f.billRows, nil
+}
+
+func (f *fakeRepository) FindActiveAlipayChannel(ctx context.Context, channelID int64) (*Channel, error) {
+	if f.channel != nil && f.channel.ID == channelID {
+		return f.channel, nil
+	}
+	return nil, nil
 }
 
 func (f *fakeRepository) WithTx(ctx context.Context, fn func(Repository) error) error {
@@ -313,8 +323,13 @@ func TestCreateDailyTasksRejectsInvalidDate(t *testing.T) {
 func TestExecutePendingTasksProcessesPendingTasksAndCountsFailures(t *testing.T) {
 	repo := &fakeRepository{pendingTasks: []Task{
 		{ID: 9, ReconcileDate: date(2026, 5, 6), Channel: enum.PayChannelAlipay, ChannelID: 1, BillType: BillTypePay, Status: ReconcilePending},
-	}}
-	service := NewService(repo)
+	}, channel: activeAlipayReconcileChannel()}
+	service := NewServiceWithDependencies(Dependencies{
+		Repository:    repo,
+		AlipayGateway: &fakeAlipayGateway{billErr: errors.New("platform unavailable")},
+		Secretbox:     fakeSecretbox{},
+		CertResolver:  fakeCertResolver{},
+	})
 	service.reportBaseDir = t.TempDir()
 	service.reportPathPrefix = "runtime/reconcile_reports"
 
@@ -325,7 +340,7 @@ func TestExecutePendingTasksProcessesPendingTasksAndCountsFailures(t *testing.T)
 	if got.Scanned != 1 || got.Failed != 1 || got.Success != 0 || got.Diff != 0 || got.Skipped != 0 {
 		t.Fatalf("unexpected result: %#v", got)
 	}
-	if !sameStatuses(repo.markedStatuses, []int{ReconcileDownload, ReconcileComparing, ReconcileFailed}) {
+	if !sameStatuses(repo.markedStatuses, []int{ReconcileDownload, ReconcileFailed}) {
 		t.Fatalf("unexpected status transitions: %#v", repo.markedStatuses)
 	}
 }
@@ -366,16 +381,22 @@ func TestExecuteTaskMarksUnsupportedChannelFailed(t *testing.T) {
 	}
 }
 
-func TestExecuteTaskWritesLocalBillAndFailsWhenPlatformDownloadNotImplemented(t *testing.T) {
+func TestExecuteTaskMarksSuccessWhenPlatformBillMatchesLocalBill(t *testing.T) {
 	reconcileDate := date(2026, 5, 6)
 	repo := &fakeRepository{
-		detail: &Task{ID: 9, ReconcileDate: reconcileDate, Channel: enum.PayChannelAlipay, ChannelID: 1, BillType: BillTypePay, Status: ReconcilePending},
+		detail:  &Task{ID: 9, ReconcileDate: reconcileDate, Channel: enum.PayChannelAlipay, ChannelID: 1, BillType: BillTypePay, Status: ReconcilePending},
+		channel: activeAlipayReconcileChannel(),
 		billRows: []BillTransactionRow{
 			{TransactionNo: "T1", OrderNo: "R1", TradeNo: "A1", Amount: 1000, Status: enum.PayTxnSuccess, PaidAt: time.Date(2026, 5, 6, 9, 0, 0, 0, time.Local)},
 			{TransactionNo: "T2", OrderNo: "R2", TradeNo: "A2", Amount: 2500, Status: enum.PayTxnSuccess, PaidAt: time.Date(2026, 5, 6, 10, 0, 0, 0, time.Local)},
 		},
 	}
-	service := NewService(repo)
+	service := NewServiceWithDependencies(Dependencies{
+		Repository:    repo,
+		AlipayGateway: &fakeAlipayGateway{billContent: []byte(alipayBillCSV("T1", "A1", "10.00", "T2", "A2", "25.00"))},
+		Secretbox:     fakeSecretbox{},
+		CertResolver:  fakeCertResolver{},
+	})
 	service.reportBaseDir = t.TempDir()
 	service.reportPathPrefix = "runtime/reconcile_reports"
 
@@ -383,15 +404,19 @@ func TestExecuteTaskWritesLocalBillAndFailsWhenPlatformDownloadNotImplemented(t 
 	if err != nil {
 		t.Fatalf("ExecuteTask returned error: %v", err)
 	}
-	if got.TaskID != 9 || got.Status != ReconcileFailed || got.LocalCount != 2 || got.LocalAmount != 3500 || got.PlatformCount != 0 || got.PlatformAmount != 0 {
+	if got.TaskID != 9 || got.Status != ReconcileSuccess || got.LocalCount != 2 || got.LocalAmount != 3500 || got.PlatformCount != 2 || got.PlatformAmount != 3500 || got.DiffCount != 0 || got.DiffAmount != 0 {
 		t.Fatalf("unexpected result: %#v", got)
 	}
-	if !sameStatuses(repo.markedStatuses, []int{ReconcileDownload, ReconcileComparing, ReconcileFailed}) {
+	if !sameStatuses(repo.markedStatuses, []int{ReconcileDownload, ReconcileComparing, ReconcileSuccess}) {
 		t.Fatalf("unexpected transitions: %#v", repo.markedStatuses)
 	}
 	localURL := fmt.Sprint(repo.markedFields[1]["local_file_url"])
 	if localURL != "runtime/reconcile_reports/2026-05-06/9-local.csv" {
 		t.Fatalf("unexpected local file url: %q", localURL)
+	}
+	finalFields := repo.markedFields[len(repo.markedFields)-1]
+	if finalFields["platform_file_url"] != "runtime/reconcile_reports/2026-05-06/9-platform.csv" || finalFields["diff_file_url"] != "runtime/reconcile_reports/2026-05-06/9-diff.csv" {
+		t.Fatalf("expected platform and diff file urls, got %#v", finalFields)
 	}
 	localFile := filepath.Join(service.reportBaseDir, "2026-05-06", "9-local.csv")
 	content, readErr := os.ReadFile(localFile)
@@ -401,9 +426,76 @@ func TestExecuteTaskWritesLocalBillAndFailsWhenPlatformDownloadNotImplemented(t 
 	if !strings.Contains(string(content), "transaction_no,order_no,trade_no,amount,paid_at") || !strings.Contains(string(content), "T2,R2,A2,25.00,2026-05-06 10:00:00") {
 		t.Fatalf("unexpected local bill csv:\n%s", string(content))
 	}
-	finalError := fmt.Sprint(repo.markedFields[len(repo.markedFields)-1]["error_msg"])
-	if !strings.Contains(finalError, "平台账单下载未实现") {
-		t.Fatalf("expected not implemented error, got %q", finalError)
+	diffContent, readErr := os.ReadFile(filepath.Join(service.reportBaseDir, "2026-05-06", "9-diff.csv"))
+	if readErr != nil {
+		t.Fatalf("expected diff bill file: %v", readErr)
+	}
+	if !strings.Contains(string(diffContent), "transaction_no,trade_no,reason,platform_amount,local_amount") {
+		t.Fatalf("unexpected diff csv:\n%s", string(diffContent))
+	}
+}
+
+func TestExecuteTaskMarksDiffAndWritesDiffFileWhenPlatformBillDiffers(t *testing.T) {
+	reconcileDate := date(2026, 5, 6)
+	repo := &fakeRepository{
+		detail:  &Task{ID: 9, ReconcileDate: reconcileDate, Channel: enum.PayChannelAlipay, ChannelID: 1, BillType: BillTypePay, Status: ReconcilePending},
+		channel: activeAlipayReconcileChannel(),
+		billRows: []BillTransactionRow{
+			{TransactionNo: "T1", OrderNo: "R1", TradeNo: "A1", Amount: 1000, Status: enum.PayTxnSuccess, PaidAt: time.Date(2026, 5, 6, 9, 0, 0, 0, time.Local)},
+			{TransactionNo: "T2", OrderNo: "R2", TradeNo: "A2", Amount: 2500, Status: enum.PayTxnSuccess, PaidAt: time.Date(2026, 5, 6, 10, 0, 0, 0, time.Local)},
+		},
+	}
+	service := NewServiceWithDependencies(Dependencies{
+		Repository:    repo,
+		AlipayGateway: &fakeAlipayGateway{billContent: []byte(alipayBillCSV("T1", "A1", "11.00", "T3", "A3", "30.00"))},
+		Secretbox:     fakeSecretbox{},
+		CertResolver:  fakeCertResolver{},
+	})
+	service.reportBaseDir = t.TempDir()
+	service.reportPathPrefix = "runtime/reconcile_reports"
+
+	got, err := service.ExecuteTask(context.Background(), 9)
+	if err != nil {
+		t.Fatalf("ExecuteTask returned error: %v", err)
+	}
+	if got.Status != ReconcileDiff || got.PlatformCount != 2 || got.LocalCount != 2 || got.DiffCount != 3 || got.DiffAmount != 5600 {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+	if !sameStatuses(repo.markedStatuses, []int{ReconcileDownload, ReconcileComparing, ReconcileDiff}) {
+		t.Fatalf("unexpected transitions: %#v", repo.markedStatuses)
+	}
+	diffContent, readErr := os.ReadFile(filepath.Join(service.reportBaseDir, "2026-05-06", "9-diff.csv"))
+	if readErr != nil {
+		t.Fatalf("expected diff bill file: %v", readErr)
+	}
+	diffText := string(diffContent)
+	for _, want := range []string{"T1,A1,amount_mismatch,11.00,10.00", "T2,A2,missing_platform,0.00,25.00", "T3,A3,missing_local,30.00,0.00"} {
+		if !strings.Contains(diffText, want) {
+			t.Fatalf("diff csv missing %q:\n%s", want, diffText)
+		}
+	}
+}
+
+func TestParseAlipayBillSkipsSummaryAndParsesTradeRows(t *testing.T) {
+	rows, err := parseAlipayTradeBill([]byte("账单标题\n支付宝交易号,商户订单号,交易创建时间,付款时间,订单金额（元）,商家实收（元）,交易状态\nA1,T1,2026-05-06 08:59:00,2026-05-06 09:00:00,10.00,10.00,交易成功\n合计,,,,10.00,10.00,\n"))
+	if err != nil {
+		t.Fatalf("ParseAlipayTradeBill returned error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one parsed row, got %#v", rows)
+	}
+	if rows[0].TransactionNo != "T1" || rows[0].TradeNo != "A1" || rows[0].Amount != 1000 || rows[0].PaidAt.Format(timeLayout) != "2026-05-06 09:00:00" {
+		t.Fatalf("unexpected parsed row: %#v", rows[0])
+	}
+}
+
+func TestParseAlipayBillAllowsEmptyTradeDetails(t *testing.T) {
+	rows, err := parseAlipayTradeBill([]byte("支付宝交易号,商户订单号,交易创建时间,付款时间,订单金额（元）,商家实收（元）,交易状态\n合计,,,,0.00,0.00,\n"))
+	if err != nil {
+		t.Fatalf("ParseAlipayTradeBill returned error: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected empty parsed rows, got %#v", rows)
 	}
 }
 
@@ -425,4 +517,62 @@ func sameStatuses(got []int, want []int) bool {
 		}
 	}
 	return true
+}
+
+func activeAlipayReconcileChannel() *Channel {
+	return &Channel{
+		ID:               1,
+		Channel:          enum.PayChannelAlipay,
+		AppID:            "app-id",
+		AppPrivateKeyEnc: "cipher",
+		PublicCertPath:   "app.crt",
+		PlatformCertPath: "alipay.crt",
+		RootCertPath:     "root.crt",
+		NotifyURL:        "https://example.test/api/pay/notify/alipay",
+		IsSandbox:        enum.CommonYes,
+		Status:           enum.CommonYes,
+	}
+}
+
+type fakeAlipayGateway struct {
+	billContent []byte
+	billErr     error
+}
+
+func (g *fakeAlipayGateway) Create(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.CreateRequest) (*payalipay.CreateResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (g *fakeAlipayGateway) Query(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.QueryRequest) (*payalipay.QueryResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (g *fakeAlipayGateway) Close(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.CloseRequest) error {
+	return errors.New("not implemented")
+}
+
+func (g *fakeAlipayGateway) VerifyNotify(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.NotifyRequest) (*payalipay.NotifyResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (g *fakeAlipayGateway) DownloadBill(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.BillDownloadRequest) (*payalipay.BillDownloadResponse, error) {
+	if g.billErr != nil {
+		return nil, g.billErr
+	}
+	return &payalipay.BillDownloadResponse{BillDownloadURL: "https://download.example/alipay-bill.zip", Content: g.billContent}, nil
+}
+
+func (g *fakeAlipayGateway) SuccessBody() string { return "success" }
+func (g *fakeAlipayGateway) FailureBody() string { return "fail" }
+
+type fakeSecretbox struct{}
+
+func (fakeSecretbox) Decrypt(ciphertext string) (string, error) { return "private-key", nil }
+
+type fakeCertResolver struct{}
+
+func (fakeCertResolver) Resolve(storedPath string) (string, error) { return storedPath, nil }
+
+func alipayBillCSV(t1, a1, amount1, t2, a2, amount2 string) string {
+	return fmt.Sprintf("支付宝交易号,商户订单号,交易创建时间,付款时间,订单金额（元）,商家实收（元）,交易状态\n%s,%s,2026-05-06 08:59:00,2026-05-06 09:00:00,%s,%s,交易成功\n%s,%s,2026-05-06 09:59:00,2026-05-06 10:00:00,%s,%s,交易成功\n合计,,,,%s,%s,\n", a1, t1, amount1, amount1, a2, t2, amount2, amount2, amount1, amount1)
 }

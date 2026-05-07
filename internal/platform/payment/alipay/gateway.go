@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"github.com/go-pay/gopay"
 	gopayalipay "github.com/go-pay/gopay/alipay"
 )
+
+const maxAlipayBillBytes = 50 << 20
 
 type GopayGateway struct {
 	timeout time.Duration
@@ -147,12 +151,85 @@ func (g *GopayGateway) VerifyNotify(ctx context.Context, cfg ChannelConfig, req 
 	}, nil
 }
 
+func (g *GopayGateway) DownloadBill(ctx context.Context, cfg ChannelConfig, req BillDownloadRequest) (*BillDownloadResponse, error) {
+	client, err := newClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := withGatewayTimeout(ctx, g.timeout)
+	defer cancel()
+
+	billType := strings.TrimSpace(req.BillType)
+	if billType == "" {
+		billType = "trade"
+	}
+	billDate := strings.TrimSpace(req.BillDate)
+	if billDate == "" {
+		return nil, errors.New("alipay: bill date is required")
+	}
+	bm := gopay.BodyMap{}
+	bm.Set("bill_type", billType)
+	bm.Set("bill_date", billDate)
+	resp, err := client.DataBillDownloadUrlQuery(ctx, bm)
+	if err != nil {
+		return nil, fmt.Errorf("alipay: query bill download url: %w", err)
+	}
+	if resp == nil || resp.Response == nil || strings.TrimSpace(resp.Response.BillDownloadUrl) == "" {
+		return nil, errors.New("alipay: empty bill download url")
+	}
+	content, err := downloadBillContent(ctx, strings.TrimSpace(resp.Response.BillDownloadUrl))
+	if err != nil {
+		return nil, err
+	}
+	return &BillDownloadResponse{
+		BillDownloadURL: strings.TrimSpace(resp.Response.BillDownloadUrl),
+		Content:         content,
+		Raw:             structToMap(resp.Response),
+	}, nil
+}
+
 func (g *GopayGateway) SuccessBody() string {
 	return "success"
 }
 
 func (g *GopayGateway) FailureBody() string {
 	return "fail"
+}
+
+func downloadBillContent(ctx context.Context, billURL string) ([]byte, error) {
+	return downloadBillContentWithClient(ctx, http.DefaultClient, billURL)
+}
+
+func downloadBillContentWithClient(ctx context.Context, httpClient *http.Client, billURL string) ([]byte, error) {
+	if strings.TrimSpace(billURL) == "" {
+		return nil, errors.New("alipay: bill download url is required")
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, billURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("alipay: create bill download request: %w", err)
+	}
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("alipay: download bill: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("alipay: download bill http status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAlipayBillBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("alipay: read bill content: %w", err)
+	}
+	if len(data) > maxAlipayBillBytes {
+		return nil, fmt.Errorf("alipay: bill content exceeds %d bytes", maxAlipayBillBytes)
+	}
+	if len(data) == 0 {
+		return nil, errors.New("alipay: empty bill content")
+	}
+	return data, nil
 }
 
 func withGatewayTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

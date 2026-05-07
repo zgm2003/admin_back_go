@@ -258,6 +258,10 @@ func (g *fakeGateway) VerifyNotify(ctx context.Context, cfg payalipay.ChannelCon
 	return g.notifyResult, nil
 }
 
+func (g *fakeGateway) DownloadBill(ctx context.Context, cfg payalipay.ChannelConfig, req payalipay.BillDownloadRequest) (*payalipay.BillDownloadResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (g *fakeGateway) SuccessBody() string { return "success" }
 func (g *fakeGateway) FailureBody() string { return "fail" }
 

@@ -177,11 +177,46 @@ type BillTransactionRow struct {
 	PaidAt        time.Time
 }
 
+type PlatformBillRow struct {
+	TransactionNo string
+	TradeNo       string
+	Amount        int64
+	PaidAt        time.Time
+	Raw           map[string]string
+}
+
+type ReconcileDiffRow struct {
+	TransactionNo   string
+	TradeNo         string
+	Reason          string
+	PlatformAmount  int64
+	LocalAmount     int64
+	PlatformTradeNo string
+	LocalTradeNo    string
+}
+
 type ChannelSummary struct {
 	ID      int64
 	Name    string
 	Channel int
 }
+
+type Channel struct {
+	ID               int64  `gorm:"column:id;primaryKey"`
+	Name             string `gorm:"column:name"`
+	Channel          int    `gorm:"column:channel"`
+	AppID            string `gorm:"column:app_id"`
+	NotifyURL        string `gorm:"column:notify_url"`
+	AppPrivateKeyEnc string `gorm:"column:app_private_key_enc"`
+	PublicCertPath   string `gorm:"column:public_cert_path"`
+	PlatformCertPath string `gorm:"column:platform_cert_path"`
+	RootCertPath     string `gorm:"column:root_cert_path"`
+	IsSandbox        int    `gorm:"column:is_sandbox"`
+	Status           int    `gorm:"column:status"`
+	IsDel            int    `gorm:"column:is_del"`
+}
+
+func (Channel) TableName() string { return "pay_channel" }
 
 type Task struct {
 	ID              int64      `gorm:"column:id;primaryKey"`

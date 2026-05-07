@@ -1327,7 +1327,7 @@ POST /api/pay/notify/alipay
 规则：
 
 ```text
-当前只实现 Alipay sandbox/web/h5 充值闭环；微信支付当前 DB 没有 active `channel=1` 行，不实现 `/api/pay/notify/wechat`，后续启用必须先写独立 WeChat runtime spec；退款表和 `pay_refund_sync` 是 dormant legacy/pending-decision（当前 `pay_refunds` count=0，cron 行 is_del=1），无 refund contract 前不注册 `pay_refund_sync`。当前已迁 Go 支付补偿 cron：过期充值单先查支付宝再自动关闭/入账、待支付流水定时补查支付宝、失败履约重试复用现有钱包入账幂等路径；`pay_reconcile_daily`、`pay_reconcile_execute` 已接入 Go worker，daily 只负责幂等创建对账任务，execute 当前只生成本地 CSV 并在平台账单下载未实现时明确 failed；不能把它冒充完整对账成功链路。
+当前只实现 Alipay sandbox/web/h5 充值闭环；微信支付当前 DB 没有 active `channel=1` 行，不实现 `/api/pay/notify/wechat`，后续启用必须先写独立 WeChat runtime spec；退款表和 `pay_refund_sync` 是 dormant legacy/pending-decision（当前 `pay_refunds` count=0，cron 行 is_del=1），无 refund contract 前不注册 `pay_refund_sync`。当前已迁 Go 支付补偿 cron：过期充值单先查支付宝再自动关闭/入账、待支付流水定时补查支付宝、失败履约重试复用现有钱包入账幂等路径；`pay_reconcile_daily`、`pay_reconcile_execute` 已接入 Go worker，daily 只负责幂等创建对账任务，execute 已实现 Alipay trade bill 下载、UTF-8/GBK CSV/zip 解析、本地/平台/diff CSV 输出和 success/diff/failed 状态；平台网络/账单不可用/解析失败必须 failed，不能 fake success。真实支付宝 sandbox 账单下载需人工或专门探针验证，不属于默认 smoke。
 wallet/summary、wallet/bills、recharge-orders list/result/cancel 都是 current-user runtime endpoint：只读/只改当前 token user 自己的数据，不复用后台钱包管理权限。
 第三方 SDK 只允许出现在 internal/platform/payment/alipay；业务模块只能依赖 Gateway 小接口。
 cert path 由 internal/platform/payment.CertPathResolver 解析；PHP teardown 前必须让 `PAYMENT_CERT_BASE_DIR` 指向 Go backend root，并保持 `LEGACY_ADMIN_BACK_ROOT` 为空。证书文件部署到 `admin_back_go/runtime/cert/alipay`，不提交到 git；检查脚本只能输出 path/bytes/sha256，不读取或输出证书正文。

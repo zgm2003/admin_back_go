@@ -76,7 +76,6 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		notificationtask.WithRealtimePublisher(realtimePublisher),
 		notificationtask.WithLogger(logger),
 	)
-	payReconcileService := payreconcile.NewService(payreconcile.NewGormRepository(resources.DB))
 	secretBox := secretbox.New(cfg.Secretbox.Key)
 	var payRuntimeLocker redislock.Locker
 	var payRuntimeNumberGenerator payruntime.NumberGenerator
@@ -84,15 +83,23 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		payRuntimeLocker = redislock.New(resources.Redis.Redis)
 		payRuntimeNumberGenerator = payruntime.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
+	paymentCertResolver := payment.CertPathResolver{
+		CertBaseDir:         cfg.Payment.CertBaseDir,
+		LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
+		WorkingDir:          ".",
+	}
+	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
+	payReconcileService := payreconcile.NewServiceWithDependencies(payreconcile.Dependencies{
+		Repository:    payreconcile.NewGormRepository(resources.DB),
+		AlipayGateway: alipayGateway,
+		Secretbox:     secretBox,
+		CertResolver:  paymentCertResolver,
+	})
 	payRuntimeService := payruntime.NewService(payruntime.Dependencies{
-		Repository: payruntime.NewGormRepository(resources.DB),
-		Gateway:    payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout),
-		Secretbox:  secretBox,
-		CertResolver: payment.CertPathResolver{
-			CertBaseDir:         cfg.Payment.CertBaseDir,
-			LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
-			WorkingDir:          ".",
-		},
+		Repository:      payruntime.NewGormRepository(resources.DB),
+		Gateway:         alipayGateway,
+		Secretbox:       secretBox,
+		CertResolver:    paymentCertResolver,
 		Locker:          payRuntimeLocker,
 		NumberGenerator: payRuntimeNumberGenerator,
 		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,

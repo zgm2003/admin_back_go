@@ -2,6 +2,8 @@ package alipay
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -174,5 +176,40 @@ func TestStructToMapPreservesAlipayJSONFieldNames(t *testing.T) {
 
 	if raw["out_trade_no"] != "T1" || raw["trade_status"] != "TRADE_SUCCESS" {
 		t.Fatalf("unexpected raw map: %#v", raw)
+	}
+}
+
+func TestDownloadBillContentRejectsNon2xxAndOversizedBody(t *testing.T) {
+	non2xx := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer non2xx.Close()
+	if _, err := downloadBillContentWithClient(context.Background(), non2xx.Client(), non2xx.URL); err == nil {
+		t.Fatalf("expected non-2xx error")
+	}
+
+	oversized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(make([]byte, maxAlipayBillBytes+1))
+	}))
+	defer oversized.Close()
+	if _, err := downloadBillContentWithClient(context.Background(), oversized.Client(), oversized.URL); err == nil {
+		t.Fatalf("expected oversized body error")
+	}
+}
+
+func TestDownloadBillContentReturnsBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("bill-content"))
+	}))
+	defer server.Close()
+
+	got, err := downloadBillContentWithClient(context.Background(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatalf("downloadBillContentWithClient returned error: %v", err)
+	}
+	if string(got) != "bill-content" {
+		t.Fatalf("unexpected body: %q", string(got))
 	}
 }

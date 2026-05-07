@@ -867,6 +867,10 @@ func (fakeRouterPayReconcileRepository) ListSuccessfulTransactionsForBill(ctx co
 	return nil, nil
 }
 
+func (fakeRouterPayReconcileRepository) FindActiveAlipayChannel(ctx context.Context, channelID int64) (*payreconcile.Channel, error) {
+	return nil, nil
+}
+
 func (r fakeRouterPayReconcileRepository) WithTx(ctx context.Context, fn func(payreconcile.Repository) error) error {
 	return fn(r)
 }

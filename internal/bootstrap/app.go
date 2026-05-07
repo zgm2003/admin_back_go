@@ -116,7 +116,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
 	payNotifyLogService := paynotifylog.NewService(paynotifylog.NewGormRepository(resources.DB))
 	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
-	payReconcileService := payreconcile.NewService(payreconcile.NewGormRepository(resources.DB))
 	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
 	var payRuntimeLocker redislock.Locker
 	var payRuntimeNumberGenerator payruntime.NumberGenerator
@@ -124,15 +123,23 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		payRuntimeLocker = redislock.New(resources.Redis.Redis)
 		payRuntimeNumberGenerator = payruntime.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
+	paymentCertResolver := payment.CertPathResolver{
+		CertBaseDir:         cfg.Payment.CertBaseDir,
+		LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
+		WorkingDir:          ".",
+	}
+	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
+	payReconcileService := payreconcile.NewServiceWithDependencies(payreconcile.Dependencies{
+		Repository:    payreconcile.NewGormRepository(resources.DB),
+		AlipayGateway: alipayGateway,
+		Secretbox:     secretBox,
+		CertResolver:  paymentCertResolver,
+	})
 	payRuntimeService := payruntime.NewService(payruntime.Dependencies{
-		Repository: payruntime.NewGormRepository(resources.DB),
-		Gateway:    payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout),
-		Secretbox:  secretBox,
-		CertResolver: payment.CertPathResolver{
-			CertBaseDir:         cfg.Payment.CertBaseDir,
-			LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
-			WorkingDir:          ".",
-		},
+		Repository:      payruntime.NewGormRepository(resources.DB),
+		Gateway:         alipayGateway,
+		Secretbox:       secretBox,
+		CertResolver:    paymentCertResolver,
 		Locker:          payRuntimeLocker,
 		NumberGenerator: payRuntimeNumberGenerator,
 		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,
