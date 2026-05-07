@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
@@ -100,7 +101,16 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	systemLogService := systemlog.NewService(logstore.New(cfg.Logging.Dir, logstore.Options{AllowedExtensions: cfg.Logging.AllowedExtensions, MaxTailLines: cfg.Logging.MaxTailLines}))
 	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
 	secretBox := secretbox.New(cfg.Secretbox.Key)
+	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
+	clientVersionService := clientversion.NewService(
+		clientversion.NewGormRepository(resources.DB),
+		clientversion.NewManifestPublisher(
+			clientversion.NewGormUploadConfigRepository(resources.DB),
+			secretBox,
+			cosObjectWriter,
+		),
+	)
 	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
 	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
 	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
@@ -228,6 +238,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		OperationRules:          operationRouteRules(),
 		AuthService:             authService,
 		CaptchaService:          captchaService,
+		ClientVersionService:    clientVersionService,
 		CronTaskService:         cronTaskService,
 		UserService:             userService,
 		NotificationService:     notificationService,

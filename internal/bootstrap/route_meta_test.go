@@ -83,6 +83,11 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/wallets", "pay_wallet_list"},
 		{http.MethodGet, "/api/admin/v1/wallet-transactions", "pay_wallet_list"},
 		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "pay_wallet_adjust"},
+		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
+		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
+		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
+		{http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update", "system_clientVersion_forceUpdate"},
+		{http.MethodDelete, "/api/admin/v1/client-versions/:id", "system_clientVersion_del"},
 	}
 
 	for _, tt := range tests {
@@ -137,9 +142,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/notifications/read"},
 		{http.MethodDelete, "/api/admin/v1/notifications/:id"},
 		{http.MethodDelete, "/api/admin/v1/notifications"},
+		{http.MethodGet, "/api/admin/v1/client-versions/page-init"},
+		{http.MethodGet, "/api/admin/v1/client-versions"},
+		{http.MethodGet, "/api/admin/v1/client-versions/update-json"},
+		{http.MethodGet, "/api/admin/v1/client-versions/current-check"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
-			t.Fatalf("current-user notification route %s %s must not require RBAC button permission", tt.method, tt.path)
+			t.Fatalf("read/current-user route %s %s must not require RBAC button permission", tt.method, tt.path)
 		}
 	}
 }
@@ -211,6 +220,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "close"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "remark"},
 		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "adjust"},
+		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
+		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
+		{http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update", "force_update"},
+		{http.MethodDelete, "/api/admin/v1/client-versions/:id", "delete"},
 	}
 
 	for _, tt := range tests {
@@ -253,9 +267,18 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/notifications/read"},
 		{http.MethodDelete, "/api/admin/v1/notifications/:id"},
 		{http.MethodDelete, "/api/admin/v1/notifications"},
+		{http.MethodGet, "/api/admin/v1/client-versions/page-init"},
+		{http.MethodGet, "/api/admin/v1/client-versions"},
+		{http.MethodGet, "/api/admin/v1/client-versions/update-json"},
+		{http.MethodGet, "/api/admin/v1/client-versions/current-check"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
-			t.Fatalf("current-user notification route %s %s must not write operation log by implicit metadata", tt.method, tt.path)
+			t.Fatalf("read/current-user route %s %s must not write operation log by implicit metadata", tt.method, tt.path)
 		}
+	}
+
+	setLatestRule := rules[middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/latest")]
+	if setLatestRule.Module != "client_version" || setLatestRule.Action != "set_latest" || setLatestRule.Title != "设为最新版本" {
+		t.Fatalf("client version set-latest operation rule mismatch: %#v", setLatestRule)
 	}
 }

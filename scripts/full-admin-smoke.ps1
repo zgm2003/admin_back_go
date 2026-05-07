@@ -1596,6 +1596,113 @@ function Assert-CronTaskLogs($Response) {
   }
 }
 
+
+function Assert-ClientVersionInit($Response) {
+  Assert-ApiOK $Response 'client version page-init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "client version page-init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $platforms = Get-ObjectArray $Response.data.dict.client_version_platform_arr
+  $yesNo = Get-ObjectArray $Response.data.dict.common_yes_no_arr
+  if ($platforms.Count -lt 2 -or $yesNo.Count -ne 2) {
+    throw "client version page-init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $platformValues = @($platforms | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('windows-x86_64', 'darwin-x86_64')) {
+    if (-not ($platformValues -contains $expected)) {
+      throw "client version platform dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  $yesNoValues = @($yesNo | ForEach-Object { [int]$_.value })
+  foreach ($expected in @(1, 2)) {
+    if (-not ($yesNoValues -contains $expected)) {
+      throw "client version yes/no dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    PlatformCount = $platforms.Count
+    YesNoCount = $yesNo.Count
+  }
+}
+
+function Assert-ClientVersionList($Response) {
+  Assert-ApiOK $Response 'client version list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "client version list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "client version item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.version)) {
+      throw "client version item missing version: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]$item.platform -ne 'windows-x86_64' -and [string]$item.platform -ne 'darwin-x86_64') {
+      throw "client version item invalid platform: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.platform_name)) {
+      throw "client version item missing platform_name: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.is_latest -or $null -eq $item.force_update) {
+      throw "client version item missing state fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-ClientVersionUpdateJSON($Response) {
+  Assert-ApiOK $Response 'client version update-json'
+
+  $data = $Response.data
+  if ($null -eq $data) {
+    throw "client version update-json missing data: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $items = Get-ObjectArray $data
+  if ($items.Count -eq 0) {
+    return [pscustomobject]@{
+      Shape = 'empty'
+      PlatformCount = 0
+      Version = ''
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace([string]$data.version)) {
+    throw "client version update-json missing version: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $data.platforms) {
+    throw "client version update-json missing platforms: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $platformCount = 0
+  foreach ($property in $data.platforms.PSObject.Properties) {
+    $platformCount++
+    if ([string]::IsNullOrWhiteSpace([string]$property.Value.url) -or [string]::IsNullOrWhiteSpace([string]$property.Value.signature)) {
+      throw "client version update-json platform payload mismatch: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  if ($platformCount -le 0) {
+    throw "client version update-json platforms empty: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    Shape = 'manifest'
+    PlatformCount = $platformCount
+    Version = [string]$data.version
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -1813,6 +1920,21 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $systemSettingListSummary = Assert-SystemSettingList $systemSettingList
+
+  $clientVersionInit = Invoke-RestMethod "$baseURL/api/admin/v1/client-versions/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $clientVersionInitSummary = Assert-ClientVersionInit $clientVersionInit
+
+  $clientVersionList = Invoke-RestMethod "$baseURL/api/admin/v1/client-versions?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $clientVersionListSummary = Assert-ClientVersionList $clientVersionList
+
+  $clientVersionUpdateJson = Invoke-RestMethod "$baseURL/api/admin/v1/client-versions/update-json?platform=windows-x86_64" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $clientVersionUpdateJsonSummary = Assert-ClientVersionUpdateJSON $clientVersionUpdateJson
 
   $uploadDriverInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-drivers/init" `
     -Headers $authHeaders `
@@ -2117,6 +2239,16 @@ func main() {
     system_setting_list_code = $systemSettingList.code
     system_setting_list_count = $systemSettingListSummary.ListCount
     system_setting_total = $systemSettingListSummary.Total
+    client_version_init_code = $clientVersionInit.code
+    client_version_platform_dict_count = $clientVersionInitSummary.PlatformCount
+    client_version_yes_no_dict_count = $clientVersionInitSummary.YesNoCount
+    client_version_list_code = $clientVersionList.code
+    client_version_list_count = $clientVersionListSummary.ListCount
+    client_version_total = $clientVersionListSummary.Total
+    client_version_update_json_code = $clientVersionUpdateJson.code
+    client_version_update_json_shape = $clientVersionUpdateJsonSummary.Shape
+    client_version_update_json_platform_count = $clientVersionUpdateJsonSummary.PlatformCount
+    client_version_update_json_version = $clientVersionUpdateJsonSummary.Version
     upload_driver_init_code = $uploadDriverInit.code
     upload_driver_dict_count = $uploadDriverDictCount
     upload_driver_list_code = $uploadDriverList.code

@@ -122,6 +122,13 @@ function Test-RoutePath($Routes, [string]$Path) {
   return $false
 }
 
+function Test-RouteViewKey($Routes, [string]$ViewKey) {
+  foreach ($route in (Get-ObjectArray $Routes)) {
+    if ($route.view_key -eq $ViewKey) { return $true }
+  }
+  return $false
+}
+
 function Test-StringListContains($Values, [string]$Expected) {
   foreach ($value in (Get-ObjectArray $Values)) {
     if ([string]$value -eq $Expected) { return $true }
@@ -487,8 +494,15 @@ func main() {
   $usersList = Invoke-RestMethod "$baseURL/api/admin/v1/users?current_page=1&page_size=10" -Headers $authHeaders -TimeoutSec 10
   $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/init" -Headers $authHeaders -TimeoutSec 10
   $authPlatformList = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms?current_page=1&page_size=50" -Headers $authHeaders -TimeoutSec 10
+  Assert-ApiOK $init 'users init'
   Assert-ApiOK $usersPageInit 'users page-init'
   Assert-ApiOK $usersList 'users list'
+  if (-not (Test-RoutePath $init.data.router '/system/clientVersion')) {
+    throw 'users init missing canonical client version route path /system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
+  }
+  if (-not (Test-RouteViewKey $init.data.router 'system/clientVersion')) {
+    throw 'users init missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
+  }
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $dirBody = @{
     platform = $Platform

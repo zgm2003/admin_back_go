@@ -249,6 +249,17 @@ func UploadDriverOptions() []Option[string] {
 	return options
 }
 
+func ClientVersionPlatformOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.ClientPlatforms))
+	for _, value := range enum.ClientPlatforms {
+		options = append(options, Option[string]{
+			Label: enum.ClientPlatformLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
 func UploadImageExtOptions() []Option[string] {
 	return uploadExtOptions(enum.UploadImageExts)
 }

@@ -20,6 +20,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
+	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
@@ -272,6 +273,75 @@ func (f *fakeRouterAuthPlatformService) Delete(ctx context.Context, ids []int64)
 
 func (f *fakeRouterAuthPlatformService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	return nil
+}
+
+type fakeRouterClientVersionService struct {
+	initCalled         bool
+	listQuery          clientversion.ListQuery
+	createInput        clientversion.CreateInput
+	updateID           int64
+	updateInput        clientversion.UpdateInput
+	latestID           int64
+	forceID            int64
+	forceUpdate        int
+	deleteID           int64
+	updateJSONPlatform string
+	currentCheckQuery  clientversion.CurrentCheckQuery
+}
+
+func (f *fakeRouterClientVersionService) Init(ctx context.Context) (*clientversion.InitResponse, *apperror.Error) {
+	f.initCalled = true
+	return &clientversion.InitResponse{}, nil
+}
+
+func (f *fakeRouterClientVersionService) List(ctx context.Context, query clientversion.ListQuery) (*clientversion.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &clientversion.ListResponse{
+		List: []clientversion.ListItem{{ID: 8, Version: "1.0.7", Platform: enum.ClientPlatformWindowsX8664}},
+		Page: clientversion.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterClientVersionService) Create(ctx context.Context, input clientversion.CreateInput) (int64, *apperror.Error) {
+	f.createInput = input
+	return 9, nil
+}
+
+func (f *fakeRouterClientVersionService) Update(ctx context.Context, id int64, input clientversion.UpdateInput) *apperror.Error {
+	f.updateID = id
+	f.updateInput = input
+	return nil
+}
+
+func (f *fakeRouterClientVersionService) SetLatest(ctx context.Context, id int64) *apperror.Error {
+	f.latestID = id
+	return nil
+}
+
+func (f *fakeRouterClientVersionService) ForceUpdate(ctx context.Context, id int64, forceUpdate int) *apperror.Error {
+	f.forceID = id
+	f.forceUpdate = forceUpdate
+	return nil
+}
+
+func (f *fakeRouterClientVersionService) Delete(ctx context.Context, id int64) *apperror.Error {
+	f.deleteID = id
+	return nil
+}
+
+func (f *fakeRouterClientVersionService) UpdateJSON(ctx context.Context, platform string) (any, *apperror.Error) {
+	f.updateJSONPlatform = platform
+	return clientversion.ManifestPayload{
+		Version: "1.0.7",
+		Platforms: map[string]clientversion.ManifestPlatform{
+			platform: {URL: "https://example.com/app.exe", Signature: "sig"},
+		},
+	}, nil
+}
+
+func (f *fakeRouterClientVersionService) CurrentCheck(ctx context.Context, query clientversion.CurrentCheckQuery) (*clientversion.CurrentCheckResponse, *apperror.Error) {
+	f.currentCheckQuery = query
+	return &clientversion.CurrentCheckResponse{ForceUpdate: true}, nil
 }
 
 type fakeRouterOperationLogService struct {
@@ -1549,6 +1619,129 @@ func TestRouterInstallsAuthPlatformRESTRoutes(t *testing.T) {
 	data := mustRouterData(t, body)
 	if _, ok := data["list"]; !ok {
 		t.Fatalf("missing list in auth-platforms response: %#v", data)
+	}
+}
+
+func TestRouterInstallsClientVersionRESTRoutes(t *testing.T) {
+	clientVersionService := &fakeRouterClientVersionService{}
+	var permissionInputs []middleware.PermissionInput
+	var authCalls int
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			authCalls++
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/client-versions"):                   "system_clientVersion_add",
+			middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/client-versions/:id"):                "system_clientVersion_edit",
+			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/latest"):       "system_clientVersion_setLatest",
+			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update"): "system_clientVersion_forceUpdate",
+			middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/client-versions/:id"):             "system_clientVersion_del",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			permissionInputs = append(permissionInputs, input)
+			return nil
+		},
+		ClientVersionService: clientVersionService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/client-versions/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !clientVersionService.initCalled {
+		t.Fatalf("expected client version init route, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/client-versions?current_page=1&page_size=20&platform=windows-x86_64", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected client version list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if clientVersionService.listQuery.CurrentPage != 1 || clientVersionService.listQuery.PageSize != 20 || clientVersionService.listQuery.Platform != enum.ClientPlatformWindowsX8664 {
+		t.Fatalf("client version list query mismatch: %#v", clientVersionService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/client-versions", strings.NewReader(`{"version":"1.0.8","notes":"release","file_url":"https://example.com/app.exe","signature":"sig","platform":"windows-x86_64","file_size":128,"force_update":2}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || clientVersionService.createInput.Version != "1.0.8" || clientVersionService.createInput.Platform != enum.ClientPlatformWindowsX8664 {
+		t.Fatalf("expected client version create route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), clientVersionService.createInput)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/client-versions/8", strings.NewReader(`{"version":"1.0.8","notes":"release-2","file_url":"https://example.com/app.exe","signature":"sig2","platform":"windows-x86_64","file_size":256,"force_update":1}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || clientVersionService.updateID != 8 || clientVersionService.updateInput.ForceUpdate != enum.CommonYes {
+		t.Fatalf("expected client version update route, code=%d body=%s id=%d input=%#v", recorder.Code, recorder.Body.String(), clientVersionService.updateID, clientVersionService.updateInput)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/client-versions/8/latest", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || clientVersionService.latestID != 8 {
+		t.Fatalf("expected client version latest route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), clientVersionService.latestID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/client-versions/8/force-update", strings.NewReader(`{"force_update":1}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || clientVersionService.forceID != 8 || clientVersionService.forceUpdate != enum.CommonYes {
+		t.Fatalf("expected client version force-update route, code=%d body=%s id=%d force=%d", recorder.Code, recorder.Body.String(), clientVersionService.forceID, clientVersionService.forceUpdate)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/client-versions/8", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || clientVersionService.deleteID != 8 {
+		t.Fatalf("expected client version delete route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), clientVersionService.deleteID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/client-versions/update-json?platform=windows-x86_64", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || clientVersionService.updateJSONPlatform != enum.ClientPlatformWindowsX8664 {
+		t.Fatalf("expected client version update-json route, code=%d body=%s platform=%q", recorder.Code, recorder.Body.String(), clientVersionService.updateJSONPlatform)
+	}
+
+	authCallsBeforePublic := authCalls
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/client-versions/current-check?version=1.0.7&platform=windows-x86_64", nil)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected public current-check status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if clientVersionService.currentCheckQuery.Version != "1.0.7" || clientVersionService.currentCheckQuery.Platform != enum.ClientPlatformWindowsX8664 {
+		t.Fatalf("client version current-check query mismatch: %#v", clientVersionService.currentCheckQuery)
+	}
+	if authCalls != authCallsBeforePublic {
+		t.Fatalf("public current-check must not call authenticator: before=%d after=%d", authCallsBeforePublic, authCalls)
+	}
+
+	gotCodes := make([]string, 0, len(permissionInputs))
+	for _, input := range permissionInputs {
+		gotCodes = append(gotCodes, input.Code)
+	}
+	wantCodes := []string{
+		"system_clientVersion_add",
+		"system_clientVersion_edit",
+		"system_clientVersion_setLatest",
+		"system_clientVersion_forceUpdate",
+		"system_clientVersion_del",
+	}
+	if !reflect.DeepEqual(gotCodes, wantCodes) {
+		t.Fatalf("client version permission codes mismatch: got=%#v want=%#v", gotCodes, wantCodes)
 	}
 }
 

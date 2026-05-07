@@ -39,6 +39,7 @@ func Register() error {
 			"upload_image_ext":           validateUploadImageExt,
 			"upload_file_ext":            validateUploadFileExt,
 			"upload_folder":              validateUploadFolder,
+			"client_platform":            validateClientPlatform,
 			"notification_type":          validateNotificationType,
 			"notification_level":         validateNotificationLevel,
 			"notification_target_type":   validateNotificationTargetType,
