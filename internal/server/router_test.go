@@ -41,6 +41,7 @@ import (
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/usersession"
 	"admin_back_go/internal/module/wallet"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/secretbox"
@@ -121,6 +122,26 @@ type fakeRouterUserService struct {
 	listQuery      user.ListQuery
 	listResult     *user.ListResponse
 	exportInput    user.ExportInput
+}
+
+type fakeRouterUserSessionService struct {
+	listQuery usersession.ListQuery
+}
+
+func (fakeRouterUserSessionService) PageInit(ctx context.Context) (*usersession.PageInitResponse, *apperror.Error) {
+	return &usersession.PageInitResponse{}, nil
+}
+
+func (f *fakeRouterUserSessionService) List(ctx context.Context, query usersession.ListQuery) (*usersession.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &usersession.ListResponse{
+		List: []usersession.ListItem{{ID: 1, UserID: 2, Username: "admin", Platform: "admin", Status: usersession.SessionStatusActive}},
+		Page: usersession.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (fakeRouterUserSessionService) Stats(ctx context.Context) (*usersession.StatsResponse, *apperror.Error) {
+	return &usersession.StatsResponse{TotalActive: 0, PlatformDistribution: map[string]int64{"admin": 0, "app": 0}}, nil
 }
 
 func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
@@ -1501,6 +1522,44 @@ func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || userService.exportInput.UserID != 1 || userService.exportInput.Platform != "admin" || !reflect.DeepEqual(userService.exportInput.IDs, []int64{3, 2}) {
 		t.Fatalf("expected user export route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), userService.exportInput)
+	}
+}
+
+func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
+	userSessionService := &fakeRouterUserSessionService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		UserSessionService: userSessionService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected user session page-init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions?current_page=2&page_size=30&username=test&platform=admin&status=active", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected user session list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	query := userSessionService.listQuery
+	if query.CurrentPage != 2 || query.PageSize != 30 || query.Username != "test" || query.Platform != "admin" || query.Status != "active" {
+		t.Fatalf("user session list query mismatch: %#v", query)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions/stats", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected user session stats status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
 }
 

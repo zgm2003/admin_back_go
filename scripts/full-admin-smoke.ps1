@@ -802,6 +802,95 @@ function Assert-CurrentUserRechargeOrders($Response) {
   }
 }
 
+function Assert-UserSessionPageInit($Response) {
+  Assert-ApiOK $Response 'user session page-init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "user session page-init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $platforms = Get-ObjectArray $Response.data.dict.platformArr
+  $statuses = Get-ObjectArray $Response.data.dict.statusArr
+  if ($platforms.Count -ne 2 -or $statuses.Count -ne 3) {
+    throw "user session page-init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $platformValues = @($platforms | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('admin', 'app')) {
+    if (-not ($platformValues -contains $expected)) {
+      throw "user session page-init platform missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  $statusValues = @($statuses | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('active', 'expired', 'revoked')) {
+    if (-not ($statusValues -contains $expected)) {
+      throw "user session page-init status missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    PlatformCount = $platforms.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-UserSessionList($Response) {
+  Assert-ApiOK $Response 'user session list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "user session list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [int64]$item.user_id -le 0) {
+      throw "user session item missing valid ids: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.platform) -or [string]::IsNullOrWhiteSpace([string]$item.platform_name)) {
+      throw "user session item missing platform fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]$item.status -notin @('active', 'expired', 'revoked')) {
+      throw "user session item invalid status: $($item | ConvertTo-Json -Depth 12)"
+    }
+    $fieldNames = @($item.PSObject.Properties.Name)
+    foreach ($forbidden in @('access_token_hash', 'refresh_token_hash')) {
+      if ($fieldNames -contains $forbidden) {
+        throw "user session list leaked forbidden field ${forbidden}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-UserSessionStats($Response) {
+  Assert-ApiOK $Response 'user session stats'
+
+  if ($null -eq $Response.data.platform_distribution) {
+    throw "user session stats missing platform_distribution: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $Response.data.total_active) {
+    throw "user session stats missing total_active: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ([int64]$Response.data.total_active -lt 0) {
+    throw "user session stats total_active cannot be negative: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($platform in @('admin', 'app')) {
+    if ($null -eq $Response.data.platform_distribution.$platform) {
+      throw "user session stats missing platform ${platform}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    TotalActive = [int64]$Response.data.total_active
+    Admin = [int64]$Response.data.platform_distribution.admin
+    App = [int64]$Response.data.platform_distribution.app
+  }
+}
+
 function Assert-WalletInit($Response) {
   Assert-ApiOK $Response 'wallet init'
 
@@ -1980,6 +2069,21 @@ func main() {
   Assert-ApiOK $me 'full smoke users me'
   Clear-UserButtonCache ([int64]$me.data.user_id) $Platform
 
+  $userSessionPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/user-sessions/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $userSessionPageInitSummary = Assert-UserSessionPageInit $userSessionPageInit
+
+  $userSessionList = Invoke-RestMethod "$baseURL/api/admin/v1/user-sessions?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $userSessionListSummary = Assert-UserSessionList $userSessionList
+
+  $userSessionStats = Invoke-RestMethod "$baseURL/api/admin/v1/user-sessions/stats" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $userSessionStatsSummary = Assert-UserSessionStats $userSessionStats
+
   $queueMonitorList = Invoke-RestMethod "$baseURL/api/admin/v1/queue-monitor" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2340,6 +2444,16 @@ func main() {
 
   $summary = [ordered]@{
     basic = $basicSummary
+    user_session_page_init_code = $userSessionPageInit.code
+    user_session_platform_dict_count = $userSessionPageInitSummary.PlatformCount
+    user_session_status_dict_count = $userSessionPageInitSummary.StatusCount
+    user_session_list_code = $userSessionList.code
+    user_session_list_count = $userSessionListSummary.ListCount
+    user_session_total = $userSessionListSummary.Total
+    user_session_stats_code = $userSessionStats.code
+    user_session_total_active = $userSessionStatsSummary.TotalActive
+    user_session_active_admin = $userSessionStatsSummary.Admin
+    user_session_active_app = $userSessionStatsSummary.App
     queue_monitor_list_code = $queueMonitorList.code
     queue_monitor_queue_count = $queueMonitorQueueCount
     queue_monitor_failed_code = $queueMonitorFailed.code

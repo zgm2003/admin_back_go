@@ -32,6 +32,7 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/usersession"
 	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/validate"
 
@@ -53,6 +54,7 @@ type Dependencies struct {
 	CronTaskService         crontask.HTTPService
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
+	UserSessionService      usersession.HTTPService
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlog.HTTPService
@@ -110,6 +112,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	user.RegisterRoutes(router, deps.UserService)
+	usersession.RegisterRoutes(router, deps.UserSessionService)
 	exporttask.RegisterRoutes(router, deps.ExportTaskService)
 	notification.RegisterRoutes(router, deps.NotificationService)
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)

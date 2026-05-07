@@ -32,6 +32,7 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/usersession"
 	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/platform/logstore"
 	"admin_back_go/internal/platform/payment"
@@ -240,6 +241,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		user.WithExportTaskCreator(exportTaskService),
 		user.WithExportEnqueuer(queueClient),
 	)
+	userSessionService := usersession.NewService(usersession.NewGormRepository(resources.DB))
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
 		Logger:        logger,
@@ -260,6 +262,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		CronTaskService:         cronTaskService,
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,
+		UserSessionService:      userSessionService,
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,
