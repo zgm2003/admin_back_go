@@ -1325,7 +1325,7 @@ POST /api/pay/notify/alipay
 规则：
 
 ```text
-当前只实现 Alipay sandbox/web/h5 充值闭环，不实现微信、退款、对账、第三方查单/关单。
+当前只实现 Alipay sandbox/web/h5 充值闭环；微信支付明确不在产品范围，不作为待办缺口。当前也不实现退款、对账、第三方查单/关单。
 wallet/summary、wallet/bills、recharge-orders list/result/cancel 都是 current-user runtime endpoint：只读/只改当前 token user 自己的数据，不复用后台钱包管理权限。
 第三方 SDK 只允许出现在 internal/platform/payment/alipay；业务模块只能依赖 Gateway 小接口。
 cert path 由 internal/platform/payment.CertPathResolver 解析，默认可复用 legacy admin_back/runtime/cert/alipay 路径，但不读取或输出证书正文。
