@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -50,6 +51,7 @@ type Dependencies struct {
 	CaptchaService          captcha.HTTPService
 	ClientVersionService    clientversion.HTTPService
 	CronTaskService         crontask.HTTPService
+	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
@@ -108,6 +110,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	user.RegisterRoutes(router, deps.UserService)
+	exporttask.RegisterRoutes(router, deps.ExportTaskService)
 	notification.RegisterRoutes(router, deps.NotificationService)
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
 	crontask.RegisterRoutes(router, deps.CronTaskService)

@@ -157,6 +157,27 @@ type ListRow struct {
 	CreatedAt     time.Time
 }
 
+type ExportInput struct {
+	UserID   int64
+	Platform string
+	IDs      []int64
+}
+
+type ExportResponse struct {
+	ID      int64  `json:"id"`
+	Message string `json:"message"`
+}
+
+type ExportUserRow struct {
+	ID       int64
+	Username string
+	Email    string
+	Phone    string
+	Avatar   string
+	Sex      int
+	RoleName string
+}
+
 type UpdateInput struct {
 	Username      string
 	Avatar        string

@@ -62,6 +62,10 @@ type deleteBatchRequest struct {
 	IDs []int64 `json:"ids" binding:"required,min=1,dive,gt=0"`
 }
 
+type exportRequest struct {
+	IDs []int64 `json:"ids" binding:"required,min=1,dive,gt=0"`
+}
+
 type batchProfileRequest struct {
 	IDs           []int64           `json:"ids" binding:"required,min=1,dive,gt=0"`
 	Field         BatchProfileField `json:"field" binding:"required"`

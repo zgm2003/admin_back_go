@@ -19,6 +19,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	users.GET("/page-init", handler.PageInit)
 	users.GET("/:id/profile", handler.UserProfile)
 	users.GET("", handler.List)
+	users.POST("/export", handler.Export)
 	users.PUT("/:id", handler.Update)
 	users.PATCH("/:id/status", handler.ChangeStatus)
 	users.PATCH("", handler.BatchUpdateProfile)

@@ -32,6 +32,8 @@ type fakeInitService struct {
 	updatePhone    UpdatePhoneInput
 	listQuery      ListQuery
 	listResult     *ListResponse
+	exportInput    ExportInput
+	exportResult   *ExportResponse
 	updateID       int64
 	updateInput    UpdateInput
 	statusID       int64
@@ -82,6 +84,14 @@ func (f *fakeInitService) UpdatePhone(ctx context.Context, input UpdatePhoneInpu
 func (f *fakeInitService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return f.listResult, f.err
+}
+
+func (f *fakeInitService) Export(ctx context.Context, input ExportInput) (*ExportResponse, *apperror.Error) {
+	f.exportInput = input
+	if f.exportResult != nil {
+		return f.exportResult, f.err
+	}
+	return &ExportResponse{ID: 77, Message: "导出任务已提交，完成后将通知您"}, f.err
 }
 
 func (f *fakeInitService) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
@@ -463,4 +473,26 @@ func enumCommonNoForTest(currentUserID int64, userID int64) int {
 		return 1
 	}
 	return 2
+}
+
+func TestHandlerExportUsesAuthIdentityAndBodyIDs(t *testing.T) {
+	service := &fakeInitService{exportResult: &ExportResponse{ID: 88, Message: "导出任务已提交，完成后将通知您"}}
+	router := newUserTestRouter(service, &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/users/export", bytes.NewBufferString(`{"ids":[3,2]}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.exportInput.UserID != 9 || service.exportInput.Platform != "admin" || !reflect.DeepEqual(service.exportInput.IDs, []int64{3, 2}) {
+		t.Fatalf("unexpected export input: %#v", service.exportInput)
+	}
+	body := decodeUserBody(t, recorder)
+	data := body["data"].(map[string]any)
+	if data["message"] != "导出任务已提交，完成后将通知您" {
+		t.Fatalf("unexpected response: %#v", data)
+	}
 }

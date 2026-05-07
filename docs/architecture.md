@@ -997,6 +997,7 @@ PATCH  /api/admin/v1/users/:id/status    # 修改状态
 PATCH  /api/admin/v1/users               # 批量修改 profile 字段
 DELETE /api/admin/v1/users/:id           # 单个软删除
 DELETE /api/admin/v1/users               # 批量软删除
+POST   /api/admin/v1/users/export        # 创建导出任务并投递 worker
 ```
 
 关键规则：
@@ -1008,7 +1009,9 @@ users/init 仍只做当前登录用户 bootstrap；用户管理页字典使用 u
 列表搜索默认使用 prefix LIKE，避免把 Go 重构写成全表模糊扫描。
 编辑 role_id 成功后清理该用户 admin/app 的 auth_perm_uid_{userId}_{platform}_rbac_page_grants 缓存。
 删除只做 users + user_profiles 软删除，不物理删数据。
-export 暂时保留显式 legacy adapter，等待 Go export-task 队列模块迁移；这不是 silent fallback。
+用户导出是用户模块动作：创建 `export_tasks` pending 记录后投递 `export:run:v1` 到 low queue；权限固定用 `user_userManager_export`，不能复用编辑权限。
+导出 worker 只在 payload 存 `task_id/kind/user_id/platform/ids`，重新读取用户数据后生成 xlsx；不把渲染后的 rows 塞进 Redis。
+导出文件使用当前启用 COS 配置上传到 `exports/YYYYMMDD/`；本阶段不做 OSS runtime、不做万能导出平台。
 ```
 
 ## Notification Current-User Read/List Slice

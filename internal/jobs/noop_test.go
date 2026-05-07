@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
@@ -388,4 +389,33 @@ func (f *fakePayReconcileJobService) ExecutePendingTasks(ctx context.Context, in
 func (f *fakePayReconcileJobService) ExecuteTask(ctx context.Context, taskID int64) (*payreconcile.ExecuteTaskResult, error) {
 	f.executeTaskID = taskID
 	return &payreconcile.ExecuteTaskResult{TaskID: taskID}, nil
+}
+
+func TestRegisterHandlesExportTaskHandlers(t *testing.T) {
+	service := &fakeExportTaskJobService{}
+	mux := taskqueue.NewMux()
+	Register(mux, Dependencies{
+		Logger:            slog.Default(),
+		ExportTaskService: service,
+	})
+
+	task, err := exporttask.NewRunTask(exporttask.RunPayload{TaskID: 7, Kind: exporttask.KindUserList, UserID: 9, Platform: "admin", IDs: []int64{3}})
+	if err != nil {
+		t.Fatalf("NewRunTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
+		t.Fatalf("ProcessProjectTask returned error: %v", err)
+	}
+	if service.input.TaskID != 7 || service.input.Kind != exporttask.KindUserList || service.input.UserID != 9 {
+		t.Fatalf("unexpected export task input: %#v", service.input)
+	}
+}
+
+type fakeExportTaskJobService struct {
+	input exporttask.RunInput
+}
+
+func (f *fakeExportTaskJobService) Run(ctx context.Context, input exporttask.RunInput) error {
+	f.input = input
+	return nil
 }

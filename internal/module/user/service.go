@@ -12,7 +12,9 @@ import (
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/platform/taskqueue"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -41,6 +43,11 @@ type VerifyCodeStore interface {
 	Delete(ctx context.Context, key string) error
 }
 
+type ExportTaskCreator interface {
+	CreatePending(ctx context.Context, input exporttask.CreatePendingInput) (int64, error)
+	MarkFailed(ctx context.Context, id int64, message string) error
+}
+
 type Option func(*Service)
 
 type Service struct {
@@ -51,6 +58,8 @@ type Service struct {
 	platforms         []string
 	verifyCodeStore   VerifyCodeStore
 	verifyCodePrefix  string
+	exportTaskCreator ExportTaskCreator
+	exportEnqueuer    taskqueue.Enqueuer
 }
 
 type addressTreeMutableNode struct {
@@ -89,6 +98,18 @@ func WithVerifyCodeStore(store VerifyCodeStore, prefix string) Option {
 	return func(s *Service) {
 		s.verifyCodeStore = store
 		s.verifyCodePrefix = prefix
+	}
+}
+
+func WithExportTaskCreator(creator ExportTaskCreator) Option {
+	return func(s *Service) {
+		s.exportTaskCreator = creator
+	}
+}
+
+func WithExportEnqueuer(enqueuer taskqueue.Enqueuer) Option {
+	return func(s *Service) {
+		s.exportEnqueuer = enqueuer
 	}
 }
 
@@ -268,6 +289,52 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 			Total:       total,
 		},
 	}, nil
+}
+
+func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportResponse, *apperror.Error) {
+	if input.UserID <= 0 {
+		return nil, apperror.Unauthorized("Token无效或已过期")
+	}
+	if s == nil || s.repository == nil {
+		return nil, apperror.Internal("用户仓储未配置")
+	}
+	ids := normalizeIDs(input.IDs)
+	if len(ids) == 0 {
+		return nil, apperror.BadRequest("请选择要导出的用户")
+	}
+	if s.exportTaskCreator == nil {
+		return nil, apperror.Internal("导出任务服务未配置")
+	}
+	if s.exportEnqueuer == nil {
+		return nil, apperror.Internal("导出任务队列未配置")
+	}
+	rows, err := s.repository.ExportUsersByIDs(ctx, ids)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询导出用户失败", err)
+	}
+	if len(rows) == 0 {
+		return nil, apperror.NotFound("导出用户不存在")
+	}
+	taskID, err := s.exportTaskCreator.CreatePending(ctx, exporttask.CreatePendingInput{UserID: input.UserID, Title: "用户列表导出"})
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建导出任务失败", err)
+	}
+	task, err := exporttask.NewRunTask(exporttask.RunPayload{
+		TaskID:   taskID,
+		Kind:     exporttask.KindUserList,
+		UserID:   input.UserID,
+		Platform: input.Platform,
+		IDs:      ids,
+	})
+	if err != nil {
+		_ = s.exportTaskCreator.MarkFailed(ctx, taskID, err.Error())
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "构建导出任务失败", err)
+	}
+	if _, err := s.exportEnqueuer.Enqueue(ctx, task); err != nil {
+		_ = s.exportTaskCreator.MarkFailed(ctx, taskID, err.Error())
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "提交导出任务失败", err)
+	}
+	return &ExportResponse{ID: taskID, Message: "导出任务已提交，完成后将通知您"}, nil
 }
 
 func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
@@ -1006,6 +1073,7 @@ func normalizeIDs(ids []int64) []int64 {
 		seen[id] = struct{}{}
 		result = append(result, id)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result
 }
 

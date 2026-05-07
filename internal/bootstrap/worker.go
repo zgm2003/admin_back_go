@@ -9,15 +9,18 @@ import (
 	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
+	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/secretbox"
+	storagecos "admin_back_go/internal/platform/storage/cos"
 	"admin_back_go/internal/platform/taskqueue"
 )
 
@@ -77,6 +80,19 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		notificationtask.WithLogger(logger),
 	)
 	secretBox := secretbox.New(cfg.Secretbox.Key)
+	exportTaskRepository := exporttask.NewGormRepository(resources.DB)
+	exportTaskService := exporttask.NewService(
+		exportTaskRepository,
+		exporttask.WithExportDataProvider(user.NewExportDataProvider(user.NewGormRepository(resources.DB))),
+		exporttask.WithFileWriter(exporttask.XLSXWriter{}),
+		exporttask.WithFileUploader(exporttask.NewCOSUploader(
+			exporttask.NewGormUploadConfigRepository(resources.DB),
+			secretBox,
+			storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled}),
+		)),
+		exporttask.WithNotifier(exporttask.NewNotificationTaskNotifier(notificationTaskService)),
+		exporttask.WithLogger(logger),
+	)
 	var payRuntimeLocker redislock.Locker
 	var payRuntimeNumberGenerator payruntime.NumberGenerator
 	if resources.Redis != nil && resources.Redis.Redis != nil {
@@ -108,6 +124,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
+		ExportTaskService:       exportTaskService,
 		NotificationTaskService: notificationTaskService,
 		PayReconcileService:     payReconcileService,
 		PayRuntimeService:       payRuntimeService,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
@@ -29,6 +30,7 @@ var (
 type Dependencies struct {
 	Logger                  *slog.Logger
 	AuthRepository          auth.Repository
+	ExportTaskService       exporttask.JobService
 	NotificationTaskService notificationtask.JobService
 	PayReconcileService     payreconcile.JobService
 	PayRuntimeService       payruntime.JobService
@@ -75,6 +77,7 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 		return nil
 	})
 	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
+	exporttask.RegisterHandlers(mux, deps.ExportTaskService, logger)
 	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
 	payreconcile.RegisterHandlers(mux, deps.PayReconcileService, logger)
 	payruntime.RegisterHandlers(mux, deps.PayRuntimeService, logger)

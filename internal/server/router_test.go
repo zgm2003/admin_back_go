@@ -22,6 +22,7 @@ import (
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -119,6 +120,7 @@ type fakeRouterUserService struct {
 	profileViewer  int64
 	listQuery      user.ListQuery
 	listResult     *user.ListResponse
+	exportInput    user.ExportInput
 }
 
 func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
@@ -166,6 +168,11 @@ func (f *fakeRouterUserService) List(ctx context.Context, query user.ListQuery) 
 		List: []user.ListItem{{ID: 1, Username: "admin"}},
 		Page: user.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, f.err
+}
+
+func (f *fakeRouterUserService) Export(ctx context.Context, input user.ExportInput) (*user.ExportResponse, *apperror.Error) {
+	f.exportInput = input
+	return &user.ExportResponse{ID: 88, Message: "导出任务已提交，完成后将通知您"}, f.err
 }
 
 func (f *fakeRouterUserService) Update(ctx context.Context, id int64, input user.UpdateInput) *apperror.Error {
@@ -448,6 +455,27 @@ func (f *fakeRouterNotificationTaskService) Cancel(ctx context.Context, id int64
 
 func (f *fakeRouterNotificationTaskService) Delete(ctx context.Context, id int64) *apperror.Error {
 	f.deleteID = id
+	return nil
+}
+
+type fakeRouterExportTaskService struct {
+	statusQuery exporttask.StatusCountQuery
+	listQuery   exporttask.ListQuery
+	deleteInput exporttask.DeleteInput
+}
+
+func (f *fakeRouterExportTaskService) StatusCount(ctx context.Context, query exporttask.StatusCountQuery) ([]exporttask.StatusCountItem, *apperror.Error) {
+	f.statusQuery = query
+	return []exporttask.StatusCountItem{{Label: "处理中", Value: 1, Num: 1}}, nil
+}
+
+func (f *fakeRouterExportTaskService) List(ctx context.Context, query exporttask.ListQuery) (*exporttask.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &exporttask.ListResponse{List: []exporttask.ListItem{}, Page: exporttask.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (f *fakeRouterExportTaskService) Delete(ctx context.Context, input exporttask.DeleteInput) *apperror.Error {
+	f.deleteInput = input
 	return nil
 }
 
@@ -1464,6 +1492,49 @@ func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || userService.profileUserID != 9 || userService.profileViewer != 1 {
 		t.Fatalf("expected target profile route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/users/export", strings.NewReader(`{"ids":[3,2]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || userService.exportInput.UserID != 1 || userService.exportInput.Platform != "admin" || !reflect.DeepEqual(userService.exportInput.IDs, []int64{3, 2}) {
+		t.Fatalf("expected user export route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), userService.exportInput)
+	}
+}
+
+func TestRouterInstallsExportTaskRESTRoutes(t *testing.T) {
+	exportTaskService := &fakeRouterExportTaskService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: "admin"}, nil
+		},
+		ExportTaskService: exportTaskService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks/status-count?title=%E7%94%A8%E6%88%B7", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || exportTaskService.statusQuery.UserID != 12 || exportTaskService.statusQuery.Title != "用户" {
+		t.Fatalf("expected export task status-count route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), exportTaskService.statusQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks?current_page=1&page_size=20&status=2", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || exportTaskService.listQuery.UserID != 12 || exportTaskService.listQuery.Status == nil || *exportTaskService.listQuery.Status != 2 {
+		t.Fatalf("expected export task list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), exportTaskService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/export-tasks/7", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || exportTaskService.deleteInput.UserID != 12 || !reflect.DeepEqual(exportTaskService.deleteInput.IDs, []int64{7}) {
+		t.Fatalf("expected export task delete route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), exportTaskService.deleteInput)
 	}
 }
 

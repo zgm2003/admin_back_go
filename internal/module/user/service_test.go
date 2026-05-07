@@ -9,7 +9,9 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/platform/taskqueue"
 )
 
 type fakeUserRepository struct {
@@ -20,6 +22,8 @@ type fakeUserRepository struct {
 	addresses            []Address
 	listRows             []ListRow
 	listTotal            int64
+	exportRows           []ExportUserRow
+	exportIDs            []int64
 	entries              []QuickEntry
 	rolesByID            map[int64]*Role
 	emailUsed            bool
@@ -74,6 +78,11 @@ func (f *fakeUserRepository) ActiveAddresses(ctx context.Context) ([]Address, er
 func (f *fakeUserRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
 	f.listQuery = query
 	return f.listRows, f.listTotal, f.err
+}
+
+func (f *fakeUserRepository) ExportUsersByIDs(ctx context.Context, ids []int64) ([]ExportUserRow, error) {
+	f.exportIDs = append([]int64{}, ids...)
+	return f.exportRows, f.err
 }
 
 func (f *fakeUserRepository) RoleByID(ctx context.Context, id int64) (*Role, error) {
@@ -700,5 +709,118 @@ func TestServiceBatchUpdateProfileUsesExplicitAddressIDContract(t *testing.T) {
 	}
 	if repo.batchUpdate.Field != BatchProfileFieldAddressID || !reflect.DeepEqual(repo.batchUpdate.IDs, []int64{3, 4}) || repo.batchUpdate.AddressID != 8 {
 		t.Fatalf("batch update mismatch: %#v", repo.batchUpdate)
+	}
+}
+
+type fakeExportTaskCreator struct {
+	createdInput CreateExportTaskInput
+	createdID    int64
+	failedID     int64
+	failedMsg    string
+	err          error
+}
+
+func (f *fakeExportTaskCreator) CreatePending(ctx context.Context, input exporttask.CreatePendingInput) (int64, error) {
+	f.createdInput = CreateExportTaskInput{UserID: input.UserID, Title: input.Title}
+	if f.createdID == 0 {
+		f.createdID = 77
+	}
+	return f.createdID, f.err
+}
+
+func (f *fakeExportTaskCreator) MarkFailed(ctx context.Context, id int64, message string) error {
+	f.failedID = id
+	f.failedMsg = message
+	return nil
+}
+
+type CreateExportTaskInput struct {
+	UserID int64
+	Title  string
+}
+
+type fakeExportEnqueuer struct {
+	tasks []taskqueue.Task
+	err   error
+}
+
+func (f *fakeExportEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
+	f.tasks = append(f.tasks, task)
+	if f.err != nil {
+		return taskqueue.EnqueueResult{}, f.err
+	}
+	return taskqueue.EnqueueResult{ID: "export-job", Queue: task.Queue, Type: task.Type}, nil
+}
+
+func TestServiceExportRejectsEmptyIDs(t *testing.T) {
+	_, appErr := NewService(&fakeUserRepository{}, nil, nil, time.Minute).Export(context.Background(), ExportInput{UserID: 9})
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("expected bad request for empty ids, got %#v", appErr)
+	}
+}
+
+func TestServiceExportNormalizesCreatesPendingAndEnqueuesLowTask(t *testing.T) {
+	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "u2"}, {ID: 3, Username: "u3"}}}
+	creator := &fakeExportTaskCreator{createdID: 88}
+	enqueuer := &fakeExportEnqueuer{}
+	got, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, Platform: enum.PlatformAdmin, IDs: []int64{3, 2, 3, 0}})
+	if appErr != nil {
+		t.Fatalf("Export returned error: %v", appErr)
+	}
+	if got.ID != 88 || got.Message != "导出任务已提交，完成后将通知您" {
+		t.Fatalf("unexpected export response: %#v", got)
+	}
+	if !reflect.DeepEqual(repo.exportIDs, []int64{2, 3}) {
+		t.Fatalf("expected normalized ids, got %#v", repo.exportIDs)
+	}
+	if creator.createdInput.UserID != 9 || creator.createdInput.Title != "用户列表导出" {
+		t.Fatalf("unexpected created task input: %#v", creator.createdInput)
+	}
+	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != exporttask.TypeRunV1 || enqueuer.tasks[0].Queue != taskqueue.QueueLow {
+		t.Fatalf("unexpected enqueued task: %#v", enqueuer.tasks)
+	}
+	payload, err := exporttask.DecodeRunPayload(enqueuer.tasks[0].Payload)
+	if err != nil {
+		t.Fatalf("decode enqueued payload: %v", err)
+	}
+	if payload.TaskID != 88 || payload.Kind != exporttask.KindUserList || payload.UserID != 9 || !reflect.DeepEqual(payload.IDs, []int64{2, 3}) {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
+func TestServiceExportMarksTaskFailedWhenEnqueueFails(t *testing.T) {
+	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "u2"}}}
+	creator := &fakeExportTaskCreator{createdID: 88}
+	enqueuer := &fakeExportEnqueuer{err: errors.New("redis down")}
+	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, Platform: enum.PlatformAdmin, IDs: []int64{2}})
+	if appErr == nil || appErr.Code != apperror.CodeInternal {
+		t.Fatalf("expected internal error, got %#v", appErr)
+	}
+	if creator.failedID != 88 || creator.failedMsg == "" {
+		t.Fatalf("expected created task to be marked failed, got id=%d msg=%q", creator.failedID, creator.failedMsg)
+	}
+}
+
+func TestServiceExportReturnsNotFoundWhenNoSelectedUsersExist(t *testing.T) {
+	repo := &fakeUserRepository{}
+	creator := &fakeExportTaskCreator{}
+	enqueuer := &fakeExportEnqueuer{}
+	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, IDs: []int64{99}})
+	if appErr == nil || appErr.Code != apperror.CodeNotFound {
+		t.Fatalf("expected not found, got %#v", appErr)
+	}
+}
+
+func TestExportDataProviderBuildsUserListFileData(t *testing.T) {
+	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "alice", Email: "a@example.com", Phone: "15671628271", Avatar: "avatar.png", Sex: 2, RoleName: "管理员"}}}
+	data, err := NewExportDataProvider(repo).BuildExportData(context.Background(), exporttask.KindUserList, []int64{2})
+	if err != nil {
+		t.Fatalf("BuildExportData returned error: %v", err)
+	}
+	if data.Prefix != "用户列表导出" || len(data.Headers) != 7 || data.Headers[0].Key != "id" || data.Headers[6].Key != "role" {
+		t.Fatalf("unexpected file metadata: %#v", data)
+	}
+	if len(data.Rows) != 1 || data.Rows[0]["id"] != "2" || data.Rows[0]["sex"] != "女" || data.Rows[0]["role"] != "管理员" {
+		t.Fatalf("unexpected export rows: %#v", data.Rows)
 	}
 }

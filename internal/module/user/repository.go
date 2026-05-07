@@ -26,6 +26,7 @@ type Repository interface {
 	RoleOptions(ctx context.Context) ([]Role, error)
 	ActiveAddresses(ctx context.Context) ([]Address, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
+	ExportUsersByIDs(ctx context.Context, ids []int64) ([]ExportUserRow, error)
 	RoleByID(ctx context.Context, id int64) (*Role, error)
 	UpdateUser(ctx context.Context, id int64, fields map[string]any) error
 	ExistsEmailForOtherUser(ctx context.Context, userID int64, email string) (bool, error)
@@ -179,6 +180,33 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 		return nil, 0, err
 	}
 	return rows, total, nil
+}
+
+func (r *GormRepository) ExportUsersByIDs(ctx context.Context, ids []int64) ([]ExportUserRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	ids = normalizeIDs(ids)
+	if len(ids) == 0 {
+		return []ExportUserRow{}, nil
+	}
+	var rows []ExportUserRow
+	err := r.db.WithContext(ctx).
+		Table("users AS u").
+		Select(`u.id, u.username, u.email, u.phone,
+			COALESCE(up.avatar, '') AS avatar,
+			COALESCE(up.sex, 0) AS sex,
+			COALESCE(r.name, '') AS role_name`).
+		Joins("LEFT JOIN user_profiles AS up ON up.user_id = u.id AND up.is_del = ?", commonNo).
+		Joins("LEFT JOIN roles AS r ON r.id = u.role_id AND r.is_del = ?", commonNo).
+		Where("u.id IN ?", ids).
+		Where("u.is_del = ?", commonNo).
+		Order("u.id asc").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (r *GormRepository) RoleByID(ctx context.Context, id int64) (*Role, error) {

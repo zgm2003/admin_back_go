@@ -26,6 +26,7 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/users/:id"):                           "user_userManager_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/users/:id/status"):                  "user_userManager_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/users"):                             "user_userManager_batchEdit",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/users/export"):                       "user_userManager_export",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users/:id"):                        "user_userManager_del",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users"):                            "user_userManager_del",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/operation-logs/:id"):               "devTools_operationLog_del",
@@ -184,6 +185,11 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Action: "batch_update_profile",
 			Title:  "批量修改用户资料",
 		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/users/export"): {
+			Module: "user",
+			Action: "export",
+			Title:  "用户导出",
+		},
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/users/:id"): {
 			Module: "user",
 			Action: "delete",
@@ -193,6 +199,16 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "user",
 			Action: "delete_batch",
 			Title:  "批量删除用户",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/export-tasks/:id"): {
+			Module: "export_task",
+			Action: "delete",
+			Title:  "删除导出任务",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/export-tasks"): {
+			Module: "export_task",
+			Action: "delete_batch",
+			Title:  "批量删除导出任务",
 		},
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile"): {
 			Module: "profile",

@@ -14,6 +14,7 @@ import (
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
+	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -221,6 +222,10 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		notificationtask.WithRealtimePublisher(realtimeStack.publisher),
 		notificationtask.WithLogger(logger),
 	)
+	exportTaskService := exporttask.NewService(
+		exporttask.NewGormRepository(resources.DB),
+		exporttask.WithLogger(logger),
+	)
 	cronTaskService := crontask.NewService(crontask.NewGormRepository(resources.DB), crontask.NewDefaultRegistry())
 	var operationRecorder middleware.OperationRecorder
 	if operationRepository != nil {
@@ -232,6 +237,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		buttonGrantCache,
 		0,
 		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis), cfg.VerifyCode.RedisPrefix),
+		user.WithExportTaskCreator(exportTaskService),
+		user.WithExportEnqueuer(queueClient),
 	)
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
@@ -251,6 +258,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		CaptchaService:          captchaService,
 		ClientVersionService:    clientVersionService,
 		CronTaskService:         cronTaskService,
+		ExportTaskService:       exportTaskService,
 		UserService:             userService,
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,

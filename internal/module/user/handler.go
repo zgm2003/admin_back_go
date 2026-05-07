@@ -25,6 +25,7 @@ type HTTPService interface {
 	UpdateEmail(ctx context.Context, input UpdateEmailInput) *apperror.Error
 	UpdatePhone(ctx context.Context, input UpdatePhoneInput) *apperror.Error
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
+	Export(ctx context.Context, input ExportInput) (*ExportResponse, *apperror.Error)
 	Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error
 	ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error
 	Delete(ctx context.Context, ids []int64) *apperror.Error
@@ -225,6 +226,33 @@ func (h *Handler) List(c *gin.Context) {
 		query.RoleID = *req.RoleID
 	}
 	result, appErr := h.service.List(c.Request.Context(), query)
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *Handler) Export(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	if h.service == nil {
+		response.Error(c, apperror.Internal("用户管理服务未配置"))
+		return
+	}
+	var req exportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("参数错误"))
+		return
+	}
+	result, appErr := h.service.Export(c.Request.Context(), ExportInput{
+		UserID:   identity.UserID,
+		Platform: identity.Platform,
+		IDs:      req.IDs,
+	})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
