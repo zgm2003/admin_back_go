@@ -24,10 +24,14 @@ type fakeRepository struct {
 	walletBillsTotal            int64
 	expiredOrders               []ExpiredRechargeOrder
 	pendingTxns                 []PendingTransaction
+	retryableFulfillments       []RetryableFulfillment
+	fulfillmentForUpdate        *OrderFulfillment
 	lastExpiredCutoff           time.Time
 	lastExpiredLimit            int
 	lastPendingCutoff           time.Time
 	lastPendingLimit            int
+	lastFulfillmentRetryNow     time.Time
+	lastFulfillmentRetryLimit   int
 	lastWalletBillsQuery        WalletBillsQuery
 	createdRechargeOrder        bool
 	createdTransaction          bool
@@ -35,6 +39,13 @@ type fakeRepository struct {
 	closedPreviousTxn           bool
 	closedCurrentUserOrder      bool
 	closedCurrentUserReason     string
+	markedFulfillmentRunning    bool
+	markedFulfillmentFailed     bool
+	markedFulfillmentManual     bool
+	markedFulfillmentSuccess    bool
+	lastFulfillmentRetryCount   int
+	lastFulfillmentNextRetryAt  *time.Time
+	lastFulfillmentError        string
 	markedWaiting               bool
 	markedFailed                bool
 	notifyFailed                bool
@@ -114,6 +125,40 @@ func (r *fakeRepository) ListPendingAlipayTransactions(ctx context.Context, cuto
 	r.lastPendingCutoff = cutoff
 	r.lastPendingLimit = limit
 	return r.pendingTxns, nil
+}
+
+func (r *fakeRepository) ListRetryableFulfillments(ctx context.Context, now time.Time, limit int) ([]RetryableFulfillment, error) {
+	r.lastFulfillmentRetryNow = now
+	r.lastFulfillmentRetryLimit = limit
+	return r.retryableFulfillments, nil
+}
+
+func (r *fakeRepository) GetFulfillmentForUpdate(ctx context.Context, id int64) (*OrderFulfillment, error) {
+	return r.fulfillmentForUpdate, nil
+}
+
+func (r *fakeRepository) MarkFulfillmentRunning(ctx context.Context, id int64, now time.Time) error {
+	r.markedFulfillmentRunning = true
+	return nil
+}
+
+func (r *fakeRepository) MarkFulfillmentFailed(ctx context.Context, id int64, retryCount int, nextRetryAt *time.Time, lastError string, now time.Time) error {
+	r.markedFulfillmentFailed = true
+	r.lastFulfillmentRetryCount = retryCount
+	r.lastFulfillmentNextRetryAt = nextRetryAt
+	r.lastFulfillmentError = lastError
+	return nil
+}
+
+func (r *fakeRepository) MarkFulfillmentManual(ctx context.Context, id int64, lastError string, now time.Time) error {
+	r.markedFulfillmentManual = true
+	r.lastFulfillmentError = lastError
+	return nil
+}
+
+func (r *fakeRepository) MarkFulfillmentSuccess(ctx context.Context, id int64, resultPayload string, now time.Time) error {
+	r.markedFulfillmentSuccess = true
+	return nil
 }
 
 func (r *fakeRepository) CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error) {

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -43,6 +44,30 @@ func NewDefaultRegistry() Registry {
 		Description: "扫描待补查支付宝流水，主动查单并补偿支付成功",
 		BuildTask: func() (taskqueue.Task, error) {
 			return payruntime.NewSyncPendingTransactionTask(payruntime.SyncPendingTransactionPayload{})
+		},
+	})
+	registry.Register(RegistryEntry{
+		Name:        "pay_fulfillment_retry",
+		TaskType:    payruntime.TypeFulfillmentRetryV1,
+		Description: "重试失败的支付履约任务",
+		BuildTask: func() (taskqueue.Task, error) {
+			return payruntime.NewFulfillmentRetryTask(payruntime.FulfillmentRetryPayload{})
+		},
+	})
+	registry.Register(RegistryEntry{
+		Name:        "pay_reconcile_daily",
+		TaskType:    payreconcile.TypeReconcileDailyV1,
+		Description: "按支付渠道创建每日对账任务",
+		BuildTask: func() (taskqueue.Task, error) {
+			return payreconcile.NewReconcileDailyTask(payreconcile.ReconcileDailyPayload{})
+		},
+	})
+	registry.Register(RegistryEntry{
+		Name:        "pay_reconcile_execute",
+		TaskType:    payreconcile.TypeReconcileExecuteV1,
+		Description: "执行待处理支付对账任务",
+		BuildTask: func() (taskqueue.Task, error) {
+			return payreconcile.NewReconcileExecuteTask(payreconcile.ReconcileExecutePayload{})
 		},
 	})
 	return registry

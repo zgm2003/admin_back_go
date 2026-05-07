@@ -74,7 +74,7 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 		tasks: []Task{
 			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 			{ID: 2, Name: "pay_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 3, Name: "pay_reconcile_daily", Title: "支付每日对账", Cron: "0 0 2 * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
+			{ID: 3, Name: "legacy_missing_payment_task", Title: "遗留缺失支付任务", Cron: "0 0 2 * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 		},
 	}
 	service := NewService(repo, NewDefaultRegistry())
@@ -86,7 +86,7 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 	if len(res.List) != 1 || res.Page.Total != 1 || res.Page.TotalPage != 1 {
 		t.Fatalf("expected registry_status filter before paging, got list=%#v page=%#v", res.List, res.Page)
 	}
-	if res.List[0].Name != "pay_reconcile_daily" {
+	if res.List[0].Name != "legacy_missing_payment_task" {
 		t.Fatalf("unexpected first missing task after paging: %#v", res.List[0])
 	}
 }
@@ -118,6 +118,36 @@ func TestServiceListUsesGoTaskTypeForRegisteredPayCronHandler(t *testing.T) {
 	}
 	if item.Handler != payruntime.TypeCloseExpiredOrderV1 {
 		t.Fatalf("registered pay cron task must expose Go task type as handler, got %#v", item)
+	}
+}
+
+func TestServiceListUsesGoTaskTypeForRegisteredFulfillmentRetryHandler(t *testing.T) {
+	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
+	repo := &fakeRepository{
+		tasks: []Task{{
+			ID:        5,
+			Name:      "pay_fulfillment_retry",
+			Title:     "支付履约重试",
+			Cron:      "0 */2 * * * *",
+			Handler:   "app\\process\\Pay\\PayFulfillmentRetryTask",
+			Status:    CommonYes,
+			IsDel:     CommonNo,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	service := NewService(repo, NewDefaultRegistry())
+
+	res, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr != nil {
+		t.Fatalf("List returned appErr: %v", appErr)
+	}
+	item := res.List[0]
+	if item.RegistryTaskType != payruntime.TypeFulfillmentRetryV1 {
+		t.Fatalf("expected registry_task_type=%s, got %#v", payruntime.TypeFulfillmentRetryV1, item)
+	}
+	if item.Handler != payruntime.TypeFulfillmentRetryV1 {
+		t.Fatalf("registered fulfillment retry task must expose Go task type as handler, got %#v", item)
 	}
 }
 

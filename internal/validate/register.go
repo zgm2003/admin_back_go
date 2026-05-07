@@ -55,6 +55,8 @@ func Register() error {
 			"pay_biz_status":             validatePayBizStatus,
 			"wallet_type":                validateWalletType,
 			"wallet_source":              validateWalletSource,
+			"pay_reconcile_status":       validatePayReconcileStatus,
+			"pay_reconcile_bill_type":    validatePayReconcileBillType,
 		}
 		for tag, fn := range validators {
 			if err := validatorEngine.RegisterValidation(tag, fn); err != nil {

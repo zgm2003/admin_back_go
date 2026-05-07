@@ -20,6 +20,7 @@ import (
 	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
@@ -115,6 +116,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
 	payNotifyLogService := paynotifylog.NewService(paynotifylog.NewGormRepository(resources.DB))
 	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
+	payReconcileService := payreconcile.NewService(payreconcile.NewGormRepository(resources.DB))
 	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
 	var payRuntimeLocker redislock.Locker
 	var payRuntimeNumberGenerator payruntime.NumberGenerator
@@ -249,6 +251,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		PayChannelService:       payChannelService,
 		PayNotifyLogService:     payNotifyLogService,
 		PayOrderService:         payOrderService,
+		PayReconcileService:     payReconcileService,
 		PayRuntimeService:       payRuntimeService,
 		PayTransactionService:   payTransactionService,
 		PermissionService:       permissionService,

@@ -28,6 +28,7 @@ import (
 	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
@@ -679,6 +680,14 @@ type fakeRouterPayNotifyLogService struct {
 	detailID  int64
 }
 
+type fakeRouterPayReconcileService struct {
+	listQuery payreconcile.ListQuery
+	detailID  int64
+	retryID   int64
+	fileID    int64
+	fileType  string
+}
+
 type fakeRouterPayOrderService struct {
 	statusCountQuery payorder.StatusCountQuery
 	listQuery        payorder.ListQuery
@@ -798,6 +807,80 @@ func (f *fakeRouterPayNotifyLogService) List(ctx context.Context, query paynotif
 func (f *fakeRouterPayNotifyLogService) Detail(ctx context.Context, id int64) (*paynotifylog.DetailResponse, *apperror.Error) {
 	f.detailID = id
 	return &paynotifylog.DetailResponse{Log: paynotifylog.DetailLog{ID: id, TransactionNo: "T1"}}, nil
+}
+
+func (f *fakeRouterPayReconcileService) Init(ctx context.Context) (*payreconcile.InitResponse, *apperror.Error) {
+	return payreconcile.NewService(&fakeRouterPayReconcileRepository{}).Init(ctx)
+}
+
+func (f *fakeRouterPayReconcileService) List(ctx context.Context, query payreconcile.ListQuery) (*payreconcile.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &payreconcile.ListResponse{
+		List: []payreconcile.ListItem{{ID: 1, ReconcileDate: "2026-05-05"}},
+		Page: payreconcile.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterPayReconcileService) Detail(ctx context.Context, id int64) (*payreconcile.DetailResponse, *apperror.Error) {
+	f.detailID = id
+	return &payreconcile.DetailResponse{Task: payreconcile.DetailTask{ID: id, ReconcileDate: "2026-05-05"}}, nil
+}
+
+func (f *fakeRouterPayReconcileService) Retry(ctx context.Context, id int64) *apperror.Error {
+	f.retryID = id
+	return nil
+}
+
+func (f *fakeRouterPayReconcileService) File(ctx context.Context, id int64, fileType string) (*payreconcile.FileResponse, *apperror.Error) {
+	f.fileID = id
+	f.fileType = fileType
+	return &payreconcile.FileResponse{URL: "https://cos.example/file.csv", Filename: "file.csv"}, nil
+}
+
+type fakeRouterPayReconcileRepository struct{}
+
+func (fakeRouterPayReconcileRepository) ActivePayChannels(ctx context.Context) ([]payreconcile.ChannelSummary, error) {
+	return []payreconcile.ChannelSummary{{ID: 1, Name: "支付宝", Channel: enum.PayChannelAlipay}}, nil
+}
+
+func (fakeRouterPayReconcileRepository) FindReconcileTask(ctx context.Context, channelID int64, date time.Time, billType int) (*payreconcile.Task, error) {
+	return nil, nil
+}
+
+func (fakeRouterPayReconcileRepository) CreateReconcileTask(ctx context.Context, task payreconcile.Task) error {
+	return nil
+}
+
+func (fakeRouterPayReconcileRepository) ListPendingTasks(ctx context.Context, limit int) ([]payreconcile.Task, error) {
+	return nil, nil
+}
+
+func (fakeRouterPayReconcileRepository) GetTaskForUpdate(ctx context.Context, id int64) (*payreconcile.Task, error) {
+	return nil, nil
+}
+
+func (fakeRouterPayReconcileRepository) MarkTaskStatus(ctx context.Context, id int64, status int, fields map[string]any) error {
+	return nil
+}
+
+func (fakeRouterPayReconcileRepository) ListSuccessfulTransactionsForBill(ctx context.Context, channelID int64, date time.Time) ([]payreconcile.BillTransactionRow, error) {
+	return nil, nil
+}
+
+func (r fakeRouterPayReconcileRepository) WithTx(ctx context.Context, fn func(payreconcile.Repository) error) error {
+	return fn(r)
+}
+
+func (fakeRouterPayReconcileRepository) List(ctx context.Context, query payreconcile.ListQuery) ([]payreconcile.ListRow, int64, error) {
+	return nil, 0, nil
+}
+
+func (fakeRouterPayReconcileRepository) Detail(ctx context.Context, id int64) (*payreconcile.Task, error) {
+	return nil, nil
+}
+
+func (fakeRouterPayReconcileRepository) UpdateRetry(ctx context.Context, id int64, fields map[string]any) error {
+	return nil
 }
 
 func (f *fakeRouterPayOrderService) Init(ctx context.Context) (*payorder.InitResponse, *apperror.Error) {
@@ -2031,6 +2114,67 @@ func TestRouterInstallsPayNotifyLogReadOnlyRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || payNotifyLogService.detailID != 9 {
 		t.Fatalf("expected pay notify log detail route, code=%d id=%d body=%s", recorder.Code, payNotifyLogService.detailID, recorder.Body.String())
+	}
+}
+
+func TestRouterInstallsPayReconcileAdminRESTRoutes(t *testing.T) {
+	payReconcileService := &fakeRouterPayReconcileService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks"):                 "pay_reconcile_list",
+			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry"):     "pay_reconcile_retry",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id/files/:type"): "pay_reconcile_download",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			return nil
+		},
+		PayReconcileService: payReconcileService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay reconcile init route, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks?current_page=2&page_size=30&channel=2&status=6&bill_type=1&start_date=2026-05-01&end_date=2026-05-05", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected pay reconcile list route, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if payReconcileService.listQuery.CurrentPage != 2 || payReconcileService.listQuery.PageSize != 30 || payReconcileService.listQuery.Channel == nil || *payReconcileService.listQuery.Channel != enum.PayChannelAlipay || payReconcileService.listQuery.Status == nil || *payReconcileService.listQuery.Status != payreconcile.ReconcileFailed || payReconcileService.listQuery.BillType == nil || *payReconcileService.listQuery.BillType != payreconcile.BillTypePay || payReconcileService.listQuery.StartDate != "2026-05-01" || payReconcileService.listQuery.EndDate != "2026-05-05" {
+		t.Fatalf("pay reconcile list query mismatch: %#v", payReconcileService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/9", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payReconcileService.detailID != 9 {
+		t.Fatalf("expected pay reconcile detail route, code=%d id=%d body=%s", recorder.Code, payReconcileService.detailID, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/9/retry", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payReconcileService.retryID != 9 {
+		t.Fatalf("expected pay reconcile retry route, code=%d id=%d body=%s", recorder.Code, payReconcileService.retryID, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/9/files/platform", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || payReconcileService.fileID != 9 || payReconcileService.fileType != "platform" {
+		t.Fatalf("expected pay reconcile file route, code=%d id=%d type=%q body=%s", recorder.Code, payReconcileService.fileID, payReconcileService.fileType, recorder.Body.String())
 	}
 }
 

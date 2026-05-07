@@ -30,6 +30,29 @@ func TestNewCloseExpiredOrderTaskEncodesLimitAndUniqueTTL(t *testing.T) {
 	}
 }
 
+func TestNewFulfillmentRetryTaskEncodesLimitAndUniqueTTL(t *testing.T) {
+	task, err := NewFulfillmentRetryTask(FulfillmentRetryPayload{Limit: 25})
+	if err != nil {
+		t.Fatalf("NewFulfillmentRetryTask returned error: %v", err)
+	}
+	if task.Type != TypeFulfillmentRetryV1 {
+		t.Fatalf("unexpected task type: %s", task.Type)
+	}
+	if task.Queue != taskqueue.QueueDefault {
+		t.Fatalf("unexpected queue: %s", task.Queue)
+	}
+	if task.UniqueTTL <= 0 {
+		t.Fatalf("expected unique ttl")
+	}
+	payload, err := DecodeFulfillmentRetryPayload(task.Payload)
+	if err != nil {
+		t.Fatalf("DecodeFulfillmentRetryPayload returned error: %v", err)
+	}
+	if payload.Limit != 25 {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
 func TestRegisterHandlersWiresPayRuntimeCronTasks(t *testing.T) {
 	mux := taskqueue.NewMux()
 	service := &fakeJobService{}
@@ -52,11 +75,23 @@ func TestRegisterHandlersWiresPayRuntimeCronTasks(t *testing.T) {
 	if service.closeLimit != 3 || service.syncLimit != 4 {
 		t.Fatalf("unexpected service calls: %#v", service)
 	}
+
+	retryTask, err := NewFulfillmentRetryTask(FulfillmentRetryPayload{Limit: 5})
+	if err != nil {
+		t.Fatalf("build fulfillment retry task: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), retryTask); err != nil {
+		t.Fatalf("fulfillment retry handler returned error: %v", err)
+	}
+	if service.retryLimit != 5 {
+		t.Fatalf("expected retry limit 5, got %d", service.retryLimit)
+	}
 }
 
 type fakeJobService struct {
 	closeLimit int
 	syncLimit  int
+	retryLimit int
 }
 
 func (s *fakeJobService) CloseExpiredOrders(ctx context.Context, input CloseExpiredOrderInput) (*CloseExpiredOrderResult, error) {
@@ -67,4 +102,9 @@ func (s *fakeJobService) CloseExpiredOrders(ctx context.Context, input CloseExpi
 func (s *fakeJobService) SyncPendingTransactions(ctx context.Context, input SyncPendingTransactionInput) (*SyncPendingTransactionResult, error) {
 	s.syncLimit = input.Limit
 	return &SyncPendingTransactionResult{}, nil
+}
+
+func (s *fakeJobService) RetryFailedFulfillments(ctx context.Context, input FulfillmentRetryInput) (*FulfillmentRetryResult, error) {
+	s.retryLimit = input.Limit
+	return &FulfillmentRetryResult{}, nil
 }

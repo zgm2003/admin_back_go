@@ -54,3 +54,13 @@ func validateWalletSource(fl playground.FieldLevel) bool {
 	value, ok := intValue(fl.Field())
 	return ok && enum.IsWalletSource(value)
 }
+
+func validatePayReconcileStatus(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && value >= 1 && value <= 6
+}
+
+func validatePayReconcileBillType(fl playground.FieldLevel) bool {
+	value, ok := intValue(fl.Field())
+	return ok && value == 1
+}

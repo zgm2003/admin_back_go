@@ -452,3 +452,96 @@ func TestSyncPendingTransactionsUsesLegacyCutoffAndDefaultLimit(t *testing.T) {
 		t.Fatalf("expected cutoff %s, got %s", expectedCutoff, repo.lastPendingCutoff)
 	}
 }
+
+func TestRetryFailedFulfillmentsUsesDefaultLimitAndDueRows(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	_, err := service.RetryFailedFulfillments(context.Background(), FulfillmentRetryInput{})
+
+	if err != nil {
+		t.Fatalf("RetryFailedFulfillments returned error: %v", err)
+	}
+	if repo.lastFulfillmentRetryLimit != 50 {
+		t.Fatalf("expected default limit 50, got %d", repo.lastFulfillmentRetryLimit)
+	}
+	if !repo.lastFulfillmentRetryNow.Equal(fixedNow()) {
+		t.Fatalf("expected now %s, got %s", fixedNow(), repo.lastFulfillmentRetryNow)
+	}
+}
+
+func TestRetryFailedFulfillmentsCreditsRechargeViaExistingIdempotentPath(t *testing.T) {
+	repo := &fakeRepository{
+		retryableFulfillments: []RetryableFulfillment{{ID: 7, FulfillNo: "D1", OrderID: 10, OrderNo: "R1", SourceTxnID: 20, IdempotencyKey: "FULFILL:RECHARGE:R1", RetryCount: 2}},
+		fulfillmentForUpdate: &OrderFulfillment{
+			ID: 7, FulfillNo: "D1", OrderID: 10, OrderNo: "R1", UserID: 5, ActionType: enum.FulfillActionRecharge, SourceTxnID: 20,
+			IdempotencyKey: "FULFILL:RECHARGE:R1", Status: enum.FulfillFailed, RetryCount: 2, RequestPayload: `{"amount":1000}`,
+		},
+		notifyTxn:        &PayTransaction{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000, TradeNo: "A1", TradeStatus: "TRADE_SUCCESS", Status: enum.PayTxnSuccess, PaidAt: timePtr(fixedNow())},
+		paySuccessResult: &PaySuccessResult{OrderID: 10, OrderNo: "R1", TransactionID: 20, WalletBefore: 0, WalletAfter: 1000},
+	}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	result, err := service.RetryFailedFulfillments(context.Background(), FulfillmentRetryInput{Limit: 10})
+
+	if err != nil {
+		t.Fatalf("RetryFailedFulfillments returned error: %v", err)
+	}
+	if result.Scanned != 1 || result.Retried != 1 || result.Success != 1 || result.Failed != 0 || result.Skipped != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !repo.markedFulfillmentRunning || !repo.markedPaySuccess || !repo.markedFulfillmentSuccess {
+		t.Fatalf("expected running, idempotent credit, and success marks; repo=%#v", repo)
+	}
+	if repo.creditCalls != 1 {
+		t.Fatalf("expected one existing credit path call, got %d", repo.creditCalls)
+	}
+}
+
+func TestRetryFailedFulfillmentsTreatsAlreadyCreditedRechargeAsSuccessWithoutDuplicateBalance(t *testing.T) {
+	repo := &fakeRepository{
+		retryableFulfillments: []RetryableFulfillment{{ID: 7, FulfillNo: "D1", OrderID: 10, OrderNo: "R1", SourceTxnID: 20, IdempotencyKey: "FULFILL:RECHARGE:R1", RetryCount: 2}},
+		fulfillmentForUpdate: &OrderFulfillment{
+			ID: 7, FulfillNo: "D1", OrderID: 10, OrderNo: "R1", UserID: 5, ActionType: enum.FulfillActionRecharge, SourceTxnID: 20,
+			IdempotencyKey: "FULFILL:RECHARGE:R1", Status: enum.FulfillFailed, RetryCount: 2, RequestPayload: `{"amount":1000}`,
+		},
+		notifyTxn:        &PayTransaction{ID: 20, TransactionNo: "T1", OrderID: 10, OrderNo: "R1", ChannelID: 1, Channel: enum.PayChannelAlipay, PayMethod: "web", Amount: 1000, TradeNo: "A1", TradeStatus: "TRADE_SUCCESS", Status: enum.PayTxnSuccess, PaidAt: timePtr(fixedNow())},
+		paySuccessResult: &PaySuccessResult{AlreadySuccess: true, OrderID: 10, OrderNo: "R1", TransactionID: 20, WalletBefore: 1000, WalletAfter: 1000},
+	}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	result, err := service.RetryFailedFulfillments(context.Background(), FulfillmentRetryInput{Limit: 10})
+
+	if err != nil {
+		t.Fatalf("RetryFailedFulfillments returned error: %v", err)
+	}
+	if result.Success != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if repo.creditCalls != 1 || !repo.markedFulfillmentSuccess {
+		t.Fatalf("expected one idempotent credit check and success mark, repo=%#v", repo)
+	}
+}
+
+func TestRetryFailedFulfillmentsMarksManualWhenMaxRetryExceeded(t *testing.T) {
+	repo := &fakeRepository{
+		retryableFulfillments: []RetryableFulfillment{{ID: 7, FulfillNo: "D1", OrderID: 10, OrderNo: "R1", SourceTxnID: 20, IdempotencyKey: "FULFILL:RECHARGE:R1", RetryCount: 10}},
+		fulfillmentForUpdate: &OrderFulfillment{
+			ID: 7, FulfillNo: "D1", OrderID: 10, OrderNo: "R1", UserID: 5, ActionType: enum.FulfillActionRecharge, SourceTxnID: 20,
+			IdempotencyKey: "FULFILL:RECHARGE:R1", Status: enum.FulfillFailed, RetryCount: 10, RequestPayload: `{"amount":1000}`,
+		},
+	}
+	service := NewService(Dependencies{Repository: repo, Now: fixedNow})
+
+	result, err := service.RetryFailedFulfillments(context.Background(), FulfillmentRetryInput{Limit: 10})
+
+	if err != nil {
+		t.Fatalf("RetryFailedFulfillments returned error: %v", err)
+	}
+	if result.Scanned != 1 || result.Failed != 1 || result.Success != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !repo.markedFulfillmentManual || repo.markedPaySuccess {
+		t.Fatalf("expected manual without wallet credit, repo=%#v", repo)
+	}
+}

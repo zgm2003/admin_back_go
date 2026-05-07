@@ -20,6 +20,9 @@ const timeLayout = "2006-01-02 15:04:05"
 const (
 	defaultCloseExpiredOrderLimit      = 50
 	defaultSyncPendingTransactionLimit = 100
+	defaultFulfillmentRetryLimit       = 50
+	maxFulfillmentRetry                = 10
+	fulfillmentRetryBaseDelay          = 30 * time.Second
 	rechargeOrderExpireDuration        = 30 * time.Minute
 	pendingTransactionSyncDelay        = 5 * time.Minute
 )
@@ -586,11 +589,119 @@ func (s *Service) SyncPendingTransactions(ctx context.Context, input SyncPending
 	return result, nil
 }
 
+func (s *Service) RetryFailedFulfillments(ctx context.Context, input FulfillmentRetryInput) (*FulfillmentRetryResult, error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = s.now()
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultFulfillmentRetryLimit
+	}
+	rows, err := repo.ListRetryableFulfillments(ctx, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list retryable fulfillments: %w", err)
+	}
+	result := &FulfillmentRetryResult{Scanned: len(rows)}
+	for _, row := range rows {
+		status, err := s.retryFulfillment(ctx, row.ID, now)
+		if err != nil {
+			result.Failed++
+			continue
+		}
+		switch status {
+		case "success":
+			result.Retried++
+			result.Success++
+		case "failed":
+			result.Retried++
+			result.Failed++
+		default:
+			result.Skipped++
+		}
+	}
+	return result, nil
+}
+
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("支付运行时仓储未配置")
 	}
 	return s.repository, nil
+}
+
+func (s *Service) retryFulfillment(ctx context.Context, fulfillmentID int64, now time.Time) (string, error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return "failed", appErr
+	}
+	var status string
+	err := repo.WithTx(ctx, func(tx Repository) error {
+		fulfillment, err := tx.GetFulfillmentForUpdate(ctx, fulfillmentID)
+		if err != nil {
+			return err
+		}
+		if fulfillment == nil || fulfillment.Status == enum.FulfillSuccess || fulfillment.Status == enum.FulfillManual {
+			status = "skipped"
+			return nil
+		}
+		if fulfillment.RetryCount >= maxFulfillmentRetry {
+			status = "failed"
+			return tx.MarkFulfillmentManual(ctx, fulfillment.ID, "队列重试耗尽", now)
+		}
+		if fulfillment.ActionType != enum.FulfillActionRecharge {
+			nextRetryCount := fulfillment.RetryCount + 1
+			nextRetryAt := nextFulfillmentRetryAt(now, fulfillment.RetryCount)
+			status = "failed"
+			return tx.MarkFulfillmentFailed(ctx, fulfillment.ID, nextRetryCount, &nextRetryAt, "当前只支持充值履约重试", now)
+		}
+		if err := tx.MarkFulfillmentRunning(ctx, fulfillment.ID, now); err != nil {
+			return err
+		}
+		txn, err := tx.FindLastAnyTransactionForOrder(ctx, fulfillment.OrderID, fulfillment.SourceTxnID)
+		if err != nil {
+			return err
+		}
+		if txn == nil || txn.Status != enum.PayTxnSuccess {
+			nextRetryCount := fulfillment.RetryCount + 1
+			if nextRetryCount >= maxFulfillmentRetry {
+				status = "failed"
+				return tx.MarkFulfillmentManual(ctx, fulfillment.ID, "支付成功流水不存在，重试耗尽", now)
+			}
+			nextRetryAt := nextFulfillmentRetryAt(now, fulfillment.RetryCount)
+			status = "failed"
+			return tx.MarkFulfillmentFailed(ctx, fulfillment.ID, nextRetryCount, &nextRetryAt, "支付成功流水不存在", now)
+		}
+		success, err := tx.MarkPaySuccessAndCreditRecharge(ctx, PaySuccessMutation{
+			TransactionNo: txn.TransactionNo,
+			TradeNo:       txn.TradeNo,
+			TradeStatus:   chooseTradeStatus(txn.TradeStatus),
+			RawNotify:     retryFulfillmentRaw(fulfillment, txn),
+			PaidAt:        paidAtOrNowFromTxn(txn, now),
+			FulfillNo:     fulfillment.FulfillNo,
+		})
+		if err != nil {
+			nextRetryCount := fulfillment.RetryCount + 1
+			if nextRetryCount >= maxFulfillmentRetry {
+				status = "failed"
+				return tx.MarkFulfillmentManual(ctx, fulfillment.ID, "队列重试耗尽: "+truncateRuntimeError(err, 400), now)
+			}
+			nextRetryAt := nextFulfillmentRetryAt(now, fulfillment.RetryCount)
+			status = "failed"
+			return tx.MarkFulfillmentFailed(ctx, fulfillment.ID, nextRetryCount, &nextRetryAt, truncateRuntimeError(err, 500), now)
+		}
+		resultPayload := mustJSON(map[string]any{"wallet_credited": true, "already_success": success != nil && success.AlreadySuccess})
+		if err := tx.MarkFulfillmentSuccess(ctx, fulfillment.ID, resultPayload, now); err != nil {
+			return err
+		}
+		status = "success"
+		return nil
+	})
+	return status, err
 }
 
 func (s *Service) syncPaidOrCloseOrder(ctx context.Context, orderNo string, closeReason string, source string, now time.Time) string {
@@ -1040,4 +1151,59 @@ func paidAtOrNow(raw map[string]any, now time.Time) time.Time {
 		}
 	}
 	return now
+}
+
+func nextFulfillmentRetryAt(now time.Time, currentRetryCount int) time.Time {
+	if currentRetryCount < 0 {
+		currentRetryCount = 0
+	}
+	delay := fulfillmentRetryBaseDelay
+	for i := 0; i < currentRetryCount; i++ {
+		delay *= 2
+	}
+	return now.Add(delay)
+}
+
+func chooseTradeStatus(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return "TRADE_SUCCESS"
+	}
+	return status
+}
+
+func retryFulfillmentRaw(fulfillment *OrderFulfillment, txn *PayTransaction) map[string]any {
+	raw := map[string]any{"source": "fulfillment_retry"}
+	if fulfillment != nil {
+		raw["fulfill_id"] = fulfillment.ID
+		raw["fulfill_no"] = fulfillment.FulfillNo
+		raw["idempotency_key"] = fulfillment.IdempotencyKey
+	}
+	if txn != nil {
+		raw["out_trade_no"] = txn.TransactionNo
+		raw["trade_no"] = txn.TradeNo
+	}
+	return raw
+}
+
+func paidAtOrNowFromTxn(txn *PayTransaction, now time.Time) time.Time {
+	if txn != nil && txn.PaidAt != nil && !txn.PaidAt.IsZero() {
+		return *txn.PaidAt
+	}
+	return now
+}
+
+func truncateRuntimeError(err error, maxRunes int) string {
+	if err == nil {
+		return ""
+	}
+	if maxRunes <= 0 {
+		maxRunes = 500
+	}
+	message := strings.TrimSpace(err.Error())
+	runes := []rune(message)
+	if len(runes) <= maxRunes {
+		return message
+	}
+	return string(runes[:maxRunes])
 }

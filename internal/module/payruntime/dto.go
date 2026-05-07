@@ -227,6 +227,29 @@ type SyncPendingTransactionResult struct {
 	Skipped  int
 }
 
+type FulfillmentRetryInput struct {
+	Limit int
+	Now   time.Time
+}
+
+type FulfillmentRetryResult struct {
+	Scanned int
+	Retried int
+	Success int
+	Failed  int
+	Skipped int
+}
+
+type RetryableFulfillment struct {
+	ID             int64
+	FulfillNo      string
+	OrderID        int64
+	OrderNo        string
+	SourceTxnID    int64
+	IdempotencyKey string
+	RetryCount     int
+}
+
 type ExpiredRechargeOrder struct {
 	ID      int64
 	OrderNo string

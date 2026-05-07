@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
@@ -75,6 +76,27 @@ func TestDefaultRegistryMapsPaymentCronTasksToVersionedTaskTypes(t *testing.T) {
 	}
 	if syncEntry.TaskType != payruntime.TypeSyncPendingTransactionV1 {
 		t.Fatalf("unexpected sync pending task type: %s", syncEntry.TaskType)
+	}
+	retryEntry, ok := registry.Lookup("pay_fulfillment_retry")
+	if !ok {
+		t.Fatalf("expected pay_fulfillment_retry to be registered")
+	}
+	if retryEntry.TaskType != payruntime.TypeFulfillmentRetryV1 {
+		t.Fatalf("unexpected fulfillment retry task type: %s", retryEntry.TaskType)
+	}
+	dailyEntry, ok := registry.Lookup("pay_reconcile_daily")
+	if !ok {
+		t.Fatalf("expected pay_reconcile_daily to be registered")
+	}
+	if dailyEntry.TaskType != payreconcile.TypeReconcileDailyV1 {
+		t.Fatalf("unexpected reconcile daily task type: %s", dailyEntry.TaskType)
+	}
+	executeEntry, ok := registry.Lookup("pay_reconcile_execute")
+	if !ok {
+		t.Fatalf("expected pay_reconcile_execute to be registered")
+	}
+	if executeEntry.TaskType != payreconcile.TypeReconcileExecuteV1 {
+		t.Fatalf("unexpected reconcile execute task type: %s", executeEntry.TaskType)
 	}
 }
 

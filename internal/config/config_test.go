@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -247,19 +248,30 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 }
 
 func TestLoadReadsPaymentConfig(t *testing.T) {
-	t.Setenv("PAYMENT_CERT_BASE_DIR", "E:/admin/admin_back")
-	t.Setenv("LEGACY_ADMIN_BACK_ROOT", "E:/admin/admin_back")
+	t.Setenv("PAYMENT_CERT_BASE_DIR", "E:/admin_go/admin_back_go")
+	t.Setenv("LEGACY_ADMIN_BACK_ROOT", "")
 	t.Setenv("PAYMENT_ALIPAY_TIMEOUT", "9s")
 	t.Setenv("PAYMENT_NOTIFY_LOCK_TTL", "40s")
 	t.Setenv("PAYMENT_ATTEMPT_LOCK_TTL", "41s")
 
 	cfg := Load()
 
-	if cfg.Payment.CertBaseDir != "E:/admin/admin_back" || cfg.Payment.LegacyAdminBackRoot != "E:/admin/admin_back" {
+	if cfg.Payment.CertBaseDir != "E:/admin_go/admin_back_go" || cfg.Payment.LegacyAdminBackRoot != "" {
 		t.Fatalf("unexpected payment dirs: %#v", cfg.Payment)
 	}
 	if cfg.Payment.AlipayTimeout != 9*time.Second || cfg.Payment.NotifyLockTTL != 40*time.Second || cfg.Payment.AttemptLockTTL != 41*time.Second {
 		t.Fatalf("unexpected payment durations: %#v", cfg.Payment)
+	}
+}
+
+func TestEnvExampleUsesGoOwnedPaymentCerts(t *testing.T) {
+	values := readEnvExample(t)
+
+	if values["PAYMENT_CERT_BASE_DIR"] != "E:/admin_go/admin_back_go" {
+		t.Fatalf("expected PAYMENT_CERT_BASE_DIR to point at Go backend, got %q", values["PAYMENT_CERT_BASE_DIR"])
+	}
+	if values["LEGACY_ADMIN_BACK_ROOT"] != "" {
+		t.Fatalf("expected LEGACY_ADMIN_BACK_ROOT to be empty, got %q", values["LEGACY_ADMIN_BACK_ROOT"])
 	}
 }
 
@@ -354,4 +366,26 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func readEnvExample(t *testing.T) map[string]string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("..", "..", ".env.example"))
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+
+	values := make(map[string]string)
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		values[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return values
 }

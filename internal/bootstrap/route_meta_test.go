@@ -76,6 +76,11 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init", "pay_transaction_list"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions", "pay_transaction_list"},
 		{http.MethodGet, "/api/admin/v1/pay-transactions/:id", "pay_transaction_list"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/page-init", "pay_reconcile_list"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks", "pay_reconcile_list"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id", "pay_reconcile_list"},
+		{http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry", "pay_reconcile_retry"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id/files/:type", "pay_reconcile_download"},
 		{http.MethodGet, "/api/admin/v1/pay-orders/page-init", "pay_recharge_list"},
 		{http.MethodGet, "/api/admin/v1/pay-orders/status-count", "pay_recharge_list"},
 		{http.MethodGet, "/api/admin/v1/pay-orders", "pay_recharge_list"},
@@ -222,6 +227,7 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/pay-channels/:id", "delete"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "close"},
 		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "remark"},
+		{http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry", "retry"},
 		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "adjust"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
@@ -248,6 +254,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		t.Fatalf("wallet adjustment operation rule mismatch: %#v", walletRule)
 	}
 
+	reconcileRetryRule := rules[middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry")]
+	if reconcileRetryRule.Module != "pay_reconcile" || reconcileRetryRule.Action != "retry" || reconcileRetryRule.Title != "重试对账任务" {
+		t.Fatalf("pay reconcile retry operation rule mismatch: %#v", reconcileRetryRule)
+	}
+
 	for _, tt := range []struct {
 		method string
 		path   string
@@ -266,6 +277,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init"},
 		{http.MethodGet, "/api/admin/v1/pay-notify-logs"},
 		{http.MethodGet, "/api/admin/v1/pay-notify-logs/:id"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/page-init"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id"},
+		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id/files/:type"},
 		{http.MethodGet, "/api/admin/v1/wallets/page-init"},
 		{http.MethodGet, "/api/admin/v1/wallets"},
 		{http.MethodGet, "/api/admin/v1/wallet-transactions"},

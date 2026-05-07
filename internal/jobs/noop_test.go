@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
@@ -133,6 +134,17 @@ func TestRegisterHandlesPayRuntimeCronHandlers(t *testing.T) {
 	if service.syncLimit != 12 {
 		t.Fatalf("expected sync limit 12, got %d", service.syncLimit)
 	}
+
+	retryTask, err := payruntime.NewFulfillmentRetryTask(payruntime.FulfillmentRetryPayload{Limit: 13})
+	if err != nil {
+		t.Fatalf("NewFulfillmentRetryTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), retryTask); err != nil {
+		t.Fatalf("ProcessProjectTask fulfillment retry returned error: %v", err)
+	}
+	if service.retryLimit != 13 {
+		t.Fatalf("expected retry limit 13, got %d", service.retryLimit)
+	}
 }
 
 func TestRegisterScheduleDefinitionsOnlyEnqueuesTaskWhenTriggered(t *testing.T) {
@@ -202,6 +214,7 @@ type fakeNotificationTaskJobService struct {
 type fakePayRuntimeJobService struct {
 	closeLimit int
 	syncLimit  int
+	retryLimit int
 }
 
 func (f *fakePayRuntimeJobService) CloseExpiredOrders(ctx context.Context, input payruntime.CloseExpiredOrderInput) (*payruntime.CloseExpiredOrderResult, error) {
@@ -212,6 +225,11 @@ func (f *fakePayRuntimeJobService) CloseExpiredOrders(ctx context.Context, input
 func (f *fakePayRuntimeJobService) SyncPendingTransactions(ctx context.Context, input payruntime.SyncPendingTransactionInput) (*payruntime.SyncPendingTransactionResult, error) {
 	f.syncLimit = input.Limit
 	return &payruntime.SyncPendingTransactionResult{}, nil
+}
+
+func (f *fakePayRuntimeJobService) RetryFailedFulfillments(ctx context.Context, input payruntime.FulfillmentRetryInput) (*payruntime.FulfillmentRetryResult, error) {
+	f.retryLimit = input.Limit
+	return &payruntime.FulfillmentRetryResult{}, nil
 }
 
 func (f *fakeNotificationTaskJobService) DispatchDue(ctx context.Context, input notificationtask.DispatchDueInput) (*notificationtask.DispatchDueResult, error) {
@@ -305,4 +323,69 @@ func (f *fakeAuthRepository) CreateProfile(ctx context.Context, input auth.Creat
 func (f *fakeAuthRepository) RecordLoginAttempt(ctx context.Context, attempt auth.LoginAttempt) error {
 	f.attempts = append(f.attempts, attempt)
 	return nil
+}
+
+func TestRegisterHandlesPayReconcileCronHandlers(t *testing.T) {
+	service := &fakePayReconcileJobService{}
+	mux := taskqueue.NewMux()
+	Register(mux, Dependencies{
+		Logger:              slog.Default(),
+		PayReconcileService: service,
+	})
+
+	dailyTask, err := payreconcile.NewReconcileDailyTask(payreconcile.ReconcileDailyPayload{Date: "2026-05-06", Limit: 13})
+	if err != nil {
+		t.Fatalf("NewReconcileDailyTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), dailyTask); err != nil {
+		t.Fatalf("ProcessProjectTask reconcile daily returned error: %v", err)
+	}
+	if service.dailyDate != "2026-05-06" || service.dailyLimit != 13 {
+		t.Fatalf("unexpected daily call: %#v", service)
+	}
+
+	executeTask, err := payreconcile.NewReconcileExecuteTask(payreconcile.ReconcileExecutePayload{TaskID: 17})
+	if err != nil {
+		t.Fatalf("NewReconcileExecuteTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), executeTask); err != nil {
+		t.Fatalf("ProcessProjectTask reconcile execute returned error: %v", err)
+	}
+	if service.executeTaskID != 17 {
+		t.Fatalf("unexpected execute task id: %#v", service)
+	}
+
+	batchTask, err := payreconcile.NewReconcileExecuteTask(payreconcile.ReconcileExecutePayload{Limit: 19})
+	if err != nil {
+		t.Fatalf("NewReconcileExecuteTask batch returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), batchTask); err != nil {
+		t.Fatalf("ProcessProjectTask reconcile execute batch returned error: %v", err)
+	}
+	if service.executeLimit != 19 {
+		t.Fatalf("unexpected execute limit: %#v", service)
+	}
+}
+
+type fakePayReconcileJobService struct {
+	dailyDate     string
+	dailyLimit    int
+	executeTaskID int64
+	executeLimit  int
+}
+
+func (f *fakePayReconcileJobService) CreateDailyTasks(ctx context.Context, input payreconcile.CreateDailyTasksInput) (*payreconcile.CreateDailyTasksResult, error) {
+	f.dailyDate = input.Date
+	f.dailyLimit = input.Limit
+	return &payreconcile.CreateDailyTasksResult{}, nil
+}
+
+func (f *fakePayReconcileJobService) ExecutePendingTasks(ctx context.Context, input payreconcile.ExecutePendingTasksInput) (*payreconcile.ExecutePendingTasksResult, error) {
+	f.executeLimit = input.Limit
+	return &payreconcile.ExecutePendingTasksResult{}, nil
+}
+
+func (f *fakePayReconcileJobService) ExecuteTask(ctx context.Context, taskID int64) (*payreconcile.ExecuteTaskResult, error) {
+	f.executeTaskID = taskID
+	return &payreconcile.ExecuteTaskResult{TaskID: taskID}, nil
 }

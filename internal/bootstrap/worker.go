@@ -10,6 +10,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
@@ -75,6 +76,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		notificationtask.WithRealtimePublisher(realtimePublisher),
 		notificationtask.WithLogger(logger),
 	)
+	payReconcileService := payreconcile.NewService(payreconcile.NewGormRepository(resources.DB))
 	secretBox := secretbox.New(cfg.Secretbox.Key)
 	var payRuntimeLocker redislock.Locker
 	var payRuntimeNumberGenerator payruntime.NumberGenerator
@@ -100,6 +102,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		Logger:                  logger,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		NotificationTaskService: notificationTaskService,
+		PayReconcileService:     payReconcileService,
 		PayRuntimeService:       payRuntimeService,
 	})
 

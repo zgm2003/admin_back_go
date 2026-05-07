@@ -1601,6 +1601,9 @@ function Assert-CronTaskList($Response) {
   $registeredNotification = $false
   $registeredPayCloseExpired = $false
   $registeredPaySyncPending = $false
+  $registeredPayReconcileDaily = $false
+  $registeredPayReconcileExecute = $false
+  $registeredPayFulfillmentRetry = $false
   $missingLegacy = $false
   $firstID = 0
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
@@ -1632,6 +1635,24 @@ function Assert-CronTaskList($Response) {
       }
       $registeredPaySyncPending = $true
     }
+    if ([string]$item.name -eq 'pay_reconcile_daily' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'pay:reconcile-daily:v1' -or [string]$item.handler -ne 'pay:reconcile-daily:v1') {
+        throw "pay reconcile-daily cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
+      $registeredPayReconcileDaily = $true
+    }
+    if ([string]$item.name -eq 'pay_reconcile_execute' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'pay:reconcile-execute:v1' -or [string]$item.handler -ne 'pay:reconcile-execute:v1') {
+        throw "pay reconcile-execute cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
+      $registeredPayReconcileExecute = $true
+    }
+    if ([string]$item.name -eq 'pay_fulfillment_retry' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'pay:fulfillment-retry:v1' -or [string]$item.handler -ne 'pay:fulfillment-retry:v1') {
+        throw "pay fulfillment-retry cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
+      $registeredPayFulfillmentRetry = $true
+    }
     if ([string]$item.registry_status -eq 'missing') {
       $missingLegacy = $true
     }
@@ -1643,6 +1664,9 @@ function Assert-CronTaskList($Response) {
     NotificationRegistered = $registeredNotification
     PayCloseExpiredRegistered = $registeredPayCloseExpired
     PaySyncPendingRegistered = $registeredPaySyncPending
+    PayReconcileDailyRegistered = $registeredPayReconcileDaily
+    PayReconcileExecuteRegistered = $registeredPayReconcileExecute
+    PayFulfillmentRetryRegistered = $registeredPayFulfillmentRetry
     MissingLegacyPresent = $missingLegacy
     FirstID = $firstID
   }
@@ -2492,6 +2516,9 @@ func main() {
     cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
     cron_task_pay_close_expired_registered = $cronTaskListSummary.PayCloseExpiredRegistered
     cron_task_pay_sync_pending_registered = $cronTaskListSummary.PaySyncPendingRegistered
+    cron_task_pay_reconcile_daily_registered = $cronTaskListSummary.PayReconcileDailyRegistered
+    cron_task_pay_reconcile_execute_registered = $cronTaskListSummary.PayReconcileExecuteRegistered
+    cron_task_pay_fulfillment_retry_registered = $cronTaskListSummary.PayFulfillmentRetryRegistered
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent
     cron_task_logs_code = $cronTaskLogsCode
     cron_task_logs_count = $cronTaskLogsSummary.ListCount

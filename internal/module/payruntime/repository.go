@@ -29,6 +29,12 @@ type Repository interface {
 	CloseTransaction(ctx context.Context, txnID int64, now time.Time) error
 	ListExpiredRechargeOrders(ctx context.Context, cutoff time.Time, limit int) ([]ExpiredRechargeOrder, error)
 	ListPendingAlipayTransactions(ctx context.Context, cutoff time.Time, limit int) ([]PendingTransaction, error)
+	ListRetryableFulfillments(ctx context.Context, now time.Time, limit int) ([]RetryableFulfillment, error)
+	GetFulfillmentForUpdate(ctx context.Context, id int64) (*OrderFulfillment, error)
+	MarkFulfillmentRunning(ctx context.Context, id int64, now time.Time) error
+	MarkFulfillmentFailed(ctx context.Context, id int64, retryCount int, nextRetryAt *time.Time, lastError string, now time.Time) error
+	MarkFulfillmentManual(ctx context.Context, id int64, lastError string, now time.Time) error
+	MarkFulfillmentSuccess(ctx context.Context, id int64, resultPayload string, now time.Time) error
 	CurrentUserWalletSummary(ctx context.Context, userID int64) (*WalletSummaryRow, error)
 	CurrentUserWalletBills(ctx context.Context, userID int64, query WalletBillsQuery) ([]WalletBillRow, int64, error)
 	CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error)
@@ -369,6 +375,82 @@ func (r *GormRepository) ListPendingAlipayTransactions(ctx context.Context, cuto
 		Limit(limit).
 		Scan(&rows).Error
 	return rows, err
+}
+
+func (r *GormRepository) ListRetryableFulfillments(ctx context.Context, now time.Time, limit int) ([]RetryableFulfillment, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if limit <= 0 {
+		limit = defaultFulfillmentRetryLimit
+	}
+	var rows []RetryableFulfillment
+	err := r.db.WithContext(ctx).
+		Table("order_fulfillments").
+		Select("id, fulfill_no, order_id, order_no, source_txn_id, idempotency_key, retry_count").
+		Where("status IN ?", []int{enum.FulfillPending, enum.FulfillFailed}).
+		Where("next_retry_at <= ?", now).
+		Where("is_del = ?", enum.CommonNo).
+		Order("id asc").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (r *GormRepository) GetFulfillmentForUpdate(ctx context.Context, id int64) (*OrderFulfillment, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row OrderFulfillment
+	err := r.db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
+func (r *GormRepository) MarkFulfillmentRunning(ctx context.Context, id int64, now time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	return r.db.WithContext(ctx).Model(&OrderFulfillment{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Updates(map[string]any{"status": enum.FulfillRunning, "updated_at": now}).Error
+}
+
+func (r *GormRepository) MarkFulfillmentFailed(ctx context.Context, id int64, retryCount int, nextRetryAt *time.Time, lastError string, now time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	return r.db.WithContext(ctx).Model(&OrderFulfillment{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Updates(map[string]any{"status": enum.FulfillFailed, "retry_count": retryCount, "next_retry_at": nextRetryAt, "last_error": lastError, "updated_at": now}).Error
+}
+
+func (r *GormRepository) MarkFulfillmentManual(ctx context.Context, id int64, lastError string, now time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	return r.db.WithContext(ctx).Model(&OrderFulfillment{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Updates(map[string]any{"status": enum.FulfillManual, "last_error": lastError, "updated_at": now}).Error
+}
+
+func (r *GormRepository) MarkFulfillmentSuccess(ctx context.Context, id int64, resultPayload string, now time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	return r.db.WithContext(ctx).Model(&OrderFulfillment{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Updates(map[string]any{"status": enum.FulfillSuccess, "executed_at": now, "result_payload": resultPayload, "last_error": "", "updated_at": now}).Error
 }
 
 func (r *GormRepository) CreateTransaction(ctx context.Context, input TransactionMutation) (*PayTransaction, error) {

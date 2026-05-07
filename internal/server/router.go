@@ -18,6 +18,7 @@ import (
 	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
+	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
 	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
@@ -56,6 +57,7 @@ type Dependencies struct {
 	PayChannelService       paychannel.HTTPService
 	PayNotifyLogService     paynotifylog.HTTPService
 	PayOrderService         payorder.HTTPService
+	PayReconcileService     payreconcile.HTTPService
 	PayRuntimeService       payruntime.HTTPService
 	PayTransactionService   paytransaction.HTTPService
 	PermissionService       permission.ManagementService
@@ -113,6 +115,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	paychannel.RegisterRoutes(router, deps.PayChannelService)
 	paynotifylog.RegisterRoutes(router, deps.PayNotifyLogService)
 	payorder.RegisterRoutes(router, deps.PayOrderService)
+	payreconcile.RegisterRoutes(router, deps.PayReconcileService)
 	payruntime.RegisterRoutes(router, deps.PayRuntimeService)
 	paytransaction.RegisterRoutes(router, deps.PayTransactionService)
 	permission.RegisterRoutes(router, deps.PermissionService)

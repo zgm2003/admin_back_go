@@ -13,6 +13,7 @@ import (
 const (
 	TypeCloseExpiredOrderV1      = "pay:close-expired-order:v1"
 	TypeSyncPendingTransactionV1 = "pay:sync-pending-transaction:v1"
+	TypeFulfillmentRetryV1       = "pay:fulfillment-retry:v1"
 )
 
 type CloseExpiredOrderPayload struct {
@@ -23,9 +24,14 @@ type SyncPendingTransactionPayload struct {
 	Limit int `json:"limit,omitempty"`
 }
 
+type FulfillmentRetryPayload struct {
+	Limit int `json:"limit,omitempty"`
+}
+
 type JobService interface {
 	CloseExpiredOrders(ctx context.Context, input CloseExpiredOrderInput) (*CloseExpiredOrderResult, error)
 	SyncPendingTransactions(ctx context.Context, input SyncPendingTransactionInput) (*SyncPendingTransactionResult, error)
+	RetryFailedFulfillments(ctx context.Context, input FulfillmentRetryInput) (*FulfillmentRetryResult, error)
 }
 
 func NewCloseExpiredOrderTask(payload CloseExpiredOrderPayload) (taskqueue.Task, error) {
@@ -42,6 +48,14 @@ func NewSyncPendingTransactionTask(payload SyncPendingTransactionPayload) (taskq
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeSyncPendingTransactionV1, err)
 	}
 	return taskqueue.Task{Type: TypeSyncPendingTransactionV1, Payload: data, Queue: taskqueue.QueueDefault, UniqueTTL: 4*time.Minute + 55*time.Second}, nil
+}
+
+func NewFulfillmentRetryTask(payload FulfillmentRetryPayload) (taskqueue.Task, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeFulfillmentRetryV1, err)
+	}
+	return taskqueue.Task{Type: TypeFulfillmentRetryV1, Payload: data, Queue: taskqueue.QueueDefault, UniqueTTL: 2*time.Minute + 55*time.Second}, nil
 }
 
 func DecodeCloseExpiredOrderPayload(payload []byte) (CloseExpiredOrderPayload, error) {
@@ -62,6 +76,17 @@ func DecodeSyncPendingTransactionPayload(payload []byte) (SyncPendingTransaction
 	}
 	if err := json.Unmarshal(payload, &row); err != nil {
 		return SyncPendingTransactionPayload{}, fmt.Errorf("decode %s payload: %w", TypeSyncPendingTransactionV1, err)
+	}
+	return row, nil
+}
+
+func DecodeFulfillmentRetryPayload(payload []byte) (FulfillmentRetryPayload, error) {
+	var row FulfillmentRetryPayload
+	if len(payload) == 0 {
+		return row, nil
+	}
+	if err := json.Unmarshal(payload, &row); err != nil {
+		return FulfillmentRetryPayload{}, fmt.Errorf("decode %s payload: %w", TypeFulfillmentRetryV1, err)
 	}
 	return row, nil
 }
@@ -103,6 +128,22 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 			return err
 		}
 		logger.InfoContext(ctx, "processed pay sync pending transaction task", "scanned", result.Scanned, "paid", result.Paid, "unpaid", result.Unpaid, "deferred", result.Deferred, "skipped", result.Skipped)
+		return nil
+	})
+
+	mux.HandleFunc(TypeFulfillmentRetryV1, func(ctx context.Context, task taskqueue.Task) error {
+		if service == nil {
+			return ErrRepositoryNotConfigured
+		}
+		payload, err := DecodeFulfillmentRetryPayload(task.Payload)
+		if err != nil {
+			return err
+		}
+		result, err := service.RetryFailedFulfillments(ctx, FulfillmentRetryInput{Limit: payload.Limit})
+		if err != nil {
+			return err
+		}
+		logger.InfoContext(ctx, "processed pay fulfillment retry task", "scanned", result.Scanned, "retried", result.Retried, "success", result.Success, "failed", result.Failed, "skipped", result.Skipped)
 		return nil
 	})
 }
