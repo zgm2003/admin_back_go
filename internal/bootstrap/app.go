@@ -12,7 +12,6 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
-	"admin_back_go/internal/module/chat"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
@@ -207,7 +206,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
 	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
-	chatService := chat.NewService(chat.NewGormRepository(resources.DB), chat.WithRealtimePublisher(realtimeStack.publisher), chat.WithLogger(logger))
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
@@ -242,7 +240,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		OperationRules:          operationRouteRules(),
 		AuthService:             authService,
 		CaptchaService:          captchaService,
-		ChatService:             chatService,
 		ClientVersionService:    clientVersionService,
 		CronTaskService:         cronTaskService,
 		UserService:             userService,

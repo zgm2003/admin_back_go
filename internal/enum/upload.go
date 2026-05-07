@@ -62,8 +62,6 @@ var UploadFolders = []string{
 	"tauri_updater",
 	"exports",
 	"goods_tts",
-	"chat_images",
-	"chat_files",
 	"reconcile_reports",
 	"cine_keyframes",
 }

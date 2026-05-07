@@ -10,7 +10,6 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
-	"admin_back_go/internal/module/chat"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/notification"
@@ -48,7 +47,6 @@ type Dependencies struct {
 	OperationRules          map[middleware.RouteKey]middleware.OperationRule
 	AuthService             auth.SessionService
 	CaptchaService          captcha.HTTPService
-	ChatService             chat.HTTPService
 	ClientVersionService    clientversion.HTTPService
 	CronTaskService         crontask.HTTPService
 	UserService             user.HTTPService
@@ -105,7 +103,6 @@ func NewRouter(deps Dependencies) *gin.Engine {
 
 	system.RegisterRoutes(router, deps.Readiness)
 	captcha.RegisterRoutes(router, deps.CaptchaService)
-	chat.RegisterRoutes(router, deps.ChatService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	user.RegisterRoutes(router, deps.UserService)
