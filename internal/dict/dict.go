@@ -327,3 +327,64 @@ func AIExecutorTypeOptions() []Option[int] {
 	}
 	return options
 }
+
+func AIModeOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIModes))
+	for _, value := range enum.AIModes {
+		options = append(options, Option[string]{Label: enum.AIModeLabels[value], Value: value})
+	}
+	return options
+}
+
+func AICapabilityOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AICapabilities))
+	for _, value := range enum.AICapabilities {
+		options = append(options, Option[string]{Label: enum.AICapabilityLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIKnowledgeVisibilityOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIKnowledgeVisibilities))
+	for _, value := range enum.AIKnowledgeVisibilities {
+		options = append(options, Option[string]{Label: enum.AIKnowledgeVisibilityLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIKnowledgeSourceTypeOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIKnowledgeSourceTypes))
+	for _, value := range enum.AIKnowledgeSourceTypes {
+		options = append(options, Option[string]{Label: enum.AIKnowledgeSourceTypeLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIKnowledgeIndexStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.AIKnowledgeIndexStatuses))
+	for _, value := range enum.AIKnowledgeIndexStatuses {
+		options = append(options, Option[int]{Label: enum.AIKnowledgeIndexStatusLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIMessageRoleOptions() []Option[int] {
+	return intOptions(enum.AIMessageRoles, enum.AIMessageRoleLabels)
+}
+func AIRunStatusOptions() []Option[int] {
+	return intOptions(enum.AIRunStatuses, enum.AIRunStatusLabels)
+}
+func AIRunStepTypeOptions() []Option[int] {
+	return intOptions(enum.AIRunStepTypes, enum.AIRunStepTypeLabels)
+}
+func AIRunStepStatusOptions() []Option[int] {
+	return intOptions(enum.AIRunStepStatuses, enum.AIRunStepStatusLabels)
+}
+
+func intOptions(values []int, labels map[int]string) []Option[int] {
+	options := make([]Option[int], 0, len(values))
+	for _, value := range values {
+		options = append(options, Option[int]{Label: labels[value], Value: value})
+	}
+	return options
+}

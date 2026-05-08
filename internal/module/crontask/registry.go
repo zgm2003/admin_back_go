@@ -3,6 +3,7 @@ package crontask
 import (
 	"strings"
 
+	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
@@ -22,6 +23,14 @@ type Registry struct {
 
 func NewDefaultRegistry() Registry {
 	registry := NewRegistry()
+	registry.Register(RegistryEntry{
+		Name:        "ai_run_timeout",
+		TaskType:    aichat.TypeRunTimeoutV1,
+		Description: "标记超时 AI 运行失败",
+		BuildTask: func() (taskqueue.Task, error) {
+			return aichat.NewRunTimeoutTask(aichat.RunTimeoutPayload{})
+		},
+	})
 	registry.Register(RegistryEntry{
 		Name:        "notification_task_scheduler",
 		TaskType:    notificationtask.TypeDispatchDueV1,

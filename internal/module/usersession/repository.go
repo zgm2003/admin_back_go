@@ -18,6 +18,9 @@ var ErrRepositoryNotConfigured = errors.New("user session repository is not conf
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Stats(ctx context.Context, now time.Time) ([]StatsRow, error)
+	GetByID(ctx context.Context, id int64) (*SessionRecord, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]SessionRecord, error)
+	MarkRevoked(ctx context.Context, ids []int64, revokedAt time.Time) (int64, error)
 }
 
 type GormRepository struct {
@@ -97,6 +100,63 @@ func (r *GormRepository) Stats(ctx context.Context, now time.Time) ([]StatsRow, 
 	return rows, nil
 }
 
+func (r *GormRepository) GetByID(ctx context.Context, id int64) (*SessionRecord, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row SessionRecord
+	err := r.db.WithContext(ctx).
+		Table("user_sessions").
+		Select("id, user_id, platform, access_token_hash, revoked_at").
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (r *GormRepository) GetByIDs(ctx context.Context, ids []int64) ([]SessionRecord, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if len(ids) == 0 {
+		return []SessionRecord{}, nil
+	}
+	var rows []SessionRecord
+	err := r.db.WithContext(ctx).
+		Table("user_sessions").
+		Select("id, user_id, platform, access_token_hash, revoked_at").
+		Where("id IN ?", ids).
+		Where("is_del = ?", enum.CommonNo).
+		Order("id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *GormRepository) MarkRevoked(ctx context.Context, ids []int64, revokedAt time.Time) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrRepositoryNotConfigured
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := r.db.WithContext(ctx).
+		Model(&SessionRecordModel{}).
+		Where("id IN ?", ids).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", enum.CommonNo).
+		Update("revoked_at", revokedAt)
+	return result.RowsAffected, result.Error
+}
+
 func (r *GormRepository) baseListQuery(ctx context.Context, query ListQuery) *gorm.DB {
 	db := r.db.WithContext(ctx).
 		Table("user_sessions AS us").
@@ -127,4 +187,14 @@ func normalizeNow(now time.Time) time.Time {
 		return time.Now()
 	}
 	return now
+}
+
+type SessionRecordModel struct {
+	ID        int64      `gorm:"column:id"`
+	RevokedAt *time.Time `gorm:"column:revoked_at"`
+	IsDel     int        `gorm:"column:is_del"`
+}
+
+func (SessionRecordModel) TableName() string {
+	return "user_sessions"
 }

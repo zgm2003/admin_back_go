@@ -84,3 +84,26 @@ type StatsRow struct {
 	Platform string
 	Total    int64
 }
+
+type RevokeResponse struct {
+	ID      int64 `json:"id"`
+	Revoked bool  `json:"revoked"`
+}
+
+type BatchRevokeInput struct {
+	IDs []int64
+}
+
+type BatchRevokeResponse struct {
+	Count                 int64 `json:"count"`
+	SkippedCurrent        int   `json:"skipped_current"`
+	SkippedAlreadyRevoked int   `json:"skipped_already_revoked"`
+}
+
+type SessionRecord struct {
+	ID              int64
+	UserID          int64
+	Platform        string
+	AccessTokenHash string
+	RevokedAt       *time.Time
+}

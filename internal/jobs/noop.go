@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
@@ -30,6 +31,7 @@ var (
 type Dependencies struct {
 	Logger                  *slog.Logger
 	AuthRepository          auth.Repository
+	AIChatService           aichat.JobService
 	ExportTaskService       exporttask.JobService
 	NotificationTaskService notificationtask.JobService
 	PayReconcileService     payreconcile.JobService
@@ -77,6 +79,7 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 		return nil
 	})
 	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
+	aichat.RegisterHandlers(mux, deps.AIChatService, logger)
 	exporttask.RegisterHandlers(mux, deps.ExportTaskService, logger)
 	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
 	payreconcile.RegisterHandlers(mux, deps.PayReconcileService, logger)

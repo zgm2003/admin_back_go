@@ -7,3 +7,7 @@ type listRequest struct {
 	Platform    string `form:"platform"`
 	Status      string `form:"status"`
 }
+
+type batchRevokeRequest struct {
+	IDs []int64 `json:"ids" binding:"required,min=1,max=100,dive,min=1"`
+}

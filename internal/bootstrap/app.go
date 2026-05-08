@@ -9,8 +9,14 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/aiagent"
+	"admin_back_go/internal/module/aichat"
+	"admin_back_go/internal/module/aiconversation"
+	"admin_back_go/internal/module/aiknowledge"
+	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aimodel"
 	"admin_back_go/internal/module/aiprompt"
+	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
@@ -30,11 +36,14 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
+	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/userloginlog"
+	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
 	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/platform/logstore"
@@ -120,7 +129,12 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	)
 	aiModelService := aimodel.NewService(aimodel.NewGormRepository(resources.DB), secretBox)
 	aiToolService := aitool.NewService(aitool.NewGormRepository(resources.DB))
+	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB))
+	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
+	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
+	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB))
+	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
 	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
 	payNotifyLogService := paynotifylog.NewService(paynotifylog.NewGormRepository(resources.DB))
 	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
@@ -223,6 +237,11 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
 	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
+	aiChatService := aichat.NewService(aichat.Dependencies{
+		Repository: aichat.NewGormRepository(resources.DB),
+		Enqueuer:   queueClient,
+		Publisher:  realtimeStack.publisher,
+	})
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
@@ -247,7 +266,10 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		user.WithExportTaskCreator(exportTaskService),
 		user.WithExportEnqueuer(queueClient),
 	)
-	userSessionService := usersession.NewService(usersession.NewGormRepository(resources.DB))
+	sessionRevoker := session.NewRevocationService(session.NewRedisCache(resourcesTokenRedis(resources)), session.RevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
+	userQuickEntryService := userquickentry.NewService(userquickentry.NewGormRepository(resources.DB))
+	userLoginLogService := userloginlog.NewService(userloginlog.NewGormRepository(resources.DB))
+	userSessionService := usersession.NewService(usersession.NewGormRepository(resources.DB), usersession.WithCacheRevoker(sessionRevoker))
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
 		Logger:        logger,
@@ -265,12 +287,20 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthService:             authService,
 		CaptchaService:          captchaService,
 		ClientVersionService:    clientVersionService,
+		AiAgentService:          aiAgentService,
+		AiChatService:           aiChatService,
+		AiConversationService:   aiConversationService,
+		AiKnowledgeService:      aiKnowledgeService,
+		AiMessageService:        aiMessageService,
 		AiModelService:          aiModelService,
+		AiRunService:            aiRunService,
 		AiToolService:           aiToolService,
 		AiPromptService:         aiPromptService,
 		CronTaskService:         cronTaskService,
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,
+		UserQuickEntryService:   userQuickEntryService,
+		UserLoginLogService:     userLoginLogService,
 		UserSessionService:      userSessionService,
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,

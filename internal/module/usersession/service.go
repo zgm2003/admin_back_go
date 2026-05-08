@@ -9,6 +9,7 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/module/session"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -17,13 +18,21 @@ type HTTPService interface {
 	PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Stats(ctx context.Context) (*StatsResponse, *apperror.Error)
+	Revoke(ctx context.Context, id int64, currentSessionID int64) (*RevokeResponse, *apperror.Error)
+	BatchRevoke(ctx context.Context, input BatchRevokeInput, currentSessionID int64) (*BatchRevokeResponse, *apperror.Error)
 }
 
 type OptionFunc func(*Service)
 
+type CacheRevoker interface {
+	RevokeCache(ctx context.Context, row session.Session) error
+	RevokeCaches(ctx context.Context, rows []session.Session) error
+}
+
 type Service struct {
-	repository Repository
-	now        func() time.Time
+	repository   Repository
+	cacheRevoker CacheRevoker
+	now          func() time.Time
 }
 
 func NewService(repository Repository, opts ...OptionFunc) *Service {
@@ -44,6 +53,12 @@ func WithNow(now func() time.Time) OptionFunc {
 		if now != nil {
 			s.now = now
 		}
+	}
+}
+
+func WithCacheRevoker(revoker CacheRevoker) OptionFunc {
+	return func(s *Service) {
+		s.cacheRevoker = revoker
 	}
 }
 
@@ -108,6 +123,83 @@ func (s *Service) Stats(ctx context.Context) (*StatsResponse, *apperror.Error) {
 	return &StatsResponse{TotalActive: total, PlatformDistribution: dist}, nil
 }
 
+func (s *Service) Revoke(ctx context.Context, id int64, currentSessionID int64) (*RevokeResponse, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	if id <= 0 {
+		return nil, apperror.BadRequest("无效的用户会话ID")
+	}
+	if id == currentSessionID {
+		return nil, apperror.BadRequest("不能踢下线当前会话")
+	}
+	row, err := repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户会话失败", err)
+	}
+	if row == nil {
+		return nil, apperror.NotFound("用户会话不存在")
+	}
+	if row.RevokedAt != nil {
+		return &RevokeResponse{ID: id, Revoked: false}, nil
+	}
+	now := s.now()
+	if _, err := repo.MarkRevoked(ctx, []int64{id}, now); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "踢下线用户会话失败", err)
+	}
+	if err := s.revokeCache(ctx, *row); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "清理用户会话缓存失败", err)
+	}
+	return &RevokeResponse{ID: id, Revoked: true}, nil
+}
+
+func (s *Service) BatchRevoke(ctx context.Context, input BatchRevokeInput, currentSessionID int64) (*BatchRevokeResponse, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	ids := normalizeIDs(input.IDs)
+	if len(ids) > 100 {
+		return nil, apperror.BadRequest("单次最多踢下线100个会话")
+	}
+	if len(ids) == 0 {
+		return &BatchRevokeResponse{}, nil
+	}
+	rows, err := repo.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户会话失败", err)
+	}
+
+	response := &BatchRevokeResponse{}
+	toRevoke := make([]SessionRecord, 0, len(rows))
+	revokeIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		if row.ID == currentSessionID {
+			response.SkippedCurrent++
+			continue
+		}
+		if row.RevokedAt != nil {
+			response.SkippedAlreadyRevoked++
+			continue
+		}
+		toRevoke = append(toRevoke, row)
+		revokeIDs = append(revokeIDs, row.ID)
+	}
+	if len(revokeIDs) == 0 {
+		return response, nil
+	}
+	count, err := repo.MarkRevoked(ctx, revokeIDs, s.now())
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "批量踢下线用户会话失败", err)
+	}
+	if err := s.revokeCaches(ctx, toRevoke); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "清理用户会话缓存失败", err)
+	}
+	response.Count = count
+	return response, nil
+}
+
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("用户会话仓储未配置")
@@ -136,6 +228,44 @@ func (s *Service) normalizeListQuery(query ListQuery) (ListQuery, *apperror.Erro
 	}
 	query.Now = s.now()
 	return query, nil
+}
+
+func (s *Service) revokeCache(ctx context.Context, row SessionRecord) error {
+	if s == nil || s.cacheRevoker == nil {
+		return nil
+	}
+	return s.cacheRevoker.RevokeCache(ctx, sessionRow(row))
+}
+
+func (s *Service) revokeCaches(ctx context.Context, rows []SessionRecord) error {
+	if s == nil || s.cacheRevoker == nil {
+		return nil
+	}
+	sessions := make([]session.Session, 0, len(rows))
+	for _, row := range rows {
+		sessions = append(sessions, sessionRow(row))
+	}
+	return s.cacheRevoker.RevokeCaches(ctx, sessions)
+}
+
+func sessionRow(row SessionRecord) session.Session {
+	return session.Session{ID: row.ID, UserID: row.UserID, Platform: row.Platform, AccessTokenHash: row.AccessTokenHash}
+}
+
+func normalizeIDs(ids []int64) []int64 {
+	result := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }
 
 func isSessionStatus(value string) bool {

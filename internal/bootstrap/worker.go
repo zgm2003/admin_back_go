@@ -7,6 +7,7 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/jobs"
+	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
@@ -121,8 +122,14 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,
 		AttemptLockTTL:  cfg.Payment.AttemptLockTTL,
 	})
+	aiChatService := aichat.NewService(aichat.Dependencies{
+		Repository: aichat.NewGormRepository(resources.DB),
+		Enqueuer:   queueClient,
+		Publisher:  realtimePublisher,
+	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
+		AIChatService:           aiChatService,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		ExportTaskService:       exportTaskService,
 		NotificationTaskService: notificationTaskService,

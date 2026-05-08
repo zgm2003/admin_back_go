@@ -13,5 +13,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	group := router.Group("/api/admin/v1/user-sessions")
 	group.GET("/page-init", handler.PageInit)
 	group.GET("/stats", handler.Stats)
+	group.PATCH("/revoke", handler.BatchRevoke)
 	group.GET("", handler.List)
+	group.PATCH("/:id/revoke", handler.Revoke)
 }

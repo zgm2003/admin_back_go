@@ -1,12 +1,14 @@
 package usersession
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +18,11 @@ type fakeHTTPService struct {
 	listQuery      ListQuery
 	listResult     *ListResponse
 	statsResult    *StatsResponse
+	revokeID       int64
+	batchInput     BatchRevokeInput
+	currentSession int64
+	revokeResult   *RevokeResponse
+	batchResult    *BatchRevokeResponse
 	err            *apperror.Error
 }
 
@@ -30,6 +37,24 @@ func (f *fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListRespo
 
 func (f *fakeHTTPService) Stats(ctx context.Context) (*StatsResponse, *apperror.Error) {
 	return f.statsResult, f.err
+}
+
+func (f *fakeHTTPService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*RevokeResponse, *apperror.Error) {
+	f.revokeID = id
+	f.currentSession = currentSessionID
+	if f.revokeResult != nil {
+		return f.revokeResult, f.err
+	}
+	return &RevokeResponse{ID: id, Revoked: true}, f.err
+}
+
+func (f *fakeHTTPService) BatchRevoke(ctx context.Context, input BatchRevokeInput, currentSessionID int64) (*BatchRevokeResponse, *apperror.Error) {
+	f.batchInput = input
+	f.currentSession = currentSessionID
+	if f.batchResult != nil {
+		return f.batchResult, f.err
+	}
+	return &BatchRevokeResponse{Count: int64(len(input.IDs))}, f.err
 }
 
 func TestHandlerRoutesUserSessionReadOnlyEndpoints(t *testing.T) {
@@ -60,4 +85,49 @@ func TestHandlerRoutesUserSessionReadOnlyEndpoints(t *testing.T) {
 			t.Fatalf("%s status=%d body=%s", path, resp.Code, resp.Body.String())
 		}
 	}
+}
+
+func TestHandlerRevokeUsesCurrentSessionIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeHTTPService{revokeResult: &RevokeResponse{ID: 77, Revoked: true}}
+	router := newUserSessionTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 55, Platform: "admin"})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/77/revoke", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("revoke status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if service.revokeID != 77 || service.currentSession != 55 {
+		t.Fatalf("revoke service input mismatch: id=%d current=%d", service.revokeID, service.currentSession)
+	}
+}
+
+func TestHandlerBatchRevokeUsesCurrentSessionIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeHTTPService{batchResult: &BatchRevokeResponse{Count: 2, SkippedCurrent: 1}}
+	router := newUserSessionTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 55, Platform: "admin"})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/revoke", bytes.NewBufferString(`{"ids":[77,55,78]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("batch revoke status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if service.currentSession != 55 || len(service.batchInput.IDs) != 3 || service.batchInput.IDs[1] != 55 {
+		t.Fatalf("batch revoke service input mismatch: current=%d input=%#v", service.currentSession, service.batchInput)
+	}
+}
+
+func newUserSessionTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+	router := gin.New()
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	RegisterRoutes(router, service)
+	return router
 }

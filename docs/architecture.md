@@ -36,6 +36,10 @@ internal/module/permission RBAC read context 计算边界
 internal/module/permission 权限定义 RESTful 写路径
 internal/module/role 角色授权 RESTful 写路径
 internal/module/user Users/init legacy-compatible read adapter
+internal/module/userquickentry 当前用户快捷入口保存边界
+internal/module/userloginlog 后台用户登录日志分页读取边界
+internal/module/usersession 后台用户会话列表、统计和踢下线边界
+internal/module/session RevocationService token Redis 清理边界
 internal/module/operationlog 操作日志 REST + 显式 route metadata 审计边界
 internal/middleware/PermissionCheck 显式 route metadata 边界
 internal/middleware/OperationLog 显式 route metadata 边界
@@ -462,7 +466,7 @@ storage = base64(iv + tag + ciphertext)
 
 ## Realtime / WebSocket baseline
 
-Realtime 当前已完成 admin WebSocket 基建和通知任务最小 Redis Pub/Sub fan-out，不做 AI streaming 业务。
+Realtime 当前已完成 admin WebSocket 基建、通知任务最小 Redis Pub/Sub fan-out、以及 AI chat runtime 的 `ai.response.*.v1` first-version envelope。它不做 SSE，也不把 AI 事件伪装成旧 unversioned AI run event。
 
 当前路由：
 
@@ -884,6 +888,41 @@ logout 后 revoke session，并清 token Redis 缓存；单端登录指针匹配
 
 `auth` handler 不查 DB/Redis；它只解析 JSON / Authorization header，调用 `auth` service。
 `captcha` handler 不操作 Redis；它只调用 `captcha` service。
+
+## User Legacy Closure Slice
+
+用户域剩余 PHP live 入口已经按窄切片迁到 Go，不把旧 PHP action path 带进新契约。
+
+当前 Go-owned 路由：
+
+```text
+PUT   /api/admin/v1/users/me/quick-entries
+GET   /api/admin/v1/users/login-logs/page-init
+GET   /api/admin/v1/users/login-logs
+GET   /api/admin/v1/user-sessions/page-init
+GET   /api/admin/v1/user-sessions
+GET   /api/admin/v1/user-sessions/stats
+PATCH /api/admin/v1/user-sessions/:id/revoke
+PATCH /api/admin/v1/user-sessions/revoke
+```
+
+边界：
+
+```text
+userquickentry 只拥有当前登录用户快捷入口保存：校验 permission 是 admin PAGE 且启用，最多 6 个，事务内软删旧 rows 再插入新 rows，返回 quick_entry。
+userloginlog 只拥有 users_login_log 读路径：LEFT JOIN users，账号/IP 前缀过滤，date_start/date_end 展开全日边界，用户不存在时 user_name=""。
+usersession 拥有 user_sessions 读和 revoke 写路径：列表不返回 access_token_hash/refresh_token_hash；状态由 revoked_at + refresh_expires_at 计算；revoke 禁止踢当前 AuthIdentity.SessionID。
+session.RevocationService 是 token Redis 清理边界：删除 TOKEN_REDIS_PREFIX+access_token_hash；只有 cur_sess:<platform>:<user_id> 当前值等于被撤销 session id 时才删 pointer。
+revoke 路由挂 user_userManager_kick 权限，并写 OperationLog user_session/revoke 或 user_session/revoke_batch。
+```
+
+非目标：
+
+```text
+forgetPassword 仍是账号安全后续 slice，不在这刀冒充完成。
+EditPassword 前端死定义删除，不为了死接口新增 Go 实现。
+full smoke 不随机踢 live session；只验证当前 session anti-kick，非当前 revoke/Redis 清理由 Go 单测覆盖。
+```
 
 ## Auth platform management baseline
 
@@ -1390,16 +1429,37 @@ AI 电商口播和 AI 短剧工厂已从当前 Go 迁移范围删除。
 `database/migrations/20260508_remove_ai_goods_cine_modules.sql` 删除 `goods`、`cine_projects`、`cine_assets` 和 `/ai/goods`、`/ai/cine` 菜单权限。
 `goods_tts` 与 `cine_keyframes` 不再是 active upload folder；`ai_chat_images` 保留给 AI chat。
 Go AI runtime 后续不得依赖 goods/cine schema、folder 或 PHP adapter。
-`cron_task.name=ai_run_timeout` 仍是 active legacy AI cron fact；AI core worker 迁移前不能把它说成 Go-owned。
+`cron_task.name=ai_run_timeout` 已由 Go worker registry 接管，task type 为 `ai:run-timeout:v1`。
 ```
 
 AI Core P1 config（2026-05-08）：
 
 ```text
 Go 已接管 AI 配置事实源的第一段：`ai_models`、`ai_tools`、`ai_prompts`。
-模型/工具/提示词只迁移 REST 配置层，不碰 agents、knowledge、chat runtime、runs、streaming、RAG。
+模型/工具/提示词是配置层；agents、knowledge、chat runtime、runs 已按后续窄切片迁到 Go REST/worker/realtime。RAG/vector/sidecar 仍不是当前 Go monolith 已完成能力。
 `api_key` 只允许写入时加密，响应和日志都不能泄露 `api_key_enc`。
 `ai_prompt` 旧表保留，不在 P1 偷删；真正的运行时/工作流迁移放到后续阶段。
+```
+
+AI agent / knowledge / runtime（2026-05-08）：
+
+```text
+internal/module/aiagent          # ai_agents 管理，排除 retired goods/cine scenes
+internal/module/aiknowledge      # knowledge bases/documents/chunks， deterministic MySQL retrieval test
+internal/module/aiconversation   # current-user ai_conversations REST
+internal/module/aimessage        # conversation message list/edit/feedback/delete
+internal/module/airun            # ai_runs read-only monitor/stats
+internal/module/aichat           # chat runtime, ai:run-execute:v1, ai:run-timeout:v1, ai.response.*.v1 publish
+```
+
+边界：
+
+```text
+Go REST 统一使用 /api/admin/v1/ai-*，禁止新增 /api/admin/Ai*/list|add|edit|del|status adapter
+aichat 当前 provider 是 deterministic fallback：收到：{content}，不是外部 LLM provider E2E
+REST events 是从 run/message 状态重建的 catch-up，不是 SSE 或 browser event-source runtime，不是 Redis Stream
+WebSocket 只发布 versioned envelope：ai.response.start/delta/completed/failed/cancel.v1
+AI response publication 走 platform/realtime.Publisher；admin-worker 跨进程 fan-out 需要 REALTIME_PUBLISHER=redis
 ```
 
 `internal/platform/storage/cos` 是唯一 COS STS 供应商边界：

@@ -3,6 +3,7 @@ package crontask
 import (
 	"testing"
 
+	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payreconcile"
 	"admin_back_go/internal/module/payruntime"
@@ -28,6 +29,21 @@ func TestDefaultRegistryContainsNotificationTaskSchedulerOnly(t *testing.T) {
 	}
 	if task.Type != notificationtask.TypeDispatchDueV1 {
 		t.Fatalf("expected task type %s, got %s", notificationtask.TypeDispatchDueV1, task.Type)
+	}
+
+	aiEntry, ok := registry.Lookup("ai_run_timeout")
+	if !ok {
+		t.Fatalf("expected ai_run_timeout registry entry")
+	}
+	if aiEntry.TaskType != aichat.TypeRunTimeoutV1 {
+		t.Fatalf("expected ai task type %s, got %s", aichat.TypeRunTimeoutV1, aiEntry.TaskType)
+	}
+	aiTask, err := aiEntry.BuildTask()
+	if err != nil {
+		t.Fatalf("ai BuildTask returned error: %v", err)
+	}
+	if aiTask.Type != aichat.TypeRunTimeoutV1 {
+		t.Fatalf("expected built ai task type %s, got %s", aichat.TypeRunTimeoutV1, aiTask.Type)
 	}
 
 	payEntry, ok := registry.Lookup("pay_close_expired_order")

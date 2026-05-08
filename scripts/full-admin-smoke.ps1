@@ -721,6 +721,134 @@ function Assert-AIPromptDetail($Response) {
   }
 }
 
+function Assert-AIAgentInit($Response) {
+  Assert-ApiOK $Response 'AI agent init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "AI agent init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $scenes = Get-ObjectArray $Response.data.dict.ai_scene_arr
+  $retiredScenePresent = $false
+  foreach ($item in $scenes) {
+    if (@('goods_script', 'cine_project', 'cine_keyframe') -contains [string]$item.value) {
+      $retiredScenePresent = $true
+    }
+  }
+  if ($retiredScenePresent) {
+    throw "AI agent init returned retired scene options: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    SceneCount = $scenes.Count
+    RetiredScenePresent = $retiredScenePresent
+  }
+}
+
+function Assert-AIAgentList($Response) {
+  Assert-ApiOK $Response 'AI agent list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI agent list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-AIKnowledgeInit($Response) {
+  Assert-ApiOK $Response 'AI knowledge init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "AI knowledge init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $sources = Get-ObjectArray $Response.data.dict.ai_knowledge_source_type_arr
+  $sourceValues = @($sources | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('manual', 'text')) {
+    if (-not ($sourceValues -contains $expected)) {
+      throw "AI knowledge source type missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    SourceTypeCount = $sources.Count
+  }
+}
+
+function Assert-AIKnowledgeList($Response) {
+  Assert-ApiOK $Response 'AI knowledge list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI knowledge list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-AIConversationList($Response) {
+  Assert-ApiOK $Response 'AI conversation list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI conversation list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-AIRunInit($Response) {
+  Assert-ApiOK $Response 'AI run init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "AI run init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $statuses = Get-ObjectArray $Response.data.dict.run_status_arr
+  $values = @($statuses | ForEach-Object { [int]$_.value })
+  foreach ($expected in @(1, 2, 3, 4)) {
+    if (-not ($values -contains $expected)) {
+      throw "AI run status dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-AIRunList($Response) {
+  Assert-ApiOK $Response 'AI run list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI run list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-AIRunStats($Response) {
+  Assert-ApiOK $Response 'AI run stats'
+
+  if ($null -eq $Response.data.summary) {
+    throw "AI run stats missing summary: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    TotalRuns = [int64]$Response.data.summary.total_runs
+    FailRuns = [int64]$Response.data.summary.fail_runs
+  }
+}
+
 function Assert-PayRuntimeChannelReady($Response) {
   Assert-ApiOK $Response 'pay runtime channel readiness'
 
@@ -1095,6 +1223,206 @@ function Assert-UserSessionStats($Response) {
     TotalActive = [int64]$Response.data.total_active
     Admin = [int64]$Response.data.platform_distribution.admin
     App = [int64]$Response.data.platform_distribution.app
+  }
+}
+
+function Get-QuickEntryPermissionIDs($Response) {
+  $ids = @()
+  if ($null -eq $Response -or $null -eq $Response.data) { return $ids }
+  foreach ($item in (Get-ObjectArray $Response.data.quick_entry)) {
+    if ($null -ne $item.permission_id -and [int64]$item.permission_id -gt 0) {
+      $ids += [int64]$item.permission_id
+    }
+  }
+  return $ids
+}
+
+function Get-FirstPagePermissionID($Items) {
+  foreach ($item in (Get-ObjectArray $Items)) {
+    if ($null -eq $item) { continue }
+    if ([int]$item.type -eq 2 -and [int64]$item.id -gt 0) {
+      return [int64]$item.id
+    }
+    $childID = Get-FirstPagePermissionID $item.children
+    if ($childID -gt 0) {
+      return $childID
+    }
+  }
+  return 0
+}
+
+function Assert-QuickEntrySave($Response, [int64[]]$ExpectedIDs, [string]$Label) {
+  Assert-ApiOK $Response $Label
+  if ($null -eq $Response.data.quick_entry) {
+    throw "$Label missing quick_entry: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $entries = Get-ObjectArray $Response.data.quick_entry
+  if ($entries.Count -ne $ExpectedIDs.Count) {
+    throw "$Label quick_entry count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  for ($i = 0; $i -lt $ExpectedIDs.Count; $i++) {
+    if ([int64]$entries[$i].permission_id -ne [int64]$ExpectedIDs[$i]) {
+      throw "$Label quick_entry order mismatch: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    Count = $entries.Count
+  }
+}
+
+function Resolve-QuickEntryCandidateID($UsersInitResponse) {
+  $routeMenuIDs = New-Object System.Collections.Generic.HashSet[int64]
+  foreach ($route in (Get-ObjectArray $UsersInitResponse.data.router)) {
+    if ($null -eq $route.meta -or $null -eq $route.meta.menuId) { continue }
+    [int64]$menuID = 0
+    if ([int64]::TryParse([string]$route.meta.menuId, [ref]$menuID) -and $menuID -gt 0) {
+      [void]$routeMenuIDs.Add($menuID)
+    }
+  }
+
+  foreach ($menuID in $routeMenuIDs) {
+    return [int64]$menuID
+  }
+  return Get-FirstPagePermissionID $UsersInitResponse.data.permissions
+}
+
+function Invoke-QuickEntryRoundTripProbe([string]$BaseURL, [hashtable]$Headers, $UsersInitResponse) {
+  [int64[]]$originalIDs = @(Get-QuickEntryPermissionIDs $UsersInitResponse)
+  $candidateID = Resolve-QuickEntryCandidateID $UsersInitResponse
+  if ($candidateID -le 0) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_page_permission'
+      SaveCode = -1
+      SaveCount = -1
+      InitRoundTrip = $true
+      RestoreCode = -1
+    }
+  }
+
+  $restoreCode = -1
+  $status = 'passed'
+  $saveCode = -1
+  $saveCount = -1
+  $roundTrip = $false
+  try {
+    $save = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/users/me/quick-entries" $Headers @{
+      permission_ids = @($candidateID)
+    }
+    $saveSummary = Assert-QuickEntrySave $save @($candidateID) 'users quick-entry save'
+    $saveCode = $save.code
+    $saveCount = $saveSummary.Count
+
+    $afterInit = Invoke-RestMethod "$BaseURL/api/admin/v1/users/init" `
+      -Headers $Headers `
+      -TimeoutSec 10
+    Assert-ApiOK $afterInit 'users init after quick-entry save'
+    $afterIDs = @(Get-QuickEntryPermissionIDs $afterInit)
+    $roundTrip = ($afterIDs.Count -eq 1 -and [int64]$afterIDs[0] -eq [int64]$candidateID)
+    if (-not $roundTrip) {
+      throw "users/init quick_entry did not reflect saved entry: $($afterInit | ConvertTo-Json -Depth 12)"
+    }
+  } finally {
+    try {
+      $restore = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/users/me/quick-entries" $Headers @{
+        permission_ids = @($originalIDs)
+      }
+      Assert-ApiOK $restore 'users quick-entry restore'
+      $restoreCode = $restore.code
+    } catch {
+      $status = 'restore_failed'
+      Write-Host "Failed to restore users quick-entry for current smoke user"
+    }
+  }
+
+  if ($status -ne 'passed') {
+    throw "users quick-entry probe did not restore original state: $status"
+  }
+
+  return [pscustomobject]@{
+    Status = $status
+    SaveCode = $saveCode
+    SaveCount = $saveCount
+    InitRoundTrip = $roundTrip
+    RestoreCode = $restoreCode
+  }
+}
+
+function Assert-UserLoginLogPageInit($Response) {
+  Assert-ApiOK $Response 'user login log page-init'
+  if ($null -eq $Response.data.dict) {
+    throw "user login log page-init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $platforms = Get-ObjectArray $Response.data.dict.platformArr
+  $loginTypes = Get-ObjectArray $Response.data.dict.login_type_arr
+  if ($platforms.Count -lt 2 -or $loginTypes.Count -lt 1) {
+    throw "user login log page-init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  return [pscustomobject]@{
+    PlatformCount = $platforms.Count
+    LoginTypeCount = $loginTypes.Count
+  }
+}
+
+function Assert-UserLoginLogList($Response) {
+  Assert-ApiOK $Response 'user login log list'
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "user login log list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "user login log item missing id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.login_account)) {
+      throw "user login log item missing login_account: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.login_type) -or [string]::IsNullOrWhiteSpace([string]$item.platform)) {
+      throw "user login log item missing login_type/platform: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.is_success) {
+      throw "user login log item missing is_success: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-UserSessionCurrentRevokeBlocked([string]$BaseURL, [hashtable]$Headers, $SessionListResponse) {
+  $currentID = 0
+  $currentDeviceID = [string]$Headers['device-id']
+  foreach ($item in (Get-ObjectArray $SessionListResponse.data.list)) {
+    if ([string]$item.device_id -eq $currentDeviceID -and [string]$item.status -eq 'active') {
+      $currentID = [int64]$item.id
+      break
+    }
+  }
+  if ($currentID -le 0) {
+    $wideList = Invoke-RestMethod "$BaseURL/api/admin/v1/user-sessions?current_page=1&page_size=100" `
+      -Headers $Headers `
+      -TimeoutSec 10
+    Assert-ApiOK $wideList 'user session wide list for current revoke probe'
+    foreach ($item in (Get-ObjectArray $wideList.data.list)) {
+      if ([string]$item.device_id -eq $currentDeviceID -and [string]$item.status -eq 'active') {
+        $currentID = [int64]$item.id
+        break
+      }
+    }
+    if ($currentID -le 0) {
+      throw "current smoke session was not found for anti-kick probe"
+    }
+  }
+
+  $response = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/user-sessions/$currentID/revoke" $Headers @{}
+  $code = Assert-ApiFailureCode $response 'user session current revoke probe'
+  return [pscustomobject]@{
+    Status = 'passed'
+    CurrentID = $currentID
+    Blocked = $true
+    Code = $code
   }
 }
 
@@ -1900,6 +2228,8 @@ function Assert-CronTaskList($Response) {
   $registeredPayReconcileDaily = $false
   $registeredPayReconcileExecute = $false
   $registeredPayFulfillmentRetry = $false
+  $registeredAIRunTimeout = $false
+  $aiRunTimeoutTaskType = ''
   $missingLegacy = $false
   $firstID = 0
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
@@ -1949,6 +2279,13 @@ function Assert-CronTaskList($Response) {
       }
       $registeredPayFulfillmentRetry = $true
     }
+    if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'ai:run-timeout:v1' -or [string]$item.handler -ne 'ai:run-timeout:v1') {
+        throw "AI run timeout cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+      }
+      $registeredAIRunTimeout = $true
+      $aiRunTimeoutTaskType = [string]$item.registry_task_type
+    }
     if ([string]$item.registry_status -eq 'missing') {
       $missingLegacy = $true
     }
@@ -1963,6 +2300,8 @@ function Assert-CronTaskList($Response) {
     PayReconcileDailyRegistered = $registeredPayReconcileDaily
     PayReconcileExecuteRegistered = $registeredPayReconcileExecute
     PayFulfillmentRetryRegistered = $registeredPayFulfillmentRetry
+    AIRunTimeoutRegistered = $registeredAIRunTimeout
+    AIRunTimeoutTaskType = $aiRunTimeoutTaskType
     MissingLegacyPresent = $missingLegacy
     FirstID = $firstID
   }
@@ -2281,6 +2620,18 @@ func main() {
     -TimeoutSec 10
   $usersInitAIRouteSummary = Assert-UsersInitAIRoutes $usersInit
 
+  $quickEntryProbe = Invoke-QuickEntryRoundTripProbe $baseURL $authHeaders $usersInit
+
+  $userLoginLogPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/login-logs/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $userLoginLogPageInitSummary = Assert-UserLoginLogPageInit $userLoginLogPageInit
+
+  $userLoginLogList = Invoke-RestMethod "$baseURL/api/admin/v1/users/login-logs?current_page=1&page_size=10&login_account=$([uri]::EscapeDataString($Account))" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $userLoginLogListSummary = Assert-UserLoginLogList $userLoginLogList
+
   $userSessionPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/user-sessions/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2295,6 +2646,7 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $userSessionStatsSummary = Assert-UserSessionStats $userSessionStats
+  $userSessionCurrentRevokeProbe = Assert-UserSessionCurrentRevokeBlocked $baseURL $authHeaders $userSessionList
 
   $queueMonitorList = Invoke-RestMethod "$baseURL/api/admin/v1/queue-monitor" `
     -Headers $authHeaders `
@@ -2433,6 +2785,46 @@ func main() {
     $aiPromptDetailCode = $aiPromptDetail.code
     $aiPromptDetailID = $aiPromptDetailSummary.ID
   }
+
+  $aiAgentInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiAgentInitSummary = Assert-AIAgentInit $aiAgentInit
+
+  $aiAgentList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiAgentListSummary = Assert-AIAgentList $aiAgentList
+
+  $aiKnowledgeInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiKnowledgeInitSummary = Assert-AIKnowledgeInit $aiKnowledgeInit
+
+  $aiKnowledgeList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiKnowledgeListSummary = Assert-AIKnowledgeList $aiKnowledgeList
+
+  $aiConversationList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-conversations?current_page=1&page_size=5" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiConversationListSummary = Assert-AIConversationList $aiConversationList
+
+  $aiRunInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-runs/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiRunInitSummary = Assert-AIRunInit $aiRunInit
+
+  $aiRunList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-runs?current_page=1&page_size=5" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiRunListSummary = Assert-AIRunList $aiRunList
+
+  $aiRunStats = Invoke-RestMethod "$baseURL/api/admin/v1/ai-runs/stats" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiRunStatsSummary = Assert-AIRunStats $aiRunStats
 
   $currentUserWalletSummary = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/summary" `
     -Headers $authHeaders `
@@ -2699,6 +3091,17 @@ func main() {
 
   $summary = [ordered]@{
     basic = $basicSummary
+    users_quick_entry_save_status = $quickEntryProbe.Status
+    users_quick_entry_save_code = $quickEntryProbe.SaveCode
+    users_quick_entry_save_count = $quickEntryProbe.SaveCount
+    users_quick_entry_init_round_trip = $quickEntryProbe.InitRoundTrip
+    users_quick_entry_restore_code = $quickEntryProbe.RestoreCode
+    users_login_log_init_code = $userLoginLogPageInit.code
+    users_login_log_platform_dict_count = $userLoginLogPageInitSummary.PlatformCount
+    users_login_log_type_dict_count = $userLoginLogPageInitSummary.LoginTypeCount
+    users_login_log_list_code = $userLoginLogList.code
+    users_login_log_list_count = $userLoginLogListSummary.ListCount
+    users_login_log_total = $userLoginLogListSummary.Total
     user_session_page_init_code = $userSessionPageInit.code
     user_session_platform_dict_count = $userSessionPageInitSummary.PlatformCount
     user_session_status_dict_count = $userSessionPageInitSummary.StatusCount
@@ -2709,6 +3112,10 @@ func main() {
     user_session_total_active = $userSessionStatsSummary.TotalActive
     user_session_active_admin = $userSessionStatsSummary.Admin
     user_session_active_app = $userSessionStatsSummary.App
+    user_session_current_revoke_probe = $userSessionCurrentRevokeProbe.Status
+    user_session_current_revoke_blocked = $userSessionCurrentRevokeProbe.Blocked
+    user_session_current_revoke_code = $userSessionCurrentRevokeProbe.Code
+    user_session_token_hash_leak = $false
     queue_monitor_list_code = $queueMonitorList.code
     queue_monitor_queue_count = $queueMonitorQueueCount
     queue_monitor_failed_code = $queueMonitorFailed.code
@@ -2791,6 +3198,28 @@ func main() {
     ai_prompt_detail_id = $aiPromptDetailID
     ai_prompt_detail_tags_arrays = if ($null -eq $aiPromptDetailSummary) { $true } else { $aiPromptDetailSummary.TagsArrays }
     ai_prompt_detail_variables_arrays = if ($null -eq $aiPromptDetailSummary) { $true } else { $aiPromptDetailSummary.VariablesArrays }
+    ai_agent_init_code = $aiAgentInit.code
+    ai_agent_scene_dict_count = $aiAgentInitSummary.SceneCount
+    ai_agent_retired_scene_present = $aiAgentInitSummary.RetiredScenePresent
+    ai_agent_list_code = $aiAgentList.code
+    ai_agent_list_count = $aiAgentListSummary.ListCount
+    ai_agent_total = $aiAgentListSummary.Total
+    ai_knowledge_init_code = $aiKnowledgeInit.code
+    ai_knowledge_source_type_count = $aiKnowledgeInitSummary.SourceTypeCount
+    ai_knowledge_list_code = $aiKnowledgeList.code
+    ai_knowledge_list_count = $aiKnowledgeListSummary.ListCount
+    ai_knowledge_total = $aiKnowledgeListSummary.Total
+    ai_conversation_list_code = $aiConversationList.code
+    ai_conversation_list_count = $aiConversationListSummary.ListCount
+    ai_conversation_total = $aiConversationListSummary.Total
+    ai_run_init_code = $aiRunInit.code
+    ai_run_status_dict_count = $aiRunInitSummary.StatusCount
+    ai_run_list_code = $aiRunList.code
+    ai_run_list_count = $aiRunListSummary.ListCount
+    ai_run_total = $aiRunListSummary.Total
+    ai_run_stats_code = $aiRunStats.code
+    ai_run_stats_total = $aiRunStatsSummary.TotalRuns
+    ai_run_stats_fail = $aiRunStatsSummary.FailRuns
     ai_goods_route_present = $usersInitAIRouteSummary.GoodsPresent
     ai_cine_route_present = $usersInitAIRouteSummary.CinePresent
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
@@ -2918,6 +3347,8 @@ func main() {
     cron_task_pay_reconcile_daily_registered = $cronTaskListSummary.PayReconcileDailyRegistered
     cron_task_pay_reconcile_execute_registered = $cronTaskListSummary.PayReconcileExecuteRegistered
     cron_task_pay_fulfillment_retry_registered = $cronTaskListSummary.PayFulfillmentRetryRegistered
+    cron_task_ai_run_timeout_registered = $cronTaskListSummary.AIRunTimeoutRegistered
+    cron_task_ai_run_timeout_type = $cronTaskListSummary.AIRunTimeoutTaskType
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent
     cron_task_logs_code = $cronTaskLogsCode
     cron_task_logs_count = $cronTaskLogsSummary.ListCount

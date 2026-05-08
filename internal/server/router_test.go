@@ -17,8 +17,14 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/aiagent"
+	"admin_back_go/internal/module/aichat"
+	"admin_back_go/internal/module/aiconversation"
+	"admin_back_go/internal/module/aiknowledge"
+	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aimodel"
 	"admin_back_go/internal/module/aiprompt"
+	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
@@ -44,6 +50,8 @@ import (
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/module/userloginlog"
+	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
 	"admin_back_go/internal/module/wallet"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -59,6 +67,161 @@ type fakeReadinessChecker struct {
 
 func (f fakeReadinessChecker) Readiness(ctx context.Context) readiness.Report {
 	return f.report
+}
+
+type fakeRouterAIAgentService struct{}
+
+func (fakeRouterAIAgentService) Init(ctx context.Context) (*aiagent.InitResponse, *apperror.Error) {
+	return &aiagent.InitResponse{}, nil
+}
+func (fakeRouterAIAgentService) List(ctx context.Context, query aiagent.ListQuery) (*aiagent.ListResponse, *apperror.Error) {
+	return &aiagent.ListResponse{Page: aiagent.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+func (fakeRouterAIAgentService) Create(ctx context.Context, input aiagent.MutationInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+func (fakeRouterAIAgentService) Update(ctx context.Context, id int64, input aiagent.MutationInput) *apperror.Error {
+	return nil
+}
+func (fakeRouterAIAgentService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return nil
+}
+func (fakeRouterAIAgentService) Delete(ctx context.Context, id int64) *apperror.Error { return nil }
+
+type fakeRouterAIKnowledgeService struct{}
+
+func (fakeRouterAIKnowledgeService) Init(ctx context.Context) (*aiknowledge.InitResponse, *apperror.Error) {
+	return &aiknowledge.InitResponse{}, nil
+}
+func (fakeRouterAIKnowledgeService) List(ctx context.Context, query aiknowledge.ListQuery) (*aiknowledge.ListResponse, *apperror.Error) {
+	return &aiknowledge.ListResponse{Page: aiknowledge.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+func (fakeRouterAIKnowledgeService) Detail(ctx context.Context, id int64) (*aiknowledge.KnowledgeBaseItem, *apperror.Error) {
+	return &aiknowledge.KnowledgeBaseItem{ID: id}, nil
+}
+func (fakeRouterAIKnowledgeService) Create(ctx context.Context, ownerUserID int64, input aiknowledge.KnowledgeBaseMutationInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+func (fakeRouterAIKnowledgeService) Update(ctx context.Context, id int64, input aiknowledge.KnowledgeBaseMutationInput) *apperror.Error {
+	return nil
+}
+func (fakeRouterAIKnowledgeService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return nil
+}
+func (fakeRouterAIKnowledgeService) Delete(ctx context.Context, ids []int64) (int64, *apperror.Error) {
+	return int64(len(ids)), nil
+}
+func (fakeRouterAIKnowledgeService) Documents(ctx context.Context, query aiknowledge.DocumentListQuery) (*aiknowledge.DocumentListResponse, *apperror.Error) {
+	return &aiknowledge.DocumentListResponse{Page: aiknowledge.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+func (fakeRouterAIKnowledgeService) DocumentDetail(ctx context.Context, id int64, knowledgeBaseID int64) (*aiknowledge.DocumentItem, *apperror.Error) {
+	return &aiknowledge.DocumentItem{ID: id, KnowledgeBaseID: knowledgeBaseID}, nil
+}
+func (fakeRouterAIKnowledgeService) CreateDocument(ctx context.Context, ownerUserID int64, input aiknowledge.DocumentMutationInput) (int64, *apperror.Error) {
+	return 2, nil
+}
+func (fakeRouterAIKnowledgeService) UpdateDocument(ctx context.Context, id int64, input aiknowledge.DocumentMutationInput) *apperror.Error {
+	return nil
+}
+func (fakeRouterAIKnowledgeService) DeleteDocument(ctx context.Context, id int64, knowledgeBaseID int64) (int64, *apperror.Error) {
+	return 1, nil
+}
+func (fakeRouterAIKnowledgeService) ReindexDocument(ctx context.Context, id int64, knowledgeBaseID int64) (int, *apperror.Error) {
+	return 3, nil
+}
+func (fakeRouterAIKnowledgeService) Chunks(ctx context.Context, query aiknowledge.ChunkListQuery) (*aiknowledge.ChunkListResponse, *apperror.Error) {
+	return &aiknowledge.ChunkListResponse{Page: aiknowledge.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+func (fakeRouterAIKnowledgeService) RetrievalTest(ctx context.Context, input aiknowledge.RetrievalInput) (*aiknowledge.RetrievalResponse, *apperror.Error) {
+	return &aiknowledge.RetrievalResponse{}, nil
+}
+
+type fakeRouterAIConversationService struct{}
+
+func (fakeRouterAIConversationService) List(ctx context.Context, userID int64, query aiconversation.ListQuery) (*aiconversation.ListResponse, *apperror.Error) {
+	return &aiconversation.ListResponse{Page: aiconversation.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (fakeRouterAIConversationService) Detail(ctx context.Context, userID int64, id int64) (*aiconversation.DetailResponse, *apperror.Error) {
+	return &aiconversation.DetailResponse{ID: id, UserID: userID}, nil
+}
+
+func (fakeRouterAIConversationService) Create(ctx context.Context, userID int64, input aiconversation.MutationInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (fakeRouterAIConversationService) Update(ctx context.Context, userID int64, id int64, input aiconversation.MutationInput) *apperror.Error {
+	return nil
+}
+
+func (fakeRouterAIConversationService) ChangeStatus(ctx context.Context, userID int64, id int64, status int) *apperror.Error {
+	return nil
+}
+
+func (fakeRouterAIConversationService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
+	return nil
+}
+
+type fakeRouterAIMessageService struct{}
+
+func (fakeRouterAIMessageService) List(ctx context.Context, userID int64, query aimessage.ListQuery) (*aimessage.ListResponse, *apperror.Error) {
+	return &aimessage.ListResponse{Page: aimessage.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (fakeRouterAIMessageService) EditContent(ctx context.Context, userID int64, id int64, content string) (*aimessage.EditContentResponse, *apperror.Error) {
+	return &aimessage.EditContentResponse{DeletedCount: 1}, nil
+}
+
+func (fakeRouterAIMessageService) Feedback(ctx context.Context, userID int64, id int64, feedback *int) *apperror.Error {
+	return nil
+}
+
+func (fakeRouterAIMessageService) Delete(ctx context.Context, userID int64, ids []int64) (*aimessage.DeleteResponse, *apperror.Error) {
+	return &aimessage.DeleteResponse{Affected: int64(len(ids))}, nil
+}
+
+type fakeRouterAIRunService struct{}
+
+func (fakeRouterAIRunService) Init(ctx context.Context) (*airun.InitResponse, *apperror.Error) {
+	return &airun.InitResponse{}, nil
+}
+
+func (fakeRouterAIRunService) List(ctx context.Context, query airun.ListQuery) (*airun.ListResponse, *apperror.Error) {
+	return &airun.ListResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (fakeRouterAIRunService) Detail(ctx context.Context, id int64) (*airun.DetailResponse, *apperror.Error) {
+	return &airun.DetailResponse{ID: id}, nil
+}
+
+func (fakeRouterAIRunService) Stats(ctx context.Context, query airun.StatsFilter) (*airun.StatsResponse, *apperror.Error) {
+	return &airun.StatsResponse{}, nil
+}
+
+func (fakeRouterAIRunService) StatsByDate(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByDateResponse, *apperror.Error) {
+	return &airun.StatsByDateResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (fakeRouterAIRunService) StatsByAgent(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByAgentResponse, *apperror.Error) {
+	return &airun.StatsByAgentResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByUserResponse, *apperror.Error) {
+	return &airun.StatsByUserResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+}
+
+type fakeRouterAIChatService struct{}
+
+func (fakeRouterAIChatService) CreateRun(ctx context.Context, userID int64, input aichat.CreateRunInput) (*aichat.CreateRunResponse, *apperror.Error) {
+	return &aichat.CreateRunResponse{ConversationID: 1, RunID: 1, RequestID: "request-id", UserMessageID: 2, AgentID: input.AgentID}, nil
+}
+
+func (fakeRouterAIChatService) Events(ctx context.Context, userID int64, runID int64, lastID string) (*aichat.EventsResponse, *apperror.Error) {
+	return &aichat.EventsResponse{LastID: lastID, RunStatus: enum.AIRunStatusRunning}, nil
+}
+
+func (fakeRouterAIChatService) Cancel(ctx context.Context, userID int64, runID int64) (*aichat.CancelResponse, *apperror.Error) {
+	return &aichat.CancelResponse{RunID: runID, Status: "canceled"}, nil
 }
 
 type fakeAuthService struct{}
@@ -128,7 +291,10 @@ type fakeRouterUserService struct {
 }
 
 type fakeRouterUserSessionService struct {
-	listQuery usersession.ListQuery
+	listQuery      usersession.ListQuery
+	revokeID       int64
+	batchInput     usersession.BatchRevokeInput
+	currentSession int64
 }
 
 func (fakeRouterUserSessionService) PageInit(ctx context.Context) (*usersession.PageInitResponse, *apperror.Error) {
@@ -145,6 +311,45 @@ func (f *fakeRouterUserSessionService) List(ctx context.Context, query usersessi
 
 func (fakeRouterUserSessionService) Stats(ctx context.Context) (*usersession.StatsResponse, *apperror.Error) {
 	return &usersession.StatsResponse{TotalActive: 0, PlatformDistribution: map[string]int64{"admin": 0, "app": 0}}, nil
+}
+
+func (f *fakeRouterUserSessionService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*usersession.RevokeResponse, *apperror.Error) {
+	f.revokeID = id
+	f.currentSession = currentSessionID
+	return &usersession.RevokeResponse{ID: id, Revoked: true}, nil
+}
+
+func (f *fakeRouterUserSessionService) BatchRevoke(ctx context.Context, input usersession.BatchRevokeInput, currentSessionID int64) (*usersession.BatchRevokeResponse, *apperror.Error) {
+	f.batchInput = input
+	f.currentSession = currentSessionID
+	return &usersession.BatchRevokeResponse{Count: int64(len(input.IDs))}, nil
+}
+
+type fakeRouterUserQuickEntryService struct {
+	userID int64
+	input  userquickentry.SaveInput
+}
+
+func (f *fakeRouterUserQuickEntryService) Save(ctx context.Context, userID int64, input userquickentry.SaveInput) (*userquickentry.SaveResponse, *apperror.Error) {
+	f.userID = userID
+	f.input = input
+	return &userquickentry.SaveResponse{QuickEntry: []userquickentry.QuickEntry{{ID: 1, PermissionID: 2, Sort: 1}}}, nil
+}
+
+type fakeRouterUserLoginLogService struct {
+	listQuery userloginlog.ListQuery
+}
+
+func (fakeRouterUserLoginLogService) PageInit(ctx context.Context) (*userloginlog.PageInitResponse, *apperror.Error) {
+	return &userloginlog.PageInitResponse{}, nil
+}
+
+func (f *fakeRouterUserLoginLogService) List(ctx context.Context, query userloginlog.ListQuery) (*userloginlog.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &userloginlog.ListResponse{
+		List: []userloginlog.ListItem{{ID: 1, UserName: "admin", LoginType: "password"}},
+		Page: userloginlog.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
 }
 
 func (f *fakeRouterUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
@@ -1692,6 +1897,62 @@ func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 	}
 }
 
+func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
+	quickEntryService := &fakeRouterUserQuickEntryService{}
+	loginLogService := &fakeRouterUserLoginLogService{}
+	userSessionService := &fakeRouterUserSessionService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 44, SessionID: 55, Platform: "admin"}, nil
+		},
+		UserQuickEntryService: quickEntryService,
+		UserLoginLogService:   loginLogService,
+		UserSessionService:    userSessionService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/users/me/quick-entries", strings.NewReader(`{"permission_ids":[3,1,3]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || quickEntryService.userID != 44 || !reflect.DeepEqual(quickEntryService.input.PermissionIDs, []int64{3, 1, 3}) {
+		t.Fatalf("expected quick-entry route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), quickEntryService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/login-logs/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected login-log page-init route, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/login-logs?current_page=2&page_size=30&login_account=adm&date_start=2026-05-01&date_end=2026-05-08", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || loginLogService.listQuery.CurrentPage != 2 || loginLogService.listQuery.LoginAccount != "adm" || loginLogService.listQuery.DateEnd != "2026-05-08" {
+		t.Fatalf("expected login-log list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), loginLogService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/77/revoke", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || userSessionService.revokeID != 77 || userSessionService.currentSession != 55 {
+		t.Fatalf("expected session revoke route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userSessionService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/revoke", strings.NewReader(`{"ids":[77,78]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || userSessionService.currentSession != 55 || !reflect.DeepEqual(userSessionService.batchInput.IDs, []int64{77, 78}) {
+		t.Fatalf("expected session batch revoke route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userSessionService)
+	}
+}
+
 func TestRouterInstallsExportTaskRESTRoutes(t *testing.T) {
 	exportTaskService := &fakeRouterExportTaskService{}
 	router := newTestRouter(t, Dependencies{
@@ -3034,6 +3295,113 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 	}
 	if connected["type"] != realtimemodule.TypeConnectedV1 {
 		t.Fatalf("expected connected event, got %#v", connected)
+	}
+}
+
+func TestRouterInstallsAIAgentKnowledgeRESTRoutes(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
+		},
+		AiAgentService:     fakeRouterAIAgentService{},
+		AiKnowledgeService: fakeRouterAIKnowledgeService{},
+	})
+
+	cases := []struct{ method, path, body string }{
+		{http.MethodGet, "/api/admin/v1/ai-agents/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-agents", ""},
+		{http.MethodPost, "/api/admin/v1/ai-agents", `{"name":"agent","model_id":1}`},
+		{http.MethodPut, "/api/admin/v1/ai-agents/1", `{"name":"agent","model_id":1}`},
+		{http.MethodPatch, "/api/admin/v1/ai-agents/1/status", `{"status":1}`},
+		{http.MethodDelete, "/api/admin/v1/ai-agents/1", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", `{"name":"kb"}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/1", ""},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/1", `{"name":"kb"}`},
+		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/1/status", `{"status":1}`},
+		{http.MethodDelete, "/api/admin/v1/ai-knowledge-bases/1", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/1/documents", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/1/documents", `{"title":"doc","content":"text"}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/1/documents/2", ""},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/1/documents/2", `{"title":"doc","content":"text"}`},
+		{http.MethodDelete, "/api/admin/v1/ai-knowledge-bases/1/documents/2", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/1/documents/2/reindex", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/1/chunks", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/1/retrieval-test", `{"query":"权限"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tc.method, tc.path, body)
+			request.Header.Set("Authorization", "Bearer access-token")
+			if tc.body != "" {
+				request.Header.Set("Content-Type", "application/json")
+			}
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
+		},
+		AiConversationService: fakeRouterAIConversationService{},
+		AiMessageService:      fakeRouterAIMessageService{},
+		AiRunService:          fakeRouterAIRunService{},
+		AiChatService:         fakeRouterAIChatService{},
+	})
+
+	cases := []struct{ method, path, body string }{
+		{http.MethodGet, "/api/admin/v1/ai-conversations", ""},
+		{http.MethodGet, "/api/admin/v1/ai-conversations/1", ""},
+		{http.MethodPost, "/api/admin/v1/ai-conversations", `{"agent_id":1,"title":"会话"}`},
+		{http.MethodPut, "/api/admin/v1/ai-conversations/1", `{"agent_id":1,"title":"会话"}`},
+		{http.MethodPatch, "/api/admin/v1/ai-conversations/1/status", `{"status":1}`},
+		{http.MethodDelete, "/api/admin/v1/ai-conversations/1", ""},
+		{http.MethodGet, "/api/admin/v1/ai-conversations/1/messages", ""},
+		{http.MethodPatch, "/api/admin/v1/ai-messages/2/content", `{"content":"hello"}`},
+		{http.MethodPatch, "/api/admin/v1/ai-messages/2/feedback", `{"feedback":1}`},
+		{http.MethodDelete, "/api/admin/v1/ai-messages/2", ""},
+		{http.MethodDelete, "/api/admin/v1/ai-messages", `{"ids":[2,3]}`},
+		{http.MethodGet, "/api/admin/v1/ai-runs/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-runs", ""},
+		{http.MethodGet, "/api/admin/v1/ai-runs/1", ""},
+		{http.MethodGet, "/api/admin/v1/ai-runs/stats", ""},
+		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date", ""},
+		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent", ""},
+		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user", ""},
+		{http.MethodPost, "/api/admin/v1/ai-chat/runs", `{"content":"hello","agent_id":1}`},
+		{http.MethodGet, "/api/admin/v1/ai-chat/runs/1/events", ""},
+		{http.MethodPost, "/api/admin/v1/ai-chat/messages", `{"content":"hello","agent_id":1}`},
+		{http.MethodPost, "/api/admin/v1/ai-chat/runs/1/cancel", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tc.method, tc.path, body)
+			request.Header.Set("Authorization", "Bearer access-token")
+			if tc.body != "" {
+				request.Header.Set("Content-Type", "application/json")
+			}
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

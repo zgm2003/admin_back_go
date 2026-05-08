@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
@@ -75,6 +76,45 @@ func TestRegisterHandlesAuthLoginLogTask(t *testing.T) {
 	}
 }
 
+func TestRegisterHandlesAIChatRunExecuteTask(t *testing.T) {
+	service := &fakeAIChatJobService{}
+	mux := taskqueue.NewMux()
+	Register(mux, Dependencies{
+		Logger:        slog.Default(),
+		AIChatService: service,
+	})
+
+	task, err := aichat.NewRunExecuteTask(aichat.RunExecutePayload{RunID: 8})
+	if err != nil {
+		t.Fatalf("NewRunExecuteTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
+		t.Fatalf("ProcessProjectTask run execute returned error: %v", err)
+	}
+	if service.executeRunID != 8 {
+		t.Fatalf("expected execute run id 8, got %d", service.executeRunID)
+	}
+}
+
+func TestRegisterHandlesAIChatRunTimeoutTask(t *testing.T) {
+	service := &fakeAIChatJobService{}
+	mux := taskqueue.NewMux()
+	Register(mux, Dependencies{
+		Logger:        slog.Default(),
+		AIChatService: service,
+	})
+
+	task, err := aichat.NewRunTimeoutTask(aichat.RunTimeoutPayload{Limit: 9})
+	if err != nil {
+		t.Fatalf("NewRunTimeoutTask returned error: %v", err)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
+		t.Fatalf("ProcessProjectTask run timeout returned error: %v", err)
+	}
+	if service.timeoutLimit != 9 {
+		t.Fatalf("expected timeout limit 9, got %d", service.timeoutLimit)
+	}
+}
 func TestRegisterHandlesNotificationTaskHandlers(t *testing.T) {
 	service := &fakeNotificationTaskJobService{}
 	mux := taskqueue.NewMux()
@@ -205,6 +245,20 @@ func TestRegisterSchedulesDoesNotRegisterStaticNotificationDispatchDue(t *testin
 
 type fakeAuthRepository struct {
 	attempts []auth.LoginAttempt
+}
+type fakeAIChatJobService struct {
+	executeRunID int64
+	timeoutLimit int
+}
+
+func (f *fakeAIChatJobService) ExecuteRun(ctx context.Context, input aichat.RunExecuteInput) (*aichat.RunExecuteResult, error) {
+	f.executeRunID = input.RunID
+	return &aichat.RunExecuteResult{RunID: input.RunID}, nil
+}
+
+func (f *fakeAIChatJobService) TimeoutRuns(ctx context.Context, input aichat.RunTimeoutInput) (*aichat.RunTimeoutResult, error) {
+	f.timeoutLimit = input.Limit
+	return &aichat.RunTimeoutResult{}, nil
 }
 
 type fakeNotificationTaskJobService struct {
