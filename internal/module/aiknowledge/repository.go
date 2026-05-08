@@ -227,13 +227,13 @@ func (r *GormRepository) WithTx(ctx context.Context, fn func(Repository) error) 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return fn(&GormRepository{db: tx}) })
 }
 func (r *GormRepository) activeKB(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
+	return r.db.WithContext(ctx).Model(&KnowledgeBase{}).Where("is_del = ?", enum.CommonNo)
 }
 func (r *GormRepository) activeDoc(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
+	return r.db.WithContext(ctx).Model(&Document{}).Where("is_del = ?", enum.CommonNo)
 }
 func (r *GormRepository) activeChunk(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
+	return r.db.WithContext(ctx).Model(&Chunk{}).Where("is_del = ?", enum.CommonNo)
 }
 func jsonString(v map[string]any) *string {
 	if len(v) == 0 {

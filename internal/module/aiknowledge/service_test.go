@@ -3,6 +3,9 @@ package aiknowledge
 import (
 	"context"
 	"testing"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func TestServiceCreatesDocumentAndReindexesChunks(t *testing.T) {
@@ -44,6 +47,7 @@ func TestServiceRetrievalRanksChunks(t *testing.T) {
 type fakeRepo struct {
 	kb          *KnowledgeBase
 	txCalled    bool
+	txRepo      Repository
 	chunks      []ChunkPayload
 	chunkCount  int
 	indexStatus int
@@ -94,7 +98,88 @@ func (f *fakeRepo) CandidateChunks(ctx context.Context, knowledgeBaseID int64, t
 }
 func (f *fakeRepo) WithTx(ctx context.Context, fn func(Repository) error) error {
 	f.txCalled = true
+	if f.txRepo != nil {
+		return fn(f.txRepo)
+	}
 	return fn(f)
 }
 
 var _ Repository = (*fakeRepo)(nil)
+
+type trackingRepo struct {
+	fakeRepo
+	createCalledOn string
+	chunkCalledOn  string
+	statusCalledOn string
+	child          *trackingRepo
+}
+
+func (r *trackingRepo) CreateDocument(ctx context.Context, row Document) (int64, error) {
+	r.createCalledOn = r.name()
+	return 55, nil
+}
+
+func (r *trackingRepo) ReplaceDocumentChunks(ctx context.Context, knowledgeBaseID int64, documentID int64, chunks []ChunkPayload) (int, error) {
+	r.chunkCalledOn = r.name()
+	return len(chunks), nil
+}
+
+func (r *trackingRepo) UpdateDocumentChunkStatus(ctx context.Context, id int64, chunkCount int, indexStatus int) error {
+	r.statusCalledOn = r.name()
+	return nil
+}
+
+func (r *trackingRepo) WithTx(ctx context.Context, fn func(Repository) error) error {
+	r.txCalled = true
+	return fn(r.child)
+}
+
+func (r *trackingRepo) name() string {
+	if r == nil {
+		return ""
+	}
+	if r.child == nil {
+		return "tx"
+	}
+	return "root"
+}
+
+func TestServiceCreateDocumentUsesTransactionRepositoryForChunkWrites(t *testing.T) {
+	tx := &trackingRepo{}
+	root := &trackingRepo{
+		fakeRepo: fakeRepo{kb: &KnowledgeBase{ID: 1, Name: "KB", ChunkSize: 4, ChunkOverlap: 1, TopK: 5, ScoreThreshold: 0, Status: 1, IsDel: 2}},
+		child:    tx,
+	}
+	tx.kb = root.kb
+
+	_, appErr := NewService(root).CreateDocument(context.Background(), 7, DocumentMutationInput{KnowledgeBaseID: 1, Title: "Doc", SourceType: "manual", Content: "abcdefghij", Status: 1})
+	if appErr != nil {
+		t.Fatalf("CreateDocument error: %v", appErr)
+	}
+	if root.createCalledOn != "" || root.chunkCalledOn != "" || root.statusCalledOn != "" {
+		t.Fatalf("root repository was used inside tx: %#v", root)
+	}
+	if tx.createCalledOn != "tx" || tx.chunkCalledOn != "tx" || tx.statusCalledOn != "tx" {
+		t.Fatalf("transaction repository was not used for all writes: %#v", tx)
+	}
+}
+
+func TestGormRepositoryActiveScopesHaveModelsForWrites(t *testing.T) {
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		DSN:                       "gorm:gorm@tcp(127.0.0.1:9910)/gorm?charset=utf8mb4&parseTime=True&loc=Local",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatalf("open dry run db: %v", err)
+	}
+	repo := &GormRepository{db: db}
+	if repo.activeKB(t.Context()).Statement.Model == nil {
+		t.Fatalf("activeKB must set a model so Update can run")
+	}
+	if repo.activeDoc(t.Context()).Statement.Model == nil {
+		t.Fatalf("activeDoc must set a model so Update can run")
+	}
+	if repo.activeChunk(t.Context()).Statement.Model == nil {
+		t.Fatalf("activeChunk must set a model so Update can run")
+	}
+}

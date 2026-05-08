@@ -54,20 +54,11 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 	if content == "" {
 		return nil, apperror.BadRequest("消息内容不能为空")
 	}
-	if input.AgentID <= 0 {
-		return nil, apperror.BadRequest("智能体ID不能为空")
-	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
 	}
-	ok, err := repo.ActiveAgentExists(ctx, input.AgentID)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体失败", err)
-	}
-	if !ok {
-		return nil, apperror.BadRequest("关联的智能体不存在或已禁用")
-	}
+	agentID := input.AgentID
 	if input.ConversationID > 0 {
 		conversation, err := repo.Conversation(ctx, input.ConversationID)
 		if err != nil {
@@ -79,7 +70,26 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 		if conversation.UserID != userID {
 			return nil, apperror.Forbidden("无权访问该AI会话")
 		}
+		if conversation.Status != enum.CommonYes {
+			return nil, apperror.BadRequest("AI会话已禁用")
+		}
+		if agentID <= 0 {
+			agentID = conversation.AgentID
+		} else if agentID != conversation.AgentID {
+			return nil, apperror.BadRequest("会话智能体不匹配")
+		}
 	}
+	if agentID <= 0 {
+		return nil, apperror.BadRequest("智能体ID不能为空")
+	}
+	ok, err := repo.ActiveAgentExists(ctx, agentID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体失败", err)
+	}
+	if !ok {
+		return nil, apperror.BadRequest("关联的智能体不存在或已禁用")
+	}
+	input.AgentID = agentID
 	meta, appErr := encodeCreateMeta(input)
 	if appErr != nil {
 		return nil, appErr

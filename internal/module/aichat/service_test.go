@@ -2,12 +2,20 @@ package aichat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/middleware"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/taskqueue"
+
+	"github.com/gin-gonic/gin"
 )
 
 type fakeRepository struct {
@@ -124,6 +132,51 @@ func TestCreateRunCreatesConversationMessageRunEnqueuesAndPublishesStart(t *test
 	}
 }
 
+func TestCreateRunUsesExistingConversationAgentWhenAgentIDIsMissing(t *testing.T) {
+	repo := &fakeRepository{
+		activeAgents: map[int64]bool{5: true},
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo},
+	}
+	res, appErr := NewService(Dependencies{Repository: repo}).CreateRun(context.Background(), 7, CreateRunInput{ConversationID: 3, Content: " follow up "})
+	if appErr != nil {
+		t.Fatalf("CreateRun returned error: %v", appErr)
+	}
+	if res.AgentID != 5 || repo.createdInput.AgentID != 5 || repo.createdInput.ConversationID != 3 || repo.createdInput.Content != "follow up" {
+		t.Fatalf("unexpected existing conversation run: res=%#v input=%#v", res, repo.createdInput)
+	}
+}
+
+func TestCreateRunHandlerAcceptsConversationIDWithoutAgentID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeHTTPService{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, SessionID: 1, Platform: "admin"})
+	})
+	RegisterRoutes(router, service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-chat/runs", strings.NewReader(`{"content":"follow up","conversation_id":3}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected handler to accept conversation-only run, status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.input.ConversationID != 3 || service.input.AgentID != 0 || service.input.Content != "follow up" {
+		t.Fatalf("unexpected service input: %#v", service.input)
+	}
+	var body struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Code != 0 {
+		t.Fatalf("expected ok response, got body=%s", recorder.Body.String())
+	}
+}
+
 func TestCreateRunRejectsMissingContentAndInactiveAgent(t *testing.T) {
 	repo := &fakeRepository{activeAgents: map[int64]bool{5: false}}
 	_, appErr := NewService(Dependencies{Repository: repo}).CreateRun(context.Background(), 7, CreateRunInput{AgentID: 5, Content: ""})
@@ -191,6 +244,23 @@ func TestTimeoutRunsMarksOldRunsFailed(t *testing.T) {
 	if repo.timeoutLimit != 5 || res.Failed != 2 {
 		t.Fatalf("unexpected timeout result: repo=%#v res=%#v", repo, res)
 	}
+}
+
+type fakeHTTPService struct {
+	input CreateRunInput
+}
+
+func (f *fakeHTTPService) CreateRun(ctx context.Context, userID int64, input CreateRunInput) (*CreateRunResponse, *apperror.Error) {
+	f.input = input
+	return &CreateRunResponse{ConversationID: input.ConversationID, RunID: 11, RequestID: "rid", UserMessageID: 9, AgentID: input.AgentID}, nil
+}
+
+func (f *fakeHTTPService) Events(ctx context.Context, userID int64, runID int64, lastID string) (*EventsResponse, *apperror.Error) {
+	return nil, nil
+}
+
+func (f *fakeHTTPService) Cancel(ctx context.Context, userID int64, runID int64) (*CancelResponse, *apperror.Error) {
+	return nil, nil
 }
 
 func ptrInt64(v int64) *int64 { return &v }
