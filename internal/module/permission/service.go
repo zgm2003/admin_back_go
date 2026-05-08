@@ -990,7 +990,7 @@ func buildPermissionTree(items []Permission) []MenuItem {
 		nodes[item.ID] = MenuItem{
 			Index:    strconv.FormatInt(item.ID, 10),
 			Label:    item.Name,
-			Path:     item.Path,
+			Path:     menuRoutePath(item),
 			Icon:     item.Icon,
 			Children: []MenuItem{},
 			I18nKey:  item.I18nKey,
@@ -1025,4 +1025,11 @@ func buildPermissionTree(items []Permission) []MenuItem {
 		tree = append(tree, buildNode(rootID))
 	}
 	return tree
+}
+
+func menuRoutePath(permission Permission) string {
+	if permission.Type != TypePage {
+		return ""
+	}
+	return permission.Path
 }

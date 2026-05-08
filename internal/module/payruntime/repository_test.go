@@ -21,3 +21,23 @@ func TestNewRechargeOrderInitializesJSONExtra(t *testing.T) {
 		t.Fatalf("expected orders.extra to be valid JSON object, got %q", order.Extra)
 	}
 }
+
+func TestNewPayTransactionInitializesJSONFields(t *testing.T) {
+	txn := newPayTransaction(TransactionMutation{
+		TransactionNo: "T202605080001",
+		OrderID:       11,
+		OrderNo:       "R202605080001",
+		AttemptNo:     1,
+		ChannelID:     1,
+		Channel:       1,
+		PayMethod:     "web",
+		Amount:        3000,
+	})
+
+	if txn.ChannelResp != "{}" {
+		t.Fatalf("expected pay_transactions.channel_resp to be valid JSON object, got %q", txn.ChannelResp)
+	}
+	if txn.RawNotify != "{}" {
+		t.Fatalf("expected pay_transactions.raw_notify to be valid JSON object, got %q", txn.RawNotify)
+	}
+}

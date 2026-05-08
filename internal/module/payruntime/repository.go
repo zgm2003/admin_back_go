@@ -465,7 +465,15 @@ func (r *GormRepository) CreateTransaction(ctx context.Context, input Transactio
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	row := PayTransaction{
+	row := newPayTransaction(input)
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func newPayTransaction(input TransactionMutation) PayTransaction {
+	return PayTransaction{
 		TransactionNo: input.TransactionNo,
 		OrderID:       input.OrderID,
 		OrderNo:       input.OrderNo,
@@ -475,12 +483,10 @@ func (r *GormRepository) CreateTransaction(ctx context.Context, input Transactio
 		PayMethod:     input.PayMethod,
 		Amount:        input.Amount,
 		Status:        enum.PayTxnCreated,
+		ChannelResp:   "{}",
+		RawNotify:     "{}",
 		IsDel:         enum.CommonNo,
 	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return nil, err
-	}
-	return &row, nil
 }
 
 func (r *GormRepository) MarkTransactionWaiting(ctx context.Context, txnID int64, raw map[string]any, now time.Time) error {
