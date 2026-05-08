@@ -27,13 +27,7 @@ import (
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
-	"admin_back_go/internal/module/paychannel"
 	paymentmodule "admin_back_go/internal/module/payment"
-	"admin_back_go/internal/module/paynotifylog"
-	"admin_back_go/internal/module/payorder"
-	"admin_back_go/internal/module/payreconcile"
-	"admin_back_go/internal/module/payruntime"
-	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
@@ -46,12 +40,10 @@ import (
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
-	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/platform/logstore"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/secretbox"
 	storagecos "admin_back_go/internal/platform/storage/cos"
 	"admin_back_go/internal/platform/taskqueue"
@@ -136,16 +128,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
-	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
-	payNotifyLogService := paynotifylog.NewService(paynotifylog.NewGormRepository(resources.DB))
-	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
-	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
-	var payRuntimeLocker redislock.Locker
-	var payRuntimeNumberGenerator payruntime.NumberGenerator
 	var paymentNumberGenerator paymentmodule.NumberGenerator
 	if resources.Redis != nil && resources.Redis.Redis != nil {
-		payRuntimeLocker = redislock.New(resources.Redis.Redis)
-		payRuntimeNumberGenerator = payruntime.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
 	paymentCertResolver := payment.CertPathResolver{
@@ -155,22 +139,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	}
 	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
-	payReconcileService := payreconcile.NewServiceWithDependencies(payreconcile.Dependencies{
-		Repository:    payreconcile.NewGormRepository(resources.DB),
-		AlipayGateway: alipayGateway,
-		Secretbox:     secretBox,
-		CertResolver:  paymentCertResolver,
-	})
-	payRuntimeService := payruntime.NewService(payruntime.Dependencies{
-		Repository:      payruntime.NewGormRepository(resources.DB),
-		Gateway:         alipayGateway,
-		Secretbox:       secretBox,
-		CertResolver:    paymentCertResolver,
-		Locker:          payRuntimeLocker,
-		NumberGenerator: payRuntimeNumberGenerator,
-		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,
-		AttemptLockTTL:  cfg.Payment.AttemptLockTTL,
-	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:      paymentmodule.NewGormRepository(resources.DB),
 		Gateway:         paymentGateway,
@@ -179,7 +147,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		NumberGenerator: paymentNumberGenerator,
 	})
 
-	walletService := wallet.NewService(wallet.NewGormRepository(resources.DB))
 	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
 	if cfg.UploadToken.COS.Enabled {
 		cosSigner = storagecos.NewSigner(storagecos.Config{
@@ -317,12 +284,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,
-		PayChannelService:       payChannelService,
-		PayNotifyLogService:     payNotifyLogService,
-		PayOrderService:         payOrderService,
-		PayReconcileService:     payReconcileService,
-		PayRuntimeService:       payRuntimeService,
-		PayTransactionService:   payTransactionService,
 		PaymentService:          paymentService,
 		PermissionService:       permissionService,
 		QueueMonitorService:     queueMonitorService,
@@ -331,7 +292,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		SystemLogService:        systemLogService,
 		UploadConfigService:     uploadConfigService,
 		UploadTokenService:      uploadTokenService,
-		WalletService:           walletService,
 		RealtimeHandler:         realtimeStack.handler,
 		RoleService:             roleService,
 		AuthPlatformService:     authPlatformService,

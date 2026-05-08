@@ -25,13 +25,7 @@ import (
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
-	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/payment"
-	"admin_back_go/internal/module/paynotifylog"
-	"admin_back_go/internal/module/payorder"
-	"admin_back_go/internal/module/payreconcile"
-	"admin_back_go/internal/module/payruntime"
-	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/realtime"
@@ -45,7 +39,6 @@ import (
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
-	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
@@ -81,12 +74,6 @@ type Dependencies struct {
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlog.HTTPService
-	PayChannelService       paychannel.HTTPService
-	PayNotifyLogService     paynotifylog.HTTPService
-	PayOrderService         payorder.HTTPService
-	PayReconcileService     payreconcile.HTTPService
-	PayRuntimeService       payruntime.HTTPService
-	PayTransactionService   paytransaction.HTTPService
 	PaymentService          payment.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
@@ -95,7 +82,6 @@ type Dependencies struct {
 	SystemLogService        systemlog.HTTPService
 	UploadConfigService     uploadconfig.HTTPService
 	UploadTokenService      uploadtoken.HTTPService
-	WalletService           wallet.HTTPService
 	RealtimeHandler         *realtime.Handler
 	RoleService             role.HTTPService
 	AuthPlatformService     authplatform.HTTPService

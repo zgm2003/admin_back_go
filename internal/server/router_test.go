@@ -35,13 +35,7 @@ import (
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
-	"admin_back_go/internal/module/paychannel"
 	"admin_back_go/internal/module/payment"
-	"admin_back_go/internal/module/paynotifylog"
-	"admin_back_go/internal/module/payorder"
-	"admin_back_go/internal/module/payreconcile"
-	"admin_back_go/internal/module/payruntime"
-	"admin_back_go/internal/module/paytransaction"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
@@ -54,9 +48,7 @@ import (
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
-	"admin_back_go/internal/module/wallet"
 	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/readiness"
 
 	"github.com/gorilla/websocket"
@@ -1045,63 +1037,6 @@ func (f *fakeRouterSystemSettingService) ChangeStatus(ctx context.Context, id in
 	return nil
 }
 
-type fakeRouterPayChannelService struct {
-	listQuery   paychannel.ListQuery
-	createInput paychannel.CreateInput
-	updateID    int64
-	statusID    int64
-	status      int
-	deleteID    int64
-}
-
-type fakeRouterPayTransactionService struct {
-	listQuery paytransaction.ListQuery
-	detailID  int64
-}
-
-type fakeRouterPayNotifyLogService struct {
-	listQuery paynotifylog.ListQuery
-	detailID  int64
-}
-
-type fakeRouterPayReconcileService struct {
-	listQuery payreconcile.ListQuery
-	detailID  int64
-	retryID   int64
-	fileID    int64
-	fileType  string
-}
-
-type fakeRouterPayOrderService struct {
-	statusCountQuery payorder.StatusCountQuery
-	listQuery        payorder.ListQuery
-	detailID         int64
-	remarkID         int64
-	remark           string
-	closeID          int64
-	closeReason      string
-}
-
-type fakeRouterPayRuntimeService struct {
-	createOrderUserID    int64
-	createOrderInput     payruntime.RechargeOrderCreateInput
-	createAttemptUserID  int64
-	createAttemptOrderNo string
-	createAttemptInput   payruntime.PayAttemptCreateInput
-	listOrderUserID      int64
-	listOrderQuery       payruntime.CurrentUserOrderListQuery
-	queryResultUserID    int64
-	queryResultOrderNo   string
-	cancelOrderUserID    int64
-	cancelOrderOrderNo   string
-	cancelOrderInput     payruntime.CancelOrderInput
-	walletSummaryUserID  int64
-	walletBillsUserID    int64
-	walletBillsQuery     payruntime.WalletBillsQuery
-	notifyInput          payruntime.AlipayNotifyInput
-	notifyBody           string
-}
-
 type fakeRouterPaymentService struct {
 	channelListQuery        payment.ChannelListQuery
 	createChannelInput      payment.ChannelMutationInput
@@ -1125,11 +1060,6 @@ type fakeRouterPaymentService struct {
 	eventID                 int64
 	notifyInput             payment.NotifyInput
 	notifyBody              string
-}
-type fakeRouterWalletService struct {
-	listQuery       wallet.ListQuery
-	txnQuery        wallet.TransactionListQuery
-	adjustmentInput wallet.CreateAdjustmentInput
 }
 
 func (f *fakeRouterPaymentService) ChannelInit(ctx context.Context) (*payment.ChannelInitResponse, *apperror.Error) {
@@ -1222,265 +1152,6 @@ func (f *fakeRouterPaymentService) HandleAlipayNotify(ctx context.Context, input
 		return f.notifyBody, nil
 	}
 	return "success", nil
-}
-func (f *fakeRouterPayRuntimeService) CreateRechargeOrder(ctx context.Context, userID int64, input payruntime.RechargeOrderCreateInput) (*payruntime.RechargeOrderCreateResponse, *apperror.Error) {
-	f.createOrderUserID = userID
-	f.createOrderInput = input
-	return &payruntime.RechargeOrderCreateResponse{OrderID: 1, OrderNo: "R1", PayAmount: input.Amount, ExpireTime: "2026-05-06 12:30:00"}, nil
-}
-
-func (f *fakeRouterPayRuntimeService) CreatePayAttempt(ctx context.Context, userID int64, orderNo string, input payruntime.PayAttemptCreateInput) (*payruntime.PayAttemptCreateResponse, *apperror.Error) {
-	f.createAttemptUserID = userID
-	f.createAttemptOrderNo = orderNo
-	f.createAttemptInput = input
-	return &payruntime.PayAttemptCreateResponse{TransactionNo: "T1", TransactionID: 2, OrderNo: orderNo, PayAmount: 1000, Channel: enum.PayChannelAlipay, PayMethod: input.PayMethod, PayData: map[string]any{"content": "pay-url"}}, nil
-}
-
-func (f *fakeRouterPayRuntimeService) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query payruntime.CurrentUserOrderListQuery) (*payruntime.CurrentUserOrderListResponse, *apperror.Error) {
-	f.listOrderUserID = userID
-	f.listOrderQuery = query
-	return &payruntime.CurrentUserOrderListResponse{List: []payruntime.CurrentUserOrderItem{{ID: 1, OrderNo: "R1"}}, Page: payruntime.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1}}, nil
-}
-
-func (f *fakeRouterPayRuntimeService) QueryCurrentUserRechargeResult(ctx context.Context, userID int64, orderNo string) (*payruntime.OrderQueryResultResponse, *apperror.Error) {
-	f.queryResultUserID = userID
-	f.queryResultOrderNo = orderNo
-	return &payruntime.OrderQueryResultResponse{OrderNo: orderNo}, nil
-}
-
-func (f *fakeRouterPayRuntimeService) CancelCurrentUserRechargeOrder(ctx context.Context, userID int64, orderNo string, input payruntime.CancelOrderInput) *apperror.Error {
-	f.cancelOrderUserID = userID
-	f.cancelOrderOrderNo = orderNo
-	f.cancelOrderInput = input
-	return nil
-}
-
-func (f *fakeRouterPayRuntimeService) CurrentUserWalletSummary(ctx context.Context, userID int64) (*payruntime.WalletSummaryResponse, *apperror.Error) {
-	f.walletSummaryUserID = userID
-	return &payruntime.WalletSummaryResponse{WalletExists: enum.CommonYes}, nil
-}
-
-func (f *fakeRouterPayRuntimeService) CurrentUserWalletBills(ctx context.Context, userID int64, query payruntime.WalletBillsQuery) (*payruntime.WalletBillsResponse, *apperror.Error) {
-	f.walletBillsUserID = userID
-	f.walletBillsQuery = query
-	return &payruntime.WalletBillsResponse{List: []payruntime.WalletBillItem{}, Page: payruntime.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
-}
-
-func (f *fakeRouterPayRuntimeService) HandleAlipayNotify(ctx context.Context, input payruntime.AlipayNotifyInput) (string, *apperror.Error) {
-	f.notifyInput = input
-	if f.notifyBody != "" {
-		return f.notifyBody, nil
-	}
-	return "success", nil
-}
-
-func (f *fakeRouterPayTransactionService) Init(ctx context.Context) (*paytransaction.InitResponse, *apperror.Error) {
-	return paytransaction.NewService(nil).Init(ctx)
-}
-
-func (f *fakeRouterPayTransactionService) List(ctx context.Context, query paytransaction.ListQuery) (*paytransaction.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &paytransaction.ListResponse{
-		List: []paytransaction.ListItem{{ID: 1, TransactionNo: "T1"}},
-		Page: paytransaction.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterPayTransactionService) Detail(ctx context.Context, id int64) (*paytransaction.DetailResponse, *apperror.Error) {
-	f.detailID = id
-	return &paytransaction.DetailResponse{Transaction: paytransaction.DetailTransaction{ID: id, TransactionNo: "T1"}}, nil
-}
-
-func (f *fakeRouterPayNotifyLogService) Init(ctx context.Context) (*paynotifylog.InitResponse, *apperror.Error) {
-	return paynotifylog.NewService(nil).Init(ctx)
-}
-
-func (f *fakeRouterPayNotifyLogService) List(ctx context.Context, query paynotifylog.ListQuery) (*paynotifylog.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &paynotifylog.ListResponse{
-		List: []paynotifylog.ListItem{{ID: 1, TransactionNo: "T1"}},
-		Page: paynotifylog.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterPayNotifyLogService) Detail(ctx context.Context, id int64) (*paynotifylog.DetailResponse, *apperror.Error) {
-	f.detailID = id
-	return &paynotifylog.DetailResponse{Log: paynotifylog.DetailLog{ID: id, TransactionNo: "T1"}}, nil
-}
-
-func (f *fakeRouterPayReconcileService) Init(ctx context.Context) (*payreconcile.InitResponse, *apperror.Error) {
-	return payreconcile.NewService(&fakeRouterPayReconcileRepository{}).Init(ctx)
-}
-
-func (f *fakeRouterPayReconcileService) List(ctx context.Context, query payreconcile.ListQuery) (*payreconcile.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &payreconcile.ListResponse{
-		List: []payreconcile.ListItem{{ID: 1, ReconcileDate: "2026-05-05"}},
-		Page: payreconcile.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterPayReconcileService) Detail(ctx context.Context, id int64) (*payreconcile.DetailResponse, *apperror.Error) {
-	f.detailID = id
-	return &payreconcile.DetailResponse{Task: payreconcile.DetailTask{ID: id, ReconcileDate: "2026-05-05"}}, nil
-}
-
-func (f *fakeRouterPayReconcileService) Retry(ctx context.Context, id int64) *apperror.Error {
-	f.retryID = id
-	return nil
-}
-
-func (f *fakeRouterPayReconcileService) File(ctx context.Context, id int64, fileType string) (*payreconcile.FileResponse, *apperror.Error) {
-	f.fileID = id
-	f.fileType = fileType
-	return &payreconcile.FileResponse{URL: "https://cos.example/file.csv", Filename: "file.csv"}, nil
-}
-
-type fakeRouterPayReconcileRepository struct{}
-
-func (fakeRouterPayReconcileRepository) ActivePayChannels(ctx context.Context) ([]payreconcile.ChannelSummary, error) {
-	return []payreconcile.ChannelSummary{{ID: 1, Name: "支付宝", Channel: enum.PayChannelAlipay}}, nil
-}
-
-func (fakeRouterPayReconcileRepository) FindReconcileTask(ctx context.Context, channelID int64, date time.Time, billType int) (*payreconcile.Task, error) {
-	return nil, nil
-}
-
-func (fakeRouterPayReconcileRepository) CreateReconcileTask(ctx context.Context, task payreconcile.Task) error {
-	return nil
-}
-
-func (fakeRouterPayReconcileRepository) ListPendingTasks(ctx context.Context, limit int) ([]payreconcile.Task, error) {
-	return nil, nil
-}
-
-func (fakeRouterPayReconcileRepository) GetTaskForUpdate(ctx context.Context, id int64) (*payreconcile.Task, error) {
-	return nil, nil
-}
-
-func (fakeRouterPayReconcileRepository) MarkTaskStatus(ctx context.Context, id int64, status int, fields map[string]any) error {
-	return nil
-}
-
-func (fakeRouterPayReconcileRepository) ListSuccessfulTransactionsForBill(ctx context.Context, channelID int64, date time.Time) ([]payreconcile.BillTransactionRow, error) {
-	return nil, nil
-}
-
-func (fakeRouterPayReconcileRepository) FindActiveAlipayChannel(ctx context.Context, channelID int64) (*payreconcile.Channel, error) {
-	return nil, nil
-}
-
-func (r fakeRouterPayReconcileRepository) WithTx(ctx context.Context, fn func(payreconcile.Repository) error) error {
-	return fn(r)
-}
-
-func (fakeRouterPayReconcileRepository) List(ctx context.Context, query payreconcile.ListQuery) ([]payreconcile.ListRow, int64, error) {
-	return nil, 0, nil
-}
-
-func (fakeRouterPayReconcileRepository) Detail(ctx context.Context, id int64) (*payreconcile.Task, error) {
-	return nil, nil
-}
-
-func (fakeRouterPayReconcileRepository) UpdateRetry(ctx context.Context, id int64, fields map[string]any) error {
-	return nil
-}
-
-func (f *fakeRouterPayOrderService) Init(ctx context.Context) (*payorder.InitResponse, *apperror.Error) {
-	return payorder.NewService(nil).Init(ctx)
-}
-
-func (f *fakeRouterPayOrderService) StatusCount(ctx context.Context, query payorder.StatusCountQuery) ([]payorder.StatusCountItem, *apperror.Error) {
-	f.statusCountQuery = query
-	return []payorder.StatusCountItem{{Label: "已支付", Value: 3, Count: 1}}, nil
-}
-
-func (f *fakeRouterPayOrderService) List(ctx context.Context, query payorder.ListQuery) (*payorder.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &payorder.ListResponse{
-		List: []payorder.ListItem{{ID: 1, OrderNo: "R1"}},
-		Page: payorder.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterPayOrderService) Detail(ctx context.Context, id int64) (*payorder.DetailResponse, *apperror.Error) {
-	f.detailID = id
-	return &payorder.DetailResponse{Order: payorder.DetailOrder{ID: id, OrderNo: "R1"}}, nil
-}
-
-func (f *fakeRouterPayOrderService) Remark(ctx context.Context, id int64, input payorder.RemarkInput) *apperror.Error {
-	f.remarkID = id
-	f.remark = input.Remark
-	return nil
-}
-
-func (f *fakeRouterPayOrderService) Close(ctx context.Context, id int64, input payorder.CloseInput) *apperror.Error {
-	f.closeID = id
-	f.closeReason = input.Reason
-	return nil
-}
-
-func (f *fakeRouterWalletService) Init(ctx context.Context) (*wallet.InitResponse, *apperror.Error) {
-	return wallet.NewService(nil).Init(ctx)
-}
-
-func (f *fakeRouterWalletService) List(ctx context.Context, query wallet.ListQuery) (*wallet.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &wallet.ListResponse{
-		List: []wallet.ListItem{{ID: 1, UserID: 7, UserName: "admin"}},
-		Page: wallet.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterWalletService) Transactions(ctx context.Context, query wallet.TransactionListQuery) (*wallet.TransactionListResponse, *apperror.Error) {
-	f.txnQuery = query
-	return &wallet.TransactionListResponse{
-		List: []wallet.TransactionItem{{ID: 1, UserID: 7, Type: 3, TypeText: "系统调账"}},
-		Page: wallet.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterWalletService) CreateAdjustment(ctx context.Context, input wallet.CreateAdjustmentInput) (*wallet.WalletAdjustmentCreateResponse, *apperror.Error) {
-	f.adjustmentInput = input
-	return &wallet.WalletAdjustmentCreateResponse{
-		TransactionID: 8,
-		BizActionNo:   "WALLET:ADJUST:idem-0001",
-		BalanceBefore: 1000,
-		BalanceAfter:  1100,
-	}, nil
-}
-
-func (f *fakeRouterPayChannelService) Init(ctx context.Context) (*paychannel.InitResponse, *apperror.Error) {
-	return paychannel.NewService(nil, secretbox.New("")).Init(ctx)
-}
-
-func (f *fakeRouterPayChannelService) List(ctx context.Context, query paychannel.ListQuery) (*paychannel.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &paychannel.ListResponse{
-		List: []paychannel.ListItem{{ID: 1, Name: "支付宝"}},
-		Page: paychannel.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
-	}, nil
-}
-
-func (f *fakeRouterPayChannelService) Create(ctx context.Context, input paychannel.CreateInput) (int64, *apperror.Error) {
-	f.createInput = input
-	return 1, nil
-}
-
-func (f *fakeRouterPayChannelService) Update(ctx context.Context, id int64, input paychannel.UpdateInput) *apperror.Error {
-	f.updateID = id
-	return nil
-}
-
-func (f *fakeRouterPayChannelService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
-	f.statusID = id
-	f.status = status
-	return nil
-}
-
-func (f *fakeRouterPayChannelService) Delete(ctx context.Context, id int64) *apperror.Error {
-	f.deleteID = id
-	return nil
 }
 
 type fakeRouterUploadTokenService struct {
