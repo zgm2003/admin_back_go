@@ -26,6 +26,7 @@ import (
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
 	"admin_back_go/internal/module/payreconcile"
@@ -86,6 +87,7 @@ type Dependencies struct {
 	PayReconcileService     payreconcile.HTTPService
 	PayRuntimeService       payruntime.HTTPService
 	PayTransactionService   paytransaction.HTTPService
+	PaymentService          payment.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
 	QueueMonitorUI          http.Handler
@@ -151,19 +153,14 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
 	crontask.RegisterRoutes(router, deps.CronTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
-	paychannel.RegisterRoutes(router, deps.PayChannelService)
-	paynotifylog.RegisterRoutes(router, deps.PayNotifyLogService)
-	payorder.RegisterRoutes(router, deps.PayOrderService)
-	payreconcile.RegisterRoutes(router, deps.PayReconcileService)
-	payruntime.RegisterRoutes(router, deps.PayRuntimeService)
-	paytransaction.RegisterRoutes(router, deps.PayTransactionService)
+	payment.RegisterRoutes(router, deps.PaymentService)
+
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
 	systemsetting.RegisterRoutes(router, deps.SystemSettingService)
 	systemlog.RegisterRoutes(router, deps.SystemLogService)
 	uploadconfig.RegisterRoutes(router, deps.UploadConfigService)
 	uploadtoken.RegisterRoutes(router, deps.UploadTokenService)
-	wallet.RegisterRoutes(router, deps.WalletService)
 	realtime.RegisterRoutes(router, deps.RealtimeHandler)
 	role.RegisterRoutes(router, deps.RoleService)
 	authplatform.RegisterRoutes(router, deps.AuthPlatformService)

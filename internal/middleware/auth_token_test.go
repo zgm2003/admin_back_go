@@ -31,6 +31,15 @@ func TestAuthTokenSkipsPublicPath(t *testing.T) {
 	}
 }
 
+func TestDefaultAuthSkipPathsOnlyExposeNewPaymentNotify(t *testing.T) {
+	paths := DefaultAuthSkipPaths()
+	if _, ok := paths["/api/payment/notify/alipay"]; !ok {
+		t.Fatalf("new payment notify path must be public by default")
+	}
+	if _, ok := paths["/api/pay/notify/alipay"]; ok {
+		t.Fatalf("legacy pay notify path must not remain public by default")
+	}
+}
 func TestAuthTokenRejectsMissingBearer(t *testing.T) {
 	router := newAuthTokenTestRouter(AuthTokenConfig{})
 

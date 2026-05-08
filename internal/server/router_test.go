@@ -36,6 +36,7 @@ import (
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
+	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
 	"admin_back_go/internal/module/payreconcile"
@@ -1101,12 +1102,127 @@ type fakeRouterPayRuntimeService struct {
 	notifyBody           string
 }
 
+type fakeRouterPaymentService struct {
+	channelListQuery        payment.ChannelListQuery
+	createChannelInput      payment.ChannelMutationInput
+	updateChannelID         int64
+	statusChannelID         int64
+	status                  int
+	deleteChannelID         int64
+	orderListQuery          payment.OrderListQuery
+	createOrderInput        payment.CreateOrderInput
+	createOrderCalledUserID int64
+	resultUserID            int64
+	resultOrderNo           string
+	payUserID               int64
+	payOrderNo              string
+	payReturnURL            string
+	cancelUserID            int64
+	cancelOrderNo           string
+	adminOrderNo            string
+	closeOrderNo            string
+	eventListQuery          payment.EventListQuery
+	eventID                 int64
+	notifyInput             payment.NotifyInput
+	notifyBody              string
+}
 type fakeRouterWalletService struct {
 	listQuery       wallet.ListQuery
 	txnQuery        wallet.TransactionListQuery
 	adjustmentInput wallet.CreateAdjustmentInput
 }
 
+func (f *fakeRouterPaymentService) ChannelInit(ctx context.Context) (*payment.ChannelInitResponse, *apperror.Error) {
+	return payment.NewService(payment.Dependencies{}).ChannelInit(ctx)
+}
+
+func (f *fakeRouterPaymentService) ListChannels(ctx context.Context, query payment.ChannelListQuery) (*payment.ChannelListResponse, *apperror.Error) {
+	f.channelListQuery = query
+	return &payment.ChannelListResponse{List: []payment.ChannelListItem{{ID: 1, Name: "支付宝"}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
+}
+
+func (f *fakeRouterPaymentService) CreateChannel(ctx context.Context, input payment.ChannelMutationInput) (int64, *apperror.Error) {
+	f.createChannelInput = input
+	return 11, nil
+}
+
+func (f *fakeRouterPaymentService) UpdateChannel(ctx context.Context, id int64, input payment.ChannelMutationInput) *apperror.Error {
+	f.updateChannelID = id
+	return nil
+}
+
+func (f *fakeRouterPaymentService) ChangeChannelStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusChannelID = id
+	f.status = status
+	return nil
+}
+
+func (f *fakeRouterPaymentService) DeleteChannel(ctx context.Context, id int64) *apperror.Error {
+	f.deleteChannelID = id
+	return nil
+}
+
+func (f *fakeRouterPaymentService) OrderInit(ctx context.Context) (*payment.ChannelInitResponse, *apperror.Error) {
+	return payment.NewService(payment.Dependencies{}).OrderInit(ctx)
+}
+
+func (f *fakeRouterPaymentService) ListOrders(ctx context.Context, query payment.OrderListQuery) (*payment.OrderListResponse, *apperror.Error) {
+	f.orderListQuery = query
+	return &payment.OrderListResponse{List: []payment.OrderListItem{{ID: 1, OrderNo: "P1"}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
+}
+
+func (f *fakeRouterPaymentService) GetAdminOrder(ctx context.Context, orderNo string) (*payment.OrderDetailResponse, *apperror.Error) {
+	f.adminOrderNo = orderNo
+	return &payment.OrderDetailResponse{Order: payment.OrderListItem{OrderNo: orderNo}}, nil
+}
+
+func (f *fakeRouterPaymentService) GetOrderResult(ctx context.Context, userID int64, orderNo string) (*payment.ResultResponse, *apperror.Error) {
+	f.resultUserID = userID
+	f.resultOrderNo = orderNo
+	return &payment.ResultResponse{OrderNo: orderNo}, nil
+}
+
+func (f *fakeRouterPaymentService) CreateOrder(ctx context.Context, input payment.CreateOrderInput) (*payment.CreateOrderResponse, *apperror.Error) {
+	f.createOrderInput = input
+	f.createOrderCalledUserID = input.UserID
+	return &payment.CreateOrderResponse{OrderNo: "P1", AmountCents: input.AmountCents}, nil
+}
+
+func (f *fakeRouterPaymentService) PayOrder(ctx context.Context, userID int64, orderNo string, returnURL string) (*payment.PayOrderResponse, *apperror.Error) {
+	f.payUserID = userID
+	f.payOrderNo = orderNo
+	f.payReturnURL = returnURL
+	return &payment.PayOrderResponse{OrderNo: orderNo, PayURL: "https://pay.example.test"}, nil
+}
+
+func (f *fakeRouterPaymentService) CancelOrder(ctx context.Context, userID int64, orderNo string) *apperror.Error {
+	f.cancelUserID = userID
+	f.cancelOrderNo = orderNo
+	return nil
+}
+
+func (f *fakeRouterPaymentService) CloseAdminOrder(ctx context.Context, orderNo string) *apperror.Error {
+	f.closeOrderNo = orderNo
+	return nil
+}
+
+func (f *fakeRouterPaymentService) ListEvents(ctx context.Context, query payment.EventListQuery) (*payment.EventListResponse, *apperror.Error) {
+	f.eventListQuery = query
+	return &payment.EventListResponse{List: []payment.EventListItem{{ID: 1, OrderNo: query.OrderNo}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
+}
+
+func (f *fakeRouterPaymentService) GetEvent(ctx context.Context, id int64) (*payment.EventDetailResponse, *apperror.Error) {
+	f.eventID = id
+	return &payment.EventDetailResponse{Event: payment.EventListItem{ID: id}}, nil
+}
+
+func (f *fakeRouterPaymentService) HandleAlipayNotify(ctx context.Context, input payment.NotifyInput) (string, *apperror.Error) {
+	f.notifyInput = input
+	if f.notifyBody != "" {
+		return f.notifyBody, nil
+	}
+	return "success", nil
+}
 func (f *fakeRouterPayRuntimeService) CreateRechargeOrder(ctx context.Context, userID int64, input payruntime.RechargeOrderCreateInput) (*payruntime.RechargeOrderCreateResponse, *apperror.Error) {
 	f.createOrderUserID = userID
 	f.createOrderInput = input
@@ -2554,437 +2670,103 @@ func TestRouterInstallsSystemSettingRESTRoutes(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsPayChannelRESTRoutes(t *testing.T) {
-	payChannelService := &fakeRouterPayChannelService{}
+func TestRouterDoesNotInstallLegacyPayWalletRoutes(t *testing.T) {
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/pay-channels"): "pay_channel_add",
-		},
-		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			return nil
-		},
-		PayChannelService: payChannelService,
 	})
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-channels/page-init", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay channel init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-channels?current_page=1&page_size=20&name=ali&channel=2&status=1", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay channel list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if payChannelService.listQuery.CurrentPage != 1 || payChannelService.listQuery.PageSize != 20 || payChannelService.listQuery.Name != "ali" {
-		t.Fatalf("pay channel list query mismatch: %#v", payChannelService.listQuery)
-	}
-	if payChannelService.listQuery.Channel == nil || *payChannelService.listQuery.Channel != 2 || payChannelService.listQuery.Status == nil || *payChannelService.listQuery.Status != 1 {
-		t.Fatalf("pay channel optional filters mismatch: %#v", payChannelService.listQuery)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/pay-channels", strings.NewReader(`{"name":"支付宝","channel":2,"supported_methods":["web"],"mch_id":"mch","is_sandbox":1,"status":1}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payChannelService.createInput.Channel != 2 {
-		t.Fatalf("expected pay channel create route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), payChannelService.createInput)
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/admin/v1/pay-channels/page-init"},
+		{http.MethodGet, "/api/admin/v1/pay-orders/page-init"},
+		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init"},
+		{http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init"},
+		{http.MethodGet, "/api/admin/v1/wallets/page-init"},
+		{http.MethodPost, "/api/pay/notify/alipay"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(tt.method, tt.path, nil)
+		request.Header.Set("Authorization", "Bearer access-token")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("legacy route %s %s must not be installed, got code=%d body=%s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
-
-func TestRouterInstallsPayTransactionReadOnlyRESTRoutes(t *testing.T) {
-	payTransactionService := &fakeRouterPayTransactionService{}
-	router := newTestRouter(t, Dependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
-		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-transactions"): "pay_transaction_list",
-		},
-		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			return nil
-		},
-		PayTransactionService: payTransactionService,
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-transactions/page-init", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay transaction init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-transactions?current_page=2&page_size=30&order_no=R1&transaction_no=T1&user_id=7&channel=2&status=3&start_date=2026-04-01&end_date=2026-04-30", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay transaction list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	query := payTransactionService.listQuery
-	if query.CurrentPage != 2 || query.PageSize != 30 || query.OrderNo != "R1" || query.TransactionNo != "T1" || query.StartDate != "2026-04-01" || query.EndDate != "2026-04-30" {
-		t.Fatalf("pay transaction list query mismatch: %#v", query)
-	}
-	if query.UserID == nil || *query.UserID != 7 || query.Channel == nil || *query.Channel != 2 || query.Status == nil || *query.Status != 3 {
-		t.Fatalf("pay transaction optional filters mismatch: %#v", query)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-transactions/9", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payTransactionService.detailID != 9 {
-		t.Fatalf("expected pay transaction detail route, code=%d id=%d body=%s", recorder.Code, payTransactionService.detailID, recorder.Body.String())
-	}
-}
-
-func TestRouterInstallsPayNotifyLogReadOnlyRESTRoutes(t *testing.T) {
-	payNotifyLogService := &fakeRouterPayNotifyLogService{}
-	router := newTestRouter(t, Dependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
-		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-notify-logs"): "pay_notify_view",
-		},
-		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			return nil
-		},
-		PayNotifyLogService: payNotifyLogService,
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay notify log init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-notify-logs?current_page=2&page_size=30&transaction_no=T1&channel=2&notify_type=1&process_status=2&start_date=2026-05-01&end_date=2026-05-07", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay notify log list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	query := payNotifyLogService.listQuery
-	if query.CurrentPage != 2 || query.PageSize != 30 || query.TransactionNo != "T1" || query.StartDate != "2026-05-01" || query.EndDate != "2026-05-07" {
-		t.Fatalf("pay notify log list query mismatch: %#v", query)
-	}
-	if query.Channel == nil || *query.Channel != 2 || query.NotifyType == nil || *query.NotifyType != 1 || query.ProcessStatus == nil || *query.ProcessStatus != 2 {
-		t.Fatalf("pay notify log optional filters mismatch: %#v", query)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-notify-logs/9", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payNotifyLogService.detailID != 9 {
-		t.Fatalf("expected pay notify log detail route, code=%d id=%d body=%s", recorder.Code, payNotifyLogService.detailID, recorder.Body.String())
-	}
-}
-
-func TestRouterInstallsPayReconcileAdminRESTRoutes(t *testing.T) {
-	payReconcileService := &fakeRouterPayReconcileService{}
-	router := newTestRouter(t, Dependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
-		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks"):                 "pay_reconcile_list",
-			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry"):     "pay_reconcile_retry",
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id/files/:type"): "pay_reconcile_download",
-		},
-		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			return nil
-		},
-		PayReconcileService: payReconcileService,
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/page-init", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay reconcile init route, code=%d body=%s", recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks?current_page=2&page_size=30&channel=2&status=6&bill_type=1&start_date=2026-05-01&end_date=2026-05-05", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay reconcile list route, code=%d body=%s", recorder.Code, recorder.Body.String())
-	}
-	if payReconcileService.listQuery.CurrentPage != 2 || payReconcileService.listQuery.PageSize != 30 || payReconcileService.listQuery.Channel == nil || *payReconcileService.listQuery.Channel != enum.PayChannelAlipay || payReconcileService.listQuery.Status == nil || *payReconcileService.listQuery.Status != payreconcile.ReconcileFailed || payReconcileService.listQuery.BillType == nil || *payReconcileService.listQuery.BillType != payreconcile.BillTypePay || payReconcileService.listQuery.StartDate != "2026-05-01" || payReconcileService.listQuery.EndDate != "2026-05-05" {
-		t.Fatalf("pay reconcile list query mismatch: %#v", payReconcileService.listQuery)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/9", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payReconcileService.detailID != 9 {
-		t.Fatalf("expected pay reconcile detail route, code=%d id=%d body=%s", recorder.Code, payReconcileService.detailID, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/9/retry", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payReconcileService.retryID != 9 {
-		t.Fatalf("expected pay reconcile retry route, code=%d id=%d body=%s", recorder.Code, payReconcileService.retryID, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/9/files/platform", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payReconcileService.fileID != 9 || payReconcileService.fileType != "platform" {
-		t.Fatalf("expected pay reconcile file route, code=%d id=%d type=%q body=%s", recorder.Code, payReconcileService.fileID, payReconcileService.fileType, recorder.Body.String())
-	}
-}
-
-func TestRouterInstallsPayOrderAdminRESTRoutes(t *testing.T) {
-	payOrderService := &fakeRouterPayOrderService{}
-	router := newTestRouter(t, Dependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
-		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/pay-orders"):              "pay_recharge_list",
-			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark"): "pay_order_edit",
-		},
-		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			return nil
-		},
-		PayOrderService: payOrderService,
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders/page-init", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay order init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders/status-count?order_no=R1&user_id=7", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay order status-count status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if payOrderService.statusCountQuery.OrderNo != "R1" || payOrderService.statusCountQuery.UserID == nil || *payOrderService.statusCountQuery.UserID != 7 {
-		t.Fatalf("pay order status-count query mismatch: %#v", payOrderService.statusCountQuery)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders?current_page=2&page_size=30&order_no=R1&user_id=7&order_type=1&pay_status=3&start_date=2026-04-01&end_date=2026-04-30", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay order list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	query := payOrderService.listQuery
-	if query.CurrentPage != 2 || query.PageSize != 30 || query.OrderNo != "R1" || query.StartDate != "2026-04-01" || query.EndDate != "2026-04-30" {
-		t.Fatalf("pay order list query mismatch: %#v", query)
-	}
-	if query.UserID == nil || *query.UserID != 7 || query.OrderType == nil || *query.OrderType != 1 || query.PayStatus == nil || *query.PayStatus != 3 {
-		t.Fatalf("pay order optional filters mismatch: %#v", query)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/pay-orders/9", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payOrderService.detailID != 9 {
-		t.Fatalf("expected pay order detail route, code=%d id=%d body=%s", recorder.Code, payOrderService.detailID, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/pay-orders/9/remark", strings.NewReader(`{"remark":"ok"}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payOrderService.remarkID != 9 || payOrderService.remark != "ok" {
-		t.Fatalf("expected pay order remark route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payOrderService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/pay-orders/9/close", strings.NewReader(`{"reason":"admin"}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payOrderService.closeID != 9 || payOrderService.closeReason != "admin" {
-		t.Fatalf("expected pay order close route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payOrderService)
-	}
-}
-
-func TestRouterInstallsWalletReadOnlyRESTRoutes(t *testing.T) {
-	walletService := &fakeRouterWalletService{}
-	router := newTestRouter(t, Dependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
-		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallets"):             "pay_wallet_list",
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/wallet-transactions"): "pay_wallet_list",
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments"): "pay_wallet_adjust",
-		},
-		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			return nil
-		},
-		WalletService: walletService,
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallets/page-init", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected wallet init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallets?current_page=2&page_size=30&user_id=7&start_date=2026-05-01&end_date=2026-05-06", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected wallet list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if walletService.listQuery.CurrentPage != 2 || walletService.listQuery.PageSize != 30 || walletService.listQuery.UserID == nil || *walletService.listQuery.UserID != 7 || walletService.listQuery.StartDate != "2026-05-01" || walletService.listQuery.EndDate != "2026-05-06" {
-		t.Fatalf("wallet list query mismatch: %#v", walletService.listQuery)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet-transactions?current_page=1&page_size=10&user_id=7&type=3&start_date=2026-05-01&end_date=2026-05-06", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected wallet transaction list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if walletService.txnQuery.CurrentPage != 1 || walletService.txnQuery.PageSize != 10 || walletService.txnQuery.UserID == nil || *walletService.txnQuery.UserID != 7 || walletService.txnQuery.Type == nil || *walletService.txnQuery.Type != enum.WalletTypeAdjust {
-		t.Fatalf("wallet transaction query mismatch: %#v", walletService.txnQuery)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/wallet-adjustments", strings.NewReader(`{"user_id":7,"delta":100,"reason":"人工修正","idempotency_key":"idem-0001"}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected wallet adjustment status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if walletService.adjustmentInput.UserID != 7 || walletService.adjustmentInput.Delta != 100 || walletService.adjustmentInput.Reason != "人工修正" || walletService.adjustmentInput.OperatorID != 1 {
-		t.Fatalf("wallet adjustment input mismatch: %#v", walletService.adjustmentInput)
-	}
-}
-
-func TestRouterInstallsPayRuntimeRoutesAndRawNotify(t *testing.T) {
-	payRuntimeService := &fakeRouterPayRuntimeService{notifyBody: "success"}
+func TestRouterInstallsPaymentRoutesAndRawNotify(t *testing.T) {
+	paymentService := &fakeRouterPaymentService{notifyBody: "success"}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
 		},
-		PayRuntimeService: payRuntimeService,
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/channels"):  "payment_channel_list",
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/channels"): "payment_channel_add",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/orders"):    "payment_order_list",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/events"):    "payment_event_list",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error { return nil },
+		PaymentService:    paymentService,
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/recharge-orders", strings.NewReader(`{"amount":1000,"pay_method":"web","channel_id":1}`))
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/channels?current_page=2&page_size=30&name=ali&provider=alipay&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected recharge order status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+		t.Fatalf("expected payment channel list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if payRuntimeService.createOrderUserID != 7 || payRuntimeService.createOrderInput.Amount != 1000 || payRuntimeService.createOrderInput.PayMethod != "web" || payRuntimeService.createOrderInput.ChannelID != 1 {
-		t.Fatalf("recharge order input mismatch: %#v user=%d", payRuntimeService.createOrderInput, payRuntimeService.createOrderUserID)
+	if paymentService.channelListQuery.CurrentPage != 2 || paymentService.channelListQuery.Provider != "alipay" || paymentService.channelListQuery.Status != 1 {
+		t.Fatalf("payment channel list query mismatch: %#v", paymentService.channelListQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/recharge-orders/R1/pay-attempts", strings.NewReader(`{"pay_method":"h5","return_url":"https://example.test/pay-return"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders", strings.NewReader(`{"channel_id":1,"pay_method":"web","subject":"test","amount_cents":100}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected pay attempt status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if payRuntimeService.createAttemptUserID != 7 || payRuntimeService.createAttemptOrderNo != "R1" || payRuntimeService.createAttemptInput.PayMethod != "h5" {
-		t.Fatalf("pay attempt input mismatch: %#v service=%#v", payRuntimeService.createAttemptInput, payRuntimeService)
+	if recorder.Code != http.StatusOK || paymentService.createOrderCalledUserID != 7 || paymentService.createOrderInput.AmountCents != 100 {
+		t.Fatalf("expected payment create order route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/recharge-orders?current_page=2&page_size=30", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payRuntimeService.listOrderUserID != 7 || payRuntimeService.listOrderQuery.CurrentPage != 2 || payRuntimeService.listOrderQuery.PageSize != 30 {
-		t.Fatalf("expected current-user recharge list route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/recharge-orders/R1/result", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payRuntimeService.queryResultUserID != 7 || payRuntimeService.queryResultOrderNo != "R1" {
-		t.Fatalf("expected current-user recharge result route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/recharge-orders/R1/cancel", strings.NewReader(`{"reason":"用户取消"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders/P1/pay", strings.NewReader(`{"return_url":"https://example.test/return"}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payRuntimeService.cancelOrderUserID != 7 || payRuntimeService.cancelOrderOrderNo != "R1" || payRuntimeService.cancelOrderInput.Reason != "用户取消" {
-		t.Fatalf("expected current-user recharge cancel route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
+	if recorder.Code != http.StatusOK || paymentService.payUserID != 7 || paymentService.payOrderNo != "P1" || paymentService.payReturnURL != "https://example.test/return" {
+		t.Fatalf("expected payment pay order route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet/summary", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/events?current_page=1&page_size=20&order_no=P1&event_type=notify&process_status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payRuntimeService.walletSummaryUserID != 7 {
-		t.Fatalf("expected current-user wallet summary route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
+	if recorder.Code != http.StatusOK || paymentService.eventListQuery.OrderNo != "P1" || paymentService.eventListQuery.EventType != "notify" {
+		t.Fatalf("expected payment event list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), paymentService.eventListQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/wallet/bills?current_page=3&page_size=10", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || payRuntimeService.walletBillsUserID != 7 || payRuntimeService.walletBillsQuery.CurrentPage != 3 || payRuntimeService.walletBillsQuery.PageSize != 10 {
-		t.Fatalf("expected current-user wallet bills route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), payRuntimeService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/pay/notify/alipay", strings.NewReader(`out_trade_no=T1&trade_no=A1`))
+	request = httptest.NewRequest(http.MethodPost, "/api/payment/notify/alipay", strings.NewReader(`out_trade_no=P1&trade_no=A1`))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected notify status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if strings.TrimSpace(recorder.Body.String()) != "success" {
-		t.Fatalf("expected raw success body, got %q", recorder.Body.String())
+	if strings.TrimSpace(recorder.Body.String()) != "success" || strings.Contains(recorder.Body.String(), `"code"`) {
+		t.Fatalf("notify must return raw text/plain service body, got content-type=%q body=%q", recorder.Header().Get("Content-Type"), recorder.Body.String())
 	}
-	if strings.Contains(recorder.Body.String(), `"code"`) {
-		t.Fatalf("notify must not use JSON envelope: %s", recorder.Body.String())
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+		t.Fatalf("notify must return text/plain, got %q", got)
 	}
-	if payRuntimeService.notifyInput.Form["out_trade_no"] != "T1" {
-		t.Fatalf("notify form mismatch: %#v", payRuntimeService.notifyInput.Form)
+	if paymentService.notifyInput.Form["out_trade_no"] != "P1" {
+		t.Fatalf("notify form mismatch: %#v", paymentService.notifyInput.Form)
 	}
 }
-
 func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {
 	systemLogService := &fakeRouterSystemLogService{}
 	router := newTestRouter(t, Dependencies{

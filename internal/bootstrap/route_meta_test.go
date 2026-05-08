@@ -69,31 +69,23 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/cron-tasks/:id", "devTools_cronTask_del"},
 		{http.MethodDelete, "/api/admin/v1/cron-tasks", "devTools_cronTask_del"},
 		{http.MethodGet, "/api/admin/v1/cron-tasks/:id/logs", "devTools_cronTask_logs"},
-		{http.MethodPost, "/api/admin/v1/pay-channels", "pay_channel_add"},
-		{http.MethodPut, "/api/admin/v1/pay-channels/:id", "pay_channel_edit"},
-		{http.MethodPatch, "/api/admin/v1/pay-channels/:id/status", "pay_channel_status"},
-		{http.MethodDelete, "/api/admin/v1/pay-channels/:id", "pay_channel_del"},
-		{http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init", "pay_notify_view"},
-		{http.MethodGet, "/api/admin/v1/pay-notify-logs", "pay_notify_view"},
-		{http.MethodGet, "/api/admin/v1/pay-notify-logs/:id", "pay_notify_view"},
-		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init", "pay_transaction_list"},
-		{http.MethodGet, "/api/admin/v1/pay-transactions", "pay_transaction_list"},
-		{http.MethodGet, "/api/admin/v1/pay-transactions/:id", "pay_transaction_list"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/page-init", "pay_reconcile_list"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks", "pay_reconcile_list"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id", "pay_reconcile_list"},
-		{http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry", "pay_reconcile_retry"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id/files/:type", "pay_reconcile_download"},
-		{http.MethodGet, "/api/admin/v1/pay-orders/page-init", "pay_recharge_list"},
-		{http.MethodGet, "/api/admin/v1/pay-orders/status-count", "pay_recharge_list"},
-		{http.MethodGet, "/api/admin/v1/pay-orders", "pay_recharge_list"},
-		{http.MethodGet, "/api/admin/v1/pay-orders/:id", "pay_recharge_list"},
-		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "pay_order_edit"},
-		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "pay_order_edit"},
-		{http.MethodGet, "/api/admin/v1/wallets/page-init", "pay_wallet_list"},
-		{http.MethodGet, "/api/admin/v1/wallets", "pay_wallet_list"},
-		{http.MethodGet, "/api/admin/v1/wallet-transactions", "pay_wallet_list"},
-		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "pay_wallet_adjust"},
+		{http.MethodGet, "/api/admin/v1/payment/channels/page-init", "payment_channel_list"},
+		{http.MethodGet, "/api/admin/v1/payment/channels", "payment_channel_list"},
+		{http.MethodPost, "/api/admin/v1/payment/channels", "payment_channel_add"},
+		{http.MethodPut, "/api/admin/v1/payment/channels/:id", "payment_channel_edit"},
+		{http.MethodPatch, "/api/admin/v1/payment/channels/:id/status", "payment_channel_status"},
+		{http.MethodDelete, "/api/admin/v1/payment/channels/:id", "payment_channel_del"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/page-init", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/page-init", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no", "payment_order_list"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/close", "payment_order_close"},
+		{http.MethodGet, "/api/admin/v1/payment/events", "payment_event_list"},
+		{http.MethodGet, "/api/admin/v1/payment/events/:id", "payment_event_list"},
+		{http.MethodGet, "/api/admin/v1/payment/events", "payment_event_list"},
+		{http.MethodGet, "/api/admin/v1/payment/events/:id", "payment_event_list"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
@@ -135,6 +127,60 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	if _, ok := rules[middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/profile")]; ok {
 		t.Fatalf("current profile update must not require user-manager button permission")
 	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/admin/v1/payment/orders"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no/result"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
+		{http.MethodPost, "/api/payment/notify/alipay"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("payment current-user/read/notify route %s %s must not require RBAC button permission", tt.method, tt.path)
+		}
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/admin/v1/pay-channels"},
+		{http.MethodGet, "/api/admin/v1/pay-orders/page-init"},
+		{http.MethodPost, "/api/admin/v1/wallet-adjustments"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("legacy pay/wallet route metadata must not remain: %s %s", tt.method, tt.path)
+		}
+	}
+
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/admin/v1/payment/orders"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no/result"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
+		{http.MethodPost, "/api/payment/notify/alipay"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("payment read/current-user/notify route %s %s must not be operation-logged", tt.method, tt.path)
+		}
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/admin/v1/pay-channels"},
+		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close"},
+		{http.MethodPost, "/api/admin/v1/wallet-adjustments"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("legacy pay/wallet operation metadata must not remain: %s %s", tt.method, tt.path)
+		}
+	}
+
 	if _, ok := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens")]; ok {
 		t.Fatalf("upload token create must be current-user capability and must not require RBAC button permission")
 	}
@@ -151,14 +197,7 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/admin/v1/recharge-orders"},
-		{http.MethodPost, "/api/admin/v1/recharge-orders"},
-		{http.MethodGet, "/api/admin/v1/recharge-orders/:order_no/result"},
-		{http.MethodPatch, "/api/admin/v1/recharge-orders/:order_no/cancel"},
-		{http.MethodPost, "/api/admin/v1/recharge-orders/:order_no/pay-attempts"},
-		{http.MethodGet, "/api/admin/v1/wallet/summary"},
-		{http.MethodGet, "/api/admin/v1/wallet/bills"},
-		{http.MethodPost, "/api/pay/notify/alipay"},
+		{http.MethodPost, "/api/payment/notify/alipay"},
 		{http.MethodGet, "/api/admin/v1/notifications/init"},
 		{http.MethodGet, "/api/admin/v1/notifications"},
 		{http.MethodGet, "/api/admin/v1/notifications/unread-count"},
@@ -293,14 +332,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/cron-tasks/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/cron-tasks/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/cron-tasks", "delete_batch"},
-		{http.MethodPost, "/api/admin/v1/pay-channels", "create"},
-		{http.MethodPut, "/api/admin/v1/pay-channels/:id", "update"},
-		{http.MethodPatch, "/api/admin/v1/pay-channels/:id/status", "change_status"},
-		{http.MethodDelete, "/api/admin/v1/pay-channels/:id", "delete"},
-		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/close", "close"},
-		{http.MethodPatch, "/api/admin/v1/pay-orders/:id/remark", "remark"},
-		{http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry", "retry"},
-		{http.MethodPost, "/api/admin/v1/wallet-adjustments", "adjust"},
+		{http.MethodPost, "/api/admin/v1/payment/channels", "create"},
+		{http.MethodPut, "/api/admin/v1/payment/channels/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/payment/channels/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/payment/channels/:id", "delete"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/close", "close"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
@@ -359,41 +395,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		t.Fatalf("upload token create must not be operation-logged because the response contains temporary STS credentials")
 	}
 
-	walletRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet-adjustments")]
-	if walletRule.Module != "pay_wallet" || walletRule.Action != "adjust" || walletRule.Title != "钱包调账" {
-		t.Fatalf("wallet adjustment operation rule mismatch: %#v", walletRule)
-	}
-
-	reconcileRetryRule := rules[middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/pay-reconcile-tasks/:id/retry")]
-	if reconcileRetryRule.Module != "pay_reconcile" || reconcileRetryRule.Action != "retry" || reconcileRetryRule.Title != "重试对账任务" {
-		t.Fatalf("pay reconcile retry operation rule mismatch: %#v", reconcileRetryRule)
-	}
-
 	for _, tt := range []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/admin/v1/recharge-orders"},
-		{http.MethodPost, "/api/admin/v1/recharge-orders"},
-		{http.MethodGet, "/api/admin/v1/recharge-orders/:order_no/result"},
-		{http.MethodPatch, "/api/admin/v1/recharge-orders/:order_no/cancel"},
-		{http.MethodPost, "/api/admin/v1/recharge-orders/:order_no/pay-attempts"},
-		{http.MethodGet, "/api/admin/v1/wallet/summary"},
-		{http.MethodGet, "/api/admin/v1/wallet/bills"},
-		{http.MethodPost, "/api/pay/notify/alipay"},
-		{http.MethodGet, "/api/admin/v1/pay-transactions/page-init"},
-		{http.MethodGet, "/api/admin/v1/pay-transactions"},
-		{http.MethodGet, "/api/admin/v1/pay-transactions/:id"},
-		{http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init"},
-		{http.MethodGet, "/api/admin/v1/pay-notify-logs"},
-		{http.MethodGet, "/api/admin/v1/pay-notify-logs/:id"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/page-init"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id"},
-		{http.MethodGet, "/api/admin/v1/pay-reconcile-tasks/:id/files/:type"},
-		{http.MethodGet, "/api/admin/v1/wallets/page-init"},
-		{http.MethodGet, "/api/admin/v1/wallets"},
-		{http.MethodGet, "/api/admin/v1/wallet-transactions"},
+		{http.MethodPost, "/api/payment/notify/alipay"},
 		{http.MethodPatch, "/api/admin/v1/notifications/:id/read"},
 		{http.MethodPatch, "/api/admin/v1/notifications/read"},
 		{http.MethodDelete, "/api/admin/v1/notifications/:id"},

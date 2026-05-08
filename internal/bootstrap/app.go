@@ -28,6 +28,7 @@ import (
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/paychannel"
+	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/paynotifylog"
 	"admin_back_go/internal/module/payorder"
 	"admin_back_go/internal/module/payreconcile"
@@ -141,9 +142,11 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	payTransactionService := paytransaction.NewService(paytransaction.NewGormRepository(resources.DB))
 	var payRuntimeLocker redislock.Locker
 	var payRuntimeNumberGenerator payruntime.NumberGenerator
+	var paymentNumberGenerator paymentmodule.NumberGenerator
 	if resources.Redis != nil && resources.Redis.Redis != nil {
 		payRuntimeLocker = redislock.New(resources.Redis.Redis)
 		payRuntimeNumberGenerator = payruntime.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
+		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
 	paymentCertResolver := payment.CertPathResolver{
 		CertBaseDir:         cfg.Payment.CertBaseDir,
@@ -151,6 +154,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		WorkingDir:          ".",
 	}
 	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
+	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
 	payReconcileService := payreconcile.NewServiceWithDependencies(payreconcile.Dependencies{
 		Repository:    payreconcile.NewGormRepository(resources.DB),
 		AlipayGateway: alipayGateway,
@@ -167,6 +171,14 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,
 		AttemptLockTTL:  cfg.Payment.AttemptLockTTL,
 	})
+	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
+		Repository:      paymentmodule.NewGormRepository(resources.DB),
+		Gateway:         paymentGateway,
+		Secretbox:       secretBox,
+		CertResolver:    paymentCertResolver,
+		NumberGenerator: paymentNumberGenerator,
+	})
+
 	walletService := wallet.NewService(wallet.NewGormRepository(resources.DB))
 	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
 	if cfg.UploadToken.COS.Enabled {
@@ -311,6 +323,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		PayReconcileService:     payReconcileService,
 		PayRuntimeService:       payRuntimeService,
 		PayTransactionService:   payTransactionService,
+		PaymentService:          paymentService,
 		PermissionService:       permissionService,
 		QueueMonitorService:     queueMonitorService,
 		QueueMonitorUI:          queueMonitorUI,
