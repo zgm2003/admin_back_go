@@ -80,6 +80,23 @@ function Get-ObjectArray($Value) {
   return @($Value)
 }
 
+function Test-RoutePath($Routes, [string]$Path) {
+  foreach ($route in (Get-ObjectArray $Routes)) {
+    if ($route.path -eq $Path) { return $true }
+  }
+  return $false
+}
+
+function Test-HasProperty($Value, [string]$Name) {
+  if ($null -eq $Value) { return $false }
+  return @($Value.PSObject.Properties.Name) -contains $Name
+}
+
+function Test-JsonArray($Value) {
+  if ($null -eq $Value) { return $false }
+  return $Value -is [System.Array]
+}
+
 function Get-MaxOperationLogID($Response) {
   [int64]$maxID = 0
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
@@ -511,6 +528,196 @@ function Assert-PayChannelList($Response) {
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-UsersInitAIRoutes($Response) {
+  Assert-ApiOK $Response 'users init AI route gate'
+
+  $goodsPresent = Test-RoutePath $Response.data.router '/ai/goods'
+  $cinePresent = Test-RoutePath $Response.data.router '/ai/cine'
+  $modelsPresent = Test-RoutePath $Response.data.router '/ai/models'
+  $toolsPresent = Test-RoutePath $Response.data.router '/ai/tools'
+  $promptsPresent = Test-RoutePath $Response.data.router '/ai/prompts'
+
+  if ($goodsPresent) {
+    throw 'users init still returns retired AI goods route /ai/goods'
+  }
+  if ($cinePresent) {
+    throw 'users init still returns retired AI cine route /ai/cine'
+  }
+  if (-not $modelsPresent) {
+    throw 'users init missing retained AI config route /ai/models'
+  }
+  if (-not $toolsPresent) {
+    throw 'users init missing retained AI config route /ai/tools'
+  }
+  if (-not $promptsPresent) {
+    throw 'users init missing retained AI config route /ai/prompts'
+  }
+
+  return [pscustomobject]@{
+    GoodsPresent = $goodsPresent
+    CinePresent = $cinePresent
+    ModelsPresent = $modelsPresent
+    ToolsPresent = $toolsPresent
+    PromptsPresent = $promptsPresent
+  }
+}
+
+function Assert-AIModelInit($Response) {
+  Assert-ApiOK $Response 'AI model init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "AI model init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $drivers = Get-ObjectArray $Response.data.dict.ai_driver_arr
+  $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
+  if ($drivers.Count -lt 1 -or $statuses.Count -ne 2) {
+    throw "AI model init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    DriverCount = $drivers.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-AIModelList($Response) {
+  Assert-ApiOK $Response 'AI model list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI model list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $secretLeak = $false
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.driver)) {
+      throw "AI model item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ((Test-HasProperty $item 'api_key') -or (Test-HasProperty $item 'api_key_enc')) {
+      $secretLeak = $true
+    }
+  }
+
+  if ($secretLeak) {
+    throw "AI model list leaked api_key/api_key_enc fields: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+    SecretLeak = $secretLeak
+  }
+}
+
+function Assert-AIToolInit($Response) {
+  Assert-ApiOK $Response 'AI tool init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "AI tool init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $executors = Get-ObjectArray $Response.data.dict.ai_executor_type_arr
+  $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
+  if ($executors.Count -ne 3 -or $statuses.Count -ne 2) {
+    throw "AI tool init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ExecutorCount = $executors.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-AIToolList($Response) {
+  Assert-ApiOK $Response 'AI tool list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI tool list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.code)) {
+      throw "AI tool item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-AIToolAgentOptions($Response) {
+  Assert-ApiOK $Response 'AI tool agent options'
+
+  if ($null -eq $Response.data.bound_tool_ids -or $null -eq $Response.data.all_tools) {
+    throw "AI tool agent options missing fields: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $retiredPresent = $false
+  foreach ($item in (Get-ObjectArray $Response.data.all_tools)) {
+    if ([string]$item.code -eq 'cine_generate_keyframe') {
+      $retiredPresent = $true
+    }
+  }
+
+  if ($retiredPresent) {
+    throw "AI tool agent options returned retired cine_generate_keyframe: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    OptionCount = (Get-ObjectArray $Response.data.all_tools).Count
+    RetiredCinePresent = $retiredPresent
+  }
+}
+
+function Assert-AIPromptList($Response) {
+  Assert-ApiOK $Response 'AI prompt list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI prompt list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
+      throw "AI prompt item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if (-not (Test-JsonArray $item.tags)) {
+      throw "AI prompt item tags must be an array: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if (-not (Test-JsonArray $item.variables)) {
+      throw "AI prompt item variables must be an array: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+    TagsArrays = $true
+    VariablesArrays = $true
+  }
+}
+
+function Assert-AIPromptDetail($Response) {
+  Assert-ApiOK $Response 'AI prompt detail'
+
+  if ([int64]$Response.data.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$Response.data.title)) {
+    throw "AI prompt detail shape mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if (-not (Test-JsonArray $Response.data.tags)) {
+    throw "AI prompt detail tags must be an array: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if (-not (Test-JsonArray $Response.data.variables)) {
+    throw "AI prompt detail variables must be an array: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    ID = [int64]$Response.data.id
+    TagsArrays = $true
+    VariablesArrays = $true
   }
 }
 
@@ -2069,6 +2276,11 @@ func main() {
   Assert-ApiOK $me 'full smoke users me'
   Clear-UserButtonCache ([int64]$me.data.user_id) $Platform
 
+  $usersInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $usersInitAIRouteSummary = Assert-UsersInitAIRoutes $usersInit
+
   $userSessionPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/user-sessions/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2178,6 +2390,49 @@ func main() {
     -TimeoutSec 10
   $payChannelListSummary = Assert-PayChannelList $payChannelList
   $payRuntimeChannelReady = Assert-PayRuntimeChannelReady $payChannelList
+
+  $aiModelInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-models/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiModelInitSummary = Assert-AIModelInit $aiModelInit
+
+  $aiModelList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-models?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiModelListSummary = Assert-AIModelList $aiModelList
+
+  $aiToolInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiToolInitSummary = Assert-AIToolInit $aiToolInit
+
+  $aiToolList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiToolListSummary = Assert-AIToolList $aiToolList
+
+  $aiToolAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/agent-options" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiToolAgentOptionsSummary = Assert-AIToolAgentOptions $aiToolAgentOptions
+
+  $aiPromptList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-prompts?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiPromptListSummary = Assert-AIPromptList $aiPromptList
+  $aiPromptDetailCode = $null
+  $aiPromptDetailID = 0
+  $aiPromptDetailSummary = $null
+  $aiPromptRows = Get-ObjectArray $aiPromptList.data.list
+  if ($aiPromptRows.Count -gt 0) {
+    $firstAiPrompt = $aiPromptRows[0]
+    $aiPromptDetail = Invoke-RestMethod "$baseURL/api/admin/v1/ai-prompts/$($firstAiPrompt.id)" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $aiPromptDetailSummary = Assert-AIPromptDetail $aiPromptDetail
+    $aiPromptDetailCode = $aiPromptDetail.code
+    $aiPromptDetailID = $aiPromptDetailSummary.ID
+  }
 
   $currentUserWalletSummary = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/summary" `
     -Headers $authHeaders `
@@ -2511,6 +2766,36 @@ func main() {
     pay_runtime_channel_status = $payRuntimeChannelReady.Status
     pay_runtime_channel_id = $payRuntimeChannelReady.ChannelID
     pay_runtime_channel_supported_methods_count = $payRuntimeChannelReady.SupportedMethodsCount
+    ai_model_init_code = $aiModelInit.code
+    ai_model_driver_dict_count = $aiModelInitSummary.DriverCount
+    ai_model_status_dict_count = $aiModelInitSummary.StatusCount
+    ai_model_list_code = $aiModelList.code
+    ai_model_list_count = $aiModelListSummary.ListCount
+    ai_model_total = $aiModelListSummary.Total
+    ai_model_secret_leak = $aiModelListSummary.SecretLeak
+    ai_tool_init_code = $aiToolInit.code
+    ai_tool_executor_dict_count = $aiToolInitSummary.ExecutorCount
+    ai_tool_status_dict_count = $aiToolInitSummary.StatusCount
+    ai_tool_list_code = $aiToolList.code
+    ai_tool_list_count = $aiToolListSummary.ListCount
+    ai_tool_total = $aiToolListSummary.Total
+    ai_tool_agent_options_code = $aiToolAgentOptions.code
+    ai_tool_agent_options_count = $aiToolAgentOptionsSummary.OptionCount
+    ai_tool_retired_cine_present = $aiToolAgentOptionsSummary.RetiredCinePresent
+    ai_prompt_list_code = $aiPromptList.code
+    ai_prompt_list_count = $aiPromptListSummary.ListCount
+    ai_prompt_total = $aiPromptListSummary.Total
+    ai_prompt_tags_arrays = $aiPromptListSummary.TagsArrays
+    ai_prompt_variables_arrays = $aiPromptListSummary.VariablesArrays
+    ai_prompt_detail_code = $aiPromptDetailCode
+    ai_prompt_detail_id = $aiPromptDetailID
+    ai_prompt_detail_tags_arrays = if ($null -eq $aiPromptDetailSummary) { $true } else { $aiPromptDetailSummary.TagsArrays }
+    ai_prompt_detail_variables_arrays = if ($null -eq $aiPromptDetailSummary) { $true } else { $aiPromptDetailSummary.VariablesArrays }
+    ai_goods_route_present = $usersInitAIRouteSummary.GoodsPresent
+    ai_cine_route_present = $usersInitAIRouteSummary.CinePresent
+    ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
+    ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
+    ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
     pay_runtime_wallet_summary_code = $currentUserWalletSummary.code
     pay_runtime_wallet_exists = $currentUserWalletSummaryResult.WalletExists
     pay_runtime_wallet_balance = $currentUserWalletSummaryResult.Balance

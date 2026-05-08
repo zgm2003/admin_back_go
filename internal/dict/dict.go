@@ -311,3 +311,19 @@ func uploadExtOptions(values []string) []Option[string] {
 	}
 	return options
 }
+
+func AIDriverOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIDrivers))
+	for _, value := range enum.AIDrivers {
+		options = append(options, Option[string]{Label: enum.AIDriverLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIExecutorTypeOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.AIExecutorTypes))
+	for _, value := range enum.AIExecutorTypes {
+		options = append(options, Option[int]{Label: enum.AIExecutorTypeLabels[value], Value: value})
+	}
+	return options
+}

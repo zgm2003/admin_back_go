@@ -17,6 +17,9 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/aimodel"
+	"admin_back_go/internal/module/aiprompt"
+	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -372,6 +375,132 @@ func (f *fakeRouterClientVersionService) UpdateJSON(ctx context.Context, platfor
 func (f *fakeRouterClientVersionService) CurrentCheck(ctx context.Context, query clientversion.CurrentCheckQuery) (*clientversion.CurrentCheckResponse, *apperror.Error) {
 	f.currentCheckQuery = query
 	return &clientversion.CurrentCheckResponse{ForceUpdate: true}, nil
+}
+
+type fakeRouterAIModelService struct {
+	initCalled bool
+	listQuery  aimodel.ListQuery
+}
+
+func (f *fakeRouterAIModelService) Init(ctx context.Context) (*aimodel.InitResponse, *apperror.Error) {
+	f.initCalled = true
+	return &aimodel.InitResponse{Dict: aimodel.InitDict{}}, nil
+}
+
+func (f *fakeRouterAIModelService) List(ctx context.Context, query aimodel.ListQuery) (*aimodel.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &aimodel.ListResponse{
+		List: []aimodel.ListItem{{ID: 1, Name: "OpenAI"}},
+		Page: aimodel.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterAIModelService) Create(ctx context.Context, input aimodel.CreateInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (f *fakeRouterAIModelService) Update(ctx context.Context, id int64, input aimodel.UpdateInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIModelService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIModelService) Delete(ctx context.Context, id int64) *apperror.Error {
+	return nil
+}
+
+type fakeRouterAIToolService struct {
+	initCalled bool
+	listQuery  aitool.ListQuery
+	agentID    int64
+}
+
+func (f *fakeRouterAIToolService) Init(ctx context.Context) (*aitool.InitResponse, *apperror.Error) {
+	f.initCalled = true
+	return &aitool.InitResponse{Dict: aitool.InitDict{}}, nil
+}
+
+func (f *fakeRouterAIToolService) List(ctx context.Context, query aitool.ListQuery) (*aitool.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &aitool.ListResponse{
+		List: []aitool.ListItem{{ID: 1, Name: "统计", Code: "query_user_stats"}},
+		Page: aitool.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterAIToolService) Create(ctx context.Context, input aitool.CreateInput) (int64, *apperror.Error) {
+	return 1, nil
+}
+
+func (f *fakeRouterAIToolService) Update(ctx context.Context, id int64, input aitool.UpdateInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIToolService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIToolService) Delete(ctx context.Context, id int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIToolService) AgentOptions(ctx context.Context, agentID int64) (*aitool.AgentToolsResponse, *apperror.Error) {
+	f.agentID = agentID
+	return &aitool.AgentToolsResponse{BoundToolIDs: []int64{1}, AllTools: []aitool.ToolOption{{Value: 1, Label: "统计", Code: "query_user_stats"}}}, nil
+}
+
+func (f *fakeRouterAIToolService) SyncAgentBindings(ctx context.Context, agentID int64, toolIDs []int64) *apperror.Error {
+	return nil
+}
+
+type fakeRouterAIPromptService struct {
+	listUserID   int64
+	listQuery    aiprompt.ListQuery
+	detailID     int64
+	createUserID int64
+	createInput  aiprompt.CreateInput
+}
+
+func (f *fakeRouterAIPromptService) Init(ctx context.Context) (*aiprompt.InitResponse, *apperror.Error) {
+	return &aiprompt.InitResponse{}, nil
+}
+
+func (f *fakeRouterAIPromptService) List(ctx context.Context, userID int64, query aiprompt.ListQuery) (*aiprompt.ListResponse, *apperror.Error) {
+	f.listUserID = userID
+	f.listQuery = query
+	return &aiprompt.ListResponse{
+		List: []aiprompt.ListItem{{ID: 1, Title: "提示词"}},
+		Page: aiprompt.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterAIPromptService) Detail(ctx context.Context, userID int64, id int64) (*aiprompt.DetailResponse, *apperror.Error) {
+	f.detailID = id
+	return &aiprompt.DetailResponse{ID: id, Title: "提示词", Content: "内容"}, nil
+}
+
+func (f *fakeRouterAIPromptService) Create(ctx context.Context, userID int64, input aiprompt.CreateInput) (int64, *apperror.Error) {
+	f.createUserID = userID
+	f.createInput = input
+	return 1, nil
+}
+
+func (f *fakeRouterAIPromptService) Update(ctx context.Context, userID int64, id int64, input aiprompt.UpdateInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIPromptService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
+	return nil
+}
+
+func (f *fakeRouterAIPromptService) ToggleFavorite(ctx context.Context, userID int64, id int64) (*aiprompt.ToggleFavoriteResponse, *apperror.Error) {
+	return &aiprompt.ToggleFavoriteResponse{IsFavorite: enum.CommonYes}, nil
+}
+
+func (f *fakeRouterAIPromptService) Use(ctx context.Context, userID int64, id int64) (*aiprompt.UseResponse, *apperror.Error) {
+	return &aiprompt.UseResponse{Content: "内容"}, nil
 }
 
 type fakeRouterOperationLogService struct {
@@ -1982,6 +2111,60 @@ func TestRouterInstallsClientVersionRESTRoutes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotCodes, wantCodes) {
 		t.Fatalf("client version permission codes mismatch: got=%#v want=%#v", gotCodes, wantCodes)
+	}
+}
+
+func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
+	modelService := &fakeRouterAIModelService{}
+	toolService := &fakeRouterAIToolService{}
+	promptService := &fakeRouterAIPromptService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: "admin"}, nil
+		},
+		AiModelService:  modelService,
+		AiToolService:   toolService,
+		AiPromptService: promptService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-models/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !modelService.initCalled {
+		t.Fatalf("expected AI model page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), modelService.initCalled)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-models?current_page=1&page_size=20&name=GPT&driver=openai&status=1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || modelService.listQuery.Driver != enum.AIDriverOpenAI {
+		t.Fatalf("expected AI model list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), modelService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !toolService.initCalled {
+		t.Fatalf("expected AI tool page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), toolService.initCalled)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools/agent-options?agent_id=7", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || toolService.agentID != 7 {
+		t.Fatalf("expected AI tool agent-options route, code=%d body=%s agentID=%d", recorder.Code, recorder.Body.String(), toolService.agentID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-prompts?title=提示&category=ops&is_favorite=1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || promptService.listUserID != 9 || promptService.listQuery.Title != "提示" {
+		t.Fatalf("expected AI prompt list route scoped to user, code=%d body=%s user=%d query=%#v", recorder.Code, recorder.Body.String(), promptService.listUserID, promptService.listQuery)
 	}
 }
 

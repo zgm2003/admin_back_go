@@ -90,6 +90,10 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/latest"):        "system_clientVersion_setLatest",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update"):  "system_clientVersion_forceUpdate",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/client-versions/:id"):              "system_clientVersion_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-prompts"):                         "ai_prompt_add",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-prompts/:id"):                      "ai_prompt_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-prompts/:id/favorite"):           "ai_prompt_edit",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-prompts/:id"):                   "ai_prompt_del",
 	}
 }
 
@@ -434,6 +438,76 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "client_version",
 			Action: "delete",
 			Title:  "删除客户端版本",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-models"): {
+			Module: "ai_model",
+			Action: "create",
+			Title:  "新增AI模型",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-models/:id"): {
+			Module: "ai_model",
+			Action: "update",
+			Title:  "编辑AI模型",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-models/:id/status"): {
+			Module: "ai_model",
+			Action: "change_status",
+			Title:  "修改AI模型状态",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-models/:id"): {
+			Module: "ai_model",
+			Action: "delete",
+			Title:  "删除AI模型",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-tools"): {
+			Module: "ai_tool",
+			Action: "create",
+			Title:  "新增AI工具",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-tools/:id"): {
+			Module: "ai_tool",
+			Action: "update",
+			Title:  "编辑AI工具",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-tools/:id/status"): {
+			Module: "ai_tool",
+			Action: "change_status",
+			Title:  "修改AI工具状态",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-tools/:id"): {
+			Module: "ai_tool",
+			Action: "delete",
+			Title:  "删除AI工具",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-tools/agent-bindings/:agent_id"): {
+			Module: "ai_tool",
+			Action: "bind_agent_tools",
+			Title:  "绑定智能体工具",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-prompts"): {
+			Module: "ai_prompt",
+			Action: "create",
+			Title:  "新增AI提示词",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-prompts/:id"): {
+			Module: "ai_prompt",
+			Action: "update",
+			Title:  "编辑AI提示词",
+		},
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-prompts/:id"): {
+			Module: "ai_prompt",
+			Action: "delete",
+			Title:  "删除AI提示词",
+		},
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-prompts/:id/favorite"): {
+			Module: "ai_prompt",
+			Action: "toggle_favorite",
+			Title:  "切换AI提示词收藏",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-prompts/:id/use"): {
+			Module: "ai_prompt",
+			Action: "use",
+			Title:  "使用AI提示词",
 		},
 	}
 }

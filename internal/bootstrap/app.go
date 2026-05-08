@@ -9,6 +9,9 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/aimodel"
+	"admin_back_go/internal/module/aiprompt"
+	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -115,6 +118,9 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			cosObjectWriter,
 		),
 	)
+	aiModelService := aimodel.NewService(aimodel.NewGormRepository(resources.DB), secretBox)
+	aiToolService := aitool.NewService(aitool.NewGormRepository(resources.DB))
+	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
 	payChannelService := paychannel.NewService(paychannel.NewGormRepository(resources.DB), secretBox)
 	payNotifyLogService := paynotifylog.NewService(paynotifylog.NewGormRepository(resources.DB))
 	payOrderService := payorder.NewService(payorder.NewGormRepository(resources.DB))
@@ -259,6 +265,9 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthService:             authService,
 		CaptchaService:          captchaService,
 		ClientVersionService:    clientVersionService,
+		AiModelService:          aiModelService,
+		AiToolService:           aiToolService,
+		AiPromptService:         aiPromptService,
 		CronTaskService:         cronTaskService,
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,

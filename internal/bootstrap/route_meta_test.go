@@ -97,6 +97,10 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update", "system_clientVersion_forceUpdate"},
 		{http.MethodDelete, "/api/admin/v1/client-versions/:id", "system_clientVersion_del"},
+		{http.MethodPost, "/api/admin/v1/ai-prompts", "ai_prompt_add"},
+		{http.MethodPut, "/api/admin/v1/ai-prompts/:id", "ai_prompt_edit"},
+		{http.MethodPatch, "/api/admin/v1/ai-prompts/:id/favorite", "ai_prompt_edit"},
+		{http.MethodDelete, "/api/admin/v1/ai-prompts/:id", "ai_prompt_del"},
 	}
 
 	for _, tt := range tests {
@@ -155,6 +159,23 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/client-versions"},
 		{http.MethodGet, "/api/admin/v1/client-versions/update-json"},
 		{http.MethodGet, "/api/admin/v1/client-versions/current-check"},
+		{http.MethodGet, "/api/admin/v1/ai-models/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-models"},
+		{http.MethodPost, "/api/admin/v1/ai-models"},
+		{http.MethodPut, "/api/admin/v1/ai-models/:id"},
+		{http.MethodPatch, "/api/admin/v1/ai-models/:id/status"},
+		{http.MethodDelete, "/api/admin/v1/ai-models/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-tools/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-tools"},
+		{http.MethodPost, "/api/admin/v1/ai-tools"},
+		{http.MethodPut, "/api/admin/v1/ai-tools/:id"},
+		{http.MethodPatch, "/api/admin/v1/ai-tools/:id/status"},
+		{http.MethodDelete, "/api/admin/v1/ai-tools/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-tools/agent-options"},
+		{http.MethodPut, "/api/admin/v1/ai-tools/agent-bindings/:agent_id"},
+		{http.MethodGet, "/api/admin/v1/ai-prompts"},
+		{http.MethodGet, "/api/admin/v1/ai-prompts/:id"},
+		{http.MethodPost, "/api/admin/v1/ai-prompts/:id/use"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
 			t.Fatalf("read/current-user route %s %s must not require RBAC button permission", tt.method, tt.path)
@@ -238,6 +259,20 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update", "force_update"},
 		{http.MethodDelete, "/api/admin/v1/client-versions/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/ai-models", "create"},
+		{http.MethodPut, "/api/admin/v1/ai-models/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/ai-models/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/ai-models/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/ai-tools", "create"},
+		{http.MethodPut, "/api/admin/v1/ai-tools/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/ai-tools/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/ai-tools/:id", "delete"},
+		{http.MethodPut, "/api/admin/v1/ai-tools/agent-bindings/:agent_id", "bind_agent_tools"},
+		{http.MethodPost, "/api/admin/v1/ai-prompts", "create"},
+		{http.MethodPut, "/api/admin/v1/ai-prompts/:id", "update"},
+		{http.MethodDelete, "/api/admin/v1/ai-prompts/:id", "delete"},
+		{http.MethodPatch, "/api/admin/v1/ai-prompts/:id/favorite", "toggle_favorite"},
+		{http.MethodPost, "/api/admin/v1/ai-prompts/:id/use", "use"},
 	}
 
 	for _, tt := range tests {
@@ -296,6 +331,13 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/client-versions"},
 		{http.MethodGet, "/api/admin/v1/client-versions/update-json"},
 		{http.MethodGet, "/api/admin/v1/client-versions/current-check"},
+		{http.MethodGet, "/api/admin/v1/ai-models/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-models"},
+		{http.MethodGet, "/api/admin/v1/ai-tools/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-tools"},
+		{http.MethodGet, "/api/admin/v1/ai-tools/agent-options"},
+		{http.MethodGet, "/api/admin/v1/ai-prompts"},
+		{http.MethodGet, "/api/admin/v1/ai-prompts/:id"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
 			t.Fatalf("read/current-user route %s %s must not write operation log by implicit metadata", tt.method, tt.path)

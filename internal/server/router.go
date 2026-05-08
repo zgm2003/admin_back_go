@@ -7,6 +7,9 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/aimodel"
+	"admin_back_go/internal/module/aiprompt"
+	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -51,6 +54,9 @@ type Dependencies struct {
 	AuthService             auth.SessionService
 	CaptchaService          captcha.HTTPService
 	ClientVersionService    clientversion.HTTPService
+	AiModelService          aimodel.HTTPService
+	AiToolService           aitool.HTTPService
+	AiPromptService         aiprompt.HTTPService
 	CronTaskService         crontask.HTTPService
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
@@ -111,6 +117,9 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	captcha.RegisterRoutes(router, deps.CaptchaService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
+	aimodel.RegisterRoutes(router, deps.AiModelService)
+	aitool.RegisterRoutes(router, deps.AiToolService)
+	aiprompt.RegisterRoutes(router, deps.AiPromptService)
 	user.RegisterRoutes(router, deps.UserService)
 	usersession.RegisterRoutes(router, deps.UserSessionService)
 	exporttask.RegisterRoutes(router, deps.ExportTaskService)

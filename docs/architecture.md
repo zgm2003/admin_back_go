@@ -1393,6 +1393,15 @@ Go AI runtime 后续不得依赖 goods/cine schema、folder 或 PHP adapter。
 `cron_task.name=ai_run_timeout` 仍是 active legacy AI cron fact；AI core worker 迁移前不能把它说成 Go-owned。
 ```
 
+AI Core P1 config（2026-05-08）：
+
+```text
+Go 已接管 AI 配置事实源的第一段：`ai_models`、`ai_tools`、`ai_prompts`。
+模型/工具/提示词只迁移 REST 配置层，不碰 agents、knowledge、chat runtime、runs、streaming、RAG。
+`api_key` 只允许写入时加密，响应和日志都不能泄露 `api_key_enc`。
+`ai_prompt` 旧表保留，不在 P1 偷删；真正的运行时/工作流迁移放到后续阶段。
+```
+
 `internal/platform/storage/cos` 是唯一 COS STS 供应商边界：
 
 ```text
