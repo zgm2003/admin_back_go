@@ -4,12 +4,14 @@ type listRequest struct {
 	CurrentPage int    `form:"current_page" binding:"omitempty,min=1"`
 	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=50"`
 	Status      *int   `form:"status" binding:"omitempty,common_status"`
+	AppID       *int64 `form:"app_id" binding:"omitempty,min=1"`
 	AgentID     *int64 `form:"agent_id" binding:"omitempty,min=1"`
 	Title       string `form:"title" binding:"max=100"`
 }
 
 type mutationRequest struct {
-	AgentID int64  `json:"agent_id" binding:"required,min=1"`
+	AppID   int64  `json:"app_id" binding:"omitempty,min=1"`
+	AgentID int64  `json:"agent_id" binding:"omitempty,min=1"`
 	Title   string `json:"title" binding:"max=100"`
 }
 

@@ -342,15 +342,15 @@ WHERE NOT EXISTS (SELECT 1 FROM `permissions` WHERE `platform` = 'admin' AND `co
 SET @payment_parent_id := (SELECT `id` FROM `permissions` WHERE `platform` = 'admin' AND `code` = 'payment' AND `is_del` = 2 LIMIT 1);
 
 INSERT INTO `permissions` (`name`, `path`, `icon`, `parent_id`, `component`, `platform`, `type`, `sort`, `code`, `i18n_key`, `show_menu`, `status`, `is_del`, `created_at`, `updated_at`)
-SELECT '支付渠道', '/payment/channel', '', @payment_parent_id, 'payment/channel/index', 'admin', 2, 9610, 'payment_channel_list', 'menu.payment.channel', 1, 1, 2, NOW(), NOW()
+SELECT '支付渠道', '/payment/channel', '', @payment_parent_id, 'payment/channel', 'admin', 2, 9610, 'payment_channel_list', 'menu.payment.channel', 1, 1, 2, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `permissions` WHERE `platform` = 'admin' AND `code` = 'payment_channel_list' AND `is_del` = 2);
 
 INSERT INTO `permissions` (`name`, `path`, `icon`, `parent_id`, `component`, `platform`, `type`, `sort`, `code`, `i18n_key`, `show_menu`, `status`, `is_del`, `created_at`, `updated_at`)
-SELECT '支付订单', '/payment/order', '', @payment_parent_id, 'payment/order/index', 'admin', 2, 9620, 'payment_order_list', 'menu.payment.order', 1, 1, 2, NOW(), NOW()
+SELECT '支付订单', '/payment/order', '', @payment_parent_id, 'payment/order', 'admin', 2, 9620, 'payment_order_list', 'menu.payment.order', 1, 1, 2, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `permissions` WHERE `platform` = 'admin' AND `code` = 'payment_order_list' AND `is_del` = 2);
 
 INSERT INTO `permissions` (`name`, `path`, `icon`, `parent_id`, `component`, `platform`, `type`, `sort`, `code`, `i18n_key`, `show_menu`, `status`, `is_del`, `created_at`, `updated_at`)
-SELECT '支付事件', '/payment/event', '', @payment_parent_id, 'payment/event/index', 'admin', 2, 9630, 'payment_event_list', 'menu.payment.event', 1, 1, 2, NOW(), NOW()
+SELECT '支付事件', '/payment/event', '', @payment_parent_id, 'payment/event', 'admin', 2, 9630, 'payment_event_list', 'menu.payment.event', 1, 1, 2, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `permissions` WHERE `platform` = 'admin' AND `code` = 'payment_event_list' AND `is_del` = 2);
 
 INSERT INTO `permissions` (`name`, `path`, `icon`, `parent_id`, `component`, `platform`, `type`, `sort`, `code`, `i18n_key`, `show_menu`, `status`, `is_del`, `created_at`, `updated_at`)
@@ -383,14 +383,70 @@ FROM `permissions` AS p
 WHERE p.`platform` = 'admin' AND p.`code` = 'payment_order_list' AND p.`is_del` = 2
   AND NOT EXISTS (SELECT 1 FROM `permissions` WHERE `platform` = 'admin' AND `code` = 'payment_order_close' AND `is_del` = 2);
 
+UPDATE `permissions`
+SET `component` = 'payment/channel', `updated_at` = NOW()
+WHERE `platform` = 'admin'
+  AND `code` = 'payment_channel_list'
+  AND `path` = '/payment/channel'
+  AND `component` = 'payment/channel/index'
+  AND `is_del` = 2;
+
+UPDATE `permissions`
+SET `component` = 'payment/order', `updated_at` = NOW()
+WHERE `platform` = 'admin'
+  AND `code` = 'payment_order_list'
+  AND `path` = '/payment/order'
+  AND `component` = 'payment/order/index'
+  AND `is_del` = 2;
+
+UPDATE `permissions`
+SET `component` = 'payment/event', `updated_at` = NOW()
+WHERE `platform` = 'admin'
+  AND `code` = 'payment_event_list'
+  AND `path` = '/payment/event'
+  AND `component` = 'payment/event/index'
+  AND `is_del` = 2;
+
+INSERT INTO `role_permissions` (`role_id`, `permission_id`, `is_del`, `created_at`, `updated_at`)
+SELECT DISTINCT legacy_grant.`role_id`, payment_perm.`id`, 2, NOW(), NOW()
+FROM `role_permissions` AS legacy_grant
+JOIN `permissions` AS legacy_perm
+  ON legacy_perm.`id` = legacy_grant.`permission_id`
+ AND legacy_perm.`platform` = 'admin'
+ AND (
+      legacy_perm.`path` = '/wallet'
+      OR legacy_perm.`path` LIKE '/wallet/%'
+      OR legacy_perm.`path` = '/pay'
+      OR legacy_perm.`path` LIKE '/pay/%'
+      OR legacy_perm.`code` LIKE 'pay\_%'
+ )
+JOIN `permissions` AS payment_perm
+  ON payment_perm.`platform` = 'admin'
+ AND payment_perm.`code` IN (
+      'payment',
+      'payment_channel_list',
+      'payment_order_list',
+      'payment_event_list',
+      'payment_channel_add',
+      'payment_channel_edit',
+      'payment_channel_status',
+      'payment_channel_del',
+      'payment_order_close'
+ )
+ AND payment_perm.`is_del` = 2
+WHERE legacy_grant.`is_del` = 1
+ON DUPLICATE KEY UPDATE
+    `is_del` = VALUES(`is_del`),
+    `updated_at` = NOW();
+
 UPDATE `cron_task`
 SET `is_del` = 1, `updated_at` = NOW()
 WHERE `name` IN ('pay_reconcile_daily', 'pay_reconcile_execute', 'pay_fulfillment_retry', 'pay_refund_sync', 'pay_close_expired_order', 'pay_sync_pending_transaction');
 
-INSERT INTO `cron_task` (`name`, `title`, `cron`, `handler`, `status`, `remark`, `is_del`, `created_at`, `updated_at`)
-SELECT 'payment_close_expired_order', '关闭过期支付订单', '0 * * * * *', 'payment:close-expired-order:v1', 1, 'Go payment domain task', 2, NOW(), NOW()
+INSERT INTO `cron_task` (`name`, `title`, `description`, `cron`, `cron_readable`, `handler`, `status`, `is_del`, `created_at`, `updated_at`)
+SELECT 'payment_close_expired_order', '关闭过期支付订单', 'Go payment domain task', '0 * * * * *', '每分钟', 'payment:close-expired-order:v1', 1, 2, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `cron_task` WHERE `name` = 'payment_close_expired_order' AND `is_del` = 2);
 
-INSERT INTO `cron_task` (`name`, `title`, `cron`, `handler`, `status`, `remark`, `is_del`, `created_at`, `updated_at`)
-SELECT 'payment_sync_pending_order', '同步待支付订单', '0 */5 * * * *', 'payment:sync-pending-order:v1', 1, 'Go payment domain task', 2, NOW(), NOW()
+INSERT INTO `cron_task` (`name`, `title`, `description`, `cron`, `cron_readable`, `handler`, `status`, `is_del`, `created_at`, `updated_at`)
+SELECT 'payment_sync_pending_order', '同步待支付订单', 'Go payment domain task', '0 */5 * * * *', '每5分钟', 'payment:sync-pending-order:v1', 1, 2, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `cron_task` WHERE `name` = 'payment_sync_pending_order' AND `is_del` = 2);

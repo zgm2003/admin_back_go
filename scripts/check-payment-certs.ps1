@@ -105,12 +105,16 @@ func main() {
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, `
-SELECT public_cert_path, platform_cert_path, root_cert_path
-FROM pay_channel
-WHERE channel = 2
-  AND status = 1
-  AND is_del = 2
-ORDER BY id`)
+SELECT
+  cfg.app_cert_path AS public_cert_path,
+  cfg.alipay_cert_path AS platform_cert_path,
+  cfg.alipay_root_cert_path AS root_cert_path
+FROM payment_channel_configs AS cfg
+JOIN payment_channels AS ch ON ch.id = cfg.channel_id
+WHERE ch.provider = 'alipay'
+  AND ch.status = 1
+  AND ch.is_del = 2
+ORDER BY ch.id`)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -131,7 +135,7 @@ ORDER BY id`)
 		os.Exit(1)
 	}
 	if len(out) == 0 {
-		fmt.Fprintln(os.Stderr, "no active Alipay pay_channel rows")
+		fmt.Fprintln(os.Stderr, "no active Alipay payment_channels/payment_channel_configs rows")
 		os.Exit(3)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
@@ -146,7 +150,7 @@ ORDER BY id`)
     try {
       $output = go run $probe 2>&1
       if ($LASTEXITCODE -ne 0) {
-        throw "read active Alipay pay_channel cert paths failed: $($output | Out-String)"
+        throw "read active Alipay payment channel cert paths failed: $($output | Out-String)"
       }
     } finally {
       Pop-Location
@@ -158,7 +162,7 @@ ORDER BY id`)
       foreach ($value in @($row.public_cert_path, $row.platform_cert_path, $row.root_cert_path)) {
         $path = [string]$value
         if ([string]::IsNullOrWhiteSpace($path)) {
-          throw "active Alipay pay_channel has an empty cert path"
+          throw "active Alipay payment channel config has an empty cert path"
         }
         if (-not $paths.Contains($path)) {
           $paths.Add($path)

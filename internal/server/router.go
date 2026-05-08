@@ -7,15 +7,14 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
-	"admin_back_go/internal/module/aiagent"
+	"admin_back_go/internal/module/aiapp"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiknowledge"
+	"admin_back_go/internal/module/aiengine"
+	"admin_back_go/internal/module/aiknowledgemap"
 	"admin_back_go/internal/module/aimessage"
-	"admin_back_go/internal/module/aimodel"
-	"admin_back_go/internal/module/aiprompt"
 	"admin_back_go/internal/module/airun"
-	"admin_back_go/internal/module/aitool"
+	"admin_back_go/internal/module/aitoolmap"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -56,15 +55,14 @@ type Dependencies struct {
 	AuthService             auth.SessionService
 	CaptchaService          captcha.HTTPService
 	ClientVersionService    clientversion.HTTPService
-	AiAgentService          aiagent.HTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
-	AiKnowledgeService      aiknowledge.HTTPService
+	AiAppService            aiapp.HTTPService
+	AiEngineService         aiengine.HTTPService
+	AiKnowledgeMapService   aiknowledgemap.HTTPService
 	AiMessageService        aimessage.HTTPService
-	AiModelService          aimodel.HTTPService
 	AiRunService            airun.HTTPService
-	AiToolService           aitool.HTTPService
-	AiPromptService         aiprompt.HTTPService
+	AiToolMapService        aitoolmap.HTTPService
 	CronTaskService         crontask.HTTPService
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
@@ -121,15 +119,14 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	captcha.RegisterRoutes(router, deps.CaptchaService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
-	aimodel.RegisterRoutes(router, deps.AiModelService)
-	aitool.RegisterRoutes(router, deps.AiToolService)
-	aiagent.RegisterRoutes(router, deps.AiAgentService)
+	aiengine.RegisterRoutes(router, deps.AiEngineService)
+	aiapp.RegisterRoutes(router, deps.AiAppService)
+	aiknowledgemap.RegisterRoutes(router, deps.AiKnowledgeMapService)
 	aiconversation.RegisterRoutes(router, deps.AiConversationService)
 	aimessage.RegisterRoutes(router, deps.AiMessageService)
 	airun.RegisterRoutes(router, deps.AiRunService)
 	aichat.RegisterRoutes(router, deps.AiChatService)
-	aiknowledge.RegisterRoutes(router, deps.AiKnowledgeService)
-	aiprompt.RegisterRoutes(router, deps.AiPromptService)
+	aitoolmap.RegisterRoutes(router, deps.AiToolMapService)
 	user.RegisterRoutes(router, deps.UserService)
 	userquickentry.RegisterRoutes(router, deps.UserQuickEntryService)
 	userloginlog.RegisterRoutes(router, deps.UserLoginLogService)

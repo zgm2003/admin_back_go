@@ -111,9 +111,11 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		NumberGenerator: paymentNumberGenerator,
 	})
 	aiChatService := aichat.NewService(aichat.Dependencies{
-		Repository: aichat.NewGormRepository(resources.DB),
-		Enqueuer:   queueClient,
-		Publisher:  realtimePublisher,
+		Repository:    aichat.NewGormRepository(resources.DB),
+		Enqueuer:      queueClient,
+		Publisher:     realtimePublisher,
+		Secretbox:     secretBox,
+		EngineFactory: aiChatEngineFactory{},
 	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,

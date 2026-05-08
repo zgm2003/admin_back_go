@@ -2,9 +2,11 @@ package aichat
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"admin_back_go/internal/apperror"
+	platformai "admin_back_go/internal/platform/ai"
 )
 
 type Attachment struct {
@@ -18,6 +20,7 @@ type CreateRunInput struct {
 	Content        string
 	ConversationID int64
 	AgentID        int64
+	AppID          uint64
 	MaxHistory     int
 	Attachments    []Attachment
 	Temperature    *float64
@@ -30,6 +33,7 @@ type CreateRunResponse struct {
 	RequestID      string `json:"request_id"`
 	UserMessageID  int64  `json:"user_message_id"`
 	AgentID        int64  `json:"agent_id"`
+	AppID          uint64 `json:"app_id"`
 	IsNew          bool   `json:"is_new"`
 }
 
@@ -84,52 +88,85 @@ type RunStartRecord struct {
 	RequestID      string
 	UserMessageID  int64
 	AgentID        int64
+	AppID          uint64
 	IsNew          bool
 }
 
 type RunExecutionRecord struct {
 	Run                Run
 	UserMessageContent string
+	App                AppEngineConfig
 }
 
 type RunSuccessRecord struct {
-	RunID            int64
-	ConversationID   int64
-	Content          string
-	ModelSnapshot    string
-	PromptTokens     int
-	CompletionTokens int
-	LatencyMS        int
+	RunID                int64
+	ConversationID       int64
+	Content              string
+	EngineConversationID string
+	EngineMessageID      string
+	EngineTaskID         string
+	EngineRunID          string
+	UsageJSON            string
+	OutputSnapshotJSON   string
+	ModelSnapshot        string
+	PromptTokens         int
+	CompletionTokens     int
+	TotalTokens          int
+	Cost                 float64
+	LatencyMS            int
 }
 
-type GenerateInput struct {
-	RunID   int64
-	UserID  int64
-	AgentID int64
-	Content string
+type EngineConfig struct {
+	EngineType platformai.EngineType
+	BaseURL    string
+	APIKey     string
 }
 
-type GenerateResult struct {
-	Content          string
-	ModelSnapshot    string
-	PromptTokens     int
-	CompletionTokens int
+type EngineFactory interface {
+	NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error)
 }
 
-type Provider interface {
-	Generate(ctx context.Context, input GenerateInput) (*GenerateResult, error)
+type AppEngineConfig struct {
+	AppID                uint64
+	AppName              string
+	AppType              string
+	EngineConnectionID   uint64
+	EngineType           string
+	EngineBaseURL        string
+	EngineAPIKeyEnc      string
+	EngineAppID          string
+	EngineAppAPIKeyEnc   string
+	RuntimeConfigJSON    string
+	ModelSnapshotJSON    string
+	ConversationEngineID string
+	AppStatus            int
+	EngineStatus         int
+}
+
+type RunEventRecord struct {
+	RunID       int64
+	Seq         uint64
+	EventID     string
+	EventType   string
+	DeltaText   string
+	PayloadJSON json.RawMessage
+	CreatedAt   time.Time
 }
 
 type Repository interface {
 	ActiveAgentExists(ctx context.Context, id int64) (bool, error)
+	DefaultActiveApp(ctx context.Context) (*AppEngineConfig, error)
+	AppForRuntime(ctx context.Context, appID uint64) (*AppEngineConfig, error)
 	Conversation(ctx context.Context, id int64) (*Conversation, error)
 	CreateRun(ctx context.Context, input CreateRunRecord) (*RunStartRecord, error)
 	RunForUser(ctx context.Context, runID int64, userID int64) (*Run, error)
 	RunForExecute(ctx context.Context, runID int64) (*RunExecutionRecord, error)
 	AssistantMessage(ctx context.Context, id int64) (*Message, error)
-	MarkCanceled(ctx context.Context, runID int64) error
+	MarkCanceled(ctx context.Context, runID int64, message string) error
 	MarkSuccess(ctx context.Context, input RunSuccessRecord) (*Message, error)
 	MarkFailed(ctx context.Context, runID int64, message string) error
+	AppendRunEvent(ctx context.Context, input RunEventRecord) error
+	ListRunEvents(ctx context.Context, runID int64) ([]RunEventRecord, error)
 	TimeoutRuns(ctx context.Context, limit int, message string) (int64, error)
 }
 

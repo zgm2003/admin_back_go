@@ -87,12 +87,15 @@ func TestRecorderMasksExplicitSensitivePayloadFields(t *testing.T) {
 		Status:  400,
 		Success: false,
 		RequestPayload: map[string]any{
-			"login_account":       "15671628271",
-			"password":            "123456",
-			"secret_id_enc":       "cipher-id",
-			"secret_key_enc":      "cipher-key",
-			"app_private_key":     "plain-payment-private-key",
-			"app_private_key_enc": "cipher-payment-private-key",
+			"login_account":          "15671628271",
+			"password":               "123456",
+			"secret_id_enc":          "cipher-id",
+			"secret_key_enc":         "cipher-key",
+			"api_key_enc":            "cipher-ai-key",
+			"engine_app_api_key":     "plain-engine-app-key",
+			"engine_app_api_key_enc": "cipher-engine-app-key",
+			"app_private_key":        "plain-payment-private-key",
+			"app_private_key_enc":    "cipher-payment-private-key",
 			"captcha_answer": map[string]any{
 				"x": 99,
 			},
@@ -122,6 +125,9 @@ func TestRecorderMasksExplicitSensitivePayloadFields(t *testing.T) {
 	}
 	if payload["secret_id_enc"] != "******" || payload["secret_key_enc"] != "******" {
 		t.Fatalf("request encrypted secret fields were not masked: %#v", payload)
+	}
+	if payload["api_key_enc"] != "******" || payload["engine_app_api_key"] != "******" || payload["engine_app_api_key_enc"] != "******" {
+		t.Fatalf("request AI engine key fields were not masked: %#v", payload)
 	}
 	if payload["app_private_key"] != "******" || payload["app_private_key_enc"] != "******" {
 		t.Fatalf("request payment private key fields were not masked: %#v", payload)

@@ -188,7 +188,8 @@ func shouldMaskField(field string, maskGenericCode bool) bool {
 	switch field {
 	case "password", "old_password", "new_password", "newpassword", "confirm_password",
 		"refresh_token", "access_token", "token", "authorization", "secret", "secret_id",
-		"secret_id_enc", "secret_key", "secret_key_enc", "api_key", "captcha", "captcha_code",
+		"secret_id_enc", "secret_key", "secret_key_enc", "api_key", "api_key_enc",
+		"engine_app_api_key", "engine_app_api_key_enc", "captcha", "captcha_code",
 		"sms_code", "email_code", "verification_code", "app_private_key", "app_private_key_enc":
 		return true
 	default:

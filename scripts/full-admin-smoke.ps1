@@ -4,7 +4,9 @@ param(
   [string]$HTTPAddr = '127.0.0.1:18081',
   [string]$BasicHTTPAddr = '127.0.0.1:18080',
   [string]$Platform = 'admin',
-  [string]$DeviceID = 'codex-full-smoke'
+  [string]$DeviceID = 'codex-full-smoke',
+  [switch]$EnablePaymentRuntimeProbe,
+  [switch]$EnableAiEngineProbe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,6 +50,68 @@ function Get-RedisDB() {
   return $env:REDIS_DB
 }
 
+function Clear-UserButtonCache([int64]$UserID, [string]$Platform) {
+  if ($UserID -le 0) {
+    throw "invalid user id for button cache clear: $UserID"
+  }
+  if ([string]::IsNullOrWhiteSpace($Platform)) {
+    throw 'platform is required for button cache clear'
+  }
+
+  New-Item -ItemType Directory -Force .tmp | Out-Null
+  $cacheCleaner = '.tmp/clear-user-button-cache.go'
+  @"
+package main
+
+import (
+  "context"
+  "fmt"
+  "os"
+  "strconv"
+
+  "github.com/redis/go-redis/v9"
+)
+
+func main() {
+  if len(os.Args) != 3 {
+    fmt.Fprintln(os.Stderr, "usage: clear-user-button-cache <user-id> <platform>")
+    os.Exit(2)
+  }
+
+  userID, err := strconv.ParseInt(os.Args[1], 10, 64)
+  if err != nil || userID <= 0 {
+    fmt.Fprintln(os.Stderr, "invalid user id")
+    os.Exit(2)
+  }
+
+  db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+  if err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(2)
+  }
+
+  client := redis.NewClient(&redis.Options{
+    Addr:     os.Getenv("REDIS_ADDR"),
+    Password: os.Getenv("REDIS_PASSWORD"),
+    DB:       db,
+  })
+  defer client.Close()
+
+  key := fmt.Sprintf("auth_perm_uid_%d_%s_rbac_page_grants", userID, os.Args[2])
+  if err := client.Del(context.Background(), key).Err(); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+
+  fmt.Print(key)
+}
+"@ | Set-Content -LiteralPath $cacheCleaner -Encoding UTF8
+
+  $env:REDIS_ADDR = Get-RedisAddr
+  $env:REDIS_DB = Get-RedisDB
+  go run $cacheCleaner $UserID $Platform | Out-Null
+}
+
 function Wait-Health([string]$BaseURL) {
   for ($i = 0; $i -lt 30; $i++) {
     try {
@@ -86,9 +150,32 @@ function Test-RoutePath($Routes, [string]$Path) {
   return $false
 }
 
+function Get-RouteByPath($Routes, [string]$Path) {
+  foreach ($route in (Get-ObjectArray $Routes)) {
+    if ($route.path -eq $Path) { return $route }
+  }
+  return $null
+}
+
+function Test-ButtonCodePrefix($Codes, [string]$Prefix) {
+  foreach ($code in (Get-ObjectArray $Codes)) {
+    if ([string]$code -like "$Prefix*") { return $true }
+  }
+  return $false
+}
+
 function Test-HasProperty($Value, [string]$Name) {
   if ($null -eq $Value) { return $false }
   return @($Value.PSObject.Properties.Name) -contains $Name
+}
+
+function Assert-NoAISecretFields($Value, [string]$Label) {
+  $json = $Value | ConvertTo-Json -Depth 24
+  foreach ($secretField in @('api_key_enc', 'engine_app_api_key_enc', 'api_key":', 'engine_app_api_key":', 'Authorization', 'Bearer ')) {
+    if ($json -like "*$secretField*") {
+      throw "$Label leaked AI secret marker '$secretField': $json"
+    }
+  }
 }
 
 function Test-JsonArray($Value) {
@@ -484,6 +571,129 @@ function Assert-UploadSettingList($Response) {
   }
 }
 
+function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [string]$Suffix) {
+  if ([string]::IsNullOrWhiteSpace($env:VAULT_KEY)) {
+    return [pscustomobject]@{
+      Status = 'skipped_no_vault_key'
+      DriverID = 0
+      RuleID = 0
+      SettingID = 0
+    }
+  }
+
+  $driverID = 0
+  $ruleID = 0
+  $settingID = 0
+
+  $driverBody = @{
+    driver = 'cos'
+    secret_id = "codex-secret-id-$Suffix"
+    secret_key = "codex-secret-key-$Suffix"
+    bucket = "codex-full-smoke-$Suffix"
+    region = 'ap-nanjing'
+    appid = '1314'
+  } | ConvertTo-Json -Depth 8
+  $driver = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-drivers" `
+    -Method Post `
+    -Headers $Headers `
+    -ContentType 'application/json' `
+    -Body $driverBody `
+    -TimeoutSec 10
+  Assert-ApiOK $driver 'upload driver write probe create'
+  $driverID = [int64]$driver.data.id
+
+  $ruleBody = @{
+    title = "Codex Full Smoke Upload Rule $Suffix"
+    max_size_mb = 1
+    image_exts = @('png')
+    file_exts = @('pdf')
+  } | ConvertTo-Json -Depth 8
+  $rule = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-rules" `
+    -Method Post `
+    -Headers $Headers `
+    -ContentType 'application/json' `
+    -Body $ruleBody `
+    -TimeoutSec 10
+  Assert-ApiOK $rule 'upload rule write probe create'
+  $ruleID = [int64]$rule.data.id
+
+  $settingBody = @{
+    driver_id = $driverID
+    rule_id = $ruleID
+    status = 2
+    remark = "codex full smoke upload setting $Suffix"
+  } | ConvertTo-Json -Depth 8
+  $setting = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings" `
+    -Method Post `
+    -Headers $Headers `
+    -ContentType 'application/json' `
+    -Body $settingBody `
+    -TimeoutSec 10
+  Assert-ApiOK $setting 'upload setting write probe create'
+  $settingID = [int64]$setting.data.id
+
+  foreach ($deleteTarget in @(
+    @{ Url = "$BaseURL/api/admin/v1/upload-settings/$settingID"; Label = 'upload setting write probe cleanup' },
+    @{ Url = "$BaseURL/api/admin/v1/upload-rules/$ruleID"; Label = 'upload rule write probe cleanup' },
+    @{ Url = "$BaseURL/api/admin/v1/upload-drivers/$driverID"; Label = 'upload driver write probe cleanup' }
+  )) {
+    $deleteResponse = Invoke-RestMethod $deleteTarget.Url `
+      -Method Delete `
+      -Headers $Headers `
+      -TimeoutSec 10
+    Assert-ApiOK $deleteResponse $deleteTarget.Label
+  }
+
+  return [pscustomobject]@{
+    Status = 'passed'
+    DriverID = $driverID
+    RuleID = $ruleID
+    SettingID = $settingID
+  }
+}
+
+function Invoke-UploadTokenProbe([string]$BaseURL, [hashtable]$Headers) {
+  if ([string]$env:COS_STS_ENABLED -ne 'true') {
+    return [pscustomobject]@{
+      Status = 'skipped_cos_sts_disabled'
+      Code = 0
+      Provider = ''
+      Key = ''
+    }
+  }
+
+  $body = @{
+    folder = 'avatars'
+    file_name = 'codex-full-smoke.png'
+    file_size = 1024
+    file_kind = 'image'
+  } | ConvertTo-Json -Depth 8
+  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-tokens" `
+    -Method Post `
+    -Headers $Headers `
+    -ContentType 'application/json' `
+    -Body $body `
+    -TimeoutSec 15
+  Assert-ApiOK $response 'upload token probe'
+
+  if ([string]$response.data.provider -ne 'cos' -or [string]::IsNullOrWhiteSpace([string]$response.data.key)) {
+    throw "upload token probe shape mismatch: $($response | ConvertTo-Json -Depth 12)"
+  }
+  if ($null -eq $response.data.credentials `
+      -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.tmp_secret_id) `
+      -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.tmp_secret_key) `
+      -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.session_token)) {
+    throw "upload token probe missing credentials: $($response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    Status = 'passed'
+    Code = [int]$response.code
+    Provider = [string]$response.data.provider
+    Key = [string]$response.data.key
+  }
+}
+
 function Assert-PaymentChannelInit($Response) {
   Assert-ApiOK $Response 'payment channel init'
 
@@ -491,12 +701,16 @@ function Assert-PaymentChannelInit($Response) {
     throw "payment channel init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
 
+  $providers = Get-ObjectArray $Response.data.dict.provider_arr
+  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
   $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
-  if ($statuses.Count -ne 2) {
-    throw "payment channel init status dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  if ($providers.Count -ne 1 -or $methods.Count -ne 2 -or $statuses.Count -ne 2) {
+    throw "payment channel init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
+    ProviderCount = $providers.Count
+    MethodCount = $methods.Count
     StatusCount = $statuses.Count
   }
 }
@@ -512,7 +726,10 @@ function Assert-PaymentChannelList($Response) {
     if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
       throw "payment channel item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
-    if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
+    if ($null -eq $item.supported_methods -or [string]::IsNullOrWhiteSpace([string]$item.supported_methods_text)) {
+      throw "payment channel item missing supported method fields: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -ne $item.private_key -or $null -ne $item.private_key_enc -or $null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
       throw "payment channel list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
     }
   }
@@ -525,9 +742,17 @@ function Assert-PaymentChannelList($Response) {
 
 function Assert-PaymentOrderInit($Response) {
   Assert-ApiOK $Response 'payment order init'
+
   if ($null -eq $Response.data.dict) {
     throw "payment order init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
+
+  $providers = Get-ObjectArray $Response.data.dict.provider_arr
+  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
+  if ($providers.Count -ne 1 -or $methods.Count -ne 2) {
+    throw "payment order init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
   return [pscustomobject]@{
     DictKeys = (Get-ObjectArray $Response.data.dict.PSObject.Properties).Count
   }
@@ -535,14 +760,17 @@ function Assert-PaymentOrderInit($Response) {
 
 function Assert-PaymentOrderList($Response) {
   Assert-ApiOK $Response 'payment order list'
+
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
     throw "payment order list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
+
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0) {
-      throw "payment order item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no)) {
+      throw "payment order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }
+
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
@@ -551,14 +779,17 @@ function Assert-PaymentOrderList($Response) {
 
 function Assert-PaymentEventList($Response) {
   Assert-ApiOK $Response 'payment event list'
+
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
     throw "payment event list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
+
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0) {
-      throw "payment event item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.event_type_text)) {
+      throw "payment event item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }
+
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
@@ -569,131 +800,163 @@ function Assert-UsersInitPaymentRoutes($Response) {
   Assert-ApiOK $Response 'users init payment route gate'
   $payPresent = Test-RoutePath $Response.data.router '/pay'
   $retiredWalletPresent = Test-RoutePath $Response.data.router '/wallet'
+  $oldPayCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'pay_'
   $channelPresent = Test-RoutePath $Response.data.router '/payment/channel'
   $orderPresent = Test-RoutePath $Response.data.router '/payment/order'
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
-  if ($payPresent -or $retiredWalletPresent -or -not $channelPresent -or -not $orderPresent -or -not $eventPresent) {
-    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent /payment/channel=$channelPresent /payment/order=$orderPresent /payment/event=$eventPresent"
+  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or -not $channelPresent -or -not $orderPresent -or -not $eventPresent) {
+    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent /payment/channel=$channelPresent /payment/order=$orderPresent /payment/event=$eventPresent"
   }
+
+  $expectedPaymentViewKeys = @{
+    '/payment/channel' = 'payment/channel'
+    '/payment/order' = 'payment/order'
+    '/payment/event' = 'payment/event'
+  }
+  foreach ($path in $expectedPaymentViewKeys.Keys) {
+    $route = Get-RouteByPath $Response.data.router $path
+    if ($null -eq $route -or [string]$route.view_key -ne $expectedPaymentViewKeys[$path]) {
+      throw "users/init payment route view_key mismatch for ${path}: expected=$($expectedPaymentViewKeys[$path]) actual=$([string]$route.view_key)"
+    }
+  }
+
   return [pscustomobject]@{
     PayPresent = $payPresent
     RetiredWalletPresent = $retiredWalletPresent
+    OldPayCodePresent = $oldPayCodePresent
     ChannelPresent = $channelPresent
     OrderPresent = $orderPresent
     EventPresent = $eventPresent
+    ChannelViewKey = [string](Get-RouteByPath $Response.data.router '/payment/channel').view_key
+    OrderViewKey = [string](Get-RouteByPath $Response.data.router '/payment/order').view_key
+    EventViewKey = [string](Get-RouteByPath $Response.data.router '/payment/event').view_key
   }
 }
 
 function Assert-UsersInitAIRoutes($Response) {
   Assert-ApiOK $Response 'users init AI route gate'
 
-  $goodsPresent = Test-RoutePath $Response.data.router '/ai/goods'
-  $cinePresent = Test-RoutePath $Response.data.router '/ai/cine'
-  $modelsPresent = Test-RoutePath $Response.data.router '/ai/models'
-  $toolsPresent = Test-RoutePath $Response.data.router '/ai/tools'
-  $promptsPresent = Test-RoutePath $Response.data.router '/ai/prompts'
+  $retiredAINameRoutes = @{}
+  foreach ($name in @('models', 'agents', 'prompts')) {
+    $retiredAINameRoutes[$name] = "/ai/$name"
+  }
+  $retiredRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
+  $retiredPresent = @{}
+  foreach ($route in $retiredRoutes) {
+    $present = Test-RoutePath $Response.data.router $route
+    $retiredPresent[$route] = $present
+    if ($present) {
+      throw "users init still returns retired AI route ${route}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
 
-  if ($goodsPresent) {
-    throw 'users init still returns retired AI goods route /ai/goods'
-  }
-  if ($cinePresent) {
-    throw 'users init still returns retired AI cine route /ai/cine'
-  }
-  if (-not $modelsPresent) {
-    throw 'users init missing retained AI config route /ai/models'
-  }
-  if (-not $toolsPresent) {
-    throw 'users init missing retained AI config route /ai/tools'
-  }
-  if (-not $promptsPresent) {
-    throw 'users init missing retained AI config route /ai/prompts'
+  $requiredRoutes = @('/ai/providers', '/ai/apps', '/ai/chat', '/ai/knowledge', '/ai/runs', '/ai/tools')
+  $requiredPresent = @{}
+  foreach ($route in $requiredRoutes) {
+    $present = Test-RoutePath $Response.data.router $route
+    $requiredPresent[$route] = $present
+    if (-not $present) {
+      throw "users init missing AI sidecar route ${route}: $($Response | ConvertTo-Json -Depth 12)"
+    }
   }
 
   return [pscustomobject]@{
-    GoodsPresent = $goodsPresent
-    CinePresent = $cinePresent
-    ModelsPresent = $modelsPresent
-    ToolsPresent = $toolsPresent
-    PromptsPresent = $promptsPresent
+    GoodsPresent = $retiredPresent['/ai/goods']
+    CinePresent = $retiredPresent['/ai/cine']
+    ModelsPresent = $retiredPresent[$retiredAINameRoutes['models']]
+    AgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
+    PromptsPresent = $retiredPresent[$retiredAINameRoutes['prompts']]
+    ProvidersPresent = $requiredPresent['/ai/providers']
+    AppsPresent = $requiredPresent['/ai/apps']
+    ChatPresent = $requiredPresent['/ai/chat']
+    KnowledgePresent = $requiredPresent['/ai/knowledge']
+    RunsPresent = $requiredPresent['/ai/runs']
+    ToolsPresent = $requiredPresent['/ai/tools']
   }
 }
 
-function Assert-AIModelInit($Response) {
-  Assert-ApiOK $Response 'AI model init'
+function Assert-AIEngineInit($Response) {
+  Assert-ApiOK $Response 'AI engine connection init'
+  Assert-NoAISecretFields $Response 'AI engine connection init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI model init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI engine connection init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
 
-  $drivers = Get-ObjectArray $Response.data.dict.ai_driver_arr
+  $engineTypes = Get-ObjectArray $Response.data.dict.engine_type_arr
   $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
-  if ($drivers.Count -lt 1 -or $statuses.Count -ne 2) {
-    throw "AI model init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  $healthStatuses = Get-ObjectArray $Response.data.dict.health_status_arr
+  foreach ($expected in @('dify', 'direct', 'eino', 'ragflow')) {
+    if (-not (@($engineTypes | ForEach-Object { [string]$_.value }) -contains $expected)) {
+      throw "AI engine connection init missing engine type ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  if ($statuses.Count -ne 2 -or $healthStatuses.Count -lt 3) {
+    throw "AI engine connection init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
-    DriverCount = $drivers.Count
+    EngineTypeCount = $engineTypes.Count
     StatusCount = $statuses.Count
+    HealthStatusCount = $healthStatuses.Count
   }
 }
 
-function Assert-AIModelList($Response) {
-  Assert-ApiOK $Response 'AI model list'
+function Assert-AIEngineList($Response) {
+  Assert-ApiOK $Response 'AI engine connection list'
+  Assert-NoAISecretFields $Response 'AI engine connection list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI model list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI engine connection list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
-
-  $secretLeak = $false
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.driver)) {
-      throw "AI model item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.engine_type)) {
+      throw "AI engine connection item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
     if ((Test-HasProperty $item 'api_key') -or (Test-HasProperty $item 'api_key_enc')) {
-      $secretLeak = $true
+      throw "AI engine connection list leaked key fields: $($item | ConvertTo-Json -Depth 12)"
     }
-  }
-
-  if ($secretLeak) {
-    throw "AI model list leaked api_key/api_key_enc fields: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
-    SecretLeak = $secretLeak
   }
 }
 
-function Assert-AIToolInit($Response) {
-  Assert-ApiOK $Response 'AI tool init'
+function Assert-AIAppInit($Response) {
+  Assert-ApiOK $Response 'AI app init'
+  Assert-NoAISecretFields $Response 'AI app init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI tool init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI app init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-
-  $executors = Get-ObjectArray $Response.data.dict.ai_executor_type_arr
-  $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
-  if ($executors.Count -ne 3 -or $statuses.Count -ne 2) {
-    throw "AI tool init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  foreach ($field in @('app_type_arr', 'response_mode_arr', 'binding_type_arr', 'common_status_arr', 'engine_connection_options')) {
+    if (-not (Test-HasProperty $Response.data.dict $field)) {
+      throw "AI app init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
   }
-
   return [pscustomobject]@{
-    ExecutorCount = $executors.Count
-    StatusCount = $statuses.Count
+    AppTypeCount = (Get-ObjectArray $Response.data.dict.app_type_arr).Count
+    ResponseModeCount = (Get-ObjectArray $Response.data.dict.response_mode_arr).Count
+    BindingTypeCount = (Get-ObjectArray $Response.data.dict.binding_type_arr).Count
+    EngineConnectionCount = (Get-ObjectArray $Response.data.dict.engine_connection_options).Count
   }
 }
 
-function Assert-AIToolList($Response) {
-  Assert-ApiOK $Response 'AI tool list'
+function Assert-AIAppList($Response) {
+  Assert-ApiOK $Response 'AI app list'
+  Assert-NoAISecretFields $Response 'AI app list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI tool list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI app list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
-
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.code)) {
-      throw "AI tool item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.app_type)) {
+      throw "AI app item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ((Test-HasProperty $item 'engine_app_api_key') -or (Test-HasProperty $item 'engine_app_api_key_enc')) {
+      throw "AI app list leaked key fields: $($item | ConvertTo-Json -Depth 12)"
     }
   }
 
@@ -703,106 +966,55 @@ function Assert-AIToolList($Response) {
   }
 }
 
-function Assert-AIToolAgentOptions($Response) {
-  Assert-ApiOK $Response 'AI tool agent options'
+function Assert-AIAppOptions($Response) {
+  Assert-ApiOK $Response 'AI app options'
+  Assert-NoAISecretFields $Response 'AI app options'
 
-  if ($null -eq $Response.data.bound_tool_ids -or $null -eq $Response.data.all_tools) {
-    throw "AI tool agent options missing fields: $($Response | ConvertTo-Json -Depth 12)"
+  if ($null -eq $Response.data.list) {
+    throw "AI app options missing list: $($Response | ConvertTo-Json -Depth 12)"
   }
-
-  $retiredPresent = $false
-  foreach ($item in (Get-ObjectArray $Response.data.all_tools)) {
-    if ([string]$item.code -eq 'cine_generate_keyframe') {
-      $retiredPresent = $true
-    }
-  }
-
-  if ($retiredPresent) {
-    throw "AI tool agent options returned retired cine_generate_keyframe: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    OptionCount = (Get-ObjectArray $Response.data.all_tools).Count
-    RetiredCinePresent = $retiredPresent
-  }
-}
-
-function Assert-AIPromptList($Response) {
-  Assert-ApiOK $Response 'AI prompt list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI prompt list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
-      throw "AI prompt item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if (-not (Test-JsonArray $item.tags)) {
-      throw "AI prompt item tags must be an array: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if (-not (Test-JsonArray $item.variables)) {
-      throw "AI prompt item variables must be an array: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.value -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.label)) {
+      throw "AI app option shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }
 
   return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-    TagsArrays = $true
-    VariablesArrays = $true
+    OptionCount = (Get-ObjectArray $Response.data.list).Count
   }
 }
 
-function Assert-AIPromptDetail($Response) {
-  Assert-ApiOK $Response 'AI prompt detail'
-
-  if ([int64]$Response.data.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$Response.data.title)) {
-    throw "AI prompt detail shape mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if (-not (Test-JsonArray $Response.data.tags)) {
-    throw "AI prompt detail tags must be an array: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if (-not (Test-JsonArray $Response.data.variables)) {
-    throw "AI prompt detail variables must be an array: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    ID = [int64]$Response.data.id
-    TagsArrays = $true
-    VariablesArrays = $true
-  }
-}
-
-function Assert-AIAgentInit($Response) {
-  Assert-ApiOK $Response 'AI agent init'
+function Assert-AIKnowledgeMapInit($Response) {
+  Assert-ApiOK $Response 'AI knowledge map init'
+  Assert-NoAISecretFields $Response 'AI knowledge map init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI agent init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI knowledge map init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-
-  $scenes = Get-ObjectArray $Response.data.dict.ai_scene_arr
-  $retiredScenePresent = $false
-  foreach ($item in $scenes) {
-    if (@('goods_script', 'cine_project', 'cine_keyframe') -contains [string]$item.value) {
-      $retiredScenePresent = $true
+  foreach ($field in @('visibility_arr', 'source_type_arr', 'indexing_status_arr', 'common_status_arr', 'engine_connection_options')) {
+    if (-not (Test-HasProperty $Response.data.dict $field)) {
+      throw "AI knowledge map init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
-  if ($retiredScenePresent) {
-    throw "AI agent init returned retired scene options: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
   return [pscustomobject]@{
-    SceneCount = $scenes.Count
-    RetiredScenePresent = $retiredScenePresent
+    VisibilityCount = (Get-ObjectArray $Response.data.dict.visibility_arr).Count
+    SourceTypeCount = (Get-ObjectArray $Response.data.dict.source_type_arr).Count
+    IndexingStatusCount = (Get-ObjectArray $Response.data.dict.indexing_status_arr).Count
+    EngineConnectionCount = (Get-ObjectArray $Response.data.dict.engine_connection_options).Count
   }
 }
 
-function Assert-AIAgentList($Response) {
-  Assert-ApiOK $Response 'AI agent list'
+function Assert-AIKnowledgeMapList($Response) {
+  Assert-ApiOK $Response 'AI knowledge map list'
+  Assert-NoAISecretFields $Response 'AI knowledge map list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI agent list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI knowledge map list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.visibility)) {
+      throw "AI knowledge map item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
   }
 
   return [pscustomobject]@{
@@ -811,31 +1023,36 @@ function Assert-AIAgentList($Response) {
   }
 }
 
-function Assert-AIKnowledgeInit($Response) {
-  Assert-ApiOK $Response 'AI knowledge init'
+function Assert-AIToolMapInit($Response) {
+  Assert-ApiOK $Response 'AI tool map init'
+  Assert-NoAISecretFields $Response 'AI tool map init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI knowledge init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI tool map init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-
-  $sources = Get-ObjectArray $Response.data.dict.ai_knowledge_source_type_arr
-  $sourceValues = @($sources | ForEach-Object { [string]$_.value })
-  foreach ($expected in @('manual', 'text')) {
-    if (-not ($sourceValues -contains $expected)) {
-      throw "AI knowledge source type missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+  foreach ($field in @('tool_type_arr', 'risk_level_arr', 'common_status_arr', 'engine_connection_options')) {
+    if (-not (Test-HasProperty $Response.data.dict $field)) {
+      throw "AI tool map init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
-
   return [pscustomobject]@{
-    SourceTypeCount = $sources.Count
+    ToolTypeCount = (Get-ObjectArray $Response.data.dict.tool_type_arr).Count
+    RiskLevelCount = (Get-ObjectArray $Response.data.dict.risk_level_arr).Count
+    EngineConnectionCount = (Get-ObjectArray $Response.data.dict.engine_connection_options).Count
   }
 }
 
-function Assert-AIKnowledgeList($Response) {
-  Assert-ApiOK $Response 'AI knowledge list'
+function Assert-AIToolMapList($Response) {
+  Assert-ApiOK $Response 'AI tool map list'
+  Assert-NoAISecretFields $Response 'AI tool map list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI knowledge list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI tool map list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.tool_type) -or [string]::IsNullOrWhiteSpace([string]$item.risk_level)) {
+      throw "AI tool map item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
   }
 
   return [pscustomobject]@{
@@ -859,6 +1076,7 @@ function Assert-AIConversationList($Response) {
 
 function Assert-AIRunInit($Response) {
   Assert-ApiOK $Response 'AI run init'
+  Assert-NoAISecretFields $Response 'AI run init'
 
   if ($null -eq $Response.data.dict) {
     throw "AI run init missing dict: $($Response | ConvertTo-Json -Depth 12)"
@@ -870,17 +1088,34 @@ function Assert-AIRunInit($Response) {
       throw "AI run status dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
+  if (-not (Test-HasProperty $Response.data.dict 'appArr')) {
+    throw "AI run init missing appArr for app-backed runtime: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if (-not (Test-HasProperty $Response.data.dict 'engineArr')) {
+    throw "AI run init missing engineArr for engine-backed runtime: $($Response | ConvertTo-Json -Depth 12)"
+  }
 
   return [pscustomobject]@{
     StatusCount = $statuses.Count
+    AppCount = (Get-ObjectArray $Response.data.dict.appArr).Count
+    EngineCount = (Get-ObjectArray $Response.data.dict.engineArr).Count
   }
 }
 
 function Assert-AIRunList($Response) {
   Assert-ApiOK $Response 'AI run list'
+  Assert-NoAISecretFields $Response 'AI run list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
     throw "AI run list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ((Test-HasProperty $item 'agent_id') -and -not (Test-HasProperty $item 'app_id')) {
+      throw "AI run list item has legacy agent_id without app_id: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ((Test-HasProperty $item 'agent_name') -and -not (Test-HasProperty $item 'app_name')) {
+      throw "AI run list item has legacy agent_name without app_name: $($item | ConvertTo-Json -Depth 12)"
+    }
   }
 
   return [pscustomobject]@{
@@ -891,6 +1126,7 @@ function Assert-AIRunList($Response) {
 
 function Assert-AIRunStats($Response) {
   Assert-ApiOK $Response 'AI run stats'
+  Assert-NoAISecretFields $Response 'AI run stats'
 
   if ($null -eq $Response.data.summary) {
     throw "AI run stats missing summary: $($Response | ConvertTo-Json -Depth 12)"
@@ -899,6 +1135,25 @@ function Assert-AIRunStats($Response) {
   return [pscustomobject]@{
     TotalRuns = [int64]$Response.data.summary.total_runs
     FailRuns = [int64]$Response.data.summary.fail_runs
+  }
+}
+
+function Assert-AIChatExplicitEngineFailure($Response) {
+  if ($Response.code -eq 0) {
+    throw "AI chat run unexpectedly succeeded without explicit smoke engine config: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $message = if (Test-HasProperty $Response 'message') { [string]$Response.message } else { [string]$Response.msg }
+  $data = if ($null -eq $Response.data) { '' } else { [string]($Response.data | ConvertTo-Json -Depth 8) }
+  $combined = "$message $data"
+  if ($combined -match '收到：|go-deterministic-provider') {
+    throw "AI chat fallback provider leaked into production smoke path: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($combined -notmatch 'AI|应用|供应商|Dify|引擎|配置|Key|未配置') {
+    throw "AI chat failure was not an explicit engine/app config failure: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  return [pscustomobject]@{
+    Code = [int]$Response.code
+    Message = $message
   }
 }
 
@@ -1191,170 +1446,6 @@ function Assert-UserSessionCurrentRevokeBlocked([string]$BaseURL, [hashtable]$He
   }
 }
 
-function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [string]$Suffix) {
-  if ([string]::IsNullOrWhiteSpace($env:VAULT_KEY)) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_vault_key'
-      DriverID = 0
-      RuleID = 0
-      SettingID = 0
-    }
-  }
-
-  [int64]$driverID = 0
-  [int64]$ruleID = 0
-  [int64]$settingID = 0
-
-  try {
-    $driverBody = @{
-      driver = 'cos'
-      secret_id = "codex-secret-id-$Suffix"
-      secret_key = "codex-secret-key-$Suffix"
-      bucket = "codex-full-smoke-$Suffix"
-      region = 'ap-nanjing'
-      appid = '1314'
-      endpoint = ''
-      bucket_domain = ''
-      role_arn = ''
-    } | ConvertTo-Json -Depth 8
-
-    $driver = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-drivers" `
-      -Method Post `
-      -Headers $Headers `
-      -ContentType 'application/json' `
-      -Body $driverBody `
-      -TimeoutSec 10
-    Assert-ApiOK $driver 'upload driver write probe create'
-    $driverID = [int64]$driver.data.id
-    if ($driverID -le 0) { throw "upload driver write probe returned invalid id: $($driver | ConvertTo-Json -Depth 12)" }
-
-    $ruleBody = @{
-      title = "Codex Full Smoke Upload Rule $Suffix"
-      max_size_mb = 1
-      image_exts = @('png')
-      file_exts = @('pdf')
-    } | ConvertTo-Json -Depth 8
-
-    $rule = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-rules" `
-      -Method Post `
-      -Headers $Headers `
-      -ContentType 'application/json' `
-      -Body $ruleBody `
-      -TimeoutSec 10
-    Assert-ApiOK $rule 'upload rule write probe create'
-    $ruleID = [int64]$rule.data.id
-    if ($ruleID -le 0) { throw "upload rule write probe returned invalid id: $($rule | ConvertTo-Json -Depth 12)" }
-
-    $settingBody = @{
-      driver_id = $driverID
-      rule_id = $ruleID
-      status = 2
-      remark = "codex full smoke disabled setting $Suffix"
-    } | ConvertTo-Json -Depth 8
-
-    $setting = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings" `
-      -Method Post `
-      -Headers $Headers `
-      -ContentType 'application/json' `
-      -Body $settingBody `
-      -TimeoutSec 10
-    Assert-ApiOK $setting 'upload setting write probe create'
-    $settingID = [int64]$setting.data.id
-    if ($settingID -le 0) { throw "upload setting write probe returned invalid id: $($setting | ConvertTo-Json -Depth 12)" }
-
-    $settingList = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings?current_page=1&page_size=20&driver_id=$driverID&rule_id=$ruleID" `
-      -Headers $Headers `
-      -TimeoutSec 10
-    Assert-ApiOK $settingList 'upload setting write probe verify list'
-    $matched = $false
-    foreach ($item in (Get-ObjectArray $settingList.data.list)) {
-      if ([int64]$item.id -eq $settingID -and [int]$item.status -eq 2) {
-        $matched = $true
-      }
-    }
-    if (-not $matched) {
-      throw "upload setting write probe row not found as disabled: $($settingList | ConvertTo-Json -Depth 12)"
-    }
-
-    return [pscustomobject]@{
-      Status = 'ok'
-      DriverID = $driverID
-      RuleID = $ruleID
-      SettingID = $settingID
-    }
-  } finally {
-    if ($settingID -gt 0) {
-      try {
-        Invoke-RestMethod "$BaseURL/api/admin/v1/upload-settings/$settingID" -Method Delete -Headers $Headers -TimeoutSec 5 | Out-Null
-        $settingID = 0
-      } catch {
-        Write-Host "Failed to cleanup upload setting id=$settingID"
-      }
-    }
-    if ($ruleID -gt 0) {
-      try {
-        Invoke-RestMethod "$BaseURL/api/admin/v1/upload-rules/$ruleID" -Method Delete -Headers $Headers -TimeoutSec 5 | Out-Null
-        $ruleID = 0
-      } catch {
-        Write-Host "Failed to cleanup upload rule id=$ruleID"
-      }
-    }
-    if ($driverID -gt 0) {
-      try {
-        Invoke-RestMethod "$BaseURL/api/admin/v1/upload-drivers/$driverID" -Method Delete -Headers $Headers -TimeoutSec 5 | Out-Null
-        $driverID = 0
-      } catch {
-        Write-Host "Failed to cleanup upload driver id=$driverID"
-      }
-    }
-  }
-}
-
-function Invoke-UploadTokenProbe([string]$BaseURL, [hashtable]$Headers) {
-  if ($env:COS_STS_ENABLED -ne 'true') {
-    return [pscustomobject]@{
-      Status = 'skipped_cos_sts_disabled'
-      Code = $null
-      Provider = $null
-      Key = $null
-    }
-  }
-
-  $body = @{
-    folder = 'images'
-    file_name = 'smoke.png'
-    file_size = 1024
-    file_kind = 'image'
-  } | ConvertTo-Json -Depth 4
-
-  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-tokens" `
-    -Method Post `
-    -Headers $Headers `
-    -ContentType 'application/json' `
-    -Body $body `
-    -TimeoutSec 15
-
-  Assert-ApiOK $response 'upload token probe'
-  if ($response.data.provider -ne 'cos') {
-    throw "upload token provider mismatch: $($response | ConvertTo-Json -Depth 12)"
-  }
-  if (-not ([string]$response.data.key).StartsWith('images/')) {
-    throw "upload token key mismatch: $($response | ConvertTo-Json -Depth 12)"
-  }
-  if ([string]::IsNullOrWhiteSpace([string]$response.data.credentials.tmp_secret_id) `
-    -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.tmp_secret_key) `
-    -or [string]::IsNullOrWhiteSpace([string]$response.data.credentials.session_token)) {
-    throw "upload token credentials shape mismatch: $($response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    Status = 'passed'
-    Code = $response.code
-    Provider = $response.data.provider
-    Key = $response.data.key
-  }
-}
-
 function Assert-ProfilePayload($Response, [string]$Label) {
   Assert-ApiOK $Response $Label
 
@@ -1597,8 +1688,8 @@ function Assert-CronTaskList($Response) {
   }
 
   $registeredNotification = $false
-  $registeredPaymentCloseExpired = $false
-  $registeredPaymentSyncPending = $false
+  $registeredPayCloseExpired = $false
+  $registeredPaySyncPending = $false
   $registeredAIRunTimeout = $false
   $aiRunTimeoutTaskType = ''
   $missingLegacy = $false
@@ -1622,15 +1713,15 @@ function Assert-CronTaskList($Response) {
     }
     if ([string]$item.name -eq 'payment_close_expired_order' -and [string]$item.registry_status -eq 'registered') {
       if ([string]$item.registry_task_type -ne 'payment:close-expired-order:v1' -or [string]$item.handler -ne 'payment:close-expired-order:v1') {
-        throw "payment close-expired cron task must expose payment task type instead of legacy pay handler: $($item | ConvertTo-Json -Depth 12)"
+        throw "payment close-expired cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredPaymentCloseExpired = $true
+      $registeredPayCloseExpired = $true
     }
     if ([string]$item.name -eq 'payment_sync_pending_order' -and [string]$item.registry_status -eq 'registered') {
       if ([string]$item.registry_task_type -ne 'payment:sync-pending-order:v1' -or [string]$item.handler -ne 'payment:sync-pending-order:v1') {
-        throw "payment sync-pending cron task must expose payment task type instead of legacy pay handler: $($item | ConvertTo-Json -Depth 12)"
+        throw "payment sync-pending cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredPaymentSyncPending = $true
+      $registeredPaySyncPending = $true
     }
     if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
       if ([string]$item.registry_task_type -ne 'ai:run-timeout:v1' -or [string]$item.handler -ne 'ai:run-timeout:v1') {
@@ -1648,8 +1739,8 @@ function Assert-CronTaskList($Response) {
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
     NotificationRegistered = $registeredNotification
-    PaymentCloseExpiredRegistered = $registeredPaymentCloseExpired
-    PaymentSyncPendingRegistered = $registeredPaymentSyncPending
+    PayCloseExpiredRegistered = $registeredPayCloseExpired
+    PaySyncPendingRegistered = $registeredPaySyncPending
     AIRunTimeoutRegistered = $registeredAIRunTimeout
     AIRunTimeoutTaskType = $aiRunTimeoutTaskType
     MissingLegacyPresent = $missingLegacy
@@ -2093,68 +2184,65 @@ func main() {
     -TimeoutSec 10
   $paymentChannelListSummary = Assert-PaymentChannelList $paymentChannelList
 
-  $aiModelInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-models/page-init" `
+  $paymentOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiModelInitSummary = Assert-AIModelInit $aiModelInit
+  $paymentOrderInitSummary = Assert-PaymentOrderInit $paymentOrderInit
 
-  $aiModelList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-models?current_page=1&page_size=20" `
+  $paymentOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiModelListSummary = Assert-AIModelList $aiModelList
+  $paymentOrderListSummary = Assert-PaymentOrderList $paymentOrderList
 
-  $aiToolInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/page-init" `
+  $paymentEventList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/events?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiToolInitSummary = Assert-AIToolInit $aiToolInit
+  $paymentEventListSummary = Assert-PaymentEventList $paymentEventList
 
-  $aiToolList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools?current_page=1&page_size=20" `
+  $aiEngineInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-engine-connections/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiToolListSummary = Assert-AIToolList $aiToolList
+  $aiEngineInitSummary = Assert-AIEngineInit $aiEngineInit
 
-  $aiToolAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/agent-options" `
+  $aiEngineList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-engine-connections?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiToolAgentOptionsSummary = Assert-AIToolAgentOptions $aiToolAgentOptions
+  $aiEngineListSummary = Assert-AIEngineList $aiEngineList
 
-  $aiPromptList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-prompts?current_page=1&page_size=20" `
+  $aiAppInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-apps/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiPromptListSummary = Assert-AIPromptList $aiPromptList
-  $aiPromptDetailCode = $null
-  $aiPromptDetailID = 0
-  $aiPromptDetailSummary = $null
-  $aiPromptRows = Get-ObjectArray $aiPromptList.data.list
-  if ($aiPromptRows.Count -gt 0) {
-    $firstAiPrompt = $aiPromptRows[0]
-    $aiPromptDetail = Invoke-RestMethod "$baseURL/api/admin/v1/ai-prompts/$($firstAiPrompt.id)" `
-      -Headers $authHeaders `
-      -TimeoutSec 10
-    $aiPromptDetailSummary = Assert-AIPromptDetail $aiPromptDetail
-    $aiPromptDetailCode = $aiPromptDetail.code
-    $aiPromptDetailID = $aiPromptDetailSummary.ID
-  }
+  $aiAppInitSummary = Assert-AIAppInit $aiAppInit
 
-  $aiAgentInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/page-init" `
+  $aiAppList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-apps?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiAgentInitSummary = Assert-AIAgentInit $aiAgentInit
+  $aiAppListSummary = Assert-AIAppList $aiAppList
 
-  $aiAgentList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=10" `
+  $aiAppOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-apps/options" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiAgentListSummary = Assert-AIAgentList $aiAgentList
+  $aiAppOptionsSummary = Assert-AIAppOptions $aiAppOptions
 
-  $aiKnowledgeInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases/page-init" `
+  $aiKnowledgeMapInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-maps/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiKnowledgeInitSummary = Assert-AIKnowledgeInit $aiKnowledgeInit
+  $aiKnowledgeMapInitSummary = Assert-AIKnowledgeMapInit $aiKnowledgeMapInit
 
-  $aiKnowledgeList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases?current_page=1&page_size=10" `
+  $aiKnowledgeMapList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-maps?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiKnowledgeListSummary = Assert-AIKnowledgeList $aiKnowledgeList
+  $aiKnowledgeMapListSummary = Assert-AIKnowledgeMapList $aiKnowledgeMapList
+
+  $aiToolMapInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tool-maps/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiToolMapInitSummary = Assert-AIToolMapInit $aiToolMapInit
+
+  $aiToolMapList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tool-maps?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiToolMapListSummary = Assert-AIToolMapList $aiToolMapList
 
   $aiConversationList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-conversations?current_page=1&page_size=5" `
     -Headers $authHeaders `
@@ -2176,21 +2264,29 @@ func main() {
     -TimeoutSec 10
   $aiRunStatsSummary = Assert-AIRunStats $aiRunStats
 
-
-  $paymentOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentOrderInitSummary = Assert-PaymentOrderInit $paymentOrderInit
-
-  $paymentOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentOrderListSummary = Assert-PaymentOrderList $paymentOrderList
-
-  $paymentEventList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/events?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentEventListSummary = Assert-PaymentEventList $paymentEventList
+  $aiChatEngineFailure = $null
+  $difySmokeAppID = [uint64]0
+  if (-not [string]::IsNullOrWhiteSpace($env:DIFY_SMOKE_APP_ID)) {
+    $difySmokeAppID = [uint64]$env:DIFY_SMOKE_APP_ID
+  }
+  if ($EnableAiEngineProbe -and $difySmokeAppID -gt 0) {
+    $aiChatProbe = Invoke-JsonRequestAllowFailure `
+      'POST' `
+      "$baseURL/api/admin/v1/ai-chat/runs" `
+      $authHeaders `
+      @{ app_id = $difySmokeAppID; content = "full smoke AI engine probe $(Get-Date -Format o)" }
+    Assert-ApiOK $aiChatProbe 'AI chat engine probe'
+    if ([int64]$aiChatProbe.data.run_id -le 0) {
+      throw "AI chat engine probe missing run_id: $($aiChatProbe | ConvertTo-Json -Depth 12)"
+    }
+  } else {
+    $aiChatProbe = Invoke-JsonRequestAllowFailure `
+      'POST' `
+      "$baseURL/api/admin/v1/ai-chat/runs" `
+      $authHeaders `
+      @{ app_id = 999999999; content = 'full smoke expects explicit AI config failure' }
+    $aiChatEngineFailure = Assert-AIChatExplicitEngineFailure $aiChatProbe
+  }
 
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
   $uploadTokenProbe = Invoke-UploadTokenProbe $baseURL $authHeaders
@@ -2402,47 +2498,34 @@ func main() {
     upload_setting_list_code = $uploadSettingList.code
     upload_setting_list_count = $uploadSettingListSummary.ListCount
     upload_setting_total = $uploadSettingListSummary.Total
-    payment_channel_init_code = $paymentChannelInit.code
-    payment_channel_status_count = $paymentChannelInitSummary.StatusCount
-    payment_channel_list_code = $paymentChannelList.code
-    payment_channel_list_count = $paymentChannelListSummary.ListCount
-    payment_channel_total = $paymentChannelListSummary.Total
-    ai_model_init_code = $aiModelInit.code
-    ai_model_driver_dict_count = $aiModelInitSummary.DriverCount
-    ai_model_status_dict_count = $aiModelInitSummary.StatusCount
-    ai_model_list_code = $aiModelList.code
-    ai_model_list_count = $aiModelListSummary.ListCount
-    ai_model_total = $aiModelListSummary.Total
-    ai_model_secret_leak = $aiModelListSummary.SecretLeak
-    ai_tool_init_code = $aiToolInit.code
-    ai_tool_executor_dict_count = $aiToolInitSummary.ExecutorCount
-    ai_tool_status_dict_count = $aiToolInitSummary.StatusCount
-    ai_tool_list_code = $aiToolList.code
-    ai_tool_list_count = $aiToolListSummary.ListCount
-    ai_tool_total = $aiToolListSummary.Total
-    ai_tool_agent_options_code = $aiToolAgentOptions.code
-    ai_tool_agent_options_count = $aiToolAgentOptionsSummary.OptionCount
-    ai_tool_retired_cine_present = $aiToolAgentOptionsSummary.RetiredCinePresent
-    ai_prompt_list_code = $aiPromptList.code
-    ai_prompt_list_count = $aiPromptListSummary.ListCount
-    ai_prompt_total = $aiPromptListSummary.Total
-    ai_prompt_tags_arrays = $aiPromptListSummary.TagsArrays
-    ai_prompt_variables_arrays = $aiPromptListSummary.VariablesArrays
-    ai_prompt_detail_code = $aiPromptDetailCode
-    ai_prompt_detail_id = $aiPromptDetailID
-    ai_prompt_detail_tags_arrays = if ($null -eq $aiPromptDetailSummary) { $true } else { $aiPromptDetailSummary.TagsArrays }
-    ai_prompt_detail_variables_arrays = if ($null -eq $aiPromptDetailSummary) { $true } else { $aiPromptDetailSummary.VariablesArrays }
-    ai_agent_init_code = $aiAgentInit.code
-    ai_agent_scene_dict_count = $aiAgentInitSummary.SceneCount
-    ai_agent_retired_scene_present = $aiAgentInitSummary.RetiredScenePresent
-    ai_agent_list_code = $aiAgentList.code
-    ai_agent_list_count = $aiAgentListSummary.ListCount
-    ai_agent_total = $aiAgentListSummary.Total
-    ai_knowledge_init_code = $aiKnowledgeInit.code
-    ai_knowledge_source_type_count = $aiKnowledgeInitSummary.SourceTypeCount
-    ai_knowledge_list_code = $aiKnowledgeList.code
-    ai_knowledge_list_count = $aiKnowledgeListSummary.ListCount
-    ai_knowledge_total = $aiKnowledgeListSummary.Total
+    ai_engine_init_code = $aiEngineInit.code
+    ai_engine_type_dict_count = $aiEngineInitSummary.EngineTypeCount
+    ai_engine_health_status_dict_count = $aiEngineInitSummary.HealthStatusCount
+    ai_engine_list_code = $aiEngineList.code
+    ai_engine_list_count = $aiEngineListSummary.ListCount
+    ai_engine_total = $aiEngineListSummary.Total
+    ai_app_init_code = $aiAppInit.code
+    ai_app_type_dict_count = $aiAppInitSummary.AppTypeCount
+    ai_app_response_mode_dict_count = $aiAppInitSummary.ResponseModeCount
+    ai_app_engine_connection_count = $aiAppInitSummary.EngineConnectionCount
+    ai_app_list_code = $aiAppList.code
+    ai_app_list_count = $aiAppListSummary.ListCount
+    ai_app_total = $aiAppListSummary.Total
+    ai_app_options_code = $aiAppOptions.code
+    ai_app_options_count = $aiAppOptionsSummary.OptionCount
+    ai_knowledge_map_init_code = $aiKnowledgeMapInit.code
+    ai_knowledge_map_visibility_dict_count = $aiKnowledgeMapInitSummary.VisibilityCount
+    ai_knowledge_map_source_type_count = $aiKnowledgeMapInitSummary.SourceTypeCount
+    ai_knowledge_map_indexing_status_count = $aiKnowledgeMapInitSummary.IndexingStatusCount
+    ai_knowledge_map_list_code = $aiKnowledgeMapList.code
+    ai_knowledge_map_list_count = $aiKnowledgeMapListSummary.ListCount
+    ai_knowledge_map_total = $aiKnowledgeMapListSummary.Total
+    ai_tool_map_init_code = $aiToolMapInit.code
+    ai_tool_map_type_dict_count = $aiToolMapInitSummary.ToolTypeCount
+    ai_tool_map_risk_level_dict_count = $aiToolMapInitSummary.RiskLevelCount
+    ai_tool_map_list_code = $aiToolMapList.code
+    ai_tool_map_list_count = $aiToolMapListSummary.ListCount
+    ai_tool_map_total = $aiToolMapListSummary.Total
     ai_conversation_list_code = $aiConversationList.code
     ai_conversation_list_count = $aiConversationListSummary.ListCount
     ai_conversation_total = $aiConversationListSummary.Total
@@ -2454,16 +2537,37 @@ func main() {
     ai_run_stats_code = $aiRunStats.code
     ai_run_stats_total = $aiRunStatsSummary.TotalRuns
     ai_run_stats_fail = $aiRunStatsSummary.FailRuns
+    ai_run_app_dict_count = $aiRunInitSummary.AppCount
+    ai_run_engine_dict_count = $aiRunInitSummary.EngineCount
+    ai_chat_engine_failure_code = if ($null -eq $aiChatEngineFailure) { 0 } else { $aiChatEngineFailure.Code }
+    ai_chat_engine_probe_enabled = [bool]($EnableAiEngineProbe -and $difySmokeAppID -gt 0)
     ai_goods_route_present = $usersInitAIRouteSummary.GoodsPresent
     ai_cine_route_present = $usersInitAIRouteSummary.CinePresent
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
-    ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
+    ai_agents_route_present = $usersInitAIRouteSummary.AgentsPresent
     ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
+    ai_providers_route_present = $usersInitAIRouteSummary.ProvidersPresent
+    ai_apps_route_present = $usersInitAIRouteSummary.AppsPresent
+    ai_chat_route_present = $usersInitAIRouteSummary.ChatPresent
+    ai_knowledge_route_present = $usersInitAIRouteSummary.KnowledgePresent
+    ai_runs_route_present = $usersInitAIRouteSummary.RunsPresent
+    ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
     payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
     payment_route_retired_wallet_present = $usersInitPaymentRouteSummary.RetiredWalletPresent
+    payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent
     payment_route_channel_present = $usersInitPaymentRouteSummary.ChannelPresent
     payment_route_order_present = $usersInitPaymentRouteSummary.OrderPresent
     payment_route_event_present = $usersInitPaymentRouteSummary.EventPresent
+    payment_route_channel_view_key = $usersInitPaymentRouteSummary.ChannelViewKey
+    payment_route_order_view_key = $usersInitPaymentRouteSummary.OrderViewKey
+    payment_route_event_view_key = $usersInitPaymentRouteSummary.EventViewKey
+    payment_channel_init_code = $paymentChannelInit.code
+    payment_channel_provider_count = $paymentChannelInitSummary.ProviderCount
+    payment_channel_method_count = $paymentChannelInitSummary.MethodCount
+    payment_channel_status_count = $paymentChannelInitSummary.StatusCount
+    payment_channel_list_code = $paymentChannelList.code
+    payment_channel_list_count = $paymentChannelListSummary.ListCount
+    payment_channel_total = $paymentChannelListSummary.Total
     payment_order_init_code = $paymentOrderInit.code
     payment_order_dict_keys = $paymentOrderInitSummary.DictKeys
     payment_order_list_code = $paymentOrderList.code
@@ -2518,8 +2622,8 @@ func main() {
     cron_task_list_count = $cronTaskListSummary.ListCount
     cron_task_total = $cronTaskListSummary.Total
     cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
-    cron_task_payment_close_expired_registered = $cronTaskListSummary.PaymentCloseExpiredRegistered
-    cron_task_payment_sync_pending_registered = $cronTaskListSummary.PaymentSyncPendingRegistered
+    cron_task_payment_close_expired_registered = $cronTaskListSummary.PayCloseExpiredRegistered
+    cron_task_payment_sync_pending_registered = $cronTaskListSummary.PaySyncPendingRegistered
     cron_task_ai_run_timeout_registered = $cronTaskListSummary.AIRunTimeoutRegistered
     cron_task_ai_run_timeout_type = $cronTaskListSummary.AIRunTimeoutTaskType
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent

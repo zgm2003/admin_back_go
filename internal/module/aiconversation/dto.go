@@ -11,7 +11,8 @@ type ListQuery struct {
 	CurrentPage int
 	PageSize    int
 	Status      *int
-	AgentID     *int64
+	AppID       *int64
+	AgentID     *int64 // legacy alias for AppID during one Vue migration pass
 	Title       string
 }
 
@@ -30,6 +31,8 @@ type ListResponse struct {
 type ListItem struct {
 	ID            int64  `json:"id"`
 	UserID        int64  `json:"user_id"`
+	AppID         int64  `json:"app_id"`
+	AppName       string `json:"app_name"`
 	AgentID       int64  `json:"agent_id"`
 	AgentName     string `json:"agent_name"`
 	Title         string `json:"title"`
@@ -43,6 +46,8 @@ type ListItem struct {
 type DetailResponse struct {
 	ID            int64  `json:"id"`
 	UserID        int64  `json:"user_id"`
+	AppID         int64  `json:"app_id"`
+	AppName       string `json:"app_name"`
 	AgentID       int64  `json:"agent_id"`
 	AgentName     string `json:"agent_name"`
 	Title         string `json:"title"`
@@ -53,21 +58,22 @@ type DetailResponse struct {
 }
 
 type MutationInput struct {
-	AgentID int64
+	AppID   int64
+	AgentID int64 // legacy alias for AppID during one Vue migration pass
 	Title   string
 	Status  int
 }
 
 type ListRow struct {
 	Conversation Conversation
-	AgentName    string
+	AppName      string
 }
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Get(ctx context.Context, id int64) (*Conversation, error)
-	AgentName(ctx context.Context, id int64) (string, error)
-	ActiveAgentExists(ctx context.Context, id int64) (bool, error)
+	AppName(ctx context.Context, id int64) (string, error)
+	ActiveAppExists(ctx context.Context, id int64) (bool, error)
 	Create(ctx context.Context, row Conversation) (int64, error)
 	Update(ctx context.Context, id int64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id int64, status int) error

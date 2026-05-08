@@ -503,17 +503,21 @@ func main() {
   if (-not (Test-RouteViewKey $init.data.router 'system/clientVersion')) {
     throw 'users init missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
   }
-  if (Test-RoutePath $init.data.router '/ai/goods') {
-    throw 'users init still returns retired AI goods route /ai/goods; run database migration 20260508_remove_ai_goods_cine_modules.sql and clear operator-side caches'
+  $retiredAINameRoutes = @{}
+  foreach ($name in @('models', 'agents', 'prompts')) {
+    $retiredAINameRoutes[$name] = "/ai/$name"
   }
-  if (Test-RoutePath $init.data.router '/ai/cine') {
-    throw 'users init still returns retired AI cine route /ai/cine; run database migration 20260508_remove_ai_goods_cine_modules.sql and clear operator-side caches'
+  $retiredAIRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
+  foreach ($route in $retiredAIRoutes) {
+    if (Test-RoutePath $init.data.router $route) {
+      throw "users init still returns retired AI route $route; run AI core rebuild migration and clear operator-side caches"
+    }
   }
-  if (-not (Test-RoutePath $init.data.router '/ai/models')) {
-    throw 'users init missing retained AI core route /ai/models'
-  }
-  if (-not (Test-RoutePath $init.data.router '/ai/chat')) {
-    throw 'users init missing retained AI core route /ai/chat'
+  $requiredAIRoutes = @('/ai/providers', '/ai/apps', '/ai/chat', '/ai/knowledge', '/ai/runs', '/ai/tools')
+  foreach ($route in $requiredAIRoutes) {
+    if (-not (Test-RoutePath $init.data.router $route)) {
+      throw "users init missing AI sidecar product route $route"
+    }
   }
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $dirBody = @{
@@ -642,8 +646,15 @@ func main() {
     button_code_count = @($init.data.buttonCodes).Count
     ai_goods_route_present = Test-RoutePath $init.data.router '/ai/goods'
     ai_cine_route_present = Test-RoutePath $init.data.router '/ai/cine'
-    ai_models_route_present = Test-RoutePath $init.data.router '/ai/models'
+    ai_models_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['models']
+    ai_agents_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['agents']
+    ai_prompts_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['prompts']
+    ai_providers_route_present = Test-RoutePath $init.data.router '/ai/providers'
+    ai_apps_route_present = Test-RoutePath $init.data.router '/ai/apps'
     ai_chat_route_present = Test-RoutePath $init.data.router '/ai/chat'
+    ai_knowledge_route_present = Test-RoutePath $init.data.router '/ai/knowledge'
+    ai_runs_route_present = Test-RoutePath $init.data.router '/ai/runs'
+    ai_tools_route_present = Test-RoutePath $init.data.router '/ai/tools'
     users_page_init_code = $usersPageInit.code
     users_role_dict_count = @($usersPageInit.data.dict.roleArr).Count
     users_address_tree_count = @($usersPageInit.data.dict.auth_address_tree).Count

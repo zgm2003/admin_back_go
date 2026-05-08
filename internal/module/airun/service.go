@@ -15,6 +15,8 @@ import (
 
 const timeLayout = "2006-01-02 15:04:05"
 
+var emptyJSONObject = json.RawMessage("{}")
+
 type Service struct {
 	repository Repository
 }
@@ -28,15 +30,16 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if appErr != nil {
 		return nil, appErr
 	}
-	agents, err := repo.AgentOptions(ctx)
+	apps, err := repo.AppOptions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体选项失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用选项失败", err)
 	}
-	agentOptions := make([]dict.Option[int], 0, len(agents))
-	for _, row := range agents {
-		agentOptions = append(agentOptions, dict.Option[int]{Label: row.Name, Value: int(row.ID)})
+	engines, err := repo.EngineOptions(ctx)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
-	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AgentArr: agentOptions}}, nil
+	appOptions := optionItems(apps)
+	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AppArr: appOptions, AgentArr: appOptions, EngineArr: optionItems(engines)}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -71,11 +74,11 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if row == nil {
 		return nil, apperror.NotFound("AI运行记录不存在")
 	}
-	steps, err := repo.Steps(ctx, id)
+	events, err := repo.Events(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行步骤失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行事件失败", err)
 	}
-	result := detailItem(*row, steps)
+	result := detailItem(*row, events)
 	return &result, nil
 }
 
@@ -125,11 +128,11 @@ func (s *Service) StatsByAgent(ctx context.Context, query StatsListQuery) (*Stat
 	query = normalizeStatsListQuery(query)
 	rows, total, err := repo.StatsByAgent(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行智能体统计失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行应用统计失败", err)
 	}
 	list := make([]StatsByAgentItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, StatsByAgentItem{AgentName: row.AgentName, StatsMetricItem: metricItem(row.StatsMetricRow)})
+		list = append(list, StatsByAgentItem{AppID: row.AppID, AppName: row.AppName, AgentName: row.AppName, StatsMetricItem: metricItem(row.StatsMetricRow)})
 	}
 	return &StatsByAgentResponse{List: list, Page: page(total, query.CurrentPage, query.PageSize)}, nil
 }
@@ -168,6 +171,9 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	if query.PageSize > enum.PageSizeMax {
 		query.PageSize = enum.PageSizeMax
 	}
+	if query.AppID == nil && query.AgentID != nil {
+		query.AppID = query.AgentID
+	}
 	query.RequestID = strings.TrimSpace(query.RequestID)
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
@@ -175,6 +181,9 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func normalizeStatsFilter(query StatsFilter) StatsFilter {
+	if query.AppID == nil && query.AgentID != nil {
+		query.AppID = query.AgentID
+	}
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	return query
@@ -190,6 +199,9 @@ func normalizeStatsListQuery(query StatsListQuery) StatsListQuery {
 	if query.PageSize > enum.PageSizeMax {
 		query.PageSize = enum.PageSizeMax
 	}
+	if query.AppID == nil && query.AgentID != nil {
+		query.AppID = query.AgentID
+	}
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	return query
@@ -197,46 +209,56 @@ func normalizeStatsListQuery(query StatsListQuery) StatsListQuery {
 
 func listItem(row ListRow) ListItem {
 	return ListItem{
-		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, AgentID: row.AgentID, AgentName: row.AgentName,
+		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID,
+		AppID: row.AppID, AppName: row.AppName, AgentID: row.AppID, AgentName: row.AppName,
+		EngineConnectionID: row.EngineConnectionID, EngineName: row.EngineName, EngineType: row.EngineType,
+		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle, RunStatus: row.RunStatus,
 		RunStatusName: enum.AIRunStatusLabels[row.RunStatus], ModelSnapshot: row.ModelSnapshot,
-		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
+		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens, Cost: row.Cost,
 		LatencyMS: row.LatencyMS, LatencyStr: latencyString(row.LatencyMS), ErrorMsg: row.ErrorMsg,
 		CreatedAt: formatTime(row.CreatedAt),
 	}
 }
 
-func detailItem(row RunDetailRow, steps []StepRow) DetailResponse {
-	items := make([]StepItem, 0, len(steps))
-	for _, step := range steps {
-		items = append(items, stepItem(step))
+func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
+	items := make([]EventItem, 0, len(events))
+	for _, event := range events {
+		items = append(items, eventItem(event))
 	}
 	return DetailResponse{
-		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username, AgentID: row.AgentID,
-		AgentName: row.AgentName, ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
+		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
+		AppID: row.AppID, AppName: row.AppName, AgentID: row.AppID, AgentName: row.AppName,
+		EngineConnectionID: row.EngineConnectionID, EngineName: row.EngineName, EngineType: row.EngineType,
+		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
+		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		RunStatus: row.RunStatus, RunStatusName: enum.AIRunStatusLabels[row.RunStatus], ModelSnapshot: row.ModelSnapshot,
-		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
+		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens, Cost: row.Cost,
 		LatencyMS: row.LatencyMS, LatencyStr: latencyString(row.LatencyMS), ErrorMsg: row.ErrorMsg,
-		MetaJSON: decodeObject(row.MetaJSON), UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage,
-		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), Steps: items,
+		MetaJSON: rawJSON(row.MetaJSON), UsageJSON: rawJSON(row.UsageJSON), OutputSnapshotJSON: rawJSON(row.OutputSnapshotJSON),
+		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, Steps: []StepItem{},
+		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
+}
+
+func eventItem(row EventRow) EventItem {
+	return EventItem{ID: row.ID, Seq: row.Seq, EventID: row.EventID, EventType: row.EventType, DeltaText: row.DeltaText, PayloadJSON: rawJSON(row.PayloadJSON), CreatedAt: formatTime(row.CreatedAt)}
 }
 
 func stepItem(row StepRow) StepItem {
-	return StepItem{
-		ID: row.ID, StepNo: row.StepNo, StepType: row.StepType, StepTypeName: enum.AIRunStepTypeLabels[row.StepType],
-		AgentID: row.AgentID, AgentName: row.AgentName, ModelSnapshot: row.ModelSnapshot, Status: row.Status,
-		StatusName: enum.AIRunStepStatusLabels[row.Status], ErrorMsg: row.ErrorMsg, LatencyMS: row.LatencyMS,
-		LatencyStr: latencyString(row.LatencyMS), PayloadJSON: decodeObject(row.PayloadJSON), CreatedAt: formatTime(row.CreatedAt),
-	}
+	return StepItem{ID: row.ID, StepNo: row.StepNo, StepType: row.StepType, StepTypeName: enum.AIRunStepTypeLabels[row.StepType], AgentID: row.AgentID, AgentName: row.AgentName, ModelSnapshot: row.ModelSnapshot, Status: row.Status, StatusName: enum.AIRunStepStatusLabels[row.Status], ErrorMsg: row.ErrorMsg, LatencyMS: row.LatencyMS, LatencyStr: latencyString(row.LatencyMS), PayloadJSON: rawJSON(row.PayloadJSON), CreatedAt: formatTime(row.CreatedAt)}
 }
 
 func metricItem(row StatsMetricRow) StatsMetricItem {
-	return StatsMetricItem{
-		TotalRuns: row.TotalRuns, TotalTokens: row.TotalTokens,
-		TotalPromptTokens: row.PromptTokens, TotalCompletionTokens: row.CompletionTokens,
-		AvgLatencyMS: row.AvgLatencyMS,
+	return StatsMetricItem{TotalRuns: row.TotalRuns, TotalTokens: row.TotalTokens, TotalPromptTokens: row.PromptTokens, TotalCompletionTokens: row.CompletionTokens, AvgLatencyMS: row.AvgLatencyMS}
+}
+
+func optionItems(rows []OptionRow) []dict.Option[int] {
+	items := make([]dict.Option[int], 0, len(rows))
+	for _, row := range rows {
+		items = append(items, dict.Option[int]{Label: row.Name, Value: int(row.ID)})
 	}
+	return items
 }
 
 func page(total int64, currentPage int, pageSize int) Page {
@@ -260,14 +282,24 @@ func latencyString(value *int) string {
 	return fmt.Sprintf("%.2fs", float64(*value)/1000)
 }
 
-func decodeObject(raw *string) JSONObject {
+func decodeObject(raw *string) json.RawMessage {
+	return rawJSON(raw)
+}
+
+func rawJSON(raw *string) json.RawMessage {
 	if raw == nil || strings.TrimSpace(*raw) == "" {
-		return JSONObject{}
+		return cloneRawJSON(emptyJSONObject)
 	}
-	var out JSONObject
+	var out any
 	if err := json.Unmarshal([]byte(*raw), &out); err != nil {
-		return JSONObject{}
+		return cloneRawJSON(emptyJSONObject)
 	}
+	return json.RawMessage(*raw)
+}
+
+func cloneRawJSON(raw json.RawMessage) json.RawMessage {
+	out := make(json.RawMessage, len(raw))
+	copy(out, raw)
 	return out
 }
 

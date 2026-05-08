@@ -1225,7 +1225,7 @@ Go 后端从认证平台开始建立统一基础件：
 
 - `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景、通知类型/级别。
 - `internal/dict` 负责把 enum 转成前端 `dict` 选项，不允许业务页面自己手写一份枚举标签。
-- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`pay_channel`、`pay_method`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
+- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`payment_provider`、`payment_method`；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
 - 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
 - `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
@@ -1260,32 +1260,45 @@ upload runtime 默认只接受 COS 依赖；OSS SDK 不进入默认 go.mod/packa
 支付域当前收敛为 `internal/module/payment` bounded context：
 
 ```text
-internal/module/payment                 # 后台支付只读 REST bounded context
+internal/module/payment                 # 后台支付 REST + app payment bounded context
 internal/platform/payment/alipay        # 唯一允许接入支付宝 SDK 的平台层
 payment_channels                        # 支付渠道基础事实源
 payment_channel_configs                 # 支付宝 web/h5 配置事实源
-payment_orders                          # 支付订单只读事实源
+payment_orders                          # 支付订单事实源
 payment_events                          # 支付事件/回调/状态流转审计事实源
 ```
 
-`internal/module/payment` 当前只暴露后台只读探针：
+`internal/module/payment` active contract 包含后台管理、应用端支付动作、事件读取与支付宝回调：
 
 ```text
-GET /api/admin/v1/payment/channels/page-init
-GET /api/admin/v1/payment/channels
-GET /api/admin/v1/payment/orders/page-init
-GET /api/admin/v1/payment/orders
-GET /api/admin/v1/payment/events
+GET    /api/admin/v1/payment/channels/page-init
+GET    /api/admin/v1/payment/channels
+POST   /api/admin/v1/payment/channels
+PUT    /api/admin/v1/payment/channels/:id
+PATCH  /api/admin/v1/payment/channels/:id/status
+DELETE /api/admin/v1/payment/channels/:id
+GET    /api/admin/v1/payment/orders/page-init
+GET    /api/admin/v1/payment/orders
+GET    /api/admin/v1/payment/events
+POST   /api/admin/v1/payment/orders
+GET    /api/admin/v1/payment/orders/:order_no
+GET    /api/admin/v1/payment/orders/:order_no/result
+POST   /api/admin/v1/payment/orders/:order_no/pay
+PATCH  /api/admin/v1/payment/orders/:order_no/cancel
+PATCH  /api/admin/v1/payment/orders/:order_no/close
+GET    /api/admin/v1/payment/events/:id
+POST   /api/payment/notify/alipay
 ```
 
 规则：
 
 ```text
 payment 是新的 bounded context，不再按旧 pay / wallet / reconcile 拆分模块。
-后台 payment 读取 payment_channels/payment_channel_configs/payment_orders/payment_events，不复活钱包、退款、对账或充值管理面。
+后台 payment 读写 payment_channels/payment_channel_configs，并读取 payment_orders/payment_events；当前订单创建、支付、结果、取消、关闭统一走 `/api/admin/v1/payment/orders` 的 current-user 语义，Alipay notify 走 public raw endpoint，不复活钱包、退款、对账或充值管理面。
+默认 smoke 只跑后台只读探针，不执行真实支付尝试，也不触发真实 Alipay 网关。
 当前只保留 Alipay web/h5；无 WeChat、无 wallet、无 refund、无 reconcile。
 支付宝 SDK 只允许出现在 internal/platform/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
-渠道配置密钥只允许在平台层使用；响应、operation log、smoke 输出都不能泄露私钥明文或密文。
+渠道配置密钥只允许在平台层使用；响应、operation log、smoke 输出都不能泄露 payment_channel_configs.private_key_enc、私钥明文或证书正文。
 菜单路径只保留 /payment/channel、/payment/order、/payment/event；旧 /pay、/wallet 必须从 users/init router 消失。
 ```
 
@@ -1335,44 +1348,53 @@ uploadtoken 只签发临时凭证，不定义业务。
 后续 AI agent avatar、chat attachment、rich text image 等都必须作为对应业务模块的一部分迁移，不能为了“上传页面”单独偷跑。
 ```
 
-AI prune boundary（2026-05-08）：
+AI Core Dify sidecar boundary（2026-05-09）：
 
 ```text
-AI 电商口播和 AI 短剧工厂已从当前 Go 迁移范围删除。
-`database/migrations/20260508_remove_ai_goods_cine_modules.sql` 删除 `goods`、`cine_projects`、`cine_assets` 和 `/ai/goods`、`/ai/cine` 菜单权限。
-`goods_tts` 与 `cine_keyframes` 不再是 active upload folder；`ai_chat_images` 保留给 AI chat。
-Go AI runtime 后续不得依赖 goods/cine schema、folder 或 PHP adapter。
-`cron_task.name=ai_run_timeout` 已由 Go worker registry 接管，task type 为 `ai:run-timeout:v1`。
+admin_go + Dify sidecar + internal/platform/ai 是当前 AI 架构。
+Dify 是 AI engine，不是 admin 后台；用户、RBAC、菜单、OperationLog、REST、WebSocket、Vue 页面仍归 admin_go。
+Vue 不直连 Dify，Dify key 不进浏览器；module 不直接 import Dify/OpenAI/Eino SDK/client。
 ```
 
-AI Core P1 config（2026-05-08）：
+Active AI modules:
 
 ```text
-Go 已接管 AI 配置事实源的第一段：`ai_models`、`ai_tools`、`ai_prompts`。
-模型/工具/提示词是配置层；agents、knowledge、chat runtime、runs 已按后续窄切片迁到 Go REST/worker/realtime。RAG/vector/sidecar 仍不是当前 Go monolith 已完成能力。
-`api_key` 只允许写入时加密，响应和日志都不能泄露 `api_key_enc`。
-`ai_prompt` 旧表保留，不在 P1 偷删；真正的运行时/工作流迁移放到后续阶段。
+internal/platform/ai            # stable engine interface, fake only for tests/dev boundary
+internal/platform/ai/dify       # Dify Service API adapter
+internal/module/aiengine        # ai_engine_connections provider/sidecar connection config
+internal/module/aiapp           # ai_apps + ai_app_bindings local agent/app entries
+internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents mapping/status sync
+internal/module/aitoolmap       # ai_tool_maps local tool/workflow references
+internal/module/aiconversation  # current-user conversations; canonical app_id -> ai_apps
+internal/module/aimessage       # conversation messages, feedback, branch cleanup
+internal/module/airun           # ai_runs / ai_run_events / usage monitor
+internal/module/aichat          # chat runtime through platform/ai.Engine, ai.response.*.v1 publish
 ```
 
-AI agent / knowledge / runtime（2026-05-08）：
+Retired AI active runtime:
 
 ```text
-internal/module/aiagent          # ai_agents 管理，排除 retired goods/cine scenes
-internal/module/aiknowledge      # knowledge bases/documents/chunks， deterministic MySQL retrieval test
-internal/module/aiconversation   # current-user ai_conversations REST
-internal/module/aimessage        # conversation message list/edit/feedback/delete
-internal/module/airun            # ai_runs read-only monitor/stats
-internal/module/aichat           # chat runtime, ai:run-execute:v1, ai:run-timeout:v1, ai.response.*.v1 publish
+legacy AI model/tool/prompt/agent/knowledge-base REST resources
+legacy model/agent/prompt Vue menu entries
 ```
 
-边界：
+这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aitool` / `aiprompt` / `aiagent` / `aiknowledge` 重新挂回 server/bootstrap。
+
+Schema truth:
 
 ```text
-Go REST 统一使用 /api/admin/v1/ai-*，禁止新增 /api/admin/Ai*/list|add|edit|del|status adapter
-aichat 当前 provider 是 deterministic fallback：收到：{content}，不是外部 LLM provider E2E
-REST events 是从 run/message 状态重建的 catch-up，不是 SSE 或 browser event-source runtime，不是 Redis Stream
-WebSocket 只发布 versioned envelope：ai.response.start/delta/completed/failed/cancel.v1
-AI response publication 走 platform/realtime.Publisher；admin-worker 跨进程 fan-out 需要 REALTIME_PUBLISHER=redis
+20260508_ai_core_backup.sql   # backup old AI tables and AI permissions
+20260508_ai_core_rebuild.sql  # creates ai_engine_connections, ai_apps, ai_app_bindings, ai_conversations, ai_messages, ai_runs, ai_run_events, ai_knowledge_maps, ai_knowledge_documents, ai_tool_maps, ai_usage_daily
+20260508_ai_core_rollback.sql # restores from local backups; does not delete Dify sidecar data
+```
+
+Runtime boundary:
+
+```text
+POST /api/admin/v1/ai-chat/runs must fail explicitly when no enabled app/engine exists; production must not fake success.
+Dify SSE exists only between Go and Dify; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed/cancel.v1.
+REST event catch-up comes from ai_run_events and is not SSE, not EventSource, not Redis Stream.
+admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.
 ```
 
 `internal/platform/storage/cos` 是唯一 COS STS 供应商边界：

@@ -9,15 +9,14 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
-	"admin_back_go/internal/module/aiagent"
+	"admin_back_go/internal/module/aiapp"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiknowledge"
+	"admin_back_go/internal/module/aiengine"
+	"admin_back_go/internal/module/aiknowledgemap"
 	"admin_back_go/internal/module/aimessage"
-	"admin_back_go/internal/module/aimodel"
-	"admin_back_go/internal/module/aiprompt"
 	"admin_back_go/internal/module/airun"
-	"admin_back_go/internal/module/aitool"
+	"admin_back_go/internal/module/aitoolmap"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -40,6 +39,8 @@ import (
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
+	platformai "admin_back_go/internal/platform/ai"
+	"admin_back_go/internal/platform/ai/dify"
 	"admin_back_go/internal/platform/logstore"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
@@ -120,11 +121,10 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			cosObjectWriter,
 		),
 	)
-	aiModelService := aimodel.NewService(aimodel.NewGormRepository(resources.DB), secretBox)
-	aiToolService := aitool.NewService(aitool.NewGormRepository(resources.DB))
-	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB))
-	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
-	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
+	aiEngineService := aiengine.NewService(aiengine.NewGormRepository(resources.DB), secretBox, aiEngineTester{})
+	aiAppService := aiapp.NewService(aiapp.NewGormRepository(resources.DB), secretBox, aiEngineTester{})
+	aiToolMapService := aitoolmap.NewService(aitoolmap.NewGormRepository(resources.DB))
+	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
@@ -217,9 +217,11 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
 	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
 	aiChatService := aichat.NewService(aichat.Dependencies{
-		Repository: aichat.NewGormRepository(resources.DB),
-		Enqueuer:   queueClient,
-		Publisher:  realtimeStack.publisher,
+		Repository:    aichat.NewGormRepository(resources.DB),
+		Enqueuer:      queueClient,
+		Publisher:     realtimeStack.publisher,
+		Secretbox:     secretBox,
+		EngineFactory: aiChatEngineFactory{},
 	})
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
@@ -266,15 +268,14 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AuthService:             authService,
 		CaptchaService:          captchaService,
 		ClientVersionService:    clientVersionService,
-		AiAgentService:          aiAgentService,
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
-		AiKnowledgeService:      aiKnowledgeService,
+		AiAppService:            aiAppService,
+		AiEngineService:         aiEngineService,
+		AiKnowledgeMapService:   aiKnowledgeMapService,
 		AiMessageService:        aiMessageService,
-		AiModelService:          aiModelService,
 		AiRunService:            aiRunService,
-		AiToolService:           aiToolService,
-		AiPromptService:         aiPromptService,
+		AiToolMapService:        aiToolMapService,
 		CronTaskService:         cronTaskService,
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,
@@ -311,6 +312,55 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			Handler:           router,
 			ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
 		},
+	}
+}
+
+type aiEngineTester struct{}
+
+func (aiEngineTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+	switch input.EngineType {
+	case platformai.EngineTypeDify:
+		client, err := dify.New(dify.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: time.Duration(input.TimeoutMs) * time.Millisecond,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return client.TestConnection(ctx, input)
+	default:
+		return nil, platformai.ErrInvalidConfig
+	}
+}
+
+type aiEngineFactory struct{}
+
+func (aiEngineFactory) NewEngine(ctx context.Context, input aiknowledgemap.EngineConfig) (platformai.Engine, error) {
+	switch input.EngineType {
+	case platformai.EngineTypeDify:
+		return dify.New(dify.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 30 * time.Second,
+		})
+	default:
+		return nil, platformai.ErrInvalidConfig
+	}
+}
+
+type aiChatEngineFactory struct{}
+
+func (aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (platformai.Engine, error) {
+	switch input.EngineType {
+	case platformai.EngineTypeDify:
+		return dify.New(dify.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 30 * time.Second,
+		})
+	default:
+		return nil, platformai.ErrInvalidConfig
 	}
 }
 

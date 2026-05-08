@@ -2,13 +2,14 @@ package airun
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 )
 
-type JSONObject map[string]any
+type JSONObject = json.RawMessage
 
 type InitResponse struct {
 	Dict InitDict `json:"dict"`
@@ -16,18 +17,22 @@ type InitResponse struct {
 
 type InitDict struct {
 	RunStatusArr []dict.Option[int] `json:"run_status_arr"`
-	AgentArr     []dict.Option[int] `json:"agentArr"`
+	AppArr       []dict.Option[int] `json:"appArr"`
+	EngineArr    []dict.Option[int] `json:"engineArr"`
+	AgentArr     []dict.Option[int] `json:"agentArr"` // legacy alias for the current Vue pass
 }
 
 type ListQuery struct {
-	CurrentPage int
-	PageSize    int
-	RunStatus   *int
-	UserID      *int64
-	RequestID   string
-	AgentID     *int64
-	DateStart   string
-	DateEnd     string
+	CurrentPage        int
+	PageSize           int
+	RunStatus          *int
+	UserID             *int64
+	RequestID          string
+	AppID              *int64
+	EngineConnectionID *int64
+	AgentID            *int64 // legacy alias for AppID during migration
+	DateStart          string
+	DateEnd            string
 }
 
 type Page struct {
@@ -43,30 +48,50 @@ type ListResponse struct {
 }
 
 type ListItem struct {
-	ID                int64   `json:"id"`
-	RequestID         string  `json:"request_id"`
-	UserID            int64   `json:"user_id"`
-	AgentID           int64   `json:"agent_id"`
-	AgentName         string  `json:"agent_name"`
-	ConversationID    int64   `json:"conversation_id"`
-	ConversationTitle string  `json:"conversation_title"`
-	RunStatus         int     `json:"run_status"`
-	RunStatusName     string  `json:"run_status_name"`
-	ModelSnapshot     string  `json:"model_snapshot"`
-	PromptTokens      *int    `json:"prompt_tokens"`
-	CompletionTokens  *int    `json:"completion_tokens"`
-	TotalTokens       *int    `json:"total_tokens"`
-	LatencyMS         *int    `json:"latency_ms"`
-	LatencyStr        string  `json:"latency_str"`
-	ErrorMsg          *string `json:"error_msg"`
-	CreatedAt         string  `json:"created_at"`
+	ID                 int64    `json:"id"`
+	RequestID          string   `json:"request_id"`
+	UserID             int64    `json:"user_id"`
+	AppID              int64    `json:"app_id"`
+	AppName            string   `json:"app_name"`
+	AgentID            int64    `json:"agent_id"`   // legacy alias for AppID
+	AgentName          string   `json:"agent_name"` // legacy alias for AppName
+	EngineConnectionID int64    `json:"engine_connection_id"`
+	EngineName         string   `json:"engine_name"`
+	EngineType         string   `json:"engine_type"`
+	EngineTaskID       string   `json:"engine_task_id"`
+	EngineRunID        string   `json:"engine_run_id"`
+	ConversationID     int64    `json:"conversation_id"`
+	ConversationTitle  string   `json:"conversation_title"`
+	RunStatus          int      `json:"run_status"`
+	RunStatusName      string   `json:"run_status_name"`
+	ModelSnapshot      string   `json:"model_snapshot"`
+	PromptTokens       *int     `json:"prompt_tokens"`
+	CompletionTokens   *int     `json:"completion_tokens"`
+	TotalTokens        *int     `json:"total_tokens"`
+	Cost               *float64 `json:"cost"`
+	LatencyMS          *int     `json:"latency_ms"`
+	LatencyStr         string   `json:"latency_str"`
+	ErrorMsg           *string  `json:"error_msg"`
+	CreatedAt          string   `json:"created_at"`
 }
 
 type MessageSummary struct {
-	ID        int64      `json:"id"`
-	Content   string     `json:"content"`
-	MetaJSON  JSONObject `json:"meta_json"`
-	CreatedAt string     `json:"created_at"`
+	ID          int64      `json:"id"`
+	Role        int        `json:"role"`
+	ContentType string     `json:"content_type"`
+	Content     string     `json:"content"`
+	MetaJSON    JSONObject `json:"meta_json"`
+	CreatedAt   string     `json:"created_at"`
+}
+
+type EventItem struct {
+	ID          int64      `json:"id"`
+	Seq         uint64     `json:"seq"`
+	EventID     string     `json:"event_id"`
+	EventType   string     `json:"event_type"`
+	DeltaText   string     `json:"delta_text"`
+	PayloadJSON JSONObject `json:"payload_json"`
+	CreatedAt   string     `json:"created_at"`
 }
 
 type StepItem struct {
@@ -87,36 +112,49 @@ type StepItem struct {
 }
 
 type DetailResponse struct {
-	ID                int64           `json:"id"`
-	RequestID         string          `json:"request_id"`
-	UserID            int64           `json:"user_id"`
-	Username          string          `json:"username"`
-	AgentID           int64           `json:"agent_id"`
-	AgentName         string          `json:"agent_name"`
-	ConversationID    int64           `json:"conversation_id"`
-	ConversationTitle string          `json:"conversation_title"`
-	RunStatus         int             `json:"run_status"`
-	RunStatusName     string          `json:"run_status_name"`
-	ModelSnapshot     string          `json:"model_snapshot"`
-	PromptTokens      *int            `json:"prompt_tokens"`
-	CompletionTokens  *int            `json:"completion_tokens"`
-	TotalTokens       *int            `json:"total_tokens"`
-	LatencyMS         *int            `json:"latency_ms"`
-	LatencyStr        string          `json:"latency_str"`
-	ErrorMsg          *string         `json:"error_msg"`
-	MetaJSON          JSONObject      `json:"meta_json"`
-	UserMessage       *MessageSummary `json:"user_message"`
-	AssistantMessage  *MessageSummary `json:"assistant_message"`
-	CreatedAt         string          `json:"created_at"`
-	UpdatedAt         string          `json:"updated_at"`
-	Steps             []StepItem      `json:"steps"`
+	ID                 int64           `json:"id"`
+	RequestID          string          `json:"request_id"`
+	UserID             int64           `json:"user_id"`
+	Username           string          `json:"username"`
+	AppID              int64           `json:"app_id"`
+	AppName            string          `json:"app_name"`
+	AgentID            int64           `json:"agent_id"`   // legacy alias for AppID
+	AgentName          string          `json:"agent_name"` // legacy alias for AppName
+	EngineConnectionID int64           `json:"engine_connection_id"`
+	EngineName         string          `json:"engine_name"`
+	EngineType         string          `json:"engine_type"`
+	EngineTaskID       string          `json:"engine_task_id"`
+	EngineRunID        string          `json:"engine_run_id"`
+	ConversationID     int64           `json:"conversation_id"`
+	ConversationTitle  string          `json:"conversation_title"`
+	RunStatus          int             `json:"run_status"`
+	RunStatusName      string          `json:"run_status_name"`
+	ModelSnapshot      string          `json:"model_snapshot"`
+	PromptTokens       *int            `json:"prompt_tokens"`
+	CompletionTokens   *int            `json:"completion_tokens"`
+	TotalTokens        *int            `json:"total_tokens"`
+	Cost               *float64        `json:"cost"`
+	LatencyMS          *int            `json:"latency_ms"`
+	LatencyStr         string          `json:"latency_str"`
+	ErrorMsg           *string         `json:"error_msg"`
+	MetaJSON           JSONObject      `json:"meta_json"`
+	UsageJSON          JSONObject      `json:"usage_json"`
+	OutputSnapshotJSON JSONObject      `json:"output_snapshot_json"`
+	UserMessage        *MessageSummary `json:"user_message"`
+	AssistantMessage   *MessageSummary `json:"assistant_message"`
+	Events             []EventItem     `json:"events"`
+	CreatedAt          string          `json:"created_at"`
+	UpdatedAt          string          `json:"updated_at"`
+	Steps              []StepItem      `json:"steps"` // deprecated; kept empty for frontend compatibility
 }
 
 type StatsFilter struct {
-	DateStart string
-	DateEnd   string
-	AgentID   *int64
-	UserID    *int64
+	DateStart          string
+	DateEnd            string
+	AppID              *int64
+	EngineConnectionID *int64
+	AgentID            *int64 // legacy alias for AppID during migration
+	UserID             *int64
 }
 
 type StatsResponse struct {
@@ -153,7 +191,9 @@ type StatsByDateItem struct {
 }
 
 type StatsByAgentItem struct {
-	AgentName string `json:"agent_name"`
+	AppID     int64  `json:"app_id"`
+	AppName   string `json:"app_name"`
+	AgentName string `json:"agent_name"` // legacy alias for AppName
 	StatsMetricItem
 }
 
@@ -175,50 +215,64 @@ type StatsByUserResponse struct {
 	Page Page              `json:"page"`
 }
 
-type AgentOptionRow struct {
+type OptionRow struct {
 	ID   int64
 	Name string
 }
 
 type ListRow struct {
-	ID                int64
-	RequestID         string
-	UserID            int64
-	AgentID           int64
-	AgentName         string
-	ConversationID    int64
-	ConversationTitle string
-	RunStatus         int
-	ModelSnapshot     string
-	PromptTokens      *int
-	CompletionTokens  *int
-	TotalTokens       *int
-	LatencyMS         *int
-	ErrorMsg          *string
-	CreatedAt         time.Time
+	ID                 int64
+	RequestID          string
+	UserID             int64
+	AppID              int64
+	AppName            string
+	EngineConnectionID int64
+	EngineName         string
+	EngineType         string
+	EngineTaskID       string
+	EngineRunID        string
+	ConversationID     int64
+	ConversationTitle  string
+	RunStatus          int
+	ModelSnapshot      string
+	PromptTokens       *int
+	CompletionTokens   *int
+	TotalTokens        *int
+	Cost               *float64
+	LatencyMS          *int
+	ErrorMsg           *string
+	CreatedAt          time.Time
 }
 
 type RunDetailRow struct {
-	ID                int64
-	RequestID         string
-	UserID            int64
-	Username          string
-	AgentID           int64
-	AgentName         string
-	ConversationID    int64
-	ConversationTitle string
-	RunStatus         int
-	ModelSnapshot     string
-	PromptTokens      *int
-	CompletionTokens  *int
-	TotalTokens       *int
-	LatencyMS         *int
-	ErrorMsg          *string
-	MetaJSON          *string
-	UserMessage       *MessageSummary
-	AssistantMessage  *MessageSummary
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                 int64
+	RequestID          string
+	UserID             int64
+	Username           string
+	AppID              int64
+	AppName            string
+	EngineConnectionID int64
+	EngineName         string
+	EngineType         string
+	EngineTaskID       string
+	EngineRunID        string
+	ConversationID     int64
+	ConversationTitle  string
+	RunStatus          int
+	ModelSnapshot      string
+	PromptTokens       *int
+	CompletionTokens   *int
+	TotalTokens        *int
+	Cost               *float64
+	LatencyMS          *int
+	ErrorMsg           *string
+	MetaJSON           *string
+	UsageJSON          *string
+	OutputSnapshotJSON *string
+	UserMessage        *MessageSummary
+	AssistantMessage   *MessageSummary
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type StepRow struct {
@@ -233,6 +287,16 @@ type StepRow struct {
 	LatencyMS     *int
 	PayloadJSON   *string
 	CreatedAt     time.Time
+}
+
+type EventRow struct {
+	ID          int64
+	Seq         uint64
+	EventID     string
+	EventType   string
+	DeltaText   string
+	PayloadJSON *string
+	CreatedAt   time.Time
 }
 
 type StatsSummaryRow struct {
@@ -254,12 +318,14 @@ type StatsMetricRow struct {
 }
 
 type StatsListQuery struct {
-	CurrentPage int
-	PageSize    int
-	DateStart   string
-	DateEnd     string
-	AgentID     *int64
-	UserID      *int64
+	CurrentPage        int
+	PageSize           int
+	DateStart          string
+	DateEnd            string
+	AppID              *int64
+	EngineConnectionID *int64
+	AgentID            *int64 // legacy alias for AppID during migration
+	UserID             *int64
 }
 
 type StatsByDateRow struct {
@@ -267,7 +333,8 @@ type StatsByDateRow struct {
 	StatsMetricRow
 }
 type StatsByAgentRow struct {
-	AgentName string
+	AppID   int64
+	AppName string
 	StatsMetricRow
 }
 type StatsByUserRow struct {
@@ -276,10 +343,11 @@ type StatsByUserRow struct {
 }
 
 type Repository interface {
-	AgentOptions(ctx context.Context) ([]AgentOptionRow, error)
+	AppOptions(ctx context.Context) ([]OptionRow, error)
+	EngineOptions(ctx context.Context) ([]OptionRow, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
-	Steps(ctx context.Context, runID int64) ([]StepRow, error)
+	Events(ctx context.Context, runID int64) ([]EventRow, error)
 	StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error)
 	StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)

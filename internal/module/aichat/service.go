@@ -3,14 +3,16 @@ package aichat
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	platformai "admin_back_go/internal/platform/ai"
 	platformrealtime "admin_back_go/internal/platform/realtime"
+	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/platform/taskqueue"
 
 	"github.com/google/uuid"
@@ -20,19 +22,21 @@ const defaultTimeoutLimit = 100
 const eventsPollStep = 100 * time.Millisecond
 
 type Dependencies struct {
-	Repository Repository
-	Enqueuer   taskqueue.Enqueuer
-	Publisher  platformrealtime.Publisher
-	Provider   Provider
-	Now        func() time.Time
+	Repository    Repository
+	Enqueuer      taskqueue.Enqueuer
+	Publisher     platformrealtime.Publisher
+	EngineFactory EngineFactory
+	Secretbox     secretbox.Box
+	Now           func() time.Time
 }
 
 type Service struct {
-	repository Repository
-	enqueuer   taskqueue.Enqueuer
-	publisher  platformrealtime.Publisher
-	provider   Provider
-	now        func() time.Time
+	repository    Repository
+	enqueuer      taskqueue.Enqueuer
+	publisher     platformrealtime.Publisher
+	engineFactory EngineFactory
+	secretbox     secretbox.Box
+	now           func() time.Time
 }
 
 func NewService(deps Dependencies) *Service {
@@ -40,11 +44,14 @@ func NewService(deps Dependencies) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	provider := deps.Provider
-	if provider == nil {
-		provider = deterministicProvider{}
+	return &Service{
+		repository:    deps.Repository,
+		enqueuer:      deps.Enqueuer,
+		publisher:     deps.Publisher,
+		engineFactory: deps.EngineFactory,
+		secretbox:     deps.Secretbox,
+		now:           now,
 	}
-	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, publisher: deps.Publisher, provider: provider, now: now}
 }
 
 func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunInput) (*CreateRunResponse, *apperror.Error) {
@@ -59,48 +66,24 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 	if appErr != nil {
 		return nil, appErr
 	}
-	agentID := input.AgentID
-	if input.ConversationID > 0 {
-		conversation, err := repo.Conversation(ctx, input.ConversationID)
-		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
-		}
-		if conversation == nil {
-			return nil, apperror.NotFound("AI会话不存在")
-		}
-		if conversation.UserID != userID {
-			return nil, apperror.Forbidden("无权访问该AI会话")
-		}
-		if conversation.Status != enum.CommonYes {
-			return nil, apperror.BadRequest("AI会话已禁用")
-		}
-		if agentID <= 0 {
-			agentID = conversation.AgentID
-		} else if agentID != conversation.AgentID {
-			return nil, apperror.BadRequest("会话智能体不匹配")
-		}
+	app, appErr := s.resolveAppForCreate(ctx, repo, userID, &input)
+	if appErr != nil {
+		return nil, appErr
 	}
-	if agentID <= 0 {
-		return nil, apperror.BadRequest("智能体ID不能为空")
-	}
-	ok, err := repo.ActiveAgentExists(ctx, agentID)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体失败", err)
-	}
-	if !ok {
-		return nil, apperror.BadRequest("关联的智能体不存在或已禁用")
-	}
-	input.AgentID = agentID
 	meta, appErr := encodeCreateMeta(input)
 	if appErr != nil {
 		return nil, appErr
 	}
 	record, err := repo.CreateRun(ctx, CreateRunRecord{
-		UserID: userID, AgentID: input.AgentID, ConversationID: input.ConversationID, Content: content,
+		UserID: userID, AgentID: int64(app.AppID), ConversationID: input.ConversationID, Content: content,
 		RequestID: uuid.NewString(), MetaJSON: meta, Now: s.now(),
 	})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI运行失败", err)
+	}
+	sink := newPersistentSink(repo, s.publisher, userID, record.RunID, s.now)
+	if event, err := BuildStartEvent(StartPayload{RunID: record.RunID, ConversationID: record.ConversationID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: int64(app.AppID), IsNew: record.IsNew}); err == nil {
+		_ = sink.emitEnvelope(ctx, event, "")
 	}
 	task, err := NewRunExecuteTask(RunExecutePayload{RunID: record.RunID})
 	if err != nil {
@@ -108,14 +91,15 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 	}
 	if s.enqueuer != nil {
 		if _, err := s.enqueuer.Enqueue(ctx, task); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "AI运行已创建但入队失败", err)
+			msg := "AI运行已创建但入队失败"
+			_ = repo.MarkFailed(ctx, record.RunID, msg)
+			if event, buildErr := BuildFailedEvent(record.RunID, msg); buildErr == nil {
+				_ = sink.emitEnvelope(ctx, event, msg)
+			}
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, msg, err)
 		}
 	}
-	res := &CreateRunResponse{ConversationID: record.ConversationID, RunID: record.RunID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: record.AgentID, IsNew: record.IsNew}
-	event, err := BuildStartEvent(StartPayload{RunID: res.RunID, ConversationID: res.ConversationID, RequestID: res.RequestID, UserMessageID: res.UserMessageID, AgentID: res.AgentID, IsNew: res.IsNew})
-	if err == nil {
-		s.publish(ctx, userID, event)
-	}
+	res := &CreateRunResponse{ConversationID: record.ConversationID, RunID: record.RunID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: int64(app.AppID), AppID: app.AppID, IsNew: record.IsNew}
 	return res, nil
 }
 
@@ -152,17 +136,25 @@ func (s *Service) eventsOnce(ctx context.Context, userID int64, runID int64, las
 	if appErr != nil {
 		return nil, false, appErr
 	}
-	events := reconstructedEvents(*run, s.assistantForRun(ctx, run))
-	filtered := make([]StreamEventItem, 0, len(events))
+	repo, _ := s.requireRepository()
+	rows, err := repo.ListRunEvents(ctx, runID)
+	if err != nil {
+		return nil, false, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行事件失败", err)
+	}
+	filtered := make([]StreamEventItem, 0, len(rows))
 	last := strings.TrimSpace(lastID)
 	latest := last
-	for _, event := range events {
-		if last != "" && last != "0-0" && !isNewerStreamID(event.ID, last) {
+	for _, row := range rows {
+		id := row.EventID
+		if id == "" {
+			id = StreamIDFromSeq(row.Seq)
+		}
+		if last != "" && last != "0-0" && !isNewerStreamID(id, last) {
 			continue
 		}
-		filtered = append(filtered, event)
-		if latest == "" || isNewerStreamID(event.ID, latest) {
-			latest = event.ID
+		filtered = append(filtered, StreamEventItem{ID: id, Event: row.EventType, Data: decodePayload(row.PayloadJSON)})
+		if latest == "" || isNewerStreamID(id, latest) {
+			latest = id
 		}
 	}
 	if latest == "" {
@@ -185,12 +177,25 @@ func (s *Service) Cancel(ctx context.Context, userID int64, runID int64) (*Cance
 		return nil, apperror.BadRequest("只能取消运行中的AI任务")
 	}
 	repo, _ := s.requireRepository()
-	if err := repo.MarkCanceled(ctx, runID); err != nil {
+	record, err := repo.RunForExecute(ctx, runID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行失败", err)
+	}
+	if record != nil && strings.TrimSpace(record.Run.EngineTaskID) != "" {
+		engine, appErr := s.engineForApp(ctx, record.App)
+		if appErr != nil {
+			return nil, appErr
+		}
+		if err := engine.StopChat(ctx, platformai.StopChatInput{EngineTaskID: record.Run.EngineTaskID, UserKey: userKey(userID)}); err != nil {
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, "停止AI引擎任务失败", err)
+		}
+	}
+	if err := repo.MarkCanceled(ctx, runID, "用户取消"); err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "取消AI运行失败", err)
 	}
-	event, err := BuildCancelEvent(runID)
-	if err == nil {
-		s.publish(ctx, userID, event)
+	sink := newPersistentSink(repo, s.publisher, userID, runID, s.now)
+	if event, err := BuildCancelEvent(runID); err == nil {
+		_ = sink.emitEnvelope(ctx, event, "")
 	}
 	return &CancelResponse{RunID: runID, Status: "canceled"}, nil
 }
@@ -210,30 +215,73 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 	if record == nil || record.Run.RunStatus != enum.AIRunStatusRunning {
 		return &RunExecuteResult{RunID: input.RunID}, nil
 	}
+	engine, appErr := s.engineForApp(ctx, record.App)
+	if appErr != nil {
+		msg := appErr.Message
+		_ = repo.MarkFailed(ctx, input.RunID, msg)
+		sink := newPersistentSink(repo, s.publisher, record.Run.UserID, input.RunID, s.now)
+		if event, buildErr := BuildFailedEvent(input.RunID, msg); buildErr == nil {
+			_ = sink.emitEnvelope(ctx, event, msg)
+		}
+		return nil, appErr
+	}
 	start := s.now()
-	result, err := s.provider.Generate(ctx, GenerateInput{RunID: input.RunID, UserID: record.Run.UserID, AgentID: record.Run.AgentID, Content: record.UserMessageContent})
+	sink := newPersistentSink(repo, s.publisher, record.Run.UserID, input.RunID, s.now)
+	result, err := engine.StreamChat(ctx, platformai.ChatInput{
+		AppID:                record.App.AppID,
+		RunID:                uint64(input.RunID),
+		UserID:               uint64(record.Run.UserID),
+		UserKey:              userKey(record.Run.UserID),
+		Content:              record.UserMessageContent,
+		ConversationEngineID: record.App.ConversationEngineID,
+		Inputs:               decodeStringMap(record.App.RuntimeConfigJSON),
+	}, sink)
 	if err != nil {
 		msg := err.Error()
 		_ = repo.MarkFailed(ctx, input.RunID, msg)
-		event, buildErr := BuildFailedEvent(input.RunID, msg)
-		if buildErr == nil {
-			s.publish(ctx, record.Run.UserID, event)
+		if event, buildErr := BuildFailedEvent(input.RunID, msg); buildErr == nil {
+			_ = sink.emitEnvelope(ctx, event, msg)
 		}
 		return nil, err
 	}
 	if result == nil {
-		result = &GenerateResult{}
+		result = &platformai.ChatResult{}
 	}
-	latency := int(s.now().Sub(start).Milliseconds())
+	latency := result.LatencyMs
+	if latency <= 0 {
+		latency = int(s.now().Sub(start).Milliseconds())
+	}
+	usageJSON := mustJSON(map[string]any{
+		"prompt_tokens":     result.PromptTokens,
+		"completion_tokens": result.CompletionTokens,
+		"total_tokens":      result.TotalTokens,
+		"cost":              result.Cost,
+		"latency_ms":        latency,
+	})
+	outputJSON := mustJSON(map[string]any{
+		"engine_conversation_id": result.EngineConversationID,
+		"engine_message_id":      result.EngineMessageID,
+		"engine_task_id":         result.EngineTaskID,
+	})
 	message, err := repo.MarkSuccess(ctx, RunSuccessRecord{
-		RunID: input.RunID, ConversationID: record.Run.ConversationID, Content: result.Content,
-		ModelSnapshot: result.ModelSnapshot, PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, LatencyMS: latency,
+		RunID:                input.RunID,
+		ConversationID:       record.Run.ConversationID,
+		Content:              result.Answer,
+		EngineConversationID: result.EngineConversationID,
+		EngineMessageID:      result.EngineMessageID,
+		EngineTaskID:         result.EngineTaskID,
+		EngineRunID:          result.EngineTaskID,
+		UsageJSON:            usageJSON,
+		OutputSnapshotJSON:   outputJSON,
+		ModelSnapshot:        record.App.ModelSnapshotJSON,
+		PromptTokens:         result.PromptTokens,
+		CompletionTokens:     result.CompletionTokens,
+		TotalTokens:          result.TotalTokens,
+		Cost:                 result.Cost,
+		LatencyMS:            latency,
 	})
 	if err != nil {
 		return nil, err
-	}
-	if delta, err := BuildDeltaEvent(input.RunID, result.Content); err == nil {
-		s.publish(ctx, record.Run.UserID, delta)
 	}
 	assistantID := int64(0)
 	if message != nil {
@@ -244,7 +292,7 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 		userMessageID = *record.Run.UserMessageID
 	}
 	if completed, err := BuildCompletedEvent(CompletedPayload{RunID: input.RunID, ConversationID: record.Run.ConversationID, UserMessageID: userMessageID, AssistantMessageID: assistantID}); err == nil {
-		s.publish(ctx, record.Run.UserID, completed)
+		_ = sink.emitEnvelope(ctx, completed, "")
 	}
 	return &RunExecuteResult{RunID: input.RunID}, nil
 }
@@ -263,6 +311,93 @@ func (s *Service) TimeoutRuns(ctx context.Context, input RunTimeoutInput) (*RunT
 		return nil, err
 	}
 	return &RunTimeoutResult{Failed: count}, nil
+}
+
+func (s *Service) resolveAppForCreate(ctx context.Context, repo Repository, userID int64, input *CreateRunInput) (*AppEngineConfig, *apperror.Error) {
+	if input.ConversationID > 0 {
+		conversation, err := repo.Conversation(ctx, input.ConversationID)
+		if err != nil {
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
+		}
+		if conversation == nil {
+			return nil, apperror.NotFound("AI会话不存在")
+		}
+		if conversation.UserID != userID {
+			return nil, apperror.Forbidden("无权访问该AI会话")
+		}
+		if conversation.Status != enum.CommonYes {
+			return nil, apperror.BadRequest("AI会话已禁用")
+		}
+		appID := conversation.AppID
+		if appID == 0 {
+			appID = uint64(conversation.AgentID)
+		}
+		if input.AppID > 0 && input.AppID != appID {
+			return nil, apperror.BadRequest("会话AI应用不匹配")
+		}
+		if input.AgentID > 0 && uint64(input.AgentID) != appID {
+			return nil, apperror.BadRequest("会话智能体不匹配")
+		}
+		input.AppID = appID
+		input.AgentID = int64(appID)
+		app, err := repo.AppForRuntime(ctx, appID)
+		if err != nil {
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用失败", err)
+		}
+		if app == nil {
+			return nil, apperror.BadRequest("AI应用不存在或已禁用")
+		}
+		return app, nil
+	}
+	appID := input.AppID
+	if appID == 0 && input.AgentID > 0 {
+		appID = uint64(input.AgentID)
+	}
+	var app *AppEngineConfig
+	var err error
+	if appID > 0 {
+		app, err = repo.AppForRuntime(ctx, appID)
+	} else {
+		app, err = repo.DefaultActiveApp(ctx)
+	}
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用失败", err)
+	}
+	if app == nil {
+		return nil, apperror.BadRequest("请先配置 AI 应用和 Dify 连接")
+	}
+	input.AppID = app.AppID
+	input.AgentID = int64(app.AppID)
+	return app, nil
+}
+
+func (s *Service) engineForApp(ctx context.Context, app AppEngineConfig) (platformai.Engine, *apperror.Error) {
+	if app.AppID == 0 || app.EngineConnectionID == 0 {
+		return nil, apperror.BadRequest("AI应用或供应商未配置")
+	}
+	if strings.TrimSpace(app.EngineAppAPIKeyEnc) == "" && strings.TrimSpace(app.EngineAPIKeyEnc) == "" {
+		return nil, apperror.BadRequest("AI应用API Key未配置")
+	}
+	apiKeyEnc := strings.TrimSpace(app.EngineAppAPIKeyEnc)
+	if apiKeyEnc == "" {
+		apiKeyEnc = strings.TrimSpace(app.EngineAPIKeyEnc)
+	}
+	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI应用API Key失败", err)
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, apperror.BadRequest("AI应用API Key未配置")
+	}
+	factory := s.engineFactory
+	if factory == nil {
+		return nil, apperror.Internal("AI引擎工厂未配置")
+	}
+	engine, err := factory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(app.EngineType), BaseURL: app.EngineBaseURL, APIKey: apiKey})
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
+	}
+	return engine, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -296,28 +431,6 @@ func (s *Service) requireOwnedRun(ctx context.Context, userID int64, runID int64
 	return run, nil
 }
 
-func (s *Service) assistantForRun(ctx context.Context, run *Run) *Message {
-	if run == nil || run.AssistantMessageID == nil {
-		return nil
-	}
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil
-	}
-	message, err := repo.AssistantMessage(ctx, *run.AssistantMessageID)
-	if err != nil {
-		return nil
-	}
-	return message
-}
-
-func (s *Service) publish(ctx context.Context, userID int64, event EnvelopeEvent) {
-	if s == nil || s.publisher == nil || userID <= 0 {
-		return
-	}
-	_ = s.publisher.Publish(ctx, platformrealtime.Publication{Platform: enum.PlatformAdmin, UserID: userID, Envelope: event.Envelope})
-}
-
 func encodeCreateMeta(input CreateRunInput) (*string, *apperror.Error) {
 	meta := map[string]any{}
 	if input.MaxHistory > 0 {
@@ -343,44 +456,146 @@ func encodeCreateMeta(input CreateRunInput) (*string, *apperror.Error) {
 	return &s, nil
 }
 
-func reconstructedEvents(run Run, assistant *Message) []StreamEventItem {
-	events := []StreamEventItem{}
-	userMessageID := int64(0)
-	if run.UserMessageID != nil {
-		userMessageID = *run.UserMessageID
-	}
-	events = append(events, StreamEventItem{ID: "1-0", Event: EventAIResponseStart, Data: map[string]any{"run_id": run.ID, "conversation_id": run.ConversationID, "request_id": run.RequestID, "user_message_id": userMessageID, "agent_id": run.AgentID}})
-	if assistant != nil && strings.TrimSpace(assistant.Content) != "" {
-		events = append(events, StreamEventItem{ID: "2-0", Event: EventAIResponseDelta, Data: map[string]any{"run_id": run.ID, "delta": assistant.Content}})
-	}
-	switch run.RunStatus {
-	case enum.AIRunStatusSuccess:
-		assistantID := int64(0)
-		if run.AssistantMessageID != nil {
-			assistantID = *run.AssistantMessageID
-		}
-		events = append(events, StreamEventItem{ID: "3-0", Event: EventAIResponseCompleted, Data: map[string]any{"run_id": run.ID, "conversation_id": run.ConversationID, "user_message_id": userMessageID, "assistant_message_id": assistantID}})
-	case enum.AIRunStatusFail:
-		msg := "AI运行失败"
-		if run.ErrorMsg != nil && strings.TrimSpace(*run.ErrorMsg) != "" {
-			msg = *run.ErrorMsg
-		}
-		events = append(events, StreamEventItem{ID: "3-0", Event: EventAIResponseFailed, Data: map[string]any{"run_id": run.ID, "msg": msg}})
-	case enum.AIRunStatusCanceled:
-		events = append(events, StreamEventItem{ID: "3-0", Event: EventAIResponseCancel, Data: map[string]any{"run_id": run.ID}})
-	}
-	return events
-}
-
 func isTerminal(status int) bool {
 	return status == enum.AIRunStatusSuccess || status == enum.AIRunStatusFail || status == enum.AIRunStatusCanceled
 }
 
-type deterministicProvider struct{}
+type persistentSink struct {
+	repository Repository
+	publisher  platformrealtime.Publisher
+	userID     int64
+	runID      int64
+	now        func() time.Time
+	mu         sync.Mutex
+	seq        uint64
+}
 
-func (deterministicProvider) Generate(ctx context.Context, input GenerateInput) (*GenerateResult, error) {
-	if strings.TrimSpace(input.Content) == "" {
-		return nil, errors.New("消息内容不能为空")
+func newPersistentSink(repository Repository, publisher platformrealtime.Publisher, userID int64, runID int64, now func() time.Time) *persistentSink {
+	if now == nil {
+		now = time.Now
 	}
-	return &GenerateResult{Content: fmt.Sprintf("收到：%s", input.Content), ModelSnapshot: "go-deterministic-provider"}, nil
+	return &persistentSink{repository: repository, publisher: publisher, userID: userID, runID: runID, now: now}
+}
+
+func (s *persistentSink) Emit(ctx context.Context, event platformai.Event) error {
+	switch event.Type {
+	case "start":
+		payload := event.Payload
+		if payload == nil {
+			payload = map[string]any{"run_id": s.runID}
+		}
+		envelope, err := BuildEventFromPayload(EventAIResponseStart, payload)
+		if err != nil {
+			return err
+		}
+		return s.emitEnvelope(ctx, envelope, event.DeltaText)
+	case "delta":
+		envelope, err := BuildDeltaEvent(s.runID, event.DeltaText)
+		if err != nil {
+			return err
+		}
+		return s.emitEnvelope(ctx, envelope, event.DeltaText)
+	case "completed":
+		return nil
+	case "failed":
+		msg := engineEventMessage(event)
+		envelope, err := BuildFailedEvent(s.runID, msg)
+		if err != nil {
+			return err
+		}
+		return s.emitEnvelope(ctx, envelope, msg)
+	default:
+		payload := event.Payload
+		if payload == nil {
+			payload = map[string]any{"run_id": s.runID}
+		}
+		envelope, err := BuildEventFromPayload(event.Type, payload)
+		if err != nil {
+			return err
+		}
+		return s.emitEnvelope(ctx, envelope, event.DeltaText)
+	}
+}
+
+func (s *persistentSink) emitEnvelope(ctx context.Context, event EnvelopeEvent, delta string) error {
+	if s == nil || s.repository == nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.seq++
+	seq := s.seq
+	s.mu.Unlock()
+	payload := eventPayloadMap(event)
+	if delta != "" {
+		payload["delta"] = delta
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if err := s.repository.AppendRunEvent(ctx, RunEventRecord{
+		RunID:       s.runID,
+		Seq:         seq,
+		EventID:     event.ID,
+		EventType:   event.Event,
+		DeltaText:   delta,
+		PayloadJSON: raw,
+		CreatedAt:   s.now(),
+	}); err != nil {
+		return err
+	}
+	if s.publisher != nil && s.userID > 0 {
+		_ = s.publisher.Publish(ctx, platformrealtime.Publication{Platform: enum.PlatformAdmin, UserID: s.userID, Envelope: event.Envelope})
+	}
+	return nil
+}
+
+func decodePayload(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func decodeStringMap(raw string) map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func mustJSON(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+func userKey(userID int64) string {
+	return fmt.Sprintf("admin:%d", userID)
+}
+
+func engineEventMessage(event platformai.Event) string {
+	if event.Payload != nil {
+		if value, ok := event.Payload["message"].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+		if value, ok := event.Payload["code"].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	if strings.TrimSpace(event.DeltaText) != "" {
+		return strings.TrimSpace(event.DeltaText)
+	}
+	return "AI运行失败"
 }

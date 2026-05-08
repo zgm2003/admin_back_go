@@ -95,7 +95,7 @@ func routeID(c *gin.Context, name string, msg string) (int64, bool) {
 }
 
 func createInput(req createRunRequest) CreateRunInput {
-	return CreateRunInput{Content: req.Content, ConversationID: req.ConversationID, AgentID: req.AgentID, MaxHistory: req.MaxHistory, Attachments: req.Attachments, Temperature: req.Temperature, MaxTokens: req.MaxTokens}
+	return CreateRunInput{Content: req.Content, ConversationID: req.ConversationID, AgentID: req.AgentID, AppID: req.AppID, MaxHistory: req.MaxHistory, Attachments: req.Attachments, Temperature: req.Temperature, MaxTokens: req.MaxTokens}
 }
 
 func writeResult(c *gin.Context, res any, appErr *apperror.Error) {

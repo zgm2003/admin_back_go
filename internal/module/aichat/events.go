@@ -1,6 +1,7 @@
 package aichat
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -28,6 +29,13 @@ type StreamIDGenerator struct {
 	mu     sync.Mutex
 	lastMS int64
 	seq    int64
+}
+
+func StreamIDFromSeq(seq uint64) string {
+	if seq == 0 {
+		return "0-0"
+	}
+	return fmt.Sprintf("%d-0", seq)
 }
 
 func NewStreamIDGenerator() *StreamIDGenerator {
@@ -86,6 +94,10 @@ func BuildCancelEvent(runID int64) (EnvelopeEvent, error) {
 	return buildEvent(EventAIResponseCancel, map[string]any{"run_id": runID})
 }
 
+func BuildEventFromPayload(eventType string, payload any) (EnvelopeEvent, error) {
+	return buildEvent(eventType, payload)
+}
+
 func buildEvent(eventType string, payload any) (EnvelopeEvent, error) {
 	id := NewStreamIDGenerator().Next()
 	envelope, err := platformrealtime.NewEnvelope(eventType, id, payload)
@@ -93,6 +105,17 @@ func buildEvent(eventType string, payload any) (EnvelopeEvent, error) {
 		return EnvelopeEvent{}, err
 	}
 	return EnvelopeEvent{ID: id, Event: eventType, Envelope: envelope}, nil
+}
+
+func eventPayloadMap(event EnvelopeEvent) map[string]any {
+	payload := map[string]any{}
+	if len(event.Envelope.Data) > 0 {
+		_ = json.Unmarshal(event.Envelope.Data, &payload)
+	}
+	if event.ID != "" {
+		payload["event_id"] = event.ID
+	}
+	return payload
 }
 
 func isNewerStreamID(candidate string, current string) bool {

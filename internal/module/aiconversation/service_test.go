@@ -11,7 +11,7 @@ type fakeRepository struct {
 	rows         []ListRow
 	total        int64
 	row          *Conversation
-	activeAgents map[int64]bool
+	activeApps   map[int64]bool
 	listQuery    ListQuery
 	created      Conversation
 	updateID     int64
@@ -26,11 +26,11 @@ func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	return f.rows, f.total, nil
 }
 func (f *fakeRepository) Get(ctx context.Context, id int64) (*Conversation, error) { return f.row, nil }
-func (f *fakeRepository) AgentName(ctx context.Context, id int64) (string, error) {
-	return "agent", nil
+func (f *fakeRepository) AppName(ctx context.Context, id int64) (string, error) {
+	return "app", nil
 }
-func (f *fakeRepository) ActiveAgentExists(ctx context.Context, id int64) (bool, error) {
-	return f.activeAgents[id], nil
+func (f *fakeRepository) ActiveAppExists(ctx context.Context, id int64) (bool, error) {
+	return f.activeApps[id], nil
 }
 func (f *fakeRepository) Create(ctx context.Context, row Conversation) (int64, error) {
 	f.created = row
@@ -49,7 +49,7 @@ func (f *fakeRepository) ChangeStatus(ctx context.Context, id int64, status int)
 func (f *fakeRepository) Delete(ctx context.Context, id int64) error { f.deleteID = id; return nil }
 
 func TestListScopesToCurrentUserAndDefaultsStatus(t *testing.T) {
-	repo := &fakeRepository{rows: []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AgentID: 3, Title: "hello", Status: enum.CommonYes}, AgentName: "agent"}}, total: 1}
+	repo := &fakeRepository{rows: []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AppID: 3, Title: "hello", Status: enum.CommonYes}, AppName: "app"}}, total: 1}
 	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{CurrentPage: 0, PageSize: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
@@ -60,40 +60,51 @@ func TestListScopesToCurrentUserAndDefaultsStatus(t *testing.T) {
 	if repo.listQuery.Status == nil || *repo.listQuery.Status != enum.CommonYes {
 		t.Fatalf("expected default status=1, got %#v", repo.listQuery.Status)
 	}
-	if len(res.List) != 1 || res.List[0].AgentName != "agent" {
+	if len(res.List) != 1 || res.List[0].AppID != 3 || res.List[0].AppName != "app" || res.List[0].AgentID != 3 || res.List[0].AgentName != "app" {
 		t.Fatalf("unexpected list response: %#v", res)
 	}
 }
 
 func TestDetailRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
-	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 8, AgentID: 1, Title: "other", Status: enum.CommonYes}}
+	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 8, AppID: 1, Title: "other", Status: enum.CommonYes}}
 	_, appErr := NewService(repo).Detail(context.Background(), 7, 3)
 	if appErr == nil || appErr.Code != 403 {
 		t.Fatalf("expected forbidden, got %#v", appErr)
 	}
 }
 
-func TestCreateValidatesActiveAgentAndSetsCurrentUser(t *testing.T) {
-	repo := &fakeRepository{activeAgents: map[int64]bool{5: true}}
-	id, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AgentID: 5, Title: "  New chat  "})
+func TestCreateValidatesActiveAppAndSetsCurrentUser(t *testing.T) {
+	repo := &fakeRepository{activeApps: map[int64]bool{5: true}}
+	id, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AppID: 5, Title: "  New chat  "})
 	if appErr != nil {
 		t.Fatalf("Create returned error: %v", appErr)
 	}
-	if id != 9 || repo.created.UserID != 7 || repo.created.AgentID != 5 || repo.created.Title != "New chat" || repo.created.Status != enum.CommonYes || repo.created.IsDel != enum.CommonNo {
+	if id != 9 || repo.created.UserID != 7 || repo.created.AppID != 5 || repo.created.Title != "New chat" || repo.created.Status != enum.CommonYes || repo.created.IsDel != enum.CommonNo {
 		t.Fatalf("unexpected created row: id=%d row=%#v", id, repo.created)
 	}
 }
 
-func TestCreateRejectsInactiveAgent(t *testing.T) {
-	repo := &fakeRepository{activeAgents: map[int64]bool{5: false}}
-	_, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AgentID: 5})
+func TestCreateAcceptsLegacyAgentIDAsAppID(t *testing.T) {
+	repo := &fakeRepository{activeApps: map[int64]bool{9: true}}
+	_, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AgentID: 9, Title: "legacy"})
+	if appErr != nil {
+		t.Fatalf("Create returned error: %v", appErr)
+	}
+	if repo.created.AppID != 9 {
+		t.Fatalf("legacy agent_id should map to app_id, got %d", repo.created.AppID)
+	}
+}
+
+func TestCreateRejectsInactiveApp(t *testing.T) {
+	repo := &fakeRepository{activeApps: map[int64]bool{5: false}}
+	_, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AppID: 5})
 	if appErr == nil || appErr.Code != 100 {
 		t.Fatalf("expected bad request, got %#v", appErr)
 	}
 }
 
 func TestUpdateStatusAndDeleteRequireOwner(t *testing.T) {
-	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, AgentID: 1, Title: "old", Status: enum.CommonYes}}
+	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, AppID: 1, Title: "old", Status: enum.CommonYes}}
 	service := NewService(repo)
 	if appErr := service.Update(context.Background(), 7, 3, MutationInput{Title: " next "}); appErr != nil {
 		t.Fatalf("Update returned error: %v", appErr)

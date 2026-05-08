@@ -27,6 +27,18 @@ func TestStatsSelectsIntegerAverageLatency(t *testing.T) {
 	}
 }
 
+func TestRepositorySQLUsesAppAndEventSchema(t *testing.T) {
+	summarySQL := sqlSummaryLower(statsSummarySelectSQL())
+	groupedSQL := sqlSummaryLower(statsGroupedSelectSQL("r.app_id as app_id, COALESCE(a.name, '') as app_name"))
+
+	if !strings.Contains(summarySQL, "r.run_status in (?, ?)") {
+		t.Fatalf("summary must count fail and canceled as failed terminal runs, sql=%s", summarySQL)
+	}
+	if !strings.Contains(groupedSQL, "r.app_id as app_id") || !strings.Contains(groupedSQL, "app_name") {
+		t.Fatalf("grouped app stats must expose app_id/app_name, sql=%s", groupedSQL)
+	}
+}
+
 func sqlSummaryLower(sql string) string {
 	return strings.ToLower(strings.Join(strings.Fields(sql), " "))
 }
