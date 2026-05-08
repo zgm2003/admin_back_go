@@ -5,8 +5,7 @@ import (
 
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payreconcile"
-	"admin_back_go/internal/module/payruntime"
+	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/platform/taskqueue"
 )
 
@@ -40,43 +39,19 @@ func NewDefaultRegistry() Registry {
 		},
 	})
 	registry.Register(RegistryEntry{
-		Name:        "pay_close_expired_order",
-		TaskType:    payruntime.TypeCloseExpiredOrderV1,
-		Description: "扫描过期支付宝充值订单，先查单再自动关闭或入账",
+		Name:        "payment_close_expired_order",
+		TaskType:    payment.TypeCloseExpiredOrderV1,
+		Description: "扫描过期支付宝支付订单并关闭或补记成功",
 		BuildTask: func() (taskqueue.Task, error) {
-			return payruntime.NewCloseExpiredOrderTask(payruntime.CloseExpiredOrderPayload{})
+			return payment.NewCloseExpiredOrderTask(payment.CloseExpiredPayload{})
 		},
 	})
 	registry.Register(RegistryEntry{
-		Name:        "pay_sync_pending_transaction",
-		TaskType:    payruntime.TypeSyncPendingTransactionV1,
-		Description: "扫描待补查支付宝流水，主动查单并补偿支付成功",
+		Name:        "payment_sync_pending_order",
+		TaskType:    payment.TypeSyncPendingOrderV1,
+		Description: "扫描支付中订单，主动查单并补偿支付成功",
 		BuildTask: func() (taskqueue.Task, error) {
-			return payruntime.NewSyncPendingTransactionTask(payruntime.SyncPendingTransactionPayload{})
-		},
-	})
-	registry.Register(RegistryEntry{
-		Name:        "pay_fulfillment_retry",
-		TaskType:    payruntime.TypeFulfillmentRetryV1,
-		Description: "重试失败的支付履约任务",
-		BuildTask: func() (taskqueue.Task, error) {
-			return payruntime.NewFulfillmentRetryTask(payruntime.FulfillmentRetryPayload{})
-		},
-	})
-	registry.Register(RegistryEntry{
-		Name:        "pay_reconcile_daily",
-		TaskType:    payreconcile.TypeReconcileDailyV1,
-		Description: "按支付渠道创建每日对账任务",
-		BuildTask: func() (taskqueue.Task, error) {
-			return payreconcile.NewReconcileDailyTask(payreconcile.ReconcileDailyPayload{})
-		},
-	})
-	registry.Register(RegistryEntry{
-		Name:        "pay_reconcile_execute",
-		TaskType:    payreconcile.TypeReconcileExecuteV1,
-		Description: "执行待处理支付对账任务",
-		BuildTask: func() (taskqueue.Task, error) {
-			return payreconcile.NewReconcileExecuteTask(payreconcile.ReconcileExecutePayload{})
+			return payment.NewSyncPendingOrderTask(payment.SyncPendingPayload{})
 		},
 	})
 	return registry

@@ -12,13 +12,11 @@ import (
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payreconcile"
-	"admin_back_go/internal/module/payruntime"
+	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/secretbox"
 	storagecos "admin_back_go/internal/platform/storage/cos"
@@ -94,11 +92,9 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		exporttask.WithNotifier(exporttask.NewNotificationTaskNotifier(notificationTaskService)),
 		exporttask.WithLogger(logger),
 	)
-	var payRuntimeLocker redislock.Locker
-	var payRuntimeNumberGenerator payruntime.NumberGenerator
+	var paymentNumberGenerator paymentmodule.NumberGenerator
 	if resources.Redis != nil && resources.Redis.Redis != nil {
-		payRuntimeLocker = redislock.New(resources.Redis.Redis)
-		payRuntimeNumberGenerator = payruntime.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
+		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
 	paymentCertResolver := payment.CertPathResolver{
 		CertBaseDir:         cfg.Payment.CertBaseDir,
@@ -106,21 +102,13 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		WorkingDir:          ".",
 	}
 	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
-	payReconcileService := payreconcile.NewServiceWithDependencies(payreconcile.Dependencies{
-		Repository:    payreconcile.NewGormRepository(resources.DB),
-		AlipayGateway: alipayGateway,
-		Secretbox:     secretBox,
-		CertResolver:  paymentCertResolver,
-	})
-	payRuntimeService := payruntime.NewService(payruntime.Dependencies{
-		Repository:      payruntime.NewGormRepository(resources.DB),
-		Gateway:         alipayGateway,
+	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
+	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
+		Repository:      paymentmodule.NewGormRepository(resources.DB),
+		Gateway:         paymentGateway,
 		Secretbox:       secretBox,
 		CertResolver:    paymentCertResolver,
-		Locker:          payRuntimeLocker,
-		NumberGenerator: payRuntimeNumberGenerator,
-		NotifyLockTTL:   cfg.Payment.NotifyLockTTL,
-		AttemptLockTTL:  cfg.Payment.AttemptLockTTL,
+		NumberGenerator: paymentNumberGenerator,
 	})
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository: aichat.NewGormRepository(resources.DB),
@@ -133,8 +121,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		ExportTaskService:       exportTaskService,
 		NotificationTaskService: notificationTaskService,
-		PayReconcileService:     payReconcileService,
-		PayRuntimeService:       payRuntimeService,
+		PaymentService:          paymentService,
 	})
 
 	if cfg.Scheduler.Enabled {

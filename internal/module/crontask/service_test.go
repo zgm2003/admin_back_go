@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payruntime"
+	"admin_back_go/internal/module/payment"
 )
 
 func TestServiceListDecoratesRegistryStatus(t *testing.T) {
@@ -15,7 +15,7 @@ func TestServiceListDecoratesRegistryStatus(t *testing.T) {
 	repo := &fakeRepository{
 		tasks: []Task{
 			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 2, Name: "pay_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, Handler: "app\\process\\Pay\\PayCloseExpiredOrderTask", CreatedAt: now, UpdatedAt: now},
+			{ID: 2, Name: "payment_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, Handler: "app\\process\\Pay\\PaymentCloseExpiredOrderTask", CreatedAt: now, UpdatedAt: now},
 			{ID: 3, Name: "disabled_task", Title: "禁用任务", Cron: "0 * * * * *", Status: CommonNo, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 			{ID: 4, Name: "bad_cron", Title: "错误表达式", Cron: "bad", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 		},
@@ -73,7 +73,7 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 	repo := &fakeRepository{
 		tasks: []Task{
 			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 2, Name: "pay_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
+			{ID: 2, Name: "payment_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 			{ID: 3, Name: "legacy_missing_payment_task", Title: "遗留缺失支付任务", Cron: "0 0 2 * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 		},
 	}
@@ -91,15 +91,15 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 	}
 }
 
-func TestServiceListUsesGoTaskTypeForRegisteredPayCronHandler(t *testing.T) {
+func TestServiceListUsesGoTaskTypeForRegisteredPaymentCloseHandler(t *testing.T) {
 	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
 	repo := &fakeRepository{
 		tasks: []Task{{
 			ID:        2,
-			Name:      "pay_close_expired_order",
+			Name:      "payment_close_expired_order",
 			Title:     "支付超时关单",
 			Cron:      "0 * * * * *",
-			Handler:   "app\\process\\Pay\\PayCloseExpiredOrderTask",
+			Handler:   "app\\process\\Pay\\PaymentCloseExpiredOrderTask",
 			Status:    CommonYes,
 			IsDel:     CommonNo,
 			CreatedAt: now,
@@ -113,15 +113,15 @@ func TestServiceListUsesGoTaskTypeForRegisteredPayCronHandler(t *testing.T) {
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
 	item := res.List[0]
-	if item.RegistryTaskType != payruntime.TypeCloseExpiredOrderV1 {
-		t.Fatalf("expected registry_task_type=%s, got %#v", payruntime.TypeCloseExpiredOrderV1, item)
+	if item.RegistryTaskType != payment.TypeCloseExpiredOrderV1 {
+		t.Fatalf("expected registry_task_type=%s, got %#v", payment.TypeCloseExpiredOrderV1, item)
 	}
-	if item.Handler != payruntime.TypeCloseExpiredOrderV1 {
-		t.Fatalf("registered pay cron task must expose Go task type as handler, got %#v", item)
+	if item.Handler != payment.TypeCloseExpiredOrderV1 {
+		t.Fatalf("registered payment cron task must expose Go task type as handler, got %#v", item)
 	}
 }
 
-func TestServiceListUsesGoTaskTypeForRegisteredFulfillmentRetryHandler(t *testing.T) {
+func TestServiceListTreatsOldPayCronNamesAsMissing(t *testing.T) {
 	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
 	repo := &fakeRepository{
 		tasks: []Task{{
@@ -143,11 +143,11 @@ func TestServiceListUsesGoTaskTypeForRegisteredFulfillmentRetryHandler(t *testin
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
 	item := res.List[0]
-	if item.RegistryTaskType != payruntime.TypeFulfillmentRetryV1 {
-		t.Fatalf("expected registry_task_type=%s, got %#v", payruntime.TypeFulfillmentRetryV1, item)
+	if item.RegistryStatus != RegistryStatusMissing {
+		t.Fatalf("old pay cron task must be missing after payment rebuild, got %#v", item)
 	}
-	if item.Handler != payruntime.TypeFulfillmentRetryV1 {
-		t.Fatalf("registered fulfillment retry task must expose Go task type as handler, got %#v", item)
+	if item.RegistryTaskType != "" || item.Handler != "app\\process\\Pay\\PayFulfillmentRetryTask" {
+		t.Fatalf("missing old pay task must preserve legacy handler only, got %#v", item)
 	}
 }
 
@@ -173,7 +173,7 @@ func TestServiceUpdateRejectsNameChange(t *testing.T) {
 	}
 	service := NewService(repo, NewDefaultRegistry())
 
-	appErr := service.Update(context.Background(), 9, SaveInput{Name: "pay_close_expired_order", Title: "通知", Cron: "0 * * * * *", Status: CommonYes})
+	appErr := service.Update(context.Background(), 9, SaveInput{Name: "payment_close_expired_order", Title: "通知", Cron: "0 * * * * *", Status: CommonYes})
 	if appErr == nil {
 		t.Fatalf("expected name change rejection")
 	}
