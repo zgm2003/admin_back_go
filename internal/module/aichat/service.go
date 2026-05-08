@@ -17,6 +17,7 @@ import (
 )
 
 const defaultTimeoutLimit = 100
+const eventsPollStep = 100 * time.Millisecond
 
 type Dependencies struct {
 	Repository Repository
@@ -118,10 +119,38 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 	return res, nil
 }
 
-func (s *Service) Events(ctx context.Context, userID int64, runID int64, lastID string) (*EventsResponse, *apperror.Error) {
+func (s *Service) Events(ctx context.Context, userID int64, runID int64, lastID string, timeout time.Duration) (*EventsResponse, *apperror.Error) {
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		res, terminal, appErr := s.eventsOnce(ctx, userID, runID, lastID)
+		if appErr != nil || terminal || len(res.Events) > 0 || timeout <= 0 || !time.Now().Before(deadline) {
+			return res, appErr
+		}
+
+		wait := eventsPollStep
+		if remaining := time.Until(deadline); remaining < wait {
+			wait = remaining
+		}
+		if wait <= 0 {
+			return res, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return res, nil
+		case <-time.After(wait):
+		}
+	}
+}
+
+func (s *Service) eventsOnce(ctx context.Context, userID int64, runID int64, lastID string) (*EventsResponse, bool, *apperror.Error) {
 	run, appErr := s.requireOwnedRun(ctx, userID, runID)
 	if appErr != nil {
-		return nil, appErr
+		return nil, false, appErr
 	}
 	events := reconstructedEvents(*run, s.assistantForRun(ctx, run))
 	filtered := make([]StreamEventItem, 0, len(events))
@@ -143,7 +172,8 @@ func (s *Service) Events(ctx context.Context, userID int64, runID int64, lastID 
 	if run.ErrorMsg != nil {
 		errorMsg = *run.ErrorMsg
 	}
-	return &EventsResponse{Events: filtered, LastID: latest, RunStatus: run.RunStatus, Terminal: isTerminal(run.RunStatus), ErrorMsg: errorMsg}, nil
+	terminal := isTerminal(run.RunStatus)
+	return &EventsResponse{Events: filtered, LastID: latest, RunStatus: run.RunStatus, Terminal: terminal, ErrorMsg: errorMsg}, terminal, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, userID int64, runID int64) (*CancelResponse, *apperror.Error) {

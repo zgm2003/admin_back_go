@@ -216,7 +216,7 @@ func (fakeRouterAIChatService) CreateRun(ctx context.Context, userID int64, inpu
 	return &aichat.CreateRunResponse{ConversationID: 1, RunID: 1, RequestID: "request-id", UserMessageID: 2, AgentID: input.AgentID}, nil
 }
 
-func (fakeRouterAIChatService) Events(ctx context.Context, userID int64, runID int64, lastID string) (*aichat.EventsResponse, *apperror.Error) {
+func (fakeRouterAIChatService) Events(ctx context.Context, userID int64, runID int64, lastID string, timeout time.Duration) (*aichat.EventsResponse, *apperror.Error) {
 	return &aichat.EventsResponse{LastID: lastID, RunStatus: enum.AIRunStatusRunning}, nil
 }
 

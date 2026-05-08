@@ -3,6 +3,7 @@ package aichat
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
@@ -51,7 +52,7 @@ func (h *Handler) Events(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行事件参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Events(c.Request.Context(), identity.UserID, runID, req.LastID)
+	res, appErr := h.requireService().Events(c.Request.Context(), identity.UserID, runID, req.LastID, time.Duration(req.TimeoutMS)*time.Millisecond)
 	writeResult(c, res, appErr)
 }
 
@@ -110,7 +111,7 @@ type nilHTTPService struct{}
 func (nilHTTPService) CreateRun(ctx context.Context, userID int64, input CreateRunInput) (*CreateRunResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI对话服务未配置")
 }
-func (nilHTTPService) Events(ctx context.Context, userID int64, runID int64, lastID string) (*EventsResponse, *apperror.Error) {
+func (nilHTTPService) Events(ctx context.Context, userID int64, runID int64, lastID string, timeout time.Duration) (*EventsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI对话服务未配置")
 }
 func (nilHTTPService) Cancel(ctx context.Context, userID int64, runID int64) (*CancelResponse, *apperror.Error) {

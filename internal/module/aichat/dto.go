@@ -135,7 +135,7 @@ type Repository interface {
 
 type HTTPService interface {
 	CreateRun(ctx context.Context, userID int64, input CreateRunInput) (*CreateRunResponse, *apperror.Error)
-	Events(ctx context.Context, userID int64, runID int64, lastID string) (*EventsResponse, *apperror.Error)
+	Events(ctx context.Context, userID int64, runID int64, lastID string, timeout time.Duration) (*EventsResponse, *apperror.Error)
 	Cancel(ctx context.Context, userID int64, runID int64) (*CancelResponse, *apperror.Error)
 }
 

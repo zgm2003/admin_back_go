@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
@@ -22,6 +23,8 @@ type fakeRepository struct {
 	activeAgents map[int64]bool
 	conversation *Conversation
 	run          *Run
+	runSequence  []*Run
+	runCalls     int
 	userMessage  *Message
 	assistant    *Message
 	createdInput CreateRunRecord
@@ -47,6 +50,14 @@ func (f *fakeRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 	return &RunStartRecord{RunID: f.createdRunID, ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: input.AgentID, IsNew: input.ConversationID == 0}, nil
 }
 func (f *fakeRepository) RunForUser(ctx context.Context, runID int64, userID int64) (*Run, error) {
+	f.runCalls++
+	if len(f.runSequence) > 0 {
+		index := f.runCalls - 1
+		if index >= len(f.runSequence) {
+			index = len(f.runSequence) - 1
+		}
+		return f.runSequence[index], nil
+	}
 	return f.run, nil
 }
 func (f *fakeRepository) RunForExecute(ctx context.Context, runID int64) (*RunExecutionRecord, error) {
@@ -191,7 +202,7 @@ func TestCreateRunRejectsMissingContentAndInactiveAgent(t *testing.T) {
 
 func TestEventsRejectsForeignRunAndReplaysTerminalEvents(t *testing.T) {
 	repo := &fakeRepository{run: &Run{ID: 8, UserID: 7, RunStatus: enum.AIRunStatusSuccess, ConversationID: 3, UserMessageID: ptrInt64(9), AssistantMessageID: ptrInt64(10), RequestID: "rid"}, assistant: &Message{ID: 10, Content: "done"}}
-	res, appErr := NewService(Dependencies{Repository: repo}).Events(context.Background(), 7, 8, "0-0")
+	res, appErr := NewService(Dependencies{Repository: repo}).Events(context.Background(), 7, 8, "0-0", 0)
 	if appErr != nil {
 		t.Fatalf("Events returned error: %v", appErr)
 	}
@@ -199,9 +210,30 @@ func TestEventsRejectsForeignRunAndReplaysTerminalEvents(t *testing.T) {
 		t.Fatalf("unexpected events: %#v", res)
 	}
 	repo.run.UserID = 9
-	_, appErr = NewService(Dependencies{Repository: repo}).Events(context.Background(), 7, 8, "0-0")
+	_, appErr = NewService(Dependencies{Repository: repo}).Events(context.Background(), 7, 8, "0-0", 0)
 	if appErr == nil || appErr.Code != 403 {
 		t.Fatalf("expected forbidden, got %#v", appErr)
+	}
+}
+
+func TestEventsLongPollWaitsForNewEvent(t *testing.T) {
+	repo := &fakeRepository{
+		runSequence: []*Run{
+			{ID: 8, UserID: 7, RunStatus: enum.AIRunStatusRunning, ConversationID: 3, UserMessageID: ptrInt64(9), RequestID: "rid"},
+			{ID: 8, UserID: 7, RunStatus: enum.AIRunStatusSuccess, ConversationID: 3, UserMessageID: ptrInt64(9), AssistantMessageID: ptrInt64(10), RequestID: "rid"},
+		},
+		assistant: &Message{ID: 10, Content: "done"},
+	}
+
+	res, appErr := NewService(Dependencies{Repository: repo}).Events(context.Background(), 7, 8, "1-0", 300*time.Millisecond)
+	if appErr != nil {
+		t.Fatalf("Events returned error: %v", appErr)
+	}
+	if repo.runCalls < 2 {
+		t.Fatalf("expected long-poll to recheck run state, calls=%d", repo.runCalls)
+	}
+	if !res.Terminal || len(res.Events) == 0 {
+		t.Fatalf("expected terminal replay event after wait, got %#v", res)
 	}
 }
 
@@ -255,7 +287,7 @@ func (f *fakeHTTPService) CreateRun(ctx context.Context, userID int64, input Cre
 	return &CreateRunResponse{ConversationID: input.ConversationID, RunID: 11, RequestID: "rid", UserMessageID: 9, AgentID: input.AgentID}, nil
 }
 
-func (f *fakeHTTPService) Events(ctx context.Context, userID int64, runID int64, lastID string) (*EventsResponse, *apperror.Error) {
+func (f *fakeHTTPService) Events(ctx context.Context, userID int64, runID int64, lastID string, timeout time.Duration) (*EventsResponse, *apperror.Error) {
 	return nil, nil
 }
 

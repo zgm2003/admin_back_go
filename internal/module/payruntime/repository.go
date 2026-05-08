@@ -107,25 +107,7 @@ func (r *GormRepository) CreateRechargeOrder(ctx context.Context, input Recharge
 	}
 	var created *RechargeOrderCreated
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		order := Order{
-			OrderNo:        input.OrderNo,
-			UserID:         input.UserID,
-			OrderType:      enum.PayOrderRecharge,
-			BizType:        "recharge",
-			BizID:          0,
-			Title:          input.Title,
-			ItemCount:      1,
-			TotalAmount:    input.Amount,
-			DiscountAmount: 0,
-			PayAmount:      input.Amount,
-			PayStatus:      enum.PayStatusPending,
-			BizStatus:      enum.PayBizInit,
-			ChannelID:      input.ChannelID,
-			PayMethod:      input.PayMethod,
-			ExpireTime:     input.ExpireTime,
-			IP:             input.IP,
-			IsDel:          enum.CommonNo,
-		}
+		order := newRechargeOrder(input)
 		if err := tx.WithContext(ctx).Create(&order).Error; err != nil {
 			return err
 		}
@@ -145,6 +127,32 @@ func (r *GormRepository) CreateRechargeOrder(ctx context.Context, input Recharge
 		return nil
 	})
 	return created, err
+}
+
+func newRechargeOrder(input RechargeOrderMutation) Order {
+	return Order{
+		OrderNo:        input.OrderNo,
+		UserID:         input.UserID,
+		OrderType:      enum.PayOrderRecharge,
+		BizType:        "recharge",
+		BizID:          0,
+		Title:          input.Title,
+		ItemCount:      1,
+		TotalAmount:    input.Amount,
+		DiscountAmount: 0,
+		PayAmount:      input.Amount,
+		PayStatus:      enum.PayStatusPending,
+		BizStatus:      enum.PayBizInit,
+		ChannelID:      input.ChannelID,
+		PayMethod:      input.PayMethod,
+		ExpireTime:     input.ExpireTime,
+		CloseReason:    "",
+		FailReason:     "",
+		Extra:          "{}",
+		AdminRemark:    "",
+		IP:             input.IP,
+		IsDel:          enum.CommonNo,
+	}
 }
 
 func (r *GormRepository) ListCurrentUserRechargeOrders(ctx context.Context, userID int64, query CurrentUserOrderListQuery) ([]CurrentUserOrderRow, int64, error) {
