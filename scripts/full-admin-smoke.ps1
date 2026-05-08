@@ -4,8 +4,7 @@ param(
   [string]$HTTPAddr = '127.0.0.1:18081',
   [string]$BasicHTTPAddr = '127.0.0.1:18080',
   [string]$Platform = 'admin',
-  [string]$DeviceID = 'codex-full-smoke',
-  [switch]$EnablePaymentRuntimeProbe
+  [string]$DeviceID = 'codex-full-smoke'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -485,49 +484,103 @@ function Assert-UploadSettingList($Response) {
   }
 }
 
-function Assert-PayChannelInit($Response) {
-  Assert-ApiOK $Response 'pay channel init'
+function Assert-PaymentChannelInit($Response) {
+  Assert-ApiOK $Response 'payment channel init'
 
   if ($null -eq $Response.data.dict) {
-    throw "pay channel init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "payment channel init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
 
-  $channels = Get-ObjectArray $Response.data.dict.channel_arr
-  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
   $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
-  if ($channels.Count -ne 2 -or $methods.Count -ne 6 -or $statuses.Count -ne 2) {
-    throw "pay channel init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  if ($statuses.Count -ne 2) {
+    throw "payment channel init status dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
-    ChannelCount = $channels.Count
-    MethodCount = $methods.Count
     StatusCount = $statuses.Count
   }
 }
 
-function Assert-PayChannelList($Response) {
-  Assert-ApiOK $Response 'pay channel list'
+function Assert-PaymentChannelList($Response) {
+  Assert-ApiOK $Response 'payment channel list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "pay channel list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "payment channel list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
     if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
-      throw "pay channel item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.supported_methods -or [string]::IsNullOrWhiteSpace([string]$item.supported_methods_text)) {
-      throw "pay channel item missing supported method fields: $($item | ConvertTo-Json -Depth 12)"
+      throw "payment channel item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
     if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
-      throw "pay channel list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
+      throw "payment channel list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
     }
   }
 
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-PaymentOrderInit($Response) {
+  Assert-ApiOK $Response 'payment order init'
+  if ($null -eq $Response.data.dict) {
+    throw "payment order init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  return [pscustomobject]@{
+    DictKeys = (Get-ObjectArray $Response.data.dict.PSObject.Properties).Count
+  }
+}
+
+function Assert-PaymentOrderList($Response) {
+  Assert-ApiOK $Response 'payment order list'
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "payment order list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "payment order item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-PaymentEventList($Response) {
+  Assert-ApiOK $Response 'payment event list'
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "payment event list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0) {
+      throw "payment event item missing valid id: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-UsersInitPaymentRoutes($Response) {
+  Assert-ApiOK $Response 'users init payment route gate'
+  $payPresent = Test-RoutePath $Response.data.router '/pay'
+  $retiredWalletPresent = Test-RoutePath $Response.data.router '/wallet'
+  $channelPresent = Test-RoutePath $Response.data.router '/payment/channel'
+  $orderPresent = Test-RoutePath $Response.data.router '/payment/order'
+  $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
+  if ($payPresent -or $retiredWalletPresent -or -not $channelPresent -or -not $orderPresent -or -not $eventPresent) {
+    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent /payment/channel=$channelPresent /payment/order=$orderPresent /payment/event=$eventPresent"
+  }
+  return [pscustomobject]@{
+    PayPresent = $payPresent
+    RetiredWalletPresent = $retiredWalletPresent
+    ChannelPresent = $channelPresent
+    OrderPresent = $orderPresent
+    EventPresent = $eventPresent
   }
 }
 
@@ -849,294 +902,6 @@ function Assert-AIRunStats($Response) {
   }
 }
 
-function Assert-PayRuntimeChannelReady($Response) {
-  Assert-ApiOK $Response 'pay runtime channel readiness'
-
-  $rows = Get-ObjectArray $Response.data.list
-  foreach ($item in $rows) {
-    if ([int]$item.channel -ne 2) { continue }
-    if ([string]$item.status_name -ne '启用') { continue }
-    if ([string]::IsNullOrWhiteSpace([string]$item.public_cert_path) -or [string]::IsNullOrWhiteSpace([string]$item.platform_cert_path) -or [string]::IsNullOrWhiteSpace([string]$item.root_cert_path)) {
-      throw "enabled Alipay channel missing cert path fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
-      throw "pay runtime channel readiness leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-    return [pscustomobject]@{
-      Status = 'ready'
-      ChannelID = [int64]$item.id
-      SupportedMethodsCount = (Get-ObjectArray $item.supported_methods).Count
-    }
-  }
-
-  return [pscustomobject]@{
-    Status = 'skipped_no_enabled_alipay_channel'
-    ChannelID = 0
-    SupportedMethodsCount = 0
-  }
-}
-
-function Assert-PayTransactionInit($Response) {
-  Assert-ApiOK $Response 'pay transaction init'
-
-  if ($null -eq $Response.data.dict) {
-    throw "pay transaction init missing dict: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $channels = Get-ObjectArray $Response.data.dict.channel_arr
-  $statuses = Get-ObjectArray $Response.data.dict.txn_status_arr
-  if ($channels.Count -ne 2 -or $statuses.Count -ne 5) {
-    throw "pay transaction init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    ChannelCount = $channels.Count
-    StatusCount = $statuses.Count
-  }
-}
-
-function Assert-PayTransactionList($Response) {
-  Assert-ApiOK $Response 'pay transaction list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "pay transaction list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.transaction_no) -or [string]::IsNullOrWhiteSpace([string]$item.order_no)) {
-      throw "pay transaction item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
-      throw "pay transaction list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-PayTransactionDetail($Response) {
-  Assert-ApiOK $Response 'pay transaction detail'
-
-  if ($null -eq $Response.data.transaction -or [int64]$Response.data.transaction.id -le 0) {
-    throw "pay transaction detail missing transaction: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if ($null -eq $Response.data.transaction.channel_resp -or $null -eq $Response.data.transaction.raw_notify) {
-    throw "pay transaction detail missing json payload objects: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if ($null -ne $Response.data.channel) {
-    if ($null -ne $Response.data.channel.app_private_key -or $null -ne $Response.data.channel.app_private_key_enc) {
-      throw "pay transaction detail leaked private key fields: $($Response | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ID = [int64]$Response.data.transaction.id
-  }
-}
-
-function Assert-PayNotifyLogInit($Response) {
-  Assert-ApiOK $Response 'pay notify log init'
-
-  if ($null -eq $Response.data.dict) {
-    throw "pay notify log init missing dict: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $channels = Get-ObjectArray $Response.data.dict.channel_arr
-  $notifyTypes = Get-ObjectArray $Response.data.dict.notify_type_arr
-  $statuses = Get-ObjectArray $Response.data.dict.notify_process_status_arr
-  if ($channels.Count -ne 2 -or $notifyTypes.Count -ne 1 -or $statuses.Count -ne 4) {
-    throw "pay notify log init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    ChannelCount = $channels.Count
-    NotifyTypeCount = $notifyTypes.Count
-    StatusCount = $statuses.Count
-  }
-}
-
-function Assert-PayNotifyLogList($Response) {
-  Assert-ApiOK $Response 'pay notify log list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "pay notify log list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.process_status_text)) {
-      throw "pay notify log item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.notify_type_text -or $null -eq $item.channel_text) {
-      throw "pay notify log item missing label fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-PayNotifyLogDetail($Response) {
-  Assert-ApiOK $Response 'pay notify log detail'
-
-  if ($null -eq $Response.data.log -or [int64]$Response.data.log.id -le 0) {
-    throw "pay notify log detail missing log: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if ($null -eq $Response.data.log.headers -or $null -eq $Response.data.log.raw_data) {
-    throw "pay notify log detail missing json payload objects: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    ID = [int64]$Response.data.log.id
-  }
-}
-
-function Assert-PayOrderInit($Response) {
-  Assert-ApiOK $Response 'pay order init'
-
-  if ($null -eq $Response.data.dict) {
-    throw "pay order init missing dict: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $orderTypes = Get-ObjectArray $Response.data.dict.order_type_arr
-  $payStatuses = Get-ObjectArray $Response.data.dict.pay_status_arr
-  $bizStatuses = Get-ObjectArray $Response.data.dict.biz_status_arr
-  $rechargePresets = Get-ObjectArray $Response.data.dict.recharge_preset_arr
-  if ($orderTypes.Count -ne 3 -or $payStatuses.Count -ne 5 -or $bizStatuses.Count -ne 6 -or $rechargePresets.Count -ne 6) {
-    throw "pay order init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    OrderTypeCount = $orderTypes.Count
-    PayStatusCount = $payStatuses.Count
-    BizStatusCount = $bizStatuses.Count
-    RechargePresetCount = $rechargePresets.Count
-  }
-}
-
-function Assert-PayOrderStatusCount($Response) {
-  Assert-ApiOK $Response 'pay order status count'
-
-  $items = Get-ObjectArray $Response.data
-  if ($items.Count -ne 5) {
-    throw "pay order status count item count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($item in $items) {
-    if ([string]::IsNullOrWhiteSpace([string]$item.label) -or $null -eq $item.value -or $null -eq $item.count) {
-      throw "pay order status count item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return $items.Count
-}
-
-function Assert-PayOrderList($Response) {
-  Assert-ApiOK $Response 'pay order list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "pay order list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no) -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
-      throw "pay order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.order_type_text -or $null -eq $item.pay_status_text -or $null -eq $item.biz_status_text) {
-      throw "pay order item missing label fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-PayOrderDetail($Response) {
-  Assert-ApiOK $Response 'pay order detail'
-
-  if ($null -eq $Response.data.order -or [int64]$Response.data.order.id -le 0) {
-    throw "pay order detail missing order: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if ($null -eq $Response.data.items) {
-    throw "pay order detail missing items: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if ($null -eq $Response.data.order.extra) {
-    throw "pay order detail missing extra object: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    ID = [int64]$Response.data.order.id
-    PayStatus = [int]$Response.data.order.pay_status
-    AdminRemark = [string]$Response.data.order.admin_remark
-  }
-}
-
-function Assert-CurrentUserWalletSummary($Response) {
-  Assert-ApiOK $Response 'current-user wallet summary'
-
-  if ($Response.data.wallet_exists -notin @(1, 2)) {
-    throw "current-user wallet summary wallet_exists mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($field in @('balance', 'frozen', 'total_recharge', 'total_consume')) {
-    if ($null -eq $Response.data.$field) {
-      throw "current-user wallet summary missing money field $field`: $($Response | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    WalletExists = [int]$Response.data.wallet_exists
-    Balance = [int]$Response.data.balance
-    Frozen = [int]$Response.data.frozen
-  }
-}
-
-function Assert-CurrentUserWalletBills($Response) {
-  Assert-ApiOK $Response 'current-user wallet bills'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "current-user wallet bills missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.biz_action_no)) {
-      throw "current-user wallet bill item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.type_text -or $null -eq $item.available_delta -or $null -eq $item.balance_before -or $null -eq $item.balance_after) {
-      throw "current-user wallet bill item missing label/money fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-CurrentUserRechargeOrders($Response) {
-  Assert-ApiOK $Response 'current-user recharge orders'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "current-user recharge orders missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no) -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
-      throw "current-user recharge order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.pay_status_text -or $null -eq $item.biz_status_text) {
-      throw "current-user recharge order item missing status text: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
 function Assert-UserSessionPageInit($Response) {
   Assert-ApiOK $Response 'user session page-init'
 
@@ -1424,397 +1189,6 @@ function Assert-UserSessionCurrentRevokeBlocked([string]$BaseURL, [hashtable]$He
     Blocked = $true
     Code = $code
   }
-}
-
-function Assert-WalletInit($Response) {
-  Assert-ApiOK $Response 'wallet init'
-
-  if ($null -eq $Response.data.dict) {
-    throw "wallet init missing dict: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $walletTypes = Get-ObjectArray $Response.data.dict.wallet_type_arr
-  $walletSources = Get-ObjectArray $Response.data.dict.wallet_source_arr
-  if ($walletTypes.Count -ne 3 -or $walletSources.Count -ne 3) {
-    throw "wallet init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    WalletTypeCount = $walletTypes.Count
-    WalletSourceCount = $walletSources.Count
-  }
-}
-
-function Assert-WalletList($Response) {
-  Assert-ApiOK $Response 'wallet list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "wallet list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [int64]$item.user_id -le 0) {
-      throw "wallet item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    foreach ($field in @('balance', 'frozen', 'total_recharge', 'total_consume')) {
-      if ($null -eq $item.$field) {
-        throw "wallet item missing money field $field`: $($item | ConvertTo-Json -Depth 12)"
-      }
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-WalletTransactionList($Response) {
-  Assert-ApiOK $Response 'wallet transaction list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "wallet transaction list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [int64]$item.user_id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.biz_action_no)) {
-      throw "wallet transaction item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.type_text -or $null -eq $item.available_delta -or $null -eq $item.balance_before -or $null -eq $item.balance_after) {
-      throw "wallet transaction item missing label/money fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Get-WalletBalance([string]$BaseURL, [hashtable]$Headers, [int64]$UserID) {
-  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/wallets?current_page=1&page_size=1&user_id=$UserID" `
-    -Headers $Headers `
-    -TimeoutSec 10
-  Assert-ApiOK $response 'wallet balance readback'
-
-  $rows = Get-ObjectArray $response.data.list
-  if ($rows.Count -eq 0) {
-    throw "wallet balance readback missing user_id=$UserID"
-  }
-
-  return [int]$rows[0].balance
-}
-
-function Invoke-WalletAdjustmentProbe([string]$BaseURL, [hashtable]$Headers, $WalletRow) {
-  if ($null -eq $WalletRow -or [int64]$WalletRow.user_id -le 0) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_wallet_rows'
-      UserID = 0
-      PlusCode = $null
-      DuplicateSameTransaction = $false
-      Restored = $false
-      PlusTransactionID = 0
-      MinusTransactionID = 0
-    }
-  }
-
-  $userID = [int64]$WalletRow.user_id
-  $originalBalance = [int]$WalletRow.balance
-  $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  $plusBody = @{
-    user_id = $userID
-    delta = 100
-    reason = "codex-full-smoke-adjust-plus-$suffix"
-    idempotency_key = "codex-full-smoke-plus-$suffix"
-  }
-  $minusBody = @{
-    user_id = $userID
-    delta = -100
-    reason = "codex-full-smoke-adjust-restore-$suffix"
-    idempotency_key = "codex-full-smoke-minus-$suffix"
-  }
-  $restored = $false
-  $plus = $null
-  $minus = $null
-
-  try {
-    $plus = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $plusBody
-    Assert-ApiOK $plus 'wallet adjustment plus'
-    if ([int]$plus.data.balance_before -ne $originalBalance -or [int]$plus.data.balance_after -ne ($originalBalance + 100)) {
-      throw "wallet adjustment plus balance mismatch: original=$originalBalance response=$($plus | ConvertTo-Json -Depth 12)"
-    }
-
-    $duplicate = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $plusBody
-    Assert-ApiOK $duplicate 'wallet adjustment duplicate'
-    $duplicateSameTransaction = [int64]$duplicate.data.transaction_id -eq [int64]$plus.data.transaction_id
-    if (-not $duplicateSameTransaction) {
-      throw "wallet adjustment duplicate returned different transaction: first=$($plus.data.transaction_id) duplicate=$($duplicate.data.transaction_id)"
-    }
-
-    $balanceAfterDuplicate = Get-WalletBalance $BaseURL $Headers $userID
-    if ($balanceAfterDuplicate -ne ($originalBalance + 100)) {
-      throw "wallet adjustment duplicate mutated balance: expected=$($originalBalance + 100) actual=$balanceAfterDuplicate"
-    }
-
-    $minus = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $minusBody
-    Assert-ApiOK $minus 'wallet adjustment restore'
-    $finalBalance = Get-WalletBalance $BaseURL $Headers $userID
-    $restored = $finalBalance -eq $originalBalance
-    if (-not $restored) {
-      throw "wallet adjustment restore failed: original=$originalBalance final=$finalBalance"
-    }
-
-    return [pscustomobject]@{
-      Status = 'ok'
-      UserID = $userID
-      PlusCode = [int]$plus.code
-      DuplicateSameTransaction = $duplicateSameTransaction
-      Restored = $restored
-      PlusTransactionID = [int64]$plus.data.transaction_id
-      MinusTransactionID = [int64]$minus.data.transaction_id
-    }
-  } catch {
-    if ($null -ne $plus -and -not $restored) {
-      try {
-        $restoreAttempt = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/wallet-adjustments" $Headers $minusBody
-        Assert-ApiOK $restoreAttempt 'wallet adjustment restore after failure'
-        $restored = (Get-WalletBalance $BaseURL $Headers $userID) -eq $originalBalance
-      } catch {
-        # Keep the original failure below; the final hard failure still shows restore status.
-      }
-    }
-    throw "wallet adjustment probe failed; restored=$restored; original=$originalBalance; error=$($_.Exception.Message)"
-  }
-}
-
-function Invoke-PaymentRuntimeProbe([string]$BaseURL, [hashtable]$Headers, $ChannelReady) {
-  if (-not $EnablePaymentRuntimeProbe) {
-    return [pscustomobject]@{
-      Status = 'skipped_flag_disabled'
-      OrderCode = $null
-      AttemptCode = $null
-      ResultCode = $null
-      CancelCode = $null
-      CleanupStatus = 'not_created'
-      ChannelID = [int64]$ChannelReady.ChannelID
-      OrderNo = ''
-      TransactionNo = ''
-      PayDataMode = ''
-      PayDataHasContent = $false
-    }
-  }
-  if ([int64]$ChannelReady.ChannelID -le 0) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_enabled_alipay_channel'
-      OrderCode = $null
-      AttemptCode = $null
-      ResultCode = $null
-      CancelCode = $null
-      CleanupStatus = 'not_created'
-      ChannelID = 0
-      OrderNo = ''
-      TransactionNo = ''
-      PayDataMode = ''
-      PayDataHasContent = $false
-    }
-  }
-
-  $order = $null
-  $attempt = $null
-  $result = $null
-  $cancel = $null
-  $orderNo = ''
-  $transactionNo = ''
-  $payDataMode = ''
-  $payDataHasContent = $false
-  $cleanupStatus = 'not_created'
-  $failure = $null
-
-  try {
-    $orderBody = @{
-      amount = 1000
-      pay_method = 'web'
-      channel_id = [int64]$ChannelReady.ChannelID
-    }
-    $order = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders" $Headers $orderBody
-    Assert-ApiOK $order 'payment runtime recharge order create'
-    if ([string]::IsNullOrWhiteSpace([string]$order.data.order_no) -or [int]$order.data.pay_amount -ne 1000) {
-      throw "payment runtime recharge order shape mismatch: $($order | ConvertTo-Json -Depth 12)"
-    }
-    $orderNo = [string]$order.data.order_no
-    $cleanupStatus = 'created_not_cleaned'
-
-    $attemptBody = @{
-      pay_method = 'web'
-      return_url = "$BaseURL/__codex-payment-return"
-    }
-    $attempt = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/recharge-orders/$orderNo/pay-attempts" $Headers $attemptBody
-    Assert-ApiOK $attempt 'payment runtime pay attempt create'
-    if ([string]::IsNullOrWhiteSpace([string]$attempt.data.transaction_no) -or $null -eq $attempt.data.pay_data) {
-      throw "payment runtime pay attempt shape mismatch: $($attempt | ConvertTo-Json -Depth 12)"
-    }
-    if ([string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)) {
-      throw "payment runtime pay attempt returned empty pay_data.content: $($attempt | ConvertTo-Json -Depth 12)"
-    }
-    $transactionNo = [string]$attempt.data.transaction_no
-    $payDataMode = [string]$attempt.data.pay_data.mode
-    $payDataHasContent = -not [string]::IsNullOrWhiteSpace([string]$attempt.data.pay_data.content)
-
-    $result = Invoke-RestMethod "$BaseURL/api/admin/v1/recharge-orders/$orderNo/result" `
-      -Headers $Headers `
-      -TimeoutSec 10
-    Assert-ApiOK $result 'payment runtime query result'
-    if ([string]$result.data.order_no -ne $orderNo) {
-      throw "payment runtime query result order mismatch: expected=$orderNo response=$($result | ConvertTo-Json -Depth 12)"
-    }
-  } catch {
-    $failure = $_
-  }
-
-  if (-not [string]::IsNullOrWhiteSpace($orderNo)) {
-    try {
-      $cancel = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/recharge-orders/$orderNo/cancel" $Headers @{ reason = 'codex full smoke cleanup' }
-      Assert-ApiOK $cancel 'payment runtime smoke order cancel'
-      $cleanupStatus = 'cancelled'
-    } catch {
-      $cleanupStatus = "cancel_failed: $($_.Exception.Message)"
-      if ($null -eq $failure) {
-        $failure = $_
-      }
-    }
-  }
-
-  if ($null -ne $failure) {
-    throw "payment runtime probe failed; cleanup=$cleanupStatus; error=$($failure.Exception.Message)"
-  }
-
-  return [pscustomobject]@{
-    Status = 'ok'
-    OrderCode = [int]$order.code
-    AttemptCode = [int]$attempt.code
-    ResultCode = [int]$result.code
-    CancelCode = [int]$cancel.code
-    CleanupStatus = $cleanupStatus
-    ChannelID = [int64]$ChannelReady.ChannelID
-    OrderNo = $orderNo
-    TransactionNo = $transactionNo
-    PayDataMode = $payDataMode
-    PayDataHasContent = $payDataHasContent
-  }
-}
-
-function Invoke-PayOrderRemarkProbe([string]$BaseURL, [hashtable]$Headers, $OrderDetailSummary) {
-  if ($null -eq $OrderDetailSummary -or [int64]$OrderDetailSummary.ID -le 0) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_orders'
-      Code = $null
-      OrderID = 0
-    }
-  }
-
-  $orderID = [int64]$OrderDetailSummary.ID
-  $originalRemark = [string]$OrderDetailSummary.AdminRemark
-  $newRemark = "codex smoke remark $([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
-  $restoreRemark = if ([string]::IsNullOrWhiteSpace($originalRemark)) { 'codex smoke restored blank remark' } else { $originalRemark }
-
-  $update = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/pay-orders/$orderID/remark" $Headers @{ remark = $newRemark }
-  Assert-ApiOK $update 'pay order remark update'
-
-  $restore = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/pay-orders/$orderID/remark" $Headers @{ remark = $restoreRemark }
-  Assert-ApiOK $restore 'pay order remark restore'
-
-  return [pscustomobject]@{
-    Status = 'passed'
-    Code = $update.code
-    OrderID = $orderID
-    RestoredOriginalBlank = [string]::IsNullOrWhiteSpace($originalRemark)
-  }
-}
-
-function Invoke-PayOrderCloseProbe([string]$BaseURL, [hashtable]$Headers) {
-  $pendingList = Invoke-RestMethod "$BaseURL/api/admin/v1/pay-orders?current_page=1&page_size=1&pay_status=1" `
-    -Headers $Headers `
-    -TimeoutSec 10
-  Assert-ApiOK $pendingList 'pay order close probe pending list'
-
-  $rows = Get-ObjectArray $pendingList.data.list
-  if ($rows.Count -eq 0) {
-    $payingList = Invoke-RestMethod "$BaseURL/api/admin/v1/pay-orders?current_page=1&page_size=1&pay_status=2" `
-      -Headers $Headers `
-      -TimeoutSec 10
-    Assert-ApiOK $payingList 'pay order close probe paying list'
-    $rows = Get-ObjectArray $payingList.data.list
-  }
-
-  if ($rows.Count -eq 0) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_pending_or_paying_orders'
-      Code = $null
-      OrderID = 0
-    }
-  }
-
-  $orderID = [int64]$rows[0].id
-  $response = Invoke-JsonRequestAllowFailure 'Patch' "$BaseURL/api/admin/v1/pay-orders/$orderID/close" $Headers @{ reason = 'codex full smoke local close' }
-  Assert-ApiOK $response 'pay order close probe'
-
-  return [pscustomobject]@{
-    Status = 'passed'
-    Code = $response.code
-    OrderID = $orderID
-  }
-}
-
-function Clear-UserButtonCache([int64]$UserID, [string]$CachePlatform) {
-  if ($UserID -le 0 -or [string]::IsNullOrWhiteSpace($CachePlatform)) { return }
-
-  $cacheClearer = '.tmp/clear-user-button-cache.go'
-  @"
-package main
-
-import (
-  "context"
-  "fmt"
-  "os"
-  "strconv"
-
-  "github.com/redis/go-redis/v9"
-)
-
-func main() {
-  if len(os.Args) != 3 {
-    fmt.Fprintln(os.Stderr, "usage: clear-user-button-cache <user-id> <platform>")
-    os.Exit(2)
-  }
-
-  db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-
-  client := redis.NewClient(&redis.Options{
-    Addr:     os.Getenv("REDIS_ADDR"),
-    Password: os.Getenv("REDIS_PASSWORD"),
-    DB:       db,
-  })
-  defer client.Close()
-
-  key := "auth_perm_uid_" + os.Args[1] + "_" + os.Args[2] + "_rbac_page_grants"
-  if err := client.Del(context.Background(), key).Err(); err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(1)
-  }
-}
-"@ | Set-Content -LiteralPath $cacheClearer -Encoding UTF8
-
-  $env:REDIS_ADDR = Get-RedisAddr
-  $env:REDIS_DB = Get-RedisDB
-  go run $cacheClearer ([string]$UserID) $CachePlatform
-  if ($LASTEXITCODE -ne 0) {
-    throw "failed to clear RBAC button cache for user=$UserID platform=$CachePlatform"
-  }
-  Remove-Item -Force $cacheClearer -ErrorAction SilentlyContinue
 }
 
 function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [string]$Suffix) {
@@ -2223,11 +1597,8 @@ function Assert-CronTaskList($Response) {
   }
 
   $registeredNotification = $false
-  $registeredPayCloseExpired = $false
-  $registeredPaySyncPending = $false
-  $registeredPayReconcileDaily = $false
-  $registeredPayReconcileExecute = $false
-  $registeredPayFulfillmentRetry = $false
+  $registeredPaymentCloseExpired = $false
+  $registeredPaymentSyncPending = $false
   $registeredAIRunTimeout = $false
   $aiRunTimeoutTaskType = ''
   $missingLegacy = $false
@@ -2249,35 +1620,17 @@ function Assert-CronTaskList($Response) {
       }
       $registeredNotification = $true
     }
-    if ([string]$item.name -eq 'pay_close_expired_order' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'pay:close-expired-order:v1' -or [string]$item.handler -ne 'pay:close-expired-order:v1') {
-        throw "pay close-expired cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]$item.name -eq 'payment_close_expired_order' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'payment:close-expired-order:v1' -or [string]$item.handler -ne 'payment:close-expired-order:v1') {
+        throw "payment close-expired cron task must expose payment task type instead of legacy pay handler: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredPayCloseExpired = $true
+      $registeredPaymentCloseExpired = $true
     }
-    if ([string]$item.name -eq 'pay_sync_pending_transaction' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'pay:sync-pending-transaction:v1' -or [string]$item.handler -ne 'pay:sync-pending-transaction:v1') {
-        throw "pay sync-pending cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]$item.name -eq 'payment_sync_pending_order' -and [string]$item.registry_status -eq 'registered') {
+      if ([string]$item.registry_task_type -ne 'payment:sync-pending-order:v1' -or [string]$item.handler -ne 'payment:sync-pending-order:v1') {
+        throw "payment sync-pending cron task must expose payment task type instead of legacy pay handler: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredPaySyncPending = $true
-    }
-    if ([string]$item.name -eq 'pay_reconcile_daily' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'pay:reconcile-daily:v1' -or [string]$item.handler -ne 'pay:reconcile-daily:v1') {
-        throw "pay reconcile-daily cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
-      }
-      $registeredPayReconcileDaily = $true
-    }
-    if ([string]$item.name -eq 'pay_reconcile_execute' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'pay:reconcile-execute:v1' -or [string]$item.handler -ne 'pay:reconcile-execute:v1') {
-        throw "pay reconcile-execute cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
-      }
-      $registeredPayReconcileExecute = $true
-    }
-    if ([string]$item.name -eq 'pay_fulfillment_retry' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'pay:fulfillment-retry:v1' -or [string]$item.handler -ne 'pay:fulfillment-retry:v1') {
-        throw "pay fulfillment-retry cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
-      }
-      $registeredPayFulfillmentRetry = $true
+      $registeredPaymentSyncPending = $true
     }
     if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
       if ([string]$item.registry_task_type -ne 'ai:run-timeout:v1' -or [string]$item.handler -ne 'ai:run-timeout:v1') {
@@ -2295,11 +1648,8 @@ function Assert-CronTaskList($Response) {
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
     NotificationRegistered = $registeredNotification
-    PayCloseExpiredRegistered = $registeredPayCloseExpired
-    PaySyncPendingRegistered = $registeredPaySyncPending
-    PayReconcileDailyRegistered = $registeredPayReconcileDaily
-    PayReconcileExecuteRegistered = $registeredPayReconcileExecute
-    PayFulfillmentRetryRegistered = $registeredPayFulfillmentRetry
+    PaymentCloseExpiredRegistered = $registeredPaymentCloseExpired
+    PaymentSyncPendingRegistered = $registeredPaymentSyncPending
     AIRunTimeoutRegistered = $registeredAIRunTimeout
     AIRunTimeoutTaskType = $aiRunTimeoutTaskType
     MissingLegacyPresent = $missingLegacy
@@ -2619,6 +1969,7 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $usersInitAIRouteSummary = Assert-UsersInitAIRoutes $usersInit
+  $usersInitPaymentRouteSummary = Assert-UsersInitPaymentRoutes $usersInit
 
   $quickEntryProbe = Invoke-QuickEntryRoundTripProbe $baseURL $authHeaders $usersInit
 
@@ -2732,16 +2083,15 @@ func main() {
     -TimeoutSec 10
   $uploadSettingListSummary = Assert-UploadSettingList $uploadSettingList
 
-  $payChannelInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-channels/page-init" `
+  $paymentChannelInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/channels/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $payChannelInitSummary = Assert-PayChannelInit $payChannelInit
+  $paymentChannelInitSummary = Assert-PaymentChannelInit $paymentChannelInit
 
-  $payChannelList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-channels?current_page=1&page_size=20" `
+  $paymentChannelList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/channels?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $payChannelListSummary = Assert-PayChannelList $payChannelList
-  $payRuntimeChannelReady = Assert-PayRuntimeChannelReady $payChannelList
+  $paymentChannelListSummary = Assert-PaymentChannelList $paymentChannelList
 
   $aiModelInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-models/page-init" `
     -Headers $authHeaders `
@@ -2826,132 +2176,21 @@ func main() {
     -TimeoutSec 10
   $aiRunStatsSummary = Assert-AIRunStats $aiRunStats
 
-  $currentUserWalletSummary = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/summary" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $currentUserWalletSummaryResult = Assert-CurrentUserWalletSummary $currentUserWalletSummary
 
-  $currentUserWalletBills = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/bills?current_page=1&page_size=10" `
+  $paymentOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $currentUserWalletBillsSummary = Assert-CurrentUserWalletBills $currentUserWalletBills
+  $paymentOrderInitSummary = Assert-PaymentOrderInit $paymentOrderInit
 
-  $currentUserRechargeOrders = Invoke-RestMethod "$baseURL/api/admin/v1/recharge-orders?current_page=1&page_size=10" `
+  $paymentOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $currentUserRechargeOrdersSummary = Assert-CurrentUserRechargeOrders $currentUserRechargeOrders
+  $paymentOrderListSummary = Assert-PaymentOrderList $paymentOrderList
 
-  $payTransactionInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions/page-init" `
+  $paymentEventList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/events?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $payTransactionInitSummary = Assert-PayTransactionInit $payTransactionInit
-
-  $payTransactionList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $payTransactionListSummary = Assert-PayTransactionList $payTransactionList
-  $payTransactionDetailCode = $null
-  $payTransactionDetailID = 0
-  $payTransactionRows = Get-ObjectArray $payTransactionList.data.list
-  if ($payTransactionRows.Count -gt 0) {
-    $firstPayTransaction = $payTransactionRows[0]
-    $payTransactionDetail = Invoke-RestMethod "$baseURL/api/admin/v1/pay-transactions/$($firstPayTransaction.id)" `
-      -Headers $authHeaders `
-      -TimeoutSec 10
-    $payTransactionDetailSummary = Assert-PayTransactionDetail $payTransactionDetail
-    $payTransactionDetailCode = $payTransactionDetail.code
-    $payTransactionDetailID = $payTransactionDetailSummary.ID
-  }
-
-  $payNotifyLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-notify-logs/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $payNotifyLogInitSummary = Assert-PayNotifyLogInit $payNotifyLogInit
-
-  $payNotifyLogList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-notify-logs?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $payNotifyLogListSummary = Assert-PayNotifyLogList $payNotifyLogList
-  $payNotifyLogDetailCode = $null
-  $payNotifyLogDetailID = 0
-  $payNotifyLogRows = Get-ObjectArray $payNotifyLogList.data.list
-  if ($payNotifyLogRows.Count -gt 0) {
-    $firstPayNotifyLog = $payNotifyLogRows[0]
-    $payNotifyLogDetail = Invoke-RestMethod "$baseURL/api/admin/v1/pay-notify-logs/$($firstPayNotifyLog.id)" `
-      -Headers $authHeaders `
-      -TimeoutSec 10
-    $payNotifyLogDetailSummary = Assert-PayNotifyLogDetail $payNotifyLogDetail
-    $payNotifyLogDetailCode = $payNotifyLogDetail.code
-    $payNotifyLogDetailID = $payNotifyLogDetailSummary.ID
-  }
-
-  $payOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $payOrderInitSummary = Assert-PayOrderInit $payOrderInit
-
-  $payOrderStatusCount = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/status-count" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $payOrderStatusCountItems = Assert-PayOrderStatusCount $payOrderStatusCount
-
-  $payOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $payOrderListSummary = Assert-PayOrderList $payOrderList
-  $payOrderDetailCode = $null
-  $payOrderDetailID = 0
-  $payOrderDetailSummary = $null
-  $payOrderRows = Get-ObjectArray $payOrderList.data.list
-  if ($payOrderRows.Count -gt 0) {
-    $firstPayOrder = $payOrderRows[0]
-    $payOrderDetail = Invoke-RestMethod "$baseURL/api/admin/v1/pay-orders/$($firstPayOrder.id)" `
-      -Headers $authHeaders `
-      -TimeoutSec 10
-    $payOrderDetailSummary = Assert-PayOrderDetail $payOrderDetail
-    $payOrderDetailCode = $payOrderDetail.code
-    $payOrderDetailID = $payOrderDetailSummary.ID
-  }
-  $payOrderRemarkProbe = Invoke-PayOrderRemarkProbe $baseURL $authHeaders $payOrderDetailSummary
-  $payOrderCloseProbe = Invoke-PayOrderCloseProbe $baseURL $authHeaders
-  $paymentRuntimeProbe = Invoke-PaymentRuntimeProbe $baseURL $authHeaders $payRuntimeChannelReady
-
-  $walletInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallets/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $walletInitSummary = Assert-WalletInit $walletInit
-
-  $walletList = Invoke-RestMethod "$baseURL/api/admin/v1/wallets?current_page=1&page_size=10" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $walletListSummary = Assert-WalletList $walletList
-
-  $walletTransactionList = Invoke-RestMethod "$baseURL/api/admin/v1/wallet-transactions?current_page=1&page_size=10" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $walletTransactionListSummary = Assert-WalletTransactionList $walletTransactionList
-  $walletAdjustmentBeforeLogs = Get-OperationLogList $baseURL $authHeaders '钱包调账'
-  Assert-ApiOK $walletAdjustmentBeforeLogs 'wallet adjustment operation log before list'
-  $walletAdjustmentBeforeMaxID = Get-MaxOperationLogID $walletAdjustmentBeforeLogs
-  $walletRows = Get-ObjectArray $walletList.data.list
-  $walletAdjustmentProbe = if ($walletRows.Count -gt 0) {
-    Invoke-WalletAdjustmentProbe $baseURL $authHeaders $walletRows[0]
-  } else {
-    [pscustomobject]@{
-      Status = 'skipped_no_wallet_rows'
-      UserID = 0
-      PlusCode = $null
-      DuplicateSameTransaction = $false
-      Restored = $false
-      PlusTransactionID = 0
-      MinusTransactionID = 0
-    }
-  }
-  $walletAdjustmentOperationLog = if ($walletAdjustmentProbe.Status -eq 'ok') {
-    Wait-NewOperationLog $baseURL $authHeaders '钱包调账' $walletAdjustmentBeforeMaxID
-  } else {
-    $null
-  }
+  $paymentEventListSummary = Assert-PaymentEventList $paymentEventList
 
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
   $uploadTokenProbe = Invoke-UploadTokenProbe $baseURL $authHeaders
@@ -3163,16 +2402,11 @@ func main() {
     upload_setting_list_code = $uploadSettingList.code
     upload_setting_list_count = $uploadSettingListSummary.ListCount
     upload_setting_total = $uploadSettingListSummary.Total
-    pay_channel_init_code = $payChannelInit.code
-    pay_channel_dict_count = $payChannelInitSummary.ChannelCount
-    pay_channel_method_count = $payChannelInitSummary.MethodCount
-    pay_channel_status_count = $payChannelInitSummary.StatusCount
-    pay_channel_list_code = $payChannelList.code
-    pay_channel_list_count = $payChannelListSummary.ListCount
-    pay_channel_total = $payChannelListSummary.Total
-    pay_runtime_channel_status = $payRuntimeChannelReady.Status
-    pay_runtime_channel_id = $payRuntimeChannelReady.ChannelID
-    pay_runtime_channel_supported_methods_count = $payRuntimeChannelReady.SupportedMethodsCount
+    payment_channel_init_code = $paymentChannelInit.code
+    payment_channel_status_count = $paymentChannelInitSummary.StatusCount
+    payment_channel_list_code = $paymentChannelList.code
+    payment_channel_list_count = $paymentChannelListSummary.ListCount
+    payment_channel_total = $paymentChannelListSummary.Total
     ai_model_init_code = $aiModelInit.code
     ai_model_driver_dict_count = $aiModelInitSummary.DriverCount
     ai_model_status_dict_count = $aiModelInitSummary.StatusCount
@@ -3225,77 +2459,19 @@ func main() {
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
     ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
     ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
-    pay_runtime_wallet_summary_code = $currentUserWalletSummary.code
-    pay_runtime_wallet_exists = $currentUserWalletSummaryResult.WalletExists
-    pay_runtime_wallet_balance = $currentUserWalletSummaryResult.Balance
-    pay_runtime_wallet_frozen = $currentUserWalletSummaryResult.Frozen
-    pay_runtime_wallet_bills_code = $currentUserWalletBills.code
-    pay_runtime_wallet_bills_count = $currentUserWalletBillsSummary.ListCount
-    pay_runtime_wallet_bills_total = $currentUserWalletBillsSummary.Total
-    pay_runtime_recharge_orders_code = $currentUserRechargeOrders.code
-    pay_runtime_recharge_orders_count = $currentUserRechargeOrdersSummary.ListCount
-    pay_runtime_recharge_orders_total = $currentUserRechargeOrdersSummary.Total
-    pay_runtime_probe_status = $paymentRuntimeProbe.Status
-    pay_runtime_probe_order_code = $paymentRuntimeProbe.OrderCode
-    pay_runtime_probe_attempt_code = $paymentRuntimeProbe.AttemptCode
-    pay_runtime_probe_result_code = $paymentRuntimeProbe.ResultCode
-    pay_runtime_probe_cancel_code = $paymentRuntimeProbe.CancelCode
-    pay_runtime_probe_cleanup_status = $paymentRuntimeProbe.CleanupStatus
-    pay_runtime_probe_order_no = $paymentRuntimeProbe.OrderNo
-    pay_runtime_probe_transaction_no = $paymentRuntimeProbe.TransactionNo
-    pay_runtime_probe_pay_data_mode = $paymentRuntimeProbe.PayDataMode
-    pay_runtime_probe_pay_data_has_content = $paymentRuntimeProbe.PayDataHasContent
-    pay_transaction_init_code = $payTransactionInit.code
-    pay_transaction_channel_dict_count = $payTransactionInitSummary.ChannelCount
-    pay_transaction_status_dict_count = $payTransactionInitSummary.StatusCount
-    pay_transaction_list_code = $payTransactionList.code
-    pay_transaction_list_count = $payTransactionListSummary.ListCount
-    pay_transaction_total = $payTransactionListSummary.Total
-    pay_transaction_detail_code = $payTransactionDetailCode
-    pay_transaction_detail_id = $payTransactionDetailID
-    pay_notify_log_init_code = $payNotifyLogInit.code
-    pay_notify_log_channel_dict_count = $payNotifyLogInitSummary.ChannelCount
-    pay_notify_log_type_dict_count = $payNotifyLogInitSummary.NotifyTypeCount
-    pay_notify_log_status_dict_count = $payNotifyLogInitSummary.StatusCount
-    pay_notify_log_list_code = $payNotifyLogList.code
-    pay_notify_log_list_count = $payNotifyLogListSummary.ListCount
-    pay_notify_log_total = $payNotifyLogListSummary.Total
-    pay_notify_log_detail_code = $payNotifyLogDetailCode
-    pay_notify_log_detail_id = $payNotifyLogDetailID
-    pay_order_init_code = $payOrderInit.code
-    pay_order_type_dict_count = $payOrderInitSummary.OrderTypeCount
-    pay_order_pay_status_dict_count = $payOrderInitSummary.PayStatusCount
-    pay_order_biz_status_dict_count = $payOrderInitSummary.BizStatusCount
-    pay_order_recharge_preset_dict_count = $payOrderInitSummary.RechargePresetCount
-    pay_order_status_count_code = $payOrderStatusCount.code
-    pay_order_status_count_items = $payOrderStatusCountItems
-    pay_order_list_code = $payOrderList.code
-    pay_order_list_count = $payOrderListSummary.ListCount
-    pay_order_total = $payOrderListSummary.Total
-    pay_order_detail_code = $payOrderDetailCode
-    pay_order_detail_id = $payOrderDetailID
-    pay_order_remark_probe = $payOrderRemarkProbe.Status
-    pay_order_remark_probe_order_id = $payOrderRemarkProbe.OrderID
-    pay_order_remark_probe_restored_original_blank = $payOrderRemarkProbe.RestoredOriginalBlank
-    pay_order_close_probe = $payOrderCloseProbe.Status
-    pay_order_close_probe_order_id = $payOrderCloseProbe.OrderID
-    wallet_init_code = $walletInit.code
-    wallet_type_dict_count = $walletInitSummary.WalletTypeCount
-    wallet_source_dict_count = $walletInitSummary.WalletSourceCount
-    wallet_list_code = $walletList.code
-    wallet_list_count = $walletListSummary.ListCount
-    wallet_total = $walletListSummary.Total
-    wallet_transaction_list_code = $walletTransactionList.code
-    wallet_transaction_list_count = $walletTransactionListSummary.ListCount
-    wallet_transaction_total = $walletTransactionListSummary.Total
-    wallet_adjustment_status = $walletAdjustmentProbe.Status
-    wallet_adjustment_user_id = $walletAdjustmentProbe.UserID
-    wallet_adjustment_plus_code = $walletAdjustmentProbe.PlusCode
-    wallet_adjustment_duplicate_same_transaction = $walletAdjustmentProbe.DuplicateSameTransaction
-    wallet_adjustment_restored = $walletAdjustmentProbe.Restored
-    wallet_adjustment_plus_transaction_id = $walletAdjustmentProbe.PlusTransactionID
-    wallet_adjustment_minus_transaction_id = $walletAdjustmentProbe.MinusTransactionID
-    wallet_adjustment_operation_log_id = if ($null -eq $walletAdjustmentOperationLog) { 0 } else { [int64]$walletAdjustmentOperationLog.id }
+    payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
+    payment_route_retired_wallet_present = $usersInitPaymentRouteSummary.RetiredWalletPresent
+    payment_route_channel_present = $usersInitPaymentRouteSummary.ChannelPresent
+    payment_route_order_present = $usersInitPaymentRouteSummary.OrderPresent
+    payment_route_event_present = $usersInitPaymentRouteSummary.EventPresent
+    payment_order_init_code = $paymentOrderInit.code
+    payment_order_dict_keys = $paymentOrderInitSummary.DictKeys
+    payment_order_list_code = $paymentOrderList.code
+    payment_order_list_count = $paymentOrderListSummary.ListCount
+    payment_order_total = $paymentOrderListSummary.Total
+    payment_event_list_code = $paymentEventList.code
+    payment_event_list_count = $paymentEventListSummary.ListCount
+    payment_event_total = $paymentEventListSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID
@@ -3342,11 +2518,8 @@ func main() {
     cron_task_list_count = $cronTaskListSummary.ListCount
     cron_task_total = $cronTaskListSummary.Total
     cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
-    cron_task_pay_close_expired_registered = $cronTaskListSummary.PayCloseExpiredRegistered
-    cron_task_pay_sync_pending_registered = $cronTaskListSummary.PaySyncPendingRegistered
-    cron_task_pay_reconcile_daily_registered = $cronTaskListSummary.PayReconcileDailyRegistered
-    cron_task_pay_reconcile_execute_registered = $cronTaskListSummary.PayReconcileExecuteRegistered
-    cron_task_pay_fulfillment_retry_registered = $cronTaskListSummary.PayFulfillmentRetryRegistered
+    cron_task_payment_close_expired_registered = $cronTaskListSummary.PaymentCloseExpiredRegistered
+    cron_task_payment_sync_pending_registered = $cronTaskListSummary.PaymentSyncPendingRegistered
     cron_task_ai_run_timeout_registered = $cronTaskListSummary.AIRunTimeoutRegistered
     cron_task_ai_run_timeout_type = $cronTaskListSummary.AIRunTimeoutTaskType
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent
