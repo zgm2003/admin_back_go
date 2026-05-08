@@ -227,6 +227,46 @@ func PayBizStatusOptions() []Option[int] {
 	return options
 }
 
+func PaymentProviderOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.PaymentProviders))
+	for _, value := range enum.PaymentProviders {
+		options = append(options, Option[string]{Label: enum.PaymentProviderLabels[value], Value: value})
+	}
+	return options
+}
+
+func PaymentMethodOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.PaymentMethods))
+	for _, value := range enum.PaymentMethods {
+		options = append(options, Option[string]{Label: enum.PaymentMethodLabels[value], Value: value})
+	}
+	return options
+}
+
+func PaymentOrderStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PaymentOrderStatuses))
+	for _, value := range enum.PaymentOrderStatuses {
+		options = append(options, Option[int]{Label: enum.PaymentOrderStatusLabels[value], Value: value})
+	}
+	return options
+}
+
+func PaymentEventTypeOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.PaymentEventTypes))
+	for _, value := range enum.PaymentEventTypes {
+		options = append(options, Option[string]{Label: enum.PaymentEventTypeLabels[value], Value: value})
+	}
+	return options
+}
+
+func PaymentEventProcessStatusOptions() []Option[int] {
+	options := make([]Option[int], 0, len(enum.PaymentEventProcessStatuses))
+	for _, value := range enum.PaymentEventProcessStatuses {
+		options = append(options, Option[int]{Label: enum.PaymentEventProcessStatusLabels[value], Value: value})
+	}
+	return options
+}
+
 func RechargePresetOptions() []Option[int] {
 	options := make([]Option[int], 0, len(enum.RechargePresets))
 	for _, item := range enum.RechargePresets {
