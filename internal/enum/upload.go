@@ -61,9 +61,7 @@ var UploadFolders = []string{
 	"releases",
 	"tauri_updater",
 	"exports",
-	"goods_tts",
 	"reconcile_reports",
-	"cine_keyframes",
 }
 
 func IsUploadDriver(value string) bool {

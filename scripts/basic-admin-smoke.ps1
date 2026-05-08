@@ -503,6 +503,18 @@ func main() {
   if (-not (Test-RouteViewKey $init.data.router 'system/clientVersion')) {
     throw 'users init missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
   }
+  if (Test-RoutePath $init.data.router '/ai/goods') {
+    throw 'users init still returns retired AI goods route /ai/goods; run database migration 20260508_remove_ai_goods_cine_modules.sql and clear operator-side caches'
+  }
+  if (Test-RoutePath $init.data.router '/ai/cine') {
+    throw 'users init still returns retired AI cine route /ai/cine; run database migration 20260508_remove_ai_goods_cine_modules.sql and clear operator-side caches'
+  }
+  if (-not (Test-RoutePath $init.data.router '/ai/models')) {
+    throw 'users init missing retained AI core route /ai/models'
+  }
+  if (-not (Test-RoutePath $init.data.router '/ai/chat')) {
+    throw 'users init missing retained AI core route /ai/chat'
+  }
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $dirBody = @{
     platform = $Platform
@@ -628,6 +640,10 @@ func main() {
     init_code = $init.code
     router_count = @($init.data.router).Count
     button_code_count = @($init.data.buttonCodes).Count
+    ai_goods_route_present = Test-RoutePath $init.data.router '/ai/goods'
+    ai_cine_route_present = Test-RoutePath $init.data.router '/ai/cine'
+    ai_models_route_present = Test-RoutePath $init.data.router '/ai/models'
+    ai_chat_route_present = Test-RoutePath $init.data.router '/ai/chat'
     users_page_init_code = $usersPageInit.code
     users_role_dict_count = @($usersPageInit.data.dict.roleArr).Count
     users_address_tree_count = @($usersPageInit.data.dict.auth_address_tree).Count

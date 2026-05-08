@@ -1383,6 +1383,16 @@ uploadtoken 只签发临时凭证，不定义业务。
 后续 AI agent avatar、chat attachment、rich text image 等都必须作为对应业务模块的一部分迁移，不能为了“上传页面”单独偷跑。
 ```
 
+AI prune boundary（2026-05-08）：
+
+```text
+AI 电商口播和 AI 短剧工厂已从当前 Go 迁移范围删除。
+`database/migrations/20260508_remove_ai_goods_cine_modules.sql` 删除 `goods`、`cine_projects`、`cine_assets` 和 `/ai/goods`、`/ai/cine` 菜单权限。
+`goods_tts` 与 `cine_keyframes` 不再是 active upload folder；`ai_chat_images` 保留给 AI chat。
+Go AI runtime 后续不得依赖 goods/cine schema、folder 或 PHP adapter。
+`cron_task.name=ai_run_timeout` 仍是 active legacy AI cron fact；AI core worker 迁移前不能把它说成 Go-owned。
+```
+
 `internal/platform/storage/cos` 是唯一 COS STS 供应商边界：
 
 ```text
