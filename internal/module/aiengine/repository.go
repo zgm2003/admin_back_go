@@ -106,7 +106,7 @@ func (r *GormRepository) Update(ctx context.Context, id uint64, fields map[strin
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeDB(ctx).Where("id = ?", id).Updates(fields).Error
+	return r.activeDB(ctx).Model(&Connection{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func (r *GormRepository) ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error) {
@@ -161,14 +161,14 @@ func (r *GormRepository) ChangeStatus(ctx context.Context, id uint64, status int
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeDB(ctx).Where("id = ?", id).Update("status", status).Error
+	return r.activeDB(ctx).Model(&Connection{}).Where("id = ?", id).Update("status", status).Error
 }
 
 func (r *GormRepository) Delete(ctx context.Context, id uint64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeDB(ctx).Where("id = ?", id).Update("is_del", enum.CommonYes).Error
+	return r.activeDB(ctx).Model(&Connection{}).Where("id = ?", id).Update("is_del", enum.CommonYes).Error
 }
 
 func (r *GormRepository) activeDB(ctx context.Context) *gorm.DB {

@@ -474,7 +474,7 @@ func buildProviderModels(modelIDs []string, defaultModelID string, displayNames 
 		if modelID == defaultModelID {
 			isDefault = enum.CommonYes
 		}
-		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), IsDefault: isDefault, Source: providerModelSourceRemote, RawJSON: strings.TrimSpace(rawByID[modelID]), Status: status, IsDel: enum.CommonNo})
+		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), IsDefault: isDefault, Source: providerModelSourceRemote, RawJSON: optionalJSONString(rawByID[modelID]), Status: status, IsDel: enum.CommonNo})
 	}
 	return models, defaultModelID, nil
 }
@@ -543,11 +543,19 @@ func rawMap(value map[string]any) json.RawMessage {
 	return body
 }
 
-func rawJSON(value string) json.RawMessage {
-	if strings.TrimSpace(value) == "" {
+func optionalJSONString(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func rawJSON(value *string) json.RawMessage {
+	if value == nil || strings.TrimSpace(*value) == "" {
 		return json.RawMessage(`{}`)
 	}
-	return json.RawMessage(value)
+	return json.RawMessage(*value)
 }
 
 func engineTypeOptions() []dict.Option[string] {

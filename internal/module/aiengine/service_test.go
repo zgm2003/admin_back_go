@@ -3,6 +3,7 @@ package aiengine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ type fakeRepository struct {
 	statusID               uint64
 	status                 int
 	deletedID              uint64
+	updateErr              error
 	modelsByProvider       map[uint64][]ProviderModel
 	replacedProviderID     uint64
 	replacedModels         []ProviderModel
@@ -55,7 +57,7 @@ func (f *fakeRepository) Create(ctx context.Context, row Connection) (uint64, er
 
 func (f *fakeRepository) Update(ctx context.Context, id uint64, fields map[string]any) error {
 	f.updates = append(f.updates, fields)
-	return nil
+	return f.updateErr
 }
 
 func (f *fakeRepository) ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error) {
@@ -183,6 +185,11 @@ func TestCreatePersistsSelectedModelsWithDefault(t *testing.T) {
 	if repo.replacedModels[0].DisplayName != "默认轻量模型" {
 		t.Fatalf("display name not persisted: %#v", repo.replacedModels)
 	}
+	for _, model := range repo.replacedModels {
+		if model.RawJSON != nil {
+			t.Fatalf("empty model raw json must be persisted as NULL, got %#v", model.RawJSON)
+		}
+	}
 }
 
 func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
@@ -198,6 +205,9 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	}
 	if repo.created.Name != "OpenAI" || repo.created.EngineType != "openai" || repo.created.BaseURL != "https://api.openai.test/v1" {
 		t.Fatalf("fields were not normalized: %#v", repo.created)
+	}
+	if repo.created.ConfigJSON != nil {
+		t.Fatalf("empty config json must be persisted as NULL, got %#v", repo.created.ConfigJSON)
 	}
 	if repo.created.APIKeyEnc == "" || repo.created.APIKeyEnc == "plain-secret-key" || repo.created.APIKeyHint != "***-key" {
 		t.Fatalf("api key was not encrypted safely: %#v", repo.created)
@@ -283,5 +293,23 @@ func TestTestConnectionRejectsDisabledConnection(t *testing.T) {
 	_, appErr := service.TestConnection(context.Background(), 5)
 	if appErr == nil || appErr.Message != "AI供应商已禁用" {
 		t.Fatalf("expected disabled error, got %#v", appErr)
+	}
+}
+
+func TestTestConnectionReportsHealthUpdateFailure(t *testing.T) {
+	box := secretbox.New("vault-key")
+	cipher, err := box.Encrypt("plain-secret-key")
+	if err != nil {
+		t.Fatalf("encrypt fixture: %v", err)
+	}
+	repo := &fakeRepository{
+		rowByID:   map[uint64]Connection{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: cipher, Status: 1}},
+		updateErr: errors.New("table not set"),
+	}
+	service := NewServiceWithDriver(repo, box, nil, &fakeModelDriver{})
+
+	_, appErr := service.TestConnection(context.Background(), 5)
+	if appErr == nil || appErr.Message != "更新AI供应商健康状态失败" || !errors.Is(appErr.Cause, repo.updateErr) {
+		t.Fatalf("expected wrapped health update error, got %#v", appErr)
 	}
 }

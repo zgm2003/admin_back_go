@@ -9,7 +9,7 @@ type Connection struct {
 	BaseURL             string     `gorm:"column:base_url"`
 	APIKeyEnc           string     `gorm:"column:api_key_enc"`
 	APIKeyHint          string     `gorm:"column:api_key_hint"`
-	ConfigJSON          string     `gorm:"column:config_json"`
+	ConfigJSON          *string    `gorm:"column:config_json"`
 	HealthStatus        string     `gorm:"column:health_status"`
 	LastCheckedAt       *time.Time `gorm:"column:last_checked_at"`
 	LastCheckError      string     `gorm:"column:last_check_error"`
@@ -33,7 +33,7 @@ type ProviderModel struct {
 	DisplayName string    `gorm:"column:display_name"`
 	IsDefault   int       `gorm:"column:is_default"`
 	Source      string    `gorm:"column:source"`
-	RawJSON     string    `gorm:"column:raw_json"`
+	RawJSON     *string   `gorm:"column:raw_json"`
 	Status      int       `gorm:"column:status"`
 	IsDel       int       `gorm:"column:is_del"`
 	CreatedBy   uint64    `gorm:"column:created_by"`
