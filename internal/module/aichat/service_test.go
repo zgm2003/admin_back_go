@@ -27,7 +27,7 @@ type fakeRepository struct {
 	run          *Run
 	runSequence  []*Run
 	runCalls     int
-	app          *AppEngineConfig
+	agent        *AgentEngineConfig
 	events       []RunEventRecord
 	userMessage  *Message
 	assistant    *Message
@@ -43,14 +43,14 @@ type fakeRepository struct {
 func (f *fakeRepository) ActiveAgentExists(ctx context.Context, id int64) (bool, error) {
 	return f.activeAgents[id], nil
 }
-func (f *fakeRepository) DefaultActiveApp(ctx context.Context) (*AppEngineConfig, error) {
-	return f.app, nil
+func (f *fakeRepository) DefaultActiveAgent(ctx context.Context) (*AgentEngineConfig, error) {
+	return f.agent, nil
 }
-func (f *fakeRepository) AppForRuntime(ctx context.Context, appID uint64) (*AppEngineConfig, error) {
-	if f.app == nil {
+func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error) {
+	if f.agent == nil {
 		return nil, nil
 	}
-	return f.app, nil
+	return f.agent, nil
 }
 func (f *fakeRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {
 	return f.conversation, nil
@@ -60,7 +60,7 @@ func (f *fakeRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 	if f.createdRunID == 0 {
 		f.createdRunID = 11
 	}
-	return &RunStartRecord{RunID: f.createdRunID, ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: input.AgentID, AppID: uint64(input.AgentID), IsNew: input.ConversationID == 0}, nil
+	return &RunStartRecord{RunID: f.createdRunID, ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: input.AgentID, IsNew: input.ConversationID == 0}, nil
 }
 func (f *fakeRepository) RunForUser(ctx context.Context, runID int64, userID int64) (*Run, error) {
 	f.runCalls++
@@ -85,8 +85,8 @@ func (f *fakeRepository) RunForExecute(ctx context.Context, runID int64) (*RunEx
 		content = f.userMessage.Content
 	}
 	record := &RunExecutionRecord{Run: *f.run, UserMessageContent: content}
-	if f.app != nil {
-		record.App = *f.app
+	if f.agent != nil {
+		record.Agent = *f.agent
 	}
 	return record, nil
 }
@@ -156,30 +156,30 @@ func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (
 	return f.engine, nil
 }
 
-func validAppConfig(t *testing.T) (*AppEngineConfig, secretbox.Box) {
+func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	t.Helper()
 	box := secretbox.New("vault-key")
-	cipher, err := box.Encrypt("app-key")
+	cipher, err := box.Encrypt("agent-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
-	return &AppEngineConfig{
-		AppID:              5,
-		AppName:            "客服",
-		ProviderID:         2,
-		EngineType:         string(platformai.EngineTypeDify),
-		EngineBaseURL:      "https://dify.test/v1",
-		EngineAppAPIKeyEnc: cipher,
-		RuntimeConfigJSON:  `{"tenant":"admin"}`,
-		ModelSnapshotJSON:  `{"provider":"dify"}`,
-		AppStatus:          enum.CommonYes,
-		EngineStatus:       enum.CommonYes,
+	return &AgentEngineConfig{
+		AgentID:                5,
+		AgentName:              "客服",
+		ProviderID:             2,
+		EngineType:             string(platformai.EngineTypeDify),
+		EngineBaseURL:          "https://dify.test/v1",
+		ExternalAgentAPIKeyEnc: cipher,
+		RuntimeConfigJSON:      `{"tenant":"admin"}`,
+		ModelSnapshotJSON:      `{"provider":"dify"}`,
+		AgentStatus:            enum.CommonYes,
+		EngineStatus:           enum.CommonYes,
 	}, box
 }
 
 func TestCreateRunCreatesConversationMessageRunEnqueuesAndPublishesStart(t *testing.T) {
-	app, _ := validAppConfig(t)
-	repo := &fakeRepository{activeAgents: map[int64]bool{5: true}, app: app}
+	agent, _ := validAgentConfig(t)
+	repo := &fakeRepository{activeAgents: map[int64]bool{5: true}, agent: agent}
 	enq := &fakeEnqueuer{}
 	pub := &fakePublisher{}
 	res, appErr := NewService(Dependencies{Repository: repo, Enqueuer: enq, Publisher: pub}).CreateRun(context.Background(), 7, CreateRunInput{AgentID: 5, Content: " hello "})
@@ -198,11 +198,11 @@ func TestCreateRunCreatesConversationMessageRunEnqueuesAndPublishesStart(t *test
 }
 
 func TestCreateRunUsesExistingConversationAgentWhenAgentIDIsMissing(t *testing.T) {
-	app, _ := validAppConfig(t)
+	agent, _ := validAgentConfig(t)
 	repo := &fakeRepository{
 		activeAgents: map[int64]bool{5: true},
-		app:          app,
-		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, AppID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo},
+		agent:          agent,
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo},
 	}
 	res, appErr := NewService(Dependencies{Repository: repo}).CreateRun(context.Background(), 7, CreateRunInput{ConversationID: 3, Content: " follow up "})
 	if appErr != nil {
@@ -300,9 +300,9 @@ func TestEventsLongPollWaitsForNewEvent(t *testing.T) {
 }
 
 func TestCancelOnlyCancelsRunningOwnerRunAndPublishes(t *testing.T) {
-	app, _ := validAppConfig(t)
+	agent, _ := validAgentConfig(t)
 	engine := platformai.NewFakeEngine("ok")
-	repo := &fakeRepository{run: &Run{ID: 8, UserID: 7, AppID: 5, EngineTaskID: "task-1", RunStatus: enum.AIRunStatusRunning}, app: app}
+	repo := &fakeRepository{run: &Run{ID: 8, UserID: 7, AgentID: 5, EngineTaskID: "task-1", RunStatus: enum.AIRunStatusRunning}, agent: agent}
 	pub := &fakePublisher{}
 	res, appErr := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: secretbox.New("vault-key")}).Cancel(context.Background(), 7, 8)
 	if appErr != nil {
@@ -314,8 +314,8 @@ func TestCancelOnlyCancelsRunningOwnerRunAndPublishes(t *testing.T) {
 }
 
 func TestExecuteRunMarksSuccessAndFailure(t *testing.T) {
-	app, box := validAppConfig(t)
-	repo := &fakeRepository{app: app, run: &Run{ID: 8, UserID: 7, AppID: 5, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning}, userMessage: &Message{ID: 9, Content: "hi"}}
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{agent: agent, run: &Run{ID: 8, UserID: 7, AgentID: 5, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning}, userMessage: &Message{ID: 9, Content: "hi"}}
 	pub := &fakePublisher{}
 	_, err := NewService(Dependencies{Repository: repo, EngineFactory: &fakeEngineFactory{engine: platformai.NewFakeEngine("ok")}, Secretbox: box, Publisher: pub}).ExecuteRun(context.Background(), RunExecuteInput{RunID: 8})
 	if err != nil {
@@ -325,7 +325,7 @@ func TestExecuteRunMarksSuccessAndFailure(t *testing.T) {
 		t.Fatalf("unexpected success: repo=%#v pubs=%#v", repo, pub.pubs)
 	}
 
-	repo = &fakeRepository{app: app, run: &Run{ID: 9, UserID: 7, AppID: 5, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning}}
+	repo = &fakeRepository{agent: agent, run: &Run{ID: 9, UserID: 7, AgentID: 5, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning}}
 	_, err = NewService(Dependencies{Repository: repo, EngineFactory: &fakeEngineFactory{engine: &platformai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteRun(context.Background(), RunExecuteInput{RunID: 9})
 	if err == nil || repo.failedID != 9 || repo.failedMsg != "engine down" {
 		t.Fatalf("expected failure mark, err=%v repo=%#v", err, repo)
@@ -333,10 +333,10 @@ func TestExecuteRunMarksSuccessAndFailure(t *testing.T) {
 }
 
 func TestExecuteRunUsesEngineAndPersistsEvents(t *testing.T) {
-	app, box := validAppConfig(t)
+	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{
-		app:         app,
-		run:         &Run{ID: 8, UserID: 7, AppID: 5, ProviderID: 2, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning},
+		agent:        agent,
+		run:         &Run{ID: 8, UserID: 7, AgentID: 5, ProviderID: 2, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning},
 		userMessage: &Message{ID: 9, Content: "hi"},
 	}
 	pub := &fakePublisher{}
@@ -346,7 +346,7 @@ func TestExecuteRunUsesEngineAndPersistsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteRun returned error: %v", err)
 	}
-	if factory.input.APIKey != "app-key" || factory.input.EngineType != platformai.EngineTypeDify {
+	if factory.input.APIKey != "agent-key" || factory.input.EngineType != platformai.EngineTypeDify {
 		t.Fatalf("unexpected engine factory input: %#v", factory.input)
 	}
 	if repo.successID != 8 || repo.assistant == nil || repo.assistant.Content != "engine ok" {
@@ -361,10 +361,10 @@ func TestExecuteRunUsesEngineAndPersistsEvents(t *testing.T) {
 }
 
 func TestExecuteRunWithoutEngineConfigFailsExplicitly(t *testing.T) {
-	repo := &fakeRepository{run: &Run{ID: 8, UserID: 7, AppID: 5, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning}}
+	repo := &fakeRepository{run: &Run{ID: 8, UserID: 7, AgentID: 5, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning}}
 
 	_, err := NewService(Dependencies{Repository: repo}).ExecuteRun(context.Background(), RunExecuteInput{RunID: 8})
-	if err == nil || repo.failedID != 8 || !strings.Contains(repo.failedMsg, "AI应用或供应商未配置") {
+	if err == nil || repo.failedID != 8 || !strings.Contains(repo.failedMsg, "AI智能体或供应商未配置") {
 		t.Fatalf("expected explicit engine config failure, err=%v repo=%#v", err, repo)
 	}
 }

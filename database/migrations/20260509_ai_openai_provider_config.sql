@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS `ai_provider_models` (
 UPDATE `permissions`
 SET `sort` = CASE `i18n_key`
   WHEN 'menu.ai_providers' THEN 1
-  WHEN 'menu.ai_apps' THEN 2
+  WHEN 'menu.ai_agents' THEN 2
   WHEN 'menu.ai_knowledge' THEN 3
   WHEN 'menu.ai_tools' THEN 4
   WHEN 'menu.ai_runs' THEN 5
@@ -39,7 +39,7 @@ WHERE `platform` = 'admin'
   AND `is_del` = 2
   AND `i18n_key` IN (
     'menu.ai_providers',
-    'menu.ai_apps',
+    'menu.ai_agents',
     'menu.ai_knowledge',
     'menu.ai_tools',
     'menu.ai_runs',

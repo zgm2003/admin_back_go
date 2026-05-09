@@ -4,9 +4,8 @@ import "time"
 
 type Conversation struct {
 	ID                   int64      `gorm:"column:id;primaryKey"`
-	AppID                uint64     `gorm:"column:app_id"`
+	AgentID              uint64     `gorm:"column:agent_id"`
 	UserID               int64      `gorm:"column:user_id"`
-	AgentID              int64      `gorm:"column:agent_id"`
 	Title                string     `gorm:"column:title"`
 	EngineConversationID string     `gorm:"column:engine_conversation_id"`
 	LastMessageAt        *time.Time `gorm:"column:last_message_at"`
@@ -41,10 +40,9 @@ func (Message) TableName() string { return "ai_messages" }
 type Run struct {
 	ID                 int64      `gorm:"column:id;primaryKey"`
 	RunUID             string     `gorm:"column:run_uid"`
-	AppID              uint64     `gorm:"column:app_id"`
+	AgentID            uint64     `gorm:"column:agent_id"`
 	ConversationID     int64      `gorm:"column:conversation_id"`
 	UserID             int64      `gorm:"column:user_id"`
-	AgentID            int64      `gorm:"column:agent_id"`
 	UserMessageID      *int64     `gorm:"column:user_message_id"`
 	AssistantMessageID *int64     `gorm:"column:assistant_message_id"`
 	ProviderID         uint64     `gorm:"column:provider_id"`
@@ -74,20 +72,20 @@ type Run struct {
 
 func (Run) TableName() string { return "ai_runs" }
 
-type App struct {
-	ID                 uint64 `gorm:"column:id;primaryKey"`
-	ProviderID         uint64 `gorm:"column:provider_id"`
-	Name               string `gorm:"column:name"`
-	AppType            string `gorm:"column:app_type"`
-	EngineAppID        string `gorm:"column:engine_app_id"`
-	EngineAppAPIKeyEnc string `gorm:"column:engine_app_api_key_enc"`
-	RuntimeConfigJSON  string `gorm:"column:runtime_config_json"`
-	ModelSnapshotJSON  string `gorm:"column:model_snapshot_json"`
-	Status             int    `gorm:"column:status"`
-	IsDel              int    `gorm:"column:is_del"`
+type Agent struct {
+	ID                     uint64 `gorm:"column:id;primaryKey"`
+	ProviderID             uint64 `gorm:"column:provider_id"`
+	Name                   string `gorm:"column:name"`
+	AgentType              string `gorm:"column:agent_type"`
+	ExternalAgentID        string `gorm:"column:external_agent_id"`
+	ExternalAgentAPIKeyEnc string `gorm:"column:external_agent_api_key_enc"`
+	RuntimeConfigJSON      string `gorm:"column:runtime_config_json"`
+	ModelSnapshotJSON      string `gorm:"column:model_snapshot_json"`
+	Status                 int    `gorm:"column:status"`
+	IsDel                  int    `gorm:"column:is_del"`
 }
 
-func (App) TableName() string { return "ai_apps" }
+func (Agent) TableName() string { return "ai_agents" }
 
 type Provider struct {
 	ID         uint64 `gorm:"column:id;primaryKey"`

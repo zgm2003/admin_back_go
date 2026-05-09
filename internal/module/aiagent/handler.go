@@ -1,4 +1,4 @@
-package aiapp
+package aiagent
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func (h *Handler) Init(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI应用列表参数错误"))
+		response.Error(c, apperror.BadRequest("AI智能体列表参数错误"))
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
@@ -32,7 +32,7 @@ func (h *Handler) List(c *gin.Context) {
 		PageSize:    req.PageSize,
 		Name:        req.Name,
 		Code:        req.Code,
-		AppType:     req.AppType,
+		AgentType:   req.AgentType,
 		ProviderID:  req.ProviderID,
 		Status:      req.Status,
 	})
@@ -53,8 +53,17 @@ func (h *Handler) Options(c *gin.Context) {
 	writeResult(c, result, appErr)
 }
 
+func (h *Handler) ProviderModels(c *gin.Context) {
+	providerID, ok := routeID(c, "无效的AI供应商ID")
+	if !ok {
+		return
+	}
+	result, appErr := h.requireService().ProviderModels(c.Request.Context(), providerID)
+	writeResult(c, result, appErr)
+}
+
 func (h *Handler) Detail(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI应用ID")
+	id, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
@@ -65,7 +74,7 @@ func (h *Handler) Detail(c *gin.Context) {
 func (h *Handler) Create(c *gin.Context) {
 	var req mutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI应用参数错误"))
+		response.Error(c, apperror.BadRequest("AI智能体参数错误"))
 		return
 	}
 	id, appErr := h.requireService().Create(c.Request.Context(), createInput(req))
@@ -77,13 +86,13 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI应用ID")
+	id, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
 	var req mutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI应用参数错误"))
+		response.Error(c, apperror.BadRequest("AI智能体参数错误"))
 		return
 	}
 	if appErr := h.requireService().Update(c.Request.Context(), id, updateInput(req)); appErr != nil {
@@ -94,13 +103,13 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) ChangeStatus(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI应用ID")
+	id, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
 	var req statusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI应用状态参数错误"))
+		response.Error(c, apperror.BadRequest("AI智能体状态参数错误"))
 		return
 	}
 	if appErr := h.requireService().ChangeStatus(c.Request.Context(), id, req.Status); appErr != nil {
@@ -111,7 +120,7 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 }
 
 func (h *Handler) Test(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI应用ID")
+	id, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
@@ -120,7 +129,7 @@ func (h *Handler) Test(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI应用ID")
+	id, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
@@ -132,25 +141,25 @@ func (h *Handler) Delete(c *gin.Context) {
 }
 
 func (h *Handler) Bindings(c *gin.Context) {
-	appID, ok := routeID(c, "无效的AI应用ID")
+	agentID, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
-	result, appErr := h.requireService().Bindings(c.Request.Context(), appID)
+	result, appErr := h.requireService().Bindings(c.Request.Context(), agentID)
 	writeResult(c, result, appErr)
 }
 
 func (h *Handler) CreateBinding(c *gin.Context) {
-	appID, ok := routeID(c, "无效的AI应用ID")
+	agentID, ok := routeID(c, "无效的AI智能体ID")
 	if !ok {
 		return
 	}
 	var req bindingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI应用绑定参数错误"))
+		response.Error(c, apperror.BadRequest("AI智能体绑定参数错误"))
 		return
 	}
-	id, appErr := h.requireService().CreateBinding(c.Request.Context(), appID, bindingInput(req))
+	id, appErr := h.requireService().CreateBinding(c.Request.Context(), agentID, bindingInput(req))
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -159,7 +168,7 @@ func (h *Handler) CreateBinding(c *gin.Context) {
 }
 
 func (h *Handler) DeleteBinding(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI应用绑定ID")
+	id, ok := routeID(c, "无效的AI智能体绑定ID")
 	if !ok {
 		return
 	}
@@ -191,9 +200,13 @@ func createInput(req mutationRequest) CreateInput {
 		ProviderID:          req.ProviderID,
 		Name:                req.Name,
 		Code:                req.Code,
-		AppType:             req.AppType,
-		EngineAppID:         req.EngineAppID,
-		EngineAppAPIKey:     req.EngineAppAPIKey,
+		AgentType:           req.AgentType,
+		ModelID:             req.ModelID,
+		Scenes:              req.Scenes,
+		SystemPrompt:        req.SystemPrompt,
+		Avatar:              req.Avatar,
+		ExternalAgentID:     req.ExternalAgentID,
+		ExternalAgentAPIKey: req.ExternalAgentAPIKey,
 		DefaultResponseMode: req.DefaultResponseMode,
 		RuntimeConfig:       req.RuntimeConfig,
 		Status:              req.Status,
@@ -217,38 +230,41 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 type nilHTTPService struct{}
 
 func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI应用服务未配置")
+	return nil, apperror.Internal("AI智能体服务未配置")
+}
+func (nilHTTPService) ProviderModels(ctx context.Context, providerID uint64) (*ProviderModelsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI应用服务未配置")
+	return nil, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) Detail(ctx context.Context, id uint64) (*DetailResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI应用服务未配置")
+	return nil, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error) {
-	return 0, apperror.Internal("AI应用服务未配置")
+	return 0, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error {
-	return apperror.Internal("AI应用服务未配置")
+	return apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
-	return apperror.Internal("AI应用服务未配置")
+	return apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) Test(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
-	return nil, apperror.Internal("AI应用服务未配置")
+	return nil, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {
-	return apperror.Internal("AI应用服务未配置")
+	return apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Bindings(ctx context.Context, appID uint64) (*BindingListResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI应用服务未配置")
+func (nilHTTPService) Bindings(ctx context.Context, agentID uint64) (*BindingListResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) CreateBinding(ctx context.Context, appID uint64, input BindingInput) (uint64, *apperror.Error) {
-	return 0, apperror.Internal("AI应用服务未配置")
+func (nilHTTPService) CreateBinding(ctx context.Context, agentID uint64, input BindingInput) (uint64, *apperror.Error) {
+	return 0, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) DeleteBinding(ctx context.Context, id uint64) *apperror.Error {
-	return apperror.Internal("AI应用服务未配置")
+	return apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Options(ctx context.Context, query OptionQuery) (*AppOptionsResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI应用服务未配置")
+func (nilHTTPService) Options(ctx context.Context, query OptionQuery) (*AgentOptionsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI智能体服务未配置")
 }

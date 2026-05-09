@@ -35,10 +35,10 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	if query.Status != nil {
 		db = db.Where("c.status = ?", *query.Status)
 	}
-	if query.AppID != nil {
-		db = db.Where("c.app_id = ?", *query.AppID)
+	if query.AgentID != nil {
+		db = db.Where("c.agent_id = ?", *query.AgentID)
 	} else if query.AgentID != nil {
-		db = db.Where("c.app_id = ?", *query.AgentID)
+		db = db.Where("c.agent_id = ?", *query.AgentID)
 	}
 	if title := strings.TrimSpace(query.Title); title != "" {
 		db = db.Where("c.title LIKE ?", "%"+title+"%")
@@ -48,8 +48,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 		return nil, 0, err
 	}
 	var flats []listRowFlat
-	err := db.Select("c.id, c.user_id, c.app_id, c.title, c.last_message_at, c.status, c.is_del, c.created_at, c.updated_at, a.name as app_name").
-		Joins("LEFT JOIN ai_apps a ON a.id = c.app_id AND a.is_del = ?", enum.CommonNo).
+	err := db.Select("c.id, c.user_id, c.agent_id, c.title, c.last_message_at, c.status, c.is_del, c.created_at, c.updated_at, a.name as agent_name").
+		Joins("LEFT JOIN ai_agents a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
 		Order("c.last_message_at DESC").
 		Order("c.id DESC").
 		Limit(query.PageSize).
@@ -80,24 +80,24 @@ func (r *GormRepository) Get(ctx context.Context, id int64) (*Conversation, erro
 	return &row, err
 }
 
-func (r *GormRepository) AppName(ctx context.Context, id int64) (string, error) {
+func (r *GormRepository) AgentName(ctx context.Context, id int64) (string, error) {
 	if r == nil || r.db == nil {
 		return "", ErrRepositoryNotConfigured
 	}
 	var name string
-	err := r.db.WithContext(ctx).Table("ai_apps").
+	err := r.db.WithContext(ctx).Table("ai_agents").
 		Where("id = ?", id).
 		Where("is_del = ?", enum.CommonNo).
 		Pluck("name", &name).Error
 	return name, err
 }
 
-func (r *GormRepository) ActiveAppExists(ctx context.Context, id int64) (bool, error) {
+func (r *GormRepository) ActiveAgentExists(ctx context.Context, id int64) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
 	var count int64
-	err := r.db.WithContext(ctx).Table("ai_apps").
+	err := r.db.WithContext(ctx).Table("ai_agents").
 		Where("id = ?", id).
 		Where("is_del = ?", enum.CommonNo).
 		Where("status = ?", enum.CommonYes).
@@ -133,23 +133,23 @@ func (r *GormRepository) Delete(ctx context.Context, id int64) error {
 type listRowFlat struct {
 	ID            int64
 	UserID        int64
-	AppID         int64
+	AgentID       int64
 	Title         string
 	LastMessageAt *time.Time
 	Status        int
 	IsDel         int
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
-	AppName       string
+	AgentName     string
 }
 
 func (f listRowFlat) toListRow() ListRow {
 	return ListRow{
 		Conversation: Conversation{
-			ID: f.ID, UserID: f.UserID, AppID: f.AppID, Title: f.Title,
+			ID: f.ID, UserID: f.UserID, AgentID: f.AgentID, Title: f.Title,
 			LastMessageAt: f.LastMessageAt, Status: f.Status, IsDel: f.IsDel,
 			CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
 		},
-		AppName: f.AppName,
+		AgentName: f.AgentName,
 	}
 }

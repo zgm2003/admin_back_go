@@ -1,4 +1,4 @@
-package aiapp
+package aiagent
 
 import (
 	"context"
@@ -12,10 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrRepositoryNotConfigured = errors.New("aiapp repository not configured")
+var ErrRepositoryNotConfigured = errors.New("aiagent repository not configured")
 
-type AppWithEngine struct {
-	App
+type AgentWithProvider struct {
+	Agent
 	ProviderName    string `gorm:"column:provider_name"`
 	EngineType      string `gorm:"column:engine_type"`
 	EngineBaseURL   string `gorm:"column:engine_base_url"`
@@ -24,21 +24,22 @@ type AppWithEngine struct {
 }
 
 type Repository interface {
-	List(ctx context.Context, query ListQuery) ([]AppWithEngine, int64, error)
-	Get(ctx context.Context, id uint64) (*AppWithEngine, error)
-	GetRaw(ctx context.Context, id uint64) (*App, error)
+	List(ctx context.Context, query ListQuery) ([]AgentWithProvider, int64, error)
+	Get(ctx context.Context, id uint64) (*AgentWithProvider, error)
+	GetRaw(ctx context.Context, id uint64) (*Agent, error)
 	ListActiveProviders(ctx context.Context) ([]Provider, error)
 	GetActiveProvider(ctx context.Context, id uint64) (*Provider, error)
+	ListProviderModels(ctx context.Context, providerID uint64) ([]ProviderModel, error)
 	ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error)
-	Create(ctx context.Context, row App) (uint64, error)
+	Create(ctx context.Context, row Agent) (uint64, error)
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
 	Delete(ctx context.Context, id uint64) error
-	ListBindings(ctx context.Context, appID uint64) ([]Binding, error)
-	ExistsBinding(ctx context.Context, appID uint64, bindType string, bindKey string, excludeID uint64) (bool, error)
+	ListBindings(ctx context.Context, agentID uint64) ([]Binding, error)
+	ExistsBinding(ctx context.Context, agentID uint64, bindType string, bindKey string, excludeID uint64) (bool, error)
 	CreateBinding(ctx context.Context, row Binding) (uint64, error)
 	DeleteBinding(ctx context.Context, id uint64) error
-	ListVisibleApps(ctx context.Context, query OptionQuery) ([]App, error)
+	ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error)
 }
 
 type GormRepository struct{ db *gorm.DB }
@@ -50,19 +51,19 @@ func NewGormRepository(client *database.Client) *GormRepository {
 	return &GormRepository{db: client.Gorm}
 }
 
-func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]AppWithEngine, int64, error) {
+func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]AgentWithProvider, int64, error) {
 	if r == nil || r.db == nil {
 		return nil, 0, ErrRepositoryNotConfigured
 	}
-	db := r.appSelectDB(ctx)
+	db := r.agentSelectDB(ctx)
 	if strings.TrimSpace(query.Name) != "" {
 		db = db.Where("a.name LIKE ?", strings.TrimSpace(query.Name)+"%")
 	}
 	if strings.TrimSpace(query.Code) != "" {
 		db = db.Where("a.code = ?", strings.TrimSpace(query.Code))
 	}
-	if strings.TrimSpace(query.AppType) != "" {
-		db = db.Where("a.app_type = ?", strings.TrimSpace(query.AppType))
+	if strings.TrimSpace(query.AgentType) != "" {
+		db = db.Where("a.agent_type = ?", strings.TrimSpace(query.AgentType))
 	}
 	if query.ProviderID > 0 {
 		db = db.Where("a.provider_id = ?", query.ProviderID)
@@ -74,22 +75,22 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]AppWithEn
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var rows []AppWithEngine
+	var rows []AgentWithProvider
 	if err := db.Order("a.id DESC").Limit(query.PageSize).Offset((query.CurrentPage - 1) * query.PageSize).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	return rows, total, nil
 }
 
-func (r *GormRepository) Get(ctx context.Context, id uint64) (*AppWithEngine, error) {
+func (r *GormRepository) Get(ctx context.Context, id uint64) (*AgentWithProvider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	if id == 0 {
 		return nil, nil
 	}
-	var row AppWithEngine
-	err := r.appSelectDB(ctx).Where("a.id = ?", id).First(&row).Error
+	var row AgentWithProvider
+	err := r.agentSelectDB(ctx).Where("a.id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -99,15 +100,15 @@ func (r *GormRepository) Get(ctx context.Context, id uint64) (*AppWithEngine, er
 	return &row, nil
 }
 
-func (r *GormRepository) GetRaw(ctx context.Context, id uint64) (*App, error) {
+func (r *GormRepository) GetRaw(ctx context.Context, id uint64) (*Agent, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	if id == 0 {
 		return nil, nil
 	}
-	var row App
-	err := r.activeApps(ctx).Where("id = ?", id).First(&row).Error
+	var row Agent
+	err := r.activeAgents(ctx).Where("id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -144,11 +145,25 @@ func (r *GormRepository) GetActiveProvider(ctx context.Context, id uint64) (*Pro
 	return &row, nil
 }
 
+func (r *GormRepository) ListProviderModels(ctx context.Context, providerID uint64) ([]ProviderModel, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if providerID == 0 {
+		return nil, nil
+	}
+	var rows []ProviderModel
+	if err := r.db.WithContext(ctx).Where("provider_id = ? AND status = ?", providerID, enum.CommonYes).Order("model_id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func (r *GormRepository) ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
-	db := r.activeApps(ctx).Model(&App{}).Where("code = ?", strings.TrimSpace(code))
+	db := r.activeAgents(ctx).Model(&Agent{}).Where("code = ?", strings.TrimSpace(code))
 	if excludeID > 0 {
 		db = db.Where("id <> ?", excludeID)
 	}
@@ -159,7 +174,7 @@ func (r *GormRepository) ExistsByCode(ctx context.Context, code string, excludeI
 	return count > 0, nil
 }
 
-func (r *GormRepository) Create(ctx context.Context, row App) (uint64, error) {
+func (r *GormRepository) Create(ctx context.Context, row Agent) (uint64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
 	}
@@ -173,37 +188,46 @@ func (r *GormRepository) Update(ctx context.Context, id uint64, fields map[strin
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeApps(ctx).Where("id = ?", id).Updates(fields).Error
+	return r.db.WithContext(ctx).Model(&Agent{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Updates(fields).Error
 }
 
 func (r *GormRepository) ChangeStatus(ctx context.Context, id uint64, status int) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeApps(ctx).Where("id = ?", id).Update("status", status).Error
+	return r.db.WithContext(ctx).Model(&Agent{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Update("status", status).Error
 }
 
 func (r *GormRepository) Delete(ctx context.Context, id uint64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeApps(ctx).Where("id = ?", id).Update("is_del", enum.CommonYes).Error
+	return r.db.WithContext(ctx).Model(&Agent{}).
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonNo).
+		Update("is_del", enum.CommonYes).Error
 }
 
-func (r *GormRepository) ListBindings(ctx context.Context, appID uint64) ([]Binding, error) {
+func (r *GormRepository) ListBindings(ctx context.Context, agentID uint64) ([]Binding, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	var rows []Binding
-	err := r.db.WithContext(ctx).Where("is_del = ? AND app_id = ?", enum.CommonNo, appID).Order("sort ASC, id DESC").Find(&rows).Error
+	err := r.db.WithContext(ctx).Where("is_del = ? AND agent_id = ?", enum.CommonNo, agentID).Order("sort ASC, id DESC").Find(&rows).Error
 	return rows, err
 }
 
-func (r *GormRepository) ExistsBinding(ctx context.Context, appID uint64, bindType string, bindKey string, excludeID uint64) (bool, error) {
+func (r *GormRepository) ExistsBinding(ctx context.Context, agentID uint64, bindType string, bindKey string, excludeID uint64) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
-	db := r.db.WithContext(ctx).Model(&Binding{}).Where("is_del = ? AND app_id = ? AND bind_type = ? AND bind_key = ?", enum.CommonNo, appID, strings.TrimSpace(bindType), strings.TrimSpace(bindKey))
+	db := r.db.WithContext(ctx).Model(&Binding{}).Where("is_del = ? AND agent_id = ? AND bind_type = ? AND bind_key = ?", enum.CommonNo, agentID, strings.TrimSpace(bindType), strings.TrimSpace(bindKey))
 	if excludeID > 0 {
 		db = db.Where("id <> ?", excludeID)
 	}
@@ -231,23 +255,23 @@ func (r *GormRepository) DeleteBinding(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Model(&Binding{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Update("is_del", enum.CommonYes).Error
 }
 
-func (r *GormRepository) ListVisibleApps(ctx context.Context, query OptionQuery) ([]App, error) {
+func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var rows []App
-	db := r.activeApps(ctx).Where("status = ?", enum.CommonYes)
+	var rows []Agent
+	db := r.activeAgents(ctx).Where("status = ?", enum.CommonYes)
 	if query.UserID > 0 || query.RoleID > 0 || strings.TrimSpace(query.Platform) != "" {
 		db = db.Where(`EXISTS (
-			SELECT 1 FROM ai_app_bindings b
-			WHERE b.app_id = ai_apps.id AND b.is_del = ? AND b.status = ? AND (
+			SELECT 1 FROM ai_agent_bindings b
+			WHERE b.agent_id = ai_agents.id AND b.is_del = ? AND b.status = ? AND (
 				(b.bind_type = 'user' AND b.bind_key = ?) OR
 				(b.bind_type = 'role' AND b.bind_key = ?) OR
 				(b.bind_type = 'menu') OR
 				(b.bind_type = 'scene') OR
 				(b.bind_type = 'permission')
 			)
-		) OR NOT EXISTS (SELECT 1 FROM ai_app_bindings b2 WHERE b2.app_id = ai_apps.id AND b2.is_del = ? AND b2.status = ?)`, enum.CommonNo, enum.CommonYes, uintKey(query.UserID), uintKey(query.RoleID), enum.CommonNo, enum.CommonYes)
+		) OR NOT EXISTS (SELECT 1 FROM ai_agent_bindings b2 WHERE b2.agent_id = ai_agents.id AND b2.is_del = ? AND b2.status = ?)`, enum.CommonNo, enum.CommonYes, uintKey(query.UserID), uintKey(query.RoleID), enum.CommonNo, enum.CommonYes)
 	}
 	if err := db.Order("id DESC").Find(&rows).Error; err != nil {
 		return nil, err
@@ -255,11 +279,11 @@ func (r *GormRepository) ListVisibleApps(ctx context.Context, query OptionQuery)
 	return rows, nil
 }
 
-func (r *GormRepository) appSelectDB(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Table("ai_apps AS a").Select(`a.*, e.name AS provider_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc, e.status AS engine_status`).Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).Where("a.is_del = ?", enum.CommonNo)
+func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
+	return r.db.WithContext(ctx).Table("ai_agents AS a").Select(`a.*, e.name AS provider_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc, e.status AS engine_status`).Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).Where("a.is_del = ?", enum.CommonNo)
 }
 
-func (r *GormRepository) activeApps(ctx context.Context) *gorm.DB {
+func (r *GormRepository) activeAgents(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
 }
 

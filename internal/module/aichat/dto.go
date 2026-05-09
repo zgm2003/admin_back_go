@@ -20,7 +20,6 @@ type CreateRunInput struct {
 	Content        string
 	ConversationID int64
 	AgentID        int64
-	AppID          uint64
 	MaxHistory     int
 	Attachments    []Attachment
 	Temperature    *float64
@@ -33,7 +32,6 @@ type CreateRunResponse struct {
 	RequestID      string `json:"request_id"`
 	UserMessageID  int64  `json:"user_message_id"`
 	AgentID        int64  `json:"agent_id"`
-	AppID          uint64 `json:"app_id"`
 	IsNew          bool   `json:"is_new"`
 }
 
@@ -88,14 +86,13 @@ type RunStartRecord struct {
 	RequestID      string
 	UserMessageID  int64
 	AgentID        int64
-	AppID          uint64
 	IsNew          bool
 }
 
 type RunExecutionRecord struct {
 	Run                Run
 	UserMessageContent string
-	App                AppEngineConfig
+	Agent              AgentEngineConfig
 }
 
 type RunSuccessRecord struct {
@@ -126,21 +123,21 @@ type EngineFactory interface {
 	NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error)
 }
 
-type AppEngineConfig struct {
-	AppID                uint64
-	AppName              string
-	AppType              string
-	ProviderID           uint64
-	EngineType           string
-	EngineBaseURL        string
-	EngineAPIKeyEnc      string
-	EngineAppID          string
-	EngineAppAPIKeyEnc   string
-	RuntimeConfigJSON    string
-	ModelSnapshotJSON    string
-	ConversationEngineID string
-	AppStatus            int
-	EngineStatus         int
+type AgentEngineConfig struct {
+	AgentID                uint64
+	AgentName              string
+	AgentType              string
+	ProviderID             uint64
+	EngineType             string
+	EngineBaseURL          string
+	EngineAPIKeyEnc        string
+	ExternalAgentID        string
+	ExternalAgentAPIKeyEnc string
+	RuntimeConfigJSON      string
+	ModelSnapshotJSON      string
+	ConversationEngineID   string
+	AgentStatus            int
+	EngineStatus           int
 }
 
 type RunEventRecord struct {
@@ -155,8 +152,8 @@ type RunEventRecord struct {
 
 type Repository interface {
 	ActiveAgentExists(ctx context.Context, id int64) (bool, error)
-	DefaultActiveApp(ctx context.Context) (*AppEngineConfig, error)
-	AppForRuntime(ctx context.Context, appID uint64) (*AppEngineConfig, error)
+	DefaultActiveAgent(ctx context.Context) (*AgentEngineConfig, error)
+	AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error)
 	Conversation(ctx context.Context, id int64) (*Conversation, error)
 	CreateRun(ctx context.Context, input CreateRunRecord) (*RunStartRecord, error)
 	RunForUser(ctx context.Context, runID int64, userID int64) (*Run, error)

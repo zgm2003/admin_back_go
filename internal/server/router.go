@@ -7,7 +7,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
-	"admin_back_go/internal/module/aiapp"
+	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
 	"admin_back_go/internal/module/aiknowledgemap"
@@ -57,7 +57,7 @@ type Dependencies struct {
 	ClientVersionService    clientversion.HTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
-	AiAppService            aiapp.HTTPService
+	AiAgentService          aiagent.HTTPService
 	AiProviderService       aiprovider.HTTPService
 	AiKnowledgeMapService   aiknowledgemap.HTTPService
 	AiMessageService        aimessage.HTTPService
@@ -120,7 +120,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	aiprovider.RegisterRoutes(router, deps.AiProviderService)
-	aiapp.RegisterRoutes(router, deps.AiAppService)
+	aiagent.RegisterRoutes(router, deps.AiAgentService)
 	aiknowledgemap.RegisterRoutes(router, deps.AiKnowledgeMapService)
 	aiconversation.RegisterRoutes(router, deps.AiConversationService)
 	aimessage.RegisterRoutes(router, deps.AiMessageService)

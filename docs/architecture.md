@@ -58,7 +58,7 @@ internal/module/realtime admin WebSocket upgrade、envelope、heartbeat、subscr
 ```text
 批量迁移非 RBAC 业务模块
 真实短信/邮件发送器接入
-AI 应用接入
+AI 智能体接入
 把业务模块批量异步化
 ```
 
@@ -1348,13 +1348,14 @@ uploadtoken 只签发临时凭证，不定义业务。
 后续 AI agent avatar、chat attachment、rich text image 等都必须作为对应业务模块的一部分迁移，不能为了“上传页面”单独偷跑。
 ```
 
-AI Core provider config boundary（2026-05-09）：
+AI Core provider / agent config boundary（2026-05-09）：
 
 ```text
 admin_go + internal/platform/ai 是当前 AI 架构边界。
-第一步只落地“供应商配置”，第一版 provider driver 只有 openai。
+已落地“供应商配置”和“智能体配置 MVP”，第一版 provider driver 只有 openai。
 Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 import OpenAI SDK/client。
 供应商配置不引入流程编排概念，不嵌入第三方控制台。
+智能体配置负责选择 provider 下的启用模型，并保存场景、系统提示词和头像等本地运行元数据。
 ```
 
 Active AI modules:
@@ -1362,11 +1363,11 @@ Active AI modules:
 ```text
 internal/platform/ai            # stable engine interface, fake only for tests/dev boundary
 internal/platform/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
-internal/module/aiengine        # ai_engine_connections provider config + ai_provider_models model catalog
-internal/module/aiapp           # ai_apps + ai_app_bindings local agent/app entries; later 智能体配置 slice owns deeper cleanup
+internal/module/aiprovider      # ai_providers provider config + ai_provider_models model catalog
+internal/module/aiagent         # ai_agents + ai_agent_bindings local agent config MVP
 internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents mapping/status sync
 internal/module/aitoolmap       # ai_tool_maps local tool references
-internal/module/aiconversation  # current-user conversations; canonical app_id -> ai_apps
+internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents
 internal/module/aimessage       # conversation messages, feedback, branch cleanup
 internal/module/airun           # ai_runs / ai_run_events / usage monitor
 internal/module/aichat          # chat runtime through platform/ai.Engine, ai.response.*.v1 publish
@@ -1375,11 +1376,11 @@ internal/module/aichat          # chat runtime through platform/ai.Engine, ai.re
 Retired AI active runtime:
 
 ```text
-legacy AI model/tool/prompt/agent/knowledge-base REST resources
-legacy model/agent/prompt Vue menu entries
+legacy AI model/tool/prompt/knowledge-base REST resources
+legacy model/prompt Vue menu entries and legacy app naming
 ```
 
-这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aitool` / `aiprompt` / `aiagent` / `aiknowledge` 重新挂回 server/bootstrap。
+这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aitool` / `aiprompt` / `aiknowledge` 或 `aiapp` 重新挂回 server/bootstrap。
 
 Schema truth:
 
@@ -1387,6 +1388,7 @@ Schema truth:
 20260508_ai_core_backup.sql              # backup old AI tables and AI permissions
 20260508_ai_core_rebuild.sql             # creates the local AI runtime/control tables
 20260509_ai_openai_provider_config.sql   # provider config first slice: openai-only driver, ai_provider_models, model sync fields, AI menu order
+20260509_ai_agent_mvp_config.sql         # agent config MVP columns: model, scenes, system prompt, avatar
 20260508_ai_core_rollback.sql            # restores old local AI backups only
 ```
 
@@ -1395,9 +1397,19 @@ Provider config truth:
 ```text
 base_url empty string means https://api.openai.com/v1
 model discovery uses GET {base_url}/models
-ai_provider_models is the source for enabled/default provider models
+ai_provider_models is the source for enabled selectable provider models
 API key is write-only and encrypted into api_key_enc; DTOs expose only api_key_masked
 health/model-sync status values are unknown / ok / failed
+```
+
+Agent config truth:
+
+```text
+route/menu/API name is agent: /ai/agents and /api/admin/v1/ai-agents
+table is ai_agents; old app naming must not be the active contract
+create/update require provider_id + model_id where model_id belongs to enabled ai_provider_models under that provider
+MVP scenes currently allow chat only; stored as scenes_json and exposed as scenes/scene_names
+system_prompt and avatar are optional local agent metadata
 ```
 
 Runtime boundary:

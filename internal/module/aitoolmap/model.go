@@ -5,7 +5,7 @@ import "time"
 type ToolMap struct {
 	ID             uint64    `gorm:"column:id;primaryKey"`
 	ProviderID     uint64    `gorm:"column:provider_id"`
-	AppID          *uint64   `gorm:"column:app_id"`
+	AgentID        *uint64   `gorm:"column:agent_id"`
 	Name           string    `gorm:"column:name"`
 	Code           string    `gorm:"column:code"`
 	ToolType       string    `gorm:"column:tool_type"`

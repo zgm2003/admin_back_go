@@ -27,7 +27,7 @@ type TestConnectionResult struct {
 }
 
 type ChatInput struct {
-	AppID                uint64
+	AgentID              uint64
 	RunID                uint64
 	UserID               uint64
 	UserKey              string

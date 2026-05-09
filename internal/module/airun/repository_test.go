@@ -29,13 +29,13 @@ func TestStatsSelectsIntegerAverageLatency(t *testing.T) {
 
 func TestRepositorySQLUsesAppAndEventSchema(t *testing.T) {
 	summarySQL := sqlSummaryLower(statsSummarySelectSQL())
-	groupedSQL := sqlSummaryLower(statsGroupedSelectSQL("r.app_id as app_id, COALESCE(a.name, '') as app_name"))
+	groupedSQL := sqlSummaryLower(statsGroupedSelectSQL("r.agent_id as agent_id, COALESCE(a.name, '') as agent_name"))
 
 	if !strings.Contains(summarySQL, "r.run_status in (?, ?)") {
 		t.Fatalf("summary must count fail and canceled as failed terminal runs, sql=%s", summarySQL)
 	}
-	if !strings.Contains(groupedSQL, "r.app_id as app_id") || !strings.Contains(groupedSQL, "app_name") {
-		t.Fatalf("grouped app stats must expose app_id/app_name, sql=%s", groupedSQL)
+	if !strings.Contains(groupedSQL, "r.agent_id as agent_id") || !strings.Contains(groupedSQL, "agent_name") {
+		t.Fatalf("grouped agent stats must expose agent_id/agent_name, sql=%s", groupedSQL)
 	}
 }
 

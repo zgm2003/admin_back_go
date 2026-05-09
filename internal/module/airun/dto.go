@@ -17,7 +17,6 @@ type InitResponse struct {
 
 type InitDict struct {
 	RunStatusArr []dict.Option[int] `json:"run_status_arr"`
-	AppArr       []dict.Option[int] `json:"appArr"`
 	ProviderArr  []dict.Option[int] `json:"providerArr"`
 	AgentArr     []dict.Option[int] `json:"agentArr"` // legacy alias for the current Vue pass
 }
@@ -28,9 +27,8 @@ type ListQuery struct {
 	RunStatus   *int
 	UserID      *int64
 	RequestID   string
-	AppID       *int64
+	AgentID     *int64
 	ProviderID  *int64
-	AgentID     *int64 // legacy alias for AppID during migration
 	DateStart   string
 	DateEnd     string
 }
@@ -51,10 +49,8 @@ type ListItem struct {
 	ID                int64    `json:"id"`
 	RequestID         string   `json:"request_id"`
 	UserID            int64    `json:"user_id"`
-	AppID             int64    `json:"app_id"`
-	AppName           string   `json:"app_name"`
-	AgentID           int64    `json:"agent_id"`   // legacy alias for AppID
-	AgentName         string   `json:"agent_name"` // legacy alias for AppName
+	AgentID           int64    `json:"agent_id"`
+	AgentName         string   `json:"agent_name"`
 	ProviderID        int64    `json:"provider_id"`
 	ProviderName      string   `json:"provider_name"`
 	EngineType        string   `json:"engine_type"`
@@ -116,10 +112,8 @@ type DetailResponse struct {
 	RequestID          string          `json:"request_id"`
 	UserID             int64           `json:"user_id"`
 	Username           string          `json:"username"`
-	AppID              int64           `json:"app_id"`
-	AppName            string          `json:"app_name"`
-	AgentID            int64           `json:"agent_id"`   // legacy alias for AppID
-	AgentName          string          `json:"agent_name"` // legacy alias for AppName
+	AgentID            int64           `json:"agent_id"`
+	AgentName          string          `json:"agent_name"`
 	ProviderID         int64           `json:"provider_id"`
 	ProviderName       string          `json:"provider_name"`
 	EngineType         string          `json:"engine_type"`
@@ -151,9 +145,8 @@ type DetailResponse struct {
 type StatsFilter struct {
 	DateStart  string
 	DateEnd    string
-	AppID      *int64
+	AgentID    *int64
 	ProviderID *int64
-	AgentID    *int64 // legacy alias for AppID during migration
 	UserID     *int64
 }
 
@@ -191,9 +184,8 @@ type StatsByDateItem struct {
 }
 
 type StatsByAgentItem struct {
-	AppID     int64  `json:"app_id"`
-	AppName   string `json:"app_name"`
-	AgentName string `json:"agent_name"` // legacy alias for AppName
+	AgentID   int64  `json:"agent_id"`
+	AgentName string `json:"agent_name"`
 	StatsMetricItem
 }
 
@@ -224,8 +216,8 @@ type ListRow struct {
 	ID                int64
 	RequestID         string
 	UserID            int64
-	AppID             int64
-	AppName           string
+	AgentID           int64
+	AgentName         string
 	ProviderID        int64
 	ProviderName      string
 	EngineType        string
@@ -249,8 +241,8 @@ type RunDetailRow struct {
 	RequestID          string
 	UserID             int64
 	Username           string
-	AppID              int64
-	AppName            string
+	AgentID            int64
+	AgentName          string
 	ProviderID         int64
 	ProviderName       string
 	EngineType         string
@@ -322,9 +314,8 @@ type StatsListQuery struct {
 	PageSize    int
 	DateStart   string
 	DateEnd     string
-	AppID       *int64
+	AgentID     *int64
 	ProviderID  *int64
-	AgentID     *int64 // legacy alias for AppID during migration
 	UserID      *int64
 }
 
@@ -333,8 +324,8 @@ type StatsByDateRow struct {
 	StatsMetricRow
 }
 type StatsByAgentRow struct {
-	AppID   int64
-	AppName string
+	AgentID   int64
+	AgentName string
 	StatsMetricRow
 }
 type StatsByUserRow struct {
@@ -343,7 +334,7 @@ type StatsByUserRow struct {
 }
 
 type Repository interface {
-	AppOptions(ctx context.Context) ([]OptionRow, error)
+	AgentOptions(ctx context.Context) ([]OptionRow, error)
 	ProviderOptions(ctx context.Context) ([]OptionRow, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)

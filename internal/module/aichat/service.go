@@ -66,7 +66,7 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 	if appErr != nil {
 		return nil, appErr
 	}
-	app, appErr := s.resolveAppForCreate(ctx, repo, userID, &input)
+	agent, appErr := s.resolveAgentForCreate(ctx, repo, userID, &input)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -75,14 +75,14 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 		return nil, appErr
 	}
 	record, err := repo.CreateRun(ctx, CreateRunRecord{
-		UserID: userID, AgentID: int64(app.AppID), ConversationID: input.ConversationID, Content: content,
+		UserID: userID, AgentID: int64(agent.AgentID), ConversationID: input.ConversationID, Content: content,
 		RequestID: uuid.NewString(), MetaJSON: meta, Now: s.now(),
 	})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI运行失败", err)
 	}
 	sink := newPersistentSink(repo, s.publisher, userID, record.RunID, s.now)
-	if event, err := BuildStartEvent(StartPayload{RunID: record.RunID, ConversationID: record.ConversationID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: int64(app.AppID), IsNew: record.IsNew}); err == nil {
+	if event, err := BuildStartEvent(StartPayload{RunID: record.RunID, ConversationID: record.ConversationID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: int64(agent.AgentID), IsNew: record.IsNew}); err == nil {
 		_ = sink.emitEnvelope(ctx, event, "")
 	}
 	task, err := NewRunExecuteTask(RunExecutePayload{RunID: record.RunID})
@@ -99,7 +99,7 @@ func (s *Service) CreateRun(ctx context.Context, userID int64, input CreateRunIn
 			return nil, apperror.Wrap(apperror.CodeInternal, 500, msg, err)
 		}
 	}
-	res := &CreateRunResponse{ConversationID: record.ConversationID, RunID: record.RunID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: int64(app.AppID), AppID: app.AppID, IsNew: record.IsNew}
+	res := &CreateRunResponse{ConversationID: record.ConversationID, RunID: record.RunID, RequestID: record.RequestID, UserMessageID: record.UserMessageID, AgentID: int64(agent.AgentID), IsNew: record.IsNew}
 	return res, nil
 }
 
@@ -182,7 +182,7 @@ func (s *Service) Cancel(ctx context.Context, userID int64, runID int64) (*Cance
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行失败", err)
 	}
 	if record != nil && strings.TrimSpace(record.Run.EngineTaskID) != "" {
-		engine, appErr := s.engineForApp(ctx, record.App)
+		engine, appErr := s.engineForAgent(ctx, record.Agent)
 		if appErr != nil {
 			return nil, appErr
 		}
@@ -215,7 +215,7 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 	if record == nil || record.Run.RunStatus != enum.AIRunStatusRunning {
 		return &RunExecuteResult{RunID: input.RunID}, nil
 	}
-	engine, appErr := s.engineForApp(ctx, record.App)
+	engine, appErr := s.engineForAgent(ctx, record.Agent)
 	if appErr != nil {
 		msg := appErr.Message
 		_ = repo.MarkFailed(ctx, input.RunID, msg)
@@ -228,13 +228,13 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 	start := s.now()
 	sink := newPersistentSink(repo, s.publisher, record.Run.UserID, input.RunID, s.now)
 	result, err := engine.StreamChat(ctx, platformai.ChatInput{
-		AppID:                record.App.AppID,
+		AgentID:              record.Agent.AgentID,
 		RunID:                uint64(input.RunID),
 		UserID:               uint64(record.Run.UserID),
 		UserKey:              userKey(record.Run.UserID),
 		Content:              record.UserMessageContent,
-		ConversationEngineID: record.App.ConversationEngineID,
-		Inputs:               decodeStringMap(record.App.RuntimeConfigJSON),
+		ConversationEngineID: record.Agent.ConversationEngineID,
+		Inputs:               decodeStringMap(record.Agent.RuntimeConfigJSON),
 	}, sink)
 	if err != nil {
 		msg := err.Error()
@@ -273,7 +273,7 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 		EngineRunID:          result.EngineTaskID,
 		UsageJSON:            usageJSON,
 		OutputSnapshotJSON:   outputJSON,
-		ModelSnapshot:        record.App.ModelSnapshotJSON,
+		ModelSnapshot:        record.Agent.ModelSnapshotJSON,
 		PromptTokens:         result.PromptTokens,
 		CompletionTokens:     result.CompletionTokens,
 		TotalTokens:          result.TotalTokens,
@@ -313,7 +313,7 @@ func (s *Service) TimeoutRuns(ctx context.Context, input RunTimeoutInput) (*RunT
 	return &RunTimeoutResult{Failed: count}, nil
 }
 
-func (s *Service) resolveAppForCreate(ctx context.Context, repo Repository, userID int64, input *CreateRunInput) (*AppEngineConfig, *apperror.Error) {
+func (s *Service) resolveAgentForCreate(ctx context.Context, repo Repository, userID int64, input *CreateRunInput) (*AgentEngineConfig, *apperror.Error) {
 	if input.ConversationID > 0 {
 		conversation, err := repo.Conversation(ctx, input.ConversationID)
 		if err != nil {
@@ -328,72 +328,64 @@ func (s *Service) resolveAppForCreate(ctx context.Context, repo Repository, user
 		if conversation.Status != enum.CommonYes {
 			return nil, apperror.BadRequest("AI会话已禁用")
 		}
-		appID := conversation.AppID
-		if appID == 0 {
-			appID = uint64(conversation.AgentID)
+		agentID := conversation.AgentID
+		if agentID == 0 {
+			agentID = uint64(conversation.AgentID)
 		}
-		if input.AppID > 0 && input.AppID != appID {
-			return nil, apperror.BadRequest("会话AI应用不匹配")
-		}
-		if input.AgentID > 0 && uint64(input.AgentID) != appID {
+		if input.AgentID > 0 && uint64(input.AgentID) != agentID {
 			return nil, apperror.BadRequest("会话智能体不匹配")
 		}
-		input.AppID = appID
-		input.AgentID = int64(appID)
-		app, err := repo.AppForRuntime(ctx, appID)
+		input.AgentID = int64(agentID)
+		agent, err := repo.AgentForRuntime(ctx, agentID)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用失败", err)
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 		}
-		if app == nil {
-			return nil, apperror.BadRequest("AI应用不存在或已禁用")
+		if agent == nil {
+			return nil, apperror.BadRequest("AI智能体不存在或已禁用")
 		}
-		return app, nil
+		return agent, nil
 	}
-	appID := input.AppID
-	if appID == 0 && input.AgentID > 0 {
-		appID = uint64(input.AgentID)
-	}
-	var app *AppEngineConfig
+	agentID := uint64(input.AgentID)
+	var agent *AgentEngineConfig
 	var err error
-	if appID > 0 {
-		app, err = repo.AppForRuntime(ctx, appID)
+	if agentID > 0 {
+		agent, err = repo.AgentForRuntime(ctx, agentID)
 	} else {
-		app, err = repo.DefaultActiveApp(ctx)
+		agent, err = repo.DefaultActiveAgent(ctx)
 	}
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
-	if app == nil {
-		return nil, apperror.BadRequest("请先配置 AI 应用和 Dify 连接")
+	if agent == nil {
+		return nil, apperror.BadRequest("请先配置 AI 供应商和智能体")
 	}
-	input.AppID = app.AppID
-	input.AgentID = int64(app.AppID)
-	return app, nil
+	input.AgentID = int64(agent.AgentID)
+	return agent, nil
 }
 
-func (s *Service) engineForApp(ctx context.Context, app AppEngineConfig) (platformai.Engine, *apperror.Error) {
-	if app.AppID == 0 || app.ProviderID == 0 {
-		return nil, apperror.BadRequest("AI应用或供应商未配置")
+func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (platformai.Engine, *apperror.Error) {
+	if agent.AgentID == 0 || agent.ProviderID == 0 {
+		return nil, apperror.BadRequest("AI智能体或供应商未配置")
 	}
-	if strings.TrimSpace(app.EngineAppAPIKeyEnc) == "" && strings.TrimSpace(app.EngineAPIKeyEnc) == "" {
-		return nil, apperror.BadRequest("AI应用API Key未配置")
+	if strings.TrimSpace(agent.ExternalAgentAPIKeyEnc) == "" && strings.TrimSpace(agent.EngineAPIKeyEnc) == "" {
+		return nil, apperror.BadRequest("AI智能体API Key未配置")
 	}
-	apiKeyEnc := strings.TrimSpace(app.EngineAppAPIKeyEnc)
+	apiKeyEnc := strings.TrimSpace(agent.ExternalAgentAPIKeyEnc)
 	if apiKeyEnc == "" {
-		apiKeyEnc = strings.TrimSpace(app.EngineAPIKeyEnc)
+		apiKeyEnc = strings.TrimSpace(agent.EngineAPIKeyEnc)
 	}
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI应用API Key失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI智能体API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequest("AI应用API Key未配置")
+		return nil, apperror.BadRequest("AI智能体API Key未配置")
 	}
 	factory := s.engineFactory
 	if factory == nil {
 		return nil, apperror.Internal("AI引擎工厂未配置")
 	}
-	engine, err := factory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(app.EngineType), BaseURL: app.EngineBaseURL, APIKey: apiKey})
+	engine, err := factory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
 	}

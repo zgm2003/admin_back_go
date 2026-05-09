@@ -62,8 +62,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ToolMapWi
 	if query.ProviderID > 0 {
 		db = db.Where("t.provider_id = ?", query.ProviderID)
 	}
-	if query.AppID != nil {
-		db = db.Where("t.app_id = ?", *query.AppID)
+	if query.AgentID != nil {
+		db = db.Where("t.agent_id = ?", *query.AgentID)
 	}
 	if query.Status != nil {
 		db = db.Where("t.status = ?", *query.Status)

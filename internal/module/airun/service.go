@@ -30,16 +30,16 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if appErr != nil {
 		return nil, appErr
 	}
-	apps, err := repo.AppOptions(ctx)
+	agents, err := repo.AgentOptions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用选项失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体选项失败", err)
 	}
 	engines, err := repo.ProviderOptions(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
-	appOptions := optionItems(apps)
-	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AppArr: appOptions, AgentArr: appOptions, ProviderArr: optionItems(engines)}}, nil
+	agentOptions := optionItems(agents)
+	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AgentArr: agentOptions, ProviderArr: optionItems(engines)}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -128,11 +128,11 @@ func (s *Service) StatsByAgent(ctx context.Context, query StatsListQuery) (*Stat
 	query = normalizeStatsListQuery(query)
 	rows, total, err := repo.StatsByAgent(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行应用统计失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行智能体统计失败", err)
 	}
 	list := make([]StatsByAgentItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, StatsByAgentItem{AppID: row.AppID, AppName: row.AppName, AgentName: row.AppName, StatsMetricItem: metricItem(row.StatsMetricRow)})
+		list = append(list, StatsByAgentItem{AgentID: row.AgentID, AgentName: row.AgentName, StatsMetricItem: metricItem(row.StatsMetricRow)})
 	}
 	return &StatsByAgentResponse{List: list, Page: page(total, query.CurrentPage, query.PageSize)}, nil
 }
@@ -171,9 +171,6 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	if query.PageSize > enum.PageSizeMax {
 		query.PageSize = enum.PageSizeMax
 	}
-	if query.AppID == nil && query.AgentID != nil {
-		query.AppID = query.AgentID
-	}
 	query.RequestID = strings.TrimSpace(query.RequestID)
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
@@ -181,9 +178,6 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func normalizeStatsFilter(query StatsFilter) StatsFilter {
-	if query.AppID == nil && query.AgentID != nil {
-		query.AppID = query.AgentID
-	}
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	return query
@@ -199,9 +193,6 @@ func normalizeStatsListQuery(query StatsListQuery) StatsListQuery {
 	if query.PageSize > enum.PageSizeMax {
 		query.PageSize = enum.PageSizeMax
 	}
-	if query.AppID == nil && query.AgentID != nil {
-		query.AppID = query.AgentID
-	}
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	return query
@@ -210,7 +201,7 @@ func normalizeStatsListQuery(query StatsListQuery) StatsListQuery {
 func listItem(row ListRow) ListItem {
 	return ListItem{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID,
-		AppID: row.AppID, AppName: row.AppName, AgentID: row.AppID, AgentName: row.AppName,
+		AgentID: row.AgentID, AgentName: row.AgentName,
 		ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType,
 		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle, RunStatus: row.RunStatus,
@@ -228,7 +219,7 @@ func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
 	}
 	return DetailResponse{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
-		AppID: row.AppID, AppName: row.AppName, AgentID: row.AppID, AgentName: row.AppName,
+		AgentID: row.AgentID, AgentName: row.AgentName,
 		ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType,
 		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,

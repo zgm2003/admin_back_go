@@ -113,7 +113,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input MutationInput) *a
 	}
 	fields := map[string]any{
 		"provider_id":     row.ProviderID,
-		"app_id":          row.AppID,
+		"agent_id":        row.AgentID,
 		"name":            row.Name,
 		"code":            row.Code,
 		"tool_type":       row.ToolType,
@@ -199,7 +199,7 @@ func (s *Service) normalizeMutation(ctx context.Context, repo Repository, input 
 	}
 	return ToolMap{
 		ProviderID:     fields.providerID,
-		AppID:          fields.appID,
+		AgentID:        fields.agentID,
 		Name:           fields.name,
 		Code:           fields.code,
 		ToolType:       fields.toolType,
@@ -214,7 +214,7 @@ func (s *Service) normalizeMutation(ctx context.Context, repo Repository, input 
 
 type normalizedFields struct {
 	providerID     uint64
-	appID          *uint64
+	agentID        *uint64
 	name           string
 	code           string
 	toolType       string
@@ -273,7 +273,7 @@ func normalizeFields(input MutationInput) (normalizedFields, *apperror.Error) {
 	if appErr != nil {
 		return normalizedFields{}, appErr
 	}
-	return normalizedFields{providerID: input.ProviderID, appID: input.AppID, name: name, code: code, toolType: toolType, engineToolID: engineToolID, permissionCode: permissionCode, riskLevel: riskLevel, configJSON: configJSON, status: status}, nil
+	return normalizedFields{providerID: input.ProviderID, agentID: input.AgentID, name: name, code: code, toolType: toolType, engineToolID: engineToolID, permissionCode: permissionCode, riskLevel: riskLevel, configJSON: configJSON, status: status}, nil
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {
@@ -294,7 +294,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func toolMapDTO(row ToolMapWithEngine) ToolMapDTO {
-	return ToolMapDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, AppID: row.AppID, Name: row.Name, Code: row.Code, ToolType: row.ToolType, ToolTypeName: toolTypeLabels[row.ToolType], EngineToolID: row.EngineToolID, PermissionCode: row.PermissionCode, RiskLevel: row.RiskLevel, RiskLevelName: riskLevelLabels[row.RiskLevel], ConfigJSON: rawJSON(row.ConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return ToolMapDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, AgentID: row.AgentID, Name: row.Name, Code: row.Code, ToolType: row.ToolType, ToolTypeName: toolTypeLabels[row.ToolType], EngineToolID: row.EngineToolID, PermissionCode: row.PermissionCode, RiskLevel: row.RiskLevel, RiskLevelName: riskLevelLabels[row.RiskLevel], ConfigJSON: rawJSON(row.ConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func normalizeRawJSON(value json.RawMessage) (string, *apperror.Error) {

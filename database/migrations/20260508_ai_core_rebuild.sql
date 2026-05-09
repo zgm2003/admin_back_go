@@ -15,7 +15,7 @@ INSERT IGNORE INTO tmp_ai_core_page_grants (role_id, page_key)
 SELECT DISTINCT rp.role_id,
   CASE
     WHEN p.path IN ('/ai/models', '/ai/providers') OR p.i18n_key IN ('menu.ai_models', 'menu.ai_providers') THEN 'providers'
-    WHEN p.path IN ('/ai/agents', '/ai/apps') OR p.i18n_key IN ('menu.ai_agents', 'menu.ai_apps') THEN 'apps'
+    WHEN p.path = '/ai/agents' OR p.i18n_key = 'menu.ai_agents' THEN 'agents'
     WHEN p.path = '/ai/knowledge' OR p.i18n_key = 'menu.ai_knowledge' THEN 'knowledge'
     WHEN p.path = '/ai/tools' OR p.i18n_key = 'menu.ai_tools' THEN 'tools'
     WHEN p.path = '/ai/chat' OR p.i18n_key = 'menu.ai_chat' THEN 'chat'
@@ -28,8 +28,8 @@ WHERE rp.is_del = 2
   AND p.platform = 'admin'
   AND p.is_del = 2
   AND (
-    p.path IN ('/ai/models', '/ai/providers', '/ai/agents', '/ai/apps', '/ai/knowledge', '/ai/tools', '/ai/chat', '/ai/runs')
-    OR p.i18n_key IN ('menu.ai_models', 'menu.ai_providers', 'menu.ai_agents', 'menu.ai_apps', 'menu.ai_knowledge', 'menu.ai_tools', 'menu.ai_chat', 'menu.ai_runs')
+    p.path IN ('/ai/models', '/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/chat', '/ai/runs')
+    OR p.i18n_key IN ('menu.ai_models', 'menu.ai_providers', 'menu.ai_agents', 'menu.ai_knowledge', 'menu.ai_tools', 'menu.ai_chat', 'menu.ai_runs')
   );
 
 DELETE FROM tmp_ai_core_page_grants WHERE page_key = '';
@@ -68,15 +68,20 @@ CREATE TABLE ai_providers (
   KEY idx_ai_providers_status (status, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI provider configs';
 
-CREATE TABLE ai_apps (
+CREATE TABLE ai_agents (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   provider_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(128) NOT NULL,
   code VARCHAR(128) NOT NULL,
-  app_type VARCHAR(32) NOT NULL,
-  engine_app_id VARCHAR(128) NOT NULL DEFAULT '',
-  engine_app_api_key_enc TEXT NULL,
-  engine_app_api_key_hint VARCHAR(32) NOT NULL DEFAULT '',
+  agent_type VARCHAR(32) NOT NULL,
+  model_id VARCHAR(191) NOT NULL DEFAULT '',
+  model_display_name VARCHAR(191) NOT NULL DEFAULT '',
+  scenes_json JSON NULL,
+  system_prompt TEXT NULL,
+  avatar VARCHAR(512) NOT NULL DEFAULT '',
+  external_agent_id VARCHAR(128) NOT NULL DEFAULT '',
+  external_agent_api_key_enc TEXT NULL,
+  external_agent_api_key_hint VARCHAR(32) NOT NULL DEFAULT '',
   default_response_mode VARCHAR(32) NOT NULL DEFAULT 'streaming',
   runtime_config_json JSON NULL,
   model_snapshot_json JSON NULL,
@@ -87,13 +92,14 @@ CREATE TABLE ai_apps (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ai_apps_code (code, is_del),
-  KEY idx_ai_apps_provider (provider_id, status, is_del)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI app mappings';
+  UNIQUE KEY uk_ai_agents_code (code, is_del),
+  KEY idx_ai_agents_provider (provider_id, status, is_del),
+  KEY idx_ai_agents_model (provider_id, model_id, status, is_del)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI agent mappings';
 
-CREATE TABLE ai_app_bindings (
+CREATE TABLE ai_agent_bindings (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  app_id BIGINT UNSIGNED NOT NULL,
+  agent_id BIGINT UNSIGNED NOT NULL,
   bind_type VARCHAR(32) NOT NULL,
   bind_key VARCHAR(128) NOT NULL,
   sort INT NOT NULL DEFAULT 0,
@@ -102,13 +108,13 @@ CREATE TABLE ai_app_bindings (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ai_app_bindings_key (app_id, bind_type, bind_key, is_del),
-  KEY idx_ai_app_bindings_scope (bind_type, bind_key, status, is_del)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI app visibility bindings';
+  UNIQUE KEY uk_ai_agent_bindings_key (agent_id, bind_type, bind_key, is_del),
+  KEY idx_ai_agent_bindings_scope (bind_type, bind_key, status, is_del)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI agent visibility bindings';
 
 CREATE TABLE ai_conversations (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  app_id BIGINT UNSIGNED NOT NULL,
+  agent_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,
   title VARCHAR(255) NOT NULL DEFAULT '',
   engine_conversation_id VARCHAR(128) NOT NULL DEFAULT '',
@@ -119,7 +125,7 @@ CREATE TABLE ai_conversations (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_ai_conversations_user (user_id, app_id, status, is_del),
+  KEY idx_ai_conversations_user (user_id, agent_id, status, is_del),
   KEY idx_ai_conversations_engine (engine_conversation_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI conversation mirror';
 
@@ -148,7 +154,7 @@ CREATE TABLE ai_messages (
 CREATE TABLE ai_runs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   run_uid VARCHAR(64) NOT NULL,
-  app_id BIGINT UNSIGNED NOT NULL,
+  agent_id BIGINT UNSIGNED NOT NULL,
   conversation_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,
   user_message_id BIGINT UNSIGNED NULL,
@@ -180,7 +186,7 @@ CREATE TABLE ai_runs (
   UNIQUE KEY uk_ai_runs_uid (run_uid),
   KEY idx_ai_runs_user (user_id, run_status, created_at),
   KEY idx_ai_runs_engine_task (engine_task_id),
-  KEY idx_ai_runs_app_provider (app_id, provider_id, is_del)
+  KEY idx_ai_runs_agent_provider (agent_id, provider_id, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI run mirror';
 
 CREATE TABLE ai_run_events (
@@ -240,7 +246,7 @@ CREATE TABLE ai_knowledge_documents (
 CREATE TABLE ai_tool_maps (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   provider_id BIGINT UNSIGNED NOT NULL,
-  app_id BIGINT UNSIGNED NULL,
+  agent_id BIGINT UNSIGNED NULL,
   name VARCHAR(128) NOT NULL,
   code VARCHAR(128) NOT NULL,
   tool_type VARCHAR(32) NOT NULL,
@@ -256,14 +262,14 @@ CREATE TABLE ai_tool_maps (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_ai_tool_maps_code (code, is_del),
-  KEY idx_ai_tool_maps_app (app_id, status, is_del),
+  KEY idx_ai_tool_maps_agent (agent_id, status, is_del),
   KEY idx_ai_tool_maps_provider (provider_id, status, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI tool maps';
 
 CREATE TABLE ai_usage_daily (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   usage_date DATE NOT NULL,
-  app_id BIGINT UNSIGNED NOT NULL,
+  agent_id BIGINT UNSIGNED NOT NULL,
   provider_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   run_count INT NOT NULL DEFAULT 0,
@@ -276,7 +282,7 @@ CREATE TABLE ai_usage_daily (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ai_usage_daily_scope (usage_date, app_id, provider_id, user_id)
+  UNIQUE KEY uk_ai_usage_daily_scope (usage_date, agent_id, provider_id, user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI usage daily aggregate';
 
 SET @ai_parent_id := (
@@ -300,7 +306,7 @@ JOIN permissions p ON p.id = rp.permission_id
 WHERE p.platform = 'admin'
   AND p.is_del = 2
   AND (
-      p.i18n_key IN ('menu.ai_prompts', 'menu.ai_models', 'menu.ai_agents')
+      p.i18n_key IN ('menu.ai_prompts', 'menu.ai_models')
       OR p.code LIKE 'ai_prompt\_%'
   );
 
@@ -308,7 +314,7 @@ DELETE FROM permissions
 WHERE platform = 'admin'
   AND is_del = 2
   AND (
-      i18n_key IN ('menu.ai_prompts', 'menu.ai_models', 'menu.ai_agents')
+      i18n_key IN ('menu.ai_prompts', 'menu.ai_models')
       OR code LIKE 'ai_prompt\_%'
   );
 
@@ -324,7 +330,7 @@ CREATE TEMPORARY TABLE tmp_ai_core_pages (
 
 INSERT INTO tmp_ai_core_pages (name, path, component, sort, i18n_key) VALUES
 ('供应商配置', '/ai/providers', 'ai/providers', 1, 'menu.ai_providers'),
-('智能体配置', '/ai/apps', 'ai/apps', 2, 'menu.ai_apps'),
+('智能体配置', '/ai/agents', 'ai/agents', 2, 'menu.ai_agents'),
 ('AI对话', '/ai/chat', 'ai/chat', 3, 'menu.ai_chat'),
 ('知识库', '/ai/knowledge', 'ai/knowledge', 4, 'menu.ai_knowledge'),
 ('运行监控', '/ai/runs', 'ai/runs', 5, 'menu.ai_runs'),
@@ -344,8 +350,8 @@ UPDATE permissions
 SET name = '供应商配置', path = '/ai/providers', component = 'ai/providers', parent_id = @ai_parent_id, sort = 1, show_menu = 1, status = 1, is_del = 2, updated_at = NOW()
 WHERE platform = 'admin' AND i18n_key = 'menu.ai_providers';
 UPDATE permissions
-SET name = '智能体配置', path = '/ai/apps', component = 'ai/apps', parent_id = @ai_parent_id, sort = 2, show_menu = 1, status = 1, is_del = 2, updated_at = NOW()
-WHERE platform = 'admin' AND i18n_key = 'menu.ai_apps';
+SET name = '智能体配置', path = '/ai/agents', component = 'ai/agents', parent_id = @ai_parent_id, sort = 2, show_menu = 1, status = 1, is_del = 2, updated_at = NOW()
+WHERE platform = 'admin' AND i18n_key = 'menu.ai_agents';
 UPDATE permissions
 SET name = 'AI对话', path = '/ai/chat', component = 'ai/chat', parent_id = @ai_parent_id, sort = 3, show_menu = 1, status = 1, is_del = 2, updated_at = NOW()
 WHERE platform = 'admin' AND i18n_key = 'menu.ai_chat';
@@ -365,7 +371,7 @@ FROM tmp_ai_core_page_grants grant_row
 JOIN permissions page_row ON page_row.platform = 'admin' AND page_row.is_del = 2
  AND (
   (grant_row.page_key = 'providers' AND page_row.i18n_key = 'menu.ai_providers')
-  OR (grant_row.page_key = 'apps' AND page_row.i18n_key = 'menu.ai_apps')
+  OR (grant_row.page_key = 'agents' AND page_row.i18n_key = 'menu.ai_agents')
   OR (grant_row.page_key = 'knowledge' AND page_row.i18n_key = 'menu.ai_knowledge')
   OR (grant_row.page_key = 'tools' AND page_row.i18n_key = 'menu.ai_tools')
   OR (grant_row.page_key = 'chat' AND page_row.i18n_key = 'menu.ai_chat')
@@ -388,12 +394,12 @@ INSERT INTO tmp_ai_core_buttons (page_i18n_key, name, code, sort) VALUES
 ('menu.ai_providers', '测试连接', 'ai_provider_test', 3),
 ('menu.ai_providers', '供应商状态', 'ai_provider_status', 4),
 ('menu.ai_providers', '删除供应商', 'ai_provider_del', 5),
-('menu.ai_apps', '新增智能体', 'ai_app_add', 1),
-('menu.ai_apps', '编辑智能体', 'ai_app_edit', 2),
-('menu.ai_apps', '测试智能体', 'ai_app_test', 3),
-('menu.ai_apps', '智能体状态', 'ai_app_status', 4),
-('menu.ai_apps', '删除智能体', 'ai_app_del', 5),
-('menu.ai_apps', '智能体绑定', 'ai_app_binding', 6),
+('menu.ai_agents', '新增智能体', 'ai_agent_add', 1),
+('menu.ai_agents', '编辑智能体', 'ai_agent_edit', 2),
+('menu.ai_agents', '测试智能体', 'ai_agent_test', 3),
+('menu.ai_agents', '智能体状态', 'ai_agent_status', 4),
+('menu.ai_agents', '删除智能体', 'ai_agent_del', 5),
+('menu.ai_agents', '智能体绑定', 'ai_agent_binding', 6),
 ('menu.ai_knowledge', '知识库新增', 'ai_knowledge_add', 1),
 ('menu.ai_knowledge', '知识库编辑', 'ai_knowledge_edit', 2),
 ('menu.ai_knowledge', '知识库同步', 'ai_knowledge_sync', 3),

@@ -33,7 +33,7 @@ func (h *Handler) List(c *gin.Context) {
 		ToolType:    req.ToolType,
 		RiskLevel:   req.RiskLevel,
 		ProviderID:  req.ProviderID,
-		AppID:       req.AppID,
+		AgentID:     req.AgentID,
 		Status:      req.Status,
 	})
 	writeResult(c, result, appErr)
@@ -118,7 +118,7 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 func mutationInput(req mutationRequest) MutationInput {
 	return MutationInput{
 		ProviderID:     req.ProviderID,
-		AppID:          req.AppID,
+		AgentID:        req.AgentID,
 		Name:           req.Name,
 		Code:           req.Code,
 		ToolType:       req.ToolType,

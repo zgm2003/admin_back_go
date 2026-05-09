@@ -31,7 +31,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, ListQuery{
 		CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status,
-		AppID: req.AppID, AgentID: req.AgentID, Title: req.Title,
+		AgentID: req.AgentID, Title: req.Title,
 	})
 	writeResult(c, res, appErr)
 }
@@ -59,7 +59,7 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI会话参数错误"))
 		return
 	}
-	id, appErr := h.requireService().Create(c.Request.Context(), identity.UserID, MutationInput{AppID: req.AppID, AgentID: req.AgentID, Title: req.Title})
+	id, appErr := h.requireService().Create(c.Request.Context(), identity.UserID, MutationInput{AgentID: req.AgentID, Title: req.Title})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

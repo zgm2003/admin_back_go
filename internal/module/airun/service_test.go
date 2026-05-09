@@ -9,7 +9,7 @@ import (
 )
 
 type fakeRepository struct {
-	apps        []OptionRow
+	agents      []OptionRow
 	engines     []OptionRow
 	listQuery   ListQuery
 	rows        []ListRow
@@ -24,8 +24,8 @@ type fakeRepository struct {
 	metricTotal int64
 }
 
-func (f *fakeRepository) AppOptions(ctx context.Context) ([]OptionRow, error) {
-	return f.apps, nil
+func (f *fakeRepository) AgentOptions(ctx context.Context) ([]OptionRow, error) {
+	return f.agents, nil
 }
 func (f *fakeRepository) ProviderOptions(ctx context.Context) ([]OptionRow, error) {
 	return f.engines, nil
@@ -56,13 +56,13 @@ func (f *fakeRepository) StatsByUser(ctx context.Context, query StatsListQuery) 
 	return f.byUser, f.metricTotal, nil
 }
 
-func TestInitReturnsRunStatusAppAndProviderOptions(t *testing.T) {
-	repo := &fakeRepository{apps: []OptionRow{{ID: 3, Name: "客服应用"}}, engines: []OptionRow{{ID: 2, Name: "Dify"}}}
+func TestInitReturnsRunStatusAgentAndProviderOptions(t *testing.T) {
+	repo := &fakeRepository{agents: []OptionRow{{ID: 3, Name: "客服智能体"}}, engines: []OptionRow{{ID: 2, Name: "Dify"}}}
 	res, appErr := NewService(repo).Init(context.Background())
 	if appErr != nil {
 		t.Fatalf("Init returned error: %v", appErr)
 	}
-	if len(res.Dict.RunStatusArr) == 0 || res.Dict.AppArr[0].Value != 3 || res.Dict.AgentArr[0].Value != 3 || res.Dict.ProviderArr[0].Value != 2 {
+	if len(res.Dict.RunStatusArr) == 0 || res.Dict.AgentArr[0].Value != 3 || res.Dict.ProviderArr[0].Value != 2 {
 		t.Fatalf("unexpected init response: %#v", res)
 	}
 }
@@ -70,16 +70,16 @@ func TestInitReturnsRunStatusAppAndProviderOptions(t *testing.T) {
 func TestListFiltersAndMapsLatency(t *testing.T) {
 	created := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	status := enum.AIRunStatusSuccess
-	appID := int64(3)
-	repo := &fakeRepository{rows: []ListRow{{ID: 1, RequestID: "rid", UserID: 7, AppID: 3, AppName: "app", ProviderID: 2, ProviderName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: status, ModelSnapshot: "gpt", TotalTokens: ptrInt(12), LatencyMS: ptrInt(1530), CreatedAt: created}}, total: 1}
-	res, appErr := NewService(repo).List(context.Background(), ListQuery{RunStatus: &status, RequestID: " rid ", AgentID: &appID, CurrentPage: 0, PageSize: 0})
+	agentID := int64(3)
+	repo := &fakeRepository{rows: []ListRow{{ID: 1, RequestID: "rid", UserID: 7, AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: status, ModelSnapshot: "gpt", TotalTokens: ptrInt(12), LatencyMS: ptrInt(1530), CreatedAt: created}}, total: 1}
+	res, appErr := NewService(repo).List(context.Background(), ListQuery{RunStatus: &status, RequestID: " rid ", AgentID: &agentID, CurrentPage: 0, PageSize: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.listQuery.CurrentPage != 1 || repo.listQuery.PageSize != 20 || repo.listQuery.RequestID != "rid" || repo.listQuery.AppID == nil || *repo.listQuery.AppID != 3 {
+	if repo.listQuery.CurrentPage != 1 || repo.listQuery.PageSize != 20 || repo.listQuery.RequestID != "rid" || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
 		t.Fatalf("unexpected query: %#v", repo.listQuery)
 	}
-	if len(res.List) != 1 || res.List[0].LatencyStr != "1.53s" || res.List[0].RunStatusName == "" || res.List[0].AppName != "app" || res.List[0].AgentName != "app" {
+	if len(res.List) != 1 || res.List[0].LatencyStr != "1.53s" || res.List[0].RunStatusName == "" {
 		t.Fatalf("unexpected list response: %#v", res)
 	}
 }
@@ -88,14 +88,14 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	meta := `{"tenant":"admin"}`
 	payload := `{"delta":"ok"}`
 	repo := &fakeRepository{
-		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AppID: 3, AppName: "app", ProviderID: 2, ProviderName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: enum.AIRunStatusSuccess, MetaJSON: &meta, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
+		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: enum.AIRunStatusSuccess, MetaJSON: &meta, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
 		events: []EventRow{{ID: 2, Seq: 1, EventID: "1-0", EventType: "ai.response.delta.v1", DeltaText: "ok", PayloadJSON: &payload}},
 	}
 	res, appErr := NewService(repo).Detail(context.Background(), 1)
 	if appErr != nil {
 		t.Fatalf("Detail returned error: %v", appErr)
 	}
-	if res.UserMessage == nil || res.AssistantMessage == nil || len(res.Events) != 1 || res.Events[0].EventType != "ai.response.delta.v1" || len(res.Steps) != 0 || res.AppName != "app" {
+	if res.UserMessage == nil || res.AssistantMessage == nil || len(res.Events) != 1 || res.Events[0].EventType != "ai.response.delta.v1" || len(res.Steps) != 0 || res.AgentName != "agent" {
 		t.Fatalf("unexpected detail: %#v", res)
 	}
 }
@@ -112,13 +112,13 @@ func TestStatsSummaryComputesRatesAndTotals(t *testing.T) {
 }
 
 func TestStatsListsArePaginatedAndNormalized(t *testing.T) {
-	appID := int64(5)
-	repo := &fakeRepository{byAgent: []StatsByAgentRow{{AppID: 5, AppName: "app", StatsMetricRow: StatsMetricRow{TotalRuns: 2}}}, metricTotal: 1}
-	res, appErr := NewService(repo).StatsByAgent(context.Background(), StatsListQuery{CurrentPage: 0, PageSize: 0, AgentID: &appID})
+	agentID := int64(5)
+	repo := &fakeRepository{byAgent: []StatsByAgentRow{{AgentID: 5, AgentName: "agent", StatsMetricRow: StatsMetricRow{TotalRuns: 2}}}, metricTotal: 1}
+	res, appErr := NewService(repo).StatsByAgent(context.Background(), StatsListQuery{CurrentPage: 0, PageSize: 0, AgentID: &agentID})
 	if appErr != nil {
 		t.Fatalf("StatsByAgent returned error: %v", appErr)
 	}
-	if repo.metricQuery.CurrentPage != 1 || repo.metricQuery.PageSize != 20 || repo.metricQuery.AppID == nil || *repo.metricQuery.AppID != 5 || len(res.List) != 1 || res.List[0].AppName != "app" || res.List[0].AgentName != "app" {
+	if repo.metricQuery.CurrentPage != 1 || repo.metricQuery.PageSize != 20 || repo.metricQuery.AgentID == nil || *repo.metricQuery.AgentID != 5 || len(res.List) != 1 {
 		t.Fatalf("unexpected stats list: query=%#v res=%#v", repo.metricQuery, res)
 	}
 }

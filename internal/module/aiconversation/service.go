@@ -49,9 +49,9 @@ func (s *Service) Detail(ctx context.Context, userID int64, id int64) (*DetailRe
 		return nil, appErr
 	}
 	repo, _ := s.requireRepository()
-	appName, err := repo.AppName(ctx, row.AppID)
+	appName, err := repo.AgentName(ctx, row.AgentID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
 	item := detailItem(*row, appName)
 	return &item, nil
@@ -148,16 +148,16 @@ func (s *Service) requireOwnedConversation(ctx context.Context, userID int64, id
 }
 
 func (s *Service) normalizeCreate(ctx context.Context, repo Repository, userID int64, input MutationInput) (Conversation, *apperror.Error) {
-	appID := effectiveAppID(input.AppID, input.AgentID)
-	if appID <= 0 {
-		return Conversation{}, apperror.BadRequest("AI应用ID不能为空")
+	agentID := input.AgentID
+	if agentID <= 0 {
+		return Conversation{}, apperror.BadRequest("AI智能体ID不能为空")
 	}
-	ok, err := repo.ActiveAppExists(ctx, appID)
+	ok, err := repo.ActiveAgentExists(ctx, agentID)
 	if err != nil {
-		return Conversation{}, apperror.Wrap(apperror.CodeInternal, 500, "校验AI应用失败", err)
+		return Conversation{}, apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体失败", err)
 	}
 	if !ok {
-		return Conversation{}, apperror.BadRequest("关联的AI应用不存在或已禁用")
+		return Conversation{}, apperror.BadRequest("关联的AI智能体不存在或已禁用")
 	}
 	title, appErr := normalizeTitle(input.Title, false)
 	if appErr != nil {
@@ -167,16 +167,9 @@ func (s *Service) normalizeCreate(ctx context.Context, repo Repository, userID i
 		title = "新会话"
 	}
 	return Conversation{
-		UserID: userID, AppID: appID, Title: title,
+		UserID: userID, AgentID: agentID, Title: title,
 		Status: enum.CommonYes, IsDel: enum.CommonNo,
 	}, nil
-}
-
-func effectiveAppID(appID int64, legacyAgentID int64) int64 {
-	if appID > 0 {
-		return appID
-	}
-	return legacyAgentID
 }
 
 func normalizeListQuery(userID int64, query ListQuery) ListQuery {
@@ -220,8 +213,7 @@ func listItem(row ListRow) ListItem {
 	c := row.Conversation
 	return ListItem{
 		ID: c.ID, UserID: c.UserID,
-		AppID: c.AppID, AppName: row.AppName,
-		AgentID: c.AppID, AgentName: row.AppName,
+		AgentID: c.AgentID, AgentName: row.AgentName,
 		Title:         c.Title,
 		LastMessageAt: formatOptionalTime(c.LastMessageAt), Status: c.Status, StatusName: statusName(c.Status),
 		CreatedAt: formatTime(c.CreatedAt), UpdatedAt: formatTime(c.UpdatedAt),
@@ -231,8 +223,7 @@ func listItem(row ListRow) ListItem {
 func detailItem(row Conversation, appName string) DetailResponse {
 	return DetailResponse{
 		ID: row.ID, UserID: row.UserID,
-		AppID: row.AppID, AppName: appName,
-		AgentID: row.AppID, AgentName: appName,
+		AgentID: row.AgentID, AgentName: appName,
 		Title:         row.Title,
 		LastMessageAt: formatOptionalTime(row.LastMessageAt), Status: row.Status,
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),

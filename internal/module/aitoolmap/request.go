@@ -10,13 +10,13 @@ type listRequest struct {
 	ToolType    string  `form:"tool_type" binding:"omitempty,oneof=dify_tool workflow_node admin_action_gateway http_reference"`
 	RiskLevel   string  `form:"risk_level" binding:"omitempty,oneof=low medium high"`
 	ProviderID  uint64  `form:"provider_id" binding:"omitempty,gt=0"`
-	AppID       *uint64 `form:"app_id" binding:"omitempty,gt=0"`
+	AgentID     *uint64 `form:"agent_id" binding:"omitempty,gt=0"`
 	Status      *int    `form:"status" binding:"omitempty,common_status"`
 }
 
 type mutationRequest struct {
 	ProviderID     uint64          `json:"provider_id" binding:"required,gt=0"`
-	AppID          *uint64         `json:"app_id" binding:"omitempty,gt=0"`
+	AgentID        *uint64         `json:"agent_id" binding:"omitempty,gt=0"`
 	Name           string          `json:"name" binding:"required,max=128"`
 	Code           string          `json:"code" binding:"required,max=128"`
 	ToolType       string          `json:"tool_type" binding:"required,oneof=dify_tool workflow_node admin_action_gateway http_reference"`

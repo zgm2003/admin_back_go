@@ -9,7 +9,7 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
-	"admin_back_go/internal/module/aiapp"
+	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
 	"admin_back_go/internal/module/aiknowledgemap"
@@ -122,7 +122,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		),
 	)
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
-	aiAppService := aiapp.NewService(aiapp.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
+	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiToolMapService := aitoolmap.NewService(aitoolmap.NewGormRepository(resources.DB))
 	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
@@ -270,7 +270,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		ClientVersionService:    clientVersionService,
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
-		AiAppService:            aiAppService,
+		AiAgentService:          aiAgentService,
 		AiProviderService:       aiProviderService,
 		AiKnowledgeMapService:   aiKnowledgeMapService,
 		AiMessageService:        aiMessageService,

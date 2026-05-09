@@ -33,7 +33,7 @@ type ListQuery struct {
 	ToolType    string
 	RiskLevel   string
 	ProviderID  uint64
-	AppID       *uint64
+	AgentID     *uint64
 	Status      *int
 }
 
@@ -54,7 +54,7 @@ type ToolMapDTO struct {
 	ProviderID     uint64          `json:"provider_id"`
 	ProviderName   string          `json:"provider_name"`
 	EngineType     string          `json:"engine_type"`
-	AppID          *uint64         `json:"app_id"`
+	AgentID        *uint64         `json:"agent_id"`
 	Name           string          `json:"name"`
 	Code           string          `json:"code"`
 	ToolType       string          `json:"tool_type"`
@@ -72,7 +72,7 @@ type ToolMapDTO struct {
 
 type MutationInput struct {
 	ProviderID     uint64
-	AppID          *uint64
+	AgentID        *uint64
 	Name           string
 	Code           string
 	ToolType       string

@@ -36,7 +36,7 @@ func (r *GormRepository) ActiveAgentExists(ctx context.Context, id int64) (bool,
 		return false, nil
 	}
 	var count int64
-	err := r.db.WithContext(ctx).Table("ai_apps").
+	err := r.db.WithContext(ctx).Table("ai_agents").
 		Where("id = ?", id).
 		Where("status = ?", enum.CommonYes).
 		Where("is_del = ?", enum.CommonNo).
@@ -44,34 +44,34 @@ func (r *GormRepository) ActiveAgentExists(ctx context.Context, id int64) (bool,
 	return count > 0, err
 }
 
-func (r *GormRepository) DefaultActiveApp(ctx context.Context) (*AppEngineConfig, error) {
+func (r *GormRepository) DefaultActiveAgent(ctx context.Context) (*AgentEngineConfig, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var row AppEngineConfig
-	err := r.appRuntimeDB(ctx).Order("a.id DESC").Limit(1).Scan(&row).Error
+	var row AgentEngineConfig
+	err := r.agentRuntimeDB(ctx).Order("a.id DESC").Limit(1).Scan(&row).Error
 	if err != nil {
 		return nil, err
 	}
-	if row.AppID == 0 {
+	if row.AgentID == 0 {
 		return nil, nil
 	}
 	return &row, nil
 }
 
-func (r *GormRepository) AppForRuntime(ctx context.Context, appID uint64) (*AppEngineConfig, error) {
+func (r *GormRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	if appID == 0 {
+	if agentID == 0 {
 		return nil, nil
 	}
-	var row AppEngineConfig
-	err := r.appRuntimeDB(ctx).Where("a.id = ?", appID).Limit(1).Scan(&row).Error
+	var row AgentEngineConfig
+	err := r.agentRuntimeDB(ctx).Where("a.id = ?", agentID).Limit(1).Scan(&row).Error
 	if err != nil {
 		return nil, err
 	}
-	if row.AppID == 0 {
+	if row.AgentID == 0 {
 		return nil, nil
 	}
 	return &row, nil
@@ -97,15 +97,14 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 	if now.IsZero() {
 		now = time.Now()
 	}
-	appID := uint64(input.AgentID)
-	record := &RunStartRecord{RequestID: input.RequestID, AgentID: input.AgentID, AppID: appID, IsNew: input.ConversationID == 0}
+	agentID := uint64(input.AgentID)
+	record := &RunStartRecord{RequestID: input.RequestID, AgentID: input.AgentID, IsNew: input.ConversationID == 0}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		conversationID := input.ConversationID
 		if conversationID == 0 {
 			conversation := Conversation{
 				UserID:        input.UserID,
-				AgentID:       input.AgentID,
-				AppID:         appID,
+				AgentID:       agentID,
 				Title:         titleFromContent(input.Content),
 				LastMessageAt: &now,
 				Status:        enum.CommonYes,
@@ -133,8 +132,7 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 			RunUID:         uuid.NewString(),
 			RequestID:      input.RequestID,
 			UserID:         input.UserID,
-			AgentID:        input.AgentID,
-			AppID:          appID,
+			AgentID:        agentID,
 			ConversationID: conversationID,
 			UserMessageID:  &message.ID,
 			RunStatus:      enum.AIRunStatusRunning,
@@ -193,18 +191,18 @@ func (r *GormRepository) RunForExecute(ctx context.Context, runID int64) (*RunEx
 			content = msg.Content
 		}
 	}
-	app, err := r.AppForRuntime(ctx, run.AppID)
+	agent, err := r.AgentForRuntime(ctx, run.AgentID)
 	if err != nil {
 		return nil, err
 	}
-	if app == nil {
+	if agent == nil {
 		return &RunExecutionRecord{Run: run, UserMessageContent: content}, nil
 	}
 	var conversation Conversation
 	if err := r.db.WithContext(ctx).Where("id = ?", run.ConversationID).First(&conversation).Error; err == nil {
-		app.ConversationEngineID = conversation.EngineConversationID
+		agent.ConversationEngineID = conversation.EngineConversationID
 	}
-	return &RunExecutionRecord{Run: run, UserMessageContent: content, App: *app}, nil
+	return &RunExecutionRecord{Run: run, UserMessageContent: content, Agent: *agent}, nil
 }
 
 func (r *GormRepository) AssistantMessage(ctx context.Context, id int64) (*Message, error) {
@@ -370,17 +368,17 @@ func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, message str
 	return res.RowsAffected, res.Error
 }
 
-func (r *GormRepository) appRuntimeDB(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Table("ai_apps AS a").
-		Select(`a.id AS app_id,
-			a.name AS app_name,
-			a.app_type AS app_type,
+func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
+	return r.db.WithContext(ctx).Table("ai_agents AS a").
+		Select(`a.id AS agent_id,
+			a.name AS agent_name,
+			a.agent_type AS agent_type,
 			a.provider_id AS provider_id,
-			a.engine_app_id AS engine_app_id,
-			a.engine_app_api_key_enc AS engine_app_api_key_enc,
+			a.external_agent_id AS external_agent_id,
+			a.external_agent_api_key_enc AS external_agent_api_key_enc,
 			a.runtime_config_json AS runtime_config_json,
 			a.model_snapshot_json AS model_snapshot_json,
-			a.status AS app_status,
+			a.status AS agent_status,
 			e.engine_type AS engine_type,
 			e.base_url AS engine_base_url,
 			e.api_key_enc AS engine_api_key_enc,
@@ -407,7 +405,7 @@ func (r *GormRepository) upsertUsageDaily(tx *gorm.DB, runID int64, failed bool)
 	}
 	row := map[string]any{
 		"usage_date":        usageDate,
-		"app_id":            run.AppID,
+		"agent_id":          run.AgentID,
 		"provider_id":       run.ProviderID,
 		"user_id":           run.UserID,
 		"run_count":         1,
@@ -419,7 +417,7 @@ func (r *GormRepository) upsertUsageDaily(tx *gorm.DB, runID int64, failed bool)
 		"latency_ms_total":  run.LatencyMS,
 	}
 	return tx.Table("ai_usage_daily").Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "usage_date"}, {Name: "app_id"}, {Name: "provider_id"}, {Name: "user_id"}},
+		Columns: []clause.Column{{Name: "usage_date"}, {Name: "agent_id"}, {Name: "provider_id"}, {Name: "user_id"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"run_count":         gorm.Expr("run_count + VALUES(run_count)"),
 			"fail_count":        gorm.Expr("fail_count + VALUES(fail_count)"),

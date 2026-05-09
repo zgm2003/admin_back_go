@@ -202,7 +202,7 @@ function Test-HasProperty($Value, [string]$Name) {
 
 function Assert-NoAISecretFields($Value, [string]$Label) {
   $json = $Value | ConvertTo-Json -Depth 24
-  foreach ($secretField in @('api_key_enc', 'engine_app_api_key_enc', 'api_key":', 'engine_app_api_key":', 'Authorization', 'Bearer ')) {
+  foreach ($secretField in @('api_key_enc', 'external_agent_api_key_enc', 'api_key":', 'external_agent_api_key":', 'Authorization', 'Bearer ')) {
     if ($json -like "*$secretField*") {
       throw "$Label leaked AI secret marker '$secretField': $json"
     }
@@ -881,7 +881,7 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/apps', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
+  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -896,10 +896,10 @@ function Assert-UsersInitAIRoutes($Response) {
     GoodsPresent = $retiredPresent['/ai/goods']
     CinePresent = $retiredPresent['/ai/cine']
     ModelsPresent = $retiredPresent[$retiredAINameRoutes['models']]
-    AgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
+    RetiredAgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
     PromptsPresent = $retiredPresent[$retiredAINameRoutes['prompts']]
     ProvidersPresent = $requiredPresent['/ai/providers']
-    AppsPresent = $requiredPresent['/ai/apps']
+    AgentsPresent = $requiredPresent['/ai/agents']
     ChatPresent = $requiredPresent['/ai/chat']
     KnowledgePresent = $requiredPresent['/ai/knowledge']
     RunsPresent = $requiredPresent['/ai/runs']
@@ -968,39 +968,50 @@ function Assert-AIProviderList($Response) {
   }
 }
 
-function Assert-AIAppInit($Response) {
-  Assert-ApiOK $Response 'AI app init'
-  Assert-NoAISecretFields $Response 'AI app init'
+function Assert-AIAgentInit($Response) {
+  Assert-ApiOK $Response 'AI agent init'
+  Assert-NoAISecretFields $Response 'AI agent init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI app init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI agent init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($field in @('app_type_arr', 'response_mode_arr', 'binding_type_arr', 'common_status_arr', 'provider_options')) {
+  foreach ($field in @('agent_type_arr', 'scene_arr', 'response_mode_arr', 'binding_type_arr', 'common_status_arr', 'provider_options', 'provider_model_options')) {
     if (-not (Test-HasProperty $Response.data.dict $field)) {
-      throw "AI app init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
+      throw "AI agent init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
+  $sceneValues = @((Get-ObjectArray $Response.data.dict.scene_arr) | ForEach-Object { [string]$_.value })
+  if (-not ($sceneValues -contains 'chat')) {
+    throw "AI agent init missing chat scene: $($Response | ConvertTo-Json -Depth 12)"
+  }
   return [pscustomobject]@{
-    AppTypeCount = (Get-ObjectArray $Response.data.dict.app_type_arr).Count
+    AgentTypeCount = (Get-ObjectArray $Response.data.dict.agent_type_arr).Count
+    SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
     ResponseModeCount = (Get-ObjectArray $Response.data.dict.response_mode_arr).Count
     BindingTypeCount = (Get-ObjectArray $Response.data.dict.binding_type_arr).Count
     ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
+    ProviderModelCount = (Get-ObjectArray $Response.data.dict.provider_model_options).Count
   }
 }
 
-function Assert-AIAppList($Response) {
-  Assert-ApiOK $Response 'AI app list'
-  Assert-NoAISecretFields $Response 'AI app list'
+function Assert-AIAgentList($Response) {
+  Assert-ApiOK $Response 'AI agent list'
+  Assert-NoAISecretFields $Response 'AI agent list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI app list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI agent list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.app_type)) {
-      throw "AI app item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.agent_type)) {
+      throw "AI agent item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
-    if ((Test-HasProperty $item 'engine_app_api_key') -or (Test-HasProperty $item 'engine_app_api_key_enc')) {
-      throw "AI app list leaked key fields: $($item | ConvertTo-Json -Depth 12)"
+    foreach ($field in @('model_id', 'scenes', 'system_prompt', 'avatar')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "AI agent item missing MVP field ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    if ((Test-HasProperty $item 'external_agent_api_key') -or (Test-HasProperty $item 'external_agent_api_key_enc')) {
+      throw "AI agent list leaked key fields: $($item | ConvertTo-Json -Depth 12)"
     }
   }
 
@@ -1010,16 +1021,16 @@ function Assert-AIAppList($Response) {
   }
 }
 
-function Assert-AIAppOptions($Response) {
-  Assert-ApiOK $Response 'AI app options'
-  Assert-NoAISecretFields $Response 'AI app options'
+function Assert-AIAgentOptions($Response) {
+  Assert-ApiOK $Response 'AI agent options'
+  Assert-NoAISecretFields $Response 'AI agent options'
 
   if ($null -eq $Response.data.list) {
-    throw "AI app options missing list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI agent options missing list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
     if ([int64]$item.value -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.label)) {
-      throw "AI app option shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+      throw "AI agent option shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }
 
@@ -1132,8 +1143,8 @@ function Assert-AIRunInit($Response) {
       throw "AI run status dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
-  if (-not (Test-HasProperty $Response.data.dict 'appArr')) {
-    throw "AI run init missing appArr for app-backed runtime: $($Response | ConvertTo-Json -Depth 12)"
+  if (-not (Test-HasProperty $Response.data.dict 'agentArr')) {
+    throw "AI run init missing agentArr for agent-backed runtime: $($Response | ConvertTo-Json -Depth 12)"
   }
   if (-not (Test-HasProperty $Response.data.dict 'providerArr')) {
     throw "AI run init missing providerArr for provider-backed runtime: $($Response | ConvertTo-Json -Depth 12)"
@@ -1141,7 +1152,7 @@ function Assert-AIRunInit($Response) {
 
   return [pscustomobject]@{
     StatusCount = $statuses.Count
-    AppCount = (Get-ObjectArray $Response.data.dict.appArr).Count
+    AgentCount = (Get-ObjectArray $Response.data.dict.agentArr).Count
     ProviderCount = (Get-ObjectArray $Response.data.dict.providerArr).Count
   }
 }
@@ -1154,13 +1165,7 @@ function Assert-AIRunList($Response) {
     throw "AI run list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ((Test-HasProperty $item 'agent_id') -and -not (Test-HasProperty $item 'app_id')) {
-      throw "AI run list item has legacy agent_id without app_id: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ((Test-HasProperty $item 'agent_name') -and -not (Test-HasProperty $item 'app_name')) {
-      throw "AI run list item has legacy agent_name without app_name: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
+      }
 
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
@@ -1193,7 +1198,7 @@ function Assert-AIChatExplicitProviderFailure($Response) {
     throw "AI chat fallback provider leaked into production smoke path: $($Response | ConvertTo-Json -Depth 12)"
   }
   if ($combined -notmatch 'AI|应用|供应商|智能体|引擎|配置|Key|未配置') {
-    throw "AI chat failure was not an explicit provider/app config failure: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI chat failure was not an explicit provider/agent config failure: $($Response | ConvertTo-Json -Depth 12)"
   }
   return [pscustomobject]@{
     Code = [int]$Response.code
@@ -2253,20 +2258,20 @@ func main() {
     -TimeoutSec 10
   $aiProviderListSummary = Assert-AIProviderList $aiProviderList
 
-  $aiAppInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-apps/page-init" `
+  $aiAgentInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiAppInitSummary = Assert-AIAppInit $aiAppInit
+  $aiAgentInitSummary = Assert-AIAgentInit $aiAgentInit
 
-  $aiAppList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-apps?current_page=1&page_size=20" `
+  $aiAgentList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiAppListSummary = Assert-AIAppList $aiAppList
+  $aiAgentListSummary = Assert-AIAgentList $aiAgentList
 
-  $aiAppOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-apps/options" `
+  $aiAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiAppOptionsSummary = Assert-AIAppOptions $aiAppOptions
+  $aiAgentOptionsSummary = Assert-AIAgentOptions $aiAgentOptions
 
   $aiKnowledgeMapInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-maps/page-init" `
     -Headers $authHeaders `
@@ -2309,16 +2314,16 @@ func main() {
   $aiRunStatsSummary = Assert-AIRunStats $aiRunStats
 
   $aiChatProviderFailure = $null
-  $aiSmokeAppID = [uint64]0
-  if (-not [string]::IsNullOrWhiteSpace($env:AI_SMOKE_APP_ID)) {
-    $aiSmokeAppID = [uint64]$env:AI_SMOKE_APP_ID
+  $aiSmokeAgentID = [uint64]0
+  if (-not [string]::IsNullOrWhiteSpace($env:AI_SMOKE_AGENT_ID)) {
+    $aiSmokeAgentID = [uint64]$env:AI_SMOKE_AGENT_ID
   }
-  if ($EnableAiProviderProbe -and $aiSmokeAppID -gt 0) {
+  if ($EnableAiProviderProbe -and $aiSmokeAgentID -gt 0) {
     $aiChatProbe = Invoke-JsonRequestAllowFailure `
       'POST' `
       "$baseURL/api/admin/v1/ai-chat/runs" `
       $authHeaders `
-      @{ app_id = $aiSmokeAppID; content = "full smoke AI provider probe $(Get-Date -Format o)" }
+      @{ agent_id = $aiSmokeAgentID; content = "full smoke AI provider probe $(Get-Date -Format o)" }
     Assert-ApiOK $aiChatProbe 'AI chat provider probe'
     if ([int64]$aiChatProbe.data.run_id -le 0) {
       throw "AI chat provider probe missing run_id: $($aiChatProbe | ConvertTo-Json -Depth 12)"
@@ -2328,7 +2333,7 @@ func main() {
       'POST' `
       "$baseURL/api/admin/v1/ai-chat/runs" `
       $authHeaders `
-      @{ app_id = 999999999; content = 'full smoke expects explicit AI config failure' }
+      @{ agent_id = 999999999; content = 'full smoke expects explicit AI config failure' }
     $aiChatProviderFailure = Assert-AIChatExplicitProviderFailure $aiChatProbe
   }
 
@@ -2549,15 +2554,17 @@ func main() {
     ai_provider_list_code = $aiProviderList.code
     ai_provider_list_count = $aiProviderListSummary.ListCount
     ai_provider_total = $aiProviderListSummary.Total
-    ai_app_init_code = $aiAppInit.code
-    ai_app_type_dict_count = $aiAppInitSummary.AppTypeCount
-    ai_app_response_mode_dict_count = $aiAppInitSummary.ResponseModeCount
-    ai_app_provider_count = $aiAppInitSummary.ProviderCount
-    ai_app_list_code = $aiAppList.code
-    ai_app_list_count = $aiAppListSummary.ListCount
-    ai_app_total = $aiAppListSummary.Total
-    ai_app_options_code = $aiAppOptions.code
-    ai_app_options_count = $aiAppOptionsSummary.OptionCount
+    ai_agent_init_code = $aiAgentInit.code
+    ai_agent_type_dict_count = $aiAgentInitSummary.AgentTypeCount
+    ai_agent_scene_dict_count = $aiAgentInitSummary.SceneCount
+    ai_agent_response_mode_dict_count = $aiAgentInitSummary.ResponseModeCount
+    ai_agent_provider_count = $aiAgentInitSummary.ProviderCount
+    ai_agent_provider_model_count = $aiAgentInitSummary.ProviderModelCount
+    ai_agent_list_code = $aiAgentList.code
+    ai_agent_list_count = $aiAgentListSummary.ListCount
+    ai_agent_total = $aiAgentListSummary.Total
+    ai_agent_options_code = $aiAgentOptions.code
+    ai_agent_options_count = $aiAgentOptionsSummary.OptionCount
     ai_knowledge_map_init_code = $aiKnowledgeMapInit.code
     ai_knowledge_map_visibility_dict_count = $aiKnowledgeMapInitSummary.VisibilityCount
     ai_knowledge_map_source_type_count = $aiKnowledgeMapInitSummary.SourceTypeCount
@@ -2582,17 +2589,17 @@ func main() {
     ai_run_stats_code = $aiRunStats.code
     ai_run_stats_total = $aiRunStatsSummary.TotalRuns
     ai_run_stats_fail = $aiRunStatsSummary.FailRuns
-    ai_run_app_dict_count = $aiRunInitSummary.AppCount
+    ai_run_agent_dict_count = $aiRunInitSummary.AgentCount
     ai_run_provider_dict_count = $aiRunInitSummary.ProviderCount
     ai_chat_provider_failure_code = if ($null -eq $aiChatProviderFailure) { 0 } else { $aiChatProviderFailure.Code }
-    ai_chat_provider_probe_enabled = [bool]($EnableAiProviderProbe -and $aiSmokeAppID -gt 0)
+    ai_chat_provider_probe_enabled = [bool]($EnableAiProviderProbe -and $aiSmokeAgentID -gt 0)
     ai_goods_route_present = $usersInitAIRouteSummary.GoodsPresent
     ai_cine_route_present = $usersInitAIRouteSummary.CinePresent
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
-    ai_agents_route_present = $usersInitAIRouteSummary.AgentsPresent
+    retired_ai_agents_route_present = $usersInitAIRouteSummary.RetiredAgentsPresent
     ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
     ai_providers_route_present = $usersInitAIRouteSummary.ProvidersPresent
-    ai_apps_route_present = $usersInitAIRouteSummary.AppsPresent
+    ai_agents_route_present = $usersInitAIRouteSummary.AgentsPresent
     ai_chat_route_present = $usersInitAIRouteSummary.ChatPresent
     ai_knowledge_route_present = $usersInitAIRouteSummary.KnowledgePresent
     ai_runs_route_present = $usersInitAIRouteSummary.RunsPresent
@@ -2714,3 +2721,4 @@ func main() {
     Write-Host "Full smoke logs kept: $outLog $errLog"
   }
 }
+

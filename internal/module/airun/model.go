@@ -6,7 +6,7 @@ type Run struct {
 	ID                 int64     `gorm:"column:id;primaryKey"`
 	RunUID             string    `gorm:"column:run_uid"`
 	RequestID          string    `gorm:"column:request_id"`
-	AppID              int64     `gorm:"column:app_id"`
+	AgentID            int64     `gorm:"column:agent_id"`
 	ProviderID         int64     `gorm:"column:provider_id"`
 	EngineTaskID       string    `gorm:"column:engine_task_id"`
 	EngineRunID        string    `gorm:"column:engine_run_id"`

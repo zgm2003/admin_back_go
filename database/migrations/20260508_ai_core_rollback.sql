@@ -2,8 +2,8 @@
 -- Dify sidecar data is not touched. External Dify cleanup is an operator step.
 
 DROP TABLE IF EXISTS ai_providers;
-DROP TABLE IF EXISTS ai_apps;
-DROP TABLE IF EXISTS ai_app_bindings;
+DROP TABLE IF EXISTS ai_agents;
+DROP TABLE IF EXISTS ai_agent_bindings;
 DROP TABLE IF EXISTS ai_conversations;
 DROP TABLE IF EXISTS ai_messages;
 DROP TABLE IF EXISTS ai_runs;

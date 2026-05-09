@@ -87,13 +87,13 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id/models"):                    "ai_provider_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-providers/:id/status"):                  "ai_provider_status",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-providers/:id"):                        "ai_provider_del",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps"):                                   "ai_app_add",
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-apps/:id"):                                "ai_app_edit",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps/:id/test"):                          "ai_app_test",
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-apps/:id/status"):                       "ai_app_status",
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-apps/:id"):                             "ai_app_del",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps/:id/bindings"):                      "ai_app_binding_add",
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-app-bindings/:id"):                     "ai_app_binding_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents"):                                 "ai_agent_add",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-agents/:id"):                              "ai_agent_edit",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents/:id/test"):                        "ai_agent_test",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-agents/:id/status"):                     "ai_agent_status",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-agents/:id"):                           "ai_agent_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents/:id/bindings"):                    "ai_agent_binding_add",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-agent-bindings/:id"):                   "ai_agent_binding_del",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-knowledge-maps"):                         "ai_knowledge_map_add",
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-knowledge-maps/:id"):                      "ai_knowledge_map_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-knowledge-maps/:id/status"):             "ai_knowledge_map_status",
@@ -487,40 +487,40 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Action: "delete",
 			Title:  "删除AI供应商",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps"): {
-			Module: "ai_app",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents"): {
+			Module: "ai_agent",
 			Action: "create",
-			Title:  "新增AI应用",
+			Title:  "新增AI智能体",
 		},
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-apps/:id"): {
-			Module: "ai_app",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-agents/:id"): {
+			Module: "ai_agent",
 			Action: "update",
-			Title:  "编辑AI应用",
+			Title:  "编辑AI智能体",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps/:id/test"): {
-			Module: "ai_app",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents/:id/test"): {
+			Module: "ai_agent",
 			Action: "test",
-			Title:  "测试AI应用",
+			Title:  "测试AI智能体",
 		},
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-apps/:id/status"): {
-			Module: "ai_app",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-agents/:id/status"): {
+			Module: "ai_agent",
 			Action: "change_status",
-			Title:  "修改AI应用状态",
+			Title:  "修改AI智能体状态",
 		},
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-apps/:id"): {
-			Module: "ai_app",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-agents/:id"): {
+			Module: "ai_agent",
 			Action: "delete",
-			Title:  "删除AI应用",
+			Title:  "删除AI智能体",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps/:id/bindings"): {
-			Module: "ai_app_binding",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents/:id/bindings"): {
+			Module: "ai_agent_binding",
 			Action: "create",
-			Title:  "新增AI应用绑定",
+			Title:  "新增AI智能体绑定",
 		},
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-app-bindings/:id"): {
-			Module: "ai_app_binding",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-agent-bindings/:id"): {
+			Module: "ai_agent_binding",
 			Action: "delete",
-			Title:  "删除AI应用绑定",
+			Title:  "删除AI智能体绑定",
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-knowledge-maps"):                         {Module: "ai_knowledge_map", Action: "create", Title: "新增AI知识库映射"},
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-knowledge-maps/:id"):                      {Module: "ai_knowledge_map", Action: "update", Title: "编辑AI知识库映射"},
