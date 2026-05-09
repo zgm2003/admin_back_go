@@ -202,7 +202,7 @@ function Test-HasProperty($Value, [string]$Name) {
 
 function Assert-NoAISecretFields($Value, [string]$Label) {
   $json = $Value | ConvertTo-Json -Depth 24
-  foreach ($secretField in @('api_key_enc', 'external_agent_api_key_enc', 'api_key":', 'external_agent_api_key":', 'Authorization', 'Bearer ')) {
+  foreach ($secretField in @('api_key_enc', 'api_key":', 'Authorization', 'Bearer ')) {
     if ($json -like "*$secretField*") {
       throw "$Label leaked AI secret marker '$secretField': $json"
     }
@@ -975,7 +975,7 @@ function Assert-AIAgentInit($Response) {
   if ($null -eq $Response.data.dict) {
     throw "AI agent init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($field in @('agent_type_arr', 'scene_arr', 'response_mode_arr', 'binding_type_arr', 'common_status_arr', 'provider_options', 'provider_model_options')) {
+  foreach ($field in @('scene_arr', 'binding_type_arr', 'common_status_arr', 'provider_options', 'provider_model_options')) {
     if (-not (Test-HasProperty $Response.data.dict $field)) {
       throw "AI agent init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
@@ -985,9 +985,7 @@ function Assert-AIAgentInit($Response) {
     throw "AI agent init missing chat scene: $($Response | ConvertTo-Json -Depth 12)"
   }
   return [pscustomobject]@{
-    AgentTypeCount = (Get-ObjectArray $Response.data.dict.agent_type_arr).Count
     SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
-    ResponseModeCount = (Get-ObjectArray $Response.data.dict.response_mode_arr).Count
     BindingTypeCount = (Get-ObjectArray $Response.data.dict.binding_type_arr).Count
     ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
     ProviderModelCount = (Get-ObjectArray $Response.data.dict.provider_model_options).Count
@@ -1002,7 +1000,7 @@ function Assert-AIAgentList($Response) {
     throw "AI agent list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.agent_type)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
       throw "AI agent item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
     foreach ($field in @('model_id', 'scenes', 'system_prompt', 'avatar')) {
@@ -1010,8 +1008,10 @@ function Assert-AIAgentList($Response) {
         throw "AI agent item missing MVP field ${field}: $($item | ConvertTo-Json -Depth 12)"
       }
     }
-    if ((Test-HasProperty $item 'external_agent_api_key') -or (Test-HasProperty $item 'external_agent_api_key_enc')) {
-      throw "AI agent list leaked key fields: $($item | ConvertTo-Json -Depth 12)"
+    foreach ($removedField in @('code', 'agent_type', 'agent_type_name', 'external_agent_id', 'external_agent_api_key', 'external_agent_api_key_enc', 'external_agent_api_key_hint', 'default_response_mode', 'runtime_config', 'runtime_config_json', 'model_snapshot_json')) {
+      if (Test-HasProperty $item $removedField) {
+        throw "AI agent list leaked removed field ${removedField}: $($item | ConvertTo-Json -Depth 12)"
+      }
     }
   }
 
@@ -2268,6 +2268,11 @@ func main() {
     -TimeoutSec 10
   $aiAgentListSummary = Assert-AIAgentList $aiAgentList
 
+  $aiAgentSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=chat" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  [void](Assert-AIAgentList $aiAgentSceneList)
+
   $aiAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2555,14 +2560,13 @@ func main() {
     ai_provider_list_count = $aiProviderListSummary.ListCount
     ai_provider_total = $aiProviderListSummary.Total
     ai_agent_init_code = $aiAgentInit.code
-    ai_agent_type_dict_count = $aiAgentInitSummary.AgentTypeCount
     ai_agent_scene_dict_count = $aiAgentInitSummary.SceneCount
-    ai_agent_response_mode_dict_count = $aiAgentInitSummary.ResponseModeCount
     ai_agent_provider_count = $aiAgentInitSummary.ProviderCount
     ai_agent_provider_model_count = $aiAgentInitSummary.ProviderModelCount
     ai_agent_list_code = $aiAgentList.code
     ai_agent_list_count = $aiAgentListSummary.ListCount
     ai_agent_total = $aiAgentListSummary.Total
+    ai_agent_scene_filter_code = $aiAgentSceneList.code
     ai_agent_options_code = $aiAgentOptions.code
     ai_agent_options_count = $aiAgentOptionsSummary.OptionCount
     ai_knowledge_map_init_code = $aiKnowledgeMapInit.code

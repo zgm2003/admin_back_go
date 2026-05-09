@@ -123,6 +123,22 @@ func TestCreateBuildsSafeKeyAndSignsCOS(t *testing.T) {
 	}
 }
 
+func TestCreateAcceptsAIAgentAvatarFolder(t *testing.T) {
+	signer := &fakeSigner{}
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), signer, Options{
+		Now:    func() time.Time { return time.Date(2026, 5, 9, 8, 0, 0, 0, time.UTC) },
+		Random: func(b []byte) (int, error) { copy(b, []byte{0x01, 0x02, 0x03, 0x04}); return len(b), nil },
+	})
+
+	got, appErr := service.Create(context.Background(), CreateInput{Folder: "ai-agents", FileName: "avatar.jpg", FileSize: 1024, FileKind: FileKindImage})
+	if appErr != nil {
+		t.Fatalf("unexpected error: %#v", appErr)
+	}
+	if !strings.HasPrefix(got.Key, "ai-agents/2026/05/09/") || signer.input.Key != got.Key {
+		t.Fatalf("unexpected ai agent avatar key: got=%#v signer=%#v", got, signer.input)
+	}
+}
+
 func TestCreateDoesNotExposeDriverSecrets(t *testing.T) {
 	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), &fakeSigner{}, Options{})
 

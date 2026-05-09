@@ -49,7 +49,7 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		Driver:         "cos",
 		ImageExt:       "png",
 		FileExt:        "pdf",
-		Folder:         "images",
+		Folder:         "ai-agents",
 		VerifyType:     "password",
 		NotifyType:     1,
 		NotifyLevel:    2,

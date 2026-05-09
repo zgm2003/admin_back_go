@@ -30,7 +30,6 @@ type Repository interface {
 	ListActiveProviders(ctx context.Context) ([]Provider, error)
 	GetActiveProvider(ctx context.Context, id uint64) (*Provider, error)
 	ListProviderModels(ctx context.Context, providerID uint64) ([]ProviderModel, error)
-	ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error)
 	Create(ctx context.Context, row Agent) (uint64, error)
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
@@ -59,11 +58,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]AgentWith
 	if strings.TrimSpace(query.Name) != "" {
 		db = db.Where("a.name LIKE ?", strings.TrimSpace(query.Name)+"%")
 	}
-	if strings.TrimSpace(query.Code) != "" {
-		db = db.Where("a.code = ?", strings.TrimSpace(query.Code))
-	}
-	if strings.TrimSpace(query.AgentType) != "" {
-		db = db.Where("a.agent_type = ?", strings.TrimSpace(query.AgentType))
+	if strings.TrimSpace(query.Scene) != "" {
+		db = db.Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", strings.TrimSpace(query.Scene))
 	}
 	if query.ProviderID > 0 {
 		db = db.Where("a.provider_id = ?", query.ProviderID)
@@ -157,21 +153,6 @@ func (r *GormRepository) ListProviderModels(ctx context.Context, providerID uint
 		return nil, err
 	}
 	return rows, nil
-}
-
-func (r *GormRepository) ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error) {
-	if r == nil || r.db == nil {
-		return false, ErrRepositoryNotConfigured
-	}
-	db := r.activeAgents(ctx).Model(&Agent{}).Where("code = ?", strings.TrimSpace(code))
-	if excludeID > 0 {
-		db = db.Where("id <> ?", excludeID)
-	}
-	var count int64
-	if err := db.Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
 }
 
 func (r *GormRepository) Create(ctx context.Context, row Agent) (uint64, error) {

@@ -124,20 +124,17 @@ type EngineFactory interface {
 }
 
 type AgentEngineConfig struct {
-	AgentID                uint64
-	AgentName              string
-	AgentType              string
-	ProviderID             uint64
-	EngineType             string
-	EngineBaseURL          string
-	EngineAPIKeyEnc        string
-	ExternalAgentID        string
-	ExternalAgentAPIKeyEnc string
-	RuntimeConfigJSON      string
-	ModelSnapshotJSON      string
-	ConversationEngineID   string
-	AgentStatus            int
-	EngineStatus           int
+	AgentID              uint64
+	AgentName            string
+	ModelID              string
+	ModelDisplayName     string
+	ProviderID           uint64
+	EngineType           string
+	EngineBaseURL        string
+	EngineAPIKeyEnc      string
+	ConversationEngineID string
+	AgentStatus          int
+	EngineStatus         int
 }
 
 type RunEventRecord struct {

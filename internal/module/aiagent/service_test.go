@@ -22,7 +22,6 @@ type fakeAIAgentRepository struct {
 	activeProviders  map[uint64]Provider
 	modelsByProvider map[uint64][]ProviderModel
 	connections      []Provider
-	existsCode       bool
 	existsBinding    bool
 	created          *Agent
 	updates          []map[string]any
@@ -81,10 +80,6 @@ func (f *fakeAIAgentRepository) ListProviderModels(ctx context.Context, provider
 		return nil, nil
 	}
 	return f.modelsByProvider[providerID], nil
-}
-
-func (f *fakeAIAgentRepository) ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error) {
-	return f.existsCode, nil
 }
 
 func (f *fakeAIAgentRepository) Create(ctx context.Context, row Agent) (uint64, error) {
@@ -147,15 +142,11 @@ func TestCreateRejectsMissingActiveProvider(t *testing.T) {
 	service := NewService(&fakeAIAgentRepository{}, secretbox.New("vault-key"), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
-		ProviderID:          99,
-		Name:                "客服助手",
-		Code:                "support_bot",
-		AgentType:           "chat",
-		ModelID:             "gpt-4.1-mini",
-		Scenes:              []string{"chat"},
-		DefaultResponseMode: "streaming",
-		RuntimeConfig:       map[string]any{},
-		Status:              enum.CommonYes,
+		ProviderID: 99,
+		Name:       "客服助手",
+		ModelID:    "gpt-4.1-mini",
+		Scenes:     []string{"chat"},
+		Status:     enum.CommonYes,
 	})
 
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "AI供应商不存在或已禁用" {
@@ -173,14 +164,12 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
-		ProviderID:    1,
-		Name:          "客服助手",
-		Code:          "support_bot",
-		ModelID:       "gpt-4.1-mini",
-		SystemPrompt:  "你是客服助手",
-		Avatar:        "https://cdn.example/avatar.png",
-		RuntimeConfig: map[string]any{},
-		Status:        enum.CommonYes,
+		ProviderID:   1,
+		Name:         "客服助手",
+		ModelID:      "gpt-4.1-mini",
+		SystemPrompt: "你是客服助手",
+		Avatar:       "https://cdn.example/avatar.png",
+		Status:       enum.CommonYes,
 	})
 
 	if appErr != nil {
@@ -188,9 +177,6 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 	}
 	if repo.created == nil {
 		t.Fatal("expected created agent")
-	}
-	if repo.created.AgentType != "chat" || repo.created.DefaultResponseMode != "streaming" {
-		t.Fatalf("expected default chat/streaming, got type=%q mode=%q", repo.created.AgentType, repo.created.DefaultResponseMode)
 	}
 	if repo.created.ModelID != "gpt-4.1-mini" || repo.created.ModelDisplayName != "GPT-4.1 mini" {
 		t.Fatalf("model selection not persisted: %#v", repo.created)
@@ -213,7 +199,6 @@ func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
 		Name:       "客服助手",
-		Code:       "support_bot",
 		ModelID:    "gpt-4o",
 		Scenes:     []string{"chat"},
 		Status:     enum.CommonYes,
@@ -234,7 +219,6 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
 		Name:       "客服助手",
-		Code:       "support_bot",
 		ModelID:    "gpt-4.1-mini",
 		Scenes:     []string{"chat", "rag"},
 		Status:     enum.CommonYes,
@@ -245,30 +229,23 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 	}
 }
 
-func TestListDTOExcludesEncryptedAndPlainAgentAPIKey(t *testing.T) {
+func TestListDTOExcludesSecretsAndOverdesignedFields(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	repo := &fakeAIAgentRepository{
 		rows: []AgentWithProvider{{
 			Agent: Agent{
-				ID:                      1,
-				ProviderID:              3,
-				Name:                    "客服助手",
-				Code:                    "support_bot",
-				AgentType:               "chat",
-				ExternalAgentID:         "external-agent-id",
-				ExternalAgentAPIKeyEnc:  "cipher-engine-agent-key",
-				ExternalAgentAPIKeyHint: "***-key",
-				DefaultResponseMode:     "streaming",
-				ModelID:                 "gpt-4.1-mini",
-				ModelDisplayName:        "GPT-4.1 mini",
-				ScenesJSON:              `["chat"]`,
-				SystemPrompt:            "你是客服助手",
-				Avatar:                  "https://cdn.example/avatar.png",
-				RuntimeConfigJSON:       `{"scene":"support"}`,
-				Status:                  enum.CommonYes,
-				IsDel:                   enum.CommonNo,
-				CreatedAt:               now,
-				UpdatedAt:               now,
+				ID:               1,
+				ProviderID:       3,
+				Name:             "客服助手",
+				ModelID:          "gpt-4.1-mini",
+				ModelDisplayName: "GPT-4.1 mini",
+				ScenesJSON:       `["chat"]`,
+				SystemPrompt:     "你是客服助手",
+				Avatar:           "https://cdn.example/avatar.png",
+				Status:           enum.CommonYes,
+				IsDel:            enum.CommonNo,
+				CreatedAt:        now,
+				UpdatedAt:        now,
 			},
 			ProviderName: "Dify",
 			EngineType:   "dify",
@@ -281,7 +258,7 @@ func TestListDTOExcludesEncryptedAndPlainAgentAPIKey(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected list to succeed, got %v", appErr)
 	}
-	if len(got.List) != 1 || got.List[0].ExternalAgentAPIKeyMasked != "***-key" {
+	if len(got.List) != 1 {
 		t.Fatalf("unexpected list response: %#v", got)
 	}
 	if got.List[0].ModelID != "gpt-4.1-mini" || len(got.List[0].Scenes) != 1 || got.List[0].Scenes[0] != "chat" || got.List[0].SystemPrompt != "你是客服助手" || got.List[0].Avatar == "" {
@@ -292,25 +269,10 @@ func TestListDTOExcludesEncryptedAndPlainAgentAPIKey(t *testing.T) {
 		t.Fatalf("marshal list response: %v", err)
 	}
 	body := string(encoded)
-	for _, forbidden := range []string{"external_agent_api_key_enc", "cipher-engine-agent-key", "plain-engine-agent-key", "external_agent_api_key\""} {
+	for _, forbidden := range []string{"code", "agent_type", "agent_type_name", "external_agent_id", "external_agent_api_key", "external_agent_api_key_enc", "external_agent_api_key_hint", "default_response_mode", "runtime_config", "runtime_config_json", "model_snapshot_json"} {
 		if strings.Contains(body, forbidden) {
-			t.Fatalf("list response leaked agent key data %q in %s", forbidden, body)
+			t.Fatalf("list response leaked removed agent field %q in %s", forbidden, body)
 		}
-	}
-}
-
-func TestCreateRejectsDuplicateCode(t *testing.T) {
-	repo := &fakeAIAgentRepository{
-		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
-		existsCode:       true,
-	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
-
-	_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "客服助手", Code: "support_bot", AgentType: "chat", ModelID: "gpt-4.1-mini", Scenes: []string{"chat"}, DefaultResponseMode: "streaming", Status: enum.CommonYes})
-
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "AI智能体编码已存在" {
-		t.Fatalf("expected duplicate code error, got %#v", appErr)
 	}
 }
 
@@ -330,9 +292,9 @@ func TestCreateBindingRejectsDuplicateScope(t *testing.T) {
 
 func TestOptionsExcludeDisabledAgents(t *testing.T) {
 	repo := &fakeAIAgentRepository{visibleAgents: []Agent{
-		{ID: 1, Name: "启用智能体", Code: "enabled", Status: enum.CommonYes, IsDel: enum.CommonNo},
-		{ID: 2, Name: "禁用智能体", Code: "disabled", Status: enum.CommonNo, IsDel: enum.CommonNo},
-		{ID: 3, Name: "删除智能体", Code: "deleted", Status: enum.CommonYes, IsDel: enum.CommonYes},
+		{ID: 1, Name: "启用智能体", Status: enum.CommonYes, IsDel: enum.CommonNo},
+		{ID: 2, Name: "禁用智能体", Status: enum.CommonNo, IsDel: enum.CommonNo},
+		{ID: 3, Name: "删除智能体", Status: enum.CommonYes, IsDel: enum.CommonYes},
 	}}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
@@ -340,45 +302,44 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected options to succeed, got %v", appErr)
 	}
-	if len(got.List) != 1 || got.List[0].Value != 1 || got.List[0].Code != "enabled" {
+	if len(got.List) != 1 || got.List[0].Value != 1 {
 		t.Fatalf("disabled/deleted agents must be excluded, got %#v", got.List)
 	}
 }
 
-func TestUpdateBlankExternalAgentAPIKeyKeepsExistingCiphertext(t *testing.T) {
+func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 	repo := &fakeAIAgentRepository{
-		rawByID:          map[uint64]Agent{5: {ID: 5, ExternalAgentAPIKeyEnc: "cipher-old", ExternalAgentAPIKeyHint: "***old", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		rawByID:          map[uint64]Agent{5: {ID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
-	appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "客服助手", Code: "support_bot", AgentType: "chat", ModelID: "gpt-4.1-mini", Scenes: []string{"chat"}, DefaultResponseMode: "streaming", Status: enum.CommonYes})
+	appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "客服助手", ModelID: "gpt-4.1-mini", Scenes: []string{"chat"}, Status: enum.CommonYes})
 	if appErr != nil {
 		t.Fatalf("expected update to succeed, got %v", appErr)
 	}
 	if len(repo.updates) != 1 {
 		t.Fatalf("expected one update, got %#v", repo.updates)
 	}
-	if _, ok := repo.updates[0]["external_agent_api_key_enc"]; ok {
-		t.Fatalf("blank agent key must not overwrite ciphertext: %#v", repo.updates[0])
-	}
-	if _, ok := repo.updates[0]["external_agent_api_key_hint"]; ok {
-		t.Fatalf("blank agent key must not overwrite key hint: %#v", repo.updates[0])
+	for _, forbidden := range []string{"code", "agent_type", "external_agent_id", "external_agent_api_key_enc", "external_agent_api_key_hint", "default_response_mode", "runtime_config_json", "model_snapshot_json", "created_by", "updated_by"} {
+		if _, ok := repo.updates[0][forbidden]; ok {
+			t.Fatalf("update must not write removed field %q: %#v", forbidden, repo.updates[0])
+		}
 	}
 }
 
-func TestTestDecryptsAgentKeyAndUsesActiveProvider(t *testing.T) {
+func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 	box := secretbox.New("vault-key")
-	cipher, err := box.Encrypt("plain-agent-key")
+	cipher, err := box.Encrypt("plain-provider-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	repo := &fakeAIAgentRepository{
 		rowByID: map[uint64]AgentWithProvider{5: {
-			Agent: Agent{ID: 5, ProviderID: 1, ExternalAgentAPIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo},
+			Agent: Agent{ID: 5, ProviderID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo},
 		}},
-		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", BaseURL: "https://api.dify.test/v1", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	tester := &fakeAIAgentTester{}
 	service := NewService(repo, box, tester)
@@ -390,20 +351,20 @@ func TestTestDecryptsAgentKeyAndUsesActiveProvider(t *testing.T) {
 	if result == nil || !result.OK {
 		t.Fatalf("expected successful test result, got %#v", result)
 	}
-	if tester.input.APIKey != "plain-agent-key" || tester.input.BaseURL != "https://api.dify.test/v1" || tester.input.EngineType != platformai.EngineTypeDify {
+	if tester.input.APIKey != "plain-provider-key" || tester.input.BaseURL != "https://api.dify.test/v1" || tester.input.EngineType != platformai.EngineTypeDify {
 		t.Fatalf("unexpected tester input: %#v", tester.input)
 	}
 }
 
 func TestTestReturnsUpstreamError(t *testing.T) {
 	box := secretbox.New("vault-key")
-	cipher, err := box.Encrypt("plain-agent-key")
+	cipher, err := box.Encrypt("plain-provider-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	repo := &fakeAIAgentRepository{
-		rowByID:         map[uint64]AgentWithProvider{5: {Agent: Agent{ID: 5, ProviderID: 1, ExternalAgentAPIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}}},
-		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", BaseURL: "https://api.dify.test/v1", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		rowByID:         map[uint64]AgentWithProvider{5: {Agent: Agent{ID: 5, ProviderID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}}},
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	service := NewService(repo, box, &fakeAIAgentTester{err: errors.New("upstream failed")})
 

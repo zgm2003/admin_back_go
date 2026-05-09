@@ -31,8 +31,7 @@ func (h *Handler) List(c *gin.Context) {
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Name:        req.Name,
-		Code:        req.Code,
-		AgentType:   req.AgentType,
+		Scene:       req.Scene,
 		ProviderID:  req.ProviderID,
 		Status:      req.Status,
 	})
@@ -197,19 +196,13 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 
 func createInput(req mutationRequest) CreateInput {
 	return CreateInput{
-		ProviderID:          req.ProviderID,
-		Name:                req.Name,
-		Code:                req.Code,
-		AgentType:           req.AgentType,
-		ModelID:             req.ModelID,
-		Scenes:              req.Scenes,
-		SystemPrompt:        req.SystemPrompt,
-		Avatar:              req.Avatar,
-		ExternalAgentID:     req.ExternalAgentID,
-		ExternalAgentAPIKey: req.ExternalAgentAPIKey,
-		DefaultResponseMode: req.DefaultResponseMode,
-		RuntimeConfig:       req.RuntimeConfig,
-		Status:              req.Status,
+		ProviderID:   req.ProviderID,
+		Name:         req.Name,
+		ModelID:      req.ModelID,
+		Scenes:       req.Scenes,
+		SystemPrompt: req.SystemPrompt,
+		Avatar:       req.Avatar,
+		Status:       req.Status,
 	}
 }
 

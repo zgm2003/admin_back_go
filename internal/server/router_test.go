@@ -661,7 +661,7 @@ func (f *fakeRouterAIAgentService) Init(ctx context.Context) (*aiagent.InitRespo
 func (f *fakeRouterAIAgentService) List(ctx context.Context, query aiagent.ListQuery) (*aiagent.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &aiagent.ListResponse{
-		List: []aiagent.AgentDTO{{ID: 1, Name: "客服助手", Code: "support_bot", AgentType: "chat", ExternalAgentAPIKeyMasked: "***key", Status: enum.CommonYes}},
+		List: []aiagent.AgentDTO{{ID: 1, Name: "客服助手", Status: enum.CommonYes}},
 		Page: aiagent.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
@@ -673,7 +673,7 @@ func (f *fakeRouterAIAgentService) ProviderModels(ctx context.Context, providerI
 
 func (f *fakeRouterAIAgentService) Detail(ctx context.Context, id uint64) (*aiagent.DetailResponse, *apperror.Error) {
 	f.detailID = id
-	return &aiagent.DetailResponse{AgentDTO: aiagent.AgentDTO{ID: id, Name: "客服助手", Code: "support_bot", AgentType: "chat", ExternalAgentAPIKeyMasked: "***key", Status: enum.CommonYes}}, nil
+	return &aiagent.DetailResponse{AgentDTO: aiagent.AgentDTO{ID: id, Name: "客服助手", Status: enum.CommonYes}}, nil
 }
 
 func (f *fakeRouterAIAgentService) Create(ctx context.Context, input aiagent.CreateInput) (uint64, *apperror.Error) {
@@ -714,7 +714,7 @@ func (f *fakeRouterAIAgentService) DeleteBinding(ctx context.Context, id uint64)
 
 func (f *fakeRouterAIAgentService) Options(ctx context.Context, query aiagent.OptionQuery) (*aiagent.AgentOptionsResponse, *apperror.Error) {
 	f.optionQuery = query
-	return &aiagent.AgentOptionsResponse{List: []aiagent.AgentOption{{Label: "客服助手", Value: 1, Code: "support_bot"}}}, nil
+	return &aiagent.AgentOptionsResponse{List: []aiagent.AgentOption{{Label: "客服助手", Value: 1}}}, nil
 }
 
 type fakeRouterAIToolMapService struct {
@@ -2306,10 +2306,10 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-agents?current_page=2&page_size=10&agent_type=chat&provider_id=3&status=1", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-agents?current_page=2&page_size=10&scene=chat&provider_id=3&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || agentService.listQuery.AgentType != "chat" || agentService.listQuery.ProviderID != 3 || agentService.listQuery.Status == nil || *agentService.listQuery.Status != enum.CommonYes {
+	if recorder.Code != http.StatusOK || agentService.listQuery.Scene != "chat" || agentService.listQuery.ProviderID != 3 || agentService.listQuery.Status == nil || *agentService.listQuery.Status != enum.CommonYes {
 		t.Fatalf("expected AI agent list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), agentService.listQuery)
 	}
 
@@ -2695,7 +2695,7 @@ func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/upload-tokens", strings.NewReader(`{"folder":"images","file_name":"demo.png","file_size":1024,"file_kind":"image"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/upload-tokens", strings.NewReader(`{"folder":"ai-agents","file_name":"77ebbddc-e755-441f-856b-09a9c4f2bfff.jpg","file_size":133106,"file_kind":"image"}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -2706,7 +2706,7 @@ func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
 	if permissionChecked {
 		t.Fatalf("upload token create must only require login and must not run RBAC permission checker")
 	}
-	if uploadTokenService.input.Folder != "images" || uploadTokenService.input.FileName != "demo.png" || uploadTokenService.input.FileSize != 1024 || uploadTokenService.input.FileKind != "image" {
+	if uploadTokenService.input.Folder != "ai-agents" || uploadTokenService.input.FileName != "77ebbddc-e755-441f-856b-09a9c4f2bfff.jpg" || uploadTokenService.input.FileSize != 133106 || uploadTokenService.input.FileKind != "image" {
 		t.Fatalf("upload token input mismatch: %#v", uploadTokenService.input)
 	}
 	body := decodeRouterBody(t, recorder)

@@ -73,16 +73,13 @@ type Run struct {
 func (Run) TableName() string { return "ai_runs" }
 
 type Agent struct {
-	ID                     uint64 `gorm:"column:id;primaryKey"`
-	ProviderID             uint64 `gorm:"column:provider_id"`
-	Name                   string `gorm:"column:name"`
-	AgentType              string `gorm:"column:agent_type"`
-	ExternalAgentID        string `gorm:"column:external_agent_id"`
-	ExternalAgentAPIKeyEnc string `gorm:"column:external_agent_api_key_enc"`
-	RuntimeConfigJSON      string `gorm:"column:runtime_config_json"`
-	ModelSnapshotJSON      string `gorm:"column:model_snapshot_json"`
-	Status                 int    `gorm:"column:status"`
-	IsDel                  int    `gorm:"column:is_del"`
+	ID               uint64 `gorm:"column:id;primaryKey"`
+	ProviderID       uint64 `gorm:"column:provider_id"`
+	Name             string `gorm:"column:name"`
+	ModelID          string `gorm:"column:model_id"`
+	ModelDisplayName string `gorm:"column:model_display_name"`
+	Status           int    `gorm:"column:status"`
+	IsDel            int    `gorm:"column:is_del"`
 }
 
 func (Agent) TableName() string { return "ai_agents" }

@@ -17,20 +17,8 @@ import (
 
 const timeLayout = "2006-01-02 15:04:05"
 
-var agentTypeLabels = map[string]string{
-	"chat":       "对话应用",
-	"workflow":   "工作流",
-	"completion": "文本生成",
-	"agent":      "智能体",
-}
-
 var sceneLabels = map[string]string{
 	"chat": "对话",
-}
-
-var responseModeLabels = map[string]string{
-	"streaming": "流式",
-	"blocking":  "阻塞",
 }
 
 var bindingTypeLabels = map[string]string{
@@ -79,7 +67,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 			modelOptions = append(modelOptions, ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName})
 		}
 	}
-	return &InitResponse{Dict: InitDict{AgentTypeArr: agentTypeOptions(), SceneArr: sceneOptions(), ResponseModeArr: responseModeOptions(), BindingTypeArr: bindingTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions}}, nil
+	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), BindingTypeArr: bindingTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -159,22 +147,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 		return 0, appErr
 	}
 	row.ModelDisplayName = model.DisplayName
-	row.ModelSnapshotJSON = modelSnapshotJSON(*model)
-	exists, err := repo.ExistsByCode(ctx, row.Code, 0)
-	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体编码失败", err)
-	}
-	if exists {
-		return 0, apperror.BadRequest("AI智能体编码已存在")
-	}
-	if strings.TrimSpace(input.ExternalAgentAPIKey) != "" {
-		ciphertext, err := s.secretbox.Encrypt(strings.TrimSpace(input.ExternalAgentAPIKey))
-		if err != nil {
-			return 0, apperror.Wrap(apperror.CodeInternal, 500, "加密AI智能体API Key失败", err)
-		}
-		row.ExternalAgentAPIKeyEnc = ciphertext
-		row.ExternalAgentAPIKeyHint = secretbox.Hint(strings.TrimSpace(input.ExternalAgentAPIKey))
-	}
 	id, err := repo.Create(ctx, row)
 	if err != nil {
 		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增AI智能体失败", err)
@@ -209,23 +181,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 		return appErr
 	}
 	fields.modelDisplayName = model.DisplayName
-	fields.modelSnapshotJSON = modelSnapshotJSON(*model)
 	updateFields := updateFieldsMap(fields)
-	exists, err := repo.ExistsByCode(ctx, strings.TrimSpace(input.Code), id)
-	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体编码失败", err)
-	}
-	if exists {
-		return apperror.BadRequest("AI智能体编码已存在")
-	}
-	if strings.TrimSpace(input.ExternalAgentAPIKey) != "" {
-		ciphertext, err := s.secretbox.Encrypt(strings.TrimSpace(input.ExternalAgentAPIKey))
-		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "加密AI智能体API Key失败", err)
-		}
-		updateFields["external_agent_api_key_enc"] = ciphertext
-		updateFields["external_agent_api_key_hint"] = secretbox.Hint(strings.TrimSpace(input.ExternalAgentAPIKey))
-	}
 	if err := repo.Update(ctx, id, updateFields); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "编辑AI智能体失败", err)
 	}
@@ -281,12 +237,16 @@ func (s *Service) Test(ctx context.Context, id uint64) (*platformai.TestConnecti
 	if connection == nil {
 		return nil, apperror.BadRequest("AI供应商不存在或已禁用")
 	}
-	apiKey, err := s.secretbox.Decrypt(row.ExternalAgentAPIKeyEnc)
+	apiKeyEnc := strings.TrimSpace(connection.APIKeyEnc)
+	if apiKeyEnc == "" {
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
+	}
+	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI智能体API Key失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequest("AI智能体API Key未配置")
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
 	tester := s.tester
 	if tester == nil {
@@ -399,7 +359,7 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 		if row.Status != enum.CommonYes || row.IsDel == enum.CommonYes {
 			continue
 		}
-		list = append(list, AgentOption{Label: row.Name, Value: row.ID, Code: row.Code})
+		list = append(list, AgentOption{Label: row.Name, Value: row.ID})
 	}
 	return &AgentOptionsResponse{List: list}, nil
 }
@@ -461,8 +421,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 		query.PageSize = enum.PageSizeMax
 	}
 	query.Name = strings.TrimSpace(query.Name)
-	query.Code = strings.TrimSpace(query.Code)
-	query.AgentType = strings.TrimSpace(query.AgentType)
+	query.Scene = strings.TrimSpace(query.Scene)
 	return query
 }
 
@@ -472,81 +431,49 @@ func normalizeCreateInput(input CreateInput) (Agent, *apperror.Error) {
 		return Agent{}, appErr
 	}
 	return Agent{
-		ProviderID:          fields.providerID,
-		Name:                fields.name,
-		Code:                fields.code,
-		AgentType:           fields.agentType,
-		ModelID:             fields.modelID,
-		ScenesJSON:          fields.scenesJSON,
-		SystemPrompt:        fields.systemPrompt,
-		Avatar:              fields.avatar,
-		ExternalAgentID:     fields.externalAgentID,
-		DefaultResponseMode: fields.defaultResponseMode,
-		RuntimeConfigJSON:   fields.runtimeConfigJSON,
-		ModelSnapshotJSON:   "{}",
-		Status:              fields.status,
-		IsDel:               enum.CommonNo,
+		ProviderID:   fields.providerID,
+		Name:         fields.name,
+		ModelID:      fields.modelID,
+		ScenesJSON:   fields.scenesJSON,
+		SystemPrompt: fields.systemPrompt,
+		Avatar:       fields.avatar,
+		Status:       fields.status,
+		IsDel:        enum.CommonNo,
 	}, nil
-}
-
-func normalizeUpdateFields(input UpdateInput) (map[string]any, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input)
-	if appErr != nil {
-		return nil, appErr
-	}
-	return updateFieldsMap(fields), nil
 }
 
 func updateFieldsMap(fields normalizedFields) map[string]any {
 	out := map[string]any{
-		"provider_id":           fields.providerID,
-		"name":                  fields.name,
-		"code":                  fields.code,
-		"agent_type":            fields.agentType,
-		"model_id":              fields.modelID,
-		"scenes_json":           fields.scenesJSON,
-		"system_prompt":         fields.systemPrompt,
-		"avatar":                fields.avatar,
-		"external_agent_id":     fields.externalAgentID,
-		"default_response_mode": fields.defaultResponseMode,
-		"runtime_config_json":   fields.runtimeConfigJSON,
-		"status":                fields.status,
+		"provider_id":   fields.providerID,
+		"name":          fields.name,
+		"model_id":      fields.modelID,
+		"scenes_json":   fields.scenesJSON,
+		"system_prompt": fields.systemPrompt,
+		"avatar":        fields.avatar,
+		"status":        fields.status,
 	}
 	if fields.modelDisplayName != "" {
 		out["model_display_name"] = fields.modelDisplayName
-	}
-	if fields.modelSnapshotJSON != "" {
-		out["model_snapshot_json"] = fields.modelSnapshotJSON
 	}
 	return out
 }
 
 type normalizedFields struct {
-	providerID          uint64
-	name                string
-	code                string
-	agentType           string
-	modelID             string
-	modelDisplayName    string
-	scenesJSON          string
-	systemPrompt        string
-	avatar              string
-	externalAgentID     string
-	defaultResponseMode string
-	runtimeConfigJSON   string
-	modelSnapshotJSON   string
-	status              int
+	providerID       uint64
+	name             string
+	modelID          string
+	modelDisplayName string
+	scenesJSON       string
+	systemPrompt     string
+	avatar           string
+	status           int
 }
 
 func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Error) {
 	name := strings.TrimSpace(input.Name)
-	code := strings.TrimSpace(input.Code)
-	agentType := strings.TrimSpace(input.AgentType)
 	modelID := strings.TrimSpace(input.ModelID)
 	systemPrompt := strings.TrimSpace(input.SystemPrompt)
 	avatar := strings.TrimSpace(input.Avatar)
-	externalAgentID := strings.TrimSpace(input.ExternalAgentID)
-	defaultResponseMode := strings.TrimSpace(input.DefaultResponseMode)
 	if input.ProviderID == 0 {
 		return normalizedFields{}, apperror.BadRequest("AI供应商不能为空")
 	}
@@ -556,23 +483,11 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if len([]rune(name)) > 128 {
 		return normalizedFields{}, apperror.BadRequest("AI智能体名称不能超过128个字符")
 	}
-	if code == "" {
-		return normalizedFields{}, apperror.BadRequest("AI智能体编码不能为空")
-	}
-	if len([]rune(code)) > 128 {
-		return normalizedFields{}, apperror.BadRequest("AI智能体编码不能超过128个字符")
-	}
 	if modelID == "" {
 		return normalizedFields{}, apperror.BadRequest("关联模型不能为空")
 	}
 	if len([]rune(modelID)) > 191 {
 		return normalizedFields{}, apperror.BadRequest("关联模型不能超过191个字符")
-	}
-	if agentType == "" {
-		agentType = "chat"
-	}
-	if !isAgentType(agentType) {
-		return normalizedFields{}, apperror.BadRequest("无效的AI智能体类型")
 	}
 	scenesJSON, appErr := encodeScenes(input.Scenes)
 	if appErr != nil {
@@ -584,15 +499,6 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if len([]rune(avatar)) > 512 {
 		return normalizedFields{}, apperror.BadRequest("头像地址不能超过512个字符")
 	}
-	if len([]rune(externalAgentID)) > 128 {
-		return normalizedFields{}, apperror.BadRequest("引擎应用ID不能超过128个字符")
-	}
-	if defaultResponseMode == "" {
-		defaultResponseMode = "streaming"
-	}
-	if !isResponseMode(defaultResponseMode) {
-		return normalizedFields{}, apperror.BadRequest("无效的响应模式")
-	}
 	status := input.Status
 	if status == 0 {
 		status = enum.CommonYes
@@ -600,11 +506,7 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if !enum.IsCommonStatus(status) {
 		return normalizedFields{}, apperror.BadRequest("无效的状态")
 	}
-	runtimeJSON, appErr := encodeJSONMap(input.RuntimeConfig)
-	if appErr != nil {
-		return normalizedFields{}, appErr
-	}
-	return normalizedFields{providerID: input.ProviderID, name: name, code: code, agentType: agentType, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, externalAgentID: externalAgentID, defaultResponseMode: defaultResponseMode, runtimeConfigJSON: runtimeJSON, status: status}, nil
+	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status}, nil
 }
 
 func normalizeBindingInput(agentID uint64, input BindingInput) (Binding, *apperror.Error) {
@@ -631,7 +533,7 @@ func normalizeBindingInput(agentID uint64, input BindingInput) (Binding, *apperr
 
 func agentDTO(row AgentWithProvider) AgentDTO {
 	scenes := decodeScenes(row.ScenesJSON)
-	return AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, Code: row.Code, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, AgentType: row.AgentType, AgentTypeName: agentTypeLabels[row.AgentType], ExternalAgentID: row.ExternalAgentID, ExternalAgentAPIKeyMasked: row.ExternalAgentAPIKeyHint, DefaultResponseMode: row.DefaultResponseMode, DefaultResponseModeName: responseModeLabels[row.DefaultResponseMode], RuntimeConfig: decodeJSONMap(row.RuntimeConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func bindingDTO(row Binding) BindingDTO {
@@ -642,37 +544,8 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 	return ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
-func encodeJSONMap(value map[string]any) (string, *apperror.Error) {
-	if value == nil {
-		return "{}", nil
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", apperror.BadRequest("运行配置不是合法JSON")
-	}
-	return string(data), nil
-}
-
-func decodeJSONMap(value string) map[string]any {
-	value = strings.TrimSpace(value)
-	if value == "" || value == "null" {
-		return map[string]any{}
-	}
-	var result map[string]any
-	if err := json.Unmarshal([]byte(value), &result); err != nil || result == nil {
-		return map[string]any{}
-	}
-	return result
-}
-
-func agentTypeOptions() []dict.Option[string] {
-	return stringOptions([]string{"chat", "workflow", "completion", "agent"}, agentTypeLabels)
-}
 func sceneOptions() []dict.Option[string] {
 	return stringOptions([]string{"chat"}, sceneLabels)
-}
-func responseModeOptions() []dict.Option[string] {
-	return stringOptions([]string{"streaming", "blocking"}, responseModeLabels)
 }
 func bindingTypeOptions() []dict.Option[string] {
 	return stringOptions([]string{"menu", "scene", "permission", "role", "user"}, bindingTypeLabels)
@@ -686,10 +559,8 @@ func stringOptions(values []string, labels map[string]string) []dict.Option[stri
 	return options
 }
 
-func isAgentType(value string) bool    { _, ok := agentTypeLabels[value]; return ok }
-func isResponseMode(value string) bool { _, ok := responseModeLabels[value]; return ok }
-func isBindingType(value string) bool  { _, ok := bindingTypeLabels[value]; return ok }
-func isScene(value string) bool        { _, ok := sceneLabels[value]; return ok }
+func isBindingType(value string) bool { _, ok := bindingTypeLabels[value]; return ok }
+func isScene(value string) bool       { _, ok := sceneLabels[value]; return ok }
 
 func encodeScenes(values []string) (string, *apperror.Error) {
 	if len(values) == 0 {
@@ -748,21 +619,6 @@ func sceneNames(scenes []string) []string {
 		}
 	}
 	return names
-}
-
-func modelSnapshotJSON(model ProviderModel) string {
-	displayName := strings.TrimSpace(model.DisplayName)
-	if displayName == "" {
-		displayName = strings.TrimSpace(model.ModelID)
-	}
-	data, err := json.Marshal(map[string]any{
-		"model_id":     strings.TrimSpace(model.ModelID),
-		"display_name": displayName,
-	})
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
 }
 
 func statusText(value int) string {

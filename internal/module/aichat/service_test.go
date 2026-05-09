@@ -159,21 +159,21 @@ func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (
 func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	t.Helper()
 	box := secretbox.New("vault-key")
-	cipher, err := box.Encrypt("agent-key")
+	cipher, err := box.Encrypt("provider-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	return &AgentEngineConfig{
-		AgentID:                5,
-		AgentName:              "客服",
-		ProviderID:             2,
-		EngineType:             string(platformai.EngineTypeDify),
-		EngineBaseURL:          "https://dify.test/v1",
-		ExternalAgentAPIKeyEnc: cipher,
-		RuntimeConfigJSON:      `{"tenant":"admin"}`,
-		ModelSnapshotJSON:      `{"provider":"dify"}`,
-		AgentStatus:            enum.CommonYes,
-		EngineStatus:           enum.CommonYes,
+		AgentID:          5,
+		AgentName:        "客服",
+		ProviderID:       2,
+		ModelID:          "gpt-5.4",
+		ModelDisplayName: "GPT-5.4",
+		EngineType:       string(platformai.EngineTypeDify),
+		EngineBaseURL:    "https://dify.test/v1",
+		EngineAPIKeyEnc:  cipher,
+		AgentStatus:      enum.CommonYes,
+		EngineStatus:     enum.CommonYes,
 	}, box
 }
 
@@ -201,7 +201,7 @@ func TestCreateRunUsesExistingConversationAgentWhenAgentIDIsMissing(t *testing.T
 	agent, _ := validAgentConfig(t)
 	repo := &fakeRepository{
 		activeAgents: map[int64]bool{5: true},
-		agent:          agent,
+		agent:        agent,
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo},
 	}
 	res, appErr := NewService(Dependencies{Repository: repo}).CreateRun(context.Background(), 7, CreateRunInput{ConversationID: 3, Content: " follow up "})
@@ -335,7 +335,7 @@ func TestExecuteRunMarksSuccessAndFailure(t *testing.T) {
 func TestExecuteRunUsesEngineAndPersistsEvents(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{
-		agent:        agent,
+		agent:       agent,
 		run:         &Run{ID: 8, UserID: 7, AgentID: 5, ProviderID: 2, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning},
 		userMessage: &Message{ID: 9, Content: "hi"},
 	}
@@ -346,7 +346,7 @@ func TestExecuteRunUsesEngineAndPersistsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteRun returned error: %v", err)
 	}
-	if factory.input.APIKey != "agent-key" || factory.input.EngineType != platformai.EngineTypeDify {
+	if factory.input.APIKey != "provider-key" || factory.input.EngineType != platformai.EngineTypeDify {
 		t.Fatalf("unexpected engine factory input: %#v", factory.input)
 	}
 	if repo.successID != 8 || repo.assistant == nil || repo.assistant.Content != "engine ok" {

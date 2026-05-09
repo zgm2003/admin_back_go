@@ -57,6 +57,7 @@ var UploadFolders = []string{
 	"images",
 	"videos",
 	"cover_images",
+	"ai-agents",
 	"ai_chat_images",
 	"releases",
 	"tauri_updater",

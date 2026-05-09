@@ -234,7 +234,7 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 		UserKey:              userKey(record.Run.UserID),
 		Content:              record.UserMessageContent,
 		ConversationEngineID: record.Agent.ConversationEngineID,
-		Inputs:               decodeStringMap(record.Agent.RuntimeConfigJSON),
+		Inputs:               map[string]any{},
 	}, sink)
 	if err != nil {
 		msg := err.Error()
@@ -273,7 +273,7 @@ func (s *Service) ExecuteRun(ctx context.Context, input RunExecuteInput) (*RunEx
 		EngineRunID:          result.EngineTaskID,
 		UsageJSON:            usageJSON,
 		OutputSnapshotJSON:   outputJSON,
-		ModelSnapshot:        record.Agent.ModelSnapshotJSON,
+		ModelSnapshot:        agentModelSnapshot(record.Agent),
 		PromptTokens:         result.PromptTokens,
 		CompletionTokens:     result.CompletionTokens,
 		TotalTokens:          result.TotalTokens,
@@ -367,19 +367,16 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	if agent.AgentID == 0 || agent.ProviderID == 0 {
 		return nil, apperror.BadRequest("AI智能体或供应商未配置")
 	}
-	if strings.TrimSpace(agent.ExternalAgentAPIKeyEnc) == "" && strings.TrimSpace(agent.EngineAPIKeyEnc) == "" {
-		return nil, apperror.BadRequest("AI智能体API Key未配置")
-	}
-	apiKeyEnc := strings.TrimSpace(agent.ExternalAgentAPIKeyEnc)
+	apiKeyEnc := strings.TrimSpace(agent.EngineAPIKeyEnc)
 	if apiKeyEnc == "" {
-		apiKeyEnc = strings.TrimSpace(agent.EngineAPIKeyEnc)
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI智能体API Key失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequest("AI智能体API Key未配置")
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
 	factory := s.engineFactory
 	if factory == nil {
@@ -553,24 +550,21 @@ func decodePayload(raw json.RawMessage) map[string]any {
 	return out
 }
 
-func decodeStringMap(raw string) map[string]any {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "null" {
-		return map[string]any{}
-	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
-		return map[string]any{}
-	}
-	return out
-}
-
 func mustJSON(value any) string {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return "{}"
 	}
 	return string(raw)
+}
+
+func agentModelSnapshot(agent AgentEngineConfig) string {
+	return mustJSON(map[string]any{
+		"provider_id":        agent.ProviderID,
+		"engine_type":        strings.TrimSpace(agent.EngineType),
+		"model_id":           strings.TrimSpace(agent.ModelID),
+		"model_display_name": strings.TrimSpace(agent.ModelDisplayName),
+	})
 }
 
 func userKey(userID int64) string {

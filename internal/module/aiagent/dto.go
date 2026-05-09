@@ -13,9 +13,7 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	AgentTypeArr    []dict.Option[string] `json:"agent_type_arr"`
 	SceneArr        []dict.Option[string] `json:"scene_arr"`
-	ResponseModeArr []dict.Option[string] `json:"response_mode_arr"`
 	BindingTypeArr  []dict.Option[string] `json:"binding_type_arr"`
 	CommonStatusArr []dict.Option[int]    `json:"common_status_arr"`
 	ProviderOptions []EngineOption        `json:"provider_options"`
@@ -40,8 +38,7 @@ type ListQuery struct {
 	CurrentPage int
 	PageSize    int
 	Name        string
-	Code        string
-	AgentType   string
+	Scene       string
 	ProviderID  uint64
 	Status      *int
 }
@@ -63,45 +60,31 @@ type DetailResponse struct {
 }
 
 type AgentDTO struct {
-	ID                        uint64         `json:"id"`
-	ProviderID                uint64         `json:"provider_id"`
-	ProviderName              string         `json:"provider_name"`
-	EngineType                string         `json:"engine_type"`
-	Name                      string         `json:"name"`
-	Code                      string         `json:"code"`
-	ModelID                   string         `json:"model_id"`
-	ModelDisplayName          string         `json:"model_display_name"`
-	Scenes                    []string       `json:"scenes"`
-	SceneNames                []string       `json:"scene_names"`
-	SystemPrompt              string         `json:"system_prompt"`
-	Avatar                    string         `json:"avatar"`
-	AgentType                 string         `json:"agent_type"`
-	AgentTypeName             string         `json:"agent_type_name"`
-	ExternalAgentID           string         `json:"external_agent_id"`
-	ExternalAgentAPIKeyMasked string         `json:"external_agent_api_key_masked"`
-	DefaultResponseMode       string         `json:"default_response_mode"`
-	DefaultResponseModeName   string         `json:"default_response_mode_name"`
-	RuntimeConfig             map[string]any `json:"runtime_config"`
-	Status                    int            `json:"status"`
-	StatusName                string         `json:"status_name"`
-	CreatedAt                 string         `json:"created_at"`
-	UpdatedAt                 string         `json:"updated_at"`
+	ID               uint64   `json:"id"`
+	ProviderID       uint64   `json:"provider_id"`
+	ProviderName     string   `json:"provider_name"`
+	EngineType       string   `json:"engine_type"`
+	Name             string   `json:"name"`
+	ModelID          string   `json:"model_id"`
+	ModelDisplayName string   `json:"model_display_name"`
+	Scenes           []string `json:"scenes"`
+	SceneNames       []string `json:"scene_names"`
+	SystemPrompt     string   `json:"system_prompt"`
+	Avatar           string   `json:"avatar"`
+	Status           int      `json:"status"`
+	StatusName       string   `json:"status_name"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
 }
 
 type CreateInput struct {
-	ProviderID          uint64
-	Name                string
-	Code                string
-	AgentType           string
-	ModelID             string
-	Scenes              []string
-	SystemPrompt        string
-	Avatar              string
-	ExternalAgentID     string
-	ExternalAgentAPIKey string
-	DefaultResponseMode string
-	RuntimeConfig       map[string]any
-	Status              int
+	ProviderID   uint64
+	Name         string
+	ModelID      string
+	Scenes       []string
+	SystemPrompt string
+	Avatar       string
+	Status       int
 }
 
 type UpdateInput = CreateInput
@@ -139,7 +122,6 @@ type OptionQuery struct {
 type AgentOption struct {
 	Label string `json:"label"`
 	Value uint64 `json:"value"`
-	Code  string `json:"code"`
 }
 
 type AgentOptionsResponse struct {
