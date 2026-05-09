@@ -30,6 +30,16 @@ func (h *Handler) List(c *gin.Context) {
 	writeResult(c, result, appErr)
 }
 
+func (h *Handler) PreviewModels(c *gin.Context) {
+	var req modelOptionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI供应商模型拉取参数错误"))
+		return
+	}
+	result, appErr := h.requireService().PreviewModels(c.Request.Context(), modelOptionsInput(req))
+	writeResult(c, result, appErr)
+}
+
 func (h *Handler) Create(c *gin.Context) {
 	var req mutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -87,6 +97,41 @@ func (h *Handler) TestConnection(c *gin.Context) {
 	writeResult(c, result, appErr)
 }
 
+func (h *Handler) SyncModels(c *gin.Context) {
+	id, ok := routeID(c)
+	if !ok {
+		return
+	}
+	result, appErr := h.requireService().SyncModels(c.Request.Context(), id)
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) ListProviderModels(c *gin.Context) {
+	id, ok := routeID(c)
+	if !ok {
+		return
+	}
+	result, appErr := h.requireService().ListProviderModels(c.Request.Context(), id)
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) UpdateProviderModels(c *gin.Context) {
+	id, ok := routeID(c)
+	if !ok {
+		return
+	}
+	var req updateModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI供应商模型参数错误"))
+		return
+	}
+	if appErr := h.requireService().UpdateProviderModels(c.Request.Context(), id, updateModelsInput(req)); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
+}
+
 func (h *Handler) Delete(c *gin.Context) {
 	id, ok := routeID(c)
 	if !ok {
@@ -116,9 +161,15 @@ func routeID(c *gin.Context) (uint64, bool) {
 }
 
 func createInput(req mutationRequest) CreateInput {
-	return CreateInput{Name: req.Name, EngineType: req.EngineType, BaseURL: req.BaseURL, APIKey: req.APIKey, WorkspaceID: req.WorkspaceID, Status: req.Status}
+	return CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, WorkspaceID: req.WorkspaceID, ModelIDs: req.ModelIDs, DefaultModelID: req.DefaultModelID, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
 }
 func updateInput(req mutationRequest) UpdateInput { return UpdateInput(createInput(req)) }
+func modelOptionsInput(req modelOptionsRequest) ModelOptionsInput {
+	return ModelOptionsInput{EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey}
+}
+func updateModelsInput(req updateModelsRequest) UpdateModelsInput {
+	return UpdateModelsInput{ModelIDs: req.ModelIDs, DefaultModelID: req.DefaultModelID, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
+}
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 	if appErr != nil {
@@ -147,6 +198,18 @@ func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *
 }
 func (nilHTTPService) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
+}
+func (nilHTTPService) PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI供应商服务未配置")
+}
+func (nilHTTPService) SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI供应商服务未配置")
+}
+func (nilHTTPService) ListProviderModels(ctx context.Context, id uint64) (*ProviderModelsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI供应商服务未配置")
+}
+func (nilHTTPService) UpdateProviderModels(ctx context.Context, id uint64, input UpdateModelsInput) *apperror.Error {
+	return apperror.Internal("AI供应商服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {
 	return apperror.Internal("AI供应商服务未配置")

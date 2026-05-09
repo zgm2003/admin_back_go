@@ -150,6 +150,37 @@ function Test-RoutePath($Routes, [string]$Path) {
   return $false
 }
 
+function Assert-RoutePathOrder($Routes, [string[]]$ExpectedPaths, [string]$Label) {
+  $routeList = New-Object System.Collections.Generic.List[object]
+  $appendRoutes = {
+    param($Items)
+    foreach ($item in (Get-ObjectArray $Items)) {
+      $routeList.Add($item)
+      if (Test-HasProperty $item 'children') {
+        & $appendRoutes $item.children
+      }
+    }
+  }
+  & $appendRoutes $Routes
+  [int]$previousIndex = -1
+  foreach ($path in $ExpectedPaths) {
+    [int]$currentIndex = -1
+    for ($i = 0; $i -lt $routeList.Count; $i++) {
+      if ($routeList[$i].path -eq $path) {
+        $currentIndex = $i
+        break
+      }
+    }
+    if ($currentIndex -lt 0) {
+      throw "$Label missing route ${path}"
+    }
+    if ($currentIndex -le $previousIndex) {
+      throw "$Label route order mismatch; expected order: $($ExpectedPaths -join ' -> ')"
+    }
+    $previousIndex = $currentIndex
+  }
+}
+
 function Get-RouteByPath($Routes, [string]$Path) {
   foreach ($route in (Get-ObjectArray $Routes)) {
     if ($route.path -eq $Path) { return $route }
@@ -850,15 +881,16 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/apps', '/ai/chat', '/ai/knowledge', '/ai/runs', '/ai/tools')
+  $requiredRoutes = @('/ai/providers', '/ai/apps', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
     $requiredPresent[$route] = $present
     if (-not $present) {
-      throw "users init missing AI sidecar route ${route}: $($Response | ConvertTo-Json -Depth 12)"
+      throw "users init missing AI route ${route}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
+  Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users init AI menu order'
 
   return [pscustomobject]@{
     GoodsPresent = $retiredPresent['/ai/goods']
@@ -886,12 +918,20 @@ function Assert-AIEngineInit($Response) {
   $engineTypes = Get-ObjectArray $Response.data.dict.engine_type_arr
   $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
   $healthStatuses = Get-ObjectArray $Response.data.dict.health_status_arr
-  foreach ($expected in @('dify', 'direct', 'eino', 'ragflow')) {
-    if (-not (@($engineTypes | ForEach-Object { [string]$_.value }) -contains $expected)) {
-      throw "AI engine connection init missing engine type ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+  $modelSyncStatuses = Get-ObjectArray $Response.data.dict.model_sync_arr
+  $engineTypeValues = @($engineTypes | ForEach-Object { [string]$_.value })
+  if ($engineTypeValues.Count -ne 1 -or $engineTypeValues[0] -ne 'openai') {
+    throw "AI engine connection init must expose openai as the only driver: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($expected in @('unknown', 'ok', 'failed')) {
+    if (-not (@($healthStatuses | ForEach-Object { [string]$_.value }) -contains $expected)) {
+      throw "AI engine connection init missing health status ${expected}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+    if (-not (@($modelSyncStatuses | ForEach-Object { [string]$_.value }) -contains $expected)) {
+      throw "AI engine connection init missing model sync status ${expected}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
-  if ($statuses.Count -ne 2 -or $healthStatuses.Count -lt 3) {
+  if ($statuses.Count -ne 2) {
     throw "AI engine connection init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
@@ -899,6 +939,7 @@ function Assert-AIEngineInit($Response) {
     EngineTypeCount = $engineTypes.Count
     StatusCount = $statuses.Count
     HealthStatusCount = $healthStatuses.Count
+    ModelSyncStatusCount = $modelSyncStatuses.Count
   }
 }
 
@@ -912,6 +953,9 @@ function Assert-AIEngineList($Response) {
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
     if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.engine_type)) {
       throw "AI engine connection item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]$item.engine_type -ne 'openai') {
+      throw "AI engine connection item must use openai driver: $($item | ConvertTo-Json -Depth 12)"
     }
     if ((Test-HasProperty $item 'api_key') -or (Test-HasProperty $item 'api_key_enc')) {
       throw "AI engine connection list leaked key fields: $($item | ConvertTo-Json -Depth 12)"
@@ -1148,7 +1192,7 @@ function Assert-AIChatExplicitEngineFailure($Response) {
   if ($combined -match '收到：|go-deterministic-provider') {
     throw "AI chat fallback provider leaked into production smoke path: $($Response | ConvertTo-Json -Depth 12)"
   }
-  if ($combined -notmatch 'AI|应用|供应商|Dify|引擎|配置|Key|未配置') {
+  if ($combined -notmatch 'AI|应用|供应商|智能体|引擎|配置|Key|未配置') {
     throw "AI chat failure was not an explicit engine/app config failure: $($Response | ConvertTo-Json -Depth 12)"
   }
   return [pscustomobject]@{
@@ -2265,16 +2309,16 @@ func main() {
   $aiRunStatsSummary = Assert-AIRunStats $aiRunStats
 
   $aiChatEngineFailure = $null
-  $difySmokeAppID = [uint64]0
-  if (-not [string]::IsNullOrWhiteSpace($env:DIFY_SMOKE_APP_ID)) {
-    $difySmokeAppID = [uint64]$env:DIFY_SMOKE_APP_ID
+  $aiSmokeAppID = [uint64]0
+  if (-not [string]::IsNullOrWhiteSpace($env:AI_SMOKE_APP_ID)) {
+    $aiSmokeAppID = [uint64]$env:AI_SMOKE_APP_ID
   }
-  if ($EnableAiEngineProbe -and $difySmokeAppID -gt 0) {
+  if ($EnableAiEngineProbe -and $aiSmokeAppID -gt 0) {
     $aiChatProbe = Invoke-JsonRequestAllowFailure `
       'POST' `
       "$baseURL/api/admin/v1/ai-chat/runs" `
       $authHeaders `
-      @{ app_id = $difySmokeAppID; content = "full smoke AI engine probe $(Get-Date -Format o)" }
+      @{ app_id = $aiSmokeAppID; content = "full smoke AI engine probe $(Get-Date -Format o)" }
     Assert-ApiOK $aiChatProbe 'AI chat engine probe'
     if ([int64]$aiChatProbe.data.run_id -le 0) {
       throw "AI chat engine probe missing run_id: $($aiChatProbe | ConvertTo-Json -Depth 12)"
@@ -2501,6 +2545,7 @@ func main() {
     ai_engine_init_code = $aiEngineInit.code
     ai_engine_type_dict_count = $aiEngineInitSummary.EngineTypeCount
     ai_engine_health_status_dict_count = $aiEngineInitSummary.HealthStatusCount
+    ai_engine_model_sync_status_dict_count = $aiEngineInitSummary.ModelSyncStatusCount
     ai_engine_list_code = $aiEngineList.code
     ai_engine_list_count = $aiEngineListSummary.ListCount
     ai_engine_total = $aiEngineListSummary.Total
@@ -2540,7 +2585,7 @@ func main() {
     ai_run_app_dict_count = $aiRunInitSummary.AppCount
     ai_run_engine_dict_count = $aiRunInitSummary.EngineCount
     ai_chat_engine_failure_code = if ($null -eq $aiChatEngineFailure) { 0 } else { $aiChatEngineFailure.Code }
-    ai_chat_engine_probe_enabled = [bool]($EnableAiEngineProbe -and $difySmokeAppID -gt 0)
+    ai_chat_engine_probe_enabled = [bool]($EnableAiEngineProbe -and $aiSmokeAppID -gt 0)
     ai_goods_route_present = $usersInitAIRouteSummary.GoodsPresent
     ai_cine_route_present = $usersInitAIRouteSummary.CinePresent
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent

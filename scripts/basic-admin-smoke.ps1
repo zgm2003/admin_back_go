@@ -122,6 +122,37 @@ function Test-RoutePath($Routes, [string]$Path) {
   return $false
 }
 
+function Assert-RoutePathOrder($Routes, [string[]]$ExpectedPaths, [string]$Label) {
+  $routeList = New-Object System.Collections.Generic.List[object]
+  $appendRoutes = {
+    param($Items)
+    foreach ($item in (Get-ObjectArray $Items)) {
+      $routeList.Add($item)
+      if (@($item.PSObject.Properties.Name) -contains 'children') {
+        & $appendRoutes $item.children
+      }
+    }
+  }
+  & $appendRoutes $Routes
+  [int]$previousIndex = -1
+  foreach ($path in $ExpectedPaths) {
+    [int]$currentIndex = -1
+    for ($i = 0; $i -lt $routeList.Count; $i++) {
+      if ($routeList[$i].path -eq $path) {
+        $currentIndex = $i
+        break
+      }
+    }
+    if ($currentIndex -lt 0) {
+      throw "$Label missing route $path"
+    }
+    if ($currentIndex -le $previousIndex) {
+      throw "$Label route order mismatch; expected order: $($ExpectedPaths -join ' -> ')"
+    }
+    $previousIndex = $currentIndex
+  }
+}
+
 function Test-RouteViewKey($Routes, [string]$ViewKey) {
   foreach ($route in (Get-ObjectArray $Routes)) {
     if ($route.view_key -eq $ViewKey) { return $true }
@@ -513,12 +544,13 @@ func main() {
       throw "users init still returns retired AI route $route; run AI core rebuild migration and clear operator-side caches"
     }
   }
-  $requiredAIRoutes = @('/ai/providers', '/ai/apps', '/ai/chat', '/ai/knowledge', '/ai/runs', '/ai/tools')
+  $requiredAIRoutes = @('/ai/providers', '/ai/apps', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
   foreach ($route in $requiredAIRoutes) {
     if (-not (Test-RoutePath $init.data.router $route)) {
-      throw "users init missing AI sidecar product route $route"
+      throw "users init missing AI product route $route"
     }
   }
+  Assert-RoutePathOrder $init.data.permissions $requiredAIRoutes 'users init AI menu order'
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $dirBody = @{
     platform = $Platform

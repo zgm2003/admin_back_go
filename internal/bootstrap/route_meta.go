@@ -79,9 +79,12 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/latest"):               "system_clientVersion_setLatest",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update"):         "system_clientVersion_forceUpdate",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/client-versions/:id"):                     "system_clientVersion_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/model-options"):       "ai_engine_test",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections"):                     "ai_engine_add",
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id"):                  "ai_engine_edit",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/test"):            "ai_engine_test",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/sync-models"):     "ai_engine_test",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id/models"):           "ai_engine_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-engine-connections/:id/status"):         "ai_engine_status",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-engine-connections/:id"):               "ai_engine_del",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps"):                                   "ai_app_add",
@@ -444,6 +447,11 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Action: "delete",
 			Title:  "删除客户端版本",
 		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/model-options"): {
+			Module: "ai_engine_connection",
+			Action: "preview_models",
+			Title:  "拉取AI供应商模型",
+		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections"): {
 			Module: "ai_engine_connection",
 			Action: "create",
@@ -458,6 +466,16 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "ai_engine_connection",
 			Action: "test",
 			Title:  "测试AI供应商连接",
+		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/sync-models"): {
+			Module: "ai_engine_connection",
+			Action: "sync_models",
+			Title:  "同步AI供应商模型",
+		},
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id/models"): {
+			Module: "ai_engine_connection",
+			Action: "update_models",
+			Title:  "编辑AI供应商模型",
 		},
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-engine-connections/:id/status"): {
 			Module: "ai_engine_connection",

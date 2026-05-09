@@ -1348,23 +1348,24 @@ uploadtoken 只签发临时凭证，不定义业务。
 后续 AI agent avatar、chat attachment、rich text image 等都必须作为对应业务模块的一部分迁移，不能为了“上传页面”单独偷跑。
 ```
 
-AI Core Dify sidecar boundary（2026-05-09）：
+AI Core provider config boundary（2026-05-09）：
 
 ```text
-admin_go + Dify sidecar + internal/platform/ai 是当前 AI 架构。
-Dify 是 AI engine，不是 admin 后台；用户、RBAC、菜单、OperationLog、REST、WebSocket、Vue 页面仍归 admin_go。
-Vue 不直连 Dify，Dify key 不进浏览器；module 不直接 import Dify/OpenAI/Eino SDK/client。
+admin_go + internal/platform/ai 是当前 AI 架构边界。
+第一步只落地“供应商配置”，第一版 provider driver 只有 openai。
+Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 import OpenAI SDK/client。
+供应商配置不引入流程编排概念，不嵌入第三方控制台。
 ```
 
 Active AI modules:
 
 ```text
 internal/platform/ai            # stable engine interface, fake only for tests/dev boundary
-internal/platform/ai/dify       # Dify Service API adapter
-internal/module/aiengine        # ai_engine_connections provider/sidecar connection config
-internal/module/aiapp           # ai_apps + ai_app_bindings local agent/app entries
+internal/platform/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
+internal/module/aiengine        # ai_engine_connections provider config + ai_provider_models model catalog
+internal/module/aiapp           # ai_apps + ai_app_bindings local agent/app entries; later 智能体配置 slice owns deeper cleanup
 internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents mapping/status sync
-internal/module/aitoolmap       # ai_tool_maps local tool/workflow references
+internal/module/aitoolmap       # ai_tool_maps local tool references
 internal/module/aiconversation  # current-user conversations; canonical app_id -> ai_apps
 internal/module/aimessage       # conversation messages, feedback, branch cleanup
 internal/module/airun           # ai_runs / ai_run_events / usage monitor
@@ -1383,20 +1384,30 @@ legacy model/agent/prompt Vue menu entries
 Schema truth:
 
 ```text
-20260508_ai_core_backup.sql   # backup old AI tables and AI permissions
-20260508_ai_core_rebuild.sql  # creates ai_engine_connections, ai_apps, ai_app_bindings, ai_conversations, ai_messages, ai_runs, ai_run_events, ai_knowledge_maps, ai_knowledge_documents, ai_tool_maps, ai_usage_daily
-20260508_ai_core_rollback.sql # restores from local backups; does not delete Dify sidecar data
+20260508_ai_core_backup.sql              # backup old AI tables and AI permissions
+20260508_ai_core_rebuild.sql             # creates the local AI runtime/control tables
+20260509_ai_openai_provider_config.sql   # provider config first slice: openai-only driver, ai_provider_models, model sync fields, AI menu order
+20260508_ai_core_rollback.sql            # restores old local AI backups only
+```
+
+Provider config truth:
+
+```text
+base_url empty string means https://api.openai.com/v1
+model discovery uses GET {base_url}/models
+ai_provider_models is the source for enabled/default provider models
+API key is write-only and encrypted into api_key_enc; DTOs expose only api_key_masked
+health/model-sync status values are unknown / ok / failed
 ```
 
 Runtime boundary:
 
 ```text
-POST /api/admin/v1/ai-chat/runs must fail explicitly when no enabled app/engine exists; production must not fake success.
-Dify SSE exists only between Go and Dify; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed/cancel.v1.
+POST /api/admin/v1/ai-chat/runs must fail explicitly when no enabled provider/agent exists; production must not fake success.
+Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed/cancel.v1.
 REST event catch-up comes from ai_run_events and is not SSE, not EventSource, not Redis Stream.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.
 ```
-
 `internal/platform/storage/cos` 是唯一 COS STS 供应商边界：
 
 ```text

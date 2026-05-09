@@ -20,6 +20,8 @@ type Repository interface {
 	Create(ctx context.Context, row Connection) (uint64, error)
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
+	ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error)
+	ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel, defaultModelID string) error
 	Delete(ctx context.Context, id uint64) error
 }
 
@@ -105,6 +107,54 @@ func (r *GormRepository) Update(ctx context.Context, id uint64, fields map[strin
 		return ErrRepositoryNotConfigured
 	}
 	return r.activeDB(ctx).Where("id = ?", id).Updates(fields).Error
+}
+
+func (r *GormRepository) ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if providerID == 0 {
+		return nil, nil
+	}
+	var rows []ProviderModel
+	if err := r.db.WithContext(ctx).Where("provider_id = ?", providerID).Where("is_del = ?", enum.CommonNo).Order("is_default ASC, model_id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *GormRepository) ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel, defaultModelID string) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	if providerID == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&ProviderModel{}).Where("provider_id = ?", providerID).Where("is_del = ?", enum.CommonNo).Update("is_del", enum.CommonYes).Error; err != nil {
+			return err
+		}
+		for _, model := range models {
+			model.ID = 0
+			model.ProviderID = providerID
+			model.IsDel = enum.CommonNo
+			if model.Status == 0 {
+				model.Status = enum.CommonYes
+			}
+			if model.Source == "" {
+				model.Source = "remote"
+			}
+			if model.ModelID == defaultModelID {
+				model.IsDefault = enum.CommonYes
+			} else {
+				model.IsDefault = enum.CommonNo
+			}
+			if err := tx.Create(&model).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *GormRepository) ChangeStatus(ctx context.Context, id uint64, status int) error {

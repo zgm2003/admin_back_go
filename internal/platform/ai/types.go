@@ -5,6 +5,7 @@ import "context"
 type EngineType string
 
 const (
+	EngineTypeOpenAI  EngineType = "openai"
 	EngineTypeDify    EngineType = "dify"
 	EngineTypeEino    EngineType = "eino"
 	EngineTypeDirect  EngineType = "direct"

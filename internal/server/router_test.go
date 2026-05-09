@@ -570,9 +570,14 @@ func (f *fakeRouterClientVersionService) CurrentCheck(ctx context.Context, query
 }
 
 type fakeRouterAIEngineService struct {
-	initCalled bool
-	listQuery  aiengine.ListQuery
-	testID     uint64
+	initCalled       bool
+	listQuery        aiengine.ListQuery
+	testID           uint64
+	previewCalled    bool
+	syncID           uint64
+	modelsID         uint64
+	updateModelsID   uint64
+	updateModelsBody aiengine.UpdateModelsInput
 }
 
 func (f *fakeRouterAIEngineService) Init(ctx context.Context) (*aiengine.InitResponse, *apperror.Error) {
@@ -583,7 +588,7 @@ func (f *fakeRouterAIEngineService) Init(ctx context.Context) (*aiengine.InitRes
 func (f *fakeRouterAIEngineService) List(ctx context.Context, query aiengine.ListQuery) (*aiengine.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &aiengine.ListResponse{
-		List: []aiengine.ConnectionDTO{{ID: 1, Name: "Dify", EngineType: "dify", APIKeyMasked: "***test", Status: enum.CommonYes}},
+		List: []aiengine.ConnectionDTO{{ID: 1, Name: "OpenAI", EngineType: "openai", APIKeyMasked: "***test", Status: enum.CommonYes}},
 		Page: aiengine.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
@@ -603,6 +608,27 @@ func (f *fakeRouterAIEngineService) ChangeStatus(ctx context.Context, id uint64,
 func (f *fakeRouterAIEngineService) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
 	f.testID = id
 	return &platformai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
+}
+
+func (f *fakeRouterAIEngineService) PreviewModels(ctx context.Context, input aiengine.ModelOptionsInput) (*aiengine.ModelOptionsResponse, *apperror.Error) {
+	f.previewCalled = true
+	return &aiengine.ModelOptionsResponse{}, nil
+}
+
+func (f *fakeRouterAIEngineService) SyncModels(ctx context.Context, id uint64) (*aiengine.ModelOptionsResponse, *apperror.Error) {
+	f.syncID = id
+	return &aiengine.ModelOptionsResponse{}, nil
+}
+
+func (f *fakeRouterAIEngineService) ListProviderModels(ctx context.Context, id uint64) (*aiengine.ProviderModelsResponse, *apperror.Error) {
+	f.modelsID = id
+	return &aiengine.ProviderModelsResponse{}, nil
+}
+
+func (f *fakeRouterAIEngineService) UpdateProviderModels(ctx context.Context, id uint64, input aiengine.UpdateModelsInput) *apperror.Error {
+	f.updateModelsID = id
+	f.updateModelsBody = input
+	return nil
 }
 
 func (f *fakeRouterAIEngineService) Delete(ctx context.Context, id uint64) *apperror.Error {
@@ -2202,11 +2228,20 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-engine-connections?current_page=1&page_size=20&engine_type=dify&status=1", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-engine-connections?current_page=1&page_size=20&engine_type=openai&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.listQuery.EngineType != "dify" || engineService.listQuery.Status == nil || *engineService.listQuery.Status != enum.CommonYes {
+	if recorder.Code != http.StatusOK || engineService.listQuery.EngineType != "openai" || engineService.listQuery.Status == nil || *engineService.listQuery.Status != enum.CommonYes {
 		t.Fatalf("expected AI engine list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), engineService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/model-options", strings.NewReader(`{"driver":"openai","api_key":"sk-test"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !engineService.previewCalled {
+		t.Fatalf("expected AI engine model-options route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), engineService.previewCalled)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -2215,6 +2250,31 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || engineService.testID != 7 {
 		t.Fatalf("expected AI engine test route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.testID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/7/sync-models", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || engineService.syncID != 7 {
+		t.Fatalf("expected AI engine sync-models route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.syncID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-engine-connections/7/models", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || engineService.modelsID != 7 {
+		t.Fatalf("expected AI engine models route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.modelsID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-engine-connections/7/models", strings.NewReader(`{"model_ids":["gpt-4.1-mini"],"default_model_id":"gpt-4.1-mini"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || engineService.updateModelsID != 7 || engineService.updateModelsBody.DefaultModelID != "gpt-4.1-mini" {
+		t.Fatalf("expected AI engine update models route, code=%d body=%s id=%d input=%#v", recorder.Code, recorder.Body.String(), engineService.updateModelsID, engineService.updateModelsBody)
 	}
 
 	recorder = httptest.NewRecorder()
