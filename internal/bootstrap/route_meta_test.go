@@ -250,14 +250,9 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-conversations"},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/:id"},
 		{http.MethodPost, "/api/admin/v1/ai-conversations"},
-		{http.MethodPut, "/api/admin/v1/ai-conversations/:id"},
-		{http.MethodPatch, "/api/admin/v1/ai-conversations/:id/status"},
 		{http.MethodDelete, "/api/admin/v1/ai-conversations/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/:id/messages"},
-		{http.MethodPatch, "/api/admin/v1/ai-messages/:id/content"},
-		{http.MethodPatch, "/api/admin/v1/ai-messages/:id/feedback"},
-		{http.MethodDelete, "/api/admin/v1/ai-messages/:id"},
-		{http.MethodDelete, "/api/admin/v1/ai-messages"},
+		{http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages"},
 		{http.MethodGet, "/api/admin/v1/ai-runs/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-runs"},
 		{http.MethodGet, "/api/admin/v1/ai-runs/:id"},
@@ -265,10 +260,6 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date"},
 		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent"},
 		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user"},
-		{http.MethodPost, "/api/admin/v1/ai-chat/runs"},
-		{http.MethodGet, "/api/admin/v1/ai-chat/runs/:run_id/events"},
-		{http.MethodPost, "/api/admin/v1/ai-chat/messages"},
-		{http.MethodPost, "/api/admin/v1/ai-chat/runs/:run_id/cancel"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
 			t.Fatalf("read/current-user route %s %s must not require RBAC button permission", tt.method, tt.path)
@@ -380,16 +371,8 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/ai-tool-maps/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-tool-maps/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-conversations", "create"},
-		{http.MethodPut, "/api/admin/v1/ai-conversations/:id", "update"},
-		{http.MethodPatch, "/api/admin/v1/ai-conversations/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-conversations/:id", "delete"},
-		{http.MethodPatch, "/api/admin/v1/ai-messages/:id/content", "edit_content"},
-		{http.MethodPatch, "/api/admin/v1/ai-messages/:id/feedback", "feedback"},
-		{http.MethodDelete, "/api/admin/v1/ai-messages/:id", "delete"},
-		{http.MethodDelete, "/api/admin/v1/ai-messages", "delete_batch"},
-		{http.MethodPost, "/api/admin/v1/ai-chat/runs", "create_run"},
-		{http.MethodPost, "/api/admin/v1/ai-chat/messages", "send_message"},
-		{http.MethodPost, "/api/admin/v1/ai-chat/runs/:run_id/cancel", "cancel"},
+		{http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages", "send"},
 	}
 
 	for _, tt := range tests {

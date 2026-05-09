@@ -11,24 +11,28 @@ import (
 )
 
 const (
-	TypeRunExecuteV1 = "ai:run-execute:v1"
-	TypeRunTimeoutV1 = "ai:run-timeout:v1"
+	ConversationReplyTaskName = "ai:conversation-reply:v1"
+	TypeRunTimeoutV1          = "ai:run-timeout:v1"
 )
 
-type RunExecutePayload struct {
-	RunID int64 `json:"run_id"`
+type ConversationReplyPayload struct {
+	ConversationID int64  `json:"conversation_id"`
+	UserID         int64  `json:"user_id"`
+	AgentID        int64  `json:"agent_id"`
+	UserMessageID  int64  `json:"user_message_id"`
+	RequestID      string `json:"request_id"`
 }
 
 type RunTimeoutPayload struct {
 	Limit int `json:"limit,omitempty"`
 }
 
-func NewRunExecuteTask(payload RunExecutePayload) (taskqueue.Task, error) {
+func NewConversationReplyTask(payload ConversationReplyPayload) (taskqueue.Task, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeRunExecuteV1, err)
+		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", ConversationReplyTaskName, err)
 	}
-	return taskqueue.Task{Type: TypeRunExecuteV1, Payload: data, Queue: taskqueue.QueueDefault, MaxRetry: 3, Timeout: 5 * time.Minute}, nil
+	return taskqueue.Task{Type: ConversationReplyTaskName, Payload: data, Queue: taskqueue.QueueDefault, MaxRetry: 2, Timeout: 5 * time.Minute}, nil
 }
 
 func NewRunTimeoutTask(payload RunTimeoutPayload) (taskqueue.Task, error) {
@@ -39,13 +43,13 @@ func NewRunTimeoutTask(payload RunTimeoutPayload) (taskqueue.Task, error) {
 	return taskqueue.Task{Type: TypeRunTimeoutV1, Payload: data, Queue: taskqueue.QueueDefault, UniqueTTL: 55 * time.Second}, nil
 }
 
-func DecodeRunExecutePayload(payload []byte) (RunExecutePayload, error) {
-	var row RunExecutePayload
+func DecodeConversationReplyPayload(payload []byte) (ConversationReplyPayload, error) {
+	var row ConversationReplyPayload
 	if err := json.Unmarshal(payload, &row); err != nil {
-		return RunExecutePayload{}, fmt.Errorf("decode %s payload: %w", TypeRunExecuteV1, err)
+		return ConversationReplyPayload{}, fmt.Errorf("decode %s payload: %w", ConversationReplyTaskName, err)
 	}
-	if row.RunID <= 0 {
-		return RunExecutePayload{}, fmt.Errorf("decode %s payload: run_id is required", TypeRunExecuteV1)
+	if row.ConversationID <= 0 || row.UserID <= 0 || row.AgentID <= 0 || row.UserMessageID <= 0 || row.RequestID == "" {
+		return ConversationReplyPayload{}, fmt.Errorf("decode %s payload: conversation_id, user_id, agent_id, user_message_id and request_id are required", ConversationReplyTaskName)
 	}
 	return row, nil
 }
@@ -68,19 +72,19 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 	if logger == nil {
 		logger = slog.Default()
 	}
-	mux.HandleFunc(TypeRunExecuteV1, func(ctx context.Context, task taskqueue.Task) error {
+	mux.HandleFunc(ConversationReplyTaskName, func(ctx context.Context, task taskqueue.Task) error {
 		if service == nil {
 			return ErrRepositoryNotConfigured
 		}
-		payload, err := DecodeRunExecutePayload(task.Payload)
+		payload, err := DecodeConversationReplyPayload(task.Payload)
 		if err != nil {
 			return err
 		}
-		result, err := service.ExecuteRun(ctx, RunExecuteInput{RunID: payload.RunID})
+		result, err := service.ExecuteConversationReply(ctx, payload)
 		if err != nil {
 			return err
 		}
-		logger.InfoContext(ctx, "processed ai run execute task", "run_id", result.RunID)
+		logger.InfoContext(ctx, "processed ai conversation reply task", "conversation_id", result.ConversationID, "assistant_message_id", result.AssistantMessageID)
 		return nil
 	})
 	mux.HandleFunc(TypeRunTimeoutV1, func(ctx context.Context, task taskqueue.Task) error {

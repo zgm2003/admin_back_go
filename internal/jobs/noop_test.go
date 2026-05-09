@@ -75,7 +75,7 @@ func TestRegisterHandlesAuthLoginLogTask(t *testing.T) {
 	}
 }
 
-func TestRegisterHandlesAIChatRunExecuteTask(t *testing.T) {
+func TestRegisterHandlesAIConversationReplyTask(t *testing.T) {
 	service := &fakeAIChatJobService{}
 	mux := taskqueue.NewMux()
 	Register(mux, Dependencies{
@@ -83,15 +83,15 @@ func TestRegisterHandlesAIChatRunExecuteTask(t *testing.T) {
 		AIChatService: service,
 	})
 
-	task, err := aichat.NewRunExecuteTask(aichat.RunExecutePayload{RunID: 8})
+	task, err := aichat.NewConversationReplyTask(aichat.ConversationReplyPayload{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 8, RequestID: "rid"})
 	if err != nil {
-		t.Fatalf("NewRunExecuteTask returned error: %v", err)
+		t.Fatalf("NewConversationReplyTask returned error: %v", err)
 	}
 	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
-		t.Fatalf("ProcessProjectTask run execute returned error: %v", err)
+		t.Fatalf("ProcessProjectTask conversation reply returned error: %v", err)
 	}
-	if service.executeRunID != 8 {
-		t.Fatalf("expected execute run id 8, got %d", service.executeRunID)
+	if service.reply.ConversationID != 3 || service.reply.UserMessageID != 8 || service.reply.RequestID != "rid" {
+		t.Fatalf("expected conversation reply payload, got %#v", service.reply)
 	}
 }
 
@@ -235,13 +235,13 @@ type fakeAuthRepository struct {
 	attempts []auth.LoginAttempt
 }
 type fakeAIChatJobService struct {
-	executeRunID int64
+	reply        aichat.ConversationReplyInput
 	timeoutLimit int
 }
 
-func (f *fakeAIChatJobService) ExecuteRun(ctx context.Context, input aichat.RunExecuteInput) (*aichat.RunExecuteResult, error) {
-	f.executeRunID = input.RunID
-	return &aichat.RunExecuteResult{RunID: input.RunID}, nil
+func (f *fakeAIChatJobService) ExecuteConversationReply(ctx context.Context, input aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error) {
+	f.reply = input
+	return &aichat.ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: 22}, nil
 }
 
 func (f *fakeAIChatJobService) TimeoutRuns(ctx context.Context, input aichat.RunTimeoutInput) (*aichat.RunTimeoutResult, error) {

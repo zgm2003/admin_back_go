@@ -3,66 +3,57 @@ package aimessage
 import (
 	"context"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/enum"
 )
 
 type fakeRepository struct {
-	conversation               *Conversation
-	message                    *Message
-	rows                       []Message
-	total                      int64
-	listQuery                  ListQuery
-	updatedID                  int64
-	updatedContent             string
-	deletedAfterConversationID int64
-	deletedAfterMessageID      int64
-	metaID                     int64
-	metaJSON                   *string
-	deleteIDs                  []int64
+	conversation *Conversation
+	agent        *AgentRuntime
+	rows         []Message
+	listQuery    ListQuery
+	sendInput    SendRecord
 }
 
 func (f *fakeRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {
 	return f.conversation, nil
 }
-func (f *fakeRepository) Message(ctx context.Context, id int64) (*Message, error) {
-	return f.message, nil
+func (f *fakeRepository) AgentForConversation(ctx context.Context, conversationID int64, userID int64) (*AgentRuntime, error) {
+	return f.agent, nil
 }
-func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Message, int64, error) {
+func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Message, bool, error) {
 	f.listQuery = query
-	return f.rows, f.total, nil
+	return f.rows, len(f.rows) > query.Limit, nil
 }
-func (f *fakeRepository) UpdateContent(ctx context.Context, id int64, content string) error {
-	f.updatedID = id
-	f.updatedContent = content
-	return nil
-}
-func (f *fakeRepository) DeleteAfterMessage(ctx context.Context, conversationID int64, messageID int64) (int64, error) {
-	f.deletedAfterConversationID = conversationID
-	f.deletedAfterMessageID = messageID
-	return 2, nil
-}
-func (f *fakeRepository) UpdateMeta(ctx context.Context, id int64, metaJSON *string) error {
-	f.metaID = id
-	f.metaJSON = metaJSON
-	return nil
-}
-func (f *fakeRepository) DeleteMessages(ctx context.Context, ids []int64, userID int64) (int64, error) {
-	f.deleteIDs = ids
-	return int64(len(ids)), nil
+func (f *fakeRepository) InsertUserMessage(ctx context.Context, input SendRecord) (int64, error) {
+	f.sendInput = input
+	return 12, nil
 }
 
-func TestListChecksConversationOwnershipAndRoleFilter(t *testing.T) {
-	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []Message{{ID: 1, ConversationID: 3, Role: enum.AIMessageRoleUser, Content: "hi"}}, total: 1}
-	role := enum.AIMessageRoleUser
-	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{ConversationID: 3, Role: &role})
+type fakeReplyEnqueuer struct {
+	payload ReplyPayload
+}
+
+func (f *fakeReplyEnqueuer) EnqueueConversationReply(ctx context.Context, payload ReplyPayload) error {
+	f.payload = payload
+	return nil
+}
+
+func TestListUsesMessageCursorAndReturnsChronologicalOrder(t *testing.T) {
+	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []Message{
+		{ID: 11, ConversationID: 3, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "second", CreatedAt: now, UpdatedAt: now},
+		{ID: 10, ConversationID: 3, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "first", CreatedAt: now, UpdatedAt: now},
+	}}
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{ConversationID: 3, BeforeID: 20})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.listQuery.ConversationID != 3 || repo.listQuery.Role == nil || *repo.listQuery.Role != role || repo.listQuery.CurrentPage != 1 {
+	if repo.listQuery.Limit != 20 || repo.listQuery.BeforeID != 20 {
 		t.Fatalf("unexpected list query: %#v", repo.listQuery)
 	}
-	if len(res.List) != 1 || res.List[0].Content != "hi" {
+	if len(res.List) != 2 || res.List[0].ID != 10 || res.List[1].ID != 11 || res.List[0].ContentType != "text" {
 		t.Fatalf("unexpected response: %#v", res)
 	}
 }
@@ -75,63 +66,31 @@ func TestListRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
 	}
 }
 
-func TestEditContentOnlyAllowsOwnedUserMessageAndDeletesLaterMessages(t *testing.T) {
-	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, message: &Message{ID: 9, ConversationID: 3, Role: enum.AIMessageRoleUser, Content: "old"}}
-	res, appErr := NewService(repo).EditContent(context.Background(), 7, 9, " next ")
+func TestSendCreatesTextUserMessageAndEnqueuesConversationReply(t *testing.T) {
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
+		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+	}
+	enq := &fakeReplyEnqueuer{}
+	res, appErr := NewService(repo, WithReplyEnqueuer(enq)).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid"})
 	if appErr != nil {
-		t.Fatalf("EditContent returned error: %v", appErr)
+		t.Fatalf("Send returned error: %v", appErr)
 	}
-	if repo.updatedID != 9 || repo.updatedContent != "next" {
-		t.Fatalf("unexpected update: id=%d content=%q", repo.updatedID, repo.updatedContent)
+	if res.UserMessageID != 12 || res.ConversationID != 3 || res.RequestID != "rid" {
+		t.Fatalf("unexpected response: %#v", res)
 	}
-	if repo.deletedAfterConversationID != 3 || repo.deletedAfterMessageID != 9 || res.DeletedCount != 2 {
-		t.Fatalf("unexpected delete-after: conv=%d msg=%d res=%#v", repo.deletedAfterConversationID, repo.deletedAfterMessageID, res)
+	if repo.sendInput.Content != "hello" || repo.sendInput.ContentType != "text" || repo.sendInput.Role != enum.AIMessageRoleUser {
+		t.Fatalf("unexpected send input: %#v", repo.sendInput)
 	}
-}
-
-func TestEditContentRejectsAssistantMessage(t *testing.T) {
-	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, message: &Message{ID: 9, ConversationID: 3, Role: enum.AIMessageRoleAssistant}}
-	_, appErr := NewService(repo).EditContent(context.Background(), 7, 9, "x")
-	if appErr == nil || appErr.Code != 100 {
-		t.Fatalf("expected bad request, got %#v", appErr)
+	if enq.payload.ConversationID != 3 || enq.payload.UserID != 7 || enq.payload.AgentID != 5 || enq.payload.UserMessageID != 12 || enq.payload.RequestID != "rid" {
+		t.Fatalf("unexpected reply payload: %#v", enq.payload)
 	}
 }
 
-func TestFeedbackWritesAndRemovesMetaFeedback(t *testing.T) {
-	raw := `{"keep":true}`
-	feedback := 2
-	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, message: &Message{ID: 9, ConversationID: 3, Role: enum.AIMessageRoleAssistant, MetaJSON: &raw}}
-	if appErr := NewService(repo).Feedback(context.Background(), 7, 9, &feedback); appErr != nil {
-		t.Fatalf("Feedback returned error: %v", appErr)
-	}
-	if repo.metaJSON == nil || *repo.metaJSON != `{"feedback":2,"keep":true}` {
-		t.Fatalf("unexpected feedback meta: %#v", repo.metaJSON)
-	}
-	if appErr := NewService(repo).Feedback(context.Background(), 7, 9, nil); appErr != nil {
-		t.Fatalf("remove Feedback returned error: %v", appErr)
-	}
-	if repo.metaJSON == nil || *repo.metaJSON != `{"keep":true}` {
-		t.Fatalf("unexpected removed feedback meta: %#v", repo.metaJSON)
-	}
-}
-
-func TestDeleteDeduplicatesAndLimitsBatch(t *testing.T) {
-	repo := &fakeRepository{}
-	ids := []int64{3, 3, 0, 2}
-	res, appErr := NewService(repo).Delete(context.Background(), 7, ids)
-	if appErr != nil {
-		t.Fatalf("Delete returned error: %v", appErr)
-	}
-	if len(repo.deleteIDs) != 2 || repo.deleteIDs[0] != 2 || repo.deleteIDs[1] != 3 || res.Affected != 2 {
-		t.Fatalf("unexpected delete: ids=%#v res=%#v", repo.deleteIDs, res)
-	}
-
-	tooMany := make([]int64, 101)
-	for i := range tooMany {
-		tooMany[i] = int64(i + 1)
-	}
-	_, appErr = NewService(repo).Delete(context.Background(), 7, tooMany)
-	if appErr == nil || appErr.Code != 100 {
-		t.Fatalf("expected too many bad request, got %#v", appErr)
+func TestSendRejectsNonChatAgent(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["image"]`}}
+	_, appErr := NewService(repo, WithReplyEnqueuer(&fakeReplyEnqueuer{})).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
+	if appErr == nil || appErr.Code != 100 || appErr.Message != "该智能体不支持对话场景" {
+		t.Fatalf("expected non-chat bad request, got %#v", appErr)
 	}
 }

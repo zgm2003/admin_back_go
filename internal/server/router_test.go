@@ -18,7 +18,6 @@ import (
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
-	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
 	"admin_back_go/internal/module/aiknowledgemap"
 	"admin_back_go/internal/module/aimessage"
@@ -126,23 +125,15 @@ func (f *fakeRouterAIKnowledgeMapService) DeleteDocument(ctx context.Context, id
 type fakeRouterAIConversationService struct{}
 
 func (fakeRouterAIConversationService) List(ctx context.Context, userID int64, query aiconversation.ListQuery) (*aiconversation.ListResponse, *apperror.Error) {
-	return &aiconversation.ListResponse{Page: aiconversation.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &aiconversation.ListResponse{List: []aiconversation.ConversationItem{{ID: 1, AgentID: 1, AgentName: "agent", Title: "会话"}}}, nil
 }
 
-func (fakeRouterAIConversationService) Detail(ctx context.Context, userID int64, id int64) (*aiconversation.DetailResponse, *apperror.Error) {
-	return &aiconversation.DetailResponse{ID: id, UserID: userID}, nil
+func (fakeRouterAIConversationService) Detail(ctx context.Context, userID int64, id int64) (*aiconversation.ConversationDetail, *apperror.Error) {
+	return &aiconversation.ConversationDetail{ID: id, AgentID: 1, AgentName: "agent", Title: "会话"}, nil
 }
 
-func (fakeRouterAIConversationService) Create(ctx context.Context, userID int64, input aiconversation.MutationInput) (int64, *apperror.Error) {
+func (fakeRouterAIConversationService) Create(ctx context.Context, userID int64, input aiconversation.CreateInput) (int64, *apperror.Error) {
 	return 1, nil
-}
-
-func (fakeRouterAIConversationService) Update(ctx context.Context, userID int64, id int64, input aiconversation.MutationInput) *apperror.Error {
-	return nil
-}
-
-func (fakeRouterAIConversationService) ChangeStatus(ctx context.Context, userID int64, id int64, status int) *apperror.Error {
-	return nil
 }
 
 func (fakeRouterAIConversationService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
@@ -152,19 +143,11 @@ func (fakeRouterAIConversationService) Delete(ctx context.Context, userID int64,
 type fakeRouterAIMessageService struct{}
 
 func (fakeRouterAIMessageService) List(ctx context.Context, userID int64, query aimessage.ListQuery) (*aimessage.ListResponse, *apperror.Error) {
-	return &aimessage.ListResponse{Page: aimessage.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &aimessage.ListResponse{List: []aimessage.MessageItem{{ID: 2, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hello"}}}, nil
 }
 
-func (fakeRouterAIMessageService) EditContent(ctx context.Context, userID int64, id int64, content string) (*aimessage.EditContentResponse, *apperror.Error) {
-	return &aimessage.EditContentResponse{DeletedCount: 1}, nil
-}
-
-func (fakeRouterAIMessageService) Feedback(ctx context.Context, userID int64, id int64, feedback *int) *apperror.Error {
-	return nil
-}
-
-func (fakeRouterAIMessageService) Delete(ctx context.Context, userID int64, ids []int64) (*aimessage.DeleteResponse, *apperror.Error) {
-	return &aimessage.DeleteResponse{Affected: int64(len(ids))}, nil
+func (fakeRouterAIMessageService) Send(ctx context.Context, userID int64, input aimessage.SendInput) (*aimessage.SendResponse, *apperror.Error) {
+	return &aimessage.SendResponse{ConversationID: input.ConversationID, UserMessageID: 2, RequestID: input.RequestID}, nil
 }
 
 type fakeRouterAIRunService struct{}
@@ -198,18 +181,6 @@ func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.Stats
 }
 
 type fakeRouterAIChatService struct{}
-
-func (fakeRouterAIChatService) CreateRun(ctx context.Context, userID int64, input aichat.CreateRunInput) (*aichat.CreateRunResponse, *apperror.Error) {
-	return &aichat.CreateRunResponse{ConversationID: 1, RunID: 1, RequestID: "request-id", UserMessageID: 2, AgentID: input.AgentID}, nil
-}
-
-func (fakeRouterAIChatService) Events(ctx context.Context, userID int64, runID int64, lastID string, timeout time.Duration) (*aichat.EventsResponse, *apperror.Error) {
-	return &aichat.EventsResponse{LastID: lastID, RunStatus: enum.AIRunStatusRunning}, nil
-}
-
-func (fakeRouterAIChatService) Cancel(ctx context.Context, userID int64, runID int64) (*aichat.CancelResponse, *apperror.Error) {
-	return &aichat.CancelResponse{RunID: runID, Status: "canceled"}, nil
-}
 
 type fakeAuthService struct{}
 
@@ -3072,14 +3043,9 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-conversations", ""},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/1", ""},
 		{http.MethodPost, "/api/admin/v1/ai-conversations", `{"agent_id":1,"title":"会话"}`},
-		{http.MethodPut, "/api/admin/v1/ai-conversations/1", `{"agent_id":1,"title":"会话"}`},
-		{http.MethodPatch, "/api/admin/v1/ai-conversations/1/status", `{"status":1}`},
 		{http.MethodDelete, "/api/admin/v1/ai-conversations/1", ""},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/1/messages", ""},
-		{http.MethodPatch, "/api/admin/v1/ai-messages/2/content", `{"content":"hello"}`},
-		{http.MethodPatch, "/api/admin/v1/ai-messages/2/feedback", `{"feedback":1}`},
-		{http.MethodDelete, "/api/admin/v1/ai-messages/2", ""},
-		{http.MethodDelete, "/api/admin/v1/ai-messages", `{"ids":[2,3]}`},
+		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages", `{"content":"hello","request_id":"rid"}`},
 		{http.MethodGet, "/api/admin/v1/ai-runs/page-init", ""},
 		{http.MethodGet, "/api/admin/v1/ai-runs", ""},
 		{http.MethodGet, "/api/admin/v1/ai-runs/1", ""},
@@ -3087,10 +3053,6 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date", ""},
 		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent", ""},
 		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user", ""},
-		{http.MethodPost, "/api/admin/v1/ai-chat/runs", `{"content":"hello","agent_id":1}`},
-		{http.MethodGet, "/api/admin/v1/ai-chat/runs/1/events", ""},
-		{http.MethodPost, "/api/admin/v1/ai-chat/messages", `{"content":"hello","agent_id":1}`},
-		{http.MethodPost, "/api/admin/v1/ai-chat/runs/1/cancel", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {

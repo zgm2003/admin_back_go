@@ -16,7 +16,6 @@ const (
 	EventAIResponseDelta     = "ai.response.delta.v1"
 	EventAIResponseCompleted = "ai.response.completed.v1"
 	EventAIResponseFailed    = "ai.response.failed.v1"
-	EventAIResponseCancel    = "ai.response.cancel.v1"
 )
 
 type EnvelopeEvent struct {
@@ -59,39 +58,44 @@ func (g *StreamIDGenerator) Next() string {
 }
 
 type StartPayload struct {
-	RunID          int64  `json:"run_id"`
 	ConversationID int64  `json:"conversation_id"`
 	RequestID      string `json:"request_id"`
 	UserMessageID  int64  `json:"user_message_id"`
 	AgentID        int64  `json:"agent_id"`
-	IsNew          bool   `json:"is_new"`
+}
+
+type DeltaPayload struct {
+	ConversationID int64  `json:"conversation_id"`
+	RequestID      string `json:"request_id"`
+	Delta          string `json:"delta"`
 }
 
 type CompletedPayload struct {
-	RunID              int64 `json:"run_id"`
-	ConversationID     int64 `json:"conversation_id"`
-	UserMessageID      int64 `json:"user_message_id"`
-	AssistantMessageID int64 `json:"assistant_message_id"`
+	ConversationID     int64  `json:"conversation_id"`
+	RequestID          string `json:"request_id"`
+	AssistantMessageID int64  `json:"assistant_message_id"`
+}
+
+type FailedPayload struct {
+	ConversationID int64  `json:"conversation_id"`
+	RequestID      string `json:"request_id"`
+	Msg            string `json:"msg"`
 }
 
 func BuildStartEvent(payload StartPayload) (EnvelopeEvent, error) {
 	return buildEvent(EventAIResponseStart, payload)
 }
 
-func BuildDeltaEvent(runID int64, delta string) (EnvelopeEvent, error) {
-	return buildEvent(EventAIResponseDelta, map[string]any{"run_id": runID, "delta": delta})
+func BuildDeltaEvent(payload DeltaPayload) (EnvelopeEvent, error) {
+	return buildEvent(EventAIResponseDelta, payload)
 }
 
 func BuildCompletedEvent(payload CompletedPayload) (EnvelopeEvent, error) {
 	return buildEvent(EventAIResponseCompleted, payload)
 }
 
-func BuildFailedEvent(runID int64, message string) (EnvelopeEvent, error) {
-	return buildEvent(EventAIResponseFailed, map[string]any{"run_id": runID, "msg": message})
-}
-
-func BuildCancelEvent(runID int64) (EnvelopeEvent, error) {
-	return buildEvent(EventAIResponseCancel, map[string]any{"run_id": runID})
+func BuildFailedEvent(payload FailedPayload) (EnvelopeEvent, error) {
+	return buildEvent(EventAIResponseFailed, payload)
 }
 
 func BuildEventFromPayload(eventType string, payload any) (EnvelopeEvent, error) {

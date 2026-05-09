@@ -126,7 +126,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	aiToolMapService := aitoolmap.NewService(aitoolmap.NewGormRepository(resources.DB))
 	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
-	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB))
+	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiConversationReplyEnqueuer{enqueuer: queueClient}))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
 	var paymentNumberGenerator paymentmodule.NumberGenerator
 	if resources.Redis != nil && resources.Redis.Redis != nil {
@@ -218,7 +218,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:    aichat.NewGormRepository(resources.DB),
-		Enqueuer:      queueClient,
 		Publisher:     realtimeStack.publisher,
 		Secretbox:     secretBox,
 		EngineFactory: aiChatEngineFactory{},
@@ -313,6 +312,28 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
 		},
 	}
+}
+
+type aiConversationReplyEnqueuer struct {
+	enqueuer taskqueue.Enqueuer
+}
+
+func (e aiConversationReplyEnqueuer) EnqueueConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
+	if e.enqueuer == nil {
+		return errors.New("ai conversation reply queue is not configured")
+	}
+	task, err := aichat.NewConversationReplyTask(aichat.ConversationReplyPayload{
+		ConversationID: payload.ConversationID,
+		UserID:         payload.UserID,
+		AgentID:        payload.AgentID,
+		UserMessageID:  payload.UserMessageID,
+		RequestID:      payload.RequestID,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = e.enqueuer.Enqueue(ctx, task)
+	return err
 }
 
 type aiProviderTester struct{}

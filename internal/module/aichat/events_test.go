@@ -6,30 +6,24 @@ import (
 	"testing"
 )
 
-func TestStreamEventIDsAreMonotonic(t *testing.T) {
-	gen := NewStreamIDGenerator()
-	first := gen.Next()
-	second := gen.Next()
-	if !isNewerStreamID(second, first) {
-		t.Fatalf("expected second id to be newer: first=%s second=%s", first, second)
-	}
-}
-
-func TestEnvelopeBuildersUseVersionedAIResponseTypes(t *testing.T) {
+func TestEnvelopeBuildersUseConversationScopedPayloads(t *testing.T) {
 	cases := []struct {
 		name         string
 		envelopeType string
 		build        func() (EnvelopeEvent, error)
 	}{
 		{"start", EventAIResponseStart, func() (EnvelopeEvent, error) {
-			return BuildStartEvent(StartPayload{RunID: 7, ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: 2})
+			return BuildStartEvent(StartPayload{ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: 2})
 		}},
-		{"delta", EventAIResponseDelta, func() (EnvelopeEvent, error) { return BuildDeltaEvent(7, "hello") }},
+		{"delta", EventAIResponseDelta, func() (EnvelopeEvent, error) {
+			return BuildDeltaEvent(DeltaPayload{ConversationID: 3, RequestID: "rid", Delta: "hello"})
+		}},
 		{"completed", EventAIResponseCompleted, func() (EnvelopeEvent, error) {
-			return BuildCompletedEvent(CompletedPayload{RunID: 7, ConversationID: 3, UserMessageID: 9, AssistantMessageID: 10})
+			return BuildCompletedEvent(CompletedPayload{ConversationID: 3, RequestID: "rid", AssistantMessageID: 10})
 		}},
-		{"failed", EventAIResponseFailed, func() (EnvelopeEvent, error) { return BuildFailedEvent(7, "bad") }},
-		{"cancel", EventAIResponseCancel, func() (EnvelopeEvent, error) { return BuildCancelEvent(7) }},
+		{"failed", EventAIResponseFailed, func() (EnvelopeEvent, error) {
+			return BuildFailedEvent(FailedPayload{ConversationID: 3, RequestID: "rid", Msg: "bad"})
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -40,15 +34,15 @@ func TestEnvelopeBuildersUseVersionedAIResponseTypes(t *testing.T) {
 			if event.Envelope.Type != tc.envelopeType {
 				t.Fatalf("expected type %s, got %#v", tc.envelopeType, event.Envelope)
 			}
-			if strings.Contains(event.Envelope.Type, "ai_run"+"_event") {
-				t.Fatalf("builder emitted legacy event type: %s", event.Envelope.Type)
-			}
 			var data map[string]any
 			if err := json.Unmarshal(event.Envelope.Data, &data); err != nil {
 				t.Fatalf("invalid data: %v", err)
 			}
-			if data["run_id"] != float64(7) {
-				t.Fatalf("expected run_id in envelope data, got %#v", data)
+			if _, ok := data["run_id"]; ok || strings.Contains(string(event.Envelope.Data), "run_id") {
+				t.Fatalf("conversation event must not contain run_id: %s", string(event.Envelope.Data))
+			}
+			if data["conversation_id"] != float64(3) || data["request_id"] != "rid" {
+				t.Fatalf("unexpected payload: %#v", data)
 			}
 		})
 	}

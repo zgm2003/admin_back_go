@@ -536,15 +536,7 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-tool-maps/:id/status"):                  {Module: "ai_tool_map", Action: "change_status", Title: "修改AI工具映射状态"},
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-tool-maps/:id"):                        {Module: "ai_tool_map", Action: "delete", Title: "删除AI工具映射"},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-conversations"):                          {Module: "ai_conversation", Action: "create", Title: "新增AI会话"},
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-conversations/:id"):                       {Module: "ai_conversation", Action: "update", Title: "编辑AI会话"},
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-conversations/:id/status"):              {Module: "ai_conversation", Action: "change_status", Title: "修改AI会话状态"},
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id"):                    {Module: "ai_conversation", Action: "delete", Title: "删除AI会话"},
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-messages/:id/content"):                  {Module: "ai_message", Action: "edit_content", Title: "编辑AI消息内容"},
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-messages/:id/feedback"):                 {Module: "ai_message", Action: "feedback", Title: "反馈AI消息"},
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-messages/:id"):                         {Module: "ai_message", Action: "delete", Title: "删除AI消息"},
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-messages"):                             {Module: "ai_message", Action: "delete_batch", Title: "批量删除AI消息"},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-chat/runs"):                              {Module: "ai_chat", Action: "create_run", Title: "创建AI运行"},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-chat/messages"):                          {Module: "ai_chat", Action: "send_message", Title: "发送AI消息"},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-chat/runs/:run_id/cancel"):               {Module: "ai_chat", Action: "cancel", Title: "取消AI运行"},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages"):             {Module: "ai_message", Action: "send", Title: "发送AI消息"},
 	}
 }

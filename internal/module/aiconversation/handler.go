@@ -29,10 +29,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI会话列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, ListQuery{
-		CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status,
-		AgentID: req.AgentID, Title: req.Title,
-	})
+	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, ListQuery{AgentID: req.AgentID, BeforeID: req.BeforeID, Limit: req.Limit})
 	writeResult(c, res, appErr)
 }
 
@@ -54,59 +51,17 @@ func (h *Handler) Create(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req mutationRequest
+	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperror.BadRequest("AI会话参数错误"))
 		return
 	}
-	id, appErr := h.requireService().Create(c.Request.Context(), identity.UserID, MutationInput{AgentID: req.AgentID, Title: req.Title})
+	id, appErr := h.requireService().Create(c.Request.Context(), identity.UserID, CreateInput{AgentID: req.AgentID, Title: req.Title})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
-	response.OK(c, gin.H{"id": id})
-}
-
-func (h *Handler) Update(c *gin.Context) {
-	identity, ok := authIdentity(c)
-	if !ok {
-		return
-	}
-	id, ok := routeID(c, "id", "无效的AI会话ID")
-	if !ok {
-		return
-	}
-	var req titleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI会话参数错误"))
-		return
-	}
-	if appErr := h.requireService().Update(c.Request.Context(), identity.UserID, id, MutationInput{Title: req.Title}); appErr != nil {
-		response.Error(c, appErr)
-		return
-	}
-	response.OK(c, gin.H{})
-}
-
-func (h *Handler) ChangeStatus(c *gin.Context) {
-	identity, ok := authIdentity(c)
-	if !ok {
-		return
-	}
-	id, ok := routeID(c, "id", "无效的AI会话ID")
-	if !ok {
-		return
-	}
-	var req statusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI会话状态参数错误"))
-		return
-	}
-	if appErr := h.requireService().ChangeStatus(c.Request.Context(), identity.UserID, id, req.Status); appErr != nil {
-		response.Error(c, appErr)
-		return
-	}
-	response.OK(c, gin.H{})
+	response.OK(c, CreateResponse{ID: id})
 }
 
 func (h *Handler) Delete(c *gin.Context) {
@@ -163,17 +118,11 @@ type nilHTTPService struct{}
 func (nilHTTPService) List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI会话服务未配置")
 }
-func (nilHTTPService) Detail(ctx context.Context, userID int64, id int64) (*DetailResponse, *apperror.Error) {
+func (nilHTTPService) Detail(ctx context.Context, userID int64, id int64) (*ConversationDetail, *apperror.Error) {
 	return nil, apperror.Internal("AI会话服务未配置")
 }
-func (nilHTTPService) Create(ctx context.Context, userID int64, input MutationInput) (int64, *apperror.Error) {
+func (nilHTTPService) Create(ctx context.Context, userID int64, input CreateInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("AI会话服务未配置")
-}
-func (nilHTTPService) Update(ctx context.Context, userID int64, id int64, input MutationInput) *apperror.Error {
-	return apperror.Internal("AI会话服务未配置")
-}
-func (nilHTTPService) ChangeStatus(ctx context.Context, userID int64, id int64, status int) *apperror.Error {
-	return apperror.Internal("AI会话服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
 	return apperror.Internal("AI会话服务未配置")

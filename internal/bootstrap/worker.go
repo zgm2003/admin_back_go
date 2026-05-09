@@ -112,7 +112,6 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	})
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:    aichat.NewGormRepository(resources.DB),
-		Enqueuer:      queueClient,
 		Publisher:     realtimePublisher,
 		Secretbox:     secretBox,
 		EngineFactory: aiChatEngineFactory{},

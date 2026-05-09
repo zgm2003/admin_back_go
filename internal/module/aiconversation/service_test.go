@@ -3,133 +3,94 @@ package aiconversation
 import (
 	"context"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/enum"
 )
 
 type fakeRepository struct {
 	rows         []ListRow
-	total        int64
 	row          *Conversation
-	activeApps   map[int64]bool
+	activeAgents map[int64]bool
 	listQuery    ListQuery
 	created      Conversation
-	updateID     int64
-	updateFields map[string]any
-	statusID     int64
-	statusValue  int
 	deleteID     int64
+	deleteUserID int64
 }
 
-func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
+func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, bool, error) {
 	f.listQuery = query
-	return f.rows, f.total, nil
+	return f.rows, len(f.rows) > query.Limit, nil
 }
-func (f *fakeRepository) Get(ctx context.Context, id int64) (*Conversation, error) { return f.row, nil }
-func (f *fakeRepository) AgentName(ctx context.Context, id int64) (string, error) {
-	return "app", nil
+func (f *fakeRepository) Get(ctx context.Context, id int64) (*Conversation, string, error) {
+	if f.row == nil {
+		return nil, "", nil
+	}
+	return f.row, "客服助手", nil
 }
-func (f *fakeRepository) ActiveAgentExists(ctx context.Context, id int64) (bool, error) {
-	return f.activeApps[id], nil
+func (f *fakeRepository) ActiveChatAgentExists(ctx context.Context, id int64) (bool, error) {
+	return f.activeAgents[id], nil
 }
 func (f *fakeRepository) Create(ctx context.Context, row Conversation) (int64, error) {
 	f.created = row
 	return 9, nil
 }
-func (f *fakeRepository) Update(ctx context.Context, id int64, fields map[string]any) error {
-	f.updateID = id
-	f.updateFields = fields
+func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) error {
+	f.deleteID = id
+	f.deleteUserID = userID
 	return nil
 }
-func (f *fakeRepository) ChangeStatus(ctx context.Context, id int64, status int) error {
-	f.statusID = id
-	f.statusValue = status
-	return nil
-}
-func (f *fakeRepository) Delete(ctx context.Context, id int64) error { f.deleteID = id; return nil }
 
-func TestListScopesToCurrentUserAndDefaultsStatus(t *testing.T) {
-	repo := &fakeRepository{rows: []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AgentID: 3, Title: "hello", Status: enum.CommonYes}, AgentName: "app"}}, total: 1}
-	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{CurrentPage: 0, PageSize: 0})
+func TestListUsesCursorLimitAndDoesNotExposeUserOrStatus(t *testing.T) {
+	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{rows: []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AgentID: 3, Title: "hello", LastMessageAt: &now, IsDel: enum.CommonNo, UpdatedAt: now}, AgentName: "客服助手"}}}
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{AgentID: ptrInt64(3), BeforeID: 20, Limit: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.listQuery.UserID != 7 || repo.listQuery.CurrentPage != 1 || repo.listQuery.PageSize != 20 {
+	if repo.listQuery.UserID != 7 || repo.listQuery.BeforeID != 20 || repo.listQuery.Limit != 20 || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
 		t.Fatalf("unexpected normalized query: %#v", repo.listQuery)
 	}
-	if repo.listQuery.Status == nil || *repo.listQuery.Status != enum.CommonYes {
-		t.Fatalf("expected default status=1, got %#v", repo.listQuery.Status)
-	}
-	if len(res.List) != 1 {
+	if len(res.List) != 1 || res.List[0].AgentName != "客服助手" || res.List[0].LastMessageAt == "" || res.NextID != 0 || res.HasMore {
 		t.Fatalf("unexpected list response: %#v", res)
 	}
 }
 
 func TestDetailRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
-	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 8, AgentID: 1, Title: "other", Status: enum.CommonYes}}
+	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 8, AgentID: 1, Title: "other", IsDel: enum.CommonNo}}
 	_, appErr := NewService(repo).Detail(context.Background(), 7, 3)
 	if appErr == nil || appErr.Code != 403 {
 		t.Fatalf("expected forbidden, got %#v", appErr)
 	}
 }
 
-func TestCreateValidatesActiveAgentAndSetsCurrentUser(t *testing.T) {
-	repo := &fakeRepository{activeApps: map[int64]bool{5: true}}
-	id, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AgentID: 5, Title: "  New chat  "})
+func TestCreateValidatesChatAgentAndSetsCurrentUser(t *testing.T) {
+	repo := &fakeRepository{activeAgents: map[int64]bool{5: true}}
+	id, appErr := NewService(repo).Create(context.Background(), 7, CreateInput{AgentID: 5, Title: "  New chat  "})
 	if appErr != nil {
 		t.Fatalf("Create returned error: %v", appErr)
 	}
-	if id != 9 || repo.created.UserID != 7 || repo.created.AgentID != 5 || repo.created.Title != "New chat" || repo.created.Status != enum.CommonYes || repo.created.IsDel != enum.CommonNo {
+	if id != 9 || repo.created.UserID != 7 || repo.created.AgentID != 5 || repo.created.Title != "New chat" || repo.created.IsDel != enum.CommonNo {
 		t.Fatalf("unexpected created row: id=%d row=%#v", id, repo.created)
 	}
 }
 
-func TestCreateAcceptsLegacyAgentIDAsAgentID(t *testing.T) {
-	repo := &fakeRepository{activeApps: map[int64]bool{9: true}}
-	_, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AgentID: 9, Title: "legacy"})
-	if appErr != nil {
-		t.Fatalf("Create returned error: %v", appErr)
-	}
-	if repo.created.AgentID != 9 {
-		t.Fatalf("legacy agent_id should map to agent_id, got %d", repo.created.AgentID)
+func TestCreateRejectsNonChatAgent(t *testing.T) {
+	repo := &fakeRepository{activeAgents: map[int64]bool{5: false}}
+	_, appErr := NewService(repo).Create(context.Background(), 7, CreateInput{AgentID: 5})
+	if appErr == nil || appErr.Code != 100 || appErr.Message != "该智能体不支持对话场景" {
+		t.Fatalf("expected non-chat bad request, got %#v", appErr)
 	}
 }
 
-func TestCreateRejectsInactiveApp(t *testing.T) {
-	repo := &fakeRepository{activeApps: map[int64]bool{5: false}}
-	_, appErr := NewService(repo).Create(context.Background(), 7, MutationInput{AgentID: 5})
-	if appErr == nil || appErr.Code != 100 {
-		t.Fatalf("expected bad request, got %#v", appErr)
-	}
-}
-
-func TestUpdateStatusAndDeleteRequireOwner(t *testing.T) {
-	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, AgentID: 1, Title: "old", Status: enum.CommonYes}}
-	service := NewService(repo)
-	if appErr := service.Update(context.Background(), 7, 3, MutationInput{Title: " next "}); appErr != nil {
-		t.Fatalf("Update returned error: %v", appErr)
-	}
-	if repo.updateID != 3 || repo.updateFields["title"] != "next" {
-		t.Fatalf("unexpected update: id=%d fields=%#v", repo.updateID, repo.updateFields)
-	}
-	if appErr := service.ChangeStatus(context.Background(), 7, 3, enum.CommonNo); appErr != nil {
-		t.Fatalf("ChangeStatus returned error: %v", appErr)
-	}
-	if repo.statusID != 3 || repo.statusValue != enum.CommonNo {
-		t.Fatalf("unexpected status update: id=%d value=%d", repo.statusID, repo.statusValue)
-	}
-	if appErr := service.Delete(context.Background(), 7, 3); appErr != nil {
+func TestDeleteRequiresOwnerAndSoftDeletesMessages(t *testing.T) {
+	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, IsDel: enum.CommonNo}}
+	if appErr := NewService(repo).Delete(context.Background(), 7, 3); appErr != nil {
 		t.Fatalf("Delete returned error: %v", appErr)
 	}
-	if repo.deleteID != 3 {
-		t.Fatalf("unexpected delete id: %d", repo.deleteID)
+	if repo.deleteID != 3 || repo.deleteUserID != 7 {
+		t.Fatalf("unexpected delete call: id=%d user=%d", repo.deleteID, repo.deleteUserID)
 	}
 }
 
-func TestChangeStatusRejectsInvalidStatus(t *testing.T) {
-	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7}}
-	appErr := NewService(repo).ChangeStatus(context.Background(), 7, 3, 99)
-	if appErr == nil || appErr.Code != 100 {
-		t.Fatalf("expected bad request, got %#v", appErr)
-	}
-}
+func ptrInt64(v int64) *int64 { return &v }
