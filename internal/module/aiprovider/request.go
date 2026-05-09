@@ -1,4 +1,4 @@
-package aiengine
+package aiprovider
 
 type listRequest struct {
 	CurrentPage int    `form:"current_page" binding:"omitempty,min=1"`

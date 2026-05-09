@@ -166,7 +166,7 @@ func validAppConfig(t *testing.T) (*AppEngineConfig, secretbox.Box) {
 	return &AppEngineConfig{
 		AppID:              5,
 		AppName:            "客服",
-		EngineConnectionID: 2,
+		ProviderID:         2,
 		EngineType:         string(platformai.EngineTypeDify),
 		EngineBaseURL:      "https://dify.test/v1",
 		EngineAppAPIKeyEnc: cipher,
@@ -336,7 +336,7 @@ func TestExecuteRunUsesEngineAndPersistsEvents(t *testing.T) {
 	app, box := validAppConfig(t)
 	repo := &fakeRepository{
 		app:         app,
-		run:         &Run{ID: 8, UserID: 7, AppID: 5, EngineConnectionID: 2, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning},
+		run:         &Run{ID: 8, UserID: 7, AppID: 5, ProviderID: 2, ConversationID: 3, UserMessageID: ptrInt64(9), RunStatus: enum.AIRunStatusRunning},
 		userMessage: &Message{ID: 9, Content: "hi"},
 	}
 	pub := &fakePublisher{}

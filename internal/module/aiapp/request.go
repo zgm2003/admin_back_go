@@ -1,17 +1,17 @@
 package aiapp
 
 type listRequest struct {
-	CurrentPage        int    `form:"current_page" binding:"omitempty,min=1"`
-	PageSize           int    `form:"page_size" binding:"omitempty,min=1,max=50"`
-	Name               string `form:"name" binding:"max=128"`
-	Code               string `form:"code" binding:"max=128"`
-	AppType            string `form:"app_type" binding:"omitempty,oneof=chat workflow completion agent"`
-	EngineConnectionID uint64 `form:"engine_connection_id" binding:"omitempty,gt=0"`
-	Status             *int   `form:"status" binding:"omitempty,common_status"`
+	CurrentPage int    `form:"current_page" binding:"omitempty,min=1"`
+	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=50"`
+	Name        string `form:"name" binding:"max=128"`
+	Code        string `form:"code" binding:"max=128"`
+	AppType     string `form:"app_type" binding:"omitempty,oneof=chat workflow completion agent"`
+	ProviderID  uint64 `form:"provider_id" binding:"omitempty,gt=0"`
+	Status      *int   `form:"status" binding:"omitempty,common_status"`
 }
 
 type mutationRequest struct {
-	EngineConnectionID  uint64         `json:"engine_connection_id" binding:"required,gt=0"`
+	ProviderID          uint64         `json:"provider_id" binding:"required,gt=0"`
 	Name                string         `json:"name" binding:"required,max=128"`
 	Code                string         `json:"code" binding:"required,max=128"`
 	AppType             string         `json:"app_type" binding:"required,oneof=chat workflow completion agent"`

@@ -50,30 +50,27 @@ DROP TABLE IF EXISTS ai_messages;
 DROP TABLE IF EXISTS ai_runs;
 DROP TABLE IF EXISTS ai_run_steps;
 
-CREATE TABLE ai_engine_connections (
+CREATE TABLE ai_providers (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   name VARCHAR(128) NOT NULL,
   engine_type VARCHAR(32) NOT NULL,
   base_url VARCHAR(512) NOT NULL,
   api_key_enc TEXT NULL,
   api_key_hint VARCHAR(32) NOT NULL DEFAULT '',
-  config_json JSON NULL,
   health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
   last_checked_at DATETIME NULL,
   status TINYINT UNSIGNED NOT NULL DEFAULT 1,
   is_del TINYINT UNSIGNED NOT NULL DEFAULT 2,
-  created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  updated_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ai_engine_connections_type_name (engine_type, name, is_del),
-  KEY idx_ai_engine_connections_status (status, is_del)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI engine connection configs';
+  UNIQUE KEY uk_ai_providers_type_name (engine_type, name, is_del),
+  KEY idx_ai_providers_status (status, is_del)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI provider configs';
 
 CREATE TABLE ai_apps (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  engine_connection_id BIGINT UNSIGNED NOT NULL,
+  provider_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(128) NOT NULL,
   code VARCHAR(128) NOT NULL,
   app_type VARCHAR(32) NOT NULL,
@@ -91,7 +88,7 @@ CREATE TABLE ai_apps (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_ai_apps_code (code, is_del),
-  KEY idx_ai_apps_connection (engine_connection_id, status, is_del)
+  KEY idx_ai_apps_provider (provider_id, status, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI app mappings';
 
 CREATE TABLE ai_app_bindings (
@@ -156,7 +153,7 @@ CREATE TABLE ai_runs (
   user_id BIGINT UNSIGNED NOT NULL,
   user_message_id BIGINT UNSIGNED NULL,
   assistant_message_id BIGINT UNSIGNED NULL,
-  engine_connection_id BIGINT UNSIGNED NOT NULL,
+  provider_id BIGINT UNSIGNED NOT NULL,
   engine_task_id VARCHAR(128) NOT NULL DEFAULT '',
   engine_run_id VARCHAR(128) NOT NULL DEFAULT '',
   request_id VARCHAR(128) NOT NULL DEFAULT '',
@@ -183,7 +180,7 @@ CREATE TABLE ai_runs (
   UNIQUE KEY uk_ai_runs_uid (run_uid),
   KEY idx_ai_runs_user (user_id, run_status, created_at),
   KEY idx_ai_runs_engine_task (engine_task_id),
-  KEY idx_ai_runs_app (app_id, engine_connection_id, is_del)
+  KEY idx_ai_runs_app_provider (app_id, provider_id, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI run mirror';
 
 CREATE TABLE ai_run_events (
@@ -202,7 +199,7 @@ CREATE TABLE ai_run_events (
 
 CREATE TABLE ai_knowledge_maps (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  engine_connection_id BIGINT UNSIGNED NOT NULL,
+  provider_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(128) NOT NULL,
   code VARCHAR(128) NOT NULL,
   engine_dataset_id VARCHAR(128) NOT NULL DEFAULT '',
@@ -216,7 +213,7 @@ CREATE TABLE ai_knowledge_maps (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_ai_knowledge_maps_code (code, is_del),
-  KEY idx_ai_knowledge_maps_engine (engine_connection_id, status, is_del)
+  KEY idx_ai_knowledge_maps_provider (provider_id, status, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI knowledge dataset maps';
 
 CREATE TABLE ai_knowledge_documents (
@@ -242,7 +239,7 @@ CREATE TABLE ai_knowledge_documents (
 
 CREATE TABLE ai_tool_maps (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  engine_connection_id BIGINT UNSIGNED NOT NULL,
+  provider_id BIGINT UNSIGNED NOT NULL,
   app_id BIGINT UNSIGNED NULL,
   name VARCHAR(128) NOT NULL,
   code VARCHAR(128) NOT NULL,
@@ -259,14 +256,15 @@ CREATE TABLE ai_tool_maps (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_ai_tool_maps_code (code, is_del),
-  KEY idx_ai_tool_maps_app (app_id, status, is_del)
+  KEY idx_ai_tool_maps_app (app_id, status, is_del),
+  KEY idx_ai_tool_maps_provider (provider_id, status, is_del)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI tool maps';
 
 CREATE TABLE ai_usage_daily (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   usage_date DATE NOT NULL,
   app_id BIGINT UNSIGNED NOT NULL,
-  engine_connection_id BIGINT UNSIGNED NOT NULL,
+  provider_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   run_count INT NOT NULL DEFAULT 0,
   fail_count INT NOT NULL DEFAULT 0,
@@ -278,7 +276,7 @@ CREATE TABLE ai_usage_daily (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ai_usage_daily_scope (usage_date, app_id, engine_connection_id, user_id)
+  UNIQUE KEY uk_ai_usage_daily_scope (usage_date, app_id, provider_id, user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI usage daily aggregate';
 
 SET @ai_parent_id := (
@@ -385,11 +383,11 @@ CREATE TEMPORARY TABLE tmp_ai_core_buttons (
 ) ENGINE=MEMORY;
 
 INSERT INTO tmp_ai_core_buttons (page_i18n_key, name, code, sort) VALUES
-('menu.ai_providers', '新增供应商', 'ai_engine_add', 1),
-('menu.ai_providers', '编辑供应商', 'ai_engine_edit', 2),
-('menu.ai_providers', '测试连接', 'ai_engine_test', 3),
-('menu.ai_providers', '供应商状态', 'ai_engine_status', 4),
-('menu.ai_providers', '删除供应商', 'ai_engine_del', 5),
+('menu.ai_providers', '新增供应商', 'ai_provider_add', 1),
+('menu.ai_providers', '编辑供应商', 'ai_provider_edit', 2),
+('menu.ai_providers', '测试连接', 'ai_provider_test', 3),
+('menu.ai_providers', '供应商状态', 'ai_provider_status', 4),
+('menu.ai_providers', '删除供应商', 'ai_provider_del', 5),
 ('menu.ai_apps', '新增智能体', 'ai_app_add', 1),
 ('menu.ai_apps', '编辑智能体', 'ai_app_edit', 2),
 ('menu.ai_apps', '测试智能体', 'ai_app_test', 3),

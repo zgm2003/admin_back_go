@@ -1,4 +1,4 @@
-package aiengine
+package aiprovider
 
 import (
 	"context"
@@ -11,13 +11,13 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrRepositoryNotConfigured = errors.New("aiengine repository not configured")
+var ErrRepositoryNotConfigured = errors.New("aiprovider repository not configured")
 
 type Repository interface {
-	List(ctx context.Context, query ListQuery) ([]Connection, int64, error)
-	Get(ctx context.Context, id uint64) (*Connection, error)
+	List(ctx context.Context, query ListQuery) ([]Provider, int64, error)
+	Get(ctx context.Context, id uint64) (*Provider, error)
 	ExistsByTypeName(ctx context.Context, engineType string, name string, excludeID uint64) (bool, error)
-	Create(ctx context.Context, row Connection) (uint64, error)
+	Create(ctx context.Context, row Provider) (uint64, error)
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
 	ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error)
@@ -34,7 +34,7 @@ func NewGormRepository(client *database.Client) *GormRepository {
 	return &GormRepository{db: client.Gorm}
 }
 
-func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Connection, int64, error) {
+func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Provider, int64, error) {
 	if r == nil || r.db == nil {
 		return nil, 0, ErrRepositoryNotConfigured
 	}
@@ -49,24 +49,24 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Connectio
 		db = db.Where("status = ?", *query.Status)
 	}
 	var total int64
-	if err := db.Model(&Connection{}).Count(&total).Error; err != nil {
+	if err := db.Model(&Provider{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var rows []Connection
+	var rows []Provider
 	if err := db.Order("id DESC").Limit(query.PageSize).Offset((query.CurrentPage - 1) * query.PageSize).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	return rows, total, nil
 }
 
-func (r *GormRepository) Get(ctx context.Context, id uint64) (*Connection, error) {
+func (r *GormRepository) Get(ctx context.Context, id uint64) (*Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	if id == 0 {
 		return nil, nil
 	}
-	var row Connection
+	var row Provider
 	err := r.activeDB(ctx).Where("id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -81,7 +81,7 @@ func (r *GormRepository) ExistsByTypeName(ctx context.Context, engineType string
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
-	db := r.activeDB(ctx).Model(&Connection{}).Where("engine_type = ?", strings.TrimSpace(engineType)).Where("name = ?", strings.TrimSpace(name))
+	db := r.activeDB(ctx).Model(&Provider{}).Where("engine_type = ?", strings.TrimSpace(engineType)).Where("name = ?", strings.TrimSpace(name))
 	if excludeID > 0 {
 		db = db.Where("id <> ?", excludeID)
 	}
@@ -92,7 +92,7 @@ func (r *GormRepository) ExistsByTypeName(ctx context.Context, engineType string
 	return count > 0, nil
 }
 
-func (r *GormRepository) Create(ctx context.Context, row Connection) (uint64, error) {
+func (r *GormRepository) Create(ctx context.Context, row Provider) (uint64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
 	}
@@ -106,7 +106,7 @@ func (r *GormRepository) Update(ctx context.Context, id uint64, fields map[strin
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeDB(ctx).Model(&Connection{}).Where("id = ?", id).Updates(fields).Error
+	return r.activeDB(ctx).Model(&Provider{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func (r *GormRepository) ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error) {
@@ -117,7 +117,7 @@ func (r *GormRepository) ListModels(ctx context.Context, providerID uint64) ([]P
 		return nil, nil
 	}
 	var rows []ProviderModel
-	if err := r.db.WithContext(ctx).Where("provider_id = ?", providerID).Where("is_del = ?", enum.CommonNo).Order("model_id ASC").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("provider_id = ?", providerID).Order("model_id ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -131,18 +131,14 @@ func (r *GormRepository) ReplaceModels(ctx context.Context, providerID uint64, m
 		return nil
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&ProviderModel{}).Where("provider_id = ?", providerID).Where("is_del = ?", enum.CommonNo).Update("is_del", enum.CommonYes).Error; err != nil {
+		if err := tx.Where("provider_id = ?", providerID).Delete(&ProviderModel{}).Error; err != nil {
 			return err
 		}
 		for _, model := range models {
 			model.ID = 0
 			model.ProviderID = providerID
-			model.IsDel = enum.CommonNo
 			if model.Status == 0 {
 				model.Status = enum.CommonYes
-			}
-			if model.Source == "" {
-				model.Source = "remote"
 			}
 			if err := tx.Create(&model).Error; err != nil {
 				return err
@@ -156,14 +152,14 @@ func (r *GormRepository) ChangeStatus(ctx context.Context, id uint64, status int
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeDB(ctx).Model(&Connection{}).Where("id = ?", id).Update("status", status).Error
+	return r.activeDB(ctx).Model(&Provider{}).Where("id = ?", id).Update("status", status).Error
 }
 
 func (r *GormRepository) Delete(ctx context.Context, id uint64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.activeDB(ctx).Model(&Connection{}).Where("id = ?", id).Update("is_del", enum.CommonYes).Error
+	return r.activeDB(ctx).Model(&Provider{}).Where("id = ?", id).Update("is_del", enum.CommonYes).Error
 }
 
 func (r *GormRepository) activeDB(ctx context.Context) *gorm.DB {

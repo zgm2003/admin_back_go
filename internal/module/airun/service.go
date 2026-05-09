@@ -34,12 +34,12 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI应用选项失败", err)
 	}
-	engines, err := repo.EngineOptions(ctx)
+	engines, err := repo.ProviderOptions(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
 	appOptions := optionItems(apps)
-	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AppArr: appOptions, AgentArr: appOptions, EngineArr: optionItems(engines)}}, nil
+	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AppArr: appOptions, AgentArr: appOptions, ProviderArr: optionItems(engines)}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -211,7 +211,7 @@ func listItem(row ListRow) ListItem {
 	return ListItem{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID,
 		AppID: row.AppID, AppName: row.AppName, AgentID: row.AppID, AgentName: row.AppName,
-		EngineConnectionID: row.EngineConnectionID, EngineName: row.EngineName, EngineType: row.EngineType,
+		ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType,
 		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle, RunStatus: row.RunStatus,
 		RunStatusName: enum.AIRunStatusLabels[row.RunStatus], ModelSnapshot: row.ModelSnapshot,
@@ -229,7 +229,7 @@ func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
 	return DetailResponse{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
 		AppID: row.AppID, AppName: row.AppName, AgentID: row.AppID, AgentName: row.AppName,
-		EngineConnectionID: row.EngineConnectionID, EngineName: row.EngineName, EngineType: row.EngineType,
+		ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType,
 		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		RunStatus: row.RunStatus, RunStatusName: enum.AIRunStatusLabels[row.RunStatus], ModelSnapshot: row.ModelSnapshot,

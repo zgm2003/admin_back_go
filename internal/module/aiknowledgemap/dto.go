@@ -14,11 +14,11 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	VisibilityArr           []dict.Option[string] `json:"visibility_arr"`
-	SourceTypeArr           []dict.Option[string] `json:"source_type_arr"`
-	IndexingStatusArr       []dict.Option[string] `json:"indexing_status_arr"`
-	CommonStatusArr         []dict.Option[int]    `json:"common_status_arr"`
-	EngineConnectionOptions []EngineOption        `json:"engine_connection_options"`
+	VisibilityArr     []dict.Option[string] `json:"visibility_arr"`
+	SourceTypeArr     []dict.Option[string] `json:"source_type_arr"`
+	IndexingStatusArr []dict.Option[string] `json:"indexing_status_arr"`
+	CommonStatusArr   []dict.Option[int]    `json:"common_status_arr"`
+	ProviderOptions   []EngineOption        `json:"provider_options"`
 }
 
 type EngineOption struct {
@@ -28,13 +28,13 @@ type EngineOption struct {
 }
 
 type ListQuery struct {
-	CurrentPage        int
-	PageSize           int
-	Name               string
-	Code               string
-	Visibility         string
-	EngineConnectionID uint64
-	Status             *int
+	CurrentPage int
+	PageSize    int
+	Name        string
+	Code        string
+	Visibility  string
+	ProviderID  uint64
+	Status      *int
 }
 
 type Page struct {
@@ -54,30 +54,30 @@ type DetailResponse struct {
 }
 
 type MapDTO struct {
-	ID                   uint64          `json:"id"`
-	EngineConnectionID   uint64          `json:"engine_connection_id"`
-	EngineConnectionName string          `json:"engine_connection_name"`
-	EngineType           string          `json:"engine_type"`
-	Name                 string          `json:"name"`
-	Code                 string          `json:"code"`
-	EngineDatasetID      string          `json:"engine_dataset_id"`
-	Visibility           string          `json:"visibility"`
-	VisibilityName       string          `json:"visibility_name"`
-	MetaJSON             json.RawMessage `json:"meta_json"`
-	Status               int             `json:"status"`
-	StatusName           string          `json:"status_name"`
-	CreatedAt            string          `json:"created_at"`
-	UpdatedAt            string          `json:"updated_at"`
+	ID              uint64          `json:"id"`
+	ProviderID      uint64          `json:"provider_id"`
+	ProviderName    string          `json:"provider_name"`
+	EngineType      string          `json:"engine_type"`
+	Name            string          `json:"name"`
+	Code            string          `json:"code"`
+	EngineDatasetID string          `json:"engine_dataset_id"`
+	Visibility      string          `json:"visibility"`
+	VisibilityName  string          `json:"visibility_name"`
+	MetaJSON        json.RawMessage `json:"meta_json"`
+	Status          int             `json:"status"`
+	StatusName      string          `json:"status_name"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
 }
 
 type MapInput struct {
-	EngineConnectionID uint64
-	Name               string
-	Code               string
-	EngineDatasetID    string
-	Visibility         string
-	MetaJSON           json.RawMessage
-	Status             int
+	ProviderID      uint64
+	Name            string
+	Code            string
+	EngineDatasetID string
+	Visibility      string
+	MetaJSON        json.RawMessage
+	Status          int
 }
 
 type DocumentInput struct {

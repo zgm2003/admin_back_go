@@ -372,7 +372,7 @@ func (s *Service) resolveAppForCreate(ctx context.Context, repo Repository, user
 }
 
 func (s *Service) engineForApp(ctx context.Context, app AppEngineConfig) (platformai.Engine, *apperror.Error) {
-	if app.AppID == 0 || app.EngineConnectionID == 0 {
+	if app.AppID == 0 || app.ProviderID == 0 {
 		return nil, apperror.BadRequest("AI应用或供应商未配置")
 	}
 	if strings.TrimSpace(app.EngineAppAPIKeyEnc) == "" && strings.TrimSpace(app.EngineAPIKeyEnc) == "" {

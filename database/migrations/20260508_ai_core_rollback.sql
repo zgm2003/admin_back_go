@@ -1,7 +1,7 @@
 -- Roll back the local AI core rebuild from backup tables.
 -- Dify sidecar data is not touched. External Dify cleanup is an operator step.
 
-DROP TABLE IF EXISTS ai_engine_connections;
+DROP TABLE IF EXISTS ai_providers;
 DROP TABLE IF EXISTS ai_apps;
 DROP TABLE IF EXISTS ai_app_bindings;
 DROP TABLE IF EXISTS ai_conversations;

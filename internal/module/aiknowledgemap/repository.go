@@ -15,28 +15,28 @@ var ErrRepositoryNotConfigured = errors.New("aiknowledgemap repository not confi
 
 type MapWithEngine struct {
 	KnowledgeMap
-	EngineConnectionName string `gorm:"column:engine_connection_name"`
-	EngineType           string `gorm:"column:engine_type"`
-	EngineBaseURL        string `gorm:"column:engine_base_url"`
-	EngineAPIKeyEnc      string `gorm:"column:engine_api_key_enc"`
+	ProviderName    string `gorm:"column:provider_name"`
+	EngineType      string `gorm:"column:engine_type"`
+	EngineBaseURL   string `gorm:"column:engine_base_url"`
+	EngineAPIKeyEnc string `gorm:"column:engine_api_key_enc"`
 }
 
 type DocumentWithMap struct {
 	Document
-	EngineConnectionID uint64 `gorm:"column:engine_connection_id"`
-	EngineDatasetID    string `gorm:"column:engine_dataset_id"`
-	EngineType         string `gorm:"column:engine_type"`
-	EngineBaseURL      string `gorm:"column:engine_base_url"`
-	EngineAPIKeyEnc    string `gorm:"column:engine_api_key_enc"`
-	MapStatus          int    `gorm:"column:map_status"`
+	ProviderID      uint64 `gorm:"column:provider_id"`
+	EngineDatasetID string `gorm:"column:engine_dataset_id"`
+	EngineType      string `gorm:"column:engine_type"`
+	EngineBaseURL   string `gorm:"column:engine_base_url"`
+	EngineAPIKeyEnc string `gorm:"column:engine_api_key_enc"`
+	MapStatus       int    `gorm:"column:map_status"`
 }
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]MapWithEngine, int64, error)
 	Get(ctx context.Context, id uint64) (*MapWithEngine, error)
 	GetRaw(ctx context.Context, id uint64) (*KnowledgeMap, error)
-	ListActiveConnections(ctx context.Context) ([]EngineConnection, error)
-	GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error)
+	ListActiveProviders(ctx context.Context) ([]Provider, error)
+	GetActiveProvider(ctx context.Context, id uint64) (*Provider, error)
 	ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error)
 	Create(ctx context.Context, row KnowledgeMap) (uint64, error)
 	Update(ctx context.Context, id uint64, fields map[string]any) error
@@ -74,8 +74,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]MapWithEn
 	if strings.TrimSpace(query.Visibility) != "" {
 		db = db.Where("m.visibility = ?", strings.TrimSpace(query.Visibility))
 	}
-	if query.EngineConnectionID > 0 {
-		db = db.Where("m.engine_connection_id = ?", query.EngineConnectionID)
+	if query.ProviderID > 0 {
+		db = db.Where("m.provider_id = ?", query.ProviderID)
 	}
 	if query.Status != nil {
 		db = db.Where("m.status = ?", *query.Status)
@@ -115,20 +115,20 @@ func (r *GormRepository) GetRaw(ctx context.Context, id uint64) (*KnowledgeMap, 
 	return &row, err
 }
 
-func (r *GormRepository) ListActiveConnections(ctx context.Context) ([]EngineConnection, error) {
+func (r *GormRepository) ListActiveProviders(ctx context.Context) ([]Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var rows []EngineConnection
+	var rows []Provider
 	err := r.db.WithContext(ctx).Where("is_del = ? AND status = ?", enum.CommonNo, enum.CommonYes).Order("id DESC").Find(&rows).Error
 	return rows, err
 }
 
-func (r *GormRepository) GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error) {
+func (r *GormRepository) GetActiveProvider(ctx context.Context, id uint64) (*Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var row EngineConnection
+	var row Provider
 	err := r.db.WithContext(ctx).Where("id = ? AND is_del = ? AND status = ?", id, enum.CommonNo, enum.CommonYes).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -207,9 +207,9 @@ func (r *GormRepository) GetDocument(ctx context.Context, id uint64) (*DocumentW
 	}
 	var row DocumentWithMap
 	err := r.db.WithContext(ctx).Table("ai_knowledge_documents AS d").
-		Select(`d.*, m.engine_connection_id, m.engine_dataset_id, m.status AS map_status, e.engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc`).
+		Select(`d.*, m.provider_id, m.engine_dataset_id, m.status AS map_status, e.engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc`).
 		Joins("JOIN ai_knowledge_maps m ON m.id = d.knowledge_map_id AND m.is_del = ?", enum.CommonNo).
-		Joins("LEFT JOIN ai_engine_connections e ON e.id = m.engine_connection_id AND e.is_del = ?", enum.CommonNo).
+		Joins("LEFT JOIN ai_providers e ON e.id = m.provider_id AND e.is_del = ?", enum.CommonNo).
 		Where("d.id = ? AND d.is_del = ?", id, enum.CommonNo).
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -250,8 +250,8 @@ func (r *GormRepository) ListSyncableDocuments(ctx context.Context, mapID uint64
 
 func (r *GormRepository) mapSelectDB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_knowledge_maps AS m").
-		Select(`m.*, e.name AS engine_connection_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc`).
-		Joins("LEFT JOIN ai_engine_connections e ON e.id = m.engine_connection_id AND e.is_del = ?", enum.CommonNo).
+		Select(`m.*, e.name AS provider_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc`).
+		Joins("LEFT JOIN ai_providers e ON e.id = m.provider_id AND e.is_del = ?", enum.CommonNo).
 		Where("m.is_del = ?", enum.CommonNo)
 }
 

@@ -375,7 +375,7 @@ func (r *GormRepository) appRuntimeDB(ctx context.Context) *gorm.DB {
 		Select(`a.id AS app_id,
 			a.name AS app_name,
 			a.app_type AS app_type,
-			a.engine_connection_id AS engine_connection_id,
+			a.provider_id AS provider_id,
 			a.engine_app_id AS engine_app_id,
 			a.engine_app_api_key_enc AS engine_app_api_key_enc,
 			a.runtime_config_json AS runtime_config_json,
@@ -385,7 +385,7 @@ func (r *GormRepository) appRuntimeDB(ctx context.Context) *gorm.DB {
 			e.base_url AS engine_base_url,
 			e.api_key_enc AS engine_api_key_enc,
 			e.status AS engine_status`).
-		Joins("JOIN ai_engine_connections e ON e.id = a.engine_connection_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
+		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes)
 }
 
@@ -406,20 +406,20 @@ func (r *GormRepository) upsertUsageDaily(tx *gorm.DB, runID int64, failed bool)
 		failCount = 1
 	}
 	row := map[string]any{
-		"usage_date":           usageDate,
-		"app_id":               run.AppID,
-		"engine_connection_id": run.EngineConnectionID,
-		"user_id":              run.UserID,
-		"run_count":            1,
-		"fail_count":           failCount,
-		"prompt_tokens":        run.PromptTokens,
-		"completion_tokens":    run.CompletionTokens,
-		"total_tokens":         run.TotalTokens,
-		"cost":                 run.Cost,
-		"latency_ms_total":     run.LatencyMS,
+		"usage_date":        usageDate,
+		"app_id":            run.AppID,
+		"provider_id":       run.ProviderID,
+		"user_id":           run.UserID,
+		"run_count":         1,
+		"fail_count":        failCount,
+		"prompt_tokens":     run.PromptTokens,
+		"completion_tokens": run.CompletionTokens,
+		"total_tokens":      run.TotalTokens,
+		"cost":              run.Cost,
+		"latency_ms_total":  run.LatencyMS,
 	}
 	return tx.Table("ai_usage_daily").Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "usage_date"}, {Name: "app_id"}, {Name: "engine_connection_id"}, {Name: "user_id"}},
+		Columns: []clause.Column{{Name: "usage_date"}, {Name: "app_id"}, {Name: "provider_id"}, {Name: "user_id"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"run_count":         gorm.Expr("run_count + VALUES(run_count)"),
 			"fail_count":        gorm.Expr("fail_count + VALUES(fail_count)"),

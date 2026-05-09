@@ -75,7 +75,7 @@ func (d *OpenAIDriver) ListModels(ctx context.Context, cfg Config) ([]Model, err
 		if value, ok := item["created"].(float64); ok {
 			created = int64(value)
 		}
-		models = append(models, Model{ID: id, Object: object, Created: created, OwnedBy: ownedBy, Raw: item})
+		models = append(models, Model{ID: id, Object: object, Created: created, OwnedBy: ownedBy})
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
 	return models, nil

@@ -16,19 +16,19 @@ var ErrRepositoryNotConfigured = errors.New("aiapp repository not configured")
 
 type AppWithEngine struct {
 	App
-	EngineConnectionName string `gorm:"column:engine_connection_name"`
-	EngineType           string `gorm:"column:engine_type"`
-	EngineBaseURL        string `gorm:"column:engine_base_url"`
-	EngineAPIKeyEnc      string `gorm:"column:engine_api_key_enc"`
-	EngineStatus         int    `gorm:"column:engine_status"`
+	ProviderName    string `gorm:"column:provider_name"`
+	EngineType      string `gorm:"column:engine_type"`
+	EngineBaseURL   string `gorm:"column:engine_base_url"`
+	EngineAPIKeyEnc string `gorm:"column:engine_api_key_enc"`
+	EngineStatus    int    `gorm:"column:engine_status"`
 }
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]AppWithEngine, int64, error)
 	Get(ctx context.Context, id uint64) (*AppWithEngine, error)
 	GetRaw(ctx context.Context, id uint64) (*App, error)
-	ListActiveConnections(ctx context.Context) ([]EngineConnection, error)
-	GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error)
+	ListActiveProviders(ctx context.Context) ([]Provider, error)
+	GetActiveProvider(ctx context.Context, id uint64) (*Provider, error)
 	ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error)
 	Create(ctx context.Context, row App) (uint64, error)
 	Update(ctx context.Context, id uint64, fields map[string]any) error
@@ -64,8 +64,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]AppWithEn
 	if strings.TrimSpace(query.AppType) != "" {
 		db = db.Where("a.app_type = ?", strings.TrimSpace(query.AppType))
 	}
-	if query.EngineConnectionID > 0 {
-		db = db.Where("a.engine_connection_id = ?", query.EngineConnectionID)
+	if query.ProviderID > 0 {
+		db = db.Where("a.provider_id = ?", query.ProviderID)
 	}
 	if query.Status != nil {
 		db = db.Where("a.status = ?", *query.Status)
@@ -117,23 +117,23 @@ func (r *GormRepository) GetRaw(ctx context.Context, id uint64) (*App, error) {
 	return &row, nil
 }
 
-func (r *GormRepository) ListActiveConnections(ctx context.Context) ([]EngineConnection, error) {
+func (r *GormRepository) ListActiveProviders(ctx context.Context) ([]Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var rows []EngineConnection
+	var rows []Provider
 	err := r.db.WithContext(ctx).Where("is_del = ? AND status = ?", enum.CommonNo, enum.CommonYes).Order("id DESC").Find(&rows).Error
 	return rows, err
 }
 
-func (r *GormRepository) GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error) {
+func (r *GormRepository) GetActiveProvider(ctx context.Context, id uint64) (*Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	if id == 0 {
 		return nil, nil
 	}
-	var row EngineConnection
+	var row Provider
 	err := r.db.WithContext(ctx).Where("id = ? AND is_del = ? AND status = ?", id, enum.CommonNo, enum.CommonYes).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -256,7 +256,7 @@ func (r *GormRepository) ListVisibleApps(ctx context.Context, query OptionQuery)
 }
 
 func (r *GormRepository) appSelectDB(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Table("ai_apps AS a").Select(`a.*, e.name AS engine_connection_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc, e.status AS engine_status`).Joins("LEFT JOIN ai_engine_connections e ON e.id = a.engine_connection_id AND e.is_del = ?", enum.CommonNo).Where("a.is_del = ?", enum.CommonNo)
+	return r.db.WithContext(ctx).Table("ai_apps AS a").Select(`a.*, e.name AS provider_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc, e.status AS engine_status`).Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).Where("a.is_del = ?", enum.CommonNo)
 }
 
 func (r *GormRepository) activeApps(ctx context.Context) *gorm.DB {

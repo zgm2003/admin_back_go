@@ -25,7 +25,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI知识库列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, Visibility: req.Visibility, EngineConnectionID: req.EngineConnectionID, Status: req.Status})
+	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, Visibility: req.Visibility, ProviderID: req.ProviderID, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
@@ -195,7 +195,7 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 }
 
 func mapInput(req mapRequest) MapInput {
-	return MapInput{EngineConnectionID: req.EngineConnectionID, Name: req.Name, Code: req.Code, EngineDatasetID: req.EngineDatasetID, Visibility: req.Visibility, MetaJSON: req.MetaJSON, Status: req.Status}
+	return MapInput{ProviderID: req.ProviderID, Name: req.Name, Code: req.Code, EngineDatasetID: req.EngineDatasetID, Visibility: req.Visibility, MetaJSON: req.MetaJSON, Status: req.Status}
 }
 
 func documentInput(req documentRequest) DocumentInput {

@@ -1,8 +1,7 @@
-package aiengine
+package aiprovider
 
 import (
 	"context"
-	"encoding/json"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
@@ -37,11 +36,11 @@ type Page struct {
 }
 
 type ListResponse struct {
-	List []ConnectionDTO `json:"list"`
-	Page Page            `json:"page"`
+	List []ProviderDTO `json:"list"`
+	Page Page          `json:"page"`
 }
 
-type ConnectionDTO struct {
+type ProviderDTO struct {
 	ID                  uint64             `json:"id"`
 	Name                string             `json:"name"`
 	EngineType          string             `json:"engine_type"`
@@ -66,23 +65,20 @@ type ConnectionDTO struct {
 }
 
 type ProviderModelDTO struct {
-	ID          uint64          `json:"id"`
-	ProviderID  uint64          `json:"provider_id"`
-	ModelID     string          `json:"model_id"`
-	DisplayName string          `json:"display_name"`
-	Source      string          `json:"source"`
-	Raw         json.RawMessage `json:"raw"`
-	Status      int             `json:"status"`
-	StatusName  string          `json:"status_name"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID          uint64 `json:"id"`
+	ProviderID  uint64 `json:"provider_id"`
+	ModelID     string `json:"model_id"`
+	DisplayName string `json:"display_name"`
+	Status      int    `json:"status"`
+	StatusName  string `json:"status_name"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type ModelOptionDTO struct {
-	ModelID     string          `json:"model_id"`
-	DisplayName string          `json:"display_name"`
-	OwnedBy     string          `json:"owned_by"`
-	Raw         json.RawMessage `json:"raw"`
+	ModelID     string `json:"model_id"`
+	DisplayName string `json:"display_name"`
+	OwnedBy     string `json:"owned_by"`
 }
 
 type ModelOptionsResponse struct {
@@ -119,7 +115,7 @@ type UpdateModelsInput struct {
 	Statuses          map[string]int
 }
 
-type ConnectionTester interface {
+type ProviderTester interface {
 	TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error)
 }
 

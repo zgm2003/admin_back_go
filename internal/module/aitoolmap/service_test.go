@@ -12,18 +12,18 @@ import (
 )
 
 type fakeToolMapRepository struct {
-	rows              []ToolMapWithEngine
-	total             int64
-	rawByID           map[uint64]ToolMap
-	activeConnections map[uint64]EngineConnection
-	connections       []EngineConnection
-	existsCode        bool
-	existsPermission  bool
-	created           *ToolMap
-	updates           []map[string]any
-	statusID          uint64
-	status            int
-	deletedID         uint64
+	rows             []ToolMapWithEngine
+	total            int64
+	rawByID          map[uint64]ToolMap
+	activeProviders  map[uint64]Provider
+	connections      []Provider
+	existsCode       bool
+	existsPermission bool
+	created          *ToolMap
+	updates          []map[string]any
+	statusID         uint64
+	status           int
+	deletedID        uint64
 }
 
 func (f *fakeToolMapRepository) List(ctx context.Context, query ListQuery) ([]ToolMapWithEngine, int64, error) {
@@ -36,11 +36,11 @@ func (f *fakeToolMapRepository) GetRaw(ctx context.Context, id uint64) (*ToolMap
 	}
 	return &row, nil
 }
-func (f *fakeToolMapRepository) ListActiveConnections(ctx context.Context) ([]EngineConnection, error) {
+func (f *fakeToolMapRepository) ListActiveProviders(ctx context.Context) ([]Provider, error) {
 	return f.connections, nil
 }
-func (f *fakeToolMapRepository) GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error) {
-	row, ok := f.activeConnections[id]
+func (f *fakeToolMapRepository) GetActiveProvider(ctx context.Context, id uint64) (*Provider, error) {
+	row, ok := f.activeProviders[id]
 	if !ok {
 		return nil, nil
 	}
@@ -71,10 +71,10 @@ func (f *fakeToolMapRepository) Delete(ctx context.Context, id uint64) error {
 }
 
 func TestCreateDifyToolStoresEngineToolID(t *testing.T) {
-	repo := &fakeToolMapRepository{activeConnections: map[uint64]EngineConnection{3: {ID: 3, EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
+	repo := &fakeToolMapRepository{activeProviders: map[uint64]Provider{3: {ID: 3, EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
 	service := NewService(repo)
 
-	id, appErr := service.Create(context.Background(), MutationInput{EngineConnectionID: 3, Name: "查订单", Code: "query_order", ToolType: ToolTypeDifyTool, EngineToolID: "tool-1", RiskLevel: RiskLow, ConfigJSON: json.RawMessage(`{"timeout":3}`), Status: enum.CommonYes})
+	id, appErr := service.Create(context.Background(), MutationInput{ProviderID: 3, Name: "查订单", Code: "query_order", ToolType: ToolTypeDifyTool, EngineToolID: "tool-1", RiskLevel: RiskLow, ConfigJSON: json.RawMessage(`{"timeout":3}`), Status: enum.CommonYes})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
@@ -87,15 +87,15 @@ func TestCreateDifyToolStoresEngineToolID(t *testing.T) {
 }
 
 func TestCreateAdminActionGatewayRequiresExistingPermissionCode(t *testing.T) {
-	repo := &fakeToolMapRepository{activeConnections: map[uint64]EngineConnection{3: {ID: 3, EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
+	repo := &fakeToolMapRepository{activeProviders: map[uint64]Provider{3: {ID: 3, EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
 	service := NewService(repo)
 
-	_, appErr := service.Create(context.Background(), MutationInput{EngineConnectionID: 3, Name: "删用户", Code: "delete_user", ToolType: ToolTypeAdminActionGateway, RiskLevel: RiskHigh, Status: enum.CommonYes})
+	_, appErr := service.Create(context.Background(), MutationInput{ProviderID: 3, Name: "删用户", Code: "delete_user", ToolType: ToolTypeAdminActionGateway, RiskLevel: RiskHigh, Status: enum.CommonYes})
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "admin_action_gateway 必须绑定有效权限编码" {
 		t.Fatalf("expected missing permission error, got %#v", appErr)
 	}
 
-	_, appErr = service.Create(context.Background(), MutationInput{EngineConnectionID: 3, Name: "删用户", Code: "delete_user", ToolType: ToolTypeAdminActionGateway, PermissionCode: "user_delete", RiskLevel: RiskHigh, Status: enum.CommonYes})
+	_, appErr = service.Create(context.Background(), MutationInput{ProviderID: 3, Name: "删用户", Code: "delete_user", ToolType: ToolTypeAdminActionGateway, PermissionCode: "user_delete", RiskLevel: RiskHigh, Status: enum.CommonYes})
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "权限编码不存在或已禁用" {
 		t.Fatalf("expected unknown permission error, got %#v", appErr)
 	}
@@ -116,7 +116,7 @@ func TestChangeStatusPreservesConfigJSON(t *testing.T) {
 
 func TestListDoesNotLeakEngineSecret(t *testing.T) {
 	now := time.Date(2026, 5, 9, 1, 0, 0, 0, time.UTC)
-	repo := &fakeToolMapRepository{rows: []ToolMapWithEngine{{ToolMap: ToolMap{ID: 1, EngineConnectionID: 3, Name: "查订单", Code: "query_order", ToolType: ToolTypeDifyTool, EngineToolID: "tool-1", RiskLevel: RiskLow, ConfigJSON: `{"safe":true}`, Status: enum.CommonYes, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}, EngineConnectionName: "Dify", EngineType: "dify", EngineAPIKeyEnc: "cipher-secret"}}, total: 1}
+	repo := &fakeToolMapRepository{rows: []ToolMapWithEngine{{ToolMap: ToolMap{ID: 1, ProviderID: 3, Name: "查订单", Code: "query_order", ToolType: ToolTypeDifyTool, EngineToolID: "tool-1", RiskLevel: RiskLow, ConfigJSON: `{"safe":true}`, Status: enum.CommonYes, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}, ProviderName: "Dify", EngineType: "dify", EngineAPIKeyEnc: "cipher-secret"}}, total: 1}
 	service := NewService(repo)
 
 	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})

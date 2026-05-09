@@ -19,8 +19,8 @@ type fakeKnowledgeMapRepository struct {
 	total             int64
 	rawMaps           map[uint64]KnowledgeMap
 	mapsByID          map[uint64]MapWithEngine
-	connections       []EngineConnection
-	activeConnections map[uint64]EngineConnection
+	connections       []Provider
+	activeProviders   map[uint64]Provider
 	existsCode        bool
 	createdMap        *KnowledgeMap
 	mapUpdates        []map[string]any
@@ -54,11 +54,11 @@ func (f *fakeKnowledgeMapRepository) GetRaw(ctx context.Context, id uint64) (*Kn
 	}
 	return &row, nil
 }
-func (f *fakeKnowledgeMapRepository) ListActiveConnections(ctx context.Context) ([]EngineConnection, error) {
+func (f *fakeKnowledgeMapRepository) ListActiveProviders(ctx context.Context) ([]Provider, error) {
 	return f.connections, nil
 }
-func (f *fakeKnowledgeMapRepository) GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error) {
-	row, ok := f.activeConnections[id]
+func (f *fakeKnowledgeMapRepository) GetActiveProvider(ctx context.Context, id uint64) (*Provider, error) {
+	row, ok := f.activeProviders[id]
 	if !ok {
 		return nil, nil
 	}
@@ -174,8 +174,8 @@ func TestCreateTextDocumentSyncsEngineAndStoresResult(t *testing.T) {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	repo := &fakeKnowledgeMapRepository{
-		rawMaps:           map[uint64]KnowledgeMap{7: {ID: 7, EngineConnectionID: 3, EngineDatasetID: "dataset-1", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		activeConnections: map[uint64]EngineConnection{3: {ID: 3, EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		rawMaps:         map[uint64]KnowledgeMap{7: {ID: 7, ProviderID: 3, EngineDatasetID: "dataset-1", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders: map[uint64]Provider{3: {ID: 3, EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	engine := &fakeKnowledgeEngine{}
 	factory := &fakeKnowledgeEngineFactory{engine: engine}
@@ -219,8 +219,8 @@ func TestCreateTextDocumentStoresErrorWhenEngineFails(t *testing.T) {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	repo := &fakeKnowledgeMapRepository{
-		rawMaps:           map[uint64]KnowledgeMap{7: {ID: 7, EngineConnectionID: 3, EngineDatasetID: "dataset-1", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		activeConnections: map[uint64]EngineConnection{3: {ID: 3, EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		rawMaps:         map[uint64]KnowledgeMap{7: {ID: 7, ProviderID: 3, EngineDatasetID: "dataset-1", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders: map[uint64]Provider{3: {ID: 3, EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	service := NewService(repo, box, &fakeKnowledgeEngineFactory{engine: &fakeKnowledgeEngine{err: errors.New("dify failed")}})
 
@@ -235,7 +235,7 @@ func TestCreateTextDocumentStoresErrorWhenEngineFails(t *testing.T) {
 
 func TestListDoesNotLeakEngineSecret(t *testing.T) {
 	now := time.Date(2026, 5, 9, 1, 0, 0, 0, time.UTC)
-	repo := &fakeKnowledgeMapRepository{maps: []MapWithEngine{{KnowledgeMap: KnowledgeMap{ID: 1, EngineConnectionID: 3, Name: "客服库", Code: "support", EngineDatasetID: "dataset-1", Visibility: "private", MetaJSON: `{"owner":"ops"}`, Status: enum.CommonYes, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}, EngineConnectionName: "Dify", EngineType: "dify", EngineAPIKeyEnc: "cipher-secret"}}, total: 1}
+	repo := &fakeKnowledgeMapRepository{maps: []MapWithEngine{{KnowledgeMap: KnowledgeMap{ID: 1, ProviderID: 3, Name: "客服库", Code: "support", EngineDatasetID: "dataset-1", Visibility: "private", MetaJSON: `{"owner":"ops"}`, Status: enum.CommonYes, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}, ProviderName: "Dify", EngineType: "dify", EngineAPIKeyEnc: "cipher-secret"}}, total: 1}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
 	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})

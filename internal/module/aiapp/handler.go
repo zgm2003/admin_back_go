@@ -28,13 +28,13 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
-		CurrentPage:        req.CurrentPage,
-		PageSize:           req.PageSize,
-		Name:               req.Name,
-		Code:               req.Code,
-		AppType:            req.AppType,
-		EngineConnectionID: req.EngineConnectionID,
-		Status:             req.Status,
+		CurrentPage: req.CurrentPage,
+		PageSize:    req.PageSize,
+		Name:        req.Name,
+		Code:        req.Code,
+		AppType:     req.AppType,
+		ProviderID:  req.ProviderID,
+		Status:      req.Status,
 	})
 	writeResult(c, result, appErr)
 }
@@ -188,7 +188,7 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 
 func createInput(req mutationRequest) CreateInput {
 	return CreateInput{
-		EngineConnectionID:  req.EngineConnectionID,
+		ProviderID:          req.ProviderID,
 		Name:                req.Name,
 		Code:                req.Code,
 		AppType:             req.AppType,

@@ -1,4 +1,4 @@
-package aiengine
+package aiprovider
 
 import (
 	"context"
@@ -15,11 +15,11 @@ import (
 )
 
 type fakeRepository struct {
-	rows               []Connection
+	rows               []Provider
 	total              int64
-	rowByID            map[uint64]Connection
+	rowByID            map[uint64]Provider
 	exists             bool
-	created            *Connection
+	created            *Provider
 	updates            []map[string]any
 	statusID           uint64
 	status             int
@@ -30,11 +30,11 @@ type fakeRepository struct {
 	replacedModels     []ProviderModel
 }
 
-func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Connection, int64, error) {
+func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Provider, int64, error) {
 	return f.rows, f.total, nil
 }
 
-func (f *fakeRepository) Get(ctx context.Context, id uint64) (*Connection, error) {
+func (f *fakeRepository) Get(ctx context.Context, id uint64) (*Provider, error) {
 	if f.rowByID == nil {
 		return nil, nil
 	}
@@ -49,7 +49,7 @@ func (f *fakeRepository) ExistsByTypeName(ctx context.Context, engineType string
 	return f.exists, nil
 }
 
-func (f *fakeRepository) Create(ctx context.Context, row Connection) (uint64, error) {
+func (f *fakeRepository) Create(ctx context.Context, row Provider) (uint64, error) {
 	f.created = &row
 	return 11, nil
 }
@@ -93,7 +93,7 @@ func (f *fakeModelDriver) ListModels(ctx context.Context, cfg provider.Config) (
 	if f.err != nil {
 		return nil, f.err
 	}
-	return []provider.Model{{ID: "gpt-4.1-mini", Object: "model", OwnedBy: "openai", Raw: map[string]any{"id": "gpt-4.1-mini"}}}, nil
+	return []provider.Model{{ID: "gpt-4.1-mini", Object: "model", OwnedBy: "openai"}}, nil
 }
 
 func (f *fakeModelDriver) TestConnection(ctx context.Context, cfg provider.Config) (*provider.TestResult, error) {
@@ -170,9 +170,14 @@ func TestCreatePersistsSelectedModels(t *testing.T) {
 	if repo.replacedModels[0].DisplayName != "默认轻量模型" {
 		t.Fatalf("display name not persisted: %#v", repo.replacedModels)
 	}
-	for _, model := range repo.replacedModels {
-		if model.RawJSON != nil {
-			t.Fatalf("empty model raw json must be persisted as NULL, got %#v", model.RawJSON)
+	encoded, err := json.Marshal(repo.replacedModels)
+	if err != nil {
+		t.Fatalf("marshal replaced models: %v", err)
+	}
+	body := string(encoded)
+	for _, forbidden := range []string{"RawJSON", "Source", "IsDel", "CreatedBy", "UpdatedBy"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("provider model snapshot must not carry fake metadata field %s: %s", forbidden, body)
 		}
 	}
 }
@@ -191,18 +196,25 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	if repo.created.Name != "OpenAI" || repo.created.EngineType != "openai" || repo.created.BaseURL != "https://api.openai.test/v1" {
 		t.Fatalf("fields were not normalized: %#v", repo.created)
 	}
-	if repo.created.ConfigJSON != nil {
-		t.Fatalf("empty config json must be persisted as NULL, got %#v", repo.created.ConfigJSON)
-	}
 	if repo.created.APIKeyEnc == "" || repo.created.APIKeyEnc == "plain-secret-key" || repo.created.APIKeyHint != "***-key" {
 		t.Fatalf("api key was not encrypted safely: %#v", repo.created)
+	}
+	encoded, err := json.Marshal(repo.created)
+	if err != nil {
+		t.Fatalf("marshal created provider: %v", err)
+	}
+	body := string(encoded)
+	for _, forbidden := range []string{"ConfigJSON", "CreatedBy", "UpdatedBy"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("provider connection must not carry fake/reserved field %s: %s", forbidden, body)
+		}
 	}
 }
 
 func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{
-		rows:             []Connection{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", Status: 1, CreatedAt: now, UpdatedAt: now}},
+		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", Status: 1, CreatedAt: now, UpdatedAt: now}},
 		total:            1,
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1}}},
 	}
@@ -226,10 +238,15 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	if strings.Contains(body, "default_model_id") || strings.Contains(body, "is_default") {
 		t.Fatalf("provider response must not expose default model concept: %s", body)
 	}
+	for _, forbidden := range []string{`"source"`, `"raw"`, `"config_json"`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("provider model response must not expose unused metadata field %s: %s", forbidden, body)
+		}
+	}
 }
 
 func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
-	repo := &fakeRepository{rowByID: map[uint64]Connection{5: {ID: 5, Name: "Old", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-old", APIKeyHint: "***old", Status: 1}}}
+	repo := &fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "Old", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-old", APIKeyHint: "***old", Status: 1}}}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
 	appErr := service.Update(context.Background(), 5, UpdateInput{Name: "New", EngineType: "openai", BaseURL: "", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
@@ -262,7 +279,7 @@ func TestPreviewStoredModelsUsesSavedEncryptedKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
-	repo := &fakeRepository{rowByID: map[uint64]Connection{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: 1}}}
+	repo := &fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: 1}}}
 	driver := &fakeModelDriver{}
 	service := NewServiceWithDriver(repo, box, nil, driver)
 
@@ -287,7 +304,7 @@ func TestTestConnectionDecryptsSecretAndUpdatesHealth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
-	repo := &fakeRepository{rowByID: map[uint64]Connection{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: cipher, Status: 1}}}
+	repo := &fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: cipher, Status: 1}}}
 	tester := &fakeTester{}
 	driver := &fakeModelDriver{}
 	service := NewServiceWithDriver(repo, box, tester, driver)
@@ -305,7 +322,7 @@ func TestTestConnectionDecryptsSecretAndUpdatesHealth(t *testing.T) {
 }
 
 func TestTestConnectionRejectsDisabledConnection(t *testing.T) {
-	service := NewService(&fakeRepository{rowByID: map[uint64]Connection{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", Status: 2}}}, secretbox.New("vault-key"), &fakeTester{})
+	service := NewService(&fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", Status: 2}}}, secretbox.New("vault-key"), &fakeTester{})
 
 	_, appErr := service.TestConnection(context.Background(), 5)
 	if appErr == nil || appErr.Message != "AI供应商已禁用" {
@@ -320,7 +337,7 @@ func TestTestConnectionReportsHealthUpdateFailure(t *testing.T) {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	repo := &fakeRepository{
-		rowByID:   map[uint64]Connection{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: cipher, Status: 1}},
+		rowByID:   map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: cipher, Status: 1}},
 		updateErr: errors.New("table not set"),
 	}
 	service := NewServiceWithDriver(repo, box, nil, &fakeModelDriver{})

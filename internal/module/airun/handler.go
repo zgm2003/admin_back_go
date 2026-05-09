@@ -29,7 +29,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, RunStatus: req.RunStatus, UserID: req.UserID, RequestID: req.RequestID, AppID: req.AppID, EngineConnectionID: req.EngineConnectionID, AgentID: req.AgentID, DateStart: req.DateStart, DateEnd: req.DateEnd})
+	res, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, RunStatus: req.RunStatus, UserID: req.UserID, RequestID: req.RequestID, AppID: req.AppID, ProviderID: req.ProviderID, AgentID: req.AgentID, DateStart: req.DateStart, DateEnd: req.DateEnd})
 	writeResult(c, res, appErr)
 }
 
@@ -48,7 +48,7 @@ func (h *Handler) Stats(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行统计参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Stats(c.Request.Context(), StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, AppID: req.AppID, EngineConnectionID: req.EngineConnectionID, AgentID: req.AgentID, UserID: req.UserID})
+	res, appErr := h.requireService().Stats(c.Request.Context(), StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, AppID: req.AppID, ProviderID: req.ProviderID, AgentID: req.AgentID, UserID: req.UserID})
 	writeResult(c, res, appErr)
 }
 
@@ -92,7 +92,7 @@ func bindStatsList(c *gin.Context) (StatsListQuery, bool) {
 		response.Error(c, apperror.BadRequest("AI运行统计列表参数错误"))
 		return StatsListQuery{}, false
 	}
-	return StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, AppID: req.AppID, EngineConnectionID: req.EngineConnectionID, AgentID: req.AgentID, UserID: req.UserID}, true
+	return StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, AppID: req.AppID, ProviderID: req.ProviderID, AgentID: req.AgentID, UserID: req.UserID}, true
 }
 
 func routeID(c *gin.Context, name string, msg string) (int64, bool) {

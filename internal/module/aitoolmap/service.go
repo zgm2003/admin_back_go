@@ -47,7 +47,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if appErr != nil {
 		return nil, appErr
 	}
-	connections, err := repo.ListActiveConnections(ctx)
+	connections, err := repo.ListActiveProviders(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
@@ -56,10 +56,10 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 		options = append(options, EngineOption{Label: row.Name, Value: row.ID, EngineType: row.EngineType})
 	}
 	return &InitResponse{Dict: InitDict{
-		ToolTypeArr:             stringOptions([]string{ToolTypeDifyTool, ToolTypeWorkflowNode, ToolTypeAdminActionGateway, ToolTypeHTTPReference}, toolTypeLabels),
-		RiskLevelArr:            stringOptions([]string{RiskLow, RiskMedium, RiskHigh}, riskLevelLabels),
-		CommonStatusArr:         dict.CommonStatusOptions(),
-		EngineConnectionOptions: options,
+		ToolTypeArr:     stringOptions([]string{ToolTypeDifyTool, ToolTypeWorkflowNode, ToolTypeAdminActionGateway, ToolTypeHTTPReference}, toolTypeLabels),
+		RiskLevelArr:    stringOptions([]string{RiskLow, RiskMedium, RiskHigh}, riskLevelLabels),
+		CommonStatusArr: dict.CommonStatusOptions(),
+		ProviderOptions: options,
 	}}, nil
 }
 
@@ -112,16 +112,16 @@ func (s *Service) Update(ctx context.Context, id uint64, input MutationInput) *a
 		return appErr
 	}
 	fields := map[string]any{
-		"engine_connection_id": row.EngineConnectionID,
-		"app_id":               row.AppID,
-		"name":                 row.Name,
-		"code":                 row.Code,
-		"tool_type":            row.ToolType,
-		"engine_tool_id":       row.EngineToolID,
-		"permission_code":      row.PermissionCode,
-		"risk_level":           row.RiskLevel,
-		"config_json":          row.ConfigJSON,
-		"status":               row.Status,
+		"provider_id":     row.ProviderID,
+		"app_id":          row.AppID,
+		"name":            row.Name,
+		"code":            row.Code,
+		"tool_type":       row.ToolType,
+		"engine_tool_id":  row.EngineToolID,
+		"permission_code": row.PermissionCode,
+		"risk_level":      row.RiskLevel,
+		"config_json":     row.ConfigJSON,
+		"status":          row.Status,
 	}
 	if err := repo.Update(ctx, id, fields); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "编辑AI工具映射失败", err)
@@ -171,7 +171,7 @@ func (s *Service) normalizeMutation(ctx context.Context, repo Repository, input 
 	if appErr != nil {
 		return ToolMap{}, appErr
 	}
-	connection, err := repo.GetActiveConnection(ctx, fields.engineConnectionID)
+	connection, err := repo.GetActiveProvider(ctx, fields.providerID)
 	if err != nil {
 		return ToolMap{}, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
@@ -198,31 +198,31 @@ func (s *Service) normalizeMutation(ctx context.Context, repo Repository, input 
 		}
 	}
 	return ToolMap{
-		EngineConnectionID: fields.engineConnectionID,
-		AppID:              fields.appID,
-		Name:               fields.name,
-		Code:               fields.code,
-		ToolType:           fields.toolType,
-		EngineToolID:       fields.engineToolID,
-		PermissionCode:     fields.permissionCode,
-		RiskLevel:          fields.riskLevel,
-		ConfigJSON:         fields.configJSON,
-		Status:             fields.status,
-		IsDel:              enum.CommonNo,
+		ProviderID:     fields.providerID,
+		AppID:          fields.appID,
+		Name:           fields.name,
+		Code:           fields.code,
+		ToolType:       fields.toolType,
+		EngineToolID:   fields.engineToolID,
+		PermissionCode: fields.permissionCode,
+		RiskLevel:      fields.riskLevel,
+		ConfigJSON:     fields.configJSON,
+		Status:         fields.status,
+		IsDel:          enum.CommonNo,
 	}, nil
 }
 
 type normalizedFields struct {
-	engineConnectionID uint64
-	appID              *uint64
-	name               string
-	code               string
-	toolType           string
-	engineToolID       string
-	permissionCode     string
-	riskLevel          string
-	configJSON         string
-	status             int
+	providerID     uint64
+	appID          *uint64
+	name           string
+	code           string
+	toolType       string
+	engineToolID   string
+	permissionCode string
+	riskLevel      string
+	configJSON     string
+	status         int
 }
 
 func normalizeFields(input MutationInput) (normalizedFields, *apperror.Error) {
@@ -232,7 +232,7 @@ func normalizeFields(input MutationInput) (normalizedFields, *apperror.Error) {
 	engineToolID := strings.TrimSpace(input.EngineToolID)
 	permissionCode := strings.TrimSpace(input.PermissionCode)
 	riskLevel := strings.TrimSpace(input.RiskLevel)
-	if input.EngineConnectionID == 0 {
+	if input.ProviderID == 0 {
 		return normalizedFields{}, apperror.BadRequest("AI供应商不能为空")
 	}
 	if name == "" {
@@ -273,7 +273,7 @@ func normalizeFields(input MutationInput) (normalizedFields, *apperror.Error) {
 	if appErr != nil {
 		return normalizedFields{}, appErr
 	}
-	return normalizedFields{engineConnectionID: input.EngineConnectionID, appID: input.AppID, name: name, code: code, toolType: toolType, engineToolID: engineToolID, permissionCode: permissionCode, riskLevel: riskLevel, configJSON: configJSON, status: status}, nil
+	return normalizedFields{providerID: input.ProviderID, appID: input.AppID, name: name, code: code, toolType: toolType, engineToolID: engineToolID, permissionCode: permissionCode, riskLevel: riskLevel, configJSON: configJSON, status: status}, nil
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {
@@ -294,7 +294,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func toolMapDTO(row ToolMapWithEngine) ToolMapDTO {
-	return ToolMapDTO{ID: row.ID, EngineConnectionID: row.EngineConnectionID, EngineConnectionName: row.EngineConnectionName, EngineType: row.EngineType, AppID: row.AppID, Name: row.Name, Code: row.Code, ToolType: row.ToolType, ToolTypeName: toolTypeLabels[row.ToolType], EngineToolID: row.EngineToolID, PermissionCode: row.PermissionCode, RiskLevel: row.RiskLevel, RiskLevelName: riskLevelLabels[row.RiskLevel], ConfigJSON: rawJSON(row.ConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return ToolMapDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, AppID: row.AppID, Name: row.Name, Code: row.Code, ToolType: row.ToolType, ToolTypeName: toolTypeLabels[row.ToolType], EngineToolID: row.EngineToolID, PermissionCode: row.PermissionCode, RiskLevel: row.RiskLevel, RiskLevelName: riskLevelLabels[row.RiskLevel], ConfigJSON: rawJSON(row.ConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func normalizeRawJSON(value json.RawMessage) (string, *apperror.Error) {

@@ -33,12 +33,12 @@ func (r *GormRepository) AppOptions(ctx context.Context) ([]OptionRow, error) {
 	return rows, err
 }
 
-func (r *GormRepository) EngineOptions(ctx context.Context) ([]OptionRow, error) {
+func (r *GormRepository) ProviderOptions(ctx context.Context) ([]OptionRow, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	var rows []OptionRow
-	err := r.db.WithContext(ctx).Table("ai_engine_connections").Select("id, name").Where("is_del = ?", enum.CommonNo).Where("status = ?", enum.CommonYes).Order("id DESC").Scan(&rows).Error
+	err := r.db.WithContext(ctx).Table("ai_providers").Select("id, name").Where("is_del = ?", enum.CommonNo).Where("status = ?", enum.CommonYes).Order("id DESC").Scan(&rows).Error
 	return rows, err
 }
 
@@ -54,7 +54,7 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	var rows []ListRow
 	err := db.Select(`r.id, r.request_id, r.user_id,
 		r.app_id, COALESCE(a.name, '') as app_name,
-		r.engine_connection_id, COALESCE(e.name, '') as engine_name, COALESCE(e.engine_type, '') as engine_type,
+		r.provider_id, COALESCE(e.name, '') as provider_name, COALESCE(e.engine_type, '') as engine_type,
 		r.engine_task_id, r.engine_run_id,
 		r.conversation_id, COALESCE(c.title, '') as conversation_title,
 		r.run_status, COALESCE(r.model_snapshot, '') as model_snapshot,
@@ -74,7 +74,7 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	err := r.runsBase(ctx).
 		Select(`r.id, r.request_id, r.user_id, COALESCE(u.username, '') as username,
 			r.app_id, COALESCE(a.name, '') as app_name,
-			r.engine_connection_id, COALESCE(e.name, '') as engine_name, COALESCE(e.engine_type, '') as engine_type,
+			r.provider_id, COALESCE(e.name, '') as provider_name, COALESCE(e.engine_type, '') as engine_type,
 			r.engine_task_id, r.engine_run_id,
 			r.conversation_id, COALESCE(c.title, '') as conversation_title,
 			r.run_status, COALESCE(r.model_snapshot, '') as model_snapshot,
@@ -134,7 +134,7 @@ func (r *GormRepository) StatsByUser(ctx context.Context, query StatsListQuery) 
 func (r *GormRepository) runsBase(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_runs r").
 		Joins("LEFT JOIN ai_apps a ON a.id = r.app_id").
-		Joins("LEFT JOIN ai_engine_connections e ON e.id = r.engine_connection_id").
+		Joins("LEFT JOIN ai_providers e ON e.id = r.provider_id").
 		Joins("LEFT JOIN ai_conversations c ON c.id = r.conversation_id").
 		Joins("LEFT JOIN users u ON u.id = r.user_id").
 		Where("r.is_del = ?", enum.CommonNo)
@@ -176,8 +176,8 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 	} else if query.AgentID != nil {
 		db = db.Where("r.app_id = ?", *query.AgentID)
 	}
-	if query.EngineConnectionID != nil {
-		db = db.Where("r.engine_connection_id = ?", *query.EngineConnectionID)
+	if query.ProviderID != nil {
+		db = db.Where("r.provider_id = ?", *query.ProviderID)
 	}
 	return applyDateRange(db, query.DateStart, query.DateEnd)
 }
@@ -188,8 +188,8 @@ func applyStatsFilters(db *gorm.DB, query StatsFilter) *gorm.DB {
 	} else if query.AgentID != nil {
 		db = db.Where("r.app_id = ?", *query.AgentID)
 	}
-	if query.EngineConnectionID != nil {
-		db = db.Where("r.engine_connection_id = ?", *query.EngineConnectionID)
+	if query.ProviderID != nil {
+		db = db.Where("r.provider_id = ?", *query.ProviderID)
 	}
 	if query.UserID != nil {
 		db = db.Where("r.user_id = ?", *query.UserID)
@@ -198,7 +198,7 @@ func applyStatsFilters(db *gorm.DB, query StatsFilter) *gorm.DB {
 }
 
 func applyStatsListFilters(db *gorm.DB, query StatsListQuery) *gorm.DB {
-	return applyStatsFilters(db, StatsFilter{DateStart: query.DateStart, DateEnd: query.DateEnd, AppID: query.AppID, EngineConnectionID: query.EngineConnectionID, AgentID: query.AgentID, UserID: query.UserID})
+	return applyStatsFilters(db, StatsFilter{DateStart: query.DateStart, DateEnd: query.DateEnd, AppID: query.AppID, ProviderID: query.ProviderID, AgentID: query.AgentID, UserID: query.UserID})
 }
 
 func applyDateRange(db *gorm.DB, start string, end string) *gorm.DB {

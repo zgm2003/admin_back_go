@@ -3,19 +3,19 @@ package aiknowledgemap
 import "time"
 
 type KnowledgeMap struct {
-	ID                 uint64    `gorm:"column:id;primaryKey"`
-	EngineConnectionID uint64    `gorm:"column:engine_connection_id"`
-	Name               string    `gorm:"column:name"`
-	Code               string    `gorm:"column:code"`
-	EngineDatasetID    string    `gorm:"column:engine_dataset_id"`
-	Visibility         string    `gorm:"column:visibility"`
-	Status             int       `gorm:"column:status"`
-	IsDel              int       `gorm:"column:is_del"`
-	MetaJSON           string    `gorm:"column:meta_json"`
-	CreatedBy          uint64    `gorm:"column:created_by"`
-	UpdatedBy          uint64    `gorm:"column:updated_by"`
-	CreatedAt          time.Time `gorm:"column:created_at"`
-	UpdatedAt          time.Time `gorm:"column:updated_at"`
+	ID              uint64    `gorm:"column:id;primaryKey"`
+	ProviderID      uint64    `gorm:"column:provider_id"`
+	Name            string    `gorm:"column:name"`
+	Code            string    `gorm:"column:code"`
+	EngineDatasetID string    `gorm:"column:engine_dataset_id"`
+	Visibility      string    `gorm:"column:visibility"`
+	Status          int       `gorm:"column:status"`
+	IsDel           int       `gorm:"column:is_del"`
+	MetaJSON        string    `gorm:"column:meta_json"`
+	CreatedBy       uint64    `gorm:"column:created_by"`
+	UpdatedBy       uint64    `gorm:"column:updated_by"`
+	CreatedAt       time.Time `gorm:"column:created_at"`
+	UpdatedAt       time.Time `gorm:"column:updated_at"`
 }
 
 func (KnowledgeMap) TableName() string { return "ai_knowledge_maps" }
@@ -40,7 +40,7 @@ type Document struct {
 
 func (Document) TableName() string { return "ai_knowledge_documents" }
 
-type EngineConnection struct {
+type Provider struct {
 	ID         uint64 `gorm:"column:id;primaryKey"`
 	Name       string `gorm:"column:name"`
 	EngineType string `gorm:"column:engine_type"`
@@ -50,4 +50,4 @@ type EngineConnection struct {
 	IsDel      int    `gorm:"column:is_del"`
 }
 
-func (EngineConnection) TableName() string { return "ai_engine_connections" }
+func (Provider) TableName() string { return "ai_providers" }

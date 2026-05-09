@@ -12,9 +12,9 @@ import (
 	"admin_back_go/internal/module/aiapp"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiengine"
 	"admin_back_go/internal/module/aiknowledgemap"
 	"admin_back_go/internal/module/aimessage"
+	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitoolmap"
 	"admin_back_go/internal/module/auth"
@@ -121,8 +121,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			cosObjectWriter,
 		),
 	)
-	aiEngineService := aiengine.NewService(aiengine.NewGormRepository(resources.DB), secretBox, aiEngineTester{})
-	aiAppService := aiapp.NewService(aiapp.NewGormRepository(resources.DB), secretBox, aiEngineTester{})
+	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
+	aiAppService := aiapp.NewService(aiapp.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiToolMapService := aitoolmap.NewService(aitoolmap.NewGormRepository(resources.DB))
 	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
@@ -271,7 +271,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
 		AiAppService:            aiAppService,
-		AiEngineService:         aiEngineService,
+		AiProviderService:       aiProviderService,
 		AiKnowledgeMapService:   aiKnowledgeMapService,
 		AiMessageService:        aiMessageService,
 		AiRunService:            aiRunService,
@@ -315,9 +315,9 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	}
 }
 
-type aiEngineTester struct{}
+type aiProviderTester struct{}
 
-func (aiEngineTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (aiProviderTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
 	switch input.EngineType {
 	case platformai.EngineTypeDify:
 		client, err := dify.New(dify.Config{

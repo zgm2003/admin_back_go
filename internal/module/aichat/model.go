@@ -47,7 +47,7 @@ type Run struct {
 	AgentID            int64      `gorm:"column:agent_id"`
 	UserMessageID      *int64     `gorm:"column:user_message_id"`
 	AssistantMessageID *int64     `gorm:"column:assistant_message_id"`
-	EngineConnectionID uint64     `gorm:"column:engine_connection_id"`
+	ProviderID         uint64     `gorm:"column:provider_id"`
 	EngineTaskID       string     `gorm:"column:engine_task_id"`
 	EngineRunID        string     `gorm:"column:engine_run_id"`
 	RequestID          string     `gorm:"column:request_id"`
@@ -76,7 +76,7 @@ func (Run) TableName() string { return "ai_runs" }
 
 type App struct {
 	ID                 uint64 `gorm:"column:id;primaryKey"`
-	EngineConnectionID uint64 `gorm:"column:engine_connection_id"`
+	ProviderID         uint64 `gorm:"column:provider_id"`
 	Name               string `gorm:"column:name"`
 	AppType            string `gorm:"column:app_type"`
 	EngineAppID        string `gorm:"column:engine_app_id"`
@@ -89,7 +89,7 @@ type App struct {
 
 func (App) TableName() string { return "ai_apps" }
 
-type EngineConnection struct {
+type Provider struct {
 	ID         uint64 `gorm:"column:id;primaryKey"`
 	EngineType string `gorm:"column:engine_type"`
 	BaseURL    string `gorm:"column:base_url"`
@@ -98,7 +98,7 @@ type EngineConnection struct {
 	IsDel      int    `gorm:"column:is_del"`
 }
 
-func (EngineConnection) TableName() string { return "ai_engine_connections" }
+func (Provider) TableName() string { return "ai_providers" }
 
 type RunEvent struct {
 	ID          int64     `gorm:"column:id;primaryKey"`

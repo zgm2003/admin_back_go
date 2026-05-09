@@ -22,7 +22,6 @@ type Model struct {
 	Object  string
 	Created int64
 	OwnedBy string
-	Raw     map[string]any
 }
 
 type TestResult struct {

@@ -26,15 +26,15 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
-		CurrentPage:        req.CurrentPage,
-		PageSize:           req.PageSize,
-		Name:               req.Name,
-		Code:               req.Code,
-		ToolType:           req.ToolType,
-		RiskLevel:          req.RiskLevel,
-		EngineConnectionID: req.EngineConnectionID,
-		AppID:              req.AppID,
-		Status:             req.Status,
+		CurrentPage: req.CurrentPage,
+		PageSize:    req.PageSize,
+		Name:        req.Name,
+		Code:        req.Code,
+		ToolType:    req.ToolType,
+		RiskLevel:   req.RiskLevel,
+		ProviderID:  req.ProviderID,
+		AppID:       req.AppID,
+		Status:      req.Status,
 	})
 	writeResult(c, result, appErr)
 }
@@ -117,16 +117,16 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 
 func mutationInput(req mutationRequest) MutationInput {
 	return MutationInput{
-		EngineConnectionID: req.EngineConnectionID,
-		AppID:              req.AppID,
-		Name:               req.Name,
-		Code:               req.Code,
-		ToolType:           req.ToolType,
-		EngineToolID:       req.EngineToolID,
-		PermissionCode:     req.PermissionCode,
-		RiskLevel:          req.RiskLevel,
-		ConfigJSON:         req.ConfigJSON,
-		Status:             req.Status,
+		ProviderID:     req.ProviderID,
+		AppID:          req.AppID,
+		Name:           req.Name,
+		Code:           req.Code,
+		ToolType:       req.ToolType,
+		EngineToolID:   req.EngineToolID,
+		PermissionCode: req.PermissionCode,
+		RiskLevel:      req.RiskLevel,
+		ConfigJSON:     req.ConfigJSON,
+		Status:         req.Status,
 	}
 }
 

@@ -13,11 +13,11 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	AppTypeArr              []dict.Option[string] `json:"app_type_arr"`
-	ResponseModeArr         []dict.Option[string] `json:"response_mode_arr"`
-	BindingTypeArr          []dict.Option[string] `json:"binding_type_arr"`
-	CommonStatusArr         []dict.Option[int]    `json:"common_status_arr"`
-	EngineConnectionOptions []EngineOption        `json:"engine_connection_options"`
+	AppTypeArr      []dict.Option[string] `json:"app_type_arr"`
+	ResponseModeArr []dict.Option[string] `json:"response_mode_arr"`
+	BindingTypeArr  []dict.Option[string] `json:"binding_type_arr"`
+	CommonStatusArr []dict.Option[int]    `json:"common_status_arr"`
+	ProviderOptions []EngineOption        `json:"provider_options"`
 }
 
 type EngineOption struct {
@@ -27,13 +27,13 @@ type EngineOption struct {
 }
 
 type ListQuery struct {
-	CurrentPage        int
-	PageSize           int
-	Name               string
-	Code               string
-	AppType            string
-	EngineConnectionID uint64
-	Status             *int
+	CurrentPage int
+	PageSize    int
+	Name        string
+	Code        string
+	AppType     string
+	ProviderID  uint64
+	Status      *int
 }
 
 type Page struct {
@@ -54,8 +54,8 @@ type DetailResponse struct {
 
 type AppDTO struct {
 	ID                      uint64         `json:"id"`
-	EngineConnectionID      uint64         `json:"engine_connection_id"`
-	EngineConnectionName    string         `json:"engine_connection_name"`
+	ProviderID              uint64         `json:"provider_id"`
+	ProviderName            string         `json:"provider_name"`
 	EngineType              string         `json:"engine_type"`
 	Name                    string         `json:"name"`
 	Code                    string         `json:"code"`
@@ -73,7 +73,7 @@ type AppDTO struct {
 }
 
 type CreateInput struct {
-	EngineConnectionID  uint64
+	ProviderID          uint64
 	Name                string
 	Code                string
 	AppType             string

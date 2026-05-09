@@ -1,4 +1,4 @@
-package aiengine
+package aiprovider
 
 import (
 	"context"

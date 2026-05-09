@@ -18,21 +18,21 @@ type InitResponse struct {
 type InitDict struct {
 	RunStatusArr []dict.Option[int] `json:"run_status_arr"`
 	AppArr       []dict.Option[int] `json:"appArr"`
-	EngineArr    []dict.Option[int] `json:"engineArr"`
+	ProviderArr  []dict.Option[int] `json:"providerArr"`
 	AgentArr     []dict.Option[int] `json:"agentArr"` // legacy alias for the current Vue pass
 }
 
 type ListQuery struct {
-	CurrentPage        int
-	PageSize           int
-	RunStatus          *int
-	UserID             *int64
-	RequestID          string
-	AppID              *int64
-	EngineConnectionID *int64
-	AgentID            *int64 // legacy alias for AppID during migration
-	DateStart          string
-	DateEnd            string
+	CurrentPage int
+	PageSize    int
+	RunStatus   *int
+	UserID      *int64
+	RequestID   string
+	AppID       *int64
+	ProviderID  *int64
+	AgentID     *int64 // legacy alias for AppID during migration
+	DateStart   string
+	DateEnd     string
 }
 
 type Page struct {
@@ -48,31 +48,31 @@ type ListResponse struct {
 }
 
 type ListItem struct {
-	ID                 int64    `json:"id"`
-	RequestID          string   `json:"request_id"`
-	UserID             int64    `json:"user_id"`
-	AppID              int64    `json:"app_id"`
-	AppName            string   `json:"app_name"`
-	AgentID            int64    `json:"agent_id"`   // legacy alias for AppID
-	AgentName          string   `json:"agent_name"` // legacy alias for AppName
-	EngineConnectionID int64    `json:"engine_connection_id"`
-	EngineName         string   `json:"engine_name"`
-	EngineType         string   `json:"engine_type"`
-	EngineTaskID       string   `json:"engine_task_id"`
-	EngineRunID        string   `json:"engine_run_id"`
-	ConversationID     int64    `json:"conversation_id"`
-	ConversationTitle  string   `json:"conversation_title"`
-	RunStatus          int      `json:"run_status"`
-	RunStatusName      string   `json:"run_status_name"`
-	ModelSnapshot      string   `json:"model_snapshot"`
-	PromptTokens       *int     `json:"prompt_tokens"`
-	CompletionTokens   *int     `json:"completion_tokens"`
-	TotalTokens        *int     `json:"total_tokens"`
-	Cost               *float64 `json:"cost"`
-	LatencyMS          *int     `json:"latency_ms"`
-	LatencyStr         string   `json:"latency_str"`
-	ErrorMsg           *string  `json:"error_msg"`
-	CreatedAt          string   `json:"created_at"`
+	ID                int64    `json:"id"`
+	RequestID         string   `json:"request_id"`
+	UserID            int64    `json:"user_id"`
+	AppID             int64    `json:"app_id"`
+	AppName           string   `json:"app_name"`
+	AgentID           int64    `json:"agent_id"`   // legacy alias for AppID
+	AgentName         string   `json:"agent_name"` // legacy alias for AppName
+	ProviderID        int64    `json:"provider_id"`
+	ProviderName      string   `json:"provider_name"`
+	EngineType        string   `json:"engine_type"`
+	EngineTaskID      string   `json:"engine_task_id"`
+	EngineRunID       string   `json:"engine_run_id"`
+	ConversationID    int64    `json:"conversation_id"`
+	ConversationTitle string   `json:"conversation_title"`
+	RunStatus         int      `json:"run_status"`
+	RunStatusName     string   `json:"run_status_name"`
+	ModelSnapshot     string   `json:"model_snapshot"`
+	PromptTokens      *int     `json:"prompt_tokens"`
+	CompletionTokens  *int     `json:"completion_tokens"`
+	TotalTokens       *int     `json:"total_tokens"`
+	Cost              *float64 `json:"cost"`
+	LatencyMS         *int     `json:"latency_ms"`
+	LatencyStr        string   `json:"latency_str"`
+	ErrorMsg          *string  `json:"error_msg"`
+	CreatedAt         string   `json:"created_at"`
 }
 
 type MessageSummary struct {
@@ -120,8 +120,8 @@ type DetailResponse struct {
 	AppName            string          `json:"app_name"`
 	AgentID            int64           `json:"agent_id"`   // legacy alias for AppID
 	AgentName          string          `json:"agent_name"` // legacy alias for AppName
-	EngineConnectionID int64           `json:"engine_connection_id"`
-	EngineName         string          `json:"engine_name"`
+	ProviderID         int64           `json:"provider_id"`
+	ProviderName       string          `json:"provider_name"`
 	EngineType         string          `json:"engine_type"`
 	EngineTaskID       string          `json:"engine_task_id"`
 	EngineRunID        string          `json:"engine_run_id"`
@@ -149,12 +149,12 @@ type DetailResponse struct {
 }
 
 type StatsFilter struct {
-	DateStart          string
-	DateEnd            string
-	AppID              *int64
-	EngineConnectionID *int64
-	AgentID            *int64 // legacy alias for AppID during migration
-	UserID             *int64
+	DateStart  string
+	DateEnd    string
+	AppID      *int64
+	ProviderID *int64
+	AgentID    *int64 // legacy alias for AppID during migration
+	UserID     *int64
 }
 
 type StatsResponse struct {
@@ -221,27 +221,27 @@ type OptionRow struct {
 }
 
 type ListRow struct {
-	ID                 int64
-	RequestID          string
-	UserID             int64
-	AppID              int64
-	AppName            string
-	EngineConnectionID int64
-	EngineName         string
-	EngineType         string
-	EngineTaskID       string
-	EngineRunID        string
-	ConversationID     int64
-	ConversationTitle  string
-	RunStatus          int
-	ModelSnapshot      string
-	PromptTokens       *int
-	CompletionTokens   *int
-	TotalTokens        *int
-	Cost               *float64
-	LatencyMS          *int
-	ErrorMsg           *string
-	CreatedAt          time.Time
+	ID                int64
+	RequestID         string
+	UserID            int64
+	AppID             int64
+	AppName           string
+	ProviderID        int64
+	ProviderName      string
+	EngineType        string
+	EngineTaskID      string
+	EngineRunID       string
+	ConversationID    int64
+	ConversationTitle string
+	RunStatus         int
+	ModelSnapshot     string
+	PromptTokens      *int
+	CompletionTokens  *int
+	TotalTokens       *int
+	Cost              *float64
+	LatencyMS         *int
+	ErrorMsg          *string
+	CreatedAt         time.Time
 }
 
 type RunDetailRow struct {
@@ -251,8 +251,8 @@ type RunDetailRow struct {
 	Username           string
 	AppID              int64
 	AppName            string
-	EngineConnectionID int64
-	EngineName         string
+	ProviderID         int64
+	ProviderName       string
 	EngineType         string
 	EngineTaskID       string
 	EngineRunID        string
@@ -318,14 +318,14 @@ type StatsMetricRow struct {
 }
 
 type StatsListQuery struct {
-	CurrentPage        int
-	PageSize           int
-	DateStart          string
-	DateEnd            string
-	AppID              *int64
-	EngineConnectionID *int64
-	AgentID            *int64 // legacy alias for AppID during migration
-	UserID             *int64
+	CurrentPage int
+	PageSize    int
+	DateStart   string
+	DateEnd     string
+	AppID       *int64
+	ProviderID  *int64
+	AgentID     *int64 // legacy alias for AppID during migration
+	UserID      *int64
 }
 
 type StatsByDateRow struct {
@@ -344,7 +344,7 @@ type StatsByUserRow struct {
 
 type Repository interface {
 	AppOptions(ctx context.Context) ([]OptionRow, error)
-	EngineOptions(ctx context.Context) ([]OptionRow, error)
+	ProviderOptions(ctx context.Context) ([]OptionRow, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
 	Events(ctx context.Context, runID int64) ([]EventRow, error)

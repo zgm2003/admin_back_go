@@ -15,16 +15,16 @@ var ErrRepositoryNotConfigured = errors.New("aitoolmap repository not configured
 
 type ToolMapWithEngine struct {
 	ToolMap
-	EngineConnectionName string `gorm:"column:engine_connection_name"`
-	EngineType           string `gorm:"column:engine_type"`
-	EngineAPIKeyEnc      string `gorm:"column:engine_api_key_enc"`
+	ProviderName    string `gorm:"column:provider_name"`
+	EngineType      string `gorm:"column:engine_type"`
+	EngineAPIKeyEnc string `gorm:"column:engine_api_key_enc"`
 }
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ToolMapWithEngine, int64, error)
 	GetRaw(ctx context.Context, id uint64) (*ToolMap, error)
-	ListActiveConnections(ctx context.Context) ([]EngineConnection, error)
-	GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error)
+	ListActiveProviders(ctx context.Context) ([]Provider, error)
+	GetActiveProvider(ctx context.Context, id uint64) (*Provider, error)
 	ExistsByCode(ctx context.Context, code string, excludeID uint64) (bool, error)
 	ExistsPermissionCode(ctx context.Context, code string) (bool, error)
 	Create(ctx context.Context, row ToolMap) (uint64, error)
@@ -59,8 +59,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ToolMapWi
 	if strings.TrimSpace(query.RiskLevel) != "" {
 		db = db.Where("t.risk_level = ?", strings.TrimSpace(query.RiskLevel))
 	}
-	if query.EngineConnectionID > 0 {
-		db = db.Where("t.engine_connection_id = ?", query.EngineConnectionID)
+	if query.ProviderID > 0 {
+		db = db.Where("t.provider_id = ?", query.ProviderID)
 	}
 	if query.AppID != nil {
 		db = db.Where("t.app_id = ?", *query.AppID)
@@ -91,20 +91,20 @@ func (r *GormRepository) GetRaw(ctx context.Context, id uint64) (*ToolMap, error
 	return &row, err
 }
 
-func (r *GormRepository) ListActiveConnections(ctx context.Context) ([]EngineConnection, error) {
+func (r *GormRepository) ListActiveProviders(ctx context.Context) ([]Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var rows []EngineConnection
+	var rows []Provider
 	err := r.db.WithContext(ctx).Where("is_del = ? AND status = ?", enum.CommonNo, enum.CommonYes).Order("id DESC").Find(&rows).Error
 	return rows, err
 }
 
-func (r *GormRepository) GetActiveConnection(ctx context.Context, id uint64) (*EngineConnection, error) {
+func (r *GormRepository) GetActiveProvider(ctx context.Context, id uint64) (*Provider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	var row EngineConnection
+	var row Provider
 	err := r.db.WithContext(ctx).Where("id = ? AND is_del = ? AND status = ?", id, enum.CommonNo, enum.CommonYes).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -169,8 +169,8 @@ func (r *GormRepository) Delete(ctx context.Context, id uint64) error {
 
 func (r *GormRepository) selectDB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_tool_maps AS t").
-		Select(`t.*, e.name AS engine_connection_name, e.engine_type AS engine_type, e.api_key_enc AS engine_api_key_enc`).
-		Joins("LEFT JOIN ai_engine_connections e ON e.id = t.engine_connection_id AND e.is_del = ?", enum.CommonNo).
+		Select(`t.*, e.name AS provider_name, e.engine_type AS engine_type, e.api_key_enc AS engine_api_key_enc`).
+		Joins("LEFT JOIN ai_providers e ON e.id = t.provider_id AND e.is_del = ?", enum.CommonNo).
 		Where("t.is_del = ?", enum.CommonNo)
 }
 

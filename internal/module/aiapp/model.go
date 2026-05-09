@@ -4,7 +4,7 @@ import "time"
 
 type App struct {
 	ID                  uint64    `gorm:"column:id;primaryKey"`
-	EngineConnectionID  uint64    `gorm:"column:engine_connection_id"`
+	ProviderID          uint64    `gorm:"column:provider_id"`
 	Name                string    `gorm:"column:name"`
 	Code                string    `gorm:"column:code"`
 	AppType             string    `gorm:"column:app_type"`
@@ -38,7 +38,7 @@ type Binding struct {
 
 func (Binding) TableName() string { return "ai_app_bindings" }
 
-type EngineConnection struct {
+type Provider struct {
 	ID           uint64 `gorm:"column:id;primaryKey"`
 	Name         string `gorm:"column:name"`
 	EngineType   string `gorm:"column:engine_type"`
@@ -49,4 +49,4 @@ type EngineConnection struct {
 	IsDel        int    `gorm:"column:is_del"`
 }
 
-func (EngineConnection) TableName() string { return "ai_engine_connections" }
+func (Provider) TableName() string { return "ai_providers" }

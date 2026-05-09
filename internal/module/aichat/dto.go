@@ -130,7 +130,7 @@ type AppEngineConfig struct {
 	AppID                uint64
 	AppName              string
 	AppType              string
-	EngineConnectionID   uint64
+	ProviderID           uint64
 	EngineType           string
 	EngineBaseURL        string
 	EngineAPIKeyEnc      string

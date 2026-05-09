@@ -1,8 +1,7 @@
-package aiengine
+package aiprovider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -17,11 +16,10 @@ import (
 )
 
 const (
-	timeLayout                = "2006-01-02 15:04:05"
-	driverOpenAI              = "openai"
-	defaultOpenAIBaseURL      = "https://api.openai.com/v1"
-	providerModelSourceRemote = "remote"
-	maxStoredErrorRunes       = 1024
+	timeLayout           = "2006-01-02 15:04:05"
+	driverOpenAI         = "openai"
+	defaultOpenAIBaseURL = "https://api.openai.com/v1"
+	maxStoredErrorRunes  = 1024
 )
 
 var engineTypeLabels = map[string]string{
@@ -39,15 +37,15 @@ var modelSyncStatusOptions = healthStatusOptions
 type Service struct {
 	repository Repository
 	secretbox  secretbox.Box
-	tester     ConnectionTester
+	tester     ProviderTester
 	driver     ModelDriver
 }
 
-func NewService(repository Repository, box secretbox.Box, tester ConnectionTester) *Service {
+func NewService(repository Repository, box secretbox.Box, tester ProviderTester) *Service {
 	return &Service{repository: repository, secretbox: box, tester: tester, driver: provider.NewOpenAIDriver(nil)}
 }
 
-func NewServiceWithDriver(repository Repository, box secretbox.Box, tester ConnectionTester, driver ModelDriver) *Service {
+func NewServiceWithDriver(repository Repository, box secretbox.Box, tester ProviderTester, driver ModelDriver) *Service {
 	service := NewService(repository, box, tester)
 	if driver != nil {
 		service.driver = driver
@@ -69,13 +67,13 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
-	list := make([]ConnectionDTO, 0, len(rows))
+	list := make([]ProviderDTO, 0, len(rows))
 	for _, row := range rows {
 		models, err := repo.ListModels(ctx, row.ID)
 		if err != nil {
 			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 		}
-		list = append(list, connectionDTO(row, models))
+		list = append(list, providerDTO(row, models))
 	}
 	return &ListResponse{List: list, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}}, nil
 }
@@ -340,7 +338,7 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
-	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, input.Statuses, nil)
+	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, input.Statuses)
 	if appErr != nil {
 		return appErr
 	}
@@ -408,16 +406,16 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	return query
 }
 
-func normalizeCreateInput(input CreateInput) (Connection, []ProviderModel, *apperror.Error) {
+func normalizeCreateInput(input CreateInput) (Provider, []ProviderModel, *apperror.Error) {
 	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
 	if appErr != nil {
-		return Connection{}, nil, appErr
+		return Provider{}, nil, appErr
 	}
-	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil, nil)
+	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil)
 	if appErr != nil {
-		return Connection{}, nil, appErr
+		return Provider{}, nil, appErr
 	}
-	return Connection{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, nil
+	return Provider{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, nil
 }
 
 func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, *apperror.Error) {
@@ -425,7 +423,7 @@ func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, 
 	if appErr != nil {
 		return nil, nil, appErr
 	}
-	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil, nil)
+	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil)
 	if appErr != nil {
 		return nil, nil, appErr
 	}
@@ -481,7 +479,7 @@ func validateSelectedModels(modelIDs []string) ([]string, *apperror.Error) {
 	return normalized, nil
 }
 
-func buildProviderModels(modelIDs []string, displayNames map[string]string, statuses map[string]int, rawByID map[string]string) ([]ProviderModel, *apperror.Error) {
+func buildProviderModels(modelIDs []string, displayNames map[string]string, statuses map[string]int) ([]ProviderModel, *apperror.Error) {
 	normalizedIDs, appErr := validateSelectedModels(modelIDs)
 	if appErr != nil {
 		return nil, appErr
@@ -495,19 +493,19 @@ func buildProviderModels(modelIDs []string, displayNames map[string]string, stat
 		if !enum.IsCommonStatus(status) {
 			return nil, apperror.BadRequest("无效的模型状态")
 		}
-		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), Source: providerModelSourceRemote, RawJSON: optionalJSONString(rawByID[modelID]), Status: status, IsDel: enum.CommonNo})
+		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), Status: status})
 	}
 	return models, nil
 }
 
-func connectionDTO(row Connection, models []ProviderModel) ConnectionDTO {
+func providerDTO(row Provider, models []ProviderModel) ProviderDTO {
 	enabledCount := 0
 	for _, model := range models {
 		if model.Status == enum.CommonYes {
 			enabledCount++
 		}
 	}
-	return ConnectionDTO{
+	return ProviderDTO{
 		ID:                  row.ID,
 		Name:                row.Name,
 		EngineType:          row.EngineType,
@@ -535,7 +533,7 @@ func connectionDTO(row Connection, models []ProviderModel) ConnectionDTO {
 func providerModelDTOs(rows []ProviderModel) []ProviderModelDTO {
 	list := make([]ProviderModelDTO, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Source: row.Source, Raw: rawJSON(row.RawJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)})
+		list = append(list, ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)})
 	}
 	return list
 }
@@ -543,35 +541,9 @@ func providerModelDTOs(rows []ProviderModel) []ProviderModelDTO {
 func modelOptionsDTO(models []provider.Model) []ModelOptionDTO {
 	list := make([]ModelOptionDTO, 0, len(models))
 	for _, model := range models {
-		list = append(list, ModelOptionDTO{ModelID: model.ID, DisplayName: model.ID, OwnedBy: model.OwnedBy, Raw: rawMap(model.Raw)})
+		list = append(list, ModelOptionDTO{ModelID: model.ID, DisplayName: model.ID, OwnedBy: model.OwnedBy})
 	}
 	return list
-}
-
-func rawMap(value map[string]any) json.RawMessage {
-	if len(value) == 0 {
-		return json.RawMessage(`{}`)
-	}
-	body, err := json.Marshal(value)
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-	return body
-}
-
-func optionalJSONString(value string) *string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func rawJSON(value *string) json.RawMessage {
-	if value == nil || strings.TrimSpace(*value) == "" {
-		return json.RawMessage(`{}`)
-	}
-	return json.RawMessage(*value)
 }
 
 func engineTypeOptions() []dict.Option[string] {
@@ -661,5 +633,5 @@ func formatPtrTime(value *time.Time) string {
 type unsupportedTester struct{}
 
 func (unsupportedTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
-	return nil, fmt.Errorf("ai engine tester not configured")
+	return nil, fmt.Errorf("ai provider tester not configured")
 }

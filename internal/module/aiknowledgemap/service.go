@@ -60,7 +60,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if appErr != nil {
 		return nil, appErr
 	}
-	connections, err := repo.ListActiveConnections(ctx)
+	connections, err := repo.ListActiveProviders(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
@@ -69,11 +69,11 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 		options = append(options, EngineOption{Label: row.Name, Value: row.ID, EngineType: row.EngineType})
 	}
 	return &InitResponse{Dict: InitDict{
-		VisibilityArr:           stringOptions([]string{VisibilityPrivate, VisibilityPublic}, visibilityLabels),
-		SourceTypeArr:           stringOptions([]string{SourceTypeText, SourceTypeFile}, sourceTypeLabels),
-		IndexingStatusArr:       stringOptions([]string{"pending", "indexing", "completed", "failed"}, indexingStatusLabels),
-		CommonStatusArr:         dict.CommonStatusOptions(),
-		EngineConnectionOptions: options,
+		VisibilityArr:     stringOptions([]string{VisibilityPrivate, VisibilityPublic}, visibilityLabels),
+		SourceTypeArr:     stringOptions([]string{SourceTypeText, SourceTypeFile}, sourceTypeLabels),
+		IndexingStatusArr: stringOptions([]string{"pending", "indexing", "completed", "failed"}, indexingStatusLabels),
+		CommonStatusArr:   dict.CommonStatusOptions(),
+		ProviderOptions:   options,
 	}}, nil
 }
 
@@ -121,7 +121,7 @@ func (s *Service) Create(ctx context.Context, input MapInput) (uint64, *apperror
 	if appErr != nil {
 		return 0, appErr
 	}
-	if appErr := s.ensureActiveConnection(ctx, repo, row.EngineConnectionID); appErr != nil {
+	if appErr := s.ensureActiveProvider(ctx, repo, row.ProviderID); appErr != nil {
 		return 0, appErr
 	}
 	exists, err := repo.ExistsByCode(ctx, row.Code, 0)
@@ -153,7 +153,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input MapInput) *apperr
 	if appErr != nil {
 		return appErr
 	}
-	if appErr := s.ensureActiveConnection(ctx, repo, input.EngineConnectionID); appErr != nil {
+	if appErr := s.ensureActiveProvider(ctx, repo, input.ProviderID); appErr != nil {
 		return appErr
 	}
 	exists, err := repo.ExistsByCode(ctx, strings.TrimSpace(input.Code), id)
@@ -397,22 +397,22 @@ func (s *Service) activeMap(ctx context.Context, id uint64) (Repository, *Knowle
 }
 
 func (s *Service) engineForMap(ctx context.Context, repo Repository, row KnowledgeMap) (platformai.Engine, *apperror.Error) {
-	connection, err := repo.GetActiveConnection(ctx, row.EngineConnectionID)
+	connection, err := repo.GetActiveProvider(ctx, row.ProviderID)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if connection == nil {
 		return nil, apperror.BadRequest("AI供应商不存在或已禁用")
 	}
-	return s.engineFromConnection(ctx, *connection)
+	return s.engineFromProvider(ctx, *connection)
 }
 
 func (s *Service) engineFromJoinedDocument(ctx context.Context, doc DocumentWithMap) (platformai.Engine, *apperror.Error) {
-	return s.engineFromConnection(ctx, EngineConnection{EngineType: doc.EngineType, BaseURL: doc.EngineBaseURL, APIKeyEnc: doc.EngineAPIKeyEnc, Status: enum.CommonYes, IsDel: enum.CommonNo})
+	return s.engineFromProvider(ctx, Provider{EngineType: doc.EngineType, BaseURL: doc.EngineBaseURL, APIKeyEnc: doc.EngineAPIKeyEnc, Status: enum.CommonYes, IsDel: enum.CommonNo})
 }
 
-func (s *Service) engineFromConnection(ctx context.Context, connection EngineConnection) (platformai.Engine, *apperror.Error) {
-	apiKey, err := s.secretbox.Decrypt(connection.APIKeyEnc)
+func (s *Service) engineFromProvider(ctx context.Context, providerRow Provider) (platformai.Engine, *apperror.Error) {
+	apiKey, err := s.secretbox.Decrypt(providerRow.APIKeyEnc)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
@@ -423,15 +423,15 @@ func (s *Service) engineFromConnection(ctx context.Context, connection EngineCon
 	if factory == nil {
 		factory = unsupportedFactory{}
 	}
-	engine, err := factory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(connection.EngineType), BaseURL: connection.BaseURL, APIKey: apiKey})
+	engine, err := factory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(providerRow.EngineType), BaseURL: providerRow.BaseURL, APIKey: apiKey})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
 	}
 	return engine, nil
 }
 
-func (s *Service) ensureActiveConnection(ctx context.Context, repo Repository, id uint64) *apperror.Error {
-	connection, err := repo.GetActiveConnection(ctx, id)
+func (s *Service) ensureActiveProvider(ctx context.Context, repo Repository, id uint64) *apperror.Error {
+	connection, err := repo.GetActiveProvider(ctx, id)
 	if err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
@@ -480,7 +480,7 @@ func normalizeCreateInput(input MapInput) (KnowledgeMap, *apperror.Error) {
 	if appErr != nil {
 		return KnowledgeMap{}, appErr
 	}
-	return KnowledgeMap{EngineConnectionID: fields.engineConnectionID, Name: fields.name, Code: fields.code, EngineDatasetID: fields.engineDatasetID, Visibility: fields.visibility, MetaJSON: fields.metaJSON, Status: fields.status, IsDel: enum.CommonNo}, nil
+	return KnowledgeMap{ProviderID: fields.providerID, Name: fields.name, Code: fields.code, EngineDatasetID: fields.engineDatasetID, Visibility: fields.visibility, MetaJSON: fields.metaJSON, Status: fields.status, IsDel: enum.CommonNo}, nil
 }
 
 func normalizeUpdateFields(input MapInput) (map[string]any, *apperror.Error) {
@@ -488,24 +488,24 @@ func normalizeUpdateFields(input MapInput) (map[string]any, *apperror.Error) {
 	if appErr != nil {
 		return nil, appErr
 	}
-	return map[string]any{"engine_connection_id": fields.engineConnectionID, "name": fields.name, "code": fields.code, "engine_dataset_id": fields.engineDatasetID, "visibility": fields.visibility, "meta_json": fields.metaJSON, "status": fields.status}, nil
+	return map[string]any{"provider_id": fields.providerID, "name": fields.name, "code": fields.code, "engine_dataset_id": fields.engineDatasetID, "visibility": fields.visibility, "meta_json": fields.metaJSON, "status": fields.status}, nil
 }
 
 type normalizedMapFields struct {
-	engineConnectionID uint64
-	name               string
-	code               string
-	engineDatasetID    string
-	visibility         string
-	metaJSON           string
-	status             int
+	providerID      uint64
+	name            string
+	code            string
+	engineDatasetID string
+	visibility      string
+	metaJSON        string
+	status          int
 }
 
 func normalizeMapFields(input MapInput) (normalizedMapFields, *apperror.Error) {
 	name := strings.TrimSpace(input.Name)
 	code := strings.TrimSpace(input.Code)
 	visibility := strings.TrimSpace(input.Visibility)
-	if input.EngineConnectionID == 0 {
+	if input.ProviderID == 0 {
 		return normalizedMapFields{}, apperror.BadRequest("AI供应商不能为空")
 	}
 	if name == "" {
@@ -537,7 +537,7 @@ func normalizeMapFields(input MapInput) (normalizedMapFields, *apperror.Error) {
 	if appErr != nil {
 		return normalizedMapFields{}, appErr
 	}
-	return normalizedMapFields{engineConnectionID: input.EngineConnectionID, name: name, code: code, engineDatasetID: strings.TrimSpace(input.EngineDatasetID), visibility: visibility, metaJSON: metaJSON, status: status}, nil
+	return normalizedMapFields{providerID: input.ProviderID, name: name, code: code, engineDatasetID: strings.TrimSpace(input.EngineDatasetID), visibility: visibility, metaJSON: metaJSON, status: status}, nil
 }
 
 func normalizeDocumentInput(mapID uint64, input DocumentInput) (Document, *apperror.Error) {
@@ -575,7 +575,7 @@ func normalizeDocumentInput(mapID uint64, input DocumentInput) (Document, *apper
 }
 
 func mapDTO(row MapWithEngine) MapDTO {
-	return MapDTO{ID: row.ID, EngineConnectionID: row.EngineConnectionID, EngineConnectionName: row.EngineConnectionName, EngineType: row.EngineType, Name: row.Name, Code: row.Code, EngineDatasetID: row.EngineDatasetID, Visibility: row.Visibility, VisibilityName: visibilityLabels[row.Visibility], MetaJSON: rawJSON(row.MetaJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return MapDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, Code: row.Code, EngineDatasetID: row.EngineDatasetID, Visibility: row.Visibility, VisibilityName: visibilityLabels[row.Visibility], MetaJSON: rawJSON(row.MetaJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func documentDTO(row Document) DocumentDTO {

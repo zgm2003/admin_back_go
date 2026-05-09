@@ -20,9 +20,9 @@ import (
 	"admin_back_go/internal/module/aiapp"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiengine"
 	"admin_back_go/internal/module/aiknowledgemap"
 	"admin_back_go/internal/module/aimessage"
+	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitoolmap"
 	"admin_back_go/internal/module/auth"
@@ -569,75 +569,75 @@ func (f *fakeRouterClientVersionService) CurrentCheck(ctx context.Context, query
 	return &clientversion.CurrentCheckResponse{ForceUpdate: true}, nil
 }
 
-type fakeRouterAIEngineService struct {
+type fakeRouterAIProviderService struct {
 	initCalled       bool
-	listQuery        aiengine.ListQuery
+	listQuery        aiprovider.ListQuery
 	testID           uint64
 	previewCalled    bool
 	storedPreviewID  uint64
 	syncID           uint64
 	modelsID         uint64
 	updateModelsID   uint64
-	updateModelsBody aiengine.UpdateModelsInput
+	updateModelsBody aiprovider.UpdateModelsInput
 }
 
-func (f *fakeRouterAIEngineService) Init(ctx context.Context) (*aiengine.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) Init(ctx context.Context) (*aiprovider.InitResponse, *apperror.Error) {
 	f.initCalled = true
-	return &aiengine.InitResponse{}, nil
+	return &aiprovider.InitResponse{}, nil
 }
 
-func (f *fakeRouterAIEngineService) List(ctx context.Context, query aiengine.ListQuery) (*aiengine.ListResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) List(ctx context.Context, query aiprovider.ListQuery) (*aiprovider.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &aiengine.ListResponse{
-		List: []aiengine.ConnectionDTO{{ID: 1, Name: "OpenAI", EngineType: "openai", APIKeyMasked: "***test", Status: enum.CommonYes}},
-		Page: aiengine.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	return &aiprovider.ListResponse{
+		List: []aiprovider.ProviderDTO{{ID: 1, Name: "OpenAI", EngineType: "openai", APIKeyMasked: "***test", Status: enum.CommonYes}},
+		Page: aiprovider.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 
-func (f *fakeRouterAIEngineService) Create(ctx context.Context, input aiengine.CreateInput) (uint64, *apperror.Error) {
+func (f *fakeRouterAIProviderService) Create(ctx context.Context, input aiprovider.CreateInput) (uint64, *apperror.Error) {
 	return 1, nil
 }
 
-func (f *fakeRouterAIEngineService) Update(ctx context.Context, id uint64, input aiengine.UpdateInput) *apperror.Error {
+func (f *fakeRouterAIProviderService) Update(ctx context.Context, id uint64, input aiprovider.UpdateInput) *apperror.Error {
 	return nil
 }
 
-func (f *fakeRouterAIEngineService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
+func (f *fakeRouterAIProviderService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
 	return nil
 }
 
-func (f *fakeRouterAIEngineService) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (f *fakeRouterAIProviderService) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
 	f.testID = id
 	return &platformai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
 }
 
-func (f *fakeRouterAIEngineService) PreviewModels(ctx context.Context, input aiengine.ModelOptionsInput) (*aiengine.ModelOptionsResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) PreviewModels(ctx context.Context, input aiprovider.ModelOptionsInput) (*aiprovider.ModelOptionsResponse, *apperror.Error) {
 	f.previewCalled = true
-	return &aiengine.ModelOptionsResponse{}, nil
+	return &aiprovider.ModelOptionsResponse{}, nil
 }
 
-func (f *fakeRouterAIEngineService) PreviewStoredModels(ctx context.Context, id uint64) (*aiengine.ModelOptionsResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) PreviewStoredModels(ctx context.Context, id uint64) (*aiprovider.ModelOptionsResponse, *apperror.Error) {
 	f.storedPreviewID = id
-	return &aiengine.ModelOptionsResponse{}, nil
+	return &aiprovider.ModelOptionsResponse{}, nil
 }
 
-func (f *fakeRouterAIEngineService) SyncModels(ctx context.Context, id uint64) (*aiengine.ModelOptionsResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) SyncModels(ctx context.Context, id uint64) (*aiprovider.ModelOptionsResponse, *apperror.Error) {
 	f.syncID = id
-	return &aiengine.ModelOptionsResponse{}, nil
+	return &aiprovider.ModelOptionsResponse{}, nil
 }
 
-func (f *fakeRouterAIEngineService) ListProviderModels(ctx context.Context, id uint64) (*aiengine.ProviderModelsResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) ListProviderModels(ctx context.Context, id uint64) (*aiprovider.ProviderModelsResponse, *apperror.Error) {
 	f.modelsID = id
-	return &aiengine.ProviderModelsResponse{}, nil
+	return &aiprovider.ProviderModelsResponse{}, nil
 }
 
-func (f *fakeRouterAIEngineService) UpdateProviderModels(ctx context.Context, id uint64, input aiengine.UpdateModelsInput) *apperror.Error {
+func (f *fakeRouterAIProviderService) UpdateProviderModels(ctx context.Context, id uint64, input aiprovider.UpdateModelsInput) *apperror.Error {
 	f.updateModelsID = id
 	f.updateModelsBody = input
 	return nil
 }
 
-func (f *fakeRouterAIEngineService) Delete(ctx context.Context, id uint64) *apperror.Error {
+func (f *fakeRouterAIProviderService) Delete(ctx context.Context, id uint64) *apperror.Error {
 	return nil
 }
 
@@ -727,7 +727,7 @@ func (f *fakeRouterAIToolMapService) Init(ctx context.Context) (*aitoolmap.InitR
 func (f *fakeRouterAIToolMapService) List(ctx context.Context, query aitoolmap.ListQuery) (*aitoolmap.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &aitoolmap.ListResponse{
-		List: []aitoolmap.ToolMapDTO{{ID: 1, EngineConnectionID: 3, Name: "查订单", Code: "query_order", ToolType: aitoolmap.ToolTypeDifyTool, RiskLevel: aitoolmap.RiskLow, Status: enum.CommonYes}},
+		List: []aitoolmap.ToolMapDTO{{ID: 1, ProviderID: 3, Name: "查订单", Code: "query_order", ToolType: aitoolmap.ToolTypeDifyTool, RiskLevel: aitoolmap.RiskLow, Status: enum.CommonYes}},
 		Page: aitoolmap.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
@@ -2213,82 +2213,82 @@ func TestRouterInstallsClientVersionRESTRoutes(t *testing.T) {
 }
 
 func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
-	engineService := &fakeRouterAIEngineService{}
+	providerService := &fakeRouterAIProviderService{}
 	appService := &fakeRouterAIAppService{}
 	toolMapService := &fakeRouterAIToolMapService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: "admin"}, nil
 		},
-		AiEngineService:  engineService,
-		AiAppService:     appService,
-		AiToolMapService: toolMapService,
+		AiProviderService: providerService,
+		AiAppService:      appService,
+		AiToolMapService:  toolMapService,
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-engine-connections/page-init", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-providers/page-init", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !engineService.initCalled {
-		t.Fatalf("expected AI engine page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), engineService.initCalled)
+	if recorder.Code != http.StatusOK || !providerService.initCalled {
+		t.Fatalf("expected AI provider page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), providerService.initCalled)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-engine-connections?current_page=1&page_size=20&engine_type=openai&status=1", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-providers?current_page=1&page_size=20&engine_type=openai&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.listQuery.EngineType != "openai" || engineService.listQuery.Status == nil || *engineService.listQuery.Status != enum.CommonYes {
-		t.Fatalf("expected AI engine list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), engineService.listQuery)
+	if recorder.Code != http.StatusOK || providerService.listQuery.EngineType != "openai" || providerService.listQuery.Status == nil || *providerService.listQuery.Status != enum.CommonYes {
+		t.Fatalf("expected AI provider list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), providerService.listQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/model-options", strings.NewReader(`{"driver":"openai","api_key":"sk-test"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-providers/model-options", strings.NewReader(`{"driver":"openai","api_key":"sk-test"}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !engineService.previewCalled {
-		t.Fatalf("expected AI engine model-options route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), engineService.previewCalled)
+	if recorder.Code != http.StatusOK || !providerService.previewCalled {
+		t.Fatalf("expected AI provider model-options route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), providerService.previewCalled)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/7/model-options", nil)
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-providers/7/model-options", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.storedPreviewID != 7 {
-		t.Fatalf("expected AI engine stored model-options route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.storedPreviewID)
+	if recorder.Code != http.StatusOK || providerService.storedPreviewID != 7 {
+		t.Fatalf("expected AI provider stored model-options route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), providerService.storedPreviewID)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/7/test", nil)
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-providers/7/test", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.testID != 7 {
-		t.Fatalf("expected AI engine test route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.testID)
+	if recorder.Code != http.StatusOK || providerService.testID != 7 {
+		t.Fatalf("expected AI provider test route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), providerService.testID)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/7/sync-models", nil)
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-providers/7/sync-models", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.syncID != 7 {
-		t.Fatalf("expected AI engine sync-models route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.syncID)
+	if recorder.Code != http.StatusOK || providerService.syncID != 7 {
+		t.Fatalf("expected AI provider sync-models route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), providerService.syncID)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-engine-connections/7/models", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-providers/7/models", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.modelsID != 7 {
-		t.Fatalf("expected AI engine models route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.modelsID)
+	if recorder.Code != http.StatusOK || providerService.modelsID != 7 {
+		t.Fatalf("expected AI provider models route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), providerService.modelsID)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-engine-connections/7/models", strings.NewReader(`{"model_ids":["gpt-4.1-mini"]}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-providers/7/models", strings.NewReader(`{"model_ids":["gpt-4.1-mini"]}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.updateModelsID != 7 || len(engineService.updateModelsBody.ModelIDs) != 1 || engineService.updateModelsBody.ModelIDs[0] != "gpt-4.1-mini" {
-		t.Fatalf("expected AI engine update models route, code=%d body=%s id=%d input=%#v", recorder.Code, recorder.Body.String(), engineService.updateModelsID, engineService.updateModelsBody)
+	if recorder.Code != http.StatusOK || providerService.updateModelsID != 7 || len(providerService.updateModelsBody.ModelIDs) != 1 || providerService.updateModelsBody.ModelIDs[0] != "gpt-4.1-mini" {
+		t.Fatalf("expected AI provider update models route, code=%d body=%s id=%d input=%#v", recorder.Code, recorder.Body.String(), providerService.updateModelsID, providerService.updateModelsBody)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -2300,10 +2300,10 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-apps?current_page=2&page_size=10&app_type=chat&engine_connection_id=3&status=1", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-apps?current_page=2&page_size=10&app_type=chat&provider_id=3&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || appService.listQuery.AppType != "chat" || appService.listQuery.EngineConnectionID != 3 || appService.listQuery.Status == nil || *appService.listQuery.Status != enum.CommonYes {
+	if recorder.Code != http.StatusOK || appService.listQuery.AppType != "chat" || appService.listQuery.ProviderID != 3 || appService.listQuery.Status == nil || *appService.listQuery.Status != enum.CommonYes {
 		t.Fatalf("expected AI app list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), appService.listQuery)
 	}
 
@@ -2365,15 +2365,15 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tool-maps?current_page=2&page_size=10&tool_type=dify_tool&risk_level=low&engine_connection_id=3&app_id=5&status=1", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tool-maps?current_page=2&page_size=10&tool_type=dify_tool&risk_level=low&provider_id=3&app_id=5&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || toolMapService.listQuery.ToolType != aitoolmap.ToolTypeDifyTool || toolMapService.listQuery.RiskLevel != aitoolmap.RiskLow || toolMapService.listQuery.EngineConnectionID != 3 || toolMapService.listQuery.AppID == nil || *toolMapService.listQuery.AppID != 5 || toolMapService.listQuery.Status == nil || *toolMapService.listQuery.Status != enum.CommonYes {
+	if recorder.Code != http.StatusOK || toolMapService.listQuery.ToolType != aitoolmap.ToolTypeDifyTool || toolMapService.listQuery.RiskLevel != aitoolmap.RiskLow || toolMapService.listQuery.ProviderID != 3 || toolMapService.listQuery.AppID == nil || *toolMapService.listQuery.AppID != 5 || toolMapService.listQuery.Status == nil || *toolMapService.listQuery.Status != enum.CommonYes {
 		t.Fatalf("expected AI tool map list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), toolMapService.listQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tool-maps", strings.NewReader(`{"engine_connection_id":3,"app_id":5,"name":"查订单","code":"query_order","tool_type":"dify_tool","engine_tool_id":"tool-1","risk_level":"low","config_json":{"timeout":3},"status":1}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tool-maps", strings.NewReader(`{"provider_id":3,"app_id":5,"name":"查订单","code":"query_order","tool_type":"dify_tool","engine_tool_id":"tool-1","risk_level":"low","config_json":{"timeout":3},"status":1}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -2382,7 +2382,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-tool-maps/4", strings.NewReader(`{"engine_connection_id":3,"name":"查订单","code":"query_order","tool_type":"dify_tool","engine_tool_id":"tool-1","risk_level":"low","config_json":{"timeout":3},"status":1}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-tool-maps/4", strings.NewReader(`{"provider_id":3,"name":"查订单","code":"query_order","tool_type":"dify_tool","engine_tool_id":"tool-1","risk_level":"low","config_json":{"timeout":3},"status":1}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -2955,10 +2955,10 @@ func TestRouterInstallsAIAgentKnowledgeRESTRoutes(t *testing.T) {
 
 	cases := []struct{ method, path, body string }{
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps?current_page=1&page_size=20&visibility=private&engine_connection_id=3&status=1", ""},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", `{"engine_connection_id":3,"name":"客服库","code":"support","visibility":"private","status":1}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps?current_page=1&page_size=20&visibility=private&provider_id=3&status=1", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", `{"provider_id":3,"name":"客服库","code":"support","visibility":"private","status":1}`},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/1", ""},
-		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/1", `{"engine_connection_id":3,"name":"客服库","code":"support","visibility":"private","status":1}`},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/1", `{"provider_id":3,"name":"客服库","code":"support","visibility":"private","status":1}`},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-maps/1/status", `{"status":1}`},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/1/sync", ""},
 		{http.MethodDelete, "/api/admin/v1/ai-knowledge-maps/1", ""},
@@ -2986,7 +2986,7 @@ func TestRouterInstallsAIAgentKnowledgeRESTRoutes(t *testing.T) {
 			}
 		})
 	}
-	if !knowledgeMapService.initCalled || knowledgeMapService.listQuery.Visibility != "private" || knowledgeMapService.listQuery.EngineConnectionID != 3 || knowledgeMapService.listQuery.Status == nil || *knowledgeMapService.listQuery.Status != enum.CommonYes {
+	if !knowledgeMapService.initCalled || knowledgeMapService.listQuery.Visibility != "private" || knowledgeMapService.listQuery.ProviderID != 3 || knowledgeMapService.listQuery.Status == nil || *knowledgeMapService.listQuery.Status != enum.CommonYes {
 		t.Fatalf("AI knowledge map init/list not routed correctly: called=%v query=%#v", knowledgeMapService.initCalled, knowledgeMapService.listQuery)
 	}
 	if knowledgeMapService.detailID != 1 || knowledgeMapService.syncID != 1 || knowledgeMapService.documentsMapID != 1 || knowledgeMapService.createdDocumentMap != 1 || knowledgeMapService.documentStatusID != 2 || knowledgeMapService.refreshDocumentID != 2 || knowledgeMapService.deletedDocumentID != 2 {
@@ -2999,7 +2999,7 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
-		AiEngineService:       &fakeRouterAIEngineService{},
+		AiProviderService:     &fakeRouterAIProviderService{},
 		AiAppService:          &fakeRouterAIAppService{},
 		AiKnowledgeMapService: &fakeRouterAIKnowledgeMapService{},
 		AiToolMapService:      &fakeRouterAIToolMapService{},

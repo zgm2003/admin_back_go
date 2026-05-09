@@ -79,14 +79,14 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/latest"):               "system_clientVersion_setLatest",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update"):         "system_clientVersion_forceUpdate",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/client-versions/:id"):                     "system_clientVersion_del",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/model-options"):       "ai_engine_test",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections"):                     "ai_engine_add",
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id"):                  "ai_engine_edit",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/test"):            "ai_engine_test",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/sync-models"):     "ai_engine_test",
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id/models"):           "ai_engine_edit",
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-engine-connections/:id/status"):         "ai_engine_status",
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-engine-connections/:id"):               "ai_engine_del",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/model-options"):                "ai_provider_test",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers"):                              "ai_provider_add",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id"):                           "ai_provider_edit",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/test"):                     "ai_provider_test",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/sync-models"):              "ai_provider_test",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id/models"):                    "ai_provider_edit",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-providers/:id/status"):                  "ai_provider_status",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-providers/:id"):                        "ai_provider_del",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps"):                                   "ai_app_add",
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-apps/:id"):                                "ai_app_edit",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-apps/:id/test"):                          "ai_app_test",
@@ -447,43 +447,43 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Action: "delete",
 			Title:  "删除客户端版本",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/model-options"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/model-options"): {
+			Module: "ai_provider",
 			Action: "preview_models",
 			Title:  "拉取AI供应商模型",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers"): {
+			Module: "ai_provider",
 			Action: "create",
 			Title:  "新增AI供应商",
 		},
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id"): {
+			Module: "ai_provider",
 			Action: "update",
 			Title:  "编辑AI供应商",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/test"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/test"): {
+			Module: "ai_provider",
 			Action: "test",
 			Title:  "测试AI供应商连接",
 		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-engine-connections/:id/sync-models"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/sync-models"): {
+			Module: "ai_provider",
 			Action: "sync_models",
 			Title:  "同步AI供应商模型",
 		},
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-engine-connections/:id/models"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id/models"): {
+			Module: "ai_provider",
 			Action: "update_models",
 			Title:  "编辑AI供应商模型",
 		},
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-engine-connections/:id/status"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-providers/:id/status"): {
+			Module: "ai_provider",
 			Action: "change_status",
 			Title:  "修改AI供应商状态",
 		},
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-engine-connections/:id"): {
-			Module: "ai_engine_connection",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-providers/:id"): {
+			Module: "ai_provider",
 			Action: "delete",
 			Title:  "删除AI供应商",
 		},

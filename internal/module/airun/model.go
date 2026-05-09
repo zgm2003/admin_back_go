@@ -7,7 +7,7 @@ type Run struct {
 	RunUID             string    `gorm:"column:run_uid"`
 	RequestID          string    `gorm:"column:request_id"`
 	AppID              int64     `gorm:"column:app_id"`
-	EngineConnectionID int64     `gorm:"column:engine_connection_id"`
+	ProviderID         int64     `gorm:"column:provider_id"`
 	EngineTaskID       string    `gorm:"column:engine_task_id"`
 	EngineRunID        string    `gorm:"column:engine_run_id"`
 	UserID             int64     `gorm:"column:user_id"`

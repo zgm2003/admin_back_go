@@ -13,10 +13,10 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	ToolTypeArr             []dict.Option[string] `json:"tool_type_arr"`
-	RiskLevelArr            []dict.Option[string] `json:"risk_level_arr"`
-	CommonStatusArr         []dict.Option[int]    `json:"common_status_arr"`
-	EngineConnectionOptions []EngineOption        `json:"engine_connection_options"`
+	ToolTypeArr     []dict.Option[string] `json:"tool_type_arr"`
+	RiskLevelArr    []dict.Option[string] `json:"risk_level_arr"`
+	CommonStatusArr []dict.Option[int]    `json:"common_status_arr"`
+	ProviderOptions []EngineOption        `json:"provider_options"`
 }
 
 type EngineOption struct {
@@ -26,15 +26,15 @@ type EngineOption struct {
 }
 
 type ListQuery struct {
-	CurrentPage        int
-	PageSize           int
-	Name               string
-	Code               string
-	ToolType           string
-	RiskLevel          string
-	EngineConnectionID uint64
-	AppID              *uint64
-	Status             *int
+	CurrentPage int
+	PageSize    int
+	Name        string
+	Code        string
+	ToolType    string
+	RiskLevel   string
+	ProviderID  uint64
+	AppID       *uint64
+	Status      *int
 }
 
 type Page struct {
@@ -50,37 +50,37 @@ type ListResponse struct {
 }
 
 type ToolMapDTO struct {
-	ID                   uint64          `json:"id"`
-	EngineConnectionID   uint64          `json:"engine_connection_id"`
-	EngineConnectionName string          `json:"engine_connection_name"`
-	EngineType           string          `json:"engine_type"`
-	AppID                *uint64         `json:"app_id"`
-	Name                 string          `json:"name"`
-	Code                 string          `json:"code"`
-	ToolType             string          `json:"tool_type"`
-	ToolTypeName         string          `json:"tool_type_name"`
-	EngineToolID         string          `json:"engine_tool_id"`
-	PermissionCode       string          `json:"permission_code"`
-	RiskLevel            string          `json:"risk_level"`
-	RiskLevelName        string          `json:"risk_level_name"`
-	ConfigJSON           json.RawMessage `json:"config_json"`
-	Status               int             `json:"status"`
-	StatusName           string          `json:"status_name"`
-	CreatedAt            string          `json:"created_at"`
-	UpdatedAt            string          `json:"updated_at"`
+	ID             uint64          `json:"id"`
+	ProviderID     uint64          `json:"provider_id"`
+	ProviderName   string          `json:"provider_name"`
+	EngineType     string          `json:"engine_type"`
+	AppID          *uint64         `json:"app_id"`
+	Name           string          `json:"name"`
+	Code           string          `json:"code"`
+	ToolType       string          `json:"tool_type"`
+	ToolTypeName   string          `json:"tool_type_name"`
+	EngineToolID   string          `json:"engine_tool_id"`
+	PermissionCode string          `json:"permission_code"`
+	RiskLevel      string          `json:"risk_level"`
+	RiskLevelName  string          `json:"risk_level_name"`
+	ConfigJSON     json.RawMessage `json:"config_json"`
+	Status         int             `json:"status"`
+	StatusName     string          `json:"status_name"`
+	CreatedAt      string          `json:"created_at"`
+	UpdatedAt      string          `json:"updated_at"`
 }
 
 type MutationInput struct {
-	EngineConnectionID uint64
-	AppID              *uint64
-	Name               string
-	Code               string
-	ToolType           string
-	EngineToolID       string
-	PermissionCode     string
-	RiskLevel          string
-	ConfigJSON         json.RawMessage
-	Status             int
+	ProviderID     uint64
+	AppID          *uint64
+	Name           string
+	Code           string
+	ToolType       string
+	EngineToolID   string
+	PermissionCode string
+	RiskLevel      string
+	ConfigJSON     json.RawMessage
+	Status         int
 }
 
 type HTTPService interface {

@@ -27,7 +27,7 @@ type fakeRepository struct {
 func (f *fakeRepository) AppOptions(ctx context.Context) ([]OptionRow, error) {
 	return f.apps, nil
 }
-func (f *fakeRepository) EngineOptions(ctx context.Context) ([]OptionRow, error) {
+func (f *fakeRepository) ProviderOptions(ctx context.Context) ([]OptionRow, error) {
 	return f.engines, nil
 }
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
@@ -56,13 +56,13 @@ func (f *fakeRepository) StatsByUser(ctx context.Context, query StatsListQuery) 
 	return f.byUser, f.metricTotal, nil
 }
 
-func TestInitReturnsRunStatusAppAndEngineOptions(t *testing.T) {
+func TestInitReturnsRunStatusAppAndProviderOptions(t *testing.T) {
 	repo := &fakeRepository{apps: []OptionRow{{ID: 3, Name: "客服应用"}}, engines: []OptionRow{{ID: 2, Name: "Dify"}}}
 	res, appErr := NewService(repo).Init(context.Background())
 	if appErr != nil {
 		t.Fatalf("Init returned error: %v", appErr)
 	}
-	if len(res.Dict.RunStatusArr) == 0 || res.Dict.AppArr[0].Value != 3 || res.Dict.AgentArr[0].Value != 3 || res.Dict.EngineArr[0].Value != 2 {
+	if len(res.Dict.RunStatusArr) == 0 || res.Dict.AppArr[0].Value != 3 || res.Dict.AgentArr[0].Value != 3 || res.Dict.ProviderArr[0].Value != 2 {
 		t.Fatalf("unexpected init response: %#v", res)
 	}
 }
@@ -71,7 +71,7 @@ func TestListFiltersAndMapsLatency(t *testing.T) {
 	created := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	status := enum.AIRunStatusSuccess
 	appID := int64(3)
-	repo := &fakeRepository{rows: []ListRow{{ID: 1, RequestID: "rid", UserID: 7, AppID: 3, AppName: "app", EngineConnectionID: 2, EngineName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: status, ModelSnapshot: "gpt", TotalTokens: ptrInt(12), LatencyMS: ptrInt(1530), CreatedAt: created}}, total: 1}
+	repo := &fakeRepository{rows: []ListRow{{ID: 1, RequestID: "rid", UserID: 7, AppID: 3, AppName: "app", ProviderID: 2, ProviderName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: status, ModelSnapshot: "gpt", TotalTokens: ptrInt(12), LatencyMS: ptrInt(1530), CreatedAt: created}}, total: 1}
 	res, appErr := NewService(repo).List(context.Background(), ListQuery{RunStatus: &status, RequestID: " rid ", AgentID: &appID, CurrentPage: 0, PageSize: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
@@ -88,7 +88,7 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	meta := `{"tenant":"admin"}`
 	payload := `{"delta":"ok"}`
 	repo := &fakeRepository{
-		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AppID: 3, AppName: "app", EngineConnectionID: 2, EngineName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: enum.AIRunStatusSuccess, MetaJSON: &meta, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
+		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AppID: 3, AppName: "app", ProviderID: 2, ProviderName: "Dify", EngineType: "dify", ConversationID: 4, ConversationTitle: "chat", RunStatus: enum.AIRunStatusSuccess, MetaJSON: &meta, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
 		events: []EventRow{{ID: 2, Seq: 1, EventID: "1-0", EventType: "ai.response.delta.v1", DeltaText: "ok", PayloadJSON: &payload}},
 	}
 	res, appErr := NewService(repo).Detail(context.Background(), 1)

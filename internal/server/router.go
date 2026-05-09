@@ -10,9 +10,9 @@ import (
 	"admin_back_go/internal/module/aiapp"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiengine"
 	"admin_back_go/internal/module/aiknowledgemap"
 	"admin_back_go/internal/module/aimessage"
+	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitoolmap"
 	"admin_back_go/internal/module/auth"
@@ -58,7 +58,7 @@ type Dependencies struct {
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
 	AiAppService            aiapp.HTTPService
-	AiEngineService         aiengine.HTTPService
+	AiProviderService       aiprovider.HTTPService
 	AiKnowledgeMapService   aiknowledgemap.HTTPService
 	AiMessageService        aimessage.HTTPService
 	AiRunService            airun.HTTPService
@@ -119,7 +119,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	captcha.RegisterRoutes(router, deps.CaptchaService)
 	auth.RegisterRoutes(router, deps.AuthService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
-	aiengine.RegisterRoutes(router, deps.AiEngineService)
+	aiprovider.RegisterRoutes(router, deps.AiProviderService)
 	aiapp.RegisterRoutes(router, deps.AiAppService)
 	aiknowledgemap.RegisterRoutes(router, deps.AiKnowledgeMapService)
 	aiconversation.RegisterRoutes(router, deps.AiConversationService)

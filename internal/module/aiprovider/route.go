@@ -1,4 +1,4 @@
-package aiengine
+package aiprovider
 
 import (
 	"admin_back_go/internal/validate"
@@ -9,7 +9,7 @@ import (
 func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
-	group := router.Group("/api/admin/v1/ai-engine-connections")
+	group := router.Group("/api/admin/v1/ai-providers")
 	group.GET("/page-init", handler.Init)
 	group.GET("", handler.List)
 	group.POST("/model-options", handler.PreviewModels)

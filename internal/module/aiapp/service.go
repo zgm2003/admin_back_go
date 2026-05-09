@@ -52,7 +52,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if appErr != nil {
 		return nil, appErr
 	}
-	connections, err := repo.ListActiveConnections(ctx)
+	connections, err := repo.ListActiveProviders(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
@@ -60,7 +60,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	for _, row := range connections {
 		options = append(options, EngineOption{Label: row.Name, Value: row.ID, EngineType: row.EngineType})
 	}
-	return &InitResponse{Dict: InitDict{AppTypeArr: appTypeOptions(), ResponseModeArr: responseModeOptions(), BindingTypeArr: bindingTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), EngineConnectionOptions: options}}, nil
+	return &InitResponse{Dict: InitDict{AppTypeArr: appTypeOptions(), ResponseModeArr: responseModeOptions(), BindingTypeArr: bindingTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -107,7 +107,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if appErr != nil {
 		return 0, appErr
 	}
-	if appErr := s.ensureActiveConnection(ctx, repo, row.EngineConnectionID); appErr != nil {
+	if appErr := s.ensureActiveProvider(ctx, repo, row.ProviderID); appErr != nil {
 		return 0, appErr
 	}
 	exists, err := repo.ExistsByCode(ctx, row.Code, 0)
@@ -151,7 +151,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if appErr != nil {
 		return appErr
 	}
-	if appErr := s.ensureActiveConnection(ctx, repo, input.EngineConnectionID); appErr != nil {
+	if appErr := s.ensureActiveProvider(ctx, repo, input.ProviderID); appErr != nil {
 		return appErr
 	}
 	exists, err := repo.ExistsByCode(ctx, strings.TrimSpace(input.Code), id)
@@ -217,7 +217,7 @@ func (s *Service) Test(ctx context.Context, id uint64) (*platformai.TestConnecti
 	if row.Status != enum.CommonYes {
 		return nil, apperror.BadRequest("AI应用已禁用")
 	}
-	connection, err := repo.GetActiveConnection(ctx, row.EngineConnectionID)
+	connection, err := repo.GetActiveProvider(ctx, row.ProviderID)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
@@ -354,8 +354,8 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func (s *Service) ensureActiveConnection(ctx context.Context, repo Repository, id uint64) *apperror.Error {
-	connection, err := repo.GetActiveConnection(ctx, id)
+func (s *Service) ensureActiveProvider(ctx context.Context, repo Repository, id uint64) *apperror.Error {
+	connection, err := repo.GetActiveProvider(ctx, id)
 	if err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
@@ -397,7 +397,7 @@ func normalizeCreateInput(input CreateInput) (App, *apperror.Error) {
 	if appErr != nil {
 		return App{}, appErr
 	}
-	return App{EngineConnectionID: fields.engineConnectionID, Name: fields.name, Code: fields.code, AppType: fields.appType, EngineAppID: fields.engineAppID, DefaultResponseMode: fields.defaultResponseMode, RuntimeConfigJSON: fields.runtimeConfigJSON, ModelSnapshotJSON: "{}", Status: fields.status, IsDel: enum.CommonNo}, nil
+	return App{ProviderID: fields.providerID, Name: fields.name, Code: fields.code, AppType: fields.appType, EngineAppID: fields.engineAppID, DefaultResponseMode: fields.defaultResponseMode, RuntimeConfigJSON: fields.runtimeConfigJSON, ModelSnapshotJSON: "{}", Status: fields.status, IsDel: enum.CommonNo}, nil
 }
 
 func normalizeUpdateFields(input UpdateInput) (map[string]any, *apperror.Error) {
@@ -405,11 +405,11 @@ func normalizeUpdateFields(input UpdateInput) (map[string]any, *apperror.Error) 
 	if appErr != nil {
 		return nil, appErr
 	}
-	return map[string]any{"engine_connection_id": fields.engineConnectionID, "name": fields.name, "code": fields.code, "app_type": fields.appType, "engine_app_id": fields.engineAppID, "default_response_mode": fields.defaultResponseMode, "runtime_config_json": fields.runtimeConfigJSON, "status": fields.status}, nil
+	return map[string]any{"provider_id": fields.providerID, "name": fields.name, "code": fields.code, "app_type": fields.appType, "engine_app_id": fields.engineAppID, "default_response_mode": fields.defaultResponseMode, "runtime_config_json": fields.runtimeConfigJSON, "status": fields.status}, nil
 }
 
 type normalizedFields struct {
-	engineConnectionID  uint64
+	providerID          uint64
 	name                string
 	code                string
 	appType             string
@@ -425,7 +425,7 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	appType := strings.TrimSpace(input.AppType)
 	engineAppID := strings.TrimSpace(input.EngineAppID)
 	defaultResponseMode := strings.TrimSpace(input.DefaultResponseMode)
-	if input.EngineConnectionID == 0 {
+	if input.ProviderID == 0 {
 		return normalizedFields{}, apperror.BadRequest("AI供应商不能为空")
 	}
 	if name == "" {
@@ -463,7 +463,7 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if appErr != nil {
 		return normalizedFields{}, appErr
 	}
-	return normalizedFields{engineConnectionID: input.EngineConnectionID, name: name, code: code, appType: appType, engineAppID: engineAppID, defaultResponseMode: defaultResponseMode, runtimeConfigJSON: runtimeJSON, status: status}, nil
+	return normalizedFields{providerID: input.ProviderID, name: name, code: code, appType: appType, engineAppID: engineAppID, defaultResponseMode: defaultResponseMode, runtimeConfigJSON: runtimeJSON, status: status}, nil
 }
 
 func normalizeBindingInput(appID uint64, input BindingInput) (Binding, *apperror.Error) {
@@ -489,7 +489,7 @@ func normalizeBindingInput(appID uint64, input BindingInput) (Binding, *apperror
 }
 
 func appDTO(row AppWithEngine) AppDTO {
-	return AppDTO{ID: row.ID, EngineConnectionID: row.EngineConnectionID, EngineConnectionName: row.EngineConnectionName, EngineType: row.EngineType, Name: row.Name, Code: row.Code, AppType: row.AppType, AppTypeName: appTypeLabels[row.AppType], EngineAppID: row.EngineAppID, EngineAppAPIKeyMasked: row.EngineAppAPIKeyHint, DefaultResponseMode: row.DefaultResponseMode, DefaultResponseModeName: responseModeLabels[row.DefaultResponseMode], RuntimeConfig: decodeJSONMap(row.RuntimeConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return AppDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, Code: row.Code, AppType: row.AppType, AppTypeName: appTypeLabels[row.AppType], EngineAppID: row.EngineAppID, EngineAppAPIKeyMasked: row.EngineAppAPIKeyHint, DefaultResponseMode: row.DefaultResponseMode, DefaultResponseModeName: responseModeLabels[row.DefaultResponseMode], RuntimeConfig: decodeJSONMap(row.RuntimeConfigJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func bindingDTO(row Binding) BindingDTO {
