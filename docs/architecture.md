@@ -1364,7 +1364,7 @@ Active AI modules:
 internal/platform/ai            # stable engine interface, fake only for tests/dev boundary
 internal/platform/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
 internal/module/aiprovider      # ai_providers provider config + ai_provider_models model catalog
-internal/module/aiagent         # ai_agents + ai_agent_bindings local agent config MVP
+internal/module/aiagent         # ai_agents local agent config MVP
 internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents mapping/status sync
 internal/module/aitoolmap       # ai_tool_maps local tool references
 internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents

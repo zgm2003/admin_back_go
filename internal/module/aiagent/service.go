@@ -21,14 +21,6 @@ var sceneLabels = map[string]string{
 	"chat": "对话",
 }
 
-var bindingTypeLabels = map[string]string{
-	"menu":       "菜单",
-	"scene":      "场景",
-	"permission": "权限",
-	"role":       "角色",
-	"user":       "用户",
-}
-
 type Service struct {
 	repository Repository
 	secretbox  secretbox.Box
@@ -67,7 +59,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 			modelOptions = append(modelOptions, ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName})
 		}
 	}
-	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), BindingTypeArr: bindingTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions}}, nil
+	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -280,71 +272,6 @@ func (s *Service) Delete(ctx context.Context, id uint64) *apperror.Error {
 	return nil
 }
 
-func (s *Service) Bindings(ctx context.Context, agentID uint64) (*BindingListResponse, *apperror.Error) {
-	if agentID == 0 {
-		return nil, apperror.BadRequest("无效的AI智能体ID")
-	}
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	if appErr := ensureAgentExists(ctx, repo, agentID); appErr != nil {
-		return nil, appErr
-	}
-	rows, err := repo.ListBindings(ctx, agentID)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体绑定失败", err)
-	}
-	list := make([]BindingDTO, 0, len(rows))
-	for _, row := range rows {
-		list = append(list, bindingDTO(row))
-	}
-	return &BindingListResponse{List: list}, nil
-}
-
-func (s *Service) CreateBinding(ctx context.Context, agentID uint64, input BindingInput) (uint64, *apperror.Error) {
-	if agentID == 0 {
-		return 0, apperror.BadRequest("无效的AI智能体ID")
-	}
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return 0, appErr
-	}
-	if appErr := ensureAgentExists(ctx, repo, agentID); appErr != nil {
-		return 0, appErr
-	}
-	row, appErr := normalizeBindingInput(agentID, input)
-	if appErr != nil {
-		return 0, appErr
-	}
-	exists, err := repo.ExistsBinding(ctx, agentID, row.BindType, row.BindKey, 0)
-	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验AI智能体绑定失败", err)
-	}
-	if exists {
-		return 0, apperror.BadRequest("AI智能体绑定已存在")
-	}
-	id, err := repo.CreateBinding(ctx, row)
-	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增AI智能体绑定失败", err)
-	}
-	return id, nil
-}
-
-func (s *Service) DeleteBinding(ctx context.Context, id uint64) *apperror.Error {
-	if id == 0 {
-		return apperror.BadRequest("无效的AI智能体绑定ID")
-	}
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return appErr
-	}
-	if err := repo.DeleteBinding(ctx, id); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除AI智能体绑定失败", err)
-	}
-	return nil
-}
-
 func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptionsResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -359,7 +286,7 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 		if row.Status != enum.CommonYes || row.IsDel == enum.CommonYes {
 			continue
 		}
-		list = append(list, AgentOption{Label: row.Name, Value: row.ID})
+		list = append(list, AgentOption{ID: row.ID, Name: row.Name})
 	}
 	return &AgentOptionsResponse{List: list}, nil
 }
@@ -397,17 +324,6 @@ func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, prov
 		}
 	}
 	return nil, apperror.BadRequest("关联模型不存在或已禁用")
-}
-
-func ensureAgentExists(ctx context.Context, repo Repository, id uint64) *apperror.Error {
-	row, err := repo.GetRaw(ctx, id)
-	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
-	}
-	if row == nil {
-		return apperror.NotFound("AI智能体不存在")
-	}
-	return nil
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {
@@ -509,35 +425,9 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status}, nil
 }
 
-func normalizeBindingInput(agentID uint64, input BindingInput) (Binding, *apperror.Error) {
-	bindType := strings.TrimSpace(input.BindType)
-	bindKey := strings.TrimSpace(input.BindKey)
-	if !isBindingType(bindType) {
-		return Binding{}, apperror.BadRequest("无效的AI智能体绑定类型")
-	}
-	if bindKey == "" {
-		return Binding{}, apperror.BadRequest("AI智能体绑定键不能为空")
-	}
-	if len([]rune(bindKey)) > 128 {
-		return Binding{}, apperror.BadRequest("AI智能体绑定键不能超过128个字符")
-	}
-	status := input.Status
-	if status == 0 {
-		status = enum.CommonYes
-	}
-	if !enum.IsCommonStatus(status) {
-		return Binding{}, apperror.BadRequest("无效的状态")
-	}
-	return Binding{AgentID: agentID, BindType: bindType, BindKey: bindKey, Sort: input.Sort, Status: status, IsDel: enum.CommonNo}, nil
-}
-
 func agentDTO(row AgentWithProvider) AgentDTO {
 	scenes := decodeScenes(row.ScenesJSON)
 	return AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
-}
-
-func bindingDTO(row Binding) BindingDTO {
-	return BindingDTO{ID: row.ID, AgentID: row.AgentID, BindType: row.BindType, BindTypeName: bindingTypeLabels[row.BindType], BindKey: row.BindKey, Sort: row.Sort, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func providerModelDTO(row ProviderModel) ProviderModelDTO {
@@ -547,10 +437,6 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 func sceneOptions() []dict.Option[string] {
 	return stringOptions([]string{"chat"}, sceneLabels)
 }
-func bindingTypeOptions() []dict.Option[string] {
-	return stringOptions([]string{"menu", "scene", "permission", "role", "user"}, bindingTypeLabels)
-}
-
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))
 	for _, value := range values {
@@ -559,8 +445,7 @@ func stringOptions(values []string, labels map[string]string) []dict.Option[stri
 	return options
 }
 
-func isBindingType(value string) bool { _, ok := bindingTypeLabels[value]; return ok }
-func isScene(value string) bool       { _, ok := sceneLabels[value]; return ok }
+func isScene(value string) bool { _, ok := sceneLabels[value]; return ok }
 
 func encodeScenes(values []string) (string, *apperror.Error) {
 	if len(values) == 0 {

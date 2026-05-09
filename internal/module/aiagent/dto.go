@@ -14,7 +14,6 @@ type InitResponse struct {
 
 type InitDict struct {
 	SceneArr        []dict.Option[string] `json:"scene_arr"`
-	BindingTypeArr  []dict.Option[string] `json:"binding_type_arr"`
 	CommonStatusArr []dict.Option[int]    `json:"common_status_arr"`
 	ProviderOptions []EngineOption        `json:"provider_options"`
 	ModelOptions    []ModelOption         `json:"provider_model_options"`
@@ -89,39 +88,13 @@ type CreateInput struct {
 
 type UpdateInput = CreateInput
 
-type BindingInput struct {
-	BindType string
-	BindKey  string
-	Sort     int
-	Status   int
-}
-
-type BindingListResponse struct {
-	List []BindingDTO `json:"list"`
-}
-
-type BindingDTO struct {
-	ID           uint64 `json:"id"`
-	AgentID      uint64 `json:"agent_id"`
-	BindType     string `json:"bind_type"`
-	BindTypeName string `json:"bind_type_name"`
-	BindKey      string `json:"bind_key"`
-	Sort         int    `json:"sort"`
-	Status       int    `json:"status"`
-	StatusName   string `json:"status_name"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
-}
-
 type OptionQuery struct {
-	UserID   int64
-	RoleID   int64
-	Platform string
+	UserID int64
 }
 
 type AgentOption struct {
-	Label string `json:"label"`
-	Value uint64 `json:"value"`
+	ID   uint64 `json:"id"`
+	Name string `json:"name"`
 }
 
 type AgentOptionsResponse struct {
@@ -142,9 +115,6 @@ type HTTPService interface {
 	ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error
 	Test(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error)
 	Delete(ctx context.Context, id uint64) *apperror.Error
-	Bindings(ctx context.Context, agentID uint64) (*BindingListResponse, *apperror.Error)
-	CreateBinding(ctx context.Context, agentID uint64, input BindingInput) (uint64, *apperror.Error)
-	DeleteBinding(ctx context.Context, id uint64) *apperror.Error
 	Options(ctx context.Context, query OptionQuery) (*AgentOptionsResponse, *apperror.Error)
 }
 

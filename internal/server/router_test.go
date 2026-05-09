@@ -613,15 +613,12 @@ func (f *fakeRouterAIProviderService) Delete(ctx context.Context, id uint64) *ap
 }
 
 type fakeRouterAIAgentService struct {
-	initCalled          bool
-	listQuery           aiagent.ListQuery
-	providerModelsID    uint64
-	detailID            uint64
-	testID              uint64
-	bindingsAgentID     uint64
-	createdBindingAgent uint64
-	deletedBindingID    uint64
-	optionQuery         aiagent.OptionQuery
+	initCalled       bool
+	listQuery        aiagent.ListQuery
+	providerModelsID uint64
+	detailID         uint64
+	testID           uint64
+	optionQuery      aiagent.OptionQuery
 }
 
 func (f *fakeRouterAIAgentService) Init(ctx context.Context) (*aiagent.InitResponse, *apperror.Error) {
@@ -668,24 +665,9 @@ func (f *fakeRouterAIAgentService) Delete(ctx context.Context, id uint64) *apper
 	return nil
 }
 
-func (f *fakeRouterAIAgentService) Bindings(ctx context.Context, agentID uint64) (*aiagent.BindingListResponse, *apperror.Error) {
-	f.bindingsAgentID = agentID
-	return &aiagent.BindingListResponse{List: []aiagent.BindingDTO{{ID: 2, AgentID: agentID, BindType: "user", BindKey: "9", Status: enum.CommonYes}}}, nil
-}
-
-func (f *fakeRouterAIAgentService) CreateBinding(ctx context.Context, agentID uint64, input aiagent.BindingInput) (uint64, *apperror.Error) {
-	f.createdBindingAgent = agentID
-	return 2, nil
-}
-
-func (f *fakeRouterAIAgentService) DeleteBinding(ctx context.Context, id uint64) *apperror.Error {
-	f.deletedBindingID = id
-	return nil
-}
-
 func (f *fakeRouterAIAgentService) Options(ctx context.Context, query aiagent.OptionQuery) (*aiagent.AgentOptionsResponse, *apperror.Error) {
 	f.optionQuery = query
-	return &aiagent.AgentOptionsResponse{List: []aiagent.AgentOption{{Label: "客服助手", Value: 1}}}, nil
+	return &aiagent.AgentOptionsResponse{List: []aiagent.AgentOption{{ID: 1, Name: "客服助手"}}}, nil
 }
 
 type fakeRouterAIToolMapService struct {
@@ -2296,7 +2278,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-agents/options", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || agentService.optionQuery.UserID != 9 || agentService.optionQuery.Platform != "admin" {
+	if recorder.Code != http.StatusOK || agentService.optionQuery.UserID != 9 {
 		t.Fatalf("expected AI agent options route scoped to auth identity, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), agentService.optionQuery)
 	}
 
@@ -2314,31 +2296,6 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || agentService.testID != 5 {
 		t.Fatalf("expected AI agent test route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), agentService.testID)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-agents/5/bindings", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || agentService.bindingsAgentID != 5 {
-		t.Fatalf("expected AI agent bindings route, code=%d body=%s agentID=%d", recorder.Code, recorder.Body.String(), agentService.bindingsAgentID)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-agents/5/bindings", strings.NewReader(`{"bind_type":"user","bind_key":"9","status":1}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || agentService.createdBindingAgent != 5 {
-		t.Fatalf("expected AI agent create binding route, code=%d body=%s agentID=%d", recorder.Code, recorder.Body.String(), agentService.createdBindingAgent)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/ai-agent-bindings/6", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || agentService.deletedBindingID != 6 {
-		t.Fatalf("expected AI agent delete binding route, code=%d body=%s bindingID=%d", recorder.Code, recorder.Body.String(), agentService.deletedBindingID)
 	}
 
 	recorder = httptest.NewRecorder()

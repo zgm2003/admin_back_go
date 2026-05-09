@@ -19,20 +19,6 @@ type Agent struct {
 
 func (Agent) TableName() string { return "ai_agents" }
 
-type Binding struct {
-	ID        uint64    `gorm:"column:id;primaryKey"`
-	AgentID   uint64    `gorm:"column:agent_id"`
-	BindType  string    `gorm:"column:bind_type"`
-	BindKey   string    `gorm:"column:bind_key"`
-	Sort      int       `gorm:"column:sort"`
-	Status    int       `gorm:"column:status"`
-	IsDel     int       `gorm:"column:is_del"`
-	CreatedAt time.Time `gorm:"column:created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at"`
-}
-
-func (Binding) TableName() string { return "ai_agent_bindings" }
-
 type Provider struct {
 	ID           uint64 `gorm:"column:id;primaryKey"`
 	Name         string `gorm:"column:name"`

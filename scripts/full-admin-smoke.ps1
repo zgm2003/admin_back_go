@@ -975,7 +975,7 @@ function Assert-AIAgentInit($Response) {
   if ($null -eq $Response.data.dict) {
     throw "AI agent init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($field in @('scene_arr', 'binding_type_arr', 'common_status_arr', 'provider_options', 'provider_model_options')) {
+  foreach ($field in @('scene_arr', 'common_status_arr', 'provider_options', 'provider_model_options')) {
     if (-not (Test-HasProperty $Response.data.dict $field)) {
       throw "AI agent init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
@@ -986,7 +986,6 @@ function Assert-AIAgentInit($Response) {
   }
   return [pscustomobject]@{
     SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
-    BindingTypeCount = (Get-ObjectArray $Response.data.dict.binding_type_arr).Count
     ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
     ProviderModelCount = (Get-ObjectArray $Response.data.dict.provider_model_options).Count
   }
@@ -1029,7 +1028,7 @@ function Assert-AIAgentOptions($Response) {
     throw "AI agent options missing list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.value -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.label)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
       throw "AI agent option shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }

@@ -3,7 +3,6 @@ package aiagent
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 
 	"admin_back_go/internal/enum"
@@ -16,11 +15,8 @@ var ErrRepositoryNotConfigured = errors.New("aiagent repository not configured")
 
 type AgentWithProvider struct {
 	Agent
-	ProviderName    string `gorm:"column:provider_name"`
-	EngineType      string `gorm:"column:engine_type"`
-	EngineBaseURL   string `gorm:"column:engine_base_url"`
-	EngineAPIKeyEnc string `gorm:"column:engine_api_key_enc"`
-	EngineStatus    int    `gorm:"column:engine_status"`
+	ProviderName string `gorm:"column:provider_name"`
+	EngineType   string `gorm:"column:engine_type"`
 }
 
 type Repository interface {
@@ -34,10 +30,6 @@ type Repository interface {
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
 	Delete(ctx context.Context, id uint64) error
-	ListBindings(ctx context.Context, agentID uint64) ([]Binding, error)
-	ExistsBinding(ctx context.Context, agentID uint64, bindType string, bindKey string, excludeID uint64) (bool, error)
-	CreateBinding(ctx context.Context, row Binding) (uint64, error)
-	DeleteBinding(ctx context.Context, id uint64) error
 	ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error)
 }
 
@@ -195,66 +187,19 @@ func (r *GormRepository) Delete(ctx context.Context, id uint64) error {
 		Update("is_del", enum.CommonYes).Error
 }
 
-func (r *GormRepository) ListBindings(ctx context.Context, agentID uint64) ([]Binding, error) {
-	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
-	}
-	var rows []Binding
-	err := r.db.WithContext(ctx).Where("is_del = ? AND agent_id = ?", enum.CommonNo, agentID).Order("sort ASC, id DESC").Find(&rows).Error
-	return rows, err
-}
-
-func (r *GormRepository) ExistsBinding(ctx context.Context, agentID uint64, bindType string, bindKey string, excludeID uint64) (bool, error) {
-	if r == nil || r.db == nil {
-		return false, ErrRepositoryNotConfigured
-	}
-	db := r.db.WithContext(ctx).Model(&Binding{}).Where("is_del = ? AND agent_id = ? AND bind_type = ? AND bind_key = ?", enum.CommonNo, agentID, strings.TrimSpace(bindType), strings.TrimSpace(bindKey))
-	if excludeID > 0 {
-		db = db.Where("id <> ?", excludeID)
-	}
-	var count int64
-	if err := db.Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-func (r *GormRepository) CreateBinding(ctx context.Context, row Binding) (uint64, error) {
-	if r == nil || r.db == nil {
-		return 0, ErrRepositoryNotConfigured
-	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return 0, err
-	}
-	return row.ID, nil
-}
-
-func (r *GormRepository) DeleteBinding(ctx context.Context, id uint64) error {
-	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
-	}
-	return r.db.WithContext(ctx).Model(&Binding{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Update("is_del", enum.CommonYes).Error
-}
-
 func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	var rows []Agent
-	db := r.activeAgents(ctx).Where("status = ?", enum.CommonYes)
-	if query.UserID > 0 || query.RoleID > 0 || strings.TrimSpace(query.Platform) != "" {
-		db = db.Where(`EXISTS (
-			SELECT 1 FROM ai_agent_bindings b
-			WHERE b.agent_id = ai_agents.id AND b.is_del = ? AND b.status = ? AND (
-				(b.bind_type = 'user' AND b.bind_key = ?) OR
-				(b.bind_type = 'role' AND b.bind_key = ?) OR
-				(b.bind_type = 'menu') OR
-				(b.bind_type = 'scene') OR
-				(b.bind_type = 'permission')
-			)
-		) OR NOT EXISTS (SELECT 1 FROM ai_agent_bindings b2 WHERE b2.agent_id = ai_agents.id AND b2.is_del = ? AND b2.status = ?)`, enum.CommonNo, enum.CommonYes, uintKey(query.UserID), uintKey(query.RoleID), enum.CommonNo, enum.CommonYes)
-	}
-	if err := db.Order("id DESC").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Table("ai_agents AS a").
+		Select("a.*").
+		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
+		Where("a.is_del = ?", enum.CommonNo).
+		Where("a.status = ?", enum.CommonYes).
+		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", "chat").
+		Order("a.id DESC").
+		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -266,11 +211,4 @@ func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
 
 func (r *GormRepository) activeAgents(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
-}
-
-func uintKey(value int64) string {
-	if value <= 0 {
-		return ""
-	}
-	return strconv.FormatInt(value, 10)
 }

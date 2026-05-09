@@ -21,8 +21,4 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	group.PATCH("/:id/status", handler.ChangeStatus)
 	group.POST("/:id/test", handler.Test)
 	group.DELETE("/:id", handler.Delete)
-	group.GET("/:id/bindings", handler.Bindings)
-	group.POST("/:id/bindings", handler.CreateBinding)
-
-	router.DELETE("/api/admin/v1/ai-agent-bindings/:id", handler.DeleteBinding)
 }

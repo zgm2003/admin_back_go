@@ -22,10 +22,3 @@ type mutationRequest struct {
 type statusRequest struct {
 	Status int `json:"status" binding:"required,oneof=1 2"`
 }
-
-type bindingRequest struct {
-	BindType string `json:"bind_type" binding:"required,oneof=menu scene permission role user"`
-	BindKey  string `json:"bind_key" binding:"required,max=128"`
-	Sort     int    `json:"sort"`
-	Status   int    `json:"status" binding:"required,oneof=1 2"`
-}

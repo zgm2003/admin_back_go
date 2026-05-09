@@ -22,15 +22,11 @@ type fakeAIAgentRepository struct {
 	activeProviders  map[uint64]Provider
 	modelsByProvider map[uint64][]ProviderModel
 	connections      []Provider
-	existsBinding    bool
 	created          *Agent
 	updates          []map[string]any
 	statusID         uint64
 	status           int
 	deletedID        uint64
-	bindings         []Binding
-	createdBinding   *Binding
-	deletedBindingID uint64
 	visibleAgents    []Agent
 }
 
@@ -100,24 +96,6 @@ func (f *fakeAIAgentRepository) ChangeStatus(ctx context.Context, id uint64, sta
 
 func (f *fakeAIAgentRepository) Delete(ctx context.Context, id uint64) error {
 	f.deletedID = id
-	return nil
-}
-
-func (f *fakeAIAgentRepository) ListBindings(ctx context.Context, agentID uint64) ([]Binding, error) {
-	return f.bindings, nil
-}
-
-func (f *fakeAIAgentRepository) ExistsBinding(ctx context.Context, agentID uint64, bindType string, bindKey string, excludeID uint64) (bool, error) {
-	return f.existsBinding, nil
-}
-
-func (f *fakeAIAgentRepository) CreateBinding(ctx context.Context, row Binding) (uint64, error) {
-	f.createdBinding = &row
-	return 22, nil
-}
-
-func (f *fakeAIAgentRepository) DeleteBinding(ctx context.Context, id uint64) error {
-	f.deletedBindingID = id
 	return nil
 }
 
@@ -247,8 +225,8 @@ func TestListDTOExcludesSecretsAndOverdesignedFields(t *testing.T) {
 				CreatedAt:        now,
 				UpdatedAt:        now,
 			},
-			ProviderName: "Dify",
-			EngineType:   "dify",
+			ProviderName: "OpenAI",
+			EngineType:   "openai",
 		}},
 		total: 1,
 	}
@@ -276,20 +254,6 @@ func TestListDTOExcludesSecretsAndOverdesignedFields(t *testing.T) {
 	}
 }
 
-func TestCreateBindingRejectsDuplicateScope(t *testing.T) {
-	repo := &fakeAIAgentRepository{
-		rawByID:       map[uint64]Agent{7: {ID: 7, Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		existsBinding: true,
-	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
-
-	_, appErr := service.CreateBinding(context.Background(), 7, BindingInput{BindType: "user", BindKey: "9", Status: enum.CommonYes})
-
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "AI智能体绑定已存在" {
-		t.Fatalf("expected duplicate binding error, got %#v", appErr)
-	}
-}
-
 func TestOptionsExcludeDisabledAgents(t *testing.T) {
 	repo := &fakeAIAgentRepository{visibleAgents: []Agent{
 		{ID: 1, Name: "启用智能体", Status: enum.CommonYes, IsDel: enum.CommonNo},
@@ -298,11 +262,11 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 	}}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
-	got, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Platform: "admin"})
+	got, appErr := service.Options(context.Background(), OptionQuery{UserID: 9})
 	if appErr != nil {
 		t.Fatalf("expected options to succeed, got %v", appErr)
 	}
-	if len(got.List) != 1 || got.List[0].Value != 1 {
+	if len(got.List) != 1 || got.List[0].ID != 1 || got.List[0].Name != "启用智能体" {
 		t.Fatalf("disabled/deleted agents must be excluded, got %#v", got.List)
 	}
 }
@@ -310,7 +274,7 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		rawByID:          map[uint64]Agent{5: {ID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
@@ -339,7 +303,7 @@ func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 		rowByID: map[uint64]AgentWithProvider{5: {
 			Agent: Agent{ID: 5, ProviderID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo},
 		}},
-		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	tester := &fakeAIAgentTester{}
 	service := NewService(repo, box, tester)
@@ -351,7 +315,7 @@ func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 	if result == nil || !result.OK {
 		t.Fatalf("expected successful test result, got %#v", result)
 	}
-	if tester.input.APIKey != "plain-provider-key" || tester.input.BaseURL != "https://api.dify.test/v1" || tester.input.EngineType != platformai.EngineTypeDify {
+	if tester.input.APIKey != "plain-provider-key" || tester.input.BaseURL != "https://api.openai.test/v1" || tester.input.EngineType != platformai.EngineTypeOpenAI {
 		t.Fatalf("unexpected tester input: %#v", tester.input)
 	}
 }
@@ -364,7 +328,7 @@ func TestTestReturnsUpstreamError(t *testing.T) {
 	}
 	repo := &fakeAIAgentRepository{
 		rowByID:         map[uint64]AgentWithProvider{5: {Agent: Agent{ID: 5, ProviderID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}}},
-		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "Dify", EngineType: "dify", BaseURL: "https://api.dify.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	service := NewService(repo, box, &fakeAIAgentTester{err: errors.New("upstream failed")})
 
