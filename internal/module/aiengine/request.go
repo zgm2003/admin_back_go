@@ -14,7 +14,6 @@ type mutationRequest struct {
 	EngineType        string            `json:"engine_type" binding:"omitempty,oneof=openai"`
 	BaseURL           string            `json:"base_url" binding:"omitempty,max=512"`
 	APIKey            string            `json:"api_key" binding:"omitempty,max=4096"`
-	WorkspaceID       string            `json:"workspace_id" binding:"omitempty,max=128"`
 	ModelIDs          []string          `json:"model_ids" binding:"required,min=1,dive,required,max=191"`
 	DefaultModelID    string            `json:"default_model_id" binding:"required,max=191"`
 	ModelDisplayNames map[string]string `json:"model_display_names" binding:"omitempty"`

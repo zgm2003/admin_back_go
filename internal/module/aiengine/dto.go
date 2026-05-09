@@ -51,7 +51,6 @@ type ConnectionDTO struct {
 	BaseURL             string             `json:"base_url"`
 	BaseURLEffective    string             `json:"base_url_effective"`
 	APIKeyMasked        string             `json:"api_key_masked"`
-	WorkspaceID         string             `json:"workspace_id"`
 	HealthStatus        string             `json:"health_status"`
 	LastCheckedAt       string             `json:"last_checked_at"`
 	LastCheckError      string             `json:"last_check_error"`
@@ -102,7 +101,6 @@ type CreateInput struct {
 	Driver            string
 	BaseURL           string
 	APIKey            string
-	WorkspaceID       string
 	ModelIDs          []string
 	DefaultModelID    string
 	ModelDisplayNames map[string]string

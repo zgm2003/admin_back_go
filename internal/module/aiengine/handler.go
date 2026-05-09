@@ -161,7 +161,7 @@ func routeID(c *gin.Context) (uint64, bool) {
 }
 
 func createInput(req mutationRequest) CreateInput {
-	return CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, WorkspaceID: req.WorkspaceID, ModelIDs: req.ModelIDs, DefaultModelID: req.DefaultModelID, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
+	return CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, DefaultModelID: req.DefaultModelID, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
 }
 func updateInput(req mutationRequest) UpdateInput { return UpdateInput(createInput(req)) }
 func modelOptionsInput(req modelOptionsRequest) ModelOptionsInput {

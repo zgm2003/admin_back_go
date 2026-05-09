@@ -189,14 +189,14 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
-	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", WorkspaceID: " ws ", ModelIDs: []string{"gpt-4.1-mini"}, DefaultModelID: "gpt-4.1-mini", Status: 1})
+	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-4.1-mini"}, DefaultModelID: "gpt-4.1-mini", Status: 1})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
 	if id != 11 || repo.created == nil {
 		t.Fatalf("expected created row, id=%d row=%#v", id, repo.created)
 	}
-	if repo.created.Name != "OpenAI" || repo.created.EngineType != "openai" || repo.created.BaseURL != "https://api.openai.test/v1" || repo.created.WorkspaceID != "ws" {
+	if repo.created.Name != "OpenAI" || repo.created.EngineType != "openai" || repo.created.BaseURL != "https://api.openai.test/v1" {
 		t.Fatalf("fields were not normalized: %#v", repo.created)
 	}
 	if repo.created.APIKeyEnc == "" || repo.created.APIKeyEnc == "plain-secret-key" || repo.created.APIKeyHint != "***-key" {

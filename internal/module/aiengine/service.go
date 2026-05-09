@@ -380,7 +380,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func normalizeCreateInput(input CreateInput) (Connection, []ProviderModel, string, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.WorkspaceID, input.Status)
+	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
 	if appErr != nil {
 		return Connection{}, nil, "", appErr
 	}
@@ -388,11 +388,11 @@ func normalizeCreateInput(input CreateInput) (Connection, []ProviderModel, strin
 	if appErr != nil {
 		return Connection{}, nil, "", appErr
 	}
-	return Connection{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, WorkspaceID: fields.workspaceID, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, defaultModelID, nil
+	return Connection{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, defaultModelID, nil
 }
 
 func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, string, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.WorkspaceID, input.Status)
+	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
 	if appErr != nil {
 		return nil, nil, "", appErr
 	}
@@ -400,19 +400,18 @@ func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, 
 	if appErr != nil {
 		return nil, nil, "", appErr
 	}
-	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "workspace_id": fields.workspaceID, "status": fields.status}, models, defaultModelID, nil
+	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "status": fields.status}, models, defaultModelID, nil
 }
 
 type normalizedFields struct {
-	name, engineType, baseURL, workspaceID string
-	status                                 int
+	name, engineType, baseURL string
+	status                    int
 }
 
-func normalizeMutationFields(name, engineType, baseURL, workspaceID string, status int) (normalizedFields, *apperror.Error) {
+func normalizeMutationFields(name, engineType, baseURL string, status int) (normalizedFields, *apperror.Error) {
 	name = strings.TrimSpace(name)
 	engineType = normalizeDriver(engineType)
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	workspaceID = strings.TrimSpace(workspaceID)
 	if name == "" {
 		return normalizedFields{}, apperror.BadRequest("供应商名称不能为空")
 	}
@@ -425,16 +424,13 @@ func normalizeMutationFields(name, engineType, baseURL, workspaceID string, stat
 	if len([]rune(baseURL)) > 512 {
 		return normalizedFields{}, apperror.BadRequest("供应商地址不能超过512个字符")
 	}
-	if len([]rune(workspaceID)) > 128 {
-		return normalizedFields{}, apperror.BadRequest("工作区ID不能超过128个字符")
-	}
 	if status == 0 {
 		status = enum.CommonYes
 	}
 	if !enum.IsCommonStatus(status) {
 		return normalizedFields{}, apperror.BadRequest("无效的状态")
 	}
-	return normalizedFields{name: name, engineType: engineType, baseURL: baseURL, workspaceID: workspaceID, status: status}, nil
+	return normalizedFields{name: name, engineType: engineType, baseURL: baseURL, status: status}, nil
 }
 
 func validateSelectedModels(modelIDs []string, defaultModelID string) ([]string, *apperror.Error) {
@@ -504,7 +500,6 @@ func connectionDTO(row Connection, models []ProviderModel) ConnectionDTO {
 		BaseURL:             row.BaseURL,
 		BaseURLEffective:    effectiveBaseURL(row.BaseURL),
 		APIKeyMasked:        row.APIKeyHint,
-		WorkspaceID:         row.WorkspaceID,
 		HealthStatus:        emptyAs(row.HealthStatus, provider.HealthUnknown),
 		LastCheckedAt:       formatPtrTime(row.LastCheckedAt),
 		LastCheckError:      row.LastCheckError,

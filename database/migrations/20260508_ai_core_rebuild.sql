@@ -57,7 +57,6 @@ CREATE TABLE ai_engine_connections (
   base_url VARCHAR(512) NOT NULL,
   api_key_enc TEXT NULL,
   api_key_hint VARCHAR(32) NOT NULL DEFAULT '',
-  workspace_id VARCHAR(128) NOT NULL DEFAULT '',
   config_json JSON NULL,
   health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
   last_checked_at DATETIME NULL,

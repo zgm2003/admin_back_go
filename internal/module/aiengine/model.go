@@ -9,7 +9,6 @@ type Connection struct {
 	BaseURL             string     `gorm:"column:base_url"`
 	APIKeyEnc           string     `gorm:"column:api_key_enc"`
 	APIKeyHint          string     `gorm:"column:api_key_hint"`
-	WorkspaceID         string     `gorm:"column:workspace_id"`
 	ConfigJSON          string     `gorm:"column:config_json"`
 	HealthStatus        string     `gorm:"column:health_status"`
 	LastCheckedAt       *time.Time `gorm:"column:last_checked_at"`
