@@ -15,20 +15,19 @@ import (
 )
 
 type fakeRepository struct {
-	rows                   []Connection
-	total                  int64
-	rowByID                map[uint64]Connection
-	exists                 bool
-	created                *Connection
-	updates                []map[string]any
-	statusID               uint64
-	status                 int
-	deletedID              uint64
-	updateErr              error
-	modelsByProvider       map[uint64][]ProviderModel
-	replacedProviderID     uint64
-	replacedModels         []ProviderModel
-	replacedDefaultModelID string
+	rows               []Connection
+	total              int64
+	rowByID            map[uint64]Connection
+	exists             bool
+	created            *Connection
+	updates            []map[string]any
+	statusID           uint64
+	status             int
+	deletedID          uint64
+	updateErr          error
+	modelsByProvider   map[uint64][]ProviderModel
+	replacedProviderID uint64
+	replacedModels     []ProviderModel
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Connection, int64, error) {
@@ -67,10 +66,9 @@ func (f *fakeRepository) ListModels(ctx context.Context, providerID uint64) ([]P
 	return f.modelsByProvider[providerID], nil
 }
 
-func (f *fakeRepository) ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel, defaultModelID string) error {
+func (f *fakeRepository) ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel) error {
 	f.replacedProviderID = providerID
 	f.replacedModels = append([]ProviderModel(nil), models...)
-	f.replacedDefaultModelID = defaultModelID
 	return nil
 }
 
@@ -145,7 +143,7 @@ func TestCreateRequiresAPIKeyAndModels(t *testing.T) {
 	}
 }
 
-func TestCreatePersistsSelectedModelsWithDefault(t *testing.T) {
+func TestCreatePersistsSelectedModels(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
@@ -154,7 +152,6 @@ func TestCreatePersistsSelectedModelsWithDefault(t *testing.T) {
 		EngineType:        "openai",
 		APIKey:            "sk-test",
 		ModelIDs:          []string{"gpt-4.1-mini", "gpt-4.1", "gpt-4.1-mini"},
-		DefaultModelID:    "gpt-4.1-mini",
 		ModelDisplayNames: map[string]string{"gpt-4.1-mini": "默认轻量模型"},
 		Status:            1,
 	})
@@ -167,20 +164,8 @@ func TestCreatePersistsSelectedModelsWithDefault(t *testing.T) {
 	if repo.replacedProviderID != 11 {
 		t.Fatalf("replaced provider id = %d, want 11", repo.replacedProviderID)
 	}
-	if repo.replacedDefaultModelID != "gpt-4.1-mini" {
-		t.Fatalf("default model = %q", repo.replacedDefaultModelID)
-	}
 	if len(repo.replacedModels) != 2 {
 		t.Fatalf("model count = %d, want 2: %#v", len(repo.replacedModels), repo.replacedModels)
-	}
-	defaults := 0
-	for _, model := range repo.replacedModels {
-		if model.IsDefault == 1 {
-			defaults++
-		}
-	}
-	if defaults != 1 {
-		t.Fatalf("default count = %d, want 1: %#v", defaults, repo.replacedModels)
 	}
 	if repo.replacedModels[0].DisplayName != "默认轻量模型" {
 		t.Fatalf("display name not persisted: %#v", repo.replacedModels)
@@ -196,7 +181,7 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
-	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-4.1-mini"}, DefaultModelID: "gpt-4.1-mini", Status: 1})
+	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
@@ -216,7 +201,11 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 
 func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
-	repo := &fakeRepository{rows: []Connection{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", Status: 1, CreatedAt: now, UpdatedAt: now}}, total: 1}
+	repo := &fakeRepository{
+		rows:             []Connection{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", Status: 1, CreatedAt: now, UpdatedAt: now}},
+		total:            1,
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1}}},
+	}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
 	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
@@ -234,13 +223,16 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	if strings.Contains(body, "api_key_enc") || strings.Contains(body, "cipher-secret") || strings.Contains(body, "plain-secret") || strings.Contains(body, "api_key\"") {
 		t.Fatalf("list response leaked api key data: %s", body)
 	}
+	if strings.Contains(body, "default_model_id") || strings.Contains(body, "is_default") {
+		t.Fatalf("provider response must not expose default model concept: %s", body)
+	}
 }
 
 func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
 	repo := &fakeRepository{rowByID: map[uint64]Connection{5: {ID: 5, Name: "Old", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-old", APIKeyHint: "***old", Status: 1}}}
 	service := NewService(repo, secretbox.New("vault-key"), nil)
 
-	appErr := service.Update(context.Background(), 5, UpdateInput{Name: "New", EngineType: "openai", BaseURL: "", ModelIDs: []string{"gpt-4.1-mini"}, DefaultModelID: "gpt-4.1-mini", Status: 1})
+	appErr := service.Update(context.Background(), 5, UpdateInput{Name: "New", EngineType: "openai", BaseURL: "", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr != nil {
 		t.Fatalf("expected update to succeed, got %v", appErr)
 	}
@@ -258,9 +250,34 @@ func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
 func TestCreateRejectsDuplicateTypeName(t *testing.T) {
 	service := NewService(&fakeRepository{exists: true}, secretbox.New("vault-key"), nil)
 
-	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", ModelIDs: []string{"gpt-4.1-mini"}, DefaultModelID: "gpt-4.1-mini", Status: 1})
+	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "该驱动下已存在同名供应商" {
 		t.Fatalf("expected duplicate error, got %#v", appErr)
+	}
+}
+
+func TestPreviewStoredModelsUsesSavedEncryptedKey(t *testing.T) {
+	box := secretbox.New("vault-key")
+	cipher, err := box.Encrypt("plain-secret-key")
+	if err != nil {
+		t.Fatalf("encrypt fixture: %v", err)
+	}
+	repo := &fakeRepository{rowByID: map[uint64]Connection{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: 1}}}
+	driver := &fakeModelDriver{}
+	service := NewServiceWithDriver(repo, box, nil, driver)
+
+	result, appErr := service.PreviewStoredModels(context.Background(), 5)
+	if appErr != nil {
+		t.Fatalf("expected stored model preview to succeed, got %v", appErr)
+	}
+	if result == nil || len(result.List) != 1 || result.List[0].ModelID != "gpt-4.1-mini" {
+		t.Fatalf("unexpected model preview result: %#v", result)
+	}
+	if driver.config.APIKey != "plain-secret-key" || driver.config.BaseURL != "https://api.openai.test/v1" || driver.config.Driver != "openai" {
+		t.Fatalf("stored preview did not use saved provider config: %#v", driver.config)
+	}
+	if len(repo.updates) != 0 {
+		t.Fatalf("stored preview must not write sync/health state: %#v", repo.updates)
 	}
 }
 

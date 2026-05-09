@@ -89,7 +89,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if apiKey == "" {
 		return 0, apperror.BadRequest("API Key不能为空")
 	}
-	row, models, defaultModelID, appErr := normalizeCreateInput(input)
+	row, models, appErr := normalizeCreateInput(input)
 	if appErr != nil {
 		return 0, appErr
 	}
@@ -110,7 +110,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if err != nil {
 		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增AI供应商失败", err)
 	}
-	if err := repo.ReplaceModels(ctx, id, models, defaultModelID); err != nil {
+	if err := repo.ReplaceModels(ctx, id, models); err != nil {
 		return 0, apperror.Wrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return id, nil
@@ -131,7 +131,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
-	fields, models, defaultModelID, appErr := normalizeUpdateFields(input)
+	fields, models, appErr := normalizeUpdateFields(input)
 	if appErr != nil {
 		return appErr
 	}
@@ -153,7 +153,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if err := repo.Update(ctx, id, fields); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "编辑AI供应商失败", err)
 	}
-	if err := repo.ReplaceModels(ctx, id, models, defaultModelID); err != nil {
+	if err := repo.ReplaceModels(ctx, id, models); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return nil
@@ -242,6 +242,35 @@ func (s *Service) PreviewModels(ctx context.Context, input ModelOptionsInput) (*
 	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
 }
 
+func (s *Service) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
+	if id == 0 {
+		return nil, apperror.BadRequest("无效的AI供应商ID")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	row, err := repo.Get(ctx, id)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+	}
+	if row == nil {
+		return nil, apperror.NotFound("AI供应商不存在")
+	}
+	apiKey, err := s.secretbox.Decrypt(row.APIKeyEnc)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
+	}
+	models, listErr := s.openAIDriver().ListModels(ctx, provider.Config{Driver: row.EngineType, BaseURL: row.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
+	if listErr != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", listErr)
+	}
+	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
+}
+
 func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
 	if id == 0 {
 		return nil, apperror.BadRequest("无效的AI供应商ID")
@@ -311,11 +340,11 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
-	models, defaultModelID, appErr := buildProviderModels(input.ModelIDs, input.DefaultModelID, input.ModelDisplayNames, input.Statuses, nil)
+	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, input.Statuses, nil)
 	if appErr != nil {
 		return appErr
 	}
-	if err := repo.ReplaceModels(ctx, id, models, defaultModelID); err != nil {
+	if err := repo.ReplaceModels(ctx, id, models); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return nil
@@ -379,28 +408,28 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	return query
 }
 
-func normalizeCreateInput(input CreateInput) (Connection, []ProviderModel, string, *apperror.Error) {
+func normalizeCreateInput(input CreateInput) (Connection, []ProviderModel, *apperror.Error) {
 	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
 	if appErr != nil {
-		return Connection{}, nil, "", appErr
+		return Connection{}, nil, appErr
 	}
-	models, defaultModelID, appErr := buildProviderModels(input.ModelIDs, input.DefaultModelID, input.ModelDisplayNames, nil, nil)
+	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil, nil)
 	if appErr != nil {
-		return Connection{}, nil, "", appErr
+		return Connection{}, nil, appErr
 	}
-	return Connection{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, defaultModelID, nil
+	return Connection{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, nil
 }
 
-func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, string, *apperror.Error) {
+func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, *apperror.Error) {
 	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
 	if appErr != nil {
-		return nil, nil, "", appErr
+		return nil, nil, appErr
 	}
-	models, defaultModelID, appErr := buildProviderModels(input.ModelIDs, input.DefaultModelID, input.ModelDisplayNames, nil, nil)
+	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil, nil)
 	if appErr != nil {
-		return nil, nil, "", appErr
+		return nil, nil, appErr
 	}
-	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "status": fields.status}, models, defaultModelID, nil
+	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "status": fields.status}, models, nil
 }
 
 type normalizedFields struct {
@@ -433,7 +462,7 @@ func normalizeMutationFields(name, engineType, baseURL string, status int) (norm
 	return normalizedFields{name: name, engineType: engineType, baseURL: baseURL, status: status}, nil
 }
 
-func validateSelectedModels(modelIDs []string, defaultModelID string) ([]string, *apperror.Error) {
+func validateSelectedModels(modelIDs []string) ([]string, *apperror.Error) {
 	seen := map[string]bool{}
 	normalized := make([]string, 0, len(modelIDs))
 	for _, item := range modelIDs {
@@ -449,17 +478,13 @@ func validateSelectedModels(modelIDs []string, defaultModelID string) ([]string,
 	if len(normalized) == 0 {
 		return nil, apperror.BadRequest("请至少选择一个模型")
 	}
-	if !seen[strings.TrimSpace(defaultModelID)] {
-		return nil, apperror.BadRequest("默认模型必须在已选择模型中")
-	}
 	return normalized, nil
 }
 
-func buildProviderModels(modelIDs []string, defaultModelID string, displayNames map[string]string, statuses map[string]int, rawByID map[string]string) ([]ProviderModel, string, *apperror.Error) {
-	defaultModelID = strings.TrimSpace(defaultModelID)
-	normalizedIDs, appErr := validateSelectedModels(modelIDs, defaultModelID)
+func buildProviderModels(modelIDs []string, displayNames map[string]string, statuses map[string]int, rawByID map[string]string) ([]ProviderModel, *apperror.Error) {
+	normalizedIDs, appErr := validateSelectedModels(modelIDs)
 	if appErr != nil {
-		return nil, "", appErr
+		return nil, appErr
 	}
 	models := make([]ProviderModel, 0, len(normalizedIDs))
 	for _, modelID := range normalizedIDs {
@@ -468,26 +493,18 @@ func buildProviderModels(modelIDs []string, defaultModelID string, displayNames 
 			status = statuses[modelID]
 		}
 		if !enum.IsCommonStatus(status) {
-			return nil, "", apperror.BadRequest("无效的模型状态")
+			return nil, apperror.BadRequest("无效的模型状态")
 		}
-		isDefault := enum.CommonNo
-		if modelID == defaultModelID {
-			isDefault = enum.CommonYes
-		}
-		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), IsDefault: isDefault, Source: providerModelSourceRemote, RawJSON: optionalJSONString(rawByID[modelID]), Status: status, IsDel: enum.CommonNo})
+		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), Source: providerModelSourceRemote, RawJSON: optionalJSONString(rawByID[modelID]), Status: status, IsDel: enum.CommonNo})
 	}
-	return models, defaultModelID, nil
+	return models, nil
 }
 
 func connectionDTO(row Connection, models []ProviderModel) ConnectionDTO {
 	enabledCount := 0
-	defaultModelID := ""
 	for _, model := range models {
 		if model.Status == enum.CommonYes {
 			enabledCount++
-		}
-		if model.IsDefault == enum.CommonYes {
-			defaultModelID = model.ModelID
 		}
 	}
 	return ConnectionDTO{
@@ -507,7 +524,6 @@ func connectionDTO(row Connection, models []ProviderModel) ConnectionDTO {
 		LastModelSyncStatus: emptyAs(row.LastModelSyncStatus, provider.HealthUnknown),
 		LastModelSyncError:  row.LastModelSyncError,
 		EnabledModelCount:   enabledCount,
-		DefaultModelID:      defaultModelID,
 		Models:              providerModelDTOs(models),
 		Status:              row.Status,
 		StatusName:          statusText(row.Status),
@@ -519,7 +535,7 @@ func connectionDTO(row Connection, models []ProviderModel) ConnectionDTO {
 func providerModelDTOs(rows []ProviderModel) []ProviderModelDTO {
 	list := make([]ProviderModelDTO, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, IsDefault: row.IsDefault, Source: row.Source, Raw: rawJSON(row.RawJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)})
+		list = append(list, ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Source: row.Source, Raw: rawJSON(row.RawJSON), Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)})
 	}
 	return list
 }

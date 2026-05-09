@@ -16,6 +16,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	group.POST("", handler.Create)
 	group.PUT("/:id", handler.Update)
 	group.PATCH("/:id/status", handler.ChangeStatus)
+	group.POST("/:id/model-options", handler.PreviewStoredModels)
 	group.POST("/:id/test", handler.TestConnection)
 	group.POST("/:id/sync-models", handler.SyncModels)
 	group.GET("/:id/models", handler.ListProviderModels)

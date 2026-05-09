@@ -31,7 +31,6 @@ type ProviderModel struct {
 	ProviderID  uint64    `gorm:"column:provider_id"`
 	ModelID     string    `gorm:"column:model_id"`
 	DisplayName string    `gorm:"column:display_name"`
-	IsDefault   int       `gorm:"column:is_default"`
 	Source      string    `gorm:"column:source"`
 	RawJSON     *string   `gorm:"column:raw_json"`
 	Status      int       `gorm:"column:status"`

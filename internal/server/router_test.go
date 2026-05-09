@@ -574,6 +574,7 @@ type fakeRouterAIEngineService struct {
 	listQuery        aiengine.ListQuery
 	testID           uint64
 	previewCalled    bool
+	storedPreviewID  uint64
 	syncID           uint64
 	modelsID         uint64
 	updateModelsID   uint64
@@ -612,6 +613,11 @@ func (f *fakeRouterAIEngineService) TestConnection(ctx context.Context, id uint6
 
 func (f *fakeRouterAIEngineService) PreviewModels(ctx context.Context, input aiengine.ModelOptionsInput) (*aiengine.ModelOptionsResponse, *apperror.Error) {
 	f.previewCalled = true
+	return &aiengine.ModelOptionsResponse{}, nil
+}
+
+func (f *fakeRouterAIEngineService) PreviewStoredModels(ctx context.Context, id uint64) (*aiengine.ModelOptionsResponse, *apperror.Error) {
+	f.storedPreviewID = id
 	return &aiengine.ModelOptionsResponse{}, nil
 }
 
@@ -2245,6 +2251,14 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/7/model-options", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || engineService.storedPreviewID != 7 {
+		t.Fatalf("expected AI engine stored model-options route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), engineService.storedPreviewID)
+	}
+
+	recorder = httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-engine-connections/7/test", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
@@ -2269,11 +2283,11 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-engine-connections/7/models", strings.NewReader(`{"model_ids":["gpt-4.1-mini"],"default_model_id":"gpt-4.1-mini"}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-engine-connections/7/models", strings.NewReader(`{"model_ids":["gpt-4.1-mini"]}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || engineService.updateModelsID != 7 || engineService.updateModelsBody.DefaultModelID != "gpt-4.1-mini" {
+	if recorder.Code != http.StatusOK || engineService.updateModelsID != 7 || len(engineService.updateModelsBody.ModelIDs) != 1 || engineService.updateModelsBody.ModelIDs[0] != "gpt-4.1-mini" {
 		t.Fatalf("expected AI engine update models route, code=%d body=%s id=%d input=%#v", recorder.Code, recorder.Body.String(), engineService.updateModelsID, engineService.updateModelsBody)
 	}
 

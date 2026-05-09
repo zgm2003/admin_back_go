@@ -58,7 +58,6 @@ type ConnectionDTO struct {
 	LastModelSyncStatus string             `json:"last_model_sync_status"`
 	LastModelSyncError  string             `json:"last_model_sync_error"`
 	EnabledModelCount   int                `json:"enabled_model_count"`
-	DefaultModelID      string             `json:"default_model_id"`
 	Models              []ProviderModelDTO `json:"models"`
 	Status              int                `json:"status"`
 	StatusName          string             `json:"status_name"`
@@ -71,7 +70,6 @@ type ProviderModelDTO struct {
 	ProviderID  uint64          `json:"provider_id"`
 	ModelID     string          `json:"model_id"`
 	DisplayName string          `json:"display_name"`
-	IsDefault   int             `json:"is_default"`
 	Source      string          `json:"source"`
 	Raw         json.RawMessage `json:"raw"`
 	Status      int             `json:"status"`
@@ -102,7 +100,6 @@ type CreateInput struct {
 	BaseURL           string
 	APIKey            string
 	ModelIDs          []string
-	DefaultModelID    string
 	ModelDisplayNames map[string]string
 	Status            int
 }
@@ -118,7 +115,6 @@ type ModelOptionsInput struct {
 
 type UpdateModelsInput struct {
 	ModelIDs          []string
-	DefaultModelID    string
 	ModelDisplayNames map[string]string
 	Statuses          map[string]int
 }
@@ -140,6 +136,7 @@ type HTTPService interface {
 	ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error
 	TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error)
 	PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error)
+	PreviewStoredModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error)
 	SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error)
 	ListProviderModels(ctx context.Context, id uint64) (*ProviderModelsResponse, *apperror.Error)
 	UpdateProviderModels(ctx context.Context, id uint64, input UpdateModelsInput) *apperror.Error

@@ -15,7 +15,6 @@ type mutationRequest struct {
 	BaseURL           string            `json:"base_url" binding:"omitempty,max=512"`
 	APIKey            string            `json:"api_key" binding:"omitempty,max=4096"`
 	ModelIDs          []string          `json:"model_ids" binding:"required,min=1,dive,required,max=191"`
-	DefaultModelID    string            `json:"default_model_id" binding:"required,max=191"`
 	ModelDisplayNames map[string]string `json:"model_display_names" binding:"omitempty"`
 	Status            int               `json:"status" binding:"required,oneof=1 2"`
 }
@@ -29,7 +28,6 @@ type modelOptionsRequest struct {
 
 type updateModelsRequest struct {
 	ModelIDs          []string          `json:"model_ids" binding:"required,min=1,dive,required,max=191"`
-	DefaultModelID    string            `json:"default_model_id" binding:"required,max=191"`
 	ModelDisplayNames map[string]string `json:"model_display_names" binding:"omitempty"`
 	Statuses          map[string]int    `json:"statuses" binding:"omitempty"`
 }

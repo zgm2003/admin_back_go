@@ -40,6 +40,15 @@ func (h *Handler) PreviewModels(c *gin.Context) {
 	writeResult(c, result, appErr)
 }
 
+func (h *Handler) PreviewStoredModels(c *gin.Context) {
+	id, ok := routeID(c)
+	if !ok {
+		return
+	}
+	result, appErr := h.requireService().PreviewStoredModels(c.Request.Context(), id)
+	writeResult(c, result, appErr)
+}
+
 func (h *Handler) Create(c *gin.Context) {
 	var req mutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -161,14 +170,14 @@ func routeID(c *gin.Context) (uint64, bool) {
 }
 
 func createInput(req mutationRequest) CreateInput {
-	return CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, DefaultModelID: req.DefaultModelID, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
+	return CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
 }
 func updateInput(req mutationRequest) UpdateInput { return UpdateInput(createInput(req)) }
 func modelOptionsInput(req modelOptionsRequest) ModelOptionsInput {
 	return ModelOptionsInput{EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey}
 }
 func updateModelsInput(req updateModelsRequest) UpdateModelsInput {
-	return UpdateModelsInput{ModelIDs: req.ModelIDs, DefaultModelID: req.DefaultModelID, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
+	return UpdateModelsInput{ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
@@ -200,6 +209,9 @@ func (nilHTTPService) TestConnection(ctx context.Context, id uint64) (*platforma
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
 func (nilHTTPService) PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI供应商服务未配置")
+}
+func (nilHTTPService) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
 func (nilHTTPService) SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {

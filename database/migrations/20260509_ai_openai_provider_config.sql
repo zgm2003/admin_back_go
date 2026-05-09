@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS `ai_provider_models` (
   `provider_id` BIGINT UNSIGNED NOT NULL,
   `model_id` VARCHAR(191) NOT NULL,
   `display_name` VARCHAR(191) NOT NULL DEFAULT '',
-  `is_default` TINYINT UNSIGNED NOT NULL DEFAULT 2,
   `source` VARCHAR(32) NOT NULL DEFAULT 'remote',
   `raw_json` JSON NULL,
   `status` TINYINT UNSIGNED NOT NULL DEFAULT 1,
@@ -28,8 +27,7 @@ CREATE TABLE IF NOT EXISTS `ai_provider_models` (
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_ai_provider_models_provider_model` (`provider_id`, `model_id`, `is_del`),
-  KEY `idx_ai_provider_models_provider_status` (`provider_id`, `status`, `is_del`),
-  KEY `idx_ai_provider_models_provider_default` (`provider_id`, `is_default`, `is_del`)
+  KEY `idx_ai_provider_models_provider_status` (`provider_id`, `status`, `is_del`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI provider enabled model catalog';
 
 UPDATE `permissions`
