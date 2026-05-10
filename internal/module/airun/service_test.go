@@ -85,15 +85,16 @@ func TestListFiltersAndMapsDuration(t *testing.T) {
 }
 
 func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
+	startedAt := time.Date(2026, 5, 10, 11, 18, 14, 0, time.UTC)
 	repo := &fakeRepository{
-		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", ConversationID: 4, ConversationTitle: "chat", Status: enum.AIRunStatusSuccess, ModelID: "gpt-5.4", UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
-		events: []EventRow{{ID: 2, Seq: 1, EventType: enum.AIRunEventCompleted, Message: "生成完成"}},
+		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", ConversationID: 4, ConversationTitle: "chat", Status: enum.AIRunStatusSuccess, ModelID: "gpt-5.4", StartedAt: &startedAt, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
+		events: []EventRow{{ID: 2, Seq: 1, EventType: enum.AIRunEventCompleted, Message: "生成完成", CreatedAt: startedAt.Add(1530 * time.Millisecond)}},
 	}
 	res, appErr := NewService(repo).Detail(context.Background(), 1)
 	if appErr != nil {
 		t.Fatalf("Detail returned error: %v", appErr)
 	}
-	if res.UserMessage == nil || res.AssistantMessage == nil || len(res.Events) != 1 || res.Events[0].EventType != enum.AIRunEventCompleted || res.Events[0].Message != "生成完成" || res.AgentName != "agent" || res.ModelID != "gpt-5.4" {
+	if res.UserMessage == nil || res.AssistantMessage == nil || len(res.Events) != 1 || res.Events[0].EventType != enum.AIRunEventCompleted || res.Events[0].EventTypeName != "生成完成" || res.Events[0].Message != "生成完成" || res.Events[0].ElapsedMS == nil || *res.Events[0].ElapsedMS != 1530 || res.Events[0].ElapsedText != "1.53s" || res.AgentName != "agent" || res.ModelID != "gpt-5.4" {
 		t.Fatalf("unexpected detail: %#v", res)
 	}
 }

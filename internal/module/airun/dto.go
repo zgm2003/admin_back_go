@@ -78,11 +78,14 @@ type MessageSummary struct {
 }
 
 type EventItem struct {
-	ID        int64  `json:"id"`
-	Seq       uint   `json:"seq"`
-	EventType string `json:"event_type"`
-	Message   string `json:"message"`
-	CreatedAt string `json:"created_at"`
+	ID            int64  `json:"id"`
+	Seq           uint   `json:"seq"`
+	EventType     string `json:"event_type"`
+	EventTypeName string `json:"event_type_name"`
+	Message       string `json:"message"`
+	ElapsedMS     *uint  `json:"elapsed_ms"`
+	ElapsedText   string `json:"elapsed_text"`
+	CreatedAt     string `json:"created_at"`
 }
 
 type DetailResponse struct {

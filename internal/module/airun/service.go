@@ -215,7 +215,7 @@ func listItem(row ListRow) ListItem {
 func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
-		items = append(items, eventItem(event))
+		items = append(items, eventItem(event, row.StartedAt))
 	}
 	return DetailResponse{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
@@ -232,8 +232,15 @@ func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
 	}
 }
 
-func eventItem(row EventRow) EventItem {
-	return EventItem{ID: row.ID, Seq: row.Seq, EventType: row.EventType, Message: row.Message, CreatedAt: formatTime(row.CreatedAt)}
+func eventItem(row EventRow, startedAt *time.Time) EventItem {
+	elapsedMS := eventElapsedMS(row.CreatedAt, startedAt)
+	return EventItem{
+		ID: row.ID, Seq: row.Seq,
+		EventType: row.EventType, EventTypeName: enum.AIRunEventLabels[row.EventType],
+		Message:   row.Message,
+		ElapsedMS: elapsedMS, ElapsedText: durationString(elapsedMS),
+		CreatedAt: formatTime(row.CreatedAt),
+	}
 }
 
 func metricItem(row StatsMetricRow) StatsMetricItem {
@@ -267,6 +274,14 @@ func durationString(value *uint) string {
 		return fmt.Sprintf("%dms", *value)
 	}
 	return fmt.Sprintf("%.2fs", float64(*value)/1000)
+}
+
+func eventElapsedMS(createdAt time.Time, startedAt *time.Time) *uint {
+	if startedAt == nil || startedAt.IsZero() || createdAt.IsZero() || createdAt.Before(*startedAt) {
+		return nil
+	}
+	value := uint(createdAt.Sub(*startedAt).Milliseconds())
+	return &value
 }
 
 func rawJSON(raw *string) json.RawMessage {
