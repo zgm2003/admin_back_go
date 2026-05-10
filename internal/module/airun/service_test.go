@@ -16,6 +16,7 @@ type fakeRepository struct {
 	total       int64
 	run         *RunDetailRow
 	events      []EventRow
+	toolCalls   []ToolCallRow
 	summary     StatsSummaryRow
 	metricQuery StatsListQuery
 	byDate      []StatsByDateRow
@@ -39,6 +40,9 @@ func (f *fakeRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 }
 func (f *fakeRepository) Events(ctx context.Context, runID int64) ([]EventRow, error) {
 	return f.events, nil
+}
+func (f *fakeRepository) ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error) {
+	return f.toolCalls, nil
 }
 func (f *fakeRepository) StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error) {
 	return f.summary, nil
@@ -87,8 +91,9 @@ func TestListFiltersAndMapsDuration(t *testing.T) {
 func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	startedAt := time.Date(2026, 5, 10, 11, 18, 14, 0, time.UTC)
 	repo := &fakeRepository{
-		run:    &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", ConversationID: 4, ConversationTitle: "chat", Status: enum.AIRunStatusSuccess, ModelID: "gpt-5.4", StartedAt: &startedAt, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
-		events: []EventRow{{ID: 2, Seq: 1, EventType: enum.AIRunEventCompleted, Message: "生成完成", CreatedAt: startedAt.Add(1530 * time.Millisecond)}},
+		run:       &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", ConversationID: 4, ConversationTitle: "chat", Status: enum.AIRunStatusSuccess, ModelID: "gpt-5.4", StartedAt: &startedAt, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
+		events:    []EventRow{{ID: 2, Seq: 1, EventType: enum.AIRunEventCompleted, Message: "生成完成", CreatedAt: startedAt.Add(1530 * time.Millisecond)}},
+		toolCalls: []ToolCallRow{{ID: 8, ToolID: 1, ToolCode: "admin_user_count", ToolName: "查询当前用户量", CallID: ptrString("call-1"), Status: "success", ArgumentsJSON: `{"scope":"all"}`, ResultJSON: ptrString(`{"total_users":1015}`), DurationMS: ptrUint(12), StartedAt: startedAt, FinishedAt: &startedAt}},
 	}
 	res, appErr := NewService(repo).Detail(context.Background(), 1)
 	if appErr != nil {
@@ -96,6 +101,9 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	}
 	if res.UserMessage == nil || res.AssistantMessage == nil || len(res.Events) != 1 || res.Events[0].EventType != enum.AIRunEventCompleted || res.Events[0].EventTypeName != "生成完成" || res.Events[0].Message != "生成完成" || res.Events[0].ElapsedMS == nil || *res.Events[0].ElapsedMS != 1530 || res.Events[0].ElapsedText != "1.53s" || res.AgentName != "agent" || res.ModelID != "gpt-5.4" {
 		t.Fatalf("unexpected detail: %#v", res)
+	}
+	if len(res.ToolCalls) != 1 || res.ToolCalls[0].ToolCode != "admin_user_count" || string(res.ToolCalls[0].ArgumentsJSON) != `{"scope":"all"}` || string(res.ToolCalls[0].ResultJSON) != `{"total_users":1015}` || res.ToolCalls[0].DurationMS == nil || *res.ToolCalls[0].DurationMS != 12 {
+		t.Fatalf("unexpected tool calls: %#v", res.ToolCalls)
 	}
 }
 
@@ -123,3 +131,5 @@ func TestStatsListsArePaginatedAndNormalized(t *testing.T) {
 }
 
 func ptrUint(v uint) *uint { return &v }
+
+func ptrString(v string) *string { return &v }

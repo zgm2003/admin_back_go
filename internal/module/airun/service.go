@@ -78,7 +78,11 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行事件失败", err)
 	}
-	result := detailItem(*row, events)
+	toolCalls, err := repo.ToolCalls(ctx, id)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具调用失败", err)
+	}
+	result := detailItem(*row, events, toolCalls)
 	return &result, nil
 }
 
@@ -212,10 +216,14 @@ func listItem(row ListRow) ListItem {
 	}
 }
 
-func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
+func detailItem(row RunDetailRow, events []EventRow, toolCalls []ToolCallRow) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
 		items = append(items, eventItem(event, row.StartedAt))
+	}
+	callItems := make([]ToolCallItem, 0, len(toolCalls))
+	for _, call := range toolCalls {
+		callItems = append(callItems, toolCallItem(call))
 	}
 	return DetailResponse{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
@@ -226,9 +234,26 @@ func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
 		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
 		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
-		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items,
+		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, ToolCalls: callItems,
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+	}
+}
+
+func toolCallItem(row ToolCallRow) ToolCallItem {
+	return ToolCallItem{
+		ID:            row.ID,
+		ToolID:        row.ToolID,
+		ToolCode:      row.ToolCode,
+		ToolName:      row.ToolName,
+		CallID:        row.CallID,
+		Status:        row.Status,
+		ArgumentsJSON: rawJSONString(row.ArgumentsJSON),
+		ResultJSON:    rawJSON(row.ResultJSON),
+		ErrorMessage:  row.ErrorMessage,
+		DurationMS:    row.DurationMS,
+		StartedAt:     formatTime(row.StartedAt),
+		FinishedAt:    formatOptionalTime(row.FinishedAt),
 	}
 }
 
@@ -293,6 +318,10 @@ func rawJSON(raw *string) json.RawMessage {
 		return cloneRawJSON(emptyJSONObject)
 	}
 	return json.RawMessage(*raw)
+}
+
+func rawJSONString(raw string) json.RawMessage {
+	return rawJSON(&raw)
 }
 
 func cloneRawJSON(raw json.RawMessage) json.RawMessage {

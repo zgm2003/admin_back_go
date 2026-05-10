@@ -26,6 +26,7 @@ type Dependencies struct {
 	Publisher     platformrealtime.Publisher
 	EngineFactory EngineFactory
 	Secretbox     secretbox.Box
+	ToolRuntime   ToolRuntime
 	Now           func() time.Time
 }
 
@@ -34,6 +35,7 @@ type Service struct {
 	publisher     platformrealtime.Publisher
 	engineFactory EngineFactory
 	secretbox     secretbox.Box
+	toolRuntime   ToolRuntime
 	now           func() time.Time
 }
 
@@ -42,7 +44,7 @@ func NewService(deps Dependencies) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, now: now}
+	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, now: now}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -118,18 +120,54 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, appErr
 	}
 	sink := &conversationEventSink{service: s, input: input}
-	result, err := engine.StreamChat(ctx, platformai.ChatInput{
+	chatInput := platformai.ChatInput{
 		AgentID: uint64(input.AgentID),
+		RunID:   uint64(runID),
 		UserID:  uint64(input.UserID),
 		UserKey: userKey(input.UserID),
 		Content: userContent,
 		Inputs:  chatInputs(*agent, history, input.UserMessageID),
-	}, sink)
+	}
+	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
+	if appErr != nil {
+		_ = s.publishFailed(ctx, input, appErr.Message)
+		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
+		return nil, appErr
+	}
+	chatInput.Tools = toolDefinitions(runtimeTools)
+	result, err := engine.StreamChat(ctx, chatInput, sink)
 	if err != nil {
 		msg := err.Error()
 		_ = s.publishFailed(ctx, input, msg)
 		finishRun(statusFromError(ctx, err), msg, err)
 		return nil, err
+	}
+	if toolCalls := resultToolCalls(result); len(toolCalls) > 0 {
+		firstUsage := resultTokens(result)
+		outputs, toolErr := s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
+		if toolErr != nil {
+			msg := toolErr.Error()
+			_ = s.publishFailed(ctx, input, msg)
+			finishRun(enum.AIRunStatusFailed, msg, toolErr)
+			return nil, toolErr
+		}
+		chatInput.ToolCalls = toolCalls
+		chatInput.ToolOutputs = outputs
+		result, err = engine.StreamChat(ctx, chatInput, sink)
+		if err != nil {
+			msg := err.Error()
+			_ = s.publishFailed(ctx, input, msg)
+			finishRun(statusFromError(ctx, err), msg, err)
+			return nil, err
+		}
+		addTokenUsage(result, firstUsage)
+		if len(resultToolCalls(result)) > 0 {
+			msg := "工具调用轮次超过MVP限制"
+			appErr := apperror.BadRequest(msg)
+			_ = s.publishFailed(ctx, input, msg)
+			finishRun(enum.AIRunStatusFailed, msg, appErr)
+			return nil, appErr
+		}
 	}
 	answer := ""
 	if result != nil {
@@ -168,6 +206,15 @@ func resultTokens(result *platformai.ChatResult) tokenResult {
 		return tokenResult{}
 	}
 	return tokenResult{Prompt: result.PromptTokens, Completion: result.CompletionTokens, Total: result.TotalTokens}
+}
+
+func addTokenUsage(result *platformai.ChatResult, usage tokenResult) {
+	if result == nil {
+		return
+	}
+	result.PromptTokens += usage.Prompt
+	result.CompletionTokens += usage.Completion
+	result.TotalTokens += usage.Total
 }
 
 func durationMS(startedAt time.Time, finishedAt time.Time) uint {
@@ -427,4 +474,56 @@ func numberFromAny(value any) (float64, bool) {
 
 func userKey(userID int64) string {
 	return fmt.Sprintf("admin:%d", userID)
+}
+
+func (s *Service) runtimeTools(ctx context.Context, agentID uint64) ([]RuntimeTool, *apperror.Error) {
+	if s == nil || s.toolRuntime == nil {
+		return nil, nil
+	}
+	return s.toolRuntime.ListRuntimeTools(ctx, agentID)
+}
+
+func toolDefinitions(tools []RuntimeTool) []platformai.ToolDefinition {
+	out := make([]platformai.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, platformai.ToolDefinition{Name: tool.Code, Description: tool.Description, Parameters: tool.ParametersJSON})
+	}
+	return out
+}
+
+func resultToolCalls(result *platformai.ChatResult) []platformai.ToolCall {
+	if result == nil || len(result.ToolCalls) == 0 {
+		return nil
+	}
+	return result.ToolCalls
+}
+
+func (s *Service) executeToolCalls(ctx context.Context, runID uint64, tools []RuntimeTool, calls []platformai.ToolCall) ([]platformai.ToolOutput, error) {
+	if s == nil || s.toolRuntime == nil {
+		return nil, apperror.Internal("AI工具运行时未配置")
+	}
+	toolByCode := make(map[string]RuntimeTool, len(tools))
+	for _, tool := range tools {
+		toolByCode[tool.Code] = tool
+	}
+	outputs := make([]platformai.ToolOutput, 0, len(calls))
+	for _, call := range calls {
+		tool, ok := toolByCode[strings.TrimSpace(call.Name)]
+		if !ok {
+			return nil, apperror.BadRequest("模型请求了未绑定的AI工具")
+		}
+		if tool.RiskLevel != "low" {
+			return nil, apperror.BadRequest("非低风险AI工具暂不允许自动执行")
+		}
+		arguments := json.RawMessage(strings.TrimSpace(call.Arguments))
+		if len(arguments) == 0 {
+			arguments = json.RawMessage(`{}`)
+		}
+		result, appErr := s.toolRuntime.Execute(ctx, ToolExecuteInput{RunID: runID, Tool: tool, CallID: call.ID, Arguments: arguments})
+		if appErr != nil {
+			return nil, appErr
+		}
+		outputs = append(outputs, platformai.ToolOutput{CallID: result.CallID, Name: result.Name, Output: string(result.Output)})
+	}
+	return outputs, nil
 }

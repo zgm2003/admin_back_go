@@ -99,10 +99,14 @@ func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sin
 	if model == "" {
 		return nil, fmt.Errorf("%w: missing model_id", platformai.ErrInvalidConfig)
 	}
+	if len(input.ToolOutputs) > 0 && len(input.ToolCalls) == 0 {
+		return nil, fmt.Errorf("%w: tool outputs require preceding tool calls", platformai.ErrInvalidConfig)
+	}
 	body := chatCompletionRequest{
 		Model:    model,
 		Stream:   true,
 		Messages: chatMessages(input),
+		Tools:    chatTools(input.Tools),
 	}
 	if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
 		body.Temperature = &temperature
@@ -230,6 +234,9 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			result.TotalTokens = chunk.Usage.TotalTokens
 		}
 		for _, choice := range chunk.Choices {
+			for _, call := range choice.Delta.ToolCalls {
+				mergeToolCall(result, call)
+			}
 			delta := choice.Delta.Content
 			if delta == "" {
 				continue
@@ -253,13 +260,38 @@ type chatCompletionRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`
 	Stream      bool          `json:"stream"`
+	Tools       []chatTool    `json:"tools,omitempty"`
 	Temperature *float64      `json:"temperature,omitempty"`
 	MaxTokens   *int          `json:"max_tokens,omitempty"`
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role       string                `json:"role"`
+	Content    any                   `json:"content"`
+	ToolCallID string                `json:"tool_call_id,omitempty"`
+	ToolCalls  []chatMessageToolCall `json:"tool_calls,omitempty"`
+}
+
+type chatMessageToolCall struct {
+	ID       string               `json:"id"`
+	Type     string               `json:"type"`
+	Function chatToolCallFunction `json:"function"`
+}
+
+type chatToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type chatTool struct {
+	Type     string       `json:"type"`
+	Function chatFunction `json:"function"`
+}
+
+type chatFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 type chatCompletionResponse struct {
@@ -276,7 +308,8 @@ type chatCompletionResponse struct {
 type chatCompletionStreamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string               `json:"content"`
+			ToolCalls []chatStreamToolCall `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
 	Usage *struct {
@@ -284,6 +317,16 @@ type chatCompletionStreamChunk struct {
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+type chatStreamToolCall struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 func (r chatCompletionResponse) firstContent() string {
@@ -300,7 +343,56 @@ func chatMessages(input platformai.ChatInput) []chatMessage {
 	}
 	messages = append(messages, historyMessages(input.Inputs)...)
 	messages = append(messages, chatMessage{Role: "user", Content: userContent(input)})
+	if toolCalls := chatAssistantToolCalls(input.ToolCalls); len(toolCalls) > 0 {
+		messages = append(messages, chatMessage{Role: "assistant", Content: nil, ToolCalls: toolCalls})
+	}
+	for _, output := range input.ToolOutputs {
+		if strings.TrimSpace(output.CallID) == "" || strings.TrimSpace(output.Name) == "" {
+			continue
+		}
+		messages = append(messages, chatMessage{Role: "tool", ToolCallID: strings.TrimSpace(output.CallID), Content: strings.TrimSpace(output.Output)})
+	}
 	return messages
+}
+
+func chatAssistantToolCalls(calls []platformai.ToolCall) []chatMessageToolCall {
+	out := make([]chatMessageToolCall, 0, len(calls))
+	for _, call := range calls {
+		id := strings.TrimSpace(call.ID)
+		name := strings.TrimSpace(call.Name)
+		if id == "" || name == "" {
+			continue
+		}
+		arguments := strings.TrimSpace(call.Arguments)
+		if arguments == "" {
+			arguments = "{}"
+		}
+		out = append(out, chatMessageToolCall{
+			ID:   id,
+			Type: "function",
+			Function: chatToolCallFunction{
+				Name:      name,
+				Arguments: arguments,
+			},
+		})
+	}
+	return out
+}
+
+func chatTools(tools []platformai.ToolDefinition) []chatTool {
+	out := make([]chatTool, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		params := tool.Parameters
+		if params == nil {
+			params = map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}
+		}
+		out = append(out, chatTool{Type: "function", Function: chatFunction{Name: name, Description: strings.TrimSpace(tool.Description), Parameters: params}})
+	}
+	return out
 }
 
 func historyMessages(inputs map[string]any) []chatMessage {
@@ -465,4 +557,25 @@ func nonEmpty(value string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func mergeToolCall(result *platformai.ChatResult, call chatStreamToolCall) {
+	if result == nil {
+		return
+	}
+	idx := call.Index
+	for len(result.ToolCalls) <= idx {
+		result.ToolCalls = append(result.ToolCalls, platformai.ToolCall{})
+	}
+	current := result.ToolCalls[idx]
+	if strings.TrimSpace(call.ID) != "" {
+		current.ID = strings.TrimSpace(call.ID)
+	}
+	if strings.TrimSpace(call.Function.Name) != "" {
+		current.Name = strings.TrimSpace(call.Function.Name)
+	}
+	if call.Function.Arguments != "" {
+		current.Arguments += call.Function.Arguments
+	}
+	result.ToolCalls[idx] = current
 }

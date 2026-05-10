@@ -88,6 +88,21 @@ type EventItem struct {
 	CreatedAt     string `json:"created_at"`
 }
 
+type ToolCallItem struct {
+	ID            int64      `json:"id"`
+	ToolID        int64      `json:"tool_id"`
+	ToolCode      string     `json:"tool_code"`
+	ToolName      string     `json:"tool_name"`
+	CallID        *string    `json:"call_id"`
+	Status        string     `json:"status"`
+	ArgumentsJSON JSONObject `json:"arguments_json"`
+	ResultJSON    JSONObject `json:"result_json"`
+	ErrorMessage  string     `json:"error_message"`
+	DurationMS    *uint      `json:"duration_ms"`
+	StartedAt     string     `json:"started_at"`
+	FinishedAt    string     `json:"finished_at"`
+}
+
 type DetailResponse struct {
 	ID                int64           `json:"id"`
 	RequestID         string          `json:"request_id"`
@@ -112,6 +127,7 @@ type DetailResponse struct {
 	UserMessage       *MessageSummary `json:"user_message"`
 	AssistantMessage  *MessageSummary `json:"assistant_message"`
 	Events            []EventItem     `json:"events"`
+	ToolCalls         []ToolCallItem  `json:"tool_calls"`
 	StartedAt         string          `json:"started_at"`
 	FinishedAt        string          `json:"finished_at"`
 	CreatedAt         string          `json:"created_at"`
@@ -244,6 +260,21 @@ type EventRow struct {
 	CreatedAt time.Time
 }
 
+type ToolCallRow struct {
+	ID            int64
+	ToolID        int64
+	ToolCode      string
+	ToolName      string
+	CallID        *string
+	Status        string
+	ArgumentsJSON string
+	ResultJSON    *string
+	ErrorMessage  string
+	DurationMS    *uint
+	StartedAt     time.Time
+	FinishedAt    *time.Time
+}
+
 type StatsSummaryRow struct {
 	TotalRuns        int64
 	SuccessRuns      int64
@@ -292,6 +323,7 @@ type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
 	Events(ctx context.Context, runID int64) ([]EventRow, error)
+	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
 	StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error)
 	StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)

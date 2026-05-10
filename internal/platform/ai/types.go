@@ -26,6 +26,24 @@ type TestConnectionResult struct {
 	Message   string
 }
 
+type ToolDefinition struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
+}
+
+type ToolOutput struct {
+	CallID string
+	Name   string
+	Output string
+}
+
 type ChatInput struct {
 	AgentID              uint64
 	RunID                uint64
@@ -34,6 +52,9 @@ type ChatInput struct {
 	Content              string
 	ConversationEngineID string
 	Inputs               map[string]any
+	Tools                []ToolDefinition
+	ToolCalls            []ToolCall
+	ToolOutputs          []ToolOutput
 }
 
 type ChatResult struct {
@@ -41,6 +62,7 @@ type ChatResult struct {
 	EngineMessageID      string
 	EngineTaskID         string
 	Answer               string
+	ToolCalls            []ToolCall
 	PromptTokens         int
 	CompletionTokens     int
 	TotalTokens          int

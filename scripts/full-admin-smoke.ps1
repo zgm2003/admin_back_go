@@ -1077,35 +1077,45 @@ function Assert-AIKnowledgeMapList($Response) {
   }
 }
 
-function Assert-AIToolMapInit($Response) {
-  Assert-ApiOK $Response 'AI tool map init'
-  Assert-NoAISecretFields $Response 'AI tool map init'
+function Assert-AIToolInit($Response) {
+  Assert-ApiOK $Response 'AI tool init'
+  Assert-NoAISecretFields $Response 'AI tool init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI tool map init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI tool init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($field in @('tool_type_arr', 'risk_level_arr', 'common_status_arr', 'provider_options')) {
+  foreach ($field in @('risk_level_arr', 'common_status_arr')) {
     if (-not (Test-HasProperty $Response.data.dict $field)) {
-      throw "AI tool map init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
+      throw "AI tool init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
   return [pscustomobject]@{
-    ToolTypeCount = (Get-ObjectArray $Response.data.dict.tool_type_arr).Count
     RiskLevelCount = (Get-ObjectArray $Response.data.dict.risk_level_arr).Count
-    ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
+    StatusCount = (Get-ObjectArray $Response.data.dict.common_status_arr).Count
   }
 }
 
-function Assert-AIToolMapList($Response) {
-  Assert-ApiOK $Response 'AI tool map list'
-  Assert-NoAISecretFields $Response 'AI tool map list'
+function Assert-AIToolList($Response) {
+  Assert-ApiOK $Response 'AI tool list'
+  Assert-NoAISecretFields $Response 'AI tool list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI tool map list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI tool list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.tool_type) -or [string]::IsNullOrWhiteSpace([string]$item.risk_level)) {
-      throw "AI tool map item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    $allowedFields = @('id', 'name', 'code', 'description', 'executor', 'parameters_json', 'result_schema_json', 'risk_level', 'risk_level_name', 'timeout_ms', 'status', 'status_name', 'created_at', 'updated_at')
+    foreach ($fieldName in @($item.PSObject.Properties.Name)) {
+      if (-not ($allowedFields -contains $fieldName)) {
+        throw "AI tool item leaked unexpected field ${fieldName}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    foreach ($requiredField in @('id', 'name', 'code', 'executor', 'parameters_json', 'result_schema_json', 'risk_level', 'timeout_ms', 'status')) {
+      if (-not (Test-HasProperty $item $requiredField)) {
+        throw "AI tool item missing ${requiredField}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.code) -or [string]::IsNullOrWhiteSpace([string]$item.executor)) {
+      throw "AI tool item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }
 
@@ -1182,6 +1192,25 @@ function Assert-AIRunList($Response) {
   }
 }
 
+function Assert-AIRunDetail($Response) {
+  Assert-ApiOK $Response 'AI run detail'
+  Assert-NoAISecretFields $Response 'AI run detail'
+
+  foreach ($requiredField in @('id', 'request_id', 'status', 'events', 'tool_calls')) {
+    if (-not (Test-HasProperty $Response.data $requiredField)) {
+      throw "AI run detail missing ${requiredField}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.tool_calls)) {
+    foreach ($requiredField in @('id', 'tool_id', 'tool_code', 'tool_name', 'status', 'arguments_json', 'error_message', 'started_at')) {
+      if (-not (Test-HasProperty $item $requiredField)) {
+        throw "AI run tool call missing ${requiredField}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+  return [pscustomobject]@{ ToolCallCount = (Get-ObjectArray $Response.data.tool_calls).Count }
+}
+
 function Assert-AIRunStats($Response) {
   Assert-ApiOK $Response 'AI run stats'
   Assert-NoAISecretFields $Response 'AI run stats'
@@ -1202,6 +1231,19 @@ function Assert-AIRunStats($Response) {
     TotalRuns = [int64]$Response.data.summary.total_runs
     FailRuns = [int64]$Response.data.summary.fail_runs
     AvgDurationMS = [int64]$Response.data.summary.avg_duration_ms
+  }
+}
+
+function Assert-AIToolAgentBinding($Response) {
+  Assert-ApiOK $Response 'AI tool agent binding'
+  foreach ($field in @('agent_id', 'tool_ids', 'active_tool_ids')) {
+    if (-not (Test-HasProperty $Response.data $field)) {
+      throw "AI tool agent binding missing ${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    ToolCount = (Get-ObjectArray $Response.data.tool_ids).Count
+    ActiveToolCount = (Get-ObjectArray $Response.data.active_tool_ids).Count
   }
 }
 
@@ -2306,15 +2348,25 @@ func main() {
     -TimeoutSec 10
   $aiKnowledgeMapListSummary = Assert-AIKnowledgeMapList $aiKnowledgeMapList
 
-  $aiToolMapInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tool-maps/page-init" `
+  $aiToolInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiToolMapInitSummary = Assert-AIToolMapInit $aiToolMapInit
+  $aiToolInitSummary = Assert-AIToolInit $aiToolInit
 
-  $aiToolMapList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tool-maps?current_page=1&page_size=20" `
+  $aiToolList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiToolMapListSummary = Assert-AIToolMapList $aiToolMapList
+  $aiToolListSummary = Assert-AIToolList $aiToolList
+
+  $aiToolAgentBindingSummary = [pscustomobject]@{ ToolCount = 0; ActiveToolCount = 0 }
+  $aiToolAgentRows = Get-ObjectArray $aiAgentOptions.data.list
+  if ($aiToolAgentRows.Count -gt 0) {
+    $aiToolAgentID = [int64]$aiToolAgentRows[0].id
+    $aiToolAgentBinding = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/$aiToolAgentID/tools" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $aiToolAgentBindingSummary = Assert-AIToolAgentBinding $aiToolAgentBinding
+  }
 
   $aiConversationList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-conversations?current_page=1&page_size=5" `
     -Headers $authHeaders `
@@ -2330,6 +2382,16 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $aiRunListSummary = Assert-AIRunList $aiRunList
+
+  $aiRunDetailSummary = [pscustomobject]@{ ToolCallCount = 0 }
+  $aiRunRows = Get-ObjectArray $aiRunList.data.list
+  if ($aiRunRows.Count -gt 0) {
+    $aiRunID = [int64]$aiRunRows[0].id
+    $aiRunDetail = Invoke-RestMethod "$baseURL/api/admin/v1/ai-runs/$aiRunID" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $aiRunDetailSummary = Assert-AIRunDetail $aiRunDetail
+  }
 
   $aiRunStats = Invoke-RestMethod "$baseURL/api/admin/v1/ai-runs/stats" `
     -Headers $authHeaders `
@@ -2594,12 +2656,14 @@ func main() {
     ai_knowledge_map_list_code = $aiKnowledgeMapList.code
     ai_knowledge_map_list_count = $aiKnowledgeMapListSummary.ListCount
     ai_knowledge_map_total = $aiKnowledgeMapListSummary.Total
-    ai_tool_map_init_code = $aiToolMapInit.code
-    ai_tool_map_type_dict_count = $aiToolMapInitSummary.ToolTypeCount
-    ai_tool_map_risk_level_dict_count = $aiToolMapInitSummary.RiskLevelCount
-    ai_tool_map_list_code = $aiToolMapList.code
-    ai_tool_map_list_count = $aiToolMapListSummary.ListCount
-    ai_tool_map_total = $aiToolMapListSummary.Total
+    ai_tool_init_code = $aiToolInit.code
+    ai_tool_risk_level_dict_count = $aiToolInitSummary.RiskLevelCount
+    ai_tool_status_dict_count = $aiToolInitSummary.StatusCount
+    ai_tool_list_code = $aiToolList.code
+    ai_tool_list_count = $aiToolListSummary.ListCount
+    ai_tool_total = $aiToolListSummary.Total
+    ai_agent_tool_binding_tool_count = $aiToolAgentBindingSummary.ToolCount
+    ai_agent_tool_binding_active_tool_count = $aiToolAgentBindingSummary.ActiveToolCount
     ai_conversation_list_code = $aiConversationList.code
     ai_conversation_list_count = $aiConversationListSummary.ListCount
     ai_conversation_total = $aiConversationListSummary.Total
@@ -2608,6 +2672,7 @@ func main() {
     ai_run_list_code = $aiRunList.code
     ai_run_list_count = $aiRunListSummary.ListCount
     ai_run_total = $aiRunListSummary.Total
+    ai_run_detail_tool_call_count = $aiRunDetailSummary.ToolCallCount
     ai_run_stats_code = $aiRunStats.code
     ai_run_stats_total = $aiRunStatsSummary.TotalRuns
     ai_run_stats_fail = $aiRunStatsSummary.FailRuns

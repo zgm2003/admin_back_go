@@ -1366,7 +1366,7 @@ internal/platform/ai/provider   # provider discovery/test boundary; first driver
 internal/module/aiprovider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/aiagent         # ai_agents local agent config MVP
 internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents mapping/status sync
-internal/module/aitoolmap       # ai_tool_maps local tool references
+internal/module/aitool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
 internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents
 internal/module/aimessage       # conversation messages, feedback, branch cleanup
 internal/module/airun           # ai_runs / ai_run_events token-only run monitor
@@ -1377,10 +1377,11 @@ Retired AI active runtime:
 
 ```text
 legacy AI model/tool/prompt/knowledge-base REST resources
+legacy AI tool-map metadata/routes
 legacy model/prompt Vue menu entries and legacy app naming
 ```
 
-这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aitool` / `aiprompt` / `aiknowledge` 或 `aiapp` 重新挂回 server/bootstrap。
+这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aiprompt` / `aiknowledge`、`aiapp` 或旧工具映射模块重新挂回 server/bootstrap。
 
 Schema truth:
 
@@ -1389,6 +1390,7 @@ Schema truth:
 20260508_ai_core_rebuild.sql             # creates the local AI runtime/control tables
 20260509_ai_openai_provider_config.sql   # provider config first slice: openai-only driver, ai_provider_models, model sync fields, AI menu order
 20260509_ai_agent_mvp_config.sql         # agent config MVP columns: model, scenes, system prompt, avatar
+20260510_ai_tool_runtime_mvp.sql         # tool runtime MVP: ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
 20260508_ai_core_rollback.sql            # restores old local AI backups only
 ```
 
@@ -1421,6 +1423,7 @@ POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no en
 Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
 ai_runs records one reply attempt with status, token totals, duration, and message links.
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
+ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
 WebSocket delta is not persisted to ai_run_events; final assistant content stays in ai_messages.
 There is no daily aggregate table, billing amount, provider task id, execution-step timeline, usage dump, or snapshot JSON in the run-monitor MVP.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.

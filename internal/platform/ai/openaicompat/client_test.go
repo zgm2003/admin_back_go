@@ -199,3 +199,91 @@ func TestClientDoesNotLeakAPIKeyOnFailure(t *testing.T) {
 		t.Fatalf("error leaked api key: %v", err)
 	}
 }
+
+func TestClientStreamChatSendsToolsAndReturnsToolCalls(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"admin_user_count","arguments":"{"}}]}}]}` + "\n\n"))
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]}}]}` + "\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+		Content: "查用户量",
+		Inputs:  map[string]any{"model_id": "gpt-5.4"},
+		Tools:   []platformai.ToolDefinition{{Name: "admin_user_count", Description: "查询当前用户量", Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	tools, ok := requestBody["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools not sent: %#v", requestBody["tools"])
+	}
+	tool := tools[0].(map[string]any)
+	fn := tool["function"].(map[string]any)
+	if tool["type"] != "function" || fn["name"] != "admin_user_count" {
+		t.Fatalf("unexpected tool definition: %#v", tool)
+	}
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].ID != "call_1" || result.ToolCalls[0].Name != "admin_user_count" || result.ToolCalls[0].Arguments != "{}" {
+		t.Fatalf("unexpected tool calls: %#v", result.ToolCalls)
+	}
+	if result.Answer != "" {
+		t.Fatalf("tool-call round must not fake final answer, got %q", result.Answer)
+	}
+}
+
+func TestClientStreamChatSendsToolOutputsAsToolMessages(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"当前用户量1015\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+		Content:     "查用户量",
+		Inputs:      map[string]any{"model_id": "gpt-5.4"},
+		ToolCalls:   []platformai.ToolCall{{ID: "call_1", Name: "admin_user_count", Arguments: "{}"}},
+		ToolOutputs: []platformai.ToolOutput{{CallID: "call_1", Name: "admin_user_count", Output: `{"total_users":1015}`}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	if result.Answer != "当前用户量1015" {
+		t.Fatalf("unexpected answer: %#v", result)
+	}
+	messages := requestBody["messages"].([]any)
+	if len(messages) < 3 {
+		t.Fatalf("tool output request must include user, assistant tool_call, and tool message: %#v", messages)
+	}
+	assistant := messages[len(messages)-2].(map[string]any)
+	if assistant["role"] != "assistant" {
+		t.Fatalf("tool output must be preceded by assistant tool_calls message: %#v", assistant)
+	}
+	calls, ok := assistant["tool_calls"].([]any)
+	if !ok || len(calls) != 1 {
+		t.Fatalf("assistant tool_calls missing: %#v", assistant)
+	}
+	call := calls[0].(map[string]any)
+	fn := call["function"].(map[string]any)
+	if call["id"] != "call_1" || call["type"] != "function" || fn["name"] != "admin_user_count" || fn["arguments"] != "{}" {
+		t.Fatalf("assistant tool_call mismatch: %#v", call)
+	}
+	last := messages[len(messages)-1].(map[string]any)
+	if last["role"] != "tool" || last["tool_call_id"] != "call_1" || last["content"] != `{"total_users":1015}` {
+		t.Fatalf("tool output message not sent: %#v", last)
+	}
+	if _, ok := last["name"]; ok {
+		t.Fatalf("Chat Completions tool message must not use legacy name field: %#v", last)
+	}
+}

@@ -16,7 +16,7 @@ import (
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
-	"admin_back_go/internal/module/aitoolmap"
+	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -125,7 +125,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	)
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
-	aiToolMapService := aitoolmap.NewService(aitoolmap.NewGormRepository(resources.DB))
+	aiToolRepo := aitool.NewGormRepository(resources.DB)
+	aiToolService := aitool.NewService(aiToolRepo, aitool.DefaultExecutors(aiToolRepo))
 	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
@@ -222,6 +223,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		Publisher:     realtimeStack.publisher,
 		Secretbox:     secretBox,
 		EngineFactory: aiChatEngineFactory{},
+		ToolRuntime:   aiToolService,
 	})
 	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiConversationReplyTimeout)
 	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiReplyDispatcher))
@@ -277,7 +279,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AiKnowledgeMapService:   aiKnowledgeMapService,
 		AiMessageService:        aiMessageService,
 		AiRunService:            aiRunService,
-		AiToolMapService:        aiToolMapService,
+		AiToolService:           aiToolService,
 		CronTaskService:         cronTaskService,
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
 	platformai "admin_back_go/internal/platform/ai"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -390,4 +391,121 @@ func TestChatInputsOnlyIncludesConfiguredSystemPrompt(t *testing.T) {
 	if inputs["system_prompt"] != "你是客服" {
 		t.Fatalf("configured system prompt must be preserved, got %#v", inputs["system_prompt"])
 	}
+}
+
+type fakeToolRuntime struct {
+	runtimeTools []RuntimeTool
+	executeInput []ToolExecuteInput
+	executeErr   error
+	executeReply map[string]any
+}
+
+func (f *fakeToolRuntime) ListRuntimeTools(ctx context.Context, agentID uint64) ([]RuntimeTool, *apperror.Error) {
+	return f.runtimeTools, nil
+}
+
+func (f *fakeToolRuntime) Execute(ctx context.Context, input ToolExecuteInput) (*ToolExecuteResult, *apperror.Error) {
+	f.executeInput = append(f.executeInput, input)
+	if f.executeErr != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, f.executeErr.Error(), f.executeErr)
+	}
+	output := f.executeReply
+	if output == nil {
+		output = map[string]any{"total_users": 1015, "enabled_users": 1015, "disabled_users": 0}
+	}
+	raw, _ := json.Marshal(output)
+	return &ToolExecuteResult{CallID: input.CallID, Name: input.Tool.Code, Output: raw}, nil
+}
+
+type toolCallEngine struct {
+	calls  []platformai.ChatInput
+	stages int
+}
+
+func (e *toolCallEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+	return &platformai.TestConnectionResult{OK: true}, nil
+}
+
+func (e *toolCallEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+	e.calls = append(e.calls, input)
+	if len(input.ToolOutputs) == 0 {
+		return &platformai.ChatResult{ToolCalls: []platformai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, PromptTokens: 7, CompletionTokens: 1, TotalTokens: 8}, nil
+	}
+	return &platformai.ChatResult{Answer: "当前用户量1015", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}, nil
+}
+
+func (e *toolCallEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
+	return nil
+}
+func (e *toolCallEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
+	return nil, nil
+}
+func (e *toolCallEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
+	return nil, nil
+}
+
+func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}},
+	}
+	pub := &fakePublisher{}
+	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", Executor: "admin_user_count", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
+	engine := &toolCallEngine{}
+	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err != nil {
+		t.Fatalf("ExecuteConversationReply returned error: %v", err)
+	}
+	if res.AssistantMessageID != 22 || repo.assistant.Content != "当前用户量1015" {
+		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
+	}
+	if len(engine.calls) != 2 {
+		t.Fatalf("expected two model calls, got %#v", engine.calls)
+	}
+	if len(engine.calls[0].Tools) != 1 || engine.calls[0].Tools[0].Name != "admin_user_count" {
+		t.Fatalf("runtime tool not passed to engine: %#v", engine.calls[0].Tools)
+	}
+	if len(engine.calls[1].ToolOutputs) != 1 || engine.calls[1].ToolOutputs[0].CallID != "call-1" {
+		t.Fatalf("tool output not passed back to engine: %#v", engine.calls[1].ToolOutputs)
+	}
+	if len(engine.calls[1].ToolCalls) != 1 || engine.calls[1].ToolCalls[0].ID != "call-1" {
+		t.Fatalf("preceding tool call not preserved for second model request: %#v", engine.calls[1].ToolCalls)
+	}
+	if len(runtime.executeInput) != 1 || runtime.executeInput[0].Tool.Code != "admin_user_count" {
+		t.Fatalf("tool runtime not executed: %#v", runtime.executeInput)
+	}
+	if repo.completedRun.TotalTokens != 13 || repo.completedRun.PromptTokens != 9 || repo.completedRun.CompletionTokens != 4 {
+		t.Fatalf("tool round token usage must include both model requests: %#v", repo.completedRun)
+	}
+}
+
+func TestExecuteConversationReplyRejectsSecondToolRound(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}}}
+	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", Executor: "admin_user_count", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
+	service := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, EngineFactory: &fakeEngineFactory{engine: &doubleToolRoundEngine{}}, Secretbox: box, ToolRuntime: runtime})
+	_, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err == nil {
+		t.Fatal("expected second round error")
+	}
+}
+
+type doubleToolRoundEngine struct{}
+
+func (doubleToolRoundEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+	return &platformai.TestConnectionResult{OK: true}, nil
+}
+func (doubleToolRoundEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+	return &platformai.ChatResult{ToolCalls: []platformai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}}, nil
+}
+func (doubleToolRoundEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
+	return nil
+}
+func (doubleToolRoundEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
+	return nil, nil
+}
+func (doubleToolRoundEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
+	return nil, nil
 }

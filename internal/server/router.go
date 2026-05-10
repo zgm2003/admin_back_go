@@ -14,7 +14,7 @@ import (
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
-	"admin_back_go/internal/module/aitoolmap"
+	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -62,7 +62,7 @@ type Dependencies struct {
 	AiKnowledgeMapService   aiknowledgemap.HTTPService
 	AiMessageService        aimessage.HTTPService
 	AiRunService            airun.HTTPService
-	AiToolMapService        aitoolmap.HTTPService
+	AiToolService           aitool.HTTPService
 	CronTaskService         crontask.HTTPService
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
@@ -126,7 +126,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	aimessage.RegisterRoutes(router, deps.AiMessageService)
 	airun.RegisterRoutes(router, deps.AiRunService)
 	aichat.RegisterRoutes(router, deps.AiChatService)
-	aitoolmap.RegisterRoutes(router, deps.AiToolMapService)
+	aitool.RegisterRoutes(router, deps.AiToolService)
 	user.RegisterRoutes(router, deps.UserService)
 	userquickentry.RegisterRoutes(router, deps.UserQuickEntryService)
 	userloginlog.RegisterRoutes(router, deps.UserLoginLogService)

@@ -23,7 +23,7 @@ import (
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
-	"admin_back_go/internal/module/aitoolmap"
+	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -678,43 +678,56 @@ func (f *fakeRouterAIAgentService) Options(ctx context.Context, query aiagent.Op
 	return &aiagent.AgentOptionsResponse{List: []aiagent.AgentOption{{ID: 1, Name: "客服助手"}}}, nil
 }
 
-type fakeRouterAIToolMapService struct {
-	initCalled bool
-	listQuery  aitoolmap.ListQuery
-	updatedID  uint64
-	statusID   uint64
-	deletedID  uint64
+type fakeRouterAIToolService struct {
+	initCalled    bool
+	listQuery     aitool.ListQuery
+	updatedID     uint64
+	statusID      uint64
+	deletedID     uint64
+	bindingID     uint64
+	bindingToolID []uint64
 }
 
-func (f *fakeRouterAIToolMapService) Init(ctx context.Context) (*aitoolmap.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIToolService) Init(ctx context.Context) (*aitool.InitResponse, *apperror.Error) {
 	f.initCalled = true
-	return &aitoolmap.InitResponse{}, nil
+	return &aitool.InitResponse{}, nil
 }
 
-func (f *fakeRouterAIToolMapService) List(ctx context.Context, query aitoolmap.ListQuery) (*aitoolmap.ListResponse, *apperror.Error) {
+func (f *fakeRouterAIToolService) List(ctx context.Context, query aitool.ListQuery) (*aitool.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &aitoolmap.ListResponse{
-		List: []aitoolmap.ToolMapDTO{{ID: 1, ProviderID: 3, Name: "查订单", Code: "query_order", ToolType: aitoolmap.ToolTypeDifyTool, RiskLevel: aitoolmap.RiskLow, Status: enum.CommonYes}},
-		Page: aitoolmap.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	return &aitool.ListResponse{
+		List: []aitool.ToolDTO{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Executor: "admin_user_count", RiskLevel: aitool.RiskLow, Status: enum.CommonYes}},
+		Page: aitool.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 
-func (f *fakeRouterAIToolMapService) Create(ctx context.Context, input aitoolmap.MutationInput) (uint64, *apperror.Error) {
+func (f *fakeRouterAIToolService) Create(ctx context.Context, input aitool.MutationInput) (uint64, *apperror.Error) {
 	return 1, nil
 }
 
-func (f *fakeRouterAIToolMapService) Update(ctx context.Context, id uint64, input aitoolmap.MutationInput) *apperror.Error {
+func (f *fakeRouterAIToolService) Update(ctx context.Context, id uint64, input aitool.MutationInput) *apperror.Error {
 	f.updatedID = id
 	return nil
 }
 
-func (f *fakeRouterAIToolMapService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
+func (f *fakeRouterAIToolService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
 	f.statusID = id
 	return nil
 }
 
-func (f *fakeRouterAIToolMapService) Delete(ctx context.Context, id uint64) *apperror.Error {
+func (f *fakeRouterAIToolService) Delete(ctx context.Context, id uint64) *apperror.Error {
 	f.deletedID = id
+	return nil
+}
+
+func (f *fakeRouterAIToolService) AgentTools(ctx context.Context, agentID uint64) (*aitool.AgentToolsResponse, *apperror.Error) {
+	f.bindingID = agentID
+	return &aitool.AgentToolsResponse{AgentID: agentID, ToolIDs: []uint64{1}, ActiveToolIDs: []uint64{1}}, nil
+}
+
+func (f *fakeRouterAIToolService) UpdateAgentTools(ctx context.Context, agentID uint64, input aitool.UpdateAgentToolsInput) *apperror.Error {
+	f.bindingID = agentID
+	f.bindingToolID = append([]uint64(nil), input.ToolIDs...)
 	return nil
 }
 
@@ -2182,14 +2195,14 @@ func TestRouterInstallsClientVersionRESTRoutes(t *testing.T) {
 func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	providerService := &fakeRouterAIProviderService{}
 	agentService := &fakeRouterAIAgentService{}
-	toolMapService := &fakeRouterAIToolMapService{}
+	toolService := &fakeRouterAIToolService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: "admin"}, nil
 		},
 		AiProviderService: providerService,
 		AiAgentService:    agentService,
-		AiToolMapService:  toolMapService,
+		AiToolService:     toolService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -2307,54 +2320,87 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tool-maps/page-init", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools/page-init", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !toolMapService.initCalled {
-		t.Fatalf("expected AI tool map page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), toolMapService.initCalled)
+	if recorder.Code != http.StatusOK || !toolService.initCalled {
+		t.Fatalf("expected AI tool page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), toolService.initCalled)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tool-maps?current_page=2&page_size=10&tool_type=dify_tool&risk_level=low&provider_id=3&agent_id=5&status=1", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools?current_page=2&page_size=10&name=查询&code=admin_user_count&risk_level=low&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || toolMapService.listQuery.ToolType != aitoolmap.ToolTypeDifyTool || toolMapService.listQuery.RiskLevel != aitoolmap.RiskLow || toolMapService.listQuery.ProviderID != 3 || toolMapService.listQuery.AgentID == nil || *toolMapService.listQuery.AgentID != 5 || toolMapService.listQuery.Status == nil || *toolMapService.listQuery.Status != enum.CommonYes {
-		t.Fatalf("expected AI tool map list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), toolMapService.listQuery)
+	if recorder.Code != http.StatusOK || toolService.listQuery.Name != "查询" || toolService.listQuery.Code != "admin_user_count" || toolService.listQuery.RiskLevel != aitool.RiskLow || toolService.listQuery.Status == nil || *toolService.listQuery.Status != enum.CommonYes {
+		t.Fatalf("expected AI tool list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), toolService.listQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tool-maps", strings.NewReader(`{"provider_id":3,"agent_id":5,"name":"查订单","code":"query_order","tool_type":"dify_tool","engine_tool_id":"tool-1","risk_level":"low","config_json":{"timeout":3},"status":1}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tools", strings.NewReader(`{"name":"查询当前用户量","code":"admin_user_count","description":"查询数量","executor":"admin_user_count","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{},"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected AI tool map create route, code=%d body=%s", recorder.Code, recorder.Body.String())
+		t.Fatalf("expected AI tool create route, code=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-tool-maps/4", strings.NewReader(`{"provider_id":3,"name":"查订单","code":"query_order","tool_type":"dify_tool","engine_tool_id":"tool-1","risk_level":"low","config_json":{"timeout":3},"status":1}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-tools/4", strings.NewReader(`{"name":"查询当前用户量","code":"admin_user_count","description":"查询数量","executor":"admin_user_count","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{},"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || toolMapService.updatedID != 4 {
-		t.Fatalf("expected AI tool map update route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolMapService.updatedID)
+	if recorder.Code != http.StatusOK || toolService.updatedID != 4 {
+		t.Fatalf("expected AI tool update route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolService.updatedID)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/ai-tool-maps/4/status", strings.NewReader(`{"status":2}`))
+	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/ai-tools/4/status", strings.NewReader(`{"status":2}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || toolMapService.statusID != 4 {
-		t.Fatalf("expected AI tool map status route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolMapService.statusID)
+	if recorder.Code != http.StatusOK || toolService.statusID != 4 {
+		t.Fatalf("expected AI tool status route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolService.statusID)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/ai-tool-maps/4", nil)
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/ai-tools/4", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || toolMapService.deletedID != 4 {
-		t.Fatalf("expected AI tool map delete route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolMapService.deletedID)
+	if recorder.Code != http.StatusOK || toolService.deletedID != 4 {
+		t.Fatalf("expected AI tool delete route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolService.deletedID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-agents/3/tools", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || toolService.bindingID != 3 {
+		t.Fatalf("expected AI tool agent binding read route, code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), toolService.bindingID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-agents/3/tools", strings.NewReader(`{"tool_ids":[1]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || toolService.bindingID != 3 || len(toolService.bindingToolID) != 1 || toolService.bindingToolID[0] != 1 {
+		t.Fatalf("expected AI tool agent binding update route, code=%d body=%s id=%d tools=%#v", recorder.Code, recorder.Body.String(), toolService.bindingID, toolService.bindingToolID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools/agent-options", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusOK {
+		t.Fatalf("tool management must not expose agent option route, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools/agent-bindings/3", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusOK {
+		t.Fatalf("tool management must not expose agent binding route, code=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 
 }
@@ -2952,7 +2998,7 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		AiProviderService:     &fakeRouterAIProviderService{},
 		AiAgentService:        &fakeRouterAIAgentService{},
 		AiKnowledgeMapService: &fakeRouterAIKnowledgeMapService{},
-		AiToolMapService:      &fakeRouterAIToolMapService{},
+		AiToolService:         &fakeRouterAIToolService{},
 	})
 
 	retired := []struct {
@@ -2963,10 +3009,6 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-models/page-init", ""},
 		{http.MethodGet, "/api/admin/v1/ai-models", ""},
 		{http.MethodPost, "/api/admin/v1/ai-models", `{"name":"model"}`},
-		{http.MethodGet, "/api/admin/v1/ai-tools/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-tools", ""},
-		{http.MethodGet, "/api/admin/v1/ai-tools/agent-options", ""},
-		{http.MethodPut, "/api/admin/v1/ai-tools/agent-bindings/1", `{"tool_ids":[1]}`},
 		{http.MethodGet, "/api/admin/v1/ai-prompts", ""},
 		{http.MethodPost, "/api/admin/v1/ai-prompts", `{"title":"prompt","content":"text"}`},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init", ""},

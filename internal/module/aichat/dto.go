@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/module/aitool"
 	platformai "admin_back_go/internal/platform/ai"
 )
 
@@ -91,6 +92,17 @@ type MessageHistory struct {
 	MetaJSON    *string
 	CreatedAt   time.Time
 }
+
+type RuntimeTool = aitool.RuntimeTool
+
+type ToolRuntime interface {
+	ListRuntimeTools(ctx context.Context, agentID uint64) ([]RuntimeTool, *apperror.Error)
+	Execute(ctx context.Context, input ToolExecuteInput) (*ToolExecuteResult, *apperror.Error)
+}
+
+type ToolExecuteInput = aitool.ExecuteInput
+
+type ToolExecuteResult = aitool.ExecuteResult
 
 type Repository interface {
 	ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error)

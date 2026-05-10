@@ -104,6 +104,19 @@ func (r *GormRepository) Events(ctx context.Context, runID int64) ([]EventRow, e
 	return rows, err
 }
 
+func (r *GormRepository) ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var rows []ToolCallRow
+	err := r.db.WithContext(ctx).Table("ai_tool_calls").
+		Select("id, tool_id, tool_code, tool_name, call_id, status, arguments_json, result_json, error_message, duration_ms, started_at, finished_at").
+		Where("run_id = ?", runID).
+		Order("id ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
 func (r *GormRepository) StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error) {
 	if r == nil || r.db == nil {
 		return StatsSummaryRow{}, ErrRepositoryNotConfigured

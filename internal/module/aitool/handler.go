@@ -1,4 +1,4 @@
-package aitoolmap
+package aitool
 
 import (
 	"context"
@@ -22,27 +22,17 @@ func (h *Handler) Init(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI工具映射列表参数错误"))
+		response.Error(c, apperror.BadRequest("AI工具列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
-		CurrentPage: req.CurrentPage,
-		PageSize:    req.PageSize,
-		Name:        req.Name,
-		Code:        req.Code,
-		ToolType:    req.ToolType,
-		RiskLevel:   req.RiskLevel,
-		ProviderID:  req.ProviderID,
-		AgentID:     req.AgentID,
-		Status:      req.Status,
-	})
+	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, RiskLevel: req.RiskLevel, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
 func (h *Handler) Create(c *gin.Context) {
 	var req mutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI工具映射参数错误"))
+		response.Error(c, apperror.BadRequest("AI工具参数错误"))
 		return
 	}
 	id, appErr := h.requireService().Create(c.Request.Context(), mutationInput(req))
@@ -54,13 +44,13 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI工具映射ID")
+	id, ok := routeID(c, "无效的AI工具ID")
 	if !ok {
 		return
 	}
 	var req mutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI工具映射参数错误"))
+		response.Error(c, apperror.BadRequest("AI工具参数错误"))
 		return
 	}
 	if appErr := h.requireService().Update(c.Request.Context(), id, mutationInput(req)); appErr != nil {
@@ -71,13 +61,13 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) ChangeStatus(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI工具映射ID")
+	id, ok := routeID(c, "无效的AI工具ID")
 	if !ok {
 		return
 	}
 	var req statusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI工具映射状态参数错误"))
+		response.Error(c, apperror.BadRequest("AI工具状态参数错误"))
 		return
 	}
 	if appErr := h.requireService().ChangeStatus(c.Request.Context(), id, req.Status); appErr != nil {
@@ -88,11 +78,37 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	id, ok := routeID(c, "无效的AI工具映射ID")
+	id, ok := routeID(c, "无效的AI工具ID")
 	if !ok {
 		return
 	}
 	if appErr := h.requireService().Delete(c.Request.Context(), id); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
+}
+
+func (h *Handler) AgentTools(c *gin.Context) {
+	agentID, ok := routeID(c, "无效的AI智能体ID")
+	if !ok {
+		return
+	}
+	result, appErr := h.requireService().AgentTools(c.Request.Context(), agentID)
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) UpdateAgentTools(c *gin.Context) {
+	agentID, ok := routeID(c, "无效的AI智能体ID")
+	if !ok {
+		return
+	}
+	var req updateAgentToolsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("智能体工具绑定参数错误"))
+		return
+	}
+	if appErr := h.requireService().UpdateAgentTools(c.Request.Context(), agentID, UpdateAgentToolsInput{ToolIDs: req.ToolIDs}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
@@ -116,18 +132,7 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 }
 
 func mutationInput(req mutationRequest) MutationInput {
-	return MutationInput{
-		ProviderID:     req.ProviderID,
-		AgentID:        req.AgentID,
-		Name:           req.Name,
-		Code:           req.Code,
-		ToolType:       req.ToolType,
-		EngineToolID:   req.EngineToolID,
-		PermissionCode: req.PermissionCode,
-		RiskLevel:      req.RiskLevel,
-		ConfigJSON:     req.ConfigJSON,
-		Status:         req.Status,
-	}
+	return MutationInput{Name: req.Name, Code: req.Code, Description: req.Description, Executor: req.Executor, ParametersJSON: req.ParametersJSON, ResultSchemaJSON: req.ResultSchemaJSON, RiskLevel: req.RiskLevel, TimeoutMS: req.TimeoutMS, Status: req.Status}
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
@@ -141,25 +146,26 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 type nilHTTPService struct{}
 
 func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI工具映射服务未配置")
+	return nil, apperror.Internal("AI工具服务未配置")
 }
-
 func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI工具映射服务未配置")
+	return nil, apperror.Internal("AI工具服务未配置")
 }
-
 func (nilHTTPService) Create(ctx context.Context, input MutationInput) (uint64, *apperror.Error) {
-	return 0, apperror.Internal("AI工具映射服务未配置")
+	return 0, apperror.Internal("AI工具服务未配置")
 }
-
 func (nilHTTPService) Update(ctx context.Context, id uint64, input MutationInput) *apperror.Error {
-	return apperror.Internal("AI工具映射服务未配置")
+	return apperror.Internal("AI工具服务未配置")
 }
-
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
-	return apperror.Internal("AI工具映射服务未配置")
+	return apperror.Internal("AI工具服务未配置")
 }
-
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {
-	return apperror.Internal("AI工具映射服务未配置")
+	return apperror.Internal("AI工具服务未配置")
+}
+func (nilHTTPService) AgentTools(ctx context.Context, agentID uint64) (*AgentToolsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI工具服务未配置")
+}
+func (nilHTTPService) UpdateAgentTools(ctx context.Context, agentID uint64, input UpdateAgentToolsInput) *apperror.Error {
+	return apperror.Internal("AI工具服务未配置")
 }
