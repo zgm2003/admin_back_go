@@ -197,7 +197,7 @@ func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuer
 		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("a.is_del = ?", enum.CommonNo).
 		Where("a.status = ?", enum.CommonYes).
-		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", "chat").
+		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", sceneChat).
 		Order("a.id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, err

@@ -984,6 +984,9 @@ function Assert-AIAgentInit($Response) {
   if (-not ($sceneValues -contains 'chat')) {
     throw "AI agent init missing chat scene: $($Response | ConvertTo-Json -Depth 12)"
   }
+  if (-not ($sceneValues -contains 'agent_generate')) {
+    throw "AI agent init missing agent_generate scene: $($Response | ConvertTo-Json -Depth 12)"
+  }
   return [pscustomobject]@{
     SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
     ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
@@ -2332,6 +2335,11 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   [void](Assert-AIAgentList $aiAgentSceneList)
+
+  $aiAgentGenerateSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=agent_generate" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  [void](Assert-AIAgentList $aiAgentGenerateSceneList)
 
   $aiAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options" `
     -Headers $authHeaders `

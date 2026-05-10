@@ -1411,8 +1411,8 @@ Agent config truth:
 route/menu/API name is agent: /ai/agents and /api/admin/v1/ai-agents
 table is ai_agents; old app naming must not be the active contract
 create/update require provider_id + model_id where model_id belongs to enabled ai_provider_models under that provider
-list search supports name/provider/status plus scene=chat; there is no agent code or agent type in the MVP
-MVP scenes currently allow chat only; stored as scenes_json and exposed as scenes/scene_names
+list search supports name/provider/status plus scene=chat or scene=agent_generate; there is no agent code or agent type in the MVP
+MVP scenes currently allow chat and agent_generate; stored as scenes_json and exposed as scenes/scene_names
 system_prompt and avatar are optional local agent metadata
 ai_agents intentionally has no agent code, agent type, per-agent external app id/key, response mode, runtime config JSON, model snapshot JSON, created_by, or updated_by in the MVP slice
 ```

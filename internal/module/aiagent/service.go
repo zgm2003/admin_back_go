@@ -15,10 +15,15 @@ import (
 	"admin_back_go/internal/platform/secretbox"
 )
 
-const timeLayout = "2006-01-02 15:04:05"
+const (
+	timeLayout         = "2006-01-02 15:04:05"
+	sceneChat          = "chat"
+	sceneAgentGenerate = "agent_generate"
+)
 
 var sceneLabels = map[string]string{
-	"chat": "对话",
+	sceneChat:          "对话",
+	sceneAgentGenerate: "智能体生成",
 }
 
 type Service struct {
@@ -435,7 +440,7 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 }
 
 func sceneOptions() []dict.Option[string] {
-	return stringOptions([]string{"chat"}, sceneLabels)
+	return stringOptions([]string{sceneChat, sceneAgentGenerate}, sceneLabels)
 }
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))
@@ -449,7 +454,7 @@ func isScene(value string) bool { _, ok := sceneLabels[value]; return ok }
 
 func encodeScenes(values []string) (string, *apperror.Error) {
 	if len(values) == 0 {
-		values = []string{"chat"}
+		values = []string{sceneChat}
 	}
 	seen := map[string]struct{}{}
 	normalized := make([]string, 0, len(values))
@@ -465,7 +470,7 @@ func encodeScenes(values []string) (string, *apperror.Error) {
 		normalized = append(normalized, scene)
 	}
 	if len(normalized) == 0 {
-		normalized = []string{"chat"}
+		normalized = []string{sceneChat}
 	}
 	data, err := json.Marshal(normalized)
 	if err != nil {
@@ -477,11 +482,11 @@ func encodeScenes(values []string) (string, *apperror.Error) {
 func decodeScenes(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" || value == "null" {
-		return []string{"chat"}
+		return []string{sceneChat}
 	}
 	var scenes []string
 	if err := json.Unmarshal([]byte(value), &scenes); err != nil || len(scenes) == 0 {
-		return []string{"chat"}
+		return []string{sceneChat}
 	}
 	out := make([]string, 0, len(scenes))
 	for _, scene := range scenes {
@@ -491,7 +496,7 @@ func decodeScenes(value string) []string {
 		}
 	}
 	if len(out) == 0 {
-		return []string{"chat"}
+		return []string{sceneChat}
 	}
 	return out
 }

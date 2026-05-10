@@ -167,6 +167,41 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 	}
 }
 
+func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
+	repo := &fakeAIAgentRepository{
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {
+			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
+		}},
+	}
+	service := NewService(repo, secretbox.New("vault-key"), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{
+		ProviderID: 1,
+		Name:       "智能体生成器",
+		ModelID:    "gpt-4.1-mini",
+		Scenes:     []string{"agent_generate", "chat", "agent_generate"},
+		Status:     enum.CommonYes,
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected agent_generate scene to be accepted, got %v", appErr)
+	}
+	if repo.created == nil || repo.created.ScenesJSON != `["agent_generate","chat"]` {
+		t.Fatalf("unexpected scenes json: %#v", repo.created)
+	}
+}
+
+func TestSceneOptionsIncludeAgentGenerate(t *testing.T) {
+	options := sceneOptions()
+	if len(options) != 2 {
+		t.Fatalf("expected two scene options, got %#v", options)
+	}
+	if options[0].Value != "chat" || options[1].Value != "agent_generate" || options[1].Label != "智能体生成" {
+		t.Fatalf("unexpected scene options: %#v", options)
+	}
+}
+
 func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
