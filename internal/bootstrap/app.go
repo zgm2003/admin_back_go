@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"time"
 
+	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiknowledgemap"
+	"admin_back_go/internal/module/aiknowledge"
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
@@ -132,7 +133,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		aitool.WithSecretbox(secretBox),
 		aitool.WithEngineFactory(aiToolGenerateEngineFactory{}),
 	)
-	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
+	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
 	var paymentNumberGenerator paymentmodule.NumberGenerator
@@ -224,11 +225,12 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
 	realtimeStack := newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
 	aiChatService := aichat.NewService(aichat.Dependencies{
-		Repository:    aichat.NewGormRepository(resources.DB),
-		Publisher:     realtimeStack.publisher,
-		Secretbox:     secretBox,
-		EngineFactory: aiChatEngineFactory{},
-		ToolRuntime:   aiToolService,
+		Repository:       aichat.NewGormRepository(resources.DB),
+		Publisher:        realtimeStack.publisher,
+		Secretbox:        secretBox,
+		EngineFactory:    aiChatEngineFactory{},
+		ToolRuntime:      aiToolService,
+		KnowledgeRuntime: aiKnowledgeRuntimeAdapter{service: aiKnowledgeService},
 	})
 	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiConversationReplyTimeout)
 	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiReplyDispatcher))
@@ -281,7 +283,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		AiConversationService:   aiConversationService,
 		AiAgentService:          aiAgentService,
 		AiProviderService:       aiProviderService,
-		AiKnowledgeMapService:   aiKnowledgeMapService,
+		AiKnowledgeService:      aiKnowledgeService,
 		AiMessageService:        aiMessageService,
 		AiRunService:            aiRunService,
 		AiToolService:           aiToolService,
@@ -376,25 +378,30 @@ func (aiProviderTester) TestConnection(ctx context.Context, input platformai.Tes
 	}
 }
 
-type aiEngineFactory struct{}
+type aiKnowledgeRuntimeAdapter struct {
+	service *aiknowledge.Service
+}
 
-func (aiEngineFactory) NewEngine(ctx context.Context, input aiknowledgemap.EngineConfig) (platformai.Engine, error) {
-	switch input.EngineType {
-	case platformai.EngineTypeOpenAI:
-		return openaicompat.New(openaicompat.Config{
-			BaseURL: input.BaseURL,
-			APIKey:  input.APIKey,
-			Timeout: 30 * time.Second,
-		}), nil
-	case platformai.EngineTypeDify:
-		return dify.New(dify.Config{
-			BaseURL: input.BaseURL,
-			APIKey:  input.APIKey,
-			Timeout: 30 * time.Second,
-		})
-	default:
-		return nil, platformai.ErrInvalidConfig
+func (a aiKnowledgeRuntimeAdapter) RetrieveForRun(ctx context.Context, input aichat.KnowledgeRuntimeInput) (*aichat.KnowledgeContextResult, *apperror.Error) {
+	if a.service == nil {
+		return nil, apperror.Internal("AI知识库服务未配置")
 	}
+	result, appErr := a.service.RetrieveForRun(ctx, aiknowledge.KnowledgeRuntimeInput{
+		RunID:          input.RunID,
+		AgentID:        input.AgentID,
+		ConversationID: input.ConversationID,
+		UserMessageID:  input.UserMessageID,
+		Query:          input.Query,
+		StartedAt:      input.StartedAt,
+	})
+	if appErr != nil || result == nil {
+		return nil, appErr
+	}
+	return &aichat.KnowledgeContextResult{
+		RetrievalID: result.RetrievalID,
+		Status:      result.Status,
+		Context:     result.Context,
+	}, nil
 }
 
 type aiChatEngineFactory struct{}

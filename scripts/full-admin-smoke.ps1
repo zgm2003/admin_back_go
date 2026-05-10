@@ -1052,42 +1052,48 @@ function Assert-AIAgentOptions($Response) {
   }
 }
 
-function Assert-AIKnowledgeMapInit($Response) {
-  Assert-ApiOK $Response 'AI knowledge map init'
-  Assert-NoAISecretFields $Response 'AI knowledge map init'
+function Assert-AIKnowledgeInit($Response) {
+  Assert-ApiOK $Response 'AI knowledge init'
+  Assert-NoAISecretFields $Response 'AI knowledge init'
 
   if ($null -eq $Response.data.dict) {
-    throw "AI knowledge map init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI knowledge init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($field in @('visibility_arr', 'source_type_arr', 'indexing_status_arr', 'common_status_arr', 'provider_options')) {
+  foreach ($field in @('common_status_arr', 'source_type_arr', 'index_status_arr')) {
     if (-not (Test-HasProperty $Response.data.dict $field)) {
-      throw "AI knowledge map init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
+      throw "AI knowledge init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
   return [pscustomobject]@{
-    VisibilityCount = (Get-ObjectArray $Response.data.dict.visibility_arr).Count
+    StatusCount = (Get-ObjectArray $Response.data.dict.common_status_arr).Count
     SourceTypeCount = (Get-ObjectArray $Response.data.dict.source_type_arr).Count
-    IndexingStatusCount = (Get-ObjectArray $Response.data.dict.indexing_status_arr).Count
-    ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
+    IndexStatusCount = (Get-ObjectArray $Response.data.dict.index_status_arr).Count
   }
 }
 
-function Assert-AIKnowledgeMapList($Response) {
-  Assert-ApiOK $Response 'AI knowledge map list'
-  Assert-NoAISecretFields $Response 'AI knowledge map list'
+function Assert-AIKnowledgeList($Response) {
+  Assert-ApiOK $Response 'AI knowledge list'
+  Assert-NoAISecretFields $Response 'AI knowledge list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI knowledge map list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "AI knowledge list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
+  $seedPresent = $false
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.visibility)) {
-      throw "AI knowledge map item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    foreach ($field in @('id', 'name', 'code', 'chunk_size_chars', 'chunk_overlap_chars', 'default_top_k', 'default_min_score', 'default_max_context_chars', 'status')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "AI knowledge item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    if ([string]$item.code -eq 'admin_go_project_architecture') {
+      $seedPresent = $true
     }
   }
 
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
+    SeedPresent = [bool]$seedPresent
   }
 }
 
@@ -1227,7 +1233,7 @@ function Assert-AIRunDetail($Response) {
   Assert-ApiOK $Response 'AI run detail'
   Assert-NoAISecretFields $Response 'AI run detail'
 
-  foreach ($requiredField in @('id', 'request_id', 'status', 'events', 'tool_calls')) {
+  foreach ($requiredField in @('id', 'request_id', 'status', 'events', 'knowledge_retrievals', 'tool_calls')) {
     if (-not (Test-HasProperty $Response.data $requiredField)) {
       throw "AI run detail missing ${requiredField}: $($Response | ConvertTo-Json -Depth 12)"
     }
@@ -1239,7 +1245,24 @@ function Assert-AIRunDetail($Response) {
       }
     }
   }
-  return [pscustomobject]@{ ToolCallCount = (Get-ObjectArray $Response.data.tool_calls).Count }
+  foreach ($retrieval in (Get-ObjectArray $Response.data.knowledge_retrievals)) {
+    foreach ($requiredField in @('id', 'run_id', 'query', 'status', 'total_hits', 'selected_hits', 'hits')) {
+      if (-not (Test-HasProperty $retrieval $requiredField)) {
+        throw "AI run knowledge retrieval missing ${requiredField}: $($retrieval | ConvertTo-Json -Depth 12)"
+      }
+    }
+    foreach ($hit in (Get-ObjectArray $retrieval.hits)) {
+      foreach ($requiredField in @('id', 'knowledge_base_id', 'knowledge_base_name', 'document_id', 'document_title', 'chunk_id', 'score', 'rank_no', 'content_snapshot', 'status', 'skip_reason')) {
+        if (-not (Test-HasProperty $hit $requiredField)) {
+          throw "AI run knowledge hit missing ${requiredField}: $($hit | ConvertTo-Json -Depth 12)"
+        }
+      }
+    }
+  }
+  return [pscustomobject]@{
+    ToolCallCount = (Get-ObjectArray $Response.data.tool_calls).Count
+    KnowledgeRetrievalCount = (Get-ObjectArray $Response.data.knowledge_retrievals).Count
+  }
 }
 
 function Assert-AIRunStats($Response) {
@@ -1275,6 +1298,26 @@ function Assert-AIToolAgentBinding($Response) {
   return [pscustomobject]@{
     ToolCount = (Get-ObjectArray $Response.data.tool_ids).Count
     ActiveToolCount = (Get-ObjectArray $Response.data.active_tool_ids).Count
+  }
+}
+
+function Assert-AIAgentKnowledgeBinding($Response) {
+  Assert-ApiOK $Response 'AI agent knowledge binding'
+  foreach ($field in @('agent_id', 'bindings', 'base_options')) {
+    if (-not (Test-HasProperty $Response.data $field)) {
+      throw "AI agent knowledge binding missing ${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.bindings)) {
+    foreach ($field in @('knowledge_base_id', 'top_k', 'min_score', 'max_context_chars', 'status')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "AI agent knowledge binding item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+  return [pscustomobject]@{
+    BindingCount = (Get-ObjectArray $Response.data.bindings).Count
+    BaseOptionCount = (Get-ObjectArray $Response.data.base_options).Count
   }
 }
 
@@ -2374,15 +2417,15 @@ func main() {
     -TimeoutSec 10
   $aiAgentOptionsSummary = Assert-AIAgentOptions $aiAgentOptions
 
-  $aiKnowledgeMapInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-maps/page-init" `
+  $aiKnowledgeInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiKnowledgeMapInitSummary = Assert-AIKnowledgeMapInit $aiKnowledgeMapInit
+  $aiKnowledgeInitSummary = Assert-AIKnowledgeInit $aiKnowledgeInit
 
-  $aiKnowledgeMapList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-maps?current_page=1&page_size=20" `
+  $aiKnowledgeList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $aiKnowledgeMapListSummary = Assert-AIKnowledgeMapList $aiKnowledgeMapList
+  $aiKnowledgeListSummary = Assert-AIKnowledgeList $aiKnowledgeList
 
   $aiToolInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/page-init" `
     -Headers $authHeaders `
@@ -2409,6 +2452,15 @@ func main() {
     $aiToolAgentBindingSummary = Assert-AIToolAgentBinding $aiToolAgentBinding
   }
 
+  $aiAgentKnowledgeBindingSummary = [pscustomobject]@{ BindingCount = 0; BaseOptionCount = 0 }
+  if ($aiToolAgentRows.Count -gt 0) {
+    $aiKnowledgeAgentID = [int64]$aiToolAgentRows[0].id
+    $aiAgentKnowledgeBinding = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/$aiKnowledgeAgentID/knowledge-bases" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $aiAgentKnowledgeBindingSummary = Assert-AIAgentKnowledgeBinding $aiAgentKnowledgeBinding
+  }
+
   $aiConversationList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-conversations?current_page=1&page_size=5" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2424,7 +2476,7 @@ func main() {
     -TimeoutSec 10
   $aiRunListSummary = Assert-AIRunList $aiRunList
 
-  $aiRunDetailSummary = [pscustomobject]@{ ToolCallCount = 0 }
+  $aiRunDetailSummary = [pscustomobject]@{ ToolCallCount = 0; KnowledgeRetrievalCount = 0 }
   $aiRunRows = Get-ObjectArray $aiRunList.data.list
   if ($aiRunRows.Count -gt 0) {
     $aiRunID = [int64]$aiRunRows[0].id
@@ -2445,22 +2497,28 @@ func main() {
     $aiSmokeAgentID = [uint64]$env:AI_SMOKE_AGENT_ID
   }
   if ($EnableAiProviderProbe -and $aiSmokeAgentID -gt 0) {
-    $aiChatProbe = Invoke-JsonRequestAllowFailure `
+    $aiSmokeConversation = Invoke-JsonRequestAllowFailure `
       'POST' `
-      "$baseURL/api/admin/v1/ai-chat/runs" `
+      "$baseURL/api/admin/v1/ai-conversations" `
       $authHeaders `
-      @{ agent_id = $aiSmokeAgentID; content = "full smoke AI provider probe $(Get-Date -Format o)" }
-    Assert-ApiOK $aiChatProbe 'AI chat provider probe'
-    if ([int64]$aiChatProbe.data.run_id -le 0) {
-      throw "AI chat provider probe missing run_id: $($aiChatProbe | ConvertTo-Json -Depth 12)"
+      @{ agent_id = $aiSmokeAgentID; title = "full smoke AI provider probe $(Get-Date -Format o)" }
+    Assert-ApiOK $aiSmokeConversation 'AI conversation provider probe create'
+    if ([int64]$aiSmokeConversation.data.id -le 0) {
+      throw "AI conversation provider probe missing conversation id: $($aiSmokeConversation | ConvertTo-Json -Depth 12)"
     }
-  } else {
-    $aiChatProbe = Invoke-JsonRequestAllowFailure `
+
+    $aiSmokeMessage = Invoke-JsonRequestAllowFailure `
       'POST' `
-      "$baseURL/api/admin/v1/ai-chat/runs" `
+      "$baseURL/api/admin/v1/ai-conversations/$($aiSmokeConversation.data.id)/messages" `
       $authHeaders `
-      @{ agent_id = 999999999; content = 'full smoke expects explicit AI config failure' }
-    $aiChatProviderFailure = Assert-AIChatExplicitProviderFailure $aiChatProbe
+      @{
+        content = "full smoke AI provider probe $(Get-Date -Format o)"
+        request_id = "full-smoke-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+      }
+    Assert-ApiOK $aiSmokeMessage 'AI message provider probe send'
+    if ([int64]$aiSmokeMessage.data.user_message_id -le 0) {
+      throw "AI message provider probe missing user_message_id: $($aiSmokeMessage | ConvertTo-Json -Depth 12)"
+    }
   }
 
   $uploadWriteProbe = Invoke-UploadConfigWriteProbe $baseURL $authHeaders ([string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
@@ -2690,13 +2748,14 @@ func main() {
     ai_agent_scene_filter_code = $aiAgentSceneList.code
     ai_agent_options_code = $aiAgentOptions.code
     ai_agent_options_count = $aiAgentOptionsSummary.OptionCount
-    ai_knowledge_map_init_code = $aiKnowledgeMapInit.code
-    ai_knowledge_map_visibility_dict_count = $aiKnowledgeMapInitSummary.VisibilityCount
-    ai_knowledge_map_source_type_count = $aiKnowledgeMapInitSummary.SourceTypeCount
-    ai_knowledge_map_indexing_status_count = $aiKnowledgeMapInitSummary.IndexingStatusCount
-    ai_knowledge_map_list_code = $aiKnowledgeMapList.code
-    ai_knowledge_map_list_count = $aiKnowledgeMapListSummary.ListCount
-    ai_knowledge_map_total = $aiKnowledgeMapListSummary.Total
+    ai_knowledge_init_code = $aiKnowledgeInit.code
+    ai_knowledge_status_dict_count = $aiKnowledgeInitSummary.StatusCount
+    ai_knowledge_source_type_count = $aiKnowledgeInitSummary.SourceTypeCount
+    ai_knowledge_index_status_count = $aiKnowledgeInitSummary.IndexStatusCount
+    ai_knowledge_list_code = $aiKnowledgeList.code
+    ai_knowledge_list_count = $aiKnowledgeListSummary.ListCount
+    ai_knowledge_total = $aiKnowledgeListSummary.Total
+    ai_knowledge_seed_present = $aiKnowledgeListSummary.SeedPresent
     ai_tool_init_code = $aiToolInit.code
     ai_tool_risk_level_dict_count = $aiToolInitSummary.RiskLevelCount
     ai_tool_status_dict_count = $aiToolInitSummary.StatusCount
@@ -2707,6 +2766,8 @@ func main() {
     ai_tool_total = $aiToolListSummary.Total
     ai_agent_tool_binding_tool_count = $aiToolAgentBindingSummary.ToolCount
     ai_agent_tool_binding_active_tool_count = $aiToolAgentBindingSummary.ActiveToolCount
+    ai_agent_knowledge_binding_count = $aiAgentKnowledgeBindingSummary.BindingCount
+    ai_agent_knowledge_base_option_count = $aiAgentKnowledgeBindingSummary.BaseOptionCount
     ai_conversation_list_code = $aiConversationList.code
     ai_conversation_list_count = $aiConversationListSummary.ListCount
     ai_conversation_total = $aiConversationListSummary.Total
@@ -2716,6 +2777,7 @@ func main() {
     ai_run_list_count = $aiRunListSummary.ListCount
     ai_run_total = $aiRunListSummary.Total
     ai_run_detail_tool_call_count = $aiRunDetailSummary.ToolCallCount
+    ai_run_detail_knowledge_retrieval_count = $aiRunDetailSummary.KnowledgeRetrievalCount
     ai_run_stats_code = $aiRunStats.code
     ai_run_stats_total = $aiRunStatsSummary.TotalRuns
     ai_run_stats_fail = $aiRunStatsSummary.FailRuns

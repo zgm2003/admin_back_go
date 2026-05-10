@@ -117,6 +117,34 @@ func (r *GormRepository) ToolCalls(ctx context.Context, runID int64) ([]ToolCall
 	return rows, err
 }
 
+func (r *GormRepository) KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var rows []KnowledgeRetrievalRow
+	err := r.db.WithContext(ctx).Table("ai_knowledge_retrievals").
+		Select("id, run_id, query, status, total_hits, selected_hits, duration_ms, error_message, created_at").
+		Where("run_id = ?", runID).
+		Where("is_del = ?", enum.CommonNo).
+		Order("created_at ASC, id ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (r *GormRepository) KnowledgeRetrievalHits(ctx context.Context, retrievalID int64) ([]KnowledgeHitRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var rows []KnowledgeHitRow
+	err := r.db.WithContext(ctx).Table("ai_knowledge_retrieval_hits").
+		Select("id, retrieval_id, knowledge_base_id, knowledge_base_name, document_id, document_title, chunk_id, chunk_index, score, rank_no, content_snapshot, status, skip_reason, created_at").
+		Where("retrieval_id = ?", retrievalID).
+		Where("is_del = ?", enum.CommonNo).
+		Order("rank_no ASC, id ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
 func (r *GormRepository) StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error) {
 	if r == nil || r.db == nil {
 		return StatsSummaryRow{}, ErrRepositoryNotConfigured

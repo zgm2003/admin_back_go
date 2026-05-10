@@ -17,6 +17,12 @@ const timeLayout = "2006-01-02 15:04:05"
 
 var emptyJSONObject = json.RawMessage("{}")
 
+var knowledgeRetrievalStatusLabels = map[string]string{
+	"success": "检索成功",
+	"failed":  "检索失败",
+	"skipped": "未检索",
+}
+
 type Service struct {
 	repository Repository
 }
@@ -82,8 +88,28 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具调用失败", err)
 	}
-	result := detailItem(*row, events, toolCalls)
+	knowledgeRetrievals, appErr := s.knowledgeRetrievalItems(ctx, repo, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	result := detailItem(*row, events, knowledgeRetrievals, toolCalls)
 	return &result, nil
+}
+
+func (s *Service) knowledgeRetrievalItems(ctx context.Context, repo Repository, runID int64) ([]KnowledgeRetrievalItem, *apperror.Error) {
+	rows, err := repo.KnowledgeRetrievals(ctx, runID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索记录失败", err)
+	}
+	items := make([]KnowledgeRetrievalItem, 0, len(rows))
+	for _, row := range rows {
+		hits, err := repo.KnowledgeRetrievalHits(ctx, row.ID)
+		if err != nil {
+			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索命中失败", err)
+		}
+		items = append(items, knowledgeRetrievalItem(row, hits))
+	}
+	return items, nil
 }
 
 func (s *Service) Stats(ctx context.Context, query StatsFilter) (*StatsResponse, *apperror.Error) {
@@ -216,7 +242,7 @@ func listItem(row ListRow) ListItem {
 	}
 }
 
-func detailItem(row RunDetailRow, events []EventRow, toolCalls []ToolCallRow) DetailResponse {
+func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
 		items = append(items, eventItem(event, row.StartedAt))
@@ -234,9 +260,53 @@ func detailItem(row RunDetailRow, events []EventRow, toolCalls []ToolCallRow) De
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
 		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
 		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
-		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, ToolCalls: callItems,
+		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+	}
+}
+
+func knowledgeRetrievalItem(row KnowledgeRetrievalRow, hits []KnowledgeHitRow) KnowledgeRetrievalItem {
+	items := make([]KnowledgeHitItem, 0, len(hits))
+	for _, hit := range hits {
+		items = append(items, knowledgeHitItem(hit))
+	}
+	return KnowledgeRetrievalItem{
+		ID: row.ID, RunID: row.RunID, Query: row.Query,
+		Status: row.Status, StatusName: knowledgeRetrievalStatusName(row.Status),
+		TotalHits: row.TotalHits, SelectedHits: row.SelectedHits,
+		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS),
+		ErrorMessage: row.ErrorMessage, CreatedAt: formatTime(row.CreatedAt),
+		Hits: items,
+	}
+}
+
+func knowledgeHitItem(row KnowledgeHitRow) KnowledgeHitItem {
+	return KnowledgeHitItem{
+		ID: row.ID, KnowledgeBaseID: row.KnowledgeBaseID, KnowledgeBaseName: row.KnowledgeBaseName,
+		DocumentID: row.DocumentID, DocumentTitle: row.DocumentTitle,
+		ChunkID: row.ChunkID, ChunkIndex: row.ChunkIndex,
+		Score: row.Score, RankNo: row.RankNo, ContentSnapshot: row.ContentSnapshot,
+		Status: row.Status, StatusName: knowledgeHitStatusName(row.Status),
+		SkipReason: row.SkipReason, CreatedAt: formatTime(row.CreatedAt),
+	}
+}
+
+func knowledgeRetrievalStatusName(status string) string {
+	if label, ok := knowledgeRetrievalStatusLabels[status]; ok {
+		return label
+	}
+	return status
+}
+
+func knowledgeHitStatusName(status uint) string {
+	switch status {
+	case 1:
+		return "进入上下文"
+	case 2:
+		return "已跳过"
+	default:
+		return ""
 	}
 }
 

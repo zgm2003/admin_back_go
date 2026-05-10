@@ -104,6 +104,25 @@ type ToolExecuteInput = aitool.ExecuteInput
 
 type ToolExecuteResult = aitool.ExecuteResult
 
+type KnowledgeRuntime interface {
+	RetrieveForRun(ctx context.Context, input KnowledgeRuntimeInput) (*KnowledgeContextResult, *apperror.Error)
+}
+
+type KnowledgeRuntimeInput struct {
+	RunID          uint64
+	AgentID        uint64
+	ConversationID int64
+	UserMessageID  int64
+	Query          string
+	StartedAt      time.Time
+}
+
+type KnowledgeContextResult struct {
+	RetrievalID uint64
+	Status      string
+	Context     string
+}
+
 type Repository interface {
 	ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error)
 	AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error)

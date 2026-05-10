@@ -104,21 +104,23 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "ai_agent_test"},
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "ai_agent_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "ai_agent_del"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", "ai_knowledge_map_add"},
-		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/:id", "ai_knowledge_map_edit"},
-		{http.MethodPatch, "/api/admin/v1/ai-knowledge-maps/:id/status", "ai_knowledge_map_status"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/:id/sync", "ai_knowledge_map_sync"},
-		{http.MethodDelete, "/api/admin/v1/ai-knowledge-maps/:id", "ai_knowledge_map_del"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/:id/documents", "ai_knowledge_map_document_add"},
-		{http.MethodPatch, "/api/admin/v1/ai-knowledge-documents/:id/status", "ai_knowledge_map_document_status"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-documents/:id/refresh-status", "ai_knowledge_map_document_refresh"},
-		{http.MethodDelete, "/api/admin/v1/ai-knowledge-documents/:id", "ai_knowledge_map_document_del"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "ai_knowledge_add"},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "ai_knowledge_edit"},
+		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/:id/status", "ai_knowledge_status"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-documents/:id/reindex", "ai_knowledge_reindex"},
+		{http.MethodDelete, "/api/admin/v1/ai-knowledge-bases/:id", "ai_knowledge_del"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/:id/documents", "ai_knowledge_document_add"},
+		{http.MethodPatch, "/api/admin/v1/ai-knowledge-documents/:id/status", "ai_knowledge_document_status"},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-documents/:id", "ai_knowledge_document_edit"},
+		{http.MethodDelete, "/api/admin/v1/ai-knowledge-documents/:id", "ai_knowledge_document_del"},
 		{http.MethodPost, "/api/admin/v1/ai-tools/generate-draft", "ai_tool_generate"},
 		{http.MethodPost, "/api/admin/v1/ai-tools", "ai_tool_add"},
 		{http.MethodPut, "/api/admin/v1/ai-tools/:id", "ai_tool_edit"},
 		{http.MethodPatch, "/api/admin/v1/ai-tools/:id/status", "ai_tool_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-tools/:id", "ai_tool_del"},
 		{http.MethodPut, "/api/admin/v1/ai-agents/:id/tools", "ai_agent_edit"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/:id/retrieval-tests", "ai_knowledge_retrieval_test"},
+		{http.MethodPut, "/api/admin/v1/ai-agents/:id/knowledge-bases", "ai_agent_binding_add"},
 	}
 
 	for _, tt := range tests {
@@ -142,7 +144,11 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	for _, tt := range []struct {
 		method string
 		path   string
-	}{} {
+	}{
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps"},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/:id"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/:id/sync"},
+	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
 			t.Fatalf("retired AI route must not have permission metadata: %s %s", tt.method, tt.path)
 		}
@@ -240,10 +246,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/:id"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/page-init"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/:id"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/:id/documents"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id/documents"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-documents/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-documents/:id/chunks"},
+		{http.MethodGet, "/api/admin/v1/ai-agents/:id/knowledge-bases"},
 		{http.MethodGet, "/api/admin/v1/ai-tools/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-tools/generate/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-tools"},
@@ -356,14 +365,14 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "test"},
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "delete"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", "create"},
-		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/:id", "update"},
-		{http.MethodPatch, "/api/admin/v1/ai-knowledge-maps/:id/status", "change_status"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/:id/sync", "sync"},
-		{http.MethodDelete, "/api/admin/v1/ai-knowledge-maps/:id", "delete"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/:id/documents", "create"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "create"},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/:id/status", "change_status"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-documents/:id/reindex", "reindex"},
+		{http.MethodDelete, "/api/admin/v1/ai-knowledge-bases/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/:id/documents", "create"},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-documents/:id/status", "change_status"},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-documents/:id/refresh-status", "refresh_status"},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-documents/:id", "update"},
 		{http.MethodDelete, "/api/admin/v1/ai-knowledge-documents/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-tools/generate-draft", "generate_draft"},
 		{http.MethodPost, "/api/admin/v1/ai-tools", "create"},
@@ -371,6 +380,8 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/ai-tools/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-tools/:id", "delete"},
 		{http.MethodPut, "/api/admin/v1/ai-agents/:id/tools", "update_binding"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/:id/retrieval-tests", "retrieval_test"},
+		{http.MethodPut, "/api/admin/v1/ai-agents/:id/knowledge-bases", "update_binding"},
 		{http.MethodPost, "/api/admin/v1/ai-conversations", "create"},
 		{http.MethodDelete, "/api/admin/v1/ai-conversations/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages", "send"},
@@ -391,7 +402,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	for _, tt := range []struct {
 		method string
 		path   string
-	}{} {
+	}{
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps"},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/:id"},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/:id/sync"},
+	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
 			t.Fatalf("retired AI route must not be operation-logged: %s %s", tt.method, tt.path)
 		}
@@ -415,10 +430,13 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/:id"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/page-init"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/:id"},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/:id/documents"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id/documents"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-documents/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-documents/:id/chunks"},
+		{http.MethodGet, "/api/admin/v1/ai-agents/:id/knowledge-bases"},
 		{http.MethodGet, "/api/admin/v1/ai-tools/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-tools/generate/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-tools"},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -415,6 +416,59 @@ func (f *fakeToolRuntime) Execute(ctx context.Context, input ToolExecuteInput) (
 	}
 	raw, _ := json.Marshal(output)
 	return &ToolExecuteResult{CallID: input.CallID, Name: input.Tool.Code, Output: raw}, nil
+}
+
+type fakeKnowledgeRuntime struct {
+	input  KnowledgeRuntimeInput
+	result *KnowledgeContextResult
+	err    *apperror.Error
+}
+
+func (f *fakeKnowledgeRuntime) RetrieveForRun(ctx context.Context, input KnowledgeRuntimeInput) (*KnowledgeContextResult, *apperror.Error) {
+	f.input = input
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
+}
+
+func TestExecuteConversationReplyInjectsKnowledgeContext(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	engine := &captureEngine{}
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "这个项目后端架构是什么？"}},
+	}
+	knowledge := &fakeKnowledgeRuntime{result: &KnowledgeContextResult{RetrievalID: 88, Context: "[K1] 知识库：架构库；文档：Go 后端架构\nGin modular monolith"}}
+	_, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err != nil {
+		t.Fatalf("ExecuteConversationReply returned error: %v", err)
+	}
+	if knowledge.input.RunID != 100 || knowledge.input.AgentID != 5 || knowledge.input.ConversationID != 3 || knowledge.input.UserMessageID != 9 || knowledge.input.Query != "这个项目后端架构是什么？" {
+		t.Fatalf("knowledge runtime input mismatch: %#v", knowledge.input)
+	}
+	if !strings.Contains(engine.input.Content, "Gin modular monolith") || !strings.Contains(engine.input.Content, "用户问题：\n这个项目后端架构是什么？") {
+		t.Fatalf("knowledge context not injected into model input: %q", engine.input.Content)
+	}
+}
+
+func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	engine := &captureEngine{}
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}},
+	}
+	knowledge := &fakeKnowledgeRuntime{err: apperror.Internal("知识库检索失败")}
+	res, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err != nil {
+		t.Fatalf("knowledge failure must not block chat: %v", err)
+	}
+	if res.AssistantMessageID != 22 || engine.input.Content != "hi" {
+		t.Fatalf("chat should continue with original message: res=%#v input=%q", res, engine.input.Content)
+	}
 }
 
 type toolCallEngine struct {

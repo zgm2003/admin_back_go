@@ -22,21 +22,23 @@ const historyLimit = 20
 const maxHistoryLimit = 50
 
 type Dependencies struct {
-	Repository    Repository
-	Publisher     platformrealtime.Publisher
-	EngineFactory EngineFactory
-	Secretbox     secretbox.Box
-	ToolRuntime   ToolRuntime
-	Now           func() time.Time
+	Repository       Repository
+	Publisher        platformrealtime.Publisher
+	EngineFactory    EngineFactory
+	Secretbox        secretbox.Box
+	ToolRuntime      ToolRuntime
+	KnowledgeRuntime KnowledgeRuntime
+	Now              func() time.Time
 }
 
 type Service struct {
-	repository    Repository
-	publisher     platformrealtime.Publisher
-	engineFactory EngineFactory
-	secretbox     secretbox.Box
-	toolRuntime   ToolRuntime
-	now           func() time.Time
+	repository       Repository
+	publisher        platformrealtime.Publisher
+	engineFactory    EngineFactory
+	secretbox        secretbox.Box
+	toolRuntime      ToolRuntime
+	knowledgeRuntime KnowledgeRuntime
+	now              func() time.Time
 }
 
 func NewService(deps Dependencies) *Service {
@@ -44,7 +46,7 @@ func NewService(deps Dependencies) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, now: now}
+	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, now: now}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -118,6 +120,19 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		appErr := apperror.BadRequest(msg)
 		finishRun(enum.AIRunStatusFailed, msg, appErr)
 		return nil, appErr
+	}
+	if s.knowledgeRuntime != nil {
+		knowledge, knowledgeErr := s.knowledgeRuntime.RetrieveForRun(ctx, KnowledgeRuntimeInput{
+			RunID:          uint64(runID),
+			AgentID:        uint64(input.AgentID),
+			ConversationID: input.ConversationID,
+			UserMessageID:  input.UserMessageID,
+			Query:          userContent,
+			StartedAt:      startedAt,
+		})
+		if knowledgeErr == nil && knowledge != nil && strings.TrimSpace(knowledge.Context) != "" {
+			userContent = strings.TrimSpace(knowledge.Context) + "\n\n用户问题：\n" + userContent
+		}
 	}
 	sink := &conversationEventSink{service: s, input: input}
 	chatInput := platformai.ChatInput{

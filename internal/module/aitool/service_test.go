@@ -246,6 +246,21 @@ func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
 	}
 }
 
+func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
+	box := secretbox.New("test-vault-key")
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t, box)
+	repo.generateAgent = &agent
+	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具"})
+	if appErr != nil {
+		t.Fatalf("GenerateDraft should accept JSON Schema without required: %v", appErr)
+	}
+	if got.Draft == nil || !jsonEqualObject(string(got.Draft.ParametersJSON), `{"type":"object","properties":{},"required":[],"additionalProperties":false}`) {
+		t.Fatalf("parameters schema should be normalized with empty required: %#v", got.Draft)
+	}
+}
+
 func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testing.T) {
 	box := secretbox.New("test-vault-key")
 	repo := &fakeRepository{}

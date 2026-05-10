@@ -103,35 +103,68 @@ type ToolCallItem struct {
 	FinishedAt    string     `json:"finished_at"`
 }
 
+type KnowledgeRetrievalItem struct {
+	ID           int64              `json:"id"`
+	RunID        int64              `json:"run_id"`
+	Query        string             `json:"query"`
+	Status       string             `json:"status"`
+	StatusName   string             `json:"status_name"`
+	TotalHits    uint               `json:"total_hits"`
+	SelectedHits uint               `json:"selected_hits"`
+	DurationMS   *uint              `json:"duration_ms"`
+	DurationText string             `json:"duration_text"`
+	ErrorMessage string             `json:"error_message"`
+	CreatedAt    string             `json:"created_at"`
+	Hits         []KnowledgeHitItem `json:"hits"`
+}
+
+type KnowledgeHitItem struct {
+	ID                int64   `json:"id"`
+	KnowledgeBaseID   int64   `json:"knowledge_base_id"`
+	KnowledgeBaseName string  `json:"knowledge_base_name"`
+	DocumentID        int64   `json:"document_id"`
+	DocumentTitle     string  `json:"document_title"`
+	ChunkID           int64   `json:"chunk_id"`
+	ChunkIndex        uint    `json:"chunk_index"`
+	Score             float64 `json:"score"`
+	RankNo            uint    `json:"rank_no"`
+	ContentSnapshot   string  `json:"content_snapshot"`
+	Status            uint    `json:"status"`
+	StatusName        string  `json:"status_name"`
+	SkipReason        string  `json:"skip_reason"`
+	CreatedAt         string  `json:"created_at"`
+}
+
 type DetailResponse struct {
-	ID                int64           `json:"id"`
-	RequestID         string          `json:"request_id"`
-	UserID            int64           `json:"user_id"`
-	Username          string          `json:"username"`
-	AgentID           int64           `json:"agent_id"`
-	AgentName         string          `json:"agent_name"`
-	ProviderID        int64           `json:"provider_id"`
-	ProviderName      string          `json:"provider_name"`
-	ConversationID    int64           `json:"conversation_id"`
-	ConversationTitle string          `json:"conversation_title"`
-	Status            string          `json:"status"`
-	StatusName        string          `json:"status_name"`
-	ModelID           string          `json:"model_id"`
-	ModelDisplayName  string          `json:"model_display_name"`
-	PromptTokens      uint            `json:"prompt_tokens"`
-	CompletionTokens  uint            `json:"completion_tokens"`
-	TotalTokens       uint            `json:"total_tokens"`
-	DurationMS        *uint           `json:"duration_ms"`
-	DurationText      string          `json:"duration_text"`
-	ErrorMessage      string          `json:"error_message"`
-	UserMessage       *MessageSummary `json:"user_message"`
-	AssistantMessage  *MessageSummary `json:"assistant_message"`
-	Events            []EventItem     `json:"events"`
-	ToolCalls         []ToolCallItem  `json:"tool_calls"`
-	StartedAt         string          `json:"started_at"`
-	FinishedAt        string          `json:"finished_at"`
-	CreatedAt         string          `json:"created_at"`
-	UpdatedAt         string          `json:"updated_at"`
+	ID                  int64                    `json:"id"`
+	RequestID           string                   `json:"request_id"`
+	UserID              int64                    `json:"user_id"`
+	Username            string                   `json:"username"`
+	AgentID             int64                    `json:"agent_id"`
+	AgentName           string                   `json:"agent_name"`
+	ProviderID          int64                    `json:"provider_id"`
+	ProviderName        string                   `json:"provider_name"`
+	ConversationID      int64                    `json:"conversation_id"`
+	ConversationTitle   string                   `json:"conversation_title"`
+	Status              string                   `json:"status"`
+	StatusName          string                   `json:"status_name"`
+	ModelID             string                   `json:"model_id"`
+	ModelDisplayName    string                   `json:"model_display_name"`
+	PromptTokens        uint                     `json:"prompt_tokens"`
+	CompletionTokens    uint                     `json:"completion_tokens"`
+	TotalTokens         uint                     `json:"total_tokens"`
+	DurationMS          *uint                    `json:"duration_ms"`
+	DurationText        string                   `json:"duration_text"`
+	ErrorMessage        string                   `json:"error_message"`
+	UserMessage         *MessageSummary          `json:"user_message"`
+	AssistantMessage    *MessageSummary          `json:"assistant_message"`
+	Events              []EventItem              `json:"events"`
+	KnowledgeRetrievals []KnowledgeRetrievalItem `json:"knowledge_retrievals"`
+	ToolCalls           []ToolCallItem           `json:"tool_calls"`
+	StartedAt           string                   `json:"started_at"`
+	FinishedAt          string                   `json:"finished_at"`
+	CreatedAt           string                   `json:"created_at"`
+	UpdatedAt           string                   `json:"updated_at"`
 }
 
 type StatsFilter struct {
@@ -275,6 +308,35 @@ type ToolCallRow struct {
 	FinishedAt    *time.Time
 }
 
+type KnowledgeRetrievalRow struct {
+	ID           int64
+	RunID        int64
+	Query        string
+	Status       string
+	TotalHits    uint
+	SelectedHits uint
+	DurationMS   *uint
+	ErrorMessage string
+	CreatedAt    time.Time
+}
+
+type KnowledgeHitRow struct {
+	ID                int64
+	RetrievalID       int64
+	KnowledgeBaseID   int64
+	KnowledgeBaseName string
+	DocumentID        int64
+	DocumentTitle     string
+	ChunkID           int64
+	ChunkIndex        uint
+	Score             float64
+	RankNo            uint
+	ContentSnapshot   string
+	Status            uint
+	SkipReason        string
+	CreatedAt         time.Time
+}
+
 type StatsSummaryRow struct {
 	TotalRuns        int64
 	SuccessRuns      int64
@@ -324,6 +386,8 @@ type Repository interface {
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
 	Events(ctx context.Context, runID int64) ([]EventRow, error)
 	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
+	KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error)
+	KnowledgeRetrievalHits(ctx context.Context, retrievalID int64) ([]KnowledgeHitRow, error)
 	StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error)
 	StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)

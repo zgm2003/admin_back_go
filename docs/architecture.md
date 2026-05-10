@@ -1365,7 +1365,7 @@ internal/platform/ai            # stable engine interface, fake only for tests/d
 internal/platform/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
 internal/module/aiprovider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/aiagent         # ai_agents local agent config MVP
-internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents mapping/status sync
+internal/module/aiknowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
 internal/module/aitool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
 internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents
 internal/module/aimessage       # conversation messages, feedback, branch cleanup
@@ -1377,11 +1377,12 @@ Retired AI active runtime:
 
 ```text
 legacy AI model/tool/prompt/knowledge-base REST resources
+legacy AI knowledge-map metadata/routes
 legacy AI tool-map metadata/routes
 legacy model/prompt Vue menu entries and legacy app naming
 ```
 
-这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aiprompt` / `aiknowledge`、`aiapp` 或旧工具映射模块重新挂回 server/bootstrap。
+这些旧精确 route 字符串只能留在 backup/rollback SQL、历史 spec/plan 或 negative router tests。不要把 `aimodel` / `aiprompt`、`aiknowledgemap`、`aiapp` 或旧工具映射模块重新挂回 server/bootstrap。
 
 Schema truth:
 
@@ -1392,6 +1393,7 @@ Schema truth:
 20260509_ai_agent_mvp_config.sql         # agent config MVP columns: model, scenes, system prompt, avatar
 20260510_ai_tool_runtime_mvp.sql         # tool runtime MVP: ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
 20260510_ai_tool_drop_executor.sql       # removes duplicate ai_tools.executor; tool code is the dispatch key
+20260510_ai_knowledge_rag.sql            # local RAG MVP: knowledge bases, documents, chunks, agent bindings, retrieval audit
 20260508_ai_core_rollback.sql            # restores old local AI backups only
 ```
 
@@ -1415,6 +1417,17 @@ list search supports name/provider/status plus scene=chat or scene=agent_generat
 MVP scenes currently allow chat and agent_generate; stored as scenes_json and exposed as scenes/scene_names
 system_prompt and avatar are optional local agent metadata
 ai_agents intentionally has no agent code, agent type, per-agent external app id/key, response mode, runtime config JSON, model snapshot JSON, created_by, or updated_by in the MVP slice
+tool usage is stored in ai_agent_tools; knowledge usage is stored in ai_agent_knowledge_bases; do not add duplicate JSON binding fields to ai_agents
+```
+
+Knowledge RAG truth:
+
+```text
+active tables are ai_knowledge_bases, ai_knowledge_documents, ai_knowledge_chunks, ai_agent_knowledge_bases, ai_knowledge_retrievals, ai_knowledge_retrieval_hits
+/ai/knowledge manages bases/documents/chunks/retrieval tests; /ai/agents owns which knowledge bases an agent can read
+retrieval is deterministic local text scoring in Go; no vector DB, no hosted file_search, no Dify/RAGFlow dataset sync in this slice
+runtime writes retrieval and hit audit rows before provider call; hit rows snapshot chunk content for historical run monitor display
+selected context is injected into the current provider input only; it does not mutate ai_agents.system_prompt or persisted user message content
 ```
 
 Runtime boundary:
@@ -1425,6 +1438,7 @@ Provider streams/events stay server-side; browser receives admin_go WebSocket en
 ai_runs records one reply attempt with status, token totals, duration, and message links.
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
+ai_knowledge_retrievals and ai_knowledge_retrieval_hits record knowledge retrieval audit and are shown on run detail; knowledge retrievals are not stuffed into ai_run_events.
 WebSocket delta is not persisted to ai_run_events; final assistant content stays in ai_messages.
 There is no daily aggregate table, billing amount, provider task id, execution-step timeline, usage dump, or snapshot JSON in the run-monitor MVP.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.

@@ -17,6 +17,8 @@ type fakeRepository struct {
 	run         *RunDetailRow
 	events      []EventRow
 	toolCalls   []ToolCallRow
+	retrievals  []KnowledgeRetrievalRow
+	hits        map[int64][]KnowledgeHitRow
 	summary     StatsSummaryRow
 	metricQuery StatsListQuery
 	byDate      []StatsByDateRow
@@ -43,6 +45,12 @@ func (f *fakeRepository) Events(ctx context.Context, runID int64) ([]EventRow, e
 }
 func (f *fakeRepository) ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error) {
 	return f.toolCalls, nil
+}
+func (f *fakeRepository) KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error) {
+	return f.retrievals, nil
+}
+func (f *fakeRepository) KnowledgeRetrievalHits(ctx context.Context, retrievalID int64) ([]KnowledgeHitRow, error) {
+	return f.hits[retrievalID], nil
 }
 func (f *fakeRepository) StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error) {
 	return f.summary, nil
@@ -104,6 +112,32 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	}
 	if len(res.ToolCalls) != 1 || res.ToolCalls[0].ToolCode != "admin_user_count" || string(res.ToolCalls[0].ArgumentsJSON) != `{"scope":"all"}` || string(res.ToolCalls[0].ResultJSON) != `{"total_users":1015}` || res.ToolCalls[0].DurationMS == nil || *res.ToolCalls[0].DurationMS != 12 {
 		t.Fatalf("unexpected tool calls: %#v", res.ToolCalls)
+	}
+}
+
+func TestDetailIncludesKnowledgeRetrievals(t *testing.T) {
+	startedAt := time.Date(2026, 5, 10, 20, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{
+		run:        &RunDetailRow{ID: 1, RequestID: "rid", Status: enum.AIRunStatusSuccess, CreatedAt: startedAt, UpdatedAt: startedAt},
+		retrievals: []KnowledgeRetrievalRow{{ID: 7, RunID: 1, Query: "项目架构", Status: "success", TotalHits: 2, SelectedHits: 1, DurationMS: ptrUint(8), CreatedAt: startedAt}},
+		hits: map[int64][]KnowledgeHitRow{
+			7: {{ID: 8, RetrievalID: 7, KnowledgeBaseID: 1, KnowledgeBaseName: "架构库", DocumentID: 2, DocumentTitle: "Go 后端架构", ChunkID: 3, ChunkIndex: 1, Score: 0.82, RankNo: 1, ContentSnapshot: "Gin modular monolith", Status: 1, CreatedAt: startedAt}},
+		},
+	}
+	res, appErr := NewService(repo).Detail(context.Background(), 1)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if len(res.KnowledgeRetrievals) != 1 || len(res.KnowledgeRetrievals[0].Hits) != 1 {
+		t.Fatalf("missing knowledge retrievals: %#v", res.KnowledgeRetrievals)
+	}
+	retrieval := res.KnowledgeRetrievals[0]
+	if retrieval.Query != "项目架构" || retrieval.StatusName != "检索成功" || retrieval.DurationText != "8ms" || retrieval.SelectedHits != 1 || retrieval.TotalHits != 2 {
+		t.Fatalf("unexpected retrieval: %#v", retrieval)
+	}
+	hit := retrieval.Hits[0]
+	if hit.KnowledgeBaseName != "架构库" || hit.DocumentTitle != "Go 后端架构" || hit.StatusName != "进入上下文" || hit.ContentSnapshot != "Gin modular monolith" {
+		t.Fatalf("unexpected retrieval hit: %#v", hit)
 	}
 }
 

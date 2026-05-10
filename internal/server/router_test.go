@@ -19,7 +19,7 @@ import (
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiknowledgemap"
+	"admin_back_go/internal/module/aiknowledge"
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
@@ -61,64 +61,89 @@ func (f fakeReadinessChecker) Readiness(ctx context.Context) readiness.Report {
 	return f.report
 }
 
-type fakeRouterAIKnowledgeMapService struct {
-	initCalled         bool
-	listQuery          aiknowledgemap.ListQuery
-	detailID           uint64
-	syncID             uint64
-	documentsMapID     uint64
-	createdDocumentMap uint64
-	documentStatusID   uint64
-	refreshDocumentID  uint64
-	deletedDocumentID  uint64
+type fakeRouterAIKnowledgeService struct {
+	initCalled             bool
+	listQuery              aiknowledge.BaseListQuery
+	detailID               uint64
+	documentsBaseID        uint64
+	createdDocumentBaseID  uint64
+	documentDetailID       uint64
+	documentUpdateID       uint64
+	documentStatusID       uint64
+	reindexDocumentID      uint64
+	chunksDocumentID       uint64
+	deletedDocumentID      uint64
+	retrievalTestBaseID    uint64
+	agentBindingsID        uint64
+	updatedAgentBindingsID uint64
 }
 
-func (f *fakeRouterAIKnowledgeMapService) Init(ctx context.Context) (*aiknowledgemap.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIKnowledgeService) Init(ctx context.Context) (*aiknowledge.InitResponse, *apperror.Error) {
 	f.initCalled = true
-	return &aiknowledgemap.InitResponse{}, nil
+	return &aiknowledge.InitResponse{}, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) List(ctx context.Context, query aiknowledgemap.ListQuery) (*aiknowledgemap.ListResponse, *apperror.Error) {
+func (f *fakeRouterAIKnowledgeService) ListBases(ctx context.Context, query aiknowledge.BaseListQuery) (*aiknowledge.BaseListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &aiknowledgemap.ListResponse{List: []aiknowledgemap.MapDTO{{ID: 1, Name: "客服库", Code: "support", Status: enum.CommonYes}}, Page: aiknowledgemap.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
+	return &aiknowledge.BaseListResponse{List: []aiknowledge.BaseDTO{{ID: 1, Name: "架构库", Code: "arch", Status: enum.CommonYes}}, Page: aiknowledge.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) Detail(ctx context.Context, id uint64) (*aiknowledgemap.DetailResponse, *apperror.Error) {
+func (f *fakeRouterAIKnowledgeService) GetBase(ctx context.Context, id uint64) (*aiknowledge.BaseDetailResponse, *apperror.Error) {
 	f.detailID = id
-	return &aiknowledgemap.DetailResponse{MapDTO: aiknowledgemap.MapDTO{ID: id, Name: "客服库", Code: "support", Status: enum.CommonYes}}, nil
+	return &aiknowledge.BaseDetailResponse{BaseDTO: aiknowledge.BaseDTO{ID: id, Name: "架构库", Code: "arch", Status: enum.CommonYes}}, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) Create(ctx context.Context, input aiknowledgemap.MapInput) (uint64, *apperror.Error) {
+func (f *fakeRouterAIKnowledgeService) CreateBase(ctx context.Context, input aiknowledge.BaseMutationInput) (uint64, *apperror.Error) {
 	return 1, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) Update(ctx context.Context, id uint64, input aiknowledgemap.MapInput) *apperror.Error {
+func (f *fakeRouterAIKnowledgeService) UpdateBase(ctx context.Context, id uint64, input aiknowledge.BaseMutationInput) *apperror.Error {
 	return nil
 }
-func (f *fakeRouterAIKnowledgeMapService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
+func (f *fakeRouterAIKnowledgeService) ChangeBaseStatus(ctx context.Context, id uint64, status int) *apperror.Error {
 	return nil
 }
-func (f *fakeRouterAIKnowledgeMapService) Sync(ctx context.Context, id uint64) *apperror.Error {
-	f.syncID = id
+func (f *fakeRouterAIKnowledgeService) DeleteBase(ctx context.Context, id uint64) *apperror.Error {
 	return nil
 }
-func (f *fakeRouterAIKnowledgeMapService) Delete(ctx context.Context, id uint64) *apperror.Error {
-	return nil
+func (f *fakeRouterAIKnowledgeService) ListDocuments(ctx context.Context, baseID uint64, query aiknowledge.DocumentListQuery) (*aiknowledge.DocumentListResponse, *apperror.Error) {
+	f.documentsBaseID = baseID
+	return &aiknowledge.DocumentListResponse{List: []aiknowledge.DocumentDTO{{ID: 2, KnowledgeBaseID: baseID, Title: "FAQ", SourceType: "text", Status: enum.CommonYes}}}, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) Documents(ctx context.Context, mapID uint64) (*aiknowledgemap.DocumentListResponse, *apperror.Error) {
-	f.documentsMapID = mapID
-	return &aiknowledgemap.DocumentListResponse{List: []aiknowledgemap.DocumentDTO{{ID: 2, KnowledgeMapID: mapID, Name: "FAQ", SourceType: "text", Status: enum.CommonYes}}}, nil
+func (f *fakeRouterAIKnowledgeService) GetDocument(ctx context.Context, id uint64) (*aiknowledge.DocumentDetailResponse, *apperror.Error) {
+	f.documentDetailID = id
+	return &aiknowledge.DocumentDetailResponse{DocumentDTO: aiknowledge.DocumentDTO{ID: id, Title: "FAQ", Status: enum.CommonYes}, Content: "hello"}, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) CreateDocument(ctx context.Context, mapID uint64, input aiknowledgemap.DocumentInput) (uint64, *apperror.Error) {
-	f.createdDocumentMap = mapID
+func (f *fakeRouterAIKnowledgeService) CreateDocument(ctx context.Context, baseID uint64, input aiknowledge.DocumentMutationInput) (uint64, *apperror.Error) {
+	f.createdDocumentBaseID = baseID
 	return 2, nil
 }
-func (f *fakeRouterAIKnowledgeMapService) ChangeDocumentStatus(ctx context.Context, id uint64, status int) *apperror.Error {
+func (f *fakeRouterAIKnowledgeService) UpdateDocument(ctx context.Context, id uint64, input aiknowledge.DocumentMutationInput) *apperror.Error {
+	f.documentUpdateID = id
+	return nil
+}
+func (f *fakeRouterAIKnowledgeService) ChangeDocumentStatus(ctx context.Context, id uint64, status int) *apperror.Error {
 	f.documentStatusID = id
 	return nil
 }
-func (f *fakeRouterAIKnowledgeMapService) RefreshDocumentStatus(ctx context.Context, id uint64) *apperror.Error {
-	f.refreshDocumentID = id
+func (f *fakeRouterAIKnowledgeService) DeleteDocument(ctx context.Context, id uint64) *apperror.Error {
+	f.deletedDocumentID = id
 	return nil
 }
-func (f *fakeRouterAIKnowledgeMapService) DeleteDocument(ctx context.Context, id uint64) *apperror.Error {
-	f.deletedDocumentID = id
+func (f *fakeRouterAIKnowledgeService) ReindexDocument(ctx context.Context, id uint64) *apperror.Error {
+	f.reindexDocumentID = id
+	return nil
+}
+func (f *fakeRouterAIKnowledgeService) ListChunks(ctx context.Context, documentID uint64) (*aiknowledge.ChunkListResponse, *apperror.Error) {
+	f.chunksDocumentID = documentID
+	return &aiknowledge.ChunkListResponse{List: []aiknowledge.ChunkDTO{{ID: 3, DocumentID: documentID, ChunkIndex: 1}}}, nil
+}
+func (f *fakeRouterAIKnowledgeService) RetrievalTest(ctx context.Context, baseID uint64, input aiknowledge.RetrievalTestInput) (*aiknowledge.RetrievalResult, *apperror.Error) {
+	f.retrievalTestBaseID = baseID
+	return &aiknowledge.RetrievalResult{Query: input.Query, Status: aiknowledge.RetrievalStatusSuccess}, nil
+}
+func (f *fakeRouterAIKnowledgeService) AgentKnowledgeBases(ctx context.Context, agentID uint64) (*aiknowledge.AgentKnowledgeBindingsResponse, *apperror.Error) {
+	f.agentBindingsID = agentID
+	return &aiknowledge.AgentKnowledgeBindingsResponse{AgentID: agentID}, nil
+}
+func (f *fakeRouterAIKnowledgeService) UpdateAgentKnowledgeBases(ctx context.Context, agentID uint64, input aiknowledge.UpdateAgentKnowledgeBindingsInput) *apperror.Error {
+	f.updatedAgentBindingsID = agentID
 	return nil
 }
 
@@ -2983,29 +3008,34 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsAIAgentKnowledgeRESTRoutes(t *testing.T) {
-	knowledgeMapService := &fakeRouterAIKnowledgeMapService{}
+func TestRouterInstallsAIKnowledgeRESTRoutes(t *testing.T) {
+	knowledgeService := &fakeRouterAIKnowledgeService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
-		AiKnowledgeMapService: knowledgeMapService,
+		AiKnowledgeService: knowledgeService,
 	})
 
 	cases := []struct{ method, path, body string }{
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps?current_page=1&page_size=20&visibility=private&provider_id=3&status=1", ""},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", `{"provider_id":3,"name":"客服库","code":"support","visibility":"private","status":1}`},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/1", ""},
-		{http.MethodPut, "/api/admin/v1/ai-knowledge-maps/1", `{"provider_id":3,"name":"客服库","code":"support","visibility":"private","status":1}`},
-		{http.MethodPatch, "/api/admin/v1/ai-knowledge-maps/1/status", `{"status":1}`},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/1/sync", ""},
-		{http.MethodDelete, "/api/admin/v1/ai-knowledge-maps/1", ""},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/1/documents", ""},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps/1/documents", `{"name":"FAQ","source_type":"text","content":"hello","status":1}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases?current_page=1&page_size=20&code=arch&status=1", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", `{"name":"架构库","code":"arch","description":"docs","chunk_size_chars":1200,"chunk_overlap_chars":120,"default_top_k":5,"default_min_score":0.1,"default_max_context_chars":6000,"status":1}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/1", ""},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/1", `{"name":"架构库","code":"arch","description":"docs","chunk_size_chars":1200,"chunk_overlap_chars":120,"default_top_k":5,"default_min_score":0.1,"default_max_context_chars":6000,"status":1}`},
+		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/1/status", `{"status":1}`},
+		{http.MethodDelete, "/api/admin/v1/ai-knowledge-bases/1", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/1/documents", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/1/documents", `{"title":"FAQ","source_type":"text","content":"hello","status":1}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-documents/2", ""},
+		{http.MethodPut, "/api/admin/v1/ai-knowledge-documents/2", `{"title":"FAQ","source_type":"text","content":"hello","status":1}`},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-documents/2/status", `{"status":1}`},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-documents/2/refresh-status", ""},
 		{http.MethodDelete, "/api/admin/v1/ai-knowledge-documents/2", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-documents/2/reindex", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-documents/2/chunks", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases/1/retrieval-tests", `{"query":"Gin modular monolith"}`},
+		{http.MethodGet, "/api/admin/v1/ai-agents/7/knowledge-bases", ""},
+		{http.MethodPut, "/api/admin/v1/ai-agents/7/knowledge-bases", `{"bindings":[{"knowledge_base_id":1,"top_k":5,"min_score":0.1,"max_context_chars":6000,"status":1}]}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -3025,11 +3055,11 @@ func TestRouterInstallsAIAgentKnowledgeRESTRoutes(t *testing.T) {
 			}
 		})
 	}
-	if !knowledgeMapService.initCalled || knowledgeMapService.listQuery.Visibility != "private" || knowledgeMapService.listQuery.ProviderID != 3 || knowledgeMapService.listQuery.Status == nil || *knowledgeMapService.listQuery.Status != enum.CommonYes {
-		t.Fatalf("AI knowledge map init/list not routed correctly: called=%v query=%#v", knowledgeMapService.initCalled, knowledgeMapService.listQuery)
+	if !knowledgeService.initCalled || knowledgeService.listQuery.Code != "arch" || knowledgeService.listQuery.Status == nil || *knowledgeService.listQuery.Status != enum.CommonYes {
+		t.Fatalf("AI knowledge init/list not routed correctly: called=%v query=%#v", knowledgeService.initCalled, knowledgeService.listQuery)
 	}
-	if knowledgeMapService.detailID != 1 || knowledgeMapService.syncID != 1 || knowledgeMapService.documentsMapID != 1 || knowledgeMapService.createdDocumentMap != 1 || knowledgeMapService.documentStatusID != 2 || knowledgeMapService.refreshDocumentID != 2 || knowledgeMapService.deletedDocumentID != 2 {
-		t.Fatalf("AI knowledge map nested routes not called correctly: %#v", knowledgeMapService)
+	if knowledgeService.detailID != 1 || knowledgeService.documentsBaseID != 1 || knowledgeService.createdDocumentBaseID != 1 || knowledgeService.documentDetailID != 2 || knowledgeService.documentUpdateID != 2 || knowledgeService.documentStatusID != 2 || knowledgeService.deletedDocumentID != 2 || knowledgeService.reindexDocumentID != 2 || knowledgeService.chunksDocumentID != 2 || knowledgeService.retrievalTestBaseID != 1 || knowledgeService.agentBindingsID != 7 || knowledgeService.updatedAgentBindingsID != 7 {
+		t.Fatalf("AI knowledge nested routes not called correctly: %#v", knowledgeService)
 	}
 }
 
@@ -3038,10 +3068,10 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
-		AiProviderService:     &fakeRouterAIProviderService{},
-		AiAgentService:        &fakeRouterAIAgentService{},
-		AiKnowledgeMapService: &fakeRouterAIKnowledgeMapService{},
-		AiToolService:         &fakeRouterAIToolService{},
+		AiProviderService:  &fakeRouterAIProviderService{},
+		AiAgentService:     &fakeRouterAIAgentService{},
+		AiKnowledgeService: &fakeRouterAIKnowledgeService{},
+		AiToolService:      &fakeRouterAIToolService{},
 	})
 
 	retired := []struct {
@@ -3054,9 +3084,9 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-models", `{"name":"model"}`},
 		{http.MethodGet, "/api/admin/v1/ai-prompts", ""},
 		{http.MethodPost, "/api/admin/v1/ai-prompts", `{"title":"prompt","content":"text"}`},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases", ""},
-		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", `{"name":"kb"}`},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps", ""},
+		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", `{"name":"kb"}`},
 	}
 	for _, tc := range retired {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {

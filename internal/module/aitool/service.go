@@ -558,7 +558,11 @@ func normalizeStrictSchema(raw json.RawMessage, msg string) (json.RawMessage, *a
 	}
 	required, ok := obj["required"].([]any)
 	if !ok {
-		return nil, apperror.BadRequest(msg)
+		if _, exists := obj["required"]; exists {
+			return nil, apperror.BadRequest(msg)
+		}
+		required = []any{}
+		obj["required"] = required
 	}
 	for _, item := range required {
 		key, ok := item.(string)
