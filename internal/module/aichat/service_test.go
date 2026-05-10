@@ -379,3 +379,15 @@ func TestChatInputsExtractsAttachmentsAndRuntimeParamsFromCurrentMessageMeta(t *
 		t.Fatalf("max_history not applied: %#v", inputs["history"])
 	}
 }
+
+func TestChatInputsOnlyIncludesConfiguredSystemPrompt(t *testing.T) {
+	inputs := chatInputs(AgentEngineConfig{ModelID: "gpt-test", SystemPrompt: "  "}, nil, 9)
+	if _, ok := inputs["system_prompt"]; ok {
+		t.Fatalf("blank system prompt must not be sent downstream: %#v", inputs)
+	}
+
+	inputs = chatInputs(AgentEngineConfig{ModelID: "gpt-test", SystemPrompt: "你是客服"}, nil, 9)
+	if inputs["system_prompt"] != "你是客服" {
+		t.Fatalf("configured system prompt must be preserved, got %#v", inputs["system_prompt"])
+	}
+}

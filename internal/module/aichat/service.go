@@ -354,9 +354,11 @@ func chatHistoryWithLimit(rows []MessageHistory, currentUserMessageID int64, max
 func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID int64) map[string]any {
 	meta := metaForMessage(history, userMessageID)
 	inputs := map[string]any{
-		"model_id":      agent.ModelID,
-		"system_prompt": agent.SystemPrompt,
-		"history":       chatHistoryWithLimit(history, userMessageID, maxHistoryFromMeta(meta)),
+		"model_id": agent.ModelID,
+		"history":  chatHistoryWithLimit(history, userMessageID, maxHistoryFromMeta(meta)),
+	}
+	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
+		inputs["system_prompt"] = systemPrompt
 	}
 	if len(meta) == 0 {
 		return inputs

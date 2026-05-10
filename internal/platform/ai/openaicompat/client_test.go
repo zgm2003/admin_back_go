@@ -114,6 +114,38 @@ func TestClientStreamChatSendsOpenAIChatCompletionAndEmitsDelta(t *testing.T) {
 	}
 }
 
+func TestClientStreamChatDoesNotSendSystemMessageWhenSystemPromptBlank(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+		Content: "你是谁",
+		Inputs: map[string]any{
+			"model_id":      "gpt-5.4",
+			"system_prompt": "   ",
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	messages, ok := requestBody["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("unexpected messages: %#v", requestBody["messages"])
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok || message["role"] != "user" {
+		t.Fatalf("blank system prompt must not produce system message: %#v", messages)
+	}
+}
+
 func TestClientStreamChatSendsVisionContentAndRuntimeParams(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
