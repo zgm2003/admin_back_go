@@ -126,7 +126,12 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiToolRepo := aitool.NewGormRepository(resources.DB)
-	aiToolService := aitool.NewService(aiToolRepo, aitool.DefaultExecutors(aiToolRepo))
+	aiToolService := aitool.NewService(
+		aiToolRepo,
+		aitool.DefaultExecutors(aiToolRepo),
+		aitool.WithSecretbox(secretBox),
+		aitool.WithEngineFactory(aiToolGenerateEngineFactory{}),
+	)
 	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
@@ -395,6 +400,27 @@ func (aiEngineFactory) NewEngine(ctx context.Context, input aiknowledgemap.Engin
 type aiChatEngineFactory struct{}
 
 func (aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (platformai.Engine, error) {
+	switch input.EngineType {
+	case platformai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 30 * time.Second,
+		}), nil
+	case platformai.EngineTypeDify:
+		return dify.New(dify.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 30 * time.Second,
+		})
+	default:
+		return nil, platformai.ErrInvalidConfig
+	}
+}
+
+type aiToolGenerateEngineFactory struct{}
+
+func (aiToolGenerateEngineFactory) NewEngine(ctx context.Context, input aitool.EngineConfig) (platformai.Engine, error) {
 	switch input.EngineType {
 	case platformai.EngineTypeOpenAI:
 		return openaicompat.New(openaicompat.Config{

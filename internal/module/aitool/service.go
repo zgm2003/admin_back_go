@@ -1,9 +1,12 @@
 package aitool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"math"
 	"sort"
 	"strings"
@@ -12,18 +15,44 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
+	platformai "admin_back_go/internal/platform/ai"
+	"admin_back_go/internal/platform/secretbox"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
+const sceneAgentGenerate = "agent_generate"
+const unregisteredToolWarning = "该工具编码暂未注册服务端实现，已默认禁用"
 
 type Service struct {
-	repository Repository
-	executors  map[string]Executor
-	now        func() time.Time
+	repository    Repository
+	executors     map[string]Executor
+	secretbox     secretbox.Box
+	engineFactory EngineFactory
+	now           func() time.Time
 }
 
-func NewService(repository Repository, executors map[string]Executor) *Service {
-	return &Service{repository: repository, executors: executors, now: time.Now}
+type Option func(*Service)
+
+func WithSecretbox(box secretbox.Box) Option {
+	return func(s *Service) {
+		s.secretbox = box
+	}
+}
+
+func WithEngineFactory(factory EngineFactory) Option {
+	return func(s *Service) {
+		s.engineFactory = factory
+	}
+}
+
+func NewService(repository Repository, executors map[string]Executor, opts ...Option) *Service {
+	service := &Service{repository: repository, executors: executors, now: time.Now}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
@@ -45,6 +74,103 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 		list = append(list, toolDTO(row))
 	}
 	return &ListResponse{List: list, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: total, TotalPage: totalPage(total, query.PageSize)}}, nil
+}
+
+func (s *Service) GeneratePageInit(ctx context.Context) (*GeneratePageInitResponse, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	options, err := repo.ListGenerateAgents(ctx)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI生成智能体失败", err)
+	}
+	if options == nil {
+		options = []GenerateAgentOption{}
+	}
+	return &GeneratePageInitResponse{AgentOptions: options}, nil
+}
+
+func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (*GenerateDraftResponse, *apperror.Error) {
+	if input.AgentID == 0 {
+		return nil, apperror.BadRequest("AI生成智能体不能为空")
+	}
+	if input.UserID == 0 {
+		return nil, apperror.Unauthorized("Token无效或已过期")
+	}
+	requirement := strings.TrimSpace(input.Requirement)
+	if requirement == "" {
+		return nil, apperror.BadRequest("工具需求描述不能为空")
+	}
+	if len([]rune(requirement)) > 4000 {
+		return nil, apperror.BadRequest("工具需求描述不能超过4000个字符")
+	}
+	codeHint := strings.TrimSpace(input.CodeHint)
+	if len([]rune(codeHint)) > 64 {
+		return nil, apperror.BadRequest("工具编码提示不能超过64个字符")
+	}
+	if codeHint != "" && !validToolCode(codeHint) {
+		return nil, apperror.BadRequest("工具编码提示只能使用小写字母、数字、下划线，长度3到64")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	agent, err := repo.GetGenerateAgentConfig(ctx, input.AgentID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI生成智能体失败", err)
+	}
+	if agent == nil {
+		return nil, apperror.NotFound("AI生成智能体不存在或未启用")
+	}
+	if strings.TrimSpace(agent.SystemPrompt) == "" {
+		return nil, apperror.BadRequest("AI生成智能体系统提示词未配置")
+	}
+	engine, appErr := s.engineForGenerateAgent(ctx, *agent)
+	if appErr != nil {
+		return nil, appErr
+	}
+	result, err := engine.StreamChat(ctx, platformai.ChatInput{
+		AgentID: input.AgentID,
+		UserID:  input.UserID,
+		UserKey: fmt.Sprintf("admin:%d", input.UserID),
+		Content: buildToolGenerateUserPrompt(requirement, codeHint),
+		Inputs: map[string]any{
+			"model_id":      agent.ModelID,
+			"system_prompt": agent.SystemPrompt,
+		},
+	}, discardEventSink{})
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "AI生成工具草稿失败", err)
+	}
+	if result == nil || strings.TrimSpace(result.Answer) == "" {
+		return nil, apperror.Internal("AI生成工具草稿为空")
+	}
+	response, appErr := decodeGenerateDraftResponse(result.Answer)
+	if appErr != nil {
+		return nil, appErr
+	}
+	response.Usage = generateUsage(result)
+	if !response.OK {
+		response.Draft = nil
+		response.Warnings = trimStringList(response.Warnings)
+		response.ClarifyingQuestions = trimStringList(response.ClarifyingQuestions)
+		return response, nil
+	}
+	draft, appErr := s.normalizeGeneratedDraft(response.Draft)
+	if appErr != nil {
+		return nil, appErr
+	}
+	response.Draft = draft
+	response.Warnings = trimStringList(response.Warnings)
+	response.ClarifyingQuestions = trimStringList(response.ClarifyingQuestions)
+	if !s.executorRegistered(draft.Code) {
+		response.Draft.Status = enum.CommonNo
+		if !containsString(response.Warnings, unregisteredToolWarning) {
+			response.Warnings = append(response.Warnings, unregisteredToolWarning)
+		}
+	}
+	return response, nil
 }
 
 func (s *Service) Create(ctx context.Context, input MutationInput) (uint64, *apperror.Error) {
@@ -287,6 +413,71 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
+func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgentConfig) (platformai.Engine, *apperror.Error) {
+	if agent.AgentID == 0 || agent.ProviderID == 0 {
+		return nil, apperror.BadRequest("AI生成智能体或供应商未配置")
+	}
+	apiKeyEnc := strings.TrimSpace(agent.EngineAPIKeyEnc)
+	if apiKeyEnc == "" {
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
+	}
+	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, apperror.BadRequest("AI供应商API Key未配置")
+	}
+	if s.engineFactory == nil {
+		return nil, apperror.Internal("AI工具生成引擎工厂未配置")
+	}
+	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI工具生成引擎失败", err)
+	}
+	return engine, nil
+}
+
+func (s *Service) normalizeGeneratedDraft(draft *GeneratedToolDraft) (*GeneratedToolDraft, *apperror.Error) {
+	if draft == nil {
+		return nil, apperror.BadRequest("AI生成结果缺少工具草稿")
+	}
+	row, appErr := normalizeMutation(MutationInput{
+		Name:             draft.Name,
+		Code:             draft.Code,
+		Description:      draft.Description,
+		ParametersJSON:   draft.ParametersJSON,
+		ResultSchemaJSON: draft.ResultSchemaJSON,
+		RiskLevel:        draft.RiskLevel,
+		TimeoutMS:        draft.TimeoutMS,
+		Status:           draft.Status,
+	})
+	if appErr != nil {
+		return nil, appErr
+	}
+	if !validToolCode(row.Code) {
+		return nil, apperror.BadRequest("AI生成工具编码只能使用小写字母、数字、下划线，长度3到64")
+	}
+	parameters, appErr := normalizeStrictSchema(json.RawMessage(row.ParametersJSON), "工具参数Schema必须是严格JSON Schema对象")
+	if appErr != nil {
+		return nil, appErr
+	}
+	resultSchema, appErr := normalizeStrictSchema(json.RawMessage(row.ResultSchemaJSON), "工具返回Schema必须是严格JSON Schema对象")
+	if appErr != nil {
+		return nil, appErr
+	}
+	return &GeneratedToolDraft{
+		Name:             row.Name,
+		Code:             row.Code,
+		Description:      row.Description,
+		ParametersJSON:   parameters,
+		ResultSchemaJSON: resultSchema,
+		RiskLevel:        row.RiskLevel,
+		TimeoutMS:        row.TimeoutMS,
+		Status:           row.Status,
+	}, nil
+}
+
 func (s *Service) nowTime() time.Time {
 	if s != nil && s.now != nil {
 		return s.now()
@@ -343,6 +534,46 @@ func normalizeSchema(raw json.RawMessage, msg string) (string, *apperror.Error) 
 		return "", apperror.BadRequest(msg)
 	}
 	return string(compact), nil
+}
+
+func normalizeStrictSchema(raw json.RawMessage, msg string) (json.RawMessage, *apperror.Error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return nil, apperror.BadRequest(msg)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil || obj == nil {
+		return nil, apperror.BadRequest(msg)
+	}
+	if typ, _ := obj["type"].(string); strings.TrimSpace(typ) != "object" {
+		return nil, apperror.BadRequest(msg)
+	}
+	properties, ok := obj["properties"].(map[string]any)
+	if !ok || properties == nil {
+		return nil, apperror.BadRequest(msg)
+	}
+	additional, ok := obj["additionalProperties"].(bool)
+	if !ok || additional {
+		return nil, apperror.BadRequest(msg)
+	}
+	required, ok := obj["required"].([]any)
+	if !ok {
+		return nil, apperror.BadRequest(msg)
+	}
+	for _, item := range required {
+		key, ok := item.(string)
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, apperror.BadRequest(msg)
+		}
+		if _, exists := properties[key]; !exists {
+			return nil, apperror.BadRequest(msg)
+		}
+	}
+	compact, err := json.Marshal(obj)
+	if err != nil {
+		return nil, apperror.BadRequest(msg)
+	}
+	return json.RawMessage(compact), nil
 }
 
 func runtimeTool(row RuntimeToolRow) (RuntimeTool, *apperror.Error) {
@@ -434,6 +665,100 @@ func (s *Service) executorRegistered(value string) bool {
 	}
 	return s.executors[strings.TrimSpace(value)] != nil
 }
+
+func decodeGenerateDraftResponse(raw string) (*GenerateDraftResponse, *apperror.Error) {
+	decoder := json.NewDecoder(bytes.NewReader([]byte(strings.TrimSpace(raw))))
+	decoder.DisallowUnknownFields()
+	var decoded struct {
+		OK                  bool                `json:"ok"`
+		Draft               *GeneratedToolDraft `json:"draft"`
+		Warnings            []string            `json:"warnings"`
+		ClarifyingQuestions []string            `json:"clarifying_questions"`
+	}
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, apperror.BadRequest("AI生成结果不是合法JSON")
+	}
+	var extra struct{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, apperror.BadRequest("AI生成结果不是单个JSON对象")
+	}
+	response := GenerateDraftResponse{OK: decoded.OK, Draft: decoded.Draft, Warnings: decoded.Warnings, ClarifyingQuestions: decoded.ClarifyingQuestions}
+	response.Warnings = nonNilStrings(response.Warnings)
+	response.ClarifyingQuestions = nonNilStrings(response.ClarifyingQuestions)
+	return &response, nil
+}
+
+func buildToolGenerateUserPrompt(requirement string, codeHint string) string {
+	builder := strings.Builder{}
+	builder.WriteString("管理员要新增一个AI工具，请根据下面需求生成工具草稿。\n\n")
+	builder.WriteString("工具需求：\n")
+	builder.WriteString(strings.TrimSpace(requirement))
+	if strings.TrimSpace(codeHint) != "" {
+		builder.WriteString("\n\n工具编码提示：\n")
+		builder.WriteString(strings.TrimSpace(codeHint))
+	}
+	builder.WriteString("\n\n只返回系统提示词要求的JSON。")
+	return builder.String()
+}
+
+func generateUsage(result *platformai.ChatResult) *GenerateUsage {
+	if result == nil || (result.PromptTokens == 0 && result.CompletionTokens == 0 && result.TotalTokens == 0) {
+		return nil
+	}
+	return &GenerateUsage{PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens}
+}
+
+func validToolCode(value string) bool {
+	code := strings.TrimSpace(value)
+	runes := []rune(code)
+	if len(runes) < 3 || len(runes) > 64 {
+		return false
+	}
+	for _, r := range runes {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		if r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func trimStringList(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
+}
+
+type discardEventSink struct{}
+
+func (discardEventSink) Emit(ctx context.Context, event platformai.Event) error { return nil }
 
 func statusText(value int) string {
 	for _, item := range dict.CommonStatusOptions() {

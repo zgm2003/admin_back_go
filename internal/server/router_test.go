@@ -686,6 +686,8 @@ type fakeRouterAIToolService struct {
 	deletedID     uint64
 	bindingID     uint64
 	bindingToolID []uint64
+	generateInit  bool
+	generateInput aitool.GenerateDraftInput
 }
 
 func (f *fakeRouterAIToolService) Init(ctx context.Context) (*aitool.InitResponse, *apperror.Error) {
@@ -698,6 +700,30 @@ func (f *fakeRouterAIToolService) List(ctx context.Context, query aitool.ListQue
 	return &aitool.ListResponse{
 		List: []aitool.ToolDTO{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", RiskLevel: aitool.RiskLow, Status: enum.CommonYes}},
 		Page: aitool.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+
+func (f *fakeRouterAIToolService) GeneratePageInit(ctx context.Context) (*aitool.GeneratePageInitResponse, *apperror.Error) {
+	f.generateInit = true
+	return &aitool.GeneratePageInitResponse{AgentOptions: []aitool.GenerateAgentOption{{Label: "工具生成", Value: 5}}}, nil
+}
+
+func (f *fakeRouterAIToolService) GenerateDraft(ctx context.Context, input aitool.GenerateDraftInput) (*aitool.GenerateDraftResponse, *apperror.Error) {
+	f.generateInput = input
+	return &aitool.GenerateDraftResponse{
+		OK: true,
+		Draft: &aitool.GeneratedToolDraft{
+			Name:             "查询当前用户量",
+			Code:             "admin_user_count",
+			Description:      "查询数量",
+			ParametersJSON:   json.RawMessage(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
+			ResultSchemaJSON: json.RawMessage(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
+			RiskLevel:        aitool.RiskLow,
+			TimeoutMS:        3000,
+			Status:           enum.CommonYes,
+		},
+		Warnings:            []string{},
+		ClarifyingQuestions: []string{},
 	}, nil
 }
 
@@ -2325,6 +2351,23 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || !toolService.initCalled {
 		t.Fatalf("expected AI tool page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), toolService.initCalled)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-tools/generate/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !toolService.generateInit {
+		t.Fatalf("expected AI tool generate page-init route, code=%d body=%s called=%v", recorder.Code, recorder.Body.String(), toolService.generateInit)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tools/generate-draft", strings.NewReader(`{"agent_id":5,"requirement":"生成查询当前用户量工具","code_hint":"admin_user_count"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || toolService.generateInput.AgentID != 5 || toolService.generateInput.UserID != 9 || toolService.generateInput.CodeHint != "admin_user_count" {
+		t.Fatalf("expected AI tool generate-draft route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), toolService.generateInput)
 	}
 
 	recorder = httptest.NewRecorder()

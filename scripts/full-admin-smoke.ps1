@@ -891,6 +891,15 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
   Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users init AI menu order'
+  $aiToolAddButton = $false
+  $aiToolGenerateButton = $false
+  foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
+    if ([string]$code -eq 'ai_tool_add') { $aiToolAddButton = $true }
+    if ([string]$code -eq 'ai_tool_generate') { $aiToolGenerateButton = $true }
+  }
+  if ($aiToolAddButton -and -not $aiToolGenerateButton) {
+    throw "users init has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
+  }
 
   return [pscustomobject]@{
     GoodsPresent = $retiredPresent['/ai/goods']
@@ -904,6 +913,8 @@ function Assert-UsersInitAIRoutes($Response) {
     KnowledgePresent = $requiredPresent['/ai/knowledge']
     RunsPresent = $requiredPresent['/ai/runs']
     ToolsPresent = $requiredPresent['/ai/tools']
+    ToolAddButtonPresent = $aiToolAddButton
+    ToolGenerateButtonPresent = $aiToolGenerateButton
   }
 }
 
@@ -1095,6 +1106,23 @@ function Assert-AIToolInit($Response) {
   return [pscustomobject]@{
     RiskLevelCount = (Get-ObjectArray $Response.data.dict.risk_level_arr).Count
     StatusCount = (Get-ObjectArray $Response.data.dict.common_status_arr).Count
+  }
+}
+
+function Assert-AIToolGenerateInit($Response) {
+  Assert-ApiOK $Response 'AI tool generate init'
+  Assert-NoAISecretFields $Response 'AI tool generate init'
+
+  if ($null -eq $Response.data.agent_options) {
+    throw "AI tool generate init missing agent_options: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.agent_options)) {
+    if ([int64]$item.value -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.label)) {
+      throw "AI tool generate agent option shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+  return [pscustomobject]@{
+    AgentOptionCount = (Get-ObjectArray $Response.data.agent_options).Count
   }
 }
 
@@ -2361,6 +2389,11 @@ func main() {
     -TimeoutSec 10
   $aiToolInitSummary = Assert-AIToolInit $aiToolInit
 
+  $aiToolGenerateInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools/generate/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiToolGenerateInitSummary = Assert-AIToolGenerateInit $aiToolGenerateInit
+
   $aiToolList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-tools?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -2667,6 +2700,8 @@ func main() {
     ai_tool_init_code = $aiToolInit.code
     ai_tool_risk_level_dict_count = $aiToolInitSummary.RiskLevelCount
     ai_tool_status_dict_count = $aiToolInitSummary.StatusCount
+    ai_tool_generate_init_code = $aiToolGenerateInit.code
+    ai_tool_generate_agent_option_count = $aiToolGenerateInitSummary.AgentOptionCount
     ai_tool_list_code = $aiToolList.code
     ai_tool_list_count = $aiToolListSummary.ListCount
     ai_tool_total = $aiToolListSummary.Total
@@ -2699,6 +2734,8 @@ func main() {
     ai_knowledge_route_present = $usersInitAIRouteSummary.KnowledgePresent
     ai_runs_route_present = $usersInitAIRouteSummary.RunsPresent
     ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
+    ai_tool_add_button_present = $usersInitAIRouteSummary.ToolAddButtonPresent
+    ai_tool_generate_button_present = $usersInitAIRouteSummary.ToolGenerateButtonPresent
     payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
     payment_route_retired_wallet_present = $usersInitPaymentRouteSummary.RetiredWalletPresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent

@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,26 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, RiskLevel: req.RiskLevel, Status: req.Status})
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) GeneratePageInit(c *gin.Context) {
+	result, appErr := h.requireService().GeneratePageInit(c.Request.Context())
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) GenerateDraft(c *gin.Context) {
+	var req generateDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI工具生成参数错误"))
+		return
+	}
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		return
+	}
+	result, appErr := h.requireService().GenerateDraft(c.Request.Context(), GenerateDraftInput{AgentID: req.AgentID, UserID: uint64(identity.UserID), Requirement: req.Requirement, CodeHint: req.CodeHint})
 	writeResult(c, result, appErr)
 }
 
@@ -149,6 +170,12 @@ func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error)
 	return nil, apperror.Internal("AI工具服务未配置")
 }
 func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI工具服务未配置")
+}
+func (nilHTTPService) GeneratePageInit(ctx context.Context) (*GeneratePageInitResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI工具服务未配置")
+}
+func (nilHTTPService) GenerateDraft(ctx context.Context, input GenerateDraftInput) (*GenerateDraftResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI工具服务未配置")
 }
 func (nilHTTPService) Create(ctx context.Context, input MutationInput) (uint64, *apperror.Error) {

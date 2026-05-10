@@ -22,6 +22,8 @@ type Repository interface {
 	ChangeStatus(ctx context.Context, id uint64, status int) error
 	Delete(ctx context.Context, id uint64) error
 	AgentExists(ctx context.Context, agentID uint64) (bool, error)
+	ListGenerateAgents(ctx context.Context) ([]GenerateAgentOption, error)
+	GetGenerateAgentConfig(ctx context.Context, agentID uint64) (*GenerateAgentConfig, error)
 	ListAllActiveToolIDs(ctx context.Context) ([]uint64, error)
 	ListBoundToolIDs(ctx context.Context, agentID uint64) ([]uint64, error)
 	ReplaceAgentTools(ctx context.Context, agentID uint64, toolIDs []uint64) error
@@ -141,6 +143,46 @@ func (r *GormRepository) AgentExists(ctx context.Context, agentID uint64) (bool,
 	return count > 0, err
 }
 
+func (r *GormRepository) ListGenerateAgents(ctx context.Context) ([]GenerateAgentOption, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var rows []GenerateAgentOption
+	err := r.generateAgentDB(ctx).
+		Select("a.name AS label, a.id AS value").
+		Order("a.id DESC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (r *GormRepository) GetGenerateAgentConfig(ctx context.Context, agentID uint64) (*GenerateAgentConfig, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if agentID == 0 {
+		return nil, nil
+	}
+	var row GenerateAgentConfig
+	tx := r.generateAgentDB(ctx).
+		Select(`a.id AS agent_id,
+			a.name AS agent_name,
+			a.model_id AS model_id,
+			a.system_prompt AS system_prompt,
+			a.provider_id AS provider_id,
+			p.engine_type AS engine_type,
+			p.base_url AS engine_base_url,
+			p.api_key_enc AS engine_api_key_enc`).
+		Where("a.id = ?", agentID).
+		Take(&row)
+	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return &row, nil
+}
+
 func (r *GormRepository) ListAllActiveToolIDs(ctx context.Context) ([]uint64, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
@@ -249,4 +291,11 @@ func (r *GormRepository) CountUsers(ctx context.Context) (UserCount, error) {
 
 func (r *GormRepository) activeTools(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Where("is_del = ?", enum.CommonNo)
+}
+
+func (r *GormRepository) generateAgentDB(ctx context.Context) *gorm.DB {
+	return r.db.WithContext(ctx).Table("ai_agents AS a").
+		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
+		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes).
+		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", sceneAgentGenerate)
 }

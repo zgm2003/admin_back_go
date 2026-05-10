@@ -22,6 +22,12 @@ type mutationRequest struct {
 	Status           int             `json:"status" binding:"required,oneof=1 2"`
 }
 
+type generateDraftRequest struct {
+	AgentID     uint64 `json:"agent_id" binding:"required,gt=0"`
+	Requirement string `json:"requirement" binding:"required,max=4000"`
+	CodeHint    string `json:"code_hint" binding:"omitempty,max=64"`
+}
+
 type statusRequest struct {
 	Status int `json:"status" binding:"required,oneof=1 2"`
 }

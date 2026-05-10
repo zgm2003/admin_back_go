@@ -7,6 +7,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	platformai "admin_back_go/internal/platform/ai"
+	"admin_back_go/internal/platform/secretbox"
 )
 
 type fakeRepository struct {
@@ -21,6 +23,8 @@ type fakeRepository struct {
 	deletedID        uint64
 	boundToolIDs     []uint64
 	allActiveToolIDs []uint64
+	generateAgents   []GenerateAgentOption
+	generateAgent    *GenerateAgentConfig
 	replaceAgentID   uint64
 	replaceToolIDs   []uint64
 	runtimeTools     []RuntimeToolRow
@@ -66,6 +70,16 @@ func (f *fakeRepository) Delete(ctx context.Context, id uint64) error { f.delete
 func (f *fakeRepository) AgentExists(ctx context.Context, agentID uint64) (bool, error) {
 	return agentID == 3 || agentID == 4 || f.replaceAgentID == agentID, nil
 }
+func (f *fakeRepository) ListGenerateAgents(ctx context.Context) ([]GenerateAgentOption, error) {
+	return f.generateAgents, nil
+}
+func (f *fakeRepository) GetGenerateAgentConfig(ctx context.Context, agentID uint64) (*GenerateAgentConfig, error) {
+	if f.generateAgent == nil || f.generateAgent.AgentID != agentID {
+		return nil, nil
+	}
+	row := *f.generateAgent
+	return &row, nil
+}
 func (f *fakeRepository) ListAllActiveToolIDs(ctx context.Context) ([]uint64, error) {
 	return f.allActiveToolIDs, nil
 }
@@ -89,6 +103,37 @@ func (f *fakeRepository) FinishToolCall(ctx context.Context, input FinishToolCal
 	return nil
 }
 func (f *fakeRepository) CountUsers(ctx context.Context) (UserCount, error) { return f.userCounts, nil }
+
+type fakeGenerateEngineFactory struct {
+	input  EngineConfig
+	engine platformai.Engine
+}
+
+func (f *fakeGenerateEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error) {
+	f.input = input
+	if f.engine != nil {
+		return f.engine, nil
+	}
+	return platformai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":[],"clarifying_questions":["请补充需求"]}`), nil
+}
+
+func generateAgentConfig(t *testing.T, box secretbox.Box) GenerateAgentConfig {
+	t.Helper()
+	cipher, err := box.Encrypt("plain-provider-key")
+	if err != nil {
+		t.Fatalf("encrypt test api key: %v", err)
+	}
+	return GenerateAgentConfig{
+		AgentID:         5,
+		AgentName:       "工具生成",
+		ModelID:         "gpt-test",
+		SystemPrompt:    "只输出工具草稿JSON",
+		ProviderID:      2,
+		EngineType:      string(platformai.EngineTypeOpenAI),
+		EngineBaseURL:   "https://api.openai.test/v1",
+		EngineAPIKeyEnc: cipher,
+	}
+}
 
 func TestCreateRejectsArrayStringOrNullSchemas(t *testing.T) {
 	repo := &fakeRepository{}
@@ -149,6 +194,100 @@ func TestCreateAllowsDisabledToolBeforeServerImplementationExists(t *testing.T) 
 	}
 	if repo.created == nil || repo.created.Code != "future_tool" || repo.created.Status != enum.CommonNo {
 		t.Fatalf("disabled future tool row mismatch: %#v", repo.created)
+	}
+}
+
+func TestGeneratePageInitListsAgentGenerateOptions(t *testing.T) {
+	repo := &fakeRepository{generateAgents: []GenerateAgentOption{{Label: "工具生成", Value: 5}}}
+	got, appErr := NewService(repo, DefaultExecutors(repo)).GeneratePageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("GeneratePageInit returned error: %v", appErr)
+	}
+	if len(got.AgentOptions) != 1 || got.AgentOptions[0].Value != 5 {
+		t.Fatalf("unexpected generate options: %#v", got)
+	}
+}
+
+func TestGenerateDraftRejectsMissingAgentGenerateAgent(t *testing.T) {
+	repo := &fakeRepository{}
+	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 99, UserID: 7, Requirement: "生成查询用户数工具"})
+	if appErr == nil || appErr.Code != apperror.CodeNotFound {
+		t.Fatalf("missing generate agent should be rejected, got %#v", appErr)
+	}
+}
+
+func TestGenerateDraftRejectsBlankRequirement(t *testing.T) {
+	repo := &fakeRepository{}
+	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "   "})
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("blank requirement should be rejected, got %#v", appErr)
+	}
+}
+
+func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
+	box := secretbox.New("test-vault-key")
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t, box)
+	repo.generateAgent = &agent
+	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回后台用户数量统计，不返回个人信息。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	factory := &fakeGenerateEngineFactory{engine: engine}
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(factory)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具", CodeHint: "admin_user_count"})
+	if appErr != nil {
+		t.Fatalf("GenerateDraft returned error: %v", appErr)
+	}
+	if !got.OK || got.Draft == nil || got.Draft.Code != "admin_user_count" || got.Draft.Status != enum.CommonYes {
+		t.Fatalf("unexpected draft: %#v", got)
+	}
+	if factory.input.APIKey != "plain-provider-key" || factory.input.EngineType != platformai.EngineTypeOpenAI {
+		t.Fatalf("engine config not built from active provider: %#v", factory.input)
+	}
+	if got.Usage == nil || got.Usage.TotalTokens != 2 {
+		t.Fatalf("usage should be returned from engine result: %#v", got.Usage)
+	}
+}
+
+func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testing.T) {
+	box := secretbox.New("test-vault-key")
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t, box)
+	repo.generateAgent = &agent
+	engine := platformai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":["需求不足，暂不生成工具草稿"],"clarifying_questions":["请说明入参和返回字段？"]}`)
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "做个工具"})
+	if appErr != nil {
+		t.Fatalf("GenerateDraft returned error: %v", appErr)
+	}
+	if got.OK || got.Draft != nil || len(got.ClarifyingQuestions) != 1 {
+		t.Fatalf("expected clarifying response, got %#v", got)
+	}
+}
+
+func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
+	box := secretbox.New("test-vault-key")
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t, box)
+	repo.generateAgent = &agent
+	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"未来工具","code":"future_tool","description":"未来服务端实现后才能启用。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成未来工具"})
+	if appErr != nil {
+		t.Fatalf("GenerateDraft returned error: %v", appErr)
+	}
+	if got.Draft == nil || got.Draft.Status != enum.CommonNo || len(got.Warnings) != 1 || got.Warnings[0] != unregisteredToolWarning {
+		t.Fatalf("unregistered generated tool should be disabled with warning: %#v", got)
+	}
+}
+
+func TestGenerateDraftCanReturnEnabledWhenExecutorRegistered(t *testing.T) {
+	box := secretbox.New("test-vault-key")
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t, box)
+	repo.generateAgent = &agent
+	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成已实现工具"})
+	if appErr != nil {
+		t.Fatalf("GenerateDraft returned error: %v", appErr)
+	}
+	if got.Draft == nil || got.Draft.Status != enum.CommonYes || len(got.Warnings) != 0 {
+		t.Fatalf("registered generated tool should stay enabled: %#v", got)
 	}
 }
 

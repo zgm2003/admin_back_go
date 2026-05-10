@@ -7,6 +7,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
+	platformai "admin_back_go/internal/platform/ai"
 )
 
 type JSONObject = map[string]any
@@ -83,6 +84,68 @@ type MutationInput struct {
 	RiskLevel        string
 	TimeoutMS        uint
 	Status           int
+}
+
+type GeneratePageInitResponse struct {
+	AgentOptions []GenerateAgentOption `json:"agent_options"`
+}
+
+type GenerateAgentOption struct {
+	Label string `json:"label"`
+	Value uint64 `json:"value"`
+}
+
+type GenerateDraftInput struct {
+	AgentID     uint64
+	UserID      uint64
+	Requirement string
+	CodeHint    string
+}
+
+type GenerateDraftResponse struct {
+	OK                  bool                `json:"ok"`
+	Draft               *GeneratedToolDraft `json:"draft"`
+	Warnings            []string            `json:"warnings"`
+	ClarifyingQuestions []string            `json:"clarifying_questions"`
+	Usage               *GenerateUsage      `json:"usage,omitempty"`
+}
+
+type GeneratedToolDraft struct {
+	Name             string          `json:"name"`
+	Code             string          `json:"code"`
+	Description      string          `json:"description"`
+	ParametersJSON   json.RawMessage `json:"parameters_json"`
+	ResultSchemaJSON json.RawMessage `json:"result_schema_json"`
+	RiskLevel        string          `json:"risk_level"`
+	TimeoutMS        uint            `json:"timeout_ms"`
+	Status           int             `json:"status"`
+}
+
+type GenerateUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+type GenerateAgentConfig struct {
+	AgentID         uint64
+	AgentName       string
+	ModelID         string
+	SystemPrompt    string
+	ProviderID      uint64
+	EngineType      string
+	EngineBaseURL   string
+	EngineAPIKeyEnc string
+}
+
+type EngineConfig struct {
+	EngineType platformai.EngineType
+	BaseURL    string
+	APIKey     string
+}
+
+type EngineFactory interface {
+	NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error)
 }
 
 type AgentToolsResponse struct {
@@ -164,6 +227,8 @@ type Executor interface {
 type HTTPService interface {
 	Init(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
+	GeneratePageInit(ctx context.Context) (*GeneratePageInitResponse, *apperror.Error)
+	GenerateDraft(ctx context.Context, input GenerateDraftInput) (*GenerateDraftResponse, *apperror.Error)
 	Create(ctx context.Context, input MutationInput) (uint64, *apperror.Error)
 	Update(ctx context.Context, id uint64, input MutationInput) *apperror.Error
 	ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error
