@@ -113,6 +113,31 @@ func (splitDeltaEngine) KnowledgeStatus(ctx context.Context, input platformai.Kn
 	return nil, nil
 }
 
+type captureEngine struct {
+	input platformai.ChatInput
+}
+
+func (c *captureEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+	return &platformai.TestConnectionResult{OK: true}, nil
+}
+
+func (c *captureEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+	c.input = input
+	return &platformai.ChatResult{Answer: "看到了图片"}, nil
+}
+
+func (c *captureEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
+	return nil
+}
+
+func (c *captureEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
+	return nil, nil
+}
+
+func (c *captureEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
+	return nil, nil
+}
+
 type canceledEngine struct{}
 
 func (canceledEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
@@ -222,6 +247,33 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 	}
 	if len(deltas) != 2 || deltas[0] != "你" || deltas[1] != "好" {
 		t.Fatalf("unexpected deltas: %#v", deltas)
+	}
+}
+
+func TestExecuteConversationReplyAllowsImageOnlyUserMessage(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	meta := `{"attachments":[{"type":"image","url":"https://example.test/a.png","name":"a.png","size":1}]}`
+	engine := &captureEngine{}
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "", MetaJSON: &meta}},
+	}
+
+	res, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+
+	if err != nil {
+		t.Fatalf("image-only user message must not be treated as missing: %v", err)
+	}
+	if res.AssistantMessageID != 22 || repo.assistant.Content != "看到了图片" {
+		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
+	}
+	attachments, ok := engine.input.Inputs["attachments"].([]any)
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("image attachments not passed to engine: %#v", engine.input.Inputs)
+	}
+	if engine.input.Content != "" {
+		t.Fatalf("image-only message should keep empty text content, got %q", engine.input.Content)
 	}
 }
 

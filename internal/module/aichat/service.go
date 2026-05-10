@@ -109,8 +109,8 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		finishRun(enum.AIRunStatusFailed, msg, err)
 		return nil, err
 	}
-	userContent := userMessageContent(history, input.UserMessageID)
-	if strings.TrimSpace(userContent) == "" {
+	userContent, ok := userMessageContent(history, input.UserMessageID)
+	if !ok {
 		msg := "用户消息不存在"
 		_ = s.publishFailed(ctx, input, msg)
 		appErr := apperror.BadRequest(msg)
@@ -319,13 +319,13 @@ func agentSupportsChat(raw string) bool {
 	return false
 }
 
-func userMessageContent(rows []MessageHistory, userMessageID int64) string {
+func userMessageContent(rows []MessageHistory, userMessageID int64) (string, bool) {
 	for _, row := range rows {
 		if row.ID == userMessageID {
-			return row.Content
+			return row.Content, true
 		}
 	}
-	return ""
+	return "", false
 }
 
 func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string]string {
