@@ -2,6 +2,7 @@ package aichat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ type fakeRepository struct {
 	agent        *AgentEngineConfig
 	history      []MessageHistory
 	assistant    AssistantMessageRecord
+	message      Message
 	timeoutLimit int
 }
 
@@ -59,6 +61,41 @@ func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (
 		return nil, f.err
 	}
 	return f.engine, nil
+}
+
+type blankEngine struct {
+	platformai.FakeEngine
+}
+
+func (blankEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+	return &platformai.ChatResult{}, nil
+}
+
+type splitDeltaEngine struct{}
+
+func (splitDeltaEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+	return &platformai.TestConnectionResult{OK: true}, nil
+}
+
+func (splitDeltaEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+	for _, delta := range []string{"你", "好"} {
+		if err := sink.Emit(ctx, platformai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
+			return nil, err
+		}
+	}
+	return &platformai.ChatResult{Answer: "你好"}, nil
+}
+
+func (splitDeltaEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
+	return nil
+}
+
+func (splitDeltaEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
+	return nil, nil
+}
+
+func (splitDeltaEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
+	return nil, nil
 }
 
 func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
@@ -113,6 +150,44 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	}
 }
 
+func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	pub := &fakePublisher{}
+	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err != nil {
+		t.Fatalf("ExecuteConversationReply returned error: %v", err)
+	}
+	if res.AssistantMessageID != 22 || repo.assistant.Content != "你好" {
+		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
+	}
+	var deltas []string
+	for _, pub := range pub.pubs {
+		if pub.Envelope.Type != EventAIResponseDelta {
+			continue
+		}
+		var payload DeltaPayload
+		if err := json.Unmarshal(pub.Envelope.Data, &payload); err != nil {
+			t.Fatalf("unexpected delta payload: %v", err)
+		}
+		deltas = append(deltas, payload.Delta)
+	}
+	if len(deltas) != 2 || deltas[0] != "你" || deltas[1] != "好" {
+		t.Fatalf("unexpected deltas: %#v", deltas)
+	}
+}
+
+func TestAssistantMessageZeroValueMetaJSONIsNil(t *testing.T) {
+	message := Message{ConversationID: 3, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "ok", IsDel: enum.CommonNo}
+	if message.MetaJSON != nil {
+		t.Fatalf("assistant message without metadata must keep meta_json nil, got %#v", message.MetaJSON)
+	}
+}
+
 func TestExecuteConversationReplyPublishesFailedForEngineError(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
@@ -123,6 +198,31 @@ func TestExecuteConversationReplyPublishesFailedForEngineError(t *testing.T) {
 	}
 	if len(pub.pubs) == 0 || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseFailed {
 		t.Fatalf("expected failed publication, got %#v", pub.pubs)
+	}
+}
+
+func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}},
+	}
+	pub := &fakePublisher{}
+	res, err := NewService(Dependencies{
+		Repository:    repo,
+		Publisher:     pub,
+		EngineFactory: &fakeEngineFactory{engine: &blankEngine{}},
+		Secretbox:     box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err != nil {
+		t.Fatalf("ExecuteConversationReply returned error: %v", err)
+	}
+	if res.AssistantMessageID != 22 || repo.assistant.Content != "AI没有返回内容" {
+		t.Fatalf("unexpected fallback result: res=%#v assistant=%#v", res, repo.assistant)
+	}
+	if len(pub.pubs) < 3 || pub.pubs[len(pub.pubs)-2].Envelope.Type != EventAIResponseDelta || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseCompleted {
+		t.Fatalf("expected fallback delta before completed, got %#v", pub.pubs)
 	}
 }
 
@@ -146,5 +246,25 @@ func TestChatHistoryExcludesCurrentUserMessageAndKeepsOrder(t *testing.T) {
 	}, 4)
 	if len(history) != 2 || history[0]["content"] != "one" || history[1]["content"] != "two" {
 		t.Fatalf("unexpected history: %#v", history)
+	}
+}
+
+func TestChatInputsExtractsAttachmentsAndRuntimeParamsFromCurrentMessageMeta(t *testing.T) {
+	meta := `{"attachments":[{"type":"image","url":"https://example.test/a.png"}],"runtime_params":{"temperature":0.7,"max_tokens":1024,"max_history":1}}`
+	inputs := chatInputs(AgentEngineConfig{ModelID: "gpt-test"}, []MessageHistory{
+		{ID: 1, Role: enum.AIMessageRoleUser, Content: "old"},
+		{ID: 2, Role: enum.AIMessageRoleAssistant, Content: "older"},
+		{ID: 3, Role: enum.AIMessageRoleUser, Content: "current", MetaJSON: &meta},
+	}, 3)
+	if inputs["temperature"] != 0.7 || inputs["max_tokens"] != 1024.0 {
+		t.Fatalf("runtime params not extracted: %#v", inputs)
+	}
+	attachments, ok := inputs["attachments"].([]any)
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("attachments not extracted: %#v", inputs["attachments"])
+	}
+	history, ok := inputs["history"].([]map[string]string)
+	if !ok || len(history) != 1 || history[0]["content"] != "older" {
+		t.Fatalf("max_history not applied: %#v", inputs["history"])
 	}
 }

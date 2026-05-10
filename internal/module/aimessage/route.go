@@ -11,4 +11,5 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	handler := NewHandler(service)
 	router.GET("/api/admin/v1/ai-conversations/:id/messages", handler.List)
 	router.POST("/api/admin/v1/ai-conversations/:id/messages", handler.Send)
+	router.POST("/api/admin/v1/ai-conversations/:id/messages/cancel", handler.Cancel)
 }

@@ -10,3 +10,7 @@ type createRequest struct {
 	AgentID int64  `json:"agent_id" binding:"required,min=1"`
 	Title   string `json:"title" binding:"omitempty,max=100"`
 }
+
+type updateRequest struct {
+	Title string `json:"title" binding:"required,max=100"`
+}

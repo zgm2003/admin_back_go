@@ -13,5 +13,6 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	group.GET("", handler.List)
 	group.GET("/:id", handler.Detail)
 	group.POST("", handler.Create)
+	group.PUT("/:id", handler.Update)
 	group.DELETE("/:id", handler.Delete)
 }

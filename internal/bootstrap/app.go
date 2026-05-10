@@ -41,6 +41,7 @@ import (
 	"admin_back_go/internal/module/usersession"
 	platformai "admin_back_go/internal/platform/ai"
 	"admin_back_go/internal/platform/ai/dify"
+	"admin_back_go/internal/platform/ai/openaicompat"
 	"admin_back_go/internal/platform/logstore"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
@@ -64,6 +65,7 @@ type App struct {
 	realtimeManager    *platformrealtime.Manager
 	realtimePublisher  platformrealtime.Publisher
 	realtimeSubscriber *platformrealtime.RedisSubscriber
+	aiReplyDispatcher  *aiConversationReplyDispatcher
 }
 
 func New(cfg config.Config, logger *slog.Logger) *App {
@@ -126,7 +128,6 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	aiToolMapService := aitoolmap.NewService(aitoolmap.NewGormRepository(resources.DB))
 	aiKnowledgeMapService := aiknowledgemap.NewService(aiknowledgemap.NewGormRepository(resources.DB), secretBox, aiEngineFactory{})
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
-	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiConversationReplyEnqueuer{enqueuer: queueClient}))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
 	var paymentNumberGenerator paymentmodule.NumberGenerator
 	if resources.Redis != nil && resources.Redis.Redis != nil {
@@ -222,6 +223,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		Secretbox:     secretBox,
 		EngineFactory: aiChatEngineFactory{},
 	})
+	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiConversationReplyTimeout)
+	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiReplyDispatcher))
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
@@ -306,6 +309,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		realtimeManager:    realtimeStack.manager,
 		realtimePublisher:  realtimeStack.publisher,
 		realtimeSubscriber: realtimeStack.subscriber,
+		aiReplyDispatcher:  aiReplyDispatcher,
 		server: &http.Server{
 			Addr:              cfg.HTTP.Addr,
 			Handler:           router,
@@ -336,10 +340,20 @@ func (e aiConversationReplyEnqueuer) EnqueueConversationReply(ctx context.Contex
 	return err
 }
 
+func (e aiConversationReplyEnqueuer) CancelConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
+	return errors.New("queued ai conversation reply cancellation is not supported")
+}
+
 type aiProviderTester struct{}
 
 func (aiProviderTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
 	switch input.EngineType {
+	case platformai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: time.Duration(input.TimeoutMs) * time.Millisecond,
+		}).TestConnection(ctx, input)
 	case platformai.EngineTypeDify:
 		client, err := dify.New(dify.Config{
 			BaseURL: input.BaseURL,
@@ -359,6 +373,12 @@ type aiEngineFactory struct{}
 
 func (aiEngineFactory) NewEngine(ctx context.Context, input aiknowledgemap.EngineConfig) (platformai.Engine, error) {
 	switch input.EngineType {
+	case platformai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 30 * time.Second,
+		}), nil
 	case platformai.EngineTypeDify:
 		return dify.New(dify.Config{
 			BaseURL: input.BaseURL,
@@ -374,6 +394,12 @@ type aiChatEngineFactory struct{}
 
 func (aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (platformai.Engine, error) {
 	switch input.EngineType {
+	case platformai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 30 * time.Second,
+		}), nil
 	case platformai.EngineTypeDify:
 		return dify.New(dify.Config{
 			BaseURL: input.BaseURL,
@@ -413,9 +439,10 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if a.realtimeManager != nil {
 		a.realtimeManager.CloseAll()
 	}
+	dispatchErr := a.aiReplyDispatcher.Shutdown(ctx)
 	queueErr := a.queueClient.Close()
 	inspectorErr := a.queueInspector.Close()
 	monitorErr := a.queueMonitorUI.Close()
 	resourceErr := a.resources.Close()
-	return errors.Join(shutdownErr, realtimeErr, queueErr, inspectorErr, monitorErr, resourceErr)
+	return errors.Join(shutdownErr, realtimeErr, dispatchErr, queueErr, inspectorErr, monitorErr, resourceErr)
 }

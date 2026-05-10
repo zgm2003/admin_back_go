@@ -82,6 +82,21 @@ func (s *Service) Create(ctx context.Context, userID int64, input CreateInput) (
 	return id, nil
 }
 
+func (s *Service) Update(ctx context.Context, userID int64, id int64, input UpdateInput) *apperror.Error {
+	if _, _, appErr := s.requireOwnedConversation(ctx, userID, id); appErr != nil {
+		return appErr
+	}
+	title := trimTitle(input.Title)
+	if title == "" {
+		return apperror.BadRequest("AI会话标题不能为空")
+	}
+	repo, _ := s.requireRepository()
+	if err := repo.UpdateTitle(ctx, id, userID, title); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, 500, "更新AI会话失败", err)
+	}
+	return nil
+}
+
 func (s *Service) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
 	if _, _, appErr := s.requireOwnedConversation(ctx, userID, id); appErr != nil {
 		return appErr

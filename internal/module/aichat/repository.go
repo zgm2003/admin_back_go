@@ -65,7 +65,7 @@ func (r *GormRepository) LatestMessages(ctx context.Context, conversationID int6
 	}
 	var rows []MessageHistory
 	err := r.db.WithContext(ctx).Table("ai_messages").
-		Select("id, role, content_type, content, created_at").
+		Select("id, role, content_type, content, meta_json, created_at").
 		Where("conversation_id = ? AND is_del = ?", conversationID, enum.CommonNo).
 		Order("id DESC").
 		Limit(limit).
@@ -86,7 +86,9 @@ func (r *GormRepository) InsertAssistantMessage(ctx context.Context, input Assis
 		if err := tx.Create(&message).Error; err != nil {
 			return err
 		}
-		return tx.Table("ai_conversations").Where("id = ? AND is_del = ?", input.ConversationID, enum.CommonNo).Update("last_message_at", now).Error
+		return tx.Table("ai_conversations").
+			Where("id = ? AND is_del = ?", input.ConversationID, enum.CommonNo).
+			Updates(map[string]any{"last_message_at": now, "updated_at": now}).Error
 	})
 	if err != nil {
 		return 0, err

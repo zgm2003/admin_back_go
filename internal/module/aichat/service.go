@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 const defaultTimeoutLimit = 100
 const historyLimit = 20
+const maxHistoryLimit = 50
 
 type Dependencies struct {
 	Repository    Repository
@@ -77,7 +79,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		_ = s.publishFailed(ctx, input, appErr.Message)
 		return nil, appErr
 	}
-	history, err := repo.LatestMessages(ctx, input.ConversationID, historyLimit)
+	history, err := repo.LatestMessages(ctx, input.ConversationID, maxHistoryLimit+1)
 	if err != nil {
 		_ = s.publishFailed(ctx, input, "读取AI消息历史失败")
 		return nil, err
@@ -94,11 +96,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		UserID:  uint64(input.UserID),
 		UserKey: userKey(input.UserID),
 		Content: userContent,
-		Inputs: map[string]any{
-			"model_id":      agent.ModelID,
-			"system_prompt": agent.SystemPrompt,
-			"history":       chatHistory(history, input.UserMessageID),
-		},
+		Inputs:  chatInputs(*agent, history, input.UserMessageID),
 	}, sink)
 	if err != nil {
 		msg := err.Error()
@@ -112,6 +110,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
 		answer = "AI没有返回内容"
+		if err := s.publishDelta(ctx, input, answer); err != nil {
+			return nil, err
+		}
 	}
 	assistantID, err := repo.InsertAssistantMessage(ctx, AssistantMessageRecord{ConversationID: input.ConversationID, Content: answer, Now: s.now()})
 	if err != nil {
@@ -267,6 +268,10 @@ func userMessageContent(rows []MessageHistory, userMessageID int64) string {
 }
 
 func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string]string {
+	return chatHistoryWithLimit(rows, currentUserMessageID, 0)
+}
+
+func chatHistoryWithLimit(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []map[string]string {
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	history := make([]map[string]string, 0, len(rows))
 	for _, row := range rows {
@@ -279,7 +284,82 @@ func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string
 		}
 		history = append(history, map[string]string{"role": role, "content": row.Content})
 	}
+	if maxHistory > 0 && len(history) > maxHistory {
+		history = history[len(history)-maxHistory:]
+	}
 	return history
+}
+
+func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID int64) map[string]any {
+	meta := metaForMessage(history, userMessageID)
+	inputs := map[string]any{
+		"model_id":      agent.ModelID,
+		"system_prompt": agent.SystemPrompt,
+		"history":       chatHistoryWithLimit(history, userMessageID, maxHistoryFromMeta(meta)),
+	}
+	if len(meta) == 0 {
+		return inputs
+	}
+	if value, ok := meta["runtime_params"].(map[string]any); ok {
+		for key, raw := range value {
+			if number, ok := numberFromAny(raw); ok {
+				inputs[key] = number
+			}
+		}
+	}
+	if attachments, ok := meta["attachments"].([]any); ok && len(attachments) > 0 {
+		inputs["attachments"] = attachments
+	}
+	return inputs
+}
+
+func maxHistoryFromMeta(meta map[string]any) int {
+	value, ok := meta["runtime_params"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	number, ok := numberFromAny(value["max_history"])
+	if !ok {
+		return 0
+	}
+	n := int(number)
+	if n < 1 {
+		return 0
+	}
+	if n > maxHistoryLimit {
+		return maxHistoryLimit
+	}
+	return n
+}
+
+func metaForMessage(rows []MessageHistory, userMessageID int64) map[string]any {
+	for _, row := range rows {
+		if row.ID != userMessageID || row.MetaJSON == nil || strings.TrimSpace(*row.MetaJSON) == "" {
+			continue
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(*row.MetaJSON), &decoded); err != nil {
+			return nil
+		}
+		return decoded
+	}
+	return nil
+}
+
+func numberFromAny(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		n, err := strconv.ParseFloat(string(v), 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func userKey(userID int64) string {

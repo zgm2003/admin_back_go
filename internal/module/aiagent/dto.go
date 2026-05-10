@@ -93,8 +93,10 @@ type OptionQuery struct {
 }
 
 type AgentOption struct {
-	ID   uint64 `json:"id"`
-	Name string `json:"name"`
+	ID           uint64 `json:"id"`
+	Name         string `json:"name"`
+	Avatar       string `json:"avatar"`
+	SystemPrompt string `json:"system_prompt"`
 }
 
 type AgentOptionsResponse struct {

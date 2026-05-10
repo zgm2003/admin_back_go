@@ -66,7 +66,7 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Message, 
 		limit = 20
 	}
 	db := r.db.WithContext(ctx).Table("ai_messages m").
-		Select("m.id, m.conversation_id, m.role, m.content_type, m.content, m.is_del, m.created_at, m.updated_at").
+		Select("m.id, m.conversation_id, m.role, m.content_type, m.content, m.meta_json, m.is_del, m.created_at, m.updated_at").
 		Joins("JOIN ai_conversations c ON c.id = m.conversation_id AND c.user_id = ? AND c.is_del = ?", query.UserID, enum.CommonNo).
 		Where("m.conversation_id = ?", query.ConversationID).
 		Where("m.is_del = ?", enum.CommonNo)
@@ -95,13 +95,16 @@ func (r *GormRepository) InsertUserMessage(ctx context.Context, input SendRecord
 		Role:           input.Role,
 		ContentType:    input.ContentType,
 		Content:        input.Content,
+		MetaJSON:       input.MetaJSON,
 		IsDel:          enum.CommonNo,
 	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&message).Error; err != nil {
 			return err
 		}
-		if err := tx.Table("ai_conversations").Where("id = ? AND is_del = ?", input.ConversationID, enum.CommonNo).Update("last_message_at", now).Error; err != nil {
+		if err := tx.Table("ai_conversations").
+			Where("id = ? AND is_del = ?", input.ConversationID, enum.CommonNo).
+			Updates(map[string]any{"last_message_at": now, "updated_at": now}).Error; err != nil {
 			return err
 		}
 		title := titleFromContent(input.Content)

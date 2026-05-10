@@ -286,7 +286,7 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 		if row.Status != enum.CommonYes || row.IsDel == enum.CommonYes {
 			continue
 		}
-		list = append(list, AgentOption{ID: row.ID, Name: row.Name})
+		list = append(list, AgentOption{ID: row.ID, Name: row.Name, Avatar: row.Avatar, SystemPrompt: row.SystemPrompt})
 	}
 	return &AgentOptionsResponse{List: list}, nil
 }

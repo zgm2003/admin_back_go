@@ -59,6 +59,7 @@ type MessageHistory struct {
 	Role        int
 	ContentType string
 	Content     string
+	MetaJSON    *string
 	CreatedAt   time.Time
 }
 

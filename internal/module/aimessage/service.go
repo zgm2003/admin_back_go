@@ -68,8 +68,16 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		return nil, appErr
 	}
 	content := strings.TrimSpace(input.Content)
-	if content == "" {
+	attachments, appErr := normalizeAttachments(input.Attachments)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if content == "" && len(attachments) == 0 {
 		return nil, apperror.BadRequest("消息内容不能为空")
+	}
+	runtimeParams, appErr := normalizeRuntimeParams(input.RuntimeParams)
+	if appErr != nil {
+		return nil, appErr
 	}
 	requestID := strings.TrimSpace(input.RequestID)
 	if requestID == "" {
@@ -83,7 +91,7 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if agent == nil || agent.Status != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
 		return nil, apperror.BadRequest("该智能体不支持对话场景")
 	}
-	userMessageID, err := repo.InsertUserMessage(ctx, SendRecord{ConversationID: input.ConversationID, Role: enum.AIMessageRoleUser, ContentType: "text", Content: content})
+	userMessageID, err := repo.InsertUserMessage(ctx, SendRecord{ConversationID: input.ConversationID, Role: enum.AIMessageRoleUser, ContentType: "text", Content: content, MetaJSON: metaJSONForSend(attachments, runtimeParams)})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "保存AI消息失败", err)
 	}
@@ -95,6 +103,109 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "AI对话回复任务入队失败", err)
 	}
 	return &SendResponse{ConversationID: input.ConversationID, UserMessageID: userMessageID, RequestID: requestID}, nil
+}
+
+func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error) {
+	if _, appErr := s.requireOwnedConversation(ctx, userID, input.ConversationID); appErr != nil {
+		return nil, appErr
+	}
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		return nil, apperror.BadRequest("request_id不能为空")
+	}
+	canceler, ok := s.replyEnqueuer.(ReplyCanceler)
+	if !ok || canceler == nil {
+		return nil, apperror.Internal("AI对话取消器未配置")
+	}
+	if err := canceler.CancelConversationReply(ctx, ReplyPayload{ConversationID: input.ConversationID, UserID: userID, RequestID: requestID}); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "取消AI回复失败", err)
+	}
+	return &CancelResponse{ConversationID: input.ConversationID, RequestID: requestID, Status: "canceled"}, nil
+}
+
+func metaJSONForSend(attachments []Attachment, runtimeParams map[string]float64) *string {
+	meta := map[string]any{}
+	if len(attachments) > 0 {
+		meta["attachments"] = attachments
+	}
+	if len(runtimeParams) > 0 {
+		meta["runtime_params"] = runtimeParams
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return nil
+	}
+	value := string(data)
+	return &value
+}
+
+func normalizeAttachments(input []Attachment) ([]Attachment, *apperror.Error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	if len(input) > 5 {
+		return nil, apperror.BadRequest("图片数量不能超过5张")
+	}
+	out := make([]Attachment, 0, len(input))
+	for _, item := range input {
+		typ := strings.TrimSpace(item.Type)
+		url := strings.TrimSpace(item.URL)
+		if typ != "image" {
+			return nil, apperror.BadRequest("仅支持图片附件")
+		}
+		if url == "" {
+			return nil, apperror.BadRequest("图片地址不能为空")
+		}
+		if item.Size < 0 {
+			return nil, apperror.BadRequest("图片大小非法")
+		}
+		out = append(out, Attachment{Type: "image", URL: url, Name: strings.TrimSpace(item.Name), Size: item.Size})
+	}
+	return out, nil
+}
+
+func normalizeRuntimeParams(input map[string]float64) (map[string]float64, *apperror.Error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := map[string]float64{}
+	for key, value := range input {
+		switch key {
+		case "temperature":
+			if value < 0 || value > 2 {
+				return nil, apperror.BadRequest("temperature必须在0到2之间")
+			}
+			out[key] = value
+		case "max_tokens":
+			if value < 1 || value > 200000 || value != float64(int64(value)) {
+				return nil, apperror.BadRequest("max_tokens必须是正整数")
+			}
+			out[key] = value
+		case "max_history":
+			if value < 1 || value > 50 || value != float64(int64(value)) {
+				return nil, apperror.BadRequest("max_history必须是1到50之间的整数")
+			}
+			out[key] = value
+		default:
+			return nil, apperror.BadRequest("不支持的AI运行参数")
+		}
+	}
+	return out, nil
+}
+
+func decodeMetaJSON(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil
+	}
+	return decoded
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -143,7 +254,11 @@ func messageItem(row Message) MessageItem {
 	if contentType == "" {
 		contentType = "text"
 	}
-	return MessageItem{ID: row.ID, Role: row.Role, ContentType: contentType, Content: row.Content, CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	metaJSON := ""
+	if row.MetaJSON != nil {
+		metaJSON = *row.MetaJSON
+	}
+	return MessageItem{ID: row.ID, Role: row.Role, ContentType: contentType, Content: row.Content, MetaJSON: decodeMetaJSON(metaJSON), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func agentSupportsChat(raw string) bool {

@@ -115,6 +115,15 @@ func (r *GormRepository) Create(ctx context.Context, row Conversation) (int64, e
 	return row.ID, nil
 }
 
+func (r *GormRepository) UpdateTitle(ctx context.Context, id int64, userID int64, title string) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	return r.db.WithContext(ctx).Table("ai_conversations").
+		Where("id = ? AND user_id = ? AND is_del = ?", id, userID, enum.CommonNo).
+		Updates(map[string]any{"title": title, "updated_at": time.Now()}).Error
+}
+
 func (r *GormRepository) Delete(ctx context.Context, id int64, userID int64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured

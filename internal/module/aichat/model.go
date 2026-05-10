@@ -21,6 +21,7 @@ type Message struct {
 	Role           int       `gorm:"column:role"`
 	ContentType    string    `gorm:"column:content_type"`
 	Content        string    `gorm:"column:content"`
+	MetaJSON       *string   `gorm:"column:meta_json"`
 	IsDel          int       `gorm:"column:is_del"`
 	CreatedAt      time.Time `gorm:"column:created_at"`
 	UpdatedAt      time.Time `gorm:"column:updated_at"`

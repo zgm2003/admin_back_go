@@ -16,6 +16,9 @@ type fakeRepository struct {
 	created      Conversation
 	deleteID     int64
 	deleteUserID int64
+	updateID     int64
+	updateUserID int64
+	updateTitle  string
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, bool, error) {
@@ -35,6 +38,13 @@ func (f *fakeRepository) Create(ctx context.Context, row Conversation) (int64, e
 	f.created = row
 	return 9, nil
 }
+func (f *fakeRepository) UpdateTitle(ctx context.Context, id int64, userID int64, title string) error {
+	f.updateID = id
+	f.updateUserID = userID
+	f.updateTitle = title
+	return nil
+}
+
 func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) error {
 	f.deleteID = id
 	f.deleteUserID = userID
@@ -80,6 +90,24 @@ func TestCreateRejectsNonChatAgent(t *testing.T) {
 	_, appErr := NewService(repo).Create(context.Background(), 7, CreateInput{AgentID: 5})
 	if appErr == nil || appErr.Code != 100 || appErr.Message != "该智能体不支持对话场景" {
 		t.Fatalf("expected non-chat bad request, got %#v", appErr)
+	}
+}
+
+func TestUpdateRequiresOwnerAndTrimsTitle(t *testing.T) {
+	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, IsDel: enum.CommonNo}}
+	if appErr := NewService(repo).Update(context.Background(), 7, 3, UpdateInput{Title: "  new title  "}); appErr != nil {
+		t.Fatalf("Update returned error: %v", appErr)
+	}
+	if repo.updateID != 3 || repo.updateUserID != 7 || repo.updateTitle != "new title" {
+		t.Fatalf("unexpected update call: id=%d user=%d title=%q", repo.updateID, repo.updateUserID, repo.updateTitle)
+	}
+}
+
+func TestUpdateRejectsBlankTitle(t *testing.T) {
+	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, IsDel: enum.CommonNo}}
+	appErr := NewService(repo).Update(context.Background(), 7, 3, UpdateInput{Title: "  "})
+	if appErr == nil || appErr.Message != "AI会话标题不能为空" {
+		t.Fatalf("expected blank title rejection, got %#v", appErr)
 	}
 }
 

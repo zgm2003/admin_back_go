@@ -20,6 +20,7 @@ CREATE TABLE `ai_messages` (
   `role` tinyint unsigned NOT NULL COMMENT '1用户 2助手',
   `content_type` varchar(32) NOT NULL DEFAULT 'text' COMMENT '内容类型，MVP只写text',
   `content` longtext NOT NULL COMMENT '消息内容',
+  `meta_json` json NULL COMMENT '消息扩展元数据：attachments/runtime_params/blocks/feedback',
   `is_del` tinyint unsigned NOT NULL DEFAULT 2 COMMENT '1删除 2正常',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

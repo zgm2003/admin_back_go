@@ -136,6 +136,10 @@ func (fakeRouterAIConversationService) Create(ctx context.Context, userID int64,
 	return 1, nil
 }
 
+func (fakeRouterAIConversationService) Update(ctx context.Context, userID int64, id int64, input aiconversation.UpdateInput) *apperror.Error {
+	return nil
+}
+
 func (fakeRouterAIConversationService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
 	return nil
 }
@@ -148,6 +152,10 @@ func (fakeRouterAIMessageService) List(ctx context.Context, userID int64, query 
 
 func (fakeRouterAIMessageService) Send(ctx context.Context, userID int64, input aimessage.SendInput) (*aimessage.SendResponse, *apperror.Error) {
 	return &aimessage.SendResponse{ConversationID: input.ConversationID, UserMessageID: 2, RequestID: input.RequestID}, nil
+}
+
+func (fakeRouterAIMessageService) Cancel(ctx context.Context, userID int64, input aimessage.CancelInput) (*aimessage.CancelResponse, *apperror.Error) {
+	return &aimessage.CancelResponse{ConversationID: input.ConversationID, RequestID: input.RequestID, Status: "canceled"}, nil
 }
 
 type fakeRouterAIRunService struct{}
@@ -3000,9 +3008,11 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-conversations", ""},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/1", ""},
 		{http.MethodPost, "/api/admin/v1/ai-conversations", `{"agent_id":1,"title":"会话"}`},
+		{http.MethodPut, "/api/admin/v1/ai-conversations/1", `{"title":"新会话"}`},
 		{http.MethodDelete, "/api/admin/v1/ai-conversations/1", ""},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/1/messages", ""},
 		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages", `{"content":"hello","request_id":"rid"}`},
+		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages/cancel", `{"request_id":"rid"}`},
 		{http.MethodGet, "/api/admin/v1/ai-runs/page-init", ""},
 		{http.MethodGet, "/api/admin/v1/ai-runs", ""},
 		{http.MethodGet, "/api/admin/v1/ai-runs/1", ""},

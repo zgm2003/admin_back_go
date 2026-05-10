@@ -51,7 +51,25 @@ func (h *Handler) Send(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI消息参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID})
+	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, Attachments: req.Attachments, RuntimeParams: req.RuntimeParams})
+	writeResult(c, res, appErr)
+}
+
+func (h *Handler) Cancel(c *gin.Context) {
+	identity, ok := authIdentity(c)
+	if !ok {
+		return
+	}
+	conversationID, ok := routeID(c, "id", "无效的AI会话ID")
+	if !ok {
+		return
+	}
+	var req cancelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI消息参数错误"))
+		return
+	}
+	res, appErr := h.requireService().Cancel(c.Request.Context(), identity.UserID, CancelInput{ConversationID: conversationID, RequestID: req.RequestID})
 	writeResult(c, res, appErr)
 }
 
@@ -94,5 +112,8 @@ func (nilHTTPService) List(ctx context.Context, userID int64, query ListQuery) (
 	return nil, apperror.Internal("AI消息服务未配置")
 }
 func (nilHTTPService) Send(ctx context.Context, userID int64, input SendInput) (*SendResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI消息服务未配置")
+}
+func (nilHTTPService) Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI消息服务未配置")
 }

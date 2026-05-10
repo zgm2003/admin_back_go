@@ -17,6 +17,20 @@ type SendInput struct {
 	ConversationID int64
 	Content        string
 	RequestID      string
+	Attachments    []Attachment
+	RuntimeParams  map[string]float64
+}
+
+type CancelInput struct {
+	ConversationID int64
+	RequestID      string
+}
+
+type Attachment struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
 }
 
 type SendRecord struct {
@@ -24,6 +38,7 @@ type SendRecord struct {
 	Role           int
 	ContentType    string
 	Content        string
+	MetaJSON       *string
 }
 
 type ReplyPayload struct {
@@ -38,11 +53,16 @@ type ReplyEnqueuer interface {
 	EnqueueConversationReply(ctx context.Context, payload ReplyPayload) error
 }
 
+type ReplyCanceler interface {
+	CancelConversationReply(ctx context.Context, payload ReplyPayload) error
+}
+
 type MessageItem struct {
 	ID          int64  `json:"id"`
 	Role        int    `json:"role"`
 	ContentType string `json:"content_type"`
 	Content     string `json:"content"`
+	MetaJSON    any    `json:"meta_json,omitempty"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
@@ -57,6 +77,12 @@ type SendResponse struct {
 	ConversationID int64  `json:"conversation_id"`
 	UserMessageID  int64  `json:"user_message_id"`
 	RequestID      string `json:"request_id"`
+}
+
+type CancelResponse struct {
+	ConversationID int64  `json:"conversation_id"`
+	RequestID      string `json:"request_id"`
+	Status         string `json:"status"`
 }
 
 type AgentRuntime struct {
@@ -75,4 +101,5 @@ type Repository interface {
 type HTTPService interface {
 	List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error)
 	Send(ctx context.Context, userID int64, input SendInput) (*SendResponse, *apperror.Error)
+	Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error)
 }

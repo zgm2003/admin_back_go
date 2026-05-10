@@ -48,6 +48,10 @@ type CreateInput struct {
 	Title   string
 }
 
+type UpdateInput struct {
+	Title string
+}
+
 type CreateResponse struct {
 	ID int64 `json:"id"`
 }
@@ -57,6 +61,7 @@ type Repository interface {
 	Get(ctx context.Context, id int64) (*Conversation, string, error)
 	ActiveChatAgentExists(ctx context.Context, id int64) (bool, error)
 	Create(ctx context.Context, row Conversation) (int64, error)
+	UpdateTitle(ctx context.Context, id int64, userID int64, title string) error
 	Delete(ctx context.Context, id int64, userID int64) error
 }
 
@@ -64,5 +69,6 @@ type HTTPService interface {
 	List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error)
 	Detail(ctx context.Context, userID int64, id int64) (*ConversationDetail, *apperror.Error)
 	Create(ctx context.Context, userID int64, input CreateInput) (int64, *apperror.Error)
+	Update(ctx context.Context, userID int64, id int64, input UpdateInput) *apperror.Error
 	Delete(ctx context.Context, userID int64, id int64) *apperror.Error
 }

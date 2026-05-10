@@ -64,6 +64,27 @@ func (h *Handler) Create(c *gin.Context) {
 	response.OK(c, CreateResponse{ID: id})
 }
 
+func (h *Handler) Update(c *gin.Context) {
+	identity, ok := authIdentity(c)
+	if !ok {
+		return
+	}
+	id, ok := routeID(c, "id", "无效的AI会话ID")
+	if !ok {
+		return
+	}
+	var req updateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI会话参数错误"))
+		return
+	}
+	if appErr := h.requireService().Update(c.Request.Context(), identity.UserID, id, UpdateInput{Title: req.Title}); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
+}
+
 func (h *Handler) Delete(c *gin.Context) {
 	identity, ok := authIdentity(c)
 	if !ok {
@@ -123,6 +144,9 @@ func (nilHTTPService) Detail(ctx context.Context, userID int64, id int64) (*Conv
 }
 func (nilHTTPService) Create(ctx context.Context, userID int64, input CreateInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("AI会话服务未配置")
+}
+func (nilHTTPService) Update(ctx context.Context, userID int64, id int64, input UpdateInput) *apperror.Error {
+	return apperror.Internal("AI会话服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
 	return apperror.Internal("AI会话服务未配置")

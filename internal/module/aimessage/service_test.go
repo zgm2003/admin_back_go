@@ -2,6 +2,7 @@ package aimessage
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,11 +33,17 @@ func (f *fakeRepository) InsertUserMessage(ctx context.Context, input SendRecord
 }
 
 type fakeReplyEnqueuer struct {
-	payload ReplyPayload
+	payload       ReplyPayload
+	cancelPayload ReplyPayload
 }
 
 func (f *fakeReplyEnqueuer) EnqueueConversationReply(ctx context.Context, payload ReplyPayload) error {
 	f.payload = payload
+	return nil
+}
+
+func (f *fakeReplyEnqueuer) CancelConversationReply(ctx context.Context, payload ReplyPayload) error {
+	f.cancelPayload = payload
 	return nil
 }
 
@@ -82,8 +89,40 @@ func TestSendCreatesTextUserMessageAndEnqueuesConversationReply(t *testing.T) {
 	if repo.sendInput.Content != "hello" || repo.sendInput.ContentType != "text" || repo.sendInput.Role != enum.AIMessageRoleUser {
 		t.Fatalf("unexpected send input: %#v", repo.sendInput)
 	}
+	if repo.sendInput.MetaJSON != nil {
+		t.Fatalf("empty metadata must be stored as nil, got %#v", repo.sendInput.MetaJSON)
+	}
 	if enq.payload.ConversationID != 3 || enq.payload.UserID != 7 || enq.payload.AgentID != 5 || enq.payload.UserMessageID != 12 || enq.payload.RequestID != "rid" {
 		t.Fatalf("unexpected reply payload: %#v", enq.payload)
+	}
+}
+
+func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
+		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+	}
+	_, appErr := NewService(repo, WithReplyEnqueuer(&fakeReplyEnqueuer{})).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: []Attachment{{Type: "image", URL: "https://example.test/a.png", Name: "a.png", Size: 10}}})
+	if appErr != nil {
+		t.Fatalf("Send returned error: %v", appErr)
+	}
+	if repo.sendInput.MetaJSON == nil || !strings.Contains(*repo.sendInput.MetaJSON, "attachments") || !strings.Contains(*repo.sendInput.MetaJSON, "https://example.test/a.png") {
+		t.Fatalf("missing attachment meta json: %#v", repo.sendInput.MetaJSON)
+	}
+}
+
+func TestCancelRequiresOwnedConversation(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}}
+	enq := &fakeReplyEnqueuer{}
+	res, appErr := NewService(repo, WithReplyEnqueuer(enq)).Cancel(context.Background(), 7, CancelInput{ConversationID: 3, RequestID: "rid"})
+	if appErr != nil {
+		t.Fatalf("Cancel returned error: %v", appErr)
+	}
+	if res.ConversationID != 3 || res.RequestID != "rid" || res.Status != "canceled" {
+		t.Fatalf("unexpected cancel response: %#v", res)
+	}
+	if enq.cancelPayload.ConversationID != 3 || enq.cancelPayload.UserID != 7 || enq.cancelPayload.RequestID != "rid" {
+		t.Fatalf("unexpected cancel payload: %#v", enq.cancelPayload)
 	}
 }
 
