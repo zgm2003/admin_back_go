@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/jobs"
@@ -111,10 +112,11 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		NumberGenerator: paymentNumberGenerator,
 	})
 	aiChatService := aichat.NewService(aichat.Dependencies{
-		Repository:    aichat.NewGormRepository(resources.DB),
-		Publisher:     realtimePublisher,
-		Secretbox:     secretBox,
-		EngineFactory: aiChatEngineFactory{},
+		Repository:      aichat.NewGormRepository(resources.DB),
+		Publisher:       realtimePublisher,
+		Secretbox:       secretBox,
+		EngineFactory:   aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, 60*time.Second)},
+		RunStaleTimeout: positiveDuration(cfg.AI.RunStaleTimeout, 15*time.Minute),
 	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,

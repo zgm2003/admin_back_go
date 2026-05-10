@@ -18,6 +18,7 @@ import (
 )
 
 const defaultTimeoutLimit = 100
+const defaultRunStaleTimeout = 15 * time.Minute
 const historyLimit = 20
 const maxHistoryLimit = 50
 
@@ -28,6 +29,7 @@ type Dependencies struct {
 	Secretbox        secretbox.Box
 	ToolRuntime      ToolRuntime
 	KnowledgeRuntime KnowledgeRuntime
+	RunStaleTimeout  time.Duration
 	Now              func() time.Time
 }
 
@@ -38,6 +40,7 @@ type Service struct {
 	secretbox        secretbox.Box
 	toolRuntime      ToolRuntime
 	knowledgeRuntime KnowledgeRuntime
+	runStaleTimeout  time.Duration
 	now              func() time.Time
 }
 
@@ -46,7 +49,11 @@ func NewService(deps Dependencies) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, now: now}
+	runStaleTimeout := deps.RunStaleTimeout
+	if runStaleTimeout <= 0 {
+		runStaleTimeout = defaultRunStaleTimeout
+	}
+	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runStaleTimeout: runStaleTimeout, now: now}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -257,7 +264,15 @@ func (s *Service) TimeoutRuns(ctx context.Context, input RunTimeoutInput) (*RunT
 	if limit <= 0 {
 		limit = defaultTimeoutLimit
 	}
-	count, err := repo.TimeoutRuns(ctx, limit, "AI运行超时")
+	staleTimeout := input.StaleTimeout
+	if staleTimeout <= 0 {
+		staleTimeout = s.runStaleTimeout
+	}
+	if staleTimeout <= 0 {
+		staleTimeout = defaultRunStaleTimeout
+	}
+	staleBefore := s.now().Add(-staleTimeout)
+	count, err := repo.TimeoutRuns(ctx, limit, staleBefore, "AI运行残留超时")
 	if err != nil {
 		return nil, err
 	}

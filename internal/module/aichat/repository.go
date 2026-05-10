@@ -133,12 +133,13 @@ func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRunRecor
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.finishRun(ctx, input.RunID, enum.AIRunStatusSuccess, enum.AIRunEventCompleted, enum.AIRunEventLabels[enum.AIRunEventCompleted], input.FinishedAt, input.DurationMS, map[string]any{
+	_, err := r.finishRun(ctx, input.RunID, enum.AIRunStatusSuccess, enum.AIRunEventCompleted, enum.AIRunEventLabels[enum.AIRunEventCompleted], input.FinishedAt, input.DurationMS, map[string]any{
 		"assistant_message_id": input.AssistantMessageID,
 		"prompt_tokens":        nonNegativeInt(input.PromptTokens),
 		"completion_tokens":    nonNegativeInt(input.CompletionTokens),
 		"total_tokens":         nonNegativeInt(input.TotalTokens),
 	})
+	return err
 }
 
 func (r *GormRepository) FinishRun(ctx context.Context, input FinishRunRecord) error {
@@ -160,10 +161,11 @@ func (r *GormRepository) FinishRun(ctx context.Context, input FinishRunRecord) e
 	if message == "" {
 		message = enum.AIRunStatusLabels[input.Status]
 	}
-	return r.finishRun(ctx, input.RunID, input.Status, eventType, message, input.FinishedAt, input.DurationMS, nil)
+	_, err := r.finishRun(ctx, input.RunID, input.Status, eventType, message, input.FinishedAt, input.DurationMS, nil)
+	return err
 }
 
-func (r *GormRepository) finishRun(ctx context.Context, runID int64, status string, eventType string, message string, finishedAt time.Time, durationMS uint, extra map[string]any) error {
+func (r *GormRepository) finishRun(ctx context.Context, runID int64, status string, eventType string, message string, finishedAt time.Time, durationMS uint, extra map[string]any) (bool, error) {
 	if finishedAt.IsZero() {
 		finishedAt = time.Now()
 	}
@@ -179,26 +181,39 @@ func (r *GormRepository) finishRun(ctx context.Context, runID int64, status stri
 	for key, value := range extra {
 		updates[key] = value
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&Run{}).Where("id = ? AND status = ?", runID, enum.AIRunStatusRunning).Updates(updates).Error; err != nil {
-			return err
+	changed := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := runningRunUpdateDB(tx, runID).Updates(updates)
+		if result.Error != nil {
+			return result.Error
 		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		changed = true
 		var maxSeq uint
 		if err := tx.Model(&RunEvent{}).Where("run_id = ?", runID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
 			return err
 		}
 		return tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRunMessage(message)}).Error
 	})
+	return changed, err
 }
-func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, message string) (int64, error) {
+func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, staleBefore time.Time, message string) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
 	}
 	if limit <= 0 {
 		limit = defaultTimeoutLimit
 	}
+	if staleBefore.IsZero() {
+		staleBefore = time.Now().Add(-defaultRunStaleTimeout)
+	}
 	var runs []Run
-	if err := r.db.WithContext(ctx).Where("status = ?", enum.AIRunStatusRunning).Order("id ASC").Limit(limit).Find(&runs).Error; err != nil {
+	if err := staleRunningRunsDB(r.db.WithContext(ctx), staleBefore).
+		Order("id ASC").
+		Limit(limit).
+		Find(&runs).Error; err != nil {
 		return 0, err
 	}
 	if len(runs) == 0 {
@@ -207,12 +222,23 @@ func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, message str
 	now := time.Now()
 	var changed int64
 	for _, run := range runs {
-		if err := r.FinishRun(ctx, FinishRunRecord{RunID: run.ID, Status: enum.AIRunStatusTimeout, Message: message, FinishedAt: now, DurationMS: durationSince(run.StartedAt, now)}); err != nil {
+		ok, err := r.finishRun(ctx, run.ID, enum.AIRunStatusTimeout, enum.AIRunEventTimeout, message, now, durationSince(run.StartedAt, now), nil)
+		if err != nil {
 			return changed, err
 		}
-		changed++
+		if ok {
+			changed++
+		}
 	}
 	return changed, nil
+}
+
+func runningRunUpdateDB(db *gorm.DB, runID int64) *gorm.DB {
+	return db.Model(&Run{}).Where("id = ? AND status = ?", runID, enum.AIRunStatusRunning)
+}
+
+func staleRunningRunsDB(db *gorm.DB, staleBefore time.Time) *gorm.DB {
+	return db.Where("status = ? AND started_at IS NOT NULL AND started_at < ?", enum.AIRunStatusRunning, staleBefore)
 }
 
 func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {

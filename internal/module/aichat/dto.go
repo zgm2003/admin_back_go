@@ -17,7 +17,8 @@ type ConversationReplyResult struct {
 }
 
 type RunTimeoutInput struct {
-	Limit int
+	Limit        int
+	StaleTimeout time.Duration
 }
 
 type RunTimeoutResult struct {
@@ -131,7 +132,7 @@ type Repository interface {
 	CreateRun(ctx context.Context, input CreateRunRecord) (int64, error)
 	CompleteRun(ctx context.Context, input CompleteRunRecord) error
 	FinishRun(ctx context.Context, input FinishRunRecord) error
-	TimeoutRuns(ctx context.Context, limit int, message string) (int64, error)
+	TimeoutRuns(ctx context.Context, limit int, staleBefore time.Time, message string) (int64, error)
 }
 
 type HTTPService interface{}

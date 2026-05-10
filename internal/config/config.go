@@ -23,6 +23,7 @@ type Config struct {
 	Secretbox   SecretboxConfig
 	Payment     PaymentConfig
 	UploadToken UploadTokenConfig
+	AI          AIConfig
 	CORS        CORSConfig
 }
 
@@ -153,6 +154,12 @@ type UploadTokenConfig struct {
 	COS            COSSTSConfig
 }
 
+type AIConfig struct {
+	ChatStreamMaxDuration time.Duration
+	ChatStreamIdleTimeout time.Duration
+	RunStaleTimeout       time.Duration
+}
+
 type COSSTSConfig struct {
 	Enabled  bool
 	Endpoint string
@@ -270,6 +277,11 @@ func Load() Config {
 				Endpoint: envString("COS_STS_ENDPOINT", "sts.tencentcloudapi.com"),
 				Region:   envString("COS_STS_REGION", "ap-guangzhou"),
 			},
+		},
+		AI: AIConfig{
+			ChatStreamMaxDuration: envDuration("AI_CHAT_STREAM_MAX_DURATION", 5*time.Minute),
+			ChatStreamIdleTimeout: envDuration("AI_CHAT_STREAM_IDLE_TIMEOUT", 60*time.Second),
+			RunStaleTimeout:       envDuration("AI_RUN_STALE_TIMEOUT", 15*time.Minute),
 		},
 		CORS: corsConfig,
 	}

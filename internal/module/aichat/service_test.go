@@ -25,6 +25,7 @@ type fakeRepository struct {
 	completedRun CompleteRunRecord
 	finishedRun  FinishRunRecord
 	timeoutLimit int
+	staleBefore  time.Time
 }
 
 func (f *fakeRepository) ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error) {
@@ -52,8 +53,9 @@ func (f *fakeRepository) FinishRun(ctx context.Context, input FinishRunRecord) e
 	f.finishedRun = input
 	return nil
 }
-func (f *fakeRepository) TimeoutRuns(ctx context.Context, limit int, message string) (int64, error) {
+func (f *fakeRepository) TimeoutRuns(ctx context.Context, limit int, staleBefore time.Time, message string) (int64, error) {
 	f.timeoutLimit = limit
+	f.staleBefore = staleBefore
 	return 2, nil
 }
 
@@ -341,12 +343,29 @@ func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t 
 
 func TestTimeoutRunsMarksOldRunsFailed(t *testing.T) {
 	repo := &fakeRepository{}
-	res, err := NewService(Dependencies{Repository: repo}).TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5})
+	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	res, err := NewService(Dependencies{Repository: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5})
 	if err != nil {
 		t.Fatalf("TimeoutRuns returned error: %v", err)
 	}
 	if repo.timeoutLimit != 5 || res.Failed != 2 {
 		t.Fatalf("unexpected timeout result: repo=%#v res=%#v", repo, res)
+	}
+	if want := now.Add(-20 * time.Minute); !repo.staleBefore.Equal(want) {
+		t.Fatalf("expected staleBefore %s, got %s", want, repo.staleBefore)
+	}
+}
+
+func TestTimeoutRunsAllowsInputStaleTimeoutOverride(t *testing.T) {
+	repo := &fakeRepository{}
+	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	_, err := NewService(Dependencies{Repository: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).
+		TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5, StaleTimeout: 7 * time.Minute})
+	if err != nil {
+		t.Fatalf("TimeoutRuns returned error: %v", err)
+	}
+	if want := now.Add(-7 * time.Minute); !repo.staleBefore.Equal(want) {
+		t.Fatalf("expected staleBefore %s, got %s", want, repo.staleBefore)
 	}
 }
 

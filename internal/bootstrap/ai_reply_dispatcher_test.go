@@ -85,3 +85,12 @@ func TestAIConversationReplyDispatcherCancelsRunningReplyByConversationAndReques
 		t.Fatal("reply was not canceled")
 	}
 }
+
+func TestAIReplyTimeoutAddsCompletionWindow(t *testing.T) {
+	if got := aiReplyTimeout(3 * time.Minute); got != 3*time.Minute+30*time.Second {
+		t.Fatalf("expected 3m30s reply timeout, got %s", got)
+	}
+	if got := aiReplyTimeout(0); got != 5*time.Minute+30*time.Second {
+		t.Fatalf("expected default 5m30s reply timeout, got %s", got)
+	}
+}

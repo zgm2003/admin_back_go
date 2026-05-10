@@ -3,6 +3,8 @@ package openaicompat
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,6 +50,10 @@ func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 	}
 	if requestBody["stream"] != true {
 		t.Fatalf("stream = %#v, want true", requestBody["stream"])
+	}
+	streamOptions, ok := requestBody["stream_options"].(map[string]any)
+	if !ok || streamOptions["include_usage"] != true {
+		t.Fatalf("expected stream_options.include_usage=true, got %#v", requestBody["stream_options"])
 	}
 	if result.Answer != "你好" || result.PromptTokens != 2 || result.CompletionTokens != 2 || result.TotalTokens != 4 {
 		t.Fatalf("unexpected result: %#v", result)
@@ -197,6 +203,62 @@ func TestClientDoesNotLeakAPIKeyOnFailure(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "sk-secret-value") {
 		t.Fatalf("error leaked api key: %v", err)
+	}
+}
+
+func TestClientStreamChatDoesNotUseTotalHTTPTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"hello"}}]}`)
+		flusher.Flush()
+		time.Sleep(120 * time.Millisecond)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":" world"}}]}`)
+		fmt.Fprintln(w, `data: [DONE]`)
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		BaseURL:           server.URL,
+		APIKey:            "sk-test",
+		Timeout:           50 * time.Millisecond,
+		StreamIdleTimeout: 500 * time.Millisecond,
+	})
+	result, err := client.StreamChat(context.Background(), platformai.ChatInput{
+		Content: "hi",
+		Inputs:  map[string]any{"model_id": "gpt-test"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	if result.Answer != "hello world" {
+		t.Fatalf("unexpected answer %q", result.Answer)
+	}
+}
+
+func TestClientStreamChatReturnsIdleTimeoutWhenStreamIsSilent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(200 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		BaseURL:           server.URL,
+		APIKey:            "sk-test",
+		Timeout:           time.Second,
+		StreamIdleTimeout: 50 * time.Millisecond,
+	})
+	_, err := client.StreamChat(context.Background(), platformai.ChatInput{
+		Content: "hi",
+		Inputs:  map[string]any{"model_id": "gpt-test"},
+	}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
 	}
 }
 

@@ -388,6 +388,7 @@ Queue
 Realtime
 Scheduler
 Secretbox
+AI
 ```
 
 当前环境变量：
@@ -426,6 +427,9 @@ REALTIME_ENABLED
 REALTIME_PUBLISHER
 REALTIME_HEARTBEAT_INTERVAL
 REALTIME_SEND_BUFFER
+AI_CHAT_STREAM_MAX_DURATION
+AI_CHAT_STREAM_IDLE_TIMEOUT
+AI_RUN_STALE_TIMEOUT
 SCHEDULER_ENABLED
 SCHEDULER_TIMEZONE
 SCHEDULER_LOCK_PREFIX
@@ -445,6 +449,7 @@ config 不读取业务表
 platform 层以后根据 config 创建 client
 TOKEN_REDIS_PREFIX / TOKEN_REDIS_DB / TOKEN_SESSION_CACHE_TTL / TOKEN_SINGLE_SESSION_POINTER_TTL 是部署级 Redis/session 基础设施配置，保留 env
 TOKEN_ACCESS_TTL / TOKEN_REFRESH_TTL 不再存在；业务 token TTL 只在 auth_platforms 表中配置和管理
+AIConfig 只表达运行时超时边界：stream max duration、stream idle timeout、run stale timeout；不存 provider 业务参数
 ```
 
 ## Secretbox baseline
@@ -1435,6 +1440,8 @@ Runtime boundary:
 ```text
 POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no enabled provider/agent exists; production must not fake success.
 Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
+OpenAI-compatible StreamChat does not use a 30s HTTP total timeout while reading response body; live max duration comes from AI_CHAT_STREAM_MAX_DURATION and upstream silence comes from AI_CHAT_STREAM_IDLE_TIMEOUT.
+ai_run_timeout is stale cleanup only: admin-worker marks running rows older than AI_RUN_STALE_TIMEOUT, not fresh online replies.
 ai_runs records one reply attempt with status, token totals, duration, and message links.
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.

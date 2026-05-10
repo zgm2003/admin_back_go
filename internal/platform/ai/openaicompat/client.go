@@ -10,28 +10,35 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	platformai "admin_back_go/internal/platform/ai"
 )
 
 const (
-	defaultBaseURL = "https://api.openai.com/v1"
-	defaultTimeout = 30 * time.Second
+	defaultBaseURL           = "https://api.openai.com/v1"
+	defaultTimeout           = 30 * time.Second
+	defaultStreamIdleTimeout = 60 * time.Second
 )
 
 type Config struct {
-	BaseURL    string
-	APIKey     string
-	HTTPClient *http.Client
-	Timeout    time.Duration
+	BaseURL           string
+	APIKey            string
+	HTTPClient        *http.Client
+	StreamHTTPClient  *http.Client
+	Timeout           time.Duration
+	StreamIdleTimeout time.Duration
 }
 
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
-	timeout    time.Duration
+	baseURL           string
+	apiKey            string
+	httpClient        *http.Client
+	streamHTTPClient  *http.Client
+	timeout           time.Duration
+	streamIdleTimeout time.Duration
 }
 
 func New(config Config) *Client {
@@ -39,15 +46,25 @@ func New(config Config) *Client {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
+	streamIdleTimeout := config.StreamIdleTimeout
+	if streamIdleTimeout <= 0 {
+		streamIdleTimeout = defaultStreamIdleTimeout
+	}
 	httpClient := config.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: timeout}
 	}
+	streamHTTPClient := config.StreamHTTPClient
+	if streamHTTPClient == nil {
+		streamHTTPClient = &http.Client{}
+	}
 	return &Client{
-		baseURL:    strings.TrimRight(strings.TrimSpace(config.BaseURL), "/"),
-		apiKey:     strings.TrimSpace(config.APIKey),
-		httpClient: httpClient,
-		timeout:    timeout,
+		baseURL:           strings.TrimRight(strings.TrimSpace(config.BaseURL), "/"),
+		apiKey:            strings.TrimSpace(config.APIKey),
+		httpClient:        httpClient,
+		streamHTTPClient:  streamHTTPClient,
+		timeout:           timeout,
+		streamIdleTimeout: streamIdleTimeout,
 	}
 }
 
@@ -62,10 +79,12 @@ func (c *Client) TestConnection(ctx context.Context, input platformai.TestConnec
 			timeout = time.Duration(input.TimeoutMs) * time.Millisecond
 		}
 		client = New(Config{
-			BaseURL:    nonEmpty(input.BaseURL, c.baseURL),
-			APIKey:     nonEmpty(input.APIKey, c.apiKey),
-			HTTPClient: c.httpClient,
-			Timeout:    timeout,
+			BaseURL:           nonEmpty(input.BaseURL, c.baseURL),
+			APIKey:            nonEmpty(input.APIKey, c.apiKey),
+			HTTPClient:        c.httpClient,
+			StreamHTTPClient:  c.streamHTTPClient,
+			Timeout:           timeout,
+			StreamIdleTimeout: c.streamIdleTimeout,
 		})
 	}
 
@@ -103,10 +122,11 @@ func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sin
 		return nil, fmt.Errorf("%w: tool outputs require preceding tool calls", platformai.ErrInvalidConfig)
 	}
 	body := chatCompletionRequest{
-		Model:    model,
-		Stream:   true,
-		Messages: chatMessages(input),
-		Tools:    chatTools(input.Tools),
+		Model:         model,
+		Stream:        true,
+		StreamOptions: &chatStreamOptions{IncludeUsage: true},
+		Messages:      chatMessages(input),
+		Tools:         chatTools(input.Tools),
 	}
 	if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
 		body.Temperature = &temperature
@@ -119,7 +139,15 @@ func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sin
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	resp, err := c.httpClient.Do(req)
+	streamClient := c.streamHTTPClient
+	if streamClient == nil {
+		streamClient = &http.Client{}
+	}
+	streamIdleTimeout := c.streamIdleTimeout
+	if streamIdleTimeout <= 0 {
+		streamIdleTimeout = defaultStreamIdleTimeout
+	}
+	resp, err := streamClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", platformai.ErrUpstreamFailed, err)
 	}
@@ -127,8 +155,15 @@ func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sin
 	if err := c.requireSuccess(resp); err != nil {
 		return nil, err
 	}
-	result, err := c.readChatCompletionStream(ctx, resp.Body, sink)
+	watcher := newStreamIdleWatcher(streamIdleTimeout, resp.Body.Close)
+	defer watcher.Stop()
+	result, err := c.readChatCompletionStream(ctx, resp.Body, sink, func() {
+		watcher.Touch(streamIdleTimeout)
+	})
 	if err != nil {
+		if watcher.TimedOut() {
+			return nil, fmt.Errorf("%w: OpenAI chat completion stream idle timeout after %s", context.DeadlineExceeded, streamIdleTimeout)
+		}
 		return nil, err
 	}
 	return result, nil
@@ -181,6 +216,61 @@ func (c *Client) newRequest(ctx context.Context, method string, endpoint string,
 	return req, nil
 }
 
+type streamIdleWatcher struct {
+	timer     *time.Timer
+	closeBody func() error
+	timedOut  atomic.Bool
+
+	mu      sync.Mutex
+	stopped bool
+}
+
+func newStreamIdleWatcher(timeout time.Duration, closeBody func() error) *streamIdleWatcher {
+	if timeout <= 0 {
+		timeout = defaultStreamIdleTimeout
+	}
+	w := &streamIdleWatcher{closeBody: closeBody}
+	w.timer = time.AfterFunc(timeout, func() {
+		w.timedOut.Store(true)
+		if w.closeBody != nil {
+			_ = w.closeBody()
+		}
+	})
+	return w
+}
+
+func (w *streamIdleWatcher) Touch(timeout time.Duration) {
+	if w == nil {
+		return
+	}
+	if timeout <= 0 {
+		timeout = defaultStreamIdleTimeout
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped {
+		return
+	}
+	w.timer.Reset(timeout)
+}
+
+func (w *streamIdleWatcher) Stop() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped {
+		return
+	}
+	w.stopped = true
+	w.timer.Stop()
+}
+
+func (w *streamIdleWatcher) TimedOut() bool {
+	return w != nil && w.timedOut.Load()
+}
+
 func (c *Client) requireSuccess(resp *http.Response) error {
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return nil
@@ -199,12 +289,15 @@ func (c *Client) requireSuccess(resp *http.Response) error {
 	return fmt.Errorf("%w: %s %s", platformai.ErrUpstreamFailed, resp.Status, message)
 }
 
-func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, sink platformai.EventSink) (*platformai.ChatResult, error) {
+func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, sink platformai.EventSink, touch func()) (*platformai.ChatResult, error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	var answer strings.Builder
 	result := &platformai.ChatResult{}
 	for scanner.Scan() {
+		if touch != nil {
+			touch()
+		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -257,12 +350,17 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 }
 
 type chatCompletionRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Stream      bool          `json:"stream"`
-	Tools       []chatTool    `json:"tools,omitempty"`
-	Temperature *float64      `json:"temperature,omitempty"`
-	MaxTokens   *int          `json:"max_tokens,omitempty"`
+	Model         string             `json:"model"`
+	Messages      []chatMessage      `json:"messages"`
+	Stream        bool               `json:"stream"`
+	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
+	Tools         []chatTool         `json:"tools,omitempty"`
+	Temperature   *float64           `json:"temperature,omitempty"`
+	MaxTokens     *int               `json:"max_tokens,omitempty"`
+}
+
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatMessage struct {

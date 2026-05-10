@@ -108,6 +108,15 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Scheduler.LockPrefix != "admin_go:scheduler:" {
 		t.Fatalf("expected scheduler lock prefix admin_go:scheduler:, got %q", cfg.Scheduler.LockPrefix)
 	}
+	if cfg.AI.ChatStreamMaxDuration != 5*time.Minute {
+		t.Fatalf("expected AI chat stream max duration 5m, got %s", cfg.AI.ChatStreamMaxDuration)
+	}
+	if cfg.AI.ChatStreamIdleTimeout != 60*time.Second {
+		t.Fatalf("expected AI chat stream idle timeout 60s, got %s", cfg.AI.ChatStreamIdleTimeout)
+	}
+	if cfg.AI.RunStaleTimeout != 15*time.Minute {
+		t.Fatalf("expected AI run stale timeout 15m, got %s", cfg.AI.RunStaleTimeout)
+	}
 	wantOrigins := []string{
 		"http://localhost:5173",
 		"http://127.0.0.1:5173",
@@ -169,6 +178,9 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("SCHEDULER_ENABLED", "false")
 	t.Setenv("SCHEDULER_TIMEZONE", "UTC")
 	t.Setenv("SCHEDULER_LOCK_PREFIX", "test:scheduler:")
+	t.Setenv("AI_CHAT_STREAM_MAX_DURATION", "3m")
+	t.Setenv("AI_CHAT_STREAM_IDLE_TIMEOUT", "45s")
+	t.Setenv("AI_RUN_STALE_TIMEOUT", "20m")
 	t.Setenv("CORS_ALLOW_ORIGINS", "https://admin.example.com, http://localhost:5173")
 	t.Setenv("CORS_ALLOW_HEADERS", "Content-Type,Authorization,X-Custom")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
@@ -233,6 +245,11 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Scheduler.Timezone != "UTC" || cfg.Scheduler.LockPrefix != "test:scheduler:" {
 		t.Fatalf("unexpected scheduler config: %#v", cfg.Scheduler)
 	}
+	if cfg.AI.ChatStreamMaxDuration != 3*time.Minute ||
+		cfg.AI.ChatStreamIdleTimeout != 45*time.Second ||
+		cfg.AI.RunStaleTimeout != 20*time.Minute {
+		t.Fatalf("unexpected AI config: %#v", cfg.AI)
+	}
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, []string{"https://admin.example.com", "http://localhost:5173"}) {
 		t.Fatalf("unexpected cors origins: %#v", cfg.CORS.AllowOrigins)
 	}
@@ -272,6 +289,20 @@ func TestEnvExampleUsesGoOwnedPaymentCerts(t *testing.T) {
 	}
 	if values["LEGACY_ADMIN_BACK_ROOT"] != "" {
 		t.Fatalf("expected LEGACY_ADMIN_BACK_ROOT to be empty, got %q", values["LEGACY_ADMIN_BACK_ROOT"])
+	}
+}
+
+func TestEnvExampleDocumentsAITimeouts(t *testing.T) {
+	values := readEnvExample(t)
+
+	if values["AI_CHAT_STREAM_MAX_DURATION"] != "5m" {
+		t.Fatalf("expected AI_CHAT_STREAM_MAX_DURATION=5m, got %q", values["AI_CHAT_STREAM_MAX_DURATION"])
+	}
+	if values["AI_CHAT_STREAM_IDLE_TIMEOUT"] != "60s" {
+		t.Fatalf("expected AI_CHAT_STREAM_IDLE_TIMEOUT=60s, got %q", values["AI_CHAT_STREAM_IDLE_TIMEOUT"])
+	}
+	if values["AI_RUN_STALE_TIMEOUT"] != "15m" {
+		t.Fatalf("expected AI_RUN_STALE_TIMEOUT=15m, got %q", values["AI_RUN_STALE_TIMEOUT"])
 	}
 }
 

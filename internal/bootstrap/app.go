@@ -55,6 +55,17 @@ import (
 
 const shutdownTimeout = 5 * time.Second
 
+func aiReplyTimeout(maxDuration time.Duration) time.Duration {
+	return positiveDuration(maxDuration, 5*time.Minute) + 30*time.Second
+}
+
+func positiveDuration(value time.Duration, fallback time.Duration) time.Duration {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
 type App struct {
 	cfg                config.Config
 	logger             *slog.Logger
@@ -228,11 +239,12 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		Repository:       aichat.NewGormRepository(resources.DB),
 		Publisher:        realtimeStack.publisher,
 		Secretbox:        secretBox,
-		EngineFactory:    aiChatEngineFactory{},
+		EngineFactory:    aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, 60*time.Second)},
 		ToolRuntime:      aiToolService,
 		KnowledgeRuntime: aiKnowledgeRuntimeAdapter{service: aiKnowledgeService},
+		RunStaleTimeout:  positiveDuration(cfg.AI.RunStaleTimeout, 15*time.Minute),
 	})
-	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiConversationReplyTimeout)
+	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiReplyTimeout(cfg.AI.ChatStreamMaxDuration))
 	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiReplyDispatcher))
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
@@ -404,15 +416,18 @@ func (a aiKnowledgeRuntimeAdapter) RetrieveForRun(ctx context.Context, input aic
 	}, nil
 }
 
-type aiChatEngineFactory struct{}
+type aiChatEngineFactory struct {
+	streamIdleTimeout time.Duration
+}
 
-func (aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (platformai.Engine, error) {
+func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (platformai.Engine, error) {
 	switch input.EngineType {
 	case platformai.EngineTypeOpenAI:
 		return openaicompat.New(openaicompat.Config{
-			BaseURL: input.BaseURL,
-			APIKey:  input.APIKey,
-			Timeout: 30 * time.Second,
+			BaseURL:           input.BaseURL,
+			APIKey:            input.APIKey,
+			Timeout:           30 * time.Second,
+			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, 60*time.Second),
 		}), nil
 	case platformai.EngineTypeDify:
 		return dify.New(dify.Config{
