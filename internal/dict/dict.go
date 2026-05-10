@@ -282,14 +282,12 @@ func AIKnowledgeIndexStatusOptions() []Option[int] {
 func AIMessageRoleOptions() []Option[int] {
 	return intOptions(enum.AIMessageRoles, enum.AIMessageRoleLabels)
 }
-func AIRunStatusOptions() []Option[int] {
-	return intOptions(enum.AIRunStatuses, enum.AIRunStatusLabels)
-}
-func AIRunStepTypeOptions() []Option[int] {
-	return intOptions(enum.AIRunStepTypes, enum.AIRunStepTypeLabels)
-}
-func AIRunStepStatusOptions() []Option[int] {
-	return intOptions(enum.AIRunStepStatuses, enum.AIRunStepStatusLabels)
+func AIRunStatusOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIRunStatuses))
+	for _, value := range enum.AIRunStatuses {
+		options = append(options, Option[string]{Label: enum.AIRunStatusLabels[value], Value: value})
+	}
+	return options
 }
 
 func intOptions(values []int, labels map[int]string) []Option[int] {

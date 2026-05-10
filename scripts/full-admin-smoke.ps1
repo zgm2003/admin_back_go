@@ -1135,9 +1135,9 @@ function Assert-AIRunInit($Response) {
   if ($null -eq $Response.data.dict) {
     throw "AI run init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
-  $statuses = Get-ObjectArray $Response.data.dict.run_status_arr
-  $values = @($statuses | ForEach-Object { [int]$_.value })
-  foreach ($expected in @(1, 2, 3, 4)) {
+  $statuses = Get-ObjectArray $Response.data.dict.status_arr
+  $values = @($statuses | ForEach-Object { [string]$_.value })
+  foreach ($expected in @('running', 'success', 'failed', 'canceled', 'timeout')) {
     if (-not ($values -contains $expected)) {
       throw "AI run status dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
     }
@@ -1164,6 +1164,16 @@ function Assert-AIRunList($Response) {
     throw "AI run list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    foreach ($requiredField in @('id', 'request_id', 'status', 'status_name', 'model_id', 'model_display_name', 'prompt_tokens', 'completion_tokens', 'total_tokens', 'duration_text', 'error_message', 'created_at')) {
+      if (-not (Test-HasProperty $item $requiredField)) {
+        throw "AI run list item missing ${requiredField}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    foreach ($removedField in @('run_status', 'model_snapshot', 'latency_ms', 'latency_str', 'error_msg', 'engine_task_id', 'engine_run_id', 'usage_json', 'output_snapshot_json')) {
+      if (Test-HasProperty $item $removedField) {
+        throw "AI run list leaked removed field ${removedField}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
       }
 
   return [pscustomobject]@{
@@ -1179,10 +1189,19 @@ function Assert-AIRunStats($Response) {
   if ($null -eq $Response.data.summary) {
     throw "AI run stats missing summary: $($Response | ConvertTo-Json -Depth 12)"
   }
+  foreach ($requiredField in @('total_runs', 'success_rate', 'fail_runs', 'total_tokens', 'total_prompt_tokens', 'total_completion_tokens', 'avg_duration_ms')) {
+    if (-not (Test-HasProperty $Response.data.summary $requiredField)) {
+      throw "AI run stats missing ${requiredField}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  if (Test-HasProperty $Response.data.summary 'avg_latency_ms') {
+    throw "AI run stats leaked avg_latency_ms: $($Response | ConvertTo-Json -Depth 12)"
+  }
 
   return [pscustomobject]@{
     TotalRuns = [int64]$Response.data.summary.total_runs
     FailRuns = [int64]$Response.data.summary.fail_runs
+    AvgDurationMS = [int64]$Response.data.summary.avg_duration_ms
   }
 }
 
@@ -2585,7 +2604,7 @@ func main() {
     ai_conversation_list_count = $aiConversationListSummary.ListCount
     ai_conversation_total = $aiConversationListSummary.Total
     ai_run_init_code = $aiRunInit.code
-    ai_run_status_dict_count = $aiRunInitSummary.StatusCount
+    ai_run_status_option_count = $aiRunInitSummary.StatusCount
     ai_run_list_code = $aiRunList.code
     ai_run_list_count = $aiRunListSummary.ListCount
     ai_run_total = $aiRunListSummary.Total

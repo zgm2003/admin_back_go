@@ -23,6 +23,35 @@ type RunTimeoutResult struct {
 	Failed int64 `json:"failed"`
 }
 
+type CreateRunRecord struct {
+	ConversationID   int64
+	RequestID        string
+	UserMessageID    int64
+	UserID           int64
+	AgentID          int64
+	ProviderID       int64
+	ModelID          string
+	ModelDisplayName string
+	StartedAt        time.Time
+}
+
+type CompleteRunRecord struct {
+	RunID              int64
+	AssistantMessageID int64
+	PromptTokens       int
+	CompletionTokens   int
+	TotalTokens        int
+	FinishedAt         time.Time
+	DurationMS         uint
+}
+
+type FinishRunRecord struct {
+	RunID      int64
+	Status     string
+	Message    string
+	FinishedAt time.Time
+	DurationMS uint
+}
 type AssistantMessageRecord struct {
 	ConversationID int64
 	Content        string
@@ -68,6 +97,9 @@ type Repository interface {
 	AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error)
 	LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error)
 	InsertAssistantMessage(ctx context.Context, input AssistantMessageRecord) (int64, error)
+	CreateRun(ctx context.Context, input CreateRunRecord) (int64, error)
+	CompleteRun(ctx context.Context, input CompleteRunRecord) error
+	FinishRun(ctx context.Context, input FinishRunRecord) error
 	TimeoutRuns(ctx context.Context, limit int, message string) (int64, error)
 }
 

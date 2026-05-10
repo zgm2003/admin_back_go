@@ -3,6 +3,7 @@ package aichat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -71,24 +72,50 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		_ = s.publishFailed(ctx, input, msg)
 		return nil, apperror.BadRequest(msg)
 	}
+	startedAt := s.now()
+	runID, err := repo.CreateRun(ctx, CreateRunRecord{
+		ConversationID:   input.ConversationID,
+		RequestID:        input.RequestID,
+		UserMessageID:    input.UserMessageID,
+		UserID:           input.UserID,
+		AgentID:          input.AgentID,
+		ProviderID:       int64(agent.ProviderID),
+		ModelID:          agent.ModelID,
+		ModelDisplayName: agent.ModelDisplayName,
+		StartedAt:        startedAt,
+	})
+	if err != nil {
+		_ = s.publishFailed(ctx, input, "创建AI运行记录失败")
+		return nil, err
+	}
+	finishRun := func(status string, msg string, cause error) {
+		finishedAt := s.now()
+		_ = repo.FinishRun(context.Background(), FinishRunRecord{RunID: runID, Status: status, Message: msg, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+	}
 	if err := s.publishStart(ctx, input); err != nil {
+		finishRun(statusFromError(ctx, err), err.Error(), err)
 		return nil, err
 	}
 	engine, appErr := s.engineForAgent(ctx, *agent)
 	if appErr != nil {
 		_ = s.publishFailed(ctx, input, appErr.Message)
+		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
 		return nil, appErr
 	}
 	history, err := repo.LatestMessages(ctx, input.ConversationID, maxHistoryLimit+1)
 	if err != nil {
-		_ = s.publishFailed(ctx, input, "读取AI消息历史失败")
+		msg := "读取AI消息历史失败"
+		_ = s.publishFailed(ctx, input, msg)
+		finishRun(enum.AIRunStatusFailed, msg, err)
 		return nil, err
 	}
 	userContent := userMessageContent(history, input.UserMessageID)
 	if strings.TrimSpace(userContent) == "" {
 		msg := "用户消息不存在"
 		_ = s.publishFailed(ctx, input, msg)
-		return nil, apperror.BadRequest(msg)
+		appErr := apperror.BadRequest(msg)
+		finishRun(enum.AIRunStatusFailed, msg, appErr)
+		return nil, appErr
 	}
 	sink := &conversationEventSink{service: s, input: input}
 	result, err := engine.StreamChat(ctx, platformai.ChatInput{
@@ -101,6 +128,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if err != nil {
 		msg := err.Error()
 		_ = s.publishFailed(ctx, input, msg)
+		finishRun(statusFromError(ctx, err), msg, err)
 		return nil, err
 	}
 	answer := ""
@@ -116,7 +144,15 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	assistantID, err := repo.InsertAssistantMessage(ctx, AssistantMessageRecord{ConversationID: input.ConversationID, Content: answer, Now: s.now()})
 	if err != nil {
-		_ = s.publishFailed(ctx, input, "保存AI助手消息失败")
+		msg := "保存AI助手消息失败"
+		_ = s.publishFailed(ctx, input, msg)
+		finishRun(enum.AIRunStatusFailed, msg, err)
+		return nil, err
+	}
+	finishedAt := s.now()
+	if err := repo.CompleteRun(context.Background(), CompleteRunRecord{RunID: runID, AssistantMessageID: assistantID, PromptTokens: resultTokens(result).Prompt, CompletionTokens: resultTokens(result).Completion, TotalTokens: resultTokens(result).Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
+		msg := "更新AI运行记录失败"
+		_ = s.publishFailed(ctx, input, msg)
 		return nil, err
 	}
 	if err := s.publishCompleted(ctx, input, assistantID); err != nil {
@@ -125,6 +161,31 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
 }
 
+type tokenResult struct{ Prompt, Completion, Total int }
+
+func resultTokens(result *platformai.ChatResult) tokenResult {
+	if result == nil {
+		return tokenResult{}
+	}
+	return tokenResult{Prompt: result.PromptTokens, Completion: result.CompletionTokens, Total: result.TotalTokens}
+}
+
+func durationMS(startedAt time.Time, finishedAt time.Time) uint {
+	if startedAt.IsZero() || finishedAt.Before(startedAt) {
+		return 0
+	}
+	return uint(finishedAt.Sub(startedAt).Milliseconds())
+}
+
+func statusFromError(ctx context.Context, err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		return enum.AIRunStatusCanceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return enum.AIRunStatusTimeout
+	}
+	return enum.AIRunStatusFailed
+}
 func (s *Service) TimeoutRuns(ctx context.Context, input RunTimeoutInput) (*RunTimeoutResult, error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {

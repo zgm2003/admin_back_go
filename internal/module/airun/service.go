@@ -39,7 +39,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
 	agentOptions := optionItems(agents)
-	return &InitResponse{Dict: InitDict{RunStatusArr: dict.AIRunStatusOptions(), AgentArr: agentOptions, ProviderArr: optionItems(engines)}}, nil
+	return &InitResponse{Dict: InitDict{StatusArr: dict.AIRunStatusOptions(), AgentArr: agentOptions, ProviderArr: optionItems(engines)}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -99,7 +99,7 @@ func (s *Service) Stats(ctx context.Context, query StatsFilter) (*StatsResponse,
 	return &StatsResponse{DateRange: DateRange{Start: optionalString(query.DateStart), End: optionalString(query.DateEnd)}, Summary: StatsSummary{
 		TotalRuns: row.TotalRuns, SuccessRate: rate, FailRuns: row.FailRuns,
 		TotalTokens: row.TotalTokens, TotalPromptTokens: row.PromptTokens,
-		TotalCompletionTokens: row.CompletionTokens, AvgLatencyMS: row.AvgLatencyMS,
+		TotalCompletionTokens: row.CompletionTokens, AvgDurationMS: row.AvgDurationMS,
 	}}, nil
 }
 
@@ -202,12 +202,12 @@ func listItem(row ListRow) ListItem {
 	return ListItem{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID,
 		AgentID: row.AgentID, AgentName: row.AgentName,
-		ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType,
-		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
-		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle, RunStatus: row.RunStatus,
-		RunStatusName: enum.AIRunStatusLabels[row.RunStatus], ModelSnapshot: row.ModelSnapshot,
-		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens, Cost: row.Cost,
-		LatencyMS: row.LatencyMS, LatencyStr: latencyString(row.LatencyMS), ErrorMsg: row.ErrorMsg,
+		ProviderID: row.ProviderID, ProviderName: row.ProviderName,
+		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
+		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
+		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
+		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
+		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
 		CreatedAt: formatTime(row.CreatedAt),
 	}
 }
@@ -220,28 +220,24 @@ func detailItem(row RunDetailRow, events []EventRow) DetailResponse {
 	return DetailResponse{
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
 		AgentID: row.AgentID, AgentName: row.AgentName,
-		ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType,
-		EngineTaskID: row.EngineTaskID, EngineRunID: row.EngineRunID,
+		ProviderID: row.ProviderID, ProviderName: row.ProviderName,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
-		RunStatus: row.RunStatus, RunStatusName: enum.AIRunStatusLabels[row.RunStatus], ModelSnapshot: row.ModelSnapshot,
-		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens, Cost: row.Cost,
-		LatencyMS: row.LatencyMS, LatencyStr: latencyString(row.LatencyMS), ErrorMsg: row.ErrorMsg,
-		MetaJSON: rawJSON(row.MetaJSON), UsageJSON: rawJSON(row.UsageJSON), OutputSnapshotJSON: rawJSON(row.OutputSnapshotJSON),
-		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, Steps: []StepItem{},
+		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
+		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
+		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
+		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
+		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items,
+		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
 }
 
 func eventItem(row EventRow) EventItem {
-	return EventItem{ID: row.ID, Seq: row.Seq, EventID: row.EventID, EventType: row.EventType, DeltaText: row.DeltaText, PayloadJSON: rawJSON(row.PayloadJSON), CreatedAt: formatTime(row.CreatedAt)}
-}
-
-func stepItem(row StepRow) StepItem {
-	return StepItem{ID: row.ID, StepNo: row.StepNo, StepType: row.StepType, StepTypeName: enum.AIRunStepTypeLabels[row.StepType], AgentID: row.AgentID, AgentName: row.AgentName, ModelSnapshot: row.ModelSnapshot, Status: row.Status, StatusName: enum.AIRunStepStatusLabels[row.Status], ErrorMsg: row.ErrorMsg, LatencyMS: row.LatencyMS, LatencyStr: latencyString(row.LatencyMS), PayloadJSON: rawJSON(row.PayloadJSON), CreatedAt: formatTime(row.CreatedAt)}
+	return EventItem{ID: row.ID, Seq: row.Seq, EventType: row.EventType, Message: row.Message, CreatedAt: formatTime(row.CreatedAt)}
 }
 
 func metricItem(row StatsMetricRow) StatsMetricItem {
-	return StatsMetricItem{TotalRuns: row.TotalRuns, TotalTokens: row.TotalTokens, TotalPromptTokens: row.PromptTokens, TotalCompletionTokens: row.CompletionTokens, AvgLatencyMS: row.AvgLatencyMS}
+	return StatsMetricItem{TotalRuns: row.TotalRuns, TotalTokens: row.TotalTokens, TotalPromptTokens: row.PromptTokens, TotalCompletionTokens: row.CompletionTokens, AvgDurationMS: row.AvgDurationMS}
 }
 
 func optionItems(rows []OptionRow) []dict.Option[int] {
@@ -263,7 +259,7 @@ func totalPage(total int64, pageSize int) int {
 	return int(math.Ceil(float64(total) / float64(pageSize)))
 }
 
-func latencyString(value *int) string {
+func durationString(value *uint) string {
 	if value == nil {
 		return "-"
 	}
@@ -271,10 +267,6 @@ func latencyString(value *int) string {
 		return fmt.Sprintf("%dms", *value)
 	}
 	return fmt.Sprintf("%.2fs", float64(*value)/1000)
-}
-
-func decodeObject(raw *string) json.RawMessage {
-	return rawJSON(raw)
 }
 
 func rawJSON(raw *string) json.RawMessage {
@@ -307,4 +299,11 @@ func formatTime(value time.Time) string {
 		return ""
 	}
 	return value.Format(timeLayout)
+}
+
+func formatOptionalTime(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return formatTime(*value)
 }

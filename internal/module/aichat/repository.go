@@ -3,6 +3,7 @@ package aichat
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"admin_back_go/internal/enum"
@@ -96,6 +97,99 @@ func (r *GormRepository) InsertAssistantMessage(ctx context.Context, input Assis
 	return message.ID, nil
 }
 
+func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrRepositoryNotConfigured
+	}
+	startedAt := input.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	run := Run{
+		ConversationID:   input.ConversationID,
+		RequestID:        strings.TrimSpace(input.RequestID),
+		UserMessageID:    input.UserMessageID,
+		UserID:           input.UserID,
+		AgentID:          input.AgentID,
+		ProviderID:       input.ProviderID,
+		ModelID:          strings.TrimSpace(input.ModelID),
+		ModelDisplayName: strings.TrimSpace(input.ModelDisplayName),
+		Status:           enum.AIRunStatusRunning,
+		StartedAt:        &startedAt,
+	}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&run).Error; err != nil {
+			return err
+		}
+		return tx.Create(&RunEvent{RunID: run.ID, Seq: 1, EventType: enum.AIRunEventStart, Message: enum.AIRunEventLabels[enum.AIRunEventStart]}).Error
+	})
+	if err != nil {
+		return 0, err
+	}
+	return run.ID, nil
+}
+
+func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRunRecord) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	return r.finishRun(ctx, input.RunID, enum.AIRunStatusSuccess, enum.AIRunEventCompleted, enum.AIRunEventLabels[enum.AIRunEventCompleted], input.FinishedAt, input.DurationMS, map[string]any{
+		"assistant_message_id": input.AssistantMessageID,
+		"prompt_tokens":        nonNegativeInt(input.PromptTokens),
+		"completion_tokens":    nonNegativeInt(input.CompletionTokens),
+		"total_tokens":         nonNegativeInt(input.TotalTokens),
+	})
+}
+
+func (r *GormRepository) FinishRun(ctx context.Context, input FinishRunRecord) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	eventType := enum.AIRunEventFailed
+	switch input.Status {
+	case enum.AIRunStatusCanceled:
+		eventType = enum.AIRunEventCanceled
+	case enum.AIRunStatusTimeout:
+		eventType = enum.AIRunEventTimeout
+	case enum.AIRunStatusFailed:
+		eventType = enum.AIRunEventFailed
+	default:
+		return errors.New("invalid AI run terminal status")
+	}
+	message := strings.TrimSpace(input.Message)
+	if message == "" {
+		message = enum.AIRunStatusLabels[input.Status]
+	}
+	return r.finishRun(ctx, input.RunID, input.Status, eventType, message, input.FinishedAt, input.DurationMS, nil)
+}
+
+func (r *GormRepository) finishRun(ctx context.Context, runID int64, status string, eventType string, message string, finishedAt time.Time, durationMS uint, extra map[string]any) error {
+	if finishedAt.IsZero() {
+		finishedAt = time.Now()
+	}
+	updates := map[string]any{
+		"status":        status,
+		"finished_at":   finishedAt,
+		"duration_ms":   durationMS,
+		"error_message": "",
+	}
+	if status != enum.AIRunStatusSuccess {
+		updates["error_message"] = truncateRunMessage(message)
+	}
+	for key, value := range extra {
+		updates[key] = value
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Run{}).Where("id = ? AND status = ?", runID, enum.AIRunStatusRunning).Updates(updates).Error; err != nil {
+			return err
+		}
+		var maxSeq uint
+		if err := tx.Model(&RunEvent{}).Where("run_id = ?", runID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
+			return err
+		}
+		return tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRunMessage(message)}).Error
+	})
+}
 func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, message string) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
@@ -103,16 +197,22 @@ func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, message str
 	if limit <= 0 {
 		limit = defaultTimeoutLimit
 	}
-	var ids []int64
-	if err := r.db.WithContext(ctx).Model(&Run{}).Where("is_del = ?", enum.CommonNo).Where("run_status = ?", enum.AIRunStatusRunning).Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
+	var runs []Run
+	if err := r.db.WithContext(ctx).Where("status = ?", enum.AIRunStatusRunning).Order("id ASC").Limit(limit).Find(&runs).Error; err != nil {
 		return 0, err
 	}
-	if len(ids) == 0 {
+	if len(runs) == 0 {
 		return 0, nil
 	}
 	now := time.Now()
-	res := r.db.WithContext(ctx).Model(&Run{}).Where("id IN ?", ids).Updates(map[string]any{"run_status": enum.AIRunStatusFail, "error_msg": message, "completed_at": now})
-	return res.RowsAffected, res.Error
+	var changed int64
+	for _, run := range runs {
+		if err := r.FinishRun(ctx, FinishRunRecord{RunID: run.ID, Status: enum.AIRunStatusTimeout, Message: message, FinishedAt: now, DurationMS: durationSince(run.StartedAt, now)}); err != nil {
+			return changed, err
+		}
+		changed++
+	}
+	return changed, nil
 }
 
 func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
@@ -131,4 +231,27 @@ func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
 			e.status AS engine_status`).
 		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes)
+}
+
+func nonNegativeInt(value int) uint {
+	if value < 0 {
+		return 0
+	}
+	return uint(value)
+}
+
+func durationSince(startedAt *time.Time, finishedAt time.Time) uint {
+	if startedAt == nil || startedAt.IsZero() || finishedAt.Before(*startedAt) {
+		return 0
+	}
+	return uint(finishedAt.Sub(*startedAt).Milliseconds())
+}
+
+func truncateRunMessage(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) > 1024 {
+		return string(runes[:1024])
+	}
+	return value
 }

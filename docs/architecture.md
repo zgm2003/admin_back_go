@@ -1369,7 +1369,7 @@ internal/module/aiknowledgemap  # ai_knowledge_maps + ai_knowledge_documents map
 internal/module/aitoolmap       # ai_tool_maps local tool references
 internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents
 internal/module/aimessage       # conversation messages, feedback, branch cleanup
-internal/module/airun           # ai_runs / ai_run_events / usage monitor
+internal/module/airun           # ai_runs / ai_run_events token-only run monitor
 internal/module/aichat          # chat runtime through platform/ai.Engine, ai.response.*.v1 publish
 ```
 
@@ -1417,9 +1417,12 @@ ai_agents intentionally has no agent code, agent type, per-agent external app id
 Runtime boundary:
 
 ```text
-POST /api/admin/v1/ai-chat/runs must fail explicitly when no enabled provider/agent exists; production must not fake success.
-Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed/cancel.v1.
-REST event catch-up comes from ai_run_events and is not SSE, not EventSource, not Redis Stream.
+POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no enabled provider/agent exists; production must not fake success.
+Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
+ai_runs records one reply attempt with status, token totals, duration, and message links.
+ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
+WebSocket delta is not persisted to ai_run_events; final assistant content stays in ai_messages.
+There is no daily aggregate table, billing amount, provider task id, execution-step timeline, usage dump, or snapshot JSON in the run-monitor MVP.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.
 ```
 `internal/platform/storage/cos` 是唯一 COS STS 供应商边界：

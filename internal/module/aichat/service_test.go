@@ -19,6 +19,9 @@ type fakeRepository struct {
 	history      []MessageHistory
 	assistant    AssistantMessageRecord
 	message      Message
+	createdRun   CreateRunRecord
+	completedRun CompleteRunRecord
+	finishedRun  FinishRunRecord
 	timeoutLimit int
 }
 
@@ -34,6 +37,18 @@ func (f *fakeRepository) LatestMessages(ctx context.Context, conversationID int6
 func (f *fakeRepository) InsertAssistantMessage(ctx context.Context, input AssistantMessageRecord) (int64, error) {
 	f.assistant = input
 	return 22, nil
+}
+func (f *fakeRepository) CreateRun(ctx context.Context, input CreateRunRecord) (int64, error) {
+	f.createdRun = input
+	return 100, nil
+}
+func (f *fakeRepository) CompleteRun(ctx context.Context, input CompleteRunRecord) error {
+	f.completedRun = input
+	return nil
+}
+func (f *fakeRepository) FinishRun(ctx context.Context, input FinishRunRecord) error {
+	f.finishedRun = input
+	return nil
 }
 func (f *fakeRepository) TimeoutRuns(ctx context.Context, limit int, message string) (int64, error) {
 	f.timeoutLimit = limit
@@ -83,7 +98,7 @@ func (splitDeltaEngine) StreamChat(ctx context.Context, input platformai.ChatInp
 			return nil, err
 		}
 	}
-	return &platformai.ChatResult{Answer: "你好"}, nil
+	return &platformai.ChatResult{Answer: "你好", PromptTokens: 4, CompletionTokens: 8, TotalTokens: 12}, nil
 }
 
 func (splitDeltaEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
@@ -98,6 +113,25 @@ func (splitDeltaEngine) KnowledgeStatus(ctx context.Context, input platformai.Kn
 	return nil, nil
 }
 
+type canceledEngine struct{}
+
+func (canceledEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+	return &platformai.TestConnectionResult{OK: true}, nil
+}
+
+func (canceledEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+	return nil, context.Canceled
+}
+
+func (canceledEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error { return nil }
+
+func (canceledEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
+	return nil, nil
+}
+
+func (canceledEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
+	return nil, nil
+}
 func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	t.Helper()
 	box := secretbox.New("vault-key")
@@ -106,16 +140,17 @@ func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	return &AgentEngineConfig{
-		AgentID:         5,
-		AgentName:       "客服",
-		ProviderID:      2,
-		ModelID:         "gpt-5.4",
-		ScenesJSON:      `["chat"]`,
-		EngineType:      string(platformai.EngineTypeDify),
-		EngineBaseURL:   "https://dify.test/v1",
-		EngineAPIKeyEnc: cipher,
-		AgentStatus:     enum.CommonYes,
-		EngineStatus:    enum.CommonYes,
+		AgentID:          5,
+		AgentName:        "客服",
+		ProviderID:       2,
+		ModelID:          "gpt-5.4",
+		ModelDisplayName: "GPT-5.4",
+		ScenesJSON:       `["chat"]`,
+		EngineType:       string(platformai.EngineTypeDify),
+		EngineBaseURL:    "https://dify.test/v1",
+		EngineAPIKeyEnc:  cipher,
+		AgentStatus:      enum.CommonYes,
+		EngineStatus:     enum.CommonYes,
 	}, box
 }
 
@@ -139,6 +174,12 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	}
 	if factory.input.APIKey != "provider-key" || factory.input.EngineType != platformai.EngineTypeDify {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
+	}
+	if repo.createdRun.ConversationID != 3 || repo.createdRun.RequestID != "rid" || repo.createdRun.ModelID != "gpt-5.4" || repo.createdRun.ModelDisplayName != "GPT-5.4" {
+		t.Fatalf("run was not created correctly: %#v", repo.createdRun)
+	}
+	if repo.completedRun.RunID != 100 || repo.completedRun.AssistantMessageID != 22 {
+		t.Fatalf("run was not completed correctly: %#v", repo.completedRun)
 	}
 	if len(pub.pubs) < 3 || pub.pubs[0].Envelope.Type != EventAIResponseStart || pub.pubs[1].Envelope.Type != EventAIResponseDelta || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseCompleted {
 		t.Fatalf("unexpected publications: %#v", pub.pubs)
@@ -164,6 +205,9 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 	}
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "你好" {
 		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
+	}
+	if repo.completedRun.TotalTokens != 12 || repo.completedRun.PromptTokens != 4 || repo.completedRun.CompletionTokens != 8 {
+		t.Fatalf("run token usage was not persisted: %#v", repo.completedRun)
 	}
 	var deltas []string
 	for _, pub := range pub.pubs {
@@ -199,8 +243,23 @@ func TestExecuteConversationReplyPublishesFailedForEngineError(t *testing.T) {
 	if len(pub.pubs) == 0 || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseFailed {
 		t.Fatalf("expected failed publication, got %#v", pub.pubs)
 	}
+	if repo.finishedRun.Status != enum.AIRunStatusFailed || repo.finishedRun.Message == "" {
+		t.Fatalf("run failure not persisted: %#v", repo.finishedRun)
+	}
 }
 
+func TestExecuteConversationReplyMarksRunCanceledForCanceledContext(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
+	pub := &fakePublisher{}
+	_, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: canceledEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err == nil {
+		t.Fatal("expected canceled error")
+	}
+	if repo.finishedRun.Status != enum.AIRunStatusCanceled {
+		t.Fatalf("run cancellation not persisted: %#v", repo.finishedRun)
+	}
+}
 func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{

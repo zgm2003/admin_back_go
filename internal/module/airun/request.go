@@ -3,7 +3,7 @@ package airun
 type listRequest struct {
 	CurrentPage int    `form:"current_page" binding:"omitempty,min=1"`
 	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=50"`
-	RunStatus   *int   `form:"run_status" binding:"omitempty,oneof=1 2 3 4"`
+	Status      string `form:"status" binding:"omitempty,oneof=running success failed canceled timeout"`
 	UserID      *int64 `form:"user_id" binding:"omitempty,min=1"`
 	RequestID   string `form:"request_id" binding:"max=64"`
 	AgentID     *int64 `form:"agent_id" binding:"omitempty,min=1"`

@@ -54,11 +54,10 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	var rows []ListRow
 	err := db.Select(`r.id, r.request_id, r.user_id,
 		r.agent_id, COALESCE(a.name, '') as agent_name,
-		r.provider_id, COALESCE(e.name, '') as provider_name, COALESCE(e.engine_type, '') as engine_type,
-		r.engine_task_id, r.engine_run_id,
+		r.provider_id, COALESCE(p.name, '') as provider_name,
 		r.conversation_id, COALESCE(c.title, '') as conversation_title,
-		r.run_status, COALESCE(r.model_snapshot, '') as model_snapshot,
-		r.prompt_tokens, r.completion_tokens, r.total_tokens, r.cost, r.latency_ms, r.error_msg, r.created_at`).
+		r.status, r.model_id, r.model_display_name,
+		r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message, r.created_at`).
 		Order("r.id DESC").
 		Limit(query.PageSize).
 		Offset((query.CurrentPage - 1) * query.PageSize).
@@ -74,19 +73,18 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	err := r.runsBase(ctx).
 		Select(`r.id, r.request_id, r.user_id, COALESCE(u.username, '') as username,
 			r.agent_id, COALESCE(a.name, '') as agent_name,
-			r.provider_id, COALESCE(e.name, '') as provider_name, COALESCE(e.engine_type, '') as engine_type,
-			r.engine_task_id, r.engine_run_id,
+			r.provider_id, COALESCE(p.name, '') as provider_name,
 			r.conversation_id, COALESCE(c.title, '') as conversation_title,
-			r.run_status, COALESCE(r.model_snapshot, '') as model_snapshot,
-			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.cost, r.latency_ms, r.error_msg,
-			r.meta_json, r.usage_json, r.output_snapshot_json, r.created_at, r.updated_at`).
+			r.status, r.model_id, r.model_display_name,
+			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message,
+			r.started_at, r.finished_at, r.created_at, r.updated_at`).
 		Where("r.id = ?", id).
-		First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
+		Scan(&row).Error
 	if err != nil {
 		return nil, err
+	}
+	if row.ID == 0 {
+		return nil, nil
 	}
 	row.UserMessage = r.messageSummary(ctx, id, "user_message_id")
 	row.AssistantMessage = r.messageSummary(ctx, id, "assistant_message_id")
@@ -99,7 +97,7 @@ func (r *GormRepository) Events(ctx context.Context, runID int64) ([]EventRow, e
 	}
 	var rows []EventRow
 	err := r.db.WithContext(ctx).Table("ai_run_events").
-		Select("id, seq, event_id, event_type, delta_text, payload_json, created_at").
+		Select("id, seq, event_type, message, created_at").
 		Where("run_id = ?", runID).
 		Order("seq ASC").
 		Scan(&rows).Error
@@ -111,33 +109,32 @@ func (r *GormRepository) StatsSummary(ctx context.Context, query StatsFilter) (S
 		return StatsSummaryRow{}, ErrRepositoryNotConfigured
 	}
 	var row StatsSummaryRow
-	db := applyStatsFilters(r.db.WithContext(ctx).Table("ai_runs r").Where("r.is_del = ?", enum.CommonNo), query)
-	err := db.Select(statsSummarySelectSQL(), enum.AIRunStatusSuccess, enum.AIRunStatusFail, enum.AIRunStatusCanceled).Scan(&row).Error
+	db := applyStatsFilters(r.db.WithContext(ctx).Table("ai_runs r"), query)
+	err := db.Select(statsSummarySelectSQL(), enum.AIRunStatusSuccess, enum.AIRunStatusFailed, enum.AIRunStatusCanceled, enum.AIRunStatusTimeout).Scan(&row).Error
 	return row, err
 }
 
 func (r *GormRepository) StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error) {
-	db := applyStatsListFilters(r.db.WithContext(ctx).Table("ai_runs r").Where("r.is_del = ?", enum.CommonNo), query)
+	db := applyStatsListFilters(r.db.WithContext(ctx).Table("ai_runs r"), query)
 	return scanGrouped[StatsByDateRow](db, "DATE(r.created_at) as date", "date DESC", query)
 }
 
 func (r *GormRepository) StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error) {
-	db := applyStatsListFilters(r.db.WithContext(ctx).Table("ai_runs r").Joins("LEFT JOIN ai_agents a ON a.id = r.agent_id").Where("r.is_del = ?", enum.CommonNo), query)
+	db := applyStatsListFilters(r.db.WithContext(ctx).Table("ai_runs r").Joins("LEFT JOIN ai_agents a ON a.id = r.agent_id"), query)
 	return scanGrouped[StatsByAgentRow](db, "r.agent_id as agent_id, COALESCE(a.name, '') as agent_name", "total_runs DESC", query)
 }
 
 func (r *GormRepository) StatsByUser(ctx context.Context, query StatsListQuery) ([]StatsByUserRow, int64, error) {
-	db := applyStatsListFilters(r.db.WithContext(ctx).Table("ai_runs r").Joins("LEFT JOIN users u ON u.id = r.user_id").Where("r.is_del = ?", enum.CommonNo), query)
+	db := applyStatsListFilters(r.db.WithContext(ctx).Table("ai_runs r").Joins("LEFT JOIN users u ON u.id = r.user_id"), query)
 	return scanGrouped[StatsByUserRow](db, "COALESCE(u.username, '') as username", "total_runs DESC", query)
 }
 
 func (r *GormRepository) runsBase(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_runs r").
 		Joins("LEFT JOIN ai_agents a ON a.id = r.agent_id").
-		Joins("LEFT JOIN ai_providers e ON e.id = r.provider_id").
+		Joins("LEFT JOIN ai_providers p ON p.id = r.provider_id").
 		Joins("LEFT JOIN ai_conversations c ON c.id = r.conversation_id").
-		Joins("LEFT JOIN users u ON u.id = r.user_id").
-		Where("r.is_del = ?", enum.CommonNo)
+		Joins("LEFT JOIN users u ON u.id = r.user_id")
 }
 
 func (r *GormRepository) messageSummary(ctx context.Context, runID int64, column string) *MessageSummary {
@@ -162,8 +159,8 @@ func (r *GormRepository) messageSummary(ctx context.Context, runID int64, column
 }
 
 func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
-	if query.RunStatus != nil {
-		db = db.Where("r.run_status = ?", *query.RunStatus)
+	if strings.TrimSpace(query.Status) != "" {
+		db = db.Where("r.status = ?", strings.TrimSpace(query.Status))
 	}
 	if query.UserID != nil {
 		db = db.Where("r.user_id = ?", *query.UserID)
@@ -172,8 +169,6 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 		db = db.Where("r.request_id LIKE ?", "%"+strings.TrimSpace(query.RequestID)+"%")
 	}
 	if query.AgentID != nil {
-		db = db.Where("r.agent_id = ?", *query.AgentID)
-	} else if query.AgentID != nil {
 		db = db.Where("r.agent_id = ?", *query.AgentID)
 	}
 	if query.ProviderID != nil {
@@ -184,8 +179,6 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 
 func applyStatsFilters(db *gorm.DB, query StatsFilter) *gorm.DB {
 	if query.AgentID != nil {
-		db = db.Where("r.agent_id = ?", *query.AgentID)
-	} else if query.AgentID != nil {
 		db = db.Where("r.agent_id = ?", *query.AgentID)
 	}
 	if query.ProviderID != nil {
@@ -239,9 +232,9 @@ func groupExprFromSelect(groupSelect string) string {
 }
 
 func statsSummarySelectSQL() string {
-	return "COUNT(*) as total_runs, SUM(CASE WHEN r.run_status = ? THEN 1 ELSE 0 END) as success_runs, SUM(CASE WHEN r.run_status IN (?, ?) THEN 1 ELSE 0 END) as fail_runs, COALESCE(SUM(r.total_tokens), 0) as total_tokens, COALESCE(SUM(r.prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(r.completion_tokens), 0) as completion_tokens, COALESCE(CAST(ROUND(AVG(r.latency_ms)) AS SIGNED), 0) as avg_latency_ms"
+	return "COUNT(*) as total_runs, SUM(CASE WHEN r.status = ? THEN 1 ELSE 0 END) as success_runs, SUM(CASE WHEN r.status IN (?, ?, ?) THEN 1 ELSE 0 END) as fail_runs, COALESCE(SUM(r.total_tokens), 0) as total_tokens, COALESCE(SUM(r.prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(r.completion_tokens), 0) as completion_tokens, COALESCE(CAST(ROUND(AVG(r.duration_ms)) AS SIGNED), 0) as avg_duration_ms"
 }
 
 func statsGroupedSelectSQL(groupSelect string) string {
-	return groupSelect + ", COUNT(*) as total_runs, COALESCE(SUM(r.total_tokens), 0) as total_tokens, COALESCE(SUM(r.prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(r.completion_tokens), 0) as completion_tokens, COALESCE(CAST(ROUND(AVG(r.latency_ms)) AS SIGNED), 0) as avg_latency_ms"
+	return groupSelect + ", COUNT(*) as total_runs, COALESCE(SUM(r.total_tokens), 0) as total_tokens, COALESCE(SUM(r.prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(r.completion_tokens), 0) as completion_tokens, COALESCE(CAST(ROUND(AVG(r.duration_ms)) AS SIGNED), 0) as avg_duration_ms"
 }

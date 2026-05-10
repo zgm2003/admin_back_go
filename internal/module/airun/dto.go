@@ -16,15 +16,15 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	RunStatusArr []dict.Option[int] `json:"run_status_arr"`
-	ProviderArr  []dict.Option[int] `json:"providerArr"`
-	AgentArr     []dict.Option[int] `json:"agentArr"` // legacy alias for the current Vue pass
+	StatusArr   []dict.Option[string] `json:"status_arr"`
+	ProviderArr []dict.Option[int]    `json:"providerArr"`
+	AgentArr    []dict.Option[int]    `json:"agentArr"`
 }
 
 type ListQuery struct {
 	CurrentPage int
 	PageSize    int
-	RunStatus   *int
+	Status      string
 	UserID      *int64
 	RequestID   string
 	AgentID     *int64
@@ -46,29 +46,26 @@ type ListResponse struct {
 }
 
 type ListItem struct {
-	ID                int64    `json:"id"`
-	RequestID         string   `json:"request_id"`
-	UserID            int64    `json:"user_id"`
-	AgentID           int64    `json:"agent_id"`
-	AgentName         string   `json:"agent_name"`
-	ProviderID        int64    `json:"provider_id"`
-	ProviderName      string   `json:"provider_name"`
-	EngineType        string   `json:"engine_type"`
-	EngineTaskID      string   `json:"engine_task_id"`
-	EngineRunID       string   `json:"engine_run_id"`
-	ConversationID    int64    `json:"conversation_id"`
-	ConversationTitle string   `json:"conversation_title"`
-	RunStatus         int      `json:"run_status"`
-	RunStatusName     string   `json:"run_status_name"`
-	ModelSnapshot     string   `json:"model_snapshot"`
-	PromptTokens      *int     `json:"prompt_tokens"`
-	CompletionTokens  *int     `json:"completion_tokens"`
-	TotalTokens       *int     `json:"total_tokens"`
-	Cost              *float64 `json:"cost"`
-	LatencyMS         *int     `json:"latency_ms"`
-	LatencyStr        string   `json:"latency_str"`
-	ErrorMsg          *string  `json:"error_msg"`
-	CreatedAt         string   `json:"created_at"`
+	ID                int64  `json:"id"`
+	RequestID         string `json:"request_id"`
+	UserID            int64  `json:"user_id"`
+	AgentID           int64  `json:"agent_id"`
+	AgentName         string `json:"agent_name"`
+	ProviderID        int64  `json:"provider_id"`
+	ProviderName      string `json:"provider_name"`
+	ConversationID    int64  `json:"conversation_id"`
+	ConversationTitle string `json:"conversation_title"`
+	Status            string `json:"status"`
+	StatusName        string `json:"status_name"`
+	ModelID           string `json:"model_id"`
+	ModelDisplayName  string `json:"model_display_name"`
+	PromptTokens      uint   `json:"prompt_tokens"`
+	CompletionTokens  uint   `json:"completion_tokens"`
+	TotalTokens       uint   `json:"total_tokens"`
+	DurationMS        *uint  `json:"duration_ms"`
+	DurationText      string `json:"duration_text"`
+	ErrorMessage      string `json:"error_message"`
+	CreatedAt         string `json:"created_at"`
 }
 
 type MessageSummary struct {
@@ -81,65 +78,41 @@ type MessageSummary struct {
 }
 
 type EventItem struct {
-	ID          int64      `json:"id"`
-	Seq         uint64     `json:"seq"`
-	EventID     string     `json:"event_id"`
-	EventType   string     `json:"event_type"`
-	DeltaText   string     `json:"delta_text"`
-	PayloadJSON JSONObject `json:"payload_json"`
-	CreatedAt   string     `json:"created_at"`
-}
-
-type StepItem struct {
-	ID            int64      `json:"id"`
-	StepNo        int        `json:"step_no"`
-	StepType      int        `json:"step_type"`
-	StepTypeName  string     `json:"step_type_name"`
-	AgentID       int64      `json:"agent_id"`
-	AgentName     string     `json:"agent_name"`
-	ModelSnapshot *string    `json:"model_snapshot"`
-	Status        int        `json:"status"`
-	StatusName    string     `json:"status_name"`
-	ErrorMsg      *string    `json:"error_msg"`
-	LatencyMS     *int       `json:"latency_ms"`
-	LatencyStr    string     `json:"latency_str"`
-	PayloadJSON   JSONObject `json:"payload_json"`
-	CreatedAt     string     `json:"created_at"`
+	ID        int64  `json:"id"`
+	Seq       uint   `json:"seq"`
+	EventType string `json:"event_type"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_at"`
 }
 
 type DetailResponse struct {
-	ID                 int64           `json:"id"`
-	RequestID          string          `json:"request_id"`
-	UserID             int64           `json:"user_id"`
-	Username           string          `json:"username"`
-	AgentID            int64           `json:"agent_id"`
-	AgentName          string          `json:"agent_name"`
-	ProviderID         int64           `json:"provider_id"`
-	ProviderName       string          `json:"provider_name"`
-	EngineType         string          `json:"engine_type"`
-	EngineTaskID       string          `json:"engine_task_id"`
-	EngineRunID        string          `json:"engine_run_id"`
-	ConversationID     int64           `json:"conversation_id"`
-	ConversationTitle  string          `json:"conversation_title"`
-	RunStatus          int             `json:"run_status"`
-	RunStatusName      string          `json:"run_status_name"`
-	ModelSnapshot      string          `json:"model_snapshot"`
-	PromptTokens       *int            `json:"prompt_tokens"`
-	CompletionTokens   *int            `json:"completion_tokens"`
-	TotalTokens        *int            `json:"total_tokens"`
-	Cost               *float64        `json:"cost"`
-	LatencyMS          *int            `json:"latency_ms"`
-	LatencyStr         string          `json:"latency_str"`
-	ErrorMsg           *string         `json:"error_msg"`
-	MetaJSON           JSONObject      `json:"meta_json"`
-	UsageJSON          JSONObject      `json:"usage_json"`
-	OutputSnapshotJSON JSONObject      `json:"output_snapshot_json"`
-	UserMessage        *MessageSummary `json:"user_message"`
-	AssistantMessage   *MessageSummary `json:"assistant_message"`
-	Events             []EventItem     `json:"events"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
-	Steps              []StepItem      `json:"steps"` // deprecated; kept empty for frontend compatibility
+	ID                int64           `json:"id"`
+	RequestID         string          `json:"request_id"`
+	UserID            int64           `json:"user_id"`
+	Username          string          `json:"username"`
+	AgentID           int64           `json:"agent_id"`
+	AgentName         string          `json:"agent_name"`
+	ProviderID        int64           `json:"provider_id"`
+	ProviderName      string          `json:"provider_name"`
+	ConversationID    int64           `json:"conversation_id"`
+	ConversationTitle string          `json:"conversation_title"`
+	Status            string          `json:"status"`
+	StatusName        string          `json:"status_name"`
+	ModelID           string          `json:"model_id"`
+	ModelDisplayName  string          `json:"model_display_name"`
+	PromptTokens      uint            `json:"prompt_tokens"`
+	CompletionTokens  uint            `json:"completion_tokens"`
+	TotalTokens       uint            `json:"total_tokens"`
+	DurationMS        *uint           `json:"duration_ms"`
+	DurationText      string          `json:"duration_text"`
+	ErrorMessage      string          `json:"error_message"`
+	UserMessage       *MessageSummary `json:"user_message"`
+	AssistantMessage  *MessageSummary `json:"assistant_message"`
+	Events            []EventItem     `json:"events"`
+	StartedAt         string          `json:"started_at"`
+	FinishedAt        string          `json:"finished_at"`
+	CreatedAt         string          `json:"created_at"`
+	UpdatedAt         string          `json:"updated_at"`
 }
 
 type StatsFilter struct {
@@ -167,7 +140,7 @@ type StatsSummary struct {
 	TotalTokens           int64   `json:"total_tokens"`
 	TotalPromptTokens     int64   `json:"total_prompt_tokens"`
 	TotalCompletionTokens int64   `json:"total_completion_tokens"`
-	AvgLatencyMS          int64   `json:"avg_latency_ms"`
+	AvgDurationMS         int64   `json:"avg_duration_ms"`
 }
 
 type StatsMetricItem struct {
@@ -175,7 +148,7 @@ type StatsMetricItem struct {
 	TotalTokens           int64 `json:"total_tokens"`
 	TotalPromptTokens     int64 `json:"total_prompt_tokens"`
 	TotalCompletionTokens int64 `json:"total_completion_tokens"`
-	AvgLatencyMS          int64 `json:"avg_latency_ms"`
+	AvgDurationMS         int64 `json:"avg_duration_ms"`
 }
 
 type StatsByDateItem struct {
@@ -220,75 +193,52 @@ type ListRow struct {
 	AgentName         string
 	ProviderID        int64
 	ProviderName      string
-	EngineType        string
-	EngineTaskID      string
-	EngineRunID       string
 	ConversationID    int64
 	ConversationTitle string
-	RunStatus         int
-	ModelSnapshot     string
-	PromptTokens      *int
-	CompletionTokens  *int
-	TotalTokens       *int
-	Cost              *float64
-	LatencyMS         *int
-	ErrorMsg          *string
+	Status            string
+	ModelID           string
+	ModelDisplayName  string
+	PromptTokens      uint
+	CompletionTokens  uint
+	TotalTokens       uint
+	DurationMS        *uint
+	ErrorMessage      string
 	CreatedAt         time.Time
 }
 
 type RunDetailRow struct {
-	ID                 int64
-	RequestID          string
-	UserID             int64
-	Username           string
-	AgentID            int64
-	AgentName          string
-	ProviderID         int64
-	ProviderName       string
-	EngineType         string
-	EngineTaskID       string
-	EngineRunID        string
-	ConversationID     int64
-	ConversationTitle  string
-	RunStatus          int
-	ModelSnapshot      string
-	PromptTokens       *int
-	CompletionTokens   *int
-	TotalTokens        *int
-	Cost               *float64
-	LatencyMS          *int
-	ErrorMsg           *string
-	MetaJSON           *string
-	UsageJSON          *string
-	OutputSnapshotJSON *string
-	UserMessage        *MessageSummary
-	AssistantMessage   *MessageSummary
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-}
-
-type StepRow struct {
-	ID            int64
-	StepNo        int
-	StepType      int
-	AgentID       int64
-	AgentName     string
-	ModelSnapshot *string
-	Status        int
-	ErrorMsg      *string
-	LatencyMS     *int
-	PayloadJSON   *string
-	CreatedAt     time.Time
+	ID                int64
+	RequestID         string
+	UserID            int64
+	Username          string
+	AgentID           int64
+	AgentName         string
+	ProviderID        int64
+	ProviderName      string
+	ConversationID    int64
+	ConversationTitle string
+	Status            string
+	ModelID           string
+	ModelDisplayName  string
+	PromptTokens      uint
+	CompletionTokens  uint
+	TotalTokens       uint
+	DurationMS        *uint
+	ErrorMessage      string
+	UserMessage       *MessageSummary `gorm:"-"`
+	AssistantMessage  *MessageSummary `gorm:"-"`
+	StartedAt         *time.Time
+	FinishedAt        *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type EventRow struct {
-	ID          int64
-	Seq         uint64
-	EventID     string
-	EventType   string
-	DeltaText   string
-	PayloadJSON *string
-	CreatedAt   time.Time
+	ID        int64
+	Seq       uint
+	EventType string
+	Message   string
+	CreatedAt time.Time
 }
 
 type StatsSummaryRow struct {
@@ -298,7 +248,7 @@ type StatsSummaryRow struct {
 	TotalTokens      int64
 	PromptTokens     int64
 	CompletionTokens int64
-	AvgLatencyMS     int64
+	AvgDurationMS    int64
 }
 
 type StatsMetricRow struct {
@@ -306,7 +256,7 @@ type StatsMetricRow struct {
 	TotalTokens      int64
 	PromptTokens     int64
 	CompletionTokens int64
-	AvgLatencyMS     int64
+	AvgDurationMS    int64
 }
 
 type StatsListQuery struct {

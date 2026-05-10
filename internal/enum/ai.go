@@ -167,35 +167,26 @@ var AIMessageRoles = []int{AIMessageRoleUser, AIMessageRoleAssistant, AIMessageR
 var AIMessageRoleLabels = map[int]string{AIMessageRoleUser: "user", AIMessageRoleAssistant: "assistant", AIMessageRoleSystem: "system"}
 
 const (
-	AIRunStatusRunning  = 1
-	AIRunStatusSuccess  = 2
-	AIRunStatusFail     = 3
-	AIRunStatusCanceled = 4
+	AIRunStatusRunning  = "running"
+	AIRunStatusSuccess  = "success"
+	AIRunStatusFailed   = "failed"
+	AIRunStatusCanceled = "canceled"
+	AIRunStatusTimeout  = "timeout"
 )
 
-var AIRunStatuses = []int{AIRunStatusRunning, AIRunStatusSuccess, AIRunStatusFail, AIRunStatusCanceled}
-var AIRunStatusLabels = map[int]string{AIRunStatusRunning: "运行中", AIRunStatusSuccess: "成功", AIRunStatusFail: "失败", AIRunStatusCanceled: "已取消"}
+var AIRunStatuses = []string{AIRunStatusRunning, AIRunStatusSuccess, AIRunStatusFailed, AIRunStatusCanceled, AIRunStatusTimeout}
+var AIRunStatusLabels = map[string]string{AIRunStatusRunning: "运行中", AIRunStatusSuccess: "成功", AIRunStatusFailed: "失败", AIRunStatusCanceled: "已取消", AIRunStatusTimeout: "超时"}
 
 const (
-	AIRunStepTypePrompt     = 1
-	AIRunStepTypeRAG        = 2
-	AIRunStepTypeLLM        = 3
-	AIRunStepTypeToolCall   = 4
-	AIRunStepTypeToolResult = 5
-	AIRunStepTypeFinalize   = 6
-	AIRunStepTypeImage      = 7
+	AIRunEventStart     = "start"
+	AIRunEventCompleted = "completed"
+	AIRunEventFailed    = "failed"
+	AIRunEventCanceled  = "canceled"
+	AIRunEventTimeout   = "timeout"
 )
 
-var AIRunStepTypes = []int{AIRunStepTypePrompt, AIRunStepTypeRAG, AIRunStepTypeLLM, AIRunStepTypeToolCall, AIRunStepTypeToolResult, AIRunStepTypeFinalize, AIRunStepTypeImage}
-var AIRunStepTypeLabels = map[int]string{AIRunStepTypePrompt: "提示词构建", AIRunStepTypeRAG: "RAG检索", AIRunStepTypeLLM: "LLM调用", AIRunStepTypeToolCall: "工具调用", AIRunStepTypeToolResult: "工具返回", AIRunStepTypeFinalize: "最终化", AIRunStepTypeImage: "图片生成"}
-
-const (
-	AIRunStepStatusSuccess = 1
-	AIRunStepStatusFail    = 2
-)
-
-var AIRunStepStatuses = []int{AIRunStepStatusSuccess, AIRunStepStatusFail}
-var AIRunStepStatusLabels = map[int]string{AIRunStepStatusSuccess: "成功", AIRunStepStatusFail: "失败"}
+var AIRunEvents = []string{AIRunEventStart, AIRunEventCompleted, AIRunEventFailed, AIRunEventCanceled, AIRunEventTimeout}
+var AIRunEventLabels = map[string]string{AIRunEventStart: "开始生成", AIRunEventCompleted: "生成完成", AIRunEventFailed: "生成失败", AIRunEventCanceled: "用户停止", AIRunEventTimeout: "运行超时"}
 
 const (
 	AIExecutorInternal      = 1
@@ -287,12 +278,20 @@ func IsAIKnowledgeIndexStatus(value int) bool {
 	return false
 }
 
-func IsAIMessageRole(value int) bool   { return intIn(value, AIMessageRoles) }
-func IsAIRunStatus(value int) bool     { return intIn(value, AIRunStatuses) }
-func IsAIRunStepType(value int) bool   { return intIn(value, AIRunStepTypes) }
-func IsAIRunStepStatus(value int) bool { return intIn(value, AIRunStepStatuses) }
+func IsAIMessageRole(value int) bool  { return intIn(value, AIMessageRoles) }
+func IsAIRunStatus(value string) bool { return stringIn(value, AIRunStatuses) }
+func IsAIRunEvent(value string) bool  { return stringIn(value, AIRunEvents) }
 
 func intIn(value int, values []int) bool {
+	for _, item := range values {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func stringIn(value string, values []string) bool {
 	for _, item := range values {
 		if item == value {
 			return true
