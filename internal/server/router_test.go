@@ -696,7 +696,7 @@ func (f *fakeRouterAIToolService) Init(ctx context.Context) (*aitool.InitRespons
 func (f *fakeRouterAIToolService) List(ctx context.Context, query aitool.ListQuery) (*aitool.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &aitool.ListResponse{
-		List: []aitool.ToolDTO{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Executor: "admin_user_count", RiskLevel: aitool.RiskLow, Status: enum.CommonYes}},
+		List: []aitool.ToolDTO{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", RiskLevel: aitool.RiskLow, Status: enum.CommonYes}},
 		Page: aitool.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
@@ -2336,7 +2336,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tools", strings.NewReader(`{"name":"查询当前用户量","code":"admin_user_count","description":"查询数量","executor":"admin_user_count","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{},"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tools", strings.NewReader(`{"name":"查询当前用户量","code":"admin_user_count","description":"查询数量","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{},"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -2345,7 +2345,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-tools/4", strings.NewReader(`{"name":"查询当前用户量","code":"admin_user_count","description":"查询数量","executor":"admin_user_count","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{},"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/ai-tools/4", strings.NewReader(`{"name":"查询当前用户量","code":"admin_user_count","description":"查询数量","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{},"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)

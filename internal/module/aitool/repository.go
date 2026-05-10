@@ -183,7 +183,7 @@ func (r *GormRepository) ListRuntimeTools(ctx context.Context, agentID uint64) (
 	}
 	var rows []RuntimeToolRow
 	err := r.db.WithContext(ctx).Table("ai_agent_tools at").
-		Select(`t.id AS tool_id, t.name, t.code, t.description, t.executor, t.parameters_json, t.result_schema_json, t.risk_level, t.timeout_ms, t.status AS tool_status, at.status AS binding_status`).
+		Select(`t.id AS tool_id, t.name, t.code, t.description, t.parameters_json, t.result_schema_json, t.risk_level, t.timeout_ms, t.status AS tool_status, at.status AS binding_status`).
 		Joins("JOIN ai_tools t ON t.id = at.tool_id AND t.is_del = ?", enum.CommonNo).
 		Where("at.agent_id = ?", agentID).
 		Where("at.status = ?", enum.CommonYes).

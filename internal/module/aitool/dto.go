@@ -63,7 +63,6 @@ type ToolDTO struct {
 	Name             string          `json:"name"`
 	Code             string          `json:"code"`
 	Description      string          `json:"description"`
-	Executor         string          `json:"executor"`
 	ParametersJSON   json.RawMessage `json:"parameters_json"`
 	ResultSchemaJSON json.RawMessage `json:"result_schema_json"`
 	RiskLevel        string          `json:"risk_level"`
@@ -79,7 +78,6 @@ type MutationInput struct {
 	Name             string
 	Code             string
 	Description      string
-	Executor         string
 	ParametersJSON   json.RawMessage
 	ResultSchemaJSON json.RawMessage
 	RiskLevel        string
@@ -102,7 +100,6 @@ type RuntimeToolRow struct {
 	Name             string
 	Code             string
 	Description      string
-	Executor         string
 	ParametersJSON   string
 	ResultSchemaJSON string
 	RiskLevel        string
@@ -116,7 +113,6 @@ type RuntimeTool struct {
 	Name             string
 	Code             string
 	Description      string
-	Executor         string
 	ParametersJSON   map[string]any
 	ResultSchemaJSON map[string]any
 	RiskLevel        string

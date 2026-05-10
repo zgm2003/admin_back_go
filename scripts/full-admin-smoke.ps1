@@ -1103,18 +1103,18 @@ function Assert-AIToolList($Response) {
     throw "AI tool list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    $allowedFields = @('id', 'name', 'code', 'description', 'executor', 'parameters_json', 'result_schema_json', 'risk_level', 'risk_level_name', 'timeout_ms', 'status', 'status_name', 'created_at', 'updated_at')
+    $allowedFields = @('id', 'name', 'code', 'description', 'parameters_json', 'result_schema_json', 'risk_level', 'risk_level_name', 'timeout_ms', 'status', 'status_name', 'created_at', 'updated_at')
     foreach ($fieldName in @($item.PSObject.Properties.Name)) {
       if (-not ($allowedFields -contains $fieldName)) {
         throw "AI tool item leaked unexpected field ${fieldName}: $($item | ConvertTo-Json -Depth 12)"
       }
     }
-    foreach ($requiredField in @('id', 'name', 'code', 'executor', 'parameters_json', 'result_schema_json', 'risk_level', 'timeout_ms', 'status')) {
+    foreach ($requiredField in @('id', 'name', 'code', 'parameters_json', 'result_schema_json', 'risk_level', 'timeout_ms', 'status')) {
       if (-not (Test-HasProperty $item $requiredField)) {
         throw "AI tool item missing ${requiredField}: $($item | ConvertTo-Json -Depth 12)"
       }
     }
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.code) -or [string]::IsNullOrWhiteSpace([string]$item.executor)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.code)) {
       throw "AI tool item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
   }

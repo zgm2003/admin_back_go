@@ -1,14 +1,13 @@
 -- AI tool runtime MVP.
 -- Scope: local function tools only. First seed: admin_user_count.
 -- No placeholder columns: every column is used by management UI, agent binding,
--- model tool definitions, executor routing, runtime timeout, or run-monitor audit.
+-- model tool definitions, server dispatch by tool code, runtime timeout, or run-monitor audit.
 
 CREATE TABLE IF NOT EXISTS `ai_tools` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '工具ID',
   `name` varchar(128) NOT NULL COMMENT '工具名称，管理页和运行监控展示',
   `code` varchar(128) NOT NULL COMMENT '工具唯一编码，传给模型作为function name',
   `description` varchar(1024) NOT NULL DEFAULT '' COMMENT '工具说明，传给模型作为function description',
-  `executor` varchar(64) NOT NULL COMMENT '本地执行器编码，用于Go executor registry路由',
   `parameters_json` json NOT NULL COMMENT '工具参数JSON Schema，传给模型并用于入参校验',
   `result_schema_json` json NOT NULL COMMENT '工具返回JSON Schema，用于结果校验和运行监控展示',
   `risk_level` varchar(16) NOT NULL COMMENT '风险等级：low/medium/high',
@@ -71,7 +70,6 @@ INSERT INTO `ai_tools` (
   `name`,
   `code`,
   `description`,
-  `executor`,
   `parameters_json`,
   `result_schema_json`,
   `risk_level`,
@@ -82,7 +80,6 @@ INSERT INTO `ai_tools` (
   '查询当前用户量',
   'admin_user_count',
   '查询后台当前用户数量，只返回总数、启用数、禁用数，不返回任何用户个人信息。',
-  'admin_user_count',
   CAST('{"type":"object","properties":{},"additionalProperties":false}' AS JSON),
   CAST('{"type":"object","properties":{"total_users":{"type":"integer","minimum":0},"enabled_users":{"type":"integer","minimum":0},"disabled_users":{"type":"integer","minimum":0}},"required":["total_users","enabled_users","disabled_users"],"additionalProperties":false}' AS JSON),
   'low',
@@ -93,7 +90,6 @@ INSERT INTO `ai_tools` (
 ON DUPLICATE KEY UPDATE
   `name` = new_tool.`name`,
   `description` = new_tool.`description`,
-  `executor` = new_tool.`executor`,
   `parameters_json` = new_tool.`parameters_json`,
   `result_schema_json` = new_tool.`result_schema_json`,
   `risk_level` = new_tool.`risk_level`,

@@ -91,11 +91,12 @@ func (f *fakeRepository) FinishToolCall(ctx context.Context, input FinishToolCal
 func (f *fakeRepository) CountUsers(ctx context.Context) (UserCount, error) { return f.userCounts, nil }
 
 func TestCreateRejectsArrayStringOrNullSchemas(t *testing.T) {
-	service := NewService(&fakeRepository{}, nil)
+	repo := &fakeRepository{}
+	service := NewService(repo, DefaultExecutors(repo))
 	invalidSchemas := []json.RawMessage{json.RawMessage(`[]`), json.RawMessage(`"x"`), json.RawMessage(`null`)}
 	for _, schema := range invalidSchemas {
 		_, appErr := service.Create(context.Background(), MutationInput{
-			Name: "查询当前用户量", Code: "admin_user_count", Description: "desc", Executor: "admin_user_count",
+			Name: "查询当前用户量", Code: "admin_user_count", Description: "desc",
 			ParametersJSON: schema, ResultSchemaJSON: json.RawMessage(`{"type":"object"}`), RiskLevel: RiskLow, TimeoutMS: 3000, Status: enum.CommonYes,
 		})
 		if appErr == nil || appErr.Code != apperror.CodeBadRequest {
@@ -106,9 +107,9 @@ func TestCreateRejectsArrayStringOrNullSchemas(t *testing.T) {
 
 func TestCreateStoresToolFieldsExactly(t *testing.T) {
 	repo := &fakeRepository{}
-	service := NewService(repo, nil)
+	service := NewService(repo, DefaultExecutors(repo))
 	id, appErr := service.Create(context.Background(), MutationInput{
-		Name: " 查询当前用户量 ", Code: " admin_user_count ", Description: " 查询数量 ", Executor: " admin_user_count ",
+		Name: " 查询当前用户量 ", Code: " admin_user_count ", Description: " 查询数量 ",
 		ParametersJSON:   json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 		ResultSchemaJSON: json.RawMessage(`{"type":"object","properties":{"total_users":{"type":"integer"}}}`),
 		RiskLevel:        RiskLow, TimeoutMS: 3000, Status: enum.CommonYes,
@@ -116,7 +117,7 @@ func TestCreateStoresToolFieldsExactly(t *testing.T) {
 	if appErr != nil || id != 10 {
 		t.Fatalf("Create returned id=%d err=%v", id, appErr)
 	}
-	if repo.created == nil || repo.created.Name != "查询当前用户量" || repo.created.Code != "admin_user_count" || repo.created.Executor != "admin_user_count" || repo.created.TimeoutMS != 3000 || repo.created.IsDel != enum.CommonNo {
+	if repo.created == nil || repo.created.Name != "查询当前用户量" || repo.created.Code != "admin_user_count" || repo.created.TimeoutMS != 3000 || repo.created.IsDel != enum.CommonNo {
 		t.Fatalf("created row mismatch: %#v", repo.created)
 	}
 	if !jsonEqualObject(repo.created.ParametersJSON, `{"type":"object","properties":{},"additionalProperties":false}`) {
@@ -124,9 +125,50 @@ func TestCreateStoresToolFieldsExactly(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsEnabledToolWhenCodeHasNoServerImplementation(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo, DefaultExecutors(repo))
+	_, appErr := service.Create(context.Background(), MutationInput{
+		Name: "未知工具", Code: "unknown_tool", Description: "desc",
+		ParametersJSON: json.RawMessage(`{"type":"object"}`), ResultSchemaJSON: json.RawMessage(`{"type":"object"}`), RiskLevel: RiskLow, TimeoutMS: 3000, Status: enum.CommonYes,
+	})
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("enabled tool with unknown code should be rejected, got %#v", appErr)
+	}
+}
+
+func TestCreateAllowsDisabledToolBeforeServerImplementationExists(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo, DefaultExecutors(repo))
+	id, appErr := service.Create(context.Background(), MutationInput{
+		Name: "未来工具", Code: "future_tool", Description: "desc",
+		ParametersJSON: json.RawMessage(`{"type":"object"}`), ResultSchemaJSON: json.RawMessage(`{"type":"object"}`), RiskLevel: RiskLow, TimeoutMS: 3000, Status: enum.CommonNo,
+	})
+	if appErr != nil || id != 10 {
+		t.Fatalf("disabled future tool should be persisted, id=%d err=%v", id, appErr)
+	}
+	if repo.created == nil || repo.created.Code != "future_tool" || repo.created.Status != enum.CommonNo {
+		t.Fatalf("disabled future tool row mismatch: %#v", repo.created)
+	}
+}
+
+func TestChangeStatusRejectsEnableWhenCodeHasNoServerImplementation(t *testing.T) {
+	repo := &fakeRepository{rawByID: map[uint64]Tool{
+		7: {ID: 7, Name: "未来工具", Code: "future_tool", Status: enum.CommonNo},
+	}}
+	service := NewService(repo, DefaultExecutors(repo))
+	appErr := service.ChangeStatus(context.Background(), 7, enum.CommonYes)
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("enable should be rejected when code has no server implementation, got %#v", appErr)
+	}
+	if repo.statusID != 0 {
+		t.Fatalf("status changed despite missing server implementation: id=%d status=%d", repo.statusID, repo.status)
+	}
+}
+
 func TestUpdateAgentToolsReplacesBindings(t *testing.T) {
 	repo := &fakeRepository{allActiveToolIDs: []uint64{1, 2, 3}}
-	service := NewService(repo, nil)
+	service := NewService(repo, DefaultExecutors(repo))
 	appErr := service.UpdateAgentTools(context.Background(), 3, UpdateAgentToolsInput{ToolIDs: []uint64{3, 1, 1}})
 	if appErr != nil {
 		t.Fatalf("UpdateAgentTools returned error: %v", appErr)
@@ -138,11 +180,11 @@ func TestUpdateAgentToolsReplacesBindings(t *testing.T) {
 
 func TestListRuntimeToolsFiltersDisabledBindingsAndTools(t *testing.T) {
 	repo := &fakeRepository{runtimeTools: []RuntimeToolRow{
-		{ToolID: 1, Name: "启用", Code: "enabled", Executor: "admin_user_count", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes},
-		{ToolID: 2, Name: "禁用绑定", Code: "binding_disabled", Executor: "admin_user_count", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonNo},
-		{ToolID: 3, Name: "禁用工具", Code: "tool_disabled", Executor: "admin_user_count", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonNo, BindingStatus: enum.CommonYes},
+		{ToolID: 1, Name: "启用", Code: "enabled", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes},
+		{ToolID: 2, Name: "禁用绑定", Code: "binding_disabled", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonNo},
+		{ToolID: 3, Name: "禁用工具", Code: "tool_disabled", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonNo, BindingStatus: enum.CommonYes},
 	}}
-	tools, appErr := NewService(repo, nil).ListRuntimeTools(context.Background(), 3)
+	tools, appErr := NewService(repo, DefaultExecutors(repo)).ListRuntimeTools(context.Background(), 3)
 	if appErr != nil {
 		t.Fatalf("ListRuntimeTools returned error: %v", appErr)
 	}
@@ -164,7 +206,7 @@ func TestAdminUserCountReturnsCountsAndNoPersonalFields(t *testing.T) {
 	}
 	for _, forbidden := range []string{"username", "email", "phone", "password", "list"} {
 		if jsonContainsKey(body, forbidden) {
-			t.Fatalf("executor leaked personal/list field %q in %s", forbidden, body)
+			t.Fatalf("tool result leaked personal/list field %q in %s", forbidden, body)
 		}
 	}
 }

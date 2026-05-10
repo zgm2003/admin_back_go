@@ -15,7 +15,6 @@ type mutationRequest struct {
 	Name             string          `json:"name" binding:"required,max=128"`
 	Code             string          `json:"code" binding:"required,max=128"`
 	Description      string          `json:"description" binding:"omitempty,max=1024"`
-	Executor         string          `json:"executor" binding:"required,max=64"`
 	ParametersJSON   json.RawMessage `json:"parameters_json" binding:"required"`
 	ResultSchemaJSON json.RawMessage `json:"result_schema_json" binding:"required"`
 	RiskLevel        string          `json:"risk_level" binding:"required,oneof=low medium high"`

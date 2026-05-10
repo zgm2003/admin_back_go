@@ -188,35 +188,8 @@ const (
 var AIRunEvents = []string{AIRunEventStart, AIRunEventCompleted, AIRunEventFailed, AIRunEventCanceled, AIRunEventTimeout}
 var AIRunEventLabels = map[string]string{AIRunEventStart: "开始生成", AIRunEventCompleted: "生成完成", AIRunEventFailed: "生成失败", AIRunEventCanceled: "用户停止", AIRunEventTimeout: "运行超时"}
 
-const (
-	AIExecutorInternal      = 1
-	AIExecutorHTTPWhitelist = 2
-	AIExecutorSQLReadonly   = 3
-)
-
-var AIExecutorTypes = []int{
-	AIExecutorInternal,
-	AIExecutorHTTPWhitelist,
-	AIExecutorSQLReadonly,
-}
-
-var AIExecutorTypeLabels = map[int]string{
-	AIExecutorInternal:      "内置函数",
-	AIExecutorHTTPWhitelist: "HTTP白名单",
-	AIExecutorSQLReadonly:   "只读SQL",
-}
-
 func IsAIDriver(value string) bool {
 	for _, item := range AIDrivers {
-		if item == value {
-			return true
-		}
-	}
-	return false
-}
-
-func IsAIExecutorType(value int) bool {
-	for _, item := range AIExecutorTypes {
 		if item == value {
 			return true
 		}

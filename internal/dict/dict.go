@@ -231,14 +231,6 @@ func AIDriverOptions() []Option[string] {
 	return options
 }
 
-func AIExecutorTypeOptions() []Option[int] {
-	options := make([]Option[int], 0, len(enum.AIExecutorTypes))
-	for _, value := range enum.AIExecutorTypes {
-		options = append(options, Option[int]{Label: enum.AIExecutorTypeLabels[value], Value: value})
-	}
-	return options
-}
-
 func AIModeOptions() []Option[string] {
 	options := make([]Option[string], 0, len(enum.AIModes))
 	for _, value := range enum.AIModes {

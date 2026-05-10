@@ -1391,6 +1391,7 @@ Schema truth:
 20260509_ai_openai_provider_config.sql   # provider config first slice: openai-only driver, ai_provider_models, model sync fields, AI menu order
 20260509_ai_agent_mvp_config.sql         # agent config MVP columns: model, scenes, system prompt, avatar
 20260510_ai_tool_runtime_mvp.sql         # tool runtime MVP: ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
+20260510_ai_tool_drop_executor.sql       # removes duplicate ai_tools.executor; tool code is the dispatch key
 20260508_ai_core_rollback.sql            # restores old local AI backups only
 ```
 

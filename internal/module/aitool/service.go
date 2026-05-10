@@ -56,6 +56,9 @@ func (s *Service) Create(ctx context.Context, input MutationInput) (uint64, *app
 	if appErr != nil {
 		return 0, appErr
 	}
+	if row.Status == enum.CommonYes && !s.executorRegistered(row.Code) {
+		return 0, apperror.BadRequest("AI工具编码未注册服务端实现")
+	}
 	exists, err := repo.ExistsByCode(ctx, row.Code, 0)
 	if err != nil {
 		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验AI工具编码失败", err)
@@ -78,12 +81,15 @@ func (s *Service) Update(ctx context.Context, id uint64, input MutationInput) *a
 	if appErr != nil {
 		return appErr
 	}
-	if appErr := ensureToolExists(ctx, repo, id); appErr != nil {
+	if _, appErr := getToolOrNotFound(ctx, repo, id); appErr != nil {
 		return appErr
 	}
 	row, appErr := normalizeMutation(input)
 	if appErr != nil {
 		return appErr
+	}
+	if row.Status == enum.CommonYes && !s.executorRegistered(row.Code) {
+		return apperror.BadRequest("AI工具编码未注册服务端实现")
 	}
 	exists, err := repo.ExistsByCode(ctx, row.Code, id)
 	if err != nil {
@@ -109,8 +115,12 @@ func (s *Service) ChangeStatus(ctx context.Context, id uint64, status int) *appe
 	if appErr != nil {
 		return appErr
 	}
-	if appErr := ensureToolExists(ctx, repo, id); appErr != nil {
+	row, appErr := getToolOrNotFound(ctx, repo, id)
+	if appErr != nil {
 		return appErr
+	}
+	if status == enum.CommonYes && !s.executorRegistered(row.Code) {
+		return apperror.BadRequest("AI工具编码未注册服务端实现")
 	}
 	if err := repo.ChangeStatus(ctx, id, status); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "切换AI工具状态失败", err)
@@ -126,7 +136,7 @@ func (s *Service) Delete(ctx context.Context, id uint64) *apperror.Error {
 	if appErr != nil {
 		return appErr
 	}
-	if appErr := ensureToolExists(ctx, repo, id); appErr != nil {
+	if _, appErr := getToolOrNotFound(ctx, repo, id); appErr != nil {
 		return appErr
 	}
 	if err := repo.Delete(ctx, id); err != nil {
@@ -235,9 +245,9 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (*ExecuteResu
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI工具调用记录失败", err)
 	}
-	executor := s.executors[strings.TrimSpace(input.Tool.Executor)]
+	executor := s.executors[strings.TrimSpace(input.Tool.Code)]
 	if executor == nil {
-		msg := "AI工具执行器未注册"
+		msg := "AI工具服务端实现未注册"
 		_ = repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: ToolCallFailed, ErrorMessage: msg, DurationMS: durationMS(startedAt, s.nowTime()), FinishedAt: s.nowTime()})
 		return nil, apperror.BadRequest(msg)
 	}
@@ -288,16 +298,12 @@ func normalizeMutation(input MutationInput) (Tool, *apperror.Error) {
 	name := strings.TrimSpace(input.Name)
 	code := strings.TrimSpace(input.Code)
 	description := strings.TrimSpace(input.Description)
-	executor := strings.TrimSpace(input.Executor)
 	riskLevel := strings.TrimSpace(input.RiskLevel)
 	if name == "" {
 		return Tool{}, apperror.BadRequest("AI工具名称不能为空")
 	}
 	if code == "" {
 		return Tool{}, apperror.BadRequest("AI工具编码不能为空")
-	}
-	if executor == "" {
-		return Tool{}, apperror.BadRequest("AI工具执行器不能为空")
 	}
 	if !isRiskLevel(riskLevel) {
 		return Tool{}, apperror.BadRequest("无效的风险等级")
@@ -316,7 +322,7 @@ func normalizeMutation(input MutationInput) (Tool, *apperror.Error) {
 	if appErr != nil {
 		return Tool{}, appErr
 	}
-	return Tool{Name: name, Code: code, Description: description, Executor: executor, ParametersJSON: parameters, ResultSchemaJSON: resultSchema, RiskLevel: riskLevel, TimeoutMS: input.TimeoutMS, Status: input.Status, IsDel: enum.CommonNo}, nil
+	return Tool{Name: name, Code: code, Description: description, ParametersJSON: parameters, ResultSchemaJSON: resultSchema, RiskLevel: riskLevel, TimeoutMS: input.TimeoutMS, Status: input.Status, IsDel: enum.CommonNo}, nil
 }
 
 func normalizeSchema(raw json.RawMessage, msg string) (string, *apperror.Error) {
@@ -348,7 +354,7 @@ func runtimeTool(row RuntimeToolRow) (RuntimeTool, *apperror.Error) {
 	if appErr != nil {
 		return RuntimeTool{}, appErr
 	}
-	return RuntimeTool{ID: row.ToolID, Name: row.Name, Code: row.Code, Description: row.Description, Executor: row.Executor, ParametersJSON: params, ResultSchemaJSON: resultSchema, RiskLevel: row.RiskLevel, TimeoutMS: row.TimeoutMS}, nil
+	return RuntimeTool{ID: row.ToolID, Name: row.Name, Code: row.Code, Description: row.Description, ParametersJSON: params, ResultSchemaJSON: resultSchema, RiskLevel: row.RiskLevel, TimeoutMS: row.TimeoutMS}, nil
 }
 
 func schemaMap(raw string, msg string) (map[string]any, *apperror.Error) {
@@ -359,19 +365,19 @@ func schemaMap(raw string, msg string) (map[string]any, *apperror.Error) {
 	return value, nil
 }
 
-func ensureToolExists(ctx context.Context, repo Repository, id uint64) *apperror.Error {
+func getToolOrNotFound(ctx context.Context, repo Repository, id uint64) (*Tool, *apperror.Error) {
 	row, err := repo.GetRaw(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具失败", err)
 	}
 	if row == nil {
-		return apperror.NotFound("AI工具不存在")
+		return nil, apperror.NotFound("AI工具不存在")
 	}
-	return nil
+	return row, nil
 }
 
 func toolUpdateFields(row Tool) map[string]any {
-	return map[string]any{"name": row.Name, "code": row.Code, "description": row.Description, "executor": row.Executor, "parameters_json": row.ParametersJSON, "result_schema_json": row.ResultSchemaJSON, "risk_level": row.RiskLevel, "timeout_ms": row.TimeoutMS, "status": row.Status}
+	return map[string]any{"name": row.Name, "code": row.Code, "description": row.Description, "parameters_json": row.ParametersJSON, "result_schema_json": row.ResultSchemaJSON, "risk_level": row.RiskLevel, "timeout_ms": row.TimeoutMS, "status": row.Status}
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {
@@ -391,7 +397,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func toolDTO(row Tool) ToolDTO {
-	return ToolDTO{ID: row.ID, Name: row.Name, Code: row.Code, Description: row.Description, Executor: row.Executor, ParametersJSON: rawJSON(row.ParametersJSON), ResultSchemaJSON: rawJSON(row.ResultSchemaJSON), RiskLevel: row.RiskLevel, RiskLevelName: RiskLevelLabels[row.RiskLevel], TimeoutMS: row.TimeoutMS, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return ToolDTO{ID: row.ID, Name: row.Name, Code: row.Code, Description: row.Description, ParametersJSON: rawJSON(row.ParametersJSON), ResultSchemaJSON: rawJSON(row.ResultSchemaJSON), RiskLevel: row.RiskLevel, RiskLevelName: RiskLevelLabels[row.RiskLevel], TimeoutMS: row.TimeoutMS, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 
 func rawJSON(value string) json.RawMessage {
@@ -420,6 +426,13 @@ func compactJSON(raw json.RawMessage) string {
 
 func riskOptions() []dict.Option[string] {
 	return []dict.Option[string]{{Label: RiskLevelLabels[RiskLow], Value: RiskLow}, {Label: RiskLevelLabels[RiskMedium], Value: RiskMedium}, {Label: RiskLevelLabels[RiskHigh], Value: RiskHigh}}
+}
+
+func (s *Service) executorRegistered(value string) bool {
+	if s == nil || s.executors == nil {
+		return false
+	}
+	return s.executors[strings.TrimSpace(value)] != nil
 }
 
 func statusText(value int) string {

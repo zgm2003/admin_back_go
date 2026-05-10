@@ -8,7 +8,6 @@ type Tool struct {
 	Name             string    `gorm:"column:name"`
 	Code             string    `gorm:"column:code"`
 	Description      string    `gorm:"column:description"`
-	Executor         string    `gorm:"column:executor"`
 	ParametersJSON   string    `gorm:"column:parameters_json"`
 	ResultSchemaJSON string    `gorm:"column:result_schema_json"`
 	RiskLevel        string    `gorm:"column:risk_level"`

@@ -132,7 +132,7 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 }
 
 func mutationInput(req mutationRequest) MutationInput {
-	return MutationInput{Name: req.Name, Code: req.Code, Description: req.Description, Executor: req.Executor, ParametersJSON: req.ParametersJSON, ResultSchemaJSON: req.ResultSchemaJSON, RiskLevel: req.RiskLevel, TimeoutMS: req.TimeoutMS, Status: req.Status}
+	return MutationInput{Name: req.Name, Code: req.Code, Description: req.Description, ParametersJSON: req.ParametersJSON, ResultSchemaJSON: req.ResultSchemaJSON, RiskLevel: req.RiskLevel, TimeoutMS: req.TimeoutMS, Status: req.Status}
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {

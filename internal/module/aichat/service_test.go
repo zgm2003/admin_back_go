@@ -452,7 +452,7 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}},
 	}
 	pub := &fakePublisher{}
-	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", Executor: "admin_user_count", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
+	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
 	engine := &toolCallEngine{}
 	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
@@ -484,7 +484,7 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 func TestExecuteConversationReplyRejectsSecondToolRound(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}}}
-	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", Executor: "admin_user_count", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
+	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
 	service := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, EngineFactory: &fakeEngineFactory{engine: &doubleToolRoundEngine{}}, Secretbox: box, ToolRuntime: runtime})
 	_, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
