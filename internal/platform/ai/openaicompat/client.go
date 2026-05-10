@@ -169,18 +169,6 @@ func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sin
 	return result, nil
 }
 
-func (c *Client) StopChat(ctx context.Context, input platformai.StopChatInput) error {
-	return fmt.Errorf("%w: OpenAI-compatible chat completion does not support stop in this MVP", platformai.ErrInvalidConfig)
-}
-
-func (c *Client) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
-	return nil, fmt.Errorf("%w: OpenAI-compatible knowledge sync is outside chat MVP", platformai.ErrInvalidConfig)
-}
-
-func (c *Client) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
-	return nil, fmt.Errorf("%w: OpenAI-compatible knowledge status is outside chat MVP", platformai.ErrInvalidConfig)
-}
-
 func (c *Client) newRequest(ctx context.Context, method string, endpoint string, body any) (*http.Request, error) {
 	baseURL, err := normalizeBaseURL(c.baseURL)
 	if err != nil {

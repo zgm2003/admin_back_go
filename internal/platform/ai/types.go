@@ -5,11 +5,7 @@ import "context"
 type EngineType string
 
 const (
-	EngineTypeOpenAI  EngineType = "openai"
-	EngineTypeDify    EngineType = "dify"
-	EngineTypeEino    EngineType = "eino"
-	EngineTypeDirect  EngineType = "direct"
-	EngineTypeRAGFlow EngineType = "ragflow"
+	EngineTypeOpenAI EngineType = "openai"
 )
 
 type TestConnectionInput struct {
@@ -70,39 +66,6 @@ type ChatResult struct {
 	LatencyMs            int
 }
 
-type StopChatInput struct {
-	EngineTaskID string
-	UserKey      string
-}
-
-type KnowledgeSyncInput struct {
-	DatasetID string
-	Document  KnowledgeDocument
-}
-
-type KnowledgeDocument struct {
-	Name      string
-	Text      string
-	SourceRef string
-}
-
-type KnowledgeSyncResult struct {
-	EngineDatasetID  string
-	EngineDocumentID string
-	EngineBatch      string
-	IndexingStatus   string
-}
-
-type KnowledgeStatusInput struct {
-	DatasetID  string
-	DocumentID string
-}
-
-type KnowledgeStatusResult struct {
-	IndexingStatus string
-	ErrorMessage   string
-}
-
 type Event struct {
 	Type      string
 	DeltaText string
@@ -116,7 +79,4 @@ type EventSink interface {
 type Engine interface {
 	TestConnection(ctx context.Context, input TestConnectionInput) (*TestConnectionResult, error)
 	StreamChat(ctx context.Context, input ChatInput, sink EventSink) (*ChatResult, error)
-	StopChat(ctx context.Context, input StopChatInput) error
-	SyncKnowledge(ctx context.Context, input KnowledgeSyncInput) (*KnowledgeSyncResult, error)
-	KnowledgeStatus(ctx context.Context, input KnowledgeStatusInput) (*KnowledgeStatusResult, error)
 }

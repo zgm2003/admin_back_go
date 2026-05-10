@@ -105,18 +105,6 @@ func (splitDeltaEngine) StreamChat(ctx context.Context, input platformai.ChatInp
 	return &platformai.ChatResult{Answer: "你好", PromptTokens: 4, CompletionTokens: 8, TotalTokens: 12}, nil
 }
 
-func (splitDeltaEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
-	return nil
-}
-
-func (splitDeltaEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
-	return nil, nil
-}
-
-func (splitDeltaEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
-	return nil, nil
-}
-
 type captureEngine struct {
 	input platformai.ChatInput
 }
@@ -130,18 +118,6 @@ func (c *captureEngine) StreamChat(ctx context.Context, input platformai.ChatInp
 	return &platformai.ChatResult{Answer: "看到了图片"}, nil
 }
 
-func (c *captureEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
-	return nil
-}
-
-func (c *captureEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
-	return nil, nil
-}
-
-func (c *captureEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
-	return nil, nil
-}
-
 type canceledEngine struct{}
 
 func (canceledEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
@@ -152,15 +128,6 @@ func (canceledEngine) StreamChat(ctx context.Context, input platformai.ChatInput
 	return nil, context.Canceled
 }
 
-func (canceledEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error { return nil }
-
-func (canceledEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
-	return nil, nil
-}
-
-func (canceledEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
-	return nil, nil
-}
 func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	t.Helper()
 	box := secretbox.New("vault-key")
@@ -175,8 +142,8 @@ func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 		ModelID:          "gpt-5.4",
 		ModelDisplayName: "GPT-5.4",
 		ScenesJSON:       `["chat"]`,
-		EngineType:       string(platformai.EngineTypeDify),
-		EngineBaseURL:    "https://dify.test/v1",
+		EngineType:       string(platformai.EngineTypeOpenAI),
+		EngineBaseURL:    "https://api.openai.test/v1",
 		EngineAPIKeyEnc:  cipher,
 		AgentStatus:      enum.CommonYes,
 		EngineStatus:     enum.CommonYes,
@@ -201,7 +168,7 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "ok" || repo.assistant.ConversationID != 3 {
 		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
 	}
-	if factory.input.APIKey != "provider-key" || factory.input.EngineType != platformai.EngineTypeDify {
+	if factory.input.APIKey != "provider-key" || factory.input.EngineType != platformai.EngineTypeOpenAI {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
 	if repo.createdRun.ConversationID != 3 || repo.createdRun.RequestID != "rid" || repo.createdRun.ModelID != "gpt-5.4" || repo.createdRun.ModelDisplayName != "GPT-5.4" {
@@ -507,16 +474,6 @@ func (e *toolCallEngine) StreamChat(ctx context.Context, input platformai.ChatIn
 	return &platformai.ChatResult{Answer: "当前用户量1015", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}, nil
 }
 
-func (e *toolCallEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
-	return nil
-}
-func (e *toolCallEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
-	return nil, nil
-}
-func (e *toolCallEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
-	return nil, nil
-}
-
 func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{
@@ -572,13 +529,4 @@ func (doubleToolRoundEngine) TestConnection(ctx context.Context, input platforma
 }
 func (doubleToolRoundEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
 	return &platformai.ChatResult{ToolCalls: []platformai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}}, nil
-}
-func (doubleToolRoundEngine) StopChat(ctx context.Context, input platformai.StopChatInput) error {
-	return nil
-}
-func (doubleToolRoundEngine) SyncKnowledge(ctx context.Context, input platformai.KnowledgeSyncInput) (*platformai.KnowledgeSyncResult, error) {
-	return nil, nil
-}
-func (doubleToolRoundEngine) KnowledgeStatus(ctx context.Context, input platformai.KnowledgeStatusInput) (*platformai.KnowledgeStatusResult, error) {
-	return nil, nil
 }

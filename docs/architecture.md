@@ -1366,7 +1366,7 @@ Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 impo
 Active AI modules:
 
 ```text
-internal/platform/ai            # stable engine interface, fake only for tests/dev boundary
+internal/platform/ai            # OpenAI-compatible chat/test interface; no Dify/RAGFlow active adapter
 internal/platform/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
 internal/module/aiprovider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/aiagent         # ai_agents local agent config MVP
@@ -1392,17 +1392,24 @@ legacy model/prompt Vue menu entries and legacy app naming
 Schema truth:
 
 ```text
-20260508_ai_core_backup.sql              # backup old AI tables and AI permissions
-20260508_ai_core_rebuild.sql             # creates the local AI runtime/control tables
-20260509_ai_openai_provider_config.sql   # provider config first slice: openai-only driver, ai_provider_models, model sync fields, AI menu order
-20260509_ai_agent_mvp_config.sql         # agent config MVP columns: model, scenes, system prompt, avatar
-20260510_ai_tool_runtime_mvp.sql         # tool runtime MVP: ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
-20260510_ai_tool_drop_executor.sql       # removes duplicate ai_tools.executor; tool code is the dispatch key
-20260510_ai_knowledge_rag.sql            # local RAG MVP: knowledge bases, documents, chunks, agent bindings, retrieval audit
-20260508_ai_core_rollback.sql            # restores old local AI backups only
+docs/db/ai-live-schema-mcp-2026-05-10.md # MCP snapshot: the only current AI table-count/column-count handoff truth
+20260509_ai_conversation_message_mvp.sql  # ai_conversations / ai_messages WebSocket conversation MVP
+20260509_ai_agent_mvp_prune.sql           # prunes ai_agents down to provider/model/scenes/system_prompt/avatar
+20260509_ai_agent_drop_type_code.sql      # drops fake agent code/type concepts
+20260510_ai_run_monitor_mvp.sql           # ai_runs / ai_run_events token-only monitor
+20260510_ai_messages_meta_json.sql        # message attachments/runtime params metadata
+20260510_ai_tool_runtime_mvp.sql          # ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
+20260510_ai_tool_drop_executor.sql        # removes duplicate ai_tools.executor; tool code is the dispatch key
+20260510_ai_tool_generate_permission.sql  # AI tool generate draft button permission
+20260510_ai_knowledge_rag.sql             # local RAG tables and retrieval audit
+20260510_ai_prune_stale_permissions.sql   # soft-deletes stale unused AI permission codes
 ```
 
 Provider config truth:
+
+```text
+Current runtime accepts only openai. Dify/RAGFlow/Eino/Direct are not active source adapters.
+```
 
 ```text
 base_url empty string means https://api.openai.com/v1

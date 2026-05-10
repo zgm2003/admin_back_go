@@ -69,7 +69,7 @@ func (f *fakeRepository) StatsByUser(ctx context.Context, query StatsListQuery) 
 }
 
 func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
-	repo := &fakeRepository{agents: []OptionRow{{ID: 3, Name: "客服智能体"}}, engines: []OptionRow{{ID: 2, Name: "Dify"}}}
+	repo := &fakeRepository{agents: []OptionRow{{ID: 3, Name: "客服智能体"}}, engines: []OptionRow{{ID: 2, Name: "OpenAI"}}}
 	res, appErr := NewService(repo).Init(context.Background())
 	if appErr != nil {
 		t.Fatalf("Init returned error: %v", appErr)

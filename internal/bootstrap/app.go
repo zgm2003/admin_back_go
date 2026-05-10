@@ -41,7 +41,6 @@ import (
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
 	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/ai/dify"
 	"admin_back_go/internal/platform/ai/openaicompat"
 	"admin_back_go/internal/platform/logstore"
 	"admin_back_go/internal/platform/payment"
@@ -375,16 +374,6 @@ func (aiProviderTester) TestConnection(ctx context.Context, input platformai.Tes
 			APIKey:  input.APIKey,
 			Timeout: time.Duration(input.TimeoutMs) * time.Millisecond,
 		}).TestConnection(ctx, input)
-	case platformai.EngineTypeDify:
-		client, err := dify.New(dify.Config{
-			BaseURL: input.BaseURL,
-			APIKey:  input.APIKey,
-			Timeout: time.Duration(input.TimeoutMs) * time.Millisecond,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return client.TestConnection(ctx, input)
 	default:
 		return nil, platformai.ErrInvalidConfig
 	}
@@ -429,12 +418,6 @@ func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineC
 			Timeout:           30 * time.Second,
 			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, 60*time.Second),
 		}), nil
-	case platformai.EngineTypeDify:
-		return dify.New(dify.Config{
-			BaseURL: input.BaseURL,
-			APIKey:  input.APIKey,
-			Timeout: 30 * time.Second,
-		})
 	default:
 		return nil, platformai.ErrInvalidConfig
 	}
@@ -450,12 +433,6 @@ func (aiToolGenerateEngineFactory) NewEngine(ctx context.Context, input aitool.E
 			APIKey:  input.APIKey,
 			Timeout: 30 * time.Second,
 		}), nil
-	case platformai.EngineTypeDify:
-		return dify.New(dify.Config{
-			BaseURL: input.BaseURL,
-			APIKey:  input.APIKey,
-			Timeout: 30 * time.Second,
-		})
 	default:
 		return nil, platformai.ErrInvalidConfig
 	}

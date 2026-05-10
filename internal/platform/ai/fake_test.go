@@ -41,24 +41,3 @@ func TestFakeEnginePropagatesSinkError(t *testing.T) {
 		t.Fatalf("expected sink error, got %v", err)
 	}
 }
-
-func TestFakeEngineRecordsStopAndKnowledgeSync(t *testing.T) {
-	engine := NewFakeEngine("hello")
-	if err := engine.StopChat(context.Background(), StopChatInput{EngineTaskID: "task", UserKey: "admin:7"}); err != nil {
-		t.Fatalf("StopChat returned error: %v", err)
-	}
-	if len(engine.Stopped) != 1 || engine.Stopped[0].EngineTaskID != "task" || engine.Stopped[0].UserKey != "admin:7" {
-		t.Fatalf("unexpected stopped calls: %#v", engine.Stopped)
-	}
-
-	result, err := engine.SyncKnowledge(context.Background(), KnowledgeSyncInput{DatasetID: "dataset", Document: KnowledgeDocument{Name: "doc", Text: "body"}})
-	if err != nil {
-		t.Fatalf("SyncKnowledge returned error: %v", err)
-	}
-	if result.EngineDatasetID != "dataset" || result.EngineDocumentID == "" || result.IndexingStatus != "completed" {
-		t.Fatalf("unexpected sync result: %#v", result)
-	}
-	if len(engine.Synced) != 1 || engine.Synced[0].Document.Name != "doc" {
-		t.Fatalf("unexpected synced calls: %#v", engine.Synced)
-	}
-}
