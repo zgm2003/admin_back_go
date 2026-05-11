@@ -14,6 +14,13 @@ type SendCodeRequest struct {
 	Scene   string `json:"scene" binding:"required,verify_code_scene"`
 }
 
+type ForgetPasswordRequest struct {
+	Account         string `json:"account" binding:"required,max=120"`
+	Code            string `json:"code" binding:"required,len=6,numeric"`
+	NewPassword     string `json:"new_password" binding:"required,min=6,max=128"`
+	ConfirmPassword string `json:"confirm_password" binding:"required,min=6,max=128"`
+}
+
 type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }

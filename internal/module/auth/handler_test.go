@@ -16,20 +16,22 @@ import (
 )
 
 type fakeSessionService struct {
-	loginInput     LoginInput
-	loginResult    *LoginResponse
-	loginErr       *apperror.Error
-	sendCodeInput  SendCodeInput
-	sendCodeMsg    string
-	sendCodeErr    *apperror.Error
-	configPlatform string
-	configResult   *LoginConfigResponse
-	configErr      *apperror.Error
-	refreshInput   session.RefreshInput
-	refreshResult  *session.TokenResult
-	refreshErr     *apperror.Error
-	logoutToken    string
-	logoutErr      *apperror.Error
+	loginInput          LoginInput
+	loginResult         *LoginResponse
+	loginErr            *apperror.Error
+	sendCodeInput       SendCodeInput
+	sendCodeMsg         string
+	sendCodeErr         *apperror.Error
+	forgetPasswordInput ForgetPasswordInput
+	forgetPasswordErr   *apperror.Error
+	configPlatform      string
+	configResult        *LoginConfigResponse
+	configErr           *apperror.Error
+	refreshInput        session.RefreshInput
+	refreshResult       *session.TokenResult
+	refreshErr          *apperror.Error
+	logoutToken         string
+	logoutErr           *apperror.Error
 }
 
 func (f *fakeSessionService) Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error) {
@@ -40,6 +42,11 @@ func (f *fakeSessionService) Login(ctx context.Context, input LoginInput) (*Logi
 func (f *fakeSessionService) SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error) {
 	f.sendCodeInput = input
 	return f.sendCodeMsg, f.sendCodeErr
+}
+
+func (f *fakeSessionService) ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error {
+	f.forgetPasswordInput = input
+	return f.forgetPasswordErr
 }
 
 func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error) {
@@ -122,6 +129,26 @@ func TestHandlerSendCodeUsesGoRestContract(t *testing.T) {
 	body := decodeAuthBody(t, recorder)
 	if body["msg"] != "验证码发送成功(测试:123456)" {
 		t.Fatalf("unexpected send-code message: %#v", body)
+	}
+}
+
+func TestHandlerForgetPasswordUsesGoRestContract(t *testing.T) {
+	service := &fakeSessionService{}
+	router := newAuthTestRouter(service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/forgot-password", strings.NewReader(`{"account":"15671628271","code":"123456","new_password":"new-secret","confirm_password":"new-secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.forgetPasswordInput.Account != "15671628271" ||
+		service.forgetPasswordInput.Code != "123456" ||
+		service.forgetPasswordInput.NewPassword != "new-secret" ||
+		service.forgetPasswordInput.ConfirmPassword != "new-secret" {
+		t.Fatalf("unexpected forget password input: %#v", service.forgetPasswordInput)
 	}
 }
 

@@ -230,6 +230,10 @@ func (fakeAuthService) SendCode(ctx context.Context, input auth.SendCodeInput) (
 	return "验证码发送成功(测试:123456)", nil
 }
 
+func (fakeAuthService) ForgetPassword(ctx context.Context, input auth.ForgetPasswordInput) *apperror.Error {
+	return nil
+}
+
 func (fakeAuthService) LoginConfig(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
 	return &auth.LoginConfigResponse{
 		LoginTypeArr:   []auth.LoginTypeOption{{Label: "密码登录", Value: auth.LoginTypePassword}},
@@ -1560,6 +1564,14 @@ func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 	router.ServeHTTP(loginRecorder, loginRequest)
 	if loginRecorder.Code != http.StatusOK {
 		t.Fatalf("expected login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())
+	}
+
+	forgotRecorder := httptest.NewRecorder()
+	forgotRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/forgot-password", strings.NewReader(`{"account":"15671628271","code":"123456","new_password":"new-secret","confirm_password":"new-secret"}`))
+	forgotRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(forgotRecorder, forgotRequest)
+	if forgotRecorder.Code != http.StatusOK {
+		t.Fatalf("expected forgot password status %d, got %d body=%s", http.StatusOK, forgotRecorder.Code, forgotRecorder.Body.String())
 	}
 }
 

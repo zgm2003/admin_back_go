@@ -13,6 +13,7 @@ func RegisterRoutes(router *gin.Engine, service SessionService) {
 	v1 := router.Group("/api/admin/v1/auth")
 	v1.GET("/login-config", handler.LoginConfig)
 	v1.POST("/send-code", handler.SendCode)
+	v1.POST("/forgot-password", handler.ForgetPassword)
 	v1.POST("/login", handler.Login)
 	v1.POST("/refresh", handler.Refresh)
 	v1.POST("/logout", handler.Logout)

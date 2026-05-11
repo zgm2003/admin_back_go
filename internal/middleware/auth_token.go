@@ -141,6 +141,7 @@ func DefaultAuthSkipPaths() map[string]struct{} {
 		"/api/admin/v1/auth/captcha":                  {},
 		"/api/admin/v1/auth/login-config":             {},
 		"/api/admin/v1/auth/send-code":                {},
+		"/api/admin/v1/auth/forgot-password":          {},
 		"/api/admin/v1/auth/login":                    {},
 		"/api/admin/v1/auth/refresh":                  {},
 		"/api/admin/v1/client-versions/current-check": {},

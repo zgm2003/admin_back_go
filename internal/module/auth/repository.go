@@ -20,6 +20,7 @@ type Repository interface {
 	FindDefaultRole(ctx context.Context) (*DefaultRole, error)
 	CreateUser(ctx context.Context, input CreateUserInput) (int64, error)
 	CreateProfile(ctx context.Context, input CreateProfileInput) error
+	UpdatePassword(ctx context.Context, userID int64, passwordHash string) error
 	RecordLoginAttempt(ctx context.Context, attempt LoginAttempt) error
 }
 
@@ -144,6 +145,23 @@ func (r *GormRepository) CreateProfile(ctx context.Context, input CreateProfileI
 		"created_at": now,
 		"updated_at": now,
 	}).Error
+}
+
+func (r *GormRepository) UpdatePassword(ctx context.Context, userID int64, passwordHash string) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	if userID <= 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&UserCredential{}).
+		Where("id = ?", userID).
+		Where("is_del = ?", commonNo).
+		Updates(map[string]any{
+			"password":   passwordHash,
+			"updated_at": time.Now(),
+		}).Error
 }
 
 func (r *GormRepository) RecordLoginAttempt(ctx context.Context, attempt LoginAttempt) error {

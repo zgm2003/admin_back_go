@@ -357,6 +357,10 @@ func (f *fakeAuthRepository) CreateProfile(ctx context.Context, input auth.Creat
 	return nil
 }
 
+func (f *fakeAuthRepository) UpdatePassword(ctx context.Context, userID int64, passwordHash string) error {
+	return nil
+}
+
 func (f *fakeAuthRepository) RecordLoginAttempt(ctx context.Context, attempt auth.LoginAttempt) error {
 	f.attempts = append(f.attempts, attempt)
 	return nil

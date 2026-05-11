@@ -84,9 +84,13 @@ auth_platforms -> authplatform service -> session authenticator
 
 `AuthToken` middleware 仍然不查表、不拼 Redis key、不判断 RBAC。它只把 header 输入传给 authenticator。
 
-公开 refresh 路由必须跳过 `AuthToken`：
+公开 auth 路由必须跳过 `AuthToken`：
 
 ```text
+GET  /api/admin/v1/auth/login-config
+POST /api/admin/v1/auth/send-code
+POST /api/admin/v1/auth/forgot-password
+POST /api/admin/v1/auth/login
 POST /api/admin/v1/auth/refresh
 POST /api/Users/refresh
 ```

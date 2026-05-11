@@ -16,6 +16,7 @@ import (
 type SessionService interface {
 	Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error)
 	SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error)
+	ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error
 	LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error)
 	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
 	Logout(ctx context.Context, accessToken string) *apperror.Error
@@ -91,6 +92,28 @@ func (h *Handler) SendCode(c *gin.Context) {
 		return
 	}
 	response.OKWithMessage(c, gin.H{}, message)
+}
+
+func (h *Handler) ForgetPassword(c *gin.Context) {
+	if h.service == nil {
+		response.Error(c, apperror.Unauthorized("登录服务未配置"))
+		return
+	}
+	var req ForgetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequest("重置密码参数错误"))
+		return
+	}
+	if appErr := h.service.ForgetPassword(c.Request.Context(), ForgetPasswordInput{
+		Account:         req.Account,
+		Code:            req.Code,
+		NewPassword:     req.NewPassword,
+		ConfirmPassword: req.ConfirmPassword,
+	}); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
 }
 
 func (h *Handler) Refresh(c *gin.Context) {

@@ -16,15 +16,17 @@ import (
 )
 
 type fakeAuthRepository struct {
-	emailQuery string
-	phoneQuery string
-	credential *UserCredential
-	role       *DefaultRole
-	created    CreateUserInput
-	profile    CreateProfileInput
-	attempts   []LoginAttempt
-	err        error
-	txCalled   bool
+	emailQuery   string
+	phoneQuery   string
+	credential   *UserCredential
+	role         *DefaultRole
+	created      CreateUserInput
+	profile      CreateProfileInput
+	passwordID   int64
+	passwordHash string
+	attempts     []LoginAttempt
+	err          error
+	txCalled     bool
 }
 
 func (f *fakeAuthRepository) FindCredentialByEmail(ctx context.Context, email string) (*UserCredential, error) {
@@ -58,6 +60,12 @@ func (f *fakeAuthRepository) CreateUser(ctx context.Context, input CreateUserInp
 
 func (f *fakeAuthRepository) CreateProfile(ctx context.Context, input CreateProfileInput) error {
 	f.profile = input
+	return f.err
+}
+
+func (f *fakeAuthRepository) UpdatePassword(ctx context.Context, userID int64, passwordHash string) error {
+	f.passwordID = userID
+	f.passwordHash = passwordHash
 	return f.err
 }
 
@@ -178,6 +186,64 @@ func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
 	}
 	if !result.CaptchaEnabled || result.CaptchaType != captcha.TypeSlide {
 		t.Fatalf("expected slide captcha config, got %#v", result)
+	}
+}
+
+func TestServiceForgetPasswordConsumesForgetCodeAndWritesPasswordHash(t *testing.T) {
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:forget:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:     42,
+		Phone:  "15671628271",
+		Status: commonYes,
+		IsDel:  commonNo,
+	}}
+	service := NewService(repo, fakeLoginTypeProvider{}, &fakeSessionCreator{}, &fakeCaptchaVerifier{}, WithCodeStore(store))
+
+	appErr := service.ForgetPassword(context.Background(), ForgetPasswordInput{
+		Account:         "15671628271",
+		Code:            "123456",
+		NewPassword:     "new-secret",
+		ConfirmPassword: "new-secret",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected forget password to succeed, got %v", appErr)
+	}
+	if repo.phoneQuery != "15671628271" || repo.passwordID != 42 {
+		t.Fatalf("unexpected repository calls: phone=%q passwordID=%d", repo.phoneQuery, repo.passwordID)
+	}
+	if repo.passwordHash == "" || !strings.HasPrefix(repo.passwordHash, "$2y$") {
+		t.Fatalf("expected PHP-compatible bcrypt hash, got %q", repo.passwordHash)
+	}
+	if !verifyPassword("new-secret", repo.passwordHash) {
+		t.Fatalf("expected written hash to verify")
+	}
+	if store.deleted != "auth:verify_code:phone:forget:d521793014a021c7fec54bb8feee4885" {
+		t.Fatalf("expected forget code to be consumed, got %q", store.deleted)
+	}
+}
+
+func TestServiceForgetPasswordRejectsMismatchedPasswordBeforeConsumingCode(t *testing.T) {
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:forget:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	repo := &fakeAuthRepository{credential: &UserCredential{ID: 42, Phone: "15671628271", Status: commonYes, IsDel: commonNo}}
+	service := NewService(repo, fakeLoginTypeProvider{}, &fakeSessionCreator{}, &fakeCaptchaVerifier{}, WithCodeStore(store))
+
+	appErr := service.ForgetPassword(context.Background(), ForgetPasswordInput{
+		Account:         "15671628271",
+		Code:            "123456",
+		NewPassword:     "new-secret",
+		ConfirmPassword: "other-secret",
+	})
+
+	if appErr == nil || !strings.Contains(appErr.Message, "两次输入的密码不一致") {
+		t.Fatalf("expected password mismatch error, got %v", appErr)
+	}
+	if store.deleted != "" || repo.passwordHash != "" {
+		t.Fatalf("mismatch must not consume code or write password: deleted=%q hash=%q", store.deleted, repo.passwordHash)
 	}
 }
 

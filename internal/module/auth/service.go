@@ -186,6 +186,39 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	return "验证码发送成功(测试:" + code + ")", nil
 }
 
+func (s *Service) ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error {
+	if s == nil || s.repository == nil || s.codeStore == nil {
+		return apperror.Internal("重置密码服务未配置")
+	}
+	normalized, appErr := normalizeForgetPasswordInput(input)
+	if appErr != nil {
+		return appErr
+	}
+
+	user, appErr := s.findCredential(ctx, normalized.Account)
+	if appErr != nil {
+		return appErr
+	}
+	if user == nil {
+		return apperror.BadRequest("账号不存在")
+	}
+	if appErr := assertUserActive(user); appErr != nil {
+		return appErr
+	}
+	if appErr := s.verifyCode(ctx, normalized.Account, normalized.Code, VerifyCodeSceneForget, true); appErr != nil {
+		return appErr
+	}
+
+	hash, err := hashPassword(normalized.NewPassword)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "密码加密失败", err)
+	}
+	if err := s.repository.UpdatePassword(ctx, user.ID, hash); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "重置密码失败", err)
+	}
+	return nil
+}
+
 func (s *Service) Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error) {
 	if s == nil || s.repository == nil || s.sessionManager == nil {
 		return nil, apperror.Unauthorized("登录服务未配置")
@@ -560,6 +593,30 @@ func normalizeSendCodeInput(input SendCodeInput) SendCodeInput {
 	return input
 }
 
+func normalizeForgetPasswordInput(input ForgetPasswordInput) (ForgetPasswordInput, *apperror.Error) {
+	input.Account = strings.TrimSpace(input.Account)
+	input.Code = strings.TrimSpace(input.Code)
+	input.NewPassword = strings.TrimSpace(input.NewPassword)
+	input.ConfirmPassword = strings.TrimSpace(input.ConfirmPassword)
+	if accountTypeOf(input.Account) == "" {
+		return input, apperror.BadRequest("请输入正确的邮箱或手机号")
+	}
+	if input.Code == "" {
+		return input, apperror.BadRequest("请输入验证码")
+	}
+	if input.NewPassword == "" || input.ConfirmPassword == "" {
+		return input, apperror.BadRequest("请输入新密码")
+	}
+	if input.NewPassword != input.ConfirmPassword {
+		return input, apperror.BadRequest("两次输入的密码不一致")
+	}
+	passwordLength := len([]rune(input.NewPassword))
+	if passwordLength < 6 || passwordLength > 128 {
+		return input, apperror.BadRequest("密码长度必须为6-128位")
+	}
+	return input, nil
+}
+
 func normalizeVerifyCodeOptions(options VerifyCodeOptions) VerifyCodeOptions {
 	if options.TTL <= 0 {
 		options.TTL = defaultVerifyCodeTTL
@@ -597,6 +654,14 @@ func verifyPassword(password string, hash string) bool {
 		hash = "$2a$" + strings.TrimPrefix(hash, "$2y$")
 	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(string(hash), "$2a$", "$2y$", 1), nil
 }
 
 func accountTypeOf(value string) string {

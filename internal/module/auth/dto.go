@@ -34,6 +34,13 @@ type SendCodeInput struct {
 	Scene   string
 }
 
+type ForgetPasswordInput struct {
+	Account         string
+	Code            string
+	NewPassword     string
+	ConfirmPassword string
+}
+
 type LoginResponse struct {
 	AccessToken      string `json:"access_token"`
 	RefreshToken     string `json:"refresh_token"`

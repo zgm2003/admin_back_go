@@ -948,10 +948,16 @@ session.RevocationService 是 token Redis 清理边界：删除 TOKEN_REDIS_PREF
 revoke 路由挂 user_userManager_kick 权限，并写 OperationLog user_session/revoke 或 user_session/revoke_batch。
 ```
 
-非目标：
+本次补齐：
 
 ```text
-forgetPassword 仍是账号安全后续 slice，不在这刀冒充完成。
+POST /api/admin/v1/auth/forgot-password 已由 Go auth module 接管：校验 forget scene 验证码，写 users.password 的 PHP-compatible bcrypt hash，并消费验证码。
+前端登录页 forgetPassword 走 Go request；src/lib/http 不再保留 legacyRequest / VITE_SOME_KEY 运行依赖。
+```
+
+仍非目标：
+
+```text
 EditPassword 前端死定义删除，不为了死接口新增 Go 实现。
 full smoke 不随机踢 live session；只验证当前 session anti-kick，非当前 revoke/Redis 清理由 Go 单测覆盖。
 ```
