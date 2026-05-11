@@ -11,9 +11,8 @@ import (
 var ErrCertPathRequired = errors.New("payment: cert path is required")
 
 type CertPathResolver struct {
-	CertBaseDir         string
-	LegacyAdminBackRoot string
-	WorkingDir          string
+	CertBaseDir string
+	WorkingDir  string
 }
 
 func (r CertPathResolver) Resolve(storedPath string) (string, error) {
@@ -24,7 +23,7 @@ func (r CertPathResolver) Resolve(storedPath string) (string, error) {
 	if filepath.IsAbs(storedPath) {
 		return requireFile(storedPath)
 	}
-	for _, base := range []string{r.CertBaseDir, r.LegacyAdminBackRoot, r.WorkingDir} {
+	for _, base := range []string{r.CertBaseDir, r.WorkingDir} {
 		base = strings.TrimSpace(base)
 		if base == "" {
 			continue

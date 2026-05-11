@@ -108,6 +108,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Scheduler.LockPrefix != "admin_go:scheduler:" {
 		t.Fatalf("expected scheduler lock prefix admin_go:scheduler:, got %q", cfg.Scheduler.LockPrefix)
 	}
+	if cfg.Scheduler.LockTTL != 30*time.Second {
+		t.Fatalf("expected scheduler lock ttl 30s, got %s", cfg.Scheduler.LockTTL)
+	}
 	if cfg.AI.ChatStreamMaxDuration != 5*time.Minute {
 		t.Fatalf("expected AI chat stream max duration 5m, got %s", cfg.AI.ChatStreamMaxDuration)
 	}
@@ -178,6 +181,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("SCHEDULER_ENABLED", "false")
 	t.Setenv("SCHEDULER_TIMEZONE", "UTC")
 	t.Setenv("SCHEDULER_LOCK_PREFIX", "test:scheduler:")
+	t.Setenv("SCHEDULER_LOCK_TTL", "45s")
 	t.Setenv("AI_CHAT_STREAM_MAX_DURATION", "3m")
 	t.Setenv("AI_CHAT_STREAM_IDLE_TIMEOUT", "45s")
 	t.Setenv("AI_RUN_STALE_TIMEOUT", "20m")
@@ -242,7 +246,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler enabled override to false")
 	}
-	if cfg.Scheduler.Timezone != "UTC" || cfg.Scheduler.LockPrefix != "test:scheduler:" {
+	if cfg.Scheduler.Timezone != "UTC" || cfg.Scheduler.LockPrefix != "test:scheduler:" || cfg.Scheduler.LockTTL != 45*time.Second {
 		t.Fatalf("unexpected scheduler config: %#v", cfg.Scheduler)
 	}
 	if cfg.AI.ChatStreamMaxDuration != 3*time.Minute ||
@@ -266,18 +270,15 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 
 func TestLoadReadsPaymentConfig(t *testing.T) {
 	t.Setenv("PAYMENT_CERT_BASE_DIR", "E:/admin_go/admin_back_go")
-	t.Setenv("LEGACY_ADMIN_BACK_ROOT", "")
 	t.Setenv("PAYMENT_ALIPAY_TIMEOUT", "9s")
-	t.Setenv("PAYMENT_NOTIFY_LOCK_TTL", "40s")
-	t.Setenv("PAYMENT_ATTEMPT_LOCK_TTL", "41s")
 
 	cfg := Load()
 
-	if cfg.Payment.CertBaseDir != "E:/admin_go/admin_back_go" || cfg.Payment.LegacyAdminBackRoot != "" {
-		t.Fatalf("unexpected payment dirs: %#v", cfg.Payment)
+	if cfg.Payment.CertBaseDir != "E:/admin_go/admin_back_go" {
+		t.Fatalf("expected payment cert base dir to point at Go backend, got %q", cfg.Payment.CertBaseDir)
 	}
-	if cfg.Payment.AlipayTimeout != 9*time.Second || cfg.Payment.NotifyLockTTL != 40*time.Second || cfg.Payment.AttemptLockTTL != 41*time.Second {
-		t.Fatalf("unexpected payment durations: %#v", cfg.Payment)
+	if cfg.Payment.AlipayTimeout != 9*time.Second {
+		t.Fatalf("expected alipay timeout 9s, got %s", cfg.Payment.AlipayTimeout)
 	}
 }
 
@@ -287,8 +288,14 @@ func TestEnvExampleUsesGoOwnedPaymentCerts(t *testing.T) {
 	if values["PAYMENT_CERT_BASE_DIR"] != "E:/admin_go/admin_back_go" {
 		t.Fatalf("expected PAYMENT_CERT_BASE_DIR to point at Go backend, got %q", values["PAYMENT_CERT_BASE_DIR"])
 	}
-	if values["LEGACY_ADMIN_BACK_ROOT"] != "" {
-		t.Fatalf("expected LEGACY_ADMIN_BACK_ROOT to be empty, got %q", values["LEGACY_ADMIN_BACK_ROOT"])
+	if _, ok := values["LEGACY_ADMIN_BACK_ROOT"]; ok {
+		t.Fatalf("LEGACY_ADMIN_BACK_ROOT should not be documented in Go-owned env example")
+	}
+	if _, ok := values["PAYMENT_NOTIFY_LOCK_TTL"]; ok {
+		t.Fatalf("PAYMENT_NOTIFY_LOCK_TTL should not be documented without runtime usage")
+	}
+	if _, ok := values["PAYMENT_ATTEMPT_LOCK_TTL"]; ok {
+		t.Fatalf("PAYMENT_ATTEMPT_LOCK_TTL should not be documented without runtime usage")
 	}
 }
 
@@ -303,6 +310,17 @@ func TestEnvExampleDocumentsAITimeouts(t *testing.T) {
 	}
 	if values["AI_RUN_STALE_TIMEOUT"] != "15m" {
 		t.Fatalf("expected AI_RUN_STALE_TIMEOUT=15m, got %q", values["AI_RUN_STALE_TIMEOUT"])
+	}
+}
+
+func TestEnvExampleDocumentsSchedulerDistributedLock(t *testing.T) {
+	values := readEnvExample(t)
+
+	if values["SCHEDULER_LOCK_PREFIX"] != "admin_go:scheduler:" {
+		t.Fatalf("expected SCHEDULER_LOCK_PREFIX default, got %q", values["SCHEDULER_LOCK_PREFIX"])
+	}
+	if values["SCHEDULER_LOCK_TTL"] != "30s" {
+		t.Fatalf("expected SCHEDULER_LOCK_TTL=30s, got %q", values["SCHEDULER_LOCK_TTL"])
 	}
 }
 

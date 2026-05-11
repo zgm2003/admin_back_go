@@ -151,9 +151,8 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
 	paymentCertResolver := payment.CertPathResolver{
-		CertBaseDir:         cfg.Payment.CertBaseDir,
-		LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
-		WorkingDir:          ".",
+		CertBaseDir: cfg.Payment.CertBaseDir,
+		WorkingDir:  ".",
 	}
 	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)

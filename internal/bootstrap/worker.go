@@ -18,6 +18,7 @@ import (
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
+	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/secretbox"
 	storagecos "admin_back_go/internal/platform/storage/cos"
@@ -98,9 +99,8 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
 	}
 	paymentCertResolver := payment.CertPathResolver{
-		CertBaseDir:         cfg.Payment.CertBaseDir,
-		LegacyAdminBackRoot: cfg.Payment.LegacyAdminBackRoot,
-		WorkingDir:          ".",
+		CertBaseDir: cfg.Payment.CertBaseDir,
+		WorkingDir:  ".",
 	}
 	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
@@ -128,7 +128,11 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	})
 
 	if cfg.Scheduler.Enabled {
-		s, err := scheduler.New(cfg.Scheduler)
+		schedulerOptions := []scheduler.Option{scheduler.WithLogger(logger)}
+		if resources.Redis != nil && resources.Redis.Redis != nil {
+			schedulerOptions = append(schedulerOptions, scheduler.WithLocker(redislock.New(resources.Redis.Redis)))
+		}
+		s, err := scheduler.New(cfg.Scheduler, schedulerOptions...)
 		if err != nil {
 			worker.queueServer.Shutdown()
 			_ = queueClient.Close()

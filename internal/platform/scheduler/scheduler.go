@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/platform/redislock"
 
 	gocron "github.com/go-co-op/gocron/v2"
 )
@@ -21,14 +23,39 @@ var (
 
 type TaskFunc func(ctx context.Context) error
 
+type Locker interface {
+	Lock(ctx context.Context, key string, ttl time.Duration) (string, error)
+	Unlock(ctx context.Context, key string, token string) error
+}
+
+type Option func(*Scheduler)
+
+func WithLocker(locker Locker) Option {
+	return func(s *Scheduler) {
+		s.locker = locker
+	}
+}
+
+func WithLogger(logger *slog.Logger) Option {
+	return func(s *Scheduler) {
+		if logger != nil {
+			s.logger = logger
+		}
+	}
+}
+
 // Scheduler wraps gocron so jobs do not depend on gocron directly.
 type Scheduler struct {
-	scheduler gocron.Scheduler
-	location  *time.Location
+	scheduler  gocron.Scheduler
+	location   *time.Location
+	lockPrefix string
+	lockTTL    time.Duration
+	locker     Locker
+	logger     *slog.Logger
 }
 
 // New creates a scheduler using the configured timezone.
-func New(cfg config.SchedulerConfig) (*Scheduler, error) {
+func New(cfg config.SchedulerConfig, opts ...Option) (*Scheduler, error) {
 	timezone := strings.TrimSpace(cfg.Timezone)
 	if timezone == "" {
 		timezone = "Asia/Shanghai"
@@ -42,7 +69,22 @@ func New(cfg config.SchedulerConfig) (*Scheduler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Scheduler{scheduler: s, location: location}, nil
+	result := &Scheduler{
+		scheduler:  s,
+		location:   location,
+		lockPrefix: strings.TrimSpace(cfg.LockPrefix),
+		lockTTL:    cfg.LockTTL,
+		logger:     slog.Default(),
+	}
+	if result.lockTTL <= 0 {
+		result.lockTTL = 30 * time.Second
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(result)
+		}
+	}
+	return result, nil
 }
 
 // Every registers a non-overlapping interval job.
@@ -56,11 +98,12 @@ func (s *Scheduler) Every(name string, interval time.Duration, task TaskFunc) er
 	if task == nil {
 		return ErrJobTaskRequired
 	}
+	wrappedTask := s.wrapTask(name, task)
 
 	_, err := s.scheduler.NewJob(
 		gocron.DurationJob(interval),
 		gocron.NewTask(func(ctx context.Context) error {
-			return task(ctx)
+			return wrappedTask(ctx)
 		}),
 		gocron.WithName(name),
 		gocron.WithSingletonMode(gocron.LimitModeReschedule),
@@ -79,16 +122,42 @@ func (s *Scheduler) Cron(name string, expression string, withSeconds bool, task 
 	if task == nil {
 		return ErrJobTaskRequired
 	}
+	wrappedTask := s.wrapTask(name, task)
 
 	_, err := s.scheduler.NewJob(
 		gocron.CronJob(expression, withSeconds),
 		gocron.NewTask(func(ctx context.Context) error {
-			return task(ctx)
+			return wrappedTask(ctx)
 		}),
 		gocron.WithName(name),
 		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	return err
+}
+
+func (s *Scheduler) wrapTask(name string, task TaskFunc) TaskFunc {
+	return func(ctx context.Context) error {
+		if s == nil || s.locker == nil || strings.TrimSpace(s.lockPrefix) == "" {
+			return task(ctx)
+		}
+		key := s.lockPrefix + strings.TrimSpace(name)
+		token, err := s.locker.Lock(ctx, key, s.lockTTL)
+		if errors.Is(err, redislock.ErrNotAcquired) {
+			if s.logger != nil {
+				s.logger.InfoContext(ctx, "skip scheduler job because distributed lock is held", "name", name, "lock_key", key)
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("scheduler lock %s: %w", name, err)
+		}
+		defer func() {
+			if unlockErr := s.locker.Unlock(ctx, key, token); unlockErr != nil && s.logger != nil {
+				s.logger.ErrorContext(ctx, "unlock scheduler job failed", "name", name, "lock_key", key, "error", unlockErr)
+			}
+		}()
+		return task(ctx)
+	}
 }
 
 // Start begins scheduling. It is non-blocking.

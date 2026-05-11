@@ -19,26 +19,7 @@ func TestCertPathResolverResolvesAbsolutePath(t *testing.T) {
 	}
 }
 
-func TestCertPathResolverResolvesRelativePathFromLegacyRoot(t *testing.T) {
-	root := t.TempDir()
-	certPath := filepath.Join(root, "runtime", "cert", "alipay", "appPublicCert.crt")
-	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
-		t.Fatalf("mkdir cert dir: %v", err)
-	}
-	if err := os.WriteFile(certPath, []byte("test-cert"), 0o600); err != nil {
-		t.Fatalf("write cert: %v", err)
-	}
-
-	resolved, err := CertPathResolver{LegacyAdminBackRoot: root}.Resolve("runtime/cert/alipay/appPublicCert.crt")
-	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
-	}
-	if resolved != filepath.ToSlash(certPath) {
-		t.Fatalf("expected %q, got %q", filepath.ToSlash(certPath), resolved)
-	}
-}
-
-func TestCertPathResolverResolvesRelativePathFromGoCertBaseDirWithoutLegacyRoot(t *testing.T) {
+func TestCertPathResolverResolvesRelativePathFromGoCertBaseDir(t *testing.T) {
 	goRoot := t.TempDir()
 	certPath := filepath.Join(goRoot, "runtime", "cert", "alipay", "appPublicCert.crt")
 	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
@@ -57,10 +38,10 @@ func TestCertPathResolverResolvesRelativePathFromGoCertBaseDirWithoutLegacyRoot(
 	}
 }
 
-func TestCertPathResolverFailsWithoutLegacyRootWhenGoCertMissing(t *testing.T) {
-	_, err := CertPathResolver{CertBaseDir: t.TempDir(), LegacyAdminBackRoot: ""}.Resolve("runtime/cert/alipay/appPublicCert.crt")
+func TestCertPathResolverFailsWhenGoCertMissing(t *testing.T) {
+	_, err := CertPathResolver{CertBaseDir: t.TempDir()}.Resolve("runtime/cert/alipay/appPublicCert.crt")
 	if err == nil {
-		t.Fatalf("expected missing cert error without legacy root")
+		t.Fatalf("expected missing cert error")
 	}
 }
 
@@ -72,7 +53,7 @@ func TestCertPathResolverRejectsEmptyPath(t *testing.T) {
 }
 
 func TestCertPathResolverRejectsMissingFile(t *testing.T) {
-	_, err := CertPathResolver{LegacyAdminBackRoot: t.TempDir()}.Resolve("runtime/cert/alipay/missing.crt")
+	_, err := CertPathResolver{CertBaseDir: t.TempDir()}.Resolve("runtime/cert/alipay/missing.crt")
 	if err == nil {
 		t.Fatalf("expected missing cert error")
 	}

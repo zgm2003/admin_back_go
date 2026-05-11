@@ -134,6 +134,7 @@ type SchedulerConfig struct {
 	Enabled    bool
 	Timezone   string
 	LockPrefix string
+	LockTTL    time.Duration
 }
 
 type SecretboxConfig struct {
@@ -141,11 +142,8 @@ type SecretboxConfig struct {
 }
 
 type PaymentConfig struct {
-	CertBaseDir         string
-	LegacyAdminBackRoot string
-	AlipayTimeout       time.Duration
-	NotifyLockTTL       time.Duration
-	AttemptLockTTL      time.Duration
+	CertBaseDir   string
+	AlipayTimeout time.Duration
 }
 
 type UploadTokenConfig struct {
@@ -258,16 +256,14 @@ func Load() Config {
 			Enabled:    envBool("SCHEDULER_ENABLED", true),
 			Timezone:   envString("SCHEDULER_TIMEZONE", "Asia/Shanghai"),
 			LockPrefix: envString("SCHEDULER_LOCK_PREFIX", "admin_go:scheduler:"),
+			LockTTL:    envDuration("SCHEDULER_LOCK_TTL", 30*time.Second),
 		},
 		Secretbox: SecretboxConfig{
 			Key: envString("VAULT_KEY", ""),
 		},
 		Payment: PaymentConfig{
-			CertBaseDir:         envString("PAYMENT_CERT_BASE_DIR", ""),
-			LegacyAdminBackRoot: envString("LEGACY_ADMIN_BACK_ROOT", ""),
-			AlipayTimeout:       envDuration("PAYMENT_ALIPAY_TIMEOUT", 10*time.Second),
-			NotifyLockTTL:       envDuration("PAYMENT_NOTIFY_LOCK_TTL", 30*time.Second),
-			AttemptLockTTL:      envDuration("PAYMENT_ATTEMPT_LOCK_TTL", 30*time.Second),
+			CertBaseDir:   envString("PAYMENT_CERT_BASE_DIR", ""),
+			AlipayTimeout: envDuration("PAYMENT_ALIPAY_TIMEOUT", 10*time.Second),
 		},
 		UploadToken: UploadTokenConfig{
 			TTL:            envDuration("UPLOAD_TOKEN_TTL", 15*time.Minute),
