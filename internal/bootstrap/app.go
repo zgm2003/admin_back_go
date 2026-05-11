@@ -230,6 +230,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		nil,
 	)
 	userRepository := user.NewGormRepository(resources.DB)
+	addressDictCache := user.NewRedisAddressDictCache(resources.Redis)
 	operationRepository := operationlog.NewGormRepository(resources.DB)
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
@@ -268,6 +269,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis), cfg.VerifyCode.RedisPrefix),
 		user.WithExportTaskCreator(exportTaskService),
 		user.WithExportEnqueuer(queueClient),
+		user.WithAddressDictCache(addressDictCache),
 	)
 	sessionRevoker := session.NewRevocationService(session.NewRedisCache(resourcesTokenRedis(resources)), session.RevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
 	userQuickEntryService := userquickentry.NewService(userquickentry.NewGormRepository(resources.DB))
