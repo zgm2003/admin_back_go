@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ type fakeUserRepository struct {
 	role                 *Role
 	roleOptions          []Role
 	addresses            []Address
+	addressCalls         int
 	listRows             []ListRow
 	listTotal            int64
 	exportRows           []ExportUserRow
@@ -72,6 +74,7 @@ func (f *fakeUserRepository) RoleOptions(ctx context.Context) ([]Role, error) {
 }
 
 func (f *fakeUserRepository) ActiveAddresses(ctx context.Context) ([]Address, error) {
+	f.addressCalls++
 	return f.addresses, f.err
 }
 
@@ -141,6 +144,34 @@ func (f *fakeUserRepository) SoftDelete(ctx context.Context, ids []int64) error 
 func (f *fakeUserRepository) BatchUpdateProfile(ctx context.Context, input BatchProfileUpdate) error {
 	f.batchUpdate = input
 	return f.err
+}
+
+type fakeAddressDictCache struct {
+	snapshot    AddressDictSnapshot
+	hit         bool
+	getErr      error
+	setErr      error
+	deleteErr   error
+	getCalls    int
+	setCalls    int
+	deleteCalls int
+	saved       AddressDictSnapshot
+}
+
+func (f *fakeAddressDictCache) Get(ctx context.Context) (AddressDictSnapshot, bool, error) {
+	f.getCalls++
+	return f.snapshot, f.hit, f.getErr
+}
+
+func (f *fakeAddressDictCache) Set(ctx context.Context, snapshot AddressDictSnapshot) error {
+	f.setCalls++
+	f.saved = snapshot
+	return f.setErr
+}
+
+func (f *fakeAddressDictCache) Delete(ctx context.Context) error {
+	f.deleteCalls++
+	return f.deleteErr
 }
 
 type fakePermissionBuilder struct {
@@ -822,5 +853,161 @@ func TestExportDataProviderBuildsUserListFileData(t *testing.T) {
 	}
 	if len(data.Rows) != 1 || data.Rows[0]["id"] != "2" || data.Rows[0]["sex"] != "女" || data.Rows[0]["role"] != "管理员" {
 		t.Fatalf("unexpected export rows: %#v", data.Rows)
+	}
+}
+
+func TestServiceLoadAddressDictUsesCacheHit(t *testing.T) {
+	repo := &fakeUserRepository{
+		addresses: []Address{{ID: 99, ParentID: 0, Name: "不应该查询"}},
+	}
+	cache := &fakeAddressDictCache{
+		hit: true,
+		snapshot: AddressDictSnapshot{
+			Version:  addressDictSnapshotVersion,
+			RowCount: 1,
+			Tree: []AddressTreeNode{{
+				ID:    1,
+				Label: "中国",
+				Value: 1,
+			}},
+			PathByID: map[int64][]string{1: []string{"中国"}},
+		},
+	}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, err := svc.loadAddressDict(context.Background())
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(got.Tree) != 1 || got.Tree[0].Label != "中国" {
+		t.Fatalf("unexpected cached tree: %#v", got.Tree)
+	}
+	if repo.addressCalls != 0 {
+		t.Fatalf("expected cache hit to avoid DB, got %d address calls", repo.addressCalls)
+	}
+	if cache.getCalls != 1 || cache.setCalls != 0 {
+		t.Fatalf("cache calls mismatch: get=%d set=%d", cache.getCalls, cache.setCalls)
+	}
+}
+
+func TestServiceLoadAddressDictMissRebuildsAndSavesCache(t *testing.T) {
+	repo := &fakeUserRepository{
+		addresses: []Address{
+			{ID: 1, ParentID: 0, Name: "中国", UpdatedAt: time.Date(2026, 3, 9, 10, 56, 1, 0, time.Local)},
+			{ID: 2, ParentID: 1, Name: "江苏", UpdatedAt: time.Date(2026, 3, 9, 10, 56, 1, 0, time.Local)},
+		},
+	}
+	cache := &fakeAddressDictCache{}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, err := svc.loadAddressDict(context.Background())
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.addressCalls != 1 {
+		t.Fatalf("expected one DB address query, got %d", repo.addressCalls)
+	}
+	if cache.setCalls != 1 {
+		t.Fatalf("expected cache Set once, got %d", cache.setCalls)
+	}
+	if got.RowCount != 2 || got.SourceMaxUpdated != "2026-03-09 10:56:01" {
+		t.Fatalf("snapshot metadata mismatch: %#v", got)
+	}
+	if path := got.PathByID[2]; len(path) != 2 || path[0] != "中国" || path[1] != "江苏" {
+		t.Fatalf("path_by_id mismatch: %#v", got.PathByID)
+	}
+	if len(cache.saved.Tree) != 1 || cache.saved.Tree[0].Children[0].Label != "江苏" {
+		t.Fatalf("saved tree mismatch: %#v", cache.saved.Tree)
+	}
+}
+
+func TestServiceLoadAddressDictRedisErrorFallsBackToDatabase(t *testing.T) {
+	repo := &fakeUserRepository{
+		addresses: []Address{{ID: 1, ParentID: 0, Name: "中国"}},
+	}
+	cache := &fakeAddressDictCache{getErr: errors.New("redis down")}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, err := svc.loadAddressDict(context.Background())
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.addressCalls != 1 {
+		t.Fatalf("expected fallback DB query, got %d", repo.addressCalls)
+	}
+	if cache.deleteCalls != 0 {
+		t.Fatalf("expected redis connection error not to delete cache, got %d deletes", cache.deleteCalls)
+	}
+	if len(got.Tree) != 1 || got.Tree[0].Label != "中国" {
+		t.Fatalf("fallback tree mismatch: %#v", got.Tree)
+	}
+}
+
+func TestServiceLoadAddressDictCorruptCacheDeletesAndFallsBack(t *testing.T) {
+	repo := &fakeUserRepository{
+		addresses: []Address{{ID: 1, ParentID: 0, Name: "中国"}},
+	}
+	cache := &fakeAddressDictCache{getErr: fmt.Errorf("decode address dict: %w", ErrAddressDictCacheCorrupt)}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, err := svc.loadAddressDict(context.Background())
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.addressCalls != 1 {
+		t.Fatalf("expected fallback DB query, got %d", repo.addressCalls)
+	}
+	if cache.deleteCalls != 1 {
+		t.Fatalf("expected corrupt cache delete once, got %d", cache.deleteCalls)
+	}
+	if len(got.Tree) != 1 || got.Tree[0].Value != 1 {
+		t.Fatalf("fallback tree mismatch: %#v", got.Tree)
+	}
+}
+
+func TestServiceLoadAddressDictDatabaseErrorReturnsErrorAndDoesNotSetCache(t *testing.T) {
+	repo := &fakeUserRepository{
+		err: errors.New("database down"),
+	}
+	cache := &fakeAddressDictCache{}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, err := svc.loadAddressDict(context.Background())
+
+	if err == nil {
+		t.Fatalf("expected database error")
+	}
+	if got != nil {
+		t.Fatalf("expected nil snapshot on database error, got %#v", got)
+	}
+	if repo.addressCalls != 1 {
+		t.Fatalf("expected one DB address query, got %d", repo.addressCalls)
+	}
+	if cache.setCalls != 0 {
+		t.Fatalf("expected cache Set not to run on database error, got %d", cache.setCalls)
+	}
+}
+
+func TestServiceLoadAddressDictSetErrorStillReturnsDatabaseResult(t *testing.T) {
+	repo := &fakeUserRepository{
+		addresses: []Address{{ID: 1, ParentID: 0, Name: "中国"}},
+	}
+	cache := &fakeAddressDictCache{setErr: errors.New("set failed")}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, err := svc.loadAddressDict(context.Background())
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.addressCalls != 1 || cache.setCalls != 1 {
+		t.Fatalf("calls mismatch: address=%d set=%d", repo.addressCalls, cache.setCalls)
+	}
+	if len(got.Tree) != 1 || got.Tree[0].Label != "中国" {
+		t.Fatalf("tree mismatch: %#v", got.Tree)
 	}
 }

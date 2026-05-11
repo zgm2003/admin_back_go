@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"errors"
 	"math"
 	"regexp"
 	"sort"
@@ -60,6 +61,7 @@ type Service struct {
 	verifyCodePrefix  string
 	exportTaskCreator ExportTaskCreator
 	exportEnqueuer    taskqueue.Enqueuer
+	addressCache      AddressDictCache
 }
 
 type addressTreeMutableNode struct {
@@ -110,6 +112,12 @@ func WithExportTaskCreator(creator ExportTaskCreator) Option {
 func WithExportEnqueuer(enqueuer taskqueue.Enqueuer) Option {
 	return func(s *Service) {
 		s.exportEnqueuer = enqueuer
+	}
+}
+
+func WithAddressDictCache(cache AddressDictCache) Option {
+	return func(s *Service) {
+		s.addressCache = cache
 	}
 }
 
@@ -956,6 +964,64 @@ func sexLabel(value int) string {
 		}
 	}
 	return "未知"
+}
+
+func (s *Service) loadAddressDict(ctx context.Context) (*AddressDictSnapshot, error) {
+	if s == nil || s.repository == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if s.addressCache != nil {
+		snapshot, ok, err := s.addressCache.Get(ctx)
+		if err == nil && ok {
+			return &snapshot, nil
+		}
+		if errors.Is(err, ErrAddressDictCacheCorrupt) {
+			_ = s.addressCache.Delete(ctx)
+		}
+	}
+
+	rows, err := s.repository.ActiveAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := buildAddressDictSnapshot(rows, time.Now())
+	if s.addressCache != nil {
+		_ = s.addressCache.Set(ctx, snapshot)
+	}
+	return &snapshot, nil
+}
+
+func buildAddressDictSnapshot(rows []Address, generatedAt time.Time) AddressDictSnapshot {
+	snapshot := AddressDictSnapshot{
+		Version:     addressDictSnapshotVersion,
+		GeneratedAt: formatTime(generatedAt),
+		RowCount:    len(rows),
+		Tree:        buildAddressTree(rows),
+		PathByID:    buildAddressPathByID(rows),
+	}
+	var maxUpdated time.Time
+	for _, row := range rows {
+		if row.UpdatedAt.After(maxUpdated) {
+			maxUpdated = row.UpdatedAt
+		}
+	}
+	if !maxUpdated.IsZero() {
+		snapshot.SourceMaxUpdated = formatTime(maxUpdated)
+	}
+	return snapshot
+}
+
+func buildAddressPathByID(rows []Address) map[int64][]string {
+	addressMap := makeAddressMap(rows)
+	result := make(map[int64][]string, len(addressMap))
+	for id := range addressMap {
+		path := buildAddressPath(id, addressMap)
+		if len(path) == 0 {
+			continue
+		}
+		result[id] = path
+	}
+	return result
 }
 
 func buildAddressTree(rows []Address) []AddressTreeNode {
