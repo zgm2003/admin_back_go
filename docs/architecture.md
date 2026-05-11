@@ -552,6 +552,33 @@ permission module -> RBAC button grant cache contract
 
 当前只建立 Redis client 边界。默认 Redis 连接给通用缓存预留；TokenRedis 使用同一 Redis 地址和密码，但 DB 来自 `TOKEN_REDIS_DB`，默认 2，对齐旧 PHP token 连接。
 
+### Address dict cache
+
+`address` 表仍是行政区划真相源。`user` module 只缓存派生结构：
+
+```text
+key: admin_go:dict:address:v1
+ttl: none
+payload: AddressDictSnapshot { tree, path_by_id, row_count, source_max_updated }
+```
+
+读取策略：
+
+```text
+Redis hit -> return cached tree/path_by_id
+Redis miss -> query MySQL address -> rebuild snapshot -> SET key without expiration
+Redis corrupt payload -> DEL key best-effort -> query MySQL
+Redis connection error -> query MySQL
+```
+
+失效策略：
+
+```powershell
+redis-cli DEL admin_go:dict:address:v1
+```
+
+如果未来新增 Go address CRUD/import，写入成功后必须删除该 key。
+
 ## Bootstrap resources baseline
 
 `internal/bootstrap` 负责把 typed config 装配成运行期资源。
