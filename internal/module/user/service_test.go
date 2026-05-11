@@ -1011,3 +1011,159 @@ func TestServiceLoadAddressDictSetErrorStillReturnsDatabaseResult(t *testing.T) 
 		t.Fatalf("tree mismatch: %#v", got.Tree)
 	}
 }
+
+func TestServicePageInitUsesCachedAddressTree(t *testing.T) {
+	repo := &fakeUserRepository{
+		roleOptions: []Role{{ID: 1, Name: "管理员"}},
+		addresses:   []Address{{ID: 99, ParentID: 0, Name: "不应该查询"}},
+	}
+	cache := &fakeAddressDictCache{
+		hit: true,
+		snapshot: AddressDictSnapshot{
+			Version:  addressDictSnapshotVersion,
+			Tree:     []AddressTreeNode{{ID: 1, Label: "中国", Value: 1}},
+			PathByID: map[int64][]string{1: []string{"中国"}},
+		},
+	}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, appErr := svc.PageInit(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if repo.addressCalls != 0 {
+		t.Fatalf("expected PageInit to avoid DB on cache hit, got %d calls", repo.addressCalls)
+	}
+	if len(got.Dict.AuthAddressTree) != 1 || got.Dict.AuthAddressTree[0].Label != "中国" {
+		t.Fatalf("address tree mismatch: %#v", got.Dict.AuthAddressTree)
+	}
+}
+
+func TestServiceProfileUsesCachedAddressTree(t *testing.T) {
+	password := "$2y$10$hash"
+	repo := &fakeUserRepository{
+		user:    &User{ID: 8, Username: "alice", RoleID: 2, Password: &password},
+		profile: &Profile{UserID: 8, Sex: enum.SexFemale, AddressID: 2},
+		role:    &Role{ID: 2, Name: "运营"},
+	}
+	cache := &fakeAddressDictCache{
+		hit: true,
+		snapshot: AddressDictSnapshot{
+			Version:  addressDictSnapshotVersion,
+			Tree:     []AddressTreeNode{{ID: 1, Label: "中国", Value: 1}},
+			PathByID: map[int64][]string{1: []string{"中国"}},
+		},
+	}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, appErr := svc.Profile(context.Background(), 8, 8)
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if repo.addressCalls != 0 {
+		t.Fatalf("expected Profile to avoid DB on cache hit, got %d calls", repo.addressCalls)
+	}
+	if len(got.Dict.AuthAddressTree) != 1 || got.Dict.AuthAddressTree[0].Label != "中国" {
+		t.Fatalf("profile address tree mismatch: %#v", got.Dict.AuthAddressTree)
+	}
+}
+
+func TestServiceListUsesCachedPathByIDForAddressShow(t *testing.T) {
+	detail := "玄武区"
+	addressID := int64(2)
+	repo := &fakeUserRepository{
+		listRows: []ListRow{{
+			ID:            8,
+			Username:      "alice",
+			AddressID:     &addressID,
+			DetailAddress: &detail,
+			Status:        enum.CommonYes,
+		}},
+		listTotal: 1,
+		addresses: []Address{{ID: 99, ParentID: 0, Name: "不应该查询"}},
+	}
+	cache := &fakeAddressDictCache{
+		hit: true,
+		snapshot: AddressDictSnapshot{
+			Version:  addressDictSnapshotVersion,
+			Tree:     []AddressTreeNode{{ID: 1, Label: "中国", Value: 1}},
+			PathByID: map[int64][]string{2: []string{"中国", "江苏", "南京"}},
+		},
+	}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithAddressDictCache(cache))
+
+	got, appErr := svc.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 10})
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	if repo.addressCalls != 0 {
+		t.Fatalf("expected List to avoid DB on cache hit, got %d calls", repo.addressCalls)
+	}
+	if len(got.List) != 1 || got.List[0].AddressShow != "中国-江苏-南京-玄武区" {
+		t.Fatalf("address_show mismatch: %#v", got.List)
+	}
+}
+
+func TestBuildAddressShowHandlesMissingPathAndEmptyDetail(t *testing.T) {
+	tests := []struct {
+		name            string
+		addressID       int64
+		detail          string
+		addressPathByID map[int64][]string
+		want            string
+	}{
+		{
+			name:            "detail only when address id is zero",
+			addressID:       0,
+			detail:          "玄武区",
+			addressPathByID: map[int64][]string{2: {"中国", "江苏"}},
+			want:            "玄武区",
+		},
+		{
+			name:            "detail only when path missing",
+			addressID:       999,
+			detail:          "玄武区",
+			addressPathByID: map[int64][]string{2: {"中国", "江苏"}},
+			want:            "玄武区",
+		},
+		{
+			name:            "path only when detail empty",
+			addressID:       2,
+			detail:          "",
+			addressPathByID: map[int64][]string{2: {"中国", "江苏"}},
+			want:            "中国-江苏",
+		},
+		{
+			name:            "empty when address id and detail are empty",
+			addressID:       0,
+			detail:          "",
+			addressPathByID: map[int64][]string{2: {"中国", "江苏"}},
+			want:            "",
+		},
+		{
+			name:            "nil path map does not panic",
+			addressID:       2,
+			detail:          "玄武区",
+			addressPathByID: nil,
+			want:            "玄武区",
+		},
+		{
+			name:            "blank labels are skipped",
+			addressID:       2,
+			detail:          "玄武区",
+			addressPathByID: map[int64][]string{2: {"中国", "", "南京"}},
+			want:            "中国-南京-玄武区",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildAddressShow(tt.addressID, tt.detail, tt.addressPathByID); got != tt.want {
+				t.Fatalf("buildAddressShow() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

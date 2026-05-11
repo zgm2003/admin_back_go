@@ -196,7 +196,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色字典失败", err)
 	}
-	addresses, err := s.repository.ActiveAddresses(ctx)
+	addressDict, err := s.loadAddressDict(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", err)
 	}
@@ -212,7 +212,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	return &PageInitResponse{
 		Dict: PageInitDict{
 			RoleArr:         roleOptions,
-			AuthAddressTree: buildAddressTree(addresses),
+			AuthAddressTree: addressDict.Tree,
 			SexArr:          dict.SexOptions(),
 			PlatformArr:     dict.PlatformOptions(),
 		},
@@ -248,7 +248,7 @@ func (s *Service) Profile(ctx context.Context, userID int64, currentUserID int64
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", findRoleErr)
 	}
 
-	addresses, findAddressErr := s.repository.ActiveAddresses(ctx)
+	addressDict, findAddressErr := s.loadAddressDict(ctx)
 	if findAddressErr != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", findAddressErr)
 	}
@@ -256,7 +256,7 @@ func (s *Service) Profile(ctx context.Context, userID int64, currentUserID int64
 	return &ProfileResponse{
 		Profile: buildProfileDetail(currentUser, profile, role, currentUserID),
 		Dict: ProfileDict{
-			AuthAddressTree: buildAddressTree(addresses),
+			AuthAddressTree: addressDict.Tree,
 			SexArr:          dict.SexOptions(),
 			VerifyTypeArr:   dict.UserVerifyTypeOptions(),
 		},
@@ -277,15 +277,14 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户列表失败", err)
 	}
-	addresses, err := s.repository.ActiveAddresses(ctx)
+	addressDict, err := s.loadAddressDict(ctx)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", err)
 	}
-	addressMap := makeAddressMap(addresses)
 
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, formatListItem(row, addressMap))
+		list = append(list, formatListItem(row, addressDict.PathByID))
 	}
 
 	return &ListResponse{
@@ -920,7 +919,7 @@ func normalizeBatchProfileUpdate(input BatchProfileUpdate) (BatchProfileUpdate, 
 	return input, nil
 }
 
-func formatListItem(row ListRow, addressMap map[int64]Address) ListItem {
+func formatListItem(row ListRow, addressPathByID map[int64][]string) ListItem {
 	sex := enum.SexUnknown
 	if row.Sex != nil {
 		sex = *row.Sex
@@ -949,7 +948,7 @@ func formatListItem(row ListRow, addressMap map[int64]Address) ListItem {
 		RoleID:        row.RoleID,
 		RoleName:      row.RoleName,
 		Bio:           bio,
-		AddressShow:   buildAddressShow(addressID, detailAddress, addressMap),
+		AddressShow:   buildAddressShow(addressID, detailAddress, addressPathByID),
 		AddressID:     addressID,
 		DetailAddress: detailAddress,
 		Status:        row.Status,
@@ -1089,11 +1088,13 @@ func makeAddressMap(rows []Address) map[int64]Address {
 	return result
 }
 
-func buildAddressShow(addressID int64, detail string, addressMap map[int64]Address) string {
+func buildAddressShow(addressID int64, detail string, addressPathByID map[int64][]string) string {
 	parts := make([]string, 0, 4)
-	for _, name := range buildAddressPath(addressID, addressMap) {
-		if name != "" {
-			parts = append(parts, name)
+	if addressID > 0 {
+		for _, name := range addressPathByID[addressID] {
+			if name != "" {
+				parts = append(parts, name)
+			}
 		}
 	}
 	if detail != "" {
