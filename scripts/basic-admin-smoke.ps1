@@ -534,9 +534,10 @@ func main() {
   if (-not (Test-RouteViewKey $init.data.router 'system/clientVersion')) {
     throw 'users init missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
   }
-  $retiredAINameRoutes = @{}
-  foreach ($name in @('models', 'agents', 'prompts')) {
-    $retiredAINameRoutes[$name] = "/ai/$name"
+  $retiredAINameRoutes = @{
+    models = '/ai/models'
+    agents = '/ai/agent'
+    prompts = '/ai/prompts'
   }
   $retiredAIRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
   foreach ($route in $retiredAIRoutes) {

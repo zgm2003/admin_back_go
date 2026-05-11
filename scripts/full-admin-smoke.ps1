@@ -867,9 +867,10 @@ function Assert-UsersInitPaymentRoutes($Response) {
 function Assert-UsersInitAIRoutes($Response) {
   Assert-ApiOK $Response 'users init AI route gate'
 
-  $retiredAINameRoutes = @{}
-  foreach ($name in @('models', 'agents', 'prompts')) {
-    $retiredAINameRoutes[$name] = "/ai/$name"
+  $retiredAINameRoutes = @{
+    models = '/ai/models'
+    agents = '/ai/agent'
+    prompts = '/ai/prompts'
   }
   $retiredRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
   $retiredPresent = @{}
