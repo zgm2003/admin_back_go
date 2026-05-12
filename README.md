@@ -552,6 +552,15 @@ curl -fsS http://127.0.0.1:8080/api/admin/v1/auth/login-config
 
 ### 6. 更新部署
 
+更新时分清两个目录：
+
+```text
+代码目录：负责 git pull
+Compose 目录：负责 docker compose up -d --build
+```
+
+如果后端代码放在推荐目录：
+
 ```bash
 cd /www/project/admin_back_go
 git pull
@@ -559,6 +568,18 @@ git pull
 cd /www/docker/admin-go
 docker compose up -d --build
 ```
+
+如果你把后端代码放在宝塔站点目录，也就是当前单体演示常用方式：
+
+```bash
+cd /www/wwwroot/www.zgm2003.cn
+git pull
+
+cd /www/docker/admin-go
+docker compose up -d --build
+```
+
+重点是：`docker compose up -d --build` 在 `/www/docker/admin-go` 执行，因为这里才有 `docker-compose.yml`；Compose 会通过 `ADMIN_BACK_GO_DIR` 去读取真正的 Go 后端代码和 `Dockerfile`。
 
 ### 7. 停止 / 重启
 
