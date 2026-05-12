@@ -8,6 +8,7 @@ WORKDIR /src
 
 ENV CGO_ENABLED=0
 ENV GOFLAGS=-trimpath
+ENV GOPROXY=https://goproxy.io,direct
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
