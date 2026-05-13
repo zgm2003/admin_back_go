@@ -207,7 +207,7 @@ func TestServiceRequiresRepositoryForDriverList(t *testing.T) {
 }
 
 func TestDriverCreateEncryptsSecretsAndReturnsID(t *testing.T) {
-	box := secretbox.New("upload-driver-test-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
 	service := NewService(repo, &box)
 
@@ -233,7 +233,7 @@ func TestDriverCreateEncryptsSecretsAndReturnsID(t *testing.T) {
 }
 
 func TestDriverCreateRejectsDuplicateDriverBucket(t *testing.T) {
-	box := secretbox.New("upload-driver-test-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	service := NewService(&fakeRepository{driverExists: true}, &box)
 
 	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: enum.UploadDriverCOS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "ap-nanjing", AppID: "1314"})
@@ -243,7 +243,7 @@ func TestDriverCreateRejectsDuplicateDriverBucket(t *testing.T) {
 }
 
 func TestDriverCreateRejectsMissingCOSAppID(t *testing.T) {
-	box := secretbox.New("upload-driver-test-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	service := NewService(&fakeRepository{}, &box)
 
 	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: enum.UploadDriverCOS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "ap-nanjing"})
@@ -253,7 +253,7 @@ func TestDriverCreateRejectsMissingCOSAppID(t *testing.T) {
 }
 
 func TestDriverCreateRejectsMissingOSSRoleARN(t *testing.T) {
-	box := secretbox.New("upload-driver-test-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	service := NewService(&fakeRepository{}, &box)
 
 	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: enum.UploadDriverOSS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "cn-hangzhou"})
@@ -263,7 +263,7 @@ func TestDriverCreateRejectsMissingOSSRoleARN(t *testing.T) {
 }
 
 func TestDriverUpdateKeepsSecretsWhenOmitted(t *testing.T) {
-	box := secretbox.New("upload-driver-test-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{driverByID: map[int64]Driver{7: {ID: 7, Driver: enum.UploadDriverCOS, Bucket: "old", SecretIDEnc: "old-id", SecretKeyEnc: "old-key"}}}
 	service := NewService(repo, &box)
 
@@ -280,7 +280,7 @@ func TestDriverUpdateKeepsSecretsWhenOmitted(t *testing.T) {
 }
 
 func TestDriverUpdateRotatesProvidedSecret(t *testing.T) {
-	box := secretbox.New("upload-driver-test-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{driverByID: map[int64]Driver{7: {ID: 7, Driver: enum.UploadDriverCOS, Bucket: "old", SecretIDEnc: "old-id", SecretKeyEnc: "old-key"}}}
 	service := NewService(repo, &box)
 

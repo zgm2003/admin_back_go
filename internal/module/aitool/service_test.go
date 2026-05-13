@@ -225,7 +225,7 @@ func TestGenerateDraftRejectsBlankRequirement(t *testing.T) {
 }
 
 func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
-	box := secretbox.New("test-vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
@@ -247,7 +247,7 @@ func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
 }
 
 func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
-	box := secretbox.New("test-vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
@@ -262,7 +262,7 @@ func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
 }
 
 func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testing.T) {
-	box := secretbox.New("test-vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
@@ -277,7 +277,7 @@ func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testin
 }
 
 func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
-	box := secretbox.New("test-vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
@@ -292,7 +292,7 @@ func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
 }
 
 func TestGenerateDraftCanReturnEnabledWhenExecutorRegistered(t *testing.T) {
-	box := secretbox.New("test-vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent

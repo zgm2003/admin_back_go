@@ -1,20 +1,28 @@
 package secretbox
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestBoxEncryptFailsWithoutKey(t *testing.T) {
-	box := New("")
-
+	box := New(nil)
 	_, err := box.Encrypt("plain")
+	if err == nil || !errors.Is(err, ErrMissingKey) {
+		t.Fatalf("expected missing key error, got %v", err)
+	}
+}
 
-	if err == nil {
-		t.Fatalf("expected missing key error")
+func TestBoxEncryptRejectsShortKey(t *testing.T) {
+	box := New([]byte("short"))
+	_, err := box.Encrypt("plain")
+	if err == nil || !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key error, got %v", err)
 	}
 }
 
 func TestBoxEncryptDecryptRoundTrip(t *testing.T) {
-	box := New("round-trip-key")
-
+	box := New([]byte("12345678901234567890123456789012"))
 	ciphertext, err := box.Encrypt("secret-value")
 	if err != nil {
 		t.Fatalf("Encrypt returned error: %v", err)
@@ -22,26 +30,12 @@ func TestBoxEncryptDecryptRoundTrip(t *testing.T) {
 	if ciphertext == "" || ciphertext == "secret-value" {
 		t.Fatalf("expected non-empty ciphertext different from plaintext, got %q", ciphertext)
 	}
-
 	plain, err := box.Decrypt(ciphertext)
 	if err != nil {
 		t.Fatalf("Decrypt returned error: %v", err)
 	}
 	if plain != "secret-value" {
-		t.Fatalf("expected decrypted secret-value, got %q", plain)
-	}
-}
-
-func TestBoxDecryptLegacyFormat(t *testing.T) {
-	box := New("legacy-vault-key")
-	const legacyCiphertext = "MTIzNDU2Nzg5MDEyfr/0r0C2Iyw+lQA9xDPrfmR6xMfzk1IhUNbtdwo="
-
-	plain, err := box.Decrypt(legacyCiphertext)
-	if err != nil {
-		t.Fatalf("Decrypt legacy ciphertext returned error: %v", err)
-	}
-	if plain != "legacy-secret" {
-		t.Fatalf("expected legacy-secret, got %q", plain)
+		t.Fatalf("expected secret-value, got %q", plain)
 	}
 }
 

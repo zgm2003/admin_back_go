@@ -130,7 +130,7 @@ func (canceledEngine) StreamChat(ctx context.Context, input platformai.ChatInput
 
 func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	t.Helper()
-	box := secretbox.New("vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("provider-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)

@@ -119,7 +119,7 @@ func (f *fakeTester) TestConnection(ctx context.Context, input platformai.TestCo
 
 func TestInitOnlyReturnsOpenAIDriver(t *testing.T) {
 	repo := &fakeRepository{}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	result, appErr := service.Init(context.Background())
 	if appErr != nil {
@@ -131,7 +131,7 @@ func TestInitOnlyReturnsOpenAIDriver(t *testing.T) {
 }
 
 func TestCreateRequiresAPIKeyAndModels(t *testing.T) {
-	service := NewService(&fakeRepository{}, secretbox.New("vault-key"), nil)
+	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", Status: 1})
 	if appErr == nil || !strings.Contains(appErr.Message, "API Key") {
@@ -145,7 +145,7 @@ func TestCreateRequiresAPIKeyAndModels(t *testing.T) {
 
 func TestCreatePersistsSelectedModels(t *testing.T) {
 	repo := &fakeRepository{}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	id, appErr := service.Create(context.Background(), CreateInput{
 		Name:              "OpenAI",
@@ -184,7 +184,7 @@ func TestCreatePersistsSelectedModels(t *testing.T) {
 
 func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	repo := &fakeRepository{}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr != nil {
@@ -218,7 +218,7 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 		total:            1,
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1}}},
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
 	if appErr != nil {
@@ -247,7 +247,7 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 
 func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
 	repo := &fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "Old", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-old", APIKeyHint: "***old", Status: 1}}}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	appErr := service.Update(context.Background(), 5, UpdateInput{Name: "New", EngineType: "openai", BaseURL: "", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr != nil {
@@ -265,7 +265,7 @@ func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
 }
 
 func TestCreateRejectsDuplicateTypeName(t *testing.T) {
-	service := NewService(&fakeRepository{exists: true}, secretbox.New("vault-key"), nil)
+	service := NewService(&fakeRepository{exists: true}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "该驱动下已存在同名供应商" {
@@ -274,7 +274,7 @@ func TestCreateRejectsDuplicateTypeName(t *testing.T) {
 }
 
 func TestPreviewStoredModelsUsesSavedEncryptedKey(t *testing.T) {
-	box := secretbox.New("vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("plain-secret-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
@@ -299,7 +299,7 @@ func TestPreviewStoredModelsUsesSavedEncryptedKey(t *testing.T) {
 }
 
 func TestTestConnectionDecryptsSecretAndUpdatesHealth(t *testing.T) {
-	box := secretbox.New("vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("plain-secret-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
@@ -322,7 +322,7 @@ func TestTestConnectionDecryptsSecretAndUpdatesHealth(t *testing.T) {
 }
 
 func TestTestConnectionRejectsDisabledConnection(t *testing.T) {
-	service := NewService(&fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", Status: 2}}}, secretbox.New("vault-key"), &fakeTester{})
+	service := NewService(&fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "", Status: 2}}}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeTester{})
 
 	_, appErr := service.TestConnection(context.Background(), 5)
 	if appErr == nil || appErr.Message != "AI供应商已禁用" {
@@ -331,7 +331,7 @@ func TestTestConnectionRejectsDisabledConnection(t *testing.T) {
 }
 
 func TestTestConnectionReportsHealthUpdateFailure(t *testing.T) {
-	box := secretbox.New("vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("plain-secret-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)

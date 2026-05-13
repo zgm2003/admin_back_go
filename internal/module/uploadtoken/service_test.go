@@ -40,7 +40,7 @@ func (f *fakeSigner) Sign(ctx context.Context, input storagecos.SignInput) (*sto
 }
 
 func TestCreateRejectsMissingEnabledSetting(t *testing.T) {
-	service := NewService(fakeRepository{}, secretbox.New("vault"), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), validInput())
 
@@ -50,7 +50,7 @@ func TestCreateRejectsMissingEnabledSetting(t *testing.T) {
 }
 
 func TestCreateRejectsNonCOSDriver(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverOSS)}, secretbox.New("vault"), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverOSS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), validInput())
 
@@ -60,7 +60,7 @@ func TestCreateRejectsNonCOSDriver(t *testing.T) {
 }
 
 func TestCreateRejectsUnsupportedFolder(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), CreateInput{Folder: "bad", FileName: "a.png", FileSize: 1, FileKind: FileKindImage})
 
@@ -70,7 +70,7 @@ func TestCreateRejectsUnsupportedFolder(t *testing.T) {
 }
 
 func TestCreateRejectsUnsupportedImageExtension(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), CreateInput{Folder: "images", FileName: "a.exe", FileSize: 1, FileKind: FileKindImage})
 
@@ -80,7 +80,7 @@ func TestCreateRejectsUnsupportedImageExtension(t *testing.T) {
 }
 
 func TestCreateRejectsOversizeFile(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), CreateInput{Folder: "images", FileName: "a.png", FileSize: 3 * 1024 * 1024, FileKind: FileKindImage})
 
@@ -91,7 +91,7 @@ func TestCreateRejectsOversizeFile(t *testing.T) {
 
 func TestCreateBuildsSafeKeyAndSignsCOS(t *testing.T) {
 	signer := &fakeSigner{}
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), signer, Options{
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), signer, Options{
 		TTL:         10 * time.Minute,
 		RandomBytes: 4,
 		Now:         func() time.Time { return time.Date(2026, 5, 5, 12, 30, 0, 0, time.Local) },
@@ -125,7 +125,7 @@ func TestCreateBuildsSafeKeyAndSignsCOS(t *testing.T) {
 
 func TestCreateAcceptsAIAgentAvatarFolder(t *testing.T) {
 	signer := &fakeSigner{}
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), signer, Options{
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), signer, Options{
 		Now:    func() time.Time { return time.Date(2026, 5, 9, 8, 0, 0, 0, time.UTC) },
 		Random: func(b []byte) (int, error) { copy(b, []byte{0x01, 0x02, 0x03, 0x04}); return len(b), nil },
 	})
@@ -140,7 +140,7 @@ func TestCreateAcceptsAIAgentAvatarFolder(t *testing.T) {
 }
 
 func TestCreateDoesNotExposeDriverSecrets(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	got, appErr := service.Create(context.Background(), validInput())
 
@@ -154,7 +154,7 @@ func TestCreateDoesNotExposeDriverSecrets(t *testing.T) {
 }
 
 func TestCreateReturnsExplicitDisabledError(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New("vault"), storagecos.DisabledSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), storagecos.DisabledSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), validInput())
 
@@ -169,7 +169,7 @@ func validInput() CreateInput {
 
 func validConfig(t *testing.T, driver string) *EnabledConfig {
 	t.Helper()
-	box := secretbox.New("vault")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	secretID, err := box.Encrypt("sid-plain")
 	if err != nil {
 		t.Fatalf("encrypt secret id: %v", err)

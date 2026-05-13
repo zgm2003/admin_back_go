@@ -66,7 +66,7 @@ func NewService(deps Dependencies) *Service {
 	}
 	box := deps.Secretbox
 	if box == nil {
-		box = secretbox.New("")
+		box = secretbox.New(nil)
 	}
 	resolver := deps.CertResolver
 	if resolver == nil {

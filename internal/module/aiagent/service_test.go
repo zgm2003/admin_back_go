@@ -117,7 +117,7 @@ func (f *fakeAIAgentTester) TestConnection(ctx context.Context, input platformai
 }
 
 func TestCreateRejectsMissingActiveProvider(t *testing.T) {
-	service := NewService(&fakeAIAgentRepository{}, secretbox.New("vault-key"), nil)
+	service := NewService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 99,
@@ -139,7 +139,7 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID:   1,
@@ -174,7 +174,7 @@ func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
 			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
@@ -207,7 +207,7 @@ func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
@@ -227,7 +227,7 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
@@ -265,7 +265,7 @@ func TestListDTOExcludesSecretsAndOverdesignedFields(t *testing.T) {
 		}},
 		total: 1,
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
 	if appErr != nil {
@@ -295,7 +295,7 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 		{ID: 2, Name: "禁用智能体", Status: enum.CommonNo, IsDel: enum.CommonNo},
 		{ID: 3, Name: "删除智能体", Status: enum.CommonYes, IsDel: enum.CommonYes},
 	}}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	got, appErr := service.Options(context.Background(), OptionQuery{UserID: 9})
 	if appErr != nil {
@@ -312,7 +312,7 @@ func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New("vault-key"), nil)
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "客服助手", ModelID: "gpt-4.1-mini", Scenes: []string{"chat"}, Status: enum.CommonYes})
 	if appErr != nil {
@@ -329,7 +329,7 @@ func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 }
 
 func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
-	box := secretbox.New("vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("plain-provider-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
@@ -356,7 +356,7 @@ func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 }
 
 func TestTestReturnsUpstreamError(t *testing.T) {
-	box := secretbox.New("vault-key")
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("plain-provider-key")
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)

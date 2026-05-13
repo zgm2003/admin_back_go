@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -17,16 +16,19 @@ const (
 )
 
 var (
-	ErrMissingKey        = errors.New("secretbox: VAULT_KEY is not configured")
+	ErrMissingKey        = errors.New("secretbox: key is not configured")
+	ErrInvalidKey        = errors.New("secretbox: key must be 32 bytes")
 	ErrInvalidCiphertext = errors.New("secretbox: invalid ciphertext")
 )
 
 type Box struct {
-	key string
+	key []byte
 }
 
-func New(key string) Box {
-	return Box{key: key}
+func New(key []byte) Box {
+	cloned := make([]byte, len(key))
+	copy(cloned, key)
+	return Box{key: cloned}
 }
 
 func (b Box) Encrypt(plain string) (string, error) {
@@ -101,12 +103,13 @@ func Hint(plain string) string {
 }
 
 func (b Box) aead() (cipher.AEAD, error) {
-	if b.key == "" {
+	if len(b.key) == 0 {
 		return nil, ErrMissingKey
 	}
-
-	sum := sha256.Sum256([]byte(b.key))
-	block, err := aes.NewCipher(sum[:])
+	if len(b.key) != 32 {
+		return nil, ErrInvalidKey
+	}
+	block, err := aes.NewCipher(b.key)
 	if err != nil {
 		return nil, fmt.Errorf("secretbox: create aes cipher: %w", err)
 	}
