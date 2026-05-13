@@ -1156,14 +1156,30 @@ function Assert-AIToolList($Response) {
 
 function Assert-AIConversationList($Response) {
   Assert-ApiOK $Response 'AI conversation list'
+  Assert-NoAISecretFields $Response 'AI conversation list'
 
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI conversation list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  if ($null -eq $Response.data.list -or -not (Test-HasProperty $Response.data 'next_id') -or -not (Test-HasProperty $Response.data 'has_more')) {
+    throw "AI conversation list missing cursor list fields: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    $allowedFields = @('id', 'agent_id', 'agent_name', 'title', 'last_message_at', 'updated_at')
+    foreach ($fieldName in @($item.PSObject.Properties.Name)) {
+      if (-not ($allowedFields -contains $fieldName)) {
+        throw "AI conversation item leaked unexpected field ${fieldName}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    foreach ($requiredField in @('id', 'agent_id', 'agent_name', 'title', 'updated_at')) {
+      if (-not (Test-HasProperty $item $requiredField)) {
+        throw "AI conversation item missing ${requiredField}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
   }
 
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
+    NextID = [int64]$Response.data.next_id
+    HasMore = [bool]$Response.data.has_more
   }
 }
 
@@ -2453,7 +2469,7 @@ func main() {
     $aiAgentKnowledgeBindingSummary = Assert-AIAgentKnowledgeBinding $aiAgentKnowledgeBinding
   }
 
-  $aiConversationList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-conversations?current_page=1&page_size=5" `
+  $aiConversationList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-conversations?limit=5" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $aiConversationListSummary = Assert-AIConversationList $aiConversationList
@@ -2762,7 +2778,8 @@ func main() {
     ai_agent_knowledge_base_option_count = $aiAgentKnowledgeBindingSummary.BaseOptionCount
     ai_conversation_list_code = $aiConversationList.code
     ai_conversation_list_count = $aiConversationListSummary.ListCount
-    ai_conversation_total = $aiConversationListSummary.Total
+    ai_conversation_next_id = $aiConversationListSummary.NextID
+    ai_conversation_has_more = $aiConversationListSummary.HasMore
     ai_run_init_code = $aiRunInit.code
     ai_run_status_option_count = $aiRunInitSummary.StatusCount
     ai_run_list_code = $aiRunList.code
