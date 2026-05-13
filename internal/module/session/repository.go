@@ -14,11 +14,13 @@ const commonNo = 2
 
 type Repository interface {
 	FindValidByAccessHash(ctx context.Context, accessHash string, now time.Time) (*Session, error)
+	FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error)
 	FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error)
 	FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error)
 	Create(ctx context.Context, input SessionCreate) (int64, error)
 	ListActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) ([]Session, error)
 	RevokeByUserPlatform(ctx context.Context, userID int64, platform string, revokedAt time.Time) error
+	UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error
 	Rotate(ctx context.Context, sessionID int64, rotation Rotation) error
 	Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error
 }
@@ -134,6 +136,27 @@ func (r *GormRepository) FindValidByAccessHash(ctx context.Context, accessHash s
 	return &session, nil
 }
 
+func (r *GormRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+
+	var session Session
+	err := r.db.WithContext(ctx).
+		Where("id = ?", sessionID).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", commonNo).
+		Where("expires_at > ?", now).
+		First(&session).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
 func (r *GormRepository) FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
@@ -194,6 +217,20 @@ func (r *GormRepository) Rotate(ctx context.Context, sessionID int64, rotation R
 			"last_seen_at":       rotation.LastSeenAt,
 			"ip":                 rotation.IP,
 			"ua":                 rotation.UserAgent,
+		}).Error
+}
+
+func (r *GormRepository) UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+
+	return r.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ?", sessionID).
+		Updates(map[string]any{
+			"access_token_hash": accessHash,
+			"expires_at":        expiresAt,
 		}).Error
 }
 

@@ -27,8 +27,8 @@ func (s *RevocationService) RevokeCache(ctx context.Context, row Session) error 
 		return ErrCacheNotConfigured
 	}
 
-	if strings.TrimSpace(row.AccessTokenHash) != "" {
-		if err := s.cache.Del(ctx, s.cacheKey(row.AccessTokenHash)); err != nil {
+	if row.ID > 0 {
+		if err := s.cache.Del(ctx, s.sessionCacheKey(row.ID)); err != nil {
 			return err
 		}
 	}
@@ -59,8 +59,8 @@ func (s *RevocationService) RevokeCaches(ctx context.Context, rows []Session) er
 	return nil
 }
 
-func (s *RevocationService) cacheKey(tokenHash string) string {
-	return s.cfg.RedisPrefix + strings.TrimSpace(tokenHash)
+func (s *RevocationService) sessionCacheKey(sessionID int64) string {
+	return s.cfg.RedisPrefix + "session:" + strconv.FormatInt(sessionID, 10)
 }
 
 func (s *RevocationService) singleSessionPointerKey(platform string, userID int64) string {

@@ -224,7 +224,7 @@ func TestRevokeMarksSessionAndRevokesCache(t *testing.T) {
 	if len(repo.markedIDs) != 1 || repo.markedIDs[0] != 77 || !repo.markedAt.Equal(now) {
 		t.Fatalf("mark revoked mismatch: ids=%#v at=%s", repo.markedIDs, repo.markedAt)
 	}
-	if revoker.calls != 1 || len(revoker.rows) != 1 || revoker.rows[0].AccessTokenHash != "hash-77" || revoker.rows[0].Platform != "admin" || revoker.rows[0].UserID != 44 {
+	if revoker.calls != 1 || len(revoker.rows) != 1 || revoker.rows[0].ID != 77 || revoker.rows[0].Platform != "admin" || revoker.rows[0].UserID != 44 {
 		t.Fatalf("cache revoker mismatch: calls=%d rows=%#v", revoker.calls, revoker.rows)
 	}
 }

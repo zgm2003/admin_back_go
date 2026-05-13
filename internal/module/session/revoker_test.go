@@ -29,7 +29,7 @@ func (f *fakeRevocationCache) Del(ctx context.Context, key string) error {
 	return nil
 }
 
-func TestRevocationServiceDeletesAccessTokenAndMatchingPointer(t *testing.T) {
+func TestRevocationServiceDeletesSessionCacheAndMatchingPointer(t *testing.T) {
 	cache := &fakeRevocationCache{values: map[string]string{"token:cur_sess:admin:44": "99"}}
 	service := NewRevocationService(cache, RevocationConfig{RedisPrefix: "token:"})
 
@@ -38,8 +38,8 @@ func TestRevocationServiceDeletesAccessTokenAndMatchingPointer(t *testing.T) {
 		t.Fatalf("RevokeCache returned error: %v", err)
 	}
 
-	if !revocationContains(cache.deletedKeys, "token:access-hash") {
-		t.Fatalf("access cache was not deleted: %#v", cache.deletedKeys)
+	if !revocationContains(cache.deletedKeys, "token:session:99") {
+		t.Fatalf("session cache was not deleted: %#v", cache.deletedKeys)
 	}
 	if !revocationContains(cache.deletedKeys, "token:cur_sess:admin:44") {
 		t.Fatalf("matching pointer was not deleted: %#v", cache.deletedKeys)
@@ -55,8 +55,8 @@ func TestRevocationServiceKeepsNonMatchingPointer(t *testing.T) {
 		t.Fatalf("RevokeCache returned error: %v", err)
 	}
 
-	if !revocationContains(cache.deletedKeys, "token:access-hash") {
-		t.Fatalf("access cache was not deleted: %#v", cache.deletedKeys)
+	if !revocationContains(cache.deletedKeys, "token:session:99") {
+		t.Fatalf("session cache was not deleted: %#v", cache.deletedKeys)
 	}
 	if revocationContains(cache.deletedKeys, "token:cur_sess:admin:44") {
 		t.Fatalf("non-matching pointer must not be deleted: %#v", cache.deletedKeys)

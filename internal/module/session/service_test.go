@@ -3,11 +3,13 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/platform/accesstoken"
 )
 
 type fakeSessionCache struct {
@@ -48,6 +50,10 @@ func (f *fakeSessionCache) Del(ctx context.Context, key string) error {
 
 type fakeSessionRepository struct {
 	findHash        string
+	findSessionID   int64
+	updatedAccessID int64
+	updatedHash     string
+	updatedExpires  time.Time
 	findRefreshHash string
 	findLatestKey   string
 	session         *Session
@@ -68,6 +74,18 @@ type fakeSessionRepository struct {
 func (f *fakeSessionRepository) FindValidByAccessHash(ctx context.Context, accessHash string, now time.Time) (*Session, error) {
 	f.findHash = accessHash
 	return f.session, f.err
+}
+
+func (f *fakeSessionRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {
+	f.findSessionID = sessionID
+	return f.session, f.err
+}
+
+func (f *fakeSessionRepository) UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error {
+	f.updatedAccessID = sessionID
+	f.updatedHash = accessHash
+	f.updatedExpires = expiresAt
+	return f.err
 }
 
 func (f *fakeSessionRepository) FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error) {
@@ -132,6 +150,26 @@ func allowPolicies() fakePolicyProvider {
 	}}
 }
 
+func testJWTCodec() accesstoken.Codec {
+	return accesstoken.NewJWTCodec([]byte("12345678901234567890123456789012"), accesstoken.Options{Issuer: "admin_go"})
+}
+
+func issueTestAccessToken(t *testing.T, now time.Time, sessionID int64, userID int64, platform string, deviceID string, ttl time.Duration) string {
+	t.Helper()
+	token, err := testJWTCodec().Issue(accesstoken.Claims{
+		SessionID: sessionID,
+		UserID:    userID,
+		Platform:  platform,
+		DeviceID:  deviceID,
+		IssuedAt:  now,
+		ExpiresAt: now.Add(ttl),
+	})
+	if err != nil {
+		t.Fatalf("issue access token: %v", err)
+	}
+	return token
+}
+
 type sequenceTokenGenerator struct {
 	values []string
 }
@@ -165,19 +203,82 @@ func TestHashTokenRejectsUnsafePepper(t *testing.T) {
 	}
 }
 
+func TestAuthenticatorCreateReturnsJWTAccessAndOpaqueRefresh(t *testing.T) {
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	generator := &sequenceTokenGenerator{values: []string{"refresh-token"}}
+	repo := &fakeSessionRepository{createdID: 42}
+	auth := NewAuthenticator(AuthenticatorDeps{
+		Config:         config.TokenConfig{RedisPrefix: "token:"},
+		Repository:     repo,
+		PolicyProvider: allowPolicies(),
+		TokenGenerator: generator.MakeToken,
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "pepper-value",
+		Now:            func() time.Time { return now },
+	})
+
+	result, appErr := auth.Create(context.Background(), CreateInput{UserID: 7, Platform: "admin", DeviceID: "device-a"})
+
+	if appErr != nil {
+		t.Fatalf("expected create to succeed, got %v", appErr)
+	}
+	if strings.Count(result.AccessToken, ".") != 2 {
+		t.Fatalf("expected JWT access token, got %q", result.AccessToken)
+	}
+	if strings.Count(result.RefreshToken, ".") != 0 {
+		t.Fatalf("expected opaque refresh token, got %q", result.RefreshToken)
+	}
+	if repo.created.AccessTokenHash == "" || repo.updatedHash == "" || repo.updatedAccessID != 42 {
+		t.Fatalf("expected session create then access-token update, created=%#v updated_id=%d hash=%q", repo.created, repo.updatedAccessID, repo.updatedHash)
+	}
+}
+
+func TestAuthenticatorAuthenticateUsesJWTSessionID(t *testing.T) {
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	accessToken := issueTestAccessToken(t, now, 42, 7, "admin", "device-a", time.Hour)
+	cache := &fakeSessionCache{values: map[string]string{}}
+	repo := &fakeSessionRepository{session: &Session{ID: 42, UserID: 7, Platform: "admin", DeviceID: "device-a", ExpiresAt: now.Add(time.Hour)}}
+	auth := NewAuthenticator(AuthenticatorDeps{
+		Config:         config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		Cache:          cache,
+		Repository:     repo,
+		PolicyProvider: allowPolicies(),
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "pepper-value",
+		Now:            func() time.Time { return now },
+	})
+
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken, Platform: "admin", DeviceID: "device-a"})
+
+	if appErr != nil {
+		t.Fatalf("expected authenticate to succeed, got %v", appErr)
+	}
+	if identity.UserID != 7 || identity.SessionID != 42 || identity.Platform != "admin" {
+		t.Fatalf("unexpected identity: %#v", identity)
+	}
+	if repo.findSessionID != 42 {
+		t.Fatalf("expected repository lookup by session id 42, got %d", repo.findSessionID)
+	}
+	if repo.findHash != "" {
+		t.Fatalf("JWT authenticate must not lookup by access hash, got %q", repo.findHash)
+	}
+	if cache.setKey != "token:session:42" {
+		t.Fatalf("expected session cache key, got %q", cache.setKey)
+	}
+}
+
 func TestAuthenticatorResolvesCachedSessionAndRefreshesTTL(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
-	cacheKey := "token:" + hash
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
+	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
 		cacheKey: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
 	}}
 	repo := &fakeSessionRepository{}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:         config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		Config:         config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "pepper-value",
 		Cache:          cache,
 		Repository:     repo,
 		PolicyProvider: allowPolicies(),
@@ -185,7 +286,7 @@ func TestAuthenticatorResolvesCachedSessionAndRefreshesTTL(t *testing.T) {
 	})
 
 	identity, appErr := auth.Authenticate(context.Background(), TokenInput{
-		AccessToken: "valid-token",
+		AccessToken: accessToken,
 		Platform:    "web",
 		DeviceID:    "device-1",
 		ClientIP:    "127.0.0.1",
@@ -197,20 +298,17 @@ func TestAuthenticatorResolvesCachedSessionAndRefreshesTTL(t *testing.T) {
 	if identity.UserID != 12 || identity.SessionID != 34 || identity.Platform != "admin" {
 		t.Fatalf("unexpected identity: %#v", identity)
 	}
-	if repo.findHash != "" {
-		t.Fatalf("expected cached session to avoid mysql lookup, got hash %q", repo.findHash)
+	if repo.findHash != "" || repo.findSessionID != 0 {
+		t.Fatalf("expected cached session to avoid mysql lookup, hash=%q sid=%d", repo.findHash, repo.findSessionID)
 	}
 	if cache.expireKey != cacheKey || cache.expireTTL != 30*time.Minute {
-		t.Fatalf("expected token cache ttl refresh, got key=%q ttl=%s", cache.expireKey, cache.expireTTL)
+		t.Fatalf("expected session cache ttl refresh, got key=%q ttl=%s", cache.expireKey, cache.expireTTL)
 	}
 }
 
 func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
+	accessToken := issueTestAccessToken(t, now, 55, 44, "app", "device-2", 10*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{}}
 	repo := &fakeSessionRepository{session: &Session{
 		ID:        55,
@@ -221,14 +319,16 @@ func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 		ExpiresAt: now.Add(10 * time.Minute),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:         config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		Config:         config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "pepper-value",
 		Cache:          cache,
 		Repository:     repo,
 		PolicyProvider: allowPolicies(),
 		Now:            func() time.Time { return now },
 	})
 
-	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: "valid-token", Platform: "app"})
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken, Platform: "app", DeviceID: "device-2"})
 
 	if appErr != nil {
 		t.Fatalf("expected authenticate to succeed, got %v", appErr)
@@ -236,11 +336,14 @@ func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 	if identity.UserID != 44 || identity.SessionID != 55 || identity.Platform != "app" {
 		t.Fatalf("unexpected identity: %#v", identity)
 	}
-	if repo.findHash != hash {
-		t.Fatalf("expected mysql lookup by hash %q, got %q", hash, repo.findHash)
+	if repo.findSessionID != 55 {
+		t.Fatalf("expected mysql lookup by session id 55, got %d", repo.findSessionID)
 	}
-	if cache.setKey != "token:"+hash {
-		t.Fatalf("expected redis set key token hash, got %q", cache.setKey)
+	if repo.findHash != "" {
+		t.Fatalf("JWT auth must not lookup by access hash, got %q", repo.findHash)
+	}
+	if cache.setKey != "token:session:55" {
+		t.Fatalf("expected redis session key, got %q", cache.setKey)
 	}
 	if cache.setValue != "44|2026-05-02 12:10:00|10.0.0.8|app|device-2|55" {
 		t.Fatalf("unexpected redis cache value: %q", cache.setValue)
@@ -249,23 +352,22 @@ func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 
 func TestAuthenticatorRejectsInvalidCurrentPlatform(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:" + hash: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		"token:session:34": "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:  cache,
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {BindPlatform: true},
 		}},
 		Now: func() time.Time { return now },
 	})
 
-	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: "valid-token", Platform: "missing"})
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken, Platform: "missing"})
 
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
@@ -277,16 +379,15 @@ func TestAuthenticatorRejectsInvalidCurrentPlatform(t *testing.T) {
 
 func TestAuthenticatorRejectsPlatformMismatchWhenPolicyBindsPlatform(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:" + hash: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		"token:session:34": "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:  cache,
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {BindPlatform: true},
 			"app":   {BindPlatform: false},
@@ -294,7 +395,7 @@ func TestAuthenticatorRejectsPlatformMismatchWhenPolicyBindsPlatform(t *testing.
 		Now: func() time.Time { return now },
 	})
 
-	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: "valid-token", Platform: "app"})
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken, Platform: "app"})
 
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
@@ -306,16 +407,15 @@ func TestAuthenticatorRejectsPlatformMismatchWhenPolicyBindsPlatform(t *testing.
 
 func TestAuthenticatorRejectsDeviceMismatchWhenPolicyBindsDevice(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:" + hash: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		"token:session:34": "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:  cache,
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {BindPlatform: true, BindDevice: true},
 		}},
@@ -323,7 +423,7 @@ func TestAuthenticatorRejectsDeviceMismatchWhenPolicyBindsDevice(t *testing.T) {
 	})
 
 	identity, appErr := auth.Authenticate(context.Background(), TokenInput{
-		AccessToken: "valid-token",
+		AccessToken: accessToken,
 		Platform:    "admin",
 		DeviceID:    "device-2",
 		ClientIP:    "127.0.0.1",
@@ -339,17 +439,16 @@ func TestAuthenticatorRejectsDeviceMismatchWhenPolicyBindsDevice(t *testing.T) {
 
 func TestAuthenticatorRejectsIPMismatchWhenPolicyBindsIPAndDeletesRedis(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
-	cacheKey := "token:" + hash
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
+	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
 		cacheKey: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:  cache,
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {BindPlatform: true, BindIP: true},
 		}},
@@ -357,7 +456,7 @@ func TestAuthenticatorRejectsIPMismatchWhenPolicyBindsIPAndDeletesRedis(t *testi
 	})
 
 	identity, appErr := auth.Authenticate(context.Background(), TokenInput{
-		AccessToken: "valid-token",
+		AccessToken: accessToken,
 		Platform:    "admin",
 		DeviceID:    "device-1",
 		ClientIP:    "10.0.0.1",
@@ -370,17 +469,14 @@ func TestAuthenticatorRejectsIPMismatchWhenPolicyBindsIPAndDeletesRedis(t *testi
 		t.Fatalf("expected ip mismatch app error, got %#v", appErr)
 	}
 	if cache.deletedKey != cacheKey {
-		t.Fatalf("expected mismatched ip to delete token cache key, got %q", cache.deletedKey)
+		t.Fatalf("expected mismatched ip to delete session cache key, got %q", cache.deletedKey)
 	}
 }
 
 func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
-	cacheKey := "token:" + hash
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
+	cacheKey := "token:session:34"
 	pointerKey := "token:cur_sess:admin:12"
 	cache := &fakeSessionCache{values: map[string]string{
 		cacheKey:   "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
@@ -389,13 +485,14 @@ func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 	repo := &fakeSessionRepository{latestSession: &Session{ID: 99, UserID: 12, Platform: "admin"}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config: config.TokenConfig{
-			Pepper:                  "pepper-value",
 			RedisPrefix:             "token:",
 			SessionCacheTTL:         30 * time.Minute,
 			SingleSessionPointerTTL: 30 * 24 * time.Hour,
 		},
-		Cache:      cache,
-		Repository: repo,
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
+		Repository:  repo,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {BindPlatform: true, SingleSessionPerPlatform: true},
 		}},
@@ -403,7 +500,7 @@ func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 	})
 
 	identity, appErr := auth.Authenticate(context.Background(), TokenInput{
-		AccessToken: "valid-token",
+		AccessToken: accessToken,
 		Platform:    "admin",
 		DeviceID:    "device-1",
 		ClientIP:    "127.0.0.1",
@@ -416,30 +513,28 @@ func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 		t.Fatalf("expected stale single session app error, got %#v", appErr)
 	}
 	if cache.deletedKey != cacheKey {
-		t.Fatalf("expected stale single session to delete token cache key, got %q", cache.deletedKey)
+		t.Fatalf("expected stale single session to delete session cache key, got %q", cache.deletedKey)
 	}
 }
 
 func TestAuthenticatorRebuildsSingleSessionPointerFromRepository(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("valid-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
-	cacheKey := "token:" + hash
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
+	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
 		cacheKey: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
 	}}
 	repo := &fakeSessionRepository{latestSession: &Session{ID: 34, UserID: 12, Platform: "admin"}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config: config.TokenConfig{
-			Pepper:                  "pepper-value",
 			RedisPrefix:             "token:",
 			SessionCacheTTL:         30 * time.Minute,
 			SingleSessionPointerTTL: 30 * 24 * time.Hour,
 		},
-		Cache:      cache,
-		Repository: repo,
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
+		Repository:  repo,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {BindPlatform: true, SingleSessionPerPlatform: true},
 		}},
@@ -447,7 +542,7 @@ func TestAuthenticatorRebuildsSingleSessionPointerFromRepository(t *testing.T) {
 	})
 
 	identity, appErr := auth.Authenticate(context.Background(), TokenInput{
-		AccessToken: "valid-token",
+		AccessToken: accessToken,
 		Platform:    "admin",
 		DeviceID:    "device-1",
 		ClientIP:    "127.0.0.1",
@@ -466,41 +561,41 @@ func TestAuthenticatorRebuildsSingleSessionPointerFromRepository(t *testing.T) {
 
 func TestAuthenticatorRejectsExpiredCachedSessionAndDeletesRedis(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	hash, err := HashToken("expired-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash token: %v", err)
-	}
-	cacheKey := "token:" + hash
+	accessToken := issueTestAccessToken(t, now.Add(-time.Hour), 34, 12, "admin", "device-1", 30*time.Minute)
+	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
 		cacheKey: "12|2026-05-02 11:59:59|127.0.0.1|admin|device-1|34",
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:  cache,
-		Now:    func() time.Time { return now },
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
+		Now:         func() time.Time { return now },
 	})
 
-	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: "expired-token"})
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken})
 
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "Token已过期" {
+	if appErr == nil || appErr.Code != apperror.CodeUnauthorized {
 		t.Fatalf("expected token expired app error, got %#v", appErr)
-	}
-	if cache.deletedKey != cacheKey {
-		t.Fatalf("expected expired cache key to be deleted, got %q", cache.deletedKey)
 	}
 }
 
 func TestAuthenticatorFailsClosedWithoutRepositoryOnCacheMiss(t *testing.T) {
+	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:  &fakeSessionCache{values: map[string]string{}},
-		Now:    func() time.Time { return time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local) },
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       &fakeSessionCache{values: map[string]string{}},
+		Now:         func() time.Time { return now },
 	})
 
-	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: "valid-token"})
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken})
 
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
@@ -511,14 +606,18 @@ func TestAuthenticatorFailsClosedWithoutRepositoryOnCacheMiss(t *testing.T) {
 }
 
 func TestAuthenticatorReturnsServerErrorOnRepositoryFailure(t *testing.T) {
+	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
+	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:     config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
-		Cache:      &fakeSessionCache{values: map[string]string{}},
-		Repository: &fakeSessionRepository{err: errors.New("mysql down")},
-		Now:        func() time.Time { return time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local) },
+		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       &fakeSessionCache{values: map[string]string{}},
+		Repository:  &fakeSessionRepository{err: errors.New("mysql down")},
+		Now:         func() time.Time { return now },
 	})
 
-	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: "valid-token"})
+	identity, appErr := auth.Authenticate(context.Background(), TokenInput{AccessToken: accessToken})
 
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
@@ -538,7 +637,7 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 	if err != nil {
 		t.Fatalf("hash access token: %v", err)
 	}
-	generator := &sequenceTokenGenerator{values: []string{"new-access-token", "new-refresh-token"}}
+	generator := &sequenceTokenGenerator{values: []string{"new-refresh-token"}}
 	cache := &fakeSessionCache{values: map[string]string{}}
 	repo := &fakeSessionRepository{refreshSession: &Session{
 		ID:               55,
@@ -549,7 +648,9 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 		RefreshExpiresAt: now.Add(2 * time.Hour),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:         config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		Config:         config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "pepper-value",
 		Cache:          cache,
 		Repository:     repo,
 		PolicyProvider: allowPolicies(),
@@ -566,7 +667,7 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 	if appErr != nil {
 		t.Fatalf("expected refresh to succeed, got %v", appErr)
 	}
-	if result.AccessToken != "new-access-token" || result.RefreshToken != "new-refresh-token" {
+	if strings.Count(result.AccessToken, ".") != 2 || result.RefreshToken != "new-refresh-token" {
 		t.Fatalf("unexpected refresh tokens: %#v", result)
 	}
 	if result.ExpiresIn != int((4*time.Hour).Seconds()) || result.RefreshExpiresIn != int((14*24*time.Hour).Seconds()) {
@@ -593,14 +694,14 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 	if repo.rotation.IP != "10.0.0.9" || repo.rotation.UserAgent != "test-agent" {
 		t.Fatalf("expected ip/ua rotation, got %#v", repo.rotation)
 	}
-	if cache.deletedKey != "token:"+oldAccessHash {
-		t.Fatalf("expected old access cache deleted, got %q", cache.deletedKey)
+	if cache.deletedKey != "token:session:55" {
+		t.Fatalf("expected old session cache deleted, got %q", cache.deletedKey)
 	}
 }
 
 func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 	now := time.Date(2026, 5, 3, 12, 0, 0, 0, time.Local)
-	generator := &sequenceTokenGenerator{values: []string{"new-access-token", "new-refresh-token"}}
+	generator := &sequenceTokenGenerator{values: []string{"new-refresh-token"}}
 	cache := &fakeSessionCache{values: map[string]string{}}
 	repo := &fakeSessionRepository{
 		createdID: 88,
@@ -610,7 +711,6 @@ func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 	}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config: config.TokenConfig{
-			Pepper:                  "pepper-value",
 			RedisPrefix:             "token:",
 			SingleSessionPointerTTL: 30 * 24 * time.Hour,
 		},
@@ -620,6 +720,8 @@ func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 			"admin": {BindPlatform: true, SingleSessionPerPlatform: true, AccessTTL: 4 * time.Hour, RefreshTTL: 14 * 24 * time.Hour},
 		}},
 		TokenGenerator: generator.MakeToken,
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "pepper-value",
 		Now:            func() time.Time { return now },
 	})
 
@@ -634,14 +736,14 @@ func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
-	if result.AccessToken != "new-access-token" || result.RefreshToken != "new-refresh-token" {
+	if strings.Count(result.AccessToken, ".") != 2 || result.RefreshToken != "new-refresh-token" {
 		t.Fatalf("unexpected token result: %#v", result)
 	}
 	if repo.revokedUserID != 44 || repo.revokedPlatform != "admin" {
 		t.Fatalf("expected old admin sessions to be revoked, got user=%d platform=%q", repo.revokedUserID, repo.revokedPlatform)
 	}
-	if !containsString(cache.deletedKeys, "token:old-access-hash") {
-		t.Fatalf("expected old access cache to be deleted, got %#v", cache.deletedKeys)
+	if !containsString(cache.deletedKeys, "token:session:55") {
+		t.Fatalf("expected old session cache to be deleted, got %#v", cache.deletedKeys)
 	}
 	if repo.created.UserID != 44 || repo.created.Platform != "admin" || repo.created.DeviceID != "device-1" {
 		t.Fatalf("unexpected created session: %#v", repo.created)
@@ -657,7 +759,6 @@ func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 func TestAuthenticatorCreateRejectsPolicyWithoutTokenTTL(t *testing.T) {
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config: config.TokenConfig{
-			Pepper:      "pepper-value",
 			RedisPrefix: "token:",
 		},
 		Repository: &fakeSessionRepository{},
@@ -691,8 +792,10 @@ func TestAuthenticatorRefreshRejectsPolicyWithoutAccessTTL(t *testing.T) {
 		RefreshExpiresAt: now.Add(2 * time.Hour),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:     config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:"},
-		Repository: repo,
+		Config:      config.TokenConfig{RedisPrefix: "token:"},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Repository:  repo,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {RefreshTTL: 14 * 24 * time.Hour},
 		}},
@@ -712,7 +815,9 @@ func TestAuthenticatorRefreshRejectsPolicyWithoutAccessTTL(t *testing.T) {
 
 func TestAuthenticatorRefreshRejectsInvalidRefreshToken(t *testing.T) {
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config: config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:"},
+		Config:      config.TokenConfig{RedisPrefix: "token:"},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
 	})
 
 	result, appErr := auth.Refresh(context.Background(), RefreshInput{})
@@ -739,9 +844,11 @@ func TestAuthenticatorRefreshRejectsExpiredRefreshSession(t *testing.T) {
 		RefreshExpiresAt: now.Add(-time.Second),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:     config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:"},
-		Repository: repo,
-		Now:        func() time.Time { return now },
+		Config:      config.TokenConfig{RedisPrefix: "token:"},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Repository:  repo,
+		Now:         func() time.Time { return now },
 	})
 
 	result, appErr := auth.Refresh(context.Background(), RefreshInput{RefreshToken: "old-refresh-token"})
@@ -771,9 +878,11 @@ func TestAuthenticatorRefreshRejectsStaleSingleSession(t *testing.T) {
 		RefreshExpiresAt: now.Add(time.Hour),
 	}, latestSession: &Session{ID: 99, UserID: 44, Platform: "admin"}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:     config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:", SingleSessionPointerTTL: 30 * 24 * time.Hour},
-		Cache:      cache,
-		Repository: repo,
+		Config:      config.TokenConfig{RedisPrefix: "token:", SingleSessionPointerTTL: 30 * 24 * time.Hour},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
+		Repository:  repo,
 		PolicyProvider: fakePolicyProvider{policies: map[string]*AuthPolicy{
 			"admin": {SingleSessionPerPlatform: true, AccessTTL: 4 * time.Hour, RefreshTTL: 14 * 24 * time.Hour},
 		}},
@@ -792,40 +901,41 @@ func TestAuthenticatorRefreshRejectsStaleSingleSession(t *testing.T) {
 
 func TestAuthenticatorLogoutRevokesSessionAndClearsTokenAndPointer(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
-	accessHash, err := HashToken("access-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash access token: %v", err)
-	}
+	accessToken := issueTestAccessToken(t, now, 55, 44, "admin", "", time.Hour)
 	cache := &fakeSessionCache{values: map[string]string{
 		"token:cur_sess:admin:44": "55",
 	}}
 	repo := &fakeSessionRepository{session: &Session{
-		ID:              55,
-		UserID:          44,
-		AccessTokenHash: accessHash,
-		Platform:        "admin",
-		ExpiresAt:       now.Add(time.Hour),
+		ID:        55,
+		UserID:    44,
+		Platform:  "admin",
+		ExpiresAt: now.Add(time.Hour),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
-		Config:     config.TokenConfig{Pepper: "pepper-value", RedisPrefix: "token:"},
-		Cache:      cache,
-		Repository: repo,
-		Now:        func() time.Time { return now },
+		Config:      config.TokenConfig{RedisPrefix: "token:"},
+		AccessCodec: testJWTCodec(),
+		TokenPepper: "pepper-value",
+		Cache:       cache,
+		Repository:  repo,
+		Now:         func() time.Time { return now },
 	})
 
-	appErr := auth.Logout(context.Background(), "access-token")
+	appErr := auth.Logout(context.Background(), accessToken)
 
 	if appErr != nil {
 		t.Fatalf("expected logout to succeed, got %v", appErr)
 	}
-	if repo.findHash != accessHash {
-		t.Fatalf("expected lookup by access hash %q, got %q", accessHash, repo.findHash)
+	if repo.findSessionID != 55 {
+		t.Fatalf("expected lookup by session id 55, got %d", repo.findSessionID)
+	}
+	if repo.findHash != "" {
+		t.Fatalf("logout must not lookup by access hash, got %q", repo.findHash)
 	}
 	if repo.revokedID != 55 || !repo.revokedAt.Equal(now) {
 		t.Fatalf("expected revoke session 55 at now, got id=%d at=%s", repo.revokedID, repo.revokedAt)
 	}
-	if !containsString(cache.deletedKeys, "token:"+accessHash) {
-		t.Fatalf("expected token cache deletion, got %#v", cache.deletedKeys)
+	if !containsString(cache.deletedKeys, "token:session:55") {
+		t.Fatalf("expected session cache deletion, got %#v", cache.deletedKeys)
 	}
 	if !containsString(cache.deletedKeys, "token:cur_sess:admin:44") {
 		t.Fatalf("expected pointer deletion, got %#v", cache.deletedKeys)

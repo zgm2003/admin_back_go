@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/platform/accesstoken"
 )
 
 var (
@@ -51,6 +53,8 @@ type AuthenticatorDeps struct {
 	Cache          Cache
 	Repository     Repository
 	PolicyProvider PolicyProvider
+	AccessCodec    accesstoken.Codec
+	TokenPepper    string
 	TokenGenerator TokenGenerator
 	Now            func() time.Time
 }
@@ -60,6 +64,8 @@ type Authenticator struct {
 	cache          Cache
 	repository     Repository
 	policyProvider PolicyProvider
+	accessCodec    accesstoken.Codec
+	tokenPepper    string
 	tokenGenerator TokenGenerator
 	now            func() time.Time
 	loc            *time.Location
@@ -109,7 +115,7 @@ func (a *Authenticator) Create(ctx context.Context, input CreateInput) (*TokenRe
 	}
 
 	now := a.now()
-	tokens, tokenErr := a.generateTokenPair(policy, now)
+	refreshToken, refreshHash, refreshExpiresAt, tokenErr := a.issueRefreshToken(policy, now)
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
@@ -120,26 +126,34 @@ func (a *Authenticator) Create(ctx context.Context, input CreateInput) (*TokenRe
 
 	sessionID, err := a.repository.Create(ctx, SessionCreate{
 		UserID:           input.UserID,
-		AccessTokenHash:  tokens.AccessTokenHash,
-		RefreshTokenHash: tokens.RefreshTokenHash,
+		AccessTokenHash:  temporaryAccessTokenHash(sessionIDPlaceholder(input.UserID, input.Platform, now)),
+		RefreshTokenHash: refreshHash,
 		Platform:         input.Platform,
 		DeviceID:         input.DeviceID,
 		IP:               input.ClientIP,
 		UserAgent:        input.UserAgent,
 		LastSeenAt:       now,
-		ExpiresAt:        tokens.AccessExpiresAt,
-		RefreshExpiresAt: tokens.RefreshExpiresAt,
+		ExpiresAt:        now.Add(policy.AccessTTL),
+		RefreshExpiresAt: refreshExpiresAt,
 	})
 	if err != nil {
 		return nil, apperror.Internal("创建登录会话失败")
 	}
 
+	accessToken, accessHash, accessExpiresAt, accessErr := a.issueAccessToken(sessionID, input.UserID, input.Platform, input.DeviceID, policy, now)
+	if accessErr != nil {
+		return nil, accessErr
+	}
+	if err := a.repository.UpdateAccessToken(ctx, sessionID, accessHash, accessExpiresAt); err != nil {
+		return nil, apperror.Internal("更新登录会话失败")
+	}
+
 	a.updateSingleSessionPointer(ctx, &Session{ID: sessionID, UserID: input.UserID, Platform: input.Platform})
 	return &TokenResult{
-		AccessToken:      tokens.AccessToken,
-		RefreshToken:     tokens.RefreshToken,
-		ExpiresIn:        int(tokens.AccessTTL.Seconds()),
-		RefreshExpiresIn: int(tokens.RefreshTTL.Seconds()),
+		AccessToken:      accessToken,
+		RefreshToken:     refreshToken,
+		ExpiresIn:        int(policy.AccessTTL.Seconds()),
+		RefreshExpiresIn: int(policy.RefreshTTL.Seconds()),
 	}, nil
 }
 
@@ -166,6 +180,8 @@ func NewAuthenticator(deps AuthenticatorDeps) *Authenticator {
 		cache:          deps.Cache,
 		repository:     deps.Repository,
 		policyProvider: deps.PolicyProvider,
+		accessCodec:    deps.AccessCodec,
+		tokenPepper:    deps.TokenPepper,
 		tokenGenerator: tokenGenerator,
 		now:            now,
 		loc:            time.Local,
@@ -176,17 +192,24 @@ func (a *Authenticator) Authenticate(ctx context.Context, input TokenInput) (*Id
 	if a == nil {
 		return nil, apperror.Unauthorized("Token认证未配置")
 	}
+	if a.accessCodec == nil {
+		return nil, apperror.Unauthorized("Token认证未配置")
+	}
 
-	tokenHash, err := HashToken(input.AccessToken, a.cfg.Pepper)
+	now := a.now()
+	claims, err := a.accessCodec.Parse(input.AccessToken, now)
 	if err != nil {
 		return nil, apperror.Unauthorized("Token格式错误")
 	}
-
-	cacheKey := a.cacheKey(tokenHash)
+	cacheKey := a.sessionCacheKey(claims.SessionID)
 	if a.cache != nil {
 		if session, cacheErr := a.sessionFromCache(ctx, cacheKey); cacheErr != nil {
 			return nil, cacheErr
 		} else if session != nil {
+			if err := matchClaims(session, claims); err != nil {
+				a.deleteCache(ctx, cacheKey)
+				return nil, err
+			}
 			if policyErr := a.enforcePolicy(ctx, cacheKey, session, input); policyErr != nil {
 				return nil, policyErr
 			}
@@ -198,15 +221,18 @@ func (a *Authenticator) Authenticate(ctx context.Context, input TokenInput) (*Id
 		return nil, apperror.Unauthorized("Token认证未配置")
 	}
 
-	session, repoErr := a.repository.FindValidByAccessHash(ctx, tokenHash, a.now())
+	session, repoErr := a.repository.FindValidByID(ctx, claims.SessionID, now)
 	if repoErr != nil {
 		return nil, apperror.Internal("Token会话查询失败")
 	}
 	if session == nil {
 		return nil, apperror.Unauthorized("Token无效或已过期")
 	}
-	if !session.ExpiresAt.After(a.now()) {
+	if !session.ExpiresAt.After(now) {
 		return nil, apperror.Unauthorized("Token已过期")
+	}
+	if err := matchClaims(session, claims); err != nil {
+		return nil, err
 	}
 
 	if policyErr := a.enforcePolicy(ctx, cacheKey, session, input); policyErr != nil {
@@ -227,7 +253,7 @@ func (a *Authenticator) Refresh(ctx context.Context, input RefreshInput) (*Token
 		return nil, apperror.Unauthorized("缺少刷新令牌")
 	}
 
-	refreshHash, err := HashToken(input.RefreshToken, a.cfg.Pepper)
+	refreshHash, err := HashToken(input.RefreshToken, a.tokenPepper)
 	if err != nil {
 		return nil, apperror.Unauthorized("令牌格式错误")
 	}
@@ -257,15 +283,19 @@ func (a *Authenticator) Refresh(ctx context.Context, input RefreshInput) (*Token
 		}
 	}
 
-	tokens, tokenErr := a.generateTokenPair(policy, now)
+	accessToken, accessHash, accessExpiresAt, accessErr := a.issueAccessToken(session.ID, session.UserID, session.Platform, session.DeviceID, policy, now)
+	if accessErr != nil {
+		return nil, accessErr
+	}
+	refreshToken, refreshHash, _, tokenErr := a.issueRefreshToken(policy, now)
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
 
 	rotation := Rotation{
-		AccessTokenHash:  tokens.AccessTokenHash,
-		RefreshTokenHash: tokens.RefreshTokenHash,
-		ExpiresAt:        tokens.AccessExpiresAt,
+		AccessTokenHash:  accessHash,
+		RefreshTokenHash: refreshHash,
+		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: session.RefreshExpiresAt,
 		LastSeenAt:       now,
 		IP:               input.ClientIP,
@@ -275,16 +305,14 @@ func (a *Authenticator) Refresh(ctx context.Context, input RefreshInput) (*Token
 		return nil, apperror.Internal("刷新令牌更新失败")
 	}
 
-	if session.AccessTokenHash != "" {
-		a.deleteCache(ctx, a.cacheKey(session.AccessTokenHash))
-	}
+	a.deleteCache(ctx, a.sessionCacheKey(session.ID))
 	a.updateSingleSessionPointer(ctx, session)
 
 	return &TokenResult{
-		AccessToken:      tokens.AccessToken,
-		RefreshToken:     tokens.RefreshToken,
-		ExpiresIn:        int(tokens.AccessTTL.Seconds()),
-		RefreshExpiresIn: int(tokens.RefreshTTL.Seconds()),
+		AccessToken:      accessToken,
+		RefreshToken:     refreshToken,
+		ExpiresIn:        int(policy.AccessTTL.Seconds()),
+		RefreshExpiresIn: int(policy.RefreshTTL.Seconds()),
 	}, nil
 }
 
@@ -293,7 +321,10 @@ func (a *Authenticator) Logout(ctx context.Context, accessToken string) *apperro
 		return nil
 	}
 
-	accessHash, err := HashToken(accessToken, a.cfg.Pepper)
+	if a.accessCodec == nil {
+		return nil
+	}
+	claims, err := a.accessCodec.Parse(accessToken, a.now())
 	if err != nil {
 		return nil
 	}
@@ -301,7 +332,7 @@ func (a *Authenticator) Logout(ctx context.Context, accessToken string) *apperro
 		return nil
 	}
 
-	session, err := a.repository.FindValidByAccessHash(ctx, accessHash, a.now())
+	session, err := a.repository.FindValidByID(ctx, claims.SessionID, a.now())
 	if err != nil || session == nil {
 		return nil
 	}
@@ -309,7 +340,7 @@ func (a *Authenticator) Logout(ctx context.Context, accessToken string) *apperro
 		return apperror.Internal("退出登录失败")
 	}
 
-	a.deleteCache(ctx, a.cacheKey(accessHash))
+	a.deleteCache(ctx, a.sessionCacheKey(session.ID))
 	a.clearPointerIfMatches(ctx, session)
 	return nil
 }
@@ -345,16 +376,14 @@ func (a *Authenticator) evictSessions(ctx context.Context, userID int64, platfor
 		if err := a.repository.Revoke(ctx, oldSession.ID, now); err != nil {
 			return apperror.Internal("撤销旧会话失败")
 		}
-		a.deleteCache(ctx, a.cacheKey(oldSession.AccessTokenHash))
+		a.deleteCache(ctx, a.sessionCacheKey(oldSession.ID))
 	}
 	return nil
 }
 
 func (a *Authenticator) deleteSessionCaches(ctx context.Context, sessions []Session) {
 	for _, session := range sessions {
-		if session.AccessTokenHash != "" {
-			a.deleteCache(ctx, a.cacheKey(session.AccessTokenHash))
-		}
+		a.deleteCache(ctx, a.sessionCacheKey(session.ID))
 	}
 }
 
@@ -551,8 +580,8 @@ func (a *Authenticator) clearPointerIfMatches(ctx context.Context, session *Sess
 	}
 }
 
-func (a *Authenticator) cacheKey(tokenHash string) string {
-	return a.cfg.RedisPrefix + tokenHash
+func (a *Authenticator) sessionCacheKey(sessionID int64) string {
+	return a.cfg.RedisPrefix + "session:" + strconv.FormatInt(sessionID, 10)
 }
 
 func (a *Authenticator) singleSessionPointerKey(platform string, userID int64) string {
@@ -572,44 +601,64 @@ func identityFromSession(session *Session) *Identity {
 	}
 }
 
-type tokenPair struct {
-	AccessToken      string
-	RefreshToken     string
-	AccessTokenHash  string
-	RefreshTokenHash string
-	AccessExpiresAt  time.Time
-	RefreshExpiresAt time.Time
-	AccessTTL        time.Duration
-	RefreshTTL       time.Duration
+func (a *Authenticator) issueAccessToken(sessionID int64, userID int64, platform string, deviceID string, policy *AuthPolicy, now time.Time) (string, string, time.Time, *apperror.Error) {
+	if a.accessCodec == nil {
+		return "", "", time.Time{}, apperror.Unauthorized("Token认证未配置")
+	}
+	expiresAt := now.Add(policy.AccessTTL)
+	accessToken, err := a.accessCodec.Issue(accesstoken.Claims{
+		SessionID: sessionID,
+		UserID:    userID,
+		Platform:  platform,
+		DeviceID:  deviceID,
+		IssuedAt:  now,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		return "", "", time.Time{}, apperror.Internal("访问令牌生成失败")
+	}
+	accessHash, err := HashToken(accessToken, a.tokenPepper)
+	if err != nil {
+		return "", "", time.Time{}, apperror.Unauthorized("令牌格式错误")
+	}
+	return accessToken, accessHash, expiresAt, nil
 }
 
-func (a *Authenticator) generateTokenPair(policy *AuthPolicy, now time.Time) (*tokenPair, *apperror.Error) {
-	accessToken, err := a.tokenGenerator(32)
-	if err != nil {
-		return nil, apperror.Internal("访问令牌生成失败")
-	}
+func (a *Authenticator) issueRefreshToken(policy *AuthPolicy, now time.Time) (string, string, time.Time, *apperror.Error) {
 	refreshToken, err := a.tokenGenerator(64)
 	if err != nil {
-		return nil, apperror.Internal("刷新令牌生成失败")
+		return "", "", time.Time{}, apperror.Internal("刷新令牌生成失败")
 	}
-	accessHash, err := HashToken(accessToken, a.cfg.Pepper)
+	refreshHash, err := HashToken(refreshToken, a.tokenPepper)
 	if err != nil {
-		return nil, apperror.Unauthorized("令牌格式错误")
+		return "", "", time.Time{}, apperror.Unauthorized("令牌格式错误")
 	}
-	refreshHash, err := HashToken(refreshToken, a.cfg.Pepper)
-	if err != nil {
-		return nil, apperror.Unauthorized("令牌格式错误")
+	return refreshToken, refreshHash, now.Add(policy.RefreshTTL), nil
+}
+
+func matchClaims(session *Session, claims accesstoken.Claims) *apperror.Error {
+	if session == nil {
+		return apperror.Unauthorized("Token无效或已过期")
 	}
-	return &tokenPair{
-		AccessToken:      accessToken,
-		RefreshToken:     refreshToken,
-		AccessTokenHash:  accessHash,
-		RefreshTokenHash: refreshHash,
-		AccessExpiresAt:  now.Add(policy.AccessTTL),
-		RefreshExpiresAt: now.Add(policy.RefreshTTL),
-		AccessTTL:        policy.AccessTTL,
-		RefreshTTL:       policy.RefreshTTL,
-	}, nil
+	if session.ID != claims.SessionID || session.UserID != claims.UserID {
+		return apperror.Unauthorized("Token无效或已过期")
+	}
+	if claims.Platform != "" && !strings.EqualFold(session.Platform, claims.Platform) {
+		return apperror.Unauthorized("平台不匹配")
+	}
+	if claims.DeviceID != "" && session.DeviceID != "" && claims.DeviceID != session.DeviceID {
+		return apperror.Unauthorized("设备变更，请重新登录")
+	}
+	return nil
+}
+
+func sessionIDPlaceholder(userID int64, platform string, now time.Time) string {
+	return strconv.FormatInt(userID, 10) + "|" + platform + "|" + strconv.FormatInt(now.UnixNano(), 10)
+}
+
+func temporaryAccessTokenHash(seed string) string {
+	sum := sha256.Sum256([]byte("pending|" + seed))
+	return hex.EncodeToString(sum[:])
 }
 
 func makeToken(bytes int) (string, error) {
