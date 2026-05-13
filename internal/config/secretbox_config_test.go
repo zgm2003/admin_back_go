@@ -1,13 +1,17 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestLoadReadsSecretboxKey(t *testing.T) {
+func TestLoadDoesNotReadLegacyVaultKey(t *testing.T) {
 	t.Setenv("VAULT_KEY", "vault-secret")
+	t.Setenv("APP_SECRET", strings.Repeat("a", 64))
 
 	cfg := Load()
 
-	if cfg.Secretbox.Key != "vault-secret" {
-		t.Fatalf("expected vault-secret, got %q", cfg.Secretbox.Key)
+	if cfg.App.Secret != strings.Repeat("a", 64) {
+		t.Fatalf("expected APP_SECRET to be loaded, got %q", cfg.App.Secret)
 	}
 }

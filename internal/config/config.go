@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,7 +21,6 @@ type Config struct {
 	Queue       QueueConfig
 	Realtime    RealtimeConfig
 	Scheduler   SchedulerConfig
-	Secretbox   SecretboxConfig
 	Payment     PaymentConfig
 	UploadToken UploadTokenConfig
 	AI          AIConfig
@@ -28,8 +28,9 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Name string
-	Env  string
+	Name   string
+	Env    string
+	Secret string
 }
 
 type HTTPConfig struct {
@@ -83,7 +84,6 @@ type RedisConfig struct {
 }
 
 type TokenConfig struct {
-	Pepper                  string
 	RedisPrefix             string
 	SessionCacheTTL         time.Duration
 	SingleSessionPointerTTL time.Duration
@@ -137,10 +137,6 @@ type SchedulerConfig struct {
 	LockTTL    time.Duration
 }
 
-type SecretboxConfig struct {
-	Key string
-}
-
 type PaymentConfig struct {
 	CertBaseDir   string
 	AlipayTimeout time.Duration
@@ -184,8 +180,9 @@ func Load() Config {
 
 	return Config{
 		App: AppConfig{
-			Name: envString("APP_NAME", "admin-api"),
-			Env:  envString("APP_ENV", "local"),
+			Name:   envString("APP_NAME", "admin-api"),
+			Env:    envString("APP_ENV", "local"),
+			Secret: envString("APP_SECRET", ""),
 		},
 		HTTP: HTTPConfig{
 			Addr:              envString("HTTP_ADDR", ":8080"),
@@ -216,7 +213,6 @@ func Load() Config {
 			DB:       envInt("REDIS_DB", 0),
 		},
 		Token: TokenConfig{
-			Pepper:                  envString("TOKEN_PEPPER", ""),
 			RedisPrefix:             envString("TOKEN_REDIS_PREFIX", "token:"),
 			SessionCacheTTL:         envDuration("TOKEN_SESSION_CACHE_TTL", 30*time.Minute),
 			SingleSessionPointerTTL: envDuration("TOKEN_SINGLE_SESSION_POINTER_TTL", 30*24*time.Hour),
@@ -258,9 +254,6 @@ func Load() Config {
 			LockPrefix: envString("SCHEDULER_LOCK_PREFIX", "admin_go:scheduler:"),
 			LockTTL:    envDuration("SCHEDULER_LOCK_TTL", 30*time.Second),
 		},
-		Secretbox: SecretboxConfig{
-			Key: envString("VAULT_KEY", ""),
-		},
 		Payment: PaymentConfig{
 			CertBaseDir:   envString("PAYMENT_CERT_BASE_DIR", ""),
 			AlipayTimeout: envDuration("PAYMENT_ALIPAY_TIMEOUT", 10*time.Second),
@@ -281,6 +274,23 @@ func Load() Config {
 		},
 		CORS: corsConfig,
 	}
+}
+
+var unsafeAppSecrets = map[string]struct{}{
+	"":                                      {},
+	"change_me_to_at_least_64_random_chars": {},
+	"change_me_to_long_random":              {},
+}
+
+func ValidateRuntimeSecrets(cfg Config) error {
+	secret := strings.TrimSpace(cfg.App.Secret)
+	if _, unsafe := unsafeAppSecrets[secret]; unsafe {
+		return fmt.Errorf("APP_SECRET is missing or unsafe")
+	}
+	if len(secret) < 32 {
+		return fmt.Errorf("APP_SECRET is too short: got %d chars, need at least 32", len(secret))
+	}
+	return nil
 }
 
 func DefaultCORSConfig() CORSConfig {

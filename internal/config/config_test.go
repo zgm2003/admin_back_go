@@ -36,8 +36,8 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Redis.DB != 0 {
 		t.Fatalf("expected redis db 0, got %d", cfg.Redis.DB)
 	}
-	if cfg.Token.Pepper != "" {
-		t.Fatalf("expected empty token pepper by default, got %q", cfg.Token.Pepper)
+	if cfg.App.Secret != "" {
+		t.Fatalf("expected empty app secret by default, got %q", cfg.App.Secret)
 	}
 	if cfg.Token.RedisPrefix != "token:" {
 		t.Fatalf("expected token redis prefix token:, got %q", cfg.Token.RedisPrefix)
@@ -146,6 +146,7 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("APP_NAME", "admin-api-test")
 	t.Setenv("APP_ENV", "test")
+	t.Setenv("APP_SECRET", strings.Repeat("s", 64))
 	t.Setenv("HTTP_ADDR", ":18080")
 	t.Setenv("HTTP_READ_HEADER_TIMEOUT", "7s")
 	t.Setenv("MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/admin")
@@ -155,7 +156,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("REDIS_ADDR", "127.0.0.1:6380")
 	t.Setenv("REDIS_PASSWORD", "secret")
 	t.Setenv("REDIS_DB", "2")
-	t.Setenv("TOKEN_PEPPER", "pepper")
 	t.Setenv("TOKEN_REDIS_PREFIX", "token-test:")
 	t.Setenv("TOKEN_SESSION_CACHE_TTL", "45m")
 	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "720h")
@@ -192,7 +192,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.App.Name != "admin-api-test" || cfg.App.Env != "test" {
+	if cfg.App.Name != "admin-api-test" || cfg.App.Env != "test" || cfg.App.Secret != strings.Repeat("s", 64) {
 		t.Fatalf("unexpected app config: %#v", cfg.App)
 	}
 	if cfg.HTTP.Addr != ":18080" || cfg.HTTP.ReadHeaderTimeout != 7*time.Second {
@@ -206,9 +206,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Redis.Addr != "127.0.0.1:6380" || cfg.Redis.Password != "secret" || cfg.Redis.DB != 2 {
 		t.Fatalf("unexpected redis config: %#v", cfg.Redis)
-	}
-	if cfg.Token.Pepper != "pepper" {
-		t.Fatalf("unexpected token config: %#v", cfg.Token)
 	}
 	if cfg.Token.RedisPrefix != "token-test:" || cfg.Token.SessionCacheTTL != 45*time.Minute {
 		t.Fatalf("unexpected token cache config: %#v", cfg.Token)
@@ -265,6 +262,44 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.CORS.MaxAge != 30*time.Minute {
 		t.Fatalf("expected cors max age 30m, got %s", cfg.CORS.MaxAge)
+	}
+}
+
+func TestLoadReadsAppSecret(t *testing.T) {
+	t.Setenv("APP_SECRET", strings.Repeat("a", 64))
+
+	cfg := Load()
+
+	if cfg.App.Secret != strings.Repeat("a", 64) {
+		t.Fatalf("expected APP_SECRET to be loaded")
+	}
+}
+
+func TestValidateRuntimeSecretsRejectsMissingAppSecret(t *testing.T) {
+	cfg := Config{App: AppConfig{Name: "admin-api", Env: "local"}}
+
+	err := ValidateRuntimeSecrets(cfg)
+
+	if err == nil || !strings.Contains(err.Error(), "APP_SECRET") {
+		t.Fatalf("expected APP_SECRET validation error, got %v", err)
+	}
+}
+
+func TestValidateRuntimeSecretsRejectsDefaultAppSecret(t *testing.T) {
+	cfg := Config{App: AppConfig{Name: "admin-api", Env: "local", Secret: "change_me_to_at_least_64_random_chars"}}
+
+	err := ValidateRuntimeSecrets(cfg)
+
+	if err == nil || !strings.Contains(err.Error(), "unsafe") {
+		t.Fatalf("expected unsafe APP_SECRET validation error, got %v", err)
+	}
+}
+
+func TestValidateRuntimeSecretsAcceptsLongAppSecret(t *testing.T) {
+	cfg := Config{App: AppConfig{Name: "admin-api", Env: "local", Secret: strings.Repeat("k", 64)}}
+
+	if err := ValidateRuntimeSecrets(cfg); err != nil {
+		t.Fatalf("expected APP_SECRET to pass validation: %v", err)
 	}
 }
 
