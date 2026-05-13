@@ -2068,6 +2068,107 @@ function Assert-ClientVersionUpdateJSON($Response) {
   }
 }
 
+
+function Assert-MailPageInit($Response) {
+  Assert-ApiOK $Response 'mail page-init'
+
+  foreach ($field in @('common_status_arr', 'mail_scene_arr', 'mail_log_scene_arr', 'mail_log_status_arr', 'default_region', 'default_endpoint')) {
+    if (-not (Test-HasProperty $Response.data.dict $field)) {
+      throw "mail page-init missing dict field ${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  $status = Get-ObjectArray $Response.data.dict.common_status_arr
+  $scenes = Get-ObjectArray $Response.data.dict.mail_scene_arr
+  $logScenes = Get-ObjectArray $Response.data.dict.mail_log_scene_arr
+  $logStatuses = Get-ObjectArray $Response.data.dict.mail_log_status_arr
+  if ($status.Count -ne 2 -or $scenes.Count -ne 4 -or $logScenes.Count -ne 5 -or $logStatuses.Count -ne 3) {
+    throw "mail page-init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$Response.data.dict.default_endpoint)) {
+    throw "mail page-init missing default endpoint: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    StatusCount = $status.Count
+    SceneCount = $scenes.Count
+    LogSceneCount = $logScenes.Count
+    LogStatusCount = $logStatuses.Count
+  }
+}
+
+function Assert-MailConfig($Response) {
+  Assert-ApiOK $Response 'mail config'
+
+  $json = $Response | ConvertTo-Json -Depth 16
+  foreach ($secretField in @('secret_id_enc', 'secret_key_enc')) {
+    if ($json -like "*$secretField*") {
+      throw "mail config leaked ${secretField}: $json"
+    }
+  }
+  foreach ($field in @('configured', 'region', 'endpoint', 'from_email', 'status')) {
+    if (-not (Test-HasProperty $Response.data $field)) {
+      throw "mail config missing field ${field}: $json"
+    }
+  }
+
+  return [pscustomobject]@{
+    Configured = [bool]$Response.data.configured
+    Status = [int]$Response.data.status
+  }
+}
+
+function Assert-MailTemplates($Response) {
+  Assert-ApiOK $Response 'mail templates'
+
+  if ($null -eq $Response.data.list) {
+    throw "mail templates missing list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $json = $Response | ConvertTo-Json -Depth 20
+  foreach ($forbidden in @('secret_id_enc', 'secret_key_enc', 'template_data')) {
+    if ($json -like "*$forbidden*") {
+      throw "mail templates leaked forbidden field ${forbidden}: $json"
+    }
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    foreach ($field in @('id', 'scene', 'name', 'subject', 'tencent_template_id', 'variables', 'sample_variables', 'status')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "mail template item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+  }
+}
+
+function Assert-MailLogs($Response) {
+  Assert-ApiOK $Response 'mail logs'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "mail logs missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $json = $Response | ConvertTo-Json -Depth 20
+  foreach ($forbidden in @('secret_id_enc', 'secret_key_enc', 'template_data', 'verify_code')) {
+    if ($json -like "*$forbidden*") {
+      throw "mail logs leaked forbidden field ${forbidden}: $json"
+    }
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    foreach ($field in @('id', 'scene', 'to_email', 'subject', 'status', 'tencent_request_id', 'tencent_message_id', 'error_code', 'error_message', 'duration_ms', 'created_at')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "mail log item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -2319,6 +2420,26 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $systemSettingListSummary = Assert-SystemSettingList $systemSettingList
+
+  $mailPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/mail/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $mailPageInitSummary = Assert-MailPageInit $mailPageInit
+
+  $mailConfig = Invoke-RestMethod "$baseURL/api/admin/v1/mail/config" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $mailConfigSummary = Assert-MailConfig $mailConfig
+
+  $mailTemplates = Invoke-RestMethod "$baseURL/api/admin/v1/mail/templates" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $mailTemplateSummary = Assert-MailTemplates $mailTemplates
+
+  $mailLogs = Invoke-RestMethod "$baseURL/api/admin/v1/mail/logs?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $mailLogSummary = Assert-MailLogs $mailLogs
 
   $clientVersionInit = Invoke-RestMethod "$baseURL/api/admin/v1/client-versions/page-init" `
     -Headers $authHeaders `
@@ -2711,6 +2832,18 @@ func main() {
     system_setting_list_code = $systemSettingList.code
     system_setting_list_count = $systemSettingListSummary.ListCount
     system_setting_total = $systemSettingListSummary.Total
+    mail_page_init_code = $mailPageInit.code
+    mail_scene_dict_count = $mailPageInitSummary.SceneCount
+    mail_log_scene_dict_count = $mailPageInitSummary.LogSceneCount
+    mail_log_status_dict_count = $mailPageInitSummary.LogStatusCount
+    mail_config_code = $mailConfig.code
+    mail_configured = $mailConfigSummary.Configured
+    mail_config_status = $mailConfigSummary.Status
+    mail_template_list_code = $mailTemplates.code
+    mail_template_list_count = $mailTemplateSummary.ListCount
+    mail_log_list_code = $mailLogs.code
+    mail_log_list_count = $mailLogSummary.ListCount
+    mail_log_total = $mailLogSummary.Total
     client_version_init_code = $clientVersionInit.code
     client_version_platform_dict_count = $clientVersionInitSummary.PlatformCount
     client_version_yes_no_dict_count = $clientVersionInitSummary.YesNoCount

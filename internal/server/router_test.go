@@ -30,6 +30,7 @@ import (
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/mail"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -1119,6 +1120,56 @@ func (f *fakeRouterSystemSettingService) Delete(ctx context.Context, ids []int64
 func (f *fakeRouterSystemSettingService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	f.statusID = id
 	f.status = status
+	return nil
+}
+
+type fakeRouterMailService struct {
+	initCalled  bool
+	savedConfig mail.SaveConfigInput
+	deletedLogs []uint64
+}
+
+func (f *fakeRouterMailService) PageInit(ctx context.Context) (*mail.PageInitResponse, *apperror.Error) {
+	f.initCalled = true
+	return &mail.PageInitResponse{Dict: mail.PageInitDict{DefaultRegion: mail.DefaultRegion, DefaultEndpoint: mail.DefaultEndpoint}}, nil
+}
+
+func (f *fakeRouterMailService) Config(ctx context.Context) (*mail.ConfigResponse, *apperror.Error) {
+	return &mail.ConfigResponse{Configured: true, Region: mail.DefaultRegion, Endpoint: mail.DefaultEndpoint, FromEmail: "noreply@example.com"}, nil
+}
+
+func (f *fakeRouterMailService) SaveConfig(ctx context.Context, input mail.SaveConfigInput) *apperror.Error {
+	f.savedConfig = input
+	return nil
+}
+
+func (f *fakeRouterMailService) DeleteConfig(ctx context.Context) *apperror.Error { return nil }
+func (f *fakeRouterMailService) TestSend(ctx context.Context, input mail.TestInput) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterMailService) Templates(ctx context.Context) ([]mail.TemplateDTO, *apperror.Error) {
+	return []mail.TemplateDTO{{ID: 1, Scene: enum.VerifyCodeSceneLogin, Name: "登录验证码"}}, nil
+}
+func (f *fakeRouterMailService) CreateTemplate(ctx context.Context, input mail.SaveTemplateInput) (uint64, *apperror.Error) {
+	return 1, nil
+}
+func (f *fakeRouterMailService) UpdateTemplate(ctx context.Context, id uint64, input mail.SaveTemplateInput) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterMailService) ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterMailService) DeleteTemplate(ctx context.Context, id uint64) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterMailService) Logs(ctx context.Context, query mail.LogQuery) (*mail.LogListResponse, *apperror.Error) {
+	return &mail.LogListResponse{List: []mail.LogDTO{{ID: 1, Scene: enum.VerifyCodeSceneLogin, ToEmail: "user@example.com"}}}, nil
+}
+func (f *fakeRouterMailService) Log(ctx context.Context, id uint64) (*mail.LogDTO, *apperror.Error) {
+	return &mail.LogDTO{ID: id, Scene: enum.VerifyCodeSceneLogin, ToEmail: "user@example.com"}, nil
+}
+func (f *fakeRouterMailService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
+	f.deletedLogs = ids
 	return nil
 }
 
@@ -2637,6 +2688,48 @@ func TestRouterDoesNotInstallLegacyPayWalletRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestRouterInstallsMailRoutes(t *testing.T) {
+	mailService := &fakeRouterMailService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/mail/config"):  "system_mail_configEdit",
+			middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/mail/logs"): "system_mail_logDel",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error { return nil },
+		MailService:       mailService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/mail/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !mailService.initCalled {
+		t.Fatalf("mail page-init route mismatch: code=%d body=%s init=%v", recorder.Code, recorder.Body.String(), mailService.initCalled)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/mail/config", strings.NewReader(`{"secret_id":"AKID","secret_key":"SECRET","region":"ap-guangzhou","endpoint":"ses.tencentcloudapi.com","from_email":"noreply@example.com","status":1}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || mailService.savedConfig.SecretID != "AKID" || mailService.savedConfig.SecretKey != "SECRET" {
+		t.Fatalf("mail config route mismatch: code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), mailService.savedConfig)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/mail/logs", strings.NewReader(`{"ids":[1,2]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !reflect.DeepEqual(mailService.deletedLogs, []uint64{1, 2}) {
+		t.Fatalf("mail logs delete route mismatch: code=%d body=%s ids=%#v", recorder.Code, recorder.Body.String(), mailService.deletedLogs)
+	}
+}
+
 func TestRouterInstallsPaymentRoutesAndRawNotify(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{notifyBody: "success"}
 	router := newTestRouter(t, Dependencies{

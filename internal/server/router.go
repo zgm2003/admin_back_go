@@ -21,6 +21,7 @@ import (
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/mail"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -72,6 +73,7 @@ type Dependencies struct {
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlog.HTTPService
+	MailService             mail.HTTPService
 	PaymentService          payment.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
@@ -136,6 +138,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
 	crontask.RegisterRoutes(router, deps.CronTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
+	mail.RegisterRoutes(router, deps.MailService)
 	payment.RegisterRoutes(router, deps.PaymentService)
 
 	permission.RegisterRoutes(router, deps.PermissionService)

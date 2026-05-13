@@ -3,6 +3,7 @@ module admin_back_go
 go 1.26.1
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-co-op/gocron/v2 v2.21.1
@@ -16,6 +17,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.19.0
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.96
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ses v1.3.86
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.73
 	github.com/tencentyun/qcloud-cos-sts-sdk v0.0.0-20251226100129-1701383cae15
 	github.com/wenlng/go-captcha-assets v1.0.7

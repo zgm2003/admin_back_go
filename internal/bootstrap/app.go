@@ -24,6 +24,7 @@ import (
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/mail"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/operationlog"
@@ -43,6 +44,7 @@ import (
 	platformai "admin_back_go/internal/platform/ai"
 	"admin_back_go/internal/platform/ai/openaicompat"
 	"admin_back_go/internal/platform/logstore"
+	platformmail "admin_back_go/internal/platform/mail/tencentcloudses"
 	"admin_back_go/internal/platform/payment"
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -134,6 +136,27 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	secretBox := secretbox.New(keys.SecretboxKey())
 	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
+	sesClient := platformmail.New(10 * time.Second)
+	mailSender := mail.SenderFunc(func(ctx context.Context, input mail.SendInput) (mail.SendResult, error) {
+		result, err := sesClient.Send(ctx, platformmail.SendInput{
+			SecretID:     input.SecretID,
+			SecretKey:    input.SecretKey,
+			Region:       input.Region,
+			Endpoint:     input.Endpoint,
+			FromEmail:    input.FromEmail,
+			FromName:     input.FromName,
+			ReplyTo:      input.ReplyTo,
+			ToEmail:      input.ToEmail,
+			Subject:      input.Subject,
+			TemplateID:   input.TemplateID,
+			TemplateData: input.TemplateData,
+		})
+		if err != nil {
+			return mail.SendResult{}, err
+		}
+		return mail.SendResult{RequestID: result.RequestID, MessageID: result.MessageID}, nil
+	})
+	mailService := mail.NewService(mail.NewGormRepository(resources.DB), secretBox, mailSender)
 	clientVersionService := clientversion.NewService(
 		clientversion.NewGormRepository(resources.DB),
 		clientversion.NewManifestPublisher(
@@ -215,6 +238,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		sessionAuthenticator,
 		captchaService,
 		auth.WithCodeStore(auth.NewRedisCodeStore(resources.Redis)),
+		auth.WithVerifyCodeMailSender(mailService),
 		auth.WithVerifyCodeOptions(auth.VerifyCodeOptions{
 			TTL:         cfg.VerifyCode.TTL,
 			RedisPrefix: cfg.VerifyCode.RedisPrefix,
@@ -316,6 +340,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,
+		MailService:             mailService,
 		PaymentService:          paymentService,
 		PermissionService:       permissionService,
 		QueueMonitorService:     queueMonitorService,

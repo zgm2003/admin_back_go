@@ -696,3 +696,117 @@ func phpBcryptHash(t *testing.T, password string) string {
 	}
 	return strings.Replace(string(hash), "$2a$", "$2y$", 1)
 }
+
+type fakeVerifyCodeMailSender struct {
+	scene string
+	email string
+	code  string
+	ttl   time.Duration
+	err   *apperror.Error
+}
+
+func (f *fakeVerifyCodeMailSender) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error {
+	f.scene = scene
+	f.email = toEmail
+	f.code = code
+	f.ttl = ttl
+	return f.err
+}
+
+func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
+	store := &fakeCodeStore{}
+	mailSender := &fakeVerifyCodeMailSender{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: false, CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
+
+	if appErr != nil {
+		t.Fatalf("expected real email send code to succeed, got %v", appErr)
+	}
+	if message != "验证码发送成功" {
+		t.Fatalf("unexpected send message %q", message)
+	}
+	if store.setCode != "654321" || store.setTTL != 5*time.Minute || store.setKey != "auth:verify_code:email:login:b58996c504c5638798eb6b511e6f49af" {
+		t.Fatalf("unexpected code store write: key=%q code=%q ttl=%s", store.setKey, store.setCode, store.setTTL)
+	}
+	if mailSender.scene != VerifyCodeSceneLogin || mailSender.email != "user@example.com" || mailSender.code != "654321" || mailSender.ttl != 5*time.Minute {
+		t.Fatalf("unexpected mail sender call: %#v", mailSender)
+	}
+}
+
+func TestServiceSendCodeRealEmailDeletesCachedCodeWhenMailFails(t *testing.T) {
+	store := &fakeCodeStore{}
+	mailSender := &fakeVerifyCodeMailSender{err: apperror.Internal("邮件发送失败")}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: false, CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
+
+	if message != "" || appErr == nil || appErr.Message != "邮件发送失败" {
+		t.Fatalf("expected mail failure, message=%q err=%#v", message, appErr)
+	}
+	if store.deleted != store.setKey || store.values[store.setKey] != "" {
+		t.Fatalf("expected cached code cleanup, setKey=%q deleted=%q values=%#v", store.setKey, store.deleted, store.values)
+	}
+}
+
+func TestServiceSendCodeRealPhoneStillReportsSMSNotConfigured(t *testing.T) {
+	store := &fakeCodeStore{}
+	mailSender := &fakeVerifyCodeMailSender{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: false, CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "15671628271", Scene: VerifyCodeSceneLogin})
+
+	if message != "" || appErr == nil || appErr.Message != "短信验证码服务未配置" {
+		t.Fatalf("expected SMS not configured, message=%q err=%#v", message, appErr)
+	}
+	if store.setKey != "" || mailSender.email != "" {
+		t.Fatalf("phone real mode must not cache or send email, store=%#v sender=%#v", store, mailSender)
+	}
+}
+
+func TestServiceSendCodeDevModeStillReturnsTestCode(t *testing.T) {
+	store := &fakeCodeStore{}
+	mailSender := &fakeVerifyCodeMailSender{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
+
+	if appErr != nil || message != "验证码发送成功(测试:123456)" {
+		t.Fatalf("expected dev mode test code, message=%q err=%#v", message, appErr)
+	}
+	if store.setCode != "123456" || mailSender.email != "" {
+		t.Fatalf("dev mode must cache test code without real sender, store=%#v sender=%#v", store, mailSender)
+	}
+}

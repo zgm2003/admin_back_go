@@ -62,6 +62,10 @@ type CaptchaVerifier interface {
 	Verify(ctx context.Context, input captcha.VerifyInput) *apperror.Error
 }
 
+type VerifyCodeMailSender interface {
+	SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error
+}
+
 type VerifyCodeOptions struct {
 	TTL           time.Duration
 	RedisPrefix   string
@@ -73,14 +77,15 @@ type VerifyCodeOptions struct {
 type Option func(*Service)
 
 type Service struct {
-	repository        Repository
-	platformConfig    PlatformConfigProvider
-	sessionManager    SessionManager
-	captchaVerifier   CaptchaVerifier
-	codeStore         CodeStore
-	loginLogEnqueuer  taskqueue.Enqueuer
-	logger            *slog.Logger
-	verifyCodeOptions VerifyCodeOptions
+	repository           Repository
+	platformConfig       PlatformConfigProvider
+	sessionManager       SessionManager
+	captchaVerifier      CaptchaVerifier
+	codeStore            CodeStore
+	loginLogEnqueuer     taskqueue.Enqueuer
+	verifyCodeMailSender VerifyCodeMailSender
+	logger               *slog.Logger
+	verifyCodeOptions    VerifyCodeOptions
 }
 
 func NewService(repository Repository, platformConfig PlatformConfigProvider, sessionManager SessionManager, captchaVerifier CaptchaVerifier, opts ...Option) *Service {
@@ -131,6 +136,12 @@ func WithVerifyCodeOptions(options VerifyCodeOptions) Option {
 	}
 }
 
+func WithVerifyCodeMailSender(sender VerifyCodeMailSender) Option {
+	return func(s *Service) {
+		s.verifyCodeMailSender = sender
+	}
+}
+
 func (s *Service) LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error) {
 	loginTypes, appErr := s.allowedLoginTypes(ctx, platform)
 	if appErr != nil {
@@ -168,11 +179,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if accountType == "" {
 		return "", apperror.BadRequest("请输入正确的邮箱或手机号")
 	}
-
-	if !s.verifyCodeOptions.DevMode {
-		if accountType == LoginTypeEmail {
-			return "", apperror.Internal("邮件验证码服务未配置")
-		}
+	if !s.verifyCodeOptions.DevMode && accountType == LoginTypePhone {
 		return "", apperror.Internal("短信验证码服务未配置")
 	}
 
@@ -180,10 +187,22 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if err != nil {
 		return "", apperror.Internal("验证码生成失败")
 	}
-	if err := s.codeStore.Set(ctx, s.verifyCodeCacheKey(accountType, input.Scene, input.Account), code, s.verifyCodeOptions.TTL); err != nil {
+	cacheKey := s.verifyCodeCacheKey(accountType, input.Scene, input.Account)
+	if err := s.codeStore.Set(ctx, cacheKey, code, s.verifyCodeOptions.TTL); err != nil {
 		return "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
-	return "验证码发送成功(测试:" + code + ")", nil
+	if s.verifyCodeOptions.DevMode {
+		return "验证码发送成功(测试:" + code + ")", nil
+	}
+	if s.verifyCodeMailSender == nil {
+		_ = s.codeStore.Delete(ctx, cacheKey)
+		return "", apperror.Internal("邮件验证码服务未配置")
+	}
+	if appErr := s.verifyCodeMailSender.SendVerifyCode(ctx, input.Scene, input.Account, code, s.verifyCodeOptions.TTL); appErr != nil {
+		_ = s.codeStore.Delete(ctx, cacheKey)
+		return "", appErr
+	}
+	return "验证码发送成功", nil
 }
 
 func (s *Service) ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error {
