@@ -21,6 +21,7 @@ import (
 	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/secretbox"
+	"admin_back_go/internal/platform/secretkey"
 	storagecos "admin_back_go/internal/platform/storage/cos"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -39,6 +40,13 @@ type Worker struct {
 func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if err := config.ValidateRuntimeSecrets(cfg); err != nil {
+		return nil, err
+	}
+	keys, err := secretkey.NewKeyRing(cfg.App.Secret)
+	if err != nil {
+		return nil, err
 	}
 
 	worker := &Worker{
@@ -80,7 +88,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		notificationtask.WithRealtimePublisher(realtimePublisher),
 		notificationtask.WithLogger(logger),
 	)
-	secretBox := secretbox.New(cfg.Secretbox.Key)
+	secretBox := secretbox.New(keys.SecretboxKey())
 	exportTaskRepository := exporttask.NewGormRepository(resources.DB)
 	exportTaskService := exporttask.NewService(
 		exportTaskRepository,

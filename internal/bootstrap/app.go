@@ -47,6 +47,7 @@ import (
 	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/secretbox"
+	"admin_back_go/internal/platform/secretkey"
 	storagecos "admin_back_go/internal/platform/storage/cos"
 	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
@@ -79,9 +80,16 @@ type App struct {
 	aiReplyDispatcher  *aiConversationReplyDispatcher
 }
 
-func New(cfg config.Config, logger *slog.Logger) *App {
+func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if err := config.ValidateRuntimeSecrets(cfg); err != nil {
+		return nil, err
+	}
+	keys, err := secretkey.NewKeyRing(cfg.App.Secret)
+	if err != nil {
+		return nil, err
 	}
 
 	resources, err := NewResources(cfg)
@@ -92,7 +100,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 		}
 	}
 
-	sessionAuthenticator := NewSessionAuthenticator(resources, cfg)
+	sessionAuthenticator := NewSessionAuthenticator(resources, cfg, keys)
 	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
 	var loginLogEnqueuer taskqueue.Enqueuer
 	var queueClient *taskqueue.Client
@@ -123,7 +131,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 	}
 	systemLogService := systemlog.NewService(logstore.New(cfg.Logging.Dir, logstore.Options{AllowedExtensions: cfg.Logging.AllowedExtensions, MaxTailLines: cfg.Logging.MaxTailLines}))
 	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
-	secretBox := secretbox.New(cfg.Secretbox.Key)
+	secretBox := secretbox.New(keys.SecretboxKey())
 	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
 	clientVersionService := clientversion.NewService(
@@ -336,7 +344,7 @@ func New(cfg config.Config, logger *slog.Logger) *App {
 			Handler:           router,
 			ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
 		},
-	}
+	}, nil
 }
 
 type aiConversationReplyEnqueuer struct {

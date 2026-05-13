@@ -20,7 +20,11 @@ func main() {
 		defer logCloser.Close()
 	}
 
-	app := bootstrap.New(cfg, logger)
+	app, err := bootstrap.New(cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize admin api", "error", err)
+		os.Exit(1)
+	}
 	if err := app.Run(); err != nil {
 		logger.Error("admin api stopped", "error", err)
 		os.Exit(1)

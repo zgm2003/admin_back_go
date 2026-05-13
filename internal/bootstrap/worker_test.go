@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 func TestNewWorkerAllowsQueueDisabledWithoutRedis(t *testing.T) {
 	worker, err := NewWorker(config.Config{
+		App:   config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Queue: config.QueueConfig{Enabled: false},
 	}, slog.Default())
 	if err != nil {
@@ -28,6 +30,7 @@ func TestNewWorkerAllowsQueueDisabledWithoutRedis(t *testing.T) {
 
 func TestNewWorkerRejectsQueueEnabledWithoutRedis(t *testing.T) {
 	worker, err := NewWorker(config.Config{
+		App: config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Queue: config.QueueConfig{
 			Enabled:         true,
 			DefaultQueue:    "default",
@@ -45,6 +48,7 @@ func TestNewWorkerRejectsQueueEnabledWithoutRedis(t *testing.T) {
 
 func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 	worker, err := NewWorker(config.Config{
+		App: config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Redis: config.RedisConfig{
 			Addr:     "127.0.0.1:1",
 			Password: "secret",
@@ -82,6 +86,7 @@ func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 
 func TestNewWorkerRejectsSchedulerEnabledWithoutDatabase(t *testing.T) {
 	worker, err := NewWorker(config.Config{
+		App:   config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Redis: config.RedisConfig{Addr: "127.0.0.1:1"},
 		Queue: config.QueueConfig{
 			Enabled:         true,
