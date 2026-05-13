@@ -13,7 +13,6 @@ import (
 const commonNo = 2
 
 type Repository interface {
-	FindValidByAccessHash(ctx context.Context, accessHash string, now time.Time) (*Session, error)
 	FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error)
 	FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error)
 	FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error)
@@ -113,27 +112,6 @@ func NewGormRepository(client *database.Client) Repository {
 		return nil
 	}
 	return &GormRepository{db: client.Gorm}
-}
-
-func (r *GormRepository) FindValidByAccessHash(ctx context.Context, accessHash string, now time.Time) (*Session, error) {
-	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
-	}
-
-	var session Session
-	err := r.db.WithContext(ctx).
-		Where("access_token_hash = ?", accessHash).
-		Where("revoked_at IS NULL").
-		Where("is_del = ?", commonNo).
-		Where("expires_at > ?", now).
-		First(&session).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &session, nil
 }
 
 func (r *GormRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {

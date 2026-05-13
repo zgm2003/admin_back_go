@@ -198,8 +198,7 @@ admin_back_go/.env
 | `HTTP_ADDR` | HTTP 监听地址，Docker 内建议 `:8080` |
 | `MYSQL_DSN` | 推荐使用的 MySQL DSN |
 | `REDIS_ADDR` | Redis 地址 |
-| `TOKEN_PEPPER` | token hash pepper，所有 API/Worker 节点必须一致 |
-| `VAULT_KEY` | 业务密钥加密 key，必须和已有密文数据匹配 |
+| `APP_SECRET` | 应用唯一根密钥，所有 API/Worker 节点必须一致；代码内部派生 JWT、refresh token pepper、secretbox 等用途 key |
 | `CORS_ALLOW_ORIGINS` | 允许访问 API 的前端 origin |
 
 ### MySQL 配置
@@ -339,8 +338,8 @@ Copy-Item .env.example .env
 ```env
 MYSQL_DSN=你的 MySQL DSN
 REDIS_ADDR=127.0.0.1:6379
-TOKEN_PEPPER=本地长随机字符串
-VAULT_KEY=本地或已有数据匹配的密钥
+# 至少 64 位随机字符串；修改会让旧登录态和已加密业务密钥失效
+APP_SECRET=本地长随机字符串
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
@@ -513,8 +512,8 @@ MYSQL_DSN=admin_user:CHANGE_ME@tcp(127.0.0.1:3306)/admin?charset=utf8mb4&parseTi
 REDIS_ADDR=127.0.0.1:6379
 REDIS_PASSWORD=
 
-TOKEN_PEPPER=CHANGE_ME_LONG_RANDOM_SECRET
-VAULT_KEY=CHANGE_ME_32_BYTES_OR_COMPATIBLE_SECRET
+# 所有 admin-api/admin-worker 节点必须一致；至少 64 位随机字符串
+APP_SECRET=CHANGE_ME_AT_LEAST_64_RANDOM_CHARS
 
 QUEUE_ENABLED=true
 REALTIME_ENABLED=true
@@ -792,8 +791,8 @@ powershell -ExecutionPolicy Bypass -File ./scripts/full-admin-smoke.ps1 -Account
 
 ```text
 1. 所有 admin-api / admin-worker 节点必须使用同一套 MySQL/Redis。
-2. 所有节点的 TOKEN_PEPPER 必须一致，否则 token/session 会失效。
-3. 所有节点的 VAULT_KEY 必须一致，否则已有密文字段无法解密。
+2. 所有节点的 APP_SECRET 必须一致，否则 access/refresh token、Redis session cache、AI/upload/payment 已加密 secret 都会失效。
+3. 变更 APP_SECRET 前先按 `E:/admin_go/docs/deployment/auth-foundation-v2-reset-runbook.md` 撤销会话、清 Redis token cache，并重新录入业务密钥。
 4. REALTIME_PUBLISHER 多 API 节点建议使用 redis。
 5. 支付证书、运行时 cert 目录必须部署到需要处理支付的后端节点。
 6. SCHEDULER_ENABLED 不要在多套独立环境里同时指向同一库；同一集群内依靠 Redis lock，但仍要监控重复执行。

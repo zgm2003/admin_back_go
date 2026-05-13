@@ -49,7 +49,6 @@ func (f *fakeSessionCache) Del(ctx context.Context, key string) error {
 }
 
 type fakeSessionRepository struct {
-	findHash        string
 	findSessionID   int64
 	updatedAccessID int64
 	updatedHash     string
@@ -69,11 +68,6 @@ type fakeSessionRepository struct {
 	revokedPlatform string
 	revokedUserID   int64
 	err             error
-}
-
-func (f *fakeSessionRepository) FindValidByAccessHash(ctx context.Context, accessHash string, now time.Time) (*Session, error) {
-	f.findHash = accessHash
-	return f.session, f.err
 }
 
 func (f *fakeSessionRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {
@@ -259,9 +253,6 @@ func TestAuthenticatorAuthenticateUsesJWTSessionID(t *testing.T) {
 	if repo.findSessionID != 42 {
 		t.Fatalf("expected repository lookup by session id 42, got %d", repo.findSessionID)
 	}
-	if repo.findHash != "" {
-		t.Fatalf("JWT authenticate must not lookup by access hash, got %q", repo.findHash)
-	}
 	if cache.setKey != "token:session:42" {
 		t.Fatalf("expected session cache key, got %q", cache.setKey)
 	}
@@ -298,8 +289,8 @@ func TestAuthenticatorResolvesCachedSessionAndRefreshesTTL(t *testing.T) {
 	if identity.UserID != 12 || identity.SessionID != 34 || identity.Platform != "admin" {
 		t.Fatalf("unexpected identity: %#v", identity)
 	}
-	if repo.findHash != "" || repo.findSessionID != 0 {
-		t.Fatalf("expected cached session to avoid mysql lookup, hash=%q sid=%d", repo.findHash, repo.findSessionID)
+	if repo.findSessionID != 0 {
+		t.Fatalf("expected cached session to avoid mysql lookup, sid=%d", repo.findSessionID)
 	}
 	if cache.expireKey != cacheKey || cache.expireTTL != 30*time.Minute {
 		t.Fatalf("expected session cache ttl refresh, got key=%q ttl=%s", cache.expireKey, cache.expireTTL)
@@ -338,9 +329,6 @@ func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 	}
 	if repo.findSessionID != 55 {
 		t.Fatalf("expected mysql lookup by session id 55, got %d", repo.findSessionID)
-	}
-	if repo.findHash != "" {
-		t.Fatalf("JWT auth must not lookup by access hash, got %q", repo.findHash)
 	}
 	if cache.setKey != "token:session:55" {
 		t.Fatalf("expected redis session key, got %q", cache.setKey)
@@ -927,9 +915,6 @@ func TestAuthenticatorLogoutRevokesSessionAndClearsTokenAndPointer(t *testing.T)
 	}
 	if repo.findSessionID != 55 {
 		t.Fatalf("expected lookup by session id 55, got %d", repo.findSessionID)
-	}
-	if repo.findHash != "" {
-		t.Fatalf("logout must not lookup by access hash, got %q", repo.findHash)
 	}
 	if repo.revokedID != 55 || !repo.revokedAt.Equal(now) {
 		t.Fatalf("expected revoke session 55 at now, got id=%d at=%s", repo.revokedID, repo.revokedAt)

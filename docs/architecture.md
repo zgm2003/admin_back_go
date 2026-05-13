@@ -286,33 +286,35 @@ platform/device-id 作为请求输入传入认证服务
 
 这条边界很重要：cookie fallback 只服务浏览器 UI/upgrade 限制，不改变 REST API 的认证契约。
 
-这里没有直接套通用 JWT Gin middleware。原因很简单：当前系统不是纯 JWT stateless auth，而是 token hash + Redis session + DB fallback + 平台/设备/IP/单端策略。成熟中间件能用就用，但不能用错地方。
+这里没有直接套通用 JWT Gin middleware。原因很简单：当前系统不是纯 stateless auth，而是 JWT access token + opaque refresh token + Redis session cache + MySQL user_sessions 真相源 + 平台/设备/IP/单端策略。成熟中间件能用就用，但不能用错地方。
 
 ## Session authenticator baseline
 
-`internal/module/session` 现在负责把现有 PHP 登录态读出来。
+`internal/module/session` 现在负责项目自管登录态，不把认证真相交给第三方 Gin JWT middleware。
 
 当前实现：
 
 ```text
-hash = sha256(access_token + "|" + TOKEN_PEPPER)
-Redis token key = TOKEN_REDIS_PREFIX + hash
+APP_SECRET 是唯一根密钥；internal/platform/secretkey 用 HKDF-SHA256 派生 jwt-signing、token-pepper、secretbox、session-cache keys。
+access_token 是本系统签发的 JWT，只包含 sid/sub/platform/device_id/iat/nbf/exp/iss 最小 claims。
+refresh_token 是 opaque random string，数据库只保存 sha256(refresh_token + "|" + derived token pepper)。
+Redis session key = TOKEN_REDIS_PREFIX + "session:" + session_id
 Redis payload = user_id|expires_at|ip|platform|device_id|session_id
-Token Redis 使用独立 DB，默认 TOKEN_REDIS_DB = 2，对齐旧 PHP token 连接
-Redis 未命中 -> MySQL user_sessions.access_token_hash
+Token Redis 使用独立 DB，默认 TOKEN_REDIS_DB = 2。
+Redis 未命中 -> MySQL user_sessions.id
 MySQL 条件：revoked_at IS NULL、is_del = 2、expires_at > now
 命中 MySQL 后回写 Redis，并按 TOKEN_SESSION_CACHE_TTL 续期
 按 auth_platforms 执行 current platform、bind_platform、bind_device、bind_ip、single_session 策略
 access/refresh token 有效期只来自 auth_platforms.access_ttl / auth_platforms.refresh_ttl
-最终 AuthIdentity.Platform 来自 session.platform
+最终 AuthIdentity.Platform 来自 session.platform，前端不得解析 JWT 决定权限。
 ```
 
 当前已实现：
 
 ```text
-password login 通过 session.Create 签发 access/refresh token
-refresh 重新签发 access token 时继续读取当前 session.platform 对应 auth_platforms.access_ttl
-single_session / max_sessions 登录时撤销旧会话
+password login 通过 session.Create 签发 JWT access token + opaque refresh token
+refresh 通过 refresh_token_hash 查 user_sessions，并重新签发 JWT access token
+single_session / max_sessions 登录时撤销旧会话并删除 token:session:<session_id> 缓存
 登录前必须通过 go-captcha slide 验证
 ```
 
@@ -387,7 +389,6 @@ Captcha
 Queue
 Realtime
 Scheduler
-Secretbox
 AI
 ```
 
@@ -405,7 +406,7 @@ MYSQL_CONN_MAX_LIFETIME
 REDIS_ADDR
 REDIS_PASSWORD
 REDIS_DB
-TOKEN_PEPPER
+APP_SECRET
 TOKEN_REDIS_PREFIX
 TOKEN_REDIS_DB
 TOKEN_SESSION_CACHE_TTL
@@ -437,7 +438,6 @@ CORS_ALLOW_ORIGINS
 CORS_ALLOW_HEADERS
 CORS_ALLOW_CREDENTIALS
 CORS_MAX_AGE
-VAULT_KEY
 ```
 
 规则：
@@ -447,7 +447,7 @@ config 不连接 DB
 config 不连接 Redis
 config 不读取业务表
 platform 层以后根据 config 创建 client
-TOKEN_REDIS_PREFIX / TOKEN_REDIS_DB / TOKEN_SESSION_CACHE_TTL / TOKEN_SINGLE_SESSION_POINTER_TTL 是部署级 Redis/session 基础设施配置，保留 env
+APP_SECRET 是部署级唯一根密钥；TOKEN_REDIS_PREFIX / TOKEN_REDIS_DB / TOKEN_SESSION_CACHE_TTL / TOKEN_SINGLE_SESSION_POINTER_TTL 是部署级 Redis/session 基础设施配置，保留 env
 TOKEN_ACCESS_TTL / TOKEN_REFRESH_TTL 不再存在；业务 token TTL 只在 auth_platforms 表中配置和管理
 AIConfig 只表达运行时超时边界：stream max duration、stream idle timeout、run stale timeout；不存 provider 业务参数
 ```
@@ -459,15 +459,16 @@ AIConfig 只表达运行时超时边界：stream max duration、stream idle time
 当前规则：
 
 ```text
-env = VAULT_KEY
-key derivation = sha256(VAULT_KEY)
+root env = APP_SECRET
+key derivation = HKDF-SHA256 purpose admin_go:secretbox:v1
+secretbox input = 32-byte derived key
 cipher = AES-256-GCM
 nonce/iv = 12 bytes
 tag = 16 bytes
 storage = base64(iv + tag + ciphertext)
 ```
 
-这是为了兼容旧 PHP KeyVault 已有密文格式。`VAULT_KEY` 为空时 encrypt/decrypt 必须明确失败；不能假加密，不能明文落库。
+`secretbox` 只接收 32-byte derived key；它不读 env，也不知道 APP_SECRET。APP_SECRET 缺失、默认值或长度不足时 API/worker 启动失败；不能假加密，不能明文落库。
 
 ## Realtime / WebSocket baseline
 
@@ -907,15 +908,15 @@ login 是公开接口；password login 必须带 captcha_id + captcha_answer，g
 password login 只支持邮箱/手机号账号 + PHP bcrypt $2y$ 密码校验
 email/phone code login 使用 Redis 短 TTL 验证码；本地开发 `VERIFY_CODE_DEV_MODE=true` 使用测试码，生产环境必须接入真实短信/邮件发送器后再关闭 dev mode
 验证码登录支持自动注册：先校验 code 不消费，再检查 auth_platforms.allow_register；允许注册后消费 code，并在同一事务创建 users + user_profiles + 默认角色
-登录成功通过 session.Create 生成 token，并按 auth_platforms 执行单端/最大会话策略
+登录成功通过 session.Create 生成 JWT access_token + opaque refresh_token，并按 auth_platforms 执行单端/最大会话策略
 登录成功/密码错误/验证码错误写 users_login_log；有 queue producer 时投递 `auth:login-log:v1` 到 critical lane，由 `cmd/admin-worker` 消费；producer 未配置或投递失败时同步写库兜底，写日志失败不影响主登录结果
 refresh 是公开接口，只接收 refresh_token，不走 AuthToken
-logout 是认证接口，先走 AuthToken，再撤销当前 access token 对应 session
+logout 是认证接口，先走 AuthToken，再撤销 JWT sid 对应 session
 refresh 通过 user_sessions.refresh_token_hash 查会话
-refresh rotate access_token_hash / refresh_token_hash / expires_at / last_seen_at / ip / ua
+refresh 重新签发 JWT access_token，rotate access_token_hash / refresh_token_hash / expires_at / last_seen_at / ip / ua
 refresh_expires_at 当前保持旧 PHP 语义：不延长总 refresh 生命周期
-refresh 后删除旧 access token Redis 缓存
-logout 后 revoke session，并清 token Redis 缓存；单端登录指针匹配当前 session 时才清
+refresh 后删除 token:session:<session_id> Redis 缓存
+logout 后 revoke session，并清 token:session:<session_id> Redis 缓存；单端登录指针匹配当前 session 时才清
 ```
 
 `auth` handler 不查 DB/Redis；它只解析 JSON / Authorization header，调用 `auth` service。
@@ -944,7 +945,7 @@ PATCH /api/admin/v1/user-sessions/revoke
 userquickentry 只拥有当前登录用户快捷入口保存：校验 permission 是 admin PAGE 且启用，最多 6 个，事务内软删旧 rows 再插入新 rows，返回 quick_entry。
 userloginlog 只拥有 users_login_log 读路径：LEFT JOIN users，账号/IP 前缀过滤，date_start/date_end 展开全日边界，用户不存在时 user_name=""。
 usersession 拥有 user_sessions 读和 revoke 写路径：列表不返回 access_token_hash/refresh_token_hash；状态由 revoked_at + refresh_expires_at 计算；revoke 禁止踢当前 AuthIdentity.SessionID。
-session.RevocationService 是 token Redis 清理边界：删除 TOKEN_REDIS_PREFIX+access_token_hash；只有 cur_sess:<platform>:<user_id> 当前值等于被撤销 session id 时才删 pointer。
+session.RevocationService 是 token Redis 清理边界：删除 TOKEN_REDIS_PREFIX+"session:"+session_id；只有 cur_sess:<platform>:<user_id> 当前值等于被撤销 session id 时才删 pointer。
 revoke 路由挂 user_userManager_kick 权限，并写 OperationLog user_session/revoke 或 user_session/revoke_batch。
 ```
 
@@ -1236,8 +1237,7 @@ full smoke 规则：
 只读探测 queue monitor JSON 摘要、failed pagination shape 和 asynqmon UI HEAD；不做 retry/delete/clear
 只读探测 system-logs init/files shape；文件列表非空时读取第一份日志 tail lines，不做 delete/clear/download
 只读探测 upload-drivers/upload-rules/upload-settings init/list shape
-VAULT_KEY 为空时跳过 upload config 写探针，并输出 upload_write_probe=skipped_no_vault_key
-VAULT_KEY 存在时只创建 disabled 临时 driver/rule/setting，再按 setting -> rule -> driver 反向清理；永远不启用临时 setting，也不修改现有 enabled setting
+upload config 写探针依赖 API/worker 启动时已验证的 APP_SECRET，只创建 disabled 临时 driver/rule/setting，再按 setting -> rule -> driver 反向清理；永远不启用临时 setting，也不修改现有 enabled setting
 COS_STS_ENABLED=false 时跳过 upload token 探针，并输出 upload_token_probe=skipped_cos_sts_disabled
 COS_STS_ENABLED=true 时 POST /api/admin/v1/upload-tokens 只校验 provider/key/credentials shape，不上传真实文件
 再单独验证 operation log init/list/delete

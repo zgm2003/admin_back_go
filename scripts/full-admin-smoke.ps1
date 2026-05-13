@@ -603,15 +603,6 @@ function Assert-UploadSettingList($Response) {
 }
 
 function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [string]$Suffix) {
-  if ([string]::IsNullOrWhiteSpace($env:VAULT_KEY)) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_vault_key'
-      DriverID = 0
-      RuleID = 0
-      SettingID = 0
-    }
-  }
-
   $driverID = 0
   $ruleID = 0
   $settingID = 0

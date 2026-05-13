@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-func TestLoadDoesNotReadLegacyVaultKey(t *testing.T) {
-	t.Setenv("VAULT_KEY", "vault-secret")
+func TestLoadReadsAppSecretWithoutLegacyVaultConfig(t *testing.T) {
 	t.Setenv("APP_SECRET", strings.Repeat("a", 64))
 
 	cfg := Load()
