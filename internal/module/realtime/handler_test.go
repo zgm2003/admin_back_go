@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 
@@ -134,6 +135,71 @@ func TestWebSocketRejectsWhenRealtimeDisabled(t *testing.T) {
 	}
 	if response == nil || response.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 response, got response=%#v err=%v", response, err)
+	}
+}
+
+func TestWebSocketLocalizesDisabledResponse(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{
+			UserID:    7,
+			SessionID: 9,
+			Platform:  "admin",
+		})
+		c.Next()
+	})
+	RegisterRoutes(router, NewHandler(
+		NewService(25*time.Second),
+		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		platformrealtime.NewManager(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithEnabled(false),
+	))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/realtime/ws", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json response: %v", err)
+	}
+	if body["msg"] != "Realtime is not enabled" {
+		t.Fatalf("expected localized realtime disabled message, got %#v", body["msg"])
+	}
+}
+
+func TestWebSocketLocalizesMissingIdentity(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	RegisterRoutes(router, NewHandler(
+		NewService(25*time.Second),
+		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		platformrealtime.NewManager(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/realtime/ws", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json response: %v", err)
+	}
+	if body["msg"] != "Token is invalid or expired" {
+		t.Fatalf("expected localized token message, got %#v", body["msg"])
 	}
 }
 

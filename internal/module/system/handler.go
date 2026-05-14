@@ -27,7 +27,7 @@ func (h *Handler) Ping(c *gin.Context) {
 func (h *Handler) Ready(c *gin.Context) {
 	report := h.service.Ready(c.Request.Context())
 	if report.Status != readiness.StatusReady {
-		response.ErrorWithData(c, apperror.Internal("service not ready"), report)
+		response.ErrorWithData(c, apperror.InternalKey("system.ready.not_ready", nil, "service not ready"), report)
 		return
 	}
 	response.OK(c, report)

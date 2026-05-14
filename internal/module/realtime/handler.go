@@ -77,12 +77,12 @@ func NewHandler(service *Service, upgrader *platformrealtime.Upgrader, manager *
 // connect/ping/pong lifecycle.
 func (h *Handler) WebSocket(c *gin.Context) {
 	if h == nil || !h.enabled {
-		response.Abort(c, apperror.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "Realtime未启用"))
+		response.Abort(c, apperror.NewKey(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "realtime.disabled", nil, "Realtime未启用"))
 		return
 	}
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil {
-		response.Abort(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Abort(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return
 	}
 	if h.service == nil {
