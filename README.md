@@ -288,15 +288,9 @@ SCHEDULER_LOCK_TTL=30s
 ```env
 VERIFY_CODE_TTL=5m
 VERIFY_CODE_REDIS_PREFIX=auth:verify_code:
-VERIFY_CODE_DEV_MODE=true
-VERIFY_CODE_DEV_CODE=123456
 ```
 
-演示环境可以保留 `VERIFY_CODE_DEV_MODE=true`。真实用户生产环境必须接入真实短信/邮件后改成：
-
-```env
-VERIFY_CODE_DEV_MODE=false
-```
+规则很简单：手机号验证码固定 `123456`，不接短信，也不受 `.env` 控制；邮箱验证码始终走腾讯云 SES，需要先在邮件管理里启用发信配置和审核通过的模板。生产如果不开放手机号登录，直接在 `auth_platforms.login_types` 里关闭 `phone`。
 
 ### CORS
 
@@ -860,15 +854,9 @@ docker compose logs -f admin-worker
 
 `admin-worker` 没跑，队列任务就不会消费。
 
-### 5. 线上验证码总是固定 `123456`
+### 5. 手机号验证码总是固定 `123456`
 
-检查：
-
-```env
-VERIFY_CODE_DEV_MODE=true
-```
-
-演示环境可以这样。真实用户生产必须接真实短信/邮件并改成 `false`。
+这是当前业务规则，不是配置遗漏：手机号短信未接入，手机号验证码固定 `123456`，不受 env 控制。邮箱验证码才走腾讯云 SES；生产如果不开放手机号登录，去 `auth_platforms.login_types` 关闭 `phone`。
 
 ### 6. 不要把 Nginx 配置放进 Docker
 

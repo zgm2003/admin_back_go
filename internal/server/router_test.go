@@ -228,7 +228,7 @@ func (fakeAuthService) Login(ctx context.Context, input auth.LoginInput) (*auth.
 }
 
 func (fakeAuthService) SendCode(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
-	return "验证码发送成功(测试:123456)", nil
+	return "验证码发送成功", nil
 }
 
 func (fakeAuthService) ForgetPassword(ctx context.Context, input auth.ForgetPasswordInput) *apperror.Error {

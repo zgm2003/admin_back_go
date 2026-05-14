@@ -36,7 +36,7 @@ const (
 
 const (
 	defaultVerifyCodeTTL = 5 * time.Minute
-	defaultDevCode       = "123456"
+	defaultPhoneCode     = "123456"
 	profileSexUnknown    = 0
 )
 
@@ -69,8 +69,7 @@ type VerifyCodeMailSender interface {
 type VerifyCodeOptions struct {
 	TTL           time.Duration
 	RedisPrefix   string
-	DevMode       bool
-	DevCode       string
+	PhoneCode     string
 	CodeGenerator func() (string, error)
 }
 
@@ -98,7 +97,7 @@ func NewService(repository Repository, platformConfig PlatformConfigProvider, se
 		verifyCodeOptions: VerifyCodeOptions{
 			TTL:         defaultVerifyCodeTTL,
 			RedisPrefix: defaultVerifyCodeRedisPrefix,
-			DevCode:     defaultDevCode,
+			PhoneCode:   defaultPhoneCode,
 		},
 	}
 	for _, opt := range opts {
@@ -179,20 +178,21 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if accountType == "" {
 		return "", apperror.BadRequest("请输入正确的邮箱或手机号")
 	}
-	if !s.verifyCodeOptions.DevMode && accountType == LoginTypePhone {
-		return "", apperror.Internal("短信验证码服务未配置")
-	}
 
-	code, err := s.generateVerifyCode()
-	if err != nil {
-		return "", apperror.Internal("验证码生成失败")
+	code := s.verifyCodeOptions.PhoneCode
+	if accountType == LoginTypeEmail {
+		generated, err := s.generateVerifyCode()
+		if err != nil {
+			return "", apperror.Internal("验证码生成失败")
+		}
+		code = generated
 	}
 	cacheKey := s.verifyCodeCacheKey(accountType, input.Scene, input.Account)
 	if err := s.codeStore.Set(ctx, cacheKey, code, s.verifyCodeOptions.TTL); err != nil {
 		return "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
-	if s.verifyCodeOptions.DevMode {
-		return "验证码发送成功(测试:" + code + ")", nil
+	if accountType == LoginTypePhone {
+		return "验证码发送成功", nil
 	}
 	if s.verifyCodeMailSender == nil {
 		_ = s.codeStore.Delete(ctx, cacheKey)
@@ -543,9 +543,6 @@ func (s *Service) verifyCodeCacheKey(accountType string, scene string, account s
 }
 
 func (s *Service) generateVerifyCode() (string, error) {
-	if s.verifyCodeOptions.DevMode {
-		return s.verifyCodeOptions.DevCode, nil
-	}
 	return s.verifyCodeOptions.CodeGenerator()
 }
 
@@ -644,9 +641,9 @@ func normalizeVerifyCodeOptions(options VerifyCodeOptions) VerifyCodeOptions {
 	if options.RedisPrefix == "" {
 		options.RedisPrefix = defaultVerifyCodeRedisPrefix
 	}
-	options.DevCode = strings.TrimSpace(options.DevCode)
-	if options.DevCode == "" {
-		options.DevCode = defaultDevCode
+	options.PhoneCode = strings.TrimSpace(options.PhoneCode)
+	if options.PhoneCode == "" {
+		options.PhoneCode = defaultPhoneCode
 	}
 	if options.CodeGenerator == nil {
 		options.CodeGenerator = randomSixDigitCode

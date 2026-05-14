@@ -112,7 +112,7 @@ func TestHandlerLoginConfigUsesPlatformHeader(t *testing.T) {
 }
 
 func TestHandlerSendCodeUsesGoRestContract(t *testing.T) {
-	service := &fakeSessionService{sendCodeMsg: "验证码发送成功(测试:123456)"}
+	service := &fakeSessionService{sendCodeMsg: "验证码发送成功"}
 	router := newAuthTestRouter(service)
 
 	recorder := httptest.NewRecorder()
@@ -127,7 +127,7 @@ func TestHandlerSendCodeUsesGoRestContract(t *testing.T) {
 		t.Fatalf("unexpected send code input: %#v", service.sendCodeInput)
 	}
 	body := decodeAuthBody(t, recorder)
-	if body["msg"] != "验证码发送成功(测试:123456)" {
+	if body["msg"] != "验证码发送成功" {
 		t.Fatalf("unexpected send-code message: %#v", body)
 	}
 }

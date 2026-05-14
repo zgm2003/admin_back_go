@@ -99,8 +99,6 @@ type CaptchaConfig struct {
 type VerifyCodeConfig struct {
 	TTL         time.Duration
 	RedisPrefix string
-	DevMode     bool
-	DevCode     string
 }
 
 type QueueConfig struct {
@@ -226,8 +224,6 @@ func Load() Config {
 		VerifyCode: VerifyCodeConfig{
 			TTL:         envDuration("VERIFY_CODE_TTL", 5*time.Minute),
 			RedisPrefix: envString("VERIFY_CODE_REDIS_PREFIX", "auth:verify_code:"),
-			DevMode:     envBool("VERIFY_CODE_DEV_MODE", strings.EqualFold(envString("APP_ENV", "local"), "local")),
-			DevCode:     envString("VERIFY_CODE_DEV_CODE", "123456"),
 		},
 		Queue: QueueConfig{
 			Enabled:         envBool("QUEUE_ENABLED", true),

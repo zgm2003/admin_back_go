@@ -529,15 +529,19 @@ func TestServiceLoginRejectsInvalidCaptchaBeforeCredentialLookup(t *testing.T) {
 	}
 }
 
-func TestServiceSendCodeStoresLocalPhoneLoginCode(t *testing.T) {
+func TestServiceSendCodeStoresFixedPhoneLoginCode(t *testing.T) {
 	store := &fakeCodeStore{}
+	randomGeneratorCalled := false
 	service := NewService(
 		&fakeAuthRepository{},
 		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) {
+			randomGeneratorCalled = true
+			return "654321", nil
+		}}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{
@@ -548,8 +552,11 @@ func TestServiceSendCodeStoresLocalPhoneLoginCode(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected send code to succeed, got %v", appErr)
 	}
-	if message != "验证码发送成功(测试:123456)" {
+	if message != "验证码发送成功" {
 		t.Fatalf("unexpected send message %q", message)
+	}
+	if randomGeneratorCalled {
+		t.Fatalf("phone send-code must use fixed phone code, not random generator")
 	}
 	if store.setCode != "123456" || store.setTTL != 5*time.Minute {
 		t.Fatalf("unexpected code store write: code=%q ttl=%s", store.setCode, store.setTTL)
@@ -576,7 +583,7 @@ func TestServicePhoneCodeLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
 		sessions,
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 	)
 
 	result, appErr := service.Login(context.Background(), LoginInput{
@@ -620,7 +627,7 @@ func TestServiceCodeLoginRejectsRegisterWhenPlatformDisallowsIt(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 	)
 
 	result, appErr := service.Login(context.Background(), LoginInput{
@@ -656,7 +663,7 @@ func TestServiceCodeLoginRejectsInvalidCodeAndEnqueuesFailure(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 		WithLoginLogEnqueuer(enqueuer),
 	)
 
@@ -723,7 +730,7 @@ func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeMailSender(mailSender),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: false, CodeGenerator: func() (string, error) { return "654321", nil }}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
@@ -752,7 +759,7 @@ func TestServiceSendCodeRealEmailDeletesCachedCodeWhenMailFails(t *testing.T) {
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeMailSender(mailSender),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: false, CodeGenerator: func() (string, error) { return "654321", nil }}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
@@ -765,7 +772,7 @@ func TestServiceSendCodeRealEmailDeletesCachedCodeWhenMailFails(t *testing.T) {
 	}
 }
 
-func TestServiceSendCodeRealPhoneStillReportsSMSNotConfigured(t *testing.T) {
+func TestServiceSendCodePhoneIgnoresMailSenderAndStoresFixedCode(t *testing.T) {
 	store := &fakeCodeStore{}
 	mailSender := &fakeVerifyCodeMailSender{}
 	service := NewService(
@@ -775,38 +782,36 @@ func TestServiceSendCodeRealPhoneStillReportsSMSNotConfigured(t *testing.T) {
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeMailSender(mailSender),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: false, CodeGenerator: func() (string, error) { return "654321", nil }}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "15671628271", Scene: VerifyCodeSceneLogin})
 
-	if message != "" || appErr == nil || appErr.Message != "短信验证码服务未配置" {
-		t.Fatalf("expected SMS not configured, message=%q err=%#v", message, appErr)
+	if appErr != nil || message != "验证码发送成功" {
+		t.Fatalf("expected fixed phone code success, message=%q err=%#v", message, appErr)
 	}
-	if store.setKey != "" || mailSender.email != "" {
-		t.Fatalf("phone real mode must not cache or send email, store=%#v sender=%#v", store, mailSender)
+	if store.setCode != "123456" || store.setKey != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" || mailSender.email != "" {
+		t.Fatalf("phone send-code must cache fixed code and skip mail sender, store=%#v sender=%#v", store, mailSender)
 	}
 }
 
-func TestServiceSendCodeDevModeStillReturnsTestCode(t *testing.T) {
+func TestServiceSendCodeEmailRequiresMailSenderAndDeletesCachedCode(t *testing.T) {
 	store := &fakeCodeStore{}
-	mailSender := &fakeVerifyCodeMailSender{}
 	service := NewService(
 		&fakeAuthRepository{},
 		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
-		WithVerifyCodeMailSender(mailSender),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, DevMode: true, DevCode: "123456"}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
 
-	if appErr != nil || message != "验证码发送成功(测试:123456)" {
-		t.Fatalf("expected dev mode test code, message=%q err=%#v", message, appErr)
+	if message != "" || appErr == nil || appErr.Message != "邮件验证码服务未配置" {
+		t.Fatalf("expected missing mail sender error, message=%q err=%#v", message, appErr)
 	}
-	if store.setCode != "123456" || mailSender.email != "" {
-		t.Fatalf("dev mode must cache test code without real sender, store=%#v sender=%#v", store, mailSender)
+	if store.setCode != "654321" || store.deleted != store.setKey || store.values[store.setKey] != "" {
+		t.Fatalf("email send-code must clean cached code when sender is missing, store=%#v", store)
 	}
 }

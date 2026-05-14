@@ -223,7 +223,7 @@ try {
     -Headers @{ platform = $Platform } `
     -TimeoutSec 5
 
-  $verifyCode = if ([string]::IsNullOrWhiteSpace($env:VERIFY_CODE_DEV_CODE)) { '123456' } else { $env:VERIFY_CODE_DEV_CODE }
+  $verifyCode = '123456'
   $sendCodeBody = @{
     account = $Account
     scene = 'login'

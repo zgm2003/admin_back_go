@@ -242,8 +242,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		auth.WithVerifyCodeOptions(auth.VerifyCodeOptions{
 			TTL:         cfg.VerifyCode.TTL,
 			RedisPrefix: cfg.VerifyCode.RedisPrefix,
-			DevMode:     cfg.VerifyCode.DevMode,
-			DevCode:     cfg.VerifyCode.DevCode,
 		}),
 		auth.WithLoginLogEnqueuer(loginLogEnqueuer),
 		auth.WithLogger(logger),
