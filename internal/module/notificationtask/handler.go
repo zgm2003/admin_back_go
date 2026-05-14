@@ -20,7 +20,7 @@ func NewHandler(service HTTPService) *Handler {
 
 func (h *Handler) Init(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知任务服务未配置"))
+		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
 	result, appErr := h.service.Init(c.Request.Context())
@@ -33,12 +33,12 @@ func (h *Handler) Init(c *gin.Context) {
 
 func (h *Handler) StatusCount(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知任务服务未配置"))
+		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
 	var req statusCountRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("状态统计参数错误"))
+		response.Error(c, apperror.BadRequestKey("notificationtask.status_count.request.invalid", nil, "状态统计参数错误"))
 		return
 	}
 	result, appErr := h.service.StatusCount(c.Request.Context(), StatusCountQuery{Title: req.Title})
@@ -51,12 +51,12 @@ func (h *Handler) StatusCount(c *gin.Context) {
 
 func (h *Handler) List(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知任务服务未配置"))
+		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("notificationtask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	result, appErr := h.service.List(c.Request.Context(), ListQuery{
@@ -74,17 +74,17 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) Create(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知任务服务未配置"))
+		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return
 	}
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("notificationtask.create.request.invalid", nil, "参数错误"))
 		return
 	}
 	result, appErr := h.service.Create(c.Request.Context(), CreateInput{
@@ -108,7 +108,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 func (h *Handler) Cancel(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知任务服务未配置"))
+		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -124,7 +124,7 @@ func (h *Handler) Cancel(c *gin.Context) {
 
 func (h *Handler) Delete(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知任务服务未配置"))
+		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -141,7 +141,7 @@ func (h *Handler) Delete(c *gin.Context) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的通知任务ID"))
+		response.Error(c, apperror.BadRequestKey("notificationtask.id.invalid", nil, "无效的通知任务ID"))
 		return 0, false
 	}
 	return id, true

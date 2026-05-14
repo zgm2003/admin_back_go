@@ -93,7 +93,7 @@ func (s *Service) StatusCount(ctx context.Context, query StatusCountQuery) ([]St
 	query.Title = strings.TrimSpace(query.Title)
 	counts, err := repo.CountByStatus(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询通知任务状态统计失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.status_count_failed", nil, "查询通知任务状态统计失败", err)
 	}
 	items := dict.NotificationTaskStatusOptions()
 	result := make([]StatusCountItem, 0, len(items))
@@ -114,7 +114,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询通知任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.query_failed", nil, "查询通知任务失败", err)
 	}
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -137,11 +137,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	}
 	totalCount, err := repo.CountTargetUsers(ctx, input.TargetType, input.TargetIDs)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "计算通知目标用户失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.target_count_failed", nil, "计算通知目标用户失败", err)
 	}
 	targetIDsJSON, err := json.Marshal(input.TargetIDs)
 	if err != nil {
-		return nil, apperror.BadRequest("通知目标格式错误")
+		return nil, apperror.BadRequestKey("notificationtask.target.invalid", nil, "通知目标格式错误")
 	}
 	id, err := repo.Create(ctx, Task{
 		Title:      input.Title,
@@ -159,24 +159,24 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 		IsDel:      enum.CommonNo,
 	})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建通知任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.create_failed", nil, "创建通知任务失败", err)
 	}
 	if sendAt != nil {
 		return &CreateResponse{ID: id, Queued: false}, nil
 	}
 	task, err := NewSendTask(id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "构建通知发送任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.send_task_build_failed", nil, "构建通知发送任务失败", err)
 	}
 	if _, err := s.enqueue(ctx, task); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "通知任务已创建但入队失败，请等待调度器补偿或手动处理", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.enqueue_failed", nil, "通知任务已创建但入队失败，请等待调度器补偿或手动处理", err)
 	}
 	return &CreateResponse{ID: id, Queued: true}, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, id int64) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的通知任务ID")
+		return apperror.BadRequestKey("notificationtask.id.invalid", nil, "无效的通知任务ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -184,27 +184,27 @@ func (s *Service) Cancel(ctx context.Context, id int64) *apperror.Error {
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询通知任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.query_failed", nil, "查询通知任务失败", err)
 	}
 	if row == nil {
-		return apperror.NotFound("通知任务不存在")
+		return apperror.NotFoundKey("notificationtask.not_found", nil, "通知任务不存在")
 	}
 	if row.Status != enum.NotificationTaskStatusPending {
-		return apperror.BadRequest("只能取消待发送的通知任务")
+		return apperror.BadRequestKey("notificationtask.cancel.pending_only", nil, "只能取消待发送的通知任务")
 	}
 	affected, err := repo.CancelPending(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "取消通知任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.cancel_failed", nil, "取消通知任务失败", err)
 	}
 	if affected == 0 {
-		return apperror.BadRequest("任务状态已变更，请刷新后重试")
+		return apperror.BadRequestKey("notificationtask.state_changed", nil, "任务状态已变更，请刷新后重试")
 	}
 	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的通知任务ID")
+		return apperror.BadRequestKey("notificationtask.id.invalid", nil, "无效的通知任务ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -212,17 +212,17 @@ func (s *Service) Delete(ctx context.Context, id int64) *apperror.Error {
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询通知任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.query_failed", nil, "查询通知任务失败", err)
 	}
 	if row == nil {
-		return apperror.NotFound("通知任务不存在")
+		return apperror.NotFoundKey("notificationtask.not_found", nil, "通知任务不存在")
 	}
 	affected, err := repo.Delete(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除通知任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "notificationtask.delete_failed", nil, "删除通知任务失败", err)
 	}
 	if affected == 0 {
-		return apperror.BadRequest("通知任务状态已变更，请刷新后重试")
+		return apperror.BadRequestKey("notificationtask.state_changed", nil, "通知任务状态已变更，请刷新后重试")
 	}
 	return nil
 }
@@ -258,7 +258,7 @@ func (s *Service) DispatchDue(ctx context.Context, input DispatchDueInput) (*Dis
 
 func (s *Service) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskResult, error) {
 	if input.TaskID <= 0 {
-		return nil, apperror.BadRequest("无效的通知任务ID")
+		return nil, apperror.BadRequestKey("notificationtask.id.invalid", nil, "无效的通知任务ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -319,7 +319,7 @@ func (s *Service) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskR
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("通知任务仓储未配置")
+		return nil, apperror.InternalKey("notificationtask.repository_missing", nil, "通知任务仓储未配置")
 	}
 	return s.repository, nil
 }
@@ -333,13 +333,13 @@ func (s *Service) enqueue(ctx context.Context, task taskqueue.Task) (taskqueue.E
 
 func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	if query.CurrentPage <= 0 {
-		return query, apperror.BadRequest("当前页无效")
+		return query, apperror.BadRequestKey("notificationtask.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
-		return query, apperror.BadRequest("每页数量无效")
+		return query, apperror.BadRequestKey("notificationtask.page_size.invalid", nil, "每页数量无效")
 	}
 	if query.Status != nil && !enum.IsNotificationTaskStatus(*query.Status) {
-		return query, apperror.BadRequest("无效的通知任务状态")
+		return query, apperror.BadRequestKey("notificationtask.status.invalid", nil, "无效的通知任务状态")
 	}
 	query.Title = strings.TrimSpace(query.Title)
 	return query, nil
@@ -348,34 +348,34 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 func normalizeCreateInput(input CreateInput, now time.Time) (CreateInput, *time.Time, *apperror.Error) {
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" || len([]rune(input.Title)) > 100 {
-		return input, nil, apperror.BadRequest("通知标题不能为空且不能超过100个字符")
+		return input, nil, apperror.BadRequestKey("notificationtask.title.invalid", nil, "通知标题不能为空且不能超过100个字符")
 	}
 	input.Content = strings.TrimSpace(input.Content)
 	input.Link = strings.TrimSpace(input.Link)
 	if len([]rune(input.Link)) > 500 {
-		return input, nil, apperror.BadRequest("通知链接不能超过500个字符")
+		return input, nil, apperror.BadRequestKey("notificationtask.link.too_long", nil, "通知链接不能超过500个字符")
 	}
 	if input.Type == 0 {
 		input.Type = enum.NotificationTypeInfo
 	}
 	if !enum.IsNotificationType(input.Type) {
-		return input, nil, apperror.BadRequest("无效的通知类型")
+		return input, nil, apperror.BadRequestKey("notificationtask.type.invalid", nil, "无效的通知类型")
 	}
 	if input.Level == 0 {
 		input.Level = enum.NotificationLevelNormal
 	}
 	if !enum.IsNotificationLevel(input.Level) {
-		return input, nil, apperror.BadRequest("无效的通知级别")
+		return input, nil, apperror.BadRequestKey("notificationtask.level.invalid", nil, "无效的通知级别")
 	}
 	input.Platform = strings.TrimSpace(input.Platform)
 	if input.Platform == "" {
 		input.Platform = enum.PlatformAll
 	}
 	if !enum.IsNotificationTaskPlatform(input.Platform) {
-		return input, nil, apperror.BadRequest("无效的平台标识")
+		return input, nil, apperror.BadRequestKey("notificationtask.platform.invalid", nil, "无效的平台标识")
 	}
 	if !enum.IsNotificationTargetType(input.TargetType) {
-		return input, nil, apperror.BadRequest("无效的通知目标类型")
+		return input, nil, apperror.BadRequestKey("notificationtask.target_type.invalid", nil, "无效的通知目标类型")
 	}
 	input.TargetIDs = normalizeIDs(input.TargetIDs)
 	switch input.TargetType {
@@ -383,11 +383,11 @@ func normalizeCreateInput(input CreateInput, now time.Time) (CreateInput, *time.
 		input.TargetIDs = []int64{}
 	case enum.NotificationTargetUsers, enum.NotificationTargetRoles:
 		if len(input.TargetIDs) == 0 {
-			return input, nil, apperror.BadRequest("请选择通知目标")
+			return input, nil, apperror.BadRequestKey("notificationtask.target.required", nil, "请选择通知目标")
 		}
 	}
 	if input.CreatedBy <= 0 {
-		return input, nil, apperror.Unauthorized("Token无效或已过期")
+		return input, nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 
 	sendAtText := strings.TrimSpace(input.SendAt)
@@ -396,10 +396,10 @@ func normalizeCreateInput(input CreateInput, now time.Time) (CreateInput, *time.
 	}
 	sendAt, err := time.ParseInLocation(timeLayout, sendAtText, time.Local)
 	if err != nil {
-		return input, nil, apperror.BadRequest("定时发送时间格式错误")
+		return input, nil, apperror.BadRequestKey("notificationtask.send_at.format_invalid", nil, "定时发送时间格式错误")
 	}
 	if !now.IsZero() && sendAt.Before(now.Add(-time.Second)) {
-		return input, nil, apperror.BadRequest("定时发送时间不能早于当前时间")
+		return input, nil, apperror.BadRequestKey("notificationtask.send_at.past", nil, "定时发送时间不能早于当前时间")
 	}
 	return input, &sendAt, nil
 }

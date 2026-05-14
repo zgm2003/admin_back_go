@@ -1,0 +1,30 @@
+notificationtask.service_missing: Notification task service is not configured
+notificationtask.repository_missing: Notification task repository is not configured
+notificationtask.status_count.request.invalid: Invalid status count request
+notificationtask.list.request.invalid: Invalid list request
+notificationtask.create.request.invalid: Invalid create request
+notificationtask.id.invalid: Invalid notification task ID
+notificationtask.status_count_failed: Failed to query notification task status counts
+notificationtask.query_failed: Failed to query notification tasks
+notificationtask.target_count_failed: Failed to calculate target users
+notificationtask.target.invalid: Invalid notification target
+notificationtask.create_failed: Failed to create notification task
+notificationtask.send_task_build_failed: Failed to build notification send task
+notificationtask.enqueue_failed: Notification task was created but enqueue failed; wait for scheduler compensation or handle it manually
+notificationtask.not_found: Notification task does not exist
+notificationtask.cancel.pending_only: Only pending notification tasks can be canceled
+notificationtask.cancel_failed: Failed to cancel notification task
+notificationtask.state_changed: Task status has changed; refresh and try again
+notificationtask.delete_failed: Failed to delete notification task
+notificationtask.current_page.invalid: Invalid current page
+notificationtask.page_size.invalid: Invalid page size
+notificationtask.status.invalid: Invalid notification task status
+notificationtask.title.invalid: Notification title is required and must be at most 100 characters
+notificationtask.link.too_long: Notification link must be at most 500 characters
+notificationtask.type.invalid: Invalid notification type
+notificationtask.level.invalid: Invalid notification level
+notificationtask.platform.invalid: Invalid platform
+notificationtask.target_type.invalid: Invalid notification target type
+notificationtask.target.required: Select notification targets
+notificationtask.send_at.format_invalid: Scheduled send time format is invalid
+notificationtask.send_at.past: Scheduled send time cannot be earlier than current time
