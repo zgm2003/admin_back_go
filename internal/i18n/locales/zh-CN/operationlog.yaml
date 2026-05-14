@@ -1,0 +1,9 @@
+operationlog.service_missing: 操作日志服务未配置
+operationlog.repository_missing: 操作日志仓储未配置
+operationlog.list.request.invalid: 列表参数错误
+operationlog.delete.empty: 请选择要删除的操作日志
+operationlog.id.invalid: 无效的操作日志ID
+operationlog.current_page.invalid: 当前页无效
+operationlog.page_size.invalid: 每页数量无效
+operationlog.query_failed: 查询操作日志失败
+operationlog.delete_failed: 删除操作日志失败

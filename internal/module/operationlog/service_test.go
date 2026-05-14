@@ -3,6 +3,7 @@ package operationlog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -208,6 +209,36 @@ func TestServiceDeleteNormalizesIDs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(repo.deleted, []int64{9, 10}) {
 		t.Fatalf("delete ids mismatch: %#v", repo.deleted)
+	}
+}
+
+func TestServiceListRejectsInvalidPaginationWithKeys(t *testing.T) {
+	svc := NewService(&fakeRepository{})
+
+	if _, appErr := svc.List(context.Background(), ListQuery{CurrentPage: 0, PageSize: 20}); appErr == nil || appErr.MessageID != "operationlog.current_page.invalid" {
+		t.Fatalf("expected keyed current page error, got %#v", appErr)
+	}
+	if _, appErr := svc.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 99}); appErr == nil || appErr.MessageID != "operationlog.page_size.invalid" {
+		t.Fatalf("expected keyed page size error, got %#v", appErr)
+	}
+}
+
+func TestServiceListAndDeleteWrapRepositoryErrors(t *testing.T) {
+	svc := NewService(&fakeRepository{err: errors.New("db down")})
+
+	if _, appErr := svc.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20}); appErr == nil || appErr.MessageID != "operationlog.query_failed" {
+		t.Fatalf("expected keyed query error, got %#v", appErr)
+	}
+	if appErr := svc.Delete(context.Background(), []int64{1}); appErr == nil || appErr.MessageID != "operationlog.delete_failed" {
+		t.Fatalf("expected keyed delete error, got %#v", appErr)
+	}
+}
+
+func TestServiceDeleteRejectsEmptyIDsWithKey(t *testing.T) {
+	svc := NewService(&fakeRepository{})
+
+	if appErr := svc.Delete(context.Background(), []int64{0}); appErr == nil || appErr.MessageID != "operationlog.delete.empty" {
+		t.Fatalf("expected keyed empty delete error, got %#v", appErr)
 	}
 }
 

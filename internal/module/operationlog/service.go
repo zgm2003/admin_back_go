@@ -28,7 +28,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("操作日志仓储未配置")
+		return nil, apperror.InternalKey("operationlog.repository_missing", nil, "操作日志仓储未配置")
 	}
 
 	normalized, appErr := normalizeListQuery(query)
@@ -38,7 +38,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	rows, total, err := s.repository.List(ctx, normalized)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询操作日志失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "operationlog.query_failed", nil, "查询操作日志失败", err)
 	}
 
 	list := make([]ListItem, 0, len(rows))
@@ -68,14 +68,14 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	if s == nil || s.repository == nil {
-		return apperror.Internal("操作日志仓储未配置")
+		return apperror.InternalKey("operationlog.repository_missing", nil, "操作日志仓储未配置")
 	}
 	ids = normalizeIDs(ids)
 	if len(ids) == 0 {
-		return apperror.BadRequest("请选择要删除的操作日志")
+		return apperror.BadRequestKey("operationlog.delete.empty", nil, "请选择要删除的操作日志")
 	}
 	if err := s.repository.Delete(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除操作日志失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "operationlog.delete_failed", nil, "删除操作日志失败", err)
 	}
 	return nil
 }
@@ -199,10 +199,10 @@ func shouldMaskField(field string, maskGenericCode bool) bool {
 
 func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	if query.CurrentPage <= 0 {
-		return query, apperror.BadRequest("当前页无效")
+		return query, apperror.BadRequestKey("operationlog.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < 1 || query.PageSize > 50 {
-		return query, apperror.BadRequest("每页数量无效")
+		return query, apperror.BadRequestKey("operationlog.page_size.invalid", nil, "每页数量无效")
 	}
 	query.Action = strings.TrimSpace(query.Action)
 	query.DateRange = normalizeDateRange(query.DateRange)

@@ -27,7 +27,7 @@ func NewHandler(service HTTPService) *Handler {
 
 func (h *Handler) Init(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("操作日志服务未配置"))
+		response.Error(c, apperror.InternalKey("operationlog.service_missing", nil, "操作日志服务未配置"))
 		return
 	}
 	result, appErr := h.service.Init(c.Request.Context())
@@ -40,12 +40,12 @@ func (h *Handler) Init(c *gin.Context) {
 
 func (h *Handler) List(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("操作日志服务未配置"))
+		response.Error(c, apperror.InternalKey("operationlog.service_missing", nil, "操作日志服务未配置"))
 		return
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("operationlog.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	query := ListQuery{
@@ -65,7 +65,7 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) DeleteOne(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("操作日志服务未配置"))
+		response.Error(c, apperror.InternalKey("operationlog.service_missing", nil, "操作日志服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -81,12 +81,12 @@ func (h *Handler) DeleteOne(c *gin.Context) {
 
 func (h *Handler) DeleteBatch(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("操作日志服务未配置"))
+		response.Error(c, apperror.InternalKey("operationlog.service_missing", nil, "操作日志服务未配置"))
 		return
 	}
 	var req deleteBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("请选择要删除的操作日志"))
+		response.Error(c, apperror.BadRequestKey("operationlog.delete.empty", nil, "请选择要删除的操作日志"))
 		return
 	}
 	if appErr := h.service.Delete(c.Request.Context(), req.IDs); appErr != nil {
@@ -99,7 +99,7 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的操作日志ID"))
+		response.Error(c, apperror.BadRequestKey("operationlog.id.invalid", nil, "无效的操作日志ID"))
 		return 0, false
 	}
 	return id, true

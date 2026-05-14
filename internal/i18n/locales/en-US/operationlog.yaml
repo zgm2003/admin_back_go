@@ -1,0 +1,9 @@
+operationlog.service_missing: Operation log service is not configured
+operationlog.repository_missing: Operation log repository is not configured
+operationlog.list.request.invalid: Invalid operation log list request
+operationlog.delete.empty: Select operation logs to delete
+operationlog.id.invalid: Invalid operation log ID
+operationlog.current_page.invalid: Invalid current page
+operationlog.page_size.invalid: Invalid page size
+operationlog.query_failed: Failed to query operation logs
+operationlog.delete_failed: Failed to delete operation logs
