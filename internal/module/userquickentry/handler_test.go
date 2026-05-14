@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,24 @@ func TestHandlerSaveRequiresAuthIdentity(t *testing.T) {
 	}
 }
 
+func TestHandlerSaveLocalizesInvalidRequest(t *testing.T) {
+	router := newQuickEntryLocalizedTestRouter(&fakeHTTPService{}, &middleware.AuthIdentity{UserID: 44, SessionID: 9, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/users/me/quick-entries", bytes.NewBufferString(`{`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeQuickEntryBody(t, recorder)
+	if body["msg"] != "Invalid quick entry request" {
+		t.Fatalf("expected localized msg, got %#v", body["msg"])
+	}
+}
+
 func TestHandlerSaveUsesAuthUserAndReturnsQuickEntryField(t *testing.T) {
 	service := &fakeHTTPService{result: &SaveResponse{QuickEntry: []QuickEntry{{ID: 7, PermissionID: 3, Sort: 1}}}}
 	router := newQuickEntryTestRouter(service, &middleware.AuthIdentity{UserID: 44, SessionID: 9, Platform: "admin"})
@@ -70,6 +89,20 @@ func TestHandlerSaveUsesAuthUserAndReturnsQuickEntryField(t *testing.T) {
 func newQuickEntryTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	RegisterRoutes(router, service)
+	return router
+}
+
+func newQuickEntryLocalizedTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
 	if identity != nil {
 		router.Use(func(c *gin.Context) {
 			c.Set(middleware.ContextAuthIdentity, identity)

@@ -21,13 +21,13 @@ func NewHandler(service HTTPService) *Handler {
 func (h *Handler) Save(c *gin.Context) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return
 	}
 
 	var req saveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("快捷入口参数错误"))
+		response.Error(c, apperror.BadRequestKey("userquickentry.request.invalid", nil, "快捷入口参数错误"))
 		return
 	}
 
@@ -49,5 +49,5 @@ func (h *Handler) requireService() HTTPService {
 type nilHTTPService struct{}
 
 func (nilHTTPService) Save(ctx context.Context, userID int64, input SaveInput) (*SaveResponse, *apperror.Error) {
-	return nil, apperror.Internal("快捷入口服务未配置")
+	return nil, apperror.InternalKey("userquickentry.service_missing", nil, "快捷入口服务未配置")
 }

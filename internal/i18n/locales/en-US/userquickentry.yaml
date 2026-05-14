@@ -1,0 +1,7 @@
+userquickentry.request.invalid: Invalid quick entry request
+userquickentry.service_missing: Quick entry service is not configured
+userquickentry.repository_missing: Quick entry repository is not configured
+userquickentry.too_many: You can keep at most 6 quick entries
+userquickentry.permission_query_failed: Failed to query quick entry permissions
+userquickentry.invalid_permission: Quick entries only support enabled admin page permissions
+userquickentry.save_failed: Failed to save quick entries

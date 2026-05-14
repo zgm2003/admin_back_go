@@ -1,0 +1,7 @@
+userquickentry.request.invalid: 快捷入口参数错误
+userquickentry.service_missing: 快捷入口服务未配置
+userquickentry.repository_missing: 快捷入口仓储未配置
+userquickentry.too_many: 快捷入口最多保留6个
+userquickentry.permission_query_failed: 查询快捷入口权限失败
+userquickentry.invalid_permission: 快捷入口仅支持启用的后台页面权限
+userquickentry.save_failed: 保存快捷入口失败
