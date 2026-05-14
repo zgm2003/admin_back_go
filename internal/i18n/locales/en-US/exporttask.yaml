@@ -1,0 +1,13 @@
+exporttask.service_missing: Export task service is not configured
+exporttask.repository_missing: Export task repository is not configured
+exporttask.status_count.request.invalid: Invalid export task status-count request
+exporttask.list.request.invalid: Invalid export task list request
+exporttask.delete.request.invalid: Invalid export task delete request
+exporttask.id.invalid: Invalid export task ID
+exporttask.cleanup_failed: Failed to clean expired export tasks
+exporttask.status_count_failed: Failed to query export task status counts
+exporttask.query_failed: Failed to query export tasks
+exporttask.create_pending.invalid: Invalid export task request
+exporttask.delete.empty: Select export tasks to delete
+exporttask.delete_failed: Failed to delete export tasks
+exporttask.status.invalid: Invalid export task status

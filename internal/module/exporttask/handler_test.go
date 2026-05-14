@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -93,9 +94,57 @@ func TestHandlerDeleteSupportsSingleAndBatch(t *testing.T) {
 	}
 }
 
+func TestHandlerListLocalizesInvalidQuery(t *testing.T) {
+	router := newExportTaskLocalizedTestRouter(&fakeHTTPService{}, &middleware.AuthIdentity{UserID: 9, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks?current_page=abc", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeExportTaskBody(t, recorder)
+	if body["msg"] != "Invalid export task list request" {
+		t.Fatalf("expected localized list query error, got %#v", body["msg"])
+	}
+}
+
+func TestHandlerListLocalizesMissingIdentity(t *testing.T) {
+	router := newExportTaskLocalizedTestRouter(&fakeHTTPService{}, nil)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks?current_page=1&page_size=20", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeExportTaskBody(t, recorder)
+	if body["msg"] != "Token is invalid or expired" {
+		t.Fatalf("expected localized token error, got %#v", body["msg"])
+	}
+}
+
 func newExportTaskTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	RegisterRoutes(router, service)
+	return router
+}
+
+func newExportTaskLocalizedTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
 	if identity != nil {
 		router.Use(func(c *gin.Context) {
 			c.Set(middleware.ContextAuthIdentity, identity)

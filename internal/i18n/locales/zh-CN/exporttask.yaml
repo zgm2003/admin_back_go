@@ -1,0 +1,13 @@
+exporttask.service_missing: 导出任务服务未配置
+exporttask.repository_missing: 导出任务仓储未配置
+exporttask.status_count.request.invalid: 状态统计参数错误
+exporttask.list.request.invalid: 列表参数错误
+exporttask.delete.request.invalid: 参数错误
+exporttask.id.invalid: 无效的导出任务ID
+exporttask.cleanup_failed: 清理过期导出任务失败
+exporttask.status_count_failed: 查询导出任务状态统计失败
+exporttask.query_failed: 查询导出任务失败
+exporttask.create_pending.invalid: 导出任务参数错误
+exporttask.delete.empty: 请选择要删除的导出任务
+exporttask.delete_failed: 删除导出任务失败
+exporttask.status.invalid: 导出任务状态错误

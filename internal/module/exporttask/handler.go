@@ -24,12 +24,12 @@ func (h *Handler) StatusCount(c *gin.Context) {
 		return
 	}
 	if h.service == nil {
-		response.Error(c, apperror.Internal("导出任务服务未配置"))
+		response.Error(c, apperror.InternalKey("exporttask.service_missing", nil, "导出任务服务未配置"))
 		return
 	}
 	var req statusCountRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("状态统计参数错误"))
+		response.Error(c, apperror.BadRequestKey("exporttask.status_count.request.invalid", nil, "状态统计参数错误"))
 		return
 	}
 	result, appErr := h.service.StatusCount(c.Request.Context(), StatusCountQuery{UserID: identity.UserID, Title: req.Title, FileName: req.FileName})
@@ -46,12 +46,12 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	if h.service == nil {
-		response.Error(c, apperror.Internal("导出任务服务未配置"))
+		response.Error(c, apperror.InternalKey("exporttask.service_missing", nil, "导出任务服务未配置"))
 		return
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("exporttask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	result, appErr := h.service.List(c.Request.Context(), ListQuery{
@@ -75,7 +75,7 @@ func (h *Handler) DeleteOne(c *gin.Context) {
 		return
 	}
 	if h.service == nil {
-		response.Error(c, apperror.Internal("导出任务服务未配置"))
+		response.Error(c, apperror.InternalKey("exporttask.service_missing", nil, "导出任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -95,12 +95,12 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 		return
 	}
 	if h.service == nil {
-		response.Error(c, apperror.Internal("导出任务服务未配置"))
+		response.Error(c, apperror.InternalKey("exporttask.service_missing", nil, "导出任务服务未配置"))
 		return
 	}
 	var req deleteBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("exporttask.delete.request.invalid", nil, "参数错误"))
 		return
 	}
 	if appErr := h.service.Delete(c.Request.Context(), DeleteInput{UserID: identity.UserID, IDs: req.IDs}); appErr != nil {
@@ -113,7 +113,7 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 func currentIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return nil, false
 	}
 	return identity, true
@@ -122,7 +122,7 @@ func currentIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的导出任务ID"))
+		response.Error(c, apperror.BadRequestKey("exporttask.id.invalid", nil, "无效的导出任务ID"))
 		return 0, false
 	}
 	return id, true

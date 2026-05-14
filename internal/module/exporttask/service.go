@@ -116,14 +116,14 @@ func (s *Service) StatusCount(ctx context.Context, query StatusCountQuery) ([]St
 	}
 	query = normalizeStatusCountQuery(query)
 	if query.UserID <= 0 {
-		return nil, apperror.Unauthorized("Token无效或已过期")
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if err := repo.CleanExpired(ctx, s.now()); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "清理过期导出任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.cleanup_failed", nil, "清理过期导出任务失败", err)
 	}
 	counts, err := repo.CountByStatus(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询导出任务状态统计失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.status_count_failed", nil, "查询导出任务状态统计失败", err)
 	}
 	return statusCountItems(counts), nil
 }
@@ -138,11 +138,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 		return nil, appErr
 	}
 	if err := repo.CleanExpired(ctx, s.now()); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "清理过期导出任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.cleanup_failed", nil, "清理过期导出任务失败", err)
 	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询导出任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.query_failed", nil, "查询导出任务失败", err)
 	}
 	items := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -158,7 +158,7 @@ func (s *Service) CreatePending(ctx context.Context, input CreatePendingInput) (
 	}
 	input.Title = strings.TrimSpace(input.Title)
 	if input.UserID <= 0 || input.Title == "" {
-		return 0, apperror.BadRequest("导出任务参数错误")
+		return 0, apperror.BadRequestKey("exporttask.create_pending.invalid", nil, "导出任务参数错误")
 	}
 	now := s.now()
 	expireAt := now.Add(defaultExpireDuration)
@@ -179,7 +179,7 @@ func (s *Service) MarkSuccess(ctx context.Context, id int64, result SuccessResul
 		return err
 	}
 	if id <= 0 {
-		return apperror.BadRequest("无效的导出任务ID")
+		return apperror.BadRequestKey("exporttask.id.invalid", nil, "无效的导出任务ID")
 	}
 	return repo.MarkSuccess(ctx, id, result)
 }
@@ -190,7 +190,7 @@ func (s *Service) MarkFailed(ctx context.Context, id int64, message string) erro
 		return err
 	}
 	if id <= 0 {
-		return apperror.BadRequest("无效的导出任务ID")
+		return apperror.BadRequestKey("exporttask.id.invalid", nil, "无效的导出任务ID")
 	}
 	return repo.MarkFailed(ctx, id, capRunes(message, 500))
 }
@@ -201,14 +201,14 @@ func (s *Service) Delete(ctx context.Context, input DeleteInput) *apperror.Error
 		return appErr
 	}
 	if input.UserID <= 0 {
-		return apperror.Unauthorized("Token无效或已过期")
+		return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	ids := normalizeIDs(input.IDs)
 	if len(ids) == 0 {
-		return apperror.BadRequest("请选择要删除的导出任务")
+		return apperror.BadRequestKey("exporttask.delete.empty", nil, "请选择要删除的导出任务")
 	}
 	if err := repo.DeleteByUser(ctx, input.UserID, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除导出任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.delete_failed", nil, "删除导出任务失败", err)
 	}
 	return nil
 }
@@ -309,7 +309,7 @@ func (s *Service) notifyFailed(ctx context.Context, task Task, input RunInput, m
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("导出任务仓储未配置")
+		return nil, apperror.InternalKey("exporttask.repository_missing", nil, "导出任务仓储未配置")
 	}
 	return s.repository, nil
 }
@@ -331,7 +331,7 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	query.Title = strings.TrimSpace(query.Title)
 	query.FileName = strings.TrimSpace(query.FileName)
 	if query.UserID <= 0 {
-		return query, apperror.Unauthorized("Token无效或已过期")
+		return query, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if query.CurrentPage <= 0 {
 		query.CurrentPage = 1
@@ -343,7 +343,7 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 		query.PageSize = maxPageSize
 	}
 	if query.Status != nil && !enum.IsExportTaskStatus(*query.Status) {
-		return query, apperror.BadRequest("导出任务状态错误")
+		return query, apperror.BadRequestKey("exporttask.status.invalid", nil, "导出任务状态错误")
 	}
 	return query, nil
 }
