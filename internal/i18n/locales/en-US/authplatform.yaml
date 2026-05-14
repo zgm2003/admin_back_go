@@ -1,0 +1,31 @@
+authplatform.service_missing: Auth platform service is not configured
+authplatform.repository_missing: Auth platform management repository is not configured
+authplatform.list.request.invalid: Invalid list request
+authplatform.create.request.invalid: Invalid create request
+authplatform.update.request.invalid: Invalid update request
+authplatform.delete.empty: Select platforms to delete
+authplatform.status.invalid: Invalid status
+authplatform.id.invalid: Invalid platform ID
+authplatform.query_failed: Failed to query auth platform
+authplatform.code_check_failed: Failed to validate platform code
+authplatform.code.duplicate: Platform code [{{.code}}] already exists
+authplatform.create_failed: Failed to create auth platform
+authplatform.not_found: Auth platform does not exist
+authplatform.update_failed: Failed to update auth platform
+authplatform.delete.contains_missing: Selected platforms contain missing entries
+authplatform.delete.admin_forbidden: Core platform [admin] cannot be deleted
+authplatform.delete_failed: Failed to delete auth platform
+authplatform.status.disable_forbidden: Core platform [admin] cannot be disabled
+authplatform.status_update_failed: Failed to update auth platform status
+authplatform.current_page.invalid: Invalid current page
+authplatform.page_size.invalid: Invalid page size
+authplatform.code.invalid: Platform code format is invalid
+authplatform.name.invalid: Platform name is required and must be at most 100 characters
+authplatform.captcha_type.invalid: Invalid captcha type
+authplatform.access_ttl.invalid: Invalid access token TTL
+authplatform.refresh_ttl.invalid: Invalid refresh token TTL
+authplatform.policy.invalid: Security policy settings are invalid
+authplatform.max_sessions.invalid: Invalid maximum session count
+authplatform.login_types.empty: Login types are required
+authplatform.login_types.invalid: Invalid login type
+authplatform.encode_login_types_failed: Failed to encode login types

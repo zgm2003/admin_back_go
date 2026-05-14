@@ -1,0 +1,31 @@
+authplatform.service_missing: 认证平台服务未配置
+authplatform.repository_missing: 认证平台管理仓储未配置
+authplatform.list.request.invalid: 列表参数错误
+authplatform.create.request.invalid: 参数错误
+authplatform.update.request.invalid: 参数错误
+authplatform.delete.empty: 请选择要删除的平台
+authplatform.status.invalid: 无效的状态
+authplatform.id.invalid: 无效的平台ID
+authplatform.query_failed: 查询认证平台失败
+authplatform.code_check_failed: 校验平台标识失败
+authplatform.code.duplicate: 平台标识 [{{.code}}] 已存在
+authplatform.create_failed: 新增认证平台失败
+authplatform.not_found: 认证平台不存在
+authplatform.update_failed: 更新认证平台失败
+authplatform.delete.contains_missing: 包含不存在的平台
+authplatform.delete.admin_forbidden: 核心平台 [admin] 不允许删除
+authplatform.delete_failed: 删除认证平台失败
+authplatform.status.disable_forbidden: 核心平台 [admin] 不允许禁用
+authplatform.status_update_failed: 更新认证平台状态失败
+authplatform.current_page.invalid: 当前页无效
+authplatform.page_size.invalid: 每页数量无效
+authplatform.code.invalid: 平台标识格式错误
+authplatform.name.invalid: 平台名称不能为空且不能超过100个字符
+authplatform.captcha_type.invalid: 无效的验证码类型
+authplatform.access_ttl.invalid: access_token有效期无效
+authplatform.refresh_ttl.invalid: refresh_token有效期无效
+authplatform.policy.invalid: 安全策略参数无效
+authplatform.max_sessions.invalid: 最大会话数无效
+authplatform.login_types.empty: 登录方式不能为空
+authplatform.login_types.invalid: 无效的登录方式
+authplatform.encode_login_types_failed: 编码登录方式失败

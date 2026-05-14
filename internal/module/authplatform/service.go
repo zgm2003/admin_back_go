@@ -146,7 +146,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询认证平台失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.query_failed", nil, "查询认证平台失败", err)
 	}
 
 	list := make([]ListItem, 0, len(rows))
@@ -170,10 +170,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (int64, *apperr
 	}
 	exists, err := repo.ExistsByCode(ctx, input.Code, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验平台标识失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.code_check_failed", nil, "校验平台标识失败", err)
 	}
 	if exists {
-		return 0, apperror.BadRequest("平台标识 [" + input.Code + "] 已存在")
+		return 0, apperror.BadRequestKey("authplatform.code.duplicate", map[string]any{"code": input.Code}, "平台标识 ["+input.Code+"] 已存在")
 	}
 
 	row, appErr := platformFromCreateInput(input)
@@ -182,14 +182,14 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (int64, *apperr
 	}
 	id, err := repo.Create(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增认证平台失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.create_failed", nil, "新增认证平台失败", err)
 	}
 	return id, nil
 }
 
 func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的平台ID")
+		return apperror.BadRequestKey("authplatform.id.invalid", nil, "无效的平台ID")
 	}
 	repo, appErr := s.managementRepository()
 	if appErr != nil {
@@ -197,10 +197,10 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	}
 	existing, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询认证平台失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.query_failed", nil, "查询认证平台失败", err)
 	}
 	if existing == nil {
-		return apperror.NotFound("认证平台不存在")
+		return apperror.NotFoundKey("authplatform.not_found", nil, "认证平台不存在")
 	}
 	input, appErr = normalizeUpdateInput(input)
 	if appErr != nil {
@@ -211,7 +211,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 		return appErr
 	}
 	if err := repo.Update(ctx, id, fields); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新认证平台失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.update_failed", nil, "更新认证平台失败", err)
 	}
 	return nil
 }
@@ -223,32 +223,32 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	}
 	ids = normalizeIDs(ids)
 	if len(ids) == 0 {
-		return apperror.BadRequest("请选择要删除的平台")
+		return apperror.BadRequestKey("authplatform.delete.empty", nil, "请选择要删除的平台")
 	}
 	rows, err := repo.PlatformsByIDs(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询认证平台失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.query_failed", nil, "查询认证平台失败", err)
 	}
 	if len(rows) != len(ids) {
-		return apperror.BadRequest("包含不存在的平台")
+		return apperror.BadRequestKey("authplatform.delete.contains_missing", nil, "包含不存在的平台")
 	}
 	for _, id := range ids {
 		if rows[id].Code == enum.PlatformAdmin {
-			return apperror.BadRequest("核心平台 [admin] 不允许删除")
+			return apperror.BadRequestKey("authplatform.delete.admin_forbidden", nil, "核心平台 [admin] 不允许删除")
 		}
 	}
 	if err := repo.Delete(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除认证平台失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.delete_failed", nil, "删除认证平台失败", err)
 	}
 	return nil
 }
 
 func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的平台ID")
+		return apperror.BadRequestKey("authplatform.id.invalid", nil, "无效的平台ID")
 	}
 	if !enum.IsCommonStatus(status) {
-		return apperror.BadRequest("无效的状态")
+		return apperror.BadRequestKey("authplatform.status.invalid", nil, "无效的状态")
 	}
 	repo, appErr := s.managementRepository()
 	if appErr != nil {
@@ -256,16 +256,16 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询认证平台失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.query_failed", nil, "查询认证平台失败", err)
 	}
 	if row == nil {
-		return apperror.NotFound("认证平台不存在")
+		return apperror.NotFoundKey("authplatform.not_found", nil, "认证平台不存在")
 	}
 	if row.Code == enum.PlatformAdmin && status == enum.CommonNo {
-		return apperror.BadRequest("核心平台 [admin] 不允许禁用")
+		return apperror.BadRequestKey("authplatform.status.disable_forbidden", nil, "核心平台 [admin] 不允许禁用")
 	}
 	if err := repo.Update(ctx, id, map[string]any{"status": status}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新认证平台状态失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.status_update_failed", nil, "更新认证平台状态失败", err)
 	}
 	return nil
 }
@@ -291,13 +291,13 @@ func (s *Service) managementRepository() (ManagementRepository, *apperror.Error)
 
 func validateListQuery(query ListQuery) *apperror.Error {
 	if query.CurrentPage <= 0 {
-		return apperror.BadRequest("当前页无效")
+		return apperror.BadRequestKey("authplatform.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
-		return apperror.BadRequest("每页数量无效")
+		return apperror.BadRequestKey("authplatform.page_size.invalid", nil, "每页数量无效")
 	}
 	if query.Status != nil && !enum.IsCommonStatus(*query.Status) {
-		return apperror.BadRequest("无效的状态")
+		return apperror.BadRequestKey("authplatform.status.invalid", nil, "无效的状态")
 	}
 	return nil
 }
@@ -307,7 +307,7 @@ func normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.CaptchaType = strings.TrimSpace(input.CaptchaType)
 	if len(input.Code) < minCodeLen || len(input.Code) > maxCodeLen || !platformCodePattern.MatchString(input.Code) {
-		return input, apperror.BadRequest("平台标识格式错误")
+		return input, apperror.BadRequestKey("authplatform.code.invalid", nil, "平台标识格式错误")
 	}
 	update, appErr := normalizeUpdateInput(UpdateInput{
 		Name: input.Name, LoginTypes: input.LoginTypes, CaptchaType: input.CaptchaType,
@@ -335,7 +335,7 @@ func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.CaptchaType = strings.TrimSpace(input.CaptchaType)
 	if input.Name == "" || len([]rune(input.Name)) > maxNameLen {
-		return input, apperror.BadRequest("平台名称不能为空且不能超过100个字符")
+		return input, apperror.BadRequestKey("authplatform.name.invalid", nil, "平台名称不能为空且不能超过100个字符")
 	}
 	loginTypes, appErr := normalizeLoginTypesForWrite(input.LoginTypes)
 	if appErr != nil {
@@ -343,32 +343,32 @@ func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
 	}
 	input.LoginTypes = loginTypes
 	if !enum.IsCaptchaType(input.CaptchaType) {
-		return input, apperror.BadRequest("无效的验证码类型")
+		return input, apperror.BadRequestKey("authplatform.captcha_type.invalid", nil, "无效的验证码类型")
 	}
 	if input.AccessTTL < minAccessTTL || input.AccessTTL > maxAccessTTL {
-		return input, apperror.BadRequest("access_token有效期无效")
+		return input, apperror.BadRequestKey("authplatform.access_ttl.invalid", nil, "access_token有效期无效")
 	}
 	if input.RefreshTTL < minRefreshTTL || input.RefreshTTL > maxRefreshTTL {
-		return input, apperror.BadRequest("refresh_token有效期无效")
+		return input, apperror.BadRequestKey("authplatform.refresh_ttl.invalid", nil, "refresh_token有效期无效")
 	}
 	if !enum.IsCommonYesNo(input.BindPlatform) || !enum.IsCommonYesNo(input.BindDevice) || !enum.IsCommonYesNo(input.BindIP) || !enum.IsCommonYesNo(input.SingleSession) || !enum.IsCommonYesNo(input.AllowRegister) {
-		return input, apperror.BadRequest("安全策略参数无效")
+		return input, apperror.BadRequestKey("authplatform.policy.invalid", nil, "安全策略参数无效")
 	}
 	if input.MaxSessions < minMaxSessions || input.MaxSessions > maxMaxSessions {
-		return input, apperror.BadRequest("最大会话数无效")
+		return input, apperror.BadRequestKey("authplatform.max_sessions.invalid", nil, "最大会话数无效")
 	}
 	return input, nil
 }
 
 func normalizeLoginTypesForWrite(values []string) ([]string, *apperror.Error) {
 	if len(values) == 0 {
-		return nil, apperror.BadRequest("登录方式不能为空")
+		return nil, apperror.BadRequestKey("authplatform.login_types.empty", nil, "登录方式不能为空")
 	}
 	allowed := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		value = strings.TrimSpace(value)
 		if !enum.IsLoginType(value) {
-			return nil, apperror.BadRequest("无效的登录方式")
+			return nil, apperror.BadRequestKey("authplatform.login_types.invalid", nil, "无效的登录方式")
 		}
 		allowed[value] = struct{}{}
 	}
@@ -379,7 +379,7 @@ func normalizeLoginTypesForWrite(values []string) ([]string, *apperror.Error) {
 		}
 	}
 	if len(result) == 0 {
-		return nil, apperror.BadRequest("登录方式不能为空")
+		return nil, apperror.BadRequestKey("authplatform.login_types.empty", nil, "登录方式不能为空")
 	}
 	return result, nil
 }
@@ -413,7 +413,7 @@ func updateFieldsFromInput(input UpdateInput) (map[string]any, *apperror.Error) 
 func marshalLoginTypes(values []string) (string, *apperror.Error) {
 	encoded, err := json.Marshal(values)
 	if err != nil {
-		return "", apperror.Wrap(apperror.CodeInternal, 500, "编码登录方式失败", err)
+		return "", apperror.WrapKey(apperror.CodeInternal, 500, "authplatform.encode_login_types_failed", nil, "编码登录方式失败", err)
 	}
 	return string(encoded), nil
 }
