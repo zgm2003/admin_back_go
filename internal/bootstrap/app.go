@@ -132,7 +132,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		}
 	}
 	systemLogService := systemlog.NewService(logstore.New(cfg.Logging.Dir, logstore.Options{AllowedExtensions: cfg.Logging.AllowedExtensions, MaxTailLines: cfg.Logging.MaxTailLines}))
-	systemSettingService := systemsetting.NewService(systemsetting.NewGormRepository(resources.DB, resources.Redis))
+	systemSettingRepository := systemsetting.NewGormRepository(resources.DB, resources.Redis)
+	systemSettingService := systemsetting.NewService(systemSettingRepository)
 	secretBox := secretbox.New(keys.SecretboxKey())
 	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
@@ -156,7 +157,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		}
 		return mail.SendResult{RequestID: result.RequestID, MessageID: result.MessageID}, nil
 	})
-	mailService := mail.NewService(mail.NewGormRepository(resources.DB), secretBox, mailSender)
+	mailService := mail.NewService(mail.NewGormRepository(resources.DB, resources.Redis), secretBox, mailSender)
 	clientVersionService := clientversion.NewService(
 		clientversion.NewGormRepository(resources.DB),
 		clientversion.NewManifestPublisher(
@@ -239,8 +240,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		captchaService,
 		auth.WithCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		auth.WithVerifyCodeMailSender(mailService),
+		auth.WithVerifyCodePolicyProvider(auth.NewSystemSettingVerifyCodePolicyProvider(systemSettingRepository)),
 		auth.WithVerifyCodeOptions(auth.VerifyCodeOptions{
-			TTL:         cfg.VerifyCode.TTL,
 			RedisPrefix: cfg.VerifyCode.RedisPrefix,
 		}),
 		auth.WithLoginLogEnqueuer(loginLogEnqueuer),

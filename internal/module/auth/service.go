@@ -83,6 +83,7 @@ type Service struct {
 	codeStore            CodeStore
 	loginLogEnqueuer     taskqueue.Enqueuer
 	verifyCodeMailSender VerifyCodeMailSender
+	verifyCodePolicy     VerifyCodePolicyProvider
 	logger               *slog.Logger
 	verifyCodeOptions    VerifyCodeOptions
 }
@@ -141,6 +142,12 @@ func WithVerifyCodeMailSender(sender VerifyCodeMailSender) Option {
 	}
 }
 
+func WithVerifyCodePolicyProvider(provider VerifyCodePolicyProvider) Option {
+	return func(s *Service) {
+		s.verifyCodePolicy = provider
+	}
+}
+
 func (s *Service) LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error) {
 	loginTypes, appErr := s.allowedLoginTypes(ctx, platform)
 	if appErr != nil {
@@ -178,6 +185,10 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if accountType == "" {
 		return "", apperror.BadRequest("请输入正确的邮箱或手机号")
 	}
+	ttl, appErr := s.verifyCodeTTL(ctx)
+	if appErr != nil {
+		return "", appErr
+	}
 
 	code := s.verifyCodeOptions.PhoneCode
 	if accountType == LoginTypeEmail {
@@ -188,7 +199,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		code = generated
 	}
 	cacheKey := s.verifyCodeCacheKey(accountType, input.Scene, input.Account)
-	if err := s.codeStore.Set(ctx, cacheKey, code, s.verifyCodeOptions.TTL); err != nil {
+	if err := s.codeStore.Set(ctx, cacheKey, code, ttl); err != nil {
 		return "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
 	if accountType == LoginTypePhone {
@@ -198,7 +209,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		_ = s.codeStore.Delete(ctx, cacheKey)
 		return "", apperror.Internal("邮件验证码服务未配置")
 	}
-	if appErr := s.verifyCodeMailSender.SendVerifyCode(ctx, input.Scene, input.Account, code, s.verifyCodeOptions.TTL); appErr != nil {
+	if appErr := s.verifyCodeMailSender.SendVerifyCode(ctx, input.Scene, input.Account, code, ttl); appErr != nil {
 		_ = s.codeStore.Delete(ctx, cacheKey)
 		return "", appErr
 	}
@@ -540,6 +551,13 @@ func (s *Service) verifyCode(ctx context.Context, account string, code string, s
 
 func (s *Service) verifyCodeCacheKey(accountType string, scene string, account string) string {
 	return VerifyCodeCacheKey(s.verifyCodeOptions.RedisPrefix, accountType, scene, account)
+}
+
+func (s *Service) verifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
+	if s != nil && s.verifyCodePolicy != nil {
+		return s.verifyCodePolicy.VerifyCodeTTL(ctx)
+	}
+	return s.verifyCodeOptions.TTL, nil
 }
 
 func (s *Service) generateVerifyCode() (string, error) {

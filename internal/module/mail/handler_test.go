@@ -135,7 +135,7 @@ func TestHandlerLogResponseDoesNotExposeTemplateDataOrVerifyCode(t *testing.T) {
 func TestHandlerSaveConfigBindsPublicSecretFields(t *testing.T) {
 	service := &fakeMailHTTPService{}
 	router := newMailTestRouter(service)
-	payload := `{"secret_id":"AKID-input","secret_key":"SECRET-input","region":"ap-guangzhou","endpoint":"ses.tencentcloudapi.com","from_email":"noreply@example.com","from_name":"Admin","reply_to":"reply@example.com","status":1}`
+	payload := `{"secret_id":"AKID-input","secret_key":"SECRET-input","region":"ap-guangzhou","endpoint":"ses.tencentcloudapi.com","from_email":"noreply@example.com","from_name":"Admin","reply_to":"reply@example.com","status":1,"verify_code_ttl_minutes":9}`
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/mail/config", strings.NewReader(payload))
@@ -145,7 +145,10 @@ func TestHandlerSaveConfigBindsPublicSecretFields(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.savedConfig.SecretID != "AKID-input" || service.savedConfig.SecretKey != "SECRET-input" || service.savedConfig.FromEmail != "noreply@example.com" {
+	if service.savedConfig.SecretID != "AKID-input" ||
+		service.savedConfig.SecretKey != "SECRET-input" ||
+		service.savedConfig.FromEmail != "noreply@example.com" ||
+		service.savedConfig.VerifyCodeTTLMinutes != 9 {
 		t.Fatalf("unexpected saved config input: %#v", service.savedConfig)
 	}
 }

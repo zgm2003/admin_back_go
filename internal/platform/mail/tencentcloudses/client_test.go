@@ -12,11 +12,11 @@ func TestBuildFromEmailAddress(t *testing.T) {
 }
 
 func TestTemplateDataJSONIsStable(t *testing.T) {
-	got, err := TemplateDataJSON(map[string]string{"ttl_minutes": "5", "code": "123456", "app_name": "admin_go"})
+	got, err := TemplateDataJSON(map[string]string{"ttl_minutes": "5", "code": "123456"})
 	if err != nil {
 		t.Fatalf("TemplateDataJSON returned error: %v", err)
 	}
-	if got != `{"app_name":"admin_go","code":"123456","ttl_minutes":"5"}` {
+	if got != `{"code":"123456","ttl_minutes":"5"}` {
 		t.Fatalf("unexpected template data: %s", got)
 	}
 }

@@ -130,7 +130,7 @@ func TestRepositorySaveTemplateRestoresSoftDeletedScene(t *testing.T) {
 
 	id, err := repo.SaveTemplate(context.Background(), Template{
 		Scene: enum.VerifyCodeSceneLogin, Name: "login", Subject: "Login code", TencentTemplateID: 200,
-		VariablesJSON: `["app_name","code","ttl_minutes"]`, SampleVariablesJSON: `{"app_name":"admin_go","code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes,
+		VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes,
 	})
 	if err != nil {
 		t.Fatalf("SaveTemplate returned error: %v", err)

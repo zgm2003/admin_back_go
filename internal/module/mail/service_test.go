@@ -9,21 +9,25 @@ import (
 	"time"
 
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/platform/secretbox"
 )
 
 type fakeMailRepository struct {
-	config    *Config
-	templates map[string]*Template
-	logs      map[uint64]Log
-	created   Log
-	nextLogID uint64
-	saved     *Config
-	finish    LogFinish
-	finishID  uint64
-	testAt    *time.Time
-	testError string
-	err       error
+	config              *Config
+	templates           map[string]*Template
+	logs                map[uint64]Log
+	created             Log
+	nextLogID           uint64
+	saved               *Config
+	setting             *systemsetting.Setting
+	savedSetting        *systemsetting.Setting
+	invalidatedSettings []string
+	finish              LogFinish
+	finishID            uint64
+	testAt              *time.Time
+	testError           string
+	err                 error
 }
 
 func (f *fakeMailRepository) DefaultConfig(ctx context.Context) (*Config, error) {
@@ -116,6 +120,20 @@ func (f *fakeMailRepository) LogByID(ctx context.Context, id uint64) (*Log, erro
 
 func (f *fakeMailRepository) SoftDeleteLogs(ctx context.Context, ids []uint64) error { return f.err }
 
+func (f *fakeMailRepository) SettingByKey(ctx context.Context, key string) (*systemsetting.Setting, error) {
+	return f.setting, f.err
+}
+
+func (f *fakeMailRepository) SaveSetting(ctx context.Context, row systemsetting.Setting) error {
+	f.savedSetting = &row
+	return f.err
+}
+
+func (f *fakeMailRepository) InvalidateSettingCache(ctx context.Context, key string) error {
+	f.invalidatedSettings = append(f.invalidatedSettings, key)
+	return f.err
+}
+
 type fakeMailSender struct {
 	input  SendInput
 	result SendResult
@@ -151,7 +169,7 @@ func TestServiceSendVerifyCodeUsesEnabledConfigTemplateAndWritesSanitizedLogs(t 
 	repo := &fakeMailRepository{
 		config: &Config{SecretIDEnc: secretIDEnc, SecretKeyEnc: secretKeyEnc, Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", FromName: "Admin", Status: enum.CommonYes},
 		templates: map[string]*Template{
-			enum.VerifyCodeSceneLogin: {ID: 77, Scene: enum.VerifyCodeSceneLogin, Subject: "Login code", TencentTemplateID: 123456, VariablesJSON: `["app_name","code","ttl_minutes"]`, SampleVariablesJSON: `{"app_name":"admin_go","code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
+			enum.VerifyCodeSceneLogin: {ID: 77, Scene: enum.VerifyCodeSceneLogin, Subject: "Login code", TencentTemplateID: 123456, VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
 		},
 	}
 	sender := &fakeMailSender{result: SendResult{RequestID: "req-1", MessageID: "msg-1"}}
@@ -167,6 +185,13 @@ func TestServiceSendVerifyCodeUsesEnabledConfigTemplateAndWritesSanitizedLogs(t 
 	}
 	if sender.input.TemplateID != 123456 || sender.input.TemplateData["code"] != "654321" || sender.input.TemplateData["ttl_minutes"] != "5" {
 		t.Fatalf("unexpected sender template payload: %#v", sender.input)
+	}
+	forbiddenKey := "app" + "_name"
+	if _, ok := sender.input.TemplateData[forbiddenKey]; ok {
+		t.Fatalf("verify-code TemplateData must not include %s: %#v", forbiddenKey, sender.input.TemplateData)
+	}
+	if len(sender.input.TemplateData) != 2 {
+		t.Fatalf("verify-code TemplateData must contain exactly code and ttl_minutes, got %#v", sender.input.TemplateData)
 	}
 	created := repo.created
 	if created.Scene != enum.VerifyCodeSceneLogin || created.TemplateID == nil || *created.TemplateID != 77 || created.Status != enum.MailLogStatusPending {
@@ -187,7 +212,7 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 	repo := &fakeMailRepository{
 		config: &Config{SecretIDEnc: secretIDEnc, SecretKeyEnc: secretKeyEnc, Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
 		templates: map[string]*Template{
-			enum.VerifyCodeSceneForget: {ID: 78, Scene: enum.VerifyCodeSceneForget, Subject: "Reset code", TencentTemplateID: 123457, VariablesJSON: `["app_name","code","ttl_minutes"]`, SampleVariablesJSON: `{"app_name":"admin_go","code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
+			enum.VerifyCodeSceneForget: {ID: 78, Scene: enum.VerifyCodeSceneForget, Subject: "Reset code", TencentTemplateID: 123457, VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
 		},
 	}
 	sender := &fakeMailSender{err: codedMailTestError{code: "FailedOperation.TemplateNotApproved", msg: "template not approved"}}
@@ -207,7 +232,10 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 }
 
 func TestServiceConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
-	repo := &fakeMailRepository{config: &Config{ID: 1, SecretIDEnc: "cipher-id", SecretIDHint: "***t-id", SecretKeyEnc: "cipher-key", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes}}
+	repo := &fakeMailRepository{
+		config:  &Config{ID: 1, SecretIDEnc: "cipher-id", SecretIDHint: "***t-id", SecretKeyEnc: "cipher-key", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
+		setting: &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "6", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
+	}
 	service := NewService(repo, testSecretBox(), &fakeMailSender{})
 
 	result, appErr := service.Config(context.Background())
@@ -224,6 +252,52 @@ func TestServiceConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
 	}
 	if result.SecretIDHint != "***t-id" || result.SecretKeyHint != "***-key" {
 		t.Fatalf("config response must return hints, got %#v", result)
+	}
+}
+
+func TestServiceConfigIncludesVerifyCodeTTLFromSystemSetting(t *testing.T) {
+	repo := &fakeMailRepository{
+		config:  &Config{ID: 1, SecretIDHint: "***t-id", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
+		setting: &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "11", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
+	}
+	service := NewService(repo, testSecretBox(), &fakeMailSender{})
+
+	result, appErr := service.Config(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("expected Config to succeed, got %v", appErr)
+	}
+	if result.VerifyCodeTTLMinutes != 11 {
+		t.Fatalf("expected ttl 11, got %#v", result)
+	}
+}
+
+func TestServiceDefaultConfigIncludesVerifyCodeTTLFromSystemSetting(t *testing.T) {
+	repo := &fakeMailRepository{
+		setting: &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "12", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
+	}
+	service := NewService(repo, testSecretBox(), &fakeMailSender{})
+
+	result, appErr := service.Config(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("expected Config to succeed, got %v", appErr)
+	}
+	if result.Configured || result.VerifyCodeTTLMinutes != 12 {
+		t.Fatalf("expected unconfigured config with system ttl 12, got %#v", result)
+	}
+}
+
+func TestServiceDefaultConfigFallsBackToDefaultVerifyCodeTTLWhenSettingMissing(t *testing.T) {
+	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+
+	result, appErr := service.Config(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("expected Config to succeed, got %v", appErr)
+	}
+	if result.Configured || result.VerifyCodeTTLMinutes != defaultVerifyCodeTTLMin {
+		t.Fatalf("expected default ttl, got %#v", result)
 	}
 }
 
@@ -251,7 +325,7 @@ func TestServiceSaveConfigRejectsUnsupportedRegion(t *testing.T) {
 
 	appErr := service.SaveConfig(context.Background(), SaveConfigInput{
 		SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: "ap-shanghai", Endpoint: DefaultEndpoint,
-		FromEmail: "noreply@example.com", Status: enum.CommonYes,
+		FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 5,
 	})
 	if appErr == nil || !strings.Contains(appErr.Message, "不支持的腾讯云 SES 地域") {
 		t.Fatalf("expected unsupported region error, got %#v", appErr)
@@ -295,7 +369,7 @@ func TestServiceSaveConfigRequiresSecretsOnFirstConfigAndReusesExistingSecretsOn
 	box := testSecretBox()
 	service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})
 
-	appErr := service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes})
+	appErr := service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 5})
 	if appErr == nil || !strings.Contains(appErr.Message, "首次配置必须填写") {
 		t.Fatalf("expected first config secret error, got %#v", appErr)
 	}
@@ -305,12 +379,92 @@ func TestServiceSaveConfigRequiresSecretsOnFirstConfigAndReusesExistingSecretsOn
 	repo := &fakeMailRepository{config: &Config{SecretIDEnc: existingID, SecretIDHint: "***ting", SecretKeyEnc: existingKey, SecretKeyHint: "***ting", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "old@example.com", Status: enum.CommonYes}}
 	service = NewService(repo, box, &fakeMailSender{})
 
-	appErr = service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "new@example.com", Status: enum.CommonYes})
+	appErr = service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "new@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 5})
 	if appErr != nil {
 		t.Fatalf("expected edit to reuse existing secrets, got %v", appErr)
 	}
 	if repo.saved == nil || repo.saved.SecretIDEnc != existingID || repo.saved.SecretKeyEnc != existingKey || repo.saved.FromEmail != "new@example.com" {
 		t.Fatalf("unexpected saved config: %#v", repo.saved)
+	}
+}
+
+func TestServiceSaveConfigPersistsVerifyCodeTTLToSystemSettings(t *testing.T) {
+	box := testSecretBox()
+	secretIDEnc, _ := box.Encrypt("AKID-existing")
+	secretKeyEnc, _ := box.Encrypt("SECRET-existing")
+	repo := &fakeMailRepository{config: &Config{SecretIDEnc: secretIDEnc, SecretIDHint: "***ting", SecretKeyEnc: secretKeyEnc, SecretKeyHint: "***ting", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "old@example.com", Status: enum.CommonYes}}
+	service := NewService(repo, box, &fakeMailSender{})
+
+	appErr := service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "new@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 11})
+
+	if appErr != nil {
+		t.Fatalf("expected SaveConfig to succeed, got %v", appErr)
+	}
+	if repo.savedSetting == nil ||
+		repo.savedSetting.SettingKey != verifyCodeTTLSettingKey ||
+		repo.savedSetting.SettingValue != "11" ||
+		repo.savedSetting.ValueType != enum.SystemSettingValueNumber ||
+		repo.savedSetting.Status != enum.CommonYes ||
+		repo.savedSetting.IsDel != enum.CommonNo {
+		t.Fatalf("unexpected saved setting: %#v", repo.savedSetting)
+	}
+	if len(repo.invalidatedSettings) != 1 || repo.invalidatedSettings[0] != verifyCodeTTLSettingKey {
+		t.Fatalf("expected ttl cache invalidation, got %#v", repo.invalidatedSettings)
+	}
+}
+
+func TestServiceSaveConfigRejectsInvalidVerifyCodeTTL(t *testing.T) {
+	box := testSecretBox()
+	tests := []struct {
+		name string
+		ttl  int
+	}{
+		{name: "zero", ttl: 0},
+		{name: "too large", ttl: 61},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})
+			appErr := service.SaveConfig(context.Background(), SaveConfigInput{
+				SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: DefaultRegion, Endpoint: DefaultEndpoint,
+				FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: tt.ttl,
+			})
+			if appErr == nil || appErr.Message != "验证码有效期必须在 1-60 分钟之间" {
+				t.Fatalf("ttl=%d got %#v", tt.ttl, appErr)
+			}
+		})
+	}
+}
+
+func TestServiceRejectsVerifyCodeTemplateWithAppNameVariable(t *testing.T) {
+	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	_, appErr := service.CreateTemplate(context.Background(), SaveTemplateInput{
+		Scene:             enum.VerifyCodeSceneLogin,
+		Name:              "登录验证码",
+		Subject:           "Login",
+		TencentTemplateID: 123456,
+		Variables:         []string{"app_name", "code", "ttl_minutes"},
+		SampleVariables:   map[string]string{"app_name": "admin_go", "code": "123456", "ttl_minutes": "5"},
+		Status:            enum.CommonYes,
+	})
+	if appErr == nil || appErr.Message != "验证码模板变量必须且只能是 code、ttl_minutes" {
+		t.Fatalf("got %#v", appErr)
+	}
+}
+
+func TestServiceRejectsVerifyCodeTemplateWithExtraSampleVariable(t *testing.T) {
+	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	_, appErr := service.CreateTemplate(context.Background(), SaveTemplateInput{
+		Scene:             enum.VerifyCodeSceneForget,
+		Name:              "找回密码验证码",
+		Subject:           "Reset",
+		TencentTemplateID: 123457,
+		Variables:         []string{"code", "ttl_minutes"},
+		SampleVariables:   map[string]string{"code": "123456", "ttl_minutes": "5", "app_name": "admin_go"},
+		Status:            enum.CommonYes,
+	})
+	if appErr == nil || appErr.Message != "验证码模板测试变量必须且只能是 code、ttl_minutes" {
+		t.Fatalf("got %#v", appErr)
 	}
 }
 

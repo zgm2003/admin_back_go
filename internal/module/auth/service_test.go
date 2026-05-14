@@ -720,6 +720,81 @@ func (f *fakeVerifyCodeMailSender) SendVerifyCode(ctx context.Context, scene str
 	return f.err
 }
 
+type fakeVerifyCodePolicyProvider struct {
+	ttl time.Duration
+	err *apperror.Error
+}
+
+func (f fakeVerifyCodePolicyProvider) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	return f.ttl, nil
+}
+
+func TestServiceSendCodeUsesPolicyTTLForEmailCacheAndMailSender(t *testing.T) {
+	store := &fakeCodeStore{}
+	mailSender := &fakeVerifyCodeMailSender{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodePolicyProvider(fakeVerifyCodePolicyProvider{ttl: 9 * time.Minute}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+	_, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
+	if appErr != nil {
+		t.Fatalf("unexpected err %#v", appErr)
+	}
+	if store.setTTL != 9*time.Minute || mailSender.ttl != 9*time.Minute {
+		t.Fatalf("store=%s mail=%s", store.setTTL, mailSender.ttl)
+	}
+}
+
+func TestServiceSendCodeUsesPolicyTTLForPhoneCache(t *testing.T) {
+	store := &fakeCodeStore{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodePolicyProvider(fakeVerifyCodePolicyProvider{ttl: 8 * time.Minute}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
+	)
+	_, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "15671628271", Scene: VerifyCodeSceneLogin})
+	if appErr != nil {
+		t.Fatalf("unexpected err %#v", appErr)
+	}
+	if store.setCode != "123456" || store.setTTL != 8*time.Minute {
+		t.Fatalf("code=%q ttl=%s", store.setCode, store.setTTL)
+	}
+}
+
+func TestServiceSendCodeStopsWhenPolicyTTLInvalid(t *testing.T) {
+	store := &fakeCodeStore{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
+		WithVerifyCodePolicyProvider(fakeVerifyCodePolicyProvider{err: apperror.BadRequest("验证码有效期配置已禁用")}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
+	if message != "" || appErr == nil || appErr.Message != "验证码有效期配置已禁用" {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if store.setKey != "" {
+		t.Fatalf("must not write Redis before policy passes: %#v", store)
+	}
+}
+
 func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 	store := &fakeCodeStore{}
 	mailSender := &fakeVerifyCodeMailSender{}

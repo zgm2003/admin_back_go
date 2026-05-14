@@ -1,14 +1,15 @@
 package mail
 
 type saveConfigRequest struct {
-	SecretID  string `json:"secret_id"`
-	SecretKey string `json:"secret_key"`
-	Region    string `json:"region" binding:"required,max=64"`
-	Endpoint  string `json:"endpoint" binding:"omitempty,max=128"`
-	FromEmail string `json:"from_email" binding:"required,email,max=255"`
-	FromName  string `json:"from_name" binding:"omitempty,max=100"`
-	ReplyTo   string `json:"reply_to" binding:"omitempty,email,max=255"`
-	Status    int    `json:"status" binding:"required,common_status"`
+	SecretID             string `json:"secret_id"`
+	SecretKey            string `json:"secret_key"`
+	Region               string `json:"region" binding:"required,max=64"`
+	Endpoint             string `json:"endpoint" binding:"omitempty,max=128"`
+	FromEmail            string `json:"from_email" binding:"required,email,max=255"`
+	FromName             string `json:"from_name" binding:"omitempty,max=100"`
+	ReplyTo              string `json:"reply_to" binding:"omitempty,email,max=255"`
+	Status               int    `json:"status" binding:"required,common_status"`
+	VerifyCodeTTLMinutes int    `json:"verify_code_ttl_minutes" binding:"required"`
 }
 
 type testRequest struct {

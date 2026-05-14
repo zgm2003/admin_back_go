@@ -97,7 +97,6 @@ type CaptchaConfig struct {
 }
 
 type VerifyCodeConfig struct {
-	TTL         time.Duration
 	RedisPrefix string
 }
 
@@ -222,7 +221,6 @@ func Load() Config {
 			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 10),
 		},
 		VerifyCode: VerifyCodeConfig{
-			TTL:         envDuration("VERIFY_CODE_TTL", 5*time.Minute),
 			RedisPrefix: envString("VERIFY_CODE_REDIS_PREFIX", "auth:verify_code:"),
 		},
 		Queue: QueueConfig{

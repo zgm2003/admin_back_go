@@ -16,41 +16,44 @@ type PageInitResponse struct {
 }
 
 type PageInitDict struct {
-	CommonStatusArr  []dict.Option[int]    `json:"common_status_arr"`
-	MailSceneArr     []dict.Option[string] `json:"mail_scene_arr"`
-	MailLogSceneArr  []dict.Option[string] `json:"mail_log_scene_arr"`
-	MailLogStatusArr []dict.Option[int]    `json:"mail_log_status_arr"`
-	MailRegionArr    []dict.Option[string] `json:"mail_region_arr"`
-	DefaultRegion    string                `json:"default_region"`
-	DefaultEndpoint  string                `json:"default_endpoint"`
+	CommonStatusArr   []dict.Option[int]    `json:"common_status_arr"`
+	MailSceneArr      []dict.Option[string] `json:"mail_scene_arr"`
+	MailLogSceneArr   []dict.Option[string] `json:"mail_log_scene_arr"`
+	MailLogStatusArr  []dict.Option[int]    `json:"mail_log_status_arr"`
+	MailRegionArr     []dict.Option[string] `json:"mail_region_arr"`
+	DefaultRegion     string                `json:"default_region"`
+	DefaultEndpoint   string                `json:"default_endpoint"`
+	DefaultTTLMinutes int                   `json:"default_ttl_minutes"`
 }
 
 type ConfigResponse struct {
-	ID            *uint64 `json:"id"`
-	Configured    bool    `json:"configured"`
-	SecretIDHint  string  `json:"secret_id_hint"`
-	SecretKeyHint string  `json:"secret_key_hint"`
-	Region        string  `json:"region"`
-	Endpoint      string  `json:"endpoint"`
-	FromEmail     string  `json:"from_email"`
-	FromName      string  `json:"from_name"`
-	ReplyTo       string  `json:"reply_to"`
-	Status        int     `json:"status"`
-	LastTestAt    *string `json:"last_test_at"`
-	LastTestError string  `json:"last_test_error"`
-	CreatedAt     *string `json:"created_at"`
-	UpdatedAt     *string `json:"updated_at"`
+	ID                   *uint64 `json:"id"`
+	Configured           bool    `json:"configured"`
+	SecretIDHint         string  `json:"secret_id_hint"`
+	SecretKeyHint        string  `json:"secret_key_hint"`
+	Region               string  `json:"region"`
+	Endpoint             string  `json:"endpoint"`
+	FromEmail            string  `json:"from_email"`
+	FromName             string  `json:"from_name"`
+	ReplyTo              string  `json:"reply_to"`
+	Status               int     `json:"status"`
+	VerifyCodeTTLMinutes int     `json:"verify_code_ttl_minutes"`
+	LastTestAt           *string `json:"last_test_at"`
+	LastTestError        string  `json:"last_test_error"`
+	CreatedAt            *string `json:"created_at"`
+	UpdatedAt            *string `json:"updated_at"`
 }
 
 type SaveConfigInput struct {
-	SecretID  string
-	SecretKey string
-	Region    string
-	Endpoint  string
-	FromEmail string
-	FromName  string
-	ReplyTo   string
-	Status    int
+	SecretID             string
+	SecretKey            string
+	Region               string
+	Endpoint             string
+	FromEmail            string
+	FromName             string
+	ReplyTo              string
+	Status               int
+	VerifyCodeTTLMinutes int
 }
 
 type TestInput struct {

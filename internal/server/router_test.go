@@ -2712,11 +2712,14 @@ func TestRouterInstallsMailRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/mail/config", strings.NewReader(`{"secret_id":"AKID","secret_key":"SECRET","region":"ap-guangzhou","endpoint":"ses.tencentcloudapi.com","from_email":"noreply@example.com","status":1}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/mail/config", strings.NewReader(`{"secret_id":"AKID","secret_key":"SECRET","region":"ap-guangzhou","endpoint":"ses.tencentcloudapi.com","from_email":"noreply@example.com","status":1,"verify_code_ttl_minutes":5}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || mailService.savedConfig.SecretID != "AKID" || mailService.savedConfig.SecretKey != "SECRET" {
+	if recorder.Code != http.StatusOK ||
+		mailService.savedConfig.SecretID != "AKID" ||
+		mailService.savedConfig.SecretKey != "SECRET" ||
+		mailService.savedConfig.VerifyCodeTTLMinutes != 5 {
 		t.Fatalf("mail config route mismatch: code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), mailService.savedConfig)
 	}
 

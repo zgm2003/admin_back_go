@@ -49,6 +49,7 @@ func (h *Handler) SaveConfig(c *gin.Context) {
 	appErr := h.requireService().SaveConfig(c.Request.Context(), SaveConfigInput{
 		SecretID: req.SecretID, SecretKey: req.SecretKey, Region: req.Region, Endpoint: req.Endpoint,
 		FromEmail: req.FromEmail, FromName: req.FromName, ReplyTo: req.ReplyTo, Status: req.Status,
+		VerifyCodeTTLMinutes: req.VerifyCodeTTLMinutes,
 	})
 	writeResult(c, gin.H{}, appErr)
 }

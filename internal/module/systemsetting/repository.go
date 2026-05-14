@@ -87,6 +87,28 @@ func (r *GormRepository) Get(ctx context.Context, id int64) (*Setting, error) {
 	return &row, nil
 }
 
+func (r *GormRepository) SettingByKey(ctx context.Context, key string) (*Setting, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, nil
+	}
+	var row Setting
+	err := r.db.WithContext(ctx).
+		Where("setting_key = ?", key).
+		Where("is_del = ?", enum.CommonNo).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 func (r *GormRepository) SettingsByIDs(ctx context.Context, ids []int64) (map[int64]Setting, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
