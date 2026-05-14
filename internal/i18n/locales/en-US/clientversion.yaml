@@ -1,0 +1,30 @@
+clientversion.service_missing: Client version service is not configured
+clientversion.list.request.invalid: Invalid client version list request
+clientversion.create.request.invalid: Invalid client version create request
+clientversion.update.request.invalid: Invalid client version update request
+clientversion.force_update.invalid: Invalid force update status
+clientversion.platform.invalid: Invalid client platform
+clientversion.current_check.request.invalid: Invalid current-check request
+clientversion.id.invalid: Invalid version ID
+clientversion.list_failed: Failed to query version list
+clientversion.unique_check_failed: Failed to check version uniqueness
+clientversion.version.duplicate: This platform version already exists
+clientversion.create_failed: Failed to create client version
+clientversion.platform_immutable: Version platform cannot be changed
+clientversion.update_failed: Failed to update client version
+clientversion.force_update_failed: Failed to update force update status
+clientversion.latest_delete_forbidden: Cannot delete the current latest version
+clientversion.delete_failed: Failed to delete client version
+clientversion.latest_query_failed: Failed to query latest version
+clientversion.current_version.required: Version is required
+clientversion.query_failed: Failed to query client version
+clientversion.repository_missing: Client version repository is not configured
+clientversion.publisher_missing: Client version manifest publisher is not configured
+clientversion.manifest_publish_failed: Failed to publish version update manifest
+clientversion.save_failed: Failed to save client version
+clientversion.not_found: Client version does not exist
+clientversion.version.invalid: Version is required and must be at most 20 characters
+clientversion.notes.too_long: Version notes must be at most 1000 characters
+clientversion.file_url.invalid: File URL must be a valid URL
+clientversion.signature.required: Signature is required
+clientversion.file_size.invalid: File size cannot be negative

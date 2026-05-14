@@ -37,7 +37,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("clientversion.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	result, appErr := service.List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: req.Platform})
@@ -55,7 +55,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	var req saveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("clientversion.create.request.invalid", nil, "参数错误"))
 		return
 	}
 	id, appErr := service.Create(c.Request.Context(), createInput(req))
@@ -77,7 +77,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	var req saveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("clientversion.update.request.invalid", nil, "参数错误"))
 		return
 	}
 	if appErr := service.Update(c.Request.Context(), id, UpdateInput(createInput(req))); appErr != nil {
@@ -114,7 +114,7 @@ func (h *Handler) ForceUpdate(c *gin.Context) {
 	}
 	var req forceUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("无效的强制更新状态"))
+		response.Error(c, apperror.BadRequestKey("clientversion.force_update.invalid", nil, "无效的强制更新状态"))
 		return
 	}
 	if appErr := service.ForceUpdate(c.Request.Context(), id, req.ForceUpdate); appErr != nil {
@@ -147,7 +147,7 @@ func (h *Handler) UpdateJSON(c *gin.Context) {
 	}
 	var req updateJSONRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("无效的客户端平台"))
+		response.Error(c, apperror.BadRequestKey("clientversion.platform.invalid", nil, "无效的客户端平台"))
 		return
 	}
 	result, appErr := service.UpdateJSON(c.Request.Context(), req.Platform)
@@ -165,7 +165,7 @@ func (h *Handler) CurrentCheck(c *gin.Context) {
 	}
 	var req currentCheckRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("clientversion.current_check.request.invalid", nil, "参数错误"))
 		return
 	}
 	result, appErr := service.CurrentCheck(c.Request.Context(), CurrentCheckQuery{Version: req.Version, Platform: req.Platform})
@@ -178,7 +178,7 @@ func (h *Handler) CurrentCheck(c *gin.Context) {
 
 func (h *Handler) requireService(c *gin.Context) (HTTPService, bool) {
 	if h == nil || h.service == nil {
-		response.Error(c, apperror.Internal("客户端版本服务未配置"))
+		response.Error(c, apperror.InternalKey("clientversion.service_missing", nil, "客户端版本服务未配置"))
 		return nil, false
 	}
 	return h.service, true
@@ -187,7 +187,7 @@ func (h *Handler) requireService(c *gin.Context) (HTTPService, bool) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的版本ID"))
+		response.Error(c, apperror.BadRequestKey("clientversion.id.invalid", nil, "无效的版本ID"))
 		return 0, false
 	}
 	return id, true

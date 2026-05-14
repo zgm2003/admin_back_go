@@ -43,11 +43,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	query = normalizeListQuery(query)
 	if query.Platform != "" && !enum.IsClientPlatform(query.Platform) {
-		return nil, apperror.BadRequest("无效的客户端平台")
+		return nil, apperror.BadRequestKey("clientversion.platform.invalid", nil, "无效的客户端平台")
 	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询版本列表失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.list_failed", nil, "查询版本列表失败", err)
 	}
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -67,24 +67,24 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (int64, *apperr
 	}
 	exists, err := repo.ExistsByVersionPlatform(ctx, input.Version, input.Platform, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验版本唯一性失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.unique_check_failed", nil, "校验版本唯一性失败", err)
 	}
 	if exists {
-		return 0, apperror.BadRequest("该平台版本已存在")
+		return 0, apperror.BadRequestKey("clientversion.version.duplicate", nil, "该平台版本已存在")
 	}
 	id, err := repo.Create(ctx, Version{
 		Version: input.Version, Notes: input.Notes, FileURL: input.FileURL, Signature: input.Signature, Platform: input.Platform,
 		FileSize: input.FileSize, IsLatest: enum.CommonNo, ForceUpdate: input.ForceUpdate, IsDel: enum.CommonNo,
 	})
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增客户端版本失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.create_failed", nil, "新增客户端版本失败", err)
 	}
 	return id, nil
 }
 
 func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的版本ID")
+		return apperror.BadRequestKey("clientversion.id.invalid", nil, "无效的版本ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -99,14 +99,14 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 		return appErr
 	}
 	if row.Platform != input.Platform {
-		return apperror.BadRequest("版本平台不允许修改")
+		return apperror.BadRequestKey("clientversion.platform_immutable", nil, "版本平台不允许修改")
 	}
 	exists, err := repo.ExistsByVersionPlatform(ctx, input.Version, input.Platform, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验版本唯一性失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.unique_check_failed", nil, "校验版本唯一性失败", err)
 	}
 	if exists {
-		return apperror.BadRequest("该平台版本已存在")
+		return apperror.BadRequestKey("clientversion.version.duplicate", nil, "该平台版本已存在")
 	}
 	fields := map[string]any{
 		"version":      input.Version,
@@ -125,7 +125,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	updated.ForceUpdate = input.ForceUpdate
 	if row.IsLatest != enum.CommonYes {
 		if err := repo.Update(ctx, id, fields); err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "更新客户端版本失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.update_failed", nil, "更新客户端版本失败", err)
 		}
 		return nil
 	}
@@ -139,7 +139,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 
 func (s *Service) SetLatest(ctx context.Context, id int64) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的版本ID")
+		return apperror.BadRequestKey("clientversion.id.invalid", nil, "无效的版本ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -164,10 +164,10 @@ func (s *Service) SetLatest(ctx context.Context, id int64) *apperror.Error {
 
 func (s *Service) ForceUpdate(ctx context.Context, id int64, forceUpdate int) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的版本ID")
+		return apperror.BadRequestKey("clientversion.id.invalid", nil, "无效的版本ID")
 	}
 	if !enum.IsCommonYesNo(forceUpdate) {
-		return apperror.BadRequest("无效的强制更新状态")
+		return apperror.BadRequestKey("clientversion.force_update.invalid", nil, "无效的强制更新状态")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -180,7 +180,7 @@ func (s *Service) ForceUpdate(ctx context.Context, id int64, forceUpdate int) *a
 	fields := map[string]any{"force_update": forceUpdate}
 	if row.IsLatest != enum.CommonYes {
 		if err := repo.Update(ctx, id, fields); err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "更新强制更新状态失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.force_update_failed", nil, "更新强制更新状态失败", err)
 		}
 		return nil
 	}
@@ -196,7 +196,7 @@ func (s *Service) ForceUpdate(ctx context.Context, id int64, forceUpdate int) *a
 
 func (s *Service) Delete(ctx context.Context, id int64) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的版本ID")
+		return apperror.BadRequestKey("clientversion.id.invalid", nil, "无效的版本ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -207,10 +207,10 @@ func (s *Service) Delete(ctx context.Context, id int64) *apperror.Error {
 		return appErr
 	}
 	if row.IsLatest == enum.CommonYes {
-		return apperror.BadRequest("不能删除当前最新版本")
+		return apperror.BadRequestKey("clientversion.latest_delete_forbidden", nil, "不能删除当前最新版本")
 	}
 	if err := repo.SoftDelete(ctx, id); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除客户端版本失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.delete_failed", nil, "删除客户端版本失败", err)
 	}
 	return nil
 }
@@ -225,11 +225,11 @@ func (s *Service) UpdateJSON(ctx context.Context, platform string) (any, *apperr
 		platform = enum.ClientPlatformWindowsX8664
 	}
 	if !enum.IsClientPlatform(platform) {
-		return nil, apperror.BadRequest("无效的客户端平台")
+		return nil, apperror.BadRequestKey("clientversion.platform.invalid", nil, "无效的客户端平台")
 	}
 	row, err := repo.Latest(ctx, platform)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询最新版本失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.latest_query_failed", nil, "查询最新版本失败", err)
 	}
 	if row == nil {
 		return []any{}, nil
@@ -248,28 +248,28 @@ func (s *Service) CurrentCheck(ctx context.Context, query CurrentCheckQuery) (*C
 		query.Platform = enum.ClientPlatformWindowsX8664
 	}
 	if query.Version == "" {
-		return nil, apperror.BadRequest("版本号不能为空")
+		return nil, apperror.BadRequestKey("clientversion.current_version.required", nil, "版本号不能为空")
 	}
 	if !enum.IsClientPlatform(query.Platform) {
-		return nil, apperror.BadRequest("无效的客户端平台")
+		return nil, apperror.BadRequestKey("clientversion.platform.invalid", nil, "无效的客户端平台")
 	}
 	row, err := repo.FindByVersionPlatform(ctx, query.Version, query.Platform)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询客户端版本失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.query_failed", nil, "查询客户端版本失败", err)
 	}
 	return &CurrentCheckResponse{ForceUpdate: row != nil && row.ForceUpdate == enum.CommonYes}, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "客户端版本仓储未配置", ErrRepositoryNotConfigured)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.repository_missing", nil, "客户端版本仓储未配置", ErrRepositoryNotConfigured)
 	}
 	return s.repository, nil
 }
 
 func (s *Service) requirePublisher() (ManifestPublisher, *apperror.Error) {
 	if s == nil || s.publisher == nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "客户端版本清单发布器未配置", ErrPublisherNotConfigured)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.publisher_missing", nil, "客户端版本清单发布器未配置", ErrPublisherNotConfigured)
 	}
 	return s.publisher, nil
 }
@@ -286,9 +286,9 @@ func (s *Service) withPublishTx(ctx context.Context, fn func(txRepo Repository) 
 		return fn(txRepo)
 	}); err != nil {
 		if strings.Contains(err.Error(), "publish manifest") {
-			return apperror.Wrap(apperror.CodeInternal, 500, "发布版本更新清单失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.manifest_publish_failed", nil, "发布版本更新清单失败", err)
 		}
-		return apperror.Wrap(apperror.CodeInternal, 500, "保存客户端版本失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.save_failed", nil, "保存客户端版本失败", err)
 	}
 	return nil
 }
@@ -311,10 +311,10 @@ func (s *Service) publishManifest(ctx context.Context, row Version) error {
 func getVersion(ctx context.Context, repo Repository, id int64) (*Version, *apperror.Error) {
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询客户端版本失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "clientversion.query_failed", nil, "查询客户端版本失败", err)
 	}
 	if row == nil {
-		return nil, apperror.NotFound("客户端版本不存在")
+		return nil, apperror.NotFoundKey("clientversion.not_found", nil, "客户端版本不存在")
 	}
 	return row, nil
 }
@@ -342,7 +342,7 @@ func normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
 		input.ForceUpdate = enum.CommonNo
 	}
 	if !enum.IsCommonYesNo(input.ForceUpdate) {
-		return input, apperror.BadRequest("无效的强制更新状态")
+		return input, apperror.BadRequestKey("clientversion.force_update.invalid", nil, "无效的强制更新状态")
 	}
 	return input, nil
 }
@@ -354,10 +354,10 @@ func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
 	}
 	input = UpdateInput(create)
 	if input.ForceUpdate == 0 {
-		return input, apperror.BadRequest("无效的强制更新状态")
+		return input, apperror.BadRequestKey("clientversion.force_update.invalid", nil, "无效的强制更新状态")
 	}
 	if !enum.IsCommonYesNo(input.ForceUpdate) {
-		return input, apperror.BadRequest("无效的强制更新状态")
+		return input, apperror.BadRequestKey("clientversion.force_update.invalid", nil, "无效的强制更新状态")
 	}
 	return input, nil
 }
@@ -369,22 +369,22 @@ func normalizeSaveFields(input CreateInput) (CreateInput, *apperror.Error) {
 	input.Signature = strings.TrimSpace(input.Signature)
 	input.Platform = strings.TrimSpace(input.Platform)
 	if input.Version == "" || len([]rune(input.Version)) > 20 {
-		return input, apperror.BadRequest("版本号不能为空且不能超过20个字符")
+		return input, apperror.BadRequestKey("clientversion.version.invalid", nil, "版本号不能为空且不能超过20个字符")
 	}
 	if len([]rune(input.Notes)) > 1000 {
-		return input, apperror.BadRequest("版本说明不能超过1000个字符")
+		return input, apperror.BadRequestKey("clientversion.notes.too_long", nil, "版本说明不能超过1000个字符")
 	}
 	if !enum.IsClientPlatform(input.Platform) {
-		return input, apperror.BadRequest("无效的客户端平台")
+		return input, apperror.BadRequestKey("clientversion.platform.invalid", nil, "无效的客户端平台")
 	}
 	if !isHTTPURL(input.FileURL) {
-		return input, apperror.BadRequest("文件地址必须是有效 URL")
+		return input, apperror.BadRequestKey("clientversion.file_url.invalid", nil, "文件地址必须是有效 URL")
 	}
 	if input.Signature == "" {
-		return input, apperror.BadRequest("签名不能为空")
+		return input, apperror.BadRequestKey("clientversion.signature.required", nil, "签名不能为空")
 	}
 	if input.FileSize < 0 {
-		return input, apperror.BadRequest("文件大小不能小于0")
+		return input, apperror.BadRequestKey("clientversion.file_size.invalid", nil, "文件大小不能小于0")
 	}
 	return input, nil
 }
