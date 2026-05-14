@@ -1,0 +1,6 @@
+systemlog.service_missing: System log service is not configured
+systemlog.query.invalid: Invalid log query parameters
+systemlog.files_read_failed: Failed to read log file list
+systemlog.filename.invalid: Invalid log filename
+systemlog.file_not_found: Log file does not exist
+systemlog.lines_read_failed: Failed to read log content

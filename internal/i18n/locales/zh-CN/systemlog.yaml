@@ -1,0 +1,6 @@
+systemlog.service_missing: 系统日志服务未配置
+systemlog.query.invalid: 日志查询参数错误
+systemlog.files_read_failed: 读取日志文件列表失败
+systemlog.filename.invalid: 日志文件名不合法
+systemlog.file_not_found: 日志文件不存在
+systemlog.lines_read_failed: 读取日志内容失败

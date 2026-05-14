@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
+	projecti18n "admin_back_go/internal/i18n"
 
 	"github.com/gin-gonic/gin"
 )
@@ -77,9 +78,34 @@ func TestHandlerInitReturnsDictionaries(t *testing.T) {
 	}
 }
 
+func TestHandlerLinesLocalizesInvalidQuery(t *testing.T) {
+	router := newLocalizedTestRouter(&fakeService{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-logs/files/admin-api.log/lines?tail=abc", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected lines status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeBody(t, recorder)
+	if body["msg"] != "Invalid log query parameters" {
+		t.Fatalf("expected localized query error, got %#v", body["msg"])
+	}
+}
+
 func newTestRouter(service HTTPService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	RegisterRoutes(router, service)
+	return router
+}
+
+func newLocalizedTestRouter(service HTTPService) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
 	RegisterRoutes(router, service)
 	return router
 }

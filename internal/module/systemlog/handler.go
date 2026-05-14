@@ -26,7 +26,7 @@ func NewHandler(service HTTPService) *Handler {
 
 func (h *Handler) Init(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统日志服务未配置"))
+		response.Error(c, apperror.InternalKey("systemlog.service_missing", nil, "系统日志服务未配置"))
 		return
 	}
 	result, appErr := h.service.Init(c.Request.Context())
@@ -39,7 +39,7 @@ func (h *Handler) Init(c *gin.Context) {
 
 func (h *Handler) Files(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统日志服务未配置"))
+		response.Error(c, apperror.InternalKey("systemlog.service_missing", nil, "系统日志服务未配置"))
 		return
 	}
 	result, appErr := h.service.Files(c.Request.Context())
@@ -52,12 +52,12 @@ func (h *Handler) Files(c *gin.Context) {
 
 func (h *Handler) Lines(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统日志服务未配置"))
+		response.Error(c, apperror.InternalKey("systemlog.service_missing", nil, "系统日志服务未配置"))
 		return
 	}
 	var req linesRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("日志查询参数错误"))
+		response.Error(c, apperror.BadRequestKey("systemlog.query.invalid", nil, "日志查询参数错误"))
 		return
 	}
 	result, appErr := h.service.Lines(c.Request.Context(), LinesQuery{
