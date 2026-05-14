@@ -1,0 +1,17 @@
+uploadtoken.request.invalid: Invalid upload token request
+uploadtoken.service_missing: Upload runtime service is not configured
+uploadtoken.repository_missing: Upload runtime repository is not configured
+uploadtoken.folder.unsupported: Unsupported upload folder
+uploadtoken.file_name.required: File name is required
+uploadtoken.file_size.invalid: Invalid file size
+uploadtoken.file_kind.unsupported: Unsupported upload type
+uploadtoken.config_read_failed: Failed to read upload configuration
+uploadtoken.setting_missing: No enabled upload setting is configured
+uploadtoken.cos_runtime_disabled: The current upload driver does not enable COS runtime
+uploadtoken.config_incomplete: Upload configuration is incomplete
+uploadtoken.secret_unavailable: Upload secret is unavailable
+uploadtoken.key_build_failed: Failed to generate upload path
+uploadtoken.cos_sts_disabled: COS temporary credentials are not enabled
+uploadtoken.cos_sign_failed: Failed to issue COS temporary credentials
+uploadtoken.file_size.exceeded: File size exceeds the limit
+uploadtoken.file_type.unsupported: Unsupported file type

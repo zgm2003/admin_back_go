@@ -24,7 +24,7 @@ func NewHandler(service HTTPService) *Handler {
 func (h *Handler) Create(c *gin.Context) {
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("上传 token 参数错误"))
+		response.Error(c, apperror.BadRequestKey("uploadtoken.request.invalid", nil, "上传 token 参数错误"))
 		return
 	}
 	result, appErr := h.requireService().Create(c.Request.Context(), CreateInput{
@@ -50,5 +50,5 @@ func (h *Handler) requireService() HTTPService {
 type failingService struct{}
 
 func (failingService) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
-	return nil, apperror.Internal("上传运行时服务未配置")
+	return nil, apperror.InternalKey("uploadtoken.service_missing", nil, "上传运行时服务未配置")
 }

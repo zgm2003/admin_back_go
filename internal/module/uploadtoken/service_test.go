@@ -44,7 +44,7 @@ func TestCreateRejectsMissingEnabledSetting(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), validInput())
 
-	if appErr == nil || appErr.Message != "未配置有效上传设置" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.setting_missing" {
 		t.Fatalf("expected missing setting error, got %#v", appErr)
 	}
 }
@@ -54,7 +54,7 @@ func TestCreateRejectsNonCOSDriver(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), validInput())
 
-	if appErr == nil || appErr.Message != "当前上传驱动未启用 COS runtime" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.cos_runtime_disabled" {
 		t.Fatalf("expected non COS error, got %#v", appErr)
 	}
 }
@@ -64,7 +64,7 @@ func TestCreateRejectsUnsupportedFolder(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), CreateInput{Folder: "bad", FileName: "a.png", FileSize: 1, FileKind: FileKindImage})
 
-	if appErr == nil || appErr.Message != "上传目录不支持" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.folder.unsupported" {
 		t.Fatalf("expected folder error, got %#v", appErr)
 	}
 }
@@ -74,7 +74,7 @@ func TestCreateRejectsUnsupportedImageExtension(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), CreateInput{Folder: "images", FileName: "a.exe", FileSize: 1, FileKind: FileKindImage})
 
-	if appErr == nil || appErr.Message != "文件类型不支持" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.file_type.unsupported" {
 		t.Fatalf("expected extension error, got %#v", appErr)
 	}
 }
@@ -84,7 +84,7 @@ func TestCreateRejectsOversizeFile(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), CreateInput{Folder: "images", FileName: "a.png", FileSize: 3 * 1024 * 1024, FileKind: FileKindImage})
 
-	if appErr == nil || appErr.Message != "文件大小超过限制" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.file_size.exceeded" {
 		t.Fatalf("expected oversize error, got %#v", appErr)
 	}
 }
@@ -158,7 +158,7 @@ func TestCreateReturnsExplicitDisabledError(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), validInput())
 
-	if appErr == nil || appErr.Message != "COS 临时凭证未启用" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.cos_sts_disabled" {
 		t.Fatalf("expected disabled error, got %#v", appErr)
 	}
 }

@@ -62,30 +62,30 @@ func NewService(repo Repository, box secretbox.Box, signer storagecos.Credential
 func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
 	input = normalizeInput(input)
 	if !enum.IsUploadFolder(input.Folder) {
-		return nil, apperror.BadRequest("上传目录不支持")
+		return nil, apperror.BadRequestKey("uploadtoken.folder.unsupported", nil, "上传目录不支持")
 	}
 	if input.FileName == "" {
-		return nil, apperror.BadRequest("文件名不能为空")
+		return nil, apperror.BadRequestKey("uploadtoken.file_name.required", nil, "文件名不能为空")
 	}
 	if input.FileSize <= 0 {
-		return nil, apperror.BadRequest("文件大小不正确")
+		return nil, apperror.BadRequestKey("uploadtoken.file_size.invalid", nil, "文件大小不正确")
 	}
 	if input.FileKind != FileKindImage && input.FileKind != FileKindFile {
-		return nil, apperror.BadRequest("上传类型不支持")
+		return nil, apperror.BadRequestKey("uploadtoken.file_kind.unsupported", nil, "上传类型不支持")
 	}
 	if s == nil || s.repo == nil {
-		return nil, apperror.Internal(ErrRepositoryNotConfiguredMessage)
+		return nil, apperror.InternalKey("uploadtoken.repository_missing", nil, ErrRepositoryNotConfiguredMessage)
 	}
 
 	cfg, err := s.repo.GetEnabledConfig(ctx)
 	if err != nil {
-		return nil, apperror.Internal("读取上传配置失败")
+		return nil, apperror.InternalKey("uploadtoken.config_read_failed", nil, "读取上传配置失败")
 	}
 	if cfg == nil {
-		return nil, apperror.BadRequest("未配置有效上传设置")
+		return nil, apperror.BadRequestKey("uploadtoken.setting_missing", nil, "未配置有效上传设置")
 	}
 	if cfg.Driver != enum.UploadDriverCOS {
-		return nil, apperror.BadRequest("当前上传驱动未启用 COS runtime")
+		return nil, apperror.BadRequestKey("uploadtoken.cos_runtime_disabled", nil, "当前上传驱动未启用 COS runtime")
 	}
 
 	imageExts, fileExts, appErr := parseRuleExts(cfg)
@@ -98,28 +98,28 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 
 	secretID, err := s.box.Decrypt(cfg.SecretIDEnc)
 	if err != nil || secretID == "" {
-		return nil, apperror.Internal("上传密钥不可用")
+		return nil, apperror.InternalKey("uploadtoken.secret_unavailable", nil, "上传密钥不可用")
 	}
 	secretKey, err := s.box.Decrypt(cfg.SecretKeyEnc)
 	if err != nil || secretKey == "" {
-		return nil, apperror.Internal("上传密钥不可用")
+		return nil, apperror.InternalKey("uploadtoken.secret_unavailable", nil, "上传密钥不可用")
 	}
 
 	key, err := s.buildKey(input.Folder, input.FileName)
 	if err != nil {
-		return nil, apperror.Internal("生成上传路径失败")
+		return nil, apperror.InternalKey("uploadtoken.key_build_failed", nil, "生成上传路径失败")
 	}
 	creds, err := s.signer.Sign(ctx, storagecos.SignInput{
 		SecretID: secretID, SecretKey: secretKey, Bucket: cfg.Bucket, Region: cfg.Region, AppID: cfg.AppID, Key: key, TTL: s.ttl,
 	})
 	if errors.Is(err, storagecos.ErrDisabled) {
-		return nil, apperror.Internal("COS 临时凭证未启用")
+		return nil, apperror.InternalKey("uploadtoken.cos_sts_disabled", nil, "COS 临时凭证未启用")
 	}
 	if err != nil {
-		return nil, apperror.Internal("COS 临时凭证签发失败")
+		return nil, apperror.InternalKey("uploadtoken.cos_sign_failed", nil, "COS 临时凭证签发失败")
 	}
 	if creds == nil {
-		return nil, apperror.Internal("COS 临时凭证签发失败")
+		return nil, apperror.InternalKey("uploadtoken.cos_sign_failed", nil, "COS 临时凭证签发失败")
 	}
 
 	return &CreateResponse{
@@ -147,21 +147,21 @@ func parseRuleExts(cfg *EnabledConfig) ([]string, []string, *apperror.Error) {
 	var imageExts []string
 	var fileExts []string
 	if err := json.Unmarshal([]byte(cfg.ImageExts), &imageExts); err != nil {
-		return nil, nil, apperror.BadRequest("上传配置不完整")
+		return nil, nil, apperror.BadRequestKey("uploadtoken.config_incomplete", nil, "上传配置不完整")
 	}
 	if err := json.Unmarshal([]byte(cfg.FileExts), &fileExts); err != nil {
-		return nil, nil, apperror.BadRequest("上传配置不完整")
+		return nil, nil, apperror.BadRequestKey("uploadtoken.config_incomplete", nil, "上传配置不完整")
 	}
 	return imageExts, fileExts, nil
 }
 
 func validateFile(input CreateInput, maxSizeMB int, imageExts []string, fileExts []string) *apperror.Error {
 	if maxSizeMB > 0 && input.FileSize > int64(maxSizeMB)*1024*1024 {
-		return apperror.BadRequest("文件大小超过限制")
+		return apperror.BadRequestKey("uploadtoken.file_size.exceeded", nil, "文件大小超过限制")
 	}
 	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(input.FileName)), ".")
 	if ext == "" {
-		return apperror.BadRequest("文件类型不支持")
+		return apperror.BadRequestKey("uploadtoken.file_type.unsupported", nil, "文件类型不支持")
 	}
 	allowed := fileExts
 	if input.FileKind == FileKindImage {
@@ -172,7 +172,7 @@ func validateFile(input CreateInput, maxSizeMB int, imageExts []string, fileExts
 			return nil
 		}
 	}
-	return apperror.BadRequest("文件类型不支持")
+	return apperror.BadRequestKey("uploadtoken.file_type.unsupported", nil, "文件类型不支持")
 }
 
 func (s *Service) buildKey(folder string, fileName string) (string, error) {
