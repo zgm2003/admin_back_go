@@ -1,0 +1,9 @@
+userloginlog.request.invalid: 用户登录日志列表参数错误
+userloginlog.service_missing: 用户登录日志服务未配置
+userloginlog.repository_missing: 用户登录日志仓储未配置
+userloginlog.query_failed: 查询用户登录日志失败
+userloginlog.login_type.invalid: 无效的登录类型
+userloginlog.platform.invalid: 无效的平台标识
+userloginlog.result.invalid: 无效的登录结果
+userloginlog.date_start.invalid: 无效的开始日期
+userloginlog.date_end.invalid: 无效的结束日期

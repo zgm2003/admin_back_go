@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 
 	"github.com/gin-gonic/gin"
 )
@@ -61,9 +62,34 @@ func TestHandlerListBindsQuery(t *testing.T) {
 	}
 }
 
+func TestHandlerListLocalizesInvalidRequest(t *testing.T) {
+	router := newLoginLogLocalizedTestRouter(&fakeHTTPService{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/login-logs?is_success=abc", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeLoginLogBody(t, recorder)
+	if body["msg"] != "Invalid user login log list request" {
+		t.Fatalf("expected localized msg, got %#v", body["msg"])
+	}
+}
+
 func newLoginLogTestRouter(service HTTPService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	RegisterRoutes(router, service)
+	return router
+}
+
+func newLoginLogLocalizedTestRouter(service HTTPService) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
 	RegisterRoutes(router, service)
 	return router
 }

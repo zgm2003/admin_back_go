@@ -95,25 +95,28 @@ func TestListAllowsMissingUserNameAsEmptyString(t *testing.T) {
 func TestListRejectsInvalidFilters(t *testing.T) {
 	service := NewService(&fakeRepository{})
 
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, LoginType: "sms"}); appErr == nil {
-		t.Fatalf("expected invalid login_type to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, LoginType: "sms"}); appErr == nil || appErr.MessageID != "userloginlog.login_type.invalid" {
+		t.Fatalf("expected keyed invalid login_type error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Platform: "mini"}); appErr == nil {
-		t.Fatalf("expected invalid platform to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Platform: "mini"}); appErr == nil || appErr.MessageID != "userloginlog.platform.invalid" {
+		t.Fatalf("expected keyed invalid platform error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, IsSuccess: intPtr(9)}); appErr == nil {
-		t.Fatalf("expected invalid is_success to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, IsSuccess: intPtr(9)}); appErr == nil || appErr.MessageID != "userloginlog.result.invalid" {
+		t.Fatalf("expected keyed invalid is_success error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, DateStart: "2026/05/01"}); appErr == nil {
-		t.Fatalf("expected invalid date_start to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, DateStart: "2026/05/01"}); appErr == nil || appErr.MessageID != "userloginlog.date_start.invalid" {
+		t.Fatalf("expected keyed invalid date_start error, got %#v", appErr)
+	}
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, DateEnd: "2026/05/08"}); appErr == nil || appErr.MessageID != "userloginlog.date_end.invalid" {
+		t.Fatalf("expected keyed invalid date_end error, got %#v", appErr)
 	}
 }
 
 func TestListWrapsRepositoryError(t *testing.T) {
 	service := NewService(&fakeRepository{err: errors.New("db down")})
 
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20}); appErr == nil {
-		t.Fatalf("expected repository error to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20}); appErr == nil || appErr.MessageID != "userloginlog.query_failed" {
+		t.Fatalf("expected keyed repository error, got %#v", appErr)
 	}
 }
 

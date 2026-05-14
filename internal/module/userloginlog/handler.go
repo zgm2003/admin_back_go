@@ -25,7 +25,7 @@ func (h *Handler) PageInit(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("用户登录日志列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("userloginlog.request.invalid", nil, "用户登录日志列表参数错误"))
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
@@ -61,9 +61,9 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 type nilHTTPService struct{}
 
 func (nilHTTPService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户登录日志服务未配置")
+	return nil, apperror.InternalKey("userloginlog.service_missing", nil, "用户登录日志服务未配置")
 }
 
 func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户登录日志服务未配置")
+	return nil, apperror.InternalKey("userloginlog.service_missing", nil, "用户登录日志服务未配置")
 }

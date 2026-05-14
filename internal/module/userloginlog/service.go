@@ -31,7 +31,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("用户登录日志仓储未配置")
+		return nil, apperror.InternalKey("userloginlog.repository_missing", nil, "用户登录日志仓储未配置")
 	}
 	query, appErr := normalizeQuery(query)
 	if appErr != nil {
@@ -39,7 +39,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	rows, total, err := s.repository.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户登录日志失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "userloginlog.query_failed", nil, "查询用户登录日志失败", err)
 	}
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -69,23 +69,23 @@ func normalizeQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 
 	if query.LoginType != "" && !enum.IsLoginType(query.LoginType) {
-		return query, apperror.BadRequest("无效的登录类型")
+		return query, apperror.BadRequestKey("userloginlog.login_type.invalid", nil, "无效的登录类型")
 	}
 	if query.Platform != "" && !enum.IsPlatform(query.Platform) {
-		return query, apperror.BadRequest("无效的平台标识")
+		return query, apperror.BadRequestKey("userloginlog.platform.invalid", nil, "无效的平台标识")
 	}
 	if query.IsSuccess != nil && !enum.IsCommonYesNo(*query.IsSuccess) {
-		return query, apperror.BadRequest("无效的登录结果")
+		return query, apperror.BadRequestKey("userloginlog.result.invalid", nil, "无效的登录结果")
 	}
 	if query.DateStart != "" {
 		if _, err := time.Parse(dateLayout, query.DateStart); err != nil {
-			return query, apperror.BadRequest("无效的开始日期")
+			return query, apperror.BadRequestKey("userloginlog.date_start.invalid", nil, "无效的开始日期")
 		}
 		query.CreatedStart = query.DateStart + " 00:00:00"
 	}
 	if query.DateEnd != "" {
 		if _, err := time.Parse(dateLayout, query.DateEnd); err != nil {
-			return query, apperror.BadRequest("无效的结束日期")
+			return query, apperror.BadRequestKey("userloginlog.date_end.invalid", nil, "无效的结束日期")
 		}
 		query.CreatedEnd = query.DateEnd + " 23:59:59"
 	}

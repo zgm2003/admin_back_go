@@ -1,0 +1,9 @@
+userloginlog.request.invalid: Invalid user login log list request
+userloginlog.service_missing: User login log service is not configured
+userloginlog.repository_missing: User login log repository is not configured
+userloginlog.query_failed: Failed to query user login logs
+userloginlog.login_type.invalid: Invalid login type
+userloginlog.platform.invalid: Invalid platform
+userloginlog.result.invalid: Invalid login result
+userloginlog.date_start.invalid: Invalid start date
+userloginlog.date_end.invalid: Invalid end date
