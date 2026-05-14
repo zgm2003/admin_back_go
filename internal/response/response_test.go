@@ -118,6 +118,25 @@ func TestErrorLocalizesNilError(t *testing.T) {
 	}
 }
 
+func TestOKWithMessageKeyLocalizesSuccessMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	router.GET("/logout", func(c *gin.Context) {
+		OKWithMessageKey(c, gin.H{}, "auth.logout.success", nil, "退出成功")
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	body := decodeBody(t, recorder)
+	if body["msg"] != "Signed out successfully" {
+		t.Fatalf("expected localized success message, got %#v body=%s", body["msg"], recorder.Body.String())
+	}
+}
+
 func decodeBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var body map[string]any

@@ -83,7 +83,7 @@ func (h *Handler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("验证码参数错误"))
 		return
 	}
-	message, appErr := h.service.SendCode(c.Request.Context(), SendCodeInput{
+	_, appErr := h.service.SendCode(c.Request.Context(), SendCodeInput{
 		Account: req.Account,
 		Scene:   req.Scene,
 	})
@@ -91,7 +91,7 @@ func (h *Handler) SendCode(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	response.OKWithMessage(c, gin.H{}, message)
+	response.OKWithMessageKey(c, gin.H{}, "auth.verify_code.sent", nil, "验证码发送成功")
 }
 
 func (h *Handler) ForgetPassword(c *gin.Context) {
@@ -160,7 +160,7 @@ func (h *Handler) Logout(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	response.OKWithMessage(c, gin.H{}, "退出成功")
+	response.OKWithMessageKey(c, gin.H{}, "auth.logout.success", nil, "退出成功")
 }
 
 func captchaAnswerFromRequest(req *captchaAnswerRequest) *captcha.Answer {

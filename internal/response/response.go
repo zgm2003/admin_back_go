@@ -18,6 +18,17 @@ func OK(c *gin.Context, data any) {
 }
 
 func OKWithMessage(c *gin.Context, data any, message string) {
+	OKWithMessageKey(c, data, "", nil, message)
+}
+
+func OKWithMessageKey(c *gin.Context, data any, messageID string, templateData map[string]any, fallback string) {
+	if data == nil {
+		data = gin.H{}
+	}
+	message := fallback
+	if localized, localizeErr := projecti18n.Message(c, messageID, templateData, fallback); localizeErr == nil && localized != "" {
+		message = localized
+	}
 	c.JSON(200, Body{
 		Code: apperror.CodeOK,
 		Data: data,

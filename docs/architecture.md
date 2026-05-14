@@ -238,11 +238,13 @@ github.com/gin-contrib/i18n
 middleware 顺序是 CORS -> I18n -> AuthToken，保证缺 Token / 无权限这类外层错误也能翻译。
 语言来源只读 Accept-Language；支持 zh-CN / en-US；默认 zh-CN。
 response shape 不变：{ code, data, msg }。
+response 是唯一的 HTTP msg 本地化边界。
 msg 是展示文案，业务判断不能依赖 msg。
 apperror.Error 保留 fallback Message；MessageID 只做内部翻译 key，不返回给前端。
 Catalog 按 internal/i18n/locales/{lang}/{module}.yaml 分模块维护。
 已显式收口的模块使用 module-scoped MessageID；剩余 legacy fallback 文案通过 deterministic legacy.{sha1} catalog bridge 在 response 边界翻译。
 缺翻译 key 时继续返回 fallback 中文，不允许因为缺翻译 key panic。
+legacy fallback 只是一座迁移桥；source coverage tests 会约束它和 explicit MessageID。
 ```
 
 ## AuthToken baseline

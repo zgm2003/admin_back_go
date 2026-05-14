@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestFallbackMessageIDIsStable(t *testing.T) {
@@ -39,6 +41,44 @@ func TestLegacyFallbackCatalogCoversPublicErrorLiterals(t *testing.T) {
 			t.Fatalf("legacy fallback catalog missing %s for %q", key, msg)
 		}
 	}
+}
+
+func TestEnglishCatalogContainsNoChineseText(t *testing.T) {
+	keys, err := catalogValues("en-US")
+	if err != nil {
+		t.Fatalf("load en-US catalog: %v", err)
+	}
+	var offenders []string
+	for key, value := range keys {
+		if containsCJK(value) {
+			offenders = append(offenders, key+": "+value)
+		}
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("en-US catalog contains Chinese text:\n%s", strings.Join(offenders, "\n"))
+	}
+}
+
+func catalogValues(lang string) (map[string]string, error) {
+	files, err := catalogFiles(lang)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string)
+	for _, file := range files {
+		buf, err := localeFS.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		var fileValues map[string]string
+		if err := yaml.Unmarshal(buf, &fileValues); err != nil {
+			return nil, err
+		}
+		for key, value := range fileValues {
+			values[key] = value
+		}
+	}
+	return values, nil
 }
 
 func projectRoot(t *testing.T) string {
