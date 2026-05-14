@@ -43,3 +43,24 @@ func TestErrorWrapsCause(t *testing.T) {
 		t.Fatalf("expected public message, got %q", err.Error())
 	}
 }
+
+func TestKeyedErrorPreservesFallbackMessage(t *testing.T) {
+	err := UnauthorizedKey("auth.token.missing", nil, "缺少Token")
+	if err.Code != CodeUnauthorized || err.HTTPStatus != http.StatusUnauthorized {
+		t.Fatalf("unexpected error codes: %#v", err)
+	}
+	if err.MessageID != "auth.token.missing" {
+		t.Fatalf("expected message id, got %q", err.MessageID)
+	}
+	if err.Message != "缺少Token" || err.Error() != "缺少Token" {
+		t.Fatalf("fallback message broken: %#v", err)
+	}
+}
+
+func TestKeyedErrorTemplateDataIsStored(t *testing.T) {
+	data := map[string]any{"field": "email"}
+	err := BadRequestKey("common.request.invalid", data, "参数错误")
+	if err.TemplateData["field"] != "email" {
+		t.Fatalf("expected template data to be stored, got %#v", err.TemplateData)
+	}
+}

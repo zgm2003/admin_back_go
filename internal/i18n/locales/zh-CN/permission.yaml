@@ -1,0 +1,3 @@
+permission.checker_missing: 权限检查未配置
+permission.api.denied: 无接口权限
+permission.code_missing: 权限标识未配置

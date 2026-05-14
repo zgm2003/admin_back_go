@@ -300,6 +300,7 @@ func DefaultCORSConfig() CORSConfig {
 			"Origin",
 			"Content-Type",
 			"Accept",
+			"Accept-Language",
 			"Authorization",
 			"platform",
 			"device-id",

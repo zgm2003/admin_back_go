@@ -66,7 +66,7 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 		if cfg.Authenticator == nil {
-			response.Abort(c, apperror.Unauthorized("Token认证未配置"))
+			response.Abort(c, apperror.UnauthorizedKey("auth.token.authenticator_missing", nil, "Token认证未配置"))
 			return
 		}
 
@@ -86,7 +86,7 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 		if identity == nil {
-			response.Abort(c, apperror.Unauthorized("Token无效或已过期"))
+			response.Abort(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 			return
 		}
 
@@ -105,7 +105,7 @@ func TokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (s
 
 func tokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (requestToken, *apperror.Error) {
 	if request == nil {
-		return requestToken{}, apperror.Unauthorized("缺少Token")
+		return requestToken{}, apperror.UnauthorizedKey("auth.token.missing", nil, "缺少Token")
 	}
 
 	if value := strings.TrimSpace(request.Header.Get("Authorization")); value != "" {
@@ -118,7 +118,7 @@ func tokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (r
 	if token, ok := cookieTokenForPath(request, cookieCfg); ok {
 		return requestToken{value: token, fromCookie: true}, nil
 	}
-	return requestToken{}, apperror.Unauthorized("缺少Token")
+	return requestToken{}, apperror.UnauthorizedKey("auth.token.missing", nil, "缺少Token")
 }
 
 func GetAuthIdentity(c *gin.Context) *AuthIdentity {
@@ -169,15 +169,15 @@ func shouldSkipAuth(request *http.Request, skipPaths map[string]struct{}) bool {
 
 func ParseBearerToken(value string) (string, *apperror.Error) {
 	if strings.TrimSpace(value) == "" {
-		return "", apperror.Unauthorized("缺少Token")
+		return "", apperror.UnauthorizedKey("auth.token.missing", nil, "缺少Token")
 	}
 	prefix, token, ok := strings.Cut(value, " ")
 	if !ok || !strings.EqualFold(prefix, "Bearer") {
-		return "", apperror.Unauthorized("Token格式错误")
+		return "", apperror.UnauthorizedKey("auth.token.invalid_format", nil, "Token格式错误")
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return "", apperror.Unauthorized("Token格式错误")
+		return "", apperror.UnauthorizedKey("auth.token.invalid_format", nil, "Token格式错误")
 	}
 	return token, nil
 }

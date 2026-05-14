@@ -6,6 +6,7 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
+	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
@@ -99,6 +100,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	router.Use(middleware.RequestID())
 	router.Use(middleware.AccessLog(deps.Logger))
 	router.Use(middleware.CORS(deps.CORS))
+	router.Use(projecti18n.Localize())
 	router.Use(middleware.AuthToken(middleware.AuthTokenConfig{
 		Authenticator: deps.Authenticator,
 		SkipPaths:     authSkipPaths(deps.AuthSkipPaths),

@@ -1,0 +1,4 @@
+auth.token.missing: 缺少Token
+auth.token.invalid_format: Token格式错误
+auth.token.invalid_or_expired: Token无效或已过期
+auth.token.authenticator_missing: Token认证未配置

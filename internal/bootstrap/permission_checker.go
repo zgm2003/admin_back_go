@@ -35,7 +35,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 	}
 	return func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
 		if input.UserID <= 0 {
-			return apperror.Unauthorized("Token无效或已过期")
+			return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 		}
 		if repository == nil {
 			return apperror.Internal("用户仓储未配置")
@@ -46,7 +46,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 
 		code := strings.TrimSpace(input.Code)
 		if code == "" {
-			return apperror.Forbidden("权限标识未配置")
+			return apperror.ForbiddenKey("permission.code_missing", nil, "权限标识未配置")
 		}
 
 		currentUser, err := repository.FindUser(ctx, input.UserID)
@@ -54,10 +54,10 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户失败", err)
 		}
 		if currentUser == nil {
-			return apperror.Unauthorized("Token无效或已过期")
+			return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 		}
 		if currentUser.RoleID <= 0 {
-			return apperror.Forbidden("无接口权限")
+			return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
 		}
 
 		role, err := repository.FindRole(ctx, currentUser.RoleID)
@@ -65,7 +65,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询角色失败", err)
 		}
 		if role == nil {
-			return apperror.Forbidden("无接口权限")
+			return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
 		}
 
 		cacheKey := permission.ButtonCacheKey(currentUser.ID, input.Platform)
@@ -86,7 +86,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 				return nil
 			}
 		}
-		return apperror.Forbidden("无接口权限")
+		return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
 	}
 }
 

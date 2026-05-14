@@ -50,11 +50,11 @@ func PermissionCheck(cfg PermissionCheckConfig) gin.HandlerFunc {
 
 		identity := GetAuthIdentity(c)
 		if identity == nil || identity.UserID <= 0 {
-			response.Abort(c, apperror.Unauthorized("Token无效或已过期"))
+			response.Abort(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 			return
 		}
 		if cfg.Checker == nil {
-			response.Abort(c, apperror.Forbidden("权限检查未配置"))
+			response.Abort(c, apperror.ForbiddenKey("permission.checker_missing", nil, "权限检查未配置"))
 			return
 		}
 

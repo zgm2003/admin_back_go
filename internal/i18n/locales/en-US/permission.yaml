@@ -1,0 +1,3 @@
+permission.checker_missing: Permission checker is not configured
+permission.api.denied: API permission denied
+permission.code_missing: Permission code is not configured

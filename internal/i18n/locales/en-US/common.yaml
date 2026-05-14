@@ -1,0 +1,3 @@
+common.ok: ok
+common.internal_error: System error
+common.request.invalid: Invalid request

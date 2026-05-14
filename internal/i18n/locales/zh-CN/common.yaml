@@ -1,0 +1,3 @@
+common.ok: ok
+common.internal_error: 系统错误
+common.request.invalid: 参数错误

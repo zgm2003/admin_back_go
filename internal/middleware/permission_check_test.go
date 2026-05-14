@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 
 	"github.com/gin-gonic/gin"
 )
@@ -110,6 +111,27 @@ func TestPermissionCheckFailsClosedWithoutAuthIdentity(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 
 	assertMiddlewareJSONError(t, recorder, http.StatusUnauthorized, apperror.CodeUnauthorized, "Token无效或已过期")
+}
+
+func TestPermissionCheckLocalizesMissingChecker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	router.Use(func(c *gin.Context) {
+		c.Set(ContextAuthIdentity, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
+		c.Next()
+	})
+	router.Use(PermissionCheck(PermissionCheckConfig{
+		Rules: map[RouteKey]string{NewRouteKey(http.MethodPost, "/api/admin/v1/permissions"): "permission:create"},
+	}))
+	router.POST("/api/admin/v1/permissions", func(c *gin.Context) { c.String(http.StatusOK, "created") })
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/permissions", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	assertMiddlewareJSONError(t, recorder, http.StatusForbidden, apperror.CodeForbidden, "Permission checker is not configured")
 }
 
 func newPermissionCheckTestRouter(cfg PermissionCheckConfig, identity *AuthIdentity) *gin.Engine {

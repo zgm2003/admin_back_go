@@ -95,6 +95,7 @@ Recovery
 RequestID
 AccessLog
 CORS
+I18n
 AuthToken
 PermissionCheck
 OperationLog
@@ -106,6 +107,7 @@ middleware 必须一个一个加，并且必须有测试：
 ```text
 AccessLog
 CORS
+I18n
 AuthToken
 PermissionCheck
 OperationLog
@@ -196,6 +198,7 @@ http://127.0.0.1:5174
 
 ```text
 Content-Type
+Accept-Language
 Authorization
 platform
 device-id
@@ -219,6 +222,26 @@ CORS_MAX_AGE
 不使用 AllowAllOrigins
 不把 CORS 当鉴权
 遇到浏览器 CORS 报错先确认真实路由和状态码，不要盲改 middleware
+```
+
+## I18n baseline
+
+后端 i18n 使用官方 Gin 生态组件：
+
+```text
+github.com/gin-contrib/i18n
+```
+
+规则：
+
+```text
+middleware 顺序是 CORS -> I18n -> AuthToken，保证缺 Token / 无权限这类外层错误也能翻译。
+语言来源只读 Accept-Language；支持 zh-CN / en-US；默认 zh-CN。
+response shape 不变：{ code, data, msg }。
+msg 是展示文案，业务判断不能依赖 msg。
+apperror.Error 保留 fallback Message；MessageID 只做内部翻译 key，不返回给前端。
+Catalog 按 internal/i18n/locales/{lang}/{module}.yaml 分模块维护。
+未迁移模块继续返回 fallback 中文，不允许因为缺翻译 key panic。
 ```
 
 ## AuthToken baseline

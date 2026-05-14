@@ -359,6 +359,13 @@ func TestEnvExampleDocumentsSchedulerDistributedLock(t *testing.T) {
 	}
 }
 
+func TestDefaultCORSAllowsAcceptLanguage(t *testing.T) {
+	cfg := DefaultCORSConfig()
+	if !containsString(cfg.AllowHeaders, "Accept-Language") {
+		t.Fatalf("DefaultCORSConfig must allow Accept-Language, got %#v", cfg.AllowHeaders)
+	}
+}
+
 func TestLoadFallsBackOnInvalidNumericAndDurationValues(t *testing.T) {
 	t.Setenv("MYSQL_MAX_OPEN_CONNS", "garbage")
 	t.Setenv("REDIS_DB", "garbage")

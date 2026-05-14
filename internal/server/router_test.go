@@ -3216,6 +3216,23 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 	}
 }
 
+func TestRouterLocalizesAuthTokenErrors(t *testing.T) {
+	router := NewRouter(Dependencies{})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["msg"] != "Missing token" {
+		t.Fatalf("expected localized missing token, got %#v body=%s", body["msg"], recorder.Body.String())
+	}
+}
+
 func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {

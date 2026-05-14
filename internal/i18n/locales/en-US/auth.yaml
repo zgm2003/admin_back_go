@@ -1,0 +1,4 @@
+auth.token.missing: Missing token
+auth.token.invalid_format: Invalid token format
+auth.token.invalid_or_expired: Token is invalid or expired
+auth.token.authenticator_missing: Token authenticator is not configured

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 
 	"github.com/gin-gonic/gin"
 )
@@ -76,6 +77,44 @@ func TestAbortWritesErrorAndStopsChain(t *testing.T) {
 	body := decodeBody(t, recorder)
 	if body["code"] != float64(401) {
 		t.Fatalf("expected code 401, got %#v", body["code"])
+	}
+}
+
+func TestErrorLocalizesKeyedMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	router.GET("/probe", func(c *gin.Context) {
+		Error(c, apperror.UnauthorizedKey("auth.token.missing", nil, "缺少Token"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	body := decodeBody(t, recorder)
+	if body["msg"] != "Missing token" {
+		t.Fatalf("expected localized msg, got %#v", body["msg"])
+	}
+}
+
+func TestErrorLocalizesNilError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	router.GET("/probe", func(c *gin.Context) {
+		Error(c, nil)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	body := decodeBody(t, recorder)
+	if body["msg"] != "System error" {
+		t.Fatalf("expected localized nil error, got %#v", body["msg"])
 	}
 }
 
