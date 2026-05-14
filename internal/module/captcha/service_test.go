@@ -128,6 +128,22 @@ func TestServiceVerifyRejectsWrongAnswer(t *testing.T) {
 	}
 }
 
+func TestServiceVerifyErrorsCarryMessageIDs(t *testing.T) {
+	service := NewService(fakeEngine{}, &fakeStore{})
+
+	appErr := service.Verify(context.Background(), VerifyInput{})
+
+	if appErr == nil {
+		t.Fatalf("expected captcha validation error")
+	}
+	if appErr.MessageID != "captcha.required" {
+		t.Fatalf("expected captcha.required message id, got %#v", appErr)
+	}
+	if appErr.Message != "请完成验证码" {
+		t.Fatalf("fallback message changed: %#v", appErr)
+	}
+}
+
 func TestServiceVerifyFailsClosedWhenStoreErrors(t *testing.T) {
 	service := NewService(fakeEngine{}, &fakeStore{takeErr: errors.New("redis down")})
 

@@ -1,0 +1,5 @@
+captcha.service_missing: 验证码服务未配置
+captcha.generate_failed: 验证码生成失败
+captcha.required: 请完成验证码
+captcha.verify_failed: 验证码校验失败
+captcha.invalid_or_expired: 验证码错误或已过期

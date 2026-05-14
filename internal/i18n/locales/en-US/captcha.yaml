@@ -1,0 +1,5 @@
+captcha.service_missing: Captcha service is not configured
+captcha.generate_failed: Failed to generate captcha
+captcha.required: Please complete captcha
+captcha.verify_failed: Failed to verify captcha
+captcha.invalid_or_expired: Captcha is invalid or expired

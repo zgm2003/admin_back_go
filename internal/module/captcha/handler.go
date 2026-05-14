@@ -27,7 +27,7 @@ func NewHandler(service HTTPService) *Handler {
 // Generate returns a public slide CAPTCHA challenge.
 func (h *Handler) Generate(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("验证码服务未配置"))
+		response.Error(c, apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置"))
 		return
 	}
 	result, appErr := h.service.Generate(c.Request.Context())

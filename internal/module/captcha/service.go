@@ -77,20 +77,20 @@ func NewService(engine Engine, store Store, opts ...Option) *Service {
 // Generate creates a new slide CAPTCHA and stores its answer.
 func (s *Service) Generate(ctx context.Context) (*ChallengeResponse, *apperror.Error) {
 	if s == nil || s.engine == nil || s.store == nil {
-		return nil, apperror.Internal("验证码服务未配置")
+		return nil, apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
 	}
 
 	generated, err := s.engine.Generate()
 	if err != nil {
-		return nil, apperror.Internal("验证码生成失败")
+		return nil, apperror.InternalKey("captcha.generate_failed", nil, "验证码生成失败")
 	}
 	id, err := s.idGenerator()
 	if err != nil {
-		return nil, apperror.Internal("验证码生成失败")
+		return nil, apperror.InternalKey("captcha.generate_failed", nil, "验证码生成失败")
 	}
 
 	if err := s.store.Set(ctx, id, ChallengeSecret{Answer: generated.Answer}, s.ttl); err != nil {
-		return nil, apperror.Internal("验证码生成失败")
+		return nil, apperror.InternalKey("captcha.generate_failed", nil, "验证码生成失败")
 	}
 
 	return &ChallengeResponse{
@@ -111,22 +111,22 @@ func (s *Service) Generate(ctx context.Context) (*ChallengeResponse, *apperror.E
 // Verify consumes a challenge and validates the submitted slide answer.
 func (s *Service) Verify(ctx context.Context, input VerifyInput) *apperror.Error {
 	if s == nil || s.store == nil {
-		return apperror.Internal("验证码服务未配置")
+		return apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
 	}
 	id := strings.TrimSpace(input.ID)
 	if id == "" || input.Answer == nil {
-		return apperror.BadRequest("请完成验证码")
+		return apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
 	}
 
 	secret, err := s.store.Take(ctx, id)
 	if err != nil {
-		return apperror.Internal("验证码校验失败")
+		return apperror.InternalKey("captcha.verify_failed", nil, "验证码校验失败")
 	}
 	if secret == nil {
-		return apperror.BadRequest("验证码错误或已过期")
+		return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")
 	}
 	if !slide.Validate(input.Answer.X, input.Answer.Y, secret.Answer.X, secret.Answer.Y, s.padding) {
-		return apperror.BadRequest("验证码错误或已过期")
+		return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")
 	}
 	return nil
 }
