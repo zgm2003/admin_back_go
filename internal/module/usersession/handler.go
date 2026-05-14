@@ -27,7 +27,7 @@ func (h *Handler) PageInit(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("用户会话列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("usersession.list.request.invalid", nil, "用户会话列表参数错误"))
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
@@ -52,7 +52,7 @@ func (h *Handler) Revoke(c *gin.Context) {
 	}
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.SessionID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return
 	}
 	result, appErr := h.requireService().Revoke(c.Request.Context(), id, identity.SessionID)
@@ -62,12 +62,12 @@ func (h *Handler) Revoke(c *gin.Context) {
 func (h *Handler) BatchRevoke(c *gin.Context) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.SessionID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return
 	}
 	var req batchRevokeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("批量踢下线参数错误"))
+		response.Error(c, apperror.BadRequestKey("usersession.batch_revoke.request.invalid", nil, "批量踢下线参数错误"))
 		return
 	}
 	result, appErr := h.requireService().BatchRevoke(c.Request.Context(), BatchRevokeInput{IDs: req.IDs}, identity.SessionID)
@@ -92,7 +92,7 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的用户会话ID"))
+		response.Error(c, apperror.BadRequestKey("usersession.id.invalid", nil, "无效的用户会话ID"))
 		return 0, false
 	}
 	return id, true
@@ -101,21 +101,21 @@ func routeID(c *gin.Context) (int64, bool) {
 type nilHTTPService struct{}
 
 func (nilHTTPService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户会话服务未配置")
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
 }
 
 func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户会话服务未配置")
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
 }
 
 func (nilHTTPService) Stats(ctx context.Context) (*StatsResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户会话服务未配置")
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
 }
 
 func (nilHTTPService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*RevokeResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户会话服务未配置")
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
 }
 
 func (nilHTTPService) BatchRevoke(ctx context.Context, input BatchRevokeInput, currentSessionID int64) (*BatchRevokeResponse, *apperror.Error) {
-	return nil, apperror.Internal("用户会话服务未配置")
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
 }

@@ -1,0 +1,15 @@
+usersession.list.request.invalid: 用户会话列表参数错误
+usersession.batch_revoke.request.invalid: 批量踢下线参数错误
+usersession.service_missing: 用户会话服务未配置
+usersession.repository_missing: 用户会话仓储未配置
+usersession.query_failed: 查询用户会话失败
+usersession.stats_failed: 查询用户会话统计失败
+usersession.id.invalid: 无效的用户会话ID
+usersession.revoke_current_forbidden: 不能踢下线当前会话
+usersession.not_found: 用户会话不存在
+usersession.revoke_failed: 踢下线用户会话失败
+usersession.cache_revoke_failed: 清理用户会话缓存失败
+usersession.batch_too_many: 单次最多踢下线100个会话
+usersession.batch_revoke_failed: 批量踢下线用户会话失败
+usersession.platform.invalid: 无效的平台标识
+usersession.status.invalid: 无效的会话状态

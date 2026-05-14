@@ -87,7 +87,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户会话失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.query_failed", nil, "查询用户会话失败", err)
 	}
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -106,7 +106,7 @@ func (s *Service) Stats(ctx context.Context) (*StatsResponse, *apperror.Error) {
 	}
 	rows, err := repo.Stats(ctx, s.now())
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户会话统计失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.stats_failed", nil, "查询用户会话统计失败", err)
 	}
 	dist := map[string]int64{
 		enum.PlatformAdmin: 0,
@@ -129,27 +129,27 @@ func (s *Service) Revoke(ctx context.Context, id int64, currentSessionID int64) 
 		return nil, appErr
 	}
 	if id <= 0 {
-		return nil, apperror.BadRequest("无效的用户会话ID")
+		return nil, apperror.BadRequestKey("usersession.id.invalid", nil, "无效的用户会话ID")
 	}
 	if id == currentSessionID {
-		return nil, apperror.BadRequest("不能踢下线当前会话")
+		return nil, apperror.BadRequestKey("usersession.revoke_current_forbidden", nil, "不能踢下线当前会话")
 	}
 	row, err := repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户会话失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.query_failed", nil, "查询用户会话失败", err)
 	}
 	if row == nil {
-		return nil, apperror.NotFound("用户会话不存在")
+		return nil, apperror.NotFoundKey("usersession.not_found", nil, "用户会话不存在")
 	}
 	if row.RevokedAt != nil {
 		return &RevokeResponse{ID: id, Revoked: false}, nil
 	}
 	now := s.now()
 	if _, err := repo.MarkRevoked(ctx, []int64{id}, now); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "踢下线用户会话失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.revoke_failed", nil, "踢下线用户会话失败", err)
 	}
 	if err := s.revokeCache(ctx, *row); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "清理用户会话缓存失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.cache_revoke_failed", nil, "清理用户会话缓存失败", err)
 	}
 	return &RevokeResponse{ID: id, Revoked: true}, nil
 }
@@ -161,14 +161,14 @@ func (s *Service) BatchRevoke(ctx context.Context, input BatchRevokeInput, curre
 	}
 	ids := normalizeIDs(input.IDs)
 	if len(ids) > 100 {
-		return nil, apperror.BadRequest("单次最多踢下线100个会话")
+		return nil, apperror.BadRequestKey("usersession.batch_too_many", nil, "单次最多踢下线100个会话")
 	}
 	if len(ids) == 0 {
 		return &BatchRevokeResponse{}, nil
 	}
 	rows, err := repo.GetByIDs(ctx, ids)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户会话失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.query_failed", nil, "查询用户会话失败", err)
 	}
 
 	response := &BatchRevokeResponse{}
@@ -191,10 +191,10 @@ func (s *Service) BatchRevoke(ctx context.Context, input BatchRevokeInput, curre
 	}
 	count, err := repo.MarkRevoked(ctx, revokeIDs, s.now())
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "批量踢下线用户会话失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.batch_revoke_failed", nil, "批量踢下线用户会话失败", err)
 	}
 	if err := s.revokeCaches(ctx, toRevoke); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "清理用户会话缓存失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.cache_revoke_failed", nil, "清理用户会话缓存失败", err)
 	}
 	response.Count = count
 	return response, nil
@@ -202,7 +202,7 @@ func (s *Service) BatchRevoke(ctx context.Context, input BatchRevokeInput, curre
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("用户会话仓储未配置")
+		return nil, apperror.InternalKey("usersession.repository_missing", nil, "用户会话仓储未配置")
 	}
 	return s.repository, nil
 }
@@ -221,10 +221,10 @@ func (s *Service) normalizeListQuery(query ListQuery) (ListQuery, *apperror.Erro
 	query.Platform = strings.TrimSpace(query.Platform)
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Platform != "" && !enum.IsPlatform(query.Platform) {
-		return query, apperror.BadRequest("无效的平台标识")
+		return query, apperror.BadRequestKey("usersession.platform.invalid", nil, "无效的平台标识")
 	}
 	if query.Status != "" && !isSessionStatus(query.Status) {
-		return query, apperror.BadRequest("无效的会话状态")
+		return query, apperror.BadRequestKey("usersession.status.invalid", nil, "无效的会话状态")
 	}
 	query.Now = s.now()
 	return query, nil

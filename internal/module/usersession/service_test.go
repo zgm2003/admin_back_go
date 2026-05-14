@@ -2,6 +2,7 @@ package usersession
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -148,11 +149,19 @@ func TestListRejectsInvalidStatusAndPlatform(t *testing.T) {
 		return time.Date(2026, 5, 8, 10, 0, 0, 0, time.Local)
 	}))
 
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Status: "bad"}); appErr == nil {
-		t.Fatalf("expected invalid status to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Status: "bad"}); appErr == nil || appErr.MessageID != "usersession.status.invalid" {
+		t.Fatalf("expected keyed invalid status error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Platform: "mini"}); appErr == nil {
-		t.Fatalf("expected invalid platform to fail")
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Platform: "mini"}); appErr == nil || appErr.MessageID != "usersession.platform.invalid" {
+		t.Fatalf("expected keyed invalid platform error, got %#v", appErr)
+	}
+}
+
+func TestListWrapsRepositoryError(t *testing.T) {
+	service := NewService(&fakeRepository{listErr: errors.New("db down")})
+
+	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20}); appErr == nil || appErr.MessageID != "usersession.query_failed" {
+		t.Fatalf("expected keyed list repository error, got %#v", appErr)
 	}
 }
 
@@ -180,8 +189,20 @@ func TestRevokeRejectsCurrentSession(t *testing.T) {
 		return time.Date(2026, 5, 8, 10, 0, 0, 0, time.Local)
 	}))
 
-	if _, appErr := service.Revoke(context.Background(), 55, 55); appErr == nil {
-		t.Fatalf("expected current session revoke to fail")
+	if _, appErr := service.Revoke(context.Background(), 55, 55); appErr == nil || appErr.MessageID != "usersession.revoke_current_forbidden" {
+		t.Fatalf("expected keyed current session revoke error, got %#v", appErr)
+	}
+}
+
+func TestBatchRevokeRejectsMoreThanOneHundredIDs(t *testing.T) {
+	service := NewService(&fakeRepository{})
+	ids := make([]int64, 101)
+	for i := range ids {
+		ids[i] = int64(i + 1)
+	}
+
+	if _, appErr := service.BatchRevoke(context.Background(), BatchRevokeInput{IDs: ids}, 55); appErr == nil || appErr.MessageID != "usersession.batch_too_many" {
+		t.Fatalf("expected keyed batch limit error, got %#v", appErr)
 	}
 }
 

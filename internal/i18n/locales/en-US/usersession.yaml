@@ -1,0 +1,15 @@
+usersession.list.request.invalid: Invalid user session list request
+usersession.batch_revoke.request.invalid: Invalid batch revoke request
+usersession.service_missing: User session service is not configured
+usersession.repository_missing: User session repository is not configured
+usersession.query_failed: Failed to query user sessions
+usersession.stats_failed: Failed to query user session statistics
+usersession.id.invalid: Invalid user session ID
+usersession.revoke_current_forbidden: Cannot revoke the current session
+usersession.not_found: User session does not exist
+usersession.revoke_failed: Failed to revoke user session
+usersession.cache_revoke_failed: Failed to clear user session cache
+usersession.batch_too_many: You can revoke at most 100 sessions at a time
+usersession.batch_revoke_failed: Failed to batch revoke user sessions
+usersession.platform.invalid: Invalid platform
+usersession.status.invalid: Invalid session status

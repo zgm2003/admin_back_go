@@ -3,11 +3,13 @@ package usersession
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -120,6 +122,40 @@ func TestHandlerBatchRevokeUsesCurrentSessionIdentity(t *testing.T) {
 	}
 }
 
+func TestHandlerListLocalizesInvalidRequest(t *testing.T) {
+	router := newUserSessionLocalizedTestRouter(&fakeHTTPService{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions?current_page=abc", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("list status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeUserSessionBody(t, resp)
+	if body["msg"] != "Invalid user session list request" {
+		t.Fatalf("expected localized list request error, got %#v", body["msg"])
+	}
+}
+
+func TestHandlerRevokeLocalizesMissingIdentity(t *testing.T) {
+	router := newUserSessionLocalizedTestRouter(&fakeHTTPService{}, nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/77/revoke", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("revoke status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeUserSessionBody(t, resp)
+	if body["msg"] != "Token is invalid or expired" {
+		t.Fatalf("expected localized missing identity error, got %#v", body["msg"])
+	}
+}
+
 func newUserSessionTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	router := gin.New()
 	if identity != nil {
@@ -130,4 +166,26 @@ func newUserSessionTestRouter(service HTTPService, identity *middleware.AuthIden
 	}
 	RegisterRoutes(router, service)
 	return router
+}
+
+func newUserSessionLocalizedTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	RegisterRoutes(router, service)
+	return router
+}
+
+func decodeUserSessionBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json response: %v", err)
+	}
+	return body
 }
