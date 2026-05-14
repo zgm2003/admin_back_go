@@ -58,6 +58,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 		MailSceneArr:     dict.MailSceneOptions(),
 		MailLogSceneArr:  dict.MailLogSceneOptions(),
 		MailLogStatusArr: dict.MailLogStatusOptions(),
+		MailRegionArr:    dict.MailRegionOptions(),
 		DefaultRegion:    DefaultRegion,
 		DefaultEndpoint:  DefaultEndpoint,
 	}}, nil
@@ -282,6 +283,19 @@ func (s *Service) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
 		return nil, apperror.NotFound("邮件日志不存在")
 	}
 	result := logDTOFromRow(*row)
+	if row.TemplateID != nil {
+		tmpl, err := repo.TemplateByID(ctx, *row.TemplateID)
+		if err != nil {
+			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志模板失败", err)
+		}
+		if tmpl != nil {
+			template, appErr := logTemplateDTOFromRow(*tmpl)
+			if appErr != nil {
+				return nil, appErr
+			}
+			result.Template = template
+		}
+	}
 	return &result, nil
 }
 
@@ -497,6 +511,9 @@ func normalizeConfigInput(input SaveConfigInput) (SaveConfigInput, *apperror.Err
 	if input.Endpoint == "" {
 		input.Endpoint = DefaultEndpoint
 	}
+	if !dict.IsMailRegion(input.Region) {
+		return input, apperror.BadRequest("不支持的腾讯云 SES 地域")
+	}
 	if !isEmail(input.FromEmail) {
 		return input, apperror.BadRequest("发件邮箱格式不正确")
 	}
@@ -703,6 +720,17 @@ func configResponseFromRow(row Config) *ConfigResponse {
 		ReplyTo: row.ReplyTo, Status: row.Status, LastTestAt: formatOptionalTime(row.LastTestAt),
 		LastTestError: row.LastTestError, CreatedAt: optionalTime(row.CreatedAt), UpdatedAt: optionalTime(row.UpdatedAt),
 	}
+}
+
+func logTemplateDTOFromRow(row Template) (*LogTemplateDTO, *apperror.Error) {
+	variables, err := decodeVariables(row.VariablesJSON)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件日志模板变量失败", err)
+	}
+	return &LogTemplateDTO{
+		ID: row.ID, Scene: row.Scene, Name: row.Name, TencentTemplateID: row.TencentTemplateID,
+		Variables: variables, Status: row.Status,
+	}, nil
 }
 
 func defaultConfigResponse() *ConfigResponse {

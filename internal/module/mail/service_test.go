@@ -227,6 +227,70 @@ func TestServiceConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
 	}
 }
 
+func TestServicePageInitExposesTencentSESRegions(t *testing.T) {
+	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+
+	result, appErr := service.PageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("expected PageInit to succeed, got %v", appErr)
+	}
+	if result.Dict.DefaultRegion != DefaultRegion {
+		t.Fatalf("unexpected default region: %#v", result.Dict)
+	}
+	if len(result.Dict.MailRegionArr) != 2 {
+		t.Fatalf("expected exactly Tencent SES SendEmail supported regions, got %#v", result.Dict.MailRegionArr)
+	}
+	if result.Dict.MailRegionArr[0].Value != "ap-guangzhou" || result.Dict.MailRegionArr[1].Value != "ap-hongkong" {
+		t.Fatalf("unexpected region options: %#v", result.Dict.MailRegionArr)
+	}
+}
+
+func TestServiceSaveConfigRejectsUnsupportedRegion(t *testing.T) {
+	box := testSecretBox()
+	service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})
+
+	appErr := service.SaveConfig(context.Background(), SaveConfigInput{
+		SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: "ap-shanghai", Endpoint: DefaultEndpoint,
+		FromEmail: "noreply@example.com", Status: enum.CommonYes,
+	})
+	if appErr == nil || !strings.Contains(appErr.Message, "不支持的腾讯云 SES 地域") {
+		t.Fatalf("expected unsupported region error, got %#v", appErr)
+	}
+}
+
+func TestServiceLogDetailIncludesTemplateSummaryWithoutPayload(t *testing.T) {
+	templateID := uint64(79)
+	repo := &fakeMailRepository{
+		templates: map[string]*Template{
+			enum.VerifyCodeSceneLogin: {
+				ID: templateID, Scene: enum.VerifyCodeSceneLogin, Name: "验证码登录", Subject: "Login",
+				TencentTemplateID: 31463, VariablesJSON: `["code","ttl_minutes"]`,
+				SampleVariablesJSON: `{"code":"654321","ttl_minutes":"5"}`, Status: enum.CommonYes,
+			},
+		},
+		logs: map[uint64]Log{
+			7: {ID: 7, Scene: enum.MailSceneTest, TemplateID: &templateID, ToEmail: "user@example.com", Subject: "Login", Status: enum.MailLogStatusSuccess},
+		},
+	}
+	service := NewService(repo, testSecretBox(), &fakeMailSender{})
+
+	result, appErr := service.Log(context.Background(), 7)
+	if appErr != nil {
+		t.Fatalf("expected Log to succeed, got %v", appErr)
+	}
+	if result.Template == nil || result.Template.TencentTemplateID != 31463 || len(result.Template.Variables) != 2 {
+		t.Fatalf("expected template summary in log detail, got %#v", result.Template)
+	}
+	body, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal log detail: %v", err)
+	}
+	jsonText := string(body)
+	if strings.Contains(jsonText, "654321") || strings.Contains(jsonText, "sample_variables") || strings.Contains(jsonText, "template_data") {
+		t.Fatalf("log detail leaked template payload: %s", jsonText)
+	}
+}
+
 func TestServiceSaveConfigRequiresSecretsOnFirstConfigAndReusesExistingSecretsOnEdit(t *testing.T) {
 	box := testSecretBox()
 	service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})

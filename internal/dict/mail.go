@@ -15,6 +15,22 @@ func MailLogSceneOptions() []Option[string] {
 	return append(MailSceneOptions(), Option[string]{Label: "测试发送", Value: enum.MailSceneTest})
 }
 
+func MailRegionOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "广州", Value: "ap-guangzhou"},
+		{Label: "香港", Value: "ap-hongkong"},
+	}
+}
+
+func IsMailRegion(value string) bool {
+	for _, option := range MailRegionOptions() {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
 func MailLogStatusOptions() []Option[int] {
 	return []Option[int]{
 		{Label: "发送中", Value: enum.MailLogStatusPending},

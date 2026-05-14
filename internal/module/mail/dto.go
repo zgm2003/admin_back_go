@@ -20,6 +20,7 @@ type PageInitDict struct {
 	MailSceneArr     []dict.Option[string] `json:"mail_scene_arr"`
 	MailLogSceneArr  []dict.Option[string] `json:"mail_log_scene_arr"`
 	MailLogStatusArr []dict.Option[int]    `json:"mail_log_status_arr"`
+	MailRegionArr    []dict.Option[string] `json:"mail_region_arr"`
 	DefaultRegion    string                `json:"default_region"`
 	DefaultEndpoint  string                `json:"default_endpoint"`
 }
@@ -106,20 +107,30 @@ type LogListResponse struct {
 }
 
 type LogDTO struct {
-	ID               uint64  `json:"id"`
-	Scene            string  `json:"scene"`
-	TemplateID       *uint64 `json:"template_id"`
-	ToEmail          string  `json:"to_email"`
-	Subject          string  `json:"subject"`
-	Status           int     `json:"status"`
-	TencentRequestID string  `json:"tencent_request_id"`
-	TencentMessageID string  `json:"tencent_message_id"`
-	ErrorCode        string  `json:"error_code"`
-	ErrorMessage     string  `json:"error_message"`
-	DurationMS       uint64  `json:"duration_ms"`
-	SentAt           *string `json:"sent_at"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID               uint64          `json:"id"`
+	Scene            string          `json:"scene"`
+	TemplateID       *uint64         `json:"template_id"`
+	ToEmail          string          `json:"to_email"`
+	Subject          string          `json:"subject"`
+	Status           int             `json:"status"`
+	TencentRequestID string          `json:"tencent_request_id"`
+	TencentMessageID string          `json:"tencent_message_id"`
+	ErrorCode        string          `json:"error_code"`
+	ErrorMessage     string          `json:"error_message"`
+	DurationMS       uint64          `json:"duration_ms"`
+	SentAt           *string         `json:"sent_at"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
+	Template         *LogTemplateDTO `json:"template,omitempty"`
+}
+
+type LogTemplateDTO struct {
+	ID                uint64   `json:"id"`
+	Scene             string   `json:"scene"`
+	Name              string   `json:"name"`
+	TencentTemplateID uint64   `json:"tencent_template_id"`
+	Variables         []string `json:"variables"`
+	Status            int      `json:"status"`
 }
 
 type Page struct {
