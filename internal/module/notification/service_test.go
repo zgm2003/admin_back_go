@@ -99,17 +99,17 @@ func TestListRejectsInvalidEnumFilters(t *testing.T) {
 	service := NewService(&fakeRepository{})
 
 	_, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, UserID: 1, Platform: "admin", Type: ptrInt(99)})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的通知类型" {
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "notification.type.invalid" {
 		t.Fatalf("expected invalid type error, got %#v", appErr)
 	}
 
 	_, appErr = service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, UserID: 1, Platform: "admin", Level: ptrInt(99)})
-	if appErr == nil || appErr.Message != "无效的通知级别" {
+	if appErr == nil || appErr.MessageID != "notification.level.invalid" {
 		t.Fatalf("expected invalid level error, got %#v", appErr)
 	}
 
 	_, appErr = service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, UserID: 1, Platform: "admin", IsRead: ptrInt(99)})
-	if appErr == nil || appErr.Message != "无效的已读状态" {
+	if appErr == nil || appErr.MessageID != "notification.read_status.invalid" {
 		t.Fatalf("expected invalid read status error, got %#v", appErr)
 	}
 }
@@ -161,7 +161,7 @@ func TestDeleteRequiresAtLeastOneIDAndNormalizes(t *testing.T) {
 	}
 
 	appErr = service.Delete(context.Background(), Identity{UserID: 12, Platform: "admin"}, nil)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "请选择要删除的通知" {
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "notification.delete.empty" {
 		t.Fatalf("expected empty delete error, got %#v", appErr)
 	}
 }

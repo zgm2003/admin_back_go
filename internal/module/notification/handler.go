@@ -20,7 +20,7 @@ func NewHandler(service HTTPService) *Handler {
 
 func (h *Handler) Init(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知服务未配置"))
+		response.Error(c, apperror.InternalKey("notification.service_missing", nil, "通知服务未配置"))
 		return
 	}
 	result, appErr := h.service.Init(c.Request.Context())
@@ -33,7 +33,7 @@ func (h *Handler) Init(c *gin.Context) {
 
 func (h *Handler) List(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知服务未配置"))
+		response.Error(c, apperror.InternalKey("notification.service_missing", nil, "通知服务未配置"))
 		return
 	}
 	identity, ok := identityFromContext(c)
@@ -42,7 +42,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("notification.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	result, appErr := h.service.List(c.Request.Context(), ListQuery{
@@ -64,7 +64,7 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) UnreadCount(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知服务未配置"))
+		response.Error(c, apperror.InternalKey("notification.service_missing", nil, "通知服务未配置"))
 		return
 	}
 	identity, ok := identityFromContext(c)
@@ -91,7 +91,7 @@ func (h *Handler) MarkRead(c *gin.Context) {
 	var req readBatchRequest
 	if c.Request.Body != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
-			response.Error(c, apperror.BadRequest("标记已读参数错误"))
+			response.Error(c, apperror.BadRequestKey("notification.mark_read.request.invalid", nil, "标记已读参数错误"))
 			return
 		}
 	}
@@ -109,7 +109,7 @@ func (h *Handler) DeleteOne(c *gin.Context) {
 func (h *Handler) DeleteBatch(c *gin.Context) {
 	var req deleteBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("请选择要删除的通知"))
+		response.Error(c, apperror.BadRequestKey("notification.delete.empty", nil, "请选择要删除的通知"))
 		return
 	}
 	h.delete(c, req.IDs)
@@ -117,7 +117,7 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 
 func (h *Handler) markRead(c *gin.Context, ids []int64) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知服务未配置"))
+		response.Error(c, apperror.InternalKey("notification.service_missing", nil, "通知服务未配置"))
 		return
 	}
 	identity, ok := identityFromContext(c)
@@ -133,7 +133,7 @@ func (h *Handler) markRead(c *gin.Context, ids []int64) {
 
 func (h *Handler) delete(c *gin.Context, ids []int64) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("通知服务未配置"))
+		response.Error(c, apperror.InternalKey("notification.service_missing", nil, "通知服务未配置"))
 		return
 	}
 	identity, ok := identityFromContext(c)
@@ -150,7 +150,7 @@ func (h *Handler) delete(c *gin.Context, ids []int64) {
 func identityFromContext(c *gin.Context) (Identity, bool) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return Identity{}, false
 	}
 	return Identity{UserID: identity.UserID, Platform: identity.Platform}, true
@@ -159,7 +159,7 @@ func identityFromContext(c *gin.Context) (Identity, bool) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的通知ID"))
+		response.Error(c, apperror.BadRequestKey("notification.id.invalid", nil, "无效的通知ID"))
 		return 0, false
 	}
 	return id, true

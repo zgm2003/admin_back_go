@@ -1,0 +1,15 @@
+notification.service_missing: Notification service is not configured
+notification.repository_missing: Notification repository is not configured
+notification.list.request.invalid: Invalid notification list request
+notification.mark_read.request.invalid: Invalid mark-read request
+notification.delete.empty: Select notifications to delete
+notification.id.invalid: Invalid notification ID
+notification.query_failed: Failed to query notifications
+notification.unread_count_failed: Failed to query unread notification count
+notification.mark_read_failed: Failed to mark notifications as read
+notification.delete_failed: Failed to delete notifications
+notification.current_page.invalid: Invalid current page
+notification.page_size.invalid: Invalid page size
+notification.type.invalid: Invalid notification type
+notification.level.invalid: Invalid notification level
+notification.read_status.invalid: Invalid notification read status

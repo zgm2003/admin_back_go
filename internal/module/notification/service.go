@@ -38,7 +38,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询通知失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notification.query_failed", nil, "查询通知失败", err)
 	}
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -58,7 +58,7 @@ func (s *Service) UnreadCount(ctx context.Context, identity Identity) (*UnreadCo
 	}
 	count, err := repo.UnreadCount(ctx, identity.UserID, identity.Platform)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询未读通知数量失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "notification.unread_count_failed", nil, "查询未读通知数量失败", err)
 	}
 	return &UnreadCountResponse{Count: count}, nil
 }
@@ -74,7 +74,7 @@ func (s *Service) MarkRead(ctx context.Context, identity Identity, ids []int64) 
 	}
 	_, err := repo.MarkRead(ctx, MarkReadInput{UserID: identity.UserID, Platform: identity.Platform, IDs: normalizeIDs(ids)})
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "标记通知已读失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "notification.mark_read_failed", nil, "标记通知已读失败", err)
 	}
 	return nil
 }
@@ -90,18 +90,18 @@ func (s *Service) Delete(ctx context.Context, identity Identity, ids []int64) *a
 	}
 	ids = normalizeIDs(ids)
 	if len(ids) == 0 {
-		return apperror.BadRequest("请选择要删除的通知")
+		return apperror.BadRequestKey("notification.delete.empty", nil, "请选择要删除的通知")
 	}
 	_, err := repo.Delete(ctx, DeleteInput{UserID: identity.UserID, Platform: identity.Platform, IDs: ids})
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除通知失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "notification.delete_failed", nil, "删除通知失败", err)
 	}
 	return nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("通知仓储未配置")
+		return nil, apperror.InternalKey("notification.repository_missing", nil, "通知仓储未配置")
 	}
 	return s.repository, nil
 }
@@ -112,19 +112,19 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 		return query, appErr
 	}
 	if query.CurrentPage <= 0 {
-		return query, apperror.BadRequest("当前页无效")
+		return query, apperror.BadRequestKey("notification.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
-		return query, apperror.BadRequest("每页数量无效")
+		return query, apperror.BadRequestKey("notification.page_size.invalid", nil, "每页数量无效")
 	}
 	if query.Type != nil && !enum.IsNotificationType(*query.Type) {
-		return query, apperror.BadRequest("无效的通知类型")
+		return query, apperror.BadRequestKey("notification.type.invalid", nil, "无效的通知类型")
 	}
 	if query.Level != nil && !enum.IsNotificationLevel(*query.Level) {
-		return query, apperror.BadRequest("无效的通知级别")
+		return query, apperror.BadRequestKey("notification.level.invalid", nil, "无效的通知级别")
 	}
 	if query.IsRead != nil && !enum.IsCommonYesNo(*query.IsRead) {
-		return query, apperror.BadRequest("无效的已读状态")
+		return query, apperror.BadRequestKey("notification.read_status.invalid", nil, "无效的已读状态")
 	}
 	query.UserID = identity.UserID
 	query.Platform = identity.Platform
@@ -134,7 +134,7 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 
 func normalizeIdentity(identity Identity) (Identity, *apperror.Error) {
 	if identity.UserID <= 0 {
-		return identity, apperror.Unauthorized("Token无效或已过期")
+		return identity, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	identity.Platform = strings.TrimSpace(identity.Platform)
 	if identity.Platform == "" {
