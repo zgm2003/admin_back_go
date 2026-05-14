@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	projecti18n "admin_back_go/internal/i18n"
 
 	"github.com/gin-gonic/gin"
 )
@@ -71,9 +72,34 @@ func TestHandlerFailedListBindsQueueAndPagination(t *testing.T) {
 	}
 }
 
+func TestHandlerFailedListLocalizesInvalidQuery(t *testing.T) {
+	router := newQueueMonitorLocalizedTestRouter(&fakeHTTPService{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/queue-monitor/failed?queue=critical&current_page=abc", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeQueueMonitorBody(t, recorder)
+	if body["msg"] != "Invalid failed queue task query" {
+		t.Fatalf("expected localized query error, got %#v", body["msg"])
+	}
+}
+
 func newQueueMonitorTestRouter(service HTTPService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	RegisterRoutes(router, service, nil)
+	return router
+}
+
+func newQueueMonitorLocalizedTestRouter(service HTTPService) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
 	RegisterRoutes(router, service, nil)
 	return router
 }

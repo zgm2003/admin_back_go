@@ -26,7 +26,7 @@ func NewHandler(service HTTPService, monitor http.Handler) *Handler {
 
 func (h *Handler) List(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("队列监控服务未配置"))
+		response.Error(c, apperror.InternalKey("queuemonitor.service_missing", nil, "队列监控服务未配置"))
 		return
 	}
 	result, appErr := h.service.List(c.Request.Context())
@@ -39,12 +39,12 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) FailedList(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("队列监控服务未配置"))
+		response.Error(c, apperror.InternalKey("queuemonitor.service_missing", nil, "队列监控服务未配置"))
 		return
 	}
 	var req failedListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("队列失败任务参数错误"))
+		response.Error(c, apperror.BadRequestKey("queuemonitor.failed_query.invalid", nil, "队列失败任务参数错误"))
 		return
 	}
 	result, appErr := h.service.FailedList(c.Request.Context(), FailedListQuery{
@@ -61,7 +61,7 @@ func (h *Handler) FailedList(c *gin.Context) {
 
 func (h *Handler) UI(c *gin.Context) {
 	if h.monitor == nil {
-		response.Error(c, apperror.Internal(ErrUIUnavailable))
+		response.Error(c, apperror.InternalKey("queuemonitor.ui_unavailable", nil, ErrUIUnavailable))
 		return
 	}
 	h.monitor.ServeHTTP(c.Writer, c.Request)

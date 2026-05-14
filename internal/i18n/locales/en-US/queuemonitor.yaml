@@ -1,0 +1,8 @@
+queuemonitor.service_missing: Queue monitor service is not configured
+queuemonitor.failed_query.invalid: Invalid failed queue task query
+queuemonitor.ui_unavailable: Queue monitor UI is not configured
+queuemonitor.queue_list_failed: Failed to read queue list
+queuemonitor.queue_status_failed: Failed to read queue status
+queuemonitor.queue.invalid: Invalid queue name
+queuemonitor.retry_tasks_failed: Failed to read retry tasks
+queuemonitor.archived_tasks_failed: Failed to read archived tasks

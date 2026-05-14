@@ -138,12 +138,12 @@ func NewService(inspector Inspector, options Options) *Service {
 
 func (s *Service) List(ctx context.Context) ([]QueueItem, *apperror.Error) {
 	if s == nil || s.inspector == nil {
-		return nil, apperror.Internal("队列监控服务未配置")
+		return nil, apperror.InternalKey("queuemonitor.service_missing", nil, "队列监控服务未配置")
 	}
 	queueNames := append([]string{}, s.queueNames...)
 	knownQueues, err := s.inspector.Queues(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "读取队列列表失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "queuemonitor.queue_list_failed", nil, "读取队列列表失败", err)
 	}
 	queueNames = mergeQueueNames(queueNames, knownQueues)
 
@@ -152,13 +152,13 @@ func (s *Service) List(ctx context.Context) ([]QueueItem, *apperror.Error) {
 		snapshot, err := s.inspector.QueueInfo(ctx, name)
 		if err != nil {
 			if errors.Is(err, taskqueue.ErrClientNotReady) {
-				return nil, apperror.Internal("队列监控服务未配置")
+				return nil, apperror.InternalKey("queuemonitor.service_missing", nil, "队列监控服务未配置")
 			}
 			if errors.Is(err, taskqueue.ErrQueueNotFound) {
 				// Asynq may not create empty queue keys yet. Keep configured lanes visible.
 				snapshot = QueueSnapshot{Name: name}
 			} else {
-				return nil, apperror.Wrap(apperror.CodeInternal, 500, "读取队列状态失败", err)
+				return nil, apperror.WrapKey(apperror.CodeInternal, 500, "queuemonitor.queue_status_failed", nil, "读取队列状态失败", err)
 			}
 		}
 		items = append(items, queueItem(name, snapshot))
@@ -168,11 +168,11 @@ func (s *Service) List(ctx context.Context) ([]QueueItem, *apperror.Error) {
 
 func (s *Service) FailedList(ctx context.Context, query FailedListQuery) (*FailedListResponse, *apperror.Error) {
 	if s == nil || s.inspector == nil {
-		return nil, apperror.Internal("队列监控服务未配置")
+		return nil, apperror.InternalKey("queuemonitor.service_missing", nil, "队列监控服务未配置")
 	}
 	queue := strings.TrimSpace(query.Queue)
 	if !s.isAllowedQueue(queue) {
-		return nil, apperror.BadRequest("无效的队列名称")
+		return nil, apperror.BadRequestKey("queuemonitor.queue.invalid", nil, "无效的队列名称")
 	}
 	page := query.CurrentPage
 	if page <= 0 {
@@ -191,7 +191,7 @@ func (s *Service) FailedList(ctx context.Context, query FailedListQuery) (*Faile
 				Page: Page{CurrentPage: page, PageSize: pageSize, TotalPage: 0, Total: 0},
 			}, nil
 		}
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "读取队列状态失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "queuemonitor.queue_status_failed", nil, "读取队列状态失败", err)
 	}
 	total := int64(snapshot.Retry + snapshot.Archived)
 	limit := page * pageSize
@@ -201,11 +201,11 @@ func (s *Service) FailedList(ctx context.Context, query FailedListQuery) (*Faile
 
 	retryTasks, err := s.inspector.RetryTasks(ctx, queue, 1, limit)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "读取重试任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "queuemonitor.retry_tasks_failed", nil, "读取重试任务失败", err)
 	}
 	archivedTasks, err := s.inspector.ArchivedTasks(ctx, queue, 1, limit)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "读取归档任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "queuemonitor.archived_tasks_failed", nil, "读取归档任务失败", err)
 	}
 
 	items := make([]FailedTaskItem, 0, len(retryTasks)+len(archivedTasks))

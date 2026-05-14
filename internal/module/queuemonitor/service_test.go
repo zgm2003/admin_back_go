@@ -2,6 +2,7 @@ package queuemonitor
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -12,13 +13,23 @@ type fakeInspector struct {
 	retryTasks   map[string][]TaskSnapshot
 	archiveTasks map[string][]TaskSnapshot
 	err          error
+	queuesErr    error
+	queueInfoErr error
+	retryErr     error
+	archiveErr   error
 }
 
 func (f *fakeInspector) Queues(ctx context.Context) ([]string, error) {
+	if f.queuesErr != nil {
+		return nil, f.queuesErr
+	}
 	return f.queues, f.err
 }
 
 func (f *fakeInspector) QueueInfo(ctx context.Context, queue string) (QueueSnapshot, error) {
+	if f.queueInfoErr != nil {
+		return QueueSnapshot{}, f.queueInfoErr
+	}
 	if f.queueInfos == nil {
 		return QueueSnapshot{}, f.err
 	}
@@ -26,10 +37,16 @@ func (f *fakeInspector) QueueInfo(ctx context.Context, queue string) (QueueSnaps
 }
 
 func (f *fakeInspector) RetryTasks(ctx context.Context, queue string, page int, pageSize int) ([]TaskSnapshot, error) {
+	if f.retryErr != nil {
+		return nil, f.retryErr
+	}
 	return f.retryTasks[queue], f.err
 }
 
 func (f *fakeInspector) ArchivedTasks(ctx context.Context, queue string, page int, pageSize int) ([]TaskSnapshot, error) {
+	if f.archiveErr != nil {
+		return nil, f.archiveErr
+	}
 	return f.archiveTasks[queue], f.err
 }
 
@@ -96,8 +113,52 @@ func TestServiceFailedListRejectsUnknownQueue(t *testing.T) {
 	svc := NewService(&fakeInspector{}, Options{QueueNames: []string{"critical"}})
 
 	_, appErr := svc.FailedList(context.Background(), FailedListQuery{Queue: "evil", CurrentPage: 1, PageSize: 20})
-	if appErr == nil {
-		t.Fatalf("expected app error for unknown queue")
+	if appErr == nil || appErr.MessageID != "queuemonitor.queue.invalid" {
+		t.Fatalf("expected keyed unknown queue error, got %#v", appErr)
+	}
+}
+
+func TestServiceListWrapsQueueListError(t *testing.T) {
+	svc := NewService(&fakeInspector{queuesErr: errors.New("redis down")}, Options{QueueNames: []string{"critical"}})
+
+	_, appErr := svc.List(context.Background())
+	if appErr == nil || appErr.MessageID != "queuemonitor.queue_list_failed" {
+		t.Fatalf("expected keyed queue list error, got %#v", appErr)
+	}
+}
+
+func TestServiceFailedListWrapsTaskReadErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		inspector *fakeInspector
+		messageID string
+	}{
+		{
+			name: "queue status",
+			inspector: &fakeInspector{
+				queueInfoErr: errors.New("status down"),
+			},
+			messageID: "queuemonitor.queue_status_failed",
+		},
+		{
+			name: "retry tasks",
+			inspector: &fakeInspector{
+				queueInfos: map[string]QueueSnapshot{"critical": {Name: "critical", Retry: 1}},
+				retryErr:   errors.New("retry down"),
+			},
+			messageID: "queuemonitor.retry_tasks_failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(tt.inspector, Options{QueueNames: []string{"critical"}})
+
+			_, appErr := svc.FailedList(context.Background(), FailedListQuery{Queue: "critical", CurrentPage: 1, PageSize: 20})
+			if appErr == nil || appErr.MessageID != tt.messageID {
+				t.Fatalf("expected keyed error %q, got %#v", tt.messageID, appErr)
+			}
+		})
 	}
 }
 

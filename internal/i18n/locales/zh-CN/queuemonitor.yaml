@@ -1,0 +1,8 @@
+queuemonitor.service_missing: 队列监控服务未配置
+queuemonitor.failed_query.invalid: 队列失败任务参数错误
+queuemonitor.ui_unavailable: 队列监控 UI 未配置
+queuemonitor.queue_list_failed: 读取队列列表失败
+queuemonitor.queue_status_failed: 读取队列状态失败
+queuemonitor.queue.invalid: 无效的队列名称
+queuemonitor.retry_tasks_failed: 读取重试任务失败
+queuemonitor.archived_tasks_failed: 读取归档任务失败
