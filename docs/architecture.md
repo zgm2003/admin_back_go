@@ -241,7 +241,8 @@ response shape 不变：{ code, data, msg }。
 msg 是展示文案，业务判断不能依赖 msg。
 apperror.Error 保留 fallback Message；MessageID 只做内部翻译 key，不返回给前端。
 Catalog 按 internal/i18n/locales/{lang}/{module}.yaml 分模块维护。
-未迁移模块继续返回 fallback 中文，不允许因为缺翻译 key panic。
+已显式收口的模块使用 module-scoped MessageID；剩余 legacy fallback 文案通过 deterministic legacy.{sha1} catalog bridge 在 response 边界翻译。
+缺翻译 key 时继续返回 fallback 中文，不允许因为缺翻译 key panic。
 ```
 
 ## AuthToken baseline

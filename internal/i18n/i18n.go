@@ -67,6 +67,9 @@ func MatchLanguage(header string) language.Tag {
 func Message(c *gin.Context, messageID string, templateData map[string]any, fallback string) (string, error) {
 	messageID = strings.TrimSpace(messageID)
 	if messageID == "" {
+		messageID = FallbackMessageID(fallback)
+	}
+	if messageID == "" {
 		return fallback, nil
 	}
 	if c == nil {
