@@ -29,7 +29,7 @@ func NewHandler(service HTTPService) *Handler {
 
 func (h *Handler) Init(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	result, appErr := h.service.Init(c.Request.Context())
@@ -42,12 +42,12 @@ func (h *Handler) Init(c *gin.Context) {
 
 func (h *Handler) List(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("systemsetting.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	result, appErr := h.service.List(c.Request.Context(), ListQuery{
@@ -65,12 +65,12 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) Create(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("systemsetting.create.request.invalid", nil, "参数错误"))
 		return
 	}
 	id, appErr := h.service.Create(c.Request.Context(), CreateInput{Key: req.Key, Value: req.Value, Type: req.Type, Remark: req.Remark})
@@ -83,7 +83,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 func (h *Handler) Update(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -92,7 +92,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	var req updateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("systemsetting.update.request.invalid", nil, "参数错误"))
 		return
 	}
 	if appErr := h.service.Update(c.Request.Context(), id, UpdateInput{Value: req.Value, Type: req.Type, Remark: req.Remark}); appErr != nil {
@@ -104,7 +104,7 @@ func (h *Handler) Update(c *gin.Context) {
 
 func (h *Handler) DeleteOne(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -120,12 +120,12 @@ func (h *Handler) DeleteOne(c *gin.Context) {
 
 func (h *Handler) DeleteBatch(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	var req deleteBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("请选择要删除的配置"))
+		response.Error(c, apperror.BadRequestKey("systemsetting.delete.empty", nil, "请选择要删除的配置"))
 		return
 	}
 	if appErr := h.service.Delete(c.Request.Context(), req.IDs); appErr != nil {
@@ -137,7 +137,7 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 
 func (h *Handler) ChangeStatus(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("系统设置服务未配置"))
+		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -146,7 +146,7 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 	}
 	var req statusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("无效的状态"))
+		response.Error(c, apperror.BadRequestKey("systemsetting.status.invalid", nil, "无效的状态"))
 		return
 	}
 	if appErr := h.service.ChangeStatus(c.Request.Context(), id, req.Status); appErr != nil {
@@ -159,7 +159,7 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的配置ID"))
+		response.Error(c, apperror.BadRequestKey("systemsetting.id.invalid", nil, "无效的配置ID"))
 		return 0, false
 	}
 	return id, true

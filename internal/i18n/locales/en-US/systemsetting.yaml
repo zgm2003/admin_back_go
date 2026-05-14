@@ -1,0 +1,27 @@
+systemsetting.service_missing: System setting service is not configured
+systemsetting.repository_missing: System setting repository is not configured
+systemsetting.list.request.invalid: Invalid system setting list request
+systemsetting.create.request.invalid: Invalid system setting create request
+systemsetting.update.request.invalid: Invalid system setting update request
+systemsetting.delete.empty: Select system settings to delete
+systemsetting.status.invalid: Invalid status
+systemsetting.id.invalid: Invalid system setting ID
+systemsetting.query_failed: Failed to query system settings
+systemsetting.key_check_failed: Failed to validate system setting key
+systemsetting.key.duplicate: Configuration key [{{.key}}] already exists
+systemsetting.create_failed: Failed to create system setting
+systemsetting.cache_clear_failed: Failed to clear system setting cache
+systemsetting.update_failed: Failed to update system setting
+systemsetting.not_found: System setting does not exist
+systemsetting.status_update_failed: Failed to update system setting status
+systemsetting.delete.contains_missing: Some selected system settings do not exist
+systemsetting.delete_failed: Failed to delete system settings
+systemsetting.current_page.invalid: Invalid current page
+systemsetting.page_size.invalid: Invalid page size
+systemsetting.key.invalid: Configuration key is required and must be at most 100 characters
+systemsetting.remark.too_long: Remark must be at most 255 characters
+systemsetting.value_type.invalid: Invalid setting value type
+systemsetting.value.number_invalid: Number value must be numeric
+systemsetting.value.bool_invalid: Boolean value must be true/false or 0/1
+systemsetting.value.json_invalid: JSON value must be valid JSON
+systemsetting.value.json_object_invalid: JSON value must be an object or array

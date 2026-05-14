@@ -49,7 +49,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询系统设置失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.query_failed", nil, "查询系统设置失败", err)
 	}
 
 	list := make([]ListItem, 0, len(rows))
@@ -73,10 +73,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (int64, *apperr
 	}
 	exists, err := repo.ExistsByKey(ctx, input.Key, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验配置 key 失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.key_check_failed", nil, "校验配置 key 失败", err)
 	}
 	if exists {
-		return 0, apperror.BadRequest("配置 key [" + input.Key + "] 已存在")
+		return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": input.Key}, "配置 key ["+input.Key+"] 已存在")
 	}
 
 	id, err := repo.Create(ctx, Setting{
@@ -84,17 +84,17 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (int64, *apperr
 		Status: enum.CommonYes, IsDel: enum.CommonNo,
 	})
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增系统设置失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.create_failed", nil, "新增系统设置失败", err)
 	}
 	if err := repo.InvalidateCache(ctx, input.Key); err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "清理系统设置缓存失败", err)
+		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
 	}
 	return id, nil
 }
 
 func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的配置ID")
+		return apperror.BadRequestKey("systemsetting.id.invalid", nil, "无效的配置ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -102,10 +102,10 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询系统设置失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.query_failed", nil, "查询系统设置失败", err)
 	}
 	if row == nil {
-		return apperror.NotFound("配置项不存在")
+		return apperror.NotFoundKey("systemsetting.not_found", nil, "配置项不存在")
 	}
 
 	input, appErr = normalizeUpdateInput(input)
@@ -117,20 +117,20 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 		"value_type":    input.Type,
 		"remark":        input.Remark,
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新系统设置失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.update_failed", nil, "更新系统设置失败", err)
 	}
 	if err := repo.InvalidateCache(ctx, row.SettingKey); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "清理系统设置缓存失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
 	}
 	return nil
 }
 
 func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的配置ID")
+		return apperror.BadRequestKey("systemsetting.id.invalid", nil, "无效的配置ID")
 	}
 	if !enum.IsCommonStatus(status) {
-		return apperror.BadRequest("无效的状态")
+		return apperror.BadRequestKey("systemsetting.status.invalid", nil, "无效的状态")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -138,16 +138,16 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询系统设置失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.query_failed", nil, "查询系统设置失败", err)
 	}
 	if row == nil {
-		return apperror.NotFound("配置项不存在")
+		return apperror.NotFoundKey("systemsetting.not_found", nil, "配置项不存在")
 	}
 	if err := repo.Update(ctx, id, map[string]any{"status": status}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新系统设置状态失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.status_update_failed", nil, "更新系统设置状态失败", err)
 	}
 	if err := repo.InvalidateCache(ctx, row.SettingKey); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "清理系统设置缓存失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
 	}
 	return nil
 }
@@ -159,21 +159,21 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	}
 	ids = normalizeIDs(ids)
 	if len(ids) == 0 {
-		return apperror.BadRequest("请选择要删除的配置")
+		return apperror.BadRequestKey("systemsetting.delete.empty", nil, "请选择要删除的配置")
 	}
 	rows, err := repo.SettingsByIDs(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询系统设置失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.query_failed", nil, "查询系统设置失败", err)
 	}
 	if len(rows) != len(ids) {
-		return apperror.BadRequest("包含不存在的配置项")
+		return apperror.BadRequestKey("systemsetting.delete.contains_missing", nil, "包含不存在的配置项")
 	}
 	if err := repo.Delete(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除系统设置失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.delete_failed", nil, "删除系统设置失败", err)
 	}
 	for _, id := range ids {
 		if err := repo.InvalidateCache(ctx, rows[id].SettingKey); err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "清理系统设置缓存失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
 		}
 	}
 	return nil
@@ -188,13 +188,13 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 
 func validateListQuery(query ListQuery) *apperror.Error {
 	if query.CurrentPage <= 0 {
-		return apperror.BadRequest("当前页无效")
+		return apperror.BadRequestKey("systemsetting.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
-		return apperror.BadRequest("每页数量无效")
+		return apperror.BadRequestKey("systemsetting.page_size.invalid", nil, "每页数量无效")
 	}
 	if query.Status != nil && !enum.IsCommonStatus(*query.Status) {
-		return apperror.BadRequest("无效的状态")
+		return apperror.BadRequestKey("systemsetting.status.invalid", nil, "无效的状态")
 	}
 	return nil
 }
@@ -202,7 +202,7 @@ func validateListQuery(query ListQuery) *apperror.Error {
 func normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
 	input.Key = strings.TrimSpace(input.Key)
 	if input.Key == "" || len([]rune(input.Key)) > maxKeyLen {
-		return input, apperror.BadRequest("配置 key 不能为空且不能超过100个字符")
+		return input, apperror.BadRequestKey("systemsetting.key.invalid", nil, "配置 key 不能为空且不能超过100个字符")
 	}
 	return normalizeCreateFields(input)
 }
@@ -221,10 +221,10 @@ func normalizeCreateFields(input CreateInput) (CreateInput, *apperror.Error) {
 func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
 	input.Remark = strings.TrimSpace(input.Remark)
 	if len([]rune(input.Remark)) > maxRemarkLen {
-		return input, apperror.BadRequest("备注不能超过255个字符")
+		return input, apperror.BadRequestKey("systemsetting.remark.too_long", nil, "备注不能超过255个字符")
 	}
 	if !enum.IsSystemSettingValueType(input.Type) {
-		return input, apperror.BadRequest("无效的配置值类型")
+		return input, apperror.BadRequestKey("systemsetting.value_type.invalid", nil, "无效的配置值类型")
 	}
 	if appErr := validateTypedValue(input.Type, input.Value); appErr != nil {
 		return input, appErr
@@ -236,24 +236,24 @@ func validateTypedValue(valueType int, value string) *apperror.Error {
 	switch valueType {
 	case enum.SystemSettingValueNumber:
 		if _, err := strconv.ParseFloat(value, 64); err != nil {
-			return apperror.BadRequest("数值类型需为数字")
+			return apperror.BadRequestKey("systemsetting.value.number_invalid", nil, "数值类型需为数字")
 		}
 	case enum.SystemSettingValueBool:
 		switch strings.ToLower(value) {
 		case "0", "1", "true", "false":
 		default:
-			return apperror.BadRequest("布尔类型需为 true/false 或 0/1")
+			return apperror.BadRequestKey("systemsetting.value.bool_invalid", nil, "布尔类型需为 true/false 或 0/1")
 		}
 	case enum.SystemSettingValueJSON:
 		var decoded any
 		if err := json.Unmarshal([]byte(value), &decoded); err != nil {
-			return apperror.BadRequest("JSON 类型需为合法 JSON")
+			return apperror.BadRequestKey("systemsetting.value.json_invalid", nil, "JSON 类型需为合法 JSON")
 		}
 		switch decoded.(type) {
 		case map[string]any, []any:
 			return nil
 		default:
-			return apperror.BadRequest("JSON 类型需为合法对象或数组")
+			return apperror.BadRequestKey("systemsetting.value.json_object_invalid", nil, "JSON 类型需为合法对象或数组")
 		}
 	}
 	return nil

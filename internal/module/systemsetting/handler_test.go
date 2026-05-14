@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	projecti18n "admin_back_go/internal/i18n"
 
 	"github.com/gin-gonic/gin"
 )
@@ -104,10 +105,39 @@ func TestHandlerBindsStatusPatchBody(t *testing.T) {
 	}
 }
 
+func TestHandlerListLocalizesInvalidQuery(t *testing.T) {
+	router, _ := newSystemSettingLocalizedHandlerRouter()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-settings?current_page=abc", nil)
+	request.Header.Set("Accept-Language", "en-US")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["msg"] != "Invalid system setting list request" {
+		t.Fatalf("expected localized list error, got %#v", payload["msg"])
+	}
+}
+
 func newSystemSettingHandlerRouter() (*gin.Engine, *fakeHTTPService) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeHTTPService{}
 	router := gin.New()
+	RegisterRoutes(router, service)
+	return router, service
+}
+
+func newSystemSettingLocalizedHandlerRouter() (*gin.Engine, *fakeHTTPService) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeHTTPService{}
+	router := gin.New()
+	router.Use(projecti18n.Localize())
 	RegisterRoutes(router, service)
 	return router, service
 }

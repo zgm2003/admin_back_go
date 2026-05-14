@@ -118,7 +118,7 @@ func TestCreateRejectsDuplicateKey(t *testing.T) {
 	service := NewService(&fakeRepository{existsKey: true})
 
 	_, appErr := service.Create(context.Background(), CreateInput{Key: "user.default_avatar", Value: "x", Type: enum.SystemSettingValueString})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "配置 key [user.default_avatar] 已存在" {
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "systemsetting.key.duplicate" {
 		t.Fatalf("expected duplicate key error, got %#v", appErr)
 	}
 }
@@ -167,7 +167,7 @@ func TestCreateRejectsInvalidTypedValue(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			_, appErr := service.Create(context.Background(), tt.input)
-			if appErr == nil || appErr.Message != tt.msg {
+			if appErr == nil || appErr.MessageID == "" || appErr.Message != tt.msg {
 				t.Fatalf("expected %q, got %#v", tt.msg, appErr)
 			}
 		})
@@ -178,7 +178,7 @@ func TestUpdateMissingRowReturnsNotFound(t *testing.T) {
 	service := NewService(&fakeRepository{})
 
 	appErr := service.Update(context.Background(), 99, UpdateInput{Value: "x", Type: enum.SystemSettingValueString})
-	if appErr == nil || appErr.Code != apperror.CodeNotFound || appErr.Message != "配置项不存在" {
+	if appErr == nil || appErr.Code != apperror.CodeNotFound || appErr.MessageID != "systemsetting.not_found" {
 		t.Fatalf("expected not found, got %#v", appErr)
 	}
 }
