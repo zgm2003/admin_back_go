@@ -19,7 +19,7 @@ func NewHandler(service HTTPService) *Handler {
 
 func (h *Handler) Init(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	result, appErr := h.service.Init(c.Request.Context())
@@ -32,12 +32,12 @@ func (h *Handler) Init(c *gin.Context) {
 
 func (h *Handler) List(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("crontask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
 	result, appErr := h.service.List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Name: req.Name, Status: req.Status, RegistryStatus: req.RegistryStatus})
@@ -50,12 +50,12 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) Create(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	var req saveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("crontask.save.request.invalid", nil, "参数错误"))
 		return
 	}
 	result, appErr := h.service.Create(c.Request.Context(), saveInputFromRequest(req))
@@ -68,7 +68,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 func (h *Handler) Update(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -77,7 +77,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	var req saveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("参数错误"))
+		response.Error(c, apperror.BadRequestKey("crontask.save.request.invalid", nil, "参数错误"))
 		return
 	}
 	if appErr := h.service.Update(c.Request.Context(), id, saveInputFromRequest(req)); appErr != nil {
@@ -89,7 +89,7 @@ func (h *Handler) Update(c *gin.Context) {
 
 func (h *Handler) ChangeStatus(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -98,7 +98,7 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 	}
 	var req statusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("无效的状态"))
+		response.Error(c, apperror.BadRequestKey("crontask.status.invalid", nil, "无效的状态"))
 		return
 	}
 	if appErr := h.service.ChangeStatus(c.Request.Context(), id, req.Status); appErr != nil {
@@ -110,7 +110,7 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 
 func (h *Handler) DeleteOne(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -126,12 +126,12 @@ func (h *Handler) DeleteOne(c *gin.Context) {
 
 func (h *Handler) DeleteBatch(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	var req batchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("请选择要删除的定时任务"))
+		response.Error(c, apperror.BadRequestKey("crontask.delete.empty", nil, "请选择要删除的定时任务"))
 		return
 	}
 	if appErr := h.service.Delete(c.Request.Context(), req.IDs); appErr != nil {
@@ -143,7 +143,7 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 
 func (h *Handler) Logs(c *gin.Context) {
 	if h.service == nil {
-		response.Error(c, apperror.Internal("定时任务服务未配置"))
+		response.Error(c, apperror.InternalKey("crontask.service_missing", nil, "定时任务服务未配置"))
 		return
 	}
 	id, ok := routeID(c)
@@ -152,7 +152,7 @@ func (h *Handler) Logs(c *gin.Context) {
 	}
 	var req logsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("日志参数错误"))
+		response.Error(c, apperror.BadRequestKey("crontask.logs.request.invalid", nil, "日志参数错误"))
 		return
 	}
 	result, appErr := h.service.Logs(c.Request.Context(), LogsQuery{TaskID: id, CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, StartDate: req.StartDate, EndDate: req.EndDate})
@@ -170,7 +170,7 @@ func saveInputFromRequest(req saveRequest) SaveInput {
 func routeID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequest("无效的定时任务ID"))
+		response.Error(c, apperror.BadRequestKey("crontask.id.invalid", nil, "无效的定时任务ID"))
 		return 0, false
 	}
 	return id, true

@@ -61,7 +61,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if query.RegistryStatus != "" {
 		rows, total, err := s.listByRegistryStatus(ctx, repo, query)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询定时任务失败", err)
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.query_failed", nil, "查询定时任务失败", err)
 		}
 		return &ListResponse{
 			List: s.listItemsFromTasks(rows),
@@ -70,7 +70,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询定时任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.query_failed", nil, "查询定时任务失败", err)
 	}
 	return &ListResponse{
 		List: s.listItemsFromTasks(rows),
@@ -121,10 +121,10 @@ func (s *Service) Create(ctx context.Context, input SaveInput) (*ListItem, *appe
 	}
 	exists, err := repo.NameExists(ctx, input.Name, 0)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "校验定时任务名称失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.name_check_failed", nil, "校验定时任务名称失败", err)
 	}
 	if exists {
-		return nil, apperror.BadRequest("定时任务名称已存在")
+		return nil, apperror.BadRequestKey("crontask.name.duplicate", nil, "定时任务名称已存在")
 	}
 	now := s.now()
 	input = s.applyRegistryTaskType(input)
@@ -134,18 +134,18 @@ func (s *Service) Create(ctx context.Context, input SaveInput) (*ListItem, *appe
 		CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "新增定时任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.create_failed", nil, "新增定时任务失败", err)
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询定时任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.query_failed", nil, "查询定时任务失败", err)
 	}
 	return ptr(s.listItemFromTask(*row)), nil
 }
 
 func (s *Service) Update(ctx context.Context, id int64, input SaveInput) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的定时任务ID")
+		return apperror.BadRequestKey("crontask.id.invalid", nil, "无效的定时任务ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -160,28 +160,28 @@ func (s *Service) Update(ctx context.Context, id int64, input SaveInput) *apperr
 		return mapTaskLookupError(err)
 	}
 	if strings.TrimSpace(row.Name) != input.Name {
-		return apperror.BadRequest("定时任务名称不允许修改")
+		return apperror.BadRequestKey("crontask.name.immutable", nil, "定时任务名称不允许修改")
 	}
 	exists, err := repo.NameExists(ctx, input.Name, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验定时任务名称失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "crontask.name_check_failed", nil, "校验定时任务名称失败", err)
 	}
 	if exists {
-		return apperror.BadRequest("定时任务名称已存在")
+		return apperror.BadRequestKey("crontask.name.duplicate", nil, "定时任务名称已存在")
 	}
 	input = s.applyRegistryTaskType(input)
 	if err := repo.Update(ctx, id, Task{Name: input.Name, Title: input.Title, Description: input.Description, Cron: input.Cron, CronReadable: input.CronReadable, Handler: input.Handler, Status: input.Status}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新定时任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "crontask.update_failed", nil, "更新定时任务失败", err)
 	}
 	return nil
 }
 
 func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
 	if id <= 0 {
-		return apperror.BadRequest("无效的定时任务ID")
+		return apperror.BadRequestKey("crontask.id.invalid", nil, "无效的定时任务ID")
 	}
 	if !enum.IsCommonStatus(status) {
-		return apperror.BadRequest("无效的状态")
+		return apperror.BadRequestKey("crontask.status.invalid", nil, "无效的状态")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -191,7 +191,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 		return mapTaskLookupError(err)
 	}
 	if err := repo.UpdateStatus(ctx, id, status); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新定时任务状态失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "crontask.status_update_failed", nil, "更新定时任务状态失败", err)
 	}
 	return nil
 }
@@ -203,7 +203,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	}
 	ids = normalizeIDs(ids)
 	if len(ids) == 0 {
-		return apperror.BadRequest("请选择要删除的定时任务")
+		return apperror.BadRequestKey("crontask.delete.empty", nil, "请选择要删除的定时任务")
 	}
 	for _, id := range ids {
 		if _, err := repo.Get(ctx, id); err != nil {
@@ -211,7 +211,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 		}
 	}
 	if err := repo.Delete(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除定时任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "crontask.delete_failed", nil, "删除定时任务失败", err)
 	}
 	return nil
 }
@@ -227,7 +227,7 @@ func (s *Service) Logs(ctx context.Context, query LogsQuery) (*LogsResponse, *ap
 	}
 	rows, total, err := repo.Logs(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询定时任务日志失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.logs_query_failed", nil, "查询定时任务日志失败", err)
 	}
 	list := make([]LogItem, 0, len(rows))
 	for _, row := range rows {
@@ -238,42 +238,42 @@ func (s *Service) Logs(ctx context.Context, query LogsQuery) (*LogsResponse, *ap
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "定时任务仓储未配置", ErrRepositoryNotConfigured)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.repository_missing", nil, "定时任务仓储未配置", ErrRepositoryNotConfigured)
 	}
 	return s.repository, nil
 }
 
 func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	if query.CurrentPage <= 0 {
-		return query, apperror.BadRequest("当前页无效")
+		return query, apperror.BadRequestKey("crontask.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
-		return query, apperror.BadRequest("每页数量无效")
+		return query, apperror.BadRequestKey("crontask.page_size.invalid", nil, "每页数量无效")
 	}
 	if query.Status != nil && !enum.IsCommonStatus(*query.Status) {
-		return query, apperror.BadRequest("无效的状态")
+		return query, apperror.BadRequestKey("crontask.status.invalid", nil, "无效的状态")
 	}
 	query.Title = strings.TrimSpace(query.Title)
 	query.Name = strings.TrimSpace(query.Name)
 	query.RegistryStatus = strings.TrimSpace(query.RegistryStatus)
 	if query.RegistryStatus != "" && !isRegistryStatus(query.RegistryStatus) {
-		return query, apperror.BadRequest("无效的接入状态")
+		return query, apperror.BadRequestKey("crontask.registry_status.invalid", nil, "无效的接入状态")
 	}
 	return query, nil
 }
 
 func normalizeLogsQuery(query LogsQuery) (LogsQuery, *apperror.Error) {
 	if query.TaskID <= 0 {
-		return query, apperror.BadRequest("无效的定时任务ID")
+		return query, apperror.BadRequestKey("crontask.id.invalid", nil, "无效的定时任务ID")
 	}
 	if query.CurrentPage <= 0 {
-		return query, apperror.BadRequest("当前页无效")
+		return query, apperror.BadRequestKey("crontask.current_page.invalid", nil, "当前页无效")
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
-		return query, apperror.BadRequest("每页数量无效")
+		return query, apperror.BadRequestKey("crontask.page_size.invalid", nil, "每页数量无效")
 	}
 	if query.Status != nil && !isLogStatus(*query.Status) {
-		return query, apperror.BadRequest("无效的日志状态")
+		return query, apperror.BadRequestKey("crontask.log_status.invalid", nil, "无效的日志状态")
 	}
 	query.StartDate = strings.TrimSpace(query.StartDate)
 	query.EndDate = strings.TrimSpace(query.EndDate)
@@ -288,22 +288,22 @@ func normalizeSaveInput(input SaveInput) (SaveInput, *apperror.Error) {
 	input.CronReadable = strings.TrimSpace(input.CronReadable)
 	input.Handler = strings.TrimSpace(input.Handler)
 	if input.Name == "" || len([]rune(input.Name)) > maxNameLen {
-		return input, apperror.BadRequest("任务名称不能为空且不能超过100个字符")
+		return input, apperror.BadRequestKey("crontask.name.invalid", nil, "任务名称不能为空且不能超过100个字符")
 	}
 	if input.Title == "" || len([]rune(input.Title)) > maxTitleLen {
-		return input, apperror.BadRequest("任务标题不能为空且不能超过100个字符")
+		return input, apperror.BadRequestKey("crontask.title.invalid", nil, "任务标题不能为空且不能超过100个字符")
 	}
 	if len([]rune(input.Description)) > maxDescriptionLen {
-		return input, apperror.BadRequest("任务描述不能超过500个字符")
+		return input, apperror.BadRequestKey("crontask.description.too_long", nil, "任务描述不能超过500个字符")
 	}
 	if input.Cron == "" || len([]rune(input.Cron)) > maxCronLen || !isValidCronExpression(input.Cron) {
-		return input, apperror.BadRequest("Cron 表达式无效")
+		return input, apperror.BadRequestKey("crontask.cron.invalid", nil, "Cron 表达式无效")
 	}
 	if len([]rune(input.Handler)) > maxHandlerLen {
-		return input, apperror.BadRequest("任务引用不能超过255个字符")
+		return input, apperror.BadRequestKey("crontask.handler.too_long", nil, "任务引用不能超过255个字符")
 	}
 	if !enum.IsCommonStatus(input.Status) {
-		return input, apperror.BadRequest("无效的状态")
+		return input, apperror.BadRequestKey("crontask.status.invalid", nil, "无效的状态")
 	}
 	return input, nil
 }
@@ -356,9 +356,9 @@ func mapTaskLookupError(err error) *apperror.Error {
 		return nil
 	}
 	if err == ErrTaskNotFound {
-		return apperror.NotFound("定时任务不存在")
+		return apperror.NotFoundKey("crontask.not_found", nil, "定时任务不存在")
 	}
-	return apperror.Wrap(apperror.CodeInternal, 500, "查询定时任务失败", err)
+	return apperror.WrapKey(apperror.CodeInternal, 500, "crontask.query_failed", nil, "查询定时任务失败", err)
 }
 
 func statusName(status int) string {

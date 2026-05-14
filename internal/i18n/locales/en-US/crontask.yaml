@@ -1,0 +1,27 @@
+crontask.service_missing: Cron task service is not configured
+crontask.repository_missing: Cron task repository is not configured
+crontask.list.request.invalid: Invalid cron task list request
+crontask.save.request.invalid: Invalid cron task save request
+crontask.status.invalid: Invalid status
+crontask.delete.empty: Select cron tasks to delete
+crontask.logs.request.invalid: Invalid cron task log request
+crontask.id.invalid: Invalid cron task ID
+crontask.query_failed: Failed to query cron tasks
+crontask.name_check_failed: Failed to check cron task name
+crontask.name.duplicate: Cron task name already exists
+crontask.create_failed: Failed to create cron task
+crontask.name.immutable: Cron task name cannot be changed
+crontask.update_failed: Failed to update cron task
+crontask.status_update_failed: Failed to update cron task status
+crontask.delete_failed: Failed to delete cron task
+crontask.logs_query_failed: Failed to query cron task logs
+crontask.current_page.invalid: Invalid current page
+crontask.page_size.invalid: Invalid page size
+crontask.registry_status.invalid: Invalid registry status
+crontask.log_status.invalid: Invalid log status
+crontask.name.invalid: Task name is required and must be at most 100 characters
+crontask.title.invalid: Task title is required and must be at most 100 characters
+crontask.description.too_long: Task description must be at most 500 characters
+crontask.cron.invalid: Cron expression is invalid
+crontask.handler.too_long: Task handler reference must be at most 255 characters
+crontask.not_found: Cron task does not exist
