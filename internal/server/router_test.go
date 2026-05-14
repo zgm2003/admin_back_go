@@ -1459,7 +1459,7 @@ func TestReadyEndpointReturnsErrorWithDetailsWhenResourceIsDown(t *testing.T) {
 	if body["code"] != float64(500) {
 		t.Fatalf("expected code 500, got %#v", body["code"])
 	}
-	if body["msg"] != "service not ready" {
+	if body["msg"] != "服务未就绪" {
 		t.Fatalf("expected service not ready message, got %#v", body["msg"])
 	}
 
