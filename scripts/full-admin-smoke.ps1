@@ -769,25 +769,103 @@ function Assert-PaymentConfigList($Response) {
   }
 }
 
+function Assert-PaymentOrderInit($Response) {
+  Assert-ApiOK $Response 'payment order init'
+
+  if ($null -eq $Response.data.dict) {
+    throw "payment order init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $providers = Get-ObjectArray $Response.data.dict.provider_arr
+  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
+  $statuses = Get-ObjectArray $Response.data.dict.order_status_arr
+  $configs = Get-ObjectArray $Response.data.config_options
+  if ($providers.Count -ne 1 -or [string]$providers[0].value -ne 'alipay' -or $methods.Count -ne 2 -or $statuses.Count -ne 5) {
+    throw "payment order init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in $configs) {
+    if ([string]::IsNullOrWhiteSpace([string]$item.label) -or [string]::IsNullOrWhiteSpace([string]$item.value) -or [string]$item.provider -ne 'alipay' -or $null -eq $item.enabled_methods) {
+      throw "payment order config option shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ProviderCount = $providers.Count
+    MethodCount = $methods.Count
+    StatusCount = $statuses.Count
+    ConfigOptionCount = $configs.Count
+  }
+}
+
+function Assert-PaymentOrderList($Response) {
+  Assert-ApiOK $Response 'payment order list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "payment order list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no) -or [string]::IsNullOrWhiteSpace([string]$item.config_code)) {
+      throw "payment order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]$item.provider -ne 'alipay' -or [string]::IsNullOrWhiteSpace([string]$item.pay_method) -or [string]::IsNullOrWhiteSpace([string]$item.status)) {
+      throw "payment order item payment fields mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.amount_cents -or [string]::IsNullOrWhiteSpace([string]$item.amount_text)) {
+      throw "payment order item amount mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    $itemJson = $item | ConvertTo-Json -Depth 12
+    if ($itemJson -match '"(business_type|business_ref|refund_status|refund_amount|raw_request|raw_response|extra_json|buyer_id|created_by|updated_by)"\s*:') {
+      throw "payment order list leaked banned fields: $itemJson"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Assert-UsersInitPaymentRoutes($Response) {
   Assert-ApiOK $Response 'users init payment route gate'
   $payPresent = Test-RoutePath $Response.data.router '/pay'
   $retiredWalletPresent = Test-RoutePath $Response.data.router '/wallet'
   $oldPayCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'pay_'
   $oldChannelCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_channel_'
-  $oldOrderCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_order_'
+  $orderListButtonPresent = $false
+  $orderAddButtonPresent = $false
+  $orderPayButtonPresent = $false
+  $orderSyncButtonPresent = $false
+  $orderCloseButtonPresent = $false
+  foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
+    if ([string]$code -eq 'payment_order_list') { $orderListButtonPresent = $true }
+    if ([string]$code -eq 'payment_order_add') { $orderAddButtonPresent = $true }
+    if ([string]$code -eq 'payment_order_pay') { $orderPayButtonPresent = $true }
+    if ([string]$code -eq 'payment_order_sync') { $orderSyncButtonPresent = $true }
+    if ([string]$code -eq 'payment_order_close') { $orderCloseButtonPresent = $true }
+  }
   $oldEventCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_event_'
   $configPresent = Test-RoutePath $Response.data.router '/payment/config'
+  $ordersPresent = Test-RoutePath $Response.data.router '/payment/orders'
   $channelPresent = Test-RoutePath $Response.data.router '/payment/channel'
-  $orderPresent = Test-RoutePath $Response.data.router '/payment/order'
+  $retiredOrderPath = '/payment/' + 'order'
+  $orderPresent = Test-RoutePath $Response.data.router $retiredOrderPath
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
-  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldOrderCodePresent -or $oldEventCodePresent -or -not $configPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
-    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldOrderCode=$oldOrderCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/channel=$channelPresent /payment/order=$orderPresent /payment/event=$eventPresent"
+  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
+    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
+  }
+  if ($ordersPresent -and (-not $orderAddButtonPresent -or -not $orderPayButtonPresent -or -not $orderSyncButtonPresent -or -not $orderCloseButtonPresent)) {
+    throw "users/init payment order button gate mismatch: add=$orderAddButtonPresent pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
   }
 
   $configRoute = Get-RouteByPath $Response.data.router '/payment/config'
   if ($null -eq $configRoute -or [string]$configRoute.view_key -ne 'payment/config') {
     throw "users/init payment config route view_key mismatch: expected=payment/config actual=$([string]$configRoute.view_key)"
+  }
+  $ordersRoute = Get-RouteByPath $Response.data.router '/payment/orders'
+  if ($null -eq $ordersRoute -or [string]$ordersRoute.view_key -ne 'payment/orders') {
+    throw "users/init payment order route view_key mismatch: expected=payment/orders actual=$([string]$ordersRoute.view_key)"
   }
 
   return [pscustomobject]@{
@@ -795,13 +873,19 @@ function Assert-UsersInitPaymentRoutes($Response) {
     RetiredWalletPresent = $retiredWalletPresent
     OldPayCodePresent = $oldPayCodePresent
     OldChannelCodePresent = $oldChannelCodePresent
-    OldOrderCodePresent = $oldOrderCodePresent
+    OrderListButtonPresent = $orderListButtonPresent
+    OrderAddButtonPresent = $orderAddButtonPresent
+    OrderPayButtonPresent = $orderPayButtonPresent
+    OrderSyncButtonPresent = $orderSyncButtonPresent
+    OrderCloseButtonPresent = $orderCloseButtonPresent
     OldEventCodePresent = $oldEventCodePresent
     ConfigPresent = $configPresent
+    OrdersPresent = $ordersPresent
     ChannelPresent = $channelPresent
     OrderPresent = $orderPresent
     EventPresent = $eventPresent
     ConfigViewKey = [string]$configRoute.view_key
+    OrdersViewKey = [string]$ordersRoute.view_key
   }
 }
 
@@ -1939,13 +2023,13 @@ function Assert-CronTaskList($Response) {
     if ([string]$item.name -eq 'payment_close_expired_order') {
       $paymentCloseExpiredPresent = $true
       if ([string]$item.registry_status -eq 'registered') {
-        throw "payment close-expired cron task must not be registered in payment-config-only slice: $($item | ConvertTo-Json -Depth 12)"
+        throw "payment close-expired cron task must not be registered in payment order Alipay pay v1 slice: $($item | ConvertTo-Json -Depth 12)"
       }
     }
     if ([string]$item.name -eq 'payment_sync_pending_order') {
       $paymentSyncPendingPresent = $true
       if ([string]$item.registry_status -eq 'registered') {
-        throw "payment sync-pending cron task must not be registered in payment-config-only slice: $($item | ConvertTo-Json -Depth 12)"
+        throw "payment sync-pending cron task must not be registered in payment order Alipay pay v1 slice: $($item | ConvertTo-Json -Depth 12)"
       }
     }
     if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
@@ -2530,6 +2614,16 @@ func main() {
     -TimeoutSec 10
   $paymentConfigListSummary = Assert-PaymentConfigList $paymentConfigList
 
+  $paymentOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $paymentOrderInitSummary = Assert-PaymentOrderInit $paymentOrderInit
+
+  $paymentOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $paymentOrderListSummary = Assert-PaymentOrderList $paymentOrderList
+
   $aiProviderInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-providers/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -3007,13 +3101,18 @@ func main() {
     payment_route_retired_wallet_present = $usersInitPaymentRouteSummary.RetiredWalletPresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent
     payment_route_config_present = $usersInitPaymentRouteSummary.ConfigPresent
+    payment_route_orders_present = $usersInitPaymentRouteSummary.OrdersPresent
     payment_route_channel_present = $usersInitPaymentRouteSummary.ChannelPresent
     payment_route_order_present = $usersInitPaymentRouteSummary.OrderPresent
     payment_route_event_present = $usersInitPaymentRouteSummary.EventPresent
     payment_route_old_channel_code_present = $usersInitPaymentRouteSummary.OldChannelCodePresent
-    payment_route_old_order_code_present = $usersInitPaymentRouteSummary.OldOrderCodePresent
+    payment_order_add_button_present = $usersInitPaymentRouteSummary.OrderAddButtonPresent
+    payment_order_pay_button_present = $usersInitPaymentRouteSummary.OrderPayButtonPresent
+    payment_order_sync_button_present = $usersInitPaymentRouteSummary.OrderSyncButtonPresent
+    payment_order_close_button_present = $usersInitPaymentRouteSummary.OrderCloseButtonPresent
     payment_route_old_event_code_present = $usersInitPaymentRouteSummary.OldEventCodePresent
     payment_route_config_view_key = $usersInitPaymentRouteSummary.ConfigViewKey
+    payment_route_orders_view_key = $usersInitPaymentRouteSummary.OrdersViewKey
     payment_config_init_code = $paymentConfigInit.code
     payment_config_environment_count = $paymentConfigInitSummary.EnvironmentCount
     payment_config_method_count = $paymentConfigInitSummary.MethodCount
@@ -3022,6 +3121,13 @@ func main() {
     payment_config_list_code = $paymentConfigList.code
     payment_config_list_count = $paymentConfigListSummary.ListCount
     payment_config_total = $paymentConfigListSummary.Total
+    payment_order_init_code = $paymentOrderInit.code
+    payment_order_method_count = $paymentOrderInitSummary.MethodCount
+    payment_order_status_count = $paymentOrderInitSummary.StatusCount
+    payment_order_config_option_count = $paymentOrderInitSummary.ConfigOptionCount
+    payment_order_list_code = $paymentOrderList.code
+    payment_order_list_count = $paymentOrderListSummary.ListCount
+    payment_order_total = $paymentOrderListSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID

@@ -193,3 +193,24 @@ func (nilHTTPService) UploadCertificate(ctx context.Context, input CertificateUp
 func (nilHTTPService) TestConfig(ctx context.Context, id int64) (*ConfigTestResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
+func (nilHTTPService) OrderInit(ctx context.Context) (*OrderInitResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) ListOrders(ctx context.Context, query OrderListQuery) (*OrderListResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) GetOrder(ctx context.Context, id int64) (*OrderDetail, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) CreateOrder(ctx context.Context, input OrderCreateInput) (*OrderCreateResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) CloseOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}

@@ -334,43 +334,9 @@ func (s *Service) testConfigRow(ctx context.Context, cfg Config) (*ConfigTestRes
 	if s == nil || s.gateway == nil {
 		return nil, apperror.Internal("支付宝网关未配置")
 	}
-	if strings.TrimSpace(cfg.Provider) != providerAlipay {
-		return nil, apperror.BadRequest("当前仅支持支付宝支付配置")
-	}
-	if !isPaymentEnvironment(strings.TrimSpace(cfg.Environment)) {
-		return nil, apperror.BadRequest("无效的支付宝环境")
-	}
-	if _, appErr := decodeEnabledMethods(cfg.EnabledMethodsJSON); appErr != nil {
+	platformCfg, appErr := s.gatewayConfigFromConfig(cfg)
+	if appErr != nil {
 		return nil, appErr
-	}
-	privateKey, err := s.secretbox.Decrypt(cfg.PrivateKeyEnc)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解密支付宝应用私钥失败", err)
-	}
-	if strings.TrimSpace(privateKey) == "" {
-		return nil, apperror.BadRequest("支付宝应用私钥未配置")
-	}
-	appCertPath, err := s.certResolver.Resolve(cfg.AppCertPath)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "应用公钥证书不可用", err)
-	}
-	alipayCertPath, err := s.certResolver.Resolve(cfg.PlatformCertPath)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝公钥证书不可用", err)
-	}
-	rootCertPath, err := s.certResolver.Resolve(cfg.RootCertPath)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝根证书不可用", err)
-	}
-	platformCfg := gateway.ChannelConfig{
-		Provider:         cfg.Provider,
-		AppID:            cfg.AppID,
-		PrivateKey:       privateKey,
-		AppCertPath:      appCertPath,
-		PlatformCertPath: alipayCertPath,
-		RootCertPath:     rootCertPath,
-		NotifyURL:        cfg.NotifyURL,
-		IsSandbox:        cfg.Environment == environmentSandbox,
 	}
 	if err := s.gateway.TestConfig(ctx, platformCfg); err != nil {
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝配置测试失败", err)
@@ -527,6 +493,15 @@ func methodText(methods []string) string {
 		parts = append(parts, label)
 	}
 	return strings.Join(parts, "、")
+}
+
+func amountText(cents int64) string {
+	sign := ""
+	if cents < 0 {
+		sign = "-"
+		cents = -cents
+	}
+	return fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
 }
 
 func currentPage(value int) int {

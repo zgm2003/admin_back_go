@@ -19,5 +19,14 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	configs.DELETE("/:id", handler.DeleteConfig)
 	configs.POST("/:id/test", handler.TestConfig)
 
+	orders := router.Group("/api/admin/v1/payment/orders")
+	orders.GET("/page-init", handler.OrderInit)
+	orders.GET("", handler.ListOrders)
+	orders.GET("/:id", handler.GetOrder)
+	orders.POST("", handler.CreateOrder)
+	orders.POST("/:id/pay", handler.PayOrder)
+	orders.POST("/:id/sync", handler.SyncOrder)
+	orders.PATCH("/:id/close", handler.CloseOrder)
+
 	router.POST("/api/admin/v1/payment/certificates", handler.UploadCertificate)
 }

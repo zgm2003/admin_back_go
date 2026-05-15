@@ -191,6 +191,31 @@ func (r *fakeConfigRepo) DeleteConfig(ctx context.Context, id int64) error {
 	}
 	return nil
 }
+func (r *fakeConfigRepo) ListOrders(ctx context.Context, query OrderListQuery) ([]Order, int64, error) {
+	return nil, 0, nil
+}
+func (r *fakeConfigRepo) GetOrder(ctx context.Context, id int64) (*Order, error) { return nil, nil }
+func (r *fakeConfigRepo) CreateOrder(ctx context.Context, order Order) (int64, error) {
+	return 0, nil
+}
+func (r *fakeConfigRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL string) error {
+	return nil
+}
+func (r *fakeConfigRepo) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
+	return nil
+}
+func (r *fakeConfigRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
+	return nil
+}
+func (r *fakeConfigRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
+	return nil
+}
+func (r *fakeConfigRepo) ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error) {
+	if r.config == nil || r.config.Status != enum.CommonYes {
+		return nil, nil
+	}
+	return []Config{*r.config}, nil
+}
 
 type fakeSecretbox struct{}
 
@@ -228,5 +253,14 @@ type fakeGateway struct {
 func (g *fakeGateway) TestConfig(ctx context.Context, cfg gateway.ChannelConfig) error {
 	g.testCount++
 	g.cfg = cfg
+	return nil
+}
+func (g *fakeGateway) Pay(ctx context.Context, cfg gateway.ChannelConfig, in gateway.PayInput) (*gateway.PayResult, error) {
+	return &gateway.PayResult{PayURL: "https://example.test/pay"}, nil
+}
+func (g *fakeGateway) Query(ctx context.Context, cfg gateway.ChannelConfig, outTradeNo string) (*gateway.QueryResult, error) {
+	return &gateway.QueryResult{Status: "WAIT_BUYER_PAY"}, nil
+}
+func (g *fakeGateway) Close(ctx context.Context, cfg gateway.ChannelConfig, outTradeNo string) error {
 	return nil
 }

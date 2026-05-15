@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestRegisterRoutesInstallsPaymentConfigEndpointsOnly(t *testing.T) {
+func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterRoutes(router, nil)
@@ -28,6 +28,13 @@ func TestRegisterRoutesInstallsPaymentConfigEndpointsOnly(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/payment/configs/:id"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/page-init"},
+		{http.MethodGet, "/api/admin/v1/payment/orders"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:id"},
+		{http.MethodPost, "/api/admin/v1/payment/orders"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"},
 	} {
 		if !routes[route.method+" "+route.path] {
 			t.Fatalf("missing route %s %s", route.method, route.path)
@@ -35,8 +42,8 @@ func TestRegisterRoutesInstallsPaymentConfigEndpointsOnly(t *testing.T) {
 	}
 	for _, retired := range []string{
 		"GET /api/admin/v1/payment/channels",
-		"GET /api/admin/v1/payment/orders",
 		"GET /api/admin/v1/payment/events",
+		"GET /api/admin/v1/payment/" + "order",
 		"POST /api/payment/notify/alipay",
 	} {
 		if routes[retired] {

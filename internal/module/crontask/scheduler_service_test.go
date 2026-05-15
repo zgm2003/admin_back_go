@@ -60,7 +60,7 @@ func TestSchedulerDefaultRegistryRetiresPaymentOrderCronTasks(t *testing.T) {
 	registry := NewDefaultRegistry()
 	for _, name := range []string{"payment_close_expired_order", "payment_sync_pending_order"} {
 		if entry, ok := registry.Lookup(name); ok {
-			t.Fatalf("payment order cron must be retired in config-only slice: %s %#v", name, entry)
+			t.Fatalf("payment order cron must be absent until an automatic close/sync slice exists: %s %#v", name, entry)
 		}
 	}
 	for _, oldName := range []string{

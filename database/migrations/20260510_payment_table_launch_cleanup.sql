@@ -1,10 +1,8 @@
 -- Production launch cleanup for payment-domain table data.
 --
--- Runtime truth after the payment rebuild:
--- - payment_channels
--- - payment_channel_configs
--- - payment_orders
--- - payment_events
+-- Current active payment tables are payment_configs and payment_orders.
+-- This historical cleanup predates the 20260515 config/order rebuild; do not
+-- use it as the current payment runtime map.
 --
 -- The tables below are retired legacy/backups or old recharge-wallet order
 -- prototypes. Active Go/Vue runtime no longer references them; keep recovery in

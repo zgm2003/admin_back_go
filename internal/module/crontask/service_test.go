@@ -113,7 +113,7 @@ func TestServiceListTreatsPaymentOrderCronAsMissingInConfigOnlySlice(t *testing.
 	}
 	item := res.List[0]
 	if item.RegistryStatus != RegistryStatusMissing {
-		t.Fatalf("payment order cron must be missing in config-only slice, got %#v", item)
+		t.Fatalf("payment order cron must be missing until an automatic close/sync slice exists, got %#v", item)
 	}
 	if item.RegistryTaskType != "" || item.Handler != "payment:close-expired-order:v1" {
 		t.Fatalf("missing retired payment task must preserve stored handler only, got %#v", item)

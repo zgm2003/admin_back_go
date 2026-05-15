@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/platform/database"
@@ -24,6 +25,14 @@ type Repository interface {
 	UpdateConfig(ctx context.Context, cfg Config, keepPrivateKey bool) error
 	ChangeConfigStatus(ctx context.Context, id int64, status int) error
 	DeleteConfig(ctx context.Context, id int64) error
+	ListOrders(ctx context.Context, query OrderListQuery) ([]Order, int64, error)
+	GetOrder(ctx context.Context, id int64) (*Order, error)
+	CreateOrder(ctx context.Context, order Order) (int64, error)
+	UpdateOrderPaying(ctx context.Context, id int64, payURL string) error
+	UpdateOrderFailed(ctx context.Context, id int64, reason string) error
+	UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error
+	UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error
+	ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error)
 }
 
 type GormRepository struct {

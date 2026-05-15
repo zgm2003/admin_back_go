@@ -111,4 +111,11 @@ type HTTPService interface {
 	DeleteConfig(ctx context.Context, id int64) *apperror.Error
 	UploadCertificate(ctx context.Context, input CertificateUploadInput) (*CertificateUploadResponse, *apperror.Error)
 	TestConfig(ctx context.Context, id int64) (*ConfigTestResponse, *apperror.Error)
+	OrderInit(ctx context.Context) (*OrderInitResponse, *apperror.Error)
+	ListOrders(ctx context.Context, query OrderListQuery) (*OrderListResponse, *apperror.Error)
+	GetOrder(ctx context.Context, id int64) (*OrderDetail, *apperror.Error)
+	CreateOrder(ctx context.Context, input OrderCreateInput) (*OrderCreateResponse, *apperror.Error)
+	PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *apperror.Error)
+	SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error)
+	CloseOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error)
 }

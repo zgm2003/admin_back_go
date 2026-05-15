@@ -34,7 +34,7 @@ func TestAuthTokenSkipsPublicPath(t *testing.T) {
 func TestDefaultAuthSkipPathsDoNotExposePaymentNotifyInConfigOnlySlice(t *testing.T) {
 	paths := DefaultAuthSkipPaths()
 	if _, ok := paths["/api/payment/notify/alipay"]; ok {
-		t.Fatalf("payment notify is not public in the payment-config-only slice")
+		t.Fatalf("payment notify is not public in the payment order Alipay pay v1 slice")
 	}
 	if _, ok := paths["/api/pay/notify/alipay"]; ok {
 		t.Fatalf("legacy pay notify path must not remain public by default")

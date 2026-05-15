@@ -1,6 +1,6 @@
 -- Payment config naming canonicalization.
 --
--- Run this after the earlier payment-config-only slice if live DB already has
+-- Run this after the earlier payment config slice if live DB already has
 -- payment_alipay_configs. Cold-start rebuild SQL now creates payment_configs
 -- directly. This file migrates already-upgraded local DBs to the canonical name.
 

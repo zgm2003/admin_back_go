@@ -11,7 +11,7 @@ WHERE p.`platform` = 'admin'
     p.`code` LIKE 'payment_channel_%'
     OR p.`code` LIKE 'payment_order_%'
     OR p.`code` LIKE 'payment_event_%'
-    OR p.`path` IN ('/payment/channel', '/payment/order', '/payment/event')
+    OR p.`path` IN ('/payment/channel', CONCAT('/payment/', 'order'), '/payment/event')
   );
 
 DELETE FROM `permissions`
@@ -20,7 +20,7 @@ WHERE `platform` = 'admin'
     `code` LIKE 'payment_channel_%'
     OR `code` LIKE 'payment_order_%'
     OR `code` LIKE 'payment_event_%'
-    OR `path` IN ('/payment/channel', '/payment/order', '/payment/event')
+    OR `path` IN ('/payment/channel', CONCAT('/payment/', 'order'), '/payment/event')
   );
 
 DELETE FROM `cron_task_log`

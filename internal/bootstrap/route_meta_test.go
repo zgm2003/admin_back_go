@@ -86,6 +86,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "payment_config_del"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates", "payment_config_upload_cert"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "payment_config_test"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/page-init", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders", "payment_order_list"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:id", "payment_order_list"},
+		{http.MethodPost, "/api/admin/v1/payment/orders", "payment_order_add"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay", "payment_order_pay"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync", "payment_order_sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close", "payment_order_close"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
@@ -166,8 +173,6 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/admin/v1/payment/channels"},
 		{http.MethodPost, "/api/admin/v1/payment/channels"},
-		{http.MethodGet, "/api/admin/v1/payment/orders"},
-		{http.MethodPost, "/api/admin/v1/payment/orders"},
 		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no/result"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
@@ -197,8 +202,6 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/admin/v1/payment/channels"},
 		{http.MethodPost, "/api/admin/v1/payment/channels"},
-		{http.MethodGet, "/api/admin/v1/payment/orders"},
-		{http.MethodPost, "/api/admin/v1/payment/orders"},
 		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no/result"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
@@ -382,6 +385,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates", "upload_cert"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "test"},
+		{http.MethodPost, "/api/admin/v1/payment/orders", "create"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay", "pay"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync", "sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close", "close"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
@@ -447,6 +454,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		if rule.Module != "payment_config" || !rule.SkipRequestPayload {
 			t.Fatalf("payment config operation rule must skip private key/cert request payloads: %s %s %#v", tt.method, tt.path, rule)
 		}
+	}
+
+	payRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/pay")]
+	if payRule.Module != "payment_order" || payRule.Action != "pay" || !payRule.SkipResponsePayload {
+		t.Fatalf("payment order pay operation rule must skip pay_url response payload: %#v", payRule)
 	}
 
 	for _, tt := range []struct {
