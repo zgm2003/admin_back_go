@@ -179,6 +179,48 @@ func TestOperationLogCapturesRequestAndResponsePayloadWithoutBreakingHandler(t *
 	}
 }
 
+func TestOperationLogCanSkipConfiguredPayloads(t *testing.T) {
+	var got OperationInput
+	router := newOperationLogTestRouter(OperationLogConfig{
+		Rules: map[RouteKey]OperationRule{
+			NewRouteKey(http.MethodPost, "/api/admin/v1/ai-images"): {
+				Module:              "ai_image",
+				Action:              "create_task",
+				Title:               "提交AI图片任务",
+				SkipRequestPayload:  true,
+				SkipResponsePayload: true,
+			},
+		},
+		Recorder: func(ctx context.Context, input OperationInput) error {
+			got = input
+			return nil
+		},
+	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
+	router.POST("/api/admin/v1/ai-images", func(c *gin.Context) {
+		var payload map[string]any
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 100, "msg": "bad"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"prompt": payload["prompt"]}, "msg": "ok"})
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-images", strings.NewReader(`{"prompt":"secret prompt"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "secret prompt") {
+		t.Fatalf("skip payload must not break handler response, got %d %s", recorder.Code, recorder.Body.String())
+	}
+	if got.RequestPayload != nil || got.ResponsePayload != nil {
+		t.Fatalf("expected payload capture to be skipped, got request=%#v response=%#v", got.RequestPayload, got.ResponsePayload)
+	}
+	if got.Module != "ai_image" || got.Action != "create_task" || got.Status != http.StatusOK || !got.Success {
+		t.Fatalf("expected metadata to remain logged, got %#v", got)
+	}
+}
+
 func newOperationLogTestRouter(cfg OperationLogConfig, identity *AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

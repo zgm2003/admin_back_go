@@ -117,6 +117,12 @@ func (g *GopayGateway) Close(ctx context.Context, cfg ChannelConfig, req CloseRe
 	return nil
 }
 
+func (g *GopayGateway) TestConfig(ctx context.Context, cfg ChannelConfig) error {
+	_ = ctx
+	_, err := newClient(cfg)
+	return err
+}
+
 func (g *GopayGateway) VerifyNotify(ctx context.Context, cfg ChannelConfig, req NotifyRequest) (*NotifyResult, error) {
 	_ = ctx
 	if err := validateChannelConfig(cfg); err != nil {

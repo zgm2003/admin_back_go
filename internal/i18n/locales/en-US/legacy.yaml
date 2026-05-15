@@ -593,3 +593,66 @@ legacy.fe06f3001ef9: User management service is not configured
 legacy.fe581d198bb3: Invalid upload config ID
 legacy.fe6b83842810: Default context characters must be between 1000 and 30000
 legacy.ffb6832c4a9e: Missing platform code
+
+# AI image playground legacy fallback messages.
+legacy.0c1081092435: Failed to query image task
+legacy.0c6e0ad9f817: Failed to build generated image storage path
+legacy.15001d4b1f4a: Failed to read upload config
+legacy.15a058e5d56e: Output compression must be between 0 and 100
+legacy.173ff102529e: Invalid output format
+legacy.21bb93631f85: Failed to query image assets
+legacy.2886539ded0d: Agent has not enabled the image generation scene
+legacy.2fa300eb2d5f: Image URL is required
+legacy.4460989c1e29: Image agent does not exist or is not enabled
+legacy.48a53b913834: A single request can generate at most 4 images
+legacy.48c91f0b9f85: Invalid image URL
+legacy.49c52b86cb05: COS SecretKey is unavailable
+legacy.4b5af8f41e68: Failed to create image queue task
+legacy.5004ffdb1298: Mask target image must be one of the reference images
+legacy.50fefd537b59: Image agent, provider, or model is not enabled
+legacy.5894439af309: Invalid image task list parameters
+legacy.5bf81da9a6b4: Invalid image size
+legacy.5f653e4a6f43: Unsupported image storage type
+legacy.623a2872df5d: Failed to save generated image asset
+legacy.639e6dc2a288: COS config is not loaded
+legacy.65fe2dc4f9d9: Reference images must come from uploaded COS image assets
+legacy.669014b464ea: Prompt is required
+legacy.6e82a7650689: COS writer is not configured
+legacy.70cb1e816be6: Invalid image quality
+legacy.7447600dc56e: Invalid image task ID
+legacy.7523445c03b8: Invalid image task status
+legacy.7531044f6986: Generated image URL is invalid
+legacy.80fb1160c049: Invalid image asset parameters
+legacy.827209dcd0cb: Invalid moderation parameter
+legacy.86aad10d12e1: COS SecretID is unavailable
+legacy.886142716a73: Failed to register image asset
+legacy.8d293d523f73: Image playground only supports OpenAI-compatible providers
+legacy.8fe9e54b47ff: AI image service is not configured
+legacy.9017b7e027a6: Image task does not exist
+legacy.9b07bd19d75b: Failed to decode generated image base64
+legacy.9ecb38b0e039: Failed to enqueue image generation task
+legacy.9fb2fec33593: Failed to create image task
+legacy.a68d06b16871: Unsupported image asset source
+legacy.a80e61b0c560: Failed to read image asset
+legacy.aa4d69c8973c: Failed to query image task assets
+legacy.aada569eb9e8: Image generation queue is not configured
+legacy.b0ed578a22da: Prompt cannot exceed 20000 characters
+legacy.b12d43fb724a: Failed to update image favorite
+legacy.b39ecd765c86: COS reader is not configured
+legacy.ba5275c9dacd: Invalid image task parameters
+legacy.c1a5eeba701c: COS image key is required
+legacy.c1a604ae44e7: AI image repository is not configured
+legacy.c221013b6060: Invalid image MIME type
+legacy.c390af095c40: Image generation result is empty
+legacy.c555e0f50787: Failed to upload generated image
+legacy.c80c65199f68: At most 10 reference images are allowed
+legacy.d016eee1c520: Image agent is required
+legacy.d8fcb532c463: Invalid favorite status
+legacy.e570bae839fb: The first image playground version only supports gpt-image-2
+legacy.e7e38b37cc2e: Image asset does not exist or does not belong to the current user
+legacy.e9db9dbf2f5a: Mask image must be used with reference images
+legacy.ed7e491577c5: Failed to save generated image relation
+legacy.eeac9fcf6de2: No valid COS upload config is configured
+legacy.f55037eca83d: Failed to delete image task
+legacy.f9dcbf5180dc: Invalid image favorite parameters
+legacy.feb47d5a3c2d: Failed to query image agents

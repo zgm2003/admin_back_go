@@ -19,11 +19,13 @@ const (
 	timeLayout         = "2006-01-02 15:04:05"
 	sceneChat          = "chat"
 	sceneAgentGenerate = "agent_generate"
+	sceneImageGenerate = "image_generate"
 )
 
 var sceneLabels = map[string]string{
 	sceneChat:          "对话",
 	sceneAgentGenerate: "智能体生成",
+	sceneImageGenerate: "图片生成",
 }
 
 type Service struct {
@@ -282,6 +284,13 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 	if appErr != nil {
 		return nil, appErr
 	}
+	query.Scene = strings.TrimSpace(query.Scene)
+	if query.Scene == "" {
+		query.Scene = sceneChat
+	}
+	if !isScene(query.Scene) {
+		return nil, apperror.BadRequest("无效的智能体场景")
+	}
 	rows, err := repo.ListVisibleAgents(ctx, query)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询可用AI智能体失败", err)
@@ -440,7 +449,7 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 }
 
 func sceneOptions() []dict.Option[string] {
-	return stringOptions([]string{sceneChat, sceneAgentGenerate}, sceneLabels)
+	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneImageGenerate}, sceneLabels)
 }
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))

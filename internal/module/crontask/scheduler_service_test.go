@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -27,14 +26,11 @@ func TestSchedulerServiceRegistersOnlyEnabledRegisteredTasks(t *testing.T) {
 	if err := service.RegisterEnabled(context.Background(), registrar); err != nil {
 		t.Fatalf("RegisterEnabled returned error: %v", err)
 	}
-	if len(registrar.cronCalls) != 2 {
-		t.Fatalf("expected two cron registrations, got %#v", registrar.cronCalls)
+	if len(registrar.cronCalls) != 1 {
+		t.Fatalf("expected one cron registration, got %#v", registrar.cronCalls)
 	}
 	if registrar.cronCalls[0].name != "notification_task_scheduler" {
 		t.Fatalf("unexpected registered job: %#v", registrar.cronCalls[0])
-	}
-	if registrar.cronCalls[1].name != "payment_close_expired_order" {
-		t.Fatalf("unexpected registered pay job: %#v", registrar.cronCalls[1])
 	}
 }
 
@@ -60,21 +56,12 @@ func TestSchedulerTaskLogsAndEnqueues(t *testing.T) {
 	}
 }
 
-func TestSchedulerDefaultRegistryMapsPaymentCronTasksToVersionedTaskTypes(t *testing.T) {
+func TestSchedulerDefaultRegistryRetiresPaymentOrderCronTasks(t *testing.T) {
 	registry := NewDefaultRegistry()
-	closeEntry, ok := registry.Lookup("payment_close_expired_order")
-	if !ok {
-		t.Fatalf("expected payment_close_expired_order to be registered")
-	}
-	if closeEntry.TaskType != payment.TypeCloseExpiredOrderV1 {
-		t.Fatalf("unexpected close expired task type: %s", closeEntry.TaskType)
-	}
-	syncEntry, ok := registry.Lookup("payment_sync_pending_order")
-	if !ok {
-		t.Fatalf("expected payment_sync_pending_order to be registered")
-	}
-	if syncEntry.TaskType != payment.TypeSyncPendingOrderV1 {
-		t.Fatalf("unexpected sync pending task type: %s", syncEntry.TaskType)
+	for _, name := range []string{"payment_close_expired_order", "payment_sync_pending_order"} {
+		if entry, ok := registry.Lookup(name); ok {
+			t.Fatalf("payment order cron must be retired in config-only slice: %s %#v", name, entry)
+		}
 	}
 	for _, oldName := range []string{
 		"pay_close_expired_order",

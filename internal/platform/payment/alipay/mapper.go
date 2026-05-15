@@ -119,6 +119,13 @@ func (g *PlatformGateway) Close(ctx context.Context, cfg paymentcore.ChannelConf
 	return g.inner.Close(ctx, MapChannelConfig(cfg), CloseRequest{OutTradeNo: outTradeNo})
 }
 
+func (g *PlatformGateway) TestConfig(ctx context.Context, cfg paymentcore.ChannelConfig) error {
+	if g == nil || g.inner == nil {
+		return ErrGatewayNotConfigured
+	}
+	return g.inner.TestConfig(ctx, MapChannelConfig(cfg))
+}
+
 func (g *PlatformGateway) SuccessBody() string {
 	if g == nil || g.inner == nil {
 		return "success"

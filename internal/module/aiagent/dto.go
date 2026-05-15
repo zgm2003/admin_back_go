@@ -90,6 +90,7 @@ type UpdateInput = CreateInput
 
 type OptionQuery struct {
 	UserID int64
+	Scene  string
 }
 
 type AgentOption struct {

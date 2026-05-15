@@ -5,7 +5,6 @@ param(
   [string]$BasicHTTPAddr = '127.0.0.1:18080',
   [string]$Platform = 'admin',
   [string]$DeviceID = 'codex-full-smoke',
-  [switch]$EnablePaymentRuntimeProbe,
   [switch]$EnableAiProviderProbe
 )
 
@@ -716,99 +715,46 @@ function Invoke-UploadTokenProbe([string]$BaseURL, [hashtable]$Headers) {
   }
 }
 
-function Assert-PaymentChannelInit($Response) {
-  Assert-ApiOK $Response 'payment channel init'
+function Assert-PaymentConfigInit($Response) {
+  Assert-ApiOK $Response 'payment config init'
 
   if ($null -eq $Response.data.dict) {
-    throw "payment channel init missing dict: $($Response | ConvertTo-Json -Depth 12)"
+    throw "payment config init missing dict: $($Response | ConvertTo-Json -Depth 12)"
   }
 
-  $providers = Get-ObjectArray $Response.data.dict.provider_arr
-  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
+  $environments = Get-ObjectArray $Response.data.dict.environment_arr
+  $methods = Get-ObjectArray $Response.data.dict.enabled_method_arr
   $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
-  if ($providers.Count -ne 1 -or $methods.Count -ne 2 -or $statuses.Count -ne 2) {
-    throw "payment channel init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  $certTypes = Get-ObjectArray $Response.data.dict.certificate_type_arr
+  if ($environments.Count -ne 2 -or $methods.Count -ne 2 -or $statuses.Count -ne 2 -or $certTypes.Count -ne 3) {
+    throw "payment config init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
-    ProviderCount = $providers.Count
+    EnvironmentCount = $environments.Count
     MethodCount = $methods.Count
     StatusCount = $statuses.Count
+    CertificateTypeCount = $certTypes.Count
   }
 }
 
-function Assert-PaymentChannelList($Response) {
-  Assert-ApiOK $Response 'payment channel list'
+function Assert-PaymentConfigList($Response) {
+  Assert-ApiOK $Response 'payment config list'
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "payment channel list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+    throw "payment config list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
-      throw "payment channel item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.code) -or [string]::IsNullOrWhiteSpace([string]$item.name)) {
+      throw "payment config item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
     }
-    if ($null -eq $item.supported_methods -or [string]::IsNullOrWhiteSpace([string]$item.supported_methods_text)) {
-      throw "payment channel item missing supported method fields: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]::IsNullOrWhiteSpace([string]$item.app_id) -or $null -eq $item.enabled_methods -or [string]::IsNullOrWhiteSpace([string]$item.enabled_methods_text)) {
+      throw "payment config item missing Alipay fields: $($item | ConvertTo-Json -Depth 12)"
     }
-    if ($null -ne $item.private_key -or $null -ne $item.private_key_enc -or $null -ne $item.app_private_key -or $null -ne $item.app_private_key_enc) {
-      throw "payment channel list leaked private key fields: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-PaymentOrderInit($Response) {
-  Assert-ApiOK $Response 'payment order init'
-
-  if ($null -eq $Response.data.dict) {
-    throw "payment order init missing dict: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $providers = Get-ObjectArray $Response.data.dict.provider_arr
-  $methods = Get-ObjectArray $Response.data.dict.pay_method_arr
-  if ($providers.Count -ne 1 -or $methods.Count -ne 2) {
-    throw "payment order init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    DictKeys = (Get-ObjectArray $Response.data.dict.PSObject.Properties).Count
-  }
-}
-
-function Assert-PaymentOrderList($Response) {
-  Assert-ApiOK $Response 'payment order list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "payment order list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.order_no)) {
-      throw "payment order item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-PaymentEventList($Response) {
-  Assert-ApiOK $Response 'payment event list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "payment event list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.event_type_text)) {
-      throw "payment event item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    $itemJson = $item | ConvertTo-Json -Depth 12
+    if ($itemJson -match '"(app_private_key|app_private_key_enc|private_key|private_key_enc|provider|merchant_id|sign_type|extra_config)"\s*:') {
+      throw "payment config list leaked retired or secret fields: $itemJson"
     }
   }
 
@@ -823,35 +769,34 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $payPresent = Test-RoutePath $Response.data.router '/pay'
   $retiredWalletPresent = Test-RoutePath $Response.data.router '/wallet'
   $oldPayCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'pay_'
+  $oldChannelCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_channel_'
+  $oldOrderCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_order_'
+  $oldEventCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_event_'
+  $configPresent = Test-RoutePath $Response.data.router '/payment/config'
   $channelPresent = Test-RoutePath $Response.data.router '/payment/channel'
   $orderPresent = Test-RoutePath $Response.data.router '/payment/order'
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
-  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or -not $channelPresent -or -not $orderPresent -or -not $eventPresent) {
-    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent /payment/channel=$channelPresent /payment/order=$orderPresent /payment/event=$eventPresent"
+  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldOrderCodePresent -or $oldEventCodePresent -or -not $configPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
+    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldOrderCode=$oldOrderCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/channel=$channelPresent /payment/order=$orderPresent /payment/event=$eventPresent"
   }
 
-  $expectedPaymentViewKeys = @{
-    '/payment/channel' = 'payment/channel'
-    '/payment/order' = 'payment/order'
-    '/payment/event' = 'payment/event'
-  }
-  foreach ($path in $expectedPaymentViewKeys.Keys) {
-    $route = Get-RouteByPath $Response.data.router $path
-    if ($null -eq $route -or [string]$route.view_key -ne $expectedPaymentViewKeys[$path]) {
-      throw "users/init payment route view_key mismatch for ${path}: expected=$($expectedPaymentViewKeys[$path]) actual=$([string]$route.view_key)"
-    }
+  $configRoute = Get-RouteByPath $Response.data.router '/payment/config'
+  if ($null -eq $configRoute -or [string]$configRoute.view_key -ne 'payment/config') {
+    throw "users/init payment config route view_key mismatch: expected=payment/config actual=$([string]$configRoute.view_key)"
   }
 
   return [pscustomobject]@{
     PayPresent = $payPresent
     RetiredWalletPresent = $retiredWalletPresent
     OldPayCodePresent = $oldPayCodePresent
+    OldChannelCodePresent = $oldChannelCodePresent
+    OldOrderCodePresent = $oldOrderCodePresent
+    OldEventCodePresent = $oldEventCodePresent
+    ConfigPresent = $configPresent
     ChannelPresent = $channelPresent
     OrderPresent = $orderPresent
     EventPresent = $eventPresent
-    ChannelViewKey = [string](Get-RouteByPath $Response.data.router '/payment/channel').view_key
-    OrderViewKey = [string](Get-RouteByPath $Response.data.router '/payment/order').view_key
-    EventViewKey = [string](Get-RouteByPath $Response.data.router '/payment/event').view_key
+    ConfigViewKey = [string]$configRoute.view_key
   }
 }
 
@@ -873,7 +818,7 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
+  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/images')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -885,12 +830,19 @@ function Assert-UsersInitAIRoutes($Response) {
   Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users init AI menu order'
   $aiToolAddButton = $false
   $aiToolGenerateButton = $false
+  $aiImageTaskAddButton = $false
+  $aiImageAssetAddButton = $false
   foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
     if ([string]$code -eq 'ai_tool_add') { $aiToolAddButton = $true }
     if ([string]$code -eq 'ai_tool_generate') { $aiToolGenerateButton = $true }
+    if ([string]$code -eq 'ai_image_task_add') { $aiImageTaskAddButton = $true }
+    if ([string]$code -eq 'ai_image_asset_add') { $aiImageAssetAddButton = $true }
   }
   if ($aiToolAddButton -and -not $aiToolGenerateButton) {
     throw "users init has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
+  }
+  if ($requiredPresent['/ai/images'] -and (-not $aiImageTaskAddButton -or -not $aiImageAssetAddButton)) {
+    throw "users init has /ai/images but missing image task/asset buttons; run 20260515_ai_image_playground_permission.sql"
   }
 
   return [pscustomobject]@{
@@ -905,8 +857,11 @@ function Assert-UsersInitAIRoutes($Response) {
     KnowledgePresent = $requiredPresent['/ai/knowledge']
     RunsPresent = $requiredPresent['/ai/runs']
     ToolsPresent = $requiredPresent['/ai/tools']
+    ImagesPresent = $requiredPresent['/ai/images']
     ToolAddButtonPresent = $aiToolAddButton
     ToolGenerateButtonPresent = $aiToolGenerateButton
+    ImageTaskAddButtonPresent = $aiImageTaskAddButton
+    ImageAssetAddButtonPresent = $aiImageAssetAddButton
   }
 }
 
@@ -990,6 +945,9 @@ function Assert-AIAgentInit($Response) {
   if (-not ($sceneValues -contains 'agent_generate')) {
     throw "AI agent init missing agent_generate scene: $($Response | ConvertTo-Json -Depth 12)"
   }
+  if (-not ($sceneValues -contains 'image_generate')) {
+    throw "AI agent init missing image_generate scene: $($Response | ConvertTo-Json -Depth 12)"
+  }
   return [pscustomobject]@{
     SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
     ProviderCount = (Get-ObjectArray $Response.data.dict.provider_options).Count
@@ -1041,6 +999,72 @@ function Assert-AIAgentOptions($Response) {
 
   return [pscustomobject]@{
     OptionCount = (Get-ObjectArray $Response.data.list).Count
+  }
+}
+
+function Assert-AIImageInit($Response) {
+  Assert-ApiOK $Response 'AI image init'
+  Assert-NoAISecretFields $Response 'AI image init'
+
+  if ($null -eq $Response.data.dict -or $null -eq $Response.data.agent_options) {
+    throw "AI image init missing dict/agent_options: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($field in @('size_arr', 'quality_arr', 'output_format_arr', 'moderation_arr', 'status_arr', 'favorite_arr')) {
+    if (-not (Test-HasProperty $Response.data.dict $field)) {
+      throw "AI image init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    SizeCount = (Get-ObjectArray $Response.data.dict.size_arr).Count
+    QualityCount = (Get-ObjectArray $Response.data.dict.quality_arr).Count
+    FormatCount = (Get-ObjectArray $Response.data.dict.output_format_arr).Count
+    AgentOptionCount = (Get-ObjectArray $Response.data.agent_options).Count
+  }
+}
+
+function Assert-AIImageList($Response) {
+  Assert-ApiOK $Response 'AI image list'
+  Assert-NoAISecretFields $Response 'AI image list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI image list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    foreach ($field in @('id', 'agent_id', 'agent_name_snapshot', 'model_id_snapshot', 'prompt', 'size', 'quality', 'output_format', 'n', 'status', 'is_favorite', 'created_at')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "AI image item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    foreach ($secretField in @('raw_response_json', 'api_key', 'api_key_enc')) {
+      if (Test-HasProperty $item $secretField) {
+        throw "AI image list leaked ${secretField}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-AIImageDetail($Response) {
+  Assert-ApiOK $Response 'AI image detail'
+  Assert-NoAISecretFields $Response 'AI image detail'
+
+  foreach ($field in @('task', 'inputs', 'outputs')) {
+    if (-not (Test-HasProperty $Response.data $field)) {
+      throw "AI image detail missing ${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  if (Test-HasProperty $Response.data.task 'raw_response_json') {
+    throw "AI image detail leaked raw_response_json: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    InputCount = (Get-ObjectArray $Response.data.inputs).Count
+    OutputCount = (Get-ObjectArray $Response.data.outputs).Count
   }
 }
 
@@ -1879,8 +1903,8 @@ function Assert-CronTaskList($Response) {
   }
 
   $registeredNotification = $false
-  $registeredPayCloseExpired = $false
-  $registeredPaySyncPending = $false
+  $paymentCloseExpiredPresent = $false
+  $paymentSyncPendingPresent = $false
   $registeredAIRunTimeout = $false
   $aiRunTimeoutTaskType = ''
   $missingLegacy = $false
@@ -1902,17 +1926,17 @@ function Assert-CronTaskList($Response) {
       }
       $registeredNotification = $true
     }
-    if ([string]$item.name -eq 'payment_close_expired_order' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'payment:close-expired-order:v1' -or [string]$item.handler -ne 'payment:close-expired-order:v1') {
-        throw "payment close-expired cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]$item.name -eq 'payment_close_expired_order') {
+      $paymentCloseExpiredPresent = $true
+      if ([string]$item.registry_status -eq 'registered') {
+        throw "payment close-expired cron task must not be registered in payment-config-only slice: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredPayCloseExpired = $true
     }
-    if ([string]$item.name -eq 'payment_sync_pending_order' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'payment:sync-pending-order:v1' -or [string]$item.handler -ne 'payment:sync-pending-order:v1') {
-        throw "payment sync-pending cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]$item.name -eq 'payment_sync_pending_order') {
+      $paymentSyncPendingPresent = $true
+      if ([string]$item.registry_status -eq 'registered') {
+        throw "payment sync-pending cron task must not be registered in payment-config-only slice: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredPaySyncPending = $true
     }
     if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
       if ([string]$item.registry_task_type -ne 'ai:run-timeout:v1' -or [string]$item.handler -ne 'ai:run-timeout:v1') {
@@ -1930,8 +1954,8 @@ function Assert-CronTaskList($Response) {
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
     NotificationRegistered = $registeredNotification
-    PayCloseExpiredRegistered = $registeredPayCloseExpired
-    PaySyncPendingRegistered = $registeredPaySyncPending
+    PaymentCloseExpiredPresent = $paymentCloseExpiredPresent
+    PaymentSyncPendingPresent = $paymentSyncPendingPresent
     AIRunTimeoutRegistered = $registeredAIRunTimeout
     AIRunTimeoutTaskType = $aiRunTimeoutTaskType
     MissingLegacyPresent = $missingLegacy
@@ -2486,30 +2510,15 @@ func main() {
     -TimeoutSec 10
   $uploadSettingListSummary = Assert-UploadSettingList $uploadSettingList
 
-  $paymentChannelInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/channels/page-init" `
+  $paymentConfigInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/configs/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $paymentChannelInitSummary = Assert-PaymentChannelInit $paymentChannelInit
+  $paymentConfigInitSummary = Assert-PaymentConfigInit $paymentConfigInit
 
-  $paymentChannelList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/channels?current_page=1&page_size=20" `
+  $paymentConfigList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/configs?current_page=1&page_size=20" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  $paymentChannelListSummary = Assert-PaymentChannelList $paymentChannelList
-
-  $paymentOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentOrderInitSummary = Assert-PaymentOrderInit $paymentOrderInit
-
-  $paymentOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentOrderListSummary = Assert-PaymentOrderList $paymentOrderList
-
-  $paymentEventList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/events?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentEventListSummary = Assert-PaymentEventList $paymentEventList
+  $paymentConfigListSummary = Assert-PaymentConfigList $paymentConfigList
 
   $aiProviderInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-providers/page-init" `
     -Headers $authHeaders `
@@ -2541,10 +2550,40 @@ func main() {
     -TimeoutSec 10
   [void](Assert-AIAgentList $aiAgentGenerateSceneList)
 
+  $aiAgentImageSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=image_generate" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  [void](Assert-AIAgentList $aiAgentImageSceneList)
+
   $aiAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $aiAgentOptionsSummary = Assert-AIAgentOptions $aiAgentOptions
+
+  $aiImageAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options?scene=image_generate" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiImageAgentOptionsSummary = Assert-AIAgentOptions $aiImageAgentOptions
+
+  $aiImageInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-images/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiImageInitSummary = Assert-AIImageInit $aiImageInit
+
+  $aiImageList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-images?current_page=1&page_size=5" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiImageListSummary = Assert-AIImageList $aiImageList
+
+  $aiImageDetailSummary = [pscustomobject]@{ InputCount = 0; OutputCount = 0 }
+  $aiImageRows = Get-ObjectArray $aiImageList.data.list
+  if ($aiImageRows.Count -gt 0) {
+    $aiImageTaskID = [int64]$aiImageRows[0].id
+    $aiImageDetail = Invoke-RestMethod "$baseURL/api/admin/v1/ai-images/$aiImageTaskID" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    $aiImageDetailSummary = Assert-AIImageDetail $aiImageDetail
+  }
 
   $aiKnowledgeInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases/page-init" `
     -Headers $authHeaders `
@@ -2889,6 +2928,17 @@ func main() {
     ai_agent_scene_filter_code = $aiAgentSceneList.code
     ai_agent_options_code = $aiAgentOptions.code
     ai_agent_options_count = $aiAgentOptionsSummary.OptionCount
+    ai_image_agent_options_count = $aiImageAgentOptionsSummary.OptionCount
+    ai_image_init_code = $aiImageInit.code
+    ai_image_size_dict_count = $aiImageInitSummary.SizeCount
+    ai_image_quality_dict_count = $aiImageInitSummary.QualityCount
+    ai_image_format_dict_count = $aiImageInitSummary.FormatCount
+    ai_image_init_agent_option_count = $aiImageInitSummary.AgentOptionCount
+    ai_image_list_code = $aiImageList.code
+    ai_image_list_count = $aiImageListSummary.ListCount
+    ai_image_total = $aiImageListSummary.Total
+    ai_image_detail_input_count = $aiImageDetailSummary.InputCount
+    ai_image_detail_output_count = $aiImageDetailSummary.OutputCount
     ai_knowledge_init_code = $aiKnowledgeInit.code
     ai_knowledge_status_dict_count = $aiKnowledgeInitSummary.StatusCount
     ai_knowledge_source_type_count = $aiKnowledgeInitSummary.SourceTypeCount
@@ -2938,32 +2988,30 @@ func main() {
     ai_knowledge_route_present = $usersInitAIRouteSummary.KnowledgePresent
     ai_runs_route_present = $usersInitAIRouteSummary.RunsPresent
     ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
+    ai_images_route_present = $usersInitAIRouteSummary.ImagesPresent
     ai_tool_add_button_present = $usersInitAIRouteSummary.ToolAddButtonPresent
     ai_tool_generate_button_present = $usersInitAIRouteSummary.ToolGenerateButtonPresent
+    ai_image_task_add_button_present = $usersInitAIRouteSummary.ImageTaskAddButtonPresent
+    ai_image_asset_add_button_present = $usersInitAIRouteSummary.ImageAssetAddButtonPresent
     payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
     payment_route_retired_wallet_present = $usersInitPaymentRouteSummary.RetiredWalletPresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent
+    payment_route_config_present = $usersInitPaymentRouteSummary.ConfigPresent
     payment_route_channel_present = $usersInitPaymentRouteSummary.ChannelPresent
     payment_route_order_present = $usersInitPaymentRouteSummary.OrderPresent
     payment_route_event_present = $usersInitPaymentRouteSummary.EventPresent
-    payment_route_channel_view_key = $usersInitPaymentRouteSummary.ChannelViewKey
-    payment_route_order_view_key = $usersInitPaymentRouteSummary.OrderViewKey
-    payment_route_event_view_key = $usersInitPaymentRouteSummary.EventViewKey
-    payment_channel_init_code = $paymentChannelInit.code
-    payment_channel_provider_count = $paymentChannelInitSummary.ProviderCount
-    payment_channel_method_count = $paymentChannelInitSummary.MethodCount
-    payment_channel_status_count = $paymentChannelInitSummary.StatusCount
-    payment_channel_list_code = $paymentChannelList.code
-    payment_channel_list_count = $paymentChannelListSummary.ListCount
-    payment_channel_total = $paymentChannelListSummary.Total
-    payment_order_init_code = $paymentOrderInit.code
-    payment_order_dict_keys = $paymentOrderInitSummary.DictKeys
-    payment_order_list_code = $paymentOrderList.code
-    payment_order_list_count = $paymentOrderListSummary.ListCount
-    payment_order_total = $paymentOrderListSummary.Total
-    payment_event_list_code = $paymentEventList.code
-    payment_event_list_count = $paymentEventListSummary.ListCount
-    payment_event_total = $paymentEventListSummary.Total
+    payment_route_old_channel_code_present = $usersInitPaymentRouteSummary.OldChannelCodePresent
+    payment_route_old_order_code_present = $usersInitPaymentRouteSummary.OldOrderCodePresent
+    payment_route_old_event_code_present = $usersInitPaymentRouteSummary.OldEventCodePresent
+    payment_route_config_view_key = $usersInitPaymentRouteSummary.ConfigViewKey
+    payment_config_init_code = $paymentConfigInit.code
+    payment_config_environment_count = $paymentConfigInitSummary.EnvironmentCount
+    payment_config_method_count = $paymentConfigInitSummary.MethodCount
+    payment_config_status_count = $paymentConfigInitSummary.StatusCount
+    payment_config_certificate_type_count = $paymentConfigInitSummary.CertificateTypeCount
+    payment_config_list_code = $paymentConfigList.code
+    payment_config_list_count = $paymentConfigListSummary.ListCount
+    payment_config_total = $paymentConfigListSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID
@@ -3010,8 +3058,8 @@ func main() {
     cron_task_list_count = $cronTaskListSummary.ListCount
     cron_task_total = $cronTaskListSummary.Total
     cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
-    cron_task_payment_close_expired_registered = $cronTaskListSummary.PayCloseExpiredRegistered
-    cron_task_payment_sync_pending_registered = $cronTaskListSummary.PaySyncPendingRegistered
+    cron_task_payment_close_expired_present = $cronTaskListSummary.PaymentCloseExpiredPresent
+    cron_task_payment_sync_pending_present = $cronTaskListSummary.PaymentSyncPendingPresent
     cron_task_ai_run_timeout_registered = $cronTaskListSummary.AIRunTimeoutRegistered
     cron_task_ai_run_timeout_type = $cronTaskListSummary.AIRunTimeoutTaskType
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent

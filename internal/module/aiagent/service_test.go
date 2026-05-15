@@ -28,6 +28,7 @@ type fakeAIAgentRepository struct {
 	status           int
 	deletedID        uint64
 	visibleAgents    []Agent
+	optionQuery      OptionQuery
 }
 
 func (f *fakeAIAgentRepository) List(ctx context.Context, query ListQuery) ([]AgentWithProvider, int64, error) {
@@ -100,6 +101,7 @@ func (f *fakeAIAgentRepository) Delete(ctx context.Context, id uint64) error {
 }
 
 func (f *fakeAIAgentRepository) ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error) {
+	f.optionQuery = query
 	return f.visibleAgents, nil
 }
 
@@ -192,12 +194,37 @@ func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
 	}
 }
 
-func TestSceneOptionsIncludeAgentGenerate(t *testing.T) {
-	options := sceneOptions()
-	if len(options) != 2 {
-		t.Fatalf("expected two scene options, got %#v", options)
+func TestCreateAcceptsImageGenerateScene(t *testing.T) {
+	repo := &fakeAIAgentRepository{
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {
+			{ProviderID: 1, ModelID: "gpt-image-2", DisplayName: "GPT Image 2", Status: enum.CommonYes},
+		}},
 	}
-	if options[0].Value != "chat" || options[1].Value != "agent_generate" || options[1].Label != "智能体生成" {
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{
+		ProviderID: 1,
+		Name:       "图片智能体",
+		ModelID:    "gpt-image-2",
+		Scenes:     []string{"image_generate"},
+		Status:     enum.CommonYes,
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected image_generate scene to be accepted, got %v", appErr)
+	}
+	if repo.created == nil || repo.created.ScenesJSON != `["image_generate"]` {
+		t.Fatalf("unexpected image scenes json: %#v", repo.created)
+	}
+}
+
+func TestSceneOptionsIncludeAgentAndImageGenerate(t *testing.T) {
+	options := sceneOptions()
+	if len(options) != 3 {
+		t.Fatalf("expected three scene options, got %#v", options)
+	}
+	if options[0].Value != "chat" || options[1].Value != "agent_generate" || options[1].Label != "智能体生成" || options[2].Value != "image_generate" || options[2].Label != "图片生成" {
 		t.Fatalf("unexpected scene options: %#v", options)
 	}
 }
@@ -303,6 +330,34 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 	}
 	if len(got.List) != 1 || got.List[0].ID != 1 || got.List[0].Name != "启用智能体" {
 		t.Fatalf("disabled/deleted agents must be excluded, got %#v", got.List)
+	}
+	if repo.optionQuery.Scene != "chat" {
+		t.Fatalf("blank options scene must default to chat, got %#v", repo.optionQuery)
+	}
+}
+
+func TestOptionsAcceptsImageGenerateSceneFilter(t *testing.T) {
+	repo := &fakeAIAgentRepository{visibleAgents: []Agent{{ID: 7, Name: "图片智能体", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	got, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "image_generate"})
+	if appErr != nil {
+		t.Fatalf("expected image options to succeed, got %v", appErr)
+	}
+	if len(got.List) != 1 || got.List[0].ID != 7 {
+		t.Fatalf("unexpected image options: %#v", got.List)
+	}
+	if repo.optionQuery.Scene != "image_generate" {
+		t.Fatalf("expected repository scene filter image_generate, got %#v", repo.optionQuery)
+	}
+}
+
+func TestOptionsRejectsInvalidSceneFilter(t *testing.T) {
+	service := NewService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "rag"})
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+		t.Fatalf("expected invalid scene error, got %#v", appErr)
 	}
 }
 

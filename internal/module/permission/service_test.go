@@ -141,7 +141,7 @@ func TestServiceBuildContextPageCodeIsButtonGrantForReadOnlyRoutes(t *testing.T)
 		grantedIDs: []int64{2},
 		perms: []Permission{
 			{ID: 1, Name: "支付管理", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/payment", Sort: 1, ShowMenu: CommonYes},
-			{ID: 2, Name: "支付订单", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/payment/order", Component: "payment/order", Code: "payment_order_list", Sort: 2, ShowMenu: CommonYes},
+			{ID: 2, Name: "支付配置", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/payment/config", Component: "payment/config", Code: "payment_config_list", Sort: 2, ShowMenu: CommonYes},
 		},
 	}
 	svc := NewService(repo, []string{"admin"})
@@ -151,13 +151,13 @@ func TestServiceBuildContextPageCodeIsButtonGrantForReadOnlyRoutes(t *testing.T)
 	if appErr != nil {
 		t.Fatalf("expected no app error, got %v", appErr)
 	}
-	if !reflect.DeepEqual(got.ButtonCodes, []string{"payment_order_list"}) {
+	if !reflect.DeepEqual(got.ButtonCodes, []string{"payment_config_list"}) {
 		t.Fatalf("page code must be usable by PermissionCheck, got %#v", got.ButtonCodes)
 	}
-	if len(got.Router) != 1 || got.Router[0].Path != "/payment/order" {
+	if len(got.Router) != 1 || got.Router[0].Path != "/payment/config" {
 		t.Fatalf("expected page route to remain, got %#v", got.Router)
 	}
-	if got.Router[0].ViewKey != "payment/order" {
+	if got.Router[0].ViewKey != "payment/config" {
 		t.Fatalf("payment route view key must not include /index, got %#v", got.Router[0])
 	}
 }
@@ -167,7 +167,7 @@ func TestServiceBuildContextDoesNotExposeDirPathAsMenuRoute(t *testing.T) {
 		grantedIDs: []int64{2},
 		perms: []Permission{
 			{ID: 1, Name: "支付管理", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/payment", Sort: 1, ShowMenu: CommonYes},
-			{ID: 2, Name: "支付订单", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/payment/order", Component: "payment/order", Code: "payment_order_list", Sort: 2, ShowMenu: CommonYes},
+			{ID: 2, Name: "支付配置", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/payment/config", Component: "payment/config", Code: "payment_config_list", Sort: 2, ShowMenu: CommonYes},
 		},
 	}
 	svc := NewService(repo, []string{"admin"})
@@ -183,7 +183,7 @@ func TestServiceBuildContextDoesNotExposeDirPathAsMenuRoute(t *testing.T) {
 	if got.Permissions[0].Path != "" {
 		t.Fatalf("directory menu path must not leak as a route, got %q", got.Permissions[0].Path)
 	}
-	if len(got.Permissions[0].Children) != 1 || got.Permissions[0].Children[0].Path != "/payment/order" {
+	if len(got.Permissions[0].Children) != 1 || got.Permissions[0].Children[0].Path != "/payment/config" {
 		t.Fatalf("page child route path must remain, got %#v", got.Permissions[0].Children)
 	}
 }
@@ -193,7 +193,7 @@ func TestServiceBuildContextKeepsRetiredPayRoutesOutOfPaymentFixtures(t *testing
 		grantedIDs: []int64{2},
 		perms: []Permission{
 			{ID: 1, Name: "支付管理", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/payment", Sort: 1, ShowMenu: CommonYes},
-			{ID: 2, Name: "支付订单", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/payment/order", Component: "payment/order", Code: "payment_order_list", Sort: 2, ShowMenu: CommonYes},
+			{ID: 2, Name: "支付配置", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/payment/config", Component: "payment/config", Code: "payment_config_list", Sort: 2, ShowMenu: CommonYes},
 		},
 	}, []string{"admin"})
 

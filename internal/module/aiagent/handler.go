@@ -44,8 +44,14 @@ func (h *Handler) Options(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
 		return
 	}
+	var req optionRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI智能体选项参数错误"))
+		return
+	}
 	result, appErr := h.requireService().Options(c.Request.Context(), OptionQuery{
 		UserID: identity.UserID,
+		Scene:  req.Scene,
 	})
 	writeResult(c, result, appErr)
 }

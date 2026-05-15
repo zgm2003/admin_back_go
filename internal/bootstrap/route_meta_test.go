@@ -78,23 +78,14 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/cron-tasks/:id", "devTools_cronTask_del"},
 		{http.MethodDelete, "/api/admin/v1/cron-tasks", "devTools_cronTask_del"},
 		{http.MethodGet, "/api/admin/v1/cron-tasks/:id/logs", "devTools_cronTask_logs"},
-		{http.MethodGet, "/api/admin/v1/payment/channels/page-init", "payment_channel_list"},
-		{http.MethodGet, "/api/admin/v1/payment/channels", "payment_channel_list"},
-		{http.MethodPost, "/api/admin/v1/payment/channels", "payment_channel_add"},
-		{http.MethodPut, "/api/admin/v1/payment/channels/:id", "payment_channel_edit"},
-		{http.MethodPatch, "/api/admin/v1/payment/channels/:id/status", "payment_channel_status"},
-		{http.MethodDelete, "/api/admin/v1/payment/channels/:id", "payment_channel_del"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/page-init", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/page-init", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no", "payment_order_list"},
-		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/close", "payment_order_close"},
-		{http.MethodGet, "/api/admin/v1/payment/events", "payment_event_list"},
-		{http.MethodGet, "/api/admin/v1/payment/events/:id", "payment_event_list"},
-		{http.MethodGet, "/api/admin/v1/payment/events", "payment_event_list"},
-		{http.MethodGet, "/api/admin/v1/payment/events/:id", "payment_event_list"},
+		{http.MethodGet, "/api/admin/v1/payment/configs/page-init", "payment_config_list"},
+		{http.MethodGet, "/api/admin/v1/payment/configs", "payment_config_list"},
+		{http.MethodPost, "/api/admin/v1/payment/configs", "payment_config_add"},
+		{http.MethodPut, "/api/admin/v1/payment/configs/:id", "payment_config_edit"},
+		{http.MethodPatch, "/api/admin/v1/payment/configs/:id/status", "payment_config_status"},
+		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "payment_config_delete"},
+		{http.MethodPost, "/api/admin/v1/payment/certificates", "payment_config_upload_cert"},
+		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "payment_config_test"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
@@ -113,6 +104,10 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "ai_agent_test"},
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "ai_agent_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "ai_agent_del"},
+		{http.MethodPost, "/api/admin/v1/ai-images/assets", "ai_image_asset_add"},
+		{http.MethodPost, "/api/admin/v1/ai-images", "ai_image_task_add"},
+		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite", "ai_image_task_favorite"},
+		{http.MethodDelete, "/api/admin/v1/ai-images/:id", "ai_image_task_del"},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "ai_knowledge_add"},
 		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "ai_knowledge_edit"},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/:id/status", "ai_knowledge_status"},
@@ -169,10 +164,14 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/admin/v1/payment/channels"},
+		{http.MethodPost, "/api/admin/v1/payment/channels"},
+		{http.MethodGet, "/api/admin/v1/payment/orders"},
 		{http.MethodPost, "/api/admin/v1/payment/orders"},
 		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no/result"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
+		{http.MethodGet, "/api/admin/v1/payment/events"},
 		{http.MethodPost, "/api/payment/notify/alipay"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
@@ -196,10 +195,14 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/admin/v1/payment/channels"},
+		{http.MethodPost, "/api/admin/v1/payment/channels"},
+		{http.MethodGet, "/api/admin/v1/payment/orders"},
 		{http.MethodPost, "/api/admin/v1/payment/orders"},
 		{http.MethodGet, "/api/admin/v1/payment/orders/:order_no/result"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
+		{http.MethodGet, "/api/admin/v1/payment/events"},
 		{http.MethodPost, "/api/payment/notify/alipay"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
@@ -265,6 +268,9 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-images/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-images"},
+		{http.MethodGet, "/api/admin/v1/ai-images/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id"},
@@ -370,11 +376,12 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/cron-tasks/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/cron-tasks/:id", "delete"},
 		{http.MethodDelete, "/api/admin/v1/cron-tasks", "delete_batch"},
-		{http.MethodPost, "/api/admin/v1/payment/channels", "create"},
-		{http.MethodPut, "/api/admin/v1/payment/channels/:id", "update"},
-		{http.MethodPatch, "/api/admin/v1/payment/channels/:id/status", "change_status"},
-		{http.MethodDelete, "/api/admin/v1/payment/channels/:id", "delete"},
-		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/close", "close"},
+		{http.MethodPost, "/api/admin/v1/payment/configs", "create"},
+		{http.MethodPut, "/api/admin/v1/payment/configs/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/payment/configs/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/payment/certificates", "upload_cert"},
+		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "test"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
@@ -393,6 +400,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "test"},
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/ai-images/assets", "register_asset"},
+		{http.MethodPost, "/api/admin/v1/ai-images", "create_task"},
+		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite", "favorite"},
+		{http.MethodDelete, "/api/admin/v1/ai-images/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "create"},
 		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/:id/status", "change_status"},
@@ -422,6 +433,21 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 				t.Fatalf("unexpected operation rule: %#v", got)
 			}
 		})
+	}
+
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/admin/v1/ai-images/assets"},
+		{http.MethodPost, "/api/admin/v1/ai-images"},
+		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite"},
+		{http.MethodDelete, "/api/admin/v1/ai-images/:id"},
+	} {
+		rule := rules[middleware.NewRouteKey(tt.method, tt.path)]
+		if rule.Module != "ai_image" || !rule.SkipRequestPayload || !rule.SkipResponsePayload {
+			t.Fatalf("ai image operation rule must skip prompt/image payloads: %s %s %#v", tt.method, tt.path, rule)
+		}
 	}
 
 	if _, ok := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens")]; ok {
@@ -458,6 +484,9 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/:id"},
+		{http.MethodGet, "/api/admin/v1/ai-images/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-images"},
+		{http.MethodGet, "/api/admin/v1/ai-images/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id"},

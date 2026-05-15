@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payment"
 )
 
 func TestServiceListDecoratesRegistryStatus(t *testing.T) {
@@ -30,7 +29,7 @@ func TestServiceListDecoratesRegistryStatus(t *testing.T) {
 		t.Fatalf("expected 4 items, got %#v", res.List)
 	}
 	assertStatus(t, res.List[0], RegistryStatusRegistered)
-	assertStatus(t, res.List[1], RegistryStatusRegistered)
+	assertStatus(t, res.List[1], RegistryStatusMissing)
 	assertStatus(t, res.List[2], RegistryStatusDisabled)
 	assertStatus(t, res.List[3], RegistryStatusInvalidCron)
 }
@@ -83,15 +82,15 @@ func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
-	if len(res.List) != 1 || res.Page.Total != 1 || res.Page.TotalPage != 1 {
+	if len(res.List) != 1 || res.Page.Total != 2 || res.Page.TotalPage != 2 {
 		t.Fatalf("expected registry_status filter before paging, got list=%#v page=%#v", res.List, res.Page)
 	}
-	if res.List[0].Name != "legacy_missing_payment_task" {
+	if res.List[0].Name != "payment_close_expired_order" {
 		t.Fatalf("unexpected first missing task after paging: %#v", res.List[0])
 	}
 }
 
-func TestServiceListUsesGoTaskTypeForRegisteredPaymentCloseHandler(t *testing.T) {
+func TestServiceListTreatsPaymentOrderCronAsMissingInConfigOnlySlice(t *testing.T) {
 	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
 	repo := &fakeRepository{
 		tasks: []Task{{
@@ -99,7 +98,7 @@ func TestServiceListUsesGoTaskTypeForRegisteredPaymentCloseHandler(t *testing.T)
 			Name:      "payment_close_expired_order",
 			Title:     "支付超时关单",
 			Cron:      "0 * * * * *",
-			Handler:   "app\\process\\Pay\\PaymentCloseExpiredOrderTask",
+			Handler:   "payment:close-expired-order:v1",
 			Status:    CommonYes,
 			IsDel:     CommonNo,
 			CreatedAt: now,
@@ -113,11 +112,11 @@ func TestServiceListUsesGoTaskTypeForRegisteredPaymentCloseHandler(t *testing.T)
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
 	item := res.List[0]
-	if item.RegistryTaskType != payment.TypeCloseExpiredOrderV1 {
-		t.Fatalf("expected registry_task_type=%s, got %#v", payment.TypeCloseExpiredOrderV1, item)
+	if item.RegistryStatus != RegistryStatusMissing {
+		t.Fatalf("payment order cron must be missing in config-only slice, got %#v", item)
 	}
-	if item.Handler != payment.TypeCloseExpiredOrderV1 {
-		t.Fatalf("registered payment cron task must expose Go task type as handler, got %#v", item)
+	if item.RegistryTaskType != "" || item.Handler != "payment:close-expired-order:v1" {
+		t.Fatalf("missing retired payment task must preserve stored handler only, got %#v", item)
 	}
 }
 

@@ -9,6 +9,10 @@ type listRequest struct {
 	Status      *int   `form:"status" binding:"omitempty,common_status"`
 }
 
+type optionRequest struct {
+	Scene string `form:"scene" binding:"omitempty,max=32"`
+}
+
 type mutationRequest struct {
 	ProviderID   uint64   `json:"provider_id" binding:"required,gt=0"`
 	Name         string   `json:"name" binding:"required,max=128"`

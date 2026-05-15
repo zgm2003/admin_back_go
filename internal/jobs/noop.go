@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/aichat"
+	"admin_back_go/internal/module/aiimage"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -31,9 +31,9 @@ type Dependencies struct {
 	Logger                  *slog.Logger
 	AuthRepository          auth.Repository
 	AIChatService           aichat.JobService
+	AIImageService          aiimage.JobService
 	ExportTaskService       exporttask.JobService
 	NotificationTaskService notificationtask.JobService
-	PaymentService          payment.JobService
 }
 
 // ScheduleRegistrar is the worker-owned boundary used by job schedule
@@ -78,9 +78,9 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 	})
 	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
 	aichat.RegisterHandlers(mux, deps.AIChatService, logger)
+	aiimage.RegisterHandlers(mux, deps.AIImageService, logger)
 	exporttask.RegisterHandlers(mux, deps.ExportTaskService, logger)
 	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
-	payment.RegisterHandlers(mux, deps.PaymentService, logger)
 }
 
 // NewNoopTask builds a versioned queue probe task.

@@ -58,6 +58,7 @@ type Gateway interface {
 	Query(ctx context.Context, cfg ChannelConfig, outTradeNo string) (*QueryResult, error)
 	VerifyNotify(ctx context.Context, cfg ChannelConfig, form map[string]string) (*NotifyResult, error)
 	Close(ctx context.Context, cfg ChannelConfig, outTradeNo string) error
+	TestConfig(ctx context.Context, cfg ChannelConfig) error
 	SuccessBody() string
 	FailureBody() string
 }

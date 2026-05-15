@@ -1174,120 +1174,54 @@ func (f *fakeRouterMailService) DeleteLogs(ctx context.Context, ids []uint64) *a
 }
 
 type fakeRouterPaymentService struct {
-	channelListQuery        payment.ChannelListQuery
-	createChannelInput      payment.ChannelMutationInput
-	updateChannelID         int64
-	statusChannelID         int64
-	status                  int
-	deleteChannelID         int64
-	orderListQuery          payment.OrderListQuery
-	createOrderInput        payment.CreateOrderInput
-	createOrderCalledUserID int64
-	resultUserID            int64
-	resultOrderNo           string
-	payUserID               int64
-	payOrderNo              string
-	payReturnURL            string
-	cancelUserID            int64
-	cancelOrderNo           string
-	adminOrderNo            string
-	closeOrderNo            string
-	eventListQuery          payment.EventListQuery
-	eventID                 int64
-	notifyInput             payment.NotifyInput
-	notifyBody              string
+	configListQuery payment.ConfigListQuery
+	createInput     payment.ConfigMutationInput
+	updateID        int64
+	statusID        int64
+	status          int
+	deleteID        int64
+	testID          int64
+	uploadInput     payment.CertificateUploadInput
 }
 
-func (f *fakeRouterPaymentService) ChannelInit(ctx context.Context) (*payment.ChannelInitResponse, *apperror.Error) {
-	return payment.NewService(payment.Dependencies{}).ChannelInit(ctx)
+func (f *fakeRouterPaymentService) ConfigInit(ctx context.Context) (*payment.ConfigInitResponse, *apperror.Error) {
+	return payment.NewService(payment.Dependencies{}).ConfigInit(ctx)
 }
 
-func (f *fakeRouterPaymentService) ListChannels(ctx context.Context, query payment.ChannelListQuery) (*payment.ChannelListResponse, *apperror.Error) {
-	f.channelListQuery = query
-	return &payment.ChannelListResponse{List: []payment.ChannelListItem{{ID: 1, Name: "支付宝"}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
+func (f *fakeRouterPaymentService) ListConfigs(ctx context.Context, query payment.ConfigListQuery) (*payment.ConfigListResponse, *apperror.Error) {
+	f.configListQuery = query
+	return &payment.ConfigListResponse{List: []payment.ConfigListItem{{ID: 1, Code: "alipay_default", Name: "支付宝"}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
 }
 
-func (f *fakeRouterPaymentService) CreateChannel(ctx context.Context, input payment.ChannelMutationInput) (int64, *apperror.Error) {
-	f.createChannelInput = input
+func (f *fakeRouterPaymentService) CreateConfig(ctx context.Context, input payment.ConfigMutationInput) (int64, *apperror.Error) {
+	f.createInput = input
 	return 11, nil
 }
 
-func (f *fakeRouterPaymentService) UpdateChannel(ctx context.Context, id int64, input payment.ChannelMutationInput) *apperror.Error {
-	f.updateChannelID = id
+func (f *fakeRouterPaymentService) UpdateConfig(ctx context.Context, id int64, input payment.ConfigMutationInput) *apperror.Error {
+	f.updateID = id
 	return nil
 }
 
-func (f *fakeRouterPaymentService) ChangeChannelStatus(ctx context.Context, id int64, status int) *apperror.Error {
-	f.statusChannelID = id
+func (f *fakeRouterPaymentService) ChangeConfigStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusID = id
 	f.status = status
 	return nil
 }
 
-func (f *fakeRouterPaymentService) DeleteChannel(ctx context.Context, id int64) *apperror.Error {
-	f.deleteChannelID = id
+func (f *fakeRouterPaymentService) DeleteConfig(ctx context.Context, id int64) *apperror.Error {
+	f.deleteID = id
 	return nil
 }
 
-func (f *fakeRouterPaymentService) OrderInit(ctx context.Context) (*payment.ChannelInitResponse, *apperror.Error) {
-	return payment.NewService(payment.Dependencies{}).OrderInit(ctx)
+func (f *fakeRouterPaymentService) UploadCertificate(ctx context.Context, input payment.CertificateUploadInput) (*payment.CertificateUploadResponse, *apperror.Error) {
+	f.uploadInput = input
+	return &payment.CertificateUploadResponse{Path: "runtime/payment/certs/alipay/alipay_default/abc.crt", FileName: input.FileName, SHA256: "abc", Size: input.Size}, nil
 }
 
-func (f *fakeRouterPaymentService) ListOrders(ctx context.Context, query payment.OrderListQuery) (*payment.OrderListResponse, *apperror.Error) {
-	f.orderListQuery = query
-	return &payment.OrderListResponse{List: []payment.OrderListItem{{ID: 1, OrderNo: "P1"}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
-}
-
-func (f *fakeRouterPaymentService) GetAdminOrder(ctx context.Context, orderNo string) (*payment.OrderDetailResponse, *apperror.Error) {
-	f.adminOrderNo = orderNo
-	return &payment.OrderDetailResponse{Order: payment.OrderListItem{OrderNo: orderNo}}, nil
-}
-
-func (f *fakeRouterPaymentService) GetOrderResult(ctx context.Context, userID int64, orderNo string) (*payment.ResultResponse, *apperror.Error) {
-	f.resultUserID = userID
-	f.resultOrderNo = orderNo
-	return &payment.ResultResponse{OrderNo: orderNo}, nil
-}
-
-func (f *fakeRouterPaymentService) CreateOrder(ctx context.Context, input payment.CreateOrderInput) (*payment.CreateOrderResponse, *apperror.Error) {
-	f.createOrderInput = input
-	f.createOrderCalledUserID = input.UserID
-	return &payment.CreateOrderResponse{OrderNo: "P1", AmountCents: input.AmountCents}, nil
-}
-
-func (f *fakeRouterPaymentService) PayOrder(ctx context.Context, userID int64, orderNo string, returnURL string) (*payment.PayOrderResponse, *apperror.Error) {
-	f.payUserID = userID
-	f.payOrderNo = orderNo
-	f.payReturnURL = returnURL
-	return &payment.PayOrderResponse{OrderNo: orderNo, PayURL: "https://pay.example.test"}, nil
-}
-
-func (f *fakeRouterPaymentService) CancelOrder(ctx context.Context, userID int64, orderNo string) *apperror.Error {
-	f.cancelUserID = userID
-	f.cancelOrderNo = orderNo
-	return nil
-}
-
-func (f *fakeRouterPaymentService) CloseAdminOrder(ctx context.Context, orderNo string) *apperror.Error {
-	f.closeOrderNo = orderNo
-	return nil
-}
-
-func (f *fakeRouterPaymentService) ListEvents(ctx context.Context, query payment.EventListQuery) (*payment.EventListResponse, *apperror.Error) {
-	f.eventListQuery = query
-	return &payment.EventListResponse{List: []payment.EventListItem{{ID: 1, OrderNo: query.OrderNo}}, Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
-}
-
-func (f *fakeRouterPaymentService) GetEvent(ctx context.Context, id int64) (*payment.EventDetailResponse, *apperror.Error) {
-	f.eventID = id
-	return &payment.EventDetailResponse{Event: payment.EventListItem{ID: id}}, nil
-}
-
-func (f *fakeRouterPaymentService) HandleAlipayNotify(ctx context.Context, input payment.NotifyInput) (string, *apperror.Error) {
-	f.notifyInput = input
-	if f.notifyBody != "" {
-		return f.notifyBody, nil
-	}
-	return "success", nil
+func (f *fakeRouterPaymentService) TestConfig(ctx context.Context, id int64) (*payment.ConfigTestResponse, *apperror.Error) {
+	f.testID = id
+	return &payment.ConfigTestResponse{OK: true, Checks: []string{"local"}, Message: "ok"}, nil
 }
 
 type fakeRouterUploadTokenService struct {
@@ -2733,74 +2667,65 @@ func TestRouterInstallsMailRoutes(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsPaymentRoutesAndRawNotify(t *testing.T) {
-	paymentService := &fakeRouterPaymentService{notifyBody: "success"}
+func TestRouterInstallsPaymentConfigRoutesOnly(t *testing.T) {
+	paymentService := &fakeRouterPaymentService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
 		},
 		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/channels"):  "payment_channel_list",
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/channels"): "payment_channel_add",
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/orders"):    "payment_order_list",
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/events"):    "payment_event_list",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/configs"):           "payment_config_list",
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/configs"):          "payment_config_add",
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/configs/:id/test"): "payment_config_test",
 		},
 		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error { return nil },
 		PaymentService:    paymentService,
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/channels?current_page=2&page_size=30&name=ali&provider=alipay&status=1", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/configs?current_page=2&page_size=30&name=ali&environment=sandbox&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected payment channel list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+		t.Fatalf("expected payment config list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if paymentService.channelListQuery.CurrentPage != 2 || paymentService.channelListQuery.Provider != "alipay" || paymentService.channelListQuery.Status != 1 {
-		t.Fatalf("payment channel list query mismatch: %#v", paymentService.channelListQuery)
+	if paymentService.configListQuery.CurrentPage != 2 || paymentService.configListQuery.Environment != "sandbox" || paymentService.configListQuery.Status != 1 {
+		t.Fatalf("payment config list query mismatch: %#v", paymentService.configListQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders", strings.NewReader(`{"channel_id":1,"pay_method":"web","subject":"test","amount_cents":100}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/configs", strings.NewReader(`{"code":"alipay_default","name":"支付宝","app_id":"2026000000000000","app_private_key":"KEY","app_cert_path":"runtime/app.crt","alipay_cert_path":"runtime/alipay.crt","alipay_root_cert_path":"runtime/root.crt","notify_url":"https://example.test/notify","return_url":"https://example.test/return","environment":"sandbox","enabled_methods":["web"],"status":2,"remark":""}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.createOrderCalledUserID != 7 || paymentService.createOrderInput.AmountCents != 100 {
-		t.Fatalf("expected payment create order route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
+	if recorder.Code != http.StatusOK || paymentService.createInput.Code != "alipay_default" {
+		t.Fatalf("expected payment config create route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders/P1/pay", strings.NewReader(`{"return_url":"https://example.test/return"}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.payUserID != 7 || paymentService.payOrderNo != "P1" || paymentService.payReturnURL != "https://example.test/return" {
-		t.Fatalf("expected payment pay order route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/events?current_page=1&page_size=20&order_no=P1&event_type=notify&process_status=1", nil)
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/configs/1/test", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.eventListQuery.OrderNo != "P1" || paymentService.eventListQuery.EventType != "notify" {
-		t.Fatalf("expected payment event list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), paymentService.eventListQuery)
+	if recorder.Code != http.StatusOK || paymentService.testID != 1 {
+		t.Fatalf("expected payment config test route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
 	}
 
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/payment/notify/alipay", strings.NewReader(`out_trade_no=P1&trade_no=A1`))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected notify status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if strings.TrimSpace(recorder.Body.String()) != "success" || strings.Contains(recorder.Body.String(), `"code"`) {
-		t.Fatalf("notify must return raw text/plain service body, got content-type=%q body=%q", recorder.Header().Get("Content-Type"), recorder.Body.String())
-	}
-	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
-		t.Fatalf("notify must return text/plain, got %q", got)
-	}
-	if paymentService.notifyInput.Form["out_trade_no"] != "P1" {
-		t.Fatalf("notify form mismatch: %#v", paymentService.notifyInput.Form)
+	for _, retired := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/admin/v1/payment/channels"},
+		{http.MethodGet, "/api/admin/v1/payment/orders"},
+		{http.MethodGet, "/api/admin/v1/payment/events"},
+		{http.MethodPost, "/api/payment/notify/alipay"},
+	} {
+		recorder = httptest.NewRecorder()
+		request = httptest.NewRequest(retired.method, retired.path, nil)
+		request.Header.Set("Authorization", "Bearer access-token")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code == http.StatusOK {
+			t.Fatalf("retired payment route still returns OK: %s %s", retired.method, retired.path)
+		}
 	}
 }
 func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {

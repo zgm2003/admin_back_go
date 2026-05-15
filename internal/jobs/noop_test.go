@@ -11,7 +11,6 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -145,37 +144,6 @@ func TestRegisterHandlesNotificationTaskHandlers(t *testing.T) {
 	}
 }
 
-func TestRegisterHandlesPaymentCronHandlers(t *testing.T) {
-	service := &fakePaymentJobService{}
-	mux := taskqueue.NewMux()
-	Register(mux, Dependencies{
-		Logger:         slog.Default(),
-		PaymentService: service,
-	})
-
-	closeTask, err := payment.NewCloseExpiredOrderTask(payment.CloseExpiredPayload{Limit: 11})
-	if err != nil {
-		t.Fatalf("NewCloseExpiredOrderTask returned error: %v", err)
-	}
-	if err := mux.ProcessProjectTask(context.Background(), closeTask); err != nil {
-		t.Fatalf("ProcessProjectTask close expired returned error: %v", err)
-	}
-	if service.closeLimit != 11 {
-		t.Fatalf("expected close limit 11, got %d", service.closeLimit)
-	}
-
-	syncTask, err := payment.NewSyncPendingOrderTask(payment.SyncPendingPayload{Limit: 12})
-	if err != nil {
-		t.Fatalf("NewSyncPendingOrderTask returned error: %v", err)
-	}
-	if err := mux.ProcessProjectTask(context.Background(), syncTask); err != nil {
-		t.Fatalf("ProcessProjectTask sync pending returned error: %v", err)
-	}
-	if service.syncLimit != 12 {
-		t.Fatalf("expected sync limit 12, got %d", service.syncLimit)
-	}
-}
-
 func TestRegisterScheduleDefinitionsOnlyEnqueuesTaskWhenTriggered(t *testing.T) {
 	registrar := &fakeScheduleRegistrar{}
 	enqueuer := &fakeEnqueuer{}
@@ -252,21 +220,6 @@ func (f *fakeAIChatJobService) TimeoutRuns(ctx context.Context, input aichat.Run
 type fakeNotificationTaskJobService struct {
 	dispatchLimit int
 	sendTaskID    int64
-}
-
-type fakePaymentJobService struct {
-	closeLimit int
-	syncLimit  int
-}
-
-func (f *fakePaymentJobService) CloseExpiredOrders(ctx context.Context, input payment.CloseExpiredInput) (*payment.JobResult, error) {
-	f.closeLimit = input.Limit
-	return &payment.JobResult{}, nil
-}
-
-func (f *fakePaymentJobService) SyncPendingOrders(ctx context.Context, input payment.SyncPendingInput) (*payment.JobResult, error) {
-	f.syncLimit = input.Limit
-	return &payment.JobResult{}, nil
 }
 
 func (f *fakeNotificationTaskJobService) DispatchDue(ctx context.Context, input notificationtask.DispatchDueInput) (*notificationtask.DispatchDueResult, error) {

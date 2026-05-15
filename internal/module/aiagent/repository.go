@@ -191,13 +191,17 @@ func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuer
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
+	scene := strings.TrimSpace(query.Scene)
+	if scene == "" {
+		scene = sceneChat
+	}
 	var rows []Agent
 	if err := r.db.WithContext(ctx).Table("ai_agents AS a").
 		Select("a.*").
 		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("a.is_del = ?", enum.CommonNo).
 		Where("a.status = ?", enum.CommonYes).
-		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", sceneChat).
+		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", scene).
 		Order("a.id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, err

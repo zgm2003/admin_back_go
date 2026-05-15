@@ -593,3 +593,66 @@ legacy.fe06f3001ef9: 用户管理服务未配置
 legacy.fe581d198bb3: 无效的上传配置ID
 legacy.fe6b83842810: 默认上下文字符数必须在1000到30000之间
 legacy.ffb6832c4a9e: 缺少平台标识
+
+# AI image playground legacy fallback messages.
+legacy.0c1081092435: 查询图片任务失败
+legacy.0c6e0ad9f817: 生成图片存储路径失败
+legacy.15001d4b1f4a: 读取上传配置失败
+legacy.15a058e5d56e: 输出压缩率必须在0到100之间
+legacy.173ff102529e: 无效的输出格式
+legacy.21bb93631f85: 查询图片资产失败
+legacy.2886539ded0d: 智能体未启用图片生成场景
+legacy.2fa300eb2d5f: 图片URL不能为空
+legacy.4460989c1e29: 图片智能体不存在或未启用
+legacy.48a53b913834: 单次最多生成4张图片
+legacy.48c91f0b9f85: 图片URL不合法
+legacy.49c52b86cb05: COS SecretKey 不可用
+legacy.4b5af8f41e68: 创建图片队列任务失败
+legacy.5004ffdb1298: 遮罩目标图必须在参考图中
+legacy.50fefd537b59: 图片智能体、供应商或模型未启用
+legacy.5894439af309: 图片任务列表参数错误
+legacy.5bf81da9a6b4: 无效的图片尺寸
+legacy.5f653e4a6f43: 不支持的图片存储类型
+legacy.623a2872df5d: 保存生成图片资产失败
+legacy.639e6dc2a288: COS配置未加载
+legacy.65fe2dc4f9d9: 参考图必须来自已上传的 COS 图片资产
+legacy.669014b464ea: 提示词不能为空
+legacy.6e82a7650689: COS写入器未配置
+legacy.70cb1e816be6: 无效的图片质量
+legacy.7447600dc56e: 无效的图片任务ID
+legacy.7523445c03b8: 无效的图片任务状态
+legacy.7531044f6986: 生成图片URL不合法
+legacy.80fb1160c049: 图片资产参数错误
+legacy.827209dcd0cb: 无效的审核参数
+legacy.86aad10d12e1: COS SecretID 不可用
+legacy.886142716a73: 注册图片资产失败
+legacy.8d293d523f73: 图片工作台只支持 OpenAI-compatible 供应商
+legacy.8fe9e54b47ff: AI图片服务未配置
+legacy.9017b7e027a6: 图片任务不存在
+legacy.9b07bd19d75b: 生成图片base64解码失败
+legacy.9ecb38b0e039: 图片生成任务入队失败
+legacy.9fb2fec33593: 创建图片任务失败
+legacy.a68d06b16871: 图片资产来源不支持
+legacy.a80e61b0c560: 读取图片资产失败
+legacy.aa4d69c8973c: 查询图片任务资产失败
+legacy.aada569eb9e8: 图片生成队列未配置
+legacy.b0ed578a22da: 提示词不能超过20000个字符
+legacy.b12d43fb724a: 更新图片收藏失败
+legacy.b39ecd765c86: COS读取器未配置
+legacy.ba5275c9dacd: 图片任务参数错误
+legacy.c1a5eeba701c: COS图片key不能为空
+legacy.c1a604ae44e7: AI图片仓储未配置
+legacy.c221013b6060: 图片MIME类型不合法
+legacy.c390af095c40: 图片生成结果为空
+legacy.c555e0f50787: 上传生成图片失败
+legacy.c80c65199f68: 参考图最多10张
+legacy.d016eee1c520: 图片智能体不能为空
+legacy.d8fcb532c463: 无效的收藏状态
+legacy.e570bae839fb: 图片工作台首版只支持 gpt-image-2
+legacy.e7e38b37cc2e: 图片资产不存在或不属于当前用户
+legacy.e9db9dbf2f5a: 遮罩图必须配合参考图使用
+legacy.ed7e491577c5: 保存生成图片关系失败
+legacy.eeac9fcf6de2: 未配置有效的 COS 上传配置
+legacy.f55037eca83d: 删除图片任务失败
+legacy.f9dcbf5180dc: 图片收藏参数错误
+legacy.feb47d5a3c2d: 查询图片智能体失败

@@ -18,6 +18,9 @@ type OperationRule struct {
 	Module string
 	Action string
 	Title  string
+
+	SkipRequestPayload  bool
+	SkipResponsePayload bool
 }
 
 type OperationInput struct {
@@ -60,30 +63,38 @@ func OperationLog(cfg OperationLogConfig) gin.HandlerFunc {
 			return
 		}
 
-		requestPayload := readRequestPayload(c, logger)
-		bodyWriter := &operationBodyWriter{
-			ResponseWriter: c.Writer,
-			body:           bytes.NewBuffer(nil),
+		var requestPayload any
+		if !rule.SkipRequestPayload {
+			requestPayload = readRequestPayload(c, logger)
 		}
-		c.Writer = bodyWriter
+		var bodyWriter *operationBodyWriter
+		if !rule.SkipResponsePayload {
+			bodyWriter = &operationBodyWriter{
+				ResponseWriter: c.Writer,
+				body:           bytes.NewBuffer(nil),
+			}
+			c.Writer = bodyWriter
+		}
 
 		startedAt := time.Now()
 		c.Next()
 
 		identity := GetAuthIdentity(c)
 		input := OperationInput{
-			Method:          c.Request.Method,
-			Path:            path,
-			Module:          rule.Module,
-			Action:          rule.Action,
-			Title:           rule.Title,
-			RequestID:       GetRequestID(c),
-			ClientIP:        c.ClientIP(),
-			Status:          c.Writer.Status(),
-			Success:         c.Writer.Status() < 400,
-			LatencyMs:       time.Since(startedAt).Milliseconds(),
-			RequestPayload:  requestPayload,
-			ResponsePayload: readResponsePayload(bodyWriter.BodyBytes(), logger),
+			Method:         c.Request.Method,
+			Path:           path,
+			Module:         rule.Module,
+			Action:         rule.Action,
+			Title:          rule.Title,
+			RequestID:      GetRequestID(c),
+			ClientIP:       c.ClientIP(),
+			Status:         c.Writer.Status(),
+			Success:        c.Writer.Status() < 400,
+			LatencyMs:      time.Since(startedAt).Milliseconds(),
+			RequestPayload: requestPayload,
+		}
+		if bodyWriter != nil {
+			input.ResponsePayload = readResponsePayload(bodyWriter.BodyBytes(), logger)
 		}
 		if identity != nil {
 			input.UserID = identity.UserID

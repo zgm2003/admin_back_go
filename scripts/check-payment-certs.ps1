@@ -7,12 +7,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$requiredFallbackPaths = @(
-  "runtime/cert/alipay/appPublicCert.crt",
-  "runtime/cert/alipay/alipayPublicCert.crt",
-  "runtime/cert/alipay/alipayRootCert.crt"
-)
-
 function ConvertTo-SlashPath {
   param([string]$Path)
   return $Path.Replace('\', '/')
@@ -81,6 +75,7 @@ import (
 )
 
 type certRow struct {
+	Code             string `json:"code"`
 	PublicCertPath   string `json:"public_cert_path"`
 	PlatformCertPath string `json:"platform_cert_path"`
 	RootCertPath     string `json:"root_cert_path"`
@@ -90,7 +85,7 @@ func main() {
 	_ = config.LoadDotEnv()
 	cfg := config.Load()
 	if cfg.MySQL.DSN == "" {
-		fmt.Fprintln(os.Stderr, "MYSQL_DSN is empty; pass -NoDb for file-only cert checks")
+		fmt.Fprintln(os.Stderr, "MYSQL_DSN is empty; payment_alipay_configs cert paths require DB")
 		os.Exit(2)
 	}
 
@@ -106,15 +101,15 @@ func main() {
 
 	rows, err := db.QueryContext(ctx, `
 SELECT
-  cfg.app_cert_path AS public_cert_path,
-  cfg.alipay_cert_path AS platform_cert_path,
-  cfg.alipay_root_cert_path AS root_cert_path
-FROM payment_channel_configs AS cfg
-JOIN payment_channels AS ch ON ch.id = cfg.channel_id
-WHERE ch.provider = 'alipay'
-  AND ch.status = 1
-  AND ch.is_del = 2
-ORDER BY ch.id`)
+  code,
+  app_cert_path AS public_cert_path,
+  alipay_cert_path AS platform_cert_path,
+  alipay_root_cert_path AS root_cert_path
+FROM payment_alipay_configs
+WHERE status = 1
+  AND is_del = 2
+ORDER BY id
+LIMIT 1`)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -124,7 +119,7 @@ ORDER BY ch.id`)
 	var out []certRow
 	for rows.Next() {
 		var row certRow
-		if err := rows.Scan(&row.PublicCertPath, &row.PlatformCertPath, &row.RootCertPath); err != nil {
+		if err := rows.Scan(&row.Code, &row.PublicCertPath, &row.PlatformCertPath, &row.RootCertPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -135,7 +130,7 @@ ORDER BY ch.id`)
 		os.Exit(1)
 	}
 	if len(out) == 0 {
-		fmt.Fprintln(os.Stderr, "no active Alipay payment_channels/payment_channel_configs rows")
+		fmt.Fprintln(os.Stderr, "no enabled payment_alipay_configs row")
 		os.Exit(3)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
@@ -150,7 +145,7 @@ ORDER BY ch.id`)
     try {
       $output = go run $probe 2>&1
       if ($LASTEXITCODE -ne 0) {
-        throw "read active Alipay payment channel cert paths failed: $($output | Out-String)"
+        throw "read enabled Alipay payment config cert paths failed: $($output | Out-String)"
       }
     } finally {
       Pop-Location
@@ -162,7 +157,7 @@ ORDER BY ch.id`)
       foreach ($value in @($row.public_cert_path, $row.platform_cert_path, $row.root_cert_path)) {
         $path = [string]$value
         if ([string]::IsNullOrWhiteSpace($path)) {
-          throw "active Alipay payment channel config has an empty cert path"
+          throw "enabled Alipay payment config has an empty cert path"
         }
         if (-not $paths.Contains($path)) {
           $paths.Add($path)
@@ -227,11 +222,11 @@ if ([string]::IsNullOrWhiteSpace($CertBaseDir)) {
   $CertBaseDir = $RepoRoot
 }
 
-$storedPaths = if ($NoDb) {
-  $requiredFallbackPaths
-} else {
-  Get-DbAlipayCertPaths $RepoRoot
+if ($NoDb) {
+  throw "payment config certificate check requires DB because certificate paths are stored in payment_alipay_configs"
 }
+
+$storedPaths = Get-DbAlipayCertPaths $RepoRoot
 
 foreach ($storedPath in $storedPaths) {
   $resolved = Resolve-CertPath -StoredPath $storedPath -BaseDir $CertBaseDir -Root $RepoRoot

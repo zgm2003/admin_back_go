@@ -145,7 +145,6 @@ func DefaultAuthSkipPaths() map[string]struct{} {
 		"/api/admin/v1/auth/login":                    {},
 		"/api/admin/v1/auth/refresh":                  {},
 		"/api/admin/v1/client-versions/current-check": {},
-		"/api/payment/notify/alipay":                  {},
 		"/api/Users/getLoginConfig":                   {},
 		"/api/Users/sendCode":                         {},
 		"/api/Users/login":                            {},

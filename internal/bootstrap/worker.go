@@ -9,14 +9,12 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/aichat"
+	"admin_back_go/internal/module/aiimage"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
-	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/platform/payment"
-	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
@@ -102,23 +100,6 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		exporttask.WithNotifier(exporttask.NewNotificationTaskNotifier(notificationTaskService)),
 		exporttask.WithLogger(logger),
 	)
-	var paymentNumberGenerator paymentmodule.NumberGenerator
-	if resources.Redis != nil && resources.Redis.Redis != nil {
-		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
-	}
-	paymentCertResolver := payment.CertPathResolver{
-		CertBaseDir: cfg.Payment.CertBaseDir,
-		WorkingDir:  ".",
-	}
-	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
-	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
-	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
-		Repository:      paymentmodule.NewGormRepository(resources.DB),
-		Gateway:         paymentGateway,
-		Secretbox:       secretBox,
-		CertResolver:    paymentCertResolver,
-		NumberGenerator: paymentNumberGenerator,
-	})
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:      aichat.NewGormRepository(resources.DB),
 		Publisher:       realtimePublisher,
@@ -126,13 +107,20 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		EngineFactory:   aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, 60*time.Second)},
 		RunStaleTimeout: positiveDuration(cfg.AI.RunStaleTimeout, 15*time.Minute),
 	})
+	aiImageService := aiimage.NewService(aiimage.Dependencies{
+		Repository:    aiimage.NewGormRepository(resources.DB),
+		Secretbox:     secretBox,
+		EngineFactory: aiImageEngineFactory{},
+		ObjectReader:  storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: cfg.UploadToken.COS.Enabled}),
+		ObjectWriter:  storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled}),
+	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
 		AIChatService:           aiChatService,
+		AIImageService:          aiImageService,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		ExportTaskService:       exportTaskService,
 		NotificationTaskService: notificationTaskService,
-		PaymentService:          paymentService,
 	})
 
 	if cfg.Scheduler.Enabled {

@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
+	"admin_back_go/internal/module/aiimage"
 	"admin_back_go/internal/module/aiknowledge"
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"
@@ -42,6 +43,7 @@ import (
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
 	platformai "admin_back_go/internal/platform/ai"
+	"admin_back_go/internal/platform/ai/imagecompat"
 	"admin_back_go/internal/platform/ai/openaicompat"
 	"admin_back_go/internal/platform/logstore"
 	platformmail "admin_back_go/internal/platform/mail/tencentcloudses"
@@ -135,6 +137,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	systemSettingRepository := systemsetting.NewGormRepository(resources.DB, resources.Redis)
 	systemSettingService := systemsetting.NewService(systemSettingRepository)
 	secretBox := secretbox.New(keys.SecretboxKey())
+	cosObjectReader := storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: cfg.UploadToken.COS.Enabled})
 	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
 	sesClient := platformmail.New(10 * time.Second)
@@ -168,6 +171,14 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	)
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
+	aiImageService := aiimage.NewService(aiimage.Dependencies{
+		Repository:    aiimage.NewGormRepository(resources.DB),
+		Enqueuer:      queueClient,
+		Secretbox:     secretBox,
+		EngineFactory: aiImageEngineFactory{},
+		ObjectReader:  cosObjectReader,
+		ObjectWriter:  cosObjectWriter,
+	})
 	aiToolRepo := aitool.NewGormRepository(resources.DB)
 	aiToolService := aitool.NewService(
 		aiToolRepo,
@@ -178,22 +189,19 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
-	var paymentNumberGenerator paymentmodule.NumberGenerator
-	if resources.Redis != nil && resources.Redis.Redis != nil {
-		paymentNumberGenerator = paymentmodule.NewRedisNumberGeneratorFromRedis(resources.Redis.Redis)
-	}
 	paymentCertResolver := payment.CertPathResolver{
 		CertBaseDir: cfg.Payment.CertBaseDir,
 		WorkingDir:  ".",
 	}
+	paymentCertStore := payment.LocalCertStore{BaseDir: cfg.Payment.CertBaseDir}
 	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
-		Repository:      paymentmodule.NewGormRepository(resources.DB),
-		Gateway:         paymentGateway,
-		Secretbox:       secretBox,
-		CertResolver:    paymentCertResolver,
-		NumberGenerator: paymentNumberGenerator,
+		Repository:   paymentmodule.NewGormRepository(resources.DB),
+		Gateway:      paymentGateway,
+		Secretbox:    secretBox,
+		CertResolver: paymentCertResolver,
+		CertStore:    paymentCertStore,
 	})
 
 	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
@@ -324,6 +332,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ClientVersionService:    clientVersionService,
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
+		AiImageService:          aiImageService,
 		AiAgentService:          aiAgentService,
 		AiProviderService:       aiProviderService,
 		AiKnowledgeService:      aiKnowledgeService,
@@ -453,6 +462,21 @@ func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineC
 		}), nil
 	default:
 		return nil, platformai.ErrInvalidConfig
+	}
+}
+
+type aiImageEngineFactory struct{}
+
+func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) platformai.ImageEngine {
+	switch platformai.EngineType(config.EngineType) {
+	case platformai.EngineTypeOpenAI:
+		return imagecompat.New(imagecompat.Config{
+			BaseURL: config.BaseURL,
+			APIKey:  config.APIKey,
+			Timeout: config.Timeout,
+		})
+	default:
+		return nil
 	}
 }
 
