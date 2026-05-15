@@ -285,6 +285,10 @@ func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config,
 	if !enum.IsCommonStatus(input.Status) {
 		return Config{}, false, apperror.BadRequest("无效的支付配置状态")
 	}
+	sortValue := input.Sort
+	if sortValue <= 0 {
+		sortValue = 100
+	}
 	notifyURL := strings.TrimSpace(input.NotifyURL)
 	if !isHTTPURL(notifyURL) {
 		return Config{}, false, apperror.BadRequest("支付宝异步通知地址必须是 http 或 https URL")
@@ -324,6 +328,7 @@ func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config,
 		NotifyURL:          notifyURL,
 		Environment:        environment,
 		EnabledMethodsJSON: string(methodsJSON),
+		Sort:               sortValue,
 		Status:             input.Status,
 		Remark:             strings.TrimSpace(input.Remark),
 		IsDel:              enum.CommonNo,
@@ -372,6 +377,7 @@ func configListItem(row Config) (ConfigListItem, *apperror.Error) {
 		EnvironmentText:    environmentText(row.Environment),
 		EnabledMethods:     methods,
 		EnabledMethodsText: methodText(methods),
+		Sort:               row.Sort,
 		Status:             row.Status,
 		StatusText:         commonStatusText(row.Status),
 		Remark:             row.Remark,

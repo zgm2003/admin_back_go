@@ -119,7 +119,7 @@ func (r *GormRepository) ListEnabledOrderConfigOptions(ctx context.Context) ([]C
 		return nil, ErrRepositoryNotConfigured
 	}
 	var rows []Config
-	err := r.db.WithContext(ctx).Where("is_del = ? AND status = ?", enum.CommonNo, enum.CommonYes).Order("id desc").Find(&rows).Error
+	err := r.db.WithContext(ctx).Where("is_del = ? AND status = ?", enum.CommonNo, enum.CommonYes).Order("sort asc, id asc").Find(&rows).Error
 	return rows, err
 }
 

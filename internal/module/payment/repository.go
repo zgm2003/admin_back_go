@@ -25,6 +25,10 @@ type Repository interface {
 	UpdateConfig(ctx context.Context, cfg Config, keepPrivateKey bool) error
 	ChangeConfigStatus(ctx context.Context, id int64, status int) error
 	DeleteConfig(ctx context.Context, id int64) error
+	ListRechargePackages(ctx context.Context) ([]RechargePackage, error)
+	GetRechargePackageByCode(ctx context.Context, code string) (*RechargePackage, error)
+	GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error)
+	GetWallet(ctx context.Context, userID int64) (*Wallet, error)
 	ListOrders(ctx context.Context, query OrderListQuery) ([]Order, int64, error)
 	GetOrder(ctx context.Context, id int64) (*Order, error)
 	CreateOrder(ctx context.Context, order Order) (int64, error)
@@ -33,6 +37,16 @@ type Repository interface {
 	UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error
 	UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error
 	ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error)
+	ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error)
+	ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error)
+	GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error)
+	CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error)
+	UpdateRechargePaying(ctx context.Context, id int64) error
+	UpdateRechargeFailed(ctx context.Context, id int64, reason string) error
+	UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error
+	UpdateRechargeClosed(ctx context.Context, id int64) error
+	CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error)
+	FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error)
 }
 
 type GormRepository struct {
@@ -69,7 +83,7 @@ func (r *GormRepository) ListConfigs(ctx context.Context, query ConfigListQuery)
 		return nil, 0, err
 	}
 	var rows []Config
-	err := db.Order("id desc").Limit(limit).Offset(offset).Find(&rows).Error
+	err := db.Order("sort asc, id desc").Limit(limit).Offset(offset).Find(&rows).Error
 	return rows, total, err
 }
 
@@ -122,6 +136,7 @@ func (r *GormRepository) UpdateConfig(ctx context.Context, cfg Config, keepPriva
 		"notify_url":           cfg.NotifyURL,
 		"environment":          cfg.Environment,
 		"enabled_methods_json": cfg.EnabledMethodsJSON,
+		"sort":                 cfg.Sort,
 		"status":               cfg.Status,
 		"remark":               cfg.Remark,
 	}

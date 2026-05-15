@@ -35,6 +35,13 @@ func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges/page-init"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges/:id"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close"},
 	} {
 		if !routes[route.method+" "+route.path] {
 			t.Fatalf("missing route %s %s", route.method, route.path)

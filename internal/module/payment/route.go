@@ -28,5 +28,14 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	orders.POST("/:id/sync", handler.SyncOrder)
 	orders.PATCH("/:id/close", handler.CloseOrder)
 
+	recharges := router.Group("/api/admin/v1/payment/recharges")
+	recharges.GET("/page-init", handler.RechargeInit)
+	recharges.GET("", handler.ListRecharges)
+	recharges.GET("/:id", handler.GetRecharge)
+	recharges.POST("", handler.CreateRecharge)
+	recharges.POST("/:id/pay", handler.PayRecharge)
+	recharges.POST("/:id/sync", handler.SyncRecharge)
+	recharges.PATCH("/:id/close", handler.CloseRecharge)
+
 	router.POST("/api/admin/v1/payment/certificates", handler.UploadCertificate)
 }

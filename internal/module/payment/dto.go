@@ -57,6 +57,7 @@ type ConfigListItem struct {
 	EnvironmentText    string   `json:"environment_text"`
 	EnabledMethods     []string `json:"enabled_methods"`
 	EnabledMethodsText string   `json:"enabled_methods_text"`
+	Sort               int      `json:"sort"`
 	Status             int      `json:"status"`
 	StatusText         string   `json:"status_text"`
 	Remark             string   `json:"remark"`
@@ -77,6 +78,7 @@ type ConfigMutationInput struct {
 	NotifyURL        string
 	Environment      string
 	EnabledMethods   []string
+	Sort             int
 	Status           int
 	Remark           string
 }
@@ -118,4 +120,11 @@ type HTTPService interface {
 	PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *apperror.Error)
 	SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error)
 	CloseOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error)
+	RechargeInit(ctx context.Context, userID int64) (*RechargeInitResponse, *apperror.Error)
+	ListRecharges(ctx context.Context, query RechargeListQuery) (*RechargeListResponse, *apperror.Error)
+	GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeDetail, *apperror.Error)
+	CreateRecharge(ctx context.Context, input RechargeCreateInput) (*RechargePayResponse, *apperror.Error)
+	PayRecharge(ctx context.Context, userID int64, id int64) (*RechargePayResponse, *apperror.Error)
+	SyncRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error)
+	CloseRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error)
 }

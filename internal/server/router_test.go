@@ -1176,8 +1176,10 @@ func (f *fakeRouterMailService) DeleteLogs(ctx context.Context, ids []uint64) *a
 type fakeRouterPaymentService struct {
 	configListQuery payment.ConfigListQuery
 	orderListQuery  payment.OrderListQuery
+	rechargeQuery   payment.RechargeListQuery
 	createInput     payment.ConfigMutationInput
 	orderInput      payment.OrderCreateInput
+	rechargeInput   payment.RechargeCreateInput
 	updateID        int64
 	statusID        int64
 	status          int
@@ -1185,6 +1187,7 @@ type fakeRouterPaymentService struct {
 	testID          int64
 	uploadInput     payment.CertificateUploadInput
 	orderID         int64
+	rechargeID      int64
 	payID           int64
 	syncID          int64
 	closeID         int64
@@ -1255,6 +1258,40 @@ func (f *fakeRouterPaymentService) SyncOrder(ctx context.Context, id int64) (*pa
 func (f *fakeRouterPaymentService) CloseOrder(ctx context.Context, id int64) (*payment.OrderStatusResponse, *apperror.Error) {
 	f.closeID = id
 	return &payment.OrderStatusResponse{ID: id, OrderNo: "PAY20260515100000000000", Status: "closed", StatusText: "已关闭"}, nil
+}
+func (f *fakeRouterPaymentService) RechargeInit(ctx context.Context, userID int64) (*payment.RechargeInitResponse, *apperror.Error) {
+	return &payment.RechargeInitResponse{
+		Wallet:        payment.WalletSummary{},
+		Packages:      []payment.RechargePackageItem{{Code: "recharge_10", Name: "¥10", AmountCents: 1000, AmountText: "10.00"}},
+		PaymentMethod: payment.RechargePaymentMethod{Provider: "alipay", Label: "支付宝", Enabled: true},
+	}, nil
+}
+func (f *fakeRouterPaymentService) ListRecharges(ctx context.Context, query payment.RechargeListQuery) (*payment.RechargeListResponse, *apperror.Error) {
+	f.rechargeQuery = query
+	return &payment.RechargeListResponse{
+		List: []payment.RechargeListItem{{ID: 1, RechargeNo: "RCG20260515100000000000", PaymentOrderNo: "PAY20260515100000000000", PackageName: "¥10", AmountCents: 1000, AmountText: "10.00", Status: "paying", PayURL: "https://pay.example.test"}},
+		Page: payment.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	}, nil
+}
+func (f *fakeRouterPaymentService) GetRecharge(ctx context.Context, userID int64, id int64) (*payment.RechargeDetail, *apperror.Error) {
+	f.rechargeID = id
+	return &payment.RechargeDetail{RechargeListItem: payment.RechargeListItem{ID: id, RechargeNo: "RCG20260515100000000000", Status: "paying"}}, nil
+}
+func (f *fakeRouterPaymentService) CreateRecharge(ctx context.Context, input payment.RechargeCreateInput) (*payment.RechargePayResponse, *apperror.Error) {
+	f.rechargeInput = input
+	return &payment.RechargePayResponse{ID: 1, RechargeNo: "RCG20260515100000000000", PaymentOrderNo: "PAY20260515100000000000", Status: "paying", PayURL: "https://pay.example.test"}, nil
+}
+func (f *fakeRouterPaymentService) PayRecharge(ctx context.Context, userID int64, id int64) (*payment.RechargePayResponse, *apperror.Error) {
+	f.payID = id
+	return &payment.RechargePayResponse{ID: id, RechargeNo: "RCG20260515100000000000", PaymentOrderNo: "PAY20260515100000000000", Status: "paying", PayURL: "https://pay.example.test"}, nil
+}
+func (f *fakeRouterPaymentService) SyncRecharge(ctx context.Context, userID int64, id int64) (*payment.RechargeStatusResponse, *apperror.Error) {
+	f.syncID = id
+	return &payment.RechargeStatusResponse{ID: id, RechargeNo: "RCG20260515100000000000", Status: "credited", StatusText: "已入账"}, nil
+}
+func (f *fakeRouterPaymentService) CloseRecharge(ctx context.Context, userID int64, id int64) (*payment.RechargeStatusResponse, *apperror.Error) {
+	f.closeID = id
+	return &payment.RechargeStatusResponse{ID: id, RechargeNo: "RCG20260515100000000000", Status: "closed", StatusText: "已关闭"}, nil
 }
 
 type fakeRouterUploadTokenService struct {
@@ -2715,6 +2752,9 @@ func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"):    "payment_order_pay",
 			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"):   "payment_order_sync",
 			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"): "payment_order_close",
+			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/recharges"):          "payment_recharge_list",
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges"):         "payment_recharge_add",
+			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay"): "payment_recharge_pay",
 		},
 		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error { return nil },
 		PaymentService:    paymentService,
@@ -2798,6 +2838,31 @@ func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || paymentService.closeID != 1 {
 		t.Fatalf("expected payment order close route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/recharges?current_page=1&page_size=10&keyword=RCG&status=paying", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || paymentService.rechargeQuery.UserID != 7 || paymentService.rechargeQuery.Status != "paying" {
+		t.Fatalf("expected payment recharge list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), paymentService.rechargeQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/recharges", strings.NewReader(`{"package_code":"recharge_10","pay_method":"web","return_url":"https://example.test/payment/recharge"}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || paymentService.rechargeInput.UserID != 7 || paymentService.rechargeInput.PackageCode != "recharge_10" || paymentService.rechargeInput.ReturnURL == "" {
+		t.Fatalf("expected payment recharge create route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), paymentService.rechargeInput)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/recharges/2/pay", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || paymentService.payID != 2 {
+		t.Fatalf("expected payment recharge pay route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
 	}
 
 	for _, retired := range []struct {

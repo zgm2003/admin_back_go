@@ -21,6 +21,7 @@ type configMutationRequest struct {
 	NotifyURL        string   `json:"notify_url" binding:"required,max=512"`
 	Environment      string   `json:"environment" binding:"required,oneof=sandbox production"`
 	EnabledMethods   []string `json:"enabled_methods" binding:"required,min=1"`
+	Sort             int      `json:"sort" binding:"omitempty,min=1,max=9999"`
 	Status           int      `json:"status" binding:"required,common_status"`
 	Remark           string   `json:"remark" binding:"omitempty,max=255"`
 }

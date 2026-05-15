@@ -93,6 +93,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay", "payment_order_pay"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync", "payment_order_sync"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close", "payment_order_close"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges/page-init", "payment_recharge_list"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges", "payment_recharge_list"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges/:id", "payment_recharge_list"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges", "payment_recharge_add"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay", "payment_recharge_pay"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync", "payment_recharge_sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close", "payment_recharge_close"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
@@ -389,6 +396,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay", "pay"},
 		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync", "sync"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close", "close"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges", "add"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay", "pay"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync", "sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close", "close"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
@@ -459,6 +470,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	payRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/pay")]
 	if payRule.Module != "payment_order" || payRule.Action != "pay" || !payRule.SkipResponsePayload {
 		t.Fatalf("payment order pay operation rule must skip pay_url response payload: %#v", payRule)
+	}
+
+	rechargePayRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay")]
+	if rechargePayRule.Module != "payment_recharge" || rechargePayRule.Action != "pay" || !rechargePayRule.SkipResponsePayload {
+		t.Fatalf("payment recharge pay operation rule must skip pay_url response payload: %#v", rechargePayRule)
 	}
 
 	for _, tt := range []struct {

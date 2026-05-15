@@ -146,6 +146,7 @@ func configInput(req configMutationRequest) ConfigMutationInput {
 		NotifyURL:        req.NotifyURL,
 		Environment:      req.Environment,
 		EnabledMethods:   req.EnabledMethods,
+		Sort:             req.Sort,
 		Status:           req.Status,
 		Remark:           req.Remark,
 	}
@@ -212,5 +213,26 @@ func (nilHTTPService) SyncOrder(ctx context.Context, id int64) (*OrderStatusResp
 	return nil, apperror.Internal("支付服务未配置")
 }
 func (nilHTTPService) CloseOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) RechargeInit(ctx context.Context, userID int64) (*RechargeInitResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) ListRecharges(ctx context.Context, query RechargeListQuery) (*RechargeListResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeDetail, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) CreateRecharge(ctx context.Context, input RechargeCreateInput) (*RechargePayResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) PayRecharge(ctx context.Context, userID int64, id int64) (*RechargePayResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) SyncRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error) {
+	return nil, apperror.Internal("支付服务未配置")
+}
+func (nilHTTPService) CloseRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }

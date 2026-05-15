@@ -19,6 +19,7 @@ type Config struct {
 	NotifyURL          string    `gorm:"column:notify_url"`
 	Environment        string    `gorm:"column:environment"`
 	EnabledMethodsJSON string    `gorm:"column:enabled_methods_json"`
+	Sort               int       `gorm:"column:sort"`
 	Status             int       `gorm:"column:status"`
 	Remark             string    `gorm:"column:remark"`
 	IsDel              int       `gorm:"column:is_del"`
