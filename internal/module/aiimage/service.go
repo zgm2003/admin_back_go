@@ -120,7 +120,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	}
 	agents, err := repo.ListImageAgents(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片智能体失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.agent.query_failed", nil, "查询图片智能体失败", err)
 	}
 	if agents == nil {
 		agents = []AgentOption{}
@@ -130,7 +130,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 
 func (s *Service) List(ctx context.Context, userID uint64, query ListQuery) (*ListResponse, *apperror.Error) {
 	if userID == 0 {
-		return nil, apperror.Unauthorized("Token无效或已过期")
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -138,11 +138,11 @@ func (s *Service) List(ctx context.Context, userID uint64, query ListQuery) (*Li
 	}
 	query = normalizeListQuery(query)
 	if query.Status != "" && !isStatus(query.Status) {
-		return nil, apperror.BadRequest("无效的图片任务状态")
+		return nil, apperror.BadRequestKey("aiimage.task.status.invalid", nil, "无效的图片任务状态")
 	}
 	rows, total, err := repo.ListTasks(ctx, userID, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.query_failed", nil, "查询图片任务失败", err)
 	}
 	list := make([]TaskDTO, 0, len(rows))
 	for _, row := range rows {
@@ -153,10 +153,10 @@ func (s *Service) List(ctx context.Context, userID uint64, query ListQuery) (*Li
 
 func (s *Service) Detail(ctx context.Context, userID uint64, taskID uint64) (*DetailResponse, *apperror.Error) {
 	if userID == 0 {
-		return nil, apperror.Unauthorized("Token无效或已过期")
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if taskID == 0 {
-		return nil, apperror.BadRequest("无效的图片任务ID")
+		return nil, apperror.BadRequestKey("aiimage.task.id.invalid", nil, "无效的图片任务ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -164,14 +164,14 @@ func (s *Service) Detail(ctx context.Context, userID uint64, taskID uint64) (*De
 	}
 	task, err := repo.GetTask(ctx, userID, taskID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.query_failed", nil, "查询图片任务失败", err)
 	}
 	if task == nil {
-		return nil, apperror.NotFound("图片任务不存在")
+		return nil, apperror.NotFoundKey("aiimage.task.not_found", nil, "图片任务不存在")
 	}
 	assets, err := repo.LoadTaskAssets(ctx, taskID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片任务资产失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task_assets.query_failed", nil, "查询图片任务资产失败", err)
 	}
 	return detailResponse(*task, assets), nil
 }
@@ -190,7 +190,7 @@ func (s *Service) RegisterAsset(ctx context.Context, input RegisterAssetInput) (
 	row.UpdatedAt = now
 	id, err := repo.CreateAsset(ctx, row)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "注册图片资产失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.asset.register_failed", nil, "注册图片资产失败", err)
 	}
 	row.ID = id
 	dto := assetDTO(row)
@@ -199,7 +199,7 @@ func (s *Service) RegisterAsset(ctx context.Context, input RegisterAssetInput) (
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskResponse, *apperror.Error) {
 	if s == nil || s.enqueuer == nil {
-		return nil, apperror.Internal("图片生成队列未配置")
+		return nil, apperror.InternalKey("aiimage.queue_missing", nil, "图片生成队列未配置")
 	}
 	normalized, appErr := s.normalizeCreateInput(input)
 	if appErr != nil {
@@ -222,29 +222,29 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	links := inputLinks(normalized, assets, now)
 	id, err := repo.CreateTaskWithAssets(ctx, task, links)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建图片任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.create_failed", nil, "创建图片任务失败", err)
 	}
 	task.ID = id
 	queueTask, err := NewGenerateTask(GeneratePayload{TaskID: id, UserID: normalized.UserID})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建图片队列任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.create_failed", nil, "创建图片队列任务失败", err)
 	}
 	if _, err := s.enqueuer.Enqueue(ctx, queueTask); err != nil {
 		_ = repo.FinishTaskFailed(context.Background(), normalized.UserID, id, "图片生成任务入队失败", 0, s.now())
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "图片生成任务入队失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.enqueue_failed", nil, "图片生成任务入队失败", err)
 	}
 	return &CreateTaskResponse{Task: taskDTO(task)}, nil
 }
 
 func (s *Service) Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, *apperror.Error) {
 	if input.UserID == 0 {
-		return nil, apperror.Unauthorized("Token无效或已过期")
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if input.TaskID == 0 {
-		return nil, apperror.BadRequest("无效的图片任务ID")
+		return nil, apperror.BadRequestKey("aiimage.task.id.invalid", nil, "无效的图片任务ID")
 	}
 	if !enum.IsCommonYesNo(input.IsFavorite) {
-		return nil, apperror.BadRequest("无效的收藏状态")
+		return nil, apperror.BadRequestKey("aiimage.favorite.status.invalid", nil, "无效的收藏状态")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -252,16 +252,16 @@ func (s *Service) Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, 
 	}
 	if err := repo.UpdateFavorite(ctx, input.UserID, input.TaskID, input.IsFavorite); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperror.NotFound("图片任务不存在")
+			return nil, apperror.NotFoundKey("aiimage.task.not_found", nil, "图片任务不存在")
 		}
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "更新图片收藏失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.favorite.update_failed", nil, "更新图片收藏失败", err)
 	}
 	task, err := repo.GetTask(ctx, input.UserID, input.TaskID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.query_failed", nil, "查询图片任务失败", err)
 	}
 	if task == nil {
-		return nil, apperror.NotFound("图片任务不存在")
+		return nil, apperror.NotFoundKey("aiimage.task.not_found", nil, "图片任务不存在")
 	}
 	dto := taskDTO(*task)
 	return &dto, nil
@@ -269,10 +269,10 @@ func (s *Service) Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, 
 
 func (s *Service) Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error {
 	if userID == 0 {
-		return apperror.Unauthorized("Token无效或已过期")
+		return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if taskID == 0 {
-		return apperror.BadRequest("无效的图片任务ID")
+		return apperror.BadRequestKey("aiimage.task.id.invalid", nil, "无效的图片任务ID")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -280,9 +280,9 @@ func (s *Service) Delete(ctx context.Context, userID uint64, taskID uint64) *app
 	}
 	if err := repo.SoftDeleteTask(ctx, userID, taskID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperror.NotFound("图片任务不存在")
+			return apperror.NotFoundKey("aiimage.task.not_found", nil, "图片任务不存在")
 		}
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除图片任务失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.delete_failed", nil, "删除图片任务失败", err)
 	}
 	return nil
 }
@@ -357,7 +357,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Internal("AI图片仓储未配置")
+		return nil, apperror.InternalKey("aiimage.repository_missing", nil, "AI图片仓储未配置")
 	}
 	return s.repository, nil
 }
@@ -370,58 +370,58 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	input.Moderation = strings.TrimSpace(input.Moderation)
 	input.InputAssetIDs = uniqueIDs(input.InputAssetIDs)
 	if input.UserID == 0 {
-		return CreateInput{}, apperror.Unauthorized("Token无效或已过期")
+		return CreateInput{}, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if input.AgentID == 0 {
-		return CreateInput{}, apperror.BadRequest("图片智能体不能为空")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.agent.required", nil, "图片智能体不能为空")
 	}
 	if input.Prompt == "" {
-		return CreateInput{}, apperror.BadRequest("提示词不能为空")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.prompt.required", nil, "提示词不能为空")
 	}
 	if len([]rune(input.Prompt)) > 20000 {
-		return CreateInput{}, apperror.BadRequest("提示词不能超过20000个字符")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.prompt.too_long", nil, "提示词不能超过20000个字符")
 	}
 	if input.Size == "" {
 		input.Size = defaultSize
 	}
 	if !knownValue(input.Size, sizeLabels) {
-		return CreateInput{}, apperror.BadRequest("无效的图片尺寸")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.size.invalid", nil, "无效的图片尺寸")
 	}
 	if input.Quality == "" {
 		input.Quality = defaultQuality
 	}
 	if !knownValue(input.Quality, qualityLabels) {
-		return CreateInput{}, apperror.BadRequest("无效的图片质量")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.quality.invalid", nil, "无效的图片质量")
 	}
 	if input.OutputFormat == "" {
 		input.OutputFormat = defaultOutputFormat
 	}
 	if !knownValue(input.OutputFormat, formatLabels) {
-		return CreateInput{}, apperror.BadRequest("无效的输出格式")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.output_format.invalid", nil, "无效的输出格式")
 	}
 	if input.OutputCompression != nil && (*input.OutputCompression < 0 || *input.OutputCompression > 100) {
-		return CreateInput{}, apperror.BadRequest("输出压缩率必须在0到100之间")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.output_compression.invalid", nil, "输出压缩率必须在0到100之间")
 	}
 	if input.Moderation == "" {
 		input.Moderation = defaultModeration
 	}
 	if !knownValue(input.Moderation, moderationLabels) {
-		return CreateInput{}, apperror.BadRequest("无效的审核参数")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.moderation.invalid", nil, "无效的审核参数")
 	}
 	if input.N <= 0 {
 		input.N = defaultN
 	}
 	if input.N > 4 {
-		return CreateInput{}, apperror.BadRequest("单次最多生成4张图片")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.n.too_many", nil, "单次最多生成4张图片")
 	}
 	if len(input.InputAssetIDs) > 10 {
-		return CreateInput{}, apperror.BadRequest("参考图最多10张")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.input_assets.too_many", nil, "参考图最多10张")
 	}
 	if input.MaskAssetID > 0 && len(input.InputAssetIDs) == 0 {
-		return CreateInput{}, apperror.BadRequest("遮罩图必须配合参考图使用")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.mask.requires_input", nil, "遮罩图必须配合参考图使用")
 	}
 	if input.MaskTargetAssetID > 0 && !containsID(input.InputAssetIDs, input.MaskTargetAssetID) {
-		return CreateInput{}, apperror.BadRequest("遮罩目标图必须在参考图中")
+		return CreateInput{}, apperror.BadRequestKey("aiimage.mask_target.invalid", nil, "遮罩目标图必须在参考图中")
 	}
 	return input, nil
 }
@@ -433,25 +433,25 @@ func normalizeAssetInput(input RegisterAssetInput) (ImageAsset, *apperror.Error)
 	mimeType := strings.TrimSpace(input.MimeType)
 	sourceType := strings.TrimSpace(input.SourceType)
 	if input.UserID == 0 {
-		return ImageAsset{}, apperror.Unauthorized("Token无效或已过期")
+		return ImageAsset{}, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if provider != StorageProviderCOS && provider != StorageProviderRemoteURL {
-		return ImageAsset{}, apperror.BadRequest("不支持的图片存储类型")
+		return ImageAsset{}, apperror.BadRequestKey("aiimage.asset.storage_provider.unsupported", nil, "不支持的图片存储类型")
 	}
 	if provider == StorageProviderCOS && key == "" {
-		return ImageAsset{}, apperror.BadRequest("COS图片key不能为空")
+		return ImageAsset{}, apperror.BadRequestKey("aiimage.asset.cos_key.required", nil, "COS图片key不能为空")
 	}
 	if urlValue == "" {
-		return ImageAsset{}, apperror.BadRequest("图片URL不能为空")
+		return ImageAsset{}, apperror.BadRequestKey("aiimage.asset.url.required", nil, "图片URL不能为空")
 	}
 	if !validURL(urlValue) {
-		return ImageAsset{}, apperror.BadRequest("图片URL不合法")
+		return ImageAsset{}, apperror.BadRequestKey("aiimage.asset.url.invalid", nil, "图片URL不合法")
 	}
 	if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
-		return ImageAsset{}, apperror.BadRequest("图片MIME类型不合法")
+		return ImageAsset{}, apperror.BadRequestKey("aiimage.asset.mime.invalid", nil, "图片MIME类型不合法")
 	}
 	if sourceType != SourceTypeUpload && sourceType != SourceTypeMask {
-		return ImageAsset{}, apperror.BadRequest("图片资产来源不支持")
+		return ImageAsset{}, apperror.BadRequestKey("aiimage.asset.source_type.unsupported", nil, "图片资产来源不支持")
 	}
 	return ImageAsset{UserID: input.UserID, StorageProvider: provider, StorageKey: key, StorageURL: urlValue, MimeType: mimeType, Width: input.Width, Height: input.Height, SizeBytes: input.SizeBytes, SourceType: sourceType, IsDel: enum.CommonNo}, nil
 }
@@ -459,25 +459,25 @@ func normalizeAssetInput(input RegisterAssetInput) (ImageAsset, *apperror.Error)
 func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID uint64) (*AgentRuntime, *apperror.Error) {
 	agent, err := repo.LoadAgentRuntime(ctx, agentID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片智能体失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.agent.query_failed", nil, "查询图片智能体失败", err)
 	}
 	if agent == nil {
-		return nil, apperror.NotFound("图片智能体不存在或未启用")
+		return nil, apperror.NotFoundKey("aiimage.agent.not_found", nil, "图片智能体不存在或未启用")
 	}
 	if agent.AgentStatus != enum.CommonYes || agent.ProviderStatus != enum.CommonYes || agent.ModelStatus != enum.CommonYes {
-		return nil, apperror.BadRequest("图片智能体、供应商或模型未启用")
+		return nil, apperror.BadRequestKey("aiimage.agent.runtime_disabled", nil, "图片智能体、供应商或模型未启用")
 	}
 	if !sceneEnabled(agent.ScenesJSON, SceneImageGenerate) {
-		return nil, apperror.BadRequest("智能体未启用图片生成场景")
+		return nil, apperror.BadRequestKey("aiimage.agent.scene_missing", nil, "智能体未启用图片生成场景")
 	}
 	if strings.TrimSpace(agent.ModelID) != RequiredModelID {
-		return nil, apperror.BadRequest("图片工作台首版只支持 gpt-image-2")
+		return nil, apperror.BadRequestKey("aiimage.model.unsupported", nil, "图片工作台首版只支持 gpt-image-2")
 	}
 	if strings.TrimSpace(agent.APIKeyEnc) == "" {
-		return nil, apperror.BadRequest("AI供应商API Key未配置")
+		return nil, apperror.BadRequestKey("aiimage.provider.api_key_missing", nil, "AI供应商API Key未配置")
 	}
 	if platformai.EngineType(agent.EngineType) != platformai.EngineTypeOpenAI {
-		return nil, apperror.BadRequest("图片工作台只支持 OpenAI-compatible 供应商")
+		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "图片工作台只支持 OpenAI-compatible 供应商")
 	}
 	return agent, nil
 }
@@ -489,18 +489,18 @@ func (s *Service) validInputAssets(ctx context.Context, repo Repository, input C
 	}
 	assets, err := repo.LoadAssetsByIDs(ctx, input.UserID, ids)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询图片资产失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.asset.query_failed", nil, "查询图片资产失败", err)
 	}
 	if len(assets) != len(uniqueIDs(ids)) {
-		return nil, apperror.BadRequest("图片资产不存在或不属于当前用户")
+		return nil, apperror.BadRequestKey("aiimage.asset.not_owned", nil, "图片资产不存在或不属于当前用户")
 	}
 	byID := make(map[uint64]ImageAsset, len(assets))
 	for _, asset := range assets {
 		if asset.StorageProvider != StorageProviderCOS || strings.TrimSpace(asset.StorageKey) == "" {
-			return nil, apperror.BadRequest("参考图必须来自已上传的 COS 图片资产")
+			return nil, apperror.BadRequestKey("aiimage.input_asset.cos_required", nil, "参考图必须来自已上传的 COS 图片资产")
 		}
 		if asset.SourceType != SourceTypeUpload && asset.SourceType != SourceTypeMask && asset.SourceType != SourceTypeGenerated {
-			return nil, apperror.BadRequest("图片资产来源不支持")
+			return nil, apperror.BadRequestKey("aiimage.asset.source_type.unsupported", nil, "图片资产来源不支持")
 		}
 		byID[asset.ID] = asset
 	}
@@ -570,18 +570,18 @@ func (s *Service) engineAssets(ctx context.Context, repo Repository, rows []Task
 func (s *Service) loadCOSConfig(ctx context.Context, repo Repository) (*cosRuntimeConfig, *apperror.Error) {
 	cfg, err := repo.LoadUploadConfig(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "读取上传配置失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.upload_config.read_failed", nil, "读取上传配置失败", err)
 	}
 	if cfg == nil || cfg.Driver != StorageProviderCOS {
-		return nil, apperror.Internal("未配置有效的 COS 上传配置")
+		return nil, apperror.InternalKey("aiimage.cos_config.missing", nil, "未配置有效的 COS 上传配置")
 	}
 	secretID, err := s.secretbox.Decrypt(cfg.SecretIDEnc)
 	if err != nil || strings.TrimSpace(secretID) == "" {
-		return nil, apperror.Internal("COS SecretID 不可用")
+		return nil, apperror.InternalKey("aiimage.cos_secret_id.unavailable", nil, "COS SecretID 不可用")
 	}
 	secretKey, err := s.secretbox.Decrypt(cfg.SecretKeyEnc)
 	if err != nil || strings.TrimSpace(secretKey) == "" {
-		return nil, apperror.Internal("COS SecretKey 不可用")
+		return nil, apperror.InternalKey("aiimage.cos_secret_key.unavailable", nil, "COS SecretKey 不可用")
 	}
 	return &cosRuntimeConfig{SecretID: secretID, SecretKey: secretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, BucketDomain: cfg.BucketDomain}, nil
 }
@@ -597,14 +597,14 @@ type cosRuntimeConfig struct {
 
 func (s *Service) readCOSAsset(ctx context.Context, cfg *cosRuntimeConfig, asset ImageAsset) (platformai.ImageAsset, *apperror.Error) {
 	if s == nil || s.objectReader == nil {
-		return platformai.ImageAsset{}, apperror.Internal("COS读取器未配置")
+		return platformai.ImageAsset{}, apperror.InternalKey("aiimage.cos_reader.missing", nil, "COS读取器未配置")
 	}
 	if cfg == nil {
-		return platformai.ImageAsset{}, apperror.Internal("COS配置未加载")
+		return platformai.ImageAsset{}, apperror.InternalKey("aiimage.cos_config.not_loaded", nil, "COS配置未加载")
 	}
 	result, err := s.objectReader.Get(ctx, storagecos.GetInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: asset.StorageKey})
 	if err != nil {
-		return platformai.ImageAsset{}, apperror.Wrap(apperror.CodeInternal, 500, "读取图片资产失败", err)
+		return platformai.ImageAsset{}, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.asset.read_failed", nil, "读取图片资产失败", err)
 	}
 	mimeType := asset.MimeType
 	if strings.TrimSpace(result.ContentType) != "" {
@@ -616,10 +616,10 @@ func (s *Service) readCOSAsset(ctx context.Context, cfg *cosRuntimeConfig, asset
 func (s *Service) decryptProviderKey(apiKeyEnc string) (string, *apperror.Error) {
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return "", apperror.Internal("解密AI供应商API Key失败")
+		return "", apperror.InternalKey("aiimage.provider.api_key_decrypt_failed", nil, "解密AI供应商API Key失败")
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return "", apperror.BadRequest("AI供应商API Key未配置")
+		return "", apperror.BadRequestKey("aiimage.provider.api_key_missing", nil, "AI供应商API Key未配置")
 	}
 	return apiKey, nil
 }
@@ -642,17 +642,17 @@ func (s *Service) persistOutputs(ctx context.Context, repo Repository, task Imag
 		}
 		assetID, err := repo.CreateAsset(ctx, asset)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "保存生成图片资产失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.output_asset.save_failed", nil, "保存生成图片资产失败", err)
 		}
 		actualParams := jsonString(result.ActualParams)
 		revisedPrompt := optionalString(image.RevisedPrompt)
 		links = append(links, ImageTaskAsset{TaskID: task.ID, AssetID: assetID, Role: AssetRoleOutput, SortOrder: index + 1, ActualParamsJSON: actualParams, RevisedPrompt: revisedPrompt, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now})
 	}
 	if len(links) == 0 {
-		return apperror.Internal("图片生成结果为空")
+		return apperror.InternalKey("aiimage.generate.empty_result", nil, "图片生成结果为空")
 	}
 	if err := repo.AppendTaskAssets(ctx, links); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "保存生成图片关系失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.output_relation.save_failed", nil, "保存生成图片关系失败", err)
 	}
 	return nil
 }
@@ -665,16 +665,16 @@ func (s *Service) outputAsset(ctx context.Context, repo Repository, task ImageTa
 	if strings.TrimSpace(image.B64JSON) == "" {
 		urlValue := strings.TrimSpace(image.URL)
 		if urlValue == "" || !validURL(urlValue) {
-			return ImageAsset{}, apperror.Internal("生成图片URL不合法")
+			return ImageAsset{}, apperror.InternalKey("aiimage.output.url.invalid", nil, "生成图片URL不合法")
 		}
 		return ImageAsset{UserID: task.UserID, StorageProvider: StorageProviderRemoteURL, StorageURL: urlValue, MimeType: mimeType, SourceType: SourceTypeGenerated, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}, nil
 	}
 	body, err := base64.StdEncoding.DecodeString(strings.TrimSpace(image.B64JSON))
 	if err != nil || len(body) == 0 {
-		return ImageAsset{}, apperror.Internal("生成图片base64解码失败")
+		return ImageAsset{}, apperror.InternalKey("aiimage.output.base64_decode_failed", nil, "生成图片base64解码失败")
 	}
 	if s == nil || s.objectWriter == nil {
-		return ImageAsset{}, apperror.Internal("COS写入器未配置")
+		return ImageAsset{}, apperror.InternalKey("aiimage.cos_writer.missing", nil, "COS写入器未配置")
 	}
 	if *cfgRef == nil {
 		cfg, appErr := s.loadCOSConfig(ctx, repo)
@@ -685,11 +685,11 @@ func (s *Service) outputAsset(ctx context.Context, repo Repository, task ImageTa
 	}
 	key, err := s.outputKey(task.ID, index, mimeType, now)
 	if err != nil {
-		return ImageAsset{}, apperror.Internal("生成图片存储路径失败")
+		return ImageAsset{}, apperror.InternalKey("aiimage.output_key.build_failed", nil, "生成图片存储路径失败")
 	}
 	cfg := *cfgRef
 	if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: key, Body: body, ContentType: mimeType}); err != nil {
-		return ImageAsset{}, apperror.Wrap(apperror.CodeInternal, 500, "上传生成图片失败", err)
+		return ImageAsset{}, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.output.upload_failed", nil, "上传生成图片失败", err)
 	}
 	return ImageAsset{UserID: task.UserID, StorageProvider: StorageProviderCOS, StorageKey: key, StorageURL: publicCOSURL(*cfg, key), MimeType: mimeType, SizeBytes: int64(len(body)), SourceType: SourceTypeGenerated, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}, nil
 }

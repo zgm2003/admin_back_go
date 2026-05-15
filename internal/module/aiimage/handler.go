@@ -27,7 +27,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	var req listRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("图片任务列表参数错误"))
+		response.Error(c, apperror.BadRequestKey("aiimage.task.list.request.invalid", nil, "图片任务列表参数错误"))
 		return
 	}
 	result, appErr := h.requireService().List(c.Request.Context(), userID, ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, IsFavorite: req.IsFavorite})
@@ -39,7 +39,7 @@ func (h *Handler) Detail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	id, ok := routeID(c, "无效的图片任务ID")
+	id, ok := routeID(c, "aiimage.task.id.invalid", "无效的图片任务ID")
 	if !ok {
 		return
 	}
@@ -54,7 +54,7 @@ func (h *Handler) RegisterAsset(c *gin.Context) {
 	}
 	var req registerAssetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("图片资产参数错误"))
+		response.Error(c, apperror.BadRequestKey("aiimage.asset.request.invalid", nil, "图片资产参数错误"))
 		return
 	}
 	result, appErr := h.requireService().RegisterAsset(c.Request.Context(), RegisterAssetInput{UserID: userID, StorageProvider: req.StorageProvider, StorageKey: req.StorageKey, StorageURL: req.StorageURL, MimeType: req.MimeType, Width: req.Width, Height: req.Height, SizeBytes: req.SizeBytes, SourceType: req.SourceType})
@@ -68,7 +68,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	var req createTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("图片任务参数错误"))
+		response.Error(c, apperror.BadRequestKey("aiimage.task.request.invalid", nil, "图片任务参数错误"))
 		return
 	}
 	result, appErr := h.requireService().Create(c.Request.Context(), CreateInput{UserID: userID, AgentID: req.AgentID, Prompt: req.Prompt, Size: req.Size, Quality: req.Quality, OutputFormat: req.OutputFormat, OutputCompression: req.OutputCompression, Moderation: req.Moderation, N: req.N, InputAssetIDs: req.InputAssetIDs, MaskAssetID: req.MaskAssetID, MaskTargetAssetID: req.MaskTargetAssetID})
@@ -80,13 +80,13 @@ func (h *Handler) Favorite(c *gin.Context) {
 	if !ok {
 		return
 	}
-	id, ok := routeID(c, "无效的图片任务ID")
+	id, ok := routeID(c, "aiimage.task.id.invalid", "无效的图片任务ID")
 	if !ok {
 		return
 	}
 	var req favoriteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequest("图片收藏参数错误"))
+		response.Error(c, apperror.BadRequestKey("aiimage.favorite.request.invalid", nil, "图片收藏参数错误"))
 		return
 	}
 	result, appErr := h.requireService().Favorite(c.Request.Context(), FavoriteInput{UserID: userID, TaskID: id, IsFavorite: req.IsFavorite})
@@ -98,7 +98,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	id, ok := routeID(c, "无效的图片任务ID")
+	id, ok := routeID(c, "aiimage.task.id.invalid", "无效的图片任务ID")
 	if !ok {
 		return
 	}
@@ -119,16 +119,16 @@ func (h *Handler) requireService() HTTPService {
 func currentUserID(c *gin.Context) (uint64, bool) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
-		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return 0, false
 	}
 	return uint64(identity.UserID), true
 }
 
-func routeID(c *gin.Context, message string) (uint64, bool) {
+func routeID(c *gin.Context, messageID string, fallback string) (uint64, bool) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {
-		response.Error(c, apperror.BadRequest(message))
+		response.Error(c, apperror.BadRequestKey(messageID, nil, fallback))
 		return 0, false
 	}
 	return id, true
@@ -145,23 +145,23 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 type nilHTTPService struct{}
 
 func (nilHTTPService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI图片服务未配置")
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) List(ctx context.Context, userID uint64, query ListQuery) (*ListResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI图片服务未配置")
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Detail(ctx context.Context, userID uint64, taskID uint64) (*DetailResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI图片服务未配置")
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) RegisterAsset(ctx context.Context, input RegisterAssetInput) (*AssetDTO, *apperror.Error) {
-	return nil, apperror.Internal("AI图片服务未配置")
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Create(ctx context.Context, input CreateInput) (*CreateTaskResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI图片服务未配置")
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, *apperror.Error) {
-	return nil, apperror.Internal("AI图片服务未配置")
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error {
-	return apperror.Internal("AI图片服务未配置")
+	return apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }

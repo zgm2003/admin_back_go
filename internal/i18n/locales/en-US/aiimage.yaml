@@ -1,0 +1,63 @@
+aiimage.service_missing: AI image service is not configured
+aiimage.task.list.request.invalid: Invalid image task list request
+aiimage.task.id.invalid: Invalid image task ID
+aiimage.asset.request.invalid: Invalid image asset request
+aiimage.task.request.invalid: Invalid image task request
+aiimage.favorite.request.invalid: Invalid image favorite request
+aiimage.agent.query_failed: Failed to query image agent
+aiimage.task.status.invalid: Invalid image task status
+aiimage.task.query_failed: Failed to query image task
+aiimage.task.not_found: Image task does not exist
+aiimage.task_assets.query_failed: Failed to query image task assets
+aiimage.asset.register_failed: Failed to register image asset
+aiimage.queue_missing: Image generation queue is not configured
+aiimage.task.create_failed: Failed to create image task
+aiimage.queue_task.create_failed: Failed to create image queue task
+aiimage.queue_task.enqueue_failed: Failed to enqueue image generation task
+aiimage.favorite.status.invalid: Invalid favorite status
+aiimage.favorite.update_failed: Failed to update image favorite state
+aiimage.task.delete_failed: Failed to delete image task
+aiimage.repository_missing: AI image repository is not configured
+aiimage.agent.required: Image agent is required
+aiimage.prompt.required: Prompt is required
+aiimage.prompt.too_long: Prompt must be at most 20000 characters
+aiimage.size.invalid: Invalid image size
+aiimage.quality.invalid: Invalid image quality
+aiimage.output_format.invalid: Invalid output format
+aiimage.output_compression.invalid: Output compression must be between 0 and 100
+aiimage.moderation.invalid: Invalid moderation parameter
+aiimage.n.too_many: Generate at most 4 images per task
+aiimage.input_assets.too_many: At most 10 reference images are allowed
+aiimage.mask.requires_input: Mask image requires at least one reference image
+aiimage.mask_target.invalid: Mask target must be one of the reference images
+aiimage.asset.storage_provider.unsupported: Unsupported image storage provider
+aiimage.asset.cos_key.required: COS image key is required
+aiimage.asset.url.required: Image URL is required
+aiimage.asset.url.invalid: Invalid image URL
+aiimage.asset.mime.invalid: Invalid image MIME type
+aiimage.asset.source_type.unsupported: Unsupported image asset source
+aiimage.agent.not_found: Image agent does not exist or is disabled
+aiimage.agent.runtime_disabled: Image agent, provider, or model is disabled
+aiimage.agent.scene_missing: Agent does not enable the image generation scene
+aiimage.model.unsupported: Image playground v1 only supports gpt-image-2
+aiimage.provider.api_key_missing: AI provider API key is not configured
+aiimage.provider.unsupported: Image playground only supports OpenAI-compatible providers
+aiimage.asset.query_failed: Failed to query image assets
+aiimage.asset.not_owned: Image asset does not exist or does not belong to current user
+aiimage.input_asset.cos_required: Reference images must be uploaded COS image assets
+aiimage.upload_config.read_failed: Failed to read upload config
+aiimage.cos_config.missing: No valid COS upload config is configured
+aiimage.cos_secret_id.unavailable: COS SecretID is unavailable
+aiimage.cos_secret_key.unavailable: COS SecretKey is unavailable
+aiimage.cos_reader.missing: COS reader is not configured
+aiimage.cos_config.not_loaded: COS config is not loaded
+aiimage.asset.read_failed: Failed to read image asset
+aiimage.provider.api_key_decrypt_failed: Failed to decrypt AI provider API key
+aiimage.output_asset.save_failed: Failed to save generated image asset
+aiimage.generate.empty_result: Image generation returned no result
+aiimage.output_relation.save_failed: Failed to save generated image relation
+aiimage.output.url.invalid: Generated image URL is invalid
+aiimage.output.base64_decode_failed: Failed to decode generated image base64
+aiimage.cos_writer.missing: COS writer is not configured
+aiimage.output_key.build_failed: Failed to build generated image storage path
+aiimage.output.upload_failed: Failed to upload generated image

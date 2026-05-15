@@ -1,0 +1,63 @@
+aiimage.service_missing: AI图片服务未配置
+aiimage.task.list.request.invalid: 图片任务列表参数错误
+aiimage.task.id.invalid: 无效的图片任务ID
+aiimage.asset.request.invalid: 图片资产参数错误
+aiimage.task.request.invalid: 图片任务参数错误
+aiimage.favorite.request.invalid: 图片收藏参数错误
+aiimage.agent.query_failed: 查询图片智能体失败
+aiimage.task.status.invalid: 无效的图片任务状态
+aiimage.task.query_failed: 查询图片任务失败
+aiimage.task.not_found: 图片任务不存在
+aiimage.task_assets.query_failed: 查询图片任务资产失败
+aiimage.asset.register_failed: 注册图片资产失败
+aiimage.queue_missing: 图片生成队列未配置
+aiimage.task.create_failed: 创建图片任务失败
+aiimage.queue_task.create_failed: 创建图片队列任务失败
+aiimage.queue_task.enqueue_failed: 图片生成任务入队失败
+aiimage.favorite.status.invalid: 无效的收藏状态
+aiimage.favorite.update_failed: 更新图片收藏失败
+aiimage.task.delete_failed: 删除图片任务失败
+aiimage.repository_missing: AI图片仓储未配置
+aiimage.agent.required: 图片智能体不能为空
+aiimage.prompt.required: 提示词不能为空
+aiimage.prompt.too_long: 提示词不能超过20000个字符
+aiimage.size.invalid: 无效的图片尺寸
+aiimage.quality.invalid: 无效的图片质量
+aiimage.output_format.invalid: 无效的输出格式
+aiimage.output_compression.invalid: 输出压缩率必须在0到100之间
+aiimage.moderation.invalid: 无效的审核参数
+aiimage.n.too_many: 单次最多生成4张图片
+aiimage.input_assets.too_many: 参考图最多10张
+aiimage.mask.requires_input: 遮罩图必须配合参考图使用
+aiimage.mask_target.invalid: 遮罩目标图必须在参考图中
+aiimage.asset.storage_provider.unsupported: 不支持的图片存储类型
+aiimage.asset.cos_key.required: COS图片key不能为空
+aiimage.asset.url.required: 图片URL不能为空
+aiimage.asset.url.invalid: 图片URL不合法
+aiimage.asset.mime.invalid: 图片MIME类型不合法
+aiimage.asset.source_type.unsupported: 图片资产来源不支持
+aiimage.agent.not_found: 图片智能体不存在或未启用
+aiimage.agent.runtime_disabled: 图片智能体、供应商或模型未启用
+aiimage.agent.scene_missing: 智能体未启用图片生成场景
+aiimage.model.unsupported: 图片工作台首版只支持 gpt-image-2
+aiimage.provider.api_key_missing: AI供应商API Key未配置
+aiimage.provider.unsupported: 图片工作台只支持 OpenAI-compatible 供应商
+aiimage.asset.query_failed: 查询图片资产失败
+aiimage.asset.not_owned: 图片资产不存在或不属于当前用户
+aiimage.input_asset.cos_required: 参考图必须来自已上传的 COS 图片资产
+aiimage.upload_config.read_failed: 读取上传配置失败
+aiimage.cos_config.missing: 未配置有效的 COS 上传配置
+aiimage.cos_secret_id.unavailable: COS SecretID 不可用
+aiimage.cos_secret_key.unavailable: COS SecretKey 不可用
+aiimage.cos_reader.missing: COS读取器未配置
+aiimage.cos_config.not_loaded: COS配置未加载
+aiimage.asset.read_failed: 读取图片资产失败
+aiimage.provider.api_key_decrypt_failed: 解密AI供应商API Key失败
+aiimage.output_asset.save_failed: 保存生成图片资产失败
+aiimage.generate.empty_result: 图片生成结果为空
+aiimage.output_relation.save_failed: 保存生成图片关系失败
+aiimage.output.url.invalid: 生成图片URL不合法
+aiimage.output.base64_decode_failed: 生成图片base64解码失败
+aiimage.cos_writer.missing: COS写入器未配置
+aiimage.output_key.build_failed: 生成图片存储路径失败
+aiimage.output.upload_failed: 上传生成图片失败

@@ -656,3 +656,63 @@ legacy.eeac9fcf6de2: No valid COS upload config is configured
 legacy.f55037eca83d: Failed to delete image task
 legacy.f9dcbf5180dc: Invalid image favorite parameters
 legacy.feb47d5a3c2d: Failed to query image agents
+
+# Payment config and order legacy fallback messages.
+legacy.04364378d39a: Select an Alipay certificate file
+legacy.0544722a5269: Payment config repository is not configured
+legacy.0a5ae0c27115: Failed to sync Alipay order status
+legacy.0efa00216933: Select at least one payment method
+legacy.145bac3b76ba: Failed to change payment config status
+legacy.1d06db3f2072: Failed to update payment config
+legacy.1ed7609938a3: Failed to upload Alipay certificate
+legacy.21100ba28ab1: Payment config is not enabled
+legacy.22fb3e57d2f2: Failed to query payment config
+legacy.2575b10c7b75: Private key is required when creating a payment config
+legacy.26f3a9c980b1: Current payment order status cannot be closed
+legacy.2974f5e2335c: Invalid payment method
+legacy.2a9d8025655e: Failed to encrypt Alipay private key
+legacy.2def222b712b: Only Alipay payment config is currently supported
+legacy.30d89481f452: Failed to encode payment methods
+legacy.3a61bf586e10: Failed to delete payment config
+legacy.3f59f21ca8cf: Payment order title is required
+legacy.40c695c7892a: Alipay root certificate is unavailable
+legacy.42d914030bf0: Unknown Alipay order status
+legacy.4c81fcbd2ca5: Failed to save payment order success status
+legacy.4ff77c7dd238: Alipay private key is not configured
+legacy.521dd13a79b5: Payment certificate storage is not configured
+legacy.5d068df8513a: Payment config has not enabled this payment method
+legacy.6309915d4db9: Failed to close Alipay order
+legacy.64be4369d168: Failed to start Alipay payment
+legacy.672b530ab14c: Paid orders cannot be closed
+legacy.67443f70d285: Alipay config test failed
+legacy.6d20ff890919: Alipay public key certificate is unavailable
+legacy.6f6aa98c3c58: Invalid AI agent options request
+legacy.7756b70649e1: Failed to create payment config
+legacy.77968f830dba: Current payment order status cannot start payment
+legacy.7a4e44e8df2f: Failed to save payment order closed status
+legacy.837796c9c33a: Invalid payment order ID
+legacy.8a1d94a59a3e: Failed to read Alipay certificate file
+legacy.8cbe1873394a: Payment return URL must be an http or https URL
+legacy.8cda30b83928: Payment config name and Alipay AppID are required
+legacy.95ef70564c80: Application public key certificate is unavailable
+legacy.9869c9405115: Invalid payment config ID
+legacy.991a3de30d69: Payment order amount must be greater than 0
+legacy.a0ff450041b5: Invalid Alipay environment
+legacy.a96e9c04930e: Payment order uses a different payment config
+legacy.b6a92182a61b: Payment config does not exist
+legacy.c17a36afdb58: Failed to create payment order
+legacy.c1a2188eda1d: Payment config code cannot be changed after creation
+legacy.cbbb18674e56: Failed to query payment config options
+legacy.cd3b07f3db24: Invalid payment config list request
+legacy.d2ee1e536557: Failed to save payment link
+legacy.dfd6d6c5f4be: Failed to parse payment methods
+legacy.e0f275cb420b: Payment config provider cannot be changed after creation
+legacy.e1c17ce8fa2c: Invalid payment config status
+legacy.e619aab3ec3e: Payment config code may only contain lowercase letters, numbers, underscores, and hyphens
+legacy.f2ea735992e1: Alipay gateway is not configured
+legacy.f59d01e79da6: Invalid payment config request
+legacy.f86d6f3a8d40: Alipay notify URL must be an http or https URL
+legacy.f9461bd0da4f: Failed to close expired payment orders
+legacy.f97b18521a77: Failed to decrypt Alipay private key
+legacy.fb712dea8663: Current payment order status cannot be synced
+legacy.fe7e80e7717a: Invalid payment config status request
