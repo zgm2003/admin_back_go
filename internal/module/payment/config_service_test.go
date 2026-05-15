@@ -21,14 +21,14 @@ func TestCreateConfigEncryptsPrivateKeyAndStoresHint(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("CreateConfig error=%v", appErr)
 	}
-	if id != 1 || repo.config.AppPrivateKeyEnc != "enc:PRIVATE_KEY" || repo.config.AppPrivateKeyHint == "" {
+	if id != 1 || repo.config.PrivateKeyEnc != "enc:PRIVATE_KEY" || repo.config.PrivateKeyHint == "" {
 		t.Fatalf("unexpected stored config: %#v", repo.config)
 	}
 }
 
 func TestUpdateConfigKeepsExistingPrivateKeyWhenEmpty(t *testing.T) {
 	repo := newFakeConfigRepo()
-	repo.config = &AlipayConfig{ID: 1, Code: "alipay_default", AppPrivateKeyEnc: "enc:OLD", AppPrivateKeyHint: "***OLD", EnabledMethodsJSON: mustConfigJSON([]string{enum.PaymentMethodWeb}), Status: enum.CommonNo}
+	repo.config = &Config{ID: 1, Provider: providerAlipay, Code: "alipay_default", PrivateKeyEnc: "enc:OLD", PrivateKeyHint: "***OLD", EnabledMethodsJSON: mustConfigJSON([]string{enum.PaymentMethodWeb}), Status: enum.CommonNo}
 	service := NewService(Dependencies{Repository: repo, Secretbox: &fakeSecretbox{}, Gateway: &fakeGateway{}, CertResolver: fakeResolver{}, CertStore: &fakeCertStore{}, Now: fixedPaymentNow})
 
 	input := validConfigInput()
@@ -36,7 +36,7 @@ func TestUpdateConfigKeepsExistingPrivateKeyWhenEmpty(t *testing.T) {
 	if appErr := service.UpdateConfig(context.Background(), 1, input); appErr != nil {
 		t.Fatalf("UpdateConfig error=%v", appErr)
 	}
-	if !repo.keepPrivateKey || repo.config.AppPrivateKeyEnc != "enc:OLD" {
+	if !repo.keepPrivateKey || repo.config.PrivateKeyEnc != "enc:OLD" {
 		t.Fatalf("expected existing key to be kept, keep=%v cfg=%#v", repo.keepPrivateKey, repo.config)
 	}
 }
@@ -92,40 +92,42 @@ func TestListConfigsDoesNotExposeEncryptedPrivateKey(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("ListConfigs error=%v", appErr)
 	}
-	if len(result.List) != 1 || result.List[0].AppPrivateKeyHint == "" {
+	if len(result.List) != 1 || result.List[0].Provider != providerAlipay || result.List[0].PrivateKeyHint == "" {
 		t.Fatalf("unexpected list: %#v", result.List)
 	}
 }
 
 func validConfigInput() ConfigMutationInput {
 	return ConfigMutationInput{
-		Code:               "alipay_default",
-		Name:               "支付宝默认配置",
-		AppID:              "2026000000000000",
-		AppPrivateKey:      "PRIVATE_KEY",
-		AppCertPath:        "runtime/app.crt",
-		AlipayCertPath:     "runtime/alipay.crt",
-		AlipayRootCertPath: "runtime/root.crt",
-		NotifyURL:          "https://example.test/notify",
-		ReturnURL:          "https://example.test/return",
-		Environment:        "sandbox",
-		EnabledMethods:     []string{enum.PaymentMethodWeb},
-		Status:             enum.CommonNo,
-		Remark:             "",
+		Provider:         providerAlipay,
+		Code:             "alipay_default",
+		Name:             "支付宝默认配置",
+		AppID:            "2026000000000000",
+		AppPrivateKey:    "PRIVATE_KEY",
+		AppCertPath:      "runtime/app.crt",
+		PlatformCertPath: "runtime/alipay.crt",
+		RootCertPath:     "runtime/root.crt",
+		NotifyURL:        "https://example.test/notify",
+		ReturnURL:        "https://example.test/return",
+		Environment:      "sandbox",
+		EnabledMethods:   []string{enum.PaymentMethodWeb},
+		Status:           enum.CommonNo,
+		Remark:           "",
 	}
 }
 
-func validStoredConfig() *AlipayConfig {
-	return &AlipayConfig{
+func validStoredConfig() *Config {
+	return &Config{
 		ID:                 1,
+		Provider:           providerAlipay,
 		Code:               "alipay_default",
 		Name:               "支付宝默认配置",
 		AppID:              "2026000000000000",
-		AppPrivateKeyEnc:   "enc:PRIVATE_KEY",
-		AppPrivateKeyHint:  "***KEY",
+		PrivateKeyEnc:      "enc:PRIVATE_KEY",
+		PrivateKeyHint:     "***KEY",
 		AppCertPath:        "runtime/app.crt",
-		AlipayCertPath:     "runtime/alipay.crt",
-		AlipayRootCertPath: "runtime/root.crt",
+		PlatformCertPath:   "runtime/alipay.crt",
+		RootCertPath:       "runtime/root.crt",
 		NotifyURL:          "https://example.test/notify",
 		ReturnURL:          "https://example.test/return",
 		Environment:        "sandbox",
@@ -140,39 +142,39 @@ func validStoredConfig() *AlipayConfig {
 func fixedPaymentNow() time.Time { return time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC) }
 
 type fakeConfigRepo struct {
-	config         *AlipayConfig
+	config         *Config
 	keepPrivateKey bool
 	status         int
 }
 
 func newFakeConfigRepo() *fakeConfigRepo { return &fakeConfigRepo{} }
 
-func (r *fakeConfigRepo) ListConfigs(ctx context.Context, query ConfigListQuery) ([]AlipayConfig, int64, error) {
+func (r *fakeConfigRepo) ListConfigs(ctx context.Context, query ConfigListQuery) ([]Config, int64, error) {
 	if r.config == nil {
 		return nil, 0, nil
 	}
-	return []AlipayConfig{*r.config}, 1, nil
+	return []Config{*r.config}, 1, nil
 }
-func (r *fakeConfigRepo) GetConfig(ctx context.Context, id int64) (*AlipayConfig, error) {
+func (r *fakeConfigRepo) GetConfig(ctx context.Context, id int64) (*Config, error) {
 	if r.config == nil || r.config.ID != id {
 		return nil, nil
 	}
 	copy := *r.config
 	return &copy, nil
 }
-func (r *fakeConfigRepo) GetConfigByCode(ctx context.Context, code string) (*AlipayConfig, error) {
+func (r *fakeConfigRepo) GetConfigByCode(ctx context.Context, code string) (*Config, error) {
 	return nil, nil
 }
-func (r *fakeConfigRepo) CreateConfig(ctx context.Context, cfg AlipayConfig) (int64, error) {
+func (r *fakeConfigRepo) CreateConfig(ctx context.Context, cfg Config) (int64, error) {
 	cfg.ID = 1
 	r.config = &cfg
 	return cfg.ID, nil
 }
-func (r *fakeConfigRepo) UpdateConfig(ctx context.Context, cfg AlipayConfig, keepPrivateKey bool) error {
+func (r *fakeConfigRepo) UpdateConfig(ctx context.Context, cfg Config, keepPrivateKey bool) error {
 	r.keepPrivateKey = keepPrivateKey
 	if keepPrivateKey && r.config != nil {
-		cfg.AppPrivateKeyEnc = r.config.AppPrivateKeyEnc
-		cfg.AppPrivateKeyHint = r.config.AppPrivateKeyHint
+		cfg.PrivateKeyEnc = r.config.PrivateKeyEnc
+		cfg.PrivateKeyHint = r.config.PrivateKeyHint
 	}
 	r.config = &cfg
 	return nil

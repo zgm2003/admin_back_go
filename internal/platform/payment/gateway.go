@@ -3,13 +3,14 @@ package payment
 import "context"
 
 type ChannelConfig struct {
-	AppID          string
-	PrivateKey     string
-	AppCertPath    string
-	AlipayCertPath string
-	RootCertPath   string
-	NotifyURL      string
-	IsSandbox      bool
+	Provider         string
+	AppID            string
+	PrivateKey       string
+	AppCertPath      string
+	PlatformCertPath string
+	RootCertPath     string
+	NotifyURL        string
+	IsSandbox        bool
 }
 
 type Gateway interface {

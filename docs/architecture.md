@@ -1346,7 +1346,7 @@ upload runtime 默认只接受 COS 依赖；OSS SDK 不进入默认 go.mod/packa
 internal/module/payment                 # 支付宝配置 CRUD、证书上传、本地配置测试
 internal/platform/payment               # 证书私有存储、路径解析、支付网关接口
 internal/platform/payment/alipay        # 唯一允许接入支付宝 SDK 的平台层
-payment_alipay_configs                  # 当前唯一 active runtime 表
+payment_configs                  # 当前唯一 active runtime 表
 ```
 
 `internal/module/payment` active contract：
@@ -1366,12 +1366,12 @@ POST   /api/admin/v1/payment/configs/:id/test
 
 ```text
 payment V1 只做 Alipay config，不做钱包、订单、notify、event、refund、withdraw、reconcile、WeChat。
-配置事实源是 payment_alipay_configs；旧 channel/order/event 表已经从 live DB 清掉，不再作为 Go/Vue active runtime 或冷启动参考。
+配置事实源是 payment_configs；旧 channel/order/event 表已经从 live DB 清掉，不再作为 Go/Vue active runtime 或冷启动参考。
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
 支付宝 SDK 只允许出现在 internal/platform/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
-应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 app_private_key_enc。
+应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 private_key_enc。
 菜单路径只保留 /payment/config；/payment/channel、/payment/order、/payment/event、/pay、/wallet 必须从 users/init router 消失。
-provider、merchant_id、sign_type、extra_config 不属于当前字段合同。
+provider 是当前字段合同的一部分，但只允许 alipay；merchant_id、sign_type、extra_config 不属于当前字段合同。
 ```
 
 支付 cron 在当前 payment-config-only slice 中不注册：

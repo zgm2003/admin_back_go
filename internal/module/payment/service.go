@@ -23,6 +23,7 @@ const timeLayout = "2006-01-02 15:04:05"
 const (
 	environmentSandbox    = "sandbox"
 	environmentProduction = "production"
+	providerAlipay        = enum.PaymentProviderAlipay
 	certTypeApp           = "app_cert"
 	certTypeAlipay        = "alipay_cert"
 	certTypeAlipayRoot    = "alipay_root_cert"
@@ -91,6 +92,7 @@ func NewService(deps Dependencies) *Service {
 func (s *Service) ConfigInit(ctx context.Context) (*ConfigInitResponse, *apperror.Error) {
 	_ = ctx
 	return &ConfigInitResponse{Dict: ConfigInitDict{
+		ProviderArr:        paymentProviderOptions(),
 		EnvironmentArr:     paymentEnvironmentOptions(),
 		CommonStatusArr:    dict.CommonStatusOptions(),
 		EnabledMethodArr:   dict.PaymentMethodOptions(),
@@ -104,6 +106,7 @@ func (s *Service) ListConfigs(ctx context.Context, query ConfigListQuery) (*Conf
 		return nil, appErr
 	}
 	query.Name = strings.TrimSpace(query.Name)
+	query.Provider = strings.TrimSpace(query.Provider)
 	query.Environment = strings.TrimSpace(query.Environment)
 	rows, total, err := repo.ListConfigs(ctx, query)
 	if err != nil {
@@ -248,69 +251,80 @@ func (s *Service) TestConfig(ctx context.Context, id int64) (*ConfigTestResponse
 	return s.testConfigRow(ctx, *cfg)
 }
 
-func (s *Service) normalizeMutation(input ConfigMutationInput, existing *AlipayConfig, create bool) (AlipayConfig, bool, *apperror.Error) {
+func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config, create bool) (Config, bool, *apperror.Error) {
+	provider := strings.TrimSpace(input.Provider)
+	if provider == "" {
+		provider = providerAlipay
+	}
+	if provider != providerAlipay {
+		return Config{}, false, apperror.BadRequest("当前仅支持支付宝支付配置")
+	}
 	code := strings.TrimSpace(input.Code)
 	if code == "" || !configCodePattern.MatchString(code) {
-		return AlipayConfig{}, false, apperror.BadRequest("支付配置编码只能包含小写字母、数字、下划线和中划线")
+		return Config{}, false, apperror.BadRequest("支付配置编码只能包含小写字母、数字、下划线和中划线")
 	}
 	if existing != nil && code != existing.Code {
-		return AlipayConfig{}, false, apperror.BadRequest("支付配置编码创建后不能修改")
+		return Config{}, false, apperror.BadRequest("支付配置编码创建后不能修改")
+	}
+	if existing != nil && provider != existing.Provider {
+		return Config{}, false, apperror.BadRequest("支付配置供应商创建后不能修改")
 	}
 	name := strings.TrimSpace(input.Name)
 	appID := strings.TrimSpace(input.AppID)
 	if name == "" || appID == "" {
-		return AlipayConfig{}, false, apperror.BadRequest("支付配置名称和支付宝AppID不能为空")
+		return Config{}, false, apperror.BadRequest("支付配置名称和支付宝AppID不能为空")
 	}
 	environment := strings.TrimSpace(input.Environment)
 	if !isPaymentEnvironment(environment) {
-		return AlipayConfig{}, false, apperror.BadRequest("无效的支付宝环境")
+		return Config{}, false, apperror.BadRequest("无效的支付宝环境")
 	}
 	methods, appErr := normalizeEnabledMethods(input.EnabledMethods)
 	if appErr != nil {
-		return AlipayConfig{}, false, appErr
+		return Config{}, false, appErr
 	}
 	if !enum.IsCommonStatus(input.Status) {
-		return AlipayConfig{}, false, apperror.BadRequest("无效的支付配置状态")
+		return Config{}, false, apperror.BadRequest("无效的支付配置状态")
 	}
 	notifyURL := strings.TrimSpace(input.NotifyURL)
 	if !isHTTPURL(notifyURL) {
-		return AlipayConfig{}, false, apperror.BadRequest("支付宝异步通知地址必须是 http 或 https URL")
+		return Config{}, false, apperror.BadRequest("支付宝异步通知地址必须是 http 或 https URL")
 	}
 	returnURL := strings.TrimSpace(input.ReturnURL)
 	if returnURL != "" && !isHTTPURL(returnURL) {
-		return AlipayConfig{}, false, apperror.BadRequest("支付宝同步返回地址必须是 http 或 https URL")
+		return Config{}, false, apperror.BadRequest("支付宝同步返回地址必须是 http 或 https URL")
 	}
 	key := strings.TrimSpace(input.AppPrivateKey)
 	keepPrivateKey := !create && key == ""
 	keyEnc := ""
 	keyHint := ""
 	if keepPrivateKey {
-		keyEnc = existing.AppPrivateKeyEnc
-		keyHint = existing.AppPrivateKeyHint
+		keyEnc = existing.PrivateKeyEnc
+		keyHint = existing.PrivateKeyHint
 	} else {
 		if key == "" {
-			return AlipayConfig{}, false, apperror.BadRequest("新增支付配置必须填写应用私钥")
+			return Config{}, false, apperror.BadRequest("新增支付配置必须填写应用私钥")
 		}
 		enc, err := s.secretbox.Encrypt(key)
 		if err != nil {
-			return AlipayConfig{}, false, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "加密支付宝应用私钥失败", err)
+			return Config{}, false, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "加密支付宝应用私钥失败", err)
 		}
 		keyEnc = enc
 		keyHint = secretbox.Hint(key)
 	}
 	methodsJSON, err := json.Marshal(methods)
 	if err != nil {
-		return AlipayConfig{}, false, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "编码支付方式失败", err)
+		return Config{}, false, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "编码支付方式失败", err)
 	}
-	return AlipayConfig{
+	return Config{
+		Provider:           provider,
 		Code:               code,
 		Name:               name,
 		AppID:              appID,
-		AppPrivateKeyEnc:   keyEnc,
-		AppPrivateKeyHint:  keyHint,
+		PrivateKeyEnc:      keyEnc,
+		PrivateKeyHint:     keyHint,
 		AppCertPath:        strings.TrimSpace(input.AppCertPath),
-		AlipayCertPath:     strings.TrimSpace(input.AlipayCertPath),
-		AlipayRootCertPath: strings.TrimSpace(input.AlipayRootCertPath),
+		PlatformCertPath:   strings.TrimSpace(input.PlatformCertPath),
+		RootCertPath:       strings.TrimSpace(input.RootCertPath),
 		NotifyURL:          notifyURL,
 		ReturnURL:          returnURL,
 		Environment:        environment,
@@ -321,9 +335,12 @@ func (s *Service) normalizeMutation(input ConfigMutationInput, existing *AlipayC
 	}, keepPrivateKey, nil
 }
 
-func (s *Service) testConfigRow(ctx context.Context, cfg AlipayConfig) (*ConfigTestResponse, *apperror.Error) {
+func (s *Service) testConfigRow(ctx context.Context, cfg Config) (*ConfigTestResponse, *apperror.Error) {
 	if s == nil || s.gateway == nil {
 		return nil, apperror.Internal("支付宝网关未配置")
+	}
+	if strings.TrimSpace(cfg.Provider) != providerAlipay {
+		return nil, apperror.BadRequest("当前仅支持支付宝支付配置")
 	}
 	if !isPaymentEnvironment(strings.TrimSpace(cfg.Environment)) {
 		return nil, apperror.BadRequest("无效的支付宝环境")
@@ -331,7 +348,7 @@ func (s *Service) testConfigRow(ctx context.Context, cfg AlipayConfig) (*ConfigT
 	if _, appErr := decodeEnabledMethods(cfg.EnabledMethodsJSON); appErr != nil {
 		return nil, appErr
 	}
-	privateKey, err := s.secretbox.Decrypt(cfg.AppPrivateKeyEnc)
+	privateKey, err := s.secretbox.Decrypt(cfg.PrivateKeyEnc)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解密支付宝应用私钥失败", err)
 	}
@@ -342,22 +359,23 @@ func (s *Service) testConfigRow(ctx context.Context, cfg AlipayConfig) (*ConfigT
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "应用公钥证书不可用", err)
 	}
-	alipayCertPath, err := s.certResolver.Resolve(cfg.AlipayCertPath)
+	alipayCertPath, err := s.certResolver.Resolve(cfg.PlatformCertPath)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝公钥证书不可用", err)
 	}
-	rootCertPath, err := s.certResolver.Resolve(cfg.AlipayRootCertPath)
+	rootCertPath, err := s.certResolver.Resolve(cfg.RootCertPath)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝根证书不可用", err)
 	}
 	platformCfg := gateway.ChannelConfig{
-		AppID:          cfg.AppID,
-		PrivateKey:     privateKey,
-		AppCertPath:    appCertPath,
-		AlipayCertPath: alipayCertPath,
-		RootCertPath:   rootCertPath,
-		NotifyURL:      cfg.NotifyURL,
-		IsSandbox:      cfg.Environment == environmentSandbox,
+		Provider:         cfg.Provider,
+		AppID:            cfg.AppID,
+		PrivateKey:       privateKey,
+		AppCertPath:      appCertPath,
+		PlatformCertPath: alipayCertPath,
+		RootCertPath:     rootCertPath,
+		NotifyURL:        cfg.NotifyURL,
+		IsSandbox:        cfg.Environment == environmentSandbox,
 	}
 	if err := s.gateway.TestConfig(ctx, platformCfg); err != nil {
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝配置测试失败", err)
@@ -372,20 +390,22 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func configListItem(row AlipayConfig) (ConfigListItem, *apperror.Error) {
+func configListItem(row Config) (ConfigListItem, *apperror.Error) {
 	methods, appErr := decodeEnabledMethods(row.EnabledMethodsJSON)
 	if appErr != nil {
 		return ConfigListItem{}, appErr
 	}
 	return ConfigListItem{
 		ID:                 row.ID,
+		Provider:           row.Provider,
+		ProviderText:       providerText(row.Provider),
 		Code:               row.Code,
 		Name:               row.Name,
 		AppID:              row.AppID,
-		AppPrivateKeyHint:  row.AppPrivateKeyHint,
+		PrivateKeyHint:     row.PrivateKeyHint,
 		AppCertPath:        row.AppCertPath,
-		AlipayCertPath:     row.AlipayCertPath,
-		AlipayRootCertPath: row.AlipayRootCertPath,
+		PlatformCertPath:   row.PlatformCertPath,
+		RootCertPath:       row.RootCertPath,
 		NotifyURL:          row.NotifyURL,
 		ReturnURL:          row.ReturnURL,
 		Environment:        row.Environment,
@@ -444,6 +464,12 @@ func isPaymentEnvironment(value string) bool {
 	return value == environmentSandbox || value == environmentProduction
 }
 
+func paymentProviderOptions() []dict.Option[string] {
+	return []dict.Option[string]{
+		{Label: "支付宝", Value: providerAlipay},
+	}
+}
+
 func isHTTPURL(value string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil || parsed.Host == "" {
@@ -464,6 +490,15 @@ func paymentCertificateTypeOptions() []dict.Option[string] {
 		{Label: "应用公钥证书", Value: certTypeApp},
 		{Label: "支付宝公钥证书", Value: certTypeAlipay},
 		{Label: "支付宝根证书", Value: certTypeAlipayRoot},
+	}
+}
+
+func providerText(value string) string {
+	switch value {
+	case providerAlipay:
+		return "支付宝"
+	default:
+		return value
 	}
 }
 

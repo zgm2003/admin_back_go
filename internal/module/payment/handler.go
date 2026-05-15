@@ -31,6 +31,7 @@ func (h *Handler) ListConfigs(c *gin.Context) {
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Name:        req.Name,
+		Provider:    req.Provider,
 		Environment: req.Environment,
 		Status:      req.Status,
 	})
@@ -134,19 +135,20 @@ func routeInt64(c *gin.Context, name string, msg string) (int64, bool) {
 
 func configInput(req configMutationRequest) ConfigMutationInput {
 	return ConfigMutationInput{
-		Code:               req.Code,
-		Name:               req.Name,
-		AppID:              req.AppID,
-		AppPrivateKey:      req.AppPrivateKey,
-		AppCertPath:        req.AppCertPath,
-		AlipayCertPath:     req.AlipayCertPath,
-		AlipayRootCertPath: req.AlipayRootCertPath,
-		NotifyURL:          req.NotifyURL,
-		ReturnURL:          req.ReturnURL,
-		Environment:        req.Environment,
-		EnabledMethods:     req.EnabledMethods,
-		Status:             req.Status,
-		Remark:             req.Remark,
+		Provider:         req.Provider,
+		Code:             req.Code,
+		Name:             req.Name,
+		AppID:            req.AppID,
+		AppPrivateKey:    req.AppPrivateKey,
+		AppCertPath:      req.AppCertPath,
+		PlatformCertPath: req.PlatformCertPath,
+		RootCertPath:     req.RootCertPath,
+		NotifyURL:        req.NotifyURL,
+		ReturnURL:        req.ReturnURL,
+		Environment:      req.Environment,
+		EnabledMethods:   req.EnabledMethods,
+		Status:           req.Status,
+		Remark:           req.Remark,
 	}
 }
 

@@ -2683,22 +2683,22 @@ func TestRouterInstallsPaymentConfigRoutesOnly(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/configs?current_page=2&page_size=30&name=ali&environment=sandbox&status=1", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/configs?current_page=2&page_size=30&name=ali&provider=alipay&environment=sandbox&status=1", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected payment config list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if paymentService.configListQuery.CurrentPage != 2 || paymentService.configListQuery.Environment != "sandbox" || paymentService.configListQuery.Status != 1 {
+	if paymentService.configListQuery.CurrentPage != 2 || paymentService.configListQuery.Provider != "alipay" || paymentService.configListQuery.Environment != "sandbox" || paymentService.configListQuery.Status != 1 {
 		t.Fatalf("payment config list query mismatch: %#v", paymentService.configListQuery)
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/configs", strings.NewReader(`{"code":"alipay_default","name":"支付宝","app_id":"2026000000000000","app_private_key":"KEY","app_cert_path":"runtime/app.crt","alipay_cert_path":"runtime/alipay.crt","alipay_root_cert_path":"runtime/root.crt","notify_url":"https://example.test/notify","return_url":"https://example.test/return","environment":"sandbox","enabled_methods":["web"],"status":2,"remark":""}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/configs", strings.NewReader(`{"provider":"alipay","code":"alipay_default","name":"支付宝","app_id":"2026000000000000","app_private_key":"KEY","app_cert_path":"runtime/app.crt","platform_cert_path":"runtime/alipay.crt","root_cert_path":"runtime/root.crt","notify_url":"https://example.test/notify","return_url":"https://example.test/return","environment":"sandbox","enabled_methods":["web"],"status":2,"remark":""}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.createInput.Code != "alipay_default" {
+	if recorder.Code != http.StatusOK || paymentService.createInput.Provider != "alipay" || paymentService.createInput.Code != "alipay_default" || paymentService.createInput.PlatformCertPath == "" || paymentService.createInput.RootCertPath == "" {
 		t.Fatalf("expected payment config create route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
 	}
 

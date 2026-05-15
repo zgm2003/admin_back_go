@@ -9,3 +9,7 @@ import (
 func validatePaymentMethod(fl playground.FieldLevel) bool {
 	return enum.IsPaymentMethod(trimmedString(fl.Field()))
 }
+
+func validatePaymentProvider(fl playground.FieldLevel) bool {
+	return enum.IsPaymentProvider(trimmedString(fl.Field()))
+}

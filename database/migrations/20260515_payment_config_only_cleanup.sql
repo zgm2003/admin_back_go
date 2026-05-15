@@ -1,7 +1,7 @@
 -- Payment config only cleanup.
 -- After 20260515_payment_config_rebuild_v1.sql copies Alipay config into
--- payment_alipay_configs, the old channel/order/event payment runtime is no
--- longer an active source of truth.
+-- payment_configs, the old channel/order/event payment runtime is no longer
+-- an active source of truth.
 
 DELETE rp
 FROM `role_permissions` rp

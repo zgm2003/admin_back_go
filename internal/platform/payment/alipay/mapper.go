@@ -22,7 +22,7 @@ func MapChannelConfig(cfg paymentcore.ChannelConfig) ChannelConfig {
 		AppID:          cfg.AppID,
 		PrivateKey:     cfg.PrivateKey,
 		AppCertPath:    cfg.AppCertPath,
-		AlipayCertPath: cfg.AlipayCertPath,
+		AlipayCertPath: cfg.PlatformCertPath,
 		RootCertPath:   cfg.RootCertPath,
 		NotifyURL:      cfg.NotifyURL,
 		IsSandbox:      cfg.IsSandbox,

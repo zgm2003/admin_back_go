@@ -45,6 +45,7 @@ func Register() error {
 			"notification_target_type":   validateNotificationTargetType,
 			"notification_task_status":   validateNotificationTaskStatus,
 			"notification_task_platform": validateNotificationTaskPlatform,
+			"payment_provider":           validatePaymentProvider,
 			"payment_method":             validatePaymentMethod,
 		}
 		for tag, fn := range validators {

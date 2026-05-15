@@ -10,13 +10,13 @@ import (
 
 func TestMapChannelConfig(t *testing.T) {
 	cfg := MapChannelConfig(paymentcore.ChannelConfig{
-		AppID:          "app",
-		PrivateKey:     "private",
-		AppCertPath:    "app.crt",
-		AlipayCertPath: "alipay.crt",
-		RootCertPath:   "root.crt",
-		NotifyURL:      "https://notify",
-		IsSandbox:      true,
+		AppID:            "app",
+		PrivateKey:       "private",
+		AppCertPath:      "app.crt",
+		PlatformCertPath: "alipay.crt",
+		RootCertPath:     "root.crt",
+		NotifyURL:        "https://notify",
+		IsSandbox:        true,
 	})
 	if cfg.AppID != "app" || cfg.PrivateKey != "private" || !cfg.IsSandbox {
 		t.Fatalf("unexpected mapped config: %#v", cfg)

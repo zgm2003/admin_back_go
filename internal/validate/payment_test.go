@@ -10,17 +10,24 @@ import (
 
 func TestPaymentMethodValidation(t *testing.T) {
 	type payload struct {
-		Method string `validate:"payment_method"`
+		Provider string `validate:"payment_provider"`
+		Method   string `validate:"payment_method"`
 	}
 	engine := validator.New()
+	if err := engine.RegisterValidation("payment_provider", validatePaymentProvider); err != nil {
+		t.Fatalf("register payment_provider: %v", err)
+	}
 	if err := engine.RegisterValidation("payment_method", validatePaymentMethod); err != nil {
 		t.Fatalf("register payment_method: %v", err)
 	}
 
-	if err := engine.Struct(payload{Method: enum.PaymentMethodWeb}); err != nil {
-		t.Fatalf("valid payment method rejected: %v", err)
+	if err := engine.Struct(payload{Provider: enum.PaymentProviderAlipay, Method: enum.PaymentMethodWeb}); err != nil {
+		t.Fatalf("valid payment provider/method rejected: %v", err)
 	}
-	if err := engine.Struct(payload{Method: "scan"}); err == nil {
+	if err := engine.Struct(payload{Provider: "wechat", Method: enum.PaymentMethodWeb}); err == nil {
+		t.Fatalf("invalid payment provider accepted")
+	}
+	if err := engine.Struct(payload{Provider: enum.PaymentProviderAlipay, Method: "scan"}); err == nil {
 		t.Fatalf("invalid payment method accepted")
 	}
 }

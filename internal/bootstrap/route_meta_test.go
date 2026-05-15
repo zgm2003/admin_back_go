@@ -83,7 +83,7 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/configs", "payment_config_add"},
 		{http.MethodPut, "/api/admin/v1/payment/configs/:id", "payment_config_edit"},
 		{http.MethodPatch, "/api/admin/v1/payment/configs/:id/status", "payment_config_status"},
-		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "payment_config_delete"},
+		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "payment_config_del"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates", "payment_config_upload_cert"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "payment_config_test"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},

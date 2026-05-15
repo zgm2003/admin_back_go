@@ -726,11 +726,13 @@ function Assert-PaymentConfigInit($Response) {
   $methods = Get-ObjectArray $Response.data.dict.enabled_method_arr
   $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
   $certTypes = Get-ObjectArray $Response.data.dict.certificate_type_arr
-  if ($environments.Count -ne 2 -or $methods.Count -ne 2 -or $statuses.Count -ne 2 -or $certTypes.Count -ne 3) {
+  $providers = Get-ObjectArray $Response.data.dict.provider_arr
+  if ($providers.Count -ne 1 -or [string]$providers[0].value -ne 'alipay' -or $environments.Count -ne 2 -or $methods.Count -ne 2 -or $statuses.Count -ne 2 -or $certTypes.Count -ne 3) {
     throw "payment config init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
+    ProviderCount = $providers.Count
     EnvironmentCount = $environments.Count
     MethodCount = $methods.Count
     StatusCount = $statuses.Count
@@ -752,8 +754,11 @@ function Assert-PaymentConfigList($Response) {
     if ([string]::IsNullOrWhiteSpace([string]$item.app_id) -or $null -eq $item.enabled_methods -or [string]::IsNullOrWhiteSpace([string]$item.enabled_methods_text)) {
       throw "payment config item missing Alipay fields: $($item | ConvertTo-Json -Depth 12)"
     }
+    if ([string]$item.provider -ne 'alipay' -or [string]::IsNullOrWhiteSpace([string]$item.provider_text)) {
+      throw "payment config item provider mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
     $itemJson = $item | ConvertTo-Json -Depth 12
-    if ($itemJson -match '"(app_private_key|app_private_key_enc|private_key|private_key_enc|provider|merchant_id|sign_type|extra_config)"\s*:') {
+    if ($itemJson -match '"(app_private_key|app_private_key_enc|private_key|private_key_enc|merchant_id|sign_type|extra_config)"\s*:') {
       throw "payment config list leaked retired or secret fields: $itemJson"
     }
   }

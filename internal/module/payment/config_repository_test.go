@@ -2,9 +2,9 @@ package payment
 
 import "testing"
 
-func TestAlipayConfigTableName(t *testing.T) {
-	if (AlipayConfig{}).TableName() != "payment_alipay_configs" {
-		t.Fatalf("unexpected table name: %s", (AlipayConfig{}).TableName())
+func TestConfigTableName(t *testing.T) {
+	if (Config{}).TableName() != "payment_configs" {
+		t.Fatalf("unexpected table name: %s", (Config{}).TableName())
 	}
 }
 

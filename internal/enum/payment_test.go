@@ -7,3 +7,9 @@ func TestPaymentMethodEnums(t *testing.T) {
 		t.Fatalf("payment method enum validation mismatch")
 	}
 }
+
+func TestPaymentProviderEnums(t *testing.T) {
+	if !IsPaymentProvider(PaymentProviderAlipay) || IsPaymentProvider("wechat") {
+		t.Fatalf("payment provider enum validation mismatch")
+	}
+}

@@ -85,7 +85,7 @@ func main() {
 	_ = config.LoadDotEnv()
 	cfg := config.Load()
 	if cfg.MySQL.DSN == "" {
-		fmt.Fprintln(os.Stderr, "MYSQL_DSN is empty; payment_alipay_configs cert paths require DB")
+		fmt.Fprintln(os.Stderr, "MYSQL_DSN is empty; payment_configs cert paths require DB")
 		os.Exit(2)
 	}
 
@@ -103,11 +103,12 @@ func main() {
 SELECT
   code,
   app_cert_path AS public_cert_path,
-  alipay_cert_path AS platform_cert_path,
-  alipay_root_cert_path AS root_cert_path
-FROM payment_alipay_configs
+  platform_cert_path,
+  root_cert_path
+FROM payment_configs
 WHERE status = 1
   AND is_del = 2
+  AND provider = 'alipay'
 ORDER BY id
 LIMIT 1`)
 	if err != nil {
@@ -130,7 +131,7 @@ LIMIT 1`)
 		os.Exit(1)
 	}
 	if len(out) == 0 {
-		fmt.Fprintln(os.Stderr, "no enabled payment_alipay_configs row")
+		fmt.Fprintln(os.Stderr, "no enabled payment_configs row")
 		os.Exit(3)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
@@ -223,7 +224,7 @@ if ([string]::IsNullOrWhiteSpace($CertBaseDir)) {
 }
 
 if ($NoDb) {
-  throw "payment config certificate check requires DB because certificate paths are stored in payment_alipay_configs"
+  throw "payment config certificate check requires DB because certificate paths are stored in payment_configs"
 }
 
 $storedPaths = Get-DbAlipayCertPaths $RepoRoot

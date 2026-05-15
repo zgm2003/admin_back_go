@@ -12,53 +12,55 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	}
 
 	type request struct {
-		Status         int    `binding:"required,common_status"`
-		Platform       string `binding:"required,platform_scope"`
-		Code           string `binding:"required,platform_code"`
-		Type           int    `binding:"required,permission_type"`
-		LoginType      string `binding:"required,auth_platform_login_type"`
-		CaptchaType    string `binding:"required,captcha_type"`
-		Scene          string `binding:"required,verify_code_scene"`
-		Sex            int    `binding:"user_sex"`
-		LogLevel       string `binding:"required,log_level"`
-		ValueType      int    `binding:"required,system_setting_value_type"`
-		Driver         string `binding:"required,upload_driver"`
-		ImageExt       string `binding:"required,upload_image_ext"`
-		FileExt        string `binding:"required,upload_file_ext"`
-		Folder         string `binding:"required,upload_folder"`
-		VerifyType     string `binding:"required,user_verify_type"`
-		NotifyType     int    `binding:"required,notification_type"`
-		NotifyLevel    int    `binding:"required,notification_level"`
-		TargetType     int    `binding:"required,notification_target_type"`
-		TaskStatus     int    `binding:"required,notification_task_status"`
-		TaskPlatform   string `binding:"required,notification_task_platform"`
-		ClientPlatform string `binding:"required,client_platform"`
-		PaymentMethod  string `binding:"required,payment_method"`
+		Status          int    `binding:"required,common_status"`
+		Platform        string `binding:"required,platform_scope"`
+		Code            string `binding:"required,platform_code"`
+		Type            int    `binding:"required,permission_type"`
+		LoginType       string `binding:"required,auth_platform_login_type"`
+		CaptchaType     string `binding:"required,captcha_type"`
+		Scene           string `binding:"required,verify_code_scene"`
+		Sex             int    `binding:"user_sex"`
+		LogLevel        string `binding:"required,log_level"`
+		ValueType       int    `binding:"required,system_setting_value_type"`
+		Driver          string `binding:"required,upload_driver"`
+		ImageExt        string `binding:"required,upload_image_ext"`
+		FileExt         string `binding:"required,upload_file_ext"`
+		Folder          string `binding:"required,upload_folder"`
+		VerifyType      string `binding:"required,user_verify_type"`
+		NotifyType      int    `binding:"required,notification_type"`
+		NotifyLevel     int    `binding:"required,notification_level"`
+		TargetType      int    `binding:"required,notification_target_type"`
+		TaskStatus      int    `binding:"required,notification_task_status"`
+		TaskPlatform    string `binding:"required,notification_task_platform"`
+		ClientPlatform  string `binding:"required,client_platform"`
+		PaymentProvider string `binding:"required,payment_provider"`
+		PaymentMethod   string `binding:"required,payment_method"`
 	}
 
 	valid := request{
-		Status:         1,
-		Platform:       "admin",
-		Code:           "mini_app",
-		Type:           2,
-		LoginType:      "password",
-		CaptchaType:    "slide",
-		Scene:          "login",
-		Sex:            1,
-		LogLevel:       "ERROR",
-		ValueType:      4,
-		Driver:         "cos",
-		ImageExt:       "png",
-		FileExt:        "pdf",
-		Folder:         "ai-agents",
-		VerifyType:     "password",
-		NotifyType:     1,
-		NotifyLevel:    2,
-		TargetType:     3,
-		TaskStatus:     4,
-		TaskPlatform:   "all",
-		ClientPlatform: "windows-x86_64",
-		PaymentMethod:  "web",
+		Status:          1,
+		Platform:        "admin",
+		Code:            "mini_app",
+		Type:            2,
+		LoginType:       "password",
+		CaptchaType:     "slide",
+		Scene:           "login",
+		Sex:             1,
+		LogLevel:        "ERROR",
+		ValueType:       4,
+		Driver:          "cos",
+		ImageExt:        "png",
+		FileExt:         "pdf",
+		Folder:          "ai-agents",
+		VerifyType:      "password",
+		NotifyType:      1,
+		NotifyLevel:     2,
+		TargetType:      3,
+		TaskStatus:      4,
+		TaskPlatform:    "all",
+		ClientPlatform:  "windows-x86_64",
+		PaymentProvider: "alipay",
+		PaymentMethod:   "web",
 	}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid request, got %v", err)
@@ -134,6 +136,12 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	invalid.ClientPlatform = "linux-x86_64"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid client platform to fail")
+	}
+
+	invalid = valid
+	invalid.PaymentProvider = "wechat"
+	if err := binding.Validator.ValidateStruct(invalid); err == nil {
+		t.Fatalf("expected invalid payment provider to fail")
 	}
 
 	invalid = valid

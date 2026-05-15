@@ -2,17 +2,20 @@ package payment
 
 import "time"
 
-// AlipayConfig is the active payment configuration table for V1.
-type AlipayConfig struct {
+// Config is the active payment configuration table for V1.
+// V1 only accepts provider=alipay, but the table name and common credential
+// columns belong to the payment-config domain instead of the Alipay adapter.
+type Config struct {
 	ID                 int64     `gorm:"column:id;primaryKey"`
+	Provider           string    `gorm:"column:provider"`
 	Code               string    `gorm:"column:code"`
 	Name               string    `gorm:"column:name"`
 	AppID              string    `gorm:"column:app_id"`
-	AppPrivateKeyEnc   string    `gorm:"column:app_private_key_enc"`
-	AppPrivateKeyHint  string    `gorm:"column:app_private_key_hint"`
+	PrivateKeyEnc      string    `gorm:"column:private_key_enc"`
+	PrivateKeyHint     string    `gorm:"column:private_key_hint"`
 	AppCertPath        string    `gorm:"column:app_cert_path"`
-	AlipayCertPath     string    `gorm:"column:alipay_cert_path"`
-	AlipayRootCertPath string    `gorm:"column:alipay_root_cert_path"`
+	PlatformCertPath   string    `gorm:"column:platform_cert_path"`
+	RootCertPath       string    `gorm:"column:root_cert_path"`
 	NotifyURL          string    `gorm:"column:notify_url"`
 	ReturnURL          string    `gorm:"column:return_url"`
 	Environment        string    `gorm:"column:environment"`
@@ -24,4 +27,4 @@ type AlipayConfig struct {
 	UpdatedAt          time.Time `gorm:"column:updated_at"`
 }
 
-func (AlipayConfig) TableName() string { return "payment_alipay_configs" }
+func (Config) TableName() string { return "payment_configs" }

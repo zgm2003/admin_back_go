@@ -20,6 +20,7 @@ type ConfigInitResponse struct {
 }
 
 type ConfigInitDict struct {
+	ProviderArr        []dict.Option[string] `json:"provider_arr"`
 	EnvironmentArr     []dict.Option[string] `json:"environment_arr"`
 	CommonStatusArr    []dict.Option[int]    `json:"common_status_arr"`
 	EnabledMethodArr   []dict.Option[string] `json:"enabled_method_arr"`
@@ -30,6 +31,7 @@ type ConfigListQuery struct {
 	CurrentPage int
 	PageSize    int
 	Name        string
+	Provider    string
 	Environment string
 	Status      int
 }
@@ -41,13 +43,15 @@ type ConfigListResponse struct {
 
 type ConfigListItem struct {
 	ID                 int64    `json:"id"`
+	Provider           string   `json:"provider"`
+	ProviderText       string   `json:"provider_text"`
 	Code               string   `json:"code"`
 	Name               string   `json:"name"`
 	AppID              string   `json:"app_id"`
-	AppPrivateKeyHint  string   `json:"app_private_key_hint"`
+	PrivateKeyHint     string   `json:"private_key_hint"`
 	AppCertPath        string   `json:"app_cert_path"`
-	AlipayCertPath     string   `json:"alipay_cert_path"`
-	AlipayRootCertPath string   `json:"alipay_root_cert_path"`
+	PlatformCertPath   string   `json:"platform_cert_path"`
+	RootCertPath       string   `json:"root_cert_path"`
 	NotifyURL          string   `json:"notify_url"`
 	ReturnURL          string   `json:"return_url"`
 	Environment        string   `json:"environment"`
@@ -62,20 +66,21 @@ type ConfigListItem struct {
 }
 
 type ConfigMutationInput struct {
-	ID                 int64
-	Code               string
-	Name               string
-	AppID              string
-	AppPrivateKey      string
-	AppCertPath        string
-	AlipayCertPath     string
-	AlipayRootCertPath string
-	NotifyURL          string
-	ReturnURL          string
-	Environment        string
-	EnabledMethods     []string
-	Status             int
-	Remark             string
+	ID               int64
+	Provider         string
+	Code             string
+	Name             string
+	AppID            string
+	AppPrivateKey    string
+	AppCertPath      string
+	PlatformCertPath string
+	RootCertPath     string
+	NotifyURL        string
+	ReturnURL        string
+	Environment      string
+	EnabledMethods   []string
+	Status           int
+	Remark           string
 }
 
 type CertificateUploadInput struct {
