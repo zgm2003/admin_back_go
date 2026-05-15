@@ -111,7 +111,6 @@ func (r *GormRepository) UpdateConfig(ctx context.Context, cfg Config, keepPriva
 		"platform_cert_path":   cfg.PlatformCertPath,
 		"root_cert_path":       cfg.RootCertPath,
 		"notify_url":           cfg.NotifyURL,
-		"return_url":           cfg.ReturnURL,
 		"environment":          cfg.Environment,
 		"enabled_methods_json": cfg.EnabledMethodsJSON,
 		"status":               cfg.Status,

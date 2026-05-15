@@ -289,10 +289,6 @@ func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config,
 	if !isHTTPURL(notifyURL) {
 		return Config{}, false, apperror.BadRequest("支付宝异步通知地址必须是 http 或 https URL")
 	}
-	returnURL := strings.TrimSpace(input.ReturnURL)
-	if returnURL != "" && !isHTTPURL(returnURL) {
-		return Config{}, false, apperror.BadRequest("支付宝同步返回地址必须是 http 或 https URL")
-	}
 	key := strings.TrimSpace(input.AppPrivateKey)
 	keepPrivateKey := !create && key == ""
 	keyEnc := ""
@@ -326,7 +322,6 @@ func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config,
 		PlatformCertPath:   strings.TrimSpace(input.PlatformCertPath),
 		RootCertPath:       strings.TrimSpace(input.RootCertPath),
 		NotifyURL:          notifyURL,
-		ReturnURL:          returnURL,
 		Environment:        environment,
 		EnabledMethodsJSON: string(methodsJSON),
 		Status:             input.Status,
@@ -407,7 +402,6 @@ func configListItem(row Config) (ConfigListItem, *apperror.Error) {
 		PlatformCertPath:   row.PlatformCertPath,
 		RootCertPath:       row.RootCertPath,
 		NotifyURL:          row.NotifyURL,
-		ReturnURL:          row.ReturnURL,
 		Environment:        row.Environment,
 		EnvironmentText:    environmentText(row.Environment),
 		EnabledMethods:     methods,

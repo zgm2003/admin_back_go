@@ -2694,7 +2694,7 @@ func TestRouterInstallsPaymentConfigRoutesOnly(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/configs", strings.NewReader(`{"provider":"alipay","code":"alipay_default","name":"支付宝","app_id":"2026000000000000","app_private_key":"KEY","app_cert_path":"runtime/app.crt","platform_cert_path":"runtime/alipay.crt","root_cert_path":"runtime/root.crt","notify_url":"https://example.test/notify","return_url":"https://example.test/return","environment":"sandbox","enabled_methods":["web"],"status":2,"remark":""}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/configs", strings.NewReader(`{"provider":"alipay","code":"alipay_default","name":"支付宝","app_id":"2026000000000000","app_private_key":"KEY","app_cert_path":"runtime/app.crt","platform_cert_path":"runtime/alipay.crt","root_cert_path":"runtime/root.crt","notify_url":"https://example.test/notify","environment":"sandbox","enabled_methods":["web"],"status":2,"remark":""}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)

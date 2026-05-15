@@ -144,7 +144,6 @@ func configInput(req configMutationRequest) ConfigMutationInput {
 		PlatformCertPath: req.PlatformCertPath,
 		RootCertPath:     req.RootCertPath,
 		NotifyURL:        req.NotifyURL,
-		ReturnURL:        req.ReturnURL,
 		Environment:      req.Environment,
 		EnabledMethods:   req.EnabledMethods,
 		Status:           req.Status,

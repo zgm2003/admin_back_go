@@ -53,7 +53,6 @@ type ConfigListItem struct {
 	PlatformCertPath   string   `json:"platform_cert_path"`
 	RootCertPath       string   `json:"root_cert_path"`
 	NotifyURL          string   `json:"notify_url"`
-	ReturnURL          string   `json:"return_url"`
 	Environment        string   `json:"environment"`
 	EnvironmentText    string   `json:"environment_text"`
 	EnabledMethods     []string `json:"enabled_methods"`
@@ -76,7 +75,6 @@ type ConfigMutationInput struct {
 	PlatformCertPath string
 	RootCertPath     string
 	NotifyURL        string
-	ReturnURL        string
 	Environment      string
 	EnabledMethods   []string
 	Status           int

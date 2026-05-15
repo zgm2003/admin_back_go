@@ -439,6 +439,20 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/api/admin/v1/payment/configs"},
+		{http.MethodPut, "/api/admin/v1/payment/configs/:id"},
+		{http.MethodPost, "/api/admin/v1/payment/certificates"},
+	} {
+		rule := rules[middleware.NewRouteKey(tt.method, tt.path)]
+		if rule.Module != "payment_config" || !rule.SkipRequestPayload {
+			t.Fatalf("payment config operation rule must skip private key/cert request payloads: %s %s %#v", tt.method, tt.path, rule)
+		}
+	}
+
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
 		{http.MethodPost, "/api/admin/v1/ai-images/assets"},
 		{http.MethodPost, "/api/admin/v1/ai-images"},
 		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite"},

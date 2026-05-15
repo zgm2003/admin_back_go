@@ -454,14 +454,16 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Title:  "批量删除定时任务",
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/configs"): {
-			Module: "payment_config",
-			Action: "create",
-			Title:  "新增支付配置",
+			Module:             "payment_config",
+			Action:             "create",
+			Title:              "新增支付配置",
+			SkipRequestPayload: true,
 		},
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/payment/configs/:id"): {
-			Module: "payment_config",
-			Action: "update",
-			Title:  "编辑支付配置",
+			Module:             "payment_config",
+			Action:             "update",
+			Title:              "编辑支付配置",
+			SkipRequestPayload: true,
 		},
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/payment/configs/:id/status"): {
 			Module: "payment_config",
@@ -474,9 +476,10 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Title:  "删除支付配置",
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/certificates"): {
-			Module: "payment_config",
-			Action: "upload_cert",
-			Title:  "上传支付宝证书",
+			Module:             "payment_config",
+			Action:             "upload_cert",
+			Title:              "上传支付宝证书",
+			SkipRequestPayload: true,
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/configs/:id/test"): {
 			Module: "payment_config",

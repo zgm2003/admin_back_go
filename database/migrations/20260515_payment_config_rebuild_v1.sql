@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS `payment_configs` (
   `platform_cert_path` VARCHAR(512) NOT NULL DEFAULT '',
   `root_cert_path` VARCHAR(512) NOT NULL DEFAULT '',
   `notify_url` VARCHAR(512) NOT NULL DEFAULT '',
-  `return_url` VARCHAR(512) NOT NULL DEFAULT '',
   `environment` VARCHAR(16) NOT NULL DEFAULT 'sandbox',
   `enabled_methods_json` JSON NOT NULL,
   `status` TINYINT NOT NULL DEFAULT 2,
@@ -40,7 +39,7 @@ CREATE TABLE IF NOT EXISTS `payment_configs` (
 INSERT INTO `payment_configs` (
   `provider`, `code`, `name`, `app_id`, `private_key_enc`, `private_key_hint`,
   `app_cert_path`, `platform_cert_path`, `root_cert_path`,
-  `notify_url`, `return_url`, `environment`, `enabled_methods_json`,
+  `notify_url`, `environment`, `enabled_methods_json`,
   `status`, `remark`, `is_del`, `created_at`, `updated_at`
 )
 SELECT
@@ -54,7 +53,6 @@ SELECT
   cfg.`alipay_cert_path`,
   cfg.`alipay_root_cert_path`,
   cfg.`notify_url`,
-  cfg.`return_url`,
   CASE WHEN cfg.`is_sandbox` = 1 THEN 'sandbox' ELSE 'production' END,
   CASE
     WHEN JSON_VALID(ch.`supported_methods`) AND JSON_LENGTH(ch.`supported_methods`) > 0 THEN ch.`supported_methods`
@@ -78,7 +76,6 @@ ON DUPLICATE KEY UPDATE
   `platform_cert_path` = VALUES(`platform_cert_path`),
   `root_cert_path` = VALUES(`root_cert_path`),
   `notify_url` = VALUES(`notify_url`),
-  `return_url` = VALUES(`return_url`),
   `environment` = VALUES(`environment`),
   `enabled_methods_json` = VALUES(`enabled_methods_json`),
   `status` = VALUES(`status`),

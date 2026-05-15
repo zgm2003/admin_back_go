@@ -19,7 +19,6 @@ type configMutationRequest struct {
 	PlatformCertPath string   `json:"platform_cert_path" binding:"required,max=512"`
 	RootCertPath     string   `json:"root_cert_path" binding:"required,max=512"`
 	NotifyURL        string   `json:"notify_url" binding:"required,max=512"`
-	ReturnURL        string   `json:"return_url" binding:"omitempty,max=512"`
 	Environment      string   `json:"environment" binding:"required,oneof=sandbox production"`
 	EnabledMethods   []string `json:"enabled_methods" binding:"required,min=1"`
 	Status           int      `json:"status" binding:"required,common_status"`

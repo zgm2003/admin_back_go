@@ -17,7 +17,6 @@ type Config struct {
 	PlatformCertPath   string    `gorm:"column:platform_cert_path"`
 	RootCertPath       string    `gorm:"column:root_cert_path"`
 	NotifyURL          string    `gorm:"column:notify_url"`
-	ReturnURL          string    `gorm:"column:return_url"`
 	Environment        string    `gorm:"column:environment"`
 	EnabledMethodsJSON string    `gorm:"column:enabled_methods_json"`
 	Status             int       `gorm:"column:status"`
