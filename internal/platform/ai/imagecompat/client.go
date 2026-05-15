@@ -81,17 +81,16 @@ func (c *Client) GenerateImages(ctx context.Context, input platformai.ImageInput
 		return nil, fmt.Errorf("%w: %v", platformai.ErrUpstreamFailed, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read OpenAI image response: %w", err)
+	if !isSuccessStatus(resp.StatusCode) {
+		body, err := readLimitedResponseBody(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read OpenAI image response: %w", err)
+		}
+		if err := c.requireSuccess(resp, body); err != nil {
+			return nil, err
+		}
 	}
-	if len(body) > maxBodyBytes {
-		return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
-	}
-	if err := c.requireSuccess(resp, body); err != nil {
-		return nil, err
-	}
-	return parseImageResponse(body, imageMime(input.OutputFormat))
+	return decodeImageResponse(resp.Body, imageMime(input.OutputFormat))
 }
 
 func (c *Client) newGenerationRequest(ctx context.Context, input platformai.ImageInput) (*http.Request, error) {
@@ -229,6 +228,21 @@ func (c *Client) requireSuccess(resp *http.Response, body []byte) error {
 	return fmt.Errorf("%w: %s %s", platformai.ErrUpstreamFailed, resp.Status, message)
 }
 
+func isSuccessStatus(statusCode int) bool {
+	return statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices
+}
+
+func readLimitedResponseBody(body io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, maxBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBodyBytes {
+		return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
+	}
+	return data, nil
+}
+
 type imageRequest struct {
 	Model             string `json:"model"`
 	Prompt            string `json:"prompt"`
@@ -263,6 +277,28 @@ func parseImageResponse(body []byte, fallbackMime string) (*platformai.ImageResu
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI image response: %w", err)
 	}
+	return imageResultFromPayload(payload, append([]byte(nil), body...), fallbackMime)
+}
+
+func decodeImageResponse(body io.Reader, fallbackMime string) (*platformai.ImageResult, error) {
+	var (
+		raw     bytes.Buffer
+		payload imageResponse
+	)
+	decoder := json.NewDecoder(io.TeeReader(io.LimitReader(body, maxBodyBytes+1), &raw))
+	if err := decoder.Decode(&payload); err != nil {
+		if raw.Len() > maxBodyBytes {
+			return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
+		}
+		return nil, fmt.Errorf("decode OpenAI image response: %w", err)
+	}
+	if raw.Len() > maxBodyBytes {
+		return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
+	}
+	return imageResultFromPayload(payload, append([]byte(nil), raw.Bytes()...), fallbackMime)
+}
+
+func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime string) (*platformai.ImageResult, error) {
 	if len(payload.Data) == 0 {
 		return nil, fmt.Errorf("%w: OpenAI image response contains no data", platformai.ErrUpstreamFailed)
 	}
@@ -288,7 +324,7 @@ func parseImageResponse(body []byte, fallbackMime string) (*platformai.ImageResu
 	return &platformai.ImageResult{
 		Images:       images,
 		ActualParams: actualParams(payload),
-		RawResponse:  append([]byte(nil), body...),
+		RawResponse:  raw,
 	}, nil
 }
 

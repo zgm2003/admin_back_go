@@ -945,10 +945,21 @@ func extensionForMime(mimeType string) string {
 func publicCOSURL(cfg cosRuntimeConfig, key string) string {
 	key = strings.TrimLeft(strings.TrimSpace(key), "/")
 	if strings.TrimSpace(cfg.BucketDomain) != "" {
-		return strings.TrimRight(strings.TrimSpace(cfg.BucketDomain), "/") + "/" + key
+		return publicURLJoin(cfg.BucketDomain, key)
 	}
 	if strings.TrimSpace(cfg.Endpoint) != "" {
-		return strings.TrimRight(strings.TrimSpace(cfg.Endpoint), "/") + "/" + key
+		return publicURLJoin(cfg.Endpoint, key)
 	}
 	return fmt.Sprintf("https://%s.cos.%s.myqcloud.com/%s", cfg.Bucket, cfg.Region, key)
+}
+
+func publicURLJoin(base string, key string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return strings.TrimLeft(strings.TrimSpace(key), "/")
+	}
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "https://" + strings.TrimLeft(base, "/")
+	}
+	return base + "/" + strings.TrimLeft(strings.TrimSpace(key), "/")
 }

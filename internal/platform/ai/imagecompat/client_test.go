@@ -58,6 +58,36 @@ func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	}
 }
 
+func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images/generations" {
+			t.Fatalf("path = %s, want /images/generations", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}],"usage":{"total_tokens":1}}`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), platformai.ImageInput{
+		Model:        "gpt-image-2",
+		Prompt:       "draw a cat",
+		Size:         "1024x1024",
+		Quality:      "low",
+		OutputFormat: "png",
+		N:            1,
+	})
+	if err != nil {
+		t.Fatalf("GenerateImages returned error: %v", err)
+	}
+	if len(result.Images) != 1 || result.Images[0].B64JSON != "aW1hZ2U=" {
+		t.Fatalf("unexpected parsed image result: %#v", result)
+	}
+}
+
 func TestClientGenerateImagesSendsEditMultipartRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/images/edits" {

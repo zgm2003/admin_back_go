@@ -357,6 +357,13 @@ func TestExecuteGenerateStoresRemoteOutputAndSanitizesRawResponse(t *testing.T) 
 	}
 }
 
+func TestPublicCOSURLNormalizesSchemeLessPublicDomain(t *testing.T) {
+	got := publicCOSURL(cosRuntimeConfig{BucketDomain: "cos.example.com"}, "ai-images/out.png")
+	if got != "https://cos.example.com/ai-images/out.png" {
+		t.Fatalf("publicCOSURL = %q", got)
+	}
+}
+
 func testImageSecretBox() secretbox.Box {
 	return secretbox.New([]byte("12345678901234567890123456789012"))
 }
