@@ -6,7 +6,7 @@ import (
 )
 
 func TestGopayGatewayTestConfigRejectsMissingAppIDWithoutRemoteCall(t *testing.T) {
-	gateway := NewGopayGateway(0)
+	gateway := NewGopayGateway()
 	err := gateway.TestConfig(context.Background(), ChannelConfig{})
 	if err == nil {
 		t.Fatal("expected missing config error")

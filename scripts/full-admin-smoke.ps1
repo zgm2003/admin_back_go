@@ -818,7 +818,7 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/images')
+  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/image-playground')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -841,8 +841,13 @@ function Assert-UsersInitAIRoutes($Response) {
   if ($aiToolAddButton -and -not $aiToolGenerateButton) {
     throw "users init has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
   }
-  if ($requiredPresent['/ai/images'] -and (-not $aiImageTaskAddButton -or -not $aiImageAssetAddButton)) {
-    throw "users init has /ai/images but missing image task/asset buttons; run 20260515_ai_image_playground_permission.sql"
+  if ($requiredPresent['/ai/image-playground'] -and (-not $aiImageTaskAddButton -or -not $aiImageAssetAddButton)) {
+    throw "users init has /ai/image-playground but missing image task/asset buttons; run 20260515_ai_image_playground_permission.sql"
+  }
+
+  $imageRoute = Get-RouteByPath $Response.data.router '/ai/image-playground'
+  if ($null -eq $imageRoute -or [string]$imageRoute.view_key -ne 'ai/image-playground') {
+    throw "users/init AI image route view_key mismatch: expected=ai/image-playground actual=$([string]$imageRoute.view_key)"
   }
 
   return [pscustomobject]@{
@@ -857,7 +862,7 @@ function Assert-UsersInitAIRoutes($Response) {
     KnowledgePresent = $requiredPresent['/ai/knowledge']
     RunsPresent = $requiredPresent['/ai/runs']
     ToolsPresent = $requiredPresent['/ai/tools']
-    ImagesPresent = $requiredPresent['/ai/images']
+    ImagesPresent = $requiredPresent['/ai/image-playground']
     ToolAddButtonPresent = $aiToolAddButton
     ToolGenerateButtonPresent = $aiToolGenerateButton
     ImageTaskAddButtonPresent = $aiImageTaskAddButton

@@ -230,17 +230,3 @@ func (g *fakeGateway) TestConfig(ctx context.Context, cfg gateway.ChannelConfig)
 	g.cfg = cfg
 	return nil
 }
-func (g *fakeGateway) CreatePagePay(ctx context.Context, cfg gateway.ChannelConfig, req gateway.CreatePayRequest) (*gateway.CreatePayResult, error) {
-	return nil, errors.New("not active")
-}
-func (g *fakeGateway) Query(ctx context.Context, cfg gateway.ChannelConfig, outTradeNo string) (*gateway.QueryResult, error) {
-	return nil, errors.New("not active")
-}
-func (g *fakeGateway) VerifyNotify(ctx context.Context, cfg gateway.ChannelConfig, form map[string]string) (*gateway.NotifyResult, error) {
-	return nil, errors.New("not active")
-}
-func (g *fakeGateway) Close(ctx context.Context, cfg gateway.ChannelConfig, outTradeNo string) error {
-	return errors.New("not active")
-}
-func (g *fakeGateway) SuccessBody() string { return "success" }
-func (g *fakeGateway) FailureBody() string { return "fail" }

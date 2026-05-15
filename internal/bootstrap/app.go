@@ -194,7 +194,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		WorkingDir:  ".",
 	}
 	paymentCertStore := payment.LocalCertStore{BaseDir: cfg.Payment.CertBaseDir}
-	alipayGateway := payalipay.NewGopayGateway(cfg.Payment.AlipayTimeout)
+	alipayGateway := payalipay.NewGopayGateway()
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),

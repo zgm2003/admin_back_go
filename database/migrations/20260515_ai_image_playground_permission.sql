@@ -12,7 +12,7 @@ SET @ai_parent_id := (
 );
 
 INSERT INTO `permissions` (`name`, `path`, `icon`, `parent_id`, `component`, `platform`, `type`, `sort`, `code`, `i18n_key`, `show_menu`, `status`, `is_del`)
-SELECT '图片工作台', '/ai/images', 'Picture', @ai_parent_id, 'ai/image-playground', 'admin', 2, 7, 'ai_image_playground_page', 'menu.ai_image_playground', 1, 1, 2
+SELECT '图片工作台', '/ai/image-playground', 'Picture', @ai_parent_id, 'ai/image-playground', 'admin', 2, 7, 'ai_image_playground_page', 'menu.ai_image_playground', 1, 1, 2
 WHERE @ai_parent_id IS NOT NULL
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),

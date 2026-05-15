@@ -6,7 +6,7 @@
 -- - payment_config_* permission codes
 --
 -- Retired from active Go/Vue runtime by this slice:
--- - payment_channels / payment_channel_configs as runtime read source
+-- - payment_channels / payment_channel_configs as old migration sources only
 -- - /payment/channel, /payment/order, /payment/event menus
 -- - payment_channel_*, payment_order_*, payment_event_* permission codes
 -- - payment order compensation cron handlers until the order slice is rebuilt

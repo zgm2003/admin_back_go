@@ -1366,7 +1366,7 @@ POST   /api/admin/v1/payment/configs/:id/test
 
 ```text
 payment V1 只做 Alipay config，不做钱包、订单、notify、event、refund、withdraw、reconcile、WeChat。
-配置事实源是 payment_alipay_configs；旧 channel/order/event 表不再被 Go/Vue active runtime 读取。
+配置事实源是 payment_alipay_configs；旧 channel/order/event 表已经从 live DB 清掉，不再作为 Go/Vue active runtime 或冷启动参考。
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
 支付宝 SDK 只允许出现在 internal/platform/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
 应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 app_private_key_enc。
@@ -1377,8 +1377,8 @@ provider、merchant_id、sign_type、extra_config 不属于当前字段合同。
 支付 cron 在当前 payment-config-only slice 中不注册：
 
 ```text
-payment_close_expired_order -> disabled/missing
-payment_sync_pending_order  -> disabled/missing
+payment_close_expired_order -> missing until payment-order slice reintroduces it
+payment_sync_pending_order  -> missing until payment-order slice reintroduces it
 ```
 
 规则：

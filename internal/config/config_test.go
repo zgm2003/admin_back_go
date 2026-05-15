@@ -305,15 +305,11 @@ func TestValidateRuntimeSecretsAcceptsLongAppSecret(t *testing.T) {
 
 func TestLoadReadsPaymentConfig(t *testing.T) {
 	t.Setenv("PAYMENT_CERT_BASE_DIR", "E:/admin_go/admin_back_go")
-	t.Setenv("PAYMENT_ALIPAY_TIMEOUT", "9s")
 
 	cfg := Load()
 
 	if cfg.Payment.CertBaseDir != "E:/admin_go/admin_back_go" {
 		t.Fatalf("expected payment cert base dir to point at Go backend, got %q", cfg.Payment.CertBaseDir)
-	}
-	if cfg.Payment.AlipayTimeout != 9*time.Second {
-		t.Fatalf("expected alipay timeout 9s, got %s", cfg.Payment.AlipayTimeout)
 	}
 }
 

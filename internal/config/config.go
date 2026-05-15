@@ -135,8 +135,7 @@ type SchedulerConfig struct {
 }
 
 type PaymentConfig struct {
-	CertBaseDir   string
-	AlipayTimeout time.Duration
+	CertBaseDir string
 }
 
 type UploadTokenConfig struct {
@@ -249,8 +248,7 @@ func Load() Config {
 			LockTTL:    envDuration("SCHEDULER_LOCK_TTL", 30*time.Second),
 		},
 		Payment: PaymentConfig{
-			CertBaseDir:   envString("PAYMENT_CERT_BASE_DIR", ""),
-			AlipayTimeout: envDuration("PAYMENT_ALIPAY_TIMEOUT", 10*time.Second),
+			CertBaseDir: envString("PAYMENT_CERT_BASE_DIR", ""),
 		},
 		UploadToken: UploadTokenConfig{
 			TTL:            envDuration("UPLOAD_TOKEN_TTL", 15*time.Minute),
