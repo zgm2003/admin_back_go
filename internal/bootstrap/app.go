@@ -34,6 +34,7 @@ import (
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
+	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadconfig"
@@ -52,6 +53,7 @@ import (
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/secretbox"
 	"admin_back_go/internal/platform/secretkey"
+	platformsms "admin_back_go/internal/platform/sms/tencentcloudsms"
 	storagecos "admin_back_go/internal/platform/storage/cos"
 	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
@@ -161,6 +163,25 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return mail.SendResult{RequestID: result.RequestID, MessageID: result.MessageID}, nil
 	})
 	mailService := mail.NewService(mail.NewGormRepository(resources.DB, resources.Redis), secretBox, mailSender)
+	smsClient := platformsms.New(10 * time.Second)
+	smsSender := sms.SenderFunc(func(ctx context.Context, input sms.SendInput) (sms.SendResult, error) {
+		result, err := smsClient.Send(ctx, platformsms.SendInput{
+			SecretID:         input.SecretID,
+			SecretKey:        input.SecretKey,
+			Region:           input.Region,
+			Endpoint:         input.Endpoint,
+			SmsSdkAppID:      input.SmsSdkAppID,
+			SignName:         input.SignName,
+			TemplateID:       input.TemplateID,
+			PhoneNumber:      input.PhoneNumber,
+			TemplateParamSet: input.TemplateParamSet,
+		})
+		if err != nil {
+			return sms.SendResult{RequestID: result.RequestID, SerialNo: result.SerialNo, Fee: result.Fee}, err
+		}
+		return sms.SendResult{RequestID: result.RequestID, SerialNo: result.SerialNo, Fee: result.Fee}, nil
+	})
+	smsService := sms.NewService(sms.NewGormRepository(resources.DB, resources.Redis), secretBox, smsSender)
 	clientVersionService := clientversion.NewService(
 		clientversion.NewGormRepository(resources.DB),
 		clientversion.NewManifestPublisher(
@@ -349,6 +370,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,
 		MailService:             mailService,
+		SmsService:              smsService,
 		PaymentService:          paymentService,
 		PermissionService:       permissionService,
 		QueueMonitorService:     queueMonitorService,

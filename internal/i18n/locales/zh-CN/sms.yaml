@@ -1,0 +1,61 @@
+sms.config.request.invalid: 短信配置参数错误
+sms.test.request.invalid: 测试短信参数错误
+sms.template.request.invalid: 短信模板参数错误
+sms.status.invalid: 无效的状态
+sms.log.list.request.invalid: 短信日志列表参数错误
+sms.log.delete.required: 请选择要删除的短信日志
+sms.service_missing: 短信服务未配置
+sms.repository_missing: 短信仓储未配置
+sms.sender_missing: 短信发送器未配置
+sms.config.query_failed: 查询短信配置失败
+sms.config.save_failed: 保存短信配置失败
+sms.ttl.save_failed: 保存验证码有效期配置失败
+sms.ttl.cache_clear_failed: 清理验证码有效期配置缓存失败
+sms.config.delete_failed: 删除短信配置失败
+sms.scene.invalid: 无效的短信模板场景
+sms.phone.invalid: 手机号格式不正确
+sms.log.create_failed: 创建短信发送日志失败
+sms.log.finish_failed: 更新短信发送日志失败
+sms.config.test_result_failed: 更新短信测试结果失败
+sms.send.failed: 短信发送失败
+sms.template.query_failed: 查询短信模板失败
+sms.template.parse_failed: 解析短信模板变量失败
+sms.template.save_failed: 保存短信模板失败
+sms.template.update_failed: 更新短信模板失败
+sms.template.status_failed: 修改短信模板状态失败
+sms.template.delete_failed: 删除短信模板失败
+sms.log.query_failed: 查询短信日志失败
+sms.log.not_found: 短信日志不存在
+sms.log.template_parse_failed: 解析短信日志模板变量失败
+sms.log.delete_failed: 删除短信日志失败
+sms.service_unconfigured: 短信服务未配置
+sms.service_disabled: 短信服务已禁用
+sms.template.unconfigured: 短信模板未配置
+sms.template.disabled: 短信模板已禁用
+sms.ttl.query_failed: 查询验证码有效期配置失败
+sms.ttl.integer_required: 验证码有效期必须为整数分钟
+sms.secret_id.decrypt_failed: 解密 Tencent SecretId 失败
+sms.secret_key.decrypt_failed: 解密 Tencent SecretKey 失败
+sms.tencent_secret_missing: 腾讯云短信密钥未配置
+sms.secret.encrypt_failed: 加密短信密钥失败
+sms.secret.required: 首次配置必须填写腾讯云 SecretId 和 SecretKey
+sms.app_id.required: 短信应用 ID 不能为空
+sms.sign_name.required: 短信签名不能为空
+sms.region.unsupported: 不支持的腾讯云短信地域
+sms.ttl.out_of_range: 验证码有效期必须在 1-60 分钟之间
+sms.template.name.required: 模板名称不能为空
+sms.template_id.required: 腾讯云模板 ID 不能为空
+sms.template.variables.invalid: 模板变量格式错误
+sms.template.sample_key.required: 测试变量名不能为空
+sms.template.sample_missing: 测试变量缺少 {{.field}}
+sms.template.sample.invalid: 测试变量格式错误
+sms.template.variables.must_be_verify_code: 验证码模板变量必须且只能是 code、ttl_minutes
+sms.template.sample.must_be_verify_code: 验证码模板测试变量必须且只能是 code、ttl_minutes
+sms.template.param_missing: 短信模板变量缺少参数
+sms.template.param_extra: 短信模板变量存在多余参数
+sms.log.scene.invalid: 无效的短信日志场景
+sms.log.status.invalid: 无效的短信日志状态
+sms.template.not_found: 短信模板不存在
+sms.time.invalid: 时间格式必须为 YYYY-MM-DD HH:mm:ss
+sms.template.id.invalid: 无效的短信模板ID
+sms.log.id.invalid: 无效的短信日志ID

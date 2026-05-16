@@ -40,6 +40,7 @@ import (
 	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/session"
+	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadtoken"
@@ -1169,6 +1170,56 @@ func (f *fakeRouterMailService) Log(ctx context.Context, id uint64) (*mail.LogDT
 	return &mail.LogDTO{ID: id, Scene: enum.VerifyCodeSceneLogin, ToEmail: "user@example.com"}, nil
 }
 func (f *fakeRouterMailService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
+	f.deletedLogs = ids
+	return nil
+}
+
+type fakeRouterSmsService struct {
+	initCalled  bool
+	savedConfig sms.SaveConfigInput
+	deletedLogs []uint64
+}
+
+func (f *fakeRouterSmsService) PageInit(ctx context.Context) (*sms.PageInitResponse, *apperror.Error) {
+	f.initCalled = true
+	return &sms.PageInitResponse{Dict: sms.PageInitDict{DefaultRegion: sms.DefaultRegion, DefaultEndpoint: sms.DefaultEndpoint}}, nil
+}
+
+func (f *fakeRouterSmsService) Config(ctx context.Context) (*sms.ConfigResponse, *apperror.Error) {
+	return &sms.ConfigResponse{Configured: true, Region: sms.DefaultRegion, Endpoint: sms.DefaultEndpoint, SmsSdkAppID: "1400000000", SignName: "签名"}, nil
+}
+
+func (f *fakeRouterSmsService) SaveConfig(ctx context.Context, input sms.SaveConfigInput) *apperror.Error {
+	f.savedConfig = input
+	return nil
+}
+
+func (f *fakeRouterSmsService) DeleteConfig(ctx context.Context) *apperror.Error { return nil }
+func (f *fakeRouterSmsService) TestSend(ctx context.Context, input sms.TestInput) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterSmsService) Templates(ctx context.Context) ([]sms.TemplateDTO, *apperror.Error) {
+	return []sms.TemplateDTO{{ID: 1, Scene: enum.VerifyCodeSceneLogin, Name: "登录验证码"}}, nil
+}
+func (f *fakeRouterSmsService) CreateTemplate(ctx context.Context, input sms.SaveTemplateInput) (uint64, *apperror.Error) {
+	return 1, nil
+}
+func (f *fakeRouterSmsService) UpdateTemplate(ctx context.Context, id uint64, input sms.SaveTemplateInput) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterSmsService) ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterSmsService) DeleteTemplate(ctx context.Context, id uint64) *apperror.Error {
+	return nil
+}
+func (f *fakeRouterSmsService) Logs(ctx context.Context, query sms.LogQuery) (*sms.LogListResponse, *apperror.Error) {
+	return &sms.LogListResponse{List: []sms.LogDTO{{ID: 1, Scene: enum.VerifyCodeSceneLogin, ToPhone: "+8613800138000"}}}, nil
+}
+func (f *fakeRouterSmsService) Log(ctx context.Context, id uint64) (*sms.LogDTO, *apperror.Error) {
+	return &sms.LogDTO{ID: id, Scene: enum.VerifyCodeSceneLogin, ToPhone: "+8613800138000"}, nil
+}
+func (f *fakeRouterSmsService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
 	f.deletedLogs = ids
 	return nil
 }
@@ -2737,6 +2788,50 @@ func TestRouterInstallsMailRoutes(t *testing.T) {
 	}
 }
 
+func TestRouterInstallsSmsRoutes(t *testing.T) {
+	smsService := &fakeRouterSmsService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{
+			middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/sms/config"):  "system_sms_configEdit",
+			middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/sms/logs"): "system_sms_logDel",
+		},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error { return nil },
+		SmsService:        smsService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/sms/page-init", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !smsService.initCalled {
+		t.Fatalf("sms page-init route mismatch: code=%d body=%s init=%v", recorder.Code, recorder.Body.String(), smsService.initCalled)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/admin/v1/sms/config", strings.NewReader(`{"secret_id":"AKID","secret_key":"SECRET","sms_sdk_app_id":"1400000000","sign_name":"签名","region":"ap-guangzhou","endpoint":"sms.tencentcloudapi.com","status":1,"verify_code_ttl_minutes":5}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK ||
+		smsService.savedConfig.SecretID != "AKID" ||
+		smsService.savedConfig.SecretKey != "SECRET" ||
+		smsService.savedConfig.SmsSdkAppID != "1400000000" ||
+		smsService.savedConfig.VerifyCodeTTLMinutes != 5 {
+		t.Fatalf("sms config route mismatch: code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), smsService.savedConfig)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/sms/logs", strings.NewReader(`{"ids":[1,2]}`))
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !reflect.DeepEqual(smsService.deletedLogs, []uint64{1, 2}) {
+		t.Fatalf("sms logs delete route mismatch: code=%d body=%s ids=%#v", recorder.Code, recorder.Body.String(), smsService.deletedLogs)
+	}
+}
 func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
 	router := newTestRouter(t, Dependencies{

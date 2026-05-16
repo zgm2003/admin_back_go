@@ -716,3 +716,24 @@ legacy.f9461bd0da4f: Failed to close expired payment orders
 legacy.f97b18521a77: Failed to decrypt Alipay private key
 legacy.fb712dea8663: Current payment order status cannot be synced
 legacy.fe7e80e7717a: Invalid payment config status request
+legacy.0edd9d379810: Failed to query recharge records
+legacy.18cb6c902192: Invalid SMS template ID
+legacy.1dd474d3fc7c: Invalid SMS log ID
+legacy.20e8e4067cca: The current recharge order status cannot start payment
+legacy.35bdb66c6c8e: Failed to close recharge order
+legacy.40a28fe57017: Invalid recharge request
+legacy.497ca479f313: Failed to create recharge order
+legacy.5d78790c17b2: Invalid recharge order ID
+legacy.769a41ba049d: Invalid recharge record list request
+legacy.76e0ea7ab9b7: Failed to query recharge package
+legacy.7a9be6ea203e: Failed to query recharge order
+legacy.88a71c8cdfc2: Paid recharge order cannot be closed
+legacy.89a1781ae410: Failed to update recharge payment status
+legacy.968080f377f7: Recharge package does not exist or is disabled
+legacy.9d8cff3d02c8: Failed to query user wallet
+legacy.a66e0666e6a9: Failed to initialize user wallet
+legacy.a812b88922d3: No available Alipay payment configuration
+legacy.b5a25edb97ec: Failed to query recent recharge records
+legacy.dc5834177674: Failed to credit recharge amount
+legacy.f03a14fefd4f: Failed to query available payment configuration
+legacy.fae508f03784: Recharge order not found

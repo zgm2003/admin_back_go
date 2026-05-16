@@ -54,6 +54,8 @@ auth # password login/refresh/logout HTTP boundary
 user # current user/init RBAC read context
 permission # RBAC menus/routes/buttons and permission management
 role # role list/mutation and grant cache invalidation
+mail # Tencent SES config/template/log and verify-code email sending
+sms # Tencent Cloud SMS config/template/log and isolated test sending
 ```
 
 RBAC 模块要等现有 PHP 契约文档固定后再迁移。
@@ -107,4 +109,3 @@ service import gin
 repository 返回 HTTP 状态码
 model 返回业务错误文本
 ```
-

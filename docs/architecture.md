@@ -57,7 +57,7 @@ route -> handler -> service -> repository -> model
 
 ## 模块家族
 
-`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/upload/payment/AI/realtime/queue-monitor 等已落地切片。
+`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
 
 新增模块必须回答：
 

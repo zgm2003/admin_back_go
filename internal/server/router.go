@@ -32,6 +32,7 @@ import (
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
+	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/system"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
@@ -77,6 +78,7 @@ type Dependencies struct {
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlog.HTTPService
 	MailService             mail.HTTPService
+	SmsService              sms.HTTPService
 	PaymentService          payment.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
@@ -144,6 +146,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	crontask.RegisterRoutes(router, deps.CronTaskService)
 	operationlog.RegisterRoutes(router, deps.OperationLogService)
 	mail.RegisterRoutes(router, deps.MailService)
+	sms.RegisterRoutes(router, deps.SmsService)
 	payment.RegisterRoutes(router, deps.PaymentService)
 
 	permission.RegisterRoutes(router, deps.PermissionService)

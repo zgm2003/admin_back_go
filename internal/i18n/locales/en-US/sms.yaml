@@ -1,0 +1,61 @@
+sms.config.request.invalid: Invalid SMS configuration request
+sms.test.request.invalid: Invalid test SMS request
+sms.template.request.invalid: Invalid SMS template request
+sms.status.invalid: Invalid status
+sms.log.list.request.invalid: Invalid SMS log list request
+sms.log.delete.required: Select SMS logs to delete
+sms.service_missing: SMS service is not configured
+sms.repository_missing: SMS repository is not configured
+sms.sender_missing: SMS sender is not configured
+sms.config.query_failed: Failed to query SMS configuration
+sms.config.save_failed: Failed to save SMS configuration
+sms.ttl.save_failed: Failed to save verification code TTL
+sms.ttl.cache_clear_failed: Failed to clear verification code TTL cache
+sms.config.delete_failed: Failed to delete SMS configuration
+sms.scene.invalid: Invalid SMS template scene
+sms.phone.invalid: Invalid phone number
+sms.log.create_failed: Failed to create SMS send log
+sms.log.finish_failed: Failed to finish SMS send log
+sms.config.test_result_failed: Failed to update SMS test result
+sms.send.failed: Failed to send SMS
+sms.template.query_failed: Failed to query SMS template
+sms.template.parse_failed: Failed to parse SMS template variables
+sms.template.save_failed: Failed to save SMS template
+sms.template.update_failed: Failed to update SMS template
+sms.template.status_failed: Failed to change SMS template status
+sms.template.delete_failed: Failed to delete SMS template
+sms.log.query_failed: Failed to query SMS logs
+sms.log.not_found: SMS log not found
+sms.log.template_parse_failed: Failed to parse SMS log template variables
+sms.log.delete_failed: Failed to delete SMS logs
+sms.service_unconfigured: SMS service is not configured
+sms.service_disabled: SMS service is disabled
+sms.template.unconfigured: SMS template is not configured
+sms.template.disabled: SMS template is disabled
+sms.ttl.query_failed: Failed to query verification code TTL
+sms.ttl.integer_required: Verification code TTL must be an integer number of minutes
+sms.secret_id.decrypt_failed: Failed to decrypt Tencent SecretId
+sms.secret_key.decrypt_failed: Failed to decrypt Tencent SecretKey
+sms.tencent_secret_missing: Tencent SMS secret is not configured
+sms.secret.encrypt_failed: Failed to encrypt SMS secret
+sms.secret.required: Tencent SecretId and SecretKey are required for initial configuration
+sms.app_id.required: SMS app ID is required
+sms.sign_name.required: SMS sign name is required
+sms.region.unsupported: Unsupported Tencent SMS region
+sms.ttl.out_of_range: Verification code TTL must be between 1 and 60 minutes
+sms.template.name.required: Template name is required
+sms.template_id.required: Tencent template ID is required
+sms.template.variables.invalid: Invalid template variables
+sms.template.sample_key.required: Sample variable name is required
+sms.template.sample_missing: Sample variable is missing {{.field}}
+sms.template.sample.invalid: Invalid sample variables
+sms.template.variables.must_be_verify_code: Verification code template variables must be exactly code and ttl_minutes
+sms.template.sample.must_be_verify_code: Verification code sample variables must be exactly code and ttl_minutes
+sms.template.param_missing: SMS template parameter is missing
+sms.template.param_extra: SMS template has an extra parameter
+sms.log.scene.invalid: Invalid SMS log scene
+sms.log.status.invalid: Invalid SMS log status
+sms.template.not_found: SMS template not found
+sms.time.invalid: Time format must be YYYY-MM-DD HH:mm:ss
+sms.template.id.invalid: Invalid SMS template ID
+sms.log.id.invalid: Invalid SMS log ID

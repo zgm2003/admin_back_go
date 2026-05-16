@@ -2373,6 +2373,112 @@ function Assert-MailLogs($Response) {
   }
 }
 
+function Assert-SmsPageInit($Response) {
+  Assert-ApiOK $Response 'sms page-init'
+
+  foreach ($field in @('common_status_arr', 'sms_scene_arr', 'sms_log_scene_arr', 'sms_log_status_arr', 'sms_region_arr', 'default_region', 'default_endpoint', 'default_ttl_minutes')) {
+    if (-not (Test-HasProperty $Response.data.dict $field)) {
+      throw "sms page-init missing dict field ${field}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  $status = Get-ObjectArray $Response.data.dict.common_status_arr
+  $scenes = Get-ObjectArray $Response.data.dict.sms_scene_arr
+  $logScenes = Get-ObjectArray $Response.data.dict.sms_log_scene_arr
+  $logStatuses = Get-ObjectArray $Response.data.dict.sms_log_status_arr
+  $regions = Get-ObjectArray $Response.data.dict.sms_region_arr
+  if ($status.Count -ne 2 -or $scenes.Count -ne 4 -or $logScenes.Count -ne 5 -or $logStatuses.Count -ne 3 -or $regions.Count -ne 1) {
+    throw "sms page-init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ([string]$Response.data.dict.default_region -ne 'ap-guangzhou') {
+    throw "sms page-init default region mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ([string]$Response.data.dict.default_endpoint -ne 'sms.tencentcloudapi.com') {
+    throw "sms page-init default endpoint mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    StatusCount = $status.Count
+    SceneCount = $scenes.Count
+    LogSceneCount = $logScenes.Count
+    LogStatusCount = $logStatuses.Count
+    RegionCount = $regions.Count
+  }
+}
+
+function Assert-SmsConfig($Response) {
+  Assert-ApiOK $Response 'sms config'
+
+  $json = $Response | ConvertTo-Json -Depth 16
+  foreach ($secretField in @('secret_id_enc', 'secret_key_enc')) {
+    if ($json -like "*$secretField*") {
+      throw "sms config leaked ${secretField}: $json"
+    }
+  }
+  foreach ($field in @('configured', 'secret_id_hint', 'secret_key_hint', 'sms_sdk_app_id', 'sign_name', 'region', 'endpoint', 'status', 'verify_code_ttl_minutes')) {
+    if (-not (Test-HasProperty $Response.data $field)) {
+      throw "sms config missing field ${field}: $json"
+    }
+  }
+
+  return [pscustomobject]@{
+    Configured = [bool]$Response.data.configured
+    Status = [int]$Response.data.status
+    TTLMinutes = [int]$Response.data.verify_code_ttl_minutes
+  }
+}
+
+function Assert-SmsTemplates($Response) {
+  Assert-ApiOK $Response 'sms templates'
+
+  if ($null -eq $Response.data.list) {
+    throw "sms templates missing list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $json = $Response | ConvertTo-Json -Depth 20
+  foreach ($forbidden in @('secret_id_enc', 'secret_key_enc', 'template_params', 'template_content', 'raw_request', 'raw_response')) {
+    if ($json -like "*$forbidden*") {
+      throw "sms templates leaked forbidden field ${forbidden}: $json"
+    }
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    foreach ($field in @('id', 'scene', 'name', 'tencent_template_id', 'variables', 'sample_variables', 'status')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "sms template item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+  }
+}
+
+function Assert-SmsLogs($Response) {
+  Assert-ApiOK $Response 'sms logs'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "sms logs missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  $json = $Response | ConvertTo-Json -Depth 20
+  foreach ($forbidden in @('secret_id_enc', 'secret_key_enc', 'template_params', 'template_param_set', 'raw_request', 'raw_response', 'sms_body', 'verify_code')) {
+    if ($json -like "*$forbidden*") {
+      throw "sms logs leaked forbidden field ${forbidden}: $json"
+    }
+  }
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    foreach ($field in @('id', 'scene', 'to_phone', 'status', 'tencent_request_id', 'tencent_serial_no', 'tencent_fee', 'error_code', 'error_message', 'duration_ms', 'created_at')) {
+      if (-not (Test-HasProperty $item $field)) {
+        throw "sms log item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Invoke-BasicSmoke() {
   $basicOutput = & powershell -ExecutionPolicy Bypass -File .\scripts\basic-admin-smoke.ps1 `
     -Account $Account `
@@ -2644,6 +2750,26 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $mailLogSummary = Assert-MailLogs $mailLogs
+
+  $smsPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/sms/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $smsPageInitSummary = Assert-SmsPageInit $smsPageInit
+
+  $smsConfig = Invoke-RestMethod "$baseURL/api/admin/v1/sms/config" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $smsConfigSummary = Assert-SmsConfig $smsConfig
+
+  $smsTemplates = Invoke-RestMethod "$baseURL/api/admin/v1/sms/templates" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $smsTemplateSummary = Assert-SmsTemplates $smsTemplates
+
+  $smsLogs = Invoke-RestMethod "$baseURL/api/admin/v1/sms/logs?current_page=1&page_size=20" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $smsLogSummary = Assert-SmsLogs $smsLogs
 
   $clientVersionInit = Invoke-RestMethod "$baseURL/api/admin/v1/client-versions/page-init" `
     -Headers $authHeaders `
@@ -3083,6 +3209,19 @@ func main() {
     mail_log_list_code = $mailLogs.code
     mail_log_list_count = $mailLogSummary.ListCount
     mail_log_total = $mailLogSummary.Total
+    sms_page_init_code = $smsPageInit.code
+    sms_scene_dict_count = $smsPageInitSummary.SceneCount
+    sms_log_scene_dict_count = $smsPageInitSummary.LogSceneCount
+    sms_log_status_dict_count = $smsPageInitSummary.LogStatusCount
+    sms_region_dict_count = $smsPageInitSummary.RegionCount
+    sms_config_code = $smsConfig.code
+    sms_configured = $smsConfigSummary.Configured
+    sms_config_status = $smsConfigSummary.Status
+    sms_template_list_code = $smsTemplates.code
+    sms_template_list_count = $smsTemplateSummary.ListCount
+    sms_log_list_code = $smsLogs.code
+    sms_log_list_count = $smsLogSummary.ListCount
+    sms_log_total = $smsLogSummary.Total
     client_version_init_code = $clientVersionInit.code
     client_version_platform_dict_count = $clientVersionInitSummary.PlatformCount
     client_version_yes_no_dict_count = $clientVersionInitSummary.YesNoCount
@@ -3331,4 +3470,3 @@ func main() {
     Write-Host "Full smoke logs kept: $outLog $errLog"
   }
 }
-
