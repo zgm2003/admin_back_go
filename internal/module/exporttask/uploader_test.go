@@ -69,6 +69,13 @@ func TestCOSUploaderBuildsDefaultCOSURL(t *testing.T) {
 	}
 }
 
+func TestObjectURLNormalizesSchemeLessPublicDomain(t *testing.T) {
+	got := objectURL(UploadConfig{BucketDomain: "cos.example.com"}, "exports/out.xlsx")
+	if got != "https://cos.example.com/exports/out.xlsx" {
+		t.Fatalf("unexpected public COS URL: %s", got)
+	}
+}
+
 func TestCOSUploaderFailsWithoutEnabledConfig(t *testing.T) {
 	uploader := NewCOSUploader(fakeUploadConfigRepository{}, plainSecretbox{}, &fakeCOSWriter{})
 	_, err := uploader.Upload(context.Background(), UploadInput{TaskID: 1, Prefix: "export", Body: []byte("xlsx"), RowCount: 1})

@@ -110,5 +110,8 @@ func objectURL(cfg UploadConfig, key string) string {
 	if base == "" {
 		base = fmt.Sprintf("https://%s.cos.%s.myqcloud.com", strings.TrimSpace(cfg.Bucket), strings.TrimSpace(cfg.Region))
 	}
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "https://" + strings.TrimLeft(base, "/")
+	}
 	return base + "/" + strings.TrimLeft(key, "/")
 }
