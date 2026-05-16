@@ -177,7 +177,7 @@ func TestDriverInitReturnsEnumBackedDict(t *testing.T) {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}
 	options := got.Dict.UploadDriverArr
-	if len(options) != 1 || options[0].Value != enum.UploadDriverCOS {
+	if len(options) != 1 || options[0].Value != enum.UploadDriverCOS || options[0].Label != "腾讯云 COS" {
 		t.Fatalf("unexpected upload driver dict: %#v", options)
 	}
 }
@@ -257,6 +257,60 @@ func TestDriverCreateRejectsNonCOSDriver(t *testing.T) {
 	service := NewService(&fakeRepository{}, &box)
 
 	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: "oss", SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "cn-hangzhou"})
+	if appErr == nil || appErr.Message != "当前仅支持腾讯云 COS，请重新配置 COS" {
+		t.Fatalf("expected non-COS rejection error, got %#v", appErr)
+	}
+}
+
+func TestDriverCreateRejectsSchemeBearingBucketDomain(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	service := NewService(&fakeRepository{}, &box)
+
+	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{
+		Driver: enum.UploadDriverCOS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "ap-nanjing", AppID: "1314",
+		BucketDomain: "https://cos.example.com",
+	})
+	if appErr == nil || appErr.Message != "访问域名请填写裸域名，例如 cos.example.com" {
+		t.Fatalf("expected bare domain error, got %#v", appErr)
+	}
+}
+
+func TestDriverCreateRejectsPathBearingBucketDomain(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	service := NewService(&fakeRepository{}, &box)
+
+	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{
+		Driver: enum.UploadDriverCOS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "ap-nanjing", AppID: "1314",
+		BucketDomain: "cos.example.com/path",
+	})
+	if appErr == nil || appErr.Message != "访问域名请填写裸域名，例如 cos.example.com" {
+		t.Fatalf("expected bare domain error, got %#v", appErr)
+	}
+}
+
+func TestDriverCreateTrimsBucketDomain(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	repo := &fakeRepository{}
+	service := NewService(repo, &box)
+
+	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{
+		Driver: enum.UploadDriverCOS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "ap-nanjing", AppID: "1314",
+		BucketDomain: " cos.example.com ",
+	})
+	if appErr != nil {
+		t.Fatalf("expected create to succeed, got %v", appErr)
+	}
+	if repo.createdDriver == nil || repo.createdDriver.BucketDomain != "cos.example.com" {
+		t.Fatalf("expected trimmed bucket domain, got %#v", repo.createdDriver)
+	}
+}
+
+func TestDriverUpdateRejectsNonCOSDriver(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	repo := &fakeRepository{driverByID: map[int64]Driver{7: {ID: 7, Driver: enum.UploadDriverCOS, Bucket: "old"}}}
+	service := NewService(repo, &box)
+
+	appErr := service.UpdateDriver(context.Background(), 7, DriverUpdateInput{Driver: "oss", Bucket: "bucket-a", Region: "cn-hangzhou"})
 	if appErr == nil || appErr.Message != "当前仅支持腾讯云 COS，请重新配置 COS" {
 		t.Fatalf("expected non-COS rejection error, got %#v", appErr)
 	}

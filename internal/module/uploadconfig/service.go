@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -551,8 +552,12 @@ func normalizeDriverUpdateInput(input DriverUpdateInput) (DriverUpdateInput, *ap
 	input.RoleARN = strings.TrimSpace(input.RoleARN)
 	input.AppID = strings.TrimSpace(input.AppID)
 	input.Endpoint = strings.TrimSpace(input.Endpoint)
-	input.BucketDomain = strings.TrimSpace(input.BucketDomain)
-	if !enum.IsUploadDriver(input.Driver) {
+	bucketDomain, appErr := normalizeBucketDomain(input.BucketDomain)
+	if appErr != nil {
+		return input, appErr
+	}
+	input.BucketDomain = bucketDomain
+	if input.Driver != enum.UploadDriverCOS {
 		return input, apperror.BadRequest("当前仅支持腾讯云 COS，请重新配置 COS")
 	}
 	if input.Bucket == "" {
@@ -561,10 +566,28 @@ func normalizeDriverUpdateInput(input DriverUpdateInput) (DriverUpdateInput, *ap
 	if input.Region == "" {
 		return input, apperror.BadRequest("region 不能为空")
 	}
-	if input.Driver == enum.UploadDriverCOS && input.AppID == "" {
+	if input.AppID == "" {
 		return input, apperror.BadRequest("COS appid 不能为空")
 	}
 	return input, nil
+}
+
+func normalizeBucketDomain(domain string) (string, *apperror.Error) {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return "", nil
+	}
+	if strings.Contains(domain, "://") ||
+		strings.Contains(domain, "/") ||
+		strings.Contains(domain, "?") ||
+		strings.Contains(domain, "#") {
+		return "", apperror.BadRequest("访问域名请填写裸域名，例如 cos.example.com")
+	}
+	parsed, err := url.Parse("https://" + domain)
+	if err != nil || parsed.Host != domain || parsed.Hostname() == "" {
+		return "", apperror.BadRequest("访问域名请填写裸域名，例如 cos.example.com")
+	}
+	return domain, nil
 }
 
 func normalizeSettingMutationInput(input SettingMutationInput) (SettingMutationInput, *apperror.Error) {
