@@ -6,11 +6,17 @@ import (
 )
 
 func TestUploadDriverMembership(t *testing.T) {
-	if !IsUploadDriver(UploadDriverCOS) || !IsUploadDriver(UploadDriverOSS) {
-		t.Fatalf("expected cos and oss to be valid upload drivers")
+	if !IsUploadDriver(UploadDriverCOS) {
+		t.Fatalf("cos must be the only supported upload driver")
 	}
-	if IsUploadDriver("s3") {
-		t.Fatalf("expected s3 to be invalid in current upload driver enum")
+	if IsUploadDriver("oss") || IsUploadDriver("s3") || IsUploadDriver("") {
+		t.Fatalf("only cos should be accepted as an upload driver")
+	}
+	if len(UploadDrivers) != 1 || UploadDrivers[0] != UploadDriverCOS {
+		t.Fatalf("upload drivers must be COS-only, got %#v", UploadDrivers)
+	}
+	if len(UploadDriverLabels) != 1 || UploadDriverLabels[UploadDriverCOS] != "腾讯云 COS" {
+		t.Fatalf("upload driver labels must expose COS only, got %#v", UploadDriverLabels)
 	}
 }
 

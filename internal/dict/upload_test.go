@@ -4,7 +4,7 @@ import "testing"
 
 func TestUploadOptionsUseEnumOrder(t *testing.T) {
 	drivers := UploadDriverOptions()
-	if len(drivers) != 2 || drivers[0].Value != "cos" || drivers[1].Value != "oss" {
+	if len(drivers) != 1 || drivers[0].Value != "cos" {
 		t.Fatalf("unexpected upload driver options: %#v", drivers)
 	}
 

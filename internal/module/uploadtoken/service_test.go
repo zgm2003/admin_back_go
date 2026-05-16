@@ -50,7 +50,7 @@ func TestCreateRejectsMissingEnabledSetting(t *testing.T) {
 }
 
 func TestCreateRejectsNonCOSDriver(t *testing.T) {
-	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverOSS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
+	service := NewService(fakeRepository{config: validConfig(t, "oss")}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
 
 	_, appErr := service.Create(context.Background(), validInput())
 

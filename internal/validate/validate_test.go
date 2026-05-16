@@ -163,13 +163,13 @@ func TestRegisterRejectsInvalidUploadValidators(t *testing.T) {
 		Folder   string `binding:"required,upload_folder"`
 	}
 
-	valid := request{Driver: "oss", ImageExt: "webp", FileExt: "xlsx", Folder: "avatars"}
+	valid := request{Driver: "cos", ImageExt: "webp", FileExt: "xlsx", Folder: "avatars"}
 	if err := binding.Validator.ValidateStruct(valid); err != nil {
 		t.Fatalf("expected valid upload request, got %v", err)
 	}
 
 	invalid := valid
-	invalid.Driver = "s3"
+	invalid.Driver = "oss"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid upload driver to fail")
 	}

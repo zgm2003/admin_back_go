@@ -177,7 +177,7 @@ func TestDriverInitReturnsEnumBackedDict(t *testing.T) {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}
 	options := got.Dict.UploadDriverArr
-	if len(options) != 2 || options[0].Value != enum.UploadDriverCOS || options[1].Value != enum.UploadDriverOSS {
+	if len(options) != 1 || options[0].Value != enum.UploadDriverCOS {
 		t.Fatalf("unexpected upload driver dict: %#v", options)
 	}
 }
@@ -252,13 +252,13 @@ func TestDriverCreateRejectsMissingCOSAppID(t *testing.T) {
 	}
 }
 
-func TestDriverCreateRejectsMissingOSSRoleARN(t *testing.T) {
+func TestDriverCreateRejectsNonCOSDriver(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	service := NewService(&fakeRepository{}, &box)
 
-	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: enum.UploadDriverOSS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "cn-hangzhou"})
-	if appErr == nil || appErr.Message != "OSS role_arn 不能为空" {
-		t.Fatalf("expected missing role arn error, got %#v", appErr)
+	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: "oss", SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "cn-hangzhou"})
+	if appErr == nil || appErr.Message != "当前仅支持腾讯云 COS，请重新配置 COS" {
+		t.Fatalf("expected non-COS rejection error, got %#v", appErr)
 	}
 }
 

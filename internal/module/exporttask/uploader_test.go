@@ -78,7 +78,7 @@ func TestCOSUploaderFailsWithoutEnabledConfig(t *testing.T) {
 }
 
 func TestCOSUploaderRejectsNonCOSDriver(t *testing.T) {
-	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{Driver: enum.UploadDriverOSS}}, plainSecretbox{}, &fakeCOSWriter{})
+	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{Driver: "oss"}}, plainSecretbox{}, &fakeCOSWriter{})
 	_, err := uploader.Upload(context.Background(), UploadInput{TaskID: 1, Prefix: "export", Body: []byte("xlsx"), RowCount: 1})
 	if err == nil || !strings.Contains(err.Error(), "only supports cos") {
 		t.Fatalf("expected non-cos error, got %v", err)

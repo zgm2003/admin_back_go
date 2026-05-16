@@ -553,7 +553,7 @@ func normalizeDriverUpdateInput(input DriverUpdateInput) (DriverUpdateInput, *ap
 	input.Endpoint = strings.TrimSpace(input.Endpoint)
 	input.BucketDomain = strings.TrimSpace(input.BucketDomain)
 	if !enum.IsUploadDriver(input.Driver) {
-		return input, apperror.BadRequest("无效的上传驱动")
+		return input, apperror.BadRequest("当前仅支持腾讯云 COS，请重新配置 COS")
 	}
 	if input.Bucket == "" {
 		return input, apperror.BadRequest("bucket 不能为空")
@@ -563,9 +563,6 @@ func normalizeDriverUpdateInput(input DriverUpdateInput) (DriverUpdateInput, *ap
 	}
 	if input.Driver == enum.UploadDriverCOS && input.AppID == "" {
 		return input, apperror.BadRequest("COS appid 不能为空")
-	}
-	if input.Driver == enum.UploadDriverOSS && input.RoleARN == "" {
-		return input, apperror.BadRequest("OSS role_arn 不能为空")
 	}
 	return input, nil
 }

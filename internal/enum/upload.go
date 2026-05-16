@@ -7,17 +7,14 @@ import (
 
 const (
 	UploadDriverCOS = "cos"
-	UploadDriverOSS = "oss"
 )
 
 var UploadDrivers = []string{
 	UploadDriverCOS,
-	UploadDriverOSS,
 }
 
 var UploadDriverLabels = map[string]string{
 	UploadDriverCOS: "腾讯云 COS",
-	UploadDriverOSS: "阿里云 OSS",
 }
 
 var UploadImageExts = []string{
