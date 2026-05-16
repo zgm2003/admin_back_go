@@ -15,7 +15,19 @@ SET `is_del` = 1,
 WHERE `driver` <> 'cos';
 
 UPDATE `upload_driver`
-SET `bucket_domain` = TRIM(BOTH '/' FROM REPLACE(REPLACE(TRIM(`bucket_domain`), 'https://', ''), 'http://', '')),
+SET `bucket_domain` = SUBSTRING_INDEX(
+        SUBSTRING_INDEX(
+            SUBSTRING_INDEX(
+                TRIM(BOTH '/' FROM REGEXP_REPLACE(TRIM(`bucket_domain`), '^https?://', '', 1, 1, 'i')),
+                '/',
+                1
+            ),
+            '?',
+            1
+        ),
+        '#',
+        1
+    ),
     `updated_at` = NOW()
 WHERE `driver` = 'cos'
   AND `is_del` = 2
