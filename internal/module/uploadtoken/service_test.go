@@ -54,8 +54,22 @@ func TestCreateRejectsNonCOSDriver(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), validInput())
 
-	if appErr == nil || appErr.MessageID != "uploadtoken.cos_runtime_disabled" {
+	if appErr == nil || appErr.MessageID != "uploadtoken.cos_runtime_disabled" || appErr.Message != "当前上传驱动未启用 COS runtime" {
 		t.Fatalf("expected non COS error, got %#v", appErr)
+	}
+}
+
+func TestCreateReturnsBareBucketDomainFromConfig(t *testing.T) {
+	cfg := validConfig(t, enum.UploadDriverCOS)
+	cfg.BucketDomain = "cos.example.com"
+	service := NewService(fakeRepository{config: cfg}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{})
+
+	got, appErr := service.Create(context.Background(), validInput())
+	if appErr != nil {
+		t.Fatalf("Create returned error: %#v", appErr)
+	}
+	if got.BucketDomain == nil || *got.BucketDomain != "cos.example.com" {
+		t.Fatalf("expected bare bucket domain in token response, got %#v", got.BucketDomain)
 	}
 }
 
