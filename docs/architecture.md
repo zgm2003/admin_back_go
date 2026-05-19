@@ -901,11 +901,9 @@ SCHEDULER_LOCK_PREFIX    # 预留分布式 scheduler lock 前缀；真正多 wor
 本地启动命令：
 
 ```powershell
-# HTTP API，只处理 REST 请求，不消费队列，不跑 cron
-go run ./cmd/admin-api
-
-# 后台进程，消费 Asynq queue，并在启用时启动 scheduler
-go run ./cmd/admin-worker
+# 后端本地开发统一 Docker-first；Compose 同时启动 admin-api 和 admin-worker
+cd E:/admin_go/.docker/admin-go-backend
+docker compose up -d --build
 ```
 
 ## Go worker concurrency baseline

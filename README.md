@@ -123,7 +123,6 @@ admin_back_go/
   scripts/                 # smoke、contract、证书辅助脚本
   Dockerfile
   go.mod
-  .env.example
 ```
 
 固定调用链：
@@ -309,46 +308,58 @@ CORS_ALLOW_CREDENTIALS=true
 
 ## 本地开发
 
+后端本地开发统一 Docker-first。不要在仓库根目录创建 `.env`，不要用 `go run ./cmd/admin-api` 或 `go run ./cmd/admin-worker` 启动后端。
+
 ### 1. 准备依赖
 
 需要：
 
 ```text
-Go 1.26.1
+Docker Desktop / Docker Engine
 MySQL
 Redis
 PowerShell 7 或 Windows PowerShell
 ```
 
-### 2. 创建 `.env`
+### 2. 准备本地 Compose 工作目录
+
+`deploy/docker-first/` 只放模板。真实本地运行文件放 root 仓忽略的目录：
 
 ```powershell
-cd E:/admin_go/admin_back_go
-Copy-Item .env.example .env
+cd E:/admin_go
+New-Item -ItemType Directory -Force -Path .docker/admin-go-backend/runtime/logs, .docker/admin-go-backend/exports
+Copy-Item admin_back_go/deploy/docker-first/docker-compose.yml .docker/admin-go-backend/docker-compose.yml
+Copy-Item admin_back_go/deploy/docker-first/compose.env.example .docker/admin-go-backend/.env
+Copy-Item admin_back_go/deploy/docker-first/admin-go.env.example .docker/admin-go-backend/admin-go.env
 ```
 
-然后至少改这些：
+编辑 `.docker/admin-go-backend/.env`：
+
+```env
+ADMIN_BACK_GO_DIR=E:/admin_go/admin_back_go
+ADMIN_GO_ENV_FILE=./admin-go.env
+ADMIN_GO_RUNTIME_DIR=./runtime
+ADMIN_GO_EXPORTS_DIR=./exports
+ADMIN_API_HOST_BIND=127.0.0.1
+ADMIN_API_HOST_PORT=8080
+```
+
+编辑 `.docker/admin-go-backend/admin-go.env`，至少改这些：
 
 ```env
 MYSQL_DSN=你的 MySQL DSN
-REDIS_ADDR=127.0.0.1:6379
-# 至少 64 位随机字符串；修改会让旧登录态和已加密业务密钥失效
+REDIS_ADDR=host.docker.internal:6379
+# 至少 32 位随机字符串；修改会让旧登录态和已加密业务密钥失效
 APP_SECRET=本地长随机字符串
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-不要把真实 `.env` 提交到 Git。
-
-### 3. 下载依赖
+### 3. 启动 API + Worker
 
 ```powershell
-go mod download
-```
-
-### 4. 启动 API
-
-```powershell
-go run ./cmd/admin-api
+cd E:/admin_go/.docker/admin-go-backend
+docker compose up -d --build
+docker compose ps
 ```
 
 验证：
@@ -359,28 +370,20 @@ curl.exe http://127.0.0.1:8080/ready
 curl.exe http://127.0.0.1:8080/api/admin/v1/auth/login-config
 ```
 
-### 5. 启动 Worker
-
-另开一个终端：
-
-```powershell
-cd E:/admin_go/admin_back_go
-go run ./cmd/admin-worker
-```
-
-### 6. 常用本地检查
+### 4. 常用本地检查
 
 ```powershell
 # 单元测试
+cd E:/admin_go/admin_back_go
 go test ./...
 
 # 合同检查
 powershell -ExecutionPolicy Bypass -File ./scripts/check-contract.ps1
 
-# 基础 smoke，需要传真实测试账号
+# 基础 smoke，需要后端 Docker 容器已启动，并传真实测试账号
 powershell -ExecutionPolicy Bypass -File ./scripts/basic-admin-smoke.ps1 -Account <account> -Password <password>
 
-# 完整 smoke，覆盖更多读写链路
+# 完整 smoke
 powershell -ExecutionPolicy Bypass -File ./scripts/full-admin-smoke.ps1 -Account <account> -Password <password>
 ```
 
@@ -417,7 +420,7 @@ database/migrations/*.sql
 
 ## Docker 部署
 
-Production backend deployment is Docker-first. Use `deploy/docker-first/docker-compose.yml` with Baota Docker or `docker compose`; do not use the repository working-tree `.env` as the production entry. The `.env.example` at the repository root is kept for local `go run` compatibility only.
+Backend deployment and local backend development are Docker-first. Use `deploy/docker-first/docker-compose.yml` with Baota Docker or `docker compose`; do not use repository-root `.env` / `.env.example`, and do not start `admin-api` or `admin-worker` with `go run`.
 
 MySQL/Redis 可以也推荐用宝塔 Docker 管，但不要写进后端 Compose。生产默认拆成 `admin-go-state` 和 `admin-go-backend` 两个项目：状态服务独立保护，后端应用可随代码发布重建。
 

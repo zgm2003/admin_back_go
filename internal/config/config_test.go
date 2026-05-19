@@ -313,11 +313,11 @@ func TestLoadReadsPaymentConfig(t *testing.T) {
 	}
 }
 
-func TestEnvExampleUsesGoOwnedPaymentCerts(t *testing.T) {
+func TestDockerEnvExampleUsesContainerPaymentCertBase(t *testing.T) {
 	values := readEnvExample(t)
 
-	if values["PAYMENT_CERT_BASE_DIR"] != "E:/admin_go/admin_back_go" {
-		t.Fatalf("expected PAYMENT_CERT_BASE_DIR to point at Go backend, got %q", values["PAYMENT_CERT_BASE_DIR"])
+	if values["PAYMENT_CERT_BASE_DIR"] != "/app" {
+		t.Fatalf("expected Docker PAYMENT_CERT_BASE_DIR to point at container app root, got %q", values["PAYMENT_CERT_BASE_DIR"])
 	}
 	if _, ok := values["LEGACY_ADMIN_BACK_ROOT"]; ok {
 		t.Fatalf("LEGACY_ADMIN_BACK_ROOT should not be documented in Go-owned env example")
@@ -457,9 +457,9 @@ func containsString(values []string, want string) bool {
 
 func readEnvExample(t *testing.T) map[string]string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join("..", "..", ".env.example"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker-first", "admin-go.env.example"))
 	if err != nil {
-		t.Fatalf("read .env.example: %v", err)
+		t.Fatalf("read deploy/docker-first/admin-go.env.example: %v", err)
 	}
 
 	values := make(map[string]string)
