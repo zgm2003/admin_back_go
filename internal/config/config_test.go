@@ -330,6 +330,25 @@ func TestDockerEnvExampleUsesContainerPaymentCertBase(t *testing.T) {
 	}
 }
 
+func TestDockerFirstDeployAssetsDoNotUseLocalBinaryDockerfile(t *testing.T) {
+	deployDir := filepath.Join("..", "..", "deploy", "docker-first")
+
+	if _, err := os.Stat(filepath.Join(deployDir, "Dockerfile.local")); !os.IsNotExist(err) {
+		t.Fatalf("deploy/docker-first must not keep Dockerfile.local; use the root Dockerfile multi-stage build only")
+	}
+
+	composeBytes, err := os.ReadFile(filepath.Join(deployDir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatalf("read deploy/docker-first/docker-compose.yml: %v", err)
+	}
+	compose := string(composeBytes)
+	for _, disallowed := range []string{"ADMIN_BACK_GO_DOCKERFILE", "Dockerfile.local", ".docker-bin"} {
+		if strings.Contains(compose, disallowed) {
+			t.Fatalf("docker-compose.yml must not reference local-binary Docker build path %q", disallowed)
+		}
+	}
+}
+
 func TestEnvExampleDocumentsAITimeouts(t *testing.T) {
 	values := readEnvExample(t)
 

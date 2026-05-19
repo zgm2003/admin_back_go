@@ -5,7 +5,7 @@ services:
     image: admin-go-backend:local
     build:
       context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
-      dockerfile: ${ADMIN_BACK_GO_DOCKERFILE:-Dockerfile}
+      dockerfile: Dockerfile
       args:
         GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
         GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
@@ -29,7 +29,7 @@ services:
     image: admin-go-backend:local
     build:
       context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
-      dockerfile: ${ADMIN_BACK_GO_DOCKERFILE:-Dockerfile}
+      dockerfile: Dockerfile
       args:
         GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
         GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
