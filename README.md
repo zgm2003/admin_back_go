@@ -429,6 +429,31 @@ Docker Compose 只跑 admin-api 和 admin-worker
 MySQL / Redis 可以用 Docker，但必须作为独立的 admin-go-state 项目管理
 ```
 
+### 本地 Docker 启动
+
+`deploy/docker-first/` 里现在有本机可用的真实文件，且已被 `.gitignore` 排除：
+
+```text
+deploy/docker-first/.env
+deploy/docker-first/admin-go.env
+deploy/docker-first/runtime/
+deploy/docker-first/exports/
+```
+
+本地直接跑：
+
+```powershell
+cd E:/admin_go/admin_back_go/deploy/docker-first
+docker compose up -d --build
+docker compose ps
+curl.exe http://127.0.0.1:8080/health
+curl.exe http://127.0.0.1:8080/ready
+```
+
+如果构建时 Docker Hub token 超时，先改 `deploy/docker-first/.env` 里的 `GO_BUILD_IMAGE` / `GO_RUNTIME_IMAGE` 到你能访问的镜像源，或先手动 pull/tag 这两个基础镜像。
+
+默认本地 `admin-go.env` 是 backend-only smoke：`MYSQL_DSN` / `REDIS_ADDR` 留空，`QUEUE_ENABLED=false`，`SCHEDULER_ENABLED=false`，先保证容器和 `/health` 能起来。要跑完整业务 smoke，再把 `MYSQL_DSN` 改成 `root:@tcp(host.docker.internal:3306)/admin?...`、`REDIS_ADDR` 改成 `host.docker.internal:6379`，并打开 queue/scheduler。
+
 ### 1. 服务器目录建议
 
 ```bash

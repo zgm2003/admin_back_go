@@ -6,6 +6,9 @@ services:
     build:
       context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
       dockerfile: Dockerfile
+      args:
+        GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
+        GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
     command: ["/app/admin-api"]
     restart: unless-stopped
     env_file:
@@ -27,6 +30,9 @@ services:
     build:
       context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
       dockerfile: Dockerfile
+      args:
+        GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
+        GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
     command: ["/app/admin-worker"]
     restart: unless-stopped
     env_file:

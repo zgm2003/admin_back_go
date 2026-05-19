@@ -15,6 +15,12 @@ coverage.out
 .env
 .env.*.local
 
+# Docker-first local compose/runtime files
+deploy/docker-first/.env
+deploy/docker-first/admin-go.env
+deploy/docker-first/runtime/
+deploy/docker-first/exports/
+
 # Local smoke/runtime scratch
 .tmp/
 runtime/

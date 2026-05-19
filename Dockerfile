@@ -1,8 +1,7 @@
-# syntax=docker/dockerfile:1.7
+ARG GO_BUILD_IMAGE=golang:1.26.1-bookworm
+ARG GO_RUNTIME_IMAGE=debian:bookworm-slim
 
-ARG GO_VERSION=1.26.1
-
-FROM golang:${GO_VERSION}-bookworm AS build
+FROM ${GO_BUILD_IMAGE} AS build
 
 WORKDIR /src
 
@@ -19,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w" -o /out/admin-api ./cmd/admin-api && \
     go build -ldflags="-s -w" -o /out/admin-worker ./cmd/admin-worker
 
-FROM debian:bookworm-slim AS runtime
+FROM ${GO_RUNTIME_IMAGE} AS runtime
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata curl && \
