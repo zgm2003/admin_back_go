@@ -12,7 +12,7 @@ services:
     command: ["/app/admin-api"]
     restart: unless-stopped
     env_file:
-      - ${ADMIN_GO_ENV_FILE:-./admin-go.env}
+      - ${ADMIN_GO_ENV_FILE:-./admin-go.env.example}
     ports:
       - "${ADMIN_API_HOST_BIND:-127.0.0.1}:${ADMIN_API_HOST_PORT:-8080}:8080"
     volumes:
@@ -36,7 +36,7 @@ services:
     command: ["/app/admin-worker"]
     restart: unless-stopped
     env_file:
-      - ${ADMIN_GO_ENV_FILE:-./admin-go.env}
+      - ${ADMIN_GO_ENV_FILE:-./admin-go.env.example}
     volumes:
       - ${ADMIN_GO_RUNTIME_DIR:-/www/docker/admin-go-backend/runtime}:/app/runtime
       - ${ADMIN_GO_EXPORTS_DIR:-/www/docker/admin-go-backend/exports}:/app/exports
