@@ -103,7 +103,7 @@ admin_back_go/
   database/
     migrations/            # 当前增量迁移 SQL，不是完整建库脚本
   deploy/
-    first-node/            # 单节点/首节点 Docker Compose 部署模板
+    docker-first/          # 后端 Docker-first Compose 部署模板
   docs/                    # 后端架构、模块设计、迁移文档
   internal/
     bootstrap/             # 装配 config/db/redis/router/services/worker
@@ -187,7 +187,7 @@ admin_back_go/.env
 部署时 Docker Compose 默认用：
 
 ```text
-/www/docker/admin-go/admin-go.env
+/www/docker/admin-go-backend/admin-go.env
 ```
 
 ### 必填核心配置
@@ -417,21 +417,25 @@ database/migrations/*.sql
 
 ## Docker 部署
 
+Production backend deployment is Docker-first. Use `deploy/docker-first/docker-compose.yml` with Baota Docker or `docker compose`; do not use the repository working-tree `.env` as the production entry. The `.env.example` at the repository root is kept for local `go run` compatibility only.
+
+MySQL/Redis 可以也推荐用宝塔 Docker 管，但不要写进后端 Compose。生产默认拆成 `admin-go-state` 和 `admin-go-backend` 两个项目：状态服务独立保护，后端应用可随代码发布重建。
+
 当前推荐演示部署：
 
 ```text
 宿主机宝塔 / OpenResty / Nginx 负责域名、HTTPS、反向代理
 Docker Compose 只跑 admin-api 和 admin-worker
-MySQL / Redis 可以同机，也可以独立状态机
+MySQL / Redis 可以用 Docker，但必须作为独立的 admin-go-state 项目管理
 ```
 
 ### 1. 服务器目录建议
 
 ```bash
 mkdir -p /www/project
-mkdir -p /www/docker/admin-go/runtime/logs
-mkdir -p /www/docker/admin-go/runtime/cert/alipay
-mkdir -p /www/docker/admin-go/exports
+mkdir -p /www/docker/admin-go-backend/runtime/logs
+mkdir -p /www/docker/admin-go-backend/runtime/payment/certs/alipay
+mkdir -p /www/docker/admin-go-backend/exports
 mkdir -p /www/backup/admin-go
 ```
 
@@ -467,17 +471,17 @@ git pull
 ### 3. 准备 Compose 工作目录
 
 ```bash
-cp /www/project/admin_back_go/deploy/first-node/docker-compose.yml /www/docker/admin-go/docker-compose.yml
-cp /www/project/admin_back_go/deploy/first-node/admin-go.env.example /www/docker/admin-go/admin-go.env
+cp /www/project/admin_back_go/deploy/docker-first/docker-compose.yml /www/docker/admin-go-backend/docker-compose.yml
+cp /www/project/admin_back_go/deploy/docker-first/admin-go.env.example /www/docker/admin-go-backend/admin-go.env
 ```
 
-创建 `/www/docker/admin-go/.env`，这是给 Docker Compose 自己读取的变量，不是容器业务配置：
+创建 `/www/docker/admin-go-backend/.env`，这是给 Docker Compose 自己读取的变量，不是容器业务配置：
 
 ```env
 ADMIN_BACK_GO_DIR=/www/project/admin_back_go
-ADMIN_GO_ENV_FILE=/www/docker/admin-go/admin-go.env
-ADMIN_GO_RUNTIME_DIR=/www/docker/admin-go/runtime
-ADMIN_GO_EXPORTS_DIR=/www/docker/admin-go/exports
+ADMIN_GO_ENV_FILE=/www/docker/admin-go-backend/admin-go.env
+ADMIN_GO_RUNTIME_DIR=/www/docker/admin-go-backend/runtime
+ADMIN_GO_EXPORTS_DIR=/www/docker/admin-go-backend/exports
 ADMIN_API_HOST_BIND=127.0.0.1
 ADMIN_API_HOST_PORT=8080
 ```
@@ -493,7 +497,7 @@ ADMIN_BACK_GO_DIR=/www/wwwroot/www.zgm2003.cn
 编辑：
 
 ```bash
-vim /www/docker/admin-go/admin-go.env
+vim /www/docker/admin-go-backend/admin-go.env
 ```
 
 最少要改：
@@ -518,12 +522,12 @@ CORS_ALLOW_ORIGINS=https://zgm2003.cn
 CORS_ALLOW_CREDENTIALS=true
 ```
 
-如果 MySQL/Redis 在另一台机器，把 `127.0.0.1` 改成内网 IP。别把 MySQL/Redis 裸奔到公网；必须用安全组/防火墙只放行后端机器。
+如果 MySQL/Redis 在 `admin-go-state` Docker 项目里，把连接地址改成对应 Docker network、宿主本地端口或内网 IP。别把 MySQL/Redis 裸奔到公网；必须用安全组/防火墙只放行后端机器。
 
 ### 5. 启动
 
 ```bash
-cd /www/docker/admin-go
+cd /www/docker/admin-go-backend
 docker compose up -d --build
 ```
 
@@ -558,7 +562,7 @@ Compose 目录：负责 docker compose up -d --build
 cd /www/project/admin_back_go
 git pull
 
-cd /www/docker/admin-go
+cd /www/docker/admin-go-backend
 docker compose up -d --build
 ```
 
@@ -568,16 +572,16 @@ docker compose up -d --build
 cd /www/wwwroot/www.zgm2003.cn
 git pull
 
-cd /www/docker/admin-go
+cd /www/docker/admin-go-backend
 docker compose up -d --build
 ```
 
-重点是：`docker compose up -d --build` 在 `/www/docker/admin-go` 执行，因为这里才有 `docker-compose.yml`；Compose 会通过 `ADMIN_BACK_GO_DIR` 去读取真正的 Go 后端代码和 `Dockerfile`。
+重点是：`docker compose up -d --build` 在 `/www/docker/admin-go-backend` 执行，因为这里才有后端 `docker-compose.yml`；Compose 会通过 `ADMIN_BACK_GO_DIR` 去读取真正的 Go 后端代码和 `Dockerfile`。MySQL/Redis 属于 `admin-go-state`，不要跟随后端发布一起 down。
 
 ### 7. 停止 / 重启
 
 ```bash
-cd /www/docker/admin-go
+cd /www/docker/admin-go-backend
 
 # 重启
 docker compose restart
@@ -594,7 +598,8 @@ docker compose up -d --build
 ### 原则
 
 ```text
-Docker 只跑 Go 后端。
+Docker 后端项目只跑 admin-api / admin-worker。
+MySQL / Redis 即使用 Docker，也属于独立的 admin-go-state 项目。
 宝塔 Nginx 负责域名、SSL、反向代理、前端 SPA 伪静态。
 ```
 
@@ -746,7 +751,7 @@ realtime
 Docker stdout：
 
 ```bash
-cd /www/docker/admin-go
+cd /www/docker/admin-go-backend
 docker compose logs -f admin-api
 docker compose logs -f admin-worker
 ```
@@ -754,8 +759,8 @@ docker compose logs -f admin-worker
 文件日志：
 
 ```text
-/www/docker/admin-go/runtime/logs/admin-api.log
-/www/docker/admin-go/runtime/logs/admin-worker.log
+/www/docker/admin-go-backend/runtime/logs/admin-api.log
+/www/docker/admin-go-backend/runtime/logs/admin-worker.log
 ```
 
 宝塔 Nginx 日志一般在：
@@ -884,8 +889,8 @@ Nginx、SSL、伪静态、反代都在宿主机宝塔里。
 ../docs/contracts/admin-realtime-v1.md
 docs/architecture.md
 internal/middleware/README.md
-deploy/first-node/docker-compose.yml
-deploy/first-node/admin-go.env.example
+deploy/docker-first/docker-compose.yml
+deploy/docker-first/admin-go.env.example
 ```
 
 ## 底线
