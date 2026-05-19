@@ -472,19 +472,22 @@ git pull
 
 ```bash
 cp /www/project/admin_back_go/deploy/docker-first/docker-compose.yml /www/docker/admin-go-backend/docker-compose.yml
+cp /www/project/admin_back_go/deploy/docker-first/compose.env.example /www/docker/admin-go-backend/.env
 cp /www/project/admin_back_go/deploy/docker-first/admin-go.env.example /www/docker/admin-go-backend/admin-go.env
 ```
 
-创建 `/www/docker/admin-go-backend/.env`，这是给 Docker Compose 自己读取的变量，不是容器业务配置：
+`/www/docker/admin-go-backend/.env` 来自 `compose.env.example`，这是给 Docker Compose 自己读取的变量，不是容器业务配置：
 
 ```env
 ADMIN_BACK_GO_DIR=/www/project/admin_back_go
-ADMIN_GO_ENV_FILE=/www/docker/admin-go-backend/admin-go.env
-ADMIN_GO_RUNTIME_DIR=/www/docker/admin-go-backend/runtime
-ADMIN_GO_EXPORTS_DIR=/www/docker/admin-go-backend/exports
+ADMIN_GO_ENV_FILE=./admin-go.env
+ADMIN_GO_RUNTIME_DIR=./runtime
+ADMIN_GO_EXPORTS_DIR=./exports
 ADMIN_API_HOST_BIND=127.0.0.1
 ADMIN_API_HOST_PORT=8080
 ```
+
+容器业务运行配置在 `/www/docker/admin-go-backend/admin-go.env`，来自 `admin-go.env.example`。
 
 如果代码在 `/www/wwwroot/www.zgm2003.cn`，就改成：
 
@@ -890,6 +893,7 @@ Nginx、SSL、伪静态、反代都在宿主机宝塔里。
 docs/architecture.md
 internal/middleware/README.md
 deploy/docker-first/docker-compose.yml
+deploy/docker-first/compose.env.example
 deploy/docker-first/admin-go.env.example
 ```
 
