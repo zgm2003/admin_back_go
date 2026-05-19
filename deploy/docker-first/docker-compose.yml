@@ -5,7 +5,7 @@ services:
     image: admin-go-backend:local
     build:
       context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
-      dockerfile: Dockerfile
+      dockerfile: ${ADMIN_BACK_GO_DOCKERFILE:-Dockerfile}
       args:
         GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
         GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
@@ -19,7 +19,7 @@ services:
       - ${ADMIN_GO_RUNTIME_DIR:-/www/docker/admin-go-backend/runtime}:/app/runtime
       - ${ADMIN_GO_EXPORTS_DIR:-/www/docker/admin-go-backend/exports}:/app/exports
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:8080/health >/dev/null; else python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()\"; fi"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -29,7 +29,7 @@ services:
     image: admin-go-backend:local
     build:
       context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
-      dockerfile: Dockerfile
+      dockerfile: ${ADMIN_BACK_GO_DOCKERFILE:-Dockerfile}
       args:
         GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
         GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
