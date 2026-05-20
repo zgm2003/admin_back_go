@@ -1,13 +1,16 @@
 ARG GO_BUILD_IMAGE=golang:1.26.1-bookworm
 ARG GO_RUNTIME_IMAGE=debian:bookworm-slim
+ARG GO_MODULE_PROXY=https://goproxy.io,https://proxy.golang.org,direct
 
 FROM ${GO_BUILD_IMAGE} AS build
+
+ARG GO_MODULE_PROXY
 
 WORKDIR /src
 
 ENV CGO_ENABLED=0
 ENV GOFLAGS=-trimpath
-ENV GOPROXY=https://goproxy.io,direct
+ENV GOPROXY=${GO_MODULE_PROXY}
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
