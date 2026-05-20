@@ -16,7 +16,6 @@ type Config struct {
 	MySQL       MySQLConfig
 	Redis       RedisConfig
 	Token       TokenConfig
-	VerifyCode  VerifyCodeConfig
 	Queue       QueueConfig
 	Realtime    RealtimeConfig
 	Scheduler   SchedulerConfig
@@ -87,10 +86,6 @@ type TokenConfig struct {
 	SessionCacheTTL         time.Duration
 	SingleSessionPointerTTL time.Duration
 	RedisDB                 int
-}
-
-type VerifyCodeConfig struct {
-	RedisPrefix string
 }
 
 type QueueConfig struct {
@@ -206,9 +201,6 @@ func Load() Config {
 			SessionCacheTTL:         envDuration("TOKEN_SESSION_CACHE_TTL", 30*time.Minute),
 			SingleSessionPointerTTL: envDuration("TOKEN_SINGLE_SESSION_POINTER_TTL", 30*24*time.Hour),
 			RedisDB:                 envInt("TOKEN_REDIS_DB", 2),
-		},
-		VerifyCode: VerifyCodeConfig{
-			RedisPrefix: envString("VERIFY_CODE_REDIS_PREFIX", "auth:verify_code:"),
 		},
 		Queue: QueueConfig{
 			Enabled:         envBool("QUEUE_ENABLED", true),

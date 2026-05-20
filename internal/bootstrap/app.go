@@ -269,9 +269,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		auth.WithCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		auth.WithVerifyCodeMailSender(mailService),
 		auth.WithVerifyCodePolicyProvider(auth.NewSystemSettingVerifyCodePolicyProvider(systemSettingRepository)),
-		auth.WithVerifyCodeOptions(auth.VerifyCodeOptions{
-			RedisPrefix: cfg.VerifyCode.RedisPrefix,
-		}),
 		auth.WithLoginLogEnqueuer(loginLogEnqueuer),
 		auth.WithLogger(logger),
 	)
@@ -324,7 +321,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		permissionService,
 		buttonGrantCache,
 		0,
-		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis), cfg.VerifyCode.RedisPrefix),
+		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		user.WithExportTaskCreator(exportTaskService),
 		user.WithExportEnqueuer(queueClient),
 		user.WithAddressDictCache(addressDictCache),

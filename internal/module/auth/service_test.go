@@ -890,3 +890,10 @@ func TestServiceSendCodeEmailRequiresMailSenderAndDeletesCachedCode(t *testing.T
 		t.Fatalf("email send-code must clean cached code when sender is missing, store=%#v", store)
 	}
 }
+func TestVerifyCodeCacheKeyUsesCodeOwnedNamespace(t *testing.T) {
+	got := VerifyCodeCacheKey("email", VerifyCodeSceneLogin, "user@example.com")
+	want := "auth:verify_code:email:login:b58996c504c5638798eb6b511e6f49af"
+	if got != want {
+		t.Fatalf("expected code-owned verify-code cache key %q, got %q", want, got)
+	}
+}

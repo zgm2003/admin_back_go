@@ -456,7 +456,7 @@ func TestServiceUpdatePasswordWithCodeConsumesOwnedAccountCode(t *testing.T) {
 		"auth:verify_code:email:change_password:c160f8cc69a4f0bf2b0362752353d060": "123456",
 	}}
 	repo := &fakeUserRepository{user: &User{ID: 9, Email: "alice@example.com"}}
-	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store))
 
 	appErr := svc.UpdatePassword(context.Background(), UpdatePasswordInput{
 		UserID:          9,
@@ -483,7 +483,7 @@ func TestServiceUpdateEmailConsumesBindEmailCodeAndRejectsDuplicate(t *testing.T
 		"auth:verify_code:email:bind_email:b681d72feaf8bf6a93d9a8ab86679ec3": "123456",
 	}}
 	repo := &fakeUserRepository{user: &User{ID: 9}}
-	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store))
 
 	appErr := svc.UpdateEmail(context.Background(), UpdateEmailInput{UserID: 9, Email: " new@example.com ", Code: "123456"})
 
@@ -498,7 +498,7 @@ func TestServiceUpdateEmailConsumesBindEmailCodeAndRejectsDuplicate(t *testing.T
 	}
 
 	dupRepo := &fakeUserRepository{user: &User{ID: 9}, emailUsed: true}
-	dupSvc := NewService(dupRepo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	dupSvc := NewService(dupRepo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store))
 	appErr = dupSvc.UpdateEmail(context.Background(), UpdateEmailInput{UserID: 9, Email: "used@example.com", Code: "123456"})
 	if appErr == nil || appErr.Message != "邮箱已被绑定" {
 		t.Fatalf("expected duplicate email error, got %#v", appErr)
@@ -510,7 +510,7 @@ func TestServiceUpdatePhoneConsumesBindPhoneCodeAndRejectsDuplicate(t *testing.T
 		"auth:verify_code:phone:bind_phone:d521793014a021c7fec54bb8feee4885": "123456",
 	}}
 	repo := &fakeUserRepository{user: &User{ID: 9}}
-	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store))
 
 	appErr := svc.UpdatePhone(context.Background(), UpdatePhoneInput{UserID: 9, Phone: " 15671628271 ", Code: "123456"})
 
@@ -525,7 +525,7 @@ func TestServiceUpdatePhoneConsumesBindPhoneCodeAndRejectsDuplicate(t *testing.T
 	}
 
 	dupRepo := &fakeUserRepository{user: &User{ID: 9}, phoneUsed: true}
-	dupSvc := NewService(dupRepo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store, "auth:verify_code:"))
+	dupSvc := NewService(dupRepo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store))
 	appErr = dupSvc.UpdatePhone(context.Background(), UpdatePhoneInput{UserID: 9, Phone: "15671628271", Code: "123456"})
 	if appErr == nil || appErr.Message != "手机号已被绑定" {
 		t.Fatalf("expected duplicate phone error, got %#v", appErr)

@@ -315,13 +315,33 @@ func TestDockerEnvExampleUsesContainerPaymentCertBase(t *testing.T) {
 	}
 }
 
-func TestEnvExampleDoesNotDocumentCaptchaRuntimePolicy(t *testing.T) {
-	values := readEnvExample(t)
+func TestDockerFirstEnvDoesNotDocumentCaptchaRuntimePolicy(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnv(t, fileName)
 
-	for _, key := range []string{"CAPTCHA_TTL", "CAPTCHA_REDIS_PREFIX", "CAPTCHA_SLIDE_PADDING"} {
-		if _, ok := values[key]; ok {
-			t.Fatalf("%s should move to system_settings or code constant, not Docker env", key)
+		for _, key := range []string{"CAPTCHA_TTL", "CAPTCHA_REDIS_PREFIX", "CAPTCHA_SLIDE_PADDING"} {
+			if _, ok := values[key]; ok {
+				t.Fatalf("%s should move to system_settings or code constant, not Docker env file %s", key, fileName)
+			}
 		}
+	}
+}
+
+func TestDockerFirstEnvDoesNotDocumentVerifyCodeRuntimePolicy(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnv(t, fileName)
+
+		for _, key := range []string{"VERIFY_CODE_TTL", "VERIFY_CODE_REDIS_PREFIX"} {
+			if _, ok := values[key]; ok {
+				t.Fatalf("%s should move to system_settings or code constant, not Docker env file %s", key, fileName)
+			}
+		}
+	}
+}
+
+func TestConfigDoesNotExposeVerifyCodeRuntimePolicy(t *testing.T) {
+	if _, ok := reflect.TypeOf(Config{}).FieldByName("VerifyCode"); ok {
+		t.Fatalf("verify-code runtime policy should not be loaded from env config")
 	}
 }
 
@@ -471,9 +491,14 @@ func containsString(values []string, want string) bool {
 
 func readEnvExample(t *testing.T) map[string]string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker-first", "admin-go.env.example"))
+	return readDockerFirstEnv(t, "admin-go.env.example")
+}
+
+func readDockerFirstEnv(t *testing.T, fileName string) map[string]string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker-first", fileName))
 	if err != nil {
-		t.Fatalf("read deploy/docker-first/admin-go.env.example: %v", err)
+		t.Fatalf("read deploy/docker-first/%s: %v", fileName, err)
 	}
 
 	values := make(map[string]string)

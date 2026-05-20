@@ -65,6 +65,6 @@ func verifyCodeKey(accountType string, scene string, account string) string {
 	return accountType + ":" + strings.TrimSpace(scene) + ":" + hex.EncodeToString(sum[:])
 }
 
-func VerifyCodeCacheKey(prefix string, accountType string, scene string, account string) string {
-	return strings.TrimSpace(prefix) + verifyCodeKey(accountType, scene, account)
+func VerifyCodeCacheKey(accountType string, scene string, account string) string {
+	return defaultVerifyCodeRedisPrefix + verifyCodeKey(accountType, scene, account)
 }

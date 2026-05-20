@@ -23,7 +23,6 @@ import (
 const defaultButtonCacheTTL = 30 * time.Minute
 const timeLayout = "2006-01-02 15:04:05"
 const birthdayLayout = "2006-01-02"
-const defaultVerifyCodePrefix = "auth:verify_code:"
 
 var (
 	userPhonePattern = regexp.MustCompile(`^1[3-9]\d{9}$`)
@@ -58,7 +57,6 @@ type Service struct {
 	buttonCacheTTL    time.Duration
 	platforms         []string
 	verifyCodeStore   VerifyCodeStore
-	verifyCodePrefix  string
 	exportTaskCreator ExportTaskCreator
 	exportEnqueuer    taskqueue.Enqueuer
 	addressCache      AddressDictCache
@@ -82,24 +80,18 @@ func NewService(repository Repository, permissionBuilder PermissionBuilder, butt
 		buttonCache:       buttonCache,
 		buttonCacheTTL:    buttonCacheTTL,
 		platforms:         normalizePlatforms(enum.Platforms),
-		verifyCodePrefix:  defaultVerifyCodePrefix,
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(service)
 		}
 	}
-	service.verifyCodePrefix = strings.TrimSpace(service.verifyCodePrefix)
-	if service.verifyCodePrefix == "" {
-		service.verifyCodePrefix = defaultVerifyCodePrefix
-	}
 	return service
 }
 
-func WithVerifyCodeStore(store VerifyCodeStore, prefix string) Option {
+func WithVerifyCodeStore(store VerifyCodeStore) Option {
 	return func(s *Service) {
 		s.verifyCodeStore = store
-		s.verifyCodePrefix = prefix
 	}
 }
 
@@ -820,7 +812,7 @@ func (s *Service) verifyCode(ctx context.Context, accountType string, scene stri
 	if s == nil || s.verifyCodeStore == nil {
 		return apperror.Internal("验证码缓存未配置")
 	}
-	key := auth.VerifyCodeCacheKey(s.verifyCodePrefix, accountType, scene, account)
+	key := auth.VerifyCodeCacheKey(accountType, scene, account)
 	cached, err := s.verifyCodeStore.Get(ctx, key)
 	if err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "验证码缓存读取失败", err)

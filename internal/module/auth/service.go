@@ -68,7 +68,6 @@ type VerifyCodeMailSender interface {
 
 type VerifyCodeOptions struct {
 	TTL           time.Duration
-	RedisPrefix   string
 	PhoneCode     string
 	CodeGenerator func() (string, error)
 }
@@ -96,9 +95,8 @@ func NewService(repository Repository, platformConfig PlatformConfigProvider, se
 		captchaVerifier: captchaVerifier,
 		logger:          slog.Default(),
 		verifyCodeOptions: VerifyCodeOptions{
-			TTL:         defaultVerifyCodeTTL,
-			RedisPrefix: defaultVerifyCodeRedisPrefix,
-			PhoneCode:   defaultPhoneCode,
+			TTL:       defaultVerifyCodeTTL,
+			PhoneCode: defaultPhoneCode,
 		},
 	}
 	for _, opt := range opts {
@@ -550,7 +548,7 @@ func (s *Service) verifyCode(ctx context.Context, account string, code string, s
 }
 
 func (s *Service) verifyCodeCacheKey(accountType string, scene string, account string) string {
-	return VerifyCodeCacheKey(s.verifyCodeOptions.RedisPrefix, accountType, scene, account)
+	return VerifyCodeCacheKey(accountType, scene, account)
 }
 
 func (s *Service) verifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
@@ -654,10 +652,6 @@ func normalizeForgetPasswordInput(input ForgetPasswordInput) (ForgetPasswordInpu
 func normalizeVerifyCodeOptions(options VerifyCodeOptions) VerifyCodeOptions {
 	if options.TTL <= 0 {
 		options.TTL = defaultVerifyCodeTTL
-	}
-	options.RedisPrefix = strings.TrimSpace(options.RedisPrefix)
-	if options.RedisPrefix == "" {
-		options.RedisPrefix = defaultVerifyCodeRedisPrefix
 	}
 	options.PhoneCode = strings.TrimSpace(options.PhoneCode)
 	if options.PhoneCode == "" {

@@ -284,12 +284,7 @@ SCHEDULER_LOCK_TTL=30s
 
 ### 验证码
 
-```env
-VERIFY_CODE_TTL=5m
-VERIFY_CODE_REDIS_PREFIX=auth:verify_code:
-```
-
-规则很简单：手机号验证码固定 `123456`，不接短信，也不受 `.env` 控制；邮箱验证码始终走腾讯云 SES，需要先在邮件管理里启用发信配置和审核通过的模板。生产如果不开放手机号登录，直接在 `auth_platforms.login_types` 里关闭 `phone`。
+规则很简单：手机号验证码固定 `123456`，不接短信，也不受 `.env` 控制；邮箱验证码始终走腾讯云 SES，需要先在邮件管理里启用发信配置和审核通过的模板。验证码有效期通过后台系统设置 `auth.verify_code.ttl_minutes` 调整；Redis namespace `auth:verify_code:` 由代码内置，不通过 env 配置。生产如果不开放手机号登录，直接在 `auth_platforms.login_types` 里关闭 `phone`。
 
 ### CORS
 
