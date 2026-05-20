@@ -197,6 +197,26 @@ func TestHashTokenRejectsUnsafePepper(t *testing.T) {
 	}
 }
 
+func TestNewAuthenticatorNormalizesTokenConfigDefaults(t *testing.T) {
+	auth := NewAuthenticator(AuthenticatorDeps{
+		Config: config.TokenConfig{
+			RedisPrefix:             "   ",
+			SessionCacheTTL:         -time.Second,
+			SingleSessionPointerTTL: -time.Hour,
+		},
+	})
+
+	if auth.cfg.RedisPrefix != config.DefaultTokenRedisPrefix {
+		t.Fatalf("expected default redis prefix %q, got %q", config.DefaultTokenRedisPrefix, auth.cfg.RedisPrefix)
+	}
+	if auth.cfg.SessionCacheTTL != config.DefaultTokenSessionCacheTTL {
+		t.Fatalf("expected default session cache ttl %s, got %s", config.DefaultTokenSessionCacheTTL, auth.cfg.SessionCacheTTL)
+	}
+	if auth.cfg.SingleSessionPointerTTL != config.DefaultTokenSingleSessionPointerTTL {
+		t.Fatalf("expected default pointer ttl %s, got %s", config.DefaultTokenSingleSessionPointerTTL, auth.cfg.SingleSessionPointerTTL)
+	}
+}
+
 func TestAuthenticatorCreateReturnsJWTAccessAndOpaqueRefresh(t *testing.T) {
 	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	generator := &sequenceTokenGenerator{values: []string{"refresh-token"}}

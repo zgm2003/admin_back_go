@@ -162,15 +162,7 @@ func NewAuthenticator(deps AuthenticatorDeps) *Authenticator {
 	if now == nil {
 		now = time.Now
 	}
-	if deps.Config.RedisPrefix == "" {
-		deps.Config.RedisPrefix = "token:"
-	}
-	if deps.Config.SessionCacheTTL == 0 {
-		deps.Config.SessionCacheTTL = 30 * time.Minute
-	}
-	if deps.Config.SingleSessionPointerTTL == 0 {
-		deps.Config.SingleSessionPointerTTL = 30 * 24 * time.Hour
-	}
+	deps.Config = config.NormalizeTokenConfig(deps.Config)
 	tokenGenerator := deps.TokenGenerator
 	if tokenGenerator == nil {
 		tokenGenerator = makeToken
