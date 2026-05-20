@@ -305,14 +305,15 @@ platform/device-id 作为请求输入传入认证服务
 APP_SECRET 是唯一根密钥；internal/platform/secretkey 用 HKDF-SHA256 派生 jwt-signing、token-pepper、secretbox、session-cache keys。
 access_token 是本系统签发的 JWT，只包含 sid/sub/platform/device_id/iat/nbf/exp/iss 最小 claims。
 refresh_token 是 opaque random string，数据库只保存 sha256(refresh_token + "|" + derived token pepper)。
-Redis session key = TOKEN_REDIS_PREFIX + "session:" + session_id
+Redis session key = "token:session:" + session_id，其中 "token:" 是代码内置命名空间。
+Redis single-session pointer key = "token:cur_sess:" + platform + ":" + user_id。
 Redis payload = user_id|expires_at|ip|platform|device_id|session_id
 Token Redis 使用独立 DB，默认 TOKEN_REDIS_DB = 2。
 Redis 未命中 -> MySQL user_sessions.id
 MySQL 条件：revoked_at IS NULL、is_del = 2、expires_at > now
-命中 MySQL 后回写 Redis，并按 TOKEN_SESSION_CACHE_TTL 续期
-按 auth_platforms 执行 current platform、bind_platform、bind_device、bind_ip、single_session 策略
-access/refresh token 有效期只来自 auth_platforms.access_ttl / auth_platforms.refresh_ttl
+命中 MySQL 后回写 Redis，并按代码内置 30m 续期。
+按 auth_platforms 执行 current platform、bind_platform、bind_device、bind_ip、single_session 策略。
+access/refresh token 有效期只来自 auth_platforms.access_ttl / auth_platforms.refresh_ttl。
 最终 AuthIdentity.Platform 来自 session.platform，前端不得解析 JWT 决定权限。
 ```
 
@@ -414,10 +415,7 @@ REDIS_ADDR
 REDIS_PASSWORD
 REDIS_DB
 APP_SECRET
-TOKEN_REDIS_PREFIX
 TOKEN_REDIS_DB
-TOKEN_SESSION_CACHE_TTL
-TOKEN_SINGLE_SESSION_POINTER_TTL
 QUEUE_ENABLED
 QUEUE_REDIS_DB
 QUEUE_CONCURRENCY
@@ -452,7 +450,7 @@ config 不连接 DB
 config 不连接 Redis
 config 不读取业务表
 platform 层以后根据 config 创建 client
-APP_SECRET 是部署级唯一根密钥；TOKEN_REDIS_PREFIX / TOKEN_REDIS_DB / TOKEN_SESSION_CACHE_TTL / TOKEN_SINGLE_SESSION_POINTER_TTL 是部署级 Redis/session 基础设施配置，保留 env
+APP_SECRET 是部署级唯一根密钥，TOKEN_REDIS_DB 是部署级 TokenRedis 隔离项；token Redis prefix `token:`、session cache TTL `30m`、single-session pointer TTL `720h` 是代码内置默认，不进 env，也不进 system_settings。
 TOKEN_ACCESS_TTL / TOKEN_REFRESH_TTL 不再存在；业务 token TTL 只在 auth_platforms 表中配置和管理
 AIConfig 只表达运行时超时边界：stream max duration、stream idle timeout、run stale timeout；不存 provider 业务参数
 ```
@@ -609,7 +607,7 @@ REDIS_ADDR 为空时 TokenRedis resource 也为 nil
 MYSQL_DSN 可由legacy 环境变量 DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD 组合得到
 REDIS_ADDR 可由legacy 环境变量 REDIS_HOST/REDIS_PORT 组合得到
 Token Redis 使用独立 DB，默认 TOKEN_REDIS_DB = 2，对齐旧 token 连接
-单端登录指针 TTL 默认 TOKEN_SINGLE_SESSION_POINTER_TTL = 720h，对齐旧 30 天指针
+单端登录指针 TTL 代码内置为 720h，对齐旧 30 天指针；真正单端登录策略仍由 auth_platforms.single_session 管理。
 access/refresh token TTL 不在 bootstrap/config 里生成；登录和 refresh 必须经 auth_platforms 平台策略读取
 构造资源不 Ping 外部服务
 Ping 放到后续 health/readiness 或运维检查里
@@ -987,7 +985,7 @@ PATCH /api/admin/v1/user-sessions/revoke
 userquickentry 只拥有当前登录用户快捷入口保存：校验 permission 是 admin PAGE 且启用，最多 6 个，事务内软删旧 rows 再插入新 rows，返回 quick_entry。
 userloginlog 只拥有 users_login_log 读路径：LEFT JOIN users，账号/IP 前缀过滤，date_start/date_end 展开全日边界，用户不存在时 user_name=""。
 usersession 拥有 user_sessions 读和 revoke 写路径：列表不返回 access_token_hash/refresh_token_hash；状态由 revoked_at + refresh_expires_at 计算；revoke 禁止踢当前 AuthIdentity.SessionID。
-session.RevocationService 是 token Redis 清理边界：删除 TOKEN_REDIS_PREFIX+"session:"+session_id；只有 cur_sess:<platform>:<user_id> 当前值等于被撤销 session id 时才删 pointer。
+session.RevocationService 是 token Redis 清理边界：删除 "token:session:"+session_id；只有 "token:cur_sess:<platform>:<user_id>" 当前值等于被撤销 session id 时才删 pointer。
 revoke 路由挂 user_userManager_kick 权限，并写 OperationLog user_session/revoke 或 user_session/revoke_batch。
 ```
 

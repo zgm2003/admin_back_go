@@ -234,6 +234,8 @@ QUEUE_REDIS_DB=3
 
 注意：主 Redis、token Redis、queue Redis 是同一 Redis 实例的不同 DB 逻辑隔离。
 
+Token Redis key prefix `token:`、session cache TTL `30m`、single-session pointer TTL `720h` 是代码内置默认，不再通过 Docker-first env 暴露；access/refresh token 有效期仍由 `auth_platforms` 管理。
+
 ### Queue / Worker
 
 ```env
