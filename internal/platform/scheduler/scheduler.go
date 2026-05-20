@@ -56,13 +56,10 @@ type Scheduler struct {
 
 // New creates a scheduler using the configured timezone.
 func New(cfg config.SchedulerConfig, opts ...Option) (*Scheduler, error) {
-	timezone := strings.TrimSpace(cfg.Timezone)
-	if timezone == "" {
-		timezone = "Asia/Shanghai"
-	}
-	location, err := time.LoadLocation(timezone)
+	cfg = config.NormalizeSchedulerConfig(cfg)
+	location, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidTimezone, timezone)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidTimezone, cfg.Timezone)
 	}
 
 	s, err := gocron.NewScheduler(gocron.WithLocation(location))
@@ -72,12 +69,9 @@ func New(cfg config.SchedulerConfig, opts ...Option) (*Scheduler, error) {
 	result := &Scheduler{
 		scheduler:  s,
 		location:   location,
-		lockPrefix: strings.TrimSpace(cfg.LockPrefix),
+		lockPrefix: cfg.LockPrefix,
 		lockTTL:    cfg.LockTTL,
 		logger:     slog.Default(),
-	}
-	if result.lockTTL <= 0 {
-		result.lockTTL = 30 * time.Second
 	}
 	for _, opt := range opts {
 		if opt != nil {

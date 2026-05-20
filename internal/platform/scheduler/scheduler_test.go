@@ -35,6 +35,37 @@ func TestNewUsesConfiguredTimezone(t *testing.T) {
 	}
 }
 
+func TestNewUsesCodeOwnedDefaultsForZeroConfig(t *testing.T) {
+	locker := &fakeLocker{}
+	scheduler, err := New(config.SchedulerConfig{}, WithLocker(locker))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer scheduler.Shutdown(context.Background())
+
+	if scheduler.location.String() != config.DefaultSchedulerTimezone {
+		t.Fatalf("expected default location %s, got %s", config.DefaultSchedulerTimezone, scheduler.location)
+	}
+
+	run := false
+	err = scheduler.wrapTask("job-a", func(ctx context.Context) error {
+		run = true
+		return nil
+	})(context.Background())
+	if err != nil {
+		t.Fatalf("task returned error: %v", err)
+	}
+	if !run {
+		t.Fatalf("expected task to run")
+	}
+	if locker.lockKey != config.DefaultSchedulerLockPrefix+"job-a" {
+		t.Fatalf("unexpected lock key: %q", locker.lockKey)
+	}
+	if locker.lockTTL != config.DefaultSchedulerLockTTL {
+		t.Fatalf("unexpected lock ttl: %s", locker.lockTTL)
+	}
+}
+
 func TestEveryRejectsInvalidDefinition(t *testing.T) {
 	scheduler, err := New(config.SchedulerConfig{Timezone: "UTC"})
 	if err != nil {

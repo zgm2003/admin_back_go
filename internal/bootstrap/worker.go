@@ -39,6 +39,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	cfg.Scheduler = config.NormalizeSchedulerConfig(cfg.Scheduler)
 	if err := config.ValidateRuntimeSecrets(cfg); err != nil {
 		return nil, err
 	}

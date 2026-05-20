@@ -28,6 +28,28 @@ func TestNewWorkerAllowsQueueDisabledWithoutRedis(t *testing.T) {
 	}
 }
 
+func TestNewWorkerNormalizesSchedulerPolicyDefaults(t *testing.T) {
+	worker, err := NewWorker(config.Config{
+		App:       config.AppConfig{Secret: strings.Repeat("a", 64)},
+		Queue:     config.QueueConfig{Enabled: false},
+		Scheduler: config.SchedulerConfig{Enabled: true},
+	}, slog.Default())
+	if err != nil {
+		t.Fatalf("expected worker to build, got %v", err)
+	}
+	defer worker.Shutdown(t.Context())
+
+	if worker.cfg.Scheduler.Timezone != config.DefaultSchedulerTimezone {
+		t.Fatalf("expected worker scheduler timezone %q, got %q", config.DefaultSchedulerTimezone, worker.cfg.Scheduler.Timezone)
+	}
+	if worker.cfg.Scheduler.LockPrefix != config.DefaultSchedulerLockPrefix {
+		t.Fatalf("expected worker scheduler lock prefix %q, got %q", config.DefaultSchedulerLockPrefix, worker.cfg.Scheduler.LockPrefix)
+	}
+	if worker.cfg.Scheduler.LockTTL != config.DefaultSchedulerLockTTL {
+		t.Fatalf("expected worker scheduler lock ttl %s, got %s", config.DefaultSchedulerLockTTL, worker.cfg.Scheduler.LockTTL)
+	}
+}
+
 func TestNewWorkerRejectsQueueEnabledWithoutRedis(t *testing.T) {
 	worker, err := NewWorker(config.Config{
 		App: config.AppConfig{Secret: strings.Repeat("a", 64)},
