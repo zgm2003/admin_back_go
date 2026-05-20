@@ -432,6 +432,34 @@ func TestDockerFirstEnvDoesNotDocumentVerifyCodeRuntimePolicy(t *testing.T) {
 	}
 }
 
+func TestDockerFirstEnvDocumentsOnlyTokenRuntimeKnobs(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		if strings.TrimSpace(values["APP_SECRET"]) == "" {
+			t.Fatalf("deploy/docker-first/%s must keep APP_SECRET", fileName)
+		}
+		if got := values["TOKEN_REDIS_DB"]; got != "2" {
+			t.Fatalf("deploy/docker-first/%s must keep TOKEN_REDIS_DB=2, got %q", fileName, got)
+		}
+		for _, key := range deprecatedTokenSessionEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document token/session policy key %s", fileName, key)
+			}
+		}
+	}
+}
+
+func deprecatedTokenSessionEnvKeys() []string {
+	return []string{
+		"TOKEN_REDIS_PREFIX",
+		"TOKEN_SESSION_CACHE_TTL",
+		"TOKEN_SINGLE_SESSION_POINTER_TTL",
+	}
+}
+
 func TestDockerFirstEnvDocumentsOnlyLogDir(t *testing.T) {
 	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
 		values := readDockerFirstEnvIfExists(t, fileName)
