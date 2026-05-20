@@ -62,7 +62,7 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 func aiReplyTimeout(maxDuration time.Duration) time.Duration {
-	return positiveDuration(maxDuration, 5*time.Minute) + 30*time.Second
+	return positiveDuration(maxDuration, config.DefaultAIChatStreamMaxDuration) + 30*time.Second
 }
 
 func positiveDuration(value time.Duration, fallback time.Duration) time.Duration {
@@ -90,6 +90,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	cfg.AI = config.NormalizeAIConfig(cfg.AI)
 	if err := config.ValidateRuntimeSecrets(cfg); err != nil {
 		return nil, err
 	}
@@ -286,10 +287,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Repository:       aichat.NewGormRepository(resources.DB),
 		Publisher:        realtimeStack.publisher,
 		Secretbox:        secretBox,
-		EngineFactory:    aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, 60*time.Second)},
+		EngineFactory:    aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
 		ToolRuntime:      aiToolService,
 		KnowledgeRuntime: aiKnowledgeRuntimeAdapter{service: aiKnowledgeService},
-		RunStaleTimeout:  positiveDuration(cfg.AI.RunStaleTimeout, 15*time.Minute),
+		RunStaleTimeout:  positiveDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 	})
 	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiReplyTimeout(cfg.AI.ChatStreamMaxDuration))
 	aiMessageService := aimessage.NewService(aimessage.NewGormRepository(resources.DB), aimessage.WithReplyEnqueuer(aiReplyDispatcher))
@@ -468,7 +469,7 @@ func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineC
 			BaseURL:           input.BaseURL,
 			APIKey:            input.APIKey,
 			Timeout:           30 * time.Second,
-			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, 60*time.Second),
+			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, config.DefaultAIChatStreamIdleTimeout),
 		}), nil
 	default:
 		return nil, platformai.ErrInvalidConfig

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/jobs"
@@ -40,6 +39,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		logger = slog.Default()
 	}
 	cfg.Scheduler = config.NormalizeSchedulerConfig(cfg.Scheduler)
+	cfg.AI = config.NormalizeAIConfig(cfg.AI)
 	if err := config.ValidateRuntimeSecrets(cfg); err != nil {
 		return nil, err
 	}
@@ -105,8 +105,8 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		Repository:      aichat.NewGormRepository(resources.DB),
 		Publisher:       realtimePublisher,
 		Secretbox:       secretBox,
-		EngineFactory:   aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, 60*time.Second)},
-		RunStaleTimeout: positiveDuration(cfg.AI.RunStaleTimeout, 15*time.Minute),
+		EngineFactory:   aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
+		RunStaleTimeout: positiveDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 	})
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
 		Repository:    aiimage.NewGormRepository(resources.DB),

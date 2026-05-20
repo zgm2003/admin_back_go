@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/config"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aimessage"
 )
@@ -90,7 +91,7 @@ func TestAIReplyTimeoutAddsCompletionWindow(t *testing.T) {
 	if got := aiReplyTimeout(3 * time.Minute); got != 3*time.Minute+30*time.Second {
 		t.Fatalf("expected 3m30s reply timeout, got %s", got)
 	}
-	if got := aiReplyTimeout(0); got != 5*time.Minute+30*time.Second {
-		t.Fatalf("expected default 5m30s reply timeout, got %s", got)
+	if got := aiReplyTimeout(0); got != config.DefaultAIChatStreamMaxDuration+30*time.Second {
+		t.Fatalf("expected default %s reply timeout, got %s", config.DefaultAIChatStreamMaxDuration+30*time.Second, got)
 	}
 }
