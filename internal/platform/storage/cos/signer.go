@@ -18,6 +18,11 @@ var (
 	ErrInvalidConfig = errors.New("cos sts: invalid config")
 )
 
+const (
+	DefaultSTSEndpoint = "sts.tencentcloudapi.com"
+	DefaultSTSRegion   = "ap-guangzhou"
+)
+
 type Config struct {
 	Enabled           bool
 	Endpoint          string
@@ -89,10 +94,10 @@ type CredentialPolicyStatement struct {
 
 func NewSigner(cfg Config) *Signer {
 	if cfg.Endpoint == "" {
-		cfg.Endpoint = "sts.tencentcloudapi.com"
+		cfg.Endpoint = DefaultSTSEndpoint
 	}
 	if cfg.Region == "" {
-		cfg.Region = "ap-guangzhou"
+		cfg.Region = DefaultSTSRegion
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Second
@@ -126,11 +131,11 @@ func (s *Signer) Sign(ctx context.Context, input SignInput) (*Credentials, error
 
 	endpoint := s.endpoint
 	if endpoint == "" {
-		endpoint = "sts.tencentcloudapi.com"
+		endpoint = DefaultSTSEndpoint
 	}
 	region := s.region
 	if region == "" {
-		region = "ap-guangzhou"
+		region = DefaultSTSRegion
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()

@@ -286,6 +286,10 @@ SCHEDULER_LOCK_TTL=30s
 
 规则很简单：手机号验证码固定 `123456`，不接短信，也不受 `.env` 控制；邮箱验证码始终走腾讯云 SES，需要先在邮件管理里启用发信配置和审核通过的模板。验证码有效期通过后台系统设置 `auth.verify_code.ttl_minutes` 调整；Redis namespace `auth:verify_code:` 由代码内置，不通过 env 配置。生产如果不开放手机号登录，直接在 `auth_platforms.login_types` 里关闭 `phone`。
 
+### Upload runtime
+
+Docker env 保持短配置，不再承载上传运行时策略。COS bucket、SecretId、SecretKey、Region、APPID、write endpoint、access domain 都来自上传配置表；upload token TTL 来自 `system_settings.upload.token.ttl_minutes`，默认 15 分钟；Tencent STS endpoint/region 是代码内置默认值，不是 Docker env key。注意：上传配置里的 Region 仍然是 COS bucket region。
+
 ### CORS
 
 本地开发：

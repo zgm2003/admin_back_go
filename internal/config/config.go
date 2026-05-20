@@ -10,19 +10,18 @@ import (
 )
 
 type Config struct {
-	App         AppConfig
-	HTTP        HTTPConfig
-	Logging     LoggingConfig
-	MySQL       MySQLConfig
-	Redis       RedisConfig
-	Token       TokenConfig
-	Queue       QueueConfig
-	Realtime    RealtimeConfig
-	Scheduler   SchedulerConfig
-	Payment     PaymentConfig
-	UploadToken UploadTokenConfig
-	AI          AIConfig
-	CORS        CORSConfig
+	App       AppConfig
+	HTTP      HTTPConfig
+	Logging   LoggingConfig
+	MySQL     MySQLConfig
+	Redis     RedisConfig
+	Token     TokenConfig
+	Queue     QueueConfig
+	Realtime  RealtimeConfig
+	Scheduler SchedulerConfig
+	Payment   PaymentConfig
+	AI        AIConfig
+	CORS      CORSConfig
 }
 
 type AppConfig struct {
@@ -126,22 +125,10 @@ type PaymentConfig struct {
 	CertBaseDir string
 }
 
-type UploadTokenConfig struct {
-	TTL            time.Duration
-	KeyRandomBytes int
-	COS            COSSTSConfig
-}
-
 type AIConfig struct {
 	ChatStreamMaxDuration time.Duration
 	ChatStreamIdleTimeout time.Duration
 	RunStaleTimeout       time.Duration
-}
-
-type COSSTSConfig struct {
-	Enabled  bool
-	Endpoint string
-	Region   string
 }
 
 type CORSConfig struct {
@@ -229,15 +216,6 @@ func Load() Config {
 		},
 		Payment: PaymentConfig{
 			CertBaseDir: envString("PAYMENT_CERT_BASE_DIR", ""),
-		},
-		UploadToken: UploadTokenConfig{
-			TTL:            envDuration("UPLOAD_TOKEN_TTL", 15*time.Minute),
-			KeyRandomBytes: envInt("UPLOAD_KEY_RANDOM_BYTES", 4),
-			COS: COSSTSConfig{
-				Enabled:  envBool("COS_STS_ENABLED", false),
-				Endpoint: envString("COS_STS_ENDPOINT", "sts.tencentcloudapi.com"),
-				Region:   envString("COS_STS_REGION", "ap-guangzhou"),
-			},
 		},
 		AI: AIConfig{
 			ChatStreamMaxDuration: envDuration("AI_CHAT_STREAM_MAX_DURATION", 5*time.Minute),

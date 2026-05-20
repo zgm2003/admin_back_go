@@ -20,6 +20,12 @@ func (f fakeRepository) GetEnabledConfig(ctx context.Context) (*EnabledConfig, e
 	return f.config, f.err
 }
 
+type fakeTTLPolicyProvider struct {
+	ttl time.Duration
+}
+
+func (f fakeTTLPolicyProvider) TTL(ctx context.Context) time.Duration { return f.ttl }
+
 type fakeSigner struct {
 	input storagecos.SignInput
 	err   error
@@ -106,10 +112,12 @@ func TestCreateRejectsOversizeFile(t *testing.T) {
 func TestCreateBuildsSafeKeyAndSignsCOS(t *testing.T) {
 	signer := &fakeSigner{}
 	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), signer, Options{
-		TTL:         10 * time.Minute,
-		RandomBytes: 4,
-		Now:         func() time.Time { return time.Date(2026, 5, 5, 12, 30, 0, 0, time.Local) },
-		Random:      func(b []byte) (int, error) { copy(b, []byte{0xa1, 0xb2, 0xc3, 0xd4}); return len(b), nil },
+		TTLPolicy: fakeTTLPolicyProvider{ttl: 10 * time.Minute},
+		Now:       func() time.Time { return time.Date(2026, 5, 5, 12, 30, 0, 0, time.UTC) },
+		Random: func(b []byte) (int, error) {
+			copy(b, []byte{0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x01, 0x02})
+			return len(b), nil
+		},
 	})
 
 	got, appErr := service.Create(context.Background(), CreateInput{Folder: "images", FileName: "../你 好.png", FileSize: 1024, FileKind: FileKindImage})
@@ -120,7 +128,7 @@ func TestCreateBuildsSafeKeyAndSignsCOS(t *testing.T) {
 	if got.Provider != ProviderCOS {
 		t.Fatalf("expected cos provider, got %q", got.Provider)
 	}
-	if got.Key != "images/2026/05/05/1777955400000-a1b2c3d4-___.png" {
+	if got.Key != "images/2026/05/05/1777984200000-a1b2c3d4e5f60102-___.png" {
 		t.Fatalf("unexpected key %q", got.Key)
 	}
 	if got.UploadPath != "images/2026/05/05/" {
@@ -140,8 +148,11 @@ func TestCreateBuildsSafeKeyAndSignsCOS(t *testing.T) {
 func TestCreateAcceptsAIAgentAvatarFolder(t *testing.T) {
 	signer := &fakeSigner{}
 	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), signer, Options{
-		Now:    func() time.Time { return time.Date(2026, 5, 9, 8, 0, 0, 0, time.UTC) },
-		Random: func(b []byte) (int, error) { copy(b, []byte{0x01, 0x02, 0x03, 0x04}); return len(b), nil },
+		Now: func() time.Time { return time.Date(2026, 5, 9, 8, 0, 0, 0, time.UTC) },
+		Random: func(b []byte) (int, error) {
+			copy(b, []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
+			return len(b), nil
+		},
 	})
 
 	got, appErr := service.Create(context.Background(), CreateInput{Folder: "ai-agents", FileName: "avatar.jpg", FileSize: 1024, FileKind: FileKindImage})
@@ -150,6 +161,45 @@ func TestCreateAcceptsAIAgentAvatarFolder(t *testing.T) {
 	}
 	if !strings.HasPrefix(got.Key, "ai-agents/2026/05/09/") || signer.input.Key != got.Key {
 		t.Fatalf("unexpected ai agent avatar key: got=%#v signer=%#v", got, signer.input)
+	}
+}
+
+func TestCreateUsesTTLPolicyProvider(t *testing.T) {
+	signer := &fakeSigner{}
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), signer, Options{
+		TTLPolicy: fakeTTLPolicyProvider{ttl: 20 * time.Minute},
+		Random: func(b []byte) (int, error) {
+			copy(b, []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
+			return len(b), nil
+		},
+	})
+
+	_, appErr := service.Create(context.Background(), validInput())
+
+	if appErr != nil {
+		t.Fatalf("unexpected error: %#v", appErr)
+	}
+	if signer.input.TTL != 20*time.Minute {
+		t.Fatalf("expected signer TTL from policy provider, got %s", signer.input.TTL)
+	}
+}
+
+func TestCreateDefaultsToEightRandomBytes(t *testing.T) {
+	service := NewService(fakeRepository{config: validConfig(t, enum.UploadDriverCOS)}, secretbox.New([]byte("12345678901234567890123456789012")), &fakeSigner{}, Options{
+		Now: func() time.Time { return time.Date(2026, 5, 5, 12, 30, 0, 0, time.Local) },
+		Random: func(b []byte) (int, error) {
+			copy(b, []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22})
+			return len(b), nil
+		},
+	})
+
+	got, appErr := service.Create(context.Background(), validInput())
+
+	if appErr != nil {
+		t.Fatalf("unexpected error: %#v", appErr)
+	}
+	if !strings.Contains(got.Key, "-aabbccddeeff1122-") {
+		t.Fatalf("expected 8 random bytes in key, got %q", got.Key)
 	}
 }
 

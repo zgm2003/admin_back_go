@@ -95,7 +95,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		exporttask.WithFileUploader(exporttask.NewCOSUploader(
 			exporttask.NewGormUploadConfigRepository(resources.DB),
 			secretBox,
-			storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled}),
+			storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
 		)),
 		exporttask.WithNotifier(exporttask.NewNotificationTaskNotifier(notificationTaskService)),
 		exporttask.WithLogger(logger),
@@ -111,8 +111,8 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		Repository:    aiimage.NewGormRepository(resources.DB),
 		Secretbox:     secretBox,
 		EngineFactory: aiImageEngineFactory{},
-		ObjectReader:  storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: cfg.UploadToken.COS.Enabled}),
-		ObjectWriter:  storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled}),
+		ObjectReader:  storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true}),
+		ObjectWriter:  storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
 	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,

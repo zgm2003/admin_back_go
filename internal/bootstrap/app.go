@@ -139,8 +139,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	systemSettingRepository := systemsetting.NewGormRepository(resources.DB, resources.Redis)
 	systemSettingService := systemsetting.NewService(systemSettingRepository)
 	secretBox := secretbox.New(keys.SecretboxKey())
-	cosObjectReader := storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: cfg.UploadToken.COS.Enabled})
-	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: cfg.UploadToken.COS.Enabled})
+	cosObjectReader := storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true})
+	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
 	sesClient := platformmail.New(10 * time.Second)
 	mailSender := mail.SenderFunc(func(ctx context.Context, input mail.SendInput) (mail.SendResult, error) {
@@ -225,21 +225,13 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		CertStore:    paymentCertStore,
 	})
 
-	cosSigner := storagecos.CredentialSigner(storagecos.DisabledSigner{})
-	if cfg.UploadToken.COS.Enabled {
-		cosSigner = storagecos.NewSigner(storagecos.Config{
-			Enabled:  true,
-			Endpoint: cfg.UploadToken.COS.Endpoint,
-			Region:   cfg.UploadToken.COS.Region,
-		})
-	}
+	cosSigner := storagecos.NewSigner(storagecos.Config{Enabled: true})
 	uploadTokenService := uploadtoken.NewService(
 		uploadtoken.NewGormRepository(resources.DB),
 		secretBox,
 		cosSigner,
 		uploadtoken.Options{
-			TTL:         cfg.UploadToken.TTL,
-			RandomBytes: cfg.UploadToken.KeyRandomBytes,
+			TTLPolicy: uploadtoken.NewSystemSettingTTLPolicyProvider(systemSettingRepository),
 		},
 	)
 	queueMonitorService := queuemonitor.NewService(

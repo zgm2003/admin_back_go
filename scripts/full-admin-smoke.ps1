@@ -674,28 +674,34 @@ function Invoke-UploadConfigWriteProbe([string]$BaseURL, [hashtable]$Headers, [s
 }
 
 function Invoke-UploadTokenProbe([string]$BaseURL, [hashtable]$Headers) {
-  if ([string]$env:COS_STS_ENABLED -ne 'true') {
-    return [pscustomobject]@{
-      Status = 'skipped_cos_sts_disabled'
-      Code = 0
-      Provider = ''
-      Key = ''
-    }
-  }
-
   $body = @{
     folder = 'avatars'
     file_name = 'codex-full-smoke.png'
     file_size = 1024
     file_kind = 'image'
-  } | ConvertTo-Json -Depth 8
-  $response = Invoke-RestMethod "$BaseURL/api/admin/v1/upload-tokens" `
-    -Method Post `
-    -Headers $Headers `
-    -ContentType 'application/json' `
-    -Body $body `
-    -TimeoutSec 15
-  Assert-ApiOK $response 'upload token probe'
+  }
+  $response = Invoke-JsonRequestAllowFailure 'Post' "$BaseURL/api/admin/v1/upload-tokens" $Headers $body
+
+  if ($response.code -ne 0) {
+    $message = if (Test-HasProperty $response 'message') { [string]$response.message } else { [string]$response.msg }
+    if ($message -eq '未配置有效上传设置') {
+      return [pscustomobject]@{
+        Status = 'skipped_upload_setting_missing'
+        Code = [int]$response.code
+        Provider = ''
+        Key = ''
+      }
+    }
+    if ($message -eq '当前上传驱动未启用 COS runtime' -or $message -eq 'COS 临时凭证未启用') {
+      return [pscustomobject]@{
+        Status = 'skipped_upload_setting_not_usable'
+        Code = [int]$response.code
+        Provider = ''
+        Key = ''
+      }
+    }
+    throw "upload token probe failed: $($response | ConvertTo-Json -Depth 12)"
+  }
 
   if ([string]$response.data.provider -ne 'cos' -or [string]::IsNullOrWhiteSpace([string]$response.data.key)) {
     throw "upload token probe shape mismatch: $($response | ConvertTo-Json -Depth 12)"

@@ -80,6 +80,29 @@ func TestSignerCallsSTSWithScopedPolicy(t *testing.T) {
 	}
 }
 
+func TestSignerUsesDefaultSTSPlatformEndpointAndRegion(t *testing.T) {
+	var got CredentialRequest
+	signer := NewSigner(Config{Enabled: true, RequestCredential: func(ctx context.Context, input CredentialRequest) (*Credentials, error) {
+		got = input
+		return &Credentials{TmpSecretID: "tmp-id", TmpSecretKey: "tmp-key", SessionToken: "token", StartTime: 100, ExpiredTime: 200}, nil
+	}})
+
+	_, err := signer.Sign(context.Background(), SignInput{
+		SecretID: "sid", SecretKey: "skey", Bucket: "bucket-1314", Region: "ap-nanjing", AppID: "1314", Key: "images/demo.png", TTL: time.Minute,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Endpoint != DefaultSTSEndpoint || got.Region != DefaultSTSRegion {
+		t.Fatalf("expected default STS endpoint/region %s/%s, got %#v", DefaultSTSEndpoint, DefaultSTSRegion, got)
+	}
+	wantResource := "qcs::cos:ap-nanjing:uid/1314:bucket-1314/images/demo.png"
+	if len(got.Policy.Statement) != 1 || !stringSliceEqual(got.Policy.Statement[0].Resource, []string{wantResource}) {
+		t.Fatalf("expected bucket region in policy resource, got %#v", got.Policy)
+	}
+}
+
 func TestSignerPropagatesContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

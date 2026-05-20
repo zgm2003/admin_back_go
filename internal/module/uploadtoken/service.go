@@ -18,37 +18,34 @@ import (
 )
 
 const (
-	ProviderCOS   = "cos"
-	FileKindImage = "image"
-	FileKindFile  = "file"
+	ProviderCOS           = "cos"
+	FileKindImage         = "image"
+	FileKindFile          = "file"
+	defaultKeyRandomBytes = 8
 )
 
 type Service struct {
 	repo        Repository
 	box         secretbox.Box
 	signer      storagecos.CredentialSigner
-	ttl         time.Duration
+	ttlPolicy   TTLPolicyProvider
 	randomBytes int
 	now         func() time.Time
 	random      func([]byte) (int, error)
 }
 
 type Options struct {
-	TTL         time.Duration
-	RandomBytes int
-	Now         func() time.Time
-	Random      func([]byte) (int, error)
+	TTLPolicy TTLPolicyProvider
+	Now       func() time.Time
+	Random    func([]byte) (int, error)
 }
 
 func NewService(repo Repository, box secretbox.Box, signer storagecos.CredentialSigner, opts Options) *Service {
 	if signer == nil {
 		signer = storagecos.DisabledSigner{}
 	}
-	if opts.TTL <= 0 {
-		opts.TTL = 15 * time.Minute
-	}
-	if opts.RandomBytes <= 0 {
-		opts.RandomBytes = 4
+	if opts.TTLPolicy == nil {
+		opts.TTLPolicy = NewSystemSettingTTLPolicyProvider(nil)
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -56,7 +53,7 @@ func NewService(repo Repository, box secretbox.Box, signer storagecos.Credential
 	if opts.Random == nil {
 		opts.Random = rand.Read
 	}
-	return &Service{repo: repo, box: box, signer: signer, ttl: opts.TTL, randomBytes: opts.RandomBytes, now: opts.Now, random: opts.Random}
+	return &Service{repo: repo, box: box, signer: signer, ttlPolicy: opts.TTLPolicy, randomBytes: defaultKeyRandomBytes, now: opts.Now, random: opts.Random}
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
@@ -109,8 +106,12 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	if err != nil {
 		return nil, apperror.InternalKey("uploadtoken.key_build_failed", nil, "生成上传路径失败")
 	}
+	ttl := s.ttlPolicy.TTL(ctx)
+	if ttl <= 0 {
+		ttl = DefaultTTL
+	}
 	creds, err := s.signer.Sign(ctx, storagecos.SignInput{
-		SecretID: secretID, SecretKey: secretKey, Bucket: cfg.Bucket, Region: cfg.Region, AppID: cfg.AppID, Key: key, TTL: s.ttl,
+		SecretID: secretID, SecretKey: secretKey, Bucket: cfg.Bucket, Region: cfg.Region, AppID: cfg.AppID, Key: key, TTL: ttl,
 	})
 	if errors.Is(err, storagecos.ErrDisabled) {
 		return nil, apperror.InternalKey("uploadtoken.cos_sts_disabled", nil, "COS 临时凭证未启用")

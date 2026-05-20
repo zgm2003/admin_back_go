@@ -436,6 +436,37 @@ func TestLoadBuildsRedisAddrFromLegacyRedisEnvironment(t *testing.T) {
 	}
 }
 
+func TestDockerFirstEnvDoesNotDocumentUploadRuntimePolicy(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		for _, key := range uploadRuntimePolicyEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document upload runtime policy key %s", fileName, key)
+			}
+		}
+	}
+}
+
+func TestConfigDoesNotExposeUploadRuntimePolicy(t *testing.T) {
+	if _, ok := reflect.TypeOf(Config{}).FieldByName("UploadToken"); ok {
+		t.Fatalf("Config must not expose UploadToken runtime policy")
+	}
+}
+
+func uploadRuntimePolicyEnvKeys() []string {
+	return []string{
+		joinEnvKey("UPLOAD", "TOKEN", "TTL"),
+		joinEnvKey("UPLOAD", "KEY", "RANDOM", "BYTES"),
+		joinEnvKey("COS", "STS", "ENABLED"),
+		joinEnvKey("COS", "STS", "ENDPOINT"),
+		joinEnvKey("COS", "STS", "REGION"),
+	}
+}
+
+func joinEnvKey(parts ...string) string {
+	return strings.Join(parts, "_")
+}
+
 func TestLoadDotEnvReadsLocalEnvFile(t *testing.T) {
 	unsetEnvForTest(t, "APP_NAME")
 	unsetEnvForTest(t, "HTTP_ADDR")
@@ -514,4 +545,16 @@ func readDockerFirstEnv(t *testing.T, fileName string) map[string]string {
 		values[strings.TrimSpace(key)] = strings.TrimSpace(value)
 	}
 	return values
+}
+
+func readDockerFirstEnvIfExists(t *testing.T, fileName string) map[string]string {
+	t.Helper()
+	path := filepath.Join("..", "..", "deploy", "docker-first", fileName)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return map[string]string{}
+		}
+		t.Fatalf("stat deploy/docker-first/%s: %v", fileName, err)
+	}
+	return readDockerFirstEnv(t, fileName)
 }

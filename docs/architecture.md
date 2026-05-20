@@ -1282,8 +1282,8 @@ full smoke 规则：
 只读探测 system-logs init/files shape；文件列表非空时读取第一份日志 tail lines，不做 delete/clear/download
 只读探测 upload-drivers/upload-rules/upload-settings init/list shape
 upload config 写探针依赖 API/worker 启动时已验证的 APP_SECRET，只创建 disabled 临时 driver/rule/setting，再按 setting -> rule -> driver 反向清理；永远不启用临时 setting，也不修改现有 enabled setting
-COS_STS_ENABLED=false 时跳过 upload token 探针，并输出 upload_token_probe=skipped_cos_sts_disabled
-COS_STS_ENABLED=true 时 POST /api/admin/v1/upload-tokens 只校验 provider/key/credentials shape，不上传真实文件
+upload token 探针不再读取 COS STS Docker env 开关；没有 enabled upload setting 时输出 upload_token_probe=skipped_upload_setting_missing，enabled setting 不可用于 COS runtime 时输出 skipped_upload_setting_not_usable
+存在 enabled COS setting 时 POST /api/admin/v1/upload-tokens 只校验 provider/key/credentials shape，不上传真实文件
 再单独验证 operation log init/list/delete
 用临时权限触发 `新增权限` 审计日志
 删除 operation log 行后必须确认它不再出现在列表里
@@ -1430,7 +1430,8 @@ folder/file_name/file_size/file_kind 在 handler/service 双层校验，folder �
 object key 由服务端生成：{folder}/{yyyy}/{mm}/{dd}/{unix_ms}-{randomhex}-{safe_file_name}
 rule.max_size_mb/image_exts/file_exts 是上传限制真相；前端校验只做体验优化
 secret_id_enc/secret_key_enc 只在 service 内用 secretbox 解密并传给 signer，响应和 operation log 不返回明文
-COS_STS_ENABLED=false 时 signer 返回 ErrDisabled，接口明确报 COS 临时凭证未启用
+upload token TTL 来自 system_settings.upload.token.ttl_minutes，缺失/禁用/非法时默认 15 分钟
+Tencent STS endpoint/region 是 platform/storage/cos 代码内置默认值；上传配置 Region 仍然是 bucket region，用于 COS policy resource
 ```
 
 上传业务归属规则：
