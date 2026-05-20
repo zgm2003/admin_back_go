@@ -115,6 +115,27 @@ type TokenConfig struct {
 	RedisDB                 int
 }
 
+const (
+	DefaultTokenRedisPrefix             = "token:"
+	DefaultTokenSessionCacheTTL         = 30 * time.Minute
+	DefaultTokenSingleSessionPointerTTL = 30 * 24 * time.Hour
+	DefaultTokenRedisDB                 = 2
+)
+
+func NormalizeTokenConfig(cfg TokenConfig) TokenConfig {
+	cfg.RedisPrefix = strings.TrimSpace(cfg.RedisPrefix)
+	if cfg.RedisPrefix == "" {
+		cfg.RedisPrefix = DefaultTokenRedisPrefix
+	}
+	if cfg.SessionCacheTTL <= 0 {
+		cfg.SessionCacheTTL = DefaultTokenSessionCacheTTL
+	}
+	if cfg.SingleSessionPointerTTL <= 0 {
+		cfg.SingleSessionPointerTTL = DefaultTokenSingleSessionPointerTTL
+	}
+	return cfg
+}
+
 type QueueConfig struct {
 	Enabled     bool
 	RedisDB     int
@@ -237,12 +258,9 @@ func Load() Config {
 			Password: envString("REDIS_PASSWORD", ""),
 			DB:       envInt("REDIS_DB", 0),
 		},
-		Token: TokenConfig{
-			RedisPrefix:             envString("TOKEN_REDIS_PREFIX", "token:"),
-			SessionCacheTTL:         envDuration("TOKEN_SESSION_CACHE_TTL", 30*time.Minute),
-			SingleSessionPointerTTL: envDuration("TOKEN_SINGLE_SESSION_POINTER_TTL", 30*24*time.Hour),
-			RedisDB:                 envInt("TOKEN_REDIS_DB", 2),
-		},
+		Token: NormalizeTokenConfig(TokenConfig{
+			RedisDB: envInt("TOKEN_REDIS_DB", DefaultTokenRedisDB),
+		}),
 		Queue: QueueConfig{
 			Enabled:     envBool("QUEUE_ENABLED", true),
 			RedisDB:     envInt("QUEUE_REDIS_DB", 3),

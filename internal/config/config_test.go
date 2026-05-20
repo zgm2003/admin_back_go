@@ -39,17 +39,17 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.App.Secret != "" {
 		t.Fatalf("expected empty app secret by default, got %q", cfg.App.Secret)
 	}
-	if cfg.Token.RedisPrefix != "token:" {
-		t.Fatalf("expected token redis prefix token:, got %q", cfg.Token.RedisPrefix)
+	if cfg.Token.RedisPrefix != DefaultTokenRedisPrefix {
+		t.Fatalf("expected token redis prefix %q, got %q", DefaultTokenRedisPrefix, cfg.Token.RedisPrefix)
 	}
-	if cfg.Token.SessionCacheTTL != 30*time.Minute {
-		t.Fatalf("expected token session cache ttl 30m, got %s", cfg.Token.SessionCacheTTL)
+	if cfg.Token.SessionCacheTTL != DefaultTokenSessionCacheTTL {
+		t.Fatalf("expected token session cache ttl %s, got %s", DefaultTokenSessionCacheTTL, cfg.Token.SessionCacheTTL)
 	}
-	if cfg.Token.SingleSessionPointerTTL != 30*24*time.Hour {
-		t.Fatalf("expected single session pointer ttl 30d, got %s", cfg.Token.SingleSessionPointerTTL)
+	if cfg.Token.SingleSessionPointerTTL != DefaultTokenSingleSessionPointerTTL {
+		t.Fatalf("expected single session pointer ttl %s, got %s", DefaultTokenSingleSessionPointerTTL, cfg.Token.SingleSessionPointerTTL)
 	}
-	if cfg.Token.RedisDB != 2 {
-		t.Fatalf("expected token redis db 2, got %d", cfg.Token.RedisDB)
+	if cfg.Token.RedisDB != DefaultTokenRedisDB {
+		t.Fatalf("expected token redis db %d, got %d", DefaultTokenRedisDB, cfg.Token.RedisDB)
 	}
 	if !cfg.Queue.Enabled {
 		t.Fatalf("expected queue to be enabled by default")
@@ -134,7 +134,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("REDIS_DB", "2")
 	t.Setenv("TOKEN_REDIS_PREFIX", "token-test:")
 	t.Setenv("TOKEN_SESSION_CACHE_TTL", "45m")
-	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "720h")
+	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "111h")
 	t.Setenv("TOKEN_REDIS_DB", "5")
 	t.Setenv("QUEUE_ENABLED", "false")
 	t.Setenv("QUEUE_REDIS_DB", "4")
@@ -173,11 +173,10 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Redis.Addr != "127.0.0.1:6380" || cfg.Redis.Password != "secret" || cfg.Redis.DB != 2 {
 		t.Fatalf("unexpected redis config: %#v", cfg.Redis)
 	}
-	if cfg.Token.RedisPrefix != "token-test:" || cfg.Token.SessionCacheTTL != 45*time.Minute {
-		t.Fatalf("unexpected token cache config: %#v", cfg.Token)
-	}
-	if cfg.Token.SingleSessionPointerTTL != 30*24*time.Hour {
-		t.Fatalf("expected single session pointer ttl 720h, got %s", cfg.Token.SingleSessionPointerTTL)
+	if cfg.Token.RedisPrefix != DefaultTokenRedisPrefix ||
+		cfg.Token.SessionCacheTTL != DefaultTokenSessionCacheTTL ||
+		cfg.Token.SingleSessionPointerTTL != DefaultTokenSingleSessionPointerTTL {
+		t.Fatalf("token Redis/cache policy env must be ignored, got %#v", cfg.Token)
 	}
 	if cfg.Token.RedisDB != 5 {
 		t.Fatalf("expected token redis db 5, got %d", cfg.Token.RedisDB)
@@ -240,6 +239,57 @@ func TestNormalizeSchedulerConfigAppliesCodeOwnedDefaults(t *testing.T) {
 	}
 	if cfg.LockTTL != DefaultSchedulerLockTTL {
 		t.Fatalf("expected default lock ttl %s, got %s", DefaultSchedulerLockTTL, cfg.LockTTL)
+	}
+}
+
+func TestNormalizeTokenConfigAppliesCodeOwnedDefaults(t *testing.T) {
+	cfg := NormalizeTokenConfig(TokenConfig{RedisPrefix: "   "})
+
+	if cfg.RedisPrefix != DefaultTokenRedisPrefix {
+		t.Fatalf("expected default token redis prefix %q, got %q", DefaultTokenRedisPrefix, cfg.RedisPrefix)
+	}
+	if cfg.SessionCacheTTL != DefaultTokenSessionCacheTTL {
+		t.Fatalf("expected default token session cache ttl %s, got %s", DefaultTokenSessionCacheTTL, cfg.SessionCacheTTL)
+	}
+	if cfg.SingleSessionPointerTTL != DefaultTokenSingleSessionPointerTTL {
+		t.Fatalf("expected default single session pointer ttl %s, got %s", DefaultTokenSingleSessionPointerTTL, cfg.SingleSessionPointerTTL)
+	}
+}
+
+func TestNormalizeTokenConfigPreservesExplicitValues(t *testing.T) {
+	cfg := NormalizeTokenConfig(TokenConfig{
+		RedisPrefix:             " custom-token: ",
+		SessionCacheTTL:         45 * time.Minute,
+		SingleSessionPointerTTL: 48 * time.Hour,
+		RedisDB:                 5,
+	})
+
+	if cfg.RedisPrefix != "custom-token:" {
+		t.Fatalf("expected trimmed token redis prefix custom-token:, got %q", cfg.RedisPrefix)
+	}
+	if cfg.SessionCacheTTL != 45*time.Minute {
+		t.Fatalf("expected explicit token session cache ttl 45m, got %s", cfg.SessionCacheTTL)
+	}
+	if cfg.SingleSessionPointerTTL != 48*time.Hour {
+		t.Fatalf("expected explicit single session pointer ttl 48h, got %s", cfg.SingleSessionPointerTTL)
+	}
+	if cfg.RedisDB != 5 {
+		t.Fatalf("expected explicit token redis db 5, got %d", cfg.RedisDB)
+	}
+}
+
+func TestNormalizeTokenConfigDefaultsNonPositiveDurations(t *testing.T) {
+	cfg := NormalizeTokenConfig(TokenConfig{
+		RedisPrefix:             "token:",
+		SessionCacheTTL:         -time.Second,
+		SingleSessionPointerTTL: -time.Hour,
+	})
+
+	if cfg.SessionCacheTTL != DefaultTokenSessionCacheTTL {
+		t.Fatalf("expected negative session cache ttl to default to %s, got %s", DefaultTokenSessionCacheTTL, cfg.SessionCacheTTL)
+	}
+	if cfg.SingleSessionPointerTTL != DefaultTokenSingleSessionPointerTTL {
+		t.Fatalf("expected negative pointer ttl to default to %s, got %s", DefaultTokenSingleSessionPointerTTL, cfg.SingleSessionPointerTTL)
 	}
 }
 
