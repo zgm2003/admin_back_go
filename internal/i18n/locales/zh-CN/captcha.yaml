@@ -3,3 +3,10 @@ captcha.generate_failed: 验证码生成失败
 captcha.required: 请完成验证码
 captcha.verify_failed: 验证码校验失败
 captcha.invalid_or_expired: 验证码错误或已过期
+captcha.policy.repository_missing: 验证码策略仓储未配置
+captcha.policy.query_failed: 查询验证码策略配置失败
+captcha.policy.missing: 验证码策略配置缺失
+captcha.policy.disabled: 验证码策略配置已禁用
+captcha.policy.type_invalid: 验证码策略配置类型必须为数字
+captcha.policy.integer_invalid: 验证码策略配置必须为整数
+captcha.policy.value_invalid: 验证码策略配置取值无效

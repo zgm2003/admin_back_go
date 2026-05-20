@@ -24,6 +24,8 @@ legacy.09b2dd970da1: Invalid AI knowledge document list parameters
 legacy.09cd4c9667b9: AI provider is required
 legacy.0a0274830572: Failed to sync OpenAI models
 legacy.0a4fbd3b2199: COS appid is required
+legacy.308e1692f181: Currently only Tencent Cloud COS is supported; please reconfigure COS
+legacy.32455c695145: Use a bare host for the access domain, for example cos.example.com
 legacy.0a58dfefa599: Select users to delete
 legacy.0a9b1b6e45bb: Failed to query role dictionary
 legacy.0ac63b98ed3b: Failed to query permission

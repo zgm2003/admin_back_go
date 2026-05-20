@@ -77,8 +77,9 @@ allow_register
 
 ```text
 GET /api/admin/v1/auth/captcha -> captcha.Generate
-Redis key = CAPTCHA_REDIS_PREFIX + captcha_id
-TTL = CAPTCHA_TTL
+Redis key = captcha:slide: + captcha_id
+TTL = system_settings.auth.captcha.ttl_minutes
+Slide padding = system_settings.auth.captcha.slide_padding
 Verify 使用 Redis GETDEL，一次性消费
 ```
 

@@ -16,7 +16,6 @@ type Config struct {
 	MySQL       MySQLConfig
 	Redis       RedisConfig
 	Token       TokenConfig
-	Captcha     CaptchaConfig
 	VerifyCode  VerifyCodeConfig
 	Queue       QueueConfig
 	Realtime    RealtimeConfig
@@ -88,12 +87,6 @@ type TokenConfig struct {
 	SessionCacheTTL         time.Duration
 	SingleSessionPointerTTL time.Duration
 	RedisDB                 int
-}
-
-type CaptchaConfig struct {
-	TTL          time.Duration
-	RedisPrefix  string
-	SlidePadding int
 }
 
 type VerifyCodeConfig struct {
@@ -213,11 +206,6 @@ func Load() Config {
 			SessionCacheTTL:         envDuration("TOKEN_SESSION_CACHE_TTL", 30*time.Minute),
 			SingleSessionPointerTTL: envDuration("TOKEN_SINGLE_SESSION_POINTER_TTL", 30*24*time.Hour),
 			RedisDB:                 envInt("TOKEN_REDIS_DB", 2),
-		},
-		Captcha: CaptchaConfig{
-			TTL:          envDuration("CAPTCHA_TTL", 2*time.Minute),
-			RedisPrefix:  envString("CAPTCHA_REDIS_PREFIX", "captcha:slide:"),
-			SlidePadding: envInt("CAPTCHA_SLIDE_PADDING", 10),
 		},
 		VerifyCode: VerifyCodeConfig{
 			RedisPrefix: envString("VERIFY_CODE_REDIS_PREFIX", "auth:verify_code:"),

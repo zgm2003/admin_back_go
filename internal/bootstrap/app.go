@@ -257,9 +257,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	} else {
 		captchaService = captcha.NewService(
 			captchaEngine,
-			captcha.NewRedisStore(resources.Redis, cfg.Captcha.RedisPrefix),
-			captcha.WithTTL(cfg.Captcha.TTL),
-			captcha.WithPadding(cfg.Captcha.SlidePadding),
+			captcha.NewRedisStore(resources.Redis, ""),
+			captcha.NewSystemSettingCaptchaPolicyProvider(systemSettingRepository),
 		)
 	}
 	authService := auth.NewService(

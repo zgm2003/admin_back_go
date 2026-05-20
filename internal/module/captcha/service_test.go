@@ -22,8 +22,10 @@ type fakeStore struct {
 	setID     string
 	setSecret ChallengeSecret
 	setTTL    time.Duration
+	setTTLs   []time.Duration
 	takeID    string
 	secret    *ChallengeSecret
+	secrets   []*ChallengeSecret
 	setErr    error
 	takeErr   error
 }
@@ -32,12 +34,57 @@ func (f *fakeStore) Set(ctx context.Context, id string, secret ChallengeSecret, 
 	f.setID = id
 	f.setSecret = secret
 	f.setTTL = ttl
+	f.setTTLs = append(f.setTTLs, ttl)
 	return f.setErr
 }
 
 func (f *fakeStore) Take(ctx context.Context, id string) (*ChallengeSecret, error) {
 	f.takeID = id
+	if len(f.secrets) > 0 {
+		secret := f.secrets[0]
+		f.secrets = f.secrets[1:]
+		return secret, f.takeErr
+	}
 	return f.secret, f.takeErr
+}
+
+type fakeCaptchaPolicy struct {
+	ttlValues     []time.Duration
+	paddingValues []int
+	ttlErr        *apperror.Error
+	paddingErr    *apperror.Error
+	ttlCalls      int
+	paddingCalls  int
+}
+
+func (f *fakeCaptchaPolicy) TTL(ctx context.Context) (time.Duration, *apperror.Error) {
+	f.ttlCalls++
+	if f.ttlErr != nil {
+		return 0, f.ttlErr
+	}
+	if len(f.ttlValues) == 0 {
+		return 2 * time.Minute, nil
+	}
+	ttl := f.ttlValues[0]
+	if len(f.ttlValues) > 1 {
+		f.ttlValues = f.ttlValues[1:]
+	}
+	return ttl, nil
+}
+
+func (f *fakeCaptchaPolicy) SlidePadding(ctx context.Context) (int, *apperror.Error) {
+	f.paddingCalls++
+	if f.paddingErr != nil {
+		return 0, f.paddingErr
+	}
+	if len(f.paddingValues) == 0 {
+		return 10, nil
+	}
+	padding := f.paddingValues[0]
+	if len(f.paddingValues) > 1 {
+		f.paddingValues = f.paddingValues[1:]
+	}
+	return padding, nil
 }
 
 func TestServiceGenerateStoresSecretAndReturnsPublicSlidePayload(t *testing.T) {
@@ -55,8 +102,8 @@ func TestServiceGenerateStoresSecretAndReturnsPublicSlidePayload(t *testing.T) {
 			Answer:      Answer{X: 131, Y: 53},
 		}},
 		store,
+		&fakeCaptchaPolicy{ttlValues: []time.Duration{90 * time.Second}},
 		WithIDGenerator(func() (string, error) { return "captcha-id", nil }),
-		WithTTL(90*time.Second),
 	)
 
 	result, appErr := service.Generate(context.Background())
@@ -80,9 +127,43 @@ func TestServiceGenerateStoresSecretAndReturnsPublicSlidePayload(t *testing.T) {
 	}
 }
 
+func TestServiceGenerateReadsTTLFromPolicyEveryCall(t *testing.T) {
+	store := &fakeStore{}
+	policy := &fakeCaptchaPolicy{ttlValues: []time.Duration{30 * time.Second, 75 * time.Second}}
+	nextID := 0
+	service := NewService(
+		fakeEngine{challenge: &GeneratedChallenge{Answer: Answer{X: 131, Y: 53}}},
+		store,
+		policy,
+		WithIDGenerator(func() (string, error) {
+			nextID++
+			return "captcha-id", nil
+		}),
+	)
+
+	first, appErr := service.Generate(context.Background())
+	if appErr != nil {
+		t.Fatalf("expected first generate to succeed, got %v", appErr)
+	}
+	second, appErr := service.Generate(context.Background())
+	if appErr != nil {
+		t.Fatalf("expected second generate to succeed, got %v", appErr)
+	}
+
+	if first.ExpiresIn != 30 || second.ExpiresIn != 75 {
+		t.Fatalf("expected dynamic expires_in values, got first=%d second=%d", first.ExpiresIn, second.ExpiresIn)
+	}
+	if len(store.setTTLs) != 2 || store.setTTLs[0] != 30*time.Second || store.setTTLs[1] != 75*time.Second {
+		t.Fatalf("expected dynamic store TTLs, got %#v", store.setTTLs)
+	}
+	if policy.ttlCalls != 2 {
+		t.Fatalf("expected TTL policy to be read per Generate call, got %d", policy.ttlCalls)
+	}
+}
+
 func TestServiceVerifyConsumesAndAcceptsValidAnswer(t *testing.T) {
 	store := &fakeStore{secret: &ChallengeSecret{Answer: Answer{X: 120, Y: 80}}}
-	service := NewService(fakeEngine{}, store, WithPadding(3))
+	service := NewService(fakeEngine{}, store, &fakeCaptchaPolicy{paddingValues: []int{3}})
 
 	appErr := service.Verify(context.Background(), VerifyInput{
 		ID:     "captcha-id",
@@ -97,9 +178,37 @@ func TestServiceVerifyConsumesAndAcceptsValidAnswer(t *testing.T) {
 	}
 }
 
+func TestServiceVerifyReadsPaddingFromPolicyEveryCall(t *testing.T) {
+	store := &fakeStore{secrets: []*ChallengeSecret{
+		{Answer: Answer{X: 120, Y: 80}},
+		{Answer: Answer{X: 120, Y: 80}},
+	}}
+	policy := &fakeCaptchaPolicy{paddingValues: []int{3, 15}}
+	service := NewService(fakeEngine{}, store, policy)
+
+	firstErr := service.Verify(context.Background(), VerifyInput{
+		ID:     "captcha-id-1",
+		Answer: &Answer{X: 130, Y: 80},
+	})
+	secondErr := service.Verify(context.Background(), VerifyInput{
+		ID:     "captcha-id-2",
+		Answer: &Answer{X: 130, Y: 80},
+	})
+
+	if firstErr == nil || firstErr.Code != apperror.CodeBadRequest {
+		t.Fatalf("expected first verify to reject with small padding, got %#v", firstErr)
+	}
+	if secondErr != nil {
+		t.Fatalf("expected second verify to accept with updated padding, got %v", secondErr)
+	}
+	if policy.paddingCalls != 2 {
+		t.Fatalf("expected padding policy to be read per Verify call, got %d", policy.paddingCalls)
+	}
+}
+
 func TestServiceVerifyRejectsMissingOrReusedChallenge(t *testing.T) {
 	store := &fakeStore{}
-	service := NewService(fakeEngine{}, store)
+	service := NewService(fakeEngine{}, store, &fakeCaptchaPolicy{})
 
 	appErr := service.Verify(context.Background(), VerifyInput{
 		ID:     "captcha-id",
@@ -116,7 +225,7 @@ func TestServiceVerifyRejectsMissingOrReusedChallenge(t *testing.T) {
 
 func TestServiceVerifyRejectsWrongAnswer(t *testing.T) {
 	store := &fakeStore{secret: &ChallengeSecret{Answer: Answer{X: 120, Y: 80}}}
-	service := NewService(fakeEngine{}, store, WithPadding(3))
+	service := NewService(fakeEngine{}, store, &fakeCaptchaPolicy{paddingValues: []int{3}})
 
 	appErr := service.Verify(context.Background(), VerifyInput{
 		ID:     "captcha-id",
@@ -129,7 +238,7 @@ func TestServiceVerifyRejectsWrongAnswer(t *testing.T) {
 }
 
 func TestServiceVerifyErrorsCarryMessageIDs(t *testing.T) {
-	service := NewService(fakeEngine{}, &fakeStore{})
+	service := NewService(fakeEngine{}, &fakeStore{}, &fakeCaptchaPolicy{})
 
 	appErr := service.Verify(context.Background(), VerifyInput{})
 
@@ -145,7 +254,7 @@ func TestServiceVerifyErrorsCarryMessageIDs(t *testing.T) {
 }
 
 func TestServiceVerifyFailsClosedWhenStoreErrors(t *testing.T) {
-	service := NewService(fakeEngine{}, &fakeStore{takeErr: errors.New("redis down")})
+	service := NewService(fakeEngine{}, &fakeStore{takeErr: errors.New("redis down")}, &fakeCaptchaPolicy{})
 
 	appErr := service.Verify(context.Background(), VerifyInput{
 		ID:     "captcha-id",
@@ -154,5 +263,22 @@ func TestServiceVerifyFailsClosedWhenStoreErrors(t *testing.T) {
 
 	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "验证码校验失败" {
 		t.Fatalf("expected internal captcha error, got %#v", appErr)
+	}
+}
+
+func TestServiceReturnsServiceMissingWhenPolicyMissing(t *testing.T) {
+	service := NewService(fakeEngine{}, &fakeStore{}, nil)
+
+	_, generateErr := service.Generate(context.Background())
+	verifyErr := service.Verify(context.Background(), VerifyInput{
+		ID:     "captcha-id",
+		Answer: &Answer{X: 120, Y: 80},
+	})
+
+	if generateErr == nil || generateErr.MessageID != "captcha.service_missing" {
+		t.Fatalf("expected generate service missing, got %#v", generateErr)
+	}
+	if verifyErr == nil || verifyErr.MessageID != "captcha.service_missing" {
+		t.Fatalf("expected verify service missing, got %#v", verifyErr)
 	}
 }

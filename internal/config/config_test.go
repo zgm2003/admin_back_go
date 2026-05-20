@@ -51,15 +51,6 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Token.RedisDB != 2 {
 		t.Fatalf("expected token redis db 2, got %d", cfg.Token.RedisDB)
 	}
-	if cfg.Captcha.TTL != 2*time.Minute {
-		t.Fatalf("expected captcha ttl 2m, got %s", cfg.Captcha.TTL)
-	}
-	if cfg.Captcha.RedisPrefix != "captcha:slide:" {
-		t.Fatalf("expected captcha redis prefix captcha:slide:, got %q", cfg.Captcha.RedisPrefix)
-	}
-	if cfg.Captcha.SlidePadding != 10 {
-		t.Fatalf("expected captcha slide padding 10, got %d", cfg.Captcha.SlidePadding)
-	}
 	if !cfg.Queue.Enabled {
 		t.Fatalf("expected queue to be enabled by default")
 	}
@@ -160,9 +151,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("TOKEN_SESSION_CACHE_TTL", "45m")
 	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "720h")
 	t.Setenv("TOKEN_REDIS_DB", "5")
-	t.Setenv("CAPTCHA_TTL", "3m")
-	t.Setenv("CAPTCHA_REDIS_PREFIX", "captcha-test:")
-	t.Setenv("CAPTCHA_SLIDE_PADDING", "8")
 	t.Setenv("QUEUE_ENABLED", "false")
 	t.Setenv("QUEUE_REDIS_DB", "4")
 	t.Setenv("QUEUE_CONCURRENCY", "22")
@@ -215,9 +203,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Token.RedisDB != 5 {
 		t.Fatalf("expected token redis db 5, got %d", cfg.Token.RedisDB)
-	}
-	if cfg.Captcha.TTL != 3*time.Minute || cfg.Captcha.RedisPrefix != "captcha-test:" || cfg.Captcha.SlidePadding != 8 {
-		t.Fatalf("unexpected captcha config: %#v", cfg.Captcha)
 	}
 	if cfg.Queue.Enabled {
 		t.Fatalf("expected queue enabled override to false")
@@ -327,6 +312,16 @@ func TestDockerEnvExampleUsesContainerPaymentCertBase(t *testing.T) {
 	}
 	if _, ok := values["PAYMENT_ATTEMPT_LOCK_TTL"]; ok {
 		t.Fatalf("PAYMENT_ATTEMPT_LOCK_TTL should not be documented without runtime usage")
+	}
+}
+
+func TestEnvExampleDoesNotDocumentCaptchaRuntimePolicy(t *testing.T) {
+	values := readEnvExample(t)
+
+	for _, key := range []string{"CAPTCHA_TTL", "CAPTCHA_REDIS_PREFIX", "CAPTCHA_SLIDE_PADDING"} {
+		if _, ok := values[key]; ok {
+			t.Fatalf("%s should move to system_settings or code constant, not Docker env", key)
+		}
 	}
 }
 

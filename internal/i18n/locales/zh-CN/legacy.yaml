@@ -24,6 +24,8 @@ legacy.09b2dd970da1: AI知识库文档列表参数错误
 legacy.09cd4c9667b9: AI供应商不能为空
 legacy.0a0274830572: 同步OpenAI模型失败
 legacy.0a4fbd3b2199: COS appid 不能为空
+legacy.308e1692f181: 当前仅支持腾讯云 COS，请重新配置 COS
+legacy.32455c695145: 访问域名请填写裸域名，例如 cos.example.com
 legacy.0a58dfefa599: 请选择要删除的用户
 legacy.0a9b1b6e45bb: 查询角色字典失败
 legacy.0ac63b98ed3b: 查询权限失败

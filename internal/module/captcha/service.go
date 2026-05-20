@@ -5,16 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strings"
-	"time"
 
 	"admin_back_go/internal/apperror"
 
 	"github.com/wenlng/go-captcha/v2/slide"
-)
-
-const (
-	defaultTTL     = 2 * time.Minute
-	defaultPadding = 10
 )
 
 // IDGenerator creates challenge identifiers.
@@ -24,31 +18,12 @@ type IDGenerator func() (string, error)
 type Service struct {
 	engine      Engine
 	store       Store
-	ttl         time.Duration
-	padding     int
+	policy      CaptchaPolicyProvider
 	idGenerator IDGenerator
 }
 
 // Option customizes Service.
 type Option func(*Service)
-
-// WithTTL sets challenge lifetime.
-func WithTTL(ttl time.Duration) Option {
-	return func(service *Service) {
-		if ttl > 0 {
-			service.ttl = ttl
-		}
-	}
-}
-
-// WithPadding sets the tolerated slide-answer offset.
-func WithPadding(padding int) Option {
-	return func(service *Service) {
-		if padding >= 0 {
-			service.padding = padding
-		}
-	}
-}
 
 // WithIDGenerator injects a challenge ID generator for tests.
 func WithIDGenerator(generator IDGenerator) Option {
@@ -60,12 +35,11 @@ func WithIDGenerator(generator IDGenerator) Option {
 }
 
 // NewService creates a CAPTCHA service.
-func NewService(engine Engine, store Store, opts ...Option) *Service {
+func NewService(engine Engine, store Store, policy CaptchaPolicyProvider, opts ...Option) *Service {
 	service := &Service{
 		engine:      engine,
 		store:       store,
-		ttl:         defaultTTL,
-		padding:     defaultPadding,
+		policy:      policy,
 		idGenerator: makeID,
 	}
 	for _, opt := range opts {
@@ -76,10 +50,14 @@ func NewService(engine Engine, store Store, opts ...Option) *Service {
 
 // Generate creates a new slide CAPTCHA and stores its answer.
 func (s *Service) Generate(ctx context.Context) (*ChallengeResponse, *apperror.Error) {
-	if s == nil || s.engine == nil || s.store == nil {
+	if s == nil || s.engine == nil || s.store == nil || s.policy == nil {
 		return nil, apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
 	}
 
+	ttl, appErr := s.policy.TTL(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
 	generated, err := s.engine.Generate()
 	if err != nil {
 		return nil, apperror.InternalKey("captcha.generate_failed", nil, "验证码生成失败")
@@ -89,7 +67,7 @@ func (s *Service) Generate(ctx context.Context) (*ChallengeResponse, *apperror.E
 		return nil, apperror.InternalKey("captcha.generate_failed", nil, "验证码生成失败")
 	}
 
-	if err := s.store.Set(ctx, id, ChallengeSecret{Answer: generated.Answer}, s.ttl); err != nil {
+	if err := s.store.Set(ctx, id, ChallengeSecret{Answer: generated.Answer}, ttl); err != nil {
 		return nil, apperror.InternalKey("captcha.generate_failed", nil, "验证码生成失败")
 	}
 
@@ -104,13 +82,13 @@ func (s *Service) Generate(ctx context.Context) (*ChallengeResponse, *apperror.E
 		TileHeight:  generated.TileHeight,
 		ImageWidth:  generated.ImageWidth,
 		ImageHeight: generated.ImageHeight,
-		ExpiresIn:   int(s.ttl.Seconds()),
+		ExpiresIn:   int(ttl.Seconds()),
 	}, nil
 }
 
 // Verify consumes a challenge and validates the submitted slide answer.
 func (s *Service) Verify(ctx context.Context, input VerifyInput) *apperror.Error {
-	if s == nil || s.store == nil {
+	if s == nil || s.engine == nil || s.store == nil || s.policy == nil {
 		return apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
 	}
 	id := strings.TrimSpace(input.ID)
@@ -118,6 +96,10 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) *apperror.Error
 		return apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
 	}
 
+	padding, appErr := s.policy.SlidePadding(ctx)
+	if appErr != nil {
+		return appErr
+	}
 	secret, err := s.store.Take(ctx, id)
 	if err != nil {
 		return apperror.InternalKey("captcha.verify_failed", nil, "验证码校验失败")
@@ -125,7 +107,7 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) *apperror.Error
 	if secret == nil {
 		return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")
 	}
-	if !slide.Validate(input.Answer.X, input.Answer.Y, secret.Answer.X, secret.Answer.Y, s.padding) {
+	if !slide.Validate(input.Answer.X, input.Answer.Y, secret.Answer.X, secret.Answer.Y, padding) {
 		return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")
 	}
 	return nil

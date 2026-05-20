@@ -2601,10 +2601,7 @@ func main() {
   })
   defer client.Close()
 
-  prefix := os.Getenv("CAPTCHA_REDIS_PREFIX")
-  if prefix == "" {
-    prefix = "captcha:slide:"
-  }
+  prefix := "captcha:slide:"
 
   value, err := client.Get(context.Background(), prefix+os.Args[1]).Result()
   if err != nil {
@@ -2618,9 +2615,6 @@ func main() {
 
   $env:REDIS_ADDR = Get-RedisAddr
   $env:REDIS_DB = Get-RedisDB
-  if ([string]::IsNullOrWhiteSpace($env:CAPTCHA_REDIS_PREFIX)) {
-    $env:CAPTCHA_REDIS_PREFIX = 'captcha:slide:'
-  }
 
   $secretJson = go run $secretReader $captcha.data.captcha_id
   $secret = $secretJson | ConvertFrom-Json

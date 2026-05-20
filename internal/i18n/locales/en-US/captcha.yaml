@@ -3,3 +3,10 @@ captcha.generate_failed: Failed to generate captcha
 captcha.required: Please complete captcha
 captcha.verify_failed: Failed to verify captcha
 captcha.invalid_or_expired: Captcha is invalid or expired
+captcha.policy.repository_missing: Captcha policy repository is not configured
+captcha.policy.query_failed: Failed to query captcha policy config
+captcha.policy.missing: Captcha policy config is missing
+captcha.policy.disabled: Captcha policy config is disabled
+captcha.policy.type_invalid: Captcha policy config type must be number
+captcha.policy.integer_invalid: Captcha policy config must be an integer
+captcha.policy.value_invalid: Captcha policy config value is invalid
