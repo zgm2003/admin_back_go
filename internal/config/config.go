@@ -177,6 +177,25 @@ type AIConfig struct {
 	RunStaleTimeout       time.Duration
 }
 
+const (
+	DefaultAIChatStreamMaxDuration = 5 * time.Minute
+	DefaultAIChatStreamIdleTimeout = 60 * time.Second
+	DefaultAIRunStaleTimeout       = 15 * time.Minute
+)
+
+func NormalizeAIConfig(cfg AIConfig) AIConfig {
+	if cfg.ChatStreamMaxDuration <= 0 {
+		cfg.ChatStreamMaxDuration = DefaultAIChatStreamMaxDuration
+	}
+	if cfg.ChatStreamIdleTimeout <= 0 {
+		cfg.ChatStreamIdleTimeout = DefaultAIChatStreamIdleTimeout
+	}
+	if cfg.RunStaleTimeout <= 0 {
+		cfg.RunStaleTimeout = DefaultAIRunStaleTimeout
+	}
+	return cfg
+}
+
 type CORSConfig struct {
 	AllowOrigins     []string
 	AllowMethods     []string
@@ -242,11 +261,7 @@ func Load() Config {
 		Payment: PaymentConfig{
 			CertBaseDir: envString("PAYMENT_CERT_BASE_DIR", ""),
 		},
-		AI: AIConfig{
-			ChatStreamMaxDuration: envDuration("AI_CHAT_STREAM_MAX_DURATION", 5*time.Minute),
-			ChatStreamIdleTimeout: envDuration("AI_CHAT_STREAM_IDLE_TIMEOUT", 60*time.Second),
-			RunStaleTimeout:       envDuration("AI_RUN_STALE_TIMEOUT", 15*time.Minute),
-		},
+		AI:   NormalizeAIConfig(AIConfig{}),
 		CORS: corsConfig,
 	}
 }

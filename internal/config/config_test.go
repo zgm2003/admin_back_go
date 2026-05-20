@@ -87,14 +87,14 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Scheduler.LockTTL != DefaultSchedulerLockTTL {
 		t.Fatalf("expected scheduler lock ttl %s, got %s", DefaultSchedulerLockTTL, cfg.Scheduler.LockTTL)
 	}
-	if cfg.AI.ChatStreamMaxDuration != 5*time.Minute {
-		t.Fatalf("expected AI chat stream max duration 5m, got %s", cfg.AI.ChatStreamMaxDuration)
+	if cfg.AI.ChatStreamMaxDuration != DefaultAIChatStreamMaxDuration {
+		t.Fatalf("expected AI chat stream max duration %s, got %s", DefaultAIChatStreamMaxDuration, cfg.AI.ChatStreamMaxDuration)
 	}
-	if cfg.AI.ChatStreamIdleTimeout != 60*time.Second {
-		t.Fatalf("expected AI chat stream idle timeout 60s, got %s", cfg.AI.ChatStreamIdleTimeout)
+	if cfg.AI.ChatStreamIdleTimeout != DefaultAIChatStreamIdleTimeout {
+		t.Fatalf("expected AI chat stream idle timeout %s, got %s", DefaultAIChatStreamIdleTimeout, cfg.AI.ChatStreamIdleTimeout)
 	}
-	if cfg.AI.RunStaleTimeout != 15*time.Minute {
-		t.Fatalf("expected AI run stale timeout 15m, got %s", cfg.AI.RunStaleTimeout)
+	if cfg.AI.RunStaleTimeout != DefaultAIRunStaleTimeout {
+		t.Fatalf("expected AI run stale timeout %s, got %s", DefaultAIRunStaleTimeout, cfg.AI.RunStaleTimeout)
 	}
 	wantOrigins := []string{
 		"http://localhost:5173",
@@ -207,10 +207,10 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 		cfg.Scheduler.LockTTL != DefaultSchedulerLockTTL {
 		t.Fatalf("scheduler policy env must be ignored, got %#v", cfg.Scheduler)
 	}
-	if cfg.AI.ChatStreamMaxDuration != 3*time.Minute ||
-		cfg.AI.ChatStreamIdleTimeout != 45*time.Second ||
-		cfg.AI.RunStaleTimeout != 20*time.Minute {
-		t.Fatalf("unexpected AI config: %#v", cfg.AI)
+	if cfg.AI.ChatStreamMaxDuration != DefaultAIChatStreamMaxDuration ||
+		cfg.AI.ChatStreamIdleTimeout != DefaultAIChatStreamIdleTimeout ||
+		cfg.AI.RunStaleTimeout != DefaultAIRunStaleTimeout {
+		t.Fatalf("AI runtime timeout env must be ignored, got %#v", cfg.AI)
 	}
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, []string{"https://admin.example.com", "http://localhost:5173"}) {
 		t.Fatalf("unexpected cors origins: %#v", cfg.CORS.AllowOrigins)
@@ -258,6 +258,38 @@ func TestNormalizeSchedulerConfigTrimsExplicitValues(t *testing.T) {
 	}
 	if cfg.LockTTL != 45*time.Second {
 		t.Fatalf("expected explicit lock ttl 45s, got %s", cfg.LockTTL)
+	}
+}
+
+func TestNormalizeAIConfigAppliesCodeOwnedDefaults(t *testing.T) {
+	cfg := NormalizeAIConfig(AIConfig{})
+
+	if cfg.ChatStreamMaxDuration != DefaultAIChatStreamMaxDuration {
+		t.Fatalf("expected default AI chat stream max duration %s, got %s", DefaultAIChatStreamMaxDuration, cfg.ChatStreamMaxDuration)
+	}
+	if cfg.ChatStreamIdleTimeout != DefaultAIChatStreamIdleTimeout {
+		t.Fatalf("expected default AI chat stream idle timeout %s, got %s", DefaultAIChatStreamIdleTimeout, cfg.ChatStreamIdleTimeout)
+	}
+	if cfg.RunStaleTimeout != DefaultAIRunStaleTimeout {
+		t.Fatalf("expected default AI run stale timeout %s, got %s", DefaultAIRunStaleTimeout, cfg.RunStaleTimeout)
+	}
+}
+
+func TestNormalizeAIConfigPreservesExplicitValues(t *testing.T) {
+	cfg := NormalizeAIConfig(AIConfig{
+		ChatStreamMaxDuration: 7 * time.Minute,
+		ChatStreamIdleTimeout: 90 * time.Second,
+		RunStaleTimeout:       22 * time.Minute,
+	})
+
+	if cfg.ChatStreamMaxDuration != 7*time.Minute {
+		t.Fatalf("expected explicit AI chat stream max duration 7m, got %s", cfg.ChatStreamMaxDuration)
+	}
+	if cfg.ChatStreamIdleTimeout != 90*time.Second {
+		t.Fatalf("expected explicit AI chat stream idle timeout 90s, got %s", cfg.ChatStreamIdleTimeout)
+	}
+	if cfg.RunStaleTimeout != 22*time.Minute {
+		t.Fatalf("expected explicit AI run stale timeout 22m, got %s", cfg.RunStaleTimeout)
 	}
 }
 
