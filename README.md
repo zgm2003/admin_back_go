@@ -276,10 +276,9 @@ REALTIME_PUBLISHER=redis  # 多 API 进程推荐，Redis Pub/Sub fan-out
 
 ```env
 SCHEDULER_ENABLED=true
-SCHEDULER_TIMEZONE=Asia/Shanghai
-SCHEDULER_LOCK_PREFIX=admin_go:scheduler:
-SCHEDULER_LOCK_TTL=30s
 ```
+
+Scheduler timezone、Redis lock prefix 和 lock TTL 是 Go 默认值。业务定时任务的启用和 cron 表达式通过 `cron_task` 表/定时任务页面管理；`SCHEDULER_ENABLED=false` 只用于部署、导入数据或排障时临时关闭 scheduler 注册。
 
 多 worker 节点时，Redis 锁会降低重复执行风险。但不要无脑在多套环境里同时指向同一个数据库和同一个 Redis。
 

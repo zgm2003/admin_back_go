@@ -427,8 +427,6 @@ AI_CHAT_STREAM_MAX_DURATION
 AI_CHAT_STREAM_IDLE_TIMEOUT
 AI_RUN_STALE_TIMEOUT
 SCHEDULER_ENABLED
-SCHEDULER_TIMEZONE
-SCHEDULER_LOCK_PREFIX
 CORS_ALLOW_ORIGINS
 CORS_ALLOW_HEADERS
 CORS_ALLOW_CREDENTIALS
@@ -444,6 +442,11 @@ CAPTCHA 业务策略不放 env：`auth.captcha.ttl_minutes` 和
 `critical` / `default` / `low`、lane 权重 `6/3/1`、默认重试
 `3`、默认 task timeout `30s`、worker shutdown timeout `10s` 都是
 `internal/platform/taskqueue` 代码内置默认值。
+
+Scheduler 基础策略不放 env：Docker-first 只保留 `SCHEDULER_ENABLED`。
+Scheduler timezone (`Asia/Shanghai`)、Redis lock prefix (`admin_go:scheduler:`)
+和 lock TTL (`30s`) 是代码内置默认值，不进 `system_settings`；业务任务启用和
+cron 表达式仍由 `cron_task` 表管理。
 
 规则：
 
@@ -892,11 +895,10 @@ worker 配置含义：
 QUEUE_ENABLED            # 是否启用队列 client/server/monitor
 QUEUE_REDIS_DB           # 队列独立 Redis DB，避免和 session/captcha key 混住
 QUEUE_CONCURRENCY        # 单个 admin-worker 进程并发执行 handler 数
-SCHEDULER_TIMEZONE       # gocron 注册时区
-SCHEDULER_LOCK_PREFIX    # 预留分布式 scheduler lock 前缀；真正多 worker cron 再启用锁策略
+SCHEDULER_ENABLED        # 是否注册 DB-backed cron tasks
 ```
 
-Queue lane 名称、lane 权重、默认重试、默认 timeout 和 worker shutdown timeout 是代码内置策略：`critical/default/low`、`6/3/1`、`3`、`30s`、`10s`。它们不是 Docker-first env，也不是 `system_settings`。
+Queue lane 名称、lane 权重、默认重试、默认 timeout 和 worker shutdown timeout 是代码内置策略：`critical/default/low`、`6/3/1`、`3`、`30s`、`10s`。Scheduler timezone、Redis lock prefix 和 lock TTL 也是代码内置策略：`Asia/Shanghai`、`admin_go:scheduler:`、`30s`。它们不是 Docker-first env，也不是 `system_settings`。
 
 本地启动命令：
 
