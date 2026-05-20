@@ -11,21 +11,20 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-func TestQueueWeightsDropDisabledQueues(t *testing.T) {
-	queues := queueWeights(config.QueueConfig{
-		CriticalWeight: 6,
-		DefaultWeight:  3,
-		LowWeight:      0,
-	})
+func TestQueueWeightsUseCodeOwnedDefaults(t *testing.T) {
+	queues := queueWeights()
 
-	if len(queues) != 2 {
-		t.Fatalf("expected two enabled queues, got %#v", queues)
+	if len(queues) != 3 {
+		t.Fatalf("expected three enabled queues, got %#v", queues)
 	}
-	if queues[QueueCritical] != 6 || queues[QueueDefault] != 3 {
-		t.Fatalf("unexpected queue weights: %#v", queues)
+	if queues[QueueCritical] != DefaultCriticalWeight {
+		t.Fatalf("unexpected critical weight: %#v", queues)
 	}
-	if _, ok := queues[QueueLow]; ok {
-		t.Fatalf("expected low queue to be disabled when weight is zero")
+	if queues[QueueDefault] != DefaultQueueWeight {
+		t.Fatalf("unexpected default weight: %#v", queues)
+	}
+	if queues[QueueLow] != DefaultLowWeight {
+		t.Fatalf("unexpected low weight: %#v", queues)
 	}
 }
 
@@ -42,27 +41,8 @@ func TestNewServerRejectsEmptyRedisAddr(t *testing.T) {
 	}
 }
 
-func TestNewServerRejectsNoEnabledQueues(t *testing.T) {
-	server, err := NewServer(config.RedisConfig{Addr: "127.0.0.1:6379"}, config.QueueConfig{
-		CriticalWeight: 0,
-		DefaultWeight:  0,
-		LowWeight:      0,
-	})
-	if err == nil {
-		t.Fatalf("expected no enabled queues to be rejected")
-	}
-	if server != nil {
-		t.Fatalf("expected nil server on error")
-	}
-	if !errors.Is(err, ErrQueueWeightRequired) {
-		t.Fatalf("expected ErrQueueWeightRequired, got %v", err)
-	}
-}
-
 func TestServerStartRejectsNilMux(t *testing.T) {
-	server, err := NewServer(config.RedisConfig{Addr: "127.0.0.1:6379"}, config.QueueConfig{
-		DefaultWeight: 1,
-	})
+	server, err := NewServer(config.RedisConfig{Addr: "127.0.0.1:6379"}, config.QueueConfig{Concurrency: 1})
 	if err != nil {
 		t.Fatalf("NewServer returned error: %v", err)
 	}

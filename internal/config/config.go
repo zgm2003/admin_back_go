@@ -116,16 +116,9 @@ type TokenConfig struct {
 }
 
 type QueueConfig struct {
-	Enabled         bool
-	RedisDB         int
-	Concurrency     int
-	DefaultQueue    string
-	CriticalWeight  int
-	DefaultWeight   int
-	LowWeight       int
-	ShutdownTimeout time.Duration
-	DefaultMaxRetry int
-	DefaultTimeout  time.Duration
+	Enabled     bool
+	RedisDB     int
+	Concurrency int
 }
 
 const (
@@ -207,16 +200,9 @@ func Load() Config {
 			RedisDB:                 envInt("TOKEN_REDIS_DB", 2),
 		},
 		Queue: QueueConfig{
-			Enabled:         envBool("QUEUE_ENABLED", true),
-			RedisDB:         envInt("QUEUE_REDIS_DB", 3),
-			Concurrency:     envInt("QUEUE_CONCURRENCY", 10),
-			DefaultQueue:    envString("QUEUE_DEFAULT_QUEUE", "default"),
-			CriticalWeight:  envInt("QUEUE_CRITICAL_WEIGHT", 6),
-			DefaultWeight:   envInt("QUEUE_DEFAULT_WEIGHT", 3),
-			LowWeight:       envInt("QUEUE_LOW_WEIGHT", 1),
-			ShutdownTimeout: envDuration("QUEUE_SHUTDOWN_TIMEOUT", 10*time.Second),
-			DefaultMaxRetry: envInt("QUEUE_DEFAULT_MAX_RETRY", 3),
-			DefaultTimeout:  envDuration("QUEUE_DEFAULT_TIMEOUT", 30*time.Second),
+			Enabled:     envBool("QUEUE_ENABLED", true),
+			RedisDB:     envInt("QUEUE_REDIS_DB", 3),
+			Concurrency: envInt("QUEUE_CONCURRENCY", 10),
 		},
 		Realtime: RealtimeConfig{
 			Enabled:           envBool("REALTIME_ENABLED", true),

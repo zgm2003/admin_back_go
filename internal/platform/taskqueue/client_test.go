@@ -12,11 +12,7 @@ import (
 )
 
 func TestNewClientRejectsEmptyRedisAddr(t *testing.T) {
-	client, err := NewClient(config.RedisConfig{}, config.QueueConfig{
-		DefaultQueue:    "default",
-		DefaultMaxRetry: 3,
-		DefaultTimeout:  30 * time.Second,
-	})
+	client, err := NewClient(config.RedisConfig{}, config.QueueConfig{})
 	if err == nil {
 		t.Fatalf("expected empty redis addr to be rejected")
 	}
@@ -33,12 +29,7 @@ func TestNewClientMapsRedisAndQueueDefaults(t *testing.T) {
 		Addr:     "127.0.0.1:6379",
 		Password: "secret",
 		DB:       0,
-	}, config.QueueConfig{
-		RedisDB:         3,
-		DefaultQueue:    "default",
-		DefaultMaxRetry: 3,
-		DefaultTimeout:  30 * time.Second,
-	})
+	}, config.QueueConfig{RedisDB: 3})
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -53,7 +44,7 @@ func TestNewClientMapsRedisAndQueueDefaults(t *testing.T) {
 	if client.redisOpt.DB != 3 {
 		t.Fatalf("expected queue redis db 3, got %d", client.redisOpt.DB)
 	}
-	if client.defaultQueue != "default" || client.defaultMaxRetry != 3 || client.defaultTimeout != 30*time.Second {
+	if client.defaultQueue != QueueDefault || client.defaultMaxRetry != DefaultMaxRetry || client.defaultTimeout != DefaultTimeout {
 		t.Fatalf("unexpected queue defaults: %#v", client)
 	}
 }
@@ -72,11 +63,11 @@ func TestRedisConnOptUsesQueueRedisDB(t *testing.T) {
 	}
 }
 
-func TestNormalizeTaskUsesConfiguredDefaults(t *testing.T) {
+func TestNormalizeTaskUsesCodeOwnedDefaults(t *testing.T) {
 	client := &Client{
-		defaultQueue:    "default",
-		defaultMaxRetry: 3,
-		defaultTimeout:  30 * time.Second,
+		defaultQueue:    QueueDefault,
+		defaultMaxRetry: DefaultMaxRetry,
+		defaultTimeout:  DefaultTimeout,
 	}
 
 	task, opts, err := client.normalize(Task{
@@ -93,16 +84,16 @@ func TestNormalizeTaskUsesConfiguredDefaults(t *testing.T) {
 		t.Fatalf("unexpected payload %q", string(task.Payload()))
 	}
 
-	assertOption(t, opts, asynq.Queue("default"))
-	assertOption(t, opts, asynq.MaxRetry(3))
-	assertOption(t, opts, asynq.Timeout(30*time.Second))
+	assertOption(t, opts, asynq.Queue(QueueDefault))
+	assertOption(t, opts, asynq.MaxRetry(DefaultMaxRetry))
+	assertOption(t, opts, asynq.Timeout(DefaultTimeout))
 }
 
 func TestNormalizeTaskAllowsExplicitQueueRetryTimeoutAndUniqueTTL(t *testing.T) {
 	client := &Client{
-		defaultQueue:    "default",
-		defaultMaxRetry: 3,
-		defaultTimeout:  30 * time.Second,
+		defaultQueue:    QueueDefault,
+		defaultMaxRetry: DefaultMaxRetry,
+		defaultTimeout:  DefaultTimeout,
 	}
 
 	_, opts, err := client.normalize(Task{

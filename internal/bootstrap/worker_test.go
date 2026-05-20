@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-	"time"
 
 	"admin_back_go/internal/config"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -32,10 +31,7 @@ func TestNewWorkerRejectsQueueEnabledWithoutRedis(t *testing.T) {
 	worker, err := NewWorker(config.Config{
 		App: config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Queue: config.QueueConfig{
-			Enabled:         true,
-			DefaultQueue:    "default",
-			DefaultMaxRetry: 3,
-			DefaultTimeout:  30 * time.Second,
+			Enabled: true,
 		},
 	}, slog.Default())
 	if err == nil {
@@ -55,16 +51,9 @@ func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 			DB:       0,
 		},
 		Queue: config.QueueConfig{
-			Enabled:         true,
-			RedisDB:         3,
-			Concurrency:     2,
-			DefaultQueue:    "default",
-			CriticalWeight:  6,
-			DefaultWeight:   3,
-			LowWeight:       1,
-			ShutdownTimeout: time.Second,
-			DefaultMaxRetry: 3,
-			DefaultTimeout:  30 * time.Second,
+			Enabled:     true,
+			RedisDB:     3,
+			Concurrency: 2,
 		},
 		Scheduler: config.SchedulerConfig{Enabled: false},
 	}, slog.Default())
@@ -89,16 +78,9 @@ func TestNewWorkerRejectsSchedulerEnabledWithoutDatabase(t *testing.T) {
 		App:   config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Redis: config.RedisConfig{Addr: "127.0.0.1:1"},
 		Queue: config.QueueConfig{
-			Enabled:         true,
-			RedisDB:         3,
-			Concurrency:     2,
-			DefaultQueue:    "default",
-			CriticalWeight:  6,
-			DefaultWeight:   3,
-			LowWeight:       1,
-			ShutdownTimeout: time.Second,
-			DefaultMaxRetry: 3,
-			DefaultTimeout:  30 * time.Second,
+			Enabled:     true,
+			RedisDB:     3,
+			Concurrency: 2,
 		},
 		Scheduler: config.SchedulerConfig{Enabled: true, Timezone: "UTC"},
 	}, slog.Default())

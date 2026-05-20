@@ -33,6 +33,11 @@ type Task struct {
 	UniqueTTL time.Duration
 }
 
+const (
+	DefaultMaxRetry = 3
+	DefaultTimeout  = 30 * time.Second
+)
+
 // EnqueueResult is the stable result returned by queue producers.
 type EnqueueResult struct {
 	ID    string
@@ -65,9 +70,9 @@ func NewClient(redisCfg config.RedisConfig, queueCfg config.QueueConfig) (*Clien
 	return &Client{
 		client:          asynq.NewClient(redisOpt),
 		redisOpt:        redisOpt,
-		defaultQueue:    strings.TrimSpace(queueCfg.DefaultQueue),
-		defaultMaxRetry: queueCfg.DefaultMaxRetry,
-		defaultTimeout:  queueCfg.DefaultTimeout,
+		defaultQueue:    QueueDefault,
+		defaultMaxRetry: DefaultMaxRetry,
+		defaultTimeout:  DefaultTimeout,
 	}, nil
 }
 

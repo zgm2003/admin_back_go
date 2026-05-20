@@ -60,21 +60,6 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Queue.Concurrency != 10 {
 		t.Fatalf("expected queue concurrency 10, got %d", cfg.Queue.Concurrency)
 	}
-	if cfg.Queue.DefaultQueue != "default" {
-		t.Fatalf("expected default queue name default, got %q", cfg.Queue.DefaultQueue)
-	}
-	if cfg.Queue.CriticalWeight != 6 || cfg.Queue.DefaultWeight != 3 || cfg.Queue.LowWeight != 1 {
-		t.Fatalf("unexpected queue weights: %#v", cfg.Queue)
-	}
-	if cfg.Queue.ShutdownTimeout != 10*time.Second {
-		t.Fatalf("expected queue shutdown timeout 10s, got %s", cfg.Queue.ShutdownTimeout)
-	}
-	if cfg.Queue.DefaultMaxRetry != 3 {
-		t.Fatalf("expected queue default max retry 3, got %d", cfg.Queue.DefaultMaxRetry)
-	}
-	if cfg.Queue.DefaultTimeout != 30*time.Second {
-		t.Fatalf("expected queue default timeout 30s, got %s", cfg.Queue.DefaultTimeout)
-	}
 	if !cfg.Realtime.Enabled {
 		t.Fatalf("expected realtime to be enabled by default")
 	}
@@ -154,13 +139,6 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("QUEUE_ENABLED", "false")
 	t.Setenv("QUEUE_REDIS_DB", "4")
 	t.Setenv("QUEUE_CONCURRENCY", "22")
-	t.Setenv("QUEUE_DEFAULT_QUEUE", "admin")
-	t.Setenv("QUEUE_CRITICAL_WEIGHT", "8")
-	t.Setenv("QUEUE_DEFAULT_WEIGHT", "4")
-	t.Setenv("QUEUE_LOW_WEIGHT", "2")
-	t.Setenv("QUEUE_SHUTDOWN_TIMEOUT", "12s")
-	t.Setenv("QUEUE_DEFAULT_MAX_RETRY", "5")
-	t.Setenv("QUEUE_DEFAULT_TIMEOUT", "45s")
 	t.Setenv("REALTIME_ENABLED", "false")
 	t.Setenv("REALTIME_PUBLISHER", "noop")
 	t.Setenv("REALTIME_HEARTBEAT_INTERVAL", "10s")
@@ -207,14 +185,8 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Queue.Enabled {
 		t.Fatalf("expected queue enabled override to false")
 	}
-	if cfg.Queue.RedisDB != 4 || cfg.Queue.Concurrency != 22 || cfg.Queue.DefaultQueue != "admin" {
+	if cfg.Queue.RedisDB != 4 || cfg.Queue.Concurrency != 22 {
 		t.Fatalf("unexpected queue config: %#v", cfg.Queue)
-	}
-	if cfg.Queue.CriticalWeight != 8 || cfg.Queue.DefaultWeight != 4 || cfg.Queue.LowWeight != 2 {
-		t.Fatalf("unexpected queue weights: %#v", cfg.Queue)
-	}
-	if cfg.Queue.ShutdownTimeout != 12*time.Second || cfg.Queue.DefaultMaxRetry != 5 || cfg.Queue.DefaultTimeout != 45*time.Second {
-		t.Fatalf("unexpected queue retry/timeout config: %#v", cfg.Queue)
 	}
 	if cfg.Realtime.Enabled {
 		t.Fatalf("expected realtime enabled override to false")
@@ -368,6 +340,41 @@ func deprecatedLoggingEnvKeys() []string {
 		"LOG_FILE_MAX_BACKUPS",
 		"LOG_FILE_MAX_AGE_DAYS",
 		"LOG_FILE_COMPRESS",
+	}
+}
+
+func TestDockerFirstEnvDocumentsOnlyQueueRuntimeKnobs(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		if got := values["QUEUE_ENABLED"]; got != "true" {
+			t.Fatalf("deploy/docker-first/%s must keep QUEUE_ENABLED=true, got %q", fileName, got)
+		}
+		if got := values["QUEUE_REDIS_DB"]; got != "3" {
+			t.Fatalf("deploy/docker-first/%s must keep QUEUE_REDIS_DB=3, got %q", fileName, got)
+		}
+		if got := values["QUEUE_CONCURRENCY"]; got != "10" {
+			t.Fatalf("deploy/docker-first/%s must keep QUEUE_CONCURRENCY=10, got %q", fileName, got)
+		}
+		for _, key := range deprecatedQueuePolicyEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document queue policy key %s", fileName, key)
+			}
+		}
+	}
+}
+
+func deprecatedQueuePolicyEnvKeys() []string {
+	return []string{
+		"QUEUE_DEFAULT_QUEUE",
+		"QUEUE_CRITICAL_WEIGHT",
+		"QUEUE_DEFAULT_WEIGHT",
+		"QUEUE_LOW_WEIGHT",
+		"QUEUE_SHUTDOWN_TIMEOUT",
+		"QUEUE_DEFAULT_MAX_RETRY",
+		"QUEUE_DEFAULT_TIMEOUT",
 	}
 }
 

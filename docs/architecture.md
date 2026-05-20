@@ -421,13 +421,6 @@ TOKEN_SINGLE_SESSION_POINTER_TTL
 QUEUE_ENABLED
 QUEUE_REDIS_DB
 QUEUE_CONCURRENCY
-QUEUE_DEFAULT_QUEUE
-QUEUE_CRITICAL_WEIGHT
-QUEUE_DEFAULT_WEIGHT
-QUEUE_LOW_WEIGHT
-QUEUE_SHUTDOWN_TIMEOUT
-QUEUE_DEFAULT_MAX_RETRY
-QUEUE_DEFAULT_TIMEOUT
 REALTIME_ENABLED
 REALTIME_PUBLISHER
 REALTIME_HEARTBEAT_INTERVAL
@@ -447,6 +440,12 @@ CORS_MAX_AGE
 CAPTCHA 业务策略不放 env：`auth.captcha.ttl_minutes` 和
 `auth.captcha.slide_padding` 由 `system_settings` 管理，Redis key 前缀
 `captcha:slide:` 为代码内置命名空间。
+
+队列运行策略不放 env：Docker-first 只保留 `QUEUE_ENABLED`、
+`QUEUE_REDIS_DB`、`QUEUE_CONCURRENCY`。队列 lane 名称
+`critical` / `default` / `low`、lane 权重 `6/3/1`、默认重试
+`3`、默认 task timeout `30s`、worker shutdown timeout `10s` 都是
+`internal/platform/taskqueue` 代码内置默认值。
 
 规则：
 
@@ -891,17 +890,14 @@ cron-to-queue 注册入口迁到 internal/module/crontask.SchedulerService.Regis
 worker 配置含义：
 
 ```text
+QUEUE_ENABLED            # 是否启用队列 client/server/monitor
 QUEUE_REDIS_DB           # 队列独立 Redis DB，避免和 session/captcha key 混住
 QUEUE_CONCURRENCY        # 单个 admin-worker 进程并发执行 handler 数
-QUEUE_CRITICAL_WEIGHT    # critical lane 权重
-QUEUE_DEFAULT_WEIGHT     # default lane 权重
-QUEUE_LOW_WEIGHT         # low lane 权重
-QUEUE_DEFAULT_MAX_RETRY  # task 默认重试次数；handler 必须幂等
-QUEUE_DEFAULT_TIMEOUT    # task 默认超时；慢任务必须尊重 context cancellation
-QUEUE_SHUTDOWN_TIMEOUT   # worker 停机等待 in-flight task 的时间
 SCHEDULER_TIMEZONE       # gocron 注册时区
 SCHEDULER_LOCK_PREFIX    # 预留分布式 scheduler lock 前缀；真正多 worker cron 再启用锁策略
 ```
+
+Queue lane 名称、lane 权重、默认重试、默认 timeout 和 worker shutdown timeout 是代码内置策略：`critical/default/low`、`6/3/1`、`3`、`30s`、`10s`。它们不是 Docker-first env，也不是 `system_settings`。
 
 本地启动命令：
 

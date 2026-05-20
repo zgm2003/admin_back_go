@@ -6,11 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"admin_back_go/internal/bootstrap"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/platform/logging"
+	"admin_back_go/internal/platform/taskqueue"
 )
 
 func main() {
@@ -40,11 +40,7 @@ func main() {
 	}
 
 	<-ctx.Done()
-	shutdownTimeout := cfg.Queue.ShutdownTimeout
-	if shutdownTimeout <= 0 {
-		shutdownTimeout = 10 * time.Second
-	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), taskqueue.DefaultShutdownTimeout)
 	defer cancel()
 
 	if err := worker.Shutdown(shutdownCtx); err != nil {

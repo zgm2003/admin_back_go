@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"admin_back_go/internal/config"
 
@@ -14,6 +15,11 @@ const (
 	QueueCritical = "critical"
 	QueueDefault  = "default"
 	QueueLow      = "low"
+
+	DefaultCriticalWeight  = 6
+	DefaultQueueWeight     = 3
+	DefaultLowWeight       = 1
+	DefaultShutdownTimeout = 10 * time.Second
 )
 
 type HandlerFunc func(ctx context.Context, task Task) error
@@ -99,7 +105,7 @@ func NewServer(redisCfg config.RedisConfig, queueCfg config.QueueConfig) (*Serve
 		return nil, err
 	}
 
-	queues := queueWeights(queueCfg)
+	queues := queueWeights()
 	if len(queues) == 0 {
 		return nil, ErrQueueWeightRequired
 	}
@@ -108,7 +114,7 @@ func NewServer(redisCfg config.RedisConfig, queueCfg config.QueueConfig) (*Serve
 		server: asynq.NewServer(redisOpt, asynq.Config{
 			Concurrency:     queueCfg.Concurrency,
 			Queues:          queues,
-			ShutdownTimeout: queueCfg.ShutdownTimeout,
+			ShutdownTimeout: DefaultShutdownTimeout,
 		}),
 	}, nil
 }
@@ -133,16 +139,10 @@ func (s *Server) Shutdown() {
 	s.server.Shutdown()
 }
 
-func queueWeights(cfg config.QueueConfig) map[string]int {
-	queues := make(map[string]int, 3)
-	if cfg.CriticalWeight > 0 {
-		queues[QueueCritical] = cfg.CriticalWeight
+func queueWeights() map[string]int {
+	return map[string]int{
+		QueueCritical: DefaultCriticalWeight,
+		QueueDefault:  DefaultQueueWeight,
+		QueueLow:      DefaultLowWeight,
 	}
-	if cfg.DefaultWeight > 0 {
-		queues[QueueDefault] = cfg.DefaultWeight
-	}
-	if cfg.LowWeight > 0 {
-		queues[QueueLow] = cfg.LowWeight
-	}
-	return queues
 }
