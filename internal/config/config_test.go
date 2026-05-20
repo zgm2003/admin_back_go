@@ -202,8 +202,10 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler enabled override to false")
 	}
-	if cfg.Scheduler.Timezone != "UTC" || cfg.Scheduler.LockPrefix != "test:scheduler:" || cfg.Scheduler.LockTTL != 45*time.Second {
-		t.Fatalf("unexpected scheduler config: %#v", cfg.Scheduler)
+	if cfg.Scheduler.Timezone != "Asia/Shanghai" ||
+		cfg.Scheduler.LockPrefix != "admin_go:scheduler:" ||
+		cfg.Scheduler.LockTTL != 30*time.Second {
+		t.Fatalf("scheduler policy env must be ignored, got %#v", cfg.Scheduler)
 	}
 	if cfg.AI.ChatStreamMaxDuration != 3*time.Minute ||
 		cfg.AI.ChatStreamIdleTimeout != 45*time.Second ||
@@ -447,14 +449,28 @@ func TestEnvExampleDocumentsAITimeouts(t *testing.T) {
 	}
 }
 
-func TestEnvExampleDocumentsSchedulerDistributedLock(t *testing.T) {
-	values := readEnvExample(t)
-
-	if values["SCHEDULER_LOCK_PREFIX"] != "admin_go:scheduler:" {
-		t.Fatalf("expected SCHEDULER_LOCK_PREFIX default, got %q", values["SCHEDULER_LOCK_PREFIX"])
+func TestDockerFirstEnvDocumentsOnlySchedulerRuntimeKnob(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		if got := values["SCHEDULER_ENABLED"]; got != "true" {
+			t.Fatalf("deploy/docker-first/%s must keep SCHEDULER_ENABLED=true, got %q", fileName, got)
+		}
+		for _, key := range deprecatedSchedulerPolicyEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document scheduler policy key %s", fileName, key)
+			}
+		}
 	}
-	if values["SCHEDULER_LOCK_TTL"] != "30s" {
-		t.Fatalf("expected SCHEDULER_LOCK_TTL=30s, got %q", values["SCHEDULER_LOCK_TTL"])
+}
+
+func deprecatedSchedulerPolicyEnvKeys() []string {
+	return []string{
+		"SCHEDULER_TIMEZONE",
+		"SCHEDULER_LOCK_PREFIX",
+		"SCHEDULER_LOCK_TTL",
 	}
 }
 
