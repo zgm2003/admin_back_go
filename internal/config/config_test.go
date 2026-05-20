@@ -78,14 +78,14 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if !cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler to be enabled by default")
 	}
-	if cfg.Scheduler.Timezone != "Asia/Shanghai" {
-		t.Fatalf("expected scheduler timezone Asia/Shanghai, got %q", cfg.Scheduler.Timezone)
+	if cfg.Scheduler.Timezone != DefaultSchedulerTimezone {
+		t.Fatalf("expected scheduler timezone %s, got %q", DefaultSchedulerTimezone, cfg.Scheduler.Timezone)
 	}
-	if cfg.Scheduler.LockPrefix != "admin_go:scheduler:" {
-		t.Fatalf("expected scheduler lock prefix admin_go:scheduler:, got %q", cfg.Scheduler.LockPrefix)
+	if cfg.Scheduler.LockPrefix != DefaultSchedulerLockPrefix {
+		t.Fatalf("expected scheduler lock prefix %s, got %q", DefaultSchedulerLockPrefix, cfg.Scheduler.LockPrefix)
 	}
-	if cfg.Scheduler.LockTTL != 30*time.Second {
-		t.Fatalf("expected scheduler lock ttl 30s, got %s", cfg.Scheduler.LockTTL)
+	if cfg.Scheduler.LockTTL != DefaultSchedulerLockTTL {
+		t.Fatalf("expected scheduler lock ttl %s, got %s", DefaultSchedulerLockTTL, cfg.Scheduler.LockTTL)
 	}
 	if cfg.AI.ChatStreamMaxDuration != 5*time.Minute {
 		t.Fatalf("expected AI chat stream max duration 5m, got %s", cfg.AI.ChatStreamMaxDuration)
@@ -202,9 +202,9 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler enabled override to false")
 	}
-	if cfg.Scheduler.Timezone != "Asia/Shanghai" ||
-		cfg.Scheduler.LockPrefix != "admin_go:scheduler:" ||
-		cfg.Scheduler.LockTTL != 30*time.Second {
+	if cfg.Scheduler.Timezone != DefaultSchedulerTimezone ||
+		cfg.Scheduler.LockPrefix != DefaultSchedulerLockPrefix ||
+		cfg.Scheduler.LockTTL != DefaultSchedulerLockTTL {
 		t.Fatalf("scheduler policy env must be ignored, got %#v", cfg.Scheduler)
 	}
 	if cfg.AI.ChatStreamMaxDuration != 3*time.Minute ||
@@ -223,6 +223,41 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.CORS.MaxAge != 30*time.Minute {
 		t.Fatalf("expected cors max age 30m, got %s", cfg.CORS.MaxAge)
+	}
+}
+
+func TestNormalizeSchedulerConfigAppliesCodeOwnedDefaults(t *testing.T) {
+	cfg := NormalizeSchedulerConfig(SchedulerConfig{Enabled: true})
+
+	if !cfg.Enabled {
+		t.Fatalf("expected enabled flag to be preserved")
+	}
+	if cfg.Timezone != DefaultSchedulerTimezone {
+		t.Fatalf("expected default timezone %q, got %q", DefaultSchedulerTimezone, cfg.Timezone)
+	}
+	if cfg.LockPrefix != DefaultSchedulerLockPrefix {
+		t.Fatalf("expected default lock prefix %q, got %q", DefaultSchedulerLockPrefix, cfg.LockPrefix)
+	}
+	if cfg.LockTTL != DefaultSchedulerLockTTL {
+		t.Fatalf("expected default lock ttl %s, got %s", DefaultSchedulerLockTTL, cfg.LockTTL)
+	}
+}
+
+func TestNormalizeSchedulerConfigTrimsExplicitValues(t *testing.T) {
+	cfg := NormalizeSchedulerConfig(SchedulerConfig{
+		Timezone:   " UTC ",
+		LockPrefix: " custom:scheduler: ",
+		LockTTL:    45 * time.Second,
+	})
+
+	if cfg.Timezone != "UTC" {
+		t.Fatalf("expected trimmed timezone UTC, got %q", cfg.Timezone)
+	}
+	if cfg.LockPrefix != "custom:scheduler:" {
+		t.Fatalf("expected trimmed lock prefix, got %q", cfg.LockPrefix)
+	}
+	if cfg.LockTTL != 45*time.Second {
+		t.Fatalf("expected explicit lock ttl 45s, got %s", cfg.LockTTL)
 	}
 }
 

@@ -146,6 +146,27 @@ type SchedulerConfig struct {
 	LockTTL    time.Duration
 }
 
+const (
+	DefaultSchedulerTimezone   = "Asia/Shanghai"
+	DefaultSchedulerLockPrefix = "admin_go:scheduler:"
+	DefaultSchedulerLockTTL    = 30 * time.Second
+)
+
+func NormalizeSchedulerConfig(cfg SchedulerConfig) SchedulerConfig {
+	cfg.Timezone = strings.TrimSpace(cfg.Timezone)
+	if cfg.Timezone == "" {
+		cfg.Timezone = DefaultSchedulerTimezone
+	}
+	cfg.LockPrefix = strings.TrimSpace(cfg.LockPrefix)
+	if cfg.LockPrefix == "" {
+		cfg.LockPrefix = DefaultSchedulerLockPrefix
+	}
+	if cfg.LockTTL <= 0 {
+		cfg.LockTTL = DefaultSchedulerLockTTL
+	}
+	return cfg
+}
+
 type PaymentConfig struct {
 	CertBaseDir string
 }
@@ -215,12 +236,9 @@ func Load() Config {
 			SendBuffer:        DefaultRealtimeSendBuffer,
 			RedisChannel:      DefaultRealtimeRedisChannel,
 		},
-		Scheduler: SchedulerConfig{
-			Enabled:    envBool("SCHEDULER_ENABLED", true),
-			Timezone:   envString("SCHEDULER_TIMEZONE", "Asia/Shanghai"),
-			LockPrefix: envString("SCHEDULER_LOCK_PREFIX", "admin_go:scheduler:"),
-			LockTTL:    envDuration("SCHEDULER_LOCK_TTL", 30*time.Second),
-		},
+		Scheduler: NormalizeSchedulerConfig(SchedulerConfig{
+			Enabled: envBool("SCHEDULER_ENABLED", true),
+		}),
 		Payment: PaymentConfig{
 			CertBaseDir: envString("PAYMENT_CERT_BASE_DIR", ""),
 		},
