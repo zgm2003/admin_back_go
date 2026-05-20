@@ -66,14 +66,14 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Realtime.Publisher != RealtimePublisherLocal {
 		t.Fatalf("expected realtime publisher local, got %q", cfg.Realtime.Publisher)
 	}
-	if cfg.Realtime.HeartbeatInterval != 25*time.Second {
-		t.Fatalf("expected realtime heartbeat interval 25s, got %s", cfg.Realtime.HeartbeatInterval)
+	if cfg.Realtime.HeartbeatInterval != DefaultRealtimeHeartbeatInterval {
+		t.Fatalf("expected realtime heartbeat interval %s, got %s", DefaultRealtimeHeartbeatInterval, cfg.Realtime.HeartbeatInterval)
 	}
-	if cfg.Realtime.SendBuffer != 16 {
-		t.Fatalf("expected realtime send buffer 16, got %d", cfg.Realtime.SendBuffer)
+	if cfg.Realtime.SendBuffer != DefaultRealtimeSendBuffer {
+		t.Fatalf("expected realtime send buffer %d, got %d", DefaultRealtimeSendBuffer, cfg.Realtime.SendBuffer)
 	}
-	if cfg.Realtime.RedisChannel != "admin_go:realtime:publish" {
-		t.Fatalf("expected realtime redis channel default, got %q", cfg.Realtime.RedisChannel)
+	if cfg.Realtime.RedisChannel != DefaultRealtimeRedisChannel {
+		t.Fatalf("expected realtime redis channel default %q, got %q", DefaultRealtimeRedisChannel, cfg.Realtime.RedisChannel)
 	}
 	if !cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler to be enabled by default")
@@ -194,8 +194,10 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.Realtime.Publisher != RealtimePublisherNoop {
 		t.Fatalf("expected realtime publisher noop, got %q", cfg.Realtime.Publisher)
 	}
-	if cfg.Realtime.HeartbeatInterval != 10*time.Second || cfg.Realtime.SendBuffer != 32 || cfg.Realtime.RedisChannel != "test:realtime" {
-		t.Fatalf("unexpected realtime config: %#v", cfg.Realtime)
+	if cfg.Realtime.HeartbeatInterval != DefaultRealtimeHeartbeatInterval ||
+		cfg.Realtime.SendBuffer != DefaultRealtimeSendBuffer ||
+		cfg.Realtime.RedisChannel != DefaultRealtimeRedisChannel {
+		t.Fatalf("realtime policy env must be ignored, got %#v", cfg.Realtime)
 	}
 	if cfg.Scheduler.Enabled {
 		t.Fatalf("expected scheduler enabled override to false")
@@ -375,6 +377,34 @@ func deprecatedQueuePolicyEnvKeys() []string {
 		"QUEUE_SHUTDOWN_TIMEOUT",
 		"QUEUE_DEFAULT_MAX_RETRY",
 		"QUEUE_DEFAULT_TIMEOUT",
+	}
+}
+
+func TestDockerFirstEnvDocumentsOnlyRealtimeRuntimeKnobs(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		if got := values["REALTIME_ENABLED"]; got != "true" {
+			t.Fatalf("deploy/docker-first/%s must keep REALTIME_ENABLED=true, got %q", fileName, got)
+		}
+		if got := values["REALTIME_PUBLISHER"]; got != RealtimePublisherRedis {
+			t.Fatalf("deploy/docker-first/%s must keep REALTIME_PUBLISHER=redis, got %q", fileName, got)
+		}
+		for _, key := range deprecatedRealtimePolicyEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document realtime policy key %s", fileName, key)
+			}
+		}
+	}
+}
+
+func deprecatedRealtimePolicyEnvKeys() []string {
+	return []string{
+		"REALTIME_REDIS_CHANNEL",
+		"REALTIME_HEARTBEAT_INTERVAL",
+		"REALTIME_SEND_BUFFER",
 	}
 }
 

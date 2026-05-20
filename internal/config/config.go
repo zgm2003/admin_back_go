@@ -125,6 +125,10 @@ const (
 	RealtimePublisherLocal = "local"
 	RealtimePublisherNoop  = "noop"
 	RealtimePublisherRedis = "redis"
+
+	DefaultRealtimeRedisChannel      = "admin_go:realtime:publish"
+	DefaultRealtimeHeartbeatInterval = 25 * time.Second
+	DefaultRealtimeSendBuffer        = 16
 )
 
 type RealtimeConfig struct {
@@ -207,9 +211,9 @@ func Load() Config {
 		Realtime: RealtimeConfig{
 			Enabled:           envBool("REALTIME_ENABLED", true),
 			Publisher:         envString("REALTIME_PUBLISHER", RealtimePublisherLocal),
-			HeartbeatInterval: envDuration("REALTIME_HEARTBEAT_INTERVAL", 25*time.Second),
-			SendBuffer:        envInt("REALTIME_SEND_BUFFER", 16),
-			RedisChannel:      envString("REALTIME_REDIS_CHANNEL", "admin_go:realtime:publish"),
+			HeartbeatInterval: DefaultRealtimeHeartbeatInterval,
+			SendBuffer:        DefaultRealtimeSendBuffer,
+			RedisChannel:      DefaultRealtimeRedisChannel,
 		},
 		Scheduler: SchedulerConfig{
 			Enabled:    envBool("SCHEDULER_ENABLED", true),

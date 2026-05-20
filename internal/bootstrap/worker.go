@@ -215,19 +215,20 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 }
 
 func realtimePublisherForWorker(cfg config.Config, resources *Resources) platformrealtime.Publisher {
-	if !cfg.Realtime.Enabled {
+	realtimeConfig := withRealtimePolicyDefaults(cfg.Realtime)
+	if !realtimeConfig.Enabled {
 		return platformrealtime.NoopPublisher{}
 	}
-	publisherName := cfg.Realtime.Publisher
+	publisherName := realtimeConfig.Publisher
 	if publisherName == "" {
 		publisherName = config.RealtimePublisherLocal
 	}
 	switch publisherName {
 	case config.RealtimePublisherRedis:
 		if resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
-			return platformrealtime.NewRedisPublisher(nil, cfg.Realtime.RedisChannel)
+			return platformrealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel)
 		}
-		return platformrealtime.NewRedisPublisher(resources.Redis.Redis, cfg.Realtime.RedisChannel)
+		return platformrealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel)
 	case config.RealtimePublisherNoop:
 		return platformrealtime.NoopPublisher{}
 	case config.RealtimePublisherLocal:

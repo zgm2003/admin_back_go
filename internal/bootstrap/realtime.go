@@ -17,6 +17,19 @@ type realtimeStack struct {
 	handler    *modulerealtime.Handler
 }
 
+func withRealtimePolicyDefaults(cfg config.RealtimeConfig) config.RealtimeConfig {
+	if cfg.HeartbeatInterval <= 0 {
+		cfg.HeartbeatInterval = config.DefaultRealtimeHeartbeatInterval
+	}
+	if cfg.SendBuffer <= 0 {
+		cfg.SendBuffer = config.DefaultRealtimeSendBuffer
+	}
+	if cfg.RedisChannel == "" {
+		cfg.RedisChannel = config.DefaultRealtimeRedisChannel
+	}
+	return cfg
+}
+
 func newRealtimeStack(cfg config.RealtimeConfig, loggers ...*slog.Logger) realtimeStack {
 	return newRealtimeStackWithRedis(cfg, nil, nil, loggers...)
 }
@@ -26,6 +39,7 @@ func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []strin
 	if len(loggers) > 0 && loggers[0] != nil {
 		logger = loggers[0]
 	}
+	cfg = withRealtimePolicyDefaults(cfg)
 
 	enabled := realtimeEnabledFor(cfg, logger)
 	manager := platformrealtime.NewManager()

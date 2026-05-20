@@ -423,8 +423,6 @@ QUEUE_REDIS_DB
 QUEUE_CONCURRENCY
 REALTIME_ENABLED
 REALTIME_PUBLISHER
-REALTIME_HEARTBEAT_INTERVAL
-REALTIME_SEND_BUFFER
 AI_CHAT_STREAM_MAX_DURATION
 AI_CHAT_STREAM_IDLE_TIMEOUT
 AI_RUN_STALE_TIMEOUT
@@ -502,10 +500,11 @@ ticket auth 只作为跨域、网关隔离、多端部署后的 planned 方案
 ```text
 REALTIME_ENABLED=true              # false 时明确拒绝 WebSocket upgrade，返回 503
 REALTIME_PUBLISHER=local|noop|redis
-REALTIME_REDIS_CHANNEL=admin_go:realtime:publish
-REALTIME_HEARTBEAT_INTERVAL=25s    # server ping interval，也返回给 connected envelope
-REALTIME_SEND_BUFFER=16            # 每连接 bounded send queue，满了关闭慢客户端
 ```
+
+Docker-first realtime env 只保留启用开关和 publisher 拓扑。
+
+代码内置：Redis Pub/Sub channel `admin_go:realtime:publish`、heartbeat interval `25s`、send buffer `16`。
 
 装配边界：
 

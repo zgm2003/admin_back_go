@@ -256,10 +256,11 @@ QUEUE_DEFAULT_TIMEOUT=30s
 ```env
 REALTIME_ENABLED=true
 REALTIME_PUBLISHER=redis
-REALTIME_REDIS_CHANNEL=admin_go:realtime:publish
-REALTIME_HEARTBEAT_INTERVAL=25s
-REALTIME_SEND_BUFFER=16
 ```
+
+Docker-first realtime env 只保留启用开关和 publisher 拓扑。
+
+代码内置：Redis Pub/Sub channel `admin_go:realtime:publish`、heartbeat interval `25s`、send buffer `16`。
 
 取值：
 

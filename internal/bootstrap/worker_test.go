@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -99,6 +100,32 @@ func TestRealtimePublisherForWorkerUsesRedisOnlyForCrossProcessFanout(t *testing
 	if _, ok := workerPublisher.(*platformrealtime.RedisPublisher); !ok {
 		t.Fatalf("expected worker redis publisher, got %T", workerPublisher)
 	}
+}
+
+func TestRealtimePublisherForWorkerUsesCodeOwnedDefaultChannel(t *testing.T) {
+	workerPublisher := realtimePublisherForWorker(config.Config{
+		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherRedis},
+	}, &Resources{})
+
+	if _, ok := workerPublisher.(*platformrealtime.RedisPublisher); !ok {
+		t.Fatalf("expected worker redis publisher, got %T", workerPublisher)
+	}
+	if got := realtimePublisherChannelFromWorkerTest(t, workerPublisher); got != config.DefaultRealtimeRedisChannel {
+		t.Fatalf("expected worker redis publisher channel %q, got %q", config.DefaultRealtimeRedisChannel, got)
+	}
+}
+
+func realtimePublisherChannelFromWorkerTest(t *testing.T, publisher platformrealtime.Publisher) string {
+	t.Helper()
+	value := reflect.ValueOf(publisher)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		t.Fatalf("expected pointer publisher, got %T", publisher)
+	}
+	field := value.Elem().FieldByName("channel")
+	if !field.IsValid() {
+		t.Fatalf("publisher %T has no channel field", publisher)
+	}
+	return field.String()
 }
 
 func TestRealtimePublisherForWorkerDoesNotFakeLocalDelivery(t *testing.T) {
