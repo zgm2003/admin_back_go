@@ -651,12 +651,16 @@ Gin Recovery + project AccessLog # HTTP runtime log，不重复挂 gin.Logger
 文件策略：
 
 ```text
-LOG_FILE_MAX_SIZE_MB / LOG_FILE_MAX_BACKUPS / LOG_FILE_MAX_AGE_DAYS / LOG_FILE_COMPRESS 控制轮转，不允许单个日志无限增长。
+日志目录来自 LOG_DIR；Docker-first 默认 /app/runtime/logs。
 admin-api 默认写 runtime/logs/admin-api.log。
 admin-worker 默认写 runtime/logs/admin-worker.log。
-LOG_FILE_NAME 保留为兼容基线；进程入口会用 LOG_API_FILE_NAME / LOG_WORKER_FILE_NAME 覆盖实际文件名。
+文件轮转策略是代码默认值：64MB、7 backups、14 days、compress=true。
+日志读取白名单是代码默认值：.log。
+读取行数上限是代码默认值：2000。
 如果后续拆 admin-realtime，也必须给独立进程文件名，不能和 admin-api 混写。
 ```
+
+这些日志策略不进 system_settings。原因是日志初始化早于 DB；DB 不通、migration 出错、启动失败时仍要能写 stdout 和文件日志。
 
 路由：
 
@@ -673,7 +677,7 @@ GET /api/admin/v1/system-logs/files/:name/lines
 只允许配置扩展名，默认 .log
 只扫描根目录和一级子目录
 禁止绝对路径、..、反斜杠路径、空字节
-读取行数受 LOG_MAX_TAIL_LINES 限制
+读取行数受代码默认上限 2000 限制
 ```
 
 `router.UseRawPath = true` 且 `UnescapePathValues = false`，用于让 `worker%2Fadmin-worker.log` 这种一级子目录文件名在 Gin 参数里保持 escaped slash 语义，不让路由把它误拆成多段路径。
