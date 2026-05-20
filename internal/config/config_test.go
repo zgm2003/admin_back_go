@@ -502,17 +502,25 @@ func TestDockerFirstDeployAssetsDoNotUseLocalBinaryDockerfile(t *testing.T) {
 	}
 }
 
-func TestEnvExampleDocumentsAITimeouts(t *testing.T) {
-	values := readEnvExample(t)
+func TestDockerFirstEnvDoesNotDocumentAITimeoutPolicy(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		for _, key := range deprecatedAITimeoutEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document AI timeout policy key %s", fileName, key)
+			}
+		}
+	}
+}
 
-	if values["AI_CHAT_STREAM_MAX_DURATION"] != "5m" {
-		t.Fatalf("expected AI_CHAT_STREAM_MAX_DURATION=5m, got %q", values["AI_CHAT_STREAM_MAX_DURATION"])
-	}
-	if values["AI_CHAT_STREAM_IDLE_TIMEOUT"] != "60s" {
-		t.Fatalf("expected AI_CHAT_STREAM_IDLE_TIMEOUT=60s, got %q", values["AI_CHAT_STREAM_IDLE_TIMEOUT"])
-	}
-	if values["AI_RUN_STALE_TIMEOUT"] != "15m" {
-		t.Fatalf("expected AI_RUN_STALE_TIMEOUT=15m, got %q", values["AI_RUN_STALE_TIMEOUT"])
+func deprecatedAITimeoutEnvKeys() []string {
+	return []string{
+		"AI_CHAT_STREAM_MAX_DURATION",
+		"AI_CHAT_STREAM_IDLE_TIMEOUT",
+		"AI_RUN_STALE_TIMEOUT",
 	}
 }
 
