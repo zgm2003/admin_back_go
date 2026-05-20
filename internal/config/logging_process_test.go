@@ -3,9 +3,6 @@ package config
 import "testing"
 
 func TestLoggingConfigForProcessUsesDedicatedWorkerFile(t *testing.T) {
-	t.Setenv("LOG_FILE_NAME", "admin-api.log")
-	t.Setenv("LOG_WORKER_FILE_NAME", "admin-worker.log")
-
 	cfg := Load()
 	workerLogging := cfg.Logging.ForProcess("admin-worker")
 
@@ -18,9 +15,6 @@ func TestLoggingConfigForProcessUsesDedicatedWorkerFile(t *testing.T) {
 }
 
 func TestLoggingConfigForProcessKeepsAPIFile(t *testing.T) {
-	t.Setenv("LOG_FILE_NAME", "admin-api.log")
-	t.Setenv("LOG_WORKER_FILE_NAME", "admin-worker.log")
-
 	cfg := Load()
 	apiLogging := cfg.Logging.ForProcess("admin-api")
 

@@ -49,6 +49,34 @@ type LoggingConfig struct {
 	FileCompress      bool
 }
 
+const (
+	defaultLogDir            = "runtime/logs"
+	defaultAPIFileName       = "admin-api.log"
+	defaultWorkerFileName    = "admin-worker.log"
+	defaultMaxTailLines      = 2000
+	defaultFileMaxSizeMB     = 64
+	defaultFileMaxBackups    = 7
+	defaultFileMaxAgeDays    = 14
+	defaultLogFileCompress   = true
+	defaultLogFileEnableFile = true
+)
+
+func DefaultLoggingConfig() LoggingConfig {
+	return LoggingConfig{
+		EnableFile:        defaultLogFileEnableFile,
+		Dir:               filepath.FromSlash(defaultLogDir),
+		FileName:          defaultAPIFileName,
+		APIFileName:       defaultAPIFileName,
+		WorkerFileName:    defaultWorkerFileName,
+		MaxTailLines:      defaultMaxTailLines,
+		AllowedExtensions: []string{".log"},
+		FileMaxSizeMB:     defaultFileMaxSizeMB,
+		FileMaxBackups:    defaultFileMaxBackups,
+		FileMaxAgeDays:    defaultFileMaxAgeDays,
+		FileCompress:      defaultLogFileCompress,
+	}
+}
+
 func (c LoggingConfig) ForProcess(process string) LoggingConfig {
 	next := c
 	switch strings.TrimSpace(process) {
@@ -147,7 +175,8 @@ func Load() Config {
 	corsConfig.AllowCredentials = envBool("CORS_ALLOW_CREDENTIALS", corsConfig.AllowCredentials)
 	corsConfig.MaxAge = envDuration("CORS_MAX_AGE", corsConfig.MaxAge)
 
-	logFileName := envString("LOG_FILE_NAME", "admin-api.log")
+	loggingConfig := DefaultLoggingConfig()
+	loggingConfig.Dir = envString("LOG_DIR", loggingConfig.Dir)
 
 	return Config{
 		App: AppConfig{
@@ -159,19 +188,7 @@ func Load() Config {
 			Addr:              envString("HTTP_ADDR", ":8080"),
 			ReadHeaderTimeout: envDuration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
 		},
-		Logging: LoggingConfig{
-			EnableFile:        envBool("LOG_ENABLE_FILE", true),
-			Dir:               envString("LOG_DIR", filepath.Join("runtime", "logs")),
-			FileName:          logFileName,
-			APIFileName:       envString("LOG_API_FILE_NAME", logFileName),
-			WorkerFileName:    envString("LOG_WORKER_FILE_NAME", "admin-worker.log"),
-			MaxTailLines:      envInt("LOG_MAX_TAIL_LINES", 2000),
-			AllowedExtensions: envCSV("LOG_ALLOWED_EXTENSIONS", []string{".log"}),
-			FileMaxSizeMB:     envInt("LOG_FILE_MAX_SIZE_MB", 64),
-			FileMaxBackups:    envInt("LOG_FILE_MAX_BACKUPS", 7),
-			FileMaxAgeDays:    envInt("LOG_FILE_MAX_AGE_DAYS", 14),
-			FileCompress:      envBool("LOG_FILE_COMPRESS", true),
-		},
+		Logging: loggingConfig,
 		MySQL: MySQLConfig{
 			DSN:             envString("MYSQL_DSN", legacyMySQLDSN()),
 			MaxOpenConns:    envInt("MYSQL_MAX_OPEN_CONNS", 20),

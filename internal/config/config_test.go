@@ -339,6 +339,38 @@ func TestDockerFirstEnvDoesNotDocumentVerifyCodeRuntimePolicy(t *testing.T) {
 	}
 }
 
+func TestDockerFirstEnvDocumentsOnlyLogDir(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		if got := values["LOG_DIR"]; got != "/app/runtime/logs" {
+			t.Fatalf("deploy/docker-first/%s must keep LOG_DIR=/app/runtime/logs, got %q", fileName, got)
+		}
+		for _, key := range deprecatedLoggingEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document logging policy key %s", fileName, key)
+			}
+		}
+	}
+}
+
+func deprecatedLoggingEnvKeys() []string {
+	return []string{
+		"LOG_ENABLE_FILE",
+		"LOG_FILE_NAME",
+		"LOG_API_FILE_NAME",
+		"LOG_WORKER_FILE_NAME",
+		"LOG_MAX_TAIL_LINES",
+		"LOG_ALLOWED_EXTENSIONS",
+		"LOG_FILE_MAX_SIZE_MB",
+		"LOG_FILE_MAX_BACKUPS",
+		"LOG_FILE_MAX_AGE_DAYS",
+		"LOG_FILE_COMPRESS",
+	}
+}
+
 func TestConfigDoesNotExposeVerifyCodeRuntimePolicy(t *testing.T) {
 	if _, ok := reflect.TypeOf(Config{}).FieldByName("VerifyCode"); ok {
 		t.Fatalf("verify-code runtime policy should not be loaded from env config")
