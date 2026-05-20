@@ -423,9 +423,6 @@ QUEUE_REDIS_DB
 QUEUE_CONCURRENCY
 REALTIME_ENABLED
 REALTIME_PUBLISHER
-AI_CHAT_STREAM_MAX_DURATION
-AI_CHAT_STREAM_IDLE_TIMEOUT
-AI_RUN_STALE_TIMEOUT
 SCHEDULER_ENABLED
 CORS_ALLOW_ORIGINS
 CORS_ALLOW_HEADERS
@@ -1539,8 +1536,8 @@ Runtime boundary:
 ```text
 POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no enabled provider/agent exists; production must not fake success.
 Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
-OpenAI-compatible StreamChat does not use a 30s HTTP total timeout while reading response body; live max duration comes from AI_CHAT_STREAM_MAX_DURATION and upstream silence comes from AI_CHAT_STREAM_IDLE_TIMEOUT.
-ai_run_timeout is stale cleanup only: admin-worker marks running rows older than AI_RUN_STALE_TIMEOUT, not fresh online replies.
+OpenAI-compatible StreamChat does not use a 30s HTTP total timeout while reading response body; live max duration and upstream silence timeout are code-owned AI runtime guardrails, not Docker-first env knobs.
+ai_run_timeout is stale cleanup only: admin-worker marks running rows older than the code-owned AI run stale timeout default, not fresh online replies.
 ai_runs records one reply attempt with status, token totals, duration, and message links.
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
