@@ -3,6 +3,7 @@ package alipay
 import (
 	"context"
 	"errors"
+	"net/url"
 
 	paymentcore "admin_back_go/internal/platform/payment"
 )
@@ -78,6 +79,25 @@ func (g *PlatformGateway) Close(ctx context.Context, cfg paymentcore.ChannelConf
 		return ErrGatewayNotConfigured
 	}
 	return g.inner.Close(ctx, MapChannelConfig(cfg), outTradeNo)
+}
+
+func (g *PlatformGateway) VerifyNotify(ctx context.Context, cfg paymentcore.ChannelConfig, form url.Values) (*paymentcore.NotifyPayload, error) {
+	if g == nil || g.inner == nil {
+		return nil, ErrGatewayNotConfigured
+	}
+	payload, err := g.inner.VerifyNotify(ctx, MapChannelConfig(cfg), form)
+	if err != nil {
+		return nil, err
+	}
+	return &paymentcore.NotifyPayload{
+		NotifyID:         payload.NotifyID,
+		OutTradeNo:       payload.OutTradeNo,
+		TradeNo:          payload.TradeNo,
+		TradeStatus:      payload.TradeStatus,
+		AppID:            payload.AppID,
+		TotalAmountCents: payload.TotalAmountCents,
+		Raw:              payload.Raw,
+	}, nil
 }
 
 var _ paymentcore.Gateway = (*PlatformGateway)(nil)

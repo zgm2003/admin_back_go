@@ -114,6 +114,50 @@ func (r *GormRepository) UpdateOrderClosed(ctx context.Context, id int64, closed
 	}).Error
 }
 
+func (r *GormRepository) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row Order
+	err := r.db.WithContext(ctx).Where("order_no = ? AND is_del = ?", strings.TrimSpace(orderNo), enum.CommonNo).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
+func (r *GormRepository) ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if limit <= 0 || limit > 100 {
+		limit = defaultPaymentJobLimit
+	}
+	var rows []Order
+	err := r.db.WithContext(ctx).
+		Where("provider = ? AND status = ? AND is_del = ? AND updated_at <= ?", providerAlipay, orderStatusPaying, enum.CommonNo, cutoff).
+		Order("id asc").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *GormRepository) ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if limit <= 0 || limit > 100 {
+		limit = defaultPaymentJobLimit
+	}
+	var rows []Order
+	err := r.db.WithContext(ctx).
+		Where("provider = ? AND status IN ? AND is_del = ? AND expired_at < ?", providerAlipay, []string{orderStatusPending, orderStatusPaying}, enum.CommonNo, now).
+		Order("expired_at asc, id asc").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
 func (r *GormRepository) ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured

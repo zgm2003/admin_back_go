@@ -82,3 +82,19 @@ func (r *fakeOrderRepo) CreditRecharge(ctx context.Context, rechargeID int64, pa
 func (r *fakeOrderRepo) FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error) {
 	return r.config, nil
 }
+
+func (r *fakeConfigRepo) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
+	return nil, nil
+}
+func (r *fakeConfigRepo) ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error) {
+	return nil, nil
+}
+func (r *fakeConfigRepo) ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error) {
+	return nil, nil
+}
+func (r *fakeConfigRepo) GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error) {
+	return nil, nil
+}
+func (r *fakeOrderRepo) GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error) {
+	return nil, nil
+}

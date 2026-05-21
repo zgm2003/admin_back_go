@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/platform/scheduler"
 	"admin_back_go/internal/platform/taskqueue"
 )
@@ -26,11 +27,15 @@ func TestSchedulerServiceRegistersOnlyEnabledRegisteredTasks(t *testing.T) {
 	if err := service.RegisterEnabled(context.Background(), registrar); err != nil {
 		t.Fatalf("RegisterEnabled returned error: %v", err)
 	}
-	if len(registrar.cronCalls) != 1 {
-		t.Fatalf("expected one cron registration, got %#v", registrar.cronCalls)
+	if len(registrar.cronCalls) != 2 {
+		t.Fatalf("expected two cron registrations, got %#v", registrar.cronCalls)
 	}
-	if registrar.cronCalls[0].name != "notification_task_scheduler" {
-		t.Fatalf("unexpected registered job: %#v", registrar.cronCalls[0])
+	registered := map[string]bool{}
+	for _, call := range registrar.cronCalls {
+		registered[call.name] = true
+	}
+	if !registered["notification_task_scheduler"] || !registered["payment_close_expired_order"] {
+		t.Fatalf("unexpected registered jobs: %#v", registrar.cronCalls)
 	}
 }
 
@@ -56,11 +61,12 @@ func TestSchedulerTaskLogsAndEnqueues(t *testing.T) {
 	}
 }
 
-func TestSchedulerDefaultRegistryRetiresPaymentOrderCronTasks(t *testing.T) {
+func TestSchedulerDefaultRegistryIncludesPaymentOrderCronTasks(t *testing.T) {
 	registry := NewDefaultRegistry()
-	for _, name := range []string{"payment_close_expired_order", "payment_sync_pending_order"} {
-		if entry, ok := registry.Lookup(name); ok {
-			t.Fatalf("payment order cron must be absent until an automatic close/sync slice exists: %s %#v", name, entry)
+	for name, taskType := range map[string]string{"payment_close_expired_order": payment.TypeCloseExpiredOrderV1, "payment_sync_pending_order": payment.TypeSyncPendingOrderV1} {
+		entry, ok := registry.Lookup(name)
+		if !ok || entry.TaskType != taskType {
+			t.Fatalf("payment order cron must be registered now: %s %#v", name, entry)
 		}
 	}
 	for _, oldName := range []string{

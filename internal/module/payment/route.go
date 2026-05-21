@@ -10,6 +10,9 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 
+	callbacks := router.Group("/api/payment/callbacks")
+	callbacks.POST("/alipay", handler.AlipayCallback)
+
 	configs := router.Group("/api/admin/v1/payment/configs")
 	configs.GET("/page-init", handler.ConfigInit)
 	configs.GET("", handler.ListConfigs)

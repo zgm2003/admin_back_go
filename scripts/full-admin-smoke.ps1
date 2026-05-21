@@ -2091,6 +2091,10 @@ function Assert-CronTaskList($Response) {
   $registeredNotification = $false
   $paymentCloseExpiredPresent = $false
   $paymentSyncPendingPresent = $false
+  $registeredPaymentCloseExpired = $false
+  $registeredPaymentSyncPending = $false
+  $paymentCloseExpiredTaskType = ''
+  $paymentSyncPendingTaskType = ''
   $registeredAIRunTimeout = $false
   $aiRunTimeoutTaskType = ''
   $missingLegacy = $false
@@ -2115,13 +2119,21 @@ function Assert-CronTaskList($Response) {
     if ([string]$item.name -eq 'payment_close_expired_order') {
       $paymentCloseExpiredPresent = $true
       if ([string]$item.registry_status -eq 'registered') {
-        throw "payment close-expired cron task must not be registered in payment order Alipay pay v1 slice: $($item | ConvertTo-Json -Depth 12)"
+        if ([string]$item.registry_task_type -ne 'payment:close-expired-order:v1' -or [string]$item.handler -ne 'payment:close-expired-order:v1') {
+          throw "payment close-expired cron task must expose Go task type instead of legacy handler: $($item | ConvertTo-Json -Depth 12)"
+        }
+        $registeredPaymentCloseExpired = $true
+        $paymentCloseExpiredTaskType = [string]$item.registry_task_type
       }
     }
     if ([string]$item.name -eq 'payment_sync_pending_order') {
       $paymentSyncPendingPresent = $true
       if ([string]$item.registry_status -eq 'registered') {
-        throw "payment sync-pending cron task must not be registered in payment order Alipay pay v1 slice: $($item | ConvertTo-Json -Depth 12)"
+        if ([string]$item.registry_task_type -ne 'payment:sync-pending-order:v1' -or [string]$item.handler -ne 'payment:sync-pending-order:v1') {
+          throw "payment sync-pending cron task must expose Go task type instead of legacy handler: $($item | ConvertTo-Json -Depth 12)"
+        }
+        $registeredPaymentSyncPending = $true
+        $paymentSyncPendingTaskType = [string]$item.registry_task_type
       }
     }
     if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
@@ -2142,6 +2154,10 @@ function Assert-CronTaskList($Response) {
     NotificationRegistered = $registeredNotification
     PaymentCloseExpiredPresent = $paymentCloseExpiredPresent
     PaymentSyncPendingPresent = $paymentSyncPendingPresent
+    PaymentCloseExpiredRegistered = $registeredPaymentCloseExpired
+    PaymentSyncPendingRegistered = $registeredPaymentSyncPending
+    PaymentCloseExpiredTaskType = $paymentCloseExpiredTaskType
+    PaymentSyncPendingTaskType = $paymentSyncPendingTaskType
     AIRunTimeoutRegistered = $registeredAIRunTimeout
     AIRunTimeoutTaskType = $aiRunTimeoutTaskType
     MissingLegacyPresent = $missingLegacy
@@ -3425,6 +3441,10 @@ func main() {
     cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
     cron_task_payment_close_expired_present = $cronTaskListSummary.PaymentCloseExpiredPresent
     cron_task_payment_sync_pending_present = $cronTaskListSummary.PaymentSyncPendingPresent
+    cron_task_payment_close_expired_registered = $cronTaskListSummary.PaymentCloseExpiredRegistered
+    cron_task_payment_sync_pending_registered = $cronTaskListSummary.PaymentSyncPendingRegistered
+    cron_task_payment_close_expired_type = $cronTaskListSummary.PaymentCloseExpiredTaskType
+    cron_task_payment_sync_pending_type = $cronTaskListSummary.PaymentSyncPendingTaskType
     cron_task_ai_run_timeout_registered = $cronTaskListSummary.AIRunTimeoutRegistered
     cron_task_ai_run_timeout_type = $cronTaskListSummary.AIRunTimeoutTaskType
     cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent

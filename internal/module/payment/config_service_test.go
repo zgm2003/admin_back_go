@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -263,4 +264,8 @@ func (g *fakeGateway) Query(ctx context.Context, cfg gateway.ChannelConfig, outT
 }
 func (g *fakeGateway) Close(ctx context.Context, cfg gateway.ChannelConfig, outTradeNo string) error {
 	return nil
+}
+
+func (g *fakeGateway) VerifyNotify(ctx context.Context, cfg gateway.ChannelConfig, form url.Values) (*gateway.NotifyPayload, error) {
+	return &gateway.NotifyPayload{OutTradeNo: form.Get("out_trade_no"), TradeStatus: form.Get("trade_status"), AppID: form.Get("app_id"), TotalAmountCents: mustParseCallbackAmount(form.Get("total_amount")), Raw: formFirstValues(form)}, nil
 }

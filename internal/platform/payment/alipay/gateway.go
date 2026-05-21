@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +90,29 @@ func (g *GopayGateway) Close(ctx context.Context, cfg ChannelConfig, outTradeNo 
 	return nil
 }
 
+func (g *GopayGateway) VerifyNotify(ctx context.Context, cfg ChannelConfig, form url.Values) (*NotifyPayload, error) {
+	_ = ctx
+	if err := validateChannelConfig(cfg); err != nil {
+		return nil, err
+	}
+	payload, err := ParseNotifyPayload(form)
+	if err != nil {
+		return nil, err
+	}
+	body, err := gopayalipay.ParseNotifyByURLValues(form)
+	if err != nil {
+		return nil, fmt.Errorf("alipay: parse notify: %w", err)
+	}
+	ok, err := gopayalipay.VerifySignWithCert(strings.TrimSpace(cfg.AlipayCertPath), body)
+	if err != nil {
+		return nil, fmt.Errorf("alipay: verify notify sign: %w", err)
+	}
+	if !ok {
+		return nil, errors.New("alipay: verify notify sign failed")
+	}
+	return payload, nil
+}
+
 func newClient(cfg ChannelConfig) (*gopayalipay.Client, error) {
 	if err := validateChannelConfig(cfg); err != nil {
 		return nil, err
@@ -163,6 +188,56 @@ func buildOutTradeNoBody(outTradeNo string) gopay.BodyMap {
 		body.Set("out_trade_no", strings.TrimSpace(outTradeNo))
 	}
 	return body
+}
+
+func ParseNotifyPayload(form url.Values) (*NotifyPayload, error) {
+	amountCents, err := parseAmountCents(form.Get("total_amount"))
+	if err != nil {
+		return nil, err
+	}
+	raw := make(map[string]string, len(form))
+	for key, values := range form {
+		if len(values) == 0 {
+			continue
+		}
+		raw[key] = values[0]
+	}
+	return &NotifyPayload{
+		NotifyID:         strings.TrimSpace(form.Get("notify_id")),
+		OutTradeNo:       strings.TrimSpace(form.Get("out_trade_no")),
+		TradeNo:          strings.TrimSpace(form.Get("trade_no")),
+		TradeStatus:      strings.TrimSpace(form.Get("trade_status")),
+		AppID:            strings.TrimSpace(form.Get("app_id")),
+		TotalAmountCents: amountCents,
+		Raw:              raw,
+	}, nil
+}
+
+func parseAmountCents(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, errors.New("alipay: total amount is required")
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) > 2 || parts[0] == "" {
+		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
+	}
+	yuan, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || yuan < 0 {
+		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
+	}
+	centText := "00"
+	if len(parts) == 2 {
+		if len(parts[1]) > 2 {
+			return 0, fmt.Errorf("alipay: invalid total amount %q", value)
+		}
+		centText = (parts[1] + "00")[:2]
+	}
+	cents, err := strconv.ParseInt(centText, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
+	}
+	return yuan*100 + cents, nil
 }
 
 func parseAlipayTime(value string) (*time.Time, error) {

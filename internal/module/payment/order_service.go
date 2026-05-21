@@ -223,8 +223,8 @@ func (s *Service) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse
 		if result != nil && result.PaidAt != nil {
 			paidAt = *result.PaidAt
 		}
-		if err := repo.UpdateOrderPaid(ctx, row.ID, resultTradeNo(result), paidAt); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单成功状态失败", err)
+		if _, appErr := s.FinalizeOrderPaid(ctx, row.ID, resultTradeNo(result), paidAt, finalizeSourceSync); appErr != nil {
+			return nil, appErr
 		}
 	case "TRADE_CLOSED":
 		if err := repo.UpdateOrderClosed(ctx, row.ID, s.now()); err != nil {

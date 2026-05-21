@@ -36,16 +36,22 @@ type Repository interface {
 	UpdateOrderFailed(ctx context.Context, id int64, reason string) error
 	UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error
 	UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error
+	GetOrderByNo(ctx context.Context, orderNo string) (*Order, error)
+	ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error)
+	ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error)
 	ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error)
 	ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error)
 	ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error)
 	GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error)
+	GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error)
 	CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error)
 	UpdateRechargePaying(ctx context.Context, id int64) error
 	UpdateRechargeFailed(ctx context.Context, id int64, reason string) error
 	UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error
 	UpdateRechargeClosed(ctx context.Context, id int64) error
 	CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error)
+	CreateCallbackEvent(ctx context.Context, event CallbackEvent) (int64, error)
+	UpdateCallbackEventProcessed(ctx context.Context, id int64, signatureValid int, status string, message string, processedAt time.Time) error
 	FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error)
 }
 

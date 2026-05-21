@@ -122,12 +122,15 @@ func enabledRechargeConfig(id int64, code string, sort int, methods []string) Co
 }
 
 type fakeRechargeRepo struct {
-	packages    []RechargePackage
-	configs     []Config
-	wallet      *Wallet
-	order       *Order
-	recharge    *Recharge
-	creditCount int
+	packages        []RechargePackage
+	configs         []Config
+	wallet          *Wallet
+	order           *Order
+	recharge        *Recharge
+	rechargeByOrder map[int64]*Recharge
+	batchOrders     []Order
+	callbackEvent   CallbackEvent
+	creditCount     int
 }
 
 func newFakeRechargeRepo() *fakeRechargeRepo {
@@ -199,6 +202,38 @@ func (r *fakeRechargeRepo) GetOrder(ctx context.Context, id int64) (*Order, erro
 	copy := *r.order
 	return &copy, nil
 }
+
+func (r *fakeRechargeRepo) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
+	if r.order != nil && r.order.OrderNo == strings.TrimSpace(orderNo) {
+		copy := *r.order
+		return &copy, nil
+	}
+	for idx := range r.batchOrders {
+		if r.batchOrders[idx].OrderNo == strings.TrimSpace(orderNo) {
+			copy := r.batchOrders[idx]
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+func (r *fakeRechargeRepo) ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error) {
+	rows := make([]Order, 0, len(r.batchOrders))
+	for _, row := range r.batchOrders {
+		if row.Status == orderStatusPaying {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+func (r *fakeRechargeRepo) ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error) {
+	rows := make([]Order, 0, len(r.batchOrders))
+	for _, row := range r.batchOrders {
+		if row.Status == orderStatusPending || row.Status == orderStatusPaying {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
 func (r *fakeRechargeRepo) CreateOrder(ctx context.Context, order Order) (int64, error) {
 	order.ID = 1
 	r.order = &order
@@ -215,14 +250,22 @@ func (r *fakeRechargeRepo) UpdateOrderFailed(ctx context.Context, id int64, reas
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
-	r.order.Status = orderStatusPaid
-	r.order.AlipayTradeNo = tradeNo
-	r.order.PaidAt = &paidAt
+	order := r.findOrderRef(id)
+	if order == nil {
+		return nil
+	}
+	order.Status = orderStatusPaid
+	order.AlipayTradeNo = tradeNo
+	order.PaidAt = &paidAt
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
-	r.order.Status = orderStatusClosed
-	r.order.ClosedAt = &closedAt
+	order := r.findOrderRef(id)
+	if order == nil {
+		return nil
+	}
+	order.Status = orderStatusClosed
+	order.ClosedAt = &closedAt
 	return nil
 }
 func (r *fakeRechargeRepo) ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error) {
@@ -246,6 +289,17 @@ func (r *fakeRechargeRepo) GetRecharge(ctx context.Context, userID int64, id int
 	}
 	row := r.withOrder()
 	return &row, nil
+}
+
+func (r *fakeRechargeRepo) GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error) {
+	if r.recharge != nil && r.recharge.PaymentOrderID == orderID {
+		return r.recharge, nil
+	}
+	if r.rechargeByOrder != nil && r.rechargeByOrder[orderID] != nil {
+		r.recharge = r.rechargeByOrder[orderID]
+		return r.recharge, nil
+	}
+	return nil, nil
 }
 func (r *fakeRechargeRepo) CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error) {
 	order.ID = 1
@@ -275,6 +329,17 @@ func (r *fakeRechargeRepo) UpdateRechargeClosed(ctx context.Context, id int64) e
 	return nil
 }
 func (r *fakeRechargeRepo) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
+	if r.recharge == nil {
+		for _, row := range r.rechargeByOrder {
+			if row.ID == rechargeID {
+				r.recharge = row
+				break
+			}
+		}
+	}
+	if r.recharge.Status == rechargeStatusCredited || r.recharge.CreditedAt != nil {
+		return r.wallet, r.recharge, nil
+	}
 	r.creditCount++
 	r.wallet.BalanceCents += r.recharge.AmountCents
 	r.wallet.TotalRechargeCents += r.recharge.AmountCents
@@ -307,4 +372,16 @@ func (r *fakeRechargeRepo) withOrder() RechargeWithOrder {
 		row.OrderPaidAt = r.order.PaidAt
 	}
 	return row
+}
+
+func (r *fakeRechargeRepo) findOrderRef(id int64) *Order {
+	if r.order != nil && r.order.ID == id {
+		return r.order
+	}
+	for idx := range r.batchOrders {
+		if r.batchOrders[idx].ID == id {
+			return &r.batchOrders[idx]
+		}
+	}
+	return nil
 }

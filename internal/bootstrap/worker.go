@@ -13,7 +13,10 @@ import (
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
+	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
+	paymentcore "admin_back_go/internal/platform/payment"
+	payalipay "admin_back_go/internal/platform/payment/alipay"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/redislock"
 	"admin_back_go/internal/platform/scheduler"
@@ -115,6 +118,12 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		ObjectReader:  storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true}),
 		ObjectWriter:  storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
 	})
+	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
+		Repository:   paymentmodule.NewGormRepository(resources.DB),
+		Gateway:      payalipay.NewPlatformGateway(payalipay.NewGopayGateway()),
+		Secretbox:    secretBox,
+		CertResolver: paymentcore.CertPathResolver{CertBaseDir: cfg.Payment.CertBaseDir, WorkingDir: "."},
+	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
 		AIChatService:           aiChatService,
@@ -122,6 +131,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		ExportTaskService:       exportTaskService,
 		NotificationTaskService: notificationTaskService,
+		PaymentService:          paymentService,
 	})
 
 	if cfg.Scheduler.Enabled {

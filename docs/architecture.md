@@ -1338,6 +1338,7 @@ payment_configs                         # 支付配置 active runtime 表，sort
 payment_orders                          # 底层支付订单 runtime 表
 payment_recharge_packages               # 充值套餐 seed/read 表
 payment_recharges                       # 用户充值单业务表
+payment_callback_events                 # 支付宝异步回调审计表
 user_wallets                            # 用户钱包余额表
 wallet_transactions                     # 钱包流水与入账幂等表
 ```
@@ -1369,17 +1370,20 @@ POST   /api/admin/v1/payment/orders              # backend/internal low-level ca
 POST   /api/admin/v1/payment/orders/:id/pay
 POST   /api/admin/v1/payment/orders/:id/sync
 PATCH  /api/admin/v1/payment/orders/:id/close
+
+POST   /api/payment/callbacks/alipay     # public Alipay async callback; no admin auth/RBAC/OperationLog
 ```
 
 规则：
 
 ```text
-payment V1 范围是 Alipay config、recharge cashier 和底层 Alipay order pay；refund、withdraw、reconcile、WeChat、notify callback、subscription、wallet consumption 或业务履约都不在本 slice。
+payment V1 范围是 Alipay config、recharge cashier、底层 Alipay order pay 和充值完成闭环；refund、withdraw、reconcile、WeChat、subscription、wallet consumption 或业务履约都不在本 slice。
 配置事实源是 payment_configs；充值业务事实源是 payment_recharges；订单事实源是 payment_orders；钱包事实源是 user_wallets + wallet_transactions。
+payment_callback_events 只做支付宝回调审计，不作为业务真相源。
 payment_configs.sort 参与充值自动选配置：status=1、provider=alipay、enabled_methods_json 包含当前 pay_method 后按 sort ASC, id ASC 取第一条。
 return_url 不属于 payment_configs，也不是用户可编辑字段；充值页按当前 `/payment/recharge` 路由生成，后端追加 `tab=records&recharge_no=...`。
-paid 状态只能由支付宝 query/sync 写入，后台不能手工改 paid。
-钱包入账必须在 DB transaction 内完成，并通过 wallet_transactions(source_type, source_id) 保证同一充值单只入账一次。
+paid/credited 状态只能由已验签支付宝 callback、手动支付宝 query/sync 或 payment_sync_pending_order 补偿路径写入，后台不能手工改 paid。
+callback、manual sync、cron compensation 必须共用 paid finalizer；钱包入账必须在 DB transaction 内完成，并通过 wallet_transactions(source_type, source_id) 保证同一充值单只入账一次。
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
 支付宝 SDK 只允许出现在 internal/platform/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
 应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 private_key_enc。
@@ -1387,19 +1391,21 @@ paid 状态只能由支付宝 query/sync 写入，后台不能手工改 paid。
 provider 是当前字段合同的一部分，但只允许 alipay；merchant_id、sign_type、extra_config 不属于当前字段合同。
 ```
 
-支付 cron 在当前 recharge cashier v1 slice 中仍不注册：
+支付 cron 当前只注册支付宝充值完成补偿：
 
 ```text
-payment_close_expired_order -> missing until automatic close-expired slice is specified
-payment_sync_pending_order  -> missing until automatic sync-pending slice is specified
+payment_sync_pending_order  -> payment:sync-pending-order:v1
+payment_close_expired_order -> payment:close-expired-order:v1
 ```
 
 规则：
 
 ```text
-当前订单/充值 slice 支持手动关闭、手动同步，不处理 notify callback。
-自动关闭、自动同步、退款、对账、履约重试、钱包消费必须另写 spec/plan，再决定 cron、索引和事件表。
-不要注册旧支付域补偿任务或 WeChat 相关任务。
+正式异步回调入口固定为 POST /api/payment/callbacks/alipay；旧 /api/payment/notify/alipay、/api/pay/notify/alipay 不再作为 active route。
+payment_sync_pending_order 扫描支付中支付宝订单并复用 shared finalizer 补偿入账。
+payment_close_expired_order 扫描过期未支付订单并关闭本地/支付宝订单。
+退款、对账、履约重试、钱包消费必须另写 spec/plan，再决定 cron、索引和事件表。
+不要注册旧支付域任务或 WeChat 相关任务。
 ```
 
 `internal/module/uploadtoken` 管理运行时 token 签发：

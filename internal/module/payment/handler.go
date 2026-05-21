@@ -236,3 +236,6 @@ func (nilHTTPService) SyncRecharge(ctx context.Context, userID int64, id int64) 
 func (nilHTTPService) CloseRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
+func (nilHTTPService) HandleAlipayCallback(ctx context.Context, input AlipayCallbackInput) (*AlipayCallbackResult, *apperror.Error) {
+	return &AlipayCallbackResult{Text: callbackResultFail}, nil
+}

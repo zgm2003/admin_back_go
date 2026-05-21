@@ -31,10 +31,13 @@ func TestAuthTokenSkipsPublicPath(t *testing.T) {
 	}
 }
 
-func TestDefaultAuthSkipPathsDoNotExposePaymentNotifyInConfigOnlySlice(t *testing.T) {
+func TestDefaultAuthSkipPathsExposeOnlyCanonicalPaymentCallback(t *testing.T) {
 	paths := DefaultAuthSkipPaths()
+	if _, ok := paths["/api/payment/callbacks/alipay"]; !ok {
+		t.Fatalf("canonical payment callback must be public")
+	}
 	if _, ok := paths["/api/payment/notify/alipay"]; ok {
-		t.Fatalf("payment notify is not public in the payment order Alipay pay v1 slice")
+		t.Fatalf("old payment notify path must not remain public")
 	}
 	if _, ok := paths["/api/pay/notify/alipay"]; ok {
 		t.Fatalf("legacy pay notify path must not remain public by default")

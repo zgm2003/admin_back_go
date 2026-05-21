@@ -117,6 +117,20 @@ func (r *GormRepository) GetRecharge(ctx context.Context, userID int64, id int64
 	return &row, err
 }
 
+func (r *GormRepository) GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row Recharge
+	err := r.db.WithContext(ctx).
+		Where("payment_order_id = ? AND is_del = ?", orderID, enum.CommonNo).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
 func (r *GormRepository) CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error) {
 	if r == nil || r.db == nil {
 		return RechargeWithOrder{}, ErrRepositoryNotConfigured

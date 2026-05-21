@@ -2,6 +2,7 @@ package alipay
 
 import (
 	"context"
+	"net/url"
 	"time"
 )
 
@@ -34,9 +35,20 @@ type QueryResult struct {
 	PaidAt  *time.Time
 }
 
+type NotifyPayload struct {
+	NotifyID         string
+	OutTradeNo       string
+	TradeNo          string
+	TradeStatus      string
+	AppID            string
+	TotalAmountCents int64
+	Raw              map[string]string
+}
+
 type Gateway interface {
 	TestConfig(ctx context.Context, cfg ChannelConfig) error
 	Pay(ctx context.Context, cfg ChannelConfig, in PayInput) (*PayResult, error)
 	Query(ctx context.Context, cfg ChannelConfig, outTradeNo string) (*QueryResult, error)
 	Close(ctx context.Context, cfg ChannelConfig, outTradeNo string) error
+	VerifyNotify(ctx context.Context, cfg ChannelConfig, form url.Values) (*NotifyPayload, error)
 }

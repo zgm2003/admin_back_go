@@ -3,6 +3,7 @@ package payment
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -330,6 +331,26 @@ func (r *fakeOrderRepo) GetOrder(ctx context.Context, id int64) (*Order, error) 
 	copy := *r.order
 	return &copy, nil
 }
+
+func (r *fakeOrderRepo) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
+	if r.order == nil || r.order.OrderNo != strings.TrimSpace(orderNo) {
+		return nil, nil
+	}
+	copy := *r.order
+	return &copy, nil
+}
+func (r *fakeOrderRepo) ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error) {
+	if r.order == nil || r.order.Status != orderStatusPaying {
+		return nil, nil
+	}
+	return []Order{*r.order}, nil
+}
+func (r *fakeOrderRepo) ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error) {
+	if r.order == nil {
+		return nil, nil
+	}
+	return []Order{*r.order}, nil
+}
 func (r *fakeOrderRepo) CreateOrder(ctx context.Context, order Order) (int64, error) {
 	order.ID = 1
 	r.order = &order
@@ -369,7 +390,11 @@ type fakeOrderGateway struct {
 	payResult       *gateway.PayResult
 	payErr          error
 	queryResult     *gateway.QueryResult
+	queryResults    map[string]*gateway.QueryResult
 	queryErr        error
+	queryErrors     map[string]error
+	notifyPayload   *gateway.NotifyPayload
+	notifyErr       error
 	closeErr        error
 	closeCount      int
 	payCalled       bool
@@ -392,8 +417,14 @@ func (g *fakeOrderGateway) Pay(ctx context.Context, cfg gateway.ChannelConfig, i
 	return g.payResult, nil
 }
 func (g *fakeOrderGateway) Query(ctx context.Context, cfg gateway.ChannelConfig, outTradeNo string) (*gateway.QueryResult, error) {
+	if g.queryErrors != nil && g.queryErrors[outTradeNo] != nil {
+		return nil, g.queryErrors[outTradeNo]
+	}
 	if g.queryErr != nil {
 		return nil, g.queryErr
+	}
+	if g.queryResults != nil && g.queryResults[outTradeNo] != nil {
+		return g.queryResults[outTradeNo], nil
 	}
 	if g.queryResult == nil {
 		return &gateway.QueryResult{Status: "WAIT_BUYER_PAY"}, nil
@@ -404,4 +435,22 @@ func (g *fakeOrderGateway) Close(ctx context.Context, cfg gateway.ChannelConfig,
 	g.closeCount++
 	g.closeOutTradeNo = outTradeNo
 	return g.closeErr
+}
+
+func (g *fakeOrderGateway) VerifyNotify(ctx context.Context, cfg gateway.ChannelConfig, form url.Values) (*gateway.NotifyPayload, error) {
+	if g.notifyErr != nil {
+		return nil, g.notifyErr
+	}
+	if g.notifyPayload != nil {
+		return g.notifyPayload, nil
+	}
+	return &gateway.NotifyPayload{
+		NotifyID:         form.Get("notify_id"),
+		OutTradeNo:       form.Get("out_trade_no"),
+		TradeNo:          form.Get("trade_no"),
+		TradeStatus:      form.Get("trade_status"),
+		AppID:            form.Get("app_id"),
+		TotalAmountCents: mustParseCallbackAmount(form.Get("total_amount")),
+		Raw:              formFirstValues(form),
+	}, nil
 }

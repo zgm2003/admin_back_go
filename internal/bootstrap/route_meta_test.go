@@ -193,10 +193,10 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
 		{http.MethodGet, "/api/admin/v1/payment/events"},
-		{http.MethodPost, "/api/payment/notify/alipay"},
+		{http.MethodPost, "/api/payment/callbacks/alipay"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
-			t.Fatalf("payment current-user/read/notify route %s %s must not require RBAC button permission", tt.method, tt.path)
+			t.Fatalf("payment current-user/read/callback route %s %s must not require RBAC button permission", tt.method, tt.path)
 		}
 	}
 	for _, tt := range []struct {
@@ -222,10 +222,10 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/orders/:order_no/pay"},
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
 		{http.MethodGet, "/api/admin/v1/payment/events"},
-		{http.MethodPost, "/api/payment/notify/alipay"},
+		{http.MethodPost, "/api/payment/callbacks/alipay"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
-			t.Fatalf("payment read/current-user/notify route %s %s must not be operation-logged", tt.method, tt.path)
+			t.Fatalf("payment read/current-user/callback route %s %s must not be operation-logged", tt.method, tt.path)
 		}
 	}
 	for _, tt := range []struct {
@@ -257,7 +257,7 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/api/payment/notify/alipay"},
+		{http.MethodPost, "/api/payment/callbacks/alipay"},
 		{http.MethodGet, "/api/admin/v1/notifications/init"},
 		{http.MethodGet, "/api/admin/v1/notifications"},
 		{http.MethodGet, "/api/admin/v1/notifications/unread-count"},
@@ -530,7 +530,7 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/api/payment/notify/alipay"},
+		{http.MethodPost, "/api/payment/callbacks/alipay"},
 		{http.MethodPatch, "/api/admin/v1/notifications/:id/read"},
 		{http.MethodPatch, "/api/admin/v1/notifications/read"},
 		{http.MethodDelete, "/api/admin/v1/notifications/:id"},

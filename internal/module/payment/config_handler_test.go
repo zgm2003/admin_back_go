@@ -42,6 +42,7 @@ func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay"},
 		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync"},
 		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close"},
+		{http.MethodPost, "/api/payment/callbacks/alipay"},
 	} {
 		if !routes[route.method+" "+route.path] {
 			t.Fatalf("missing route %s %s", route.method, route.path)
@@ -52,6 +53,7 @@ func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
 		"GET /api/admin/v1/payment/events",
 		"GET /api/admin/v1/payment/" + "order",
 		"POST /api/payment/notify/alipay",
+		"POST /api/pay/notify/alipay",
 	} {
 		if routes[retired] {
 			t.Fatalf("retired payment route still registered: %s", retired)

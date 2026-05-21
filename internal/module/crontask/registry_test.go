@@ -5,9 +5,10 @@ import (
 
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/module/payment"
 )
 
-func TestDefaultRegistryContainsNotificationTaskSchedulerOnly(t *testing.T) {
+func TestDefaultRegistryContainsCoreSchedulers(t *testing.T) {
 	registry := NewDefaultRegistry()
 
 	entry, ok := registry.Lookup("notification_task_scheduler")
@@ -44,9 +45,24 @@ func TestDefaultRegistryContainsNotificationTaskSchedulerOnly(t *testing.T) {
 		t.Fatalf("expected built ai task type %s, got %s", aichat.TypeRunTimeoutV1, aiTask.Type)
 	}
 
-	for _, name := range []string{"payment_close_expired_order", "payment_sync_pending_order"} {
-		if entry, ok := registry.Lookup(name); ok {
-			t.Fatalf("payment order cron must be absent until an automatic close/sync slice exists: %s %#v", name, entry)
+	paymentEntries := map[string]string{
+		"payment_sync_pending_order":  payment.TypeSyncPendingOrderV1,
+		"payment_close_expired_order": payment.TypeCloseExpiredOrderV1,
+	}
+	for name, taskType := range paymentEntries {
+		entry, ok := registry.Lookup(name)
+		if !ok {
+			t.Fatalf("expected payment registry entry %s", name)
+		}
+		if entry.TaskType != taskType {
+			t.Fatalf("expected payment task type %s, got %#v", taskType, entry)
+		}
+		task, err := entry.BuildTask()
+		if err != nil {
+			t.Fatalf("payment BuildTask %s returned error: %v", name, err)
+		}
+		if task.Type != taskType {
+			t.Fatalf("expected built payment task type %s, got %s", taskType, task.Type)
 		}
 	}
 }

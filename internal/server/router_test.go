@@ -1242,6 +1242,8 @@ type fakeRouterPaymentService struct {
 	payID           int64
 	syncID          int64
 	closeID         int64
+	callbackCalled  bool
+	callbackInput   payment.AlipayCallbackInput
 }
 
 func (f *fakeRouterPaymentService) ConfigInit(ctx context.Context) (*payment.ConfigInitResponse, *apperror.Error) {
@@ -1343,6 +1345,11 @@ func (f *fakeRouterPaymentService) SyncRecharge(ctx context.Context, userID int6
 func (f *fakeRouterPaymentService) CloseRecharge(ctx context.Context, userID int64, id int64) (*payment.RechargeStatusResponse, *apperror.Error) {
 	f.closeID = id
 	return &payment.RechargeStatusResponse{ID: id, RechargeNo: "RCG20260515100000000000", Status: "closed", StatusText: "已关闭"}, nil
+}
+func (f *fakeRouterPaymentService) HandleAlipayCallback(ctx context.Context, input payment.AlipayCallbackInput) (*payment.AlipayCallbackResult, *apperror.Error) {
+	f.callbackCalled = true
+	f.callbackInput = input
+	return &payment.AlipayCallbackResult{Text: "success"}, nil
 }
 
 type fakeRouterUploadTokenService struct {
@@ -2733,6 +2740,7 @@ func TestRouterDoesNotInstallLegacyPayWalletRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/pay-notify-logs/page-init"},
 		{http.MethodGet, "/api/admin/v1/wallets/page-init"},
 		{http.MethodPost, "/api/pay/notify/alipay"},
+		{http.MethodPost, "/api/payment/notify/alipay"},
 	} {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(tt.method, tt.path, nil)
@@ -2741,6 +2749,31 @@ func TestRouterDoesNotInstallLegacyPayWalletRoutes(t *testing.T) {
 		if recorder.Code != http.StatusNotFound {
 			t.Fatalf("legacy route %s %s must not be installed, got code=%d body=%s", tt.method, tt.path, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+func TestRouterInstallsPublicPaymentCallbackRoute(t *testing.T) {
+	paymentService := &fakeRouterPaymentService{}
+	router := newTestRouter(t, Dependencies{
+		PaymentService: paymentService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/payment/callbacks/alipay", strings.NewReader("notify_id=notify-1&out_trade_no=PAY20260521100000000000&trade_no=202605212200&trade_status=TRADE_SUCCESS&app_id=2026000000000000&total_amount=10.00&sign=signature&sign_type=RSA2"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected public callback route status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "success" {
+		t.Fatalf("expected plain success body, got %q", recorder.Body.String())
+	}
+	if !paymentService.callbackCalled {
+		t.Fatalf("expected callback service to be invoked")
+	}
+	if got := paymentService.callbackInput.Form.Get("out_trade_no"); got != "PAY20260521100000000000" {
+		t.Fatalf("expected callback form to be forwarded, got %q", got)
 	}
 }
 
@@ -2968,6 +3001,7 @@ func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/payment/events"},
 		{http.MethodGet, "/api/admin/v1/payment/" + "order"},
 		{http.MethodPost, "/api/payment/notify/alipay"},
+		{http.MethodPost, "/api/pay/notify/alipay"},
 	} {
 		recorder = httptest.NewRecorder()
 		request = httptest.NewRequest(retired.method, retired.path, nil)

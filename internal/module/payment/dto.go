@@ -127,4 +127,5 @@ type HTTPService interface {
 	PayRecharge(ctx context.Context, userID int64, id int64) (*RechargePayResponse, *apperror.Error)
 	SyncRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error)
 	CloseRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error)
+	HandleAlipayCallback(ctx context.Context, input AlipayCallbackInput) (*AlipayCallbackResult, *apperror.Error)
 }

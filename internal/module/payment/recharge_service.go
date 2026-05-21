@@ -255,16 +255,18 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 	if row.OrderPaidAt != nil {
 		paidAt = *row.OrderPaidAt
 	}
-	if err := repo.UpdateRechargePaid(ctx, row.ID, paidAt); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "更新充值支付状态失败", err)
+	if _, appErr := s.FinalizeOrderPaid(ctx, row.PaymentOrderID, row.AlipayTradeNo, paidAt, finalizeSourceSync); appErr != nil {
+		return nil, appErr
 	}
-	wallet, credited, err := repo.CreditRecharge(ctx, row.ID, paidAt, s.now())
+	latest, appErr := s.rechargeByID(ctx, row.UserID, row.ID)
+	if appErr != nil {
+		return nil, appErr
+	}
+	row = *latest
+	wallet, err = repo.GetOrCreateWallet(ctx, row.UserID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "充值入账失败", err)
+		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
 	}
-	row.Status = credited.Status
-	row.PaidAt = credited.PaidAt
-	row.CreditedAt = credited.CreditedAt
 	return rechargeStatusResponse(row, wallet), nil
 }
 
