@@ -43,6 +43,7 @@ import (
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
+	walletmodule "admin_back_go/internal/module/wallet"
 	platformai "admin_back_go/internal/platform/ai"
 	"admin_back_go/internal/platform/ai/imagecompat"
 	"admin_back_go/internal/platform/ai/openaicompat"
@@ -225,6 +226,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		CertResolver: paymentCertResolver,
 		CertStore:    paymentCertStore,
 	})
+	walletService := walletmodule.NewService(walletmodule.NewGormRepository(resources.DB))
 
 	cosSigner := storagecos.NewSigner(storagecos.Config{Enabled: true})
 	uploadTokenService := uploadtoken.NewService(
@@ -361,6 +363,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		MailService:             mailService,
 		SmsService:              smsService,
 		PaymentService:          paymentService,
+		WalletService:           walletService,
 		PermissionService:       permissionService,
 		QueueMonitorService:     queueMonitorService,
 		QueueMonitorUI:          queueMonitorUI,

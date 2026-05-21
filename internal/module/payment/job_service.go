@@ -222,13 +222,13 @@ func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID i
 	}
 	recharge, err := repo.GetRechargeByOrderID(ctx, orderID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单关联充值单失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "payment.job.linked_recharge.query_failed", nil, "查询支付订单关联充值单失败", err)
 	}
 	if recharge == nil || recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusPaid || recharge.Status == rechargeStatusCredited {
 		return nil
 	}
 	if err := repo.UpdateRechargeClosed(ctx, recharge.ID); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭支付订单关联充值单失败", err)
+		return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "payment.job.linked_recharge.close_failed", nil, "关闭支付订单关联充值单失败", err)
 	}
 	return nil
 }

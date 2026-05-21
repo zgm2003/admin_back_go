@@ -210,6 +210,17 @@ function Get-MenuByPath($Menus, [string]$Path) {
   return $null
 }
 
+function Get-MenuByI18nKey($Menus, [string]$I18nKey) {
+  foreach ($menu in (Get-ObjectArray $Menus)) {
+    if ([string]$menu.i18n_key -eq $I18nKey) { return $menu }
+    if (Test-HasProperty $menu 'children') {
+      $child = Get-MenuByI18nKey $menu.children $I18nKey
+      if ($null -ne $child) { return $child }
+    }
+  }
+  return $null
+}
+
 function Assert-NoAISecretFields($Value, [string]$Label) {
   $json = $Value | ConvertTo-Json -Depth 24
   foreach ($secretField in @('api_key_enc', 'api_key":', 'Authorization', 'Bearer ')) {
@@ -517,14 +528,17 @@ function Assert-UploadDriverInit($Response) {
   Assert-ApiOK $Response 'upload driver init'
 
   $options = Get-ObjectArray $Response.data.dict.upload_driver_arr
-  if ($options.Count -lt 2) {
+  if ($options.Count -ne 1) {
     throw "upload driver dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
   $values = @($options | ForEach-Object { [string]$_.value })
-  foreach ($expected in @('cos', 'oss')) {
+  foreach ($expected in @('cos')) {
     if (-not ($values -contains $expected)) {
       throw "upload driver dict missing ${expected}: $($Response | ConvertTo-Json -Depth 12)"
     }
+  }
+  if ($values -contains 'oss') {
+    throw "upload driver dict must stay COS-only and not expose oss: $($Response | ConvertTo-Json -Depth 12)"
   }
   return $options.Count
 }
@@ -855,7 +869,7 @@ function Assert-PaymentRechargeInit($Response) {
     throw "payment recharge init missing wallet/packages/method/dict/recent: $($Response | ConvertTo-Json -Depth 12)"
   }
 
-  if ($null -eq $Response.data.wallet.balance_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.wallet.balance_text) -or $null -eq $Response.data.wallet.total_recharge_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.wallet.total_recharge_text)) {
+  if ($null -eq $Response.data.wallet.balance_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.wallet.balance_text) -or $null -eq $Response.data.wallet.total_recharge_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.wallet.total_recharge_text) -or $null -eq $Response.data.wallet.total_consume_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.wallet.total_consume_text)) {
     throw "payment recharge wallet shape mismatch: $($Response.data.wallet | ConvertTo-Json -Depth 12)"
   }
 
@@ -912,10 +926,90 @@ function Assert-PaymentRechargeList($Response) {
   }
 }
 
+function Assert-WalletSummary($Response) {
+  Assert-ApiOK $Response 'wallet summary'
+
+  if ($null -eq $Response.data.balance_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.balance_text) -or $null -eq $Response.data.total_recharge_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.total_recharge_text) -or $null -eq $Response.data.total_consume_cents -or [string]::IsNullOrWhiteSpace([string]$Response.data.total_consume_text)) {
+    throw "wallet summary shape mismatch: $($Response.data | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    BalanceCents = [int64]$Response.data.balance_cents
+    TotalRechargeCents = [int64]$Response.data.total_recharge_cents
+    TotalConsumeCents = [int64]$Response.data.total_consume_cents
+  }
+}
+
+function Assert-WalletTransactionList($Response, [string]$Label) {
+  Assert-ApiOK $Response $Label
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "$Label missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.transaction_no) -or [string]::IsNullOrWhiteSpace([string]$item.direction) -or [string]::IsNullOrWhiteSpace([string]$item.direction_text)) {
+      throw "$Label item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.amount_cents -or [string]::IsNullOrWhiteSpace([string]$item.amount_text) -or $null -eq $item.balance_before_cents -or $null -eq $item.balance_after_cents) {
+      throw "$Label item amount/balance mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.source_type) -or [string]::IsNullOrWhiteSpace([string]$item.source_type_text)) {
+      throw "$Label item source mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    $itemJson = $item | ConvertTo-Json -Depth 12
+    if ($itemJson -match '"(refund|withdraw|freeze|adjustment|reconcile|payment_order_raw)"\s*:') {
+      throw "$Label leaked out-of-scope wallet fields: $itemJson"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-WalletUserList($Response) {
+  Assert-ApiOK $Response 'wallet users'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "wallet users missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [int64]$item.wallet_id -le 0 -or [int64]$item.user_id -le 0) {
+      throw "wallet user item id shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.balance_cents -or [string]::IsNullOrWhiteSpace([string]$item.balance_text) -or $null -eq $item.total_recharge_cents -or $null -eq $item.total_consume_cents) {
+      throw "wallet user item amount shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
+function Assert-WalletLedgerInit($Response) {
+  Assert-ApiOK $Response 'wallet ledger init'
+
+  $directions = Get-ObjectArray $Response.data.dict.direction_arr
+  $sourceTypes = Get-ObjectArray $Response.data.dict.source_type_arr
+  if ($directions.Count -lt 2 -or $sourceTypes.Count -lt 2) {
+    throw "wallet ledger init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    DirectionCount = $directions.Count
+    SourceTypeCount = $sourceTypes.Count
+  }
+}
+
 function Assert-UsersInitPaymentRoutes($Response) {
   Assert-ApiOK $Response 'users init payment route gate'
   $payPresent = Test-RoutePath $Response.data.router '/pay'
-  $retiredWalletPresent = Test-RoutePath $Response.data.router '/wallet'
+  $retiredWalletRootRoutePresent = Test-RoutePath $Response.data.router '/wallet'
   $oldPayCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'pay_'
   $oldChannelCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_channel_'
   $orderListButtonPresent = $false
@@ -946,8 +1040,8 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $retiredOrderPath = '/payment/' + 'order'
   $orderPresent = Test-RoutePath $Response.data.router $retiredOrderPath
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
-  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $rechargePresent -or -not $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
-    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/recharge=$rechargePresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
+  if ($payPresent -or $retiredWalletRootRoutePresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $rechargePresent -or -not $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
+    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet-root-route=$retiredWalletRootRoutePresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/recharge=$rechargePresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
   }
   if (-not $rechargeAddButtonPresent -or -not $rechargePayButtonPresent -or -not $rechargeSyncButtonPresent -or -not $rechargeCloseButtonPresent) {
     throw "users/init payment recharge button gate mismatch: add=$rechargeAddButtonPresent pay=$rechargePayButtonPresent sync=$rechargeSyncButtonPresent close=$rechargeCloseButtonPresent"
@@ -978,10 +1072,25 @@ function Assert-UsersInitPaymentRoutes($Response) {
     throw "users/init payment visible menu gate mismatch: config=$($configMenu | ConvertTo-Json -Depth 4) recharge=$($rechargeMenu | ConvertTo-Json -Depth 4) orders=$($ordersMenu | ConvertTo-Json -Depth 4)"
   }
   Assert-RoutePathOrder $Response.data.permissions @('/payment/config', '/payment/recharge', '/payment/orders') 'users init payment menu order'
+  $walletTransactionsRoute = Get-RouteByPath $Response.data.router '/wallet/transactions'
+  $walletUsersRoute = Get-RouteByPath $Response.data.router '/wallet/users'
+  $walletLedgerRoute = Get-RouteByPath $Response.data.router '/wallet/ledger'
+  if ($null -eq $walletTransactionsRoute -or [string]$walletTransactionsRoute.view_key -ne 'wallet/transactions' -or $null -eq $walletUsersRoute -or [string]$walletUsersRoute.view_key -ne 'wallet/users' -or $null -eq $walletLedgerRoute -or [string]$walletLedgerRoute.view_key -ne 'wallet/ledger') {
+    throw "users/init wallet route view_key mismatch: transactions=$([string]$walletTransactionsRoute.view_key) users=$([string]$walletUsersRoute.view_key) ledger=$([string]$walletLedgerRoute.view_key)"
+  }
+
+  $walletCenterMenu = Get-MenuByI18nKey $Response.data.permissions 'menu.wallet_center'
+  $walletTransactionsMenu = Get-MenuByPath $Response.data.permissions '/wallet/transactions'
+  $walletManageMenu = Get-MenuByI18nKey $Response.data.permissions 'menu.wallet_manage'
+  $walletUsersMenu = Get-MenuByPath $Response.data.permissions '/wallet/users'
+  $walletLedgerMenu = Get-MenuByPath $Response.data.permissions '/wallet/ledger'
+  if ($null -eq $walletCenterMenu -or [int]$walletCenterMenu.show_menu -ne 1 -or $null -eq $walletTransactionsMenu -or [int]$walletTransactionsMenu.show_menu -ne 1 -or $null -eq $walletManageMenu -or [int]$walletManageMenu.show_menu -ne 1 -or $null -eq $walletUsersMenu -or [int]$walletUsersMenu.show_menu -ne 1 -or $null -eq $walletLedgerMenu -or [int]$walletLedgerMenu.show_menu -ne 1) {
+    throw "users/init wallet visible menu gate mismatch: center=$($walletCenterMenu | ConvertTo-Json -Depth 4) transactions=$($walletTransactionsMenu | ConvertTo-Json -Depth 4) manage=$($walletManageMenu | ConvertTo-Json -Depth 4) users=$($walletUsersMenu | ConvertTo-Json -Depth 4) ledger=$($walletLedgerMenu | ConvertTo-Json -Depth 4)"
+  }
 
   return [pscustomobject]@{
     PayPresent = $payPresent
-    RetiredWalletPresent = $retiredWalletPresent
+    WalletRootRoutePresent = $retiredWalletRootRoutePresent
     OldPayCodePresent = $oldPayCodePresent
     OldChannelCodePresent = $oldChannelCodePresent
     OrderListButtonPresent = $orderListButtonPresent
@@ -1004,6 +1113,12 @@ function Assert-UsersInitPaymentRoutes($Response) {
     OrdersViewKey = $ordersViewKey
     RechargeViewKey = [string]$rechargeRoute.view_key
     OrdersShowMenu = [int]$ordersMenu.show_menu
+    WalletTransactionsPresent = $($null -ne $walletTransactionsRoute)
+    WalletUsersPresent = $($null -ne $walletUsersRoute)
+    WalletLedgerPresent = $($null -ne $walletLedgerRoute)
+    WalletTransactionsViewKey = [string]$walletTransactionsRoute.view_key
+    WalletUsersViewKey = [string]$walletUsersRoute.view_key
+    WalletLedgerViewKey = [string]$walletLedgerRoute.view_key
   }
 }
 
@@ -2885,6 +3000,36 @@ func main() {
     -TimeoutSec 10
   $paymentRechargeListSummary = Assert-PaymentRechargeList $paymentRechargeList
 
+  $walletSummary = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/summary" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletSummarySummary = Assert-WalletSummary $walletSummary
+
+  $walletTransactions = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/transactions?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletTransactionsSummary = Assert-WalletTransactionList $walletTransactions 'wallet transactions'
+
+  $walletUsersInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/users/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  Assert-ApiOK $walletUsersInit 'wallet users init'
+
+  $walletUsers = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/users?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletUsersSummary = Assert-WalletUserList $walletUsers
+
+  $walletLedgerInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/ledger/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletLedgerInitSummary = Assert-WalletLedgerInit $walletLedgerInit
+
+  $walletLedger = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/ledger?current_page=1&page_size=10" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletLedgerSummary = Assert-WalletTransactionList $walletLedger 'wallet ledger'
+
   $aiProviderInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-providers/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -3372,7 +3517,7 @@ func main() {
     ai_image_task_add_button_present = $usersInitAIRouteSummary.ImageTaskAddButtonPresent
     ai_image_asset_add_button_present = $usersInitAIRouteSummary.ImageAssetAddButtonPresent
     payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
-    payment_route_retired_wallet_present = $usersInitPaymentRouteSummary.RetiredWalletPresent
+    payment_route_wallet_root_route_present = $usersInitPaymentRouteSummary.WalletRootRoutePresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent
     payment_route_config_present = $usersInitPaymentRouteSummary.ConfigPresent
     payment_route_orders_present = $usersInitPaymentRouteSummary.OrdersPresent
@@ -3416,6 +3561,26 @@ func main() {
     payment_recharge_list_code = $paymentRechargeList.code
     payment_recharge_list_count = $paymentRechargeListSummary.ListCount
     payment_recharge_total = $paymentRechargeListSummary.Total
+    wallet_route_transactions_present = $usersInitPaymentRouteSummary.WalletTransactionsPresent
+    wallet_route_users_present = $usersInitPaymentRouteSummary.WalletUsersPresent
+    wallet_route_ledger_present = $usersInitPaymentRouteSummary.WalletLedgerPresent
+    wallet_summary_code = $walletSummary.code
+    wallet_balance_cents = $walletSummarySummary.BalanceCents
+    wallet_total_recharge_cents = $walletSummarySummary.TotalRechargeCents
+    wallet_total_consume_cents = $walletSummarySummary.TotalConsumeCents
+    wallet_transactions_code = $walletTransactions.code
+    wallet_transactions_count = $walletTransactionsSummary.ListCount
+    wallet_transactions_total = $walletTransactionsSummary.Total
+    wallet_users_init_code = $walletUsersInit.code
+    wallet_users_code = $walletUsers.code
+    wallet_users_count = $walletUsersSummary.ListCount
+    wallet_users_total = $walletUsersSummary.Total
+    wallet_ledger_init_code = $walletLedgerInit.code
+    wallet_ledger_direction_count = $walletLedgerInitSummary.DirectionCount
+    wallet_ledger_source_type_count = $walletLedgerInitSummary.SourceTypeCount
+    wallet_ledger_code = $walletLedger.code
+    wallet_ledger_count = $walletLedgerSummary.ListCount
+    wallet_ledger_total = $walletLedgerSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID

@@ -31,6 +31,8 @@ type WalletSummary struct {
 	BalanceText        string `json:"balance_text"`
 	TotalRechargeCents int64  `json:"total_recharge_cents"`
 	TotalRechargeText  string `json:"total_recharge_text"`
+	TotalConsumeCents  int64  `json:"total_consume_cents"`
+	TotalConsumeText   string `json:"total_consume_text"`
 }
 
 type RechargePackageItem struct {

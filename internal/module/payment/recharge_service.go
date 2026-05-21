@@ -324,6 +324,8 @@ func walletSummary(wallet *Wallet) WalletSummary {
 		BalanceText:        amountText(wallet.BalanceCents),
 		TotalRechargeCents: wallet.TotalRechargeCents,
 		TotalRechargeText:  amountText(wallet.TotalRechargeCents),
+		TotalConsumeCents:  wallet.TotalConsumeCents,
+		TotalConsumeText:   amountText(wallet.TotalConsumeCents),
 	}
 }
 

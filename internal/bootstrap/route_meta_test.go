@@ -109,6 +109,13 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay", "payment_recharge_pay"},
 		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync", "payment_recharge_sync"},
 		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close", "payment_recharge_close"},
+		{http.MethodGet, "/api/admin/v1/wallet/summary", "wallet_transaction_list"},
+		{http.MethodGet, "/api/admin/v1/wallet/transactions", "wallet_transaction_list"},
+		{http.MethodPost, "/api/admin/v1/wallet/consumptions", "wallet_consume_add"},
+		{http.MethodGet, "/api/admin/v1/wallet/users/page-init", "wallet_user_list"},
+		{http.MethodGet, "/api/admin/v1/wallet/users", "wallet_user_list"},
+		{http.MethodGet, "/api/admin/v1/wallet/ledger/page-init", "wallet_ledger_list"},
+		{http.MethodGet, "/api/admin/v1/wallet/ledger", "wallet_ledger_list"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
@@ -493,6 +500,11 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	rechargePayRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay")]
 	if rechargePayRule.Module != "payment_recharge" || rechargePayRule.Action != "pay" || !rechargePayRule.SkipResponsePayload {
 		t.Fatalf("payment recharge pay operation rule must skip pay_url response payload: %#v", rechargePayRule)
+	}
+
+	walletConsumeRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet/consumptions")]
+	if walletConsumeRule.Module != "wallet" || walletConsumeRule.Action != "consume" || walletConsumeRule.Title == "" {
+		t.Fatalf("wallet consume operation rule mismatch: %#v", walletConsumeRule)
 	}
 
 	for _, tt := range []struct {

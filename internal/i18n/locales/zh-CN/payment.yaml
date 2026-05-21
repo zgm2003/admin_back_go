@@ -1,1 +1,3 @@
 payment.callback.amount.invalid: 无效的支付宝回调金额
+payment.job.linked_recharge.query_failed: 查询支付订单关联充值单失败
+payment.job.linked_recharge.close_failed: 关闭支付订单关联充值单失败

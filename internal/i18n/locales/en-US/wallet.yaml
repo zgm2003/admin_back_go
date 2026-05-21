@@ -1,0 +1,12 @@
+wallet.service_missing: Wallet service is not configured
+wallet.summary.query_failed: Failed to query wallet
+wallet.users.query_failed: Failed to query user wallets
+wallet.transactions.query_failed: Failed to query wallet transactions
+wallet.consume.amount.invalid: Consume amount must be greater than 0
+wallet.consume.source_id.invalid: Consume source ID must be greater than 0
+wallet.consume.insufficient_balance: Insufficient balance
+wallet.consume.failed: Failed to consume wallet balance
+wallet.transactions.request.invalid: Invalid wallet transaction query
+wallet.consume.request.invalid: Invalid consume request
+wallet.users.request.invalid: Invalid wallet user query
+wallet.ledger.request.invalid: Invalid wallet ledger query

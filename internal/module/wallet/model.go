@@ -1,7 +1,8 @@
-package payment
+package wallet
 
 import "time"
 
+// Wallet maps user_wallets and owns balance facts for wallet APIs.
 type Wallet struct {
 	ID                 int64     `gorm:"column:id;primaryKey"`
 	UserID             int64     `gorm:"column:user_id"`
@@ -15,7 +16,9 @@ type Wallet struct {
 
 func (Wallet) TableName() string { return "user_wallets" }
 
-type WalletTransaction struct {
+// Transaction maps wallet_transactions. AmountCents is always positive;
+// Direction tells whether the money moves in or out.
+type Transaction struct {
 	ID                 int64     `gorm:"column:id;primaryKey"`
 	TransactionNo      string    `gorm:"column:transaction_no"`
 	WalletID           int64     `gorm:"column:wallet_id"`
@@ -32,4 +35,20 @@ type WalletTransaction struct {
 	UpdatedAt          time.Time `gorm:"column:updated_at"`
 }
 
-func (WalletTransaction) TableName() string { return "wallet_transactions" }
+func (Transaction) TableName() string { return "wallet_transactions" }
+
+// WalletWithUser is the read model used by the admin wallet list.
+type WalletWithUser struct {
+	Wallet
+	Username string `gorm:"column:username"`
+	Phone    string `gorm:"column:phone"`
+	Email    string `gorm:"column:email"`
+}
+
+// TransactionWithUser is the read model used by transaction/ledger lists.
+type TransactionWithUser struct {
+	Transaction
+	Username string `gorm:"column:username"`
+	Phone    string `gorm:"column:phone"`
+	Email    string `gorm:"column:email"`
+}

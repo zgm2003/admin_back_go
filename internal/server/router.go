@@ -42,6 +42,7 @@ import (
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/usersession"
+	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +81,7 @@ type Dependencies struct {
 	MailService             mail.HTTPService
 	SmsService              sms.HTTPService
 	PaymentService          payment.HTTPService
+	WalletService           wallet.HTTPService
 	PermissionService       permission.ManagementService
 	QueueMonitorService     queuemonitor.HTTPService
 	QueueMonitorUI          http.Handler
@@ -148,6 +150,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	mail.RegisterRoutes(router, deps.MailService)
 	sms.RegisterRoutes(router, deps.SmsService)
 	payment.RegisterRoutes(router, deps.PaymentService)
+	wallet.RegisterRoutes(router, deps.WalletService)
 
 	permission.RegisterRoutes(router, deps.PermissionService)
 	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
