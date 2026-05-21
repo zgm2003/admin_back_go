@@ -297,15 +297,16 @@ Docker env 保持短配置，不再承载上传运行时策略。COS bucket、Se
 本地开发：
 
 ```env
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
 线上演示：
 
 ```env
 CORS_ALLOW_ORIGINS=https://zgm2003.cn
-CORS_ALLOW_CREDENTIALS=true
 ```
+
+`CORS_ALLOW_ORIGINS` 是 Docker-first 唯一 CORS env。允许的请求头、暴露响应头、`AllowCredentials=true` 和预检缓存 `12h` 都是代码内置默认值；不要把 CORS policy 放进 `system_settings`。
 
 ## 本地开发
 
@@ -539,7 +540,6 @@ REALTIME_PUBLISHER=redis
 SCHEDULER_ENABLED=true
 
 CORS_ALLOW_ORIGINS=https://zgm2003.cn
-CORS_ALLOW_CREDENTIALS=true
 ```
 
 如果 MySQL/Redis 在 `admin-go-state` Docker 项目里，把连接地址改成对应 Docker network、宿主本地端口或内网 IP。别把 MySQL/Redis 裸奔到公网；必须用安全组/防火墙只放行后端机器。

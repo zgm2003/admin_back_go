@@ -190,8 +190,6 @@ github.com/gin-contrib/cors
 ```text
 http://localhost:5173
 http://127.0.0.1:5173
-http://localhost:5174
-http://127.0.0.1:5174
 ```
 
 允许的前端公共请求头来自当前 `admin_front_ts`：
@@ -210,9 +208,6 @@ X-Request-Id
 
 ```text
 CORS_ALLOW_ORIGINS
-CORS_ALLOW_HEADERS
-CORS_ALLOW_CREDENTIALS
-CORS_MAX_AGE
 ```
 
 规则：
@@ -221,6 +216,7 @@ CORS_MAX_AGE
 生产域名必须显式配置 CORS_ALLOW_ORIGINS
 不使用 AllowAllOrigins
 不把 CORS 当鉴权
+CORS_ALLOW_HEADERS / CORS_ALLOW_CREDENTIALS / CORS_MAX_AGE 是旧 env，Docker-first 下已由代码默认值接管并忽略
 遇到浏览器 CORS 报错先确认真实路由和状态码，不要盲改 middleware
 ```
 
@@ -423,9 +419,6 @@ REALTIME_ENABLED
 REALTIME_PUBLISHER
 SCHEDULER_ENABLED
 CORS_ALLOW_ORIGINS
-CORS_ALLOW_HEADERS
-CORS_ALLOW_CREDENTIALS
-CORS_MAX_AGE
 ```
 
 CAPTCHA 业务策略不放 env：`auth.captcha.ttl_minutes` 和

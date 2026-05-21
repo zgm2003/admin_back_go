@@ -566,6 +566,31 @@ func TestDockerFirstEnvDocumentsOnlyRealtimeRuntimeKnobs(t *testing.T) {
 	}
 }
 
+func TestDockerFirstEnvDocumentsOnlyCORSOrigin(t *testing.T) {
+	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
+		if strings.TrimSpace(values["CORS_ALLOW_ORIGINS"]) == "" {
+			t.Fatalf("deploy/docker-first/%s must keep CORS_ALLOW_ORIGINS", fileName)
+		}
+		for _, key := range deprecatedCORSPolicyEnvKeys() {
+			if _, ok := values[key]; ok {
+				t.Fatalf("deploy/docker-first/%s must not document CORS policy key %s", fileName, key)
+			}
+		}
+	}
+}
+
+func deprecatedCORSPolicyEnvKeys() []string {
+	return []string{
+		"CORS_ALLOW_HEADERS",
+		"CORS_ALLOW_CREDENTIALS",
+		"CORS_MAX_AGE",
+	}
+}
+
 func deprecatedRealtimePolicyEnvKeys() []string {
 	return []string{
 		"REALTIME_REDIS_CHANNEL",
