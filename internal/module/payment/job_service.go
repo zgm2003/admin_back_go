@@ -105,6 +105,16 @@ func (s *Service) syncPendingOrder(ctx context.Context, row Order, source string
 	}
 	result, err := gw.Query(ctx, platformCfg, row.OrderNo)
 	if err != nil {
+		if isAlipayTradeNotExistError(err) && orderExpired(row, s.now()) {
+			repo, appErr := s.requireRepository()
+			if appErr != nil {
+				return "", appErr
+			}
+			if err := closeOrderAndLinkedRecharge(ctx, repo, row.ID, s.now()); err != nil {
+				return "", err
+			}
+			return paymentJobOutcomeClosed, nil
+		}
 		return "", err
 	}
 	switch strings.TrimSpace(resultStatus(result)) {
@@ -122,8 +132,8 @@ func (s *Service) syncPendingOrder(ctx context.Context, row Order, source string
 		if appErr != nil {
 			return "", appErr
 		}
-		if err := repo.UpdateOrderClosed(ctx, row.ID, s.now()); err != nil {
-			return "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
+		if err := closeOrderAndLinkedRecharge(ctx, repo, row.ID, s.now()); err != nil {
+			return "", err
 		}
 		return paymentJobOutcomeClosed, nil
 	case "WAIT_BUYER_PAY":
@@ -140,7 +150,7 @@ func (s *Service) closeExpiredOrder(ctx context.Context, row Order) (paymentJobO
 	}
 	switch row.Status {
 	case orderStatusPending:
-		if err := repo.UpdateOrderClosed(ctx, row.ID, s.now()); err != nil {
+		if err := closeOrderAndLinkedRecharge(ctx, repo, row.ID, s.now()); err != nil {
 			return "", err
 		}
 		return paymentJobOutcomeClosed, nil
@@ -165,7 +175,7 @@ func (s *Service) closeExpiredOrder(ctx context.Context, row Order) (paymentJobO
 			if err := gw.Close(ctx, platformCfg, row.OrderNo); err != nil {
 				return "", err
 			}
-			if err := repo.UpdateOrderClosed(ctx, row.ID, s.now()); err != nil {
+			if err := closeOrderAndLinkedRecharge(ctx, repo, row.ID, s.now()); err != nil {
 				return "", err
 			}
 			return paymentJobOutcomeClosed, nil
@@ -204,4 +214,21 @@ func applyPaymentJobOutcome(result any, outcome paymentJobOutcome) {
 			row.Waiting++
 		}
 	}
+}
+
+func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID int64, closedAt time.Time) error {
+	if err := repo.UpdateOrderClosed(ctx, orderID, closedAt); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
+	}
+	recharge, err := repo.GetRechargeByOrderID(ctx, orderID)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单关联充值单失败", err)
+	}
+	if recharge == nil || recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusPaid || recharge.Status == rechargeStatusCredited {
+		return nil
+	}
+	if err := repo.UpdateRechargeClosed(ctx, recharge.ID); err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭支付订单关联充值单失败", err)
+	}
+	return nil
 }

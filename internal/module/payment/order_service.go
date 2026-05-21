@@ -215,6 +215,18 @@ func (s *Service) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse
 	}
 	result, err := gw.Query(ctx, platformCfg, row.OrderNo)
 	if err != nil {
+		now := s.now()
+		if isAlipayTradeNotExistError(err) && orderExpired(*row, now) {
+			if err := repo.UpdateOrderClosed(ctx, row.ID, now); err != nil {
+				return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
+			}
+			latest, appErr := s.orderByID(ctx, id)
+			if appErr != nil {
+				return nil, appErr
+			}
+			resp := orderStatusResponse(*latest)
+			return &resp, nil
+		}
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "同步支付宝订单状态失败", err)
 	}
 	switch strings.TrimSpace(resultStatus(result)) {
@@ -275,7 +287,7 @@ func (s *Service) CloseOrder(ctx context.Context, id int64) (*OrderStatusRespons
 		if appErr != nil {
 			return nil, appErr
 		}
-		if err := gw.Close(ctx, platformCfg, row.OrderNo); err != nil {
+		if err := gw.Close(ctx, platformCfg, row.OrderNo); err != nil && !isAlipayTradeNotExistError(err) {
 			return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "关闭支付宝订单失败", err)
 		}
 		if err := repo.UpdateOrderClosed(ctx, row.ID, now); err != nil {
@@ -499,4 +511,8 @@ func resultTradeNo(result *gateway.QueryResult) string {
 		return ""
 	}
 	return result.TradeNo
+}
+
+func orderExpired(row Order, now time.Time) bool {
+	return !row.ExpiredAt.IsZero() && !now.Before(row.ExpiredAt)
 }

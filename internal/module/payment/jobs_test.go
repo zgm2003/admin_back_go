@@ -77,3 +77,25 @@ func TestCloseExpiredOrdersClosesPendingAndFinalizesPaidPaying(t *testing.T) {
 		t.Fatalf("unexpected result=%#v creditCount=%d", result, repo.creditCount)
 	}
 }
+
+func TestCloseExpiredOrdersClosesMissingAlipayTradeLocally(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.batchOrders = []Order{
+		{ID: 1, OrderNo: "PAY20260521000000000001", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, ExpiredAt: fixedRechargeNow().Add(-time.Minute), IsDel: enum.CommonNo},
+	}
+	repo.order = &repo.batchOrders[0]
+	repo.rechargeByOrder = map[int64]*Recharge{1: {ID: 10, RechargeNo: "RCG1", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}}
+	gw := &fakeOrderGateway{queryErrors: map[string]error{
+		"PAY20260521000000000001": errors.New(`alipay: query: {"sub_code":"ACQ.TRADE_NOT_EXIST","sub_msg":"交易不存在"}`),
+	}}
+	service := newRechargeService(repo, gw)
+
+	result, err := service.CloseExpiredOrders(context.Background(), CloseExpiredOrderInput{Limit: 1})
+	if err != nil {
+		t.Fatalf("CloseExpiredOrders error=%v", err)
+	}
+	if result.Scanned != 1 || result.Closed != 1 || result.Failed != 0 || repo.order.Status != orderStatusClosed || repo.rechargeByOrder[1].Status != rechargeStatusClosed {
+		t.Fatalf("expected missing Alipay trade to close locally, result=%#v order=%#v recharge=%#v", result, repo.order, repo.rechargeByOrder[1])
+	}
+}

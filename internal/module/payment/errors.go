@@ -1,7 +1,19 @@
 package payment
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 var ErrRepositoryNotConfigured = errors.New("payment: repository not configured")
 var ErrGatewayNotConfigured = errors.New("payment: gateway not configured")
 var ErrOutTradeNoRequired = errors.New("payment: out trade no is required")
+
+const alipayTradeNotExistCode = "ACQ.TRADE_NOT_EXIST"
+
+func isAlipayTradeNotExistError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), alipayTradeNotExistCode)
+}

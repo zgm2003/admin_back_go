@@ -155,6 +155,21 @@ func TestSyncOrderMapsTradeClosedToClosed(t *testing.T) {
 	}
 }
 
+func TestSyncOrderClosesExpiredTradeNotExist(t *testing.T) {
+	repo := newFakeOrderRepoWithOrder(orderStatusPaying)
+	repo.order.ExpiredAt = fixedOrderNow().Add(-time.Minute)
+	gw := &fakeOrderGateway{queryErr: errors.New(`alipay: query: {"sub_code":"ACQ.TRADE_NOT_EXIST","sub_msg":"交易不存在"}`)}
+	service := newOrderService(repo, gw)
+
+	result, appErr := service.SyncOrder(context.Background(), repo.order.ID)
+	if appErr != nil {
+		t.Fatalf("SyncOrder error=%v", appErr)
+	}
+	if result.Status != orderStatusClosed || repo.order.ClosedAt == nil {
+		t.Fatalf("expected expired missing trade to close locally, result=%#v order=%#v", result, repo.order)
+	}
+}
+
 func TestCloseOrderRejectsPaid(t *testing.T) {
 	repo := newFakeOrderRepoWithOrder(orderStatusPaid)
 	service := newOrderService(repo, &fakeOrderGateway{})
@@ -215,6 +230,20 @@ func TestCloseOrderCallsGatewayForPaying(t *testing.T) {
 	}
 	if result.Status != orderStatusClosed || gw.closeCount != 1 || gw.closeOutTradeNo != repo.order.OrderNo {
 		t.Fatalf("expected gateway close, result=%#v gateway=%#v", result, gw)
+	}
+}
+
+func TestCloseOrderTreatsTradeNotExistAsClosed(t *testing.T) {
+	repo := newFakeOrderRepoWithOrder(orderStatusPaying)
+	gw := &fakeOrderGateway{closeErr: errors.New(`alipay: close: {"sub_code":"ACQ.TRADE_NOT_EXIST","sub_msg":"交易不存在"}`)}
+	service := newOrderService(repo, gw)
+
+	result, appErr := service.CloseOrder(context.Background(), repo.order.ID)
+	if appErr != nil {
+		t.Fatalf("CloseOrder error=%v", appErr)
+	}
+	if result.Status != orderStatusClosed || repo.order.ClosedAt == nil || gw.closeCount != 1 {
+		t.Fatalf("expected missing remote trade to close locally, result=%#v order=%#v gateway=%#v", result, repo.order, gw)
 	}
 }
 

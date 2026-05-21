@@ -1406,6 +1406,7 @@ payment_close_expired_order -> payment:close-expired-order:v1
 正式异步回调入口固定为 POST /api/payment/callbacks/alipay；旧 /api/payment/notify/alipay、/api/pay/notify/alipay 不再作为 active route。
 payment_sync_pending_order 扫描支付中支付宝订单并复用 shared finalizer 补偿入账。
 payment_close_expired_order 扫描过期未支付订单并关闭本地/支付宝订单。
+支付宝返回 `ACQ.TRADE_NOT_EXIST` 且本地订单已过期时，按未支付过期处理：关闭本地 payment_order 和关联 payment_recharge，避免充值页 reopen auto-sync 反复打扰用户。
 退款、对账、履约重试、钱包消费必须另写 spec/plan，再决定 cron、索引和事件表。
 不要注册旧支付域任务或 WeChat 相关任务。
 ```
