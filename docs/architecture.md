@@ -1330,7 +1330,7 @@ uploadconfig 不做 /api/getUploadToken，不安装任何云 SDK，不做真实�
 upload runtime 只接受腾讯云 COS；OSS SDK 不进入默认 go.mod/package.json，历史/非 COS 配置必须显式报错并重新配置 COS
 ```
 
-支付域当前收敛为 `internal/module/payment` bounded context，active product scope 是支付宝配置 + 充值收银台；`payment_orders` 是底层支付订单 runtime，不再作为用户手工创建入口：
+支付域当前收敛为 `internal/module/payment` bounded context，active product scope 是支付宝配置、充值收银台和支付订单/支出流水；`payment_orders` 是底层支付订单 runtime，不再作为用户手工创建入口：
 
 ```text
 internal/module/payment                 # 支付宝配置 CRUD、证书上传、本地配置测试、充值 cashier、订单 pay/sync/close、钱包入账
@@ -1368,7 +1368,7 @@ PATCH  /api/admin/v1/payment/recharges/:id/close
 GET    /api/admin/v1/payment/orders/page-init
 GET    /api/admin/v1/payment/orders
 GET    /api/admin/v1/payment/orders/:id
-POST   /api/admin/v1/payment/orders              # backend/internal low-level capability; not exposed by product UX
+POST   /api/admin/v1/payment/orders              # backend/internal low-level capability; raw create UX not exposed by product page
 POST   /api/admin/v1/payment/orders/:id/pay
 POST   /api/admin/v1/payment/orders/:id/sync
 PATCH  /api/admin/v1/payment/orders/:id/close
@@ -1389,7 +1389,7 @@ callback、manual sync、cron compensation 必须共用 paid finalizer；钱包�
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
 支付宝 SDK 只允许出现在 internal/platform/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
 应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 private_key_enc。
-菜单路径只展示 /payment/config 和 /payment/recharge；/payment/orders 可作为隐藏内部页面存在但不能再暴露 raw create UX；旧 channel/event/pay/wallet 菜单必须从 users/init router 消失。
+菜单路径展示 /payment/config、/payment/recharge 和 /payment/orders；/payment/orders 是支付订单/支出流水入口，但不能再暴露 raw create UX；旧 channel/event/pay/wallet 菜单必须从 users/init router 消失。
 provider 是当前字段合同的一部分，但只允许 alipay；merchant_id、sign_type、extra_config 不属于当前字段合同。
 ```
 

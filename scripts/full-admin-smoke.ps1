@@ -199,6 +199,17 @@ function Test-HasProperty($Value, [string]$Name) {
   return @($Value.PSObject.Properties.Name) -contains $Name
 }
 
+function Get-MenuByPath($Menus, [string]$Path) {
+  foreach ($menu in (Get-ObjectArray $Menus)) {
+    if ([string]$menu.path -eq $Path) { return $menu }
+    if (Test-HasProperty $menu 'children') {
+      $child = Get-MenuByPath $menu.children $Path
+      if ($null -ne $child) { return $child }
+    }
+  }
+  return $null
+}
+
 function Assert-NoAISecretFields($Value, [string]$Label) {
   $json = $Value | ConvertTo-Json -Depth 24
   foreach ($secretField in @('api_key_enc', 'api_key":', 'Authorization', 'Bearer ')) {
@@ -935,11 +946,14 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $retiredOrderPath = '/payment/' + 'order'
   $orderPresent = Test-RoutePath $Response.data.router $retiredOrderPath
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
-  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $rechargePresent -or $channelPresent -or $orderPresent -or $eventPresent) {
+  if ($payPresent -or $retiredWalletPresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $rechargePresent -or -not $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
     throw "users/init payment route gate mismatch: /pay=$payPresent /wallet=$retiredWalletPresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/recharge=$rechargePresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
   }
   if (-not $rechargeAddButtonPresent -or -not $rechargePayButtonPresent -or -not $rechargeSyncButtonPresent -or -not $rechargeCloseButtonPresent) {
     throw "users/init payment recharge button gate mismatch: add=$rechargeAddButtonPresent pay=$rechargePayButtonPresent sync=$rechargeSyncButtonPresent close=$rechargeCloseButtonPresent"
+  }
+  if (-not $orderListButtonPresent -or -not $orderPayButtonPresent -or -not $orderSyncButtonPresent -or -not $orderCloseButtonPresent) {
+    throw "users/init payment order button gate mismatch: list=$orderListButtonPresent pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
   }
 
   $configRoute = Get-RouteByPath $Response.data.router '/payment/config'
@@ -953,6 +967,17 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $ordersRoute = Get-RouteByPath $Response.data.router '/payment/orders'
   $ordersViewKey = ''
   if ($null -ne $ordersRoute) { $ordersViewKey = [string]$ordersRoute.view_key }
+  if ($null -eq $ordersRoute -or [string]$ordersRoute.view_key -ne 'payment/orders') {
+    throw "users/init payment orders route view_key mismatch: expected=payment/orders actual=$ordersViewKey"
+  }
+
+  $configMenu = Get-MenuByPath $Response.data.permissions '/payment/config'
+  $rechargeMenu = Get-MenuByPath $Response.data.permissions '/payment/recharge'
+  $ordersMenu = Get-MenuByPath $Response.data.permissions '/payment/orders'
+  if ($null -eq $configMenu -or [int]$configMenu.show_menu -ne 1 -or $null -eq $rechargeMenu -or [int]$rechargeMenu.show_menu -ne 1 -or $null -eq $ordersMenu -or [int]$ordersMenu.show_menu -ne 1) {
+    throw "users/init payment visible menu gate mismatch: config=$($configMenu | ConvertTo-Json -Depth 4) recharge=$($rechargeMenu | ConvertTo-Json -Depth 4) orders=$($ordersMenu | ConvertTo-Json -Depth 4)"
+  }
+  Assert-RoutePathOrder $Response.data.permissions @('/payment/config', '/payment/recharge', '/payment/orders') 'users init payment menu order'
 
   return [pscustomobject]@{
     PayPresent = $payPresent
@@ -978,6 +1003,7 @@ function Assert-UsersInitPaymentRoutes($Response) {
     ConfigViewKey = [string]$configRoute.view_key
     OrdersViewKey = $ordersViewKey
     RechargeViewKey = [string]$rechargeRoute.view_key
+    OrdersShowMenu = [int]$ordersMenu.show_menu
   }
 }
 
@@ -2108,7 +2134,7 @@ function Assert-CronTaskList($Response) {
     }
     foreach ($forbiddenField in @('registry_status', 'registry_status_text', 'registry_task_type', 'registry_description')) {
       if ($item.PSObject.Properties.Name -contains $forbiddenField) {
-        throw "cron task item must not expose $forbiddenField: $($item | ConvertTo-Json -Depth 12)"
+        throw "cron task item must not expose ${forbiddenField}: $($item | ConvertTo-Json -Depth 12)"
       }
     }
     if ([string]::IsNullOrWhiteSpace([string]$item.handler)) {
