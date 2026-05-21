@@ -17,14 +17,7 @@ func TestCORSAllowsConfiguredFrontendPreflight(t *testing.T) {
 
 	handlerRan := false
 	router := gin.New()
-	router.Use(CORS(config.CORSConfig{
-		AllowOrigins:     []string{"http://localhost:5173"},
-		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodOptions},
-		AllowHeaders:     []string{"Content-Type", "Authorization", "platform", "device-id", "X-Trace-Id", HeaderRequestID},
-		ExposeHeaders:    []string{HeaderRequestID},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
+	router.Use(CORS(config.DefaultCORSConfig()))
 	router.POST("/api/admin/v1/ping", func(c *gin.Context) {
 		handlerRan = true
 		c.String(http.StatusOK, "pong")
@@ -33,7 +26,7 @@ func TestCORSAllowsConfiguredFrontendPreflight(t *testing.T) {
 	request := httptest.NewRequest(http.MethodOptions, "/api/admin/v1/ping", nil)
 	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
-	request.Header.Set("Access-Control-Request-Headers", "Authorization, platform, device-id, X-Trace-Id")
+	request.Header.Set("Access-Control-Request-Headers", "Authorization, platform, device-id, X-Trace-Id, X-Request-Id, Accept-Language")
 	recorder := httptest.NewRecorder()
 
 	router.ServeHTTP(recorder, request)
@@ -50,11 +43,38 @@ func TestCORSAllowsConfiguredFrontendPreflight(t *testing.T) {
 	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Fatalf("expected credentials true, got %q", got)
 	}
+	if got := recorder.Header().Get("Access-Control-Max-Age"); got != "43200" {
+		t.Fatalf("expected max age 43200, got %q", got)
+	}
 	allowHeaders := recorder.Header().Get("Access-Control-Allow-Headers")
-	for _, header := range []string{"Authorization", "platform", "device-id", "X-Trace-Id"} {
+	for _, header := range []string{"Authorization", "platform", "device-id", "X-Trace-Id", "X-Request-Id", "Accept-Language"} {
 		if !strings.Contains(strings.ToLower(allowHeaders), strings.ToLower(header)) {
 			t.Fatalf("expected allow headers to contain %s, got %q", header, allowHeaders)
 		}
+	}
+}
+
+func TestDefaultCORSRejects5174Preflight(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.Use(CORS(config.DefaultCORSConfig()))
+	router.POST("/api/admin/v1/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/admin/v1/ping", nil)
+	request.Header.Set("Origin", "http://localhost:5174")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d for non-default 5174 origin, got %d", http.StatusForbidden, recorder.Code)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no allow-origin for 5174, got %q", got)
 	}
 }
 

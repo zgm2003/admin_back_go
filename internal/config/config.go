@@ -229,9 +229,6 @@ type CORSConfig struct {
 func Load() Config {
 	corsConfig := DefaultCORSConfig()
 	corsConfig.AllowOrigins = envCSV("CORS_ALLOW_ORIGINS", corsConfig.AllowOrigins)
-	corsConfig.AllowHeaders = envCSV("CORS_ALLOW_HEADERS", corsConfig.AllowHeaders)
-	corsConfig.AllowCredentials = envBool("CORS_ALLOW_CREDENTIALS", corsConfig.AllowCredentials)
-	corsConfig.MaxAge = envDuration("CORS_MAX_AGE", corsConfig.MaxAge)
 
 	loggingConfig := DefaultLoggingConfig()
 	loggingConfig.Dir = envString("LOG_DIR", loggingConfig.Dir)
@@ -306,8 +303,6 @@ func DefaultCORSConfig() CORSConfig {
 		AllowOrigins: []string{
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",
-			"http://localhost:5174",
-			"http://127.0.0.1:5174",
 		},
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{

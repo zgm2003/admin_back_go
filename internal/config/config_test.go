@@ -99,17 +99,32 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	wantOrigins := []string{
 		"http://localhost:5173",
 		"http://127.0.0.1:5173",
-		"http://localhost:5174",
-		"http://127.0.0.1:5174",
 	}
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, wantOrigins) {
 		t.Fatalf("unexpected default cors origins: %#v", cfg.CORS.AllowOrigins)
 	}
-	if !containsString(cfg.CORS.AllowHeaders, "Authorization") ||
-		!containsString(cfg.CORS.AllowHeaders, "platform") ||
-		!containsString(cfg.CORS.AllowHeaders, "device-id") ||
-		!containsString(cfg.CORS.AllowHeaders, "X-Trace-Id") {
-		t.Fatalf("default cors headers do not cover frontend common headers: %#v", cfg.CORS.AllowHeaders)
+	for _, origin := range []string{"http://localhost:5174", "http://127.0.0.1:5174"} {
+		if containsString(cfg.CORS.AllowOrigins, origin) {
+			t.Fatalf("default cors origins must not include %s: %#v", origin, cfg.CORS.AllowOrigins)
+		}
+	}
+	for _, header := range []string{
+		"Origin",
+		"Content-Type",
+		"Accept",
+		"Accept-Language",
+		"Authorization",
+		"platform",
+		"device-id",
+		"X-Trace-Id",
+		"X-Request-Id",
+	} {
+		if !containsString(cfg.CORS.AllowHeaders, header) {
+			t.Fatalf("default cors headers must contain %s: %#v", header, cfg.CORS.AllowHeaders)
+		}
+	}
+	if !containsString(cfg.CORS.ExposeHeaders, "X-Request-Id") {
+		t.Fatalf("default cors expose headers must contain X-Request-Id: %#v", cfg.CORS.ExposeHeaders)
 	}
 	if !cfg.CORS.AllowCredentials {
 		t.Fatalf("expected cors credentials to be allowed by default")
@@ -152,7 +167,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("AI_CHAT_STREAM_IDLE_TIMEOUT", "45s")
 	t.Setenv("AI_RUN_STALE_TIMEOUT", "20m")
 	t.Setenv("CORS_ALLOW_ORIGINS", "https://admin.example.com, http://localhost:5173")
-	t.Setenv("CORS_ALLOW_HEADERS", "Content-Type,Authorization,X-Custom")
+	t.Setenv("CORS_ALLOW_HEADERS", "X-Legacy-CORS")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
 	t.Setenv("CORS_MAX_AGE", "30m")
 
@@ -214,14 +229,18 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, []string{"https://admin.example.com", "http://localhost:5173"}) {
 		t.Fatalf("unexpected cors origins: %#v", cfg.CORS.AllowOrigins)
 	}
-	if !reflect.DeepEqual(cfg.CORS.AllowHeaders, []string{"Content-Type", "Authorization", "X-Custom"}) {
-		t.Fatalf("unexpected cors allow headers: %#v", cfg.CORS.AllowHeaders)
+	wantCORSDefaults := DefaultCORSConfig()
+	if !reflect.DeepEqual(cfg.CORS.AllowHeaders, wantCORSDefaults.AllowHeaders) {
+		t.Fatalf("cors allow headers env must be ignored, got %#v", cfg.CORS.AllowHeaders)
 	}
-	if cfg.CORS.AllowCredentials {
-		t.Fatalf("expected cors credentials override to false")
+	if !reflect.DeepEqual(cfg.CORS.ExposeHeaders, wantCORSDefaults.ExposeHeaders) {
+		t.Fatalf("cors expose headers must stay default, got %#v", cfg.CORS.ExposeHeaders)
 	}
-	if cfg.CORS.MaxAge != 30*time.Minute {
-		t.Fatalf("expected cors max age 30m, got %s", cfg.CORS.MaxAge)
+	if cfg.CORS.AllowCredentials != wantCORSDefaults.AllowCredentials {
+		t.Fatalf("cors credentials env must be ignored, got %v", cfg.CORS.AllowCredentials)
+	}
+	if cfg.CORS.MaxAge != wantCORSDefaults.MaxAge {
+		t.Fatalf("cors max age env must be ignored, got %s", cfg.CORS.MaxAge)
 	}
 }
 
@@ -627,10 +646,40 @@ func deprecatedSchedulerPolicyEnvKeys() []string {
 	}
 }
 
-func TestDefaultCORSAllowsAcceptLanguage(t *testing.T) {
+func TestDefaultCORSConfigUsesCodeOwnedPolicy(t *testing.T) {
 	cfg := DefaultCORSConfig()
-	if !containsString(cfg.AllowHeaders, "Accept-Language") {
-		t.Fatalf("DefaultCORSConfig must allow Accept-Language, got %#v", cfg.AllowHeaders)
+
+	if !reflect.DeepEqual(cfg.AllowOrigins, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
+		t.Fatalf("unexpected default cors origins: %#v", cfg.AllowOrigins)
+	}
+	for _, origin := range []string{"http://localhost:5174", "http://127.0.0.1:5174"} {
+		if containsString(cfg.AllowOrigins, origin) {
+			t.Fatalf("default cors origins must not include %s: %#v", origin, cfg.AllowOrigins)
+		}
+	}
+	for _, header := range []string{
+		"Origin",
+		"Content-Type",
+		"Accept",
+		"Accept-Language",
+		"Authorization",
+		"platform",
+		"device-id",
+		"X-Trace-Id",
+		"X-Request-Id",
+	} {
+		if !containsString(cfg.AllowHeaders, header) {
+			t.Fatalf("DefaultCORSConfig must allow %s, got %#v", header, cfg.AllowHeaders)
+		}
+	}
+	if !reflect.DeepEqual(cfg.ExposeHeaders, []string{"X-Request-Id"}) {
+		t.Fatalf("unexpected default cors expose headers: %#v", cfg.ExposeHeaders)
+	}
+	if !cfg.AllowCredentials {
+		t.Fatalf("expected default cors credentials to be true")
+	}
+	if cfg.MaxAge != 12*time.Hour {
+		t.Fatalf("expected default cors max age 12h, got %s", cfg.MaxAge)
 	}
 }
 
