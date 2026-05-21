@@ -9,11 +9,6 @@ const (
 	LogStatusSuccess = 1
 	LogStatusFailed  = 2
 	LogStatusRunning = 3
-
-	RegistryStatusRegistered  = "registered"
-	RegistryStatusMissing     = "missing"
-	RegistryStatusDisabled    = "disabled"
-	RegistryStatusInvalidCron = "invalid_cron"
 )
 
 type Task struct {

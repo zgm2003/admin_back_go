@@ -1,12 +1,11 @@
 package crontask
 
 type listRequest struct {
-	CurrentPage    int    `form:"current_page" binding:"required,min=1"`
-	PageSize       int    `form:"page_size" binding:"required,min=1,max=50"`
-	Title          string `form:"title" binding:"max=100"`
-	Name           string `form:"name" binding:"max=100"`
-	Status         *int   `form:"status" binding:"omitempty,common_status"`
-	RegistryStatus string `form:"registry_status" binding:"omitempty,oneof=registered missing disabled invalid_cron"`
+	CurrentPage int    `form:"current_page" binding:"required,min=1"`
+	PageSize    int    `form:"page_size" binding:"required,min=1,max=50"`
+	Title       string `form:"title" binding:"max=100"`
+	Name        string `form:"name" binding:"max=100"`
+	Status      *int   `form:"status" binding:"omitempty,common_status"`
 }
 
 type saveRequest struct {

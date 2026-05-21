@@ -767,9 +767,11 @@ scheduler callback 只写 cron_task_log 并 enqueue Asynq task
 ```text
 notification_task_scheduler -> notification:dispatch-due:v1
 ai_run_timeout -> ai:run-timeout:v1
+payment_sync_pending_order -> payment:sync-pending-order:v1
+payment_close_expired_order -> payment:close-expired-order:v1
 ```
 
-`cron_task.handler` 不允许按字符串动态执行 handler。已接入 Go registry 的任务必须保存/返回版本化 Asynq task type，例如：`notification_task_scheduler -> notification:dispatch-due:v1`、`ai_run_timeout -> ai:run-timeout:v1`。旧 class string 只允许在未迁 Go 的行上作为 legacy provenance/display，并且必须显示 `registry_status=missing` 或 `disabled`，不能注册假任务。当前 payment order Alipay pay v1 slice 只做手动 sync/close，不注册支付订单补偿任务。
+`cron_task.handler` 不允许按字符串动态执行 handler。已接入 Go registry 的任务必须保存/返回版本化 Asynq task type，例如：`notification_task_scheduler -> notification:dispatch-due:v1`、`ai_run_timeout -> ai:run-timeout:v1`、`payment_sync_pending_order -> payment:sync-pending-order:v1`、`payment_close_expired_order -> payment:close-expired-order:v1`。公共列表不再展示 registry status / legacy handler 迁移态；已废弃的 `clean_expired_contact_request` 通过 cleanup migration 从 active rows 软删除。当前 payment order Alipay pay v1 slice 的 scheduler 只负责充值完成补偿，不包含退款、对账、微信支付或业务履约。
 
 修改 cron_task 后当前不做 worker 热重载；需要重启 admin-worker。未来多 worker 部署再引入 scheduler lock/reload，不在 admin-api 里跑 cron。
 

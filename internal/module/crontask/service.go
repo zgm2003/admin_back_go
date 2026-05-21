@@ -39,8 +39,7 @@ func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 			{Label: "每小时", Value: "0 0 * * * *"},
 			{Label: "每天零点", Value: "0 0 0 * * *"},
 		},
-		CronTaskStatusArr:      dict.CommonStatusOptions(),
-		CronTaskRegistryStatus: registryStatusOptions(),
+		CronTaskStatusArr: dict.CommonStatusOptions(),
 		CronTaskLogStatusArr: []dict.Option[int]{
 			{Label: "成功", Value: LogStatusSuccess},
 			{Label: "失败", Value: LogStatusFailed},
@@ -58,16 +57,6 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if appErr != nil {
 		return nil, appErr
 	}
-	if query.RegistryStatus != "" {
-		rows, total, err := s.listByRegistryStatus(ctx, repo, query)
-		if err != nil {
-			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.query_failed", nil, "查询定时任务失败", err)
-		}
-		return &ListResponse{
-			List: s.listItemsFromTasks(rows),
-			Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
-		}, nil
-	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "crontask.query_failed", nil, "查询定时任务失败", err)
@@ -84,30 +73,6 @@ func (s *Service) listItemsFromTasks(rows []Task) []ListItem {
 		list = append(list, s.listItemFromTask(row))
 	}
 	return list
-}
-
-func (s *Service) listByRegistryStatus(ctx context.Context, repo Repository, query ListQuery) ([]Task, int64, error) {
-	rows, err := repo.ListAll(ctx, query)
-	if err != nil {
-		return nil, 0, err
-	}
-	filtered := make([]Task, 0, len(rows))
-	for _, row := range rows {
-		item := s.listItemFromTask(row)
-		if item.RegistryStatus == query.RegistryStatus {
-			filtered = append(filtered, row)
-		}
-	}
-	total := int64(len(filtered))
-	start := (query.CurrentPage - 1) * query.PageSize
-	if start >= len(filtered) {
-		return []Task{}, total, nil
-	}
-	end := start + query.PageSize
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-	return filtered[start:end], total, nil
 }
 
 func (s *Service) Create(ctx context.Context, input SaveInput) (*ListItem, *apperror.Error) {
@@ -255,10 +220,6 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	}
 	query.Title = strings.TrimSpace(query.Title)
 	query.Name = strings.TrimSpace(query.Name)
-	query.RegistryStatus = strings.TrimSpace(query.RegistryStatus)
-	if query.RegistryStatus != "" && !isRegistryStatus(query.RegistryStatus) {
-		return query, apperror.BadRequestKey("crontask.registry_status.invalid", nil, "无效的接入状态")
-	}
 	return query, nil
 }
 
@@ -321,26 +282,15 @@ func (s *Service) applyRegistryTaskType(input SaveInput) SaveInput {
 
 func (s *Service) listItemFromTask(row Task) ListItem {
 	entry, ok := s.registry.Lookup(row.Name)
-	registryStatus := RegistryStatusMissing
-	registryTaskType := ""
-	registryDescription := ""
 	handler := row.Handler
-	if row.Status == CommonNo {
-		registryStatus = RegistryStatusDisabled
-	} else if !isValidCronExpression(row.Cron) {
-		registryStatus = RegistryStatusInvalidCron
-	} else if ok {
-		registryStatus = RegistryStatusRegistered
-		registryTaskType = entry.TaskType
-		registryDescription = entry.Description
+	if ok {
 		handler = entry.TaskType
 	}
 	return ListItem{
 		ID: row.ID, Name: row.Name, Title: row.Title, Description: row.Description,
 		Cron: row.Cron, CronReadable: row.CronReadable, Handler: handler,
 		Status: row.Status, StatusName: statusName(row.Status), NextRunTime: nextRunTime(row.Cron),
-		RegistryStatus: registryStatus, RegistryStatusText: registryStatusName(registryStatus), RegistryTaskType: registryTaskType,
-		RegistryDescription: registryDescription, CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
 }
 
@@ -372,21 +322,6 @@ func statusName(status int) string {
 	}
 }
 
-func registryStatusName(status string) string {
-	switch status {
-	case RegistryStatusRegistered:
-		return "已接入"
-	case RegistryStatusMissing:
-		return "未接入"
-	case RegistryStatusDisabled:
-		return "已禁用"
-	case RegistryStatusInvalidCron:
-		return "表达式错误"
-	default:
-		return "未知"
-	}
-}
-
 func logStatusName(status int) string {
 	switch status {
 	case LogStatusSuccess:
@@ -397,15 +332,6 @@ func logStatusName(status int) string {
 		return "执行中"
 	default:
 		return "未知"
-	}
-}
-
-func isRegistryStatus(status string) bool {
-	switch status {
-	case RegistryStatusRegistered, RegistryStatusMissing, RegistryStatusDisabled, RegistryStatusInvalidCron:
-		return true
-	default:
-		return false
 	}
 }
 
@@ -430,15 +356,6 @@ func nextRunTime(expression string) string {
 		return enum.DefaultNull
 	}
 	return enum.DefaultNull
-}
-
-func registryStatusOptions() []dict.Option[string] {
-	return []dict.Option[string]{
-		{Label: registryStatusName(RegistryStatusRegistered), Value: RegistryStatusRegistered},
-		{Label: registryStatusName(RegistryStatusMissing), Value: RegistryStatusMissing},
-		{Label: registryStatusName(RegistryStatusDisabled), Value: RegistryStatusDisabled},
-		{Label: registryStatusName(RegistryStatusInvalidCron), Value: RegistryStatusInvalidCron},
-	}
 }
 
 func optionalTime(value *time.Time) *string {

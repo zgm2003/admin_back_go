@@ -2,6 +2,7 @@ package crontask
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -10,14 +11,13 @@ import (
 	"admin_back_go/internal/module/payment"
 )
 
-func TestServiceListDecoratesRegistryStatus(t *testing.T) {
+func TestServiceListReturnsTaskTypeForKnownGoCronTasks(t *testing.T) {
 	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
 	repo := &fakeRepository{
 		tasks: []Task{
-			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
+			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Handler: "app\\process\\NotificationTaskScheduler", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 			{ID: 2, Name: "payment_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, Handler: "app\\process\\Pay\\PaymentCloseExpiredOrderTask", CreatedAt: now, UpdatedAt: now},
-			{ID: 3, Name: "disabled_task", Title: "禁用任务", Cron: "0 * * * * *", Status: CommonNo, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 4, Name: "bad_cron", Title: "错误表达式", Cron: "bad", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
+			{ID: 3, Name: "demo_unknown_task", Title: "未知任务", Cron: "0 * * * * *", Handler: "app\\process\\DemoTask", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
 		},
 	}
 	service := NewService(repo, NewDefaultRegistry())
@@ -26,13 +26,18 @@ func TestServiceListDecoratesRegistryStatus(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
-	if len(res.List) != 4 {
-		t.Fatalf("expected 4 items, got %#v", res.List)
+	if len(res.List) != 3 {
+		t.Fatalf("expected 3 items, got %#v", res.List)
 	}
-	assertStatus(t, res.List[0], RegistryStatusRegistered)
-	assertStatus(t, res.List[1], RegistryStatusRegistered)
-	assertStatus(t, res.List[2], RegistryStatusDisabled)
-	assertStatus(t, res.List[3], RegistryStatusInvalidCron)
+	if res.List[0].Handler != notificationtask.TypeDispatchDueV1 {
+		t.Fatalf("notification cron must expose task type as handler, got %#v", res.List[0])
+	}
+	if res.List[1].Handler != payment.TypeCloseExpiredOrderV1 {
+		t.Fatalf("payment cron must expose task type as handler, got %#v", res.List[1])
+	}
+	if res.List[2].Handler != "app\\process\\DemoTask" {
+		t.Fatalf("unknown task should preserve stored handler, got %#v", res.List[2])
+	}
 }
 
 func TestServiceListUsesGoTaskTypeForRegisteredTaskHandler(t *testing.T) {
@@ -60,34 +65,47 @@ func TestServiceListUsesGoTaskTypeForRegisteredTaskHandler(t *testing.T) {
 		t.Fatalf("expected one item, got %#v", res.List)
 	}
 	item := res.List[0]
-	if item.RegistryTaskType != notificationtask.TypeDispatchDueV1 {
-		t.Fatalf("expected registry_task_type=%s, got %#v", notificationtask.TypeDispatchDueV1, item)
-	}
 	if item.Handler != notificationtask.TypeDispatchDueV1 {
 		t.Fatalf("registered Go cron task must expose Go task type as handler, got %#v", item)
 	}
 }
 
-func TestServiceListFiltersRegistryStatusBeforePagingAndTotal(t *testing.T) {
-	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
+func TestServiceListItemsExposeTaskTypeWithoutRegistryPresentationFields(t *testing.T) {
+	now := time.Date(2026, 5, 21, 16, 30, 0, 0, time.Local)
 	repo := &fakeRepository{
-		tasks: []Task{
-			{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 2, Name: "payment_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-			{ID: 3, Name: "legacy_missing_payment_task", Title: "遗留缺失支付任务", Cron: "0 0 2 * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-		},
+		tasks: []Task{{
+			ID:        1,
+			Name:      "notification_task_scheduler",
+			Title:     "通知任务调度器",
+			Cron:      "0 * * * * *",
+			Handler:   "app\\process\\NotificationTaskScheduler",
+			Status:    CommonYes,
+			IsDel:     CommonNo,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
 	}
 	service := NewService(repo, NewDefaultRegistry())
 
-	res, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 1, RegistryStatus: RegistryStatusMissing})
+	res, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
 	if appErr != nil {
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
-	if len(res.List) != 1 || res.Page.Total != 1 || res.Page.TotalPage != 1 {
-		t.Fatalf("expected registry_status filter before paging, got list=%#v page=%#v", res.List, res.Page)
+	payload, err := json.Marshal(res.List[0])
+	if err != nil {
+		t.Fatalf("marshal list item: %v", err)
 	}
-	if res.List[0].Name != "legacy_missing_payment_task" {
-		t.Fatalf("unexpected first missing task after paging: %#v", res.List[0])
+	var item map[string]any
+	if err := json.Unmarshal(payload, &item); err != nil {
+		t.Fatalf("unmarshal list item: %v", err)
+	}
+	if item["handler"] != notificationtask.TypeDispatchDueV1 {
+		t.Fatalf("registered cron task must expose task type as handler, got %#v", item["handler"])
+	}
+	for _, key := range []string{"registry_status", "registry_status_text", "registry_task_type", "registry_description"} {
+		if _, ok := item[key]; ok {
+			t.Fatalf("list item must not expose migration-era field %s: %#v", key, item)
+		}
 	}
 }
 
@@ -113,10 +131,7 @@ func TestServiceListTreatsPaymentOrderCronAsRegisteredInCompletionSlice(t *testi
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
 	item := res.List[0]
-	if item.RegistryStatus != RegistryStatusRegistered {
-		t.Fatalf("payment order cron must be registered now, got %#v", item)
-	}
-	if item.RegistryTaskType != payment.TypeCloseExpiredOrderV1 || item.Handler != payment.TypeCloseExpiredOrderV1 {
+	if item.Handler != payment.TypeCloseExpiredOrderV1 {
 		t.Fatalf("registered payment task must expose Go task type, got %#v", item)
 	}
 }
@@ -143,10 +158,7 @@ func TestServiceListTreatsOldPayCronNamesAsMissing(t *testing.T) {
 		t.Fatalf("List returned appErr: %v", appErr)
 	}
 	item := res.List[0]
-	if item.RegistryStatus != RegistryStatusMissing {
-		t.Fatalf("old pay cron task must be missing after payment rebuild, got %#v", item)
-	}
-	if item.RegistryTaskType != "" || item.Handler != "app\\process\\Pay\\PayFulfillmentRetryTask" {
+	if item.Handler != "app\\process\\Pay\\PayFulfillmentRetryTask" {
 		t.Fatalf("missing old pay task must preserve legacy handler only, got %#v", item)
 	}
 }
@@ -199,13 +211,6 @@ func TestServiceLogsMapsStatusAndDates(t *testing.T) {
 	}
 }
 
-func assertStatus(t *testing.T, item ListItem, want string) {
-	t.Helper()
-	if item.RegistryStatus != want {
-		t.Fatalf("task %s expected registry_status=%s, got %#v", item.Name, want, item)
-	}
-}
-
 type fakeRepository struct {
 	tasks       []Task
 	logs        []TaskLog
@@ -226,9 +231,6 @@ type fakeEndedLog struct {
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Task, int64, error) {
 	return f.tasks, int64(len(f.tasks)), f.err
-}
-func (f *fakeRepository) ListAll(ctx context.Context, query ListQuery) ([]Task, error) {
-	return f.tasks, f.err
 }
 func (f *fakeRepository) NameExists(ctx context.Context, name string, excludeID int64) (bool, error) {
 	return f.nameExists, f.err

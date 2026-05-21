@@ -1,6 +1,9 @@
 package crontask
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"admin_back_go/internal/module/aichat"
@@ -79,6 +82,32 @@ func TestDefaultRegistryDoesNotKeepOldPayCronNames(t *testing.T) {
 	for _, name := range oldNames {
 		if entry, ok := registry.Lookup(name); ok {
 			t.Fatalf("old pay cron %s must not stay registered: %#v", name, entry)
+		}
+	}
+}
+
+func TestCleanupMigrationSoftDeletesContactRequestCron(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "database", "migrations", "20260521_cron_task_active_cleanup.sql")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected cleanup migration %s: %v", path, err)
+	}
+	source := string(data)
+	for _, want := range []string{
+		"clean_expired_contact_request",
+		"status` = 2",
+		"is_del` = 1",
+		"ai_run_timeout",
+		"ai:run-timeout:v1",
+		"notification_task_scheduler",
+		"notification:dispatch-due:v1",
+		"payment_sync_pending_order",
+		"payment:sync-pending-order:v1",
+		"payment_close_expired_order",
+		"payment:close-expired-order:v1",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("cleanup migration must contain %q, got:\n%s", want, source)
 		}
 	}
 }

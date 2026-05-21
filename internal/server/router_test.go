@@ -1004,7 +1004,7 @@ func (f *fakeRouterCronTaskService) Init(ctx context.Context) (*crontask.InitRes
 func (f *fakeRouterCronTaskService) List(ctx context.Context, query crontask.ListQuery) (*crontask.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &crontask.ListResponse{
-		List: []crontask.ListItem{{ID: 1, Name: "notification_task_scheduler", RegistryStatus: crontask.RegistryStatusRegistered}},
+		List: []crontask.ListItem{{ID: 1, Name: "notification_task_scheduler", Handler: "notification:dispatch-due:v1"}},
 		Page: crontask.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
@@ -1036,9 +1036,6 @@ type fakeCronTaskRepositoryForRouter struct{}
 
 func (fakeCronTaskRepositoryForRouter) List(ctx context.Context, query crontask.ListQuery) ([]crontask.Task, int64, error) {
 	return nil, 0, nil
-}
-func (fakeCronTaskRepositoryForRouter) ListAll(ctx context.Context, query crontask.ListQuery) ([]crontask.Task, error) {
-	return nil, nil
 }
 func (fakeCronTaskRepositoryForRouter) NameExists(ctx context.Context, name string, excludeID int64) (bool, error) {
 	return false, nil
@@ -2654,13 +2651,13 @@ func TestRouterInstallsCronTaskRESTRoutes(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks?current_page=1&page_size=20&status=1&registry_status=registered&title=通知", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks?current_page=1&page_size=20&status=1&title=通知", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected cron task list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if cronTaskService.listQuery.CurrentPage != 1 || cronTaskService.listQuery.PageSize != 20 || cronTaskService.listQuery.RegistryStatus != crontask.RegistryStatusRegistered || cronTaskService.listQuery.Title != "通知" {
+	if cronTaskService.listQuery.CurrentPage != 1 || cronTaskService.listQuery.PageSize != 20 || cronTaskService.listQuery.Title != "通知" {
 		t.Fatalf("cron task list query mismatch: %#v", cronTaskService.listQuery)
 	}
 

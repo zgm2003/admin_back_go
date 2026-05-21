@@ -40,7 +40,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("crontask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Name: req.Name, Status: req.Status, RegistryStatus: req.RegistryStatus})
+	result, appErr := h.service.List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Name: req.Name, Status: req.Status})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

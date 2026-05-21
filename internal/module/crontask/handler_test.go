@@ -71,12 +71,12 @@ func TestCronTaskHandlerInitAndList(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks?current_page=1&page_size=20&status=1&registry_status=registered&title=通知&name=notification", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks?current_page=1&page_size=20&status=1&title=通知&name=notification", nil)
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if service.listQuery.CurrentPage != 1 || service.listQuery.PageSize != 20 || service.listQuery.Status == nil || *service.listQuery.Status != enum.CommonYes || service.listQuery.RegistryStatus != RegistryStatusRegistered || service.listQuery.Title != "通知" || service.listQuery.Name != "notification" {
+	if service.listQuery.CurrentPage != 1 || service.listQuery.PageSize != 20 || service.listQuery.Status == nil || *service.listQuery.Status != enum.CommonYes || service.listQuery.Title != "通知" || service.listQuery.Name != "notification" {
 		t.Fatalf("unexpected list query: %#v", service.listQuery)
 	}
 }

@@ -37,7 +37,6 @@ func TestCronTaskCatalogKeysMatch(t *testing.T) {
 		"crontask.logs_query_failed",
 		"crontask.current_page.invalid",
 		"crontask.page_size.invalid",
-		"crontask.registry_status.invalid",
 		"crontask.log_status.invalid",
 		"crontask.name.invalid",
 		"crontask.title.invalid",
@@ -121,7 +120,6 @@ func TestCronTaskNormalizeErrorsUseMessageIDs(t *testing.T) {
 		{name: "current page", query: ListQuery{CurrentPage: 0, PageSize: 20}, want: "crontask.current_page.invalid"},
 		{name: "page size", query: ListQuery{CurrentPage: 1, PageSize: 0}, want: "crontask.page_size.invalid"},
 		{name: "status", query: ListQuery{CurrentPage: 1, PageSize: 20, Status: &status}, want: "crontask.status.invalid"},
-		{name: "registry status", query: ListQuery{CurrentPage: 1, PageSize: 20, RegistryStatus: "lost"}, want: "crontask.registry_status.invalid"},
 	}
 	for _, tt := range listCases {
 		t.Run("list "+tt.name, func(t *testing.T) {

@@ -9,12 +9,11 @@ import (
 )
 
 type ListQuery struct {
-	CurrentPage    int
-	PageSize       int
-	Title          string
-	Name           string
-	Status         *int
-	RegistryStatus string
+	CurrentPage int
+	PageSize    int
+	Title       string
+	Name        string
+	Status      *int
 }
 
 type LogsQuery struct {
@@ -48,10 +47,9 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	CronPresetArr          []dict.Option[string] `json:"cron_preset_arr"`
-	CronTaskStatusArr      []dict.Option[int]    `json:"cron_task_status_arr"`
-	CronTaskRegistryStatus []dict.Option[string] `json:"cron_task_registry_status_arr"`
-	CronTaskLogStatusArr   []dict.Option[int]    `json:"cron_task_log_status_arr"`
+	CronPresetArr        []dict.Option[string] `json:"cron_preset_arr"`
+	CronTaskStatusArr    []dict.Option[int]    `json:"cron_task_status_arr"`
+	CronTaskLogStatusArr []dict.Option[int]    `json:"cron_task_log_status_arr"`
 }
 
 type ListResponse struct {
@@ -60,22 +58,18 @@ type ListResponse struct {
 }
 
 type ListItem struct {
-	ID                  int64  `json:"id"`
-	Name                string `json:"name"`
-	Title               string `json:"title"`
-	Description         string `json:"description"`
-	Cron                string `json:"cron"`
-	CronReadable        string `json:"cron_readable"`
-	Handler             string `json:"handler"`
-	Status              int    `json:"status"`
-	StatusName          string `json:"status_name"`
-	NextRunTime         string `json:"next_run_time"`
-	RegistryStatus      string `json:"registry_status"`
-	RegistryStatusText  string `json:"registry_status_text"`
-	RegistryTaskType    string `json:"registry_task_type"`
-	RegistryDescription string `json:"registry_description"`
-	CreatedAt           string `json:"created_at"`
-	UpdatedAt           string `json:"updated_at"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Cron         string `json:"cron"`
+	CronReadable string `json:"cron_readable"`
+	Handler      string `json:"handler"`
+	Status       int    `json:"status"`
+	StatusName   string `json:"status_name"`
+	NextRunTime  string `json:"next_run_time"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type LogsResponse struct {

@@ -19,7 +19,6 @@ var (
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]Task, int64, error)
-	ListAll(ctx context.Context, query ListQuery) ([]Task, error)
 	NameExists(ctx context.Context, name string, excludeID int64) (bool, error)
 	Create(ctx context.Context, row Task) (int64, error)
 	Get(ctx context.Context, id int64) (*Task, error)
@@ -66,18 +65,6 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Task, int
 		return nil, 0, err
 	}
 	return rows, total, nil
-}
-
-func (r *GormRepository) ListAll(ctx context.Context, query ListQuery) ([]Task, error) {
-	db, err := r.requireDB()
-	if err != nil {
-		return nil, err
-	}
-	var rows []Task
-	if err := r.listQuery(db.WithContext(ctx), query).Order("id desc").Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
 }
 
 func (r *GormRepository) listQuery(db *gorm.DB, query ListQuery) *gorm.DB {

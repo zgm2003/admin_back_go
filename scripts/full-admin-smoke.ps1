@@ -2067,16 +2067,17 @@ function Assert-CronTaskInit($Response) {
 
   $presets = Get-ObjectArray $Response.data.dict.cron_preset_arr
   $statuses = Get-ObjectArray $Response.data.dict.cron_task_status_arr
-  $registryStatuses = Get-ObjectArray $Response.data.dict.cron_task_registry_status_arr
   $logStatuses = Get-ObjectArray $Response.data.dict.cron_task_log_status_arr
-  if ($presets.Count -le 0 -or $statuses.Count -ne 2 -or $registryStatuses.Count -ne 4 -or $logStatuses.Count -ne 3) {
+  if ($Response.data.dict.PSObject.Properties.Name -contains 'cron_task_registry_status_arr') {
+    throw "cron task init must not expose registry status dict: $($Response | ConvertTo-Json -Depth 12)"
+  }
+  if ($presets.Count -le 0 -or $statuses.Count -ne 2 -or $logStatuses.Count -ne 3) {
     throw "cron task init dict count mismatch: $($Response | ConvertTo-Json -Depth 12)"
   }
 
   return [pscustomobject]@{
     PresetCount = $presets.Count
     StatusCount = $statuses.Count
-    RegistryStatusCount = $registryStatuses.Count
     LogStatusCount = $logStatuses.Count
   }
 }
@@ -2088,16 +2089,15 @@ function Assert-CronTaskList($Response) {
     throw "cron task list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
 
-  $registeredNotification = $false
+  $notificationTaskTypeOK = $false
   $paymentCloseExpiredPresent = $false
   $paymentSyncPendingPresent = $false
-  $registeredPaymentCloseExpired = $false
-  $registeredPaymentSyncPending = $false
+  $paymentCloseExpiredTaskTypeOK = $false
+  $paymentSyncPendingTaskTypeOK = $false
   $paymentCloseExpiredTaskType = ''
   $paymentSyncPendingTaskType = ''
-  $registeredAIRunTimeout = $false
+  $aiRunTimeoutTaskTypeOK = $false
   $aiRunTimeoutTaskType = ''
-  $missingLegacy = $false
   $firstID = 0
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
     if ([int64]$item.id -le 0) {
@@ -2106,61 +2106,58 @@ function Assert-CronTaskList($Response) {
     if ([string]::IsNullOrWhiteSpace([string]$item.name) -or [string]::IsNullOrWhiteSpace([string]$item.title)) {
       throw "cron task item missing name/title: $($item | ConvertTo-Json -Depth 12)"
     }
-    if ([string]::IsNullOrWhiteSpace([string]$item.registry_status) -or [string]::IsNullOrWhiteSpace([string]$item.registry_status_text)) {
-      throw "cron task item missing registry status fields: $($item | ConvertTo-Json -Depth 12)"
+    foreach ($forbiddenField in @('registry_status', 'registry_status_text', 'registry_task_type', 'registry_description')) {
+      if ($item.PSObject.Properties.Name -contains $forbiddenField) {
+        throw "cron task item must not expose $forbiddenField: $($item | ConvertTo-Json -Depth 12)"
+      }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$item.handler)) {
+      throw "cron task item missing task type handler: $($item | ConvertTo-Json -Depth 12)"
     }
     if ($firstID -eq 0) { $firstID = [int64]$item.id }
-    if ([string]$item.name -eq 'notification_task_scheduler' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'notification:dispatch-due:v1' -or [string]$item.handler -ne 'notification:dispatch-due:v1') {
-        throw "notification cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]$item.name -eq 'notification_task_scheduler') {
+      if ([string]$item.handler -ne 'notification:dispatch-due:v1') {
+        throw "notification cron task must expose Go task type: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredNotification = $true
+      $notificationTaskTypeOK = $true
     }
     if ([string]$item.name -eq 'payment_close_expired_order') {
       $paymentCloseExpiredPresent = $true
-      if ([string]$item.registry_status -eq 'registered') {
-        if ([string]$item.registry_task_type -ne 'payment:close-expired-order:v1' -or [string]$item.handler -ne 'payment:close-expired-order:v1') {
-          throw "payment close-expired cron task must expose Go task type instead of legacy handler: $($item | ConvertTo-Json -Depth 12)"
-        }
-        $registeredPaymentCloseExpired = $true
-        $paymentCloseExpiredTaskType = [string]$item.registry_task_type
+      if ([string]$item.handler -ne 'payment:close-expired-order:v1') {
+        throw "payment close-expired cron task must expose Go task type: $($item | ConvertTo-Json -Depth 12)"
       }
+      $paymentCloseExpiredTaskTypeOK = $true
+      $paymentCloseExpiredTaskType = [string]$item.handler
     }
     if ([string]$item.name -eq 'payment_sync_pending_order') {
       $paymentSyncPendingPresent = $true
-      if ([string]$item.registry_status -eq 'registered') {
-        if ([string]$item.registry_task_type -ne 'payment:sync-pending-order:v1' -or [string]$item.handler -ne 'payment:sync-pending-order:v1') {
-          throw "payment sync-pending cron task must expose Go task type instead of legacy handler: $($item | ConvertTo-Json -Depth 12)"
-        }
-        $registeredPaymentSyncPending = $true
-        $paymentSyncPendingTaskType = [string]$item.registry_task_type
+      if ([string]$item.handler -ne 'payment:sync-pending-order:v1') {
+        throw "payment sync-pending cron task must expose Go task type: $($item | ConvertTo-Json -Depth 12)"
       }
+      $paymentSyncPendingTaskTypeOK = $true
+      $paymentSyncPendingTaskType = [string]$item.handler
     }
-    if ([string]$item.name -eq 'ai_run_timeout' -and [string]$item.registry_status -eq 'registered') {
-      if ([string]$item.registry_task_type -ne 'ai:run-timeout:v1' -or [string]$item.handler -ne 'ai:run-timeout:v1') {
-        throw "AI run timeout cron task must expose Go task type instead of legacy PHP handler: $($item | ConvertTo-Json -Depth 12)"
+    if ([string]$item.name -eq 'ai_run_timeout') {
+      if ([string]$item.handler -ne 'ai:run-timeout:v1') {
+        throw "AI run timeout cron task must expose Go task type: $($item | ConvertTo-Json -Depth 12)"
       }
-      $registeredAIRunTimeout = $true
-      $aiRunTimeoutTaskType = [string]$item.registry_task_type
-    }
-    if ([string]$item.registry_status -eq 'missing') {
-      $missingLegacy = $true
+      $aiRunTimeoutTaskTypeOK = $true
+      $aiRunTimeoutTaskType = [string]$item.handler
     }
   }
 
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
-    NotificationRegistered = $registeredNotification
+    NotificationTaskTypeOK = $notificationTaskTypeOK
     PaymentCloseExpiredPresent = $paymentCloseExpiredPresent
     PaymentSyncPendingPresent = $paymentSyncPendingPresent
-    PaymentCloseExpiredRegistered = $registeredPaymentCloseExpired
-    PaymentSyncPendingRegistered = $registeredPaymentSyncPending
+    PaymentCloseExpiredTaskTypeOK = $paymentCloseExpiredTaskTypeOK
+    PaymentSyncPendingTaskTypeOK = $paymentSyncPendingTaskTypeOK
     PaymentCloseExpiredTaskType = $paymentCloseExpiredTaskType
     PaymentSyncPendingTaskType = $paymentSyncPendingTaskType
-    AIRunTimeoutRegistered = $registeredAIRunTimeout
+    AIRunTimeoutTaskTypeOK = $aiRunTimeoutTaskTypeOK
     AIRunTimeoutTaskType = $aiRunTimeoutTaskType
-    MissingLegacyPresent = $missingLegacy
     FirstID = $firstID
   }
 }
@@ -3434,20 +3431,18 @@ func main() {
     notification_task_total = $notificationTaskListSummary.Total
     cron_task_init_code = $cronTaskInit.code
     cron_task_preset_count = $cronTaskInitSummary.PresetCount
-    cron_task_registry_status_count = $cronTaskInitSummary.RegistryStatusCount
     cron_task_list_code = $cronTaskList.code
     cron_task_list_count = $cronTaskListSummary.ListCount
     cron_task_total = $cronTaskListSummary.Total
-    cron_task_notification_registered = $cronTaskListSummary.NotificationRegistered
+    cron_task_notification_task_type_ok = $cronTaskListSummary.NotificationTaskTypeOK
     cron_task_payment_close_expired_present = $cronTaskListSummary.PaymentCloseExpiredPresent
     cron_task_payment_sync_pending_present = $cronTaskListSummary.PaymentSyncPendingPresent
-    cron_task_payment_close_expired_registered = $cronTaskListSummary.PaymentCloseExpiredRegistered
-    cron_task_payment_sync_pending_registered = $cronTaskListSummary.PaymentSyncPendingRegistered
+    cron_task_payment_close_expired_task_type_ok = $cronTaskListSummary.PaymentCloseExpiredTaskTypeOK
+    cron_task_payment_sync_pending_task_type_ok = $cronTaskListSummary.PaymentSyncPendingTaskTypeOK
     cron_task_payment_close_expired_type = $cronTaskListSummary.PaymentCloseExpiredTaskType
     cron_task_payment_sync_pending_type = $cronTaskListSummary.PaymentSyncPendingTaskType
-    cron_task_ai_run_timeout_registered = $cronTaskListSummary.AIRunTimeoutRegistered
+    cron_task_ai_run_timeout_task_type_ok = $cronTaskListSummary.AIRunTimeoutTaskTypeOK
     cron_task_ai_run_timeout_type = $cronTaskListSummary.AIRunTimeoutTaskType
-    cron_task_missing_legacy_present = $cronTaskListSummary.MissingLegacyPresent
     cron_task_logs_code = $cronTaskLogsCode
     cron_task_logs_count = $cronTaskLogsSummary.ListCount
     cron_task_logs_total = $cronTaskLogsSummary.Total

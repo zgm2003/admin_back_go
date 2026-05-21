@@ -17,7 +17,6 @@ crontask.delete_failed: 删除定时任务失败
 crontask.logs_query_failed: 查询定时任务日志失败
 crontask.current_page.invalid: 当前页无效
 crontask.page_size.invalid: 每页数量无效
-crontask.registry_status.invalid: 无效的接入状态
 crontask.log_status.invalid: 无效的日志状态
 crontask.name.invalid: 任务名称不能为空且不能超过100个字符
 crontask.title.invalid: 任务标题不能为空且不能超过100个字符
