@@ -17,6 +17,10 @@ func OK(c *gin.Context, data any) {
 	OKWithMessage(c, data, "ok")
 }
 
+func OKNull(c *gin.Context) {
+	writeOK(c, nil, "", nil, "ok")
+}
+
 func OKWithMessage(c *gin.Context, data any, message string) {
 	OKWithMessageKey(c, data, "", nil, message)
 }
@@ -25,6 +29,10 @@ func OKWithMessageKey(c *gin.Context, data any, messageID string, templateData m
 	if data == nil {
 		data = gin.H{}
 	}
+	writeOK(c, data, messageID, templateData, fallback)
+}
+
+func writeOK(c *gin.Context, data any, messageID string, templateData map[string]any, fallback string) {
 	message := fallback
 	if localized, localizeErr := projecti18n.Message(c, messageID, templateData, fallback); localizeErr == nil && localized != "" {
 		message = localized

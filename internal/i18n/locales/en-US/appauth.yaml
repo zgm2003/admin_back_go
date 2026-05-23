@@ -1,0 +1,4 @@
+appauth.login.request.invalid: Invalid login request
+appauth.login.service_missing: Login service is not configured
+appauth.login.result_invalid: Invalid login result
+appauth.user.service_missing: User service is not configured

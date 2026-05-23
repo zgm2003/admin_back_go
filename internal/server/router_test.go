@@ -217,6 +217,41 @@ func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.Stats
 
 type fakeRouterAIChatService struct{}
 
+type fakeAppRouterAuthService struct {
+	loginFn  func(context.Context, auth.LoginInput) (*auth.LoginResponse, *apperror.Error)
+	logoutFn func(context.Context, string) *apperror.Error
+}
+
+func (f *fakeAppRouterAuthService) Login(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
+	if f.loginFn != nil {
+		return f.loginFn(ctx, input)
+	}
+	return &auth.LoginResponse{AccessToken: "app-token"}, nil
+}
+
+func (f *fakeAppRouterAuthService) SendCode(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
+	return "", nil
+}
+
+func (f *fakeAppRouterAuthService) ForgetPassword(ctx context.Context, input auth.ForgetPasswordInput) *apperror.Error {
+	return nil
+}
+
+func (f *fakeAppRouterAuthService) LoginConfig(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
+	return &auth.LoginConfigResponse{}, nil
+}
+
+func (f *fakeAppRouterAuthService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
+	return &session.TokenResult{}, nil
+}
+
+func (f *fakeAppRouterAuthService) Logout(ctx context.Context, accessToken string) *apperror.Error {
+	if f.logoutFn != nil {
+		return f.logoutFn(ctx, accessToken)
+	}
+	return nil
+}
+
 type fakeAuthService struct{}
 
 func (fakeAuthService) Login(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
@@ -1745,6 +1780,101 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 	}
 	if _, ok := data["buttonCodes"]; !ok {
 		t.Fatalf("missing buttonCodes in users/me payload: %#v", data)
+	}
+}
+
+func TestRouterInstallsAppAuthRoutes(t *testing.T) {
+	var authInput auth.LoginInput
+	var tokenInput middleware.TokenInput
+	var logoutToken string
+	userService := &fakeRouterUserService{result: &user.InitResponse{
+		UserID:   7,
+		Username: "移动端用户",
+		Avatar:   "avatar.png",
+	}}
+	authService := &fakeAppRouterAuthService{
+		loginFn: func(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
+			authInput = input
+			return &auth.LoginResponse{UserID: 7, AccessToken: "app-token", ExpiresIn: 14400}, nil
+		},
+		logoutFn: func(ctx context.Context, accessToken string) *apperror.Error {
+			logoutToken = accessToken
+			return nil
+		},
+	}
+	router := newTestRouter(t, Dependencies{
+		AuthService: authService,
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			tokenInput = input
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 20, Platform: input.Platform}, nil
+		},
+		UserService: userService,
+	})
+
+	loginRecorder := httptest.NewRecorder()
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/login", strings.NewReader(`{"account":"15671628271","password":"123456"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRequest.Header.Set("device-id", "ios-1")
+	router.ServeHTTP(loginRecorder, loginRequest)
+
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())
+	}
+	if authInput.LoginAccount != "15671628271" || authInput.LoginType != auth.LoginTypePassword || authInput.Password != "123456" || authInput.Platform != enum.PlatformApp || authInput.DeviceID != "ios-1" {
+		t.Fatalf("unexpected app login input: %#v", authInput)
+	}
+	loginBody := decodeRouterBody(t, loginRecorder)
+	loginData := mustRouterData(t, loginBody)
+	if loginData["token"] != "app-token" {
+		t.Fatalf("expected app token response, got %#v", loginData)
+	}
+	loginUser, ok := loginData["user"].(map[string]any)
+	if !ok || loginUser["id"] != float64(7) || loginUser["nickname"] != "移动端用户" || loginUser["avatar"] != "avatar.png" {
+		t.Fatalf("unexpected app login user payload: %#v", loginData["user"])
+	}
+	if _, ok := loginData["access_token"]; ok {
+		t.Fatalf("app login response must not leak admin token field names: %#v", loginData)
+	}
+
+	meRecorder := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/app/v1/users/me", nil)
+	meRequest.Header.Set("Authorization", "Bearer app-token")
+	meRequest.Header.Set("device-id", "ios-1")
+	router.ServeHTTP(meRecorder, meRequest)
+	if meRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app users/me status %d, got %d body=%s", http.StatusOK, meRecorder.Code, meRecorder.Body.String())
+	}
+	if tokenInput.AccessToken != "app-token" || tokenInput.Platform != enum.PlatformApp || tokenInput.DeviceID != "ios-1" {
+		t.Fatalf("unexpected app token input: %#v", tokenInput)
+	}
+	if userService.input.UserID != 7 || userService.input.Platform != enum.PlatformApp {
+		t.Fatalf("unexpected app user service input: %#v", userService.input)
+	}
+	meBody := decodeRouterBody(t, meRecorder)
+	meData := mustRouterData(t, meBody)
+	if meData["id"] != float64(7) || meData["nickname"] != "移动端用户" || meData["avatar"] != "avatar.png" {
+		t.Fatalf("unexpected app users/me payload: %#v", meData)
+	}
+	if _, ok := meData["buttonCodes"]; ok {
+		t.Fatalf("app users/me response must not include admin RBAC fields: %#v", meData)
+	}
+
+	logoutRecorder := httptest.NewRecorder()
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/logout", nil)
+	logoutRequest.Header.Set("Authorization", "Bearer app-token")
+	router.ServeHTTP(logoutRecorder, logoutRequest)
+	if logoutRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app logout status %d, got %d body=%s", http.StatusOK, logoutRecorder.Code, logoutRecorder.Body.String())
+	}
+	if logoutToken != "app-token" {
+		t.Fatalf("expected app logout token app-token, got %q", logoutToken)
+	}
+	logoutBody := decodeRouterBody(t, logoutRecorder)
+	if logoutBody["code"] != float64(0) || logoutBody["msg"] != "ok" {
+		t.Fatalf("unexpected app logout response: %#v", logoutBody)
+	}
+	if _, ok := logoutBody["data"]; !ok || logoutBody["data"] != nil {
+		t.Fatalf("expected app logout data null, got %#v", logoutBody["data"])
 	}
 }
 

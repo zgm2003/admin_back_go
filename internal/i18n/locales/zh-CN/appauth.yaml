@@ -1,0 +1,4 @@
+appauth.login.request.invalid: 登录参数错误
+appauth.login.service_missing: 登录服务未配置
+appauth.login.result_invalid: 登录结果无效
+appauth.user.service_missing: 用户服务未配置

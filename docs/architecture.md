@@ -11,7 +11,7 @@ E:\admin_go\docs\architecture\05-development-quality-rules.md
 
 ## 当前阶段
 
-当前后端已经不是早期 admin core foundation。`admin_back_go` 是 Go active runtime：认证、RBAC、用户、日志、通知、邮件、上传、队列、定时任务、支付、AI、WebSocket realtime 等模块已经按 `docs/status/current-status.md` 分批落地。
+当前后端已经不是早期 admin core foundation。`admin_back_go` 是 Go active runtime：认证、RBAC、用户、App auth、日志、通知、邮件、上传、队列、定时任务、支付、AI、WebSocket realtime 等模块已经按 `docs/status/current-status.md` 分批落地。
 
 当前事实来源顺序：
 
@@ -57,7 +57,9 @@ route -> handler -> service -> repository -> model
 
 ## 模块家族
 
-`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
+`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/appauth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
+
+App 用户端 API 是独立命名空间，当前挂在 `/api/app/v1`，但仍复用同一套 auth/user/runtime 基建；它不是 admin API 的别名，也不是另一个框架层。
 
 新增模块必须回答：
 

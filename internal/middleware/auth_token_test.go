@@ -146,6 +146,33 @@ func TestAuthTokenAllowsCookieOnlyForConfiguredReadOnlyPath(t *testing.T) {
 	}
 }
 
+func TestAuthTokenDefaultsPlatformForAppAPIBearerRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var gotInput TokenInput
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
+			gotInput = input
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "app"}, nil
+		},
+	}))
+	router.GET("/api/app/v1/users/me", func(c *gin.Context) {
+		c.String(http.StatusOK, "me")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/app/v1/users/me", nil)
+	request.Header.Set("Authorization", "Bearer bearer-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if gotInput.Platform != "app" {
+		t.Fatalf("expected app API bearer request to default platform app, got %q", gotInput.Platform)
+	}
+}
+
 func TestAuthTokenDoesNotDefaultPlatformForBearerRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var gotInput TokenInput

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/enum"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
@@ -73,6 +74,9 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 		platform := c.GetHeader("platform")
 		if token.fromCookie && strings.TrimSpace(platform) == "" {
 			platform = strings.TrimSpace(cfg.CookieTokenPath.Platform)
+		}
+		if strings.TrimSpace(platform) == "" {
+			platform = defaultPlatformForPath(c.Request.URL.Path)
 		}
 
 		identity, err := cfg.Authenticator(c.Request.Context(), TokenInput{
@@ -144,6 +148,7 @@ func DefaultAuthSkipPaths() map[string]struct{} {
 		"/api/admin/v1/auth/forgot-password":          {},
 		"/api/admin/v1/auth/login":                    {},
 		"/api/admin/v1/auth/refresh":                  {},
+		"/api/app/v1/auth/login":                      {},
 		"/api/admin/v1/client-versions/current-check": {},
 		"/api/payment/callbacks/alipay":               {},
 		"/api/Users/getLoginConfig":                   {},
@@ -216,4 +221,11 @@ func matchesCookieTokenPath(path string, prefixes []string) bool {
 		}
 	}
 	return false
+}
+
+func defaultPlatformForPath(path string) string {
+	if strings.HasPrefix(path, "/api/app/v1/") || path == "/api/app/v1" {
+		return enum.PlatformApp
+	}
+	return ""
 }

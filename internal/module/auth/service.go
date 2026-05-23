@@ -293,7 +293,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (*LoginResponse, 
 		return nil, createErr
 	}
 	s.recordLoginAttemptForUser(ctx, user.ID, input, commonYes, "")
-	return loginResponseFromToken(result, isNewUser), nil
+	return loginResponseFromToken(result, user.ID, isNewUser), nil
 }
 
 func (s *Service) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
@@ -314,19 +314,21 @@ func (s *Service) loginByPassword(ctx context.Context, input LoginInput) (*UserC
 	if input.Password == "" {
 		return nil, apperror.BadRequest("请输入密码")
 	}
-	if input.CaptchaID == "" || input.CaptchaAnswer == nil {
-		return nil, apperror.BadRequest("请完成验证码")
-	}
-	if s.captchaVerifier == nil {
-		return nil, apperror.Internal("验证码服务未配置")
-	}
-	if appErr := s.captchaVerifier.Verify(ctx, captcha.VerifyInput{
-		ID:        input.CaptchaID,
-		Answer:    input.CaptchaAnswer,
-		ClientIP:  input.ClientIP,
-		UserAgent: input.UserAgent,
-	}); appErr != nil {
-		return nil, appErr
+	if passwordLoginRequiresCaptcha(input.Platform) {
+		if input.CaptchaID == "" || input.CaptchaAnswer == nil {
+			return nil, apperror.BadRequest("请完成验证码")
+		}
+		if s.captchaVerifier == nil {
+			return nil, apperror.Internal("验证码服务未配置")
+		}
+		if appErr := s.captchaVerifier.Verify(ctx, captcha.VerifyInput{
+			ID:        input.CaptchaID,
+			Answer:    input.CaptchaAnswer,
+			ClientIP:  input.ClientIP,
+			UserAgent: input.UserAgent,
+		}); appErr != nil {
+			return nil, appErr
+		}
 	}
 
 	user, appErr := s.findCredential(ctx, input.LoginAccount)
@@ -347,6 +349,10 @@ func (s *Service) loginByPassword(ctx context.Context, input LoginInput) (*UserC
 		return nil, apperror.BadRequest("账号或密码错误")
 	}
 	return user, nil
+}
+
+func passwordLoginRequiresCaptcha(platform string) bool {
+	return !strings.EqualFold(strings.TrimSpace(platform), enum.PlatformApp)
 }
 
 func (s *Service) loginByCode(ctx context.Context, input LoginInput) (*UserCredential, bool, *apperror.Error) {

@@ -42,6 +42,7 @@ type ForgetPasswordInput struct {
 }
 
 type LoginResponse struct {
+	UserID           int64  `json:"-"`
 	AccessToken      string `json:"access_token"`
 	RefreshToken     string `json:"refresh_token"`
 	ExpiresIn        int    `json:"expires_in"`
@@ -51,11 +52,12 @@ type LoginResponse struct {
 
 type RefreshResponse = session.TokenResult
 
-func loginResponseFromToken(result *session.TokenResult, isNewUser bool) *LoginResponse {
+func loginResponseFromToken(result *session.TokenResult, userID int64, isNewUser bool) *LoginResponse {
 	if result == nil {
 		return nil
 	}
 	return &LoginResponse{
+		UserID:           userID,
 		AccessToken:      result.AccessToken,
 		RefreshToken:     result.RefreshToken,
 		ExpiresIn:        result.ExpiresIn,

@@ -300,6 +300,43 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 	}
 }
 
+func TestServiceAppPasswordLoginSkipsCaptchaAndReturnsUserID(t *testing.T) {
+	hash := phpBcryptHash(t, "123456")
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:           7,
+		PasswordHash: hash,
+		Status:       commonYes,
+		IsDel:        commonNo,
+	}}
+	sessions := &fakeSessionCreator{result: &session.TokenResult{
+		AccessToken: "app-token",
+		ExpiresIn:   14400,
+	}}
+	captchaVerifier := &fakeCaptchaVerifier{}
+	service := NewService(repo, fakeLoginTypeProvider{types: []string{"password"}}, sessions, captchaVerifier)
+
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePassword,
+		Password:     "123456",
+		Platform:     "app",
+		DeviceID:     "ios-1",
+	})
+
+	if appErr != nil {
+		t.Fatalf("expected app login to succeed without captcha, got %v", appErr)
+	}
+	if result.AccessToken != "app-token" || result.UserID != 7 {
+		t.Fatalf("unexpected app login result: %#v", result)
+	}
+	if captchaVerifier.input.ID != "" || captchaVerifier.input.Answer != nil {
+		t.Fatalf("app password login must not verify captcha, got %#v", captchaVerifier.input)
+	}
+	if sessions.input.UserID != 7 || sessions.input.Platform != "app" || sessions.input.DeviceID != "ios-1" {
+		t.Fatalf("unexpected app session input: %#v", sessions.input)
+	}
+}
+
 func TestServiceLoginEnqueuesSuccessfulLoginLogWhenProducerConfigured(t *testing.T) {
 	hash := phpBcryptHash(t, "123456")
 	repo := &fakeAuthRepository{credential: &UserCredential{
