@@ -315,7 +315,7 @@ func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *app
 	}
 	for _, userID := range normalizeIDs(userIDs) {
 		for _, platform := range s.platforms {
-			if err := s.cacheInvalidator.Delete(ctx, permission.ButtonCacheKey(userID, platform)); err != nil {
+			if err := s.cacheInvalidator.Delete(ctx, permission.RouteAccessCacheKey(userID, platform)); err != nil {
 				return apperror.Wrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
 			}
 		}
@@ -357,10 +357,10 @@ func normalizeAssignablePermissionIDs(ids []int64, permissions []permission.Perm
 		case permission.TypePage:
 			result[id] = struct{}{}
 		case permission.TypeButton:
-			result[id] = struct{}{}
 			parent, ok := permissionMap[row.ParentID]
 			if ok && parent.Type == permission.TypePage {
 				result[parent.ID] = struct{}{}
+				result[id] = struct{}{}
 			}
 		}
 	}

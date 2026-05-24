@@ -548,7 +548,7 @@ config.Redis -> platform/redisclient.Open -> *redis.Client
 session service -> token/session cache keys, using TokenRedis DB
 authplatform service -> auth_platforms policy read path
 captcha service -> go-captcha slide answer cache
-permission module -> RBAC button grant cache contract
+permission module -> RBAC route access grant cache contract
 ```
 
 当前只建立 Redis client 边界。默认 Redis 连接给通用缓存预留；TokenRedis 使用同一 Redis 地址和密码，但 DB 来自 `TOKEN_REDIS_DB`，默认 2，对齐旧 token 连接。
@@ -1079,26 +1079,26 @@ AuthToken -> user handler -> user service -> permission service -> repositories
 ```text
 handler 只读取 AuthIdentity，不读 DB/Redis
 service 不依赖 gin.Context
-permission service 只计算 permissions/router/buttonCodes
-button cache key 保持 auth_perm_uid_{userId}_{platform}_rbac_page_grants
-Redis button cache 写入是 best-effort，不影响 init 返回
-PermissionCheck 先验证 user/role，再按 button cache 命中优先，未命中才计算 RBAC context
-角色授权变更通过同一个 button grant cache contract 清理绑定用户缓存
+permission service 计算公开 permissions/router/buttonCodes 和内部 RouteAccessCodes
+route access grant cache key 保持 auth_perm_uid_{userId}_{platform}_rbac_route_access_grants
+Redis route access grant cache 写入是 best-effort，不影响 init 返回
+PermissionCheck 先验证 user/role，再按 route access grant cache 命中优先，未命中才计算 RBAC context
+角色授权变更通过同一个 route access grant cache contract 清理绑定用户缓存
 cache 是性能边界，不是权限真相源；miss 或 cache error 必须回源计算，不能放行
 ```
 
 ### RBAC truth table
 
-当前 Go RBAC 的真相源只有 MySQL 的 `users.role_id`、`roles`、`permissions`、`role_permissions`，Redis 只做 button grant 缓存。没有隐藏的 super admin 绕过逻辑；如果一个账号要拥有全部权限，就必须通过角色授权把对应 PAGE / BUTTON 授给它。
+当前 Go RBAC 的真相源只有 MySQL 的 `users.role_id`、`roles`、`permissions`、`role_permissions`，Redis 只做 route access grant 缓存。没有隐藏的 super admin 绕过逻辑；如果一个账号要拥有全部权限，就必须通过角色授权把对应 PAGE / BUTTON 授给它。
 
 | 场景 | Go 后端行为 | 前端行为 |
 | --- | --- | --- |
 | DIR 授权 | role 写入时不保存 DIR；service 只在 PAGE/BUTTON 向上解析祖先时带出 DIR | 只渲染后端返回的树，不自己补父级 |
-| PAGE 授权 | `permissions` tree + `router` 都包含该 PAGE；`buttonCodes` 不增加 | 动态路由来自 `router` |
-| BUTTON 授权 | service 自动包含父 PAGE 和祖先 DIR；`buttonCodes` 包含 BUTTON code | 按钮显隐只读 `userStore.can(code)`，也就是 `buttonCodes` |
+| PAGE 授权 | `permissions` tree + `router` 都包含该 PAGE；PAGE code 可进入内部 `RouteAccessCodes`；`buttonCodes` 不增加 | 动态路由来自 `router`，按钮显隐不能读 PAGE code |
+| BUTTON 授权 | service 自动包含父 PAGE 和祖先 DIR；内部 `RouteAccessCodes` 包含 BUTTON code；`buttonCodes` 只包含 BUTTON code | 按钮显隐只读 `userStore.can(code)`，也就是 `buttonCodes` |
 | `show_menu = 2` | 只保留在 menu item 上；不删除 `router`，不影响 PAGE 访问真相 | 可以隐藏菜单，但不能据此推断没有页面权限 |
-| role 权限变更 | `SyncPermissions` 做 grant/remove diff；变更后清理绑定用户的 `auth_perm_uid_{userId}_{platform}_rbac_page_grants` | 下次 `users/init` 以 Go 返回结果为准 |
-| PermissionCheck cache hit | 先验证 user 和 role 存在，再用缓存判断 button code | 前端不参与 API 放行 |
+| role 权限变更 | `SyncPermissions` 做 grant/remove diff；变更后清理绑定用户的 `auth_perm_uid_{userId}_{platform}_rbac_route_access_grants` | 下次 `users/init` 以 Go 返回结果为准 |
+| PermissionCheck cache hit | 先验证 user 和 role 存在，再用 Redis route access grant codes 判断 PAGE/BUTTON route metadata code | 前端不参与 API 放行 |
 | PermissionCheck cache miss/error | 回源计算 RBAC context；计算失败拒绝 | 前端不兜底 |
 | user/role 不存在 | fail-closed：401 或 403 | 重新登录或显示无权限 |
 | route metadata 未配置 | 不做权限检查；这是显式未保护，不是猜测放行 | 不反向定义后端权限 |
@@ -1125,7 +1125,7 @@ users/init 仍只做当前登录用户 bootstrap；用户管理页字典使用 u
 新契约只接受 address_id，不接受旧 address 别名。
 用户列表查询由 handler 做入参绑定，service 做业务归一化，repository 只负责 SQL。
 列表搜索默认使用 prefix LIKE，避免把 Go 重构写成全表模糊扫描。
-编辑 role_id 成功后清理该用户 admin/app 的 auth_perm_uid_{userId}_{platform}_rbac_page_grants 缓存。
+编辑 role_id 成功后清理该用户 admin/app 的 auth_perm_uid_{userId}_{platform}_rbac_route_access_grants 缓存。
 删除只做 users + user_profiles 软删除，不物理删数据。
 用户导出是用户模块动作：创建 `export_tasks` pending 记录后投递 `export:run:v1` 到 low queue；权限固定用 `user_userManager_export`，不能复用编辑权限。
 导出 worker 只在 payload 存 `task_id/kind/user_id/platform/ids`，重新读取用户数据后生成 xlsx；不把渲染后的 rows 塞进 Redis。
@@ -1188,7 +1188,7 @@ RBAC 数据迁移：
 database/migrations/20260505_add_notification_task_button_permissions.sql
 为通知管理页面补齐 system_notificationTask_add / cancel / del 三个 BUTTON 权限。
 迁移只给已经拥有 /system/notificationTask PAGE 权限的角色补按钮授权，不创建隐藏超级管理员绕过。
-执行后如果用户已有旧 RBAC button cache，需要等待 TTL 或删除 auth_perm_uid_{userId}_admin_rbac_page_grants 后重新计算。
+执行后如果用户已有旧 RBAC route access grant cache，需要等待 TTL 或删除 auth_perm_uid_{userId}_admin_rbac_route_access_grants 后重新计算。
 ```
 
 ## Profile + Avatar Upload Slice

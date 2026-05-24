@@ -232,6 +232,42 @@ func TestServiceListNormalizesRolePermissionIDsWithPageParents(t *testing.T) {
 	}
 }
 
+func TestNormalizeAssignablePermissionIDsKeepsOnlyActivePageAndButtonGrants(t *testing.T) {
+	const disabledStatus = 2
+	permissions := []permission.Permission{
+		{ID: 1, Type: permission.TypeDir, ParentID: permission.RootParentID, Status: permission.StatusActive, IsDel: permission.CommonNo},
+		{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
+		{ID: 3, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
+		{ID: 4, Type: permission.TypePage, ParentID: 1, Status: disabledStatus, IsDel: permission.CommonNo},
+		{ID: 5, Type: permission.TypeButton, ParentID: 4, Status: permission.StatusActive, IsDel: permission.CommonNo},
+		{ID: 6, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonYes},
+		{ID: 7, Type: permission.TypeButton, ParentID: 6, Status: permission.StatusActive, IsDel: permission.CommonNo},
+	}
+
+	tests := []struct {
+		name string
+		ids  []int64
+		want []int64
+	}{
+		{name: "page only keeps page", ids: []int64{2}, want: []int64{2}},
+		{name: "button implies parent page", ids: []int64{3}, want: []int64{2, 3}},
+		{name: "dir is ignored", ids: []int64{1}, want: []int64{}},
+		{name: "dir mixed with page and button is not persisted", ids: []int64{1, 3, 2}, want: []int64{2, 3}},
+		{name: "disabled page and child button are ignored", ids: []int64{4, 5}, want: []int64{}},
+		{name: "deleted page and child button are ignored", ids: []int64{6, 7}, want: []int64{}},
+		{name: "unknown and duplicate ids are removed", ids: []int64{999, 3, 3, 2}, want: []int64{2, 3}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeAssignablePermissionIDs(tt.ids, permissions)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("normalizeAssignablePermissionIDs(%#v) = %#v, want %#v", tt.ids, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestServiceCreateSyncsNormalizedPermissionsInTransaction(t *testing.T) {
 	repo := &fakeRepository{
 		createdRoleID: 22,
@@ -283,7 +319,7 @@ func TestServiceCreateRestoresSoftDeletedRoleName(t *testing.T) {
 	}
 }
 
-func TestServiceUpdateInvalidatesBoundUserButtonCaches(t *testing.T) {
+func TestServiceUpdateInvalidatesBoundUserRouteAccessGrantCaches(t *testing.T) {
 	repo := &fakeRepository{
 		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "客服", IsDefault: permission.CommonNo}},
 		permissions:      []permission.Permission{{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
@@ -298,10 +334,10 @@ func TestServiceUpdateInvalidatesBoundUserButtonCaches(t *testing.T) {
 		t.Fatalf("expected update to succeed, got %v", appErr)
 	}
 	wantKeys := []string{
-		"auth_perm_uid_101_admin_rbac_page_grants",
-		"auth_perm_uid_101_app_rbac_page_grants",
-		"auth_perm_uid_102_admin_rbac_page_grants",
-		"auth_perm_uid_102_app_rbac_page_grants",
+		"auth_perm_uid_101_admin_rbac_route_access_grants",
+		"auth_perm_uid_101_app_rbac_route_access_grants",
+		"auth_perm_uid_102_admin_rbac_route_access_grants",
+		"auth_perm_uid_102_app_rbac_route_access_grants",
 	}
 	if !reflect.DeepEqual(cache.keys, wantKeys) {
 		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)

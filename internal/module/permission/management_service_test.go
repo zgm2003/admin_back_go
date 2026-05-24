@@ -327,8 +327,8 @@ func TestServiceUpdateInvalidatesUsersGrantedChangedPermissionSubtree(t *testing
 		t.Fatalf("expected affected role ids to be queried, got %#v", repo.userRoleQueryIDs)
 	}
 	wantKeys := []string{
-		"auth_perm_uid_101_admin_rbac_page_grants",
-		"auth_perm_uid_102_admin_rbac_page_grants",
+		"auth_perm_uid_101_admin_rbac_route_access_grants",
+		"auth_perm_uid_102_admin_rbac_route_access_grants",
 	}
 	if !reflect.DeepEqual(cache.keys, wantKeys) {
 		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)
@@ -354,7 +354,7 @@ func TestServiceDeleteInvalidatesUsersBeforeRolePermissionLinksAreDeleted(t *tes
 	if !reflect.DeepEqual(repo.deleteIDs, []int64{2}) {
 		t.Fatalf("expected delete ids to reach repository, got %#v", repo.deleteIDs)
 	}
-	if !reflect.DeepEqual(cache.keys, []string{"auth_perm_uid_101_admin_rbac_page_grants"}) {
+	if !reflect.DeepEqual(cache.keys, []string{"auth_perm_uid_101_admin_rbac_route_access_grants"}) {
 		t.Fatalf("cache keys mismatch: %#v", cache.keys)
 	}
 }
@@ -376,7 +376,7 @@ func TestServiceChangeStatusInvalidatesUsersGrantedChangedPermissionSubtree(t *t
 	if !reflect.DeepEqual(repo.rolePermissionQueryIDs, []int64{2, 3}) {
 		t.Fatalf("expected cascade permission ids to be queried, got %#v", repo.rolePermissionQueryIDs)
 	}
-	if !reflect.DeepEqual(cache.keys, []string{"auth_perm_uid_101_admin_rbac_page_grants"}) {
+	if !reflect.DeepEqual(cache.keys, []string{"auth_perm_uid_101_admin_rbac_route_access_grants"}) {
 		t.Fatalf("cache keys mismatch: %#v", cache.keys)
 	}
 }

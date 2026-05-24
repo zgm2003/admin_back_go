@@ -11,21 +11,22 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisButtonGrantCache stores computed RBAC button grants by user and platform.
-type RedisButtonGrantCache struct {
+// RedisRouteAccessGrantCache stores computed RBAC route access grant codes by user and platform.
+// The cached value may contain PAGE codes and BUTTON codes; it is not the public users/init buttonCodes contract.
+type RedisRouteAccessGrantCache struct {
 	client *redisclient.Client
 }
 
-// NewRedisButtonGrantCache returns nil when Redis is not configured so callers can keep cache optional.
-func NewRedisButtonGrantCache(client *redisclient.Client) *RedisButtonGrantCache {
+// NewRedisRouteAccessGrantCache returns nil when Redis is not configured so callers can keep cache optional.
+func NewRedisRouteAccessGrantCache(client *redisclient.Client) *RedisRouteAccessGrantCache {
 	if client == nil || client.Redis == nil {
 		return nil
 	}
-	return &RedisButtonGrantCache{client: client}
+	return &RedisRouteAccessGrantCache{client: client}
 }
 
-// Get returns cached button grant codes. The bool is false on cache miss.
-func (c *RedisButtonGrantCache) Get(ctx context.Context, key string) ([]string, bool, error) {
+// Get returns cached route access grant codes. The bool is false on cache miss.
+func (c *RedisRouteAccessGrantCache) Get(ctx context.Context, key string) ([]string, bool, error) {
 	if c == nil || c.client == nil || c.client.Redis == nil {
 		return nil, false, nil
 	}
@@ -45,8 +46,8 @@ func (c *RedisButtonGrantCache) Get(ctx context.Context, key string) ([]string, 
 	return values, true, nil
 }
 
-// Set stores button grant codes with the supplied TTL.
-func (c *RedisButtonGrantCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
+// Set stores route access grant codes with the supplied TTL.
+func (c *RedisRouteAccessGrantCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
 	if c == nil || c.client == nil || c.client.Redis == nil {
 		return nil
 	}
@@ -57,8 +58,8 @@ func (c *RedisButtonGrantCache) Set(ctx context.Context, key string, values []st
 	return c.client.Redis.Set(ctx, key, payload, ttl).Err()
 }
 
-// Delete removes one cached button grant entry.
-func (c *RedisButtonGrantCache) Delete(ctx context.Context, key string) error {
+// Delete removes one cached route access grant entry.
+func (c *RedisRouteAccessGrantCache) Delete(ctx context.Context, key string) error {
 	if c == nil || c.client == nil || c.client.Redis == nil {
 		return nil
 	}

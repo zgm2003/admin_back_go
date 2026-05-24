@@ -103,7 +103,7 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 		grantedIDs: []int64{3},
 		perms: []Permission{
 			{ID: 1, Name: "系统", ParentID: 0, Type: TypeDir, Platform: "admin", Path: "/system", Icon: "setting", Sort: 20, ShowMenu: 1},
-			{ID: 2, Name: "用户", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/system/user", Component: "/system/user/index", Icon: "user", Sort: 10, ShowMenu: 2, I18nKey: "menu.user"},
+			{ID: 2, Name: "用户", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/system/user", Component: "/system/user/index", Code: "user_list", Icon: "user", Sort: 10, ShowMenu: 2, I18nKey: "menu.user"},
 			{ID: 3, Name: "新增", ParentID: 2, Type: TypeButton, Platform: "admin", Code: "user_add", Sort: 30},
 			{ID: 4, Name: "别的平台", ParentID: 0, Type: TypePage, Platform: "app", Path: "/app", Component: "/app/index", Sort: 1},
 		},
@@ -117,6 +117,9 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 	}
 	if !reflect.DeepEqual(got.ButtonCodes, []string{"user_add"}) {
 		t.Fatalf("buttonCodes mismatch: %#v", got.ButtonCodes)
+	}
+	if !reflect.DeepEqual(got.RouteAccessCodes, []string{"user_list", "user_add"}) {
+		t.Fatalf("routeAccessCodes must include PAGE code and BUTTON code, got %#v", got.RouteAccessCodes)
 	}
 	if len(got.Router) != 1 {
 		t.Fatalf("expected one route, got %#v", got.Router)
@@ -136,7 +139,7 @@ func TestServiceBuildContextAddsAncestorMenusRoutesAndButtonCodes(t *testing.T) 
 	}
 }
 
-func TestServiceBuildContextPageCodeIsButtonGrantForReadOnlyRoutes(t *testing.T) {
+func TestServiceBuildContextPageCodeIsRouteAccessCodeButNotButtonCode(t *testing.T) {
 	repo := &fakeRepository{
 		grantedIDs: []int64{2},
 		perms: []Permission{
@@ -151,8 +154,11 @@ func TestServiceBuildContextPageCodeIsButtonGrantForReadOnlyRoutes(t *testing.T)
 	if appErr != nil {
 		t.Fatalf("expected no app error, got %v", appErr)
 	}
-	if !reflect.DeepEqual(got.ButtonCodes, []string{"payment_config_list"}) {
-		t.Fatalf("page code must be usable by PermissionCheck, got %#v", got.ButtonCodes)
+	if len(got.ButtonCodes) != 0 {
+		t.Fatalf("PAGE code must not leak into public buttonCodes, got %#v", got.ButtonCodes)
+	}
+	if !reflect.DeepEqual(got.RouteAccessCodes, []string{"payment_config_list"}) {
+		t.Fatalf("PAGE code must remain available for PermissionCheck, got %#v", got.RouteAccessCodes)
 	}
 	if len(got.Router) != 1 || got.Router[0].Path != "/payment/config" {
 		t.Fatalf("expected page route to remain, got %#v", got.Router)
@@ -349,9 +355,9 @@ func TestServiceBuildContextWrapsRepositoryError(t *testing.T) {
 	}
 }
 
-func TestButtonCacheKey(t *testing.T) {
-	got := ButtonCacheKey(12, "admin")
-	want := "auth_perm_uid_12_admin_rbac_page_grants"
+func TestRouteAccessCacheKey(t *testing.T) {
+	got := RouteAccessCacheKey(12, "admin")
+	want := "auth_perm_uid_12_admin_rbac_route_access_grants"
 	if got != want {
 		t.Fatalf("cache key mismatch: got %q want %q", got, want)
 	}
@@ -359,7 +365,7 @@ func TestButtonCacheKey(t *testing.T) {
 
 func assertEmptyContext(t *testing.T, ctx Context) {
 	t.Helper()
-	if len(ctx.Permissions) != 0 || len(ctx.Router) != 0 || len(ctx.ButtonCodes) != 0 {
+	if len(ctx.Permissions) != 0 || len(ctx.Router) != 0 || len(ctx.ButtonCodes) != 0 || len(ctx.RouteAccessCodes) != 0 {
 		t.Fatalf("expected empty context, got %#v", ctx)
 	}
 }

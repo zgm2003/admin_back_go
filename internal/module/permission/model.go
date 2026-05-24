@@ -13,7 +13,7 @@ const (
 	RootParentID = 0
 	StatusActive = 1
 
-	ButtonCacheKeySchema = "rbac_page_grants"
+	RouteAccessCacheKeySchema = "rbac_route_access_grants"
 )
 
 type Permission struct {
@@ -49,9 +49,10 @@ func (RolePermission) TableName() string {
 }
 
 type Context struct {
-	Permissions []MenuItem  `json:"permissions"`
-	Router      []RouteItem `json:"router"`
-	ButtonCodes []string    `json:"buttonCodes"`
+	Permissions      []MenuItem  `json:"permissions"`
+	Router           []RouteItem `json:"router"`
+	ButtonCodes      []string    `json:"buttonCodes"`
+	RouteAccessCodes []string    `json:"-"`
 }
 
 type MenuItem struct {

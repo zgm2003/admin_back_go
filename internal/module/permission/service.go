@@ -299,7 +299,7 @@ func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *app
 	}
 	for _, userID := range normalizeIDs(userIDs) {
 		for _, platform := range s.platforms {
-			if err := s.cacheInvalidator.Delete(ctx, ButtonCacheKey(userID, platform)); err != nil {
+			if err := s.cacheInvalidator.Delete(ctx, RouteAccessCacheKey(userID, platform)); err != nil {
 				return apperror.Wrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
 			}
 		}
@@ -533,8 +533,8 @@ func (s *Service) assertExistingChildrenCompatible(ctx context.Context, permissi
 	return nil
 }
 
-func ButtonCacheKey(userID int64, platform string) string {
-	return fmt.Sprintf("auth_perm_uid_%d_%s_%s", userID, platform, ButtonCacheKeySchema)
+func RouteAccessCacheKey(userID int64, platform string) string {
+	return fmt.Sprintf("auth_perm_uid_%d_%s_%s", userID, platform, RouteAccessCacheKeySchema)
 }
 
 func permissionTypeOptions() []dict.Option[int] {
@@ -914,7 +914,8 @@ func resolveEnabledIDs(grantedIDs []int64, permMap map[int64]Permission) []int64
 		}
 
 		if valid {
-			for _, id := range path {
+			for i := len(path) - 1; i >= 0; i-- {
+				id := path[i]
 				include(id)
 			}
 		}
@@ -927,7 +928,20 @@ func buildContext(enabledIDs []int64, permMap map[int64]Permission) Context {
 	menus := make([]Permission, 0, len(enabledIDs))
 	router := make([]RouteItem, 0)
 	buttonCodes := make([]string, 0)
+	routeAccessCodes := make([]string, 0)
 	seenButton := map[string]struct{}{}
+	seenRouteAccess := map[string]struct{}{}
+	appendUniqueCode := func(target *[]string, seen map[string]struct{}, code string) {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			return
+		}
+		if _, ok := seen[code]; ok {
+			return
+		}
+		seen[code] = struct{}{}
+		*target = append(*target, code)
+	}
 
 	for _, id := range enabledIDs {
 		permission, ok := permMap[id]
@@ -935,11 +949,12 @@ func buildContext(enabledIDs []int64, permMap map[int64]Permission) Context {
 			continue
 		}
 
-		if (permission.Type == TypePage || permission.Type == TypeButton) && strings.TrimSpace(permission.Code) != "" {
-			if _, ok := seenButton[permission.Code]; !ok {
-				seenButton[permission.Code] = struct{}{}
-				buttonCodes = append(buttonCodes, permission.Code)
-			}
+		switch permission.Type {
+		case TypePage:
+			appendUniqueCode(&routeAccessCodes, seenRouteAccess, permission.Code)
+		case TypeButton:
+			appendUniqueCode(&buttonCodes, seenButton, permission.Code)
+			appendUniqueCode(&routeAccessCodes, seenRouteAccess, permission.Code)
 		}
 
 		if permission.Type == TypePage && strings.TrimSpace(permission.Path) != "" && strings.TrimSpace(permission.Component) != "" {
@@ -956,9 +971,10 @@ func buildContext(enabledIDs []int64, permMap map[int64]Permission) Context {
 	})
 
 	return Context{
-		Permissions: buildPermissionTree(menus),
-		Router:      router,
-		ButtonCodes: buttonCodes,
+		Permissions:      buildPermissionTree(menus),
+		Router:           router,
+		ButtonCodes:      buttonCodes,
+		RouteAccessCodes: routeAccessCodes,
 	}
 }
 

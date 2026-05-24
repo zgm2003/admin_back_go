@@ -267,16 +267,16 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		auth.WithLoginLogEnqueuer(loginLogEnqueuer),
 		auth.WithLogger(logger),
 	)
-	buttonGrantCache := permission.NewRedisButtonGrantCache(resources.Redis)
+	routeAccessGrantCache := permission.NewRedisRouteAccessGrantCache(resources.Redis)
 	permissionService := permission.NewService(
 		permission.NewGormRepository(resources.DB),
 		nil,
-		permission.WithCacheInvalidator(buttonGrantCache),
+		permission.WithCacheInvalidator(routeAccessGrantCache),
 	)
 	roleService := role.NewService(
 		role.NewGormRepository(resources.DB),
 		permissionService,
-		buttonGrantCache,
+		routeAccessGrantCache,
 		nil,
 	)
 	userRepository := user.NewGormRepository(resources.DB)
@@ -314,7 +314,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	userService := user.NewService(
 		userRepository,
 		permissionService,
-		buttonGrantCache,
+		routeAccessGrantCache,
 		0,
 		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		user.WithExportTaskCreator(exportTaskService),
@@ -333,7 +333,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		PermissionChecker: PermissionCheckerFor(
 			userRepository,
 			permissionService,
-			buttonGrantCache,
+			routeAccessGrantCache,
 			0,
 		),
 		PermissionRules:         permissionRouteRules(),

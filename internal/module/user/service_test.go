@@ -189,7 +189,7 @@ func (f *fakePermissionBuilder) BuildContextByRole(ctx context.Context, roleID i
 	return f.ctx, f.err
 }
 
-type fakeButtonCache struct {
+type fakeRouteAccessGrantCache struct {
 	called bool
 	key    string
 	values []string
@@ -197,7 +197,7 @@ type fakeButtonCache struct {
 	err    error
 }
 
-func (f *fakeButtonCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
+func (f *fakeRouteAccessGrantCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
 	f.called = true
 	f.key = key
 	f.values = values
@@ -205,7 +205,7 @@ func (f *fakeButtonCache) Set(ctx context.Context, key string, values []string, 
 	return f.err
 }
 
-func (f *fakeButtonCache) Delete(ctx context.Context, key string) error {
+func (f *fakeRouteAccessGrantCache) Delete(ctx context.Context, key string) error {
 	f.called = true
 	f.key = key
 	f.values = nil
@@ -240,13 +240,14 @@ func mustUserPasswordHash(t *testing.T, password string) string {
 	return hash
 }
 
-func TestServiceInitReturnsLegacyResponseAndCachesButtons(t *testing.T) {
+func TestServiceInitReturnsLegacyResponseAndCachesRouteAccess(t *testing.T) {
 	builder := &fakePermissionBuilder{ctx: permission.Context{
-		Permissions: []permission.MenuItem{{Index: "1", Label: "系统", Children: []permission.MenuItem{}}},
-		Router:      []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index", Meta: map[string]string{"menuId": "2"}}},
-		ButtonCodes: []string{"user_add"},
+		Permissions:      []permission.MenuItem{{Index: "1", Label: "系统", Children: []permission.MenuItem{}}},
+		Router:           []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index", Meta: map[string]string{"menuId": "2"}}},
+		ButtonCodes:      []string{"user_add"},
+		RouteAccessCodes: []string{"user_list", "user_add"},
 	}}
-	cache := &fakeButtonCache{}
+	cache := &fakeRouteAccessGrantCache{}
 	svc := NewService(&fakeUserRepository{
 		user:    &User{ID: 1, Username: "admin", RoleID: 7},
 		profile: &Profile{UserID: 1, Avatar: "avatar.png"},
@@ -271,17 +272,17 @@ func TestServiceInitReturnsLegacyResponseAndCachesButtons(t *testing.T) {
 	if builder.roleID != 7 || builder.platform != "admin" {
 		t.Fatalf("permission builder input mismatch: role=%d platform=%q", builder.roleID, builder.platform)
 	}
-	if cache.key != "auth_perm_uid_1_admin_rbac_page_grants" || !reflect.DeepEqual(cache.values, []string{"user_add"}) || cache.ttl != 30*time.Minute {
-		t.Fatalf("button cache mismatch: %#v", cache)
+	if cache.key != "auth_perm_uid_1_admin_rbac_route_access_grants" || !reflect.DeepEqual(cache.values, []string{"user_list", "user_add"}) || cache.ttl != 30*time.Minute {
+		t.Fatalf("route access cache mismatch: %#v", cache)
 	}
 }
 
-func TestServiceInitIgnoresButtonCacheFailure(t *testing.T) {
-	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}}}
+func TestServiceInitIgnoresRouteAccessGrantCacheFailure(t *testing.T) {
+	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}, RouteAccessCodes: []string{"user_list", "user_add"}}}
 	svc := NewService(&fakeUserRepository{
 		user: &User{ID: 1, Username: "admin", RoleID: 7},
 		role: &Role{ID: 7, Name: "管理员"},
-	}, builder, &fakeButtonCache{err: errors.New("redis down")}, time.Minute)
+	}, builder, &fakeRouteAccessGrantCache{err: errors.New("redis down")}, time.Minute)
 
 	_, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "admin"})
 
@@ -301,8 +302,8 @@ func TestServiceInitReturnsNotFoundWhenUserMissing(t *testing.T) {
 }
 
 func TestServiceInitSkipsPermissionBuildWhenRoleMissing(t *testing.T) {
-	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}}}
-	cache := &fakeButtonCache{}
+	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}, RouteAccessCodes: []string{"user_list", "user_add"}}}
+	cache := &fakeRouteAccessGrantCache{}
 	svc := NewService(&fakeUserRepository{
 		user:    &User{ID: 1, Username: "admin", RoleID: 7},
 		profile: &Profile{UserID: 1, Avatar: "avatar.png"},
@@ -319,7 +320,7 @@ func TestServiceInitSkipsPermissionBuildWhenRoleMissing(t *testing.T) {
 		t.Fatalf("expected permission builder to be skipped when role is missing")
 	}
 	if cache.called {
-		t.Fatalf("expected button cache write to be skipped when role is missing")
+		t.Fatalf("expected route access cache write to be skipped when role is missing")
 	}
 	if got.RoleName != "" || len(got.ButtonCodes) != 0 || len(got.Permissions) != 0 || len(got.Router) != 0 {
 		t.Fatalf("expected empty permission payload when role is missing, got %#v", got)
@@ -666,7 +667,7 @@ func TestServiceListFormatsUserRowsAndAddressPath(t *testing.T) {
 }
 
 func TestServiceUpdateUserProfileAndInvalidatesRoleCacheWhenRoleChanges(t *testing.T) {
-	cache := &fakeButtonCache{}
+	cache := &fakeRouteAccessGrantCache{}
 	repo := &fakeUserRepository{
 		user:      &User{ID: 9, Username: "old", RoleID: 1},
 		rolesByID: map[int64]*Role{2: {ID: 2, Name: "运营"}},
@@ -692,7 +693,7 @@ func TestServiceUpdateUserProfileAndInvalidatesRoleCacheWhenRoleChanges(t *testi
 	if repo.updatedProfileUserID != 9 || repo.updatedProfileFields["address_id"] != int64(3) || repo.updatedProfileFields["sex"] != enum.SexFemale {
 		t.Fatalf("profile update mismatch: %#v", repo.updatedProfileFields)
 	}
-	if cache.key != "auth_perm_uid_9_app_rbac_page_grants" {
+	if cache.key != "auth_perm_uid_9_app_rbac_route_access_grants" {
 		t.Fatalf("expected cache invalidation to visit sorted admin/app keys, last key=%q", cache.key)
 	}
 }

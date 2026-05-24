@@ -49,16 +49,16 @@ function Get-RedisDB() {
   return $env:REDIS_DB
 }
 
-function Clear-UserButtonCache([int64]$UserID, [string]$Platform) {
+function Clear-UserRouteAccessGrantCache([int64]$UserID, [string]$Platform) {
   if ($UserID -le 0) {
-    throw "invalid user id for button cache clear: $UserID"
+    throw "invalid user id for route access cache clear: $UserID"
   }
   if ([string]::IsNullOrWhiteSpace($Platform)) {
-    throw 'platform is required for button cache clear'
+    throw 'platform is required for route access cache clear'
   }
 
   New-Item -ItemType Directory -Force .tmp | Out-Null
-  $cacheCleaner = '.tmp/clear-user-button-cache.go'
+  $cacheCleaner = '.tmp/clear-user-route-access-cache.go'
   @"
 package main
 
@@ -73,7 +73,7 @@ import (
 
 func main() {
   if len(os.Args) != 3 {
-    fmt.Fprintln(os.Stderr, "usage: clear-user-button-cache <user-id> <platform>")
+    fmt.Fprintln(os.Stderr, "usage: clear-user-route-access-cache <user-id> <platform>")
     os.Exit(2)
   }
 
@@ -96,7 +96,7 @@ func main() {
   })
   defer client.Close()
 
-  key := fmt.Sprintf("auth_perm_uid_%d_%s_rbac_page_grants", userID, os.Args[2])
+  key := fmt.Sprintf("auth_perm_uid_%d_%s_rbac_route_access_grants", userID, os.Args[2])
   if err := client.Del(context.Background(), key).Err(); err != nil {
     fmt.Fprintln(os.Stderr, err)
     os.Exit(1)
@@ -1012,7 +1012,6 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $retiredWalletRootRoutePresent = Test-RoutePath $Response.data.router '/wallet'
   $oldPayCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'pay_'
   $oldChannelCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_channel_'
-  $orderListButtonPresent = $false
   $orderAddButtonPresent = $false
   $orderPayButtonPresent = $false
   $orderSyncButtonPresent = $false
@@ -1022,7 +1021,6 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $rechargeSyncButtonPresent = $false
   $rechargeCloseButtonPresent = $false
   foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
-    if ([string]$code -eq 'payment_order_list') { $orderListButtonPresent = $true }
     if ([string]$code -eq 'payment_order_add') { $orderAddButtonPresent = $true }
     if ([string]$code -eq 'payment_order_pay') { $orderPayButtonPresent = $true }
     if ([string]$code -eq 'payment_order_sync') { $orderSyncButtonPresent = $true }
@@ -1046,8 +1044,8 @@ function Assert-UsersInitPaymentRoutes($Response) {
   if (-not $rechargeAddButtonPresent -or -not $rechargePayButtonPresent -or -not $rechargeSyncButtonPresent -or -not $rechargeCloseButtonPresent) {
     throw "users/init payment recharge button gate mismatch: add=$rechargeAddButtonPresent pay=$rechargePayButtonPresent sync=$rechargeSyncButtonPresent close=$rechargeCloseButtonPresent"
   }
-  if (-not $orderListButtonPresent -or -not $orderPayButtonPresent -or -not $orderSyncButtonPresent -or -not $orderCloseButtonPresent) {
-    throw "users/init payment order button gate mismatch: list=$orderListButtonPresent pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
+  if (-not $orderPayButtonPresent -or -not $orderSyncButtonPresent -or -not $orderCloseButtonPresent) {
+    throw "users/init payment order button gate mismatch: pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
   }
 
   $configRoute = Get-RouteByPath $Response.data.router '/payment/config'
@@ -2810,7 +2808,7 @@ func main() {
 
   $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
   Assert-ApiOK $me 'full smoke users me'
-  Clear-UserButtonCache ([int64]$me.data.user_id) $Platform
+  Clear-UserRouteAccessGrantCache ([int64]$me.data.user_id) $Platform
 
   $usersInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" `
     -Headers $authHeaders `

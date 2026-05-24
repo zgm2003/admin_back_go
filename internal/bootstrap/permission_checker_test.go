@@ -39,7 +39,7 @@ func (f *fakePermissionContextBuilder) BuildContextByRole(ctx context.Context, r
 	return f.ctx, f.err
 }
 
-type fakePermissionButtonCache struct {
+type fakePermissionRouteAccessGrantCache struct {
 	getValues []string
 	getHit    bool
 	getErr    error
@@ -51,22 +51,22 @@ type fakePermissionButtonCache struct {
 	setErr    error
 }
 
-func (f *fakePermissionButtonCache) Get(ctx context.Context, key string) ([]string, bool, error) {
+func (f *fakePermissionRouteAccessGrantCache) Get(ctx context.Context, key string) ([]string, bool, error) {
 	f.getKey = key
 	return f.getValues, f.getHit, f.getErr
 }
 
-func (f *fakePermissionButtonCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
+func (f *fakePermissionRouteAccessGrantCache) Set(ctx context.Context, key string, values []string, ttl time.Duration) error {
 	f.setKey = key
 	f.setValues = values
 	f.setTTL = ttl
 	return f.setErr
 }
 
-func TestPermissionCheckerAllowsOwnedButtonCode(t *testing.T) {
+func TestPermissionCheckerAllowsOwnedRouteAccessCode(t *testing.T) {
 	checker := PermissionCheckerFor(
 		&fakePermissionUserRepository{user: &user.User{ID: 1, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
-		&fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}},
+		&fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"permission_permission_add"}}},
 		nil,
 		0,
 	)
@@ -82,10 +82,40 @@ func TestPermissionCheckerAllowsOwnedButtonCode(t *testing.T) {
 	}
 }
 
-func TestPermissionCheckerDeniesMissingButtonCode(t *testing.T) {
+func TestPermissionCheckerAllowsPageRouteAccessCode(t *testing.T) {
+	checker := PermissionCheckerFor(
+		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 3}, role: &user.Role{ID: 3}},
+		&fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{}, RouteAccessCodes: []string{"payment_config_list"}}},
+		nil,
+		0,
+	)
+
+	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 12, Platform: "admin", Code: "payment_config_list"})
+
+	if appErr != nil {
+		t.Fatalf("expected PAGE route access code to pass PermissionCheck, got %#v", appErr)
+	}
+}
+
+func TestPermissionCheckerAllowsButtonRouteAccessCode(t *testing.T) {
+	checker := PermissionCheckerFor(
+		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 3}, role: &user.Role{ID: 3}},
+		&fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"payment_config_edit"}, RouteAccessCodes: []string{"payment_config_list", "payment_config_edit"}}},
+		nil,
+		0,
+	)
+
+	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 12, Platform: "admin", Code: "payment_config_edit"})
+
+	if appErr != nil {
+		t.Fatalf("expected BUTTON route access code to pass PermissionCheck, got %#v", appErr)
+	}
+}
+
+func TestPermissionCheckerDeniesMissingRouteAccessCode(t *testing.T) {
 	checker := PermissionCheckerFor(
 		&fakePermissionUserRepository{user: &user.User{ID: 1, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
-		&fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"other"}}},
+		&fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"other"}}},
 		nil,
 		0,
 	)
@@ -113,7 +143,7 @@ func TestPermissionCheckerDoesNotFallbackWhenUserLookupFails(t *testing.T) {
 }
 
 func TestPermissionCheckerRejectsMissingUserWithoutBuildingContext(t *testing.T) {
-	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"permission_permission_add"}}}
 	checker := PermissionCheckerFor(
 		&fakePermissionUserRepository{user: nil, role: &user.Role{ID: 7, Name: "管理员"}},
 		builder,
@@ -133,7 +163,7 @@ func TestPermissionCheckerRejectsMissingUserWithoutBuildingContext(t *testing.T)
 
 func TestPermissionCheckerRejectsMissingRoleWithoutBuildingContext(t *testing.T) {
 	repo := &fakePermissionUserRepository{user: &user.User{ID: 1, RoleID: 7}, role: nil}
-	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"permission_permission_add"}}}
 	checker := PermissionCheckerFor(repo, builder, nil, 0)
 
 	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 1, Platform: "admin", Code: "permission_permission_add"})
@@ -150,8 +180,8 @@ func TestPermissionCheckerRejectsMissingRoleWithoutBuildingContext(t *testing.T)
 }
 
 func TestPermissionCheckerFallsBackToPermissionBuilderWhenCacheGetFails(t *testing.T) {
-	cache := &fakePermissionButtonCache{getErr: errors.New("redis down")}
-	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
+	cache := &fakePermissionRouteAccessGrantCache{getErr: errors.New("redis down")}
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"permission_permission_add"}}}
 	checker := PermissionCheckerFor(
 		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
 		builder,
@@ -167,7 +197,7 @@ func TestPermissionCheckerFallsBackToPermissionBuilderWhenCacheGetFails(t *testi
 	if !builder.called {
 		t.Fatalf("expected permission builder to run when cache get fails")
 	}
-	if cache.getKey != "auth_perm_uid_12_admin_rbac_page_grants" || cache.setKey != "auth_perm_uid_12_admin_rbac_page_grants" {
+	if cache.getKey != "auth_perm_uid_12_admin_rbac_route_access_grants" || cache.setKey != "auth_perm_uid_12_admin_rbac_route_access_grants" {
 		t.Fatalf("cache keys mismatch: get=%q set=%q", cache.getKey, cache.setKey)
 	}
 }
@@ -192,12 +222,12 @@ func TestPermissionCheckerFailsClosedWhenPermissionBuilderFails(t *testing.T) {
 	}
 }
 
-func TestPermissionCheckerAllowsCachedButtonCodeWithoutBuildingContext(t *testing.T) {
-	cache := &fakePermissionButtonCache{
+func TestPermissionCheckerAllowsCachedRouteAccessCodeWithoutBuildingContext(t *testing.T) {
+	cache := &fakePermissionRouteAccessGrantCache{
 		getValues: []string{"permission_permission_add"},
 		getHit:    true,
 	}
-	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"other"}}}
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"other"}}}
 	checker := PermissionCheckerFor(
 		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
 		builder,
@@ -213,7 +243,7 @@ func TestPermissionCheckerAllowsCachedButtonCodeWithoutBuildingContext(t *testin
 	if builder.called {
 		t.Fatalf("expected permission builder to be skipped on cache hit")
 	}
-	if cache.getKey != "auth_perm_uid_12_admin_rbac_page_grants" {
+	if cache.getKey != "auth_perm_uid_12_admin_rbac_route_access_grants" {
 		t.Fatalf("cache key mismatch: %q", cache.getKey)
 	}
 	if cache.setKey != "" {
@@ -221,9 +251,9 @@ func TestPermissionCheckerAllowsCachedButtonCodeWithoutBuildingContext(t *testin
 	}
 }
 
-func TestPermissionCheckerBuildsAndCachesButtonCodesOnCacheMiss(t *testing.T) {
-	cache := &fakePermissionButtonCache{}
-	builder := &fakePermissionContextBuilder{ctx: permission.Context{ButtonCodes: []string{"permission_permission_add"}}}
+func TestPermissionCheckerBuildsAndCachesRouteAccessCodesOnCacheMiss(t *testing.T) {
+	cache := &fakePermissionRouteAccessGrantCache{}
+	builder := &fakePermissionContextBuilder{ctx: permission.Context{RouteAccessCodes: []string{"permission_permission_add"}}}
 	checker := PermissionCheckerFor(
 		&fakePermissionUserRepository{user: &user.User{ID: 12, RoleID: 7}, role: &user.Role{ID: 7, Name: "管理员"}},
 		builder,
@@ -239,7 +269,7 @@ func TestPermissionCheckerBuildsAndCachesButtonCodesOnCacheMiss(t *testing.T) {
 	if !builder.called {
 		t.Fatalf("expected permission builder to run on cache miss")
 	}
-	if cache.setKey != "auth_perm_uid_12_admin_rbac_page_grants" {
+	if cache.setKey != "auth_perm_uid_12_admin_rbac_route_access_grants" {
 		t.Fatalf("cache set key mismatch: %q", cache.setKey)
 	}
 	if len(cache.setValues) != 1 || cache.setValues[0] != "permission_permission_add" || cache.setTTL != time.Minute {

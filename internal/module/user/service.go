@@ -20,7 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const defaultButtonCacheTTL = 30 * time.Minute
+const defaultRouteAccessGrantCacheTTL = 30 * time.Minute
 const timeLayout = "2006-01-02 15:04:05"
 const birthdayLayout = "2006-01-02"
 
@@ -33,7 +33,7 @@ type PermissionBuilder interface {
 	BuildContextByRole(ctx context.Context, roleID int64, platform string) (permission.Context, *apperror.Error)
 }
 
-type ButtonCache interface {
+type RouteAccessGrantCache interface {
 	Set(ctx context.Context, key string, values []string, ttl time.Duration) error
 	Delete(ctx context.Context, key string) error
 }
@@ -51,15 +51,15 @@ type ExportTaskCreator interface {
 type Option func(*Service)
 
 type Service struct {
-	repository        Repository
-	permissionBuilder PermissionBuilder
-	buttonCache       ButtonCache
-	buttonCacheTTL    time.Duration
-	platforms         []string
-	verifyCodeStore   VerifyCodeStore
-	exportTaskCreator ExportTaskCreator
-	exportEnqueuer    taskqueue.Enqueuer
-	addressCache      AddressDictCache
+	repository          Repository
+	permissionBuilder   PermissionBuilder
+	routeAccessCache    RouteAccessGrantCache
+	routeAccessCacheTTL time.Duration
+	platforms           []string
+	verifyCodeStore     VerifyCodeStore
+	exportTaskCreator   ExportTaskCreator
+	exportEnqueuer      taskqueue.Enqueuer
+	addressCache        AddressDictCache
 }
 
 type addressTreeMutableNode struct {
@@ -70,16 +70,16 @@ type addressTreeMutableNode struct {
 	Children []*addressTreeMutableNode
 }
 
-func NewService(repository Repository, permissionBuilder PermissionBuilder, buttonCache ButtonCache, buttonCacheTTL time.Duration, opts ...Option) *Service {
-	if buttonCacheTTL <= 0 {
-		buttonCacheTTL = defaultButtonCacheTTL
+func NewService(repository Repository, permissionBuilder PermissionBuilder, routeAccessCache RouteAccessGrantCache, routeAccessCacheTTL time.Duration, opts ...Option) *Service {
+	if routeAccessCacheTTL <= 0 {
+		routeAccessCacheTTL = defaultRouteAccessGrantCacheTTL
 	}
 	service := &Service{
-		repository:        repository,
-		permissionBuilder: permissionBuilder,
-		buttonCache:       buttonCache,
-		buttonCacheTTL:    buttonCacheTTL,
-		platforms:         normalizePlatforms(enum.Platforms),
+		repository:          repository,
+		permissionBuilder:   permissionBuilder,
+		routeAccessCache:    routeAccessCache,
+		routeAccessCacheTTL: routeAccessCacheTTL,
+		platforms:           normalizePlatforms(enum.Platforms),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -158,8 +158,8 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询快捷入口失败", err)
 	}
 
-	if role != nil && s.buttonCache != nil {
-		_ = s.buttonCache.Set(ctx, permission.ButtonCacheKey(currentUser.ID, input.Platform), perm.ButtonCodes, s.buttonCacheTTL)
+	if role != nil && s.routeAccessCache != nil {
+		_ = s.routeAccessCache.Set(ctx, permission.RouteAccessCacheKey(currentUser.ID, input.Platform), perm.RouteAccessCodes, s.routeAccessCacheTTL)
 	}
 
 	avatar := ""
@@ -384,7 +384,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	}
 
 	if roleChanged {
-		return s.invalidateUserButtonCache(ctx, id)
+		return s.invalidateUserRouteAccessGrantCache(ctx, id)
 	}
 	return nil
 }
@@ -630,12 +630,12 @@ func ensureProfileWithRepository(ctx context.Context, repository Repository, use
 	return profile, nil
 }
 
-func (s *Service) invalidateUserButtonCache(ctx context.Context, userID int64) *apperror.Error {
-	if s.buttonCache == nil {
+func (s *Service) invalidateUserRouteAccessGrantCache(ctx context.Context, userID int64) *apperror.Error {
+	if s.routeAccessCache == nil {
 		return nil
 	}
 	for _, platform := range s.platforms {
-		if err := s.buttonCache.Delete(ctx, permission.ButtonCacheKey(userID, platform)); err != nil {
+		if err := s.routeAccessCache.Delete(ctx, permission.RouteAccessCacheKey(userID, platform)); err != nil {
 			return apperror.Wrap(apperror.CodeInternal, 500, "清理用户权限缓存失败", err)
 		}
 	}

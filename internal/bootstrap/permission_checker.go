@@ -23,13 +23,13 @@ type permissionContextBuilder interface {
 	BuildContextByRole(ctx context.Context, roleID int64, platform string) (permission.Context, *apperror.Error)
 }
 
-type permissionButtonCache interface {
+type permissionRouteAccessGrantCache interface {
 	Get(ctx context.Context, key string) ([]string, bool, error)
 	Set(ctx context.Context, key string, values []string, ttl time.Duration) error
 }
 
 // PermissionCheckerFor builds a fail-closed RBAC checker for protected route metadata.
-func PermissionCheckerFor(repository permissionUserRepository, builder permissionContextBuilder, cache permissionButtonCache, cacheTTL time.Duration) middleware.PermissionChecker {
+func PermissionCheckerFor(repository permissionUserRepository, builder permissionContextBuilder, cache permissionRouteAccessGrantCache, cacheTTL time.Duration) middleware.PermissionChecker {
 	if cacheTTL <= 0 {
 		cacheTTL = defaultPermissionCheckCacheTTL
 	}
@@ -68,20 +68,20 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 			return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
 		}
 
-		cacheKey := permission.ButtonCacheKey(currentUser.ID, input.Platform)
-		buttonCodes, hit := cachedButtonCodes(ctx, cache, cacheKey)
+		cacheKey := permission.RouteAccessCacheKey(currentUser.ID, input.Platform)
+		routeAccessCodes, hit := cachedRouteAccessCodes(ctx, cache, cacheKey)
 		if !hit {
 			permissionContext, appErr := builder.BuildContextByRole(ctx, currentUser.RoleID, input.Platform)
 			if appErr != nil {
 				return appErr
 			}
-			buttonCodes = permissionContext.ButtonCodes
+			routeAccessCodes = permissionContext.RouteAccessCodes
 			if cache != nil {
-				_ = cache.Set(ctx, cacheKey, buttonCodes, cacheTTL)
+				_ = cache.Set(ctx, cacheKey, routeAccessCodes, cacheTTL)
 			}
 		}
 
-		for _, ownedCode := range buttonCodes {
+		for _, ownedCode := range routeAccessCodes {
 			if ownedCode == code {
 				return nil
 			}
@@ -90,7 +90,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 	}
 }
 
-func cachedButtonCodes(ctx context.Context, cache permissionButtonCache, key string) ([]string, bool) {
+func cachedRouteAccessCodes(ctx context.Context, cache permissionRouteAccessGrantCache, key string) ([]string, bool) {
 	if cache == nil {
 		return nil, false
 	}
