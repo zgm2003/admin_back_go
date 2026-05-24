@@ -18,7 +18,7 @@ func TestNewWorkerAllowsQueueDisabledWithoutRedis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected disabled queue worker to build without redis, got %v", err)
 	}
-	defer worker.Shutdown(t.Context())
+	defer shutdownWorkerForTest(t, worker)
 
 	if worker.queueServer != nil {
 		t.Fatalf("expected nil queue server when queue is disabled")
@@ -37,7 +37,7 @@ func TestNewWorkerNormalizesSchedulerPolicyDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected worker to build, got %v", err)
 	}
-	defer worker.Shutdown(t.Context())
+	defer shutdownWorkerForTest(t, worker)
 
 	if worker.cfg.Scheduler.Timezone != config.DefaultSchedulerTimezone {
 		t.Fatalf("expected worker scheduler timezone %q, got %q", config.DefaultSchedulerTimezone, worker.cfg.Scheduler.Timezone)
@@ -83,7 +83,7 @@ func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected worker queue to build without pinging redis, got %v", err)
 	}
-	defer worker.Shutdown(t.Context())
+	defer shutdownWorkerForTest(t, worker)
 
 	if worker.queueServer == nil {
 		t.Fatalf("expected queue server")
@@ -93,6 +93,16 @@ func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 	}
 	if worker.scheduler != nil {
 		t.Fatalf("expected nil scheduler when scheduler disabled")
+	}
+}
+
+func shutdownWorkerForTest(t *testing.T, worker *Worker) {
+	t.Helper()
+	if worker == nil {
+		return
+	}
+	if err := worker.Shutdown(t.Context()); err != nil {
+		t.Fatalf("worker shutdown: %v", err)
 	}
 }
 

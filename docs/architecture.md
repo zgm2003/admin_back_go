@@ -59,7 +59,9 @@ route -> handler -> service -> repository -> model
 
 `internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/appauth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
 
-App 用户端 API 是独立命名空间，当前挂在 `/api/app/v1`，但仍复用同一套 auth/user/runtime 基建；它不是 admin API 的别名，也不是另一个框架层。
+App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。`internal/module/appauth` 是过渡期的 App scope adapter bundle：它当前承载 `/api/app/v1/auth/*`、`/api/app/v1/users/me`、`/api/app/v1/profile`、`/api/app/v1/upload-tokens`，固定 `platform=app`、裁剪 App 出参、复用 `auth/user/session/captcha/uploadtoken` 等 service；它不是第二套 auth/user/uploadtoken 业务模块，不能作为后续 `appai` / `appwallet` 的命名模板。
+
+平台差异默认收敛在 route / handler / presenter / policy。`authplatform` 只拥有认证/会话策略，例如登录方式、验证码类型、token TTL、会话绑定、单端登录和是否允许注册；它不是 AI、钱包、通知等业务的全局平台配置中心。
 
 新增模块必须回答：
 
@@ -401,7 +403,6 @@ AI
 当前环境变量：
 
 ```text
-APP_NAME
 APP_ENV
 HTTP_ADDR
 HTTP_READ_HEADER_TIMEOUT
@@ -650,6 +651,8 @@ admin-worker 默认写 runtime/logs/admin-worker.log。
 读取行数上限是代码默认值：2000。
 如果后续拆 admin-realtime，也必须给独立进程文件名，不能和 admin-api 混写。
 ```
+
+进程身份不来自 env。`cmd/admin-api` 固定使用 `logging.ForProcess("admin-api")`，`cmd/admin-worker` 固定使用 `logging.ForProcess("admin-worker")`；Docker-first Compose service name 也分别是 `admin-api` 和 `admin-worker`。共享 `admin-go.env` 不再提供 `APP&#95;NAME`，避免同一份 env 同时服务 API/worker 时产生错误语义。
 
 这些日志策略不进 system_settings。原因是日志初始化早于 DB；DB 不通、migration 出错、启动失败时仍要能写 stdout 和文件日志。
 

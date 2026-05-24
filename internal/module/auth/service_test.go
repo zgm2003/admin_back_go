@@ -300,7 +300,22 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 	}
 }
 
-func TestServiceAppPasswordLoginSkipsCaptchaAndReturnsUserID(t *testing.T) {
+func TestServiceAppPasswordLoginRequiresCaptcha(t *testing.T) {
+	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"password"}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+
+	_, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePassword,
+		Password:     "123456",
+		Platform:     "app",
+	})
+
+	if appErr == nil || !strings.Contains(appErr.Message, "请完成验证码") {
+		t.Fatalf("expected app password login to require captcha, got %v", appErr)
+	}
+}
+
+func TestServiceAppPasswordLoginVerifiesCaptchaAndReturnsUserID(t *testing.T) {
 	hash := phpBcryptHash(t, "123456")
 	repo := &fakeAuthRepository{credential: &UserCredential{
 		ID:           7,
@@ -319,18 +334,24 @@ func TestServiceAppPasswordLoginSkipsCaptchaAndReturnsUserID(t *testing.T) {
 		LoginAccount: "15671628271",
 		LoginType:    LoginTypePassword,
 		Password:     "123456",
-		Platform:     "app",
-		DeviceID:     "ios-1",
+		CaptchaID:    "captcha-id",
+		CaptchaAnswer: &captcha.Answer{
+			X: 120,
+			Y: 80,
+		},
+		Platform: "app",
+		DeviceID: "ios-1",
 	})
 
 	if appErr != nil {
-		t.Fatalf("expected app login to succeed without captcha, got %v", appErr)
+		t.Fatalf("expected app login to succeed with captcha, got %v", appErr)
 	}
 	if result.AccessToken != "app-token" || result.UserID != 7 {
 		t.Fatalf("unexpected app login result: %#v", result)
 	}
-	if captchaVerifier.input.ID != "" || captchaVerifier.input.Answer != nil {
-		t.Fatalf("app password login must not verify captcha, got %#v", captchaVerifier.input)
+	if captchaVerifier.input.ID != "captcha-id" || captchaVerifier.input.Answer == nil ||
+		captchaVerifier.input.Answer.X != 120 || captchaVerifier.input.Answer.Y != 80 {
+		t.Fatalf("expected app password login to verify captcha, got %#v", captchaVerifier.input)
 	}
 	if sessions.input.UserID != 7 || sessions.input.Platform != "app" || sessions.input.DeviceID != "ios-1" {
 		t.Fatalf("unexpected app session input: %#v", sessions.input)

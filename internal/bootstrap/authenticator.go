@@ -58,13 +58,6 @@ func TokenAuthenticatorFor(authenticator *session.Authenticator) middleware.Toke
 	}
 }
 
-func resourcesRedis(resources *Resources) *redisclient.Client {
-	if resources == nil {
-		return nil
-	}
-	return resources.Redis
-}
-
 func resourcesTokenRedis(resources *Resources) *redisclient.Client {
 	if resources == nil {
 		return nil

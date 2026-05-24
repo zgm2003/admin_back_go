@@ -12,9 +12,6 @@ import (
 func TestLoadUsesSafeDefaults(t *testing.T) {
 	cfg := Load()
 
-	if cfg.App.Name != "admin-api" {
-		t.Fatalf("expected app name admin-api, got %q", cfg.App.Name)
-	}
 	if cfg.App.Env != "local" {
 		t.Fatalf("expected app env local, got %q", cfg.App.Env)
 	}
@@ -135,7 +132,6 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 }
 
 func TestLoadReadsEnvironmentOverrides(t *testing.T) {
-	t.Setenv("APP_NAME", "admin-api-test")
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("APP_SECRET", strings.Repeat("s", 64))
 	t.Setenv("HTTP_ADDR", ":18080")
@@ -173,7 +169,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.App.Name != "admin-api-test" || cfg.App.Env != "test" || cfg.App.Secret != strings.Repeat("s", 64) {
+	if cfg.App.Env != "test" || cfg.App.Secret != strings.Repeat("s", 64) {
 		t.Fatalf("unexpected app config: %#v", cfg.App)
 	}
 	if cfg.HTTP.Addr != ":18080" || cfg.HTTP.ReadHeaderTimeout != 7*time.Second {
@@ -242,6 +238,44 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	if cfg.CORS.MaxAge != wantCORSDefaults.MaxAge {
 		t.Fatalf("cors max age env must be ignored, got %s", cfg.CORS.MaxAge)
 	}
+}
+
+func TestConfigDoesNotExposeAppName(t *testing.T) {
+	unsetEnvForTest(t, "APP_ENV")
+	t.Setenv(deprecatedAppNameEnvKey(), "admin-api-test")
+
+	cfg := Load()
+	appType := reflect.TypeOf(cfg.App)
+	if _, ok := appType.FieldByName("Name"); ok {
+		t.Fatalf("AppConfig must not expose Name; process identity is owned by cmd entrypoints and Compose services")
+	}
+	if cfg.App.Env != "local" {
+		t.Fatalf("expected app env local, got %q", cfg.App.Env)
+	}
+}
+
+func TestDockerFirstEnvDoesNotDocumentAppName(t *testing.T) {
+	deprecatedKey := deprecatedAppNameEnvKey()
+	paths := []string{
+		filepath.Join("..", "..", "deploy", "docker-first", "admin-go.env.example"),
+		filepath.Join("..", "..", "deploy", "docker-first", "admin-go.env"),
+	}
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(content), deprecatedKey) {
+			t.Fatalf("%s must not document deprecated shared app-name env key", path)
+		}
+	}
+}
+
+func deprecatedAppNameEnvKey() string {
+	return strings.Join([]string{"APP", "NAME"}, "_")
 }
 
 func TestNormalizeSchedulerConfigAppliesCodeOwnedDefaults(t *testing.T) {
@@ -373,7 +407,7 @@ func TestLoadReadsAppSecret(t *testing.T) {
 }
 
 func TestValidateRuntimeSecretsRejectsMissingAppSecret(t *testing.T) {
-	cfg := Config{App: AppConfig{Name: "admin-api", Env: "local"}}
+	cfg := Config{App: AppConfig{Env: "local"}}
 
 	err := ValidateRuntimeSecrets(cfg)
 
@@ -383,7 +417,7 @@ func TestValidateRuntimeSecretsRejectsMissingAppSecret(t *testing.T) {
 }
 
 func TestValidateRuntimeSecretsRejectsDefaultAppSecret(t *testing.T) {
-	cfg := Config{App: AppConfig{Name: "admin-api", Env: "local", Secret: "change_me_to_at_least_64_random_chars"}}
+	cfg := Config{App: AppConfig{Env: "local", Secret: "change_me_to_at_least_64_random_chars"}}
 
 	err := ValidateRuntimeSecrets(cfg)
 
@@ -393,7 +427,7 @@ func TestValidateRuntimeSecretsRejectsDefaultAppSecret(t *testing.T) {
 }
 
 func TestValidateRuntimeSecretsAcceptsLongAppSecret(t *testing.T) {
-	cfg := Config{App: AppConfig{Name: "admin-api", Env: "local", Secret: strings.Repeat("k", 64)}}
+	cfg := Config{App: AppConfig{Env: "local", Secret: strings.Repeat("k", 64)}}
 
 	if err := ValidateRuntimeSecrets(cfg); err != nil {
 		t.Fatalf("expected APP_SECRET to pass validation: %v", err)
@@ -780,10 +814,10 @@ func joinEnvKey(parts ...string) string {
 }
 
 func TestLoadDotEnvReadsLocalEnvFile(t *testing.T) {
-	unsetEnvForTest(t, "APP_NAME")
+	unsetEnvForTest(t, "APP_ENV")
 	unsetEnvForTest(t, "HTTP_ADDR")
 	envPath := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(envPath, []byte("APP_NAME=admin-api-dotenv\nHTTP_ADDR=:19090\n"), 0o600); err != nil {
+	if err := os.WriteFile(envPath, []byte("APP_ENV=dotenv\nHTTP_ADDR=:19090\n"), 0o600); err != nil {
 		t.Fatalf("write env file: %v", err)
 	}
 
@@ -792,8 +826,8 @@ func TestLoadDotEnvReadsLocalEnvFile(t *testing.T) {
 	}
 
 	cfg := Load()
-	if cfg.App.Name != "admin-api-dotenv" {
-		t.Fatalf("expected app name from .env, got %q", cfg.App.Name)
+	if cfg.App.Env != "dotenv" {
+		t.Fatalf("expected app env from .env, got %q", cfg.App.Env)
 	}
 	if cfg.HTTP.Addr != ":19090" {
 		t.Fatalf("expected http addr from .env, got %q", cfg.HTTP.Addr)

@@ -25,7 +25,6 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Name   string
 	Env    string
 	Secret string
 }
@@ -235,7 +234,6 @@ func Load() Config {
 
 	return Config{
 		App: AppConfig{
-			Name:   envString("APP_NAME", "admin-api"),
 			Env:    envString("APP_ENV", "local"),
 			Secret: envString("APP_SECRET", ""),
 		},

@@ -394,32 +394,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}, nil
 }
 
-type aiConversationReplyEnqueuer struct {
-	enqueuer taskqueue.Enqueuer
-}
-
-func (e aiConversationReplyEnqueuer) EnqueueConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
-	if e.enqueuer == nil {
-		return errors.New("ai conversation reply queue is not configured")
-	}
-	task, err := aichat.NewConversationReplyTask(aichat.ConversationReplyPayload{
-		ConversationID: payload.ConversationID,
-		UserID:         payload.UserID,
-		AgentID:        payload.AgentID,
-		UserMessageID:  payload.UserMessageID,
-		RequestID:      payload.RequestID,
-	})
-	if err != nil {
-		return err
-	}
-	_, err = e.enqueuer.Enqueue(ctx, task)
-	return err
-}
-
-func (e aiConversationReplyEnqueuer) CancelConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
-	return errors.New("queued ai conversation reply cancellation is not supported")
-}
-
 type aiProviderTester struct{}
 
 func (aiProviderTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {

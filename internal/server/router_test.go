@@ -218,8 +218,10 @@ func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.Stats
 type fakeRouterAIChatService struct{}
 
 type fakeAppRouterAuthService struct {
-	loginFn  func(context.Context, auth.LoginInput) (*auth.LoginResponse, *apperror.Error)
-	logoutFn func(context.Context, string) *apperror.Error
+	loginFn       func(context.Context, auth.LoginInput) (*auth.LoginResponse, *apperror.Error)
+	loginConfigFn func(context.Context, string) (*auth.LoginConfigResponse, *apperror.Error)
+	sendCodeFn    func(context.Context, auth.SendCodeInput) (string, *apperror.Error)
+	logoutFn      func(context.Context, string) *apperror.Error
 }
 
 func (f *fakeAppRouterAuthService) Login(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
@@ -230,6 +232,9 @@ func (f *fakeAppRouterAuthService) Login(ctx context.Context, input auth.LoginIn
 }
 
 func (f *fakeAppRouterAuthService) SendCode(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
+	if f.sendCodeFn != nil {
+		return f.sendCodeFn(ctx, input)
+	}
 	return "", nil
 }
 
@@ -238,6 +243,9 @@ func (f *fakeAppRouterAuthService) ForgetPassword(ctx context.Context, input aut
 }
 
 func (f *fakeAppRouterAuthService) LoginConfig(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
+	if f.loginConfigFn != nil {
+		return f.loginConfigFn(ctx, platform)
+	}
 	return &auth.LoginConfigResponse{}, nil
 }
 
@@ -317,6 +325,8 @@ type fakeRouterUserService struct {
 	pageInitCalled bool
 	profileUserID  int64
 	profileViewer  int64
+	profileResult  *user.ProfileResponse
+	profileUpdate  user.UpdateProfileInput
 	listQuery      user.ListQuery
 	listResult     *user.ListResponse
 	exportInput    user.ExportInput
@@ -397,11 +407,15 @@ func (f *fakeRouterUserService) PageInit(ctx context.Context) (*user.PageInitRes
 func (f *fakeRouterUserService) Profile(ctx context.Context, userID int64, currentUserID int64) (*user.ProfileResponse, *apperror.Error) {
 	f.profileUserID = userID
 	f.profileViewer = currentUserID
+	if f.profileResult != nil {
+		return f.profileResult, f.err
+	}
 	return &user.ProfileResponse{Profile: user.ProfileDetail{UserID: userID, Username: "admin"}}, f.err
 }
 
 func (f *fakeRouterUserService) UpdateProfile(ctx context.Context, input user.UpdateProfileInput) *apperror.Error {
 	f.profileUserID = input.UserID
+	f.profileUpdate = input
 	return f.err
 }
 
@@ -1785,6 +1799,8 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 
 func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 	var authInput auth.LoginInput
+	var loginConfigPlatform string
+	var sendCodeInput auth.SendCodeInput
 	var tokenInput middleware.TokenInput
 	var logoutToken string
 	userService := &fakeRouterUserService{result: &user.InitResponse{
@@ -1793,6 +1809,18 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		Avatar:   "avatar.png",
 	}}
 	authService := &fakeAppRouterAuthService{
+		loginConfigFn: func(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
+			loginConfigPlatform = platform
+			return &auth.LoginConfigResponse{
+				LoginTypeArr:   []auth.LoginTypeOption{{Label: "密码登录", Value: auth.LoginTypePassword}},
+				CaptchaEnabled: true,
+				CaptchaType:    captcha.TypeSlide,
+			}, nil
+		},
+		sendCodeFn: func(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
+			sendCodeInput = input
+			return "验证码发送成功", nil
+		},
 		loginFn: func(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
 			authInput = input
 			return &auth.LoginResponse{UserID: 7, AccessToken: "app-token", ExpiresIn: 14400}, nil
@@ -1803,7 +1831,8 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		},
 	}
 	router := newTestRouter(t, Dependencies{
-		AuthService: authService,
+		AuthService:    authService,
+		CaptchaService: fakeCaptchaService{},
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			tokenInput = input
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 20, Platform: input.Platform}, nil
@@ -1811,8 +1840,45 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		UserService: userService,
 	})
 
+	configRecorder := httptest.NewRecorder()
+	configRequest := httptest.NewRequest(http.MethodGet, "/api/app/v1/auth/login-config", nil)
+	configRequest.Header.Set("platform", "admin")
+	router.ServeHTTP(configRecorder, configRequest)
+	if configRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app login-config status %d, got %d body=%s", http.StatusOK, configRecorder.Code, configRecorder.Body.String())
+	}
+	if loginConfigPlatform != enum.PlatformApp {
+		t.Fatalf("expected app login-config to force platform app, got %q", loginConfigPlatform)
+	}
+	configData := mustRouterData(t, decodeRouterBody(t, configRecorder))
+	if configData["captcha_type"] != captcha.TypeSlide || configData["captcha_enabled"] != true {
+		t.Fatalf("unexpected app login-config payload: %#v", configData)
+	}
+
+	captchaRecorder := httptest.NewRecorder()
+	captchaRequest := httptest.NewRequest(http.MethodGet, "/api/app/v1/auth/captcha", nil)
+	router.ServeHTTP(captchaRecorder, captchaRequest)
+	if captchaRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app captcha status %d, got %d body=%s", http.StatusOK, captchaRecorder.Code, captchaRecorder.Body.String())
+	}
+	captchaData := mustRouterData(t, decodeRouterBody(t, captchaRecorder))
+	if captchaData["captcha_id"] != "captcha-id" || captchaData["captcha_type"] != captcha.TypeSlide {
+		t.Fatalf("unexpected app captcha payload: %#v", captchaData)
+	}
+
+	sendCodeRecorder := httptest.NewRecorder()
+	sendCodeRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/send-code", strings.NewReader(`{"account":"15671628271","scene":"login"}`))
+	sendCodeRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(sendCodeRecorder, sendCodeRequest)
+	if sendCodeRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app send-code status %d, got %d body=%s", http.StatusOK, sendCodeRecorder.Code, sendCodeRecorder.Body.String())
+	}
+	if sendCodeInput.Account != "15671628271" || sendCodeInput.Scene != auth.VerifyCodeSceneLogin {
+		t.Fatalf("unexpected app send-code input: %#v", sendCodeInput)
+	}
+
 	loginRecorder := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/login", strings.NewReader(`{"account":"15671628271","password":"123456"}`))
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/login", strings.NewReader(`{"login_type":"password","login_account":"15671628271","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("device-id", "ios-1")
 	router.ServeHTTP(loginRecorder, loginRequest)
@@ -1821,6 +1887,9 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		t.Fatalf("expected app login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())
 	}
 	if authInput.LoginAccount != "15671628271" || authInput.LoginType != auth.LoginTypePassword || authInput.Password != "123456" || authInput.Platform != enum.PlatformApp || authInput.DeviceID != "ios-1" {
+		t.Fatalf("unexpected app login input: %#v", authInput)
+	}
+	if authInput.CaptchaID != "captcha-id" || authInput.CaptchaAnswer == nil || authInput.CaptchaAnswer.X != 120 || authInput.CaptchaAnswer.Y != 80 {
 		t.Fatalf("unexpected app login input: %#v", authInput)
 	}
 	loginBody := decodeRouterBody(t, loginRecorder)
@@ -1875,6 +1944,111 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 	}
 	if _, ok := logoutBody["data"]; !ok || logoutBody["data"] != nil {
 		t.Fatalf("expected app logout data null, got %#v", logoutBody["data"])
+	}
+}
+
+func TestRouterInstallsAppProfileAndUploadRoutes(t *testing.T) {
+	var tokenInput middleware.TokenInput
+	permissionChecked := false
+	userService := &fakeRouterUserService{
+		profileResult: &user.ProfileResponse{
+			Profile: user.ProfileDetail{
+				UserID:        7,
+				Username:      "移动端用户",
+				Email:         "app@example.test",
+				Phone:         "15671628271",
+				Avatar:        "avatar.png",
+				RoleID:        99,
+				RoleName:      "管理员",
+				Sex:           1,
+				Birthday:      "2026-05-24",
+				AddressID:     3,
+				DetailAddress: "湖北武汉",
+				Bio:           "old bio",
+				HasPassword:   true,
+			},
+			Dict: user.ProfileDict{
+				SexArr: []user.SexOption{{Label: "男", Value: 1}},
+			},
+		},
+	}
+	uploadTokenService := &fakeRouterUploadTokenService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			tokenInput = input
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 20, Platform: input.Platform}, nil
+		},
+		PermissionRules: map[middleware.RouteKey]string{},
+		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
+			permissionChecked = true
+			return nil
+		},
+		UserService:        userService,
+		UploadTokenService: uploadTokenService,
+	})
+
+	profileRecorder := httptest.NewRecorder()
+	profileRequest := httptest.NewRequest(http.MethodGet, "/api/app/v1/profile", nil)
+	profileRequest.Header.Set("Authorization", "Bearer app-token")
+	router.ServeHTTP(profileRecorder, profileRequest)
+	if profileRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app profile status %d, got %d body=%s", http.StatusOK, profileRecorder.Code, profileRecorder.Body.String())
+	}
+	if tokenInput.AccessToken != "app-token" || tokenInput.Platform != enum.PlatformApp {
+		t.Fatalf("expected app profile to authenticate as app, got %#v", tokenInput)
+	}
+	if userService.profileUserID != 7 || userService.profileViewer != 7 {
+		t.Fatalf("unexpected app profile service input: user=%d viewer=%d", userService.profileUserID, userService.profileViewer)
+	}
+	profileData := mustRouterData(t, decodeRouterBody(t, profileRecorder))
+	profile, ok := profileData["profile"].(map[string]any)
+	if !ok || profile["nickname"] != "移动端用户" || profile["avatar"] != "avatar.png" || profile["bio"] != "old bio" {
+		t.Fatalf("unexpected app profile payload: %#v", profileData)
+	}
+	if _, ok := profile["role_id"]; ok {
+		t.Fatalf("app profile must not leak admin role fields: %#v", profile)
+	}
+	if _, ok := profile["role_name"]; ok {
+		t.Fatalf("app profile must not leak admin role fields: %#v", profile)
+	}
+
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/app/v1/profile", strings.NewReader(`{"nickname":"移动端用户2","avatar":"avatar2.png","sex":2,"birthday":"2026-05-25","address_id":8,"detail_address":"湖北武汉光谷","bio":"new bio"}`))
+	updateRequest.Header.Set("Authorization", "Bearer app-token")
+	updateRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app profile update status %d, got %d body=%s", http.StatusOK, updateRecorder.Code, updateRecorder.Body.String())
+	}
+	if userService.profileUpdate.UserID != 7 ||
+		userService.profileUpdate.Username != "移动端用户2" ||
+		userService.profileUpdate.Avatar != "avatar2.png" ||
+		userService.profileUpdate.Sex != 2 ||
+		userService.profileUpdate.AddressID != 8 ||
+		userService.profileUpdate.DetailAddress != "湖北武汉光谷" ||
+		userService.profileUpdate.Bio != "new bio" ||
+		userService.profileUpdate.Birthday == nil ||
+		*userService.profileUpdate.Birthday != "2026-05-25" {
+		t.Fatalf("unexpected app profile update input: %#v", userService.profileUpdate)
+	}
+
+	uploadRecorder := httptest.NewRecorder()
+	uploadRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/upload-tokens", strings.NewReader(`{"folder":"avatars","file_name":"avatar.png","file_size":1024,"file_kind":"image"}`))
+	uploadRequest.Header.Set("Authorization", "Bearer app-token")
+	uploadRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(uploadRecorder, uploadRequest)
+	if uploadRecorder.Code != http.StatusOK {
+		t.Fatalf("expected app upload token status %d, got %d body=%s", http.StatusOK, uploadRecorder.Code, uploadRecorder.Body.String())
+	}
+	if permissionChecked {
+		t.Fatalf("app profile/upload routes must not run admin RBAC permission checker")
+	}
+	if uploadTokenService.input.Folder != "avatars" || uploadTokenService.input.FileName != "avatar.png" || uploadTokenService.input.FileSize != 1024 || uploadTokenService.input.FileKind != "image" {
+		t.Fatalf("unexpected app upload token input: %#v", uploadTokenService.input)
+	}
+	uploadData := mustRouterData(t, decodeRouterBody(t, uploadRecorder))
+	if uploadData["provider"] != "cos" {
+		t.Fatalf("expected app upload token cos response, got %#v", uploadData)
 	}
 }
 
