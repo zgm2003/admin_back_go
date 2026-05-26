@@ -300,7 +300,7 @@ Docker env 保持短配置，不再承载上传运行时策略。COS bucket、Se
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
 ```
 
-`http://192.168.5.20:5173` 是当前局域网真机调试 origin；配合 Compose 的 `ADMIN_API_HOST_BIND=0.0.0.0`，手机才能访问开发机上的 Go 后端。生产环境不要照搬开发 IP，`CORS_ALLOW_ORIGINS` 应改成实际部署域名。
+`http://192.168.5.20:5173` 是当前局域网真机调试 origin；如需手机访问开发机上的 Go 后端，把 `deploy/docker-first/docker-compose.yml` 的 `ports` 行改成 `0.0.0.0:8080:8080`，并让 `CORS_ALLOW_ORIGINS` 覆盖该 origin。
 
 线上演示：
 
@@ -325,30 +325,26 @@ Redis
 PowerShell 7 或 Windows PowerShell
 ```
 
-### 2. 准备本地 Compose 工作目录
+### 2. 使用 Docker-first 开发目录
 
-`deploy/docker-first/` 只放模板。真实本地运行文件放 root 仓忽略的目录：
+`deploy/docker-first/docker-compose.yml` 已经固定开发者默认值，不再需要 Compose `.env`：
+
+```text
+源码目录:   ../..
+运行配置:   ./admin-go.env
+运行目录:   ./runtime -> /app/runtime
+导出目录:   ./exports -> /app/exports
+API 端口:   127.0.0.1:8080 -> container 8080
+```
+
+首次准备：
 
 ```powershell
-cd E:/admin_go
-New-Item -ItemType Directory -Force -Path .docker/admin-go-backend/runtime/logs, .docker/admin-go-backend/exports
-Copy-Item admin_back_go/deploy/docker-first/docker-compose.yml .docker/admin-go-backend/docker-compose.yml
-Copy-Item admin_back_go/deploy/docker-first/compose.env.example .docker/admin-go-backend/.env
-Copy-Item admin_back_go/deploy/docker-first/admin-go.env.example .docker/admin-go-backend/admin-go.env
+cd E:/admin_go/admin_back_go/deploy/docker-first
+New-Item -ItemType Directory -Force -Path runtime/logs, exports
 ```
 
-编辑 `.docker/admin-go-backend/.env`：
-
-```env
-ADMIN_BACK_GO_DIR=E:/admin_go/admin_back_go
-ADMIN_GO_ENV_FILE=./admin-go.env
-ADMIN_GO_RUNTIME_DIR=./runtime
-ADMIN_GO_EXPORTS_DIR=./exports
-ADMIN_API_HOST_BIND=0.0.0.0
-ADMIN_API_HOST_PORT=8080
-```
-
-编辑 `.docker/admin-go-backend/admin-go.env`，至少改这些：
+确认 `admin-go.env` 至少设置：
 
 ```env
 MYSQL_DSN=你的 MySQL DSN
@@ -358,23 +354,14 @@ APP_SECRET=本地长随机字符串
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
 ```
 
-局域网真机调试固定使用这组本地形态：
+如果宿主 `8080` 被占用，直接改 `docker-compose.yml` 的 `ports` 行，例如 `127.0.0.1:18081:8080`；不要为了端口再引入 Compose `.env`。
 
-```env
-ADMIN_API_HOST_BIND=0.0.0.0
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
-```
-
-`192.168.5.20` 只代表当前开发机 LAN IP；生产 CORS 仍使用部署域名，端口暴露也应由防火墙、宝塔或 Nginx 控制。
-
-如果 Windows Docker Desktop 已显示 `0.0.0.0:8080->8080/tcp`，但 `http://192.168.5.20:8080` 访问仍超时，同时 `http://127.0.0.1:8080` 正常，问题在宿主 LAN 转发/防火墙，不是 Go CORS。需要管理员 PowerShell 补宿主转发或防火墙规则后再做手机真机验证。
-
-如果宿主 `8080` 被 Docker Desktop 转发表占住，导致 `portproxy` 规则存在但没有真正监听，可以使用本机 fallback：把 Docker-first 本地 `.env` 改成 `ADMIN_API_HOST_BIND=127.0.0.1`、`ADMIN_API_HOST_PORT=18081`，然后把 `192.168.5.20:8080` 转发到 `127.0.0.1:18081`。对手机和 `admin_app` 来说 API 地址仍是 `http://192.168.5.20:8080/api/app/v1`。
+局域网真机调试时，再把 `ports` 行按需改成 `0.0.0.0:8080:8080`，并确认防火墙和 `CORS_ALLOW_ORIGINS` 覆盖当前 H5/LAN dev origin。
 
 ### 3. 启动 API + Worker
 
 ```powershell
-cd E:/admin_go/.docker/admin-go-backend
+cd E:/admin_go/admin_back_go/deploy/docker-first
 docker compose up -d --build
 docker compose ps
 ```
@@ -449,84 +436,38 @@ Docker Compose 只跑 admin-api 和 admin-worker
 MySQL / Redis 可以用 Docker，但必须作为独立的 admin-go-state 项目管理
 ```
 
-### Docker 部署目录规则
+### Docker-first 开发目录规则
 
-`deploy/docker-first/` 只保留可提交的部署资产：
+`deploy/docker-first/` 直接作为后端 Docker-first 开发入口，保留：
 
 ```text
 docker-compose.yml
-compose.env.example
+admin-go.env
 admin-go.env.example
 README.md
+runtime/
+exports/
 ```
 
-不要把真实 `.env`、`admin-go.env`、`runtime/`、`exports/` 放在这个目录里。生产部署时，把模板复制到服务器 Compose 工作目录 `/www/docker/admin-go-backend/` 后再改真实值。
+`docker-compose.yml` 固定开发者默认值：源码目录 `../..`、运行配置 `./admin-go.env`、挂载目录 `./runtime` / `./exports`、API 端口 `127.0.0.1:8080`。如果本机 `8080` 被占用，直接编辑 `docker-compose.yml` 的 `ports` 行。
 
-### 1. 服务器目录建议
+### 1. 准备目录
 
-```bash
-mkdir -p /www/project
-mkdir -p /www/docker/admin-go-backend/runtime/logs
-mkdir -p /www/docker/admin-go-backend/runtime/payment/certs/alipay
-mkdir -p /www/docker/admin-go-backend/exports
-mkdir -p /www/backup/admin-go
+```powershell
+cd E:/admin_go/admin_back_go/deploy/docker-first
+New-Item -ItemType Directory -Force -Path runtime/logs, exports
 ```
-
-推荐代码目录：
-
-```bash
-/www/project/admin_back_go
-```
-
-如果你已经把后端代码放在宝塔站点目录，也可以用：
-
-```bash
-/www/wwwroot/www.zgm2003.cn
-```
-
-关键是 Docker Compose 里的 `ADMIN_BACK_GO_DIR` 必须指向真实 Go 后端代码目录。
 
 ### 2. 拉代码
 
 ```bash
-cd /www/project
-git clone <your-repo-url> admin_back_go
-cd /www/project/admin_back_go
-```
-
-已有目录则：
-
-```bash
-cd /www/project/admin_back_go
+cd /path/to/admin_back_go
 git pull
 ```
 
-### 3. 准备 Compose 工作目录
+### 3. 准备运行配置
 
-```bash
-cp /www/project/admin_back_go/deploy/docker-first/docker-compose.yml /www/docker/admin-go-backend/docker-compose.yml
-cp /www/project/admin_back_go/deploy/docker-first/compose.env.example /www/docker/admin-go-backend/.env
-cp /www/project/admin_back_go/deploy/docker-first/admin-go.env.example /www/docker/admin-go-backend/admin-go.env
-```
-
-`/www/docker/admin-go-backend/.env` 来自 `compose.env.example`，这是给 Docker Compose 自己读取的变量，不是容器业务配置：
-
-```env
-ADMIN_BACK_GO_DIR=/www/project/admin_back_go
-ADMIN_GO_ENV_FILE=./admin-go.env
-ADMIN_GO_RUNTIME_DIR=./runtime
-ADMIN_GO_EXPORTS_DIR=./exports
-ADMIN_API_HOST_BIND=0.0.0.0
-ADMIN_API_HOST_PORT=8080
-```
-
-容器业务运行配置在 `/www/docker/admin-go-backend/admin-go.env`，来自 `admin-go.env.example`。
-
-如果代码在 `/www/wwwroot/www.zgm2003.cn`，就改成：
-
-```env
-ADMIN_BACK_GO_DIR=/www/wwwroot/www.zgm2003.cn
-```
+容器业务运行配置在 `deploy/docker-first/admin-go.env`；新环境可从 `admin-go.env.example` 复制后再改真实值。
 
 ### 4. 修改业务环境变量
 
@@ -611,7 +552,7 @@ cd /www/docker/admin-go-backend
 docker compose up -d --build
 ```
 
-重点是：`docker compose up -d --build` 在 `/www/docker/admin-go-backend` 执行，因为这里才有后端 `docker-compose.yml`；Compose 会通过 `ADMIN_BACK_GO_DIR` 去读取真正的 Go 后端代码和 `Dockerfile`。MySQL/Redis 属于 `admin-go-state`，不要跟随后端发布一起 down。
+重点是：`docker compose up -d --build` 在 `deploy/docker-first` 执行；MySQL/Redis 不写进后端 Compose。
 
 ### 7. 停止 / 重启
 
@@ -925,14 +866,13 @@ Nginx、SSL、伪静态、反代都在宿主机宝塔里。
 docs/architecture.md
 internal/middleware/README.md
 deploy/docker-first/docker-compose.yml
-deploy/docker-first/compose.env.example
 deploy/docker-first/admin-go.env.example
 ```
 
 ## 底线
 
 ```text
-不要提交真实 .env。
+不要提交仓库根 .env。
 不要让 8080 裸奔公网；如果为了局域网真机调试绑定 `0.0.0.0`，必须只在受控内网/防火墙白名单下使用。
 不要把 database/migrations 当完整建库脚本。
 不要在 README 里承诺未实现能力。

@@ -627,11 +627,35 @@ func TestDockerFirstEnvDocumentsOnlyCORSOrigin(t *testing.T) {
 	}
 }
 
-func TestDockerFirstComposeExampleAllowsLanApiBind(t *testing.T) {
-	values := readDockerFirstEnv(t, "compose.env.example")
+func TestDockerFirstComposeUsesDeveloperDefaultsWithoutProjectEnvFile(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker-first", "docker-compose.yml"))
+	if err != nil {
+		t.Fatalf("read docker-compose.yml: %v", err)
+	}
+	text := string(content)
 
-	if got := values["ADMIN_API_HOST_BIND"]; got != "0.0.0.0" {
-		t.Fatalf("compose.env.example must bind API to LAN for phone debugging, got %q", got)
+	for _, key := range []string{
+		"ADMIN_BACK_GO_DIR",
+		"ADMIN_GO_ENV_FILE",
+		"ADMIN_GO_RUNTIME_DIR",
+		"ADMIN_GO_EXPORTS_DIR",
+		"ADMIN_API_HOST_BIND",
+		"ADMIN_API_HOST_PORT",
+	} {
+		if strings.Contains(text, key) {
+			t.Fatalf("docker-compose.yml should not require project env key %s", key)
+		}
+	}
+	for _, want := range []string{
+		"context: ../..",
+		"- ./admin-go.env",
+		"127.0.0.1:8080:8080",
+		"- ./runtime:/app/runtime",
+		"- ./exports:/app/exports",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("docker-compose.yml missing developer default %q", want)
+		}
 	}
 }
 

@@ -4,20 +4,20 @@ services:
   admin-api:
     image: admin-go-backend:local
     build:
-      context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
+      context: ../..
       dockerfile: Dockerfile
       args:
-        GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
-        GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
+        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm
+        GO_RUNTIME_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
     command: ["/app/admin-api"]
     restart: unless-stopped
     env_file:
-      - ${ADMIN_GO_ENV_FILE:-./admin-go.env}
+      - ./admin-go.env
     ports:
-      - "${ADMIN_API_HOST_BIND:-127.0.0.1}:${ADMIN_API_HOST_PORT:-8080}:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
-      - ${ADMIN_GO_RUNTIME_DIR:-/www/docker/admin-go-backend/runtime}:/app/runtime
-      - ${ADMIN_GO_EXPORTS_DIR:-/www/docker/admin-go-backend/exports}:/app/exports
+      - ./runtime:/app/runtime
+      - ./exports:/app/exports
     healthcheck:
       test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:8080/health >/dev/null; else python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()\"; fi"]
       interval: 15s
@@ -28,18 +28,18 @@ services:
   admin-worker:
     image: admin-go-backend:local
     build:
-      context: ${ADMIN_BACK_GO_DIR:-/www/project/admin_back_go}
+      context: ../..
       dockerfile: Dockerfile
       args:
-        GO_BUILD_IMAGE: ${GO_BUILD_IMAGE:-golang:1.26.1-bookworm}
-        GO_RUNTIME_IMAGE: ${GO_RUNTIME_IMAGE:-debian:bookworm-slim}
+        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm
+        GO_RUNTIME_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
     command: ["/app/admin-worker"]
     restart: unless-stopped
     env_file:
-      - ${ADMIN_GO_ENV_FILE:-./admin-go.env}
+      - ./admin-go.env
     volumes:
-      - ${ADMIN_GO_RUNTIME_DIR:-/www/docker/admin-go-backend/runtime}:/app/runtime
-      - ${ADMIN_GO_EXPORTS_DIR:-/www/docker/admin-go-backend/exports}:/app/exports
+      - ./runtime:/app/runtime
+      - ./exports:/app/exports
     depends_on:
       admin-api:
         condition: service_started
