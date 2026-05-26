@@ -131,6 +131,16 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadPreservesLanDevCORSOrigin(t *testing.T) {
+	t.Setenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173")
+
+	cfg := Load()
+	want := []string{"http://localhost:5173", "http://127.0.0.1:5173", "http://192.168.5.20:5173"}
+	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, want) {
+		t.Fatalf("unexpected LAN dev CORS origins: %#v", cfg.CORS.AllowOrigins)
+	}
+}
+
 func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("APP_SECRET", strings.Repeat("s", 64))
@@ -614,6 +624,14 @@ func TestDockerFirstEnvDocumentsOnlyCORSOrigin(t *testing.T) {
 				t.Fatalf("deploy/docker-first/%s must not document CORS policy key %s", fileName, key)
 			}
 		}
+	}
+}
+
+func TestDockerFirstComposeExampleAllowsLanApiBind(t *testing.T) {
+	values := readDockerFirstEnv(t, "compose.env.example")
+
+	if got := values["ADMIN_API_HOST_BIND"]; got != "0.0.0.0" {
+		t.Fatalf("compose.env.example must bind API to LAN for phone debugging, got %q", got)
 	}
 }
 

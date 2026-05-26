@@ -297,8 +297,10 @@ Docker env 保持短配置，不再承载上传运行时策略。COS bucket、Se
 本地开发：
 
 ```env
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
 ```
+
+`http://192.168.5.20:5173` 是当前局域网真机调试 origin；配合 Compose 的 `ADMIN_API_HOST_BIND=0.0.0.0`，手机才能访问开发机上的 Go 后端。生产环境不要照搬开发 IP，`CORS_ALLOW_ORIGINS` 应改成实际部署域名。
 
 线上演示：
 
@@ -342,7 +344,7 @@ ADMIN_BACK_GO_DIR=E:/admin_go/admin_back_go
 ADMIN_GO_ENV_FILE=./admin-go.env
 ADMIN_GO_RUNTIME_DIR=./runtime
 ADMIN_GO_EXPORTS_DIR=./exports
-ADMIN_API_HOST_BIND=127.0.0.1
+ADMIN_API_HOST_BIND=0.0.0.0
 ADMIN_API_HOST_PORT=8080
 ```
 
@@ -353,8 +355,21 @@ MYSQL_DSN=你的 MySQL DSN
 REDIS_ADDR=host.docker.internal:6379
 # 至少 32 位随机字符串；修改会让旧登录态和已加密业务密钥失效
 APP_SECRET=本地长随机字符串
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
 ```
+
+局域网真机调试固定使用这组本地形态：
+
+```env
+ADMIN_API_HOST_BIND=0.0.0.0
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
+```
+
+`192.168.5.20` 只代表当前开发机 LAN IP；生产 CORS 仍使用部署域名，端口暴露也应由防火墙、宝塔或 Nginx 控制。
+
+如果 Windows Docker Desktop 已显示 `0.0.0.0:8080->8080/tcp`，但 `http://192.168.5.20:8080` 访问仍超时，同时 `http://127.0.0.1:8080` 正常，问题在宿主 LAN 转发/防火墙，不是 Go CORS。需要管理员 PowerShell 补宿主转发或防火墙规则后再做手机真机验证。
+
+如果宿主 `8080` 被 Docker Desktop 转发表占住，导致 `portproxy` 规则存在但没有真正监听，可以使用本机 fallback：把 Docker-first 本地 `.env` 改成 `ADMIN_API_HOST_BIND=127.0.0.1`、`ADMIN_API_HOST_PORT=18081`，然后把 `192.168.5.20:8080` 转发到 `127.0.0.1:18081`。对手机和 `admin_app` 来说 API 地址仍是 `http://192.168.5.20:8080/api/app/v1`。
 
 ### 3. 启动 API + Worker
 
@@ -501,7 +516,7 @@ ADMIN_BACK_GO_DIR=/www/project/admin_back_go
 ADMIN_GO_ENV_FILE=./admin-go.env
 ADMIN_GO_RUNTIME_DIR=./runtime
 ADMIN_GO_EXPORTS_DIR=./exports
-ADMIN_API_HOST_BIND=127.0.0.1
+ADMIN_API_HOST_BIND=0.0.0.0
 ADMIN_API_HOST_PORT=8080
 ```
 
@@ -918,7 +933,7 @@ deploy/docker-first/admin-go.env.example
 
 ```text
 不要提交真实 .env。
-不要让 8080 直接暴露公网。
+不要让 8080 裸奔公网；如果为了局域网真机调试绑定 `0.0.0.0`，必须只在受控内网/防火墙白名单下使用。
 不要把 database/migrations 当完整建库脚本。
 不要在 README 里承诺未实现能力。
 不要为了“分布式”增加复杂度；能单机稳定演示，就先单机。
