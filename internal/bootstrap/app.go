@@ -319,8 +319,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	)
 	sessionRevoker := auth.NewSessionRevocationService(auth.NewSessionRedisCache(resourcesTokenRedis(resources)), auth.SessionRevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
 	userQuickEntryService := userquickentry.NewService(userquickentry.NewGormRepository(resources.DB))
-	userLoginLogService := auth.NewLoginLogService(auth.NewLoginLogGormRepository(resources.DB))
-	userSessionService := auth.NewSessionAdminService(auth.NewSessionAdminGormRepository(resources.DB), auth.WithSessionAdminCacheRevoker(sessionRevoker))
+	loginLogService := auth.NewLoginLogService(auth.NewLoginLogGormRepository(resources.DB))
+	sessionAdminService := auth.NewSessionAdminService(auth.NewSessionAdminGormRepository(resources.DB), auth.WithSessionAdminCacheRevoker(sessionRevoker))
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
 		Logger:        logger,
@@ -351,8 +351,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,
 		UserQuickEntryService:   userQuickEntryService,
-		UserLoginLogService:     userLoginLogService,
-		SessionAdminService:     userSessionService,
+		LoginLogService:         loginLogService,
+		SessionAdminService:     sessionAdminService,
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,

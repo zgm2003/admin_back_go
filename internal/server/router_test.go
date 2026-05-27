@@ -328,18 +328,18 @@ type fakeRouterUserService struct {
 	exportInput    user.ExportInput
 }
 
-type fakeRouterUserSessionService struct {
+type fakeRouterSessionAdminService struct {
 	listQuery      auth.SessionListQuery
 	revokeID       int64
 	batchInput     auth.SessionBatchRevokeInput
 	currentSession int64
 }
 
-func (fakeRouterUserSessionService) PageInit(ctx context.Context) (*auth.SessionPageInitResponse, *apperror.Error) {
+func (fakeRouterSessionAdminService) PageInit(ctx context.Context) (*auth.SessionPageInitResponse, *apperror.Error) {
 	return &auth.SessionPageInitResponse{}, nil
 }
 
-func (f *fakeRouterUserSessionService) List(ctx context.Context, query auth.SessionListQuery) (*auth.SessionListResponse, *apperror.Error) {
+func (f *fakeRouterSessionAdminService) List(ctx context.Context, query auth.SessionListQuery) (*auth.SessionListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &auth.SessionListResponse{
 		List: []auth.SessionListItem{{ID: 1, UserID: 2, Username: "admin", Platform: "admin", Status: auth.SessionStatusActive}},
@@ -347,17 +347,17 @@ func (f *fakeRouterUserSessionService) List(ctx context.Context, query auth.Sess
 	}, nil
 }
 
-func (fakeRouterUserSessionService) Stats(ctx context.Context) (*auth.SessionStatsResponse, *apperror.Error) {
+func (fakeRouterSessionAdminService) Stats(ctx context.Context) (*auth.SessionStatsResponse, *apperror.Error) {
 	return &auth.SessionStatsResponse{TotalActive: 0, PlatformDistribution: map[string]int64{"admin": 0, "app": 0}}, nil
 }
 
-func (f *fakeRouterUserSessionService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*auth.SessionRevokeResponse, *apperror.Error) {
+func (f *fakeRouterSessionAdminService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*auth.SessionRevokeResponse, *apperror.Error) {
 	f.revokeID = id
 	f.currentSession = currentSessionID
 	return &auth.SessionRevokeResponse{ID: id, Revoked: true}, nil
 }
 
-func (f *fakeRouterUserSessionService) BatchRevoke(ctx context.Context, input auth.SessionBatchRevokeInput, currentSessionID int64) (*auth.SessionBatchRevokeResponse, *apperror.Error) {
+func (f *fakeRouterSessionAdminService) BatchRevoke(ctx context.Context, input auth.SessionBatchRevokeInput, currentSessionID int64) (*auth.SessionBatchRevokeResponse, *apperror.Error) {
 	f.batchInput = input
 	f.currentSession = currentSessionID
 	return &auth.SessionBatchRevokeResponse{Count: int64(len(input.IDs))}, nil
@@ -374,15 +374,15 @@ func (f *fakeRouterUserQuickEntryService) Save(ctx context.Context, userID int64
 	return &userquickentry.SaveResponse{QuickEntry: []userquickentry.QuickEntry{{ID: 1, PermissionID: 2, Sort: 1}}}, nil
 }
 
-type fakeRouterUserLoginLogService struct {
+type fakeRouterLoginLogService struct {
 	listQuery auth.LoginLogListQuery
 }
 
-func (fakeRouterUserLoginLogService) PageInit(ctx context.Context) (*auth.LoginLogPageInitResponse, *apperror.Error) {
+func (fakeRouterLoginLogService) PageInit(ctx context.Context) (*auth.LoginLogPageInitResponse, *apperror.Error) {
 	return &auth.LoginLogPageInitResponse{}, nil
 }
 
-func (f *fakeRouterUserLoginLogService) List(ctx context.Context, query auth.LoginLogListQuery) (*auth.LoginLogListResponse, *apperror.Error) {
+func (f *fakeRouterLoginLogService) List(ctx context.Context, query auth.LoginLogListQuery) (*auth.LoginLogListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &auth.LoginLogListResponse{
 		List: []auth.LoginLogListItem{{ID: 1, UserName: "admin", LoginType: "password"}},
@@ -2182,12 +2182,12 @@ func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 }
 
 func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
-	userSessionService := &fakeRouterUserSessionService{}
+	sessionAdminService := &fakeRouterSessionAdminService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
-		SessionAdminService: userSessionService,
+		SessionAdminService: sessionAdminService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -2205,7 +2205,7 @@ func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected user session list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	query := userSessionService.listQuery
+	query := sessionAdminService.listQuery
 	if query.CurrentPage != 2 || query.PageSize != 30 || query.Username != "test" || query.Platform != "admin" || query.Status != "active" {
 		t.Fatalf("user session list query mismatch: %#v", query)
 	}
@@ -2221,15 +2221,15 @@ func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 	quickEntryService := &fakeRouterUserQuickEntryService{}
-	loginLogService := &fakeRouterUserLoginLogService{}
-	userSessionService := &fakeRouterUserSessionService{}
+	loginLogService := &fakeRouterLoginLogService{}
+	sessionAdminService := &fakeRouterSessionAdminService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 44, SessionID: 55, Platform: "admin"}, nil
 		},
 		UserQuickEntryService: quickEntryService,
-		UserLoginLogService:   loginLogService,
-		SessionAdminService:   userSessionService,
+		LoginLogService:       loginLogService,
+		SessionAdminService:   sessionAdminService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -2261,8 +2261,8 @@ func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/77/revoke", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || userSessionService.revokeID != 77 || userSessionService.currentSession != 55 {
-		t.Fatalf("expected session revoke route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userSessionService)
+	if recorder.Code != http.StatusOK || sessionAdminService.revokeID != 77 || sessionAdminService.currentSession != 55 {
+		t.Fatalf("expected session revoke route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), sessionAdminService)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -2270,8 +2270,8 @@ func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || userSessionService.currentSession != 55 || !reflect.DeepEqual(userSessionService.batchInput.IDs, []int64{77, 78}) {
-		t.Fatalf("expected session batch revoke route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), userSessionService)
+	if recorder.Code != http.StatusOK || sessionAdminService.currentSession != 55 || !reflect.DeepEqual(sessionAdminService.batchInput.IDs, []int64{77, 78}) {
+		t.Fatalf("expected session batch revoke route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), sessionAdminService)
 	}
 }
 

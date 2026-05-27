@@ -74,7 +74,7 @@ OperationLog
 判断按钮权限
 ```
 
-查询 Redis/DB session 属于 `internal/module/session`，现在通过注入的 authenticator 接入。平台策略和 RBAC 属于后续 auth/permission service。中间件只做 HTTP 边界。
+查询 Redis/DB session 属于 `internal/module/auth/session.go`，现在通过注入的 authenticator 接入。平台策略归 auth/authplatform，RBAC 属于 permission service。中间件只做 HTTP 边界。
 
 当前平台安全策略已经接入 session authenticator：
 

@@ -72,7 +72,7 @@ type Dependencies struct {
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
 	UserQuickEntryService   userquickentry.HTTPService
-	UserLoginLogService     auth.LoginLogHTTPService
+	LoginLogService         auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
@@ -125,7 +125,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	}))
 
 	system.RegisterRoutes(router, deps.Readiness)
-	authadmin.Register(router, deps.AuthService, deps.CaptchaService, deps.SessionAdminService, deps.UserLoginLogService)
+	authadmin.Register(router, deps.AuthService, deps.CaptchaService, deps.SessionAdminService, deps.LoginLogService)
 	authapp.Register(router, authapp.RouteOptions{
 		Prefix:         "/api/app/v1/auth",
 		Platform:       enum.PlatformApp,
