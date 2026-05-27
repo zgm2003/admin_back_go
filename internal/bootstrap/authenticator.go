@@ -6,25 +6,25 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/platform/accesstoken"
 	"admin_back_go/internal/platform/database"
 	"admin_back_go/internal/platform/redisclient"
 	"admin_back_go/internal/platform/secretkey"
 )
 
-func NewSessionAuthenticator(resources *Resources, cfg config.Config, keys *secretkey.KeyRing) *session.Authenticator {
+func NewSessionAuthenticator(resources *Resources, cfg config.Config, keys *secretkey.KeyRing) *authmodule.Authenticator {
 	var accessCodec accesstoken.Codec
 	tokenPepper := ""
 	if keys != nil {
 		accessCodec = accesstoken.NewJWTCodec(keys.JWTSigningKey(), accesstoken.Options{Issuer: "admin_go"})
 		tokenPepper = keys.TokenPepper()
 	}
-	return session.NewAuthenticator(session.AuthenticatorDeps{
+	return authmodule.NewAuthenticator(authmodule.AuthenticatorDeps{
 		Config:         cfg.Token,
-		Cache:          session.NewRedisCache(resourcesTokenRedis(resources)),
-		Repository:     session.NewGormRepository(resourcesDB(resources)),
+		Cache:          authmodule.NewSessionRedisCache(resourcesTokenRedis(resources)),
+		Repository:     authmodule.NewSessionGormRepository(resourcesDB(resources)),
 		PolicyProvider: authplatform.NewService(authplatform.NewGormRepository(resourcesDB(resources))),
 		AccessCodec:    accessCodec,
 		TokenPepper:    tokenPepper,
@@ -36,9 +36,9 @@ func NewTokenAuthenticator(resources *Resources, cfg config.Config) middleware.T
 	return TokenAuthenticatorFor(NewSessionAuthenticator(resources, cfg, keys))
 }
 
-func TokenAuthenticatorFor(authenticator *session.Authenticator) middleware.TokenAuthenticator {
+func TokenAuthenticatorFor(authenticator *authmodule.Authenticator) middleware.TokenAuthenticator {
 	return func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-		identity, err := authenticator.Authenticate(ctx, session.TokenInput{
+		identity, err := authenticator.Authenticate(ctx, authmodule.TokenInput{
 			AccessToken: input.AccessToken,
 			Platform:    input.Platform,
 			DeviceID:    input.DeviceID,

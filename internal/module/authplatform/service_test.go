@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/module/session"
+	authmodule "admin_back_go/internal/module/auth"
 )
 
 type fakeRepository struct {
@@ -55,7 +55,7 @@ func TestServiceMapsLegacyYesNoFlagsToSessionPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	want := session.AuthPolicy{
+	want := authmodule.AuthPolicy{
 		BindPlatform:             true,
 		BindDevice:               true,
 		BindIP:                   false,

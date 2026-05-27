@@ -1,9 +1,5 @@
 package auth
 
-import (
-	"admin_back_go/internal/module/session"
-)
-
 type LoginTypeOption struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
@@ -49,9 +45,9 @@ type LoginResponse struct {
 	IsNewUser        bool   `json:"is_new_user"`
 }
 
-type RefreshResponse = session.TokenResult
+type RefreshResponse = TokenResult
 
-func loginResponseFromToken(result *session.TokenResult, userID int64, isNewUser bool) *LoginResponse {
+func loginResponseFromToken(result *TokenResult, userID int64, isNewUser bool) *LoginResponse {
 	if result == nil {
 		return nil
 	}

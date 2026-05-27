@@ -38,7 +38,6 @@ import (
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
@@ -248,8 +247,8 @@ func (f *fakeAppRouterAuthService) LoginConfig(ctx context.Context, platform str
 	return &auth.LoginConfigResponse{}, nil
 }
 
-func (f *fakeAppRouterAuthService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
-	return &session.TokenResult{}, nil
+func (f *fakeAppRouterAuthService) Refresh(ctx context.Context, input auth.RefreshInput) (*auth.TokenResult, *apperror.Error) {
+	return &auth.TokenResult{}, nil
 }
 
 func (f *fakeAppRouterAuthService) Logout(ctx context.Context, accessToken string) *apperror.Error {
@@ -286,8 +285,8 @@ func (fakeAuthService) LoginConfig(ctx context.Context, platform string) (*auth.
 	}, nil
 }
 
-func (fakeAuthService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
-	return &session.TokenResult{
+func (fakeAuthService) Refresh(ctx context.Context, input auth.RefreshInput) (*auth.TokenResult, *apperror.Error) {
+	return &auth.TokenResult{
 		AccessToken:      "new-access",
 		RefreshToken:     "new-refresh",
 		ExpiresIn:        14400,

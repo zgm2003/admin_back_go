@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/platform/taskqueue"
 
 	"golang.org/x/crypto/bcrypt"
@@ -92,17 +91,17 @@ func (f fakeLoginTypeProvider) AllowRegister(ctx context.Context, platform strin
 }
 
 type fakeSessionCreator struct {
-	input  session.CreateInput
-	result *session.TokenResult
+	input  CreateInput
+	result *TokenResult
 	err    *apperror.Error
 }
 
-func (f *fakeSessionCreator) Create(ctx context.Context, input session.CreateInput) (*session.TokenResult, *apperror.Error) {
+func (f *fakeSessionCreator) Create(ctx context.Context, input CreateInput) (*TokenResult, *apperror.Error) {
 	f.input = input
 	return f.result, f.err
 }
 
-func (f *fakeSessionCreator) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
+func (f *fakeSessionCreator) Refresh(ctx context.Context, input RefreshInput) (*TokenResult, *apperror.Error) {
 	return nil, f.err
 }
 
@@ -254,7 +253,7 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 		Status:       commonYes,
 		IsDel:        commonNo,
 	}}
-	sessions := &fakeSessionCreator{result: &session.TokenResult{
+	sessions := &fakeSessionCreator{result: &TokenResult{
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
 		ExpiresIn:        14400,
@@ -322,7 +321,7 @@ func TestServiceAppPasswordLoginVerifiesCaptchaAndReturnsUserID(t *testing.T) {
 		Status:       commonYes,
 		IsDel:        commonNo,
 	}}
-	sessions := &fakeSessionCreator{result: &session.TokenResult{
+	sessions := &fakeSessionCreator{result: &TokenResult{
 		AccessToken: "app-token",
 		ExpiresIn:   14400,
 	}}
@@ -369,7 +368,7 @@ func TestServiceLoginEnqueuesSuccessfulLoginLogWhenProducerConfigured(t *testing
 	service := NewService(
 		repo,
 		fakeLoginTypeProvider{types: []string{"password"}},
-		&fakeSessionCreator{result: &session.TokenResult{AccessToken: "access-token", RefreshToken: "refresh-token"}},
+		&fakeSessionCreator{result: &TokenResult{AccessToken: "access-token", RefreshToken: "refresh-token"}},
 		&fakeCaptchaVerifier{},
 		WithLoginLogEnqueuer(enqueuer),
 	)
@@ -419,7 +418,7 @@ func TestServiceLoginFallsBackToSyncLoginLogWhenEnqueueFails(t *testing.T) {
 	service := NewService(
 		repo,
 		fakeLoginTypeProvider{types: []string{"password"}},
-		&fakeSessionCreator{result: &session.TokenResult{AccessToken: "access-token", RefreshToken: "refresh-token"}},
+		&fakeSessionCreator{result: &TokenResult{AccessToken: "access-token", RefreshToken: "refresh-token"}},
 		&fakeCaptchaVerifier{},
 		WithLoginLogEnqueuer(enqueuer),
 	)
@@ -628,7 +627,7 @@ func TestServicePhoneCodeLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
 		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
 	}}
 	repo := &fakeAuthRepository{role: &DefaultRole{ID: 7}}
-	sessions := &fakeSessionCreator{result: &session.TokenResult{
+	sessions := &fakeSessionCreator{result: &TokenResult{
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
 		ExpiresIn:        14400,

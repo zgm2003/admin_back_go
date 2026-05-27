@@ -14,7 +14,6 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/platform/taskqueue"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
@@ -56,13 +55,13 @@ type SessionService interface {
 	SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error)
 	ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error
 	LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error)
-	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
+	Refresh(ctx context.Context, input RefreshInput) (*TokenResult, *apperror.Error)
 	Logout(ctx context.Context, accessToken string) *apperror.Error
 }
 
 type SessionManager interface {
-	Create(ctx context.Context, input session.CreateInput) (*session.TokenResult, *apperror.Error)
-	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
+	Create(ctx context.Context, input CreateInput) (*TokenResult, *apperror.Error)
+	Refresh(ctx context.Context, input RefreshInput) (*TokenResult, *apperror.Error)
 	Logout(ctx context.Context, accessToken string) *apperror.Error
 }
 
@@ -290,7 +289,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (*LoginResponse, 
 		return nil, appErr
 	}
 
-	result, createErr := s.sessionManager.Create(ctx, session.CreateInput{
+	result, createErr := s.sessionManager.Create(ctx, CreateInput{
 		UserID:    user.ID,
 		Platform:  input.Platform,
 		DeviceID:  input.DeviceID,
@@ -304,7 +303,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (*LoginResponse, 
 	return loginResponseFromToken(result, user.ID, isNewUser), nil
 }
 
-func (s *Service) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
+func (s *Service) Refresh(ctx context.Context, input RefreshInput) (*TokenResult, *apperror.Error) {
 	if s == nil || s.sessionManager == nil {
 		return nil, apperror.Unauthorized("Token认证未配置")
 	}

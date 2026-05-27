@@ -11,7 +11,6 @@ import (
 	"admin_back_go/internal/apperror"
 	projecti18n "admin_back_go/internal/i18n"
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/session"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,8 +27,8 @@ type fakeSessionService struct {
 	configPlatform      string
 	configResult        *authmodule.LoginConfigResponse
 	configErr           *apperror.Error
-	refreshInput        session.RefreshInput
-	refreshResult       *session.TokenResult
+	refreshInput        authmodule.RefreshInput
+	refreshResult       *authmodule.TokenResult
 	refreshErr          *apperror.Error
 	logoutToken         string
 	logoutErr           *apperror.Error
@@ -55,7 +54,7 @@ func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (
 	return f.configResult, f.configErr
 }
 
-func (f *fakeSessionService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
+func (f *fakeSessionService) Refresh(ctx context.Context, input authmodule.RefreshInput) (*authmodule.TokenResult, *apperror.Error) {
 	f.refreshInput = input
 	return f.refreshResult, f.refreshErr
 }
@@ -296,7 +295,7 @@ func TestHandlerLoginRejectsInvalidEnumInputBeforeService(t *testing.T) {
 }
 
 func TestHandlerRefreshReturnsTokenResult(t *testing.T) {
-	service := &fakeSessionService{refreshResult: &session.TokenResult{
+	service := &fakeSessionService{refreshResult: &authmodule.TokenResult{
 		AccessToken:      "new-access",
 		RefreshToken:     "new-refresh",
 		ExpiresIn:        14400,

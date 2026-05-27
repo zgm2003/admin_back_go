@@ -13,7 +13,7 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/module/session"
+	authmodule "admin_back_go/internal/module/auth"
 )
 
 const (
@@ -64,7 +64,7 @@ func NewService(repository Repository) *Service {
 	return &Service{repository: repository}
 }
 
-func (s *Service) Policy(ctx context.Context, platform string) (*session.AuthPolicy, error) {
+func (s *Service) Policy(ctx context.Context, platform string) (*authmodule.AuthPolicy, error) {
 	if s == nil || s.repository == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
@@ -74,7 +74,7 @@ func (s *Service) Policy(ctx context.Context, platform string) (*session.AuthPol
 		return nil, err
 	}
 
-	return &session.AuthPolicy{
+	return &authmodule.AuthPolicy{
 		BindPlatform:             row.BindPlatform == enum.CommonYes,
 		BindDevice:               row.BindDevice == enum.CommonYes,
 		BindIP:                   row.BindIP == enum.CommonYes,

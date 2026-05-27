@@ -6,7 +6,6 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
@@ -129,7 +128,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	result, appErr := h.service.Refresh(c.Request.Context(), session.RefreshInput{
+	result, appErr := h.service.Refresh(c.Request.Context(), authmodule.RefreshInput{
 		RefreshToken: req.RefreshToken,
 		ClientIP:     c.ClientIP(),
 		UserAgent:    c.GetHeader("User-Agent"),

@@ -12,7 +12,6 @@ import (
 	"admin_back_go/internal/enum"
 	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/user"
 
 	"github.com/gin-gonic/gin"
@@ -40,8 +39,8 @@ func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (
 	f.configPlatform = platform
 	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide}, nil
 }
-func (f *fakeSessionService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
-	return &session.TokenResult{}, nil
+func (f *fakeSessionService) Refresh(ctx context.Context, input authmodule.RefreshInput) (*authmodule.TokenResult, *apperror.Error) {
+	return &authmodule.TokenResult{}, nil
 }
 func (f *fakeSessionService) Logout(ctx context.Context, accessToken string) *apperror.Error {
 	f.logoutToken = accessToken
