@@ -1,31 +1,32 @@
-package auth
+package app
 
 import (
 	"strings"
 
+	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-type PlatformRouteOptions struct {
+type RouteOptions struct {
 	Prefix         string
 	Platform       string
-	AuthService    SessionService
-	CaptchaService PlatformCaptchaService
-	UserService    PlatformUserInitService
+	AuthService    authmodule.SessionService
+	CaptchaService CaptchaService
+	UserService    UserInitService
 }
 
-func RegisterPlatformRoutes(router *gin.Engine, opts PlatformRouteOptions) {
+func Register(router *gin.Engine, opts RouteOptions) {
 	validate.MustRegister()
 	prefix := strings.TrimRight(strings.TrimSpace(opts.Prefix), "/")
 	if prefix == "" {
-		panic("auth platform route prefix is required")
+		panic("auth app route prefix is required")
 	}
 	if strings.TrimSpace(opts.Platform) == "" {
-		panic("auth platform route platform is required")
+		panic("auth app route platform is required")
 	}
-	handler := NewPlatformHandler(opts)
+	handler := NewHandler(opts)
 	group := router.Group(prefix)
 	group.GET("/login-config", handler.LoginConfig)
 	group.GET("/captcha", handler.Captcha)

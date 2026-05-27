@@ -1,4 +1,4 @@
-package auth
+package app
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
+	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/response"
@@ -13,23 +14,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type PlatformCaptchaService interface {
+type CaptchaService interface {
 	Generate(ctx context.Context) (*captcha.ChallengeResponse, *apperror.Error)
 }
 
-type PlatformUserInitService interface {
+type UserInitService interface {
 	Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error)
 }
 
-type PlatformHandler struct {
+type Handler struct {
 	platform       string
-	authService    SessionService
-	captchaService PlatformCaptchaService
-	userService    PlatformUserInitService
+	authService    authmodule.SessionService
+	captchaService CaptchaService
+	userService    UserInitService
 }
 
-func NewPlatformHandler(opts PlatformRouteOptions) *PlatformHandler {
-	return &PlatformHandler{
+func NewHandler(opts RouteOptions) *Handler {
+	return &Handler{
 		platform:       strings.TrimSpace(opts.Platform),
 		authService:    opts.AuthService,
 		captchaService: opts.CaptchaService,
@@ -37,7 +38,7 @@ func NewPlatformHandler(opts PlatformRouteOptions) *PlatformHandler {
 	}
 }
 
-func (h *PlatformHandler) LoginConfig(c *gin.Context) {
+func (h *Handler) LoginConfig(c *gin.Context) {
 	if h.authService == nil {
 		response.Error(c, apperror.UnauthorizedKey("auth.platform.service_missing", nil, "登录服务未配置"))
 		return
@@ -50,7 +51,7 @@ func (h *PlatformHandler) LoginConfig(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *PlatformHandler) Captcha(c *gin.Context) {
+func (h *Handler) Captcha(c *gin.Context) {
 	if h.captchaService == nil {
 		response.Error(c, apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置"))
 		return
@@ -63,7 +64,7 @@ func (h *PlatformHandler) Captcha(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *PlatformHandler) SendCode(c *gin.Context) {
+func (h *Handler) SendCode(c *gin.Context) {
 	if h.authService == nil {
 		response.Error(c, apperror.UnauthorizedKey("auth.platform.service_missing", nil, "登录服务未配置"))
 		return
@@ -73,14 +74,14 @@ func (h *PlatformHandler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("auth.send_code.request.invalid", nil, "验证码参数错误"))
 		return
 	}
-	if _, appErr := h.authService.SendCode(c.Request.Context(), SendCodeInput(req)); appErr != nil {
+	if _, appErr := h.authService.SendCode(c.Request.Context(), authmodule.SendCodeInput(req)); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
 	response.OKWithMessageKey(c, gin.H{}, "auth.verify_code.sent", nil, "验证码发送成功")
 }
 
-func (h *PlatformHandler) Login(c *gin.Context) {
+func (h *Handler) Login(c *gin.Context) {
 	if h.authService == nil {
 		response.Error(c, apperror.UnauthorizedKey("auth.platform.service_missing", nil, "登录服务未配置"))
 		return
@@ -89,12 +90,12 @@ func (h *PlatformHandler) Login(c *gin.Context) {
 		response.Error(c, apperror.InternalKey("auth.platform.user_service_missing", nil, "用户服务未配置"))
 		return
 	}
-	var req platformLoginRequest
+	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperror.BadRequestKey("auth.login.request.invalid", nil, "登录参数错误"))
 		return
 	}
-	result, appErr := h.authService.Login(c.Request.Context(), LoginInput{
+	result, appErr := h.authService.Login(c.Request.Context(), authmodule.LoginInput{
 		LoginAccount:  req.LoginAccount,
 		LoginType:     req.LoginType,
 		Password:      req.Password,
@@ -119,10 +120,10 @@ func (h *PlatformHandler) Login(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	response.OK(c, platformLoginResponse{Token: result.AccessToken, User: platformUserFromInit(currentUser)})
+	response.OK(c, loginResponse{Token: result.AccessToken, User: userFromInit(currentUser)})
 }
 
-func (h *PlatformHandler) Logout(c *gin.Context) {
+func (h *Handler) Logout(c *gin.Context) {
 	if h.authService == nil {
 		response.Error(c, apperror.UnauthorizedKey("auth.platform.service_missing", nil, "登录服务未配置"))
 		return

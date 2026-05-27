@@ -19,6 +19,7 @@ import (
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	authadmin "admin_back_go/internal/module/auth/transport/admin"
+	authapp "admin_back_go/internal/module/auth/transport/app"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/clientversion"
@@ -129,7 +130,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	system.RegisterRoutes(router, deps.Readiness)
 	captcha.RegisterRoutes(router, deps.CaptchaService)
 	authadmin.Register(router, deps.AuthService)
-	auth.RegisterPlatformRoutes(router, auth.PlatformRouteOptions{
+	authapp.Register(router, authapp.RouteOptions{
 		Prefix:         "/api/app/v1/auth",
 		Platform:       enum.PlatformApp,
 		AuthService:    deps.AuthService,
