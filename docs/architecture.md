@@ -11,7 +11,7 @@ E:\admin_go\docs\architecture\05-development-quality-rules.md
 
 ## 当前阶段
 
-当前后端已经不是早期 admin core foundation。`admin_back_go` 是 Go active runtime：认证、RBAC、用户、App auth、日志、通知、邮件、上传、队列、定时任务、支付、AI、WebSocket realtime 等模块已经按 `docs/status/current-status.md` 分批落地。
+当前后端已经不是早期 admin core foundation。`admin_back_go` 是 Go active runtime：认证、RBAC、用户、App API、日志、通知、邮件、上传、队列、定时任务、支付、AI、WebSocket realtime 等模块已经按 `docs/status/current-status.md` 分批落地。
 
 当前事实来源顺序：
 
@@ -57,9 +57,9 @@ route -> handler -> service -> repository -> model
 
 ## 模块家族
 
-`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/appauth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
+`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
 
-App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。`internal/module/appauth` 是过渡期的 App scope adapter bundle：它当前承载 `/api/app/v1/auth/*`、`/api/app/v1/users/me`、`/api/app/v1/profile`、`/api/app/v1/upload-tokens`，固定 `platform=app`、裁剪 App 出参、复用 `auth/user/session/captcha/uploadtoken` 等 service；它不是第二套 auth/user/uploadtoken 业务模块，不能作为后续 `appai` / `appwallet` 的命名模板。
+App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth`，`/api/app/v1/users/me` 与 `/api/app/v1/profile` 归属 `internal/module/user`，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken`。
 
 平台差异默认收敛在 route / handler / presenter / policy。`authplatform` 只拥有认证/会话策略，例如登录方式、验证码类型、token TTL、会话绑定、单端登录和是否允许注册；它不是 AI、钱包、通知等业务的全局平台配置中心。
 

@@ -4,3 +4,9 @@ auth.token.invalid_or_expired: Token is invalid or expired
 auth.token.authenticator_missing: Token authenticator is not configured
 auth.verify_code.sent: Verification code sent
 auth.logout.success: Signed out successfully
+auth.platform.service_missing: Login service is not configured
+auth.platform.user_service_missing: User service is not configured
+auth.login.request.invalid: Invalid login request
+auth.platform_login.result_invalid: Invalid login result
+auth.send_code.request.invalid: Invalid verification code request
+auth.platform.invalid: Token platform mismatch
