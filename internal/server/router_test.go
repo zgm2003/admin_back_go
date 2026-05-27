@@ -2098,6 +2098,37 @@ func TestRouterInstallsUsersInitAsProtectedRESTPath(t *testing.T) {
 	}
 }
 
+func TestLegacyUsersRoutesAreNotRegistered(t *testing.T) {
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
+		},
+		UserService: &fakeRouterUserService{result: &user.InitResponse{UserID: 1, Username: "admin"}},
+		AuthService: fakeAuthService{},
+	})
+
+	legacyUsersPrefix := "/api/" + "Users"
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, legacyUsersPrefix + "/getLoginConfig"},
+		{http.MethodPost, legacyUsersPrefix + "/sendCode"},
+		{http.MethodPost, legacyUsersPrefix + "/login"},
+		{http.MethodPost, legacyUsersPrefix + "/refresh"},
+		{http.MethodPost, legacyUsersPrefix + "/init"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(tt.method, tt.path, nil)
+		request.Header.Set("Authorization", "Bearer access-token")
+		request.Header.Set("platform", "admin")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("legacy Users route %s %s must not be installed, got code=%d body=%s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 	userService := &fakeRouterUserService{}
 	router := newTestRouter(t, Dependencies{

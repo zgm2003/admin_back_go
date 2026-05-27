@@ -343,7 +343,7 @@ PATCH  /api/admin/v1/resources/:id/status
 DELETE /api/admin/v1/resources/:id
 ```
 
-禁止新接口继续 `/api/admin/Xxx/add|edit|del|status` 全 POST。旧接口只能是 legacy adapter，不能定义新世界。
+禁止新接口继续 `/api/admin/Xxx/add|edit|del|status` 全 POST。旧接口只能作为历史事实参考，不能定义新世界。
 
 ## No fallback-field baseline
 
@@ -356,7 +356,7 @@ DELETE /api/admin/v1/resources/:id
 不让前端用 any/Record<string, any> 吞掉契约漂移
 ```
 
-允许的默认值必须是业务规则本身，例如根节点 `parent_id=0`。兼容必须显式命名为 legacy adapter，并且不能污染 module service。
+允许的默认值必须是业务规则本身，例如根节点 `parent_id=0`。兼容必须显式写清来源、退出条件和验证边界，并且不能污染 module service。
 
 ## App error baseline
 
@@ -1062,10 +1062,11 @@ Ping 失败：整体 status = not_ready，响应带 checks 明细
 
 ## Users/init RBAC read baseline
 
-当前新增的 RBAC 只读切片是 legacy-compatible adapter：
+当前 RBAC 只读切片由 Go REST 接口提供：
 
 ```text
-POST /api/Users/init
+GET /api/admin/v1/users/me
+GET /api/admin/v1/users/init
 ```
 
 边界：

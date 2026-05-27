@@ -43,6 +43,22 @@ func TestDefaultAuthSkipPathsExposeOnlyCanonicalPaymentCallback(t *testing.T) {
 		t.Fatalf("legacy pay notify path must not remain public by default")
 	}
 }
+
+func TestAuthTokenDefaultSkipPathsExcludeLegacyUsersRoutes(t *testing.T) {
+	paths := DefaultAuthSkipPaths()
+	legacyUsersPrefix := "/api/" + "Users"
+	for _, path := range []string{
+		legacyUsersPrefix + "/getLoginConfig",
+		legacyUsersPrefix + "/sendCode",
+		legacyUsersPrefix + "/login",
+		legacyUsersPrefix + "/refresh",
+	} {
+		if _, ok := paths[path]; ok {
+			t.Fatalf("legacy Users path %s must not be public by default", path)
+		}
+	}
+}
+
 func TestAuthTokenRejectsMissingBearer(t *testing.T) {
 	router := newAuthTokenTestRouter(AuthTokenConfig{})
 
