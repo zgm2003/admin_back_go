@@ -297,7 +297,7 @@ platform/device-id 作为请求输入传入认证服务
 
 ## Session authenticator baseline
 
-`internal/module/session` 现在负责项目自管登录态，不把认证真相交给第三方 Gin JWT middleware。
+`internal/module/auth/session.go` 现在负责项目自管登录态，不把认证真相交给第三方 Gin JWT middleware；旧 session standalone module 已合并进 `auth`。
 
 当前实现：
 
@@ -925,7 +925,7 @@ CPU 密集任务不能无限开 goroutine，要进 low queue 或独立 worker
 
 ## Auth login/refresh/logout baseline
 
-`internal/module/auth` 只做认证相关 HTTP 边界。
+`internal/module/auth` 现在拥有认证相关 HTTP 边界以及 auth-adjacent 业务实现：captcha、token/session primitives、user session management、login log read/write。旧 captcha/session/usersession/userloginlog standalone modules 已合并进 `auth`；对外 API contract URL 不变。
 
 当前路由：
 
@@ -960,7 +960,7 @@ logout 后 revoke session，并清 token:session:<session_id> Redis 缓存；单
 ```
 
 `auth` handler 不查 DB/Redis；它只解析 JSON / Authorization header，调用 `auth` service。
-`captcha` handler 不操作 Redis；它只调用 `captcha` service。
+`auth` captcha handler 不操作 Redis；它只调用 `auth.CaptchaService`。
 
 ## User Legacy Closure Slice
 
@@ -983,9 +983,9 @@ PATCH /api/admin/v1/user-sessions/revoke
 
 ```text
 userquickentry 只拥有当前登录用户快捷入口保存：校验 permission 是 admin PAGE 且启用，最多 6 个，事务内软删旧 rows 再插入新 rows，返回 quick_entry。
-userloginlog 只拥有 users_login_log 读路径：LEFT JOIN users，账号/IP 前缀过滤，date_start/date_end 展开全日边界，用户不存在时 user_name=""。
-usersession 拥有 user_sessions 读和 revoke 写路径：列表不返回 access_token_hash/refresh_token_hash；状态由 revoked_at + refresh_expires_at 计算；revoke 禁止踢当前 AuthIdentity.SessionID。
-session.RevocationService 是 token Redis 清理边界：删除 "token:session:"+session_id；只有 "token:cur_sess:<platform>:<user_id>" 当前值等于被撤销 session id 时才删 pointer。
+auth.LoginLogService 只拥有 users_login_log 读路径：LEFT JOIN users，账号/IP 前缀过滤，date_start/date_end 展开全日边界，用户不存在时 user_name=""。
+auth.SessionAdminService 拥有 user_sessions 读和 revoke 写路径：列表不返回 access_token_hash/refresh_token_hash；状态由 revoked_at + refresh_expires_at 计算；revoke 禁止踢当前 AuthIdentity.SessionID。
+auth.SessionRevocationService 是 token Redis 清理边界：删除 "token:session:"+session_id；只有 "token:cur_sess:<platform>:<user_id>" 当前值等于被撤销 session id 时才删 pointer。
 revoke 路由挂 user_userManager_kick 权限，并写 OperationLog user_session/revoke 或 user_session/revoke_batch。
 ```
 
