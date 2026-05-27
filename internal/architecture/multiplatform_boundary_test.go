@@ -118,3 +118,61 @@ func TestAuthTransportHasNoPlatformPrefixedFiles(t *testing.T) {
 		t.Fatalf("platform-prefixed auth files remain: %s", strings.Join(offenders, ", "))
 	}
 }
+
+func TestAuthAdjacentModulesAreMerged(t *testing.T) {
+	root := backendRoot(t)
+	for _, rel := range []string{
+		"internal/module/captcha",
+		"internal/module/session",
+		"internal/module/usersession",
+		"internal/module/userloginlog",
+	} {
+		if info, err := os.Stat(filepath.Join(root, rel)); err == nil && info.IsDir() {
+			t.Fatalf("expected %s to be removed (merged into auth)", rel)
+		}
+	}
+	for _, rel := range []string{
+		"internal/module/auth/captcha.go",
+		"internal/module/auth/session.go",
+		"internal/module/auth/loginlog.go",
+	} {
+		mustExist(t, root, rel)
+	}
+}
+
+func TestNoImportsOfDeletedAuthAdjacentModules(t *testing.T) {
+	root := backendRoot(t)
+	var banned []string
+	for _, name := range []string{"captcha", "session", "usersession", "userloginlog"} {
+		banned = append(banned, "admin_back_go/internal/module/"+name)
+	}
+	var offenders []string
+	for _, base := range []string{"internal", "cmd"} {
+		err := filepath.WalkDir(filepath.Join(root, base), func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() || filepath.Ext(path) != ".go" {
+				return nil
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			text := string(body)
+			for _, mod := range banned {
+				if strings.Contains(text, mod) {
+					rel, _ := filepath.Rel(root, path)
+					offenders = append(offenders, filepath.ToSlash(rel)+" imports "+mod)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s go files: %v", base, err)
+		}
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("banned auth-adjacent imports remain:\n  %s", strings.Join(offenders, "\n  "))
+	}
+}
