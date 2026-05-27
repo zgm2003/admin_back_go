@@ -6,16 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, authService AuthService, captchaService CaptchaService, userService UserService, uploadTokenService UploadTokenService) {
+func RegisterRoutes(router *gin.Engine, userService UserService, uploadTokenService UploadTokenService) {
 	validate.MustRegister()
-	handler := NewHandler(authService, captchaService, userService, uploadTokenService)
-
-	authGroup := router.Group("/api/app/v1/auth")
-	authGroup.GET("/login-config", handler.LoginConfig)
-	authGroup.GET("/captcha", handler.Captcha)
-	authGroup.POST("/send-code", handler.SendCode)
-	authGroup.POST("/login", handler.Login)
-	authGroup.POST("/logout", handler.Logout)
+	handler := NewHandler(userService, uploadTokenService)
 
 	users := router.Group("/api/app/v1/users")
 	users.GET("/me", handler.Me)

@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1794,6 +1796,19 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 	}
 	if _, ok := data["buttonCodes"]; !ok {
 		t.Fatalf("missing buttonCodes in users/me payload: %#v", data)
+	}
+}
+
+func TestAppAuthPackageDoesNotRegisterAuthRoutes(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "module", "appauth", "route.go"))
+	if err != nil {
+		t.Fatalf("read appauth route.go: %v", err)
+	}
+	text := string(content)
+	for _, forbidden := range []string{"/api/app/v1/auth", "LoginConfig", "SendCode", "Login)", "Logout"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("appauth must not own auth route marker %q", forbidden)
+		}
 	}
 }
 
