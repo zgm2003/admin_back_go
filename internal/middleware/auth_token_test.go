@@ -52,6 +52,8 @@ func TestAuthTokenDefaultSkipPathsExcludeLegacyUsersRoutes(t *testing.T) {
 		legacyUsersPrefix + "/sendCode",
 		legacyUsersPrefix + "/login",
 		legacyUsersPrefix + "/refresh",
+		legacyUsersPrefix + "/logout",
+		legacyUsersPrefix + "/init",
 	} {
 		if _, ok := paths[path]; ok {
 			t.Fatalf("legacy Users path %s must not be public by default", path)
