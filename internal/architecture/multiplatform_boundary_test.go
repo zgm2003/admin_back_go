@@ -34,29 +34,31 @@ func mustNotExist(t *testing.T, root, rel string) {
 
 func TestAuthTransportBoundaryShape(t *testing.T) {
 	root := backendRoot(t)
+	authRoot := "internal/module/auth/"
 	for _, rel := range []string{
-		"internal/module/auth/transport/admin/route.go",
-		"internal/module/auth/transport/admin/handler.go",
-		"internal/module/auth/transport/admin/handler_test.go",
-		"internal/module/auth/transport/admin/request.go",
-		"internal/module/auth/transport/admin/presenter.go",
-		"internal/module/auth/transport/app/route.go",
-		"internal/module/auth/transport/app/handler.go",
-		"internal/module/auth/transport/app/handler_test.go",
-		"internal/module/auth/transport/app/request.go",
-		"internal/module/auth/transport/app/presenter.go",
+		authRoot + "transport/admin/route.go",
+		authRoot + "transport/admin/handler.go",
+		authRoot + "transport/admin/handler_test.go",
+		authRoot + "transport/admin/request.go",
+		authRoot + "transport/admin/presenter.go",
+		authRoot + "transport/app/route.go",
+		authRoot + "transport/app/handler.go",
+		authRoot + "transport/app/handler_test.go",
+		authRoot + "transport/app/request.go",
+		authRoot + "transport/app/presenter.go",
 	} {
 		mustExist(t, root, rel)
 	}
+	platformFilePrefix := "platform_"
 	for _, rel := range []string{
-		"internal/module/auth/route.go",
-		"internal/module/auth/handler.go",
-		"internal/module/auth/handler_test.go",
-		"internal/module/auth/request.go",
-		"internal/module/auth/platform_route.go",
-		"internal/module/auth/platform_handler.go",
-		"internal/module/auth/platform_handler_test.go",
-		"internal/module/auth/platform_dto.go",
+		authRoot + "route.go",
+		authRoot + "handler.go",
+		authRoot + "handler_test.go",
+		authRoot + "request.go",
+		authRoot + platformFilePrefix + "route.go",
+		authRoot + platformFilePrefix + "handler.go",
+		authRoot + platformFilePrefix + "handler_test.go",
+		authRoot + platformFilePrefix + "dto.go",
 	} {
 		mustNotExist(t, root, rel)
 	}

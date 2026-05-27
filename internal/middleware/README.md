@@ -92,7 +92,10 @@ POST /api/admin/v1/auth/send-code
 POST /api/admin/v1/auth/forgot-password
 POST /api/admin/v1/auth/login
 POST /api/admin/v1/auth/refresh
-POST /api/Users/refresh
+GET  /api/app/v1/auth/login-config
+GET  /api/app/v1/auth/captcha
+POST /api/app/v1/auth/send-code
+POST /api/app/v1/auth/login
 ```
 
 logout 不跳过。logout 先认证当前 access token，再由 auth handler 调 session service 撤销。
