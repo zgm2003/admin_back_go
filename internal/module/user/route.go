@@ -32,4 +32,11 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	profile.PUT("/security/password", handler.UpdatePassword)
 	profile.PUT("/security/email", handler.UpdateEmail)
 	profile.PUT("/security/phone", handler.UpdatePhone)
+
+	appUsers := router.Group("/api/app/v1/users")
+	appUsers.GET("/me", handler.AppMe)
+
+	appProfile := router.Group("/api/app/v1/profile")
+	appProfile.GET("", handler.AppProfile)
+	appProfile.PUT("", handler.AppUpdateProfile)
 }

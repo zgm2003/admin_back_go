@@ -136,7 +136,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		CaptchaService: deps.CaptchaService,
 		UserService:    deps.UserService,
 	})
-	appauth.RegisterRoutes(router, deps.UserService, deps.UploadTokenService)
+	appauth.RegisterRoutes(router, deps.UploadTokenService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	aiprovider.RegisterRoutes(router, deps.AiProviderService)
 	aiagent.RegisterRoutes(router, deps.AiAgentService)
