@@ -27,12 +27,7 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("uploadtoken.request.invalid", nil, "上传 token 参数错误"))
 		return
 	}
-	result, appErr := h.requireService().Create(c.Request.Context(), CreateInput{
-		Folder:   req.Folder,
-		FileName: req.FileName,
-		FileSize: req.FileSize,
-		FileKind: req.FileKind,
-	})
+	result, appErr := h.requireService().Create(c.Request.Context(), CreateInput(req))
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

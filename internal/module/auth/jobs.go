@@ -25,16 +25,7 @@ type LoginLogPayload struct {
 
 // NewLoginLogTask builds the versioned login-log task.
 func NewLoginLogTask(attempt LoginAttempt) (taskqueue.Task, error) {
-	data, err := json.Marshal(LoginLogPayload{
-		UserID:       attempt.UserID,
-		LoginAccount: attempt.LoginAccount,
-		LoginType:    attempt.LoginType,
-		Platform:     attempt.Platform,
-		IP:           attempt.IP,
-		UserAgent:    attempt.UserAgent,
-		IsSuccess:    attempt.IsSuccess,
-		Reason:       attempt.Reason,
-	})
+	data, err := json.Marshal(LoginLogPayload(attempt))
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeAuthLoginLogV1, err)
 	}
@@ -51,16 +42,7 @@ func DecodeLoginLogPayload(payload []byte) (LoginAttempt, error) {
 	if err := json.Unmarshal(payload, &row); err != nil {
 		return LoginAttempt{}, fmt.Errorf("decode %s payload: %w", TypeAuthLoginLogV1, err)
 	}
-	return LoginAttempt{
-		UserID:       row.UserID,
-		LoginAccount: row.LoginAccount,
-		LoginType:    row.LoginType,
-		Platform:     row.Platform,
-		IP:           row.IP,
-		UserAgent:    row.UserAgent,
-		IsSuccess:    row.IsSuccess,
-		Reason:       row.Reason,
-	}, nil
+	return LoginAttempt(row), nil
 }
 
 // RegisterLoginLogHandler wires auth login-log consumption into the queue mux.

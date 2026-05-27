@@ -83,10 +83,7 @@ func (h *Handler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("验证码参数错误"))
 		return
 	}
-	_, appErr := h.service.SendCode(c.Request.Context(), SendCodeInput{
-		Account: req.Account,
-		Scene:   req.Scene,
-	})
+	_, appErr := h.service.SendCode(c.Request.Context(), SendCodeInput(req))
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -104,12 +101,7 @@ func (h *Handler) ForgetPassword(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("重置密码参数错误"))
 		return
 	}
-	if appErr := h.service.ForgetPassword(c.Request.Context(), ForgetPasswordInput{
-		Account:         req.Account,
-		Code:            req.Code,
-		NewPassword:     req.NewPassword,
-		ConfirmPassword: req.ConfirmPassword,
-	}); appErr != nil {
+	if appErr := h.service.ForgetPassword(c.Request.Context(), ForgetPasswordInput(req)); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
