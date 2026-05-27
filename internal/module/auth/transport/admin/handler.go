@@ -6,7 +6,6 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/response"
 
@@ -14,11 +13,12 @@ import (
 )
 
 type Handler struct {
-	service authmodule.SessionService
+	service        authmodule.SessionService
+	captchaService authmodule.CaptchaHTTPService
 }
 
-func NewHandler(service authmodule.SessionService) *Handler {
-	return &Handler{service: service}
+func NewHandler(service authmodule.SessionService, captchaService authmodule.CaptchaHTTPService) *Handler {
+	return &Handler{service: service, captchaService: captchaService}
 }
 
 func (h *Handler) LoginConfig(c *gin.Context) {
@@ -28,6 +28,19 @@ func (h *Handler) LoginConfig(c *gin.Context) {
 	}
 
 	result, appErr := h.service.LoginConfig(c.Request.Context(), c.GetHeader("platform"))
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *Handler) Captcha(c *gin.Context) {
+	if h.captchaService == nil {
+		response.Error(c, apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置"))
+		return
+	}
+	result, appErr := h.captchaService.Generate(c.Request.Context())
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -146,9 +159,9 @@ func (h *Handler) Logout(c *gin.Context) {
 	response.OKWithMessageKey(c, gin.H{}, "auth.logout.success", nil, "退出成功")
 }
 
-func captchaAnswerFromRequest(req *captchaAnswerRequest) *captcha.Answer {
+func captchaAnswerFromRequest(req *captchaAnswerRequest) *authmodule.Answer {
 	if req == nil {
 		return nil
 	}
-	return &captcha.Answer{X: req.X, Y: req.Y}
+	return &authmodule.Answer{X: req.X, Y: req.Y}
 }

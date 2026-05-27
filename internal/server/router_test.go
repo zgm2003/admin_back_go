@@ -26,7 +26,6 @@ import (
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
@@ -283,7 +282,7 @@ func (fakeAuthService) LoginConfig(ctx context.Context, platform string) (*auth.
 	return &auth.LoginConfigResponse{
 		LoginTypeArr:   []auth.LoginTypeOption{{Label: "密码登录", Value: auth.LoginTypePassword}},
 		CaptchaEnabled: true,
-		CaptchaType:    captcha.TypeSlide,
+		CaptchaType:    auth.TypeSlide,
 	}, nil
 }
 
@@ -302,10 +301,10 @@ func (fakeAuthService) Logout(ctx context.Context, accessToken string) *apperror
 
 type fakeCaptchaService struct{}
 
-func (fakeCaptchaService) Generate(ctx context.Context) (*captcha.ChallengeResponse, *apperror.Error) {
-	return &captcha.ChallengeResponse{
+func (fakeCaptchaService) Generate(ctx context.Context) (*auth.ChallengeResponse, *apperror.Error) {
+	return &auth.ChallengeResponse{
 		CaptchaID:   "captcha-id",
-		CaptchaType: captcha.TypeSlide,
+		CaptchaType: auth.TypeSlide,
 		MasterImage: "data:image/jpeg;base64,master",
 		TileImage:   "data:image/png;base64,tile",
 		TileX:       7,
@@ -538,7 +537,7 @@ func (f *fakeRouterAuthPlatformService) Init(ctx context.Context) (*authplatform
 func (f *fakeRouterAuthPlatformService) List(ctx context.Context, query authplatform.ListQuery) (*authplatform.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	return &authplatform.ListResponse{
-		List: []authplatform.ListItem{{ID: 1, Code: "admin", Name: "PC后台", CaptchaType: captcha.TypeSlide}},
+		List: []authplatform.ListItem{{ID: 1, Code: "admin", Name: "PC后台", CaptchaType: auth.TypeSlide}},
 		Page: authplatform.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
@@ -1746,7 +1745,7 @@ func TestRouterInstallsCaptchaEndpointAsPublicPath(t *testing.T) {
 	}
 	body := decodeRouterBody(t, recorder)
 	data := mustRouterData(t, body)
-	if data["captcha_id"] != "captcha-id" || data["captcha_type"] != captcha.TypeSlide {
+	if data["captcha_id"] != "captcha-id" || data["captcha_type"] != auth.TypeSlide {
 		t.Fatalf("unexpected captcha response: %#v", data)
 	}
 }
@@ -1814,7 +1813,7 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 			return &auth.LoginConfigResponse{
 				LoginTypeArr:   []auth.LoginTypeOption{{Label: "密码登录", Value: auth.LoginTypePassword}},
 				CaptchaEnabled: true,
-				CaptchaType:    captcha.TypeSlide,
+				CaptchaType:    auth.TypeSlide,
 			}, nil
 		},
 		sendCodeFn: func(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
@@ -1851,7 +1850,7 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		t.Fatalf("expected app login-config to force platform app, got %q", loginConfigPlatform)
 	}
 	configData := mustRouterData(t, decodeRouterBody(t, configRecorder))
-	if configData["captcha_type"] != captcha.TypeSlide || configData["captcha_enabled"] != true {
+	if configData["captcha_type"] != auth.TypeSlide || configData["captcha_enabled"] != true {
 		t.Fatalf("unexpected app login-config payload: %#v", configData)
 	}
 
@@ -1862,7 +1861,7 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		t.Fatalf("expected app captcha status %d, got %d body=%s", http.StatusOK, captchaRecorder.Code, captchaRecorder.Body.String())
 	}
 	captchaData := mustRouterData(t, decodeRouterBody(t, captchaRecorder))
-	if captchaData["captcha_id"] != "captcha-id" || captchaData["captcha_type"] != captcha.TypeSlide {
+	if captchaData["captcha_id"] != "captcha-id" || captchaData["captcha_type"] != auth.TypeSlide {
 		t.Fatalf("unexpected app captcha payload: %#v", captchaData)
 	}
 

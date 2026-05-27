@@ -21,7 +21,6 @@ import (
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"
@@ -245,15 +244,15 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 			taskqueue.QueueLow,
 		}},
 	)
-	var captchaService *captcha.Service
-	captchaEngine, captchaErr := captcha.NewSlideEngine()
+	var captchaService *auth.CaptchaService
+	captchaEngine, captchaErr := auth.NewSlideEngine()
 	if captchaErr != nil {
 		logger.Error("failed to initialize captcha engine", "error", captchaErr)
 	} else {
-		captchaService = captcha.NewService(
+		captchaService = auth.NewCaptchaService(
 			captchaEngine,
-			captcha.NewRedisStore(resources.Redis, ""),
-			captcha.NewSystemSettingCaptchaPolicyProvider(systemSettingRepository),
+			auth.NewCaptchaRedisStore(resources.Redis, ""),
+			auth.NewSystemSettingCaptchaPolicyProvider(systemSettingRepository),
 		)
 	}
 	authService := auth.NewService(

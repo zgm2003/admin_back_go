@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/platform/taskqueue"
 
@@ -112,11 +111,11 @@ func (f *fakeSessionCreator) Logout(ctx context.Context, accessToken string) *ap
 }
 
 type fakeCaptchaVerifier struct {
-	input captcha.VerifyInput
+	input VerifyInput
 	err   *apperror.Error
 }
 
-func (f *fakeCaptchaVerifier) Verify(ctx context.Context, input captcha.VerifyInput) *apperror.Error {
+func (f *fakeCaptchaVerifier) Verify(ctx context.Context, input VerifyInput) *apperror.Error {
 	f.input = input
 	return f.err
 }
@@ -168,7 +167,7 @@ func (f *fakeLoginLogEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task)
 }
 
 func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
-	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: captcha.TypeSlide}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: TypeSlide}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
 
 	result, appErr := service.LoginConfig(context.Background(), "admin")
 
@@ -184,7 +183,7 @@ func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
 			t.Fatalf("expected login type %s at index %d, got %#v", value, i, result.LoginTypeArr)
 		}
 	}
-	if !result.CaptchaEnabled || result.CaptchaType != captcha.TypeSlide {
+	if !result.CaptchaEnabled || result.CaptchaType != TypeSlide {
 		t.Fatalf("expected slide captcha config, got %#v", result)
 	}
 }
@@ -269,7 +268,7 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 		LoginType:    LoginTypePassword,
 		Password:     "123456",
 		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &captcha.Answer{
+		CaptchaAnswer: &Answer{
 			X: 120,
 			Y: 80,
 		},
@@ -335,7 +334,7 @@ func TestServiceAppPasswordLoginVerifiesCaptchaAndReturnsUserID(t *testing.T) {
 		LoginType:    LoginTypePassword,
 		Password:     "123456",
 		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &captcha.Answer{
+		CaptchaAnswer: &Answer{
 			X: 120,
 			Y: 80,
 		},
@@ -380,7 +379,7 @@ func TestServiceLoginEnqueuesSuccessfulLoginLogWhenProducerConfigured(t *testing
 		LoginType:     LoginTypePassword,
 		Password:      "123456",
 		CaptchaID:     "captcha-id",
-		CaptchaAnswer: &captcha.Answer{X: 120, Y: 80},
+		CaptchaAnswer: &Answer{X: 120, Y: 80},
 		Platform:      "admin",
 		ClientIP:      "127.0.0.1",
 		UserAgent:     "test-agent",
@@ -430,7 +429,7 @@ func TestServiceLoginFallsBackToSyncLoginLogWhenEnqueueFails(t *testing.T) {
 		LoginType:     LoginTypePassword,
 		Password:      "123456",
 		CaptchaID:     "captcha-id",
-		CaptchaAnswer: &captcha.Answer{X: 120, Y: 80},
+		CaptchaAnswer: &Answer{X: 120, Y: 80},
 		Platform:      "admin",
 	})
 
@@ -458,7 +457,7 @@ func TestServiceLoginRejectsWrongPasswordAndLogsFailure(t *testing.T) {
 		LoginType:    LoginTypePassword,
 		Password:     "bad-password",
 		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &captcha.Answer{
+		CaptchaAnswer: &Answer{
 			X: 120,
 			Y: 80,
 		},
@@ -501,7 +500,7 @@ func TestServiceLoginRejectsWrongPasswordAndEnqueuesFailure(t *testing.T) {
 		LoginType:     LoginTypePassword,
 		Password:      "bad-password",
 		CaptchaID:     "captcha-id",
-		CaptchaAnswer: &captcha.Answer{X: 120, Y: 80},
+		CaptchaAnswer: &Answer{X: 120, Y: 80},
 		Platform:      "admin",
 	})
 
@@ -569,7 +568,7 @@ func TestServiceLoginRejectsInvalidCaptchaBeforeCredentialLookup(t *testing.T) {
 		LoginType:    LoginTypePassword,
 		Password:     "123456",
 		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &captcha.Answer{
+		CaptchaAnswer: &Answer{
 			X: 40,
 			Y: 80,
 		},

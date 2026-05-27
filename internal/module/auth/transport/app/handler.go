@@ -7,16 +7,11 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
 )
-
-type CaptchaService interface {
-	Generate(ctx context.Context) (*captcha.ChallengeResponse, *apperror.Error)
-}
 
 type UserInitService interface {
 	Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error)
@@ -25,7 +20,7 @@ type UserInitService interface {
 type Handler struct {
 	platform       string
 	authService    authmodule.SessionService
-	captchaService CaptchaService
+	captchaService authmodule.CaptchaHTTPService
 	userService    UserInitService
 }
 
@@ -140,9 +135,9 @@ func (h *Handler) Logout(c *gin.Context) {
 	response.OKNull(c)
 }
 
-func captchaAnswerFromRequest(req *captchaAnswerRequest) *captcha.Answer {
+func captchaAnswerFromRequest(req *captchaAnswerRequest) *authmodule.Answer {
 	if req == nil {
 		return nil
 	}
-	return &captcha.Answer{X: req.X, Y: req.Y}
+	return &authmodule.Answer{X: req.X, Y: req.Y}
 }

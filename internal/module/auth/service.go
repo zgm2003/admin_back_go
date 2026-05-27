@@ -14,7 +14,6 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/platform/taskqueue"
 
@@ -68,7 +67,7 @@ type SessionManager interface {
 }
 
 type CaptchaVerifier interface {
-	Verify(ctx context.Context, input captcha.VerifyInput) *apperror.Error
+	Verify(ctx context.Context, input VerifyInput) *apperror.Error
 }
 
 type VerifyCodeMailSender interface {
@@ -330,7 +329,7 @@ func (s *Service) loginByPassword(ctx context.Context, input LoginInput) (*UserC
 		if s.captchaVerifier == nil {
 			return nil, apperror.Internal("验证码服务未配置")
 		}
-		if appErr := s.captchaVerifier.Verify(ctx, captcha.VerifyInput{
+		if appErr := s.captchaVerifier.Verify(ctx, VerifyInput{
 			ID:        input.CaptchaID,
 			Answer:    input.CaptchaAnswer,
 			ClientIP:  input.ClientIP,

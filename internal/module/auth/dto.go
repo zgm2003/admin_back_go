@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 )
 
@@ -22,7 +21,7 @@ type LoginInput struct {
 	Password      string
 	Code          string
 	CaptchaID     string
-	CaptchaAnswer *captcha.Answer
+	CaptchaAnswer *Answer
 	Platform      string
 	DeviceID      string
 	ClientIP      string

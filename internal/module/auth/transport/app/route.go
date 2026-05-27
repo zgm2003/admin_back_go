@@ -13,7 +13,7 @@ type RouteOptions struct {
 	Prefix         string
 	Platform       string
 	AuthService    authmodule.SessionService
-	CaptchaService CaptchaService
+	CaptchaService authmodule.CaptchaHTTPService
 	UserService    UserInitService
 }
 

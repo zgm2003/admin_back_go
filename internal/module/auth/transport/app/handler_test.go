@@ -11,7 +11,6 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/user"
@@ -39,7 +38,7 @@ func (f *fakeSessionService) ForgetPassword(ctx context.Context, input authmodul
 }
 func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*authmodule.LoginConfigResponse, *apperror.Error) {
 	f.configPlatform = platform
-	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: captcha.TypeSlide}, nil
+	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide}, nil
 }
 func (f *fakeSessionService) Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error) {
 	return &session.TokenResult{}, nil
@@ -51,8 +50,8 @@ func (f *fakeSessionService) Logout(ctx context.Context, accessToken string) *ap
 
 type fakeCaptchaService struct{}
 
-func (fakeCaptchaService) Generate(ctx context.Context) (*captcha.ChallengeResponse, *apperror.Error) {
-	return &captcha.ChallengeResponse{CaptchaID: "captcha-id", CaptchaType: captcha.TypeSlide, MasterImage: "master", TileImage: "tile", ExpiresIn: 120}, nil
+func (fakeCaptchaService) Generate(ctx context.Context) (*authmodule.ChallengeResponse, *apperror.Error) {
+	return &authmodule.ChallengeResponse{CaptchaID: "captcha-id", CaptchaType: authmodule.TypeSlide, MasterImage: "master", TileImage: "tile", ExpiresIn: 120}, nil
 }
 
 type fakeUserService struct {
