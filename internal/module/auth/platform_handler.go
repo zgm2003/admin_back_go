@@ -138,3 +138,10 @@ func (h *PlatformHandler) Logout(c *gin.Context) {
 	}
 	response.OKNull(c)
 }
+
+func captchaAnswerFromRequest(req *captchaAnswerRequest) *captcha.Answer {
+	if req == nil {
+		return nil
+	}
+	return &captcha.Answer{X: req.X, Y: req.Y}
+}

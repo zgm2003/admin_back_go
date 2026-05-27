@@ -1,12 +1,13 @@
-package auth
+package admin
 
 import (
+	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service SessionService) {
+func Register(router *gin.Engine, service auth.SessionService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 
@@ -17,11 +18,4 @@ func RegisterRoutes(router *gin.Engine, service SessionService) {
 	v1.POST("/login", handler.Login)
 	v1.POST("/refresh", handler.Refresh)
 	v1.POST("/logout", handler.Logout)
-
-	legacy := router.Group("/api/Users")
-	legacy.POST("/getLoginConfig", handler.LoginConfig)
-	legacy.POST("/sendCode", handler.SendCode)
-	legacy.POST("/login", handler.Login)
-	legacy.POST("/refresh", handler.Refresh)
-	legacy.POST("/logout", handler.Logout)
 }

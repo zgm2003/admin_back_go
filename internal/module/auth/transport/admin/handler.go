@@ -1,11 +1,11 @@
-package auth
+package admin
 
 import (
-	"context"
 	"strings"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
+	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/response"
@@ -13,20 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type SessionService interface {
-	Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error)
-	SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error)
-	ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error
-	LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error)
-	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
-	Logout(ctx context.Context, accessToken string) *apperror.Error
-}
-
 type Handler struct {
-	service SessionService
+	service authmodule.SessionService
 }
 
-func NewHandler(service SessionService) *Handler {
+func NewHandler(service authmodule.SessionService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -54,7 +45,7 @@ func (h *Handler) Login(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("登录参数错误"))
 		return
 	}
-	result, appErr := h.service.Login(c.Request.Context(), LoginInput{
+	result, appErr := h.service.Login(c.Request.Context(), authmodule.LoginInput{
 		LoginAccount:  req.LoginAccount,
 		LoginType:     req.LoginType,
 		Password:      req.Password,
@@ -83,7 +74,7 @@ func (h *Handler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("验证码参数错误"))
 		return
 	}
-	_, appErr := h.service.SendCode(c.Request.Context(), SendCodeInput(req))
+	_, appErr := h.service.SendCode(c.Request.Context(), authmodule.SendCodeInput(req))
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -101,7 +92,7 @@ func (h *Handler) ForgetPassword(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("重置密码参数错误"))
 		return
 	}
-	if appErr := h.service.ForgetPassword(c.Request.Context(), ForgetPasswordInput(req)); appErr != nil {
+	if appErr := h.service.ForgetPassword(c.Request.Context(), authmodule.ForgetPasswordInput(req)); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}

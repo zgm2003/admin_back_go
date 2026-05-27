@@ -2,6 +2,16 @@ package auth
 
 import "admin_back_go/internal/module/user"
 
+type SendCodeRequest struct {
+	Account string `json:"account" binding:"required,max=120"`
+	Scene   string `json:"scene" binding:"required,verify_code_scene"`
+}
+
+type captchaAnswerRequest struct {
+	X int `json:"x" binding:"min=0,max=10000"`
+	Y int `json:"y" binding:"min=0,max=10000"`
+}
+
 type platformLoginRequest struct {
 	LoginType     string                `json:"login_type" binding:"required,auth_platform_login_type"`
 	LoginAccount  string                `json:"login_account" binding:"required,max=100"`

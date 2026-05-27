@@ -52,6 +52,15 @@ type PlatformConfigProvider interface {
 	AllowRegister(ctx context.Context, platform string) (bool, error)
 }
 
+type SessionService interface {
+	Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error)
+	SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error)
+	ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error
+	LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error)
+	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)
+	Logout(ctx context.Context, accessToken string) *apperror.Error
+}
+
 type SessionManager interface {
 	Create(ctx context.Context, input session.CreateInput) (*session.TokenResult, *apperror.Error)
 	Refresh(ctx context.Context, input session.RefreshInput) (*session.TokenResult, *apperror.Error)

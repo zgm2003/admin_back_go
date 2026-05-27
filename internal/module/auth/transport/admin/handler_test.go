@@ -1,4 +1,4 @@
-package auth
+package admin
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/apperror"
+	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/captcha"
 	"admin_back_go/internal/module/session"
 
@@ -16,16 +17,16 @@ import (
 )
 
 type fakeSessionService struct {
-	loginInput          LoginInput
-	loginResult         *LoginResponse
+	loginInput          authmodule.LoginInput
+	loginResult         *authmodule.LoginResponse
 	loginErr            *apperror.Error
-	sendCodeInput       SendCodeInput
+	sendCodeInput       authmodule.SendCodeInput
 	sendCodeMsg         string
 	sendCodeErr         *apperror.Error
-	forgetPasswordInput ForgetPasswordInput
+	forgetPasswordInput authmodule.ForgetPasswordInput
 	forgetPasswordErr   *apperror.Error
 	configPlatform      string
-	configResult        *LoginConfigResponse
+	configResult        *authmodule.LoginConfigResponse
 	configErr           *apperror.Error
 	refreshInput        session.RefreshInput
 	refreshResult       *session.TokenResult
@@ -34,22 +35,22 @@ type fakeSessionService struct {
 	logoutErr           *apperror.Error
 }
 
-func (f *fakeSessionService) Login(ctx context.Context, input LoginInput) (*LoginResponse, *apperror.Error) {
+func (f *fakeSessionService) Login(ctx context.Context, input authmodule.LoginInput) (*authmodule.LoginResponse, *apperror.Error) {
 	f.loginInput = input
 	return f.loginResult, f.loginErr
 }
 
-func (f *fakeSessionService) SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error) {
+func (f *fakeSessionService) SendCode(ctx context.Context, input authmodule.SendCodeInput) (string, *apperror.Error) {
 	f.sendCodeInput = input
 	return f.sendCodeMsg, f.sendCodeErr
 }
 
-func (f *fakeSessionService) ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error {
+func (f *fakeSessionService) ForgetPassword(ctx context.Context, input authmodule.ForgetPasswordInput) *apperror.Error {
 	f.forgetPasswordInput = input
 	return f.forgetPasswordErr
 }
 
-func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error) {
+func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*authmodule.LoginConfigResponse, *apperror.Error) {
 	f.configPlatform = platform
 	return f.configResult, f.configErr
 }
@@ -82,8 +83,8 @@ func TestHandlerRefreshRequiresRefreshToken(t *testing.T) {
 }
 
 func TestHandlerLoginConfigUsesPlatformHeader(t *testing.T) {
-	service := &fakeSessionService{configResult: &LoginConfigResponse{
-		LoginTypeArr:   []LoginTypeOption{{Label: "密码登录", Value: "password"}},
+	service := &fakeSessionService{configResult: &authmodule.LoginConfigResponse{
+		LoginTypeArr:   []authmodule.LoginTypeOption{{Label: "密码登录", Value: "password"}},
 		CaptchaEnabled: true,
 		CaptchaType:    captcha.TypeSlide,
 	}}
@@ -123,7 +124,7 @@ func TestHandlerSendCodeUsesGoRestContract(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.sendCodeInput.Account != "15671628271" || service.sendCodeInput.Scene != VerifyCodeSceneLogin {
+	if service.sendCodeInput.Account != "15671628271" || service.sendCodeInput.Scene != authmodule.VerifyCodeSceneLogin {
 		t.Fatalf("unexpected send code input: %#v", service.sendCodeInput)
 	}
 	body := decodeAuthBody(t, recorder)
@@ -153,7 +154,7 @@ func TestHandlerForgetPasswordUsesGoRestContract(t *testing.T) {
 }
 
 func TestHandlerLoginReturnsTokenResult(t *testing.T) {
-	service := &fakeSessionService{loginResult: &LoginResponse{
+	service := &fakeSessionService{loginResult: &authmodule.LoginResponse{
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
 		ExpiresIn:        14400,
@@ -192,7 +193,7 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 }
 
 func TestHandlerCodeLoginDoesNotRequirePasswordCaptchaFields(t *testing.T) {
-	service := &fakeSessionService{loginResult: &LoginResponse{
+	service := &fakeSessionService{loginResult: &authmodule.LoginResponse{
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
 		ExpiresIn:        14400,
@@ -210,7 +211,7 @@ func TestHandlerCodeLoginDoesNotRequirePasswordCaptchaFields(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.loginInput.LoginType != LoginTypePhone || service.loginInput.Code != "123456" || service.loginInput.Password != "" || service.loginInput.CaptchaID != "" || service.loginInput.CaptchaAnswer != nil {
+	if service.loginInput.LoginType != authmodule.LoginTypePhone || service.loginInput.Code != "123456" || service.loginInput.Password != "" || service.loginInput.CaptchaID != "" || service.loginInput.CaptchaAnswer != nil {
 		t.Fatalf("unexpected code login input: %#v", service.loginInput)
 	}
 	body := decodeAuthBody(t, recorder)
@@ -286,10 +287,10 @@ func TestHandlerLogoutParsesBearerToken(t *testing.T) {
 	}
 }
 
-func newAuthTestRouter(service SessionService) *gin.Engine {
+func newAuthTestRouter(service authmodule.SessionService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	RegisterRoutes(router, service)
+	Register(router, service)
 	return router
 }
 

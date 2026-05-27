@@ -1,4 +1,4 @@
-package auth
+package admin
 
 type LoginRequest struct {
 	LoginAccount  string                `json:"login_account" binding:"required,max=100"`
