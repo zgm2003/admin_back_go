@@ -73,7 +73,7 @@ func (h *PlatformHandler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("auth.send_code.request.invalid", nil, "验证码参数错误"))
 		return
 	}
-	if _, appErr := h.authService.SendCode(c.Request.Context(), SendCodeInput{Account: req.Account, Scene: req.Scene}); appErr != nil {
+	if _, appErr := h.authService.SendCode(c.Request.Context(), SendCodeInput(req)); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
