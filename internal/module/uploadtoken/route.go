@@ -9,6 +9,10 @@ import (
 func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
-	group := router.Group("/api/admin/v1/upload-tokens")
-	group.POST("", handler.Create)
+
+	adminGroup := router.Group("/api/admin/v1/upload-tokens")
+	adminGroup.POST("", handler.Create)
+
+	appGroup := router.Group("/api/app/v1/upload-tokens")
+	appGroup.POST("", handler.AppCreate)
 }

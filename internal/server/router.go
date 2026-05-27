@@ -17,7 +17,6 @@ import (
 	"admin_back_go/internal/module/aiprovider"
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
-	"admin_back_go/internal/module/appauth"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/captcha"
@@ -136,7 +135,6 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		CaptchaService: deps.CaptchaService,
 		UserService:    deps.UserService,
 	})
-	appauth.RegisterRoutes(router, deps.UploadTokenService)
 	clientversion.RegisterRoutes(router, deps.ClientVersionService)
 	aiprovider.RegisterRoutes(router, deps.AiProviderService)
 	aiagent.RegisterRoutes(router, deps.AiAgentService)
