@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -3564,7 +3567,7 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial realtime: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	var connected map[string]any
 	if err := client.ReadJSON(&connected); err != nil {
@@ -3598,7 +3601,7 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 	if err != nil {
 		t.Fatalf("dial realtime with cookie token: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	var connected map[string]any
 	if err := client.ReadJSON(&connected); err != nil {
@@ -3643,7 +3646,7 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial realtime from configured origin: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	var connected map[string]any
 	if err := client.ReadJSON(&connected); err != nil {
@@ -3816,6 +3819,41 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 				t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestAdminRouteSnapshot(t *testing.T) {
+	router := NewRouter(Dependencies{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+
+	var routes []string
+	for _, route := range router.Routes() {
+		path := route.Path
+		if strings.HasPrefix(path, "/api/admin/v1/") ||
+			strings.HasPrefix(path, "/api/payment/callbacks/") ||
+			path == "/health" || path == "/ready" {
+			routes = append(routes, route.Method+" "+path)
+		}
+	}
+	sort.Strings(routes)
+
+	goldenPath := filepath.Join("testdata", "admin_routes_golden.txt")
+	if os.Getenv("UPDATE_ADMIN_ROUTE_SNAPSHOT") == "1" {
+		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+			t.Fatalf("create testdata: %v", err)
+		}
+		if err := os.WriteFile(goldenPath, []byte(strings.Join(routes, "\n")+"\n"), 0o644); err != nil {
+			t.Fatalf("write route snapshot: %v", err)
+		}
+	}
+
+	wantBytes, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read route snapshot: %v", err)
+	}
+	want := strings.TrimSpace(string(wantBytes))
+	got := strings.Join(routes, "\n")
+	if got != want {
+		t.Fatalf("admin route snapshot mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 

@@ -18,8 +18,6 @@ import (
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
-	authadmin "admin_back_go/internal/module/auth/transport/admin"
-	authapp "admin_back_go/internal/module/auth/transport/app"
 	"admin_back_go/internal/module/authplatform"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
@@ -124,46 +122,12 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		Logger:   deps.Logger,
 	}))
 
-	system.RegisterRoutes(router, deps.Readiness)
-	authadmin.Register(router, deps.AuthService, deps.CaptchaService, deps.SessionAdminService, deps.LoginLogService)
-	authapp.Register(router, authapp.RouteOptions{
-		Prefix:         "/api/app/v1/auth",
-		Platform:       enum.PlatformApp,
-		AuthService:    deps.AuthService,
-		CaptchaService: deps.CaptchaService,
-		UserService:    deps.UserService,
-	})
-	clientversion.RegisterRoutes(router, deps.ClientVersionService)
-	aiprovider.RegisterRoutes(router, deps.AiProviderService)
-	aiagent.RegisterRoutes(router, deps.AiAgentService)
-	aiimage.RegisterRoutes(router, deps.AiImageService)
-	aiknowledge.RegisterRoutes(router, deps.AiKnowledgeService)
-	aiconversation.RegisterRoutes(router, deps.AiConversationService)
-	aimessage.RegisterRoutes(router, deps.AiMessageService)
-	airun.RegisterRoutes(router, deps.AiRunService)
-	aichat.RegisterRoutes(router, deps.AiChatService)
-	aitool.RegisterRoutes(router, deps.AiToolService)
-	user.RegisterRoutes(router, deps.UserService)
-	userquickentry.RegisterRoutes(router, deps.UserQuickEntryService)
-	exporttask.RegisterRoutes(router, deps.ExportTaskService)
-	notification.RegisterRoutes(router, deps.NotificationService)
-	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
-	crontask.RegisterRoutes(router, deps.CronTaskService)
-	operationlog.RegisterRoutes(router, deps.OperationLogService)
-	mail.RegisterRoutes(router, deps.MailService)
-	sms.RegisterRoutes(router, deps.SmsService)
-	payment.RegisterRoutes(router, deps.PaymentService)
-	wallet.RegisterRoutes(router, deps.WalletService)
-
-	permission.RegisterRoutes(router, deps.PermissionService)
-	queuemonitor.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
-	systemsetting.RegisterRoutes(router, deps.SystemSettingService)
-	systemlog.RegisterRoutes(router, deps.SystemLogService)
-	uploadconfig.RegisterRoutes(router, deps.UploadConfigService)
-	uploadtoken.RegisterRoutes(router, deps.UploadTokenService)
-	realtime.RegisterRoutes(router, deps.RealtimeHandler)
-	role.RegisterRoutes(router, deps.RoleService)
-	authplatform.RegisterRoutes(router, deps.AuthPlatformService)
+	registerAuthRoutes(router, deps)
+	registerAdminFoundationRoutes(router, deps)
+	registerAdminAIRoutes(router, deps)
+	registerAdminUserRoutes(router, deps)
+	registerAdminCommsRoutes(router, deps)
+	registerAdminCommerceRBACRoutes(router, deps)
 
 	return router
 }
