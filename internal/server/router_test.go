@@ -43,7 +43,6 @@ import (
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	platformai "admin_back_go/internal/platform/ai"
 	platformrealtime "admin_back_go/internal/platform/realtime"
@@ -376,18 +375,18 @@ func (f *fakeRouterUserQuickEntryService) Save(ctx context.Context, userID int64
 }
 
 type fakeRouterUserLoginLogService struct {
-	listQuery userloginlog.ListQuery
+	listQuery auth.LoginLogListQuery
 }
 
-func (fakeRouterUserLoginLogService) PageInit(ctx context.Context) (*userloginlog.PageInitResponse, *apperror.Error) {
-	return &userloginlog.PageInitResponse{}, nil
+func (fakeRouterUserLoginLogService) PageInit(ctx context.Context) (*auth.LoginLogPageInitResponse, *apperror.Error) {
+	return &auth.LoginLogPageInitResponse{}, nil
 }
 
-func (f *fakeRouterUserLoginLogService) List(ctx context.Context, query userloginlog.ListQuery) (*userloginlog.ListResponse, *apperror.Error) {
+func (f *fakeRouterUserLoginLogService) List(ctx context.Context, query auth.LoginLogListQuery) (*auth.LoginLogListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &userloginlog.ListResponse{
-		List: []userloginlog.ListItem{{ID: 1, UserName: "admin", LoginType: "password"}},
-		Page: userloginlog.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	return &auth.LoginLogListResponse{
+		List: []auth.LoginLogListItem{{ID: 1, UserName: "admin", LoginType: "password"}},
+		Page: auth.LoginLogPage{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 

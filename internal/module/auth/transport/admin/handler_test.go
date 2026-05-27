@@ -353,7 +353,7 @@ func newAuthTestRouterWithCaptcha(service authmodule.SessionService, captchaServ
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())
-	Register(router, service, captchaService, nil)
+	Register(router, service, captchaService, nil, nil)
 	return router
 }
 
@@ -419,7 +419,7 @@ func TestHandlerRoutesUserSessionReadOnlyEndpointsViaAuthTransport(t *testing.T)
 		statsResult:    &authmodule.SessionStatsResponse{TotalActive: 1, PlatformDistribution: map[string]int64{"admin": 1, "app": 0}},
 	}
 	router := gin.New()
-	Register(router, nil, nil, service)
+	Register(router, nil, nil, service, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions?current_page=2&page_size=30&username=test&platform=admin&status=active", nil)
 	resp := httptest.NewRecorder()
@@ -516,7 +516,7 @@ func newSessionAdminTestRouter(service authmodule.SessionAdminHTTPService, ident
 			c.Next()
 		})
 	}
-	Register(router, nil, nil, service)
+	Register(router, nil, nil, service, nil)
 	return router
 }
 
@@ -529,7 +529,7 @@ func newSessionAdminLocalizedTestRouter(service authmodule.SessionAdminHTTPServi
 			c.Next()
 		})
 	}
-	Register(router, nil, nil, service)
+	Register(router, nil, nil, service, nil)
 	return router
 }
 
@@ -540,4 +540,77 @@ func decodeSessionAdminBody(t *testing.T, recorder *httptest.ResponseRecorder) m
 		t.Fatalf("invalid json response: %v", err)
 	}
 	return body
+}
+
+// Login-log admin transport tests merged from userloginlog/handler_test.go.
+type fakeLoginLogHTTPService struct {
+	pageInitResult *authmodule.LoginLogPageInitResponse
+	listQuery      authmodule.LoginLogListQuery
+	listResult     *authmodule.LoginLogListResponse
+	err            *apperror.Error
+}
+
+func (f *fakeLoginLogHTTPService) PageInit(ctx context.Context) (*authmodule.LoginLogPageInitResponse, *apperror.Error) {
+	return f.pageInitResult, f.err
+}
+
+func (f *fakeLoginLogHTTPService) List(ctx context.Context, query authmodule.LoginLogListQuery) (*authmodule.LoginLogListResponse, *apperror.Error) {
+	f.listQuery = query
+	return f.listResult, f.err
+}
+
+func TestHandlerRoutesUserLoginLogReadOnlyEndpointsViaAuthTransport(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeLoginLogHTTPService{
+		pageInitResult: &authmodule.LoginLogPageInitResponse{},
+		listResult: &authmodule.LoginLogListResponse{
+			List: []authmodule.LoginLogListItem{{ID: 1}},
+			Page: authmodule.LoginLogPage{PageSize: 30, CurrentPage: 2, Total: 1, TotalPage: 1},
+		},
+	}
+	router := gin.New()
+	Register(router, nil, nil, nil, service)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/login-logs/page-init", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("page-init status=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/login-logs?current_page=2&page_size=30&user_id=44&login_account=adm&login_type=password&ip=127&platform=admin&is_success=1&date_start=2026-05-01&date_end=2026-05-08", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if service.listQuery.CurrentPage != 2 || service.listQuery.PageSize != 30 || service.listQuery.UserID != 44 {
+		t.Fatalf("pagination/user filters mismatch: %#v", service.listQuery)
+	}
+	if service.listQuery.LoginAccount != "adm" || service.listQuery.LoginType != "password" || service.listQuery.IP != "127" || service.listQuery.Platform != "admin" {
+		t.Fatalf("string filters mismatch: %#v", service.listQuery)
+	}
+	if service.listQuery.IsSuccess == nil || *service.listQuery.IsSuccess != 1 || service.listQuery.DateStart != "2026-05-01" || service.listQuery.DateEnd != "2026-05-08" {
+		t.Fatalf("result/date filters mismatch: %#v", service.listQuery)
+	}
+}
+
+func TestHandlerLoginLogListLocalizesInvalidRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	Register(router, nil, nil, nil, &fakeLoginLogHTTPService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/login-logs?is_success=abc", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("list status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAuthBody(t, resp)
+	if body["msg"] != "Invalid user login log list request" {
+		t.Fatalf("expected localized msg, got %#v", body["msg"])
+	}
 }

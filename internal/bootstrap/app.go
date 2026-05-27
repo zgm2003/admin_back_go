@@ -38,7 +38,6 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	walletmodule "admin_back_go/internal/module/wallet"
 	platformai "admin_back_go/internal/platform/ai"
@@ -320,7 +319,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	)
 	sessionRevoker := auth.NewSessionRevocationService(auth.NewSessionRedisCache(resourcesTokenRedis(resources)), auth.SessionRevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
 	userQuickEntryService := userquickentry.NewService(userquickentry.NewGormRepository(resources.DB))
-	userLoginLogService := userloginlog.NewService(userloginlog.NewGormRepository(resources.DB))
+	userLoginLogService := auth.NewLoginLogService(auth.NewLoginLogGormRepository(resources.DB))
 	userSessionService := auth.NewSessionAdminService(auth.NewSessionAdminGormRepository(resources.DB), auth.WithSessionAdminCacheRevoker(sessionRevoker))
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,

@@ -7,9 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Register(router *gin.Engine, service auth.SessionService, captchaService auth.CaptchaHTTPService, sessionAdminService auth.SessionAdminHTTPService) {
+func Register(router *gin.Engine, service auth.SessionService, captchaService auth.CaptchaHTTPService, sessionAdminService auth.SessionAdminHTTPService, loginLogService auth.LoginLogHTTPService) {
 	validate.MustRegister()
-	handler := NewHandler(service, captchaService, sessionAdminService)
+	handler := NewHandler(service, captchaService, sessionAdminService, loginLogService)
 
 	v1 := router.Group("/api/admin/v1/auth")
 	v1.GET("/login-config", handler.LoginConfig)
@@ -26,4 +26,8 @@ func Register(router *gin.Engine, service auth.SessionService, captchaService au
 	sessions.PATCH("/revoke", handler.SessionBatchRevoke)
 	sessions.GET("", handler.SessionList)
 	sessions.PATCH("/:id/revoke", handler.SessionRevoke)
+
+	loginLogs := router.Group("/api/admin/v1/users/login-logs")
+	loginLogs.GET("/page-init", handler.LoginLogPageInit)
+	loginLogs.GET("", handler.LoginLogList)
 }

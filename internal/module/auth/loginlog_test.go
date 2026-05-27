@@ -1,4 +1,4 @@
-package userloginlog
+package auth
 
 import (
 	"context"
@@ -7,20 +7,20 @@ import (
 	"time"
 )
 
-type fakeRepository struct {
-	query ListQuery
-	rows  []ListRow
+type fakeLoginLogRepository struct {
+	query LoginLogListQuery
+	rows  []LoginLogListRow
 	total int64
 	err   error
 }
 
-func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
+func (f *fakeLoginLogRepository) List(ctx context.Context, query LoginLogListQuery) ([]LoginLogListRow, int64, error) {
 	f.query = query
 	return f.rows, f.total, f.err
 }
 
-func TestPageInitReturnsPlatformAndLoginTypeDicts(t *testing.T) {
-	service := NewService(&fakeRepository{})
+func TestLoginLogPageInitReturnsPlatformAndLoginTypeDicts(t *testing.T) {
+	service := NewLoginLogService(&fakeLoginLogRepository{})
 
 	got, appErr := service.PageInit(context.Background())
 	if appErr != nil {
@@ -34,20 +34,20 @@ func TestPageInitReturnsPlatformAndLoginTypeDicts(t *testing.T) {
 	}
 }
 
-func TestListNormalizesQueryAndDateBounds(t *testing.T) {
+func TestLoginLogListNormalizesQueryAndDateBounds(t *testing.T) {
 	userID := int64(12)
 	createdAt := time.Date(2026, 5, 8, 9, 30, 0, 0, time.Local)
-	repo := &fakeRepository{
+	repo := &fakeLoginLogRepository{
 		total: 1,
-		rows: []ListRow{{
+		rows: []LoginLogListRow{{
 			ID: 7, UserID: &userID, Username: "admin", LoginAccount: "admin@example.com",
 			LoginType: "password", Platform: "admin", IP: "127.0.0.1", UserAgent: "ua",
 			IsSuccess: 1, Reason: "", CreatedAt: createdAt,
 		}},
 	}
-	service := NewService(repo)
+	service := NewLoginLogService(repo)
 
-	got, appErr := service.List(context.Background(), ListQuery{
+	got, appErr := service.List(context.Background(), LoginLogListQuery{
 		CurrentPage:  0,
 		PageSize:     999,
 		UserID:       userID,
@@ -55,7 +55,7 @@ func TestListNormalizesQueryAndDateBounds(t *testing.T) {
 		LoginType:    "password",
 		IP:           " 127.0 ",
 		Platform:     "admin",
-		IsSuccess:    intPtr(1),
+		IsSuccess:    loginLogIntPtr(1),
 		DateStart:    "2026-05-01",
 		DateEnd:      "2026-05-08",
 	})
@@ -79,11 +79,11 @@ func TestListNormalizesQueryAndDateBounds(t *testing.T) {
 	}
 }
 
-func TestListAllowsMissingUserNameAsEmptyString(t *testing.T) {
-	repo := &fakeRepository{rows: []ListRow{{ID: 8, LoginType: "email", Platform: "app", IsSuccess: 2}}, total: 1}
-	service := NewService(repo)
+func TestLoginLogListAllowsMissingUserNameAsEmptyString(t *testing.T) {
+	repo := &fakeLoginLogRepository{rows: []LoginLogListRow{{ID: 8, LoginType: "email", Platform: "app", IsSuccess: 2}}, total: 1}
+	service := NewLoginLogService(repo)
 
-	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	got, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20})
 	if appErr != nil {
 		t.Fatalf("expected list to succeed, got %v", appErr)
 	}
@@ -92,34 +92,34 @@ func TestListAllowsMissingUserNameAsEmptyString(t *testing.T) {
 	}
 }
 
-func TestListRejectsInvalidFilters(t *testing.T) {
-	service := NewService(&fakeRepository{})
+func TestLoginLogListRejectsInvalidFilters(t *testing.T) {
+	service := NewLoginLogService(&fakeLoginLogRepository{})
 
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, LoginType: "sms"}); appErr == nil || appErr.MessageID != "userloginlog.login_type.invalid" {
+	if _, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20, LoginType: "sms"}); appErr == nil || appErr.MessageID != "userloginlog.login_type.invalid" {
 		t.Fatalf("expected keyed invalid login_type error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Platform: "mini"}); appErr == nil || appErr.MessageID != "userloginlog.platform.invalid" {
+	if _, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20, Platform: "mini"}); appErr == nil || appErr.MessageID != "userloginlog.platform.invalid" {
 		t.Fatalf("expected keyed invalid platform error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, IsSuccess: intPtr(9)}); appErr == nil || appErr.MessageID != "userloginlog.result.invalid" {
+	if _, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20, IsSuccess: loginLogIntPtr(9)}); appErr == nil || appErr.MessageID != "userloginlog.result.invalid" {
 		t.Fatalf("expected keyed invalid is_success error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, DateStart: "2026/05/01"}); appErr == nil || appErr.MessageID != "userloginlog.date_start.invalid" {
+	if _, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20, DateStart: "2026/05/01"}); appErr == nil || appErr.MessageID != "userloginlog.date_start.invalid" {
 		t.Fatalf("expected keyed invalid date_start error, got %#v", appErr)
 	}
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, DateEnd: "2026/05/08"}); appErr == nil || appErr.MessageID != "userloginlog.date_end.invalid" {
+	if _, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20, DateEnd: "2026/05/08"}); appErr == nil || appErr.MessageID != "userloginlog.date_end.invalid" {
 		t.Fatalf("expected keyed invalid date_end error, got %#v", appErr)
 	}
 }
 
-func TestListWrapsRepositoryError(t *testing.T) {
-	service := NewService(&fakeRepository{err: errors.New("db down")})
+func TestLoginLogListWrapsRepositoryError(t *testing.T) {
+	service := NewLoginLogService(&fakeLoginLogRepository{err: errors.New("db down")})
 
-	if _, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20}); appErr == nil || appErr.MessageID != "userloginlog.query_failed" {
+	if _, appErr := service.List(context.Background(), LoginLogListQuery{CurrentPage: 1, PageSize: 20}); appErr == nil || appErr.MessageID != "userloginlog.query_failed" {
 		t.Fatalf("expected keyed repository error, got %#v", appErr)
 	}
 }
 
-func intPtr(value int) *int {
+func loginLogIntPtr(value int) *int {
 	return &value
 }

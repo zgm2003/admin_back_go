@@ -17,10 +17,11 @@ type Handler struct {
 	service             authmodule.SessionService
 	captchaService      authmodule.CaptchaHTTPService
 	sessionAdminService authmodule.SessionAdminHTTPService
+	loginLogService     authmodule.LoginLogHTTPService
 }
 
-func NewHandler(service authmodule.SessionService, captchaService authmodule.CaptchaHTTPService, sessionAdminService authmodule.SessionAdminHTTPService) *Handler {
-	return &Handler{service: service, captchaService: captchaService, sessionAdminService: sessionAdminService}
+func NewHandler(service authmodule.SessionService, captchaService authmodule.CaptchaHTTPService, sessionAdminService authmodule.SessionAdminHTTPService, loginLogService authmodule.LoginLogHTTPService) *Handler {
+	return &Handler{service: service, captchaService: captchaService, sessionAdminService: sessionAdminService, loginLogService: loginLogService}
 }
 
 func (h *Handler) LoginConfig(c *gin.Context) {
@@ -216,6 +217,47 @@ func (h *Handler) SessionBatchRevoke(c *gin.Context) {
 	writeSessionAdminResult(c, result, appErr)
 }
 
+func (h *Handler) LoginLogPageInit(c *gin.Context) {
+	result, appErr := h.requireLoginLogService().PageInit(c.Request.Context())
+	writeLoginLogResult(c, result, appErr)
+}
+
+func (h *Handler) LoginLogList(c *gin.Context) {
+	var req loginLogListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("userloginlog.request.invalid", nil, "用户登录日志列表参数错误"))
+		return
+	}
+	result, appErr := h.requireLoginLogService().List(c.Request.Context(), authmodule.LoginLogListQuery{
+		CurrentPage:  req.CurrentPage,
+		PageSize:     req.PageSize,
+		UserID:       req.UserID,
+		LoginAccount: req.LoginAccount,
+		LoginType:    req.LoginType,
+		IP:           req.IP,
+		Platform:     req.Platform,
+		IsSuccess:    req.IsSuccess,
+		DateStart:    req.DateStart,
+		DateEnd:      req.DateEnd,
+	})
+	writeLoginLogResult(c, result, appErr)
+}
+
+func (h *Handler) requireLoginLogService() authmodule.LoginLogHTTPService {
+	if h == nil || h.loginLogService == nil {
+		return nilLoginLogService{}
+	}
+	return h.loginLogService
+}
+
+func writeLoginLogResult(c *gin.Context, result any, appErr *apperror.Error) {
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
 func captchaAnswerFromRequest(req *captchaAnswerRequest) *authmodule.Answer {
 	if req == nil {
 		return nil
@@ -267,4 +309,14 @@ func (nilSessionAdminService) Revoke(ctx context.Context, id int64, currentSessi
 
 func (nilSessionAdminService) BatchRevoke(ctx context.Context, input authmodule.SessionBatchRevokeInput, currentSessionID int64) (*authmodule.SessionBatchRevokeResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
+}
+
+type nilLoginLogService struct{}
+
+func (nilLoginLogService) PageInit(ctx context.Context) (*authmodule.LoginLogPageInitResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("userloginlog.service_missing", nil, "用户登录日志服务未配置")
+}
+
+func (nilLoginLogService) List(ctx context.Context, query authmodule.LoginLogListQuery) (*authmodule.LoginLogListResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("userloginlog.service_missing", nil, "用户登录日志服务未配置")
 }

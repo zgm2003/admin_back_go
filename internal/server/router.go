@@ -40,7 +40,6 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/validate"
@@ -73,7 +72,7 @@ type Dependencies struct {
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
 	UserQuickEntryService   userquickentry.HTTPService
-	UserLoginLogService     userloginlog.HTTPService
+	UserLoginLogService     auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
@@ -126,7 +125,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	}))
 
 	system.RegisterRoutes(router, deps.Readiness)
-	authadmin.Register(router, deps.AuthService, deps.CaptchaService, deps.SessionAdminService)
+	authadmin.Register(router, deps.AuthService, deps.CaptchaService, deps.SessionAdminService, deps.UserLoginLogService)
 	authapp.Register(router, authapp.RouteOptions{
 		Prefix:         "/api/app/v1/auth",
 		Platform:       enum.PlatformApp,
@@ -146,7 +145,6 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	aitool.RegisterRoutes(router, deps.AiToolService)
 	user.RegisterRoutes(router, deps.UserService)
 	userquickentry.RegisterRoutes(router, deps.UserQuickEntryService)
-	userloginlog.RegisterRoutes(router, deps.UserLoginLogService)
 	exporttask.RegisterRoutes(router, deps.ExportTaskService)
 	notification.RegisterRoutes(router, deps.NotificationService)
 	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)

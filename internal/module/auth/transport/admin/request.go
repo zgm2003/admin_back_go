@@ -37,6 +37,19 @@ type sessionBatchRevokeRequest struct {
 	IDs []int64 `json:"ids" binding:"required,min=1,max=100,dive,min=1"`
 }
 
+type loginLogListRequest struct {
+	CurrentPage  int    `form:"current_page"`
+	PageSize     int    `form:"page_size"`
+	UserID       int64  `form:"user_id"`
+	LoginAccount string `form:"login_account"`
+	LoginType    string `form:"login_type"`
+	IP           string `form:"ip"`
+	Platform     string `form:"platform"`
+	IsSuccess    *int   `form:"is_success"`
+	DateStart    string `form:"date_start"`
+	DateEnd      string `form:"date_end"`
+}
+
 type captchaAnswerRequest struct {
 	X int `json:"x" binding:"min=0,max=10000"`
 	Y int `json:"y" binding:"min=0,max=10000"`
