@@ -45,7 +45,6 @@ import (
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
-	"admin_back_go/internal/module/usersession"
 	platformai "admin_back_go/internal/platform/ai"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/readiness"
@@ -331,38 +330,38 @@ type fakeRouterUserService struct {
 }
 
 type fakeRouterUserSessionService struct {
-	listQuery      usersession.ListQuery
+	listQuery      auth.SessionListQuery
 	revokeID       int64
-	batchInput     usersession.BatchRevokeInput
+	batchInput     auth.SessionBatchRevokeInput
 	currentSession int64
 }
 
-func (fakeRouterUserSessionService) PageInit(ctx context.Context) (*usersession.PageInitResponse, *apperror.Error) {
-	return &usersession.PageInitResponse{}, nil
+func (fakeRouterUserSessionService) PageInit(ctx context.Context) (*auth.SessionPageInitResponse, *apperror.Error) {
+	return &auth.SessionPageInitResponse{}, nil
 }
 
-func (f *fakeRouterUserSessionService) List(ctx context.Context, query usersession.ListQuery) (*usersession.ListResponse, *apperror.Error) {
+func (f *fakeRouterUserSessionService) List(ctx context.Context, query auth.SessionListQuery) (*auth.SessionListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &usersession.ListResponse{
-		List: []usersession.ListItem{{ID: 1, UserID: 2, Username: "admin", Platform: "admin", Status: usersession.SessionStatusActive}},
-		Page: usersession.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+	return &auth.SessionListResponse{
+		List: []auth.SessionListItem{{ID: 1, UserID: 2, Username: "admin", Platform: "admin", Status: auth.SessionStatusActive}},
+		Page: auth.SessionPage{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 
-func (fakeRouterUserSessionService) Stats(ctx context.Context) (*usersession.StatsResponse, *apperror.Error) {
-	return &usersession.StatsResponse{TotalActive: 0, PlatformDistribution: map[string]int64{"admin": 0, "app": 0}}, nil
+func (fakeRouterUserSessionService) Stats(ctx context.Context) (*auth.SessionStatsResponse, *apperror.Error) {
+	return &auth.SessionStatsResponse{TotalActive: 0, PlatformDistribution: map[string]int64{"admin": 0, "app": 0}}, nil
 }
 
-func (f *fakeRouterUserSessionService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*usersession.RevokeResponse, *apperror.Error) {
+func (f *fakeRouterUserSessionService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*auth.SessionRevokeResponse, *apperror.Error) {
 	f.revokeID = id
 	f.currentSession = currentSessionID
-	return &usersession.RevokeResponse{ID: id, Revoked: true}, nil
+	return &auth.SessionRevokeResponse{ID: id, Revoked: true}, nil
 }
 
-func (f *fakeRouterUserSessionService) BatchRevoke(ctx context.Context, input usersession.BatchRevokeInput, currentSessionID int64) (*usersession.BatchRevokeResponse, *apperror.Error) {
+func (f *fakeRouterUserSessionService) BatchRevoke(ctx context.Context, input auth.SessionBatchRevokeInput, currentSessionID int64) (*auth.SessionBatchRevokeResponse, *apperror.Error) {
 	f.batchInput = input
 	f.currentSession = currentSessionID
-	return &usersession.BatchRevokeResponse{Count: int64(len(input.IDs))}, nil
+	return &auth.SessionBatchRevokeResponse{Count: int64(len(input.IDs))}, nil
 }
 
 type fakeRouterUserQuickEntryService struct {
@@ -2189,7 +2188,7 @@ func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
-		UserSessionService: userSessionService,
+		SessionAdminService: userSessionService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -2231,7 +2230,7 @@ func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 		},
 		UserQuickEntryService: quickEntryService,
 		UserLoginLogService:   loginLogService,
-		UserSessionService:    userSessionService,
+		SessionAdminService:   userSessionService,
 	})
 
 	recorder := httptest.NewRecorder()

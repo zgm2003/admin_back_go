@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	projecti18n "admin_back_go/internal/i18n"
+	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
 
 	"github.com/gin-gonic/gin"
@@ -351,11 +353,187 @@ func newAuthTestRouterWithCaptcha(service authmodule.SessionService, captchaServ
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())
-	Register(router, service, captchaService)
+	Register(router, service, captchaService, nil)
 	return router
 }
 
 func decodeAuthBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json response: %v", err)
+	}
+	return body
+}
+
+// Session admin transport tests merged from usersession/handler_test.go.
+type fakeSessionAdminHTTPService struct {
+	pageInitResult *authmodule.SessionPageInitResponse
+	listQuery      authmodule.SessionListQuery
+	listResult     *authmodule.SessionListResponse
+	statsResult    *authmodule.SessionStatsResponse
+	revokeID       int64
+	batchInput     authmodule.SessionBatchRevokeInput
+	currentSession int64
+	revokeResult   *authmodule.SessionRevokeResponse
+	batchResult    *authmodule.SessionBatchRevokeResponse
+	err            *apperror.Error
+}
+
+func (f *fakeSessionAdminHTTPService) PageInit(ctx context.Context) (*authmodule.SessionPageInitResponse, *apperror.Error) {
+	return f.pageInitResult, f.err
+}
+
+func (f *fakeSessionAdminHTTPService) List(ctx context.Context, query authmodule.SessionListQuery) (*authmodule.SessionListResponse, *apperror.Error) {
+	f.listQuery = query
+	return f.listResult, f.err
+}
+
+func (f *fakeSessionAdminHTTPService) Stats(ctx context.Context) (*authmodule.SessionStatsResponse, *apperror.Error) {
+	return f.statsResult, f.err
+}
+
+func (f *fakeSessionAdminHTTPService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*authmodule.SessionRevokeResponse, *apperror.Error) {
+	f.revokeID = id
+	f.currentSession = currentSessionID
+	if f.revokeResult != nil {
+		return f.revokeResult, f.err
+	}
+	return &authmodule.SessionRevokeResponse{ID: id, Revoked: true}, f.err
+}
+
+func (f *fakeSessionAdminHTTPService) BatchRevoke(ctx context.Context, input authmodule.SessionBatchRevokeInput, currentSessionID int64) (*authmodule.SessionBatchRevokeResponse, *apperror.Error) {
+	f.batchInput = input
+	f.currentSession = currentSessionID
+	if f.batchResult != nil {
+		return f.batchResult, f.err
+	}
+	return &authmodule.SessionBatchRevokeResponse{Count: int64(len(input.IDs))}, f.err
+}
+
+func TestHandlerRoutesUserSessionReadOnlyEndpointsViaAuthTransport(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeSessionAdminHTTPService{
+		pageInitResult: &authmodule.SessionPageInitResponse{},
+		listResult:     &authmodule.SessionListResponse{Page: authmodule.SessionPage{PageSize: 30, CurrentPage: 2, Total: 1, TotalPage: 1}},
+		statsResult:    &authmodule.SessionStatsResponse{TotalActive: 1, PlatformDistribution: map[string]int64{"admin": 1, "app": 0}},
+	}
+	router := gin.New()
+	Register(router, nil, nil, service)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions?current_page=2&page_size=30&username=test&platform=admin&status=active", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if service.listQuery.CurrentPage != 2 || service.listQuery.PageSize != 30 || service.listQuery.Username != "test" || service.listQuery.Platform != "admin" || service.listQuery.Status != "active" {
+		t.Fatalf("list query mismatch: %#v", service.listQuery)
+	}
+
+	for _, path := range []string{"/api/admin/v1/user-sessions/page-init", "/api/admin/v1/user-sessions/stats"} {
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		resp = httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, resp.Code, resp.Body.String())
+		}
+	}
+}
+
+func TestHandlerSessionRevokeUsesCurrentSessionIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeSessionAdminHTTPService{revokeResult: &authmodule.SessionRevokeResponse{ID: 77, Revoked: true}}
+	router := newSessionAdminTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 55, Platform: "admin"})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/77/revoke", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("revoke status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if service.revokeID != 77 || service.currentSession != 55 {
+		t.Fatalf("revoke service input mismatch: id=%d current=%d", service.revokeID, service.currentSession)
+	}
+}
+
+func TestHandlerSessionBatchRevokeUsesCurrentSessionIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeSessionAdminHTTPService{batchResult: &authmodule.SessionBatchRevokeResponse{Count: 2, SkippedCurrent: 1}}
+	router := newSessionAdminTestRouter(service, &middleware.AuthIdentity{UserID: 1, SessionID: 55, Platform: "admin"})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/revoke", bytes.NewBufferString(`{"ids":[77,55,78]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("batch revoke status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if service.currentSession != 55 || len(service.batchInput.IDs) != 3 || service.batchInput.IDs[1] != 55 {
+		t.Fatalf("batch revoke service input mismatch: current=%d input=%#v", service.currentSession, service.batchInput)
+	}
+}
+
+func TestHandlerSessionListLocalizesInvalidRequest(t *testing.T) {
+	router := newSessionAdminLocalizedTestRouter(&fakeSessionAdminHTTPService{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/v1/user-sessions?current_page=abc", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("list status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeSessionAdminBody(t, resp)
+	if body["msg"] != "Invalid user session list request" {
+		t.Fatalf("expected localized list request error, got %#v", body["msg"])
+	}
+}
+
+func TestHandlerSessionRevokeLocalizesMissingIdentity(t *testing.T) {
+	router := newSessionAdminLocalizedTestRouter(&fakeSessionAdminHTTPService{}, nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/v1/user-sessions/77/revoke", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("revoke status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeSessionAdminBody(t, resp)
+	if body["msg"] != "Token is invalid or expired" {
+		t.Fatalf("expected localized missing identity error, got %#v", body["msg"])
+	}
+}
+
+func newSessionAdminTestRouter(service authmodule.SessionAdminHTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+	router := gin.New()
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	Register(router, nil, nil, service)
+	return router
+}
+
+func newSessionAdminLocalizedTestRouter(service authmodule.SessionAdminHTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+	router := gin.New()
+	router.Use(projecti18n.Localize())
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	Register(router, nil, nil, service)
+	return router
+}
+
+func decodeSessionAdminBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var body map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {

@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"context"
+	"strconv"
 	"strings"
 
 	"admin_back_go/internal/apperror"
@@ -12,12 +14,13 @@ import (
 )
 
 type Handler struct {
-	service        authmodule.SessionService
-	captchaService authmodule.CaptchaHTTPService
+	service             authmodule.SessionService
+	captchaService      authmodule.CaptchaHTTPService
+	sessionAdminService authmodule.SessionAdminHTTPService
 }
 
-func NewHandler(service authmodule.SessionService, captchaService authmodule.CaptchaHTTPService) *Handler {
-	return &Handler{service: service, captchaService: captchaService}
+func NewHandler(service authmodule.SessionService, captchaService authmodule.CaptchaHTTPService, sessionAdminService authmodule.SessionAdminHTTPService) *Handler {
+	return &Handler{service: service, captchaService: captchaService, sessionAdminService: sessionAdminService}
 }
 
 func (h *Handler) LoginConfig(c *gin.Context) {
@@ -158,9 +161,110 @@ func (h *Handler) Logout(c *gin.Context) {
 	response.OKWithMessageKey(c, gin.H{}, "auth.logout.success", nil, "退出成功")
 }
 
+func (h *Handler) SessionPageInit(c *gin.Context) {
+	result, appErr := h.requireSessionAdminService().PageInit(c.Request.Context())
+	writeSessionAdminResult(c, result, appErr)
+}
+
+func (h *Handler) SessionList(c *gin.Context) {
+	var req sessionListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("usersession.list.request.invalid", nil, "用户会话列表参数错误"))
+		return
+	}
+	result, appErr := h.requireSessionAdminService().List(c.Request.Context(), authmodule.SessionListQuery{
+		CurrentPage: req.CurrentPage,
+		PageSize:    req.PageSize,
+		Username:    req.Username,
+		Platform:    req.Platform,
+		Status:      req.Status,
+	})
+	writeSessionAdminResult(c, result, appErr)
+}
+
+func (h *Handler) SessionStats(c *gin.Context) {
+	result, appErr := h.requireSessionAdminService().Stats(c.Request.Context())
+	writeSessionAdminResult(c, result, appErr)
+}
+
+func (h *Handler) SessionRevoke(c *gin.Context) {
+	id, ok := sessionRouteID(c)
+	if !ok {
+		return
+	}
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.SessionID <= 0 {
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
+		return
+	}
+	result, appErr := h.requireSessionAdminService().Revoke(c.Request.Context(), id, identity.SessionID)
+	writeSessionAdminResult(c, result, appErr)
+}
+
+func (h *Handler) SessionBatchRevoke(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.SessionID <= 0 {
+		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
+		return
+	}
+	var req sessionBatchRevokeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("usersession.batch_revoke.request.invalid", nil, "批量踢下线参数错误"))
+		return
+	}
+	result, appErr := h.requireSessionAdminService().BatchRevoke(c.Request.Context(), authmodule.SessionBatchRevokeInput{IDs: req.IDs}, identity.SessionID)
+	writeSessionAdminResult(c, result, appErr)
+}
+
 func captchaAnswerFromRequest(req *captchaAnswerRequest) *authmodule.Answer {
 	if req == nil {
 		return nil
 	}
 	return &authmodule.Answer{X: req.X, Y: req.Y}
+}
+
+func (h *Handler) requireSessionAdminService() authmodule.SessionAdminHTTPService {
+	if h == nil || h.sessionAdminService == nil {
+		return nilSessionAdminService{}
+	}
+	return h.sessionAdminService
+}
+
+func writeSessionAdminResult(c *gin.Context, result any, appErr *apperror.Error) {
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
+func sessionRouteID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.Error(c, apperror.BadRequestKey("usersession.id.invalid", nil, "无效的用户会话ID"))
+		return 0, false
+	}
+	return id, true
+}
+
+type nilSessionAdminService struct{}
+
+func (nilSessionAdminService) PageInit(ctx context.Context) (*authmodule.SessionPageInitResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
+}
+
+func (nilSessionAdminService) List(ctx context.Context, query authmodule.SessionListQuery) (*authmodule.SessionListResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
+}
+
+func (nilSessionAdminService) Stats(ctx context.Context) (*authmodule.SessionStatsResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
+}
+
+func (nilSessionAdminService) Revoke(ctx context.Context, id int64, currentSessionID int64) (*authmodule.SessionRevokeResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
+}
+
+func (nilSessionAdminService) BatchRevoke(ctx context.Context, input authmodule.SessionBatchRevokeInput, currentSessionID int64) (*authmodule.SessionBatchRevokeResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("usersession.service_missing", nil, "用户会话服务未配置")
 }

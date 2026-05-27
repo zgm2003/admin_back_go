@@ -32,7 +32,6 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
-	"admin_back_go/internal/module/session"
 	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/module/systemsetting"
@@ -41,7 +40,6 @@ import (
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userloginlog"
 	"admin_back_go/internal/module/userquickentry"
-	"admin_back_go/internal/module/usersession"
 	walletmodule "admin_back_go/internal/module/wallet"
 	platformai "admin_back_go/internal/platform/ai"
 	"admin_back_go/internal/platform/ai/imagecompat"
@@ -320,10 +318,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		user.WithExportEnqueuer(queueClient),
 		user.WithAddressDictCache(addressDictCache),
 	)
-	sessionRevoker := session.NewRevocationService(session.NewRedisCache(resourcesTokenRedis(resources)), session.RevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
+	sessionRevoker := auth.NewSessionRevocationService(auth.NewSessionRedisCache(resourcesTokenRedis(resources)), auth.SessionRevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
 	userQuickEntryService := userquickentry.NewService(userquickentry.NewGormRepository(resources.DB))
 	userLoginLogService := userloginlog.NewService(userloginlog.NewGormRepository(resources.DB))
-	userSessionService := usersession.NewService(usersession.NewGormRepository(resources.DB), usersession.WithCacheRevoker(sessionRevoker))
+	userSessionService := auth.NewSessionAdminService(auth.NewSessionAdminGormRepository(resources.DB), auth.WithSessionAdminCacheRevoker(sessionRevoker))
 	router := server.NewRouter(server.Dependencies{
 		Readiness:     resources,
 		Logger:        logger,
@@ -355,7 +353,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		UserService:             userService,
 		UserQuickEntryService:   userQuickEntryService,
 		UserLoginLogService:     userLoginLogService,
-		UserSessionService:      userSessionService,
+		SessionAdminService:     userSessionService,
 		NotificationService:     notificationService,
 		NotificationTaskService: notificationTaskService,
 		OperationLogService:     operationService,

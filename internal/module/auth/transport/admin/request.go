@@ -25,6 +25,18 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+type sessionListRequest struct {
+	CurrentPage int    `form:"current_page"`
+	PageSize    int    `form:"page_size"`
+	Username    string `form:"username"`
+	Platform    string `form:"platform"`
+	Status      string `form:"status"`
+}
+
+type sessionBatchRevokeRequest struct {
+	IDs []int64 `json:"ids" binding:"required,min=1,max=100,dive,min=1"`
+}
+
 type captchaAnswerRequest struct {
 	X int `json:"x" binding:"min=0,max=10000"`
 	Y int `json:"y" binding:"min=0,max=10000"`
