@@ -12,7 +12,7 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/module/auth"
+	"admin_back_go/internal/module/auth/verifycode"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/platform/taskqueue"
@@ -812,7 +812,7 @@ func (s *Service) verifyCode(ctx context.Context, accountType string, scene stri
 	if s == nil || s.verifyCodeStore == nil {
 		return apperror.Internal("验证码缓存未配置")
 	}
-	key := auth.VerifyCodeCacheKey(accountType, scene, account)
+	key := verifycode.CacheKey(accountType, scene, account)
 	cached, err := s.verifyCodeStore.Get(ctx, key)
 	if err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "验证码缓存读取失败", err)

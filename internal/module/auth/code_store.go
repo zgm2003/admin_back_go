@@ -2,18 +2,14 @@ package auth
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
-	"strings"
 	"time"
 
+	"admin_back_go/internal/module/auth/verifycode"
 	"admin_back_go/internal/platform/redisclient"
 
 	"github.com/redis/go-redis/v9"
 )
-
-const defaultVerifyCodeRedisPrefix = "auth:verify_code:"
 
 type CodeStore interface {
 	Set(ctx context.Context, key string, code string, ttl time.Duration) error
@@ -60,11 +56,6 @@ func (s *RedisCodeStore) Delete(ctx context.Context, key string) error {
 	return s.client.Redis.Del(ctx, key).Err()
 }
 
-func verifyCodeKey(accountType string, scene string, account string) string {
-	sum := md5.Sum([]byte(strings.TrimSpace(account)))
-	return accountType + ":" + strings.TrimSpace(scene) + ":" + hex.EncodeToString(sum[:])
-}
-
 func VerifyCodeCacheKey(accountType string, scene string, account string) string {
-	return defaultVerifyCodeRedisPrefix + verifyCodeKey(accountType, scene, account)
+	return verifycode.CacheKey(accountType, scene, account)
 }
