@@ -2112,10 +2112,11 @@ func TestLegacyUsersRoutesAreNotRegistered(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, legacyUsersPrefix + "/getLoginConfig"},
+		{http.MethodPost, legacyUsersPrefix + "/getLoginConfig"},
 		{http.MethodPost, legacyUsersPrefix + "/sendCode"},
 		{http.MethodPost, legacyUsersPrefix + "/login"},
 		{http.MethodPost, legacyUsersPrefix + "/refresh"},
+		{http.MethodPost, legacyUsersPrefix + "/logout"},
 		{http.MethodPost, legacyUsersPrefix + "/init"},
 	} {
 		recorder := httptest.NewRecorder()
