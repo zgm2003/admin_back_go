@@ -6,10 +6,10 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiconversation"
-	"admin_back_go/internal/module/aiimage"
 	"admin_back_go/internal/module/aiknowledge"
 	"admin_back_go/internal/module/aimessage"
 	"admin_back_go/internal/module/aiprovider"

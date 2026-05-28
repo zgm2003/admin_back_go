@@ -101,7 +101,7 @@ func TestAIAdminTransportShells(t *testing.T) {
 		"aimessage",
 		"airun",
 		"aichat",
-		"aiimage",
+		"ai/image",
 	} {
 		moduleRoot := "internal/module/" + module + "/"
 		mustExist(t, root, moduleRoot+"transport/admin/route.go")
