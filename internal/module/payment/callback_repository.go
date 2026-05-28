@@ -31,7 +31,7 @@ func (r *GormRepository) UpdateCallbackEventProcessed(ctx context.Context, id in
 	return r.db.WithContext(ctx).Model(&CallbackEvent{}).Where("id = ?", id).Updates(map[string]any{
 		"signature_valid": signatureValid,
 		"process_status":  strings.TrimSpace(status),
-		"process_message":  trimMax(message, 512),
-		"processed_at":     processedAt,
+		"process_message": trimMax(message, 512),
+		"processed_at":    processedAt,
 	}).Error
 }

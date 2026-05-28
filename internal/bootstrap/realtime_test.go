@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
-	platformrealtime "admin_back_go/internal/platform/realtime"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 )
 
 func TestNewRealtimeStackUsesNoopPublisherWhenDisabled(t *testing.T) {
@@ -21,7 +21,7 @@ func TestNewRealtimeStackUsesNoopPublisherWhenDisabled(t *testing.T) {
 	if stack.enabled {
 		t.Fatalf("expected realtime stack to be disabled")
 	}
-	if _, ok := stack.publisher.(platformrealtime.NoopPublisher); !ok {
+	if _, ok := stack.publisher.(infrarealtime.NoopPublisher); !ok {
 		t.Fatalf("expected noop publisher when realtime disabled, got %T", stack.publisher)
 	}
 	if stack.manager == nil || stack.handler == nil {
@@ -40,11 +40,11 @@ func TestNewRealtimeStackUsesLocalPublisherWhenEnabled(t *testing.T) {
 	if !stack.enabled {
 		t.Fatalf("expected realtime stack to be enabled")
 	}
-	publisher, ok := stack.publisher.(*platformrealtime.LocalPublisher)
+	publisher, ok := stack.publisher.(*infrarealtime.LocalPublisher)
 	if !ok {
 		t.Fatalf("expected local publisher, got %T", stack.publisher)
 	}
-	if err := publisher.Publish(t.Context(), platformrealtime.Publication{}); !errors.Is(err, platformrealtime.ErrPublicationTargetRequired) {
+	if err := publisher.Publish(t.Context(), infrarealtime.Publication{}); !errors.Is(err, infrarealtime.ErrPublicationTargetRequired) {
 		t.Fatalf("expected local publisher to be wired, got %v", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestNewRealtimeStackUsesNoopPublisherWhenConfigured(t *testing.T) {
 	if !stack.enabled {
 		t.Fatalf("expected realtime route to remain enabled when only publisher is noop")
 	}
-	if _, ok := stack.publisher.(platformrealtime.NoopPublisher); !ok {
+	if _, ok := stack.publisher.(infrarealtime.NoopPublisher); !ok {
 		t.Fatalf("expected noop publisher, got %T", stack.publisher)
 	}
 }
@@ -77,7 +77,7 @@ func TestNewRealtimeStackUsesRedisPublisherAndSubscriberWhenConfigured(t *testin
 	if !stack.enabled {
 		t.Fatalf("expected realtime stack to be enabled")
 	}
-	if _, ok := stack.publisher.(*platformrealtime.RedisPublisher); !ok {
+	if _, ok := stack.publisher.(*infrarealtime.RedisPublisher); !ok {
 		t.Fatalf("expected redis publisher, got %T", stack.publisher)
 	}
 	if stack.subscriber == nil {
@@ -108,7 +108,7 @@ func TestNewRealtimeStackAppliesCodeOwnedRealtimeDefaults(t *testing.T) {
 	}
 }
 
-func realtimePublisherChannel(t *testing.T, publisher platformrealtime.Publisher) string {
+func realtimePublisherChannel(t *testing.T, publisher infrarealtime.Publisher) string {
 	t.Helper()
 	value := reflect.ValueOf(publisher)
 	if value.Kind() != reflect.Pointer || value.IsNil() {
@@ -121,7 +121,7 @@ func realtimePublisherChannel(t *testing.T, publisher platformrealtime.Publisher
 	return field.String()
 }
 
-func realtimeSubscriberChannel(t *testing.T, subscriber *platformrealtime.RedisSubscriber) string {
+func realtimeSubscriberChannel(t *testing.T, subscriber *infrarealtime.RedisSubscriber) string {
 	t.Helper()
 	if subscriber == nil {
 		t.Fatalf("expected redis subscriber")
@@ -174,7 +174,7 @@ func TestNewRealtimeStackRejectsUnknownPublisherExplicitly(t *testing.T) {
 	if stack.enabled {
 		t.Fatalf("expected unknown realtime publisher to disable websocket upgrades explicitly")
 	}
-	if _, ok := stack.publisher.(platformrealtime.NoopPublisher); !ok {
+	if _, ok := stack.publisher.(infrarealtime.NoopPublisher); !ok {
 		t.Fatalf("expected noop publisher for rejected config, got %T", stack.publisher)
 	}
 }

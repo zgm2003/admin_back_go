@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 type captureSink struct {
-	events []platformai.Event
+	events []infraai.Event
 }
 
-func (s *captureSink) Emit(ctx context.Context, event platformai.Event) error {
+func (s *captureSink) Emit(ctx context.Context, event infraai.Event) error {
 	s.events = append(s.events, event)
 	return nil
 }
@@ -41,7 +41,7 @@ func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 	defer server.Close()
 
 	sink := &captureSink{}
-	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
 		Content: "hi",
 		Inputs:  map[string]any{"model_id": "gpt-5.4"},
 	}, sink)
@@ -84,7 +84,7 @@ func TestClientStreamChatSendsOpenAIChatCompletionAndEmitsDelta(t *testing.T) {
 
 	sink := &captureSink{}
 	client := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second})
-	result, err := client.StreamChat(context.Background(), platformai.ChatInput{
+	result, err := client.StreamChat(context.Background(), infraai.ChatInput{
 		Content: "你是谁",
 		Inputs: map[string]any{
 			"model_id":      "gpt-5.4",
@@ -132,7 +132,7 @@ func TestClientStreamChatDoesNotSendSystemMessageWhenSystemPromptBlank(t *testin
 	}))
 	defer server.Close()
 
-	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
 		Content: "你是谁",
 		Inputs: map[string]any{
 			"model_id":      "gpt-5.4",
@@ -164,7 +164,7 @@ func TestClientStreamChatSendsVisionContentAndRuntimeParams(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
 		Content: "看图",
 		Inputs: map[string]any{
 			"model_id":    "gpt-5.4",
@@ -197,7 +197,7 @@ func TestClientDoesNotLeakAPIKeyOnFailure(t *testing.T) {
 	defer server.Close()
 
 	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-secret-value", Timeout: time.Second}).
-		StreamChat(context.Background(), platformai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
+		StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -225,7 +225,7 @@ func TestClientStreamChatDoesNotUseTotalHTTPTimeout(t *testing.T) {
 		Timeout:           50 * time.Millisecond,
 		StreamIdleTimeout: 500 * time.Millisecond,
 	})
-	result, err := client.StreamChat(context.Background(), platformai.ChatInput{
+	result, err := client.StreamChat(context.Background(), infraai.ChatInput{
 		Content: "hi",
 		Inputs:  map[string]any{"model_id": "gpt-test"},
 	}, nil)
@@ -253,7 +253,7 @@ func TestClientStreamChatReturnsIdleTimeoutWhenStreamIsSilent(t *testing.T) {
 		Timeout:           time.Second,
 		StreamIdleTimeout: 50 * time.Millisecond,
 	})
-	_, err := client.StreamChat(context.Background(), platformai.ChatInput{
+	_, err := client.StreamChat(context.Background(), infraai.ChatInput{
 		Content: "hi",
 		Inputs:  map[string]any{"model_id": "gpt-test"},
 	}, nil)
@@ -275,10 +275,10 @@ func TestClientStreamChatSendsToolsAndReturnsToolCalls(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
 		Content: "查用户量",
 		Inputs:  map[string]any{"model_id": "gpt-5.4"},
-		Tools:   []platformai.ToolDefinition{{Name: "admin_user_count", Description: "查询当前用户量", Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}},
+		Tools:   []infraai.ToolDefinition{{Name: "admin_user_count", Description: "查询当前用户量", Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("StreamChat returned error: %v", err)
@@ -312,11 +312,11 @@ func TestClientStreamChatSendsToolOutputsAsToolMessages(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), platformai.ChatInput{
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
 		Content:     "查用户量",
 		Inputs:      map[string]any{"model_id": "gpt-5.4"},
-		ToolCalls:   []platformai.ToolCall{{ID: "call_1", Name: "admin_user_count", Arguments: "{}"}},
-		ToolOutputs: []platformai.ToolOutput{{CallID: "call_1", Name: "admin_user_count", Output: `{"total_users":1015}`}},
+		ToolCalls:   []infraai.ToolCall{{ID: "call_1", Name: "admin_user_count", Arguments: "{}"}},
+		ToolOutputs: []infraai.ToolOutput{{CallID: "call_1", Name: "admin_user_count", Output: `{"total_users":1015}`}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("StreamChat returned error: %v", err)

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
+	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/platform/database"
 
 	"gorm.io/gorm"
 )

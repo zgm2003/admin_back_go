@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 func TestTaskBuildersUseVersionedTypesAndDefaultQueue(t *testing.T) {

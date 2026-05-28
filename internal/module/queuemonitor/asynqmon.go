@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/queuemonitor/asynqmonui"
-	"admin_back_go/internal/platform/taskqueue"
 
 	"github.com/hibiken/asynqmon"
 )

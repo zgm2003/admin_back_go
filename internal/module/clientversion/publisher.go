@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/secretbox"
-	storagecos "admin_back_go/internal/platform/storage/cos"
+	"admin_back_go/internal/infra/secretbox"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 )
 
 var ErrUploadConfigNotConfigured = errors.New("client version upload config is not configured")

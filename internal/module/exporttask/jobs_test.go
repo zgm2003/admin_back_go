@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 type fakeJobService struct {

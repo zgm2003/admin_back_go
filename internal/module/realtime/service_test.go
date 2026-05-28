@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
-	platformrealtime "admin_back_go/internal/platform/realtime"
 )
 
 func TestConnectedEnvelopeIncludesIdentityAndHeartbeat(t *testing.T) {
@@ -54,7 +54,7 @@ func TestHandleClientEnvelopeRepliesToPing(t *testing.T) {
 		return time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)
 	}
 
-	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, platformrealtime.Envelope{
+	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, infrarealtime.Envelope{
 		Type:      TypePingV1,
 		RequestID: "rid-1",
 		Data:      json.RawMessage(`{}`),
@@ -70,7 +70,7 @@ func TestHandleClientEnvelopeRepliesToPing(t *testing.T) {
 func TestHandleClientEnvelopeSubscribesOnlyAllowedIdentityTopics(t *testing.T) {
 	service := NewService(time.Second)
 
-	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, platformrealtime.Envelope{
+	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, infrarealtime.Envelope{
 		Type:      TypeSubscribeV1,
 		RequestID: "rid-subscribe",
 		Data:      json.RawMessage(`{"topics":["user:7","session:9","platform:admin"]}`),
@@ -94,7 +94,7 @@ func TestHandleClientEnvelopeSubscribesOnlyAllowedIdentityTopics(t *testing.T) {
 func TestHandleClientEnvelopeRejectsUnauthorizedTopic(t *testing.T) {
 	service := NewService(time.Second)
 
-	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, platformrealtime.Envelope{
+	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, infrarealtime.Envelope{
 		Type:      TypeSubscribeV1,
 		RequestID: "rid-subscribe",
 		Data:      json.RawMessage(`{"topics":["user:8"]}`),
@@ -118,7 +118,7 @@ func TestHandleClientEnvelopeRejectsUnauthorizedTopic(t *testing.T) {
 func TestHandleClientEnvelopeRejectsUnsupportedType(t *testing.T) {
 	service := NewService(time.Second)
 
-	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, platformrealtime.Envelope{
+	reply, err := service.HandleClientEnvelope(&middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, infrarealtime.Envelope{
 		Type:      "client.unknown.v1",
 		RequestID: "rid-1",
 	})

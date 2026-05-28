@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
-	platformrealtime "admin_back_go/internal/platform/realtime"
 )
 
 const (
@@ -55,18 +55,18 @@ func (s *Service) SessionKey(identity *middleware.AuthIdentity) string {
 }
 
 // ConnectedEnvelope builds the initial authenticated connection event.
-func (s *Service) ConnectedEnvelope(identity *middleware.AuthIdentity, requestID string) (platformrealtime.Envelope, error) {
+func (s *Service) ConnectedEnvelope(identity *middleware.AuthIdentity, requestID string) (infrarealtime.Envelope, error) {
 	data := map[string]any{
 		"user_id":               identity.UserID,
 		"platform":              identity.Platform,
 		"heartbeat_interval_ms": s.HeartbeatInterval().Milliseconds(),
 	}
-	return platformrealtime.NewEnvelope(TypeConnectedV1, requestID, data)
+	return infrarealtime.NewEnvelope(TypeConnectedV1, requestID, data)
 }
 
 // HandleClientEnvelope handles one client envelope and returns an optional
 // server reply.
-func (s *Service) HandleClientEnvelope(identity *middleware.AuthIdentity, envelope platformrealtime.Envelope) (*platformrealtime.Envelope, error) {
+func (s *Service) HandleClientEnvelope(identity *middleware.AuthIdentity, envelope infrarealtime.Envelope) (*infrarealtime.Envelope, error) {
 	switch envelope.Type {
 	case TypePingV1:
 		return s.pongEnvelope(envelope.RequestID)
@@ -77,8 +77,8 @@ func (s *Service) HandleClientEnvelope(identity *middleware.AuthIdentity, envelo
 	}
 }
 
-func (s *Service) pongEnvelope(requestID string) (*platformrealtime.Envelope, error) {
-	reply, err := platformrealtime.NewEnvelope(TypePongV1, requestID, map[string]any{
+func (s *Service) pongEnvelope(requestID string) (*infrarealtime.Envelope, error) {
+	reply, err := infrarealtime.NewEnvelope(TypePongV1, requestID, map[string]any{
 		"server_time": s.now().Format(time.RFC3339),
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ type subscribePayload struct {
 	Topics []string `json:"topics"`
 }
 
-func (s *Service) subscribeEnvelope(identity *middleware.AuthIdentity, envelope platformrealtime.Envelope) (*platformrealtime.Envelope, error) {
+func (s *Service) subscribeEnvelope(identity *middleware.AuthIdentity, envelope infrarealtime.Envelope) (*infrarealtime.Envelope, error) {
 	if identity == nil || identity.UserID <= 0 || identity.SessionID <= 0 || strings.TrimSpace(identity.Platform) == "" {
 		return errorEnvelope(envelope.RequestID, 401, "unauthenticated realtime session")
 	}
@@ -122,7 +122,7 @@ func (s *Service) subscribeEnvelope(identity *middleware.AuthIdentity, envelope 
 		accepted = append(accepted, topic)
 	}
 
-	reply, err := platformrealtime.NewEnvelope(TypeSubscribedV1, envelope.RequestID, map[string]any{
+	reply, err := infrarealtime.NewEnvelope(TypeSubscribedV1, envelope.RequestID, map[string]any{
 		"topics": accepted,
 	})
 	if err != nil {
@@ -139,8 +139,8 @@ func allowedTopics(identity *middleware.AuthIdentity) map[string]struct{} {
 	}
 }
 
-func errorEnvelope(requestID string, code int, message string) (*platformrealtime.Envelope, error) {
-	reply, err := platformrealtime.NewEnvelope(TypeErrorV1, requestID, map[string]any{
+func errorEnvelope(requestID string, code int, message string) (*infrarealtime.Envelope, error) {
+	reply, err := infrarealtime.NewEnvelope(TypeErrorV1, requestID, map[string]any{
 		"code": code,
 		"msg":  message,
 	})

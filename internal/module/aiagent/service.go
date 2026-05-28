@@ -11,8 +11,8 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 const (
@@ -211,7 +211,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id uint64, status int) *appe
 	return nil
 }
 
-func (s *Service) Test(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (s *Service) Test(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	if id == 0 {
 		return nil, apperror.BadRequest("无效的AI智能体ID")
 	}
@@ -251,7 +251,7 @@ func (s *Service) Test(ctx context.Context, id uint64) (*platformai.TestConnecti
 	if tester == nil {
 		tester = unsupportedTester{}
 	}
-	result, testErr := tester.TestConnection(ctx, platformai.TestConnectionInput{EngineType: platformai.EngineType(connection.EngineType), BaseURL: connection.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
+	result, testErr := tester.TestConnection(ctx, infraai.TestConnectionInput{EngineType: infraai.EngineType(connection.EngineType), BaseURL: connection.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
 	if testErr != nil {
 		return result, apperror.Wrap(apperror.CodeInternal, 500, "测试AI智能体失败", testErr)
 	}
@@ -545,6 +545,6 @@ func formatTime(value time.Time) string {
 
 type unsupportedTester struct{}
 
-func (unsupportedTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (unsupportedTester) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
 	return nil, fmt.Errorf("ai agent tester not configured")
 }

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/ai/provider"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/ai/provider"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 type fakeRepository struct {
@@ -105,16 +105,16 @@ func (f *fakeModelDriver) TestConnection(ctx context.Context, cfg provider.Confi
 }
 
 type fakeTester struct {
-	input platformai.TestConnectionInput
+	input infraai.TestConnectionInput
 	err   error
 }
 
-func (f *fakeTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (f *fakeTester) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
 	f.input = input
 	if f.err != nil {
-		return &platformai.TestConnectionResult{OK: false, Status: "500", Message: f.err.Error()}, f.err
+		return &infraai.TestConnectionResult{OK: false, Status: "500", Message: f.err.Error()}, f.err
 	}
-	return &platformai.TestConnectionResult{OK: true, Status: "200 OK", LatencyMs: 12, Message: "ok"}, nil
+	return &infraai.TestConnectionResult{OK: true, Status: "200 OK", LatencyMs: 12, Message: "ok"}, nil
 }
 
 func TestInitOnlyReturnsOpenAIDriver(t *testing.T) {

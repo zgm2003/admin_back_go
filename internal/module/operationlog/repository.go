@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"admin_back_go/internal/platform/database"
+	"admin_back_go/internal/infra/database"
 
 	"gorm.io/gorm"
 )

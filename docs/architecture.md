@@ -30,7 +30,7 @@ E:\admin_go\docs\architecture\05-development-quality-rules.md
 cmd/admin-api HTTP runtime
 cmd/admin-worker queue consumer / scheduler runtime
 internal/bootstrap/config/server/middleware/response/version/readiness 基础设施
-internal/platform database/redis/taskqueue/scheduler/storage/realtime/AI/payment 等外部资源边界
+internal/infra database/redis/taskqueue/scheduler/storage/realtime/AI/payment 等外部资源边界
 internal/module 下按业务边界维护 Go modules
 internal/jobs 下维护版本化 Asynq task type 和 cron-to-queue 注册
 ```
@@ -315,7 +315,7 @@ platform/device-id 作为请求输入传入认证服务
 当前实现：
 
 ```text
-APP_SECRET 是唯一根密钥；internal/platform/secretkey 用 HKDF-SHA256 派生 jwt-signing、token-pepper、secretbox、session-cache keys。
+APP_SECRET 是唯一根密钥；internal/infra/secretkey 用 HKDF-SHA256 派生 jwt-signing、token-pepper、secretbox、session-cache keys。
 access_token 是本系统签发的 JWT，只包含 sid/sub/platform/device_id/iat/nbf/exp/iss 最小 claims。
 refresh_token 是 opaque random string，数据库只保存 sha256(refresh_token + "|" + derived token pepper)。
 Redis session key = "token:session:" + session_id，其中 "token:" 是代码内置命名空间。
@@ -445,7 +445,7 @@ CAPTCHA 业务策略不放 env：`auth.captcha.ttl_minutes` 和
 `QUEUE_REDIS_DB`、`QUEUE_CONCURRENCY`。队列 lane 名称
 `critical` / `default` / `low`、lane 权重 `6/3/1`、默认重试
 `3`、默认 task timeout `30s`、worker shutdown timeout `10s` 都是
-`internal/platform/taskqueue` 代码内置默认值。
+`internal/infra/taskqueue` 代码内置默认值。
 
 Scheduler 基础策略不放 env：Docker-first 只保留 `SCHEDULER_ENABLED`。
 Scheduler timezone (`Asia/Shanghai`)、Redis lock prefix (`admin_go:scheduler:`)
@@ -458,7 +458,7 @@ cron 表达式仍由 `cron_task` 表管理。
 config 不连接 DB
 config 不连接 Redis
 config 不读取业务表
-platform 层以后根据 config 创建 client
+infra 层以后根据 config 创建 client
 APP_SECRET 是部署级唯一根密钥，TOKEN_REDIS_DB 是部署级 TokenRedis 隔离项；token Redis prefix `token:`、session cache TTL `30m`、single-session pointer TTL `720h` 是代码内置默认，不进 env，也不进 system_settings。
 TOKEN_ACCESS_TTL / TOKEN_REFRESH_TTL 不再存在；业务 token TTL 只在 auth_platforms 表中配置和管理
 AIConfig 只表达运行时超时边界：stream max duration、stream idle timeout、run stale timeout；不存 provider 业务参数
@@ -466,7 +466,7 @@ AIConfig 只表达运行时超时边界：stream max duration、stream idle time
 
 ## Secretbox baseline
 
-上传驱动密钥使用 `internal/platform/secretbox`，只做 AES-GCM 加解密，不知道上传业务。
+上传驱动密钥使用 `internal/infra/secretbox`，只做 AES-GCM 加解密，不知道上传业务。
 
 当前规则：
 
@@ -517,8 +517,8 @@ Docker-first realtime env 只保留启用开关和 publisher 拓扑。
 
 ```text
 bootstrap.newRealtimeStack
-  -> platform/realtime.Manager
-  -> platform/realtime.Publisher
+  -> infra/realtime.Manager
+  -> infra/realtime.Publisher
       local = LocalPublisher -> Manager.Send
       noop  = NoopPublisher  -> 显式丢弃 publication
       redis = RedisPublisher + RedisSubscriber -> LocalPublisher -> Manager.Send
@@ -537,12 +537,12 @@ App.Shutdown 会关闭本机 realtime Manager 下的连接，避免进程停机�
 Vue runtime 已从旧 ws://127.0.0.1:7272 和 /api/admin/WebSocket/bind 切到 Go baseline：/api/admin/v1/realtime/ws + versioned type/request_id/data envelope。
 ```
 
-## Database platform baseline
+## Database infra baseline
 
-数据库连接属于 `internal/platform/database`，业务查询属于各模块 repository。
+数据库连接属于 `internal/infra/database`，业务查询属于各模块 repository。
 
 ```text
-config.MySQL -> platform/database.Open -> *gorm.DB / *sql.DB
+config.MySQL -> infra/database.Open -> *gorm.DB / *sql.DB
 repository -> uses database client
 service -> calls repository
 handler -> calls service
@@ -552,12 +552,12 @@ handler -> calls service
 
 GORM 只作为 MySQL 访问工具，不允许把 GORM model 方法写成业务层。
 
-## Redis platform baseline
+## Redis infra baseline
 
-Redis 连接属于 `internal/platform/redisclient`，缓存语义属于模块 service。
+Redis 连接属于 `internal/infra/redisclient`，缓存语义属于模块 service。
 
 ```text
-config.Redis -> platform/redisclient.Open -> *redis.Client
+config.Redis -> infra/redisclient.Open -> *redis.Client
 session service -> token/session cache keys, using TokenRedis DB
 authplatform service -> auth_platforms policy read path
 captcha service -> go-captcha slide answer cache
@@ -600,9 +600,9 @@ redis-cli DEL admin_go:dict:address:v1
 ```text
 config.Load
   -> bootstrap.NewResources
-      -> platform/database.Open when MYSQL_DSN is not empty
-      -> platform/redisclient.Open when REDIS_ADDR is not empty
-      -> platform/redisclient.Open token Redis when REDIS_ADDR is not empty
+      -> infra/database.Open when MYSQL_DSN is not empty
+      -> infra/redisclient.Open when REDIS_ADDR is not empty
+      -> infra/redisclient.Open token Redis when REDIS_ADDR is not empty
   -> bootstrap.App owns resources
   -> App.Shutdown closes resources
 ```
@@ -632,9 +632,9 @@ Ping 放到后续 health/readiness 或运维检查里
 边界：
 
 ```text
-cmd/admin-api -> platform/logging -> slog JSON stdout + optional lumberjack file
-cmd/admin-worker -> platform/logging -> slog JSON stdout + optional lumberjack file
-module/systemlog -> platform/logstore -> runtime/logs/*.log
+cmd/admin-api -> infra/logging -> slog JSON stdout + optional lumberjack file
+cmd/admin-worker -> infra/logging -> slog JSON stdout + optional lumberjack file
+module/systemlog -> infra/logstore -> runtime/logs/*.log
 ```
 
 规则：
@@ -745,7 +745,7 @@ DELETE /api/admin/v1/mail/logs
 
 ```text
 internal/module/mail 拥有 mail_configs / mail_templates / mail_logs 业务事实、软删除、日志和验证码邮件编排
-internal/platform/mail/tencentcloudses 是唯一允许 import Tencent Cloud SDK 的包
+internal/infra/mail/tencentcloudses 是唯一允许 import Tencent Cloud SDK 的包
 只支持 Tencent Cloud SES API；不做 SMTP、自建邮件服务器、多供应商抽象
 SendEmail region 只暴露 ap-guangzhou / ap-hongkong；默认 ap-guangzhou，不让后台用户手写任意 region
 SecretId / SecretKey 是后台业务配置，使用 APP_SECRET 派生 secretbox 加密入库，不进入 .env
@@ -815,8 +815,8 @@ scheduler = github.com/go-co-op/gocron/v2
 当前目录：
 
 ```text
-internal/platform/taskqueue  # 项目自己的 Task / Enqueuer / Mux / Server 封装
-internal/platform/scheduler  # 项目自己的 Scheduler 封装
+internal/infra/taskqueue  # 项目自己的 Task / Enqueuer / Mux / Server 封装
+internal/infra/scheduler  # 项目自己的 Scheduler 封装
 internal/jobs                # 任务 type 和 handler 注册
 internal/module/queuemonitor # asynq inspector read model + official asynqmon UI mount
 ```
@@ -1356,8 +1356,8 @@ upload runtime 只接受腾讯云 COS；OSS SDK 不进入默认 go.mod/package.j
 
 ```text
 internal/module/payment                 # 支付宝配置 CRUD、证书上传、本地配置测试、充值 cashier、订单 pay/sync/close、钱包入账
-internal/platform/payment               # 证书私有存储、路径解析、支付网关接口
-internal/platform/payment/alipay        # 唯一允许接入支付宝 SDK 的平台层
+internal/infra/payment               # 证书私有存储、路径解析、支付网关接口
+internal/infra/payment/alipay        # 唯一允许接入支付宝 SDK 的 infra adapter
 payment_configs                         # 支付配置 active runtime 表，sort 用于充值自动选优先配置
 payment_orders                          # 底层支付订单 runtime 表
 payment_recharge_packages               # 充值套餐 seed/read 表
@@ -1409,7 +1409,7 @@ return_url 不属于 payment_configs，也不是用户可编辑字段；充值�
 paid/credited 状态只能由已验签支付宝 callback、手动支付宝 query/sync 或 payment_sync_pending_order 补偿路径写入，后台不能手工改 paid。
 callback、manual sync、cron compensation 必须共用 paid finalizer；钱包入账必须在 DB transaction 内完成，并通过 wallet_transactions(source_type, source_id) 保证同一充值单只入账一次。
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
-支付宝 SDK 只允许出现在 internal/platform/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
+支付宝 SDK 只允许出现在 internal/infra/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
 应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 private_key_enc。
 菜单路径展示 /payment/config、/payment/recharge 和 /payment/orders；/payment/orders 是支付订单/支出流水入口，但不能再暴露 raw create UX；旧 channel/event/pay/wallet 菜单必须从 users/init router 消失。
 provider 是当前字段合同的一部分，但只允许 alipay；merchant_id、sign_type、extra_config 不属于当前字段合同。
@@ -1451,7 +1451,7 @@ object key 由服务端生成：{folder}/{yyyy}/{mm}/{dd}/{unix_ms}-{randomhex}-
 rule.max_size_mb/image_exts/file_exts 是上传限制真相；前端校验只做体验优化
 secret_id_enc/secret_key_enc 只在 service 内用 secretbox 解密并传给 signer，响应和 operation log 不返回明文
 upload token TTL 来自 system_settings.upload.token.ttl_minutes，缺失/禁用/非法时默认 15 分钟
-Tencent STS endpoint/region 是 platform/storage/cos 代码内置默认值；上传配置 Region 仍然是 bucket region，用于 COS policy resource
+Tencent STS endpoint/region 是 infra/storage/cos 代码内置默认值；上传配置 Region 仍然是 bucket region，用于 COS policy resource
 ```
 
 上传业务归属规则：
@@ -1467,7 +1467,7 @@ uploadtoken 只签发临时凭证，不定义业务。
 AI Core provider / agent config boundary（2026-05-09）：
 
 ```text
-admin_go + internal/platform/ai 是当前 AI 架构边界。
+admin_go + internal/infra/ai 是当前 AI 架构边界。
 已落地“供应商配置”和“智能体配置 MVP”，第一版 provider driver 只有 openai。
 Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 import OpenAI SDK/client。
 供应商配置不引入流程编排概念，不嵌入第三方控制台。
@@ -1477,8 +1477,8 @@ Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 impo
 Active AI modules:
 
 ```text
-internal/platform/ai            # OpenAI-compatible chat/test interface; no Dify/RAGFlow active adapter
-internal/platform/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
+internal/infra/ai            # OpenAI-compatible chat/test interface; no Dify/RAGFlow active adapter
+internal/infra/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
 internal/module/aiprovider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/aiagent         # ai_agents local agent config MVP
 internal/module/aiknowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
@@ -1486,7 +1486,7 @@ internal/module/aitool          # ai_tools / ai_agent_tools / ai_tool_calls runt
 internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents
 internal/module/aimessage       # conversation messages, feedback, branch cleanup
 internal/module/airun           # ai_runs / ai_run_events token-only run monitor
-internal/module/aichat          # chat runtime through platform/ai.Engine, ai.response.*.v1 publish
+internal/module/aichat          # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
 ```
 
 Retired AI active runtime:
@@ -1568,7 +1568,7 @@ WebSocket delta is not persisted to ai_run_events; final assistant content stays
 There is no daily aggregate table, billing amount, provider task id, execution-step timeline, usage dump, or snapshot JSON in the run-monitor MVP.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.
 ```
-`internal/platform/storage/cos` 是唯一 COS STS 供应商边界：
+`internal/infra/storage/cos` 是唯一 COS STS 供应商边界：
 
 ```text
 采用 github.com/tencentyun/qcloud-cos-sts-sdk/go 签发 STS 临时凭证
@@ -1602,7 +1602,7 @@ internal/enum/client_version.go          # windows-x86_64 / darwin-x86_64 平台
 internal/dict.ClientVersionPlatformOptions
 internal/validate/client_version.go      # client_platform validator
 internal/module/clientversion            # 客户端版本 REST + manifest 发布
-internal/platform/storage/cos.ObjectWriter # 仅服务端 PutObject 小边界
+internal/infra/storage/cos.ObjectWriter # 仅服务端 PutObject 小边界
 ```
 
 `internal/module/clientversion` 管理系统管理 / 版本管理：

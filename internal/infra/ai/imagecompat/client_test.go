@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
@@ -34,7 +34,7 @@ func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	defer server.Close()
 
 	compression := 80
-	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), platformai.ImageInput{
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
 		Model:             "gpt-image-2",
 		Prompt:            "draw a cat",
 		Size:              "1024x1024",
@@ -72,7 +72,7 @@ func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.
 	}))
 	defer server.Close()
 
-	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), platformai.ImageInput{
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
 		Model:        "gpt-image-2",
 		Prompt:       "draw a cat",
 		Size:         "1024x1024",
@@ -119,18 +119,18 @@ func TestClientGenerateImagesSendsEditMultipartRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), platformai.ImageInput{
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
 		Model:        "gpt-image-2",
 		Prompt:       "edit it",
 		Size:         "auto",
 		Quality:      "auto",
 		OutputFormat: "jpeg",
 		Moderation:   "low",
-		InputAssets: []platformai.ImageAsset{
+		InputAssets: []infraai.ImageAsset{
 			{Name: "a.png", MimeType: "image/png", Data: []byte("a")},
 			{Name: "b.png", MimeType: "image/png", Data: []byte("b")},
 		},
-		MaskAsset: &platformai.ImageAsset{Name: "mask.png", MimeType: "image/png", Data: []byte("mask")},
+		MaskAsset: &infraai.ImageAsset{Name: "mask.png", MimeType: "image/png", Data: []byte("mask")},
 	})
 	if err != nil {
 		t.Fatalf("GenerateImages returned error: %v", err)
@@ -147,11 +147,11 @@ func TestClientGenerateImagesRejectsGarbageResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), platformai.ImageInput{
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
 		Model:  "gpt-image-2",
 		Prompt: "draw",
 	})
-	if !errors.Is(err, platformai.ErrUpstreamFailed) {
+	if !errors.Is(err, infraai.ErrUpstreamFailed) {
 		t.Fatalf("expected upstream failed on garbage response, got %v", err)
 	}
 }
@@ -162,7 +162,7 @@ func TestClientGenerateImagesDoesNotLeakAPIKeyOnFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-secret-value", Timeout: time.Second}).GenerateImages(context.Background(), platformai.ImageInput{
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-secret-value", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
 		Model:  "gpt-image-2",
 		Prompt: "draw",
 	})

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/aitool"
-	platformai "admin_back_go/internal/platform/ai"
 )
 
 type ConversationReplyInput = ConversationReplyPayload
@@ -61,13 +61,13 @@ type AssistantMessageRecord struct {
 }
 
 type EngineConfig struct {
-	EngineType platformai.EngineType
+	EngineType infraai.EngineType
 	BaseURL    string
 	APIKey     string
 }
 
 type EngineFactory interface {
-	NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error)
+	NewEngine(ctx context.Context, input EngineConfig) (infraai.Engine, error)
 }
 
 type AgentEngineConfig struct {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"admin_back_go/internal/platform/logstore"
+	"admin_back_go/internal/infra/logstore"
 )
 
 type fakeStore struct {

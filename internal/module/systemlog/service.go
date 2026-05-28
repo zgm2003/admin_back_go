@@ -6,7 +6,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
-	"admin_back_go/internal/platform/logstore"
+	"admin_back_go/internal/infra/logstore"
 )
 
 type Store interface {

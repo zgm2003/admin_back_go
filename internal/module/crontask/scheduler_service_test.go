@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/infra/scheduler"
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payment"
-	"admin_back_go/internal/platform/scheduler"
-	"admin_back_go/internal/platform/taskqueue"
 )
 
 func TestSchedulerServiceRegistersOnlyEnabledRegisteredTasks(t *testing.T) {

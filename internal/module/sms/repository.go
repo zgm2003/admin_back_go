@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/module/systemsetting"
-	"admin_back_go/internal/platform/database"
-	"admin_back_go/internal/platform/redisclient"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

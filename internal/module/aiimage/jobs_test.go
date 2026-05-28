@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 type fakeImageJobService struct {

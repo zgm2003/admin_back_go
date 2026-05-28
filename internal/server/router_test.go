@@ -19,6 +19,8 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/enum"
+	infraai "admin_back_go/internal/infra/ai"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aiconversation"
@@ -48,8 +50,6 @@ import (
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userquickentry"
-	platformai "admin_back_go/internal/platform/ai"
-	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/readiness"
 
 	"github.com/gorilla/websocket"
@@ -665,9 +665,9 @@ func (f *fakeRouterAIProviderService) ChangeStatus(ctx context.Context, id uint6
 	return nil
 }
 
-func (f *fakeRouterAIProviderService) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (f *fakeRouterAIProviderService) TestConnection(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	f.testID = id
-	return &platformai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
+	return &infraai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
 }
 
 func (f *fakeRouterAIProviderService) PreviewModels(ctx context.Context, input aiprovider.ModelOptionsInput) (*aiprovider.ModelOptionsResponse, *apperror.Error) {
@@ -744,9 +744,9 @@ func (f *fakeRouterAIAgentService) ChangeStatus(ctx context.Context, id uint64, 
 	return nil
 }
 
-func (f *fakeRouterAIAgentService) Test(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (f *fakeRouterAIAgentService) Test(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	f.testID = id
-	return &platformai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
+	return &infraai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
 }
 
 func (f *fakeRouterAIAgentService) Delete(ctx context.Context, id uint64) *apperror.Error {
@@ -3552,8 +3552,8 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 		},
 		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
-			platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-			platformrealtime.NewManager(),
+			infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+			infrarealtime.NewManager(),
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 		),
 	})
@@ -3588,8 +3588,8 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 		},
 		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
-			platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-			platformrealtime.NewManager(),
+			infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+			infrarealtime.NewManager(),
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 		),
 	})
@@ -3632,8 +3632,8 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 		},
 		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
-			platformrealtime.NewUpgrader(platformrealtime.NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})),
-			platformrealtime.NewManager(),
+			infrarealtime.NewUpgrader(infrarealtime.NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})),
+			infrarealtime.NewManager(),
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 		),
 	})

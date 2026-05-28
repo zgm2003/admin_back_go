@@ -7,8 +7,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 type fakeRepository struct {
@@ -106,15 +106,15 @@ func (f *fakeRepository) CountUsers(ctx context.Context) (UserCount, error) { re
 
 type fakeGenerateEngineFactory struct {
 	input  EngineConfig
-	engine platformai.Engine
+	engine infraai.Engine
 }
 
-func (f *fakeGenerateEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error) {
+func (f *fakeGenerateEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (infraai.Engine, error) {
 	f.input = input
 	if f.engine != nil {
 		return f.engine, nil
 	}
-	return platformai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":[],"clarifying_questions":["请补充需求"]}`), nil
+	return infraai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":[],"clarifying_questions":["请补充需求"]}`), nil
 }
 
 func generateAgentConfig(t *testing.T, box secretbox.Box) GenerateAgentConfig {
@@ -129,7 +129,7 @@ func generateAgentConfig(t *testing.T, box secretbox.Box) GenerateAgentConfig {
 		ModelID:         "gpt-test",
 		SystemPrompt:    "只输出工具草稿JSON",
 		ProviderID:      2,
-		EngineType:      string(platformai.EngineTypeOpenAI),
+		EngineType:      string(infraai.EngineTypeOpenAI),
 		EngineBaseURL:   "https://api.openai.test/v1",
 		EngineAPIKeyEnc: cipher,
 	}
@@ -229,7 +229,7 @@ func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
-	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回后台用户数量统计，不返回个人信息。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回后台用户数量统计，不返回个人信息。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
 	factory := &fakeGenerateEngineFactory{engine: engine}
 	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(factory)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具", CodeHint: "admin_user_count"})
 	if appErr != nil {
@@ -238,7 +238,7 @@ func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
 	if !got.OK || got.Draft == nil || got.Draft.Code != "admin_user_count" || got.Draft.Status != enum.CommonYes {
 		t.Fatalf("unexpected draft: %#v", got)
 	}
-	if factory.input.APIKey != "plain-provider-key" || factory.input.EngineType != platformai.EngineTypeOpenAI {
+	if factory.input.APIKey != "plain-provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
 		t.Fatalf("engine config not built from active provider: %#v", factory.input)
 	}
 	if got.Usage == nil || got.Usage.TotalTokens != 2 {
@@ -251,7 +251,7 @@ func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
-	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
 	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft should accept JSON Schema without required: %v", appErr)
@@ -266,7 +266,7 @@ func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testin
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
-	engine := platformai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":["需求不足，暂不生成工具草稿"],"clarifying_questions":["请说明入参和返回字段？"]}`)
+	engine := infraai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":["需求不足，暂不生成工具草稿"],"clarifying_questions":["请说明入参和返回字段？"]}`)
 	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "做个工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
@@ -281,7 +281,7 @@ func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
-	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"未来工具","code":"future_tool","description":"未来服务端实现后才能启用。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"未来工具","code":"future_tool","description":"未来服务端实现后才能启用。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
 	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成未来工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
@@ -296,7 +296,7 @@ func TestGenerateDraftCanReturnEnabledWhenExecutorRegistered(t *testing.T) {
 	repo := &fakeRepository{}
 	agent := generateAgentConfig(t, box)
 	repo.generateAgent = &agent
-	engine := platformai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
+	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
 	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成已实现工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)

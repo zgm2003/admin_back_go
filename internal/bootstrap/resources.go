@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/platform/database"
-	"admin_back_go/internal/platform/redisclient"
+	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/readiness"
 )
 

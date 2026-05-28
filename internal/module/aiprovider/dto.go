@@ -5,8 +5,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/ai/provider"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/ai/provider"
 )
 
 type InitResponse struct {
@@ -116,7 +116,7 @@ type UpdateModelsInput struct {
 }
 
 type ProviderTester interface {
-	TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error)
+	TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error)
 }
 
 type ModelDriver interface {
@@ -130,7 +130,7 @@ type HTTPService interface {
 	Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error)
 	Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error
 	ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error
-	TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error)
+	TestConnection(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error)
 	PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error)
 	PreviewStoredModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error)
 	SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error)

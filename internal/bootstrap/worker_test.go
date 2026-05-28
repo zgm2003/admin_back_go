@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/config"
-	platformrealtime "admin_back_go/internal/platform/realtime"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 )
 
 func TestNewWorkerAllowsQueueDisabledWithoutRedis(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRealtimePublisherForWorkerUsesRedisOnlyForCrossProcessFanout(t *testing
 	workerPublisher := realtimePublisherForWorker(config.Config{
 		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherRedis, RedisChannel: "admin_go:realtime:test"},
 	}, &Resources{})
-	if _, ok := workerPublisher.(*platformrealtime.RedisPublisher); !ok {
+	if _, ok := workerPublisher.(*infrarealtime.RedisPublisher); !ok {
 		t.Fatalf("expected worker redis publisher, got %T", workerPublisher)
 	}
 }
@@ -139,7 +139,7 @@ func TestRealtimePublisherForWorkerUsesCodeOwnedDefaultChannel(t *testing.T) {
 		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherRedis},
 	}, &Resources{})
 
-	if _, ok := workerPublisher.(*platformrealtime.RedisPublisher); !ok {
+	if _, ok := workerPublisher.(*infrarealtime.RedisPublisher); !ok {
 		t.Fatalf("expected worker redis publisher, got %T", workerPublisher)
 	}
 	if got := realtimePublisherChannelFromWorkerTest(t, workerPublisher); got != config.DefaultRealtimeRedisChannel {
@@ -147,7 +147,7 @@ func TestRealtimePublisherForWorkerUsesCodeOwnedDefaultChannel(t *testing.T) {
 	}
 }
 
-func realtimePublisherChannelFromWorkerTest(t *testing.T, publisher platformrealtime.Publisher) string {
+func realtimePublisherChannelFromWorkerTest(t *testing.T, publisher infrarealtime.Publisher) string {
 	t.Helper()
 	value := reflect.ValueOf(publisher)
 	if value.Kind() != reflect.Pointer || value.IsNil() {
@@ -164,7 +164,7 @@ func TestRealtimePublisherForWorkerDoesNotFakeLocalDelivery(t *testing.T) {
 	workerPublisher := realtimePublisherForWorker(config.Config{
 		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherLocal},
 	}, &Resources{})
-	if _, ok := workerPublisher.(platformrealtime.NoopPublisher); !ok {
+	if _, ok := workerPublisher.(infrarealtime.NoopPublisher); !ok {
 		t.Fatalf("expected worker local mode to stay noop, got %T", workerPublisher)
 	}
 }

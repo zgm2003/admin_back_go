@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 func TestNewLoginLogTaskUsesVersionedCriticalQueue(t *testing.T) {

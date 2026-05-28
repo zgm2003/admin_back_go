@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/apperror"
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
@@ -205,7 +205,7 @@ func (nilHTTPService) Update(ctx context.Context, id uint64, input UpdateInput) 
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
 	return apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (nilHTTPService) TestConnection(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
 func (nilHTTPService) PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error) {

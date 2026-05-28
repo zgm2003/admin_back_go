@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/database"
-	"admin_back_go/internal/platform/redisclient"
+	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/infra/redisclient"
 
 	"gorm.io/gorm"
 )

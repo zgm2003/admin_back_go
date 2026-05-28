@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/enum"
-	gateway "admin_back_go/internal/platform/payment"
+	gateway "admin_back_go/internal/infra/payment"
 )
 
 func TestHandleAlipayCallbackSuccessFinalizesRechargeAndAudits(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/secretbox"
-	"admin_back_go/internal/platform/taskqueue"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 type fakeImageRepository struct {
@@ -160,21 +160,21 @@ func (f *fakeImageEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (t
 
 type fakeImageEngineFactory struct {
 	config ImageEngineConfig
-	engine platformai.ImageEngine
+	engine infraai.ImageEngine
 }
 
-func (f *fakeImageEngineFactory) NewImageEngine(config ImageEngineConfig) platformai.ImageEngine {
+func (f *fakeImageEngineFactory) NewImageEngine(config ImageEngineConfig) infraai.ImageEngine {
 	f.config = config
 	return f.engine
 }
 
 type fakeImageEngine struct {
-	input  platformai.ImageInput
-	result *platformai.ImageResult
+	input  infraai.ImageInput
+	result *infraai.ImageResult
 	err    error
 }
 
-func (f *fakeImageEngine) GenerateImages(ctx context.Context, input platformai.ImageInput) (*platformai.ImageResult, error) {
+func (f *fakeImageEngine) GenerateImages(ctx context.Context, input infraai.ImageInput) (*infraai.ImageResult, error) {
 	f.input = input
 	if f.err != nil {
 		return nil, f.err
@@ -309,8 +309,8 @@ func TestExecuteGenerateStoresRemoteOutputAndSanitizesRawResponse(t *testing.T) 
 	box := testImageSecretBox()
 	task := validPendingTask()
 	raw := []byte(`{"data":[{"b64_json":"SECRET_IMAGE_BYTES","url":"https://cdn.test/out.png"}]}`)
-	engine := &fakeImageEngine{result: &platformai.ImageResult{
-		Images: []platformai.GeneratedImage{{
+	engine := &fakeImageEngine{result: &infraai.ImageResult{
+		Images: []infraai.GeneratedImage{{
 			URL:           "https://cdn.test/out.png",
 			MimeType:      "image/png",
 			RevisedPrompt: "a better cat",
@@ -381,7 +381,7 @@ func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 		AgentStatus:      enum.CommonYes,
 		ProviderID:       8,
 		ProviderName:     "OpenAI",
-		EngineType:       string(platformai.EngineTypeOpenAI),
+		EngineType:       string(infraai.EngineTypeOpenAI),
 		BaseURL:          "https://api.openai.test/v1",
 		APIKeyEnc:        apiKey,
 		ProviderStatus:   enum.CommonYes,

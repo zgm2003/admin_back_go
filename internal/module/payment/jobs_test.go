@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/enum"
-	gateway "admin_back_go/internal/platform/payment"
-	"admin_back_go/internal/platform/taskqueue"
+	gateway "admin_back_go/internal/infra/payment"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 func TestNewPaymentSyncPendingOrderTaskUsesVersionedType(t *testing.T) {

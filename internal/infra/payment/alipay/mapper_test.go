@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	paymentcore "admin_back_go/internal/platform/payment"
+	paymentcore "admin_back_go/internal/infra/payment"
 )
 
 func TestMapChannelConfig(t *testing.T) {

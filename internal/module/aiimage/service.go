@@ -16,10 +16,10 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/secretbox"
-	storagecos "admin_back_go/internal/platform/storage/cos"
-	"admin_back_go/internal/platform/taskqueue"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
+	storagecos "admin_back_go/internal/infra/storage/cos"
+	"admin_back_go/internal/infra/taskqueue"
 
 	"gorm.io/gorm"
 )
@@ -91,12 +91,12 @@ type ImageEngineConfig struct {
 }
 
 type ImageEngineFactory interface {
-	NewImageEngine(config ImageEngineConfig) platformai.ImageEngine
+	NewImageEngine(config ImageEngineConfig) infraai.ImageEngine
 }
 
-type ImageEngineFactoryFunc func(config ImageEngineConfig) platformai.ImageEngine
+type ImageEngineFactoryFunc func(config ImageEngineConfig) infraai.ImageEngine
 
-func (f ImageEngineFactoryFunc) NewImageEngine(config ImageEngineConfig) platformai.ImageEngine {
+func (f ImageEngineFactoryFunc) NewImageEngine(config ImageEngineConfig) infraai.ImageEngine {
 	if f == nil {
 		return nil
 	}
@@ -336,7 +336,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if engine == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片生成引擎未配置", nil)
 	}
-	result, err := engine.GenerateImages(ctx, platformai.ImageInput{Model: task.ModelIDSnapshot, Prompt: task.Prompt, Size: task.Size, Quality: task.Quality, OutputFormat: task.OutputFormat, OutputCompression: task.OutputCompression, Moderation: task.Moderation, N: task.N, InputAssets: assets.inputs, MaskAsset: assets.mask})
+	result, err := engine.GenerateImages(ctx, infraai.ImageInput{Model: task.ModelIDSnapshot, Prompt: task.Prompt, Size: task.Size, Quality: task.Quality, OutputFormat: task.OutputFormat, OutputCompression: task.OutputCompression, Moderation: task.Moderation, N: task.N, InputAssets: assets.inputs, MaskAsset: assets.mask})
 	if err != nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片生成失败", err)
 	}
@@ -476,7 +476,7 @@ func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID 
 	if strings.TrimSpace(agent.APIKeyEnc) == "" {
 		return nil, apperror.BadRequestKey("aiimage.provider.api_key_missing", nil, "AI供应商API Key未配置")
 	}
-	if platformai.EngineType(agent.EngineType) != platformai.EngineTypeOpenAI {
+	if infraai.EngineType(agent.EngineType) != infraai.EngineTypeOpenAI {
 		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "图片工作台只支持 OpenAI-compatible 供应商")
 	}
 	return agent, nil
@@ -526,8 +526,8 @@ func inputLinks(input CreateInput, assets map[uint64]ImageAsset, now time.Time) 
 }
 
 type preparedEngineAssets struct {
-	inputs []platformai.ImageAsset
-	mask   *platformai.ImageAsset
+	inputs []infraai.ImageAsset
+	mask   *infraai.ImageAsset
 }
 
 func (s *Service) engineAssets(ctx context.Context, repo Repository, rows []TaskAssetRow) (*preparedEngineAssets, *apperror.Error) {
@@ -549,7 +549,7 @@ func (s *Service) engineAssets(ctx context.Context, repo Repository, rows []Task
 	if appErr != nil {
 		return nil, appErr
 	}
-	out := &preparedEngineAssets{inputs: make([]platformai.ImageAsset, 0, len(inputRows))}
+	out := &preparedEngineAssets{inputs: make([]infraai.ImageAsset, 0, len(inputRows))}
 	for _, row := range inputRows {
 		asset, appErr := s.readCOSAsset(ctx, cfg, row.Asset)
 		if appErr != nil {
@@ -595,22 +595,22 @@ type cosRuntimeConfig struct {
 	BucketDomain string
 }
 
-func (s *Service) readCOSAsset(ctx context.Context, cfg *cosRuntimeConfig, asset ImageAsset) (platformai.ImageAsset, *apperror.Error) {
+func (s *Service) readCOSAsset(ctx context.Context, cfg *cosRuntimeConfig, asset ImageAsset) (infraai.ImageAsset, *apperror.Error) {
 	if s == nil || s.objectReader == nil {
-		return platformai.ImageAsset{}, apperror.InternalKey("aiimage.cos_reader.missing", nil, "COS读取器未配置")
+		return infraai.ImageAsset{}, apperror.InternalKey("aiimage.cos_reader.missing", nil, "COS读取器未配置")
 	}
 	if cfg == nil {
-		return platformai.ImageAsset{}, apperror.InternalKey("aiimage.cos_config.not_loaded", nil, "COS配置未加载")
+		return infraai.ImageAsset{}, apperror.InternalKey("aiimage.cos_config.not_loaded", nil, "COS配置未加载")
 	}
 	result, err := s.objectReader.Get(ctx, storagecos.GetInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: asset.StorageKey})
 	if err != nil {
-		return platformai.ImageAsset{}, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.asset.read_failed", nil, "读取图片资产失败", err)
+		return infraai.ImageAsset{}, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.asset.read_failed", nil, "读取图片资产失败", err)
 	}
 	mimeType := asset.MimeType
 	if strings.TrimSpace(result.ContentType) != "" {
 		mimeType = strings.TrimSpace(result.ContentType)
 	}
-	return platformai.ImageAsset{Name: path.Base(asset.StorageKey), MimeType: mimeType, Data: result.Body}, nil
+	return infraai.ImageAsset{Name: path.Base(asset.StorageKey), MimeType: mimeType, Data: result.Body}, nil
 }
 
 func (s *Service) decryptProviderKey(apiKeyEnc string) (string, *apperror.Error) {
@@ -624,14 +624,14 @@ func (s *Service) decryptProviderKey(apiKeyEnc string) (string, *apperror.Error)
 	return apiKey, nil
 }
 
-func (s *Service) imageEngine(config ImageEngineConfig) platformai.ImageEngine {
+func (s *Service) imageEngine(config ImageEngineConfig) infraai.ImageEngine {
 	if s == nil || s.engineFactory == nil {
 		return nil
 	}
 	return s.engineFactory.NewImageEngine(config)
 }
 
-func (s *Service) persistOutputs(ctx context.Context, repo Repository, task ImageTask, result *platformai.ImageResult) *apperror.Error {
+func (s *Service) persistOutputs(ctx context.Context, repo Repository, task ImageTask, result *infraai.ImageResult) *apperror.Error {
 	now := s.now()
 	links := make([]ImageTaskAsset, 0, len(result.Images))
 	var cfg *cosRuntimeConfig
@@ -657,7 +657,7 @@ func (s *Service) persistOutputs(ctx context.Context, repo Repository, task Imag
 	return nil
 }
 
-func (s *Service) outputAsset(ctx context.Context, repo Repository, task ImageTask, image platformai.GeneratedImage, index int, now time.Time, cfgRef **cosRuntimeConfig) (ImageAsset, *apperror.Error) {
+func (s *Service) outputAsset(ctx context.Context, repo Repository, task ImageTask, image infraai.GeneratedImage, index int, now time.Time, cfgRef **cosRuntimeConfig) (ImageAsset, *apperror.Error) {
 	mimeType := image.MimeType
 	if strings.TrimSpace(mimeType) == "" {
 		mimeType = mimeFromFormat(task.OutputFormat)

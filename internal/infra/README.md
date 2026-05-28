@@ -1,6 +1,6 @@
-# Platform Boundary
+# Infra Boundary
 
-`internal/platform` 放外部资源适配层。
+`internal/infra` 放外部资源适配层。
 
 这里以后才允许放：
 
@@ -16,14 +16,14 @@ mail/sms client
 
 ## 规则
 
-platform 只负责连接、配置和底层 client 封装。
+infra 只负责连接、配置和底层 client 封装。
 
-业务含义不准写在 platform 里。
+业务含义不准写在 infra 里。
 
 正确：
 
 ```text
-platform/database 提供 DB handle
+infra/database 提供 DB handle
 permission/repository 使用 DB 查询权限表
 permission/service 决定 RBAC 业务规则
 ```
@@ -31,8 +31,8 @@ permission/service 决定 RBAC 业务规则
 错误：
 
 ```text
-platform/database 判断用户有没有按钮权限
-platform/redis 拼 RBAC 业务规则
+infra/database 判断用户有没有按钮权限
+infra/redis 拼 RBAC 业务规则
 ```
 
 当前阶段只接 MySQL/Redis 的连接边界，不写任何业务查询、缓存 key 或 RBAC 规则。
@@ -41,21 +41,21 @@ platform/redis 拼 RBAC 业务规则
 
 `internal/config` 只描述资源参数。
 
-`internal/platform` 以后负责根据配置创建真实 client：
+`internal/infra` 以后负责根据配置创建真实 client：
 
 ```text
-config.MySQL -> platform/database
-config.Redis -> platform/redis
+config.MySQL -> infra/database
+config.Redis -> infra/redis
 config.Token -> auth/session service
-config.Queue -> platform/taskqueue
-config.Scheduler -> platform/scheduler
+config.Queue -> infra/taskqueue
+config.Scheduler -> infra/scheduler
 ```
 
 禁止在 config 包里打开连接。
 
 ## Database boundary
 
-`internal/platform/database` 是唯一允许创建 MySQL/GORM client 的地方。
+`internal/infra/database` 是唯一允许创建 MySQL/GORM client 的地方。
 
 它只负责：
 
@@ -80,7 +80,7 @@ Repository 以后依赖 database client，不直接读取环境变量。
 
 ## Redis boundary
 
-`internal/platform/redisclient` 是唯一允许创建 go-redis client 的地方。
+`internal/infra/redisclient` 是唯一允许创建 go-redis client 的地方。
 
 它只负责：
 
@@ -115,8 +115,8 @@ Resources.TokenRedis # token/session Redis，使用 TOKEN_REDIS_DB，默认 2
 资源生命周期属于 `internal/bootstrap.Resources`。
 
 ```text
-bootstrap.NewResources 创建 platform client
-bootstrap.App.Shutdown 关闭 platform client
+bootstrap.NewResources 创建 infra client
+bootstrap.App.Shutdown 关闭 infra client
 module/repository 只使用注入进来的资源
 ```
 
@@ -124,7 +124,7 @@ module/repository 只使用注入进来的资源
 
 ## Queue / scheduler boundary
 
-`internal/platform/taskqueue` 是唯一允许直接使用 Asynq 的地方。
+`internal/infra/taskqueue` 是唯一允许直接使用 Asynq 的地方。
 
 它只负责：
 
@@ -142,7 +142,7 @@ module/repository 只使用注入进来的资源
 直接调用业务 repository
 ```
 
-`internal/platform/scheduler` 是唯一允许直接使用 gocron/v2 的地方。
+`internal/infra/scheduler` 是唯一允许直接使用 gocron/v2 的地方。
 
 规则：
 

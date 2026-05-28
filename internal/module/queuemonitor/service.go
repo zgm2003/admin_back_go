@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 const timeLayout = "2006-01-02 15:04:05"

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/enum"
-	storagecos "admin_back_go/internal/platform/storage/cos"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 )
 
 type fakeUploadConfigRepository struct {

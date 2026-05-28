@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/infra/scheduler"
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/platform/scheduler"
-	"admin_back_go/internal/platform/taskqueue"
 )
 
 func TestNewNoopTaskUsesVersionedType(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
-	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
@@ -20,8 +20,8 @@ const defaultSendBuffer = 16
 // Handler owns the HTTP/WebSocket boundary for admin realtime.
 type Handler struct {
 	service    *Service
-	upgrader   *platformrealtime.Upgrader
-	manager    *platformrealtime.Manager
+	upgrader   *infrarealtime.Upgrader
+	manager    *infrarealtime.Manager
 	logger     *slog.Logger
 	enabled    bool
 	sendBuffer int
@@ -47,15 +47,15 @@ func WithSendBuffer(size int) Option {
 }
 
 // NewHandler creates a realtime handler.
-func NewHandler(service *Service, upgrader *platformrealtime.Upgrader, manager *platformrealtime.Manager, logger *slog.Logger, options ...Option) *Handler {
+func NewHandler(service *Service, upgrader *infrarealtime.Upgrader, manager *infrarealtime.Manager, logger *slog.Logger, options ...Option) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if manager == nil {
-		manager = platformrealtime.NewManager()
+		manager = infrarealtime.NewManager()
 	}
 	if upgrader == nil {
-		upgrader = platformrealtime.NewUpgrader(nil)
+		upgrader = infrarealtime.NewUpgrader(nil)
 	}
 	handler := &Handler{
 		service:    service,
@@ -96,7 +96,7 @@ func (h *Handler) WebSocket(c *gin.Context) {
 		return
 	}
 
-	session := platformrealtime.NewSession(conn, platformrealtime.SessionOptions{
+	session := infrarealtime.NewSession(conn, infrarealtime.SessionOptions{
 		SendBuffer:   h.sendBuffer,
 		WriteWait:    5 * time.Second,
 		PongWait:     2 * h.service.HeartbeatInterval(),
@@ -115,10 +115,10 @@ func (h *Handler) WebSocket(c *gin.Context) {
 		return
 	}
 
-	err = session.Serve(c.Request.Context(), func(ctx context.Context, envelope platformrealtime.Envelope) (*platformrealtime.Envelope, error) {
+	err = session.Serve(c.Request.Context(), func(ctx context.Context, envelope infrarealtime.Envelope) (*infrarealtime.Envelope, error) {
 		return h.service.HandleClientEnvelope(identity, envelope)
 	})
-	if err != nil && !errors.Is(err, platformrealtime.ErrConnectionClosed) {
+	if err != nil && !errors.Is(err, infrarealtime.ErrConnectionClosed) {
 		h.logger.DebugContext(c.Request.Context(), "websocket session ended", "error", err)
 	}
 }

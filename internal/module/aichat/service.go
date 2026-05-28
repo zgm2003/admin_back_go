@@ -12,9 +12,9 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 const defaultTimeoutLimit = 100
@@ -24,7 +24,7 @@ const maxHistoryLimit = 50
 
 type Dependencies struct {
 	Repository       Repository
-	Publisher        platformrealtime.Publisher
+	Publisher        infrarealtime.Publisher
 	EngineFactory    EngineFactory
 	Secretbox        secretbox.Box
 	ToolRuntime      ToolRuntime
@@ -35,7 +35,7 @@ type Dependencies struct {
 
 type Service struct {
 	repository       Repository
-	publisher        platformrealtime.Publisher
+	publisher        infrarealtime.Publisher
 	engineFactory    EngineFactory
 	secretbox        secretbox.Box
 	toolRuntime      ToolRuntime
@@ -142,7 +142,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 	}
 	sink := &conversationEventSink{service: s, input: input}
-	chatInput := platformai.ChatInput{
+	chatInput := infraai.ChatInput{
 		AgentID: uint64(input.AgentID),
 		RunID:   uint64(runID),
 		UserID:  uint64(input.UserID),
@@ -223,14 +223,14 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 
 type tokenResult struct{ Prompt, Completion, Total int }
 
-func resultTokens(result *platformai.ChatResult) tokenResult {
+func resultTokens(result *infraai.ChatResult) tokenResult {
 	if result == nil {
 		return tokenResult{}
 	}
 	return tokenResult{Prompt: result.PromptTokens, Completion: result.CompletionTokens, Total: result.TotalTokens}
 }
 
-func addTokenUsage(result *platformai.ChatResult, usage tokenResult) {
+func addTokenUsage(result *infraai.ChatResult, usage tokenResult) {
 	if result == nil {
 		return
 	}
@@ -286,7 +286,7 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (platformai.Engine, *apperror.Error) {
+func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (infraai.Engine, *apperror.Error) {
 	if agent.AgentID == 0 || agent.ProviderID == 0 {
 		return nil, apperror.BadRequest("AI智能体或供应商未配置")
 	}
@@ -304,7 +304,7 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	if s.engineFactory == nil {
 		return nil, apperror.Internal("AI引擎工厂未配置")
 	}
-	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
+	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
 	}
@@ -350,7 +350,7 @@ func (s *Service) publish(ctx context.Context, userID int64, event EnvelopeEvent
 	if s.publisher == nil {
 		return nil
 	}
-	return s.publisher.Publish(ctx, platformrealtime.Publication{Platform: enum.PlatformAdmin, UserID: userID, Envelope: event.Envelope})
+	return s.publisher.Publish(ctx, infrarealtime.Publication{Platform: enum.PlatformAdmin, UserID: userID, Envelope: event.Envelope})
 }
 
 type conversationEventSink struct {
@@ -358,7 +358,7 @@ type conversationEventSink struct {
 	input   ConversationReplyInput
 }
 
-func (s *conversationEventSink) Emit(ctx context.Context, event platformai.Event) error {
+func (s *conversationEventSink) Emit(ctx context.Context, event infraai.Event) error {
 	if s == nil || s.service == nil {
 		return nil
 	}
@@ -513,22 +513,22 @@ func (s *Service) runtimeTools(ctx context.Context, agentID uint64) ([]RuntimeTo
 	return s.toolRuntime.ListRuntimeTools(ctx, agentID)
 }
 
-func toolDefinitions(tools []RuntimeTool) []platformai.ToolDefinition {
-	out := make([]platformai.ToolDefinition, 0, len(tools))
+func toolDefinitions(tools []RuntimeTool) []infraai.ToolDefinition {
+	out := make([]infraai.ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
-		out = append(out, platformai.ToolDefinition{Name: tool.Code, Description: tool.Description, Parameters: tool.ParametersJSON})
+		out = append(out, infraai.ToolDefinition{Name: tool.Code, Description: tool.Description, Parameters: tool.ParametersJSON})
 	}
 	return out
 }
 
-func resultToolCalls(result *platformai.ChatResult) []platformai.ToolCall {
+func resultToolCalls(result *infraai.ChatResult) []infraai.ToolCall {
 	if result == nil || len(result.ToolCalls) == 0 {
 		return nil
 	}
 	return result.ToolCalls
 }
 
-func (s *Service) executeToolCalls(ctx context.Context, runID uint64, tools []RuntimeTool, calls []platformai.ToolCall) ([]platformai.ToolOutput, error) {
+func (s *Service) executeToolCalls(ctx context.Context, runID uint64, tools []RuntimeTool, calls []infraai.ToolCall) ([]infraai.ToolOutput, error) {
 	if s == nil || s.toolRuntime == nil {
 		return nil, apperror.Internal("AI工具运行时未配置")
 	}
@@ -536,7 +536,7 @@ func (s *Service) executeToolCalls(ctx context.Context, runID uint64, tools []Ru
 	for _, tool := range tools {
 		toolByCode[tool.Code] = tool
 	}
-	outputs := make([]platformai.ToolOutput, 0, len(calls))
+	outputs := make([]infraai.ToolOutput, 0, len(calls))
 	for _, call := range calls {
 		tool, ok := toolByCode[strings.TrimSpace(call.Name)]
 		if !ok {
@@ -553,7 +553,7 @@ func (s *Service) executeToolCalls(ctx context.Context, runID uint64, tools []Ru
 		if appErr != nil {
 			return nil, appErr
 		}
-		outputs = append(outputs, platformai.ToolOutput{CallID: result.CallID, Name: result.Name, Output: string(result.Output)})
+		outputs = append(outputs, infraai.ToolOutput{CallID: result.CallID, Name: result.Name, Output: string(result.Output)})
 	}
 	return outputs, nil
 }

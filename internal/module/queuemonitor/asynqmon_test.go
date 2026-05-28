@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 func TestNewMonitorUIRejectsMissingRedisAddr(t *testing.T) {

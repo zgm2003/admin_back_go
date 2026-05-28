@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/aichat"
-	platformai "admin_back_go/internal/platform/ai"
 )
 
 func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {
@@ -23,7 +23,7 @@ func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {
 	defer server.Close()
 
 	engine, err := (aiChatEngineFactory{}).NewEngine(context.Background(), aichat.EngineConfig{
-		EngineType: platformai.EngineTypeOpenAI,
+		EngineType: infraai.EngineTypeOpenAI,
 		BaseURL:    server.URL,
 		APIKey:     "sk-test",
 	})
@@ -31,7 +31,7 @@ func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {
 		t.Fatalf("NewEngine returned error: %v", err)
 	}
 
-	result, err := engine.StreamChat(context.Background(), platformai.ChatInput{
+	result, err := engine.StreamChat(context.Background(), infraai.ChatInput{
 		Content: "hi",
 		Inputs:  map[string]any{"model_id": "gpt-test"},
 	}, nil)
@@ -52,8 +52,8 @@ func TestAIProviderTesterSupportsOpenAI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := (aiProviderTester{}).TestConnection(context.Background(), platformai.TestConnectionInput{
-		EngineType: platformai.EngineTypeOpenAI,
+	result, err := (aiProviderTester{}).TestConnection(context.Background(), infraai.TestConnectionInput{
+		EngineType: infraai.EngineTypeOpenAI,
 		BaseURL:    server.URL,
 		APIKey:     "sk-test",
 		TimeoutMs:  int(time.Second / time.Millisecond),

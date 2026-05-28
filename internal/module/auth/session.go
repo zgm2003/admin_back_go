@@ -16,9 +16,9 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/accesstoken"
-	"admin_back_go/internal/platform/database"
-	"admin_back_go/internal/platform/redisclient"
+	"admin_back_go/internal/infra/accesstoken"
+	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/infra/redisclient"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"

@@ -15,8 +15,8 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -130,7 +130,7 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 	if appErr != nil {
 		return nil, appErr
 	}
-	result, err := engine.StreamChat(ctx, platformai.ChatInput{
+	result, err := engine.StreamChat(ctx, infraai.ChatInput{
 		AgentID: input.AgentID,
 		UserID:  input.UserID,
 		UserKey: fmt.Sprintf("admin:%d", input.UserID),
@@ -413,7 +413,7 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgentConfig) (platformai.Engine, *apperror.Error) {
+func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgentConfig) (infraai.Engine, *apperror.Error) {
 	if agent.AgentID == 0 || agent.ProviderID == 0 {
 		return nil, apperror.BadRequest("AI生成智能体或供应商未配置")
 	}
@@ -431,7 +431,7 @@ func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgen
 	if s.engineFactory == nil {
 		return nil, apperror.Internal("AI工具生成引擎工厂未配置")
 	}
-	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: platformai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
+	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI工具生成引擎失败", err)
 	}
@@ -705,7 +705,7 @@ func buildToolGenerateUserPrompt(requirement string, codeHint string) string {
 	return builder.String()
 }
 
-func generateUsage(result *platformai.ChatResult) *GenerateUsage {
+func generateUsage(result *infraai.ChatResult) *GenerateUsage {
 	if result == nil || (result.PromptTokens == 0 && result.CompletionTokens == 0 && result.TotalTokens == 0) {
 		return nil
 	}
@@ -762,7 +762,7 @@ func containsString(values []string, target string) bool {
 
 type discardEventSink struct{}
 
-func (discardEventSink) Emit(ctx context.Context, event platformai.Event) error { return nil }
+func (discardEventSink) Emit(ctx context.Context, event infraai.Event) error { return nil }
 
 func statusText(value int) string {
 	for _, item := range dict.CommonStatusOptions() {

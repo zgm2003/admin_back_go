@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"admin_back_go/internal/platform/redisclient"
+	"admin_back_go/internal/infra/redisclient"
 
 	"github.com/redis/go-redis/v9"
 )

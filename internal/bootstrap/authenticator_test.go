@@ -8,9 +8,9 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/infra/accesstoken"
+	"admin_back_go/internal/infra/secretkey"
 	"admin_back_go/internal/middleware"
-	"admin_back_go/internal/platform/accesstoken"
-	"admin_back_go/internal/platform/secretkey"
 )
 
 func TestNewTokenAuthenticatorFailsClosedWithoutResources(t *testing.T) {

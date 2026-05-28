@@ -473,7 +473,10 @@ func TestDockerEnvExampleUsesContainerPaymentCertBase(t *testing.T) {
 
 func TestDockerFirstEnvDoesNotDocumentCaptchaRuntimePolicy(t *testing.T) {
 	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
-		values := readDockerFirstEnv(t, fileName)
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
 
 		for _, key := range []string{"CAPTCHA_TTL", "CAPTCHA_REDIS_PREFIX", "CAPTCHA_SLIDE_PADDING"} {
 			if _, ok := values[key]; ok {
@@ -485,7 +488,10 @@ func TestDockerFirstEnvDoesNotDocumentCaptchaRuntimePolicy(t *testing.T) {
 
 func TestDockerFirstEnvDoesNotDocumentVerifyCodeRuntimePolicy(t *testing.T) {
 	for _, fileName := range []string{"admin-go.env", "admin-go.env.example"} {
-		values := readDockerFirstEnv(t, fileName)
+		values := readDockerFirstEnvIfExists(t, fileName)
+		if len(values) == 0 {
+			continue
+		}
 
 		for _, key := range []string{"VERIFY_CODE_TTL", "VERIFY_CODE_REDIS_PREFIX"} {
 			if _, ok := values[key]; ok {

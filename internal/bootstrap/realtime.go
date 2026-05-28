@@ -4,17 +4,17 @@ import (
 	"log/slog"
 
 	"admin_back_go/internal/config"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/redisclient"
 	modulerealtime "admin_back_go/internal/module/realtime"
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/redisclient"
 )
 
 type realtimeStack struct {
 	enabled    bool
-	manager    *platformrealtime.Manager
-	publisher  platformrealtime.Publisher
-	subscriber *platformrealtime.RedisSubscriber
+	manager    *infrarealtime.Manager
+	publisher  infrarealtime.Publisher
+	subscriber *infrarealtime.RedisSubscriber
 	handler    *realtimeadmin.Handler
 }
 
@@ -43,13 +43,13 @@ func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []strin
 	cfg = withRealtimePolicyDefaults(cfg)
 
 	enabled := realtimeEnabledFor(cfg, logger)
-	manager := platformrealtime.NewManager()
-	localPublisher := platformrealtime.NewLocalPublisher(manager)
+	manager := infrarealtime.NewManager()
+	localPublisher := infrarealtime.NewLocalPublisher(manager)
 	publisher, subscriber := realtimePublisherFor(cfg, enabled, redis, localPublisher, logger)
 	service := modulerealtime.NewService(cfg.HeartbeatInterval)
 	handler := realtimeadmin.NewHandler(
 		service,
-		platformrealtime.NewUpgrader(platformrealtime.NewAllowedOriginChecker(allowedOrigins)),
+		infrarealtime.NewUpgrader(infrarealtime.NewAllowedOriginChecker(allowedOrigins)),
 		manager,
 		logger,
 		realtimeadmin.WithEnabled(enabled),
@@ -84,9 +84,9 @@ func realtimeEnabledFor(cfg config.RealtimeConfig, logger *slog.Logger) bool {
 	}
 }
 
-func realtimePublisherFor(cfg config.RealtimeConfig, enabled bool, redis *redisclient.Client, localPublisher *platformrealtime.LocalPublisher, logger *slog.Logger) (platformrealtime.Publisher, *platformrealtime.RedisSubscriber) {
+func realtimePublisherFor(cfg config.RealtimeConfig, enabled bool, redis *redisclient.Client, localPublisher *infrarealtime.LocalPublisher, logger *slog.Logger) (infrarealtime.Publisher, *infrarealtime.RedisSubscriber) {
 	if !enabled {
-		return platformrealtime.NoopPublisher{}, nil
+		return infrarealtime.NoopPublisher{}, nil
 	}
 
 	publisherName := cfg.Publisher
@@ -97,19 +97,19 @@ func realtimePublisherFor(cfg config.RealtimeConfig, enabled bool, redis *redisc
 	case "", config.RealtimePublisherLocal:
 		return localPublisher, nil
 	case config.RealtimePublisherNoop:
-		return platformrealtime.NoopPublisher{}, nil
+		return infrarealtime.NoopPublisher{}, nil
 	case config.RealtimePublisherRedis:
 		if redis == nil || redis.Redis == nil {
 			if logger != nil {
 				logger.Error("realtime redis publisher selected but redis client is not ready")
 			}
-			return platformrealtime.NewRedisPublisher(nil, cfg.RedisChannel), platformrealtime.NewRedisSubscriber(nil, cfg.RedisChannel, localPublisher, logger)
+			return infrarealtime.NewRedisPublisher(nil, cfg.RedisChannel), infrarealtime.NewRedisSubscriber(nil, cfg.RedisChannel, localPublisher, logger)
 		}
-		return platformrealtime.NewRedisPublisher(redis.Redis, cfg.RedisChannel), platformrealtime.NewRedisSubscriber(redis.Redis, cfg.RedisChannel, localPublisher, logger)
+		return infrarealtime.NewRedisPublisher(redis.Redis, cfg.RedisChannel), infrarealtime.NewRedisSubscriber(redis.Redis, cfg.RedisChannel, localPublisher, logger)
 	default:
 		if logger != nil {
 			logger.Error("unknown realtime publisher; realtime publication disabled", "publisher", cfg.Publisher)
 		}
-		return platformrealtime.NoopPublisher{}, nil
+		return infrarealtime.NoopPublisher{}, nil
 	}
 }

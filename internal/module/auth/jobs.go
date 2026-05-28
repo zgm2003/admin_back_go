@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 const TypeAuthLoginLogV1 = "auth:login-log:v1"

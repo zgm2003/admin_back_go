@@ -10,9 +10,9 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/platform/taskqueue"
 )
 
 type fakeUserRepository struct {

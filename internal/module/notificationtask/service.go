@@ -13,8 +13,8 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/taskqueue"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 type Service struct {
 	repository        Repository
 	enqueuer          taskqueue.Enqueuer
-	realtimePublisher platformrealtime.Publisher
+	realtimePublisher infrarealtime.Publisher
 	logger            *slog.Logger
 	now               func() time.Time
 }
@@ -39,7 +39,7 @@ func WithEnqueuer(enqueuer taskqueue.Enqueuer) Option {
 	}
 }
 
-func WithRealtimePublisher(publisher platformrealtime.Publisher) Option {
+func WithRealtimePublisher(publisher infrarealtime.Publisher) Option {
 	return func(s *Service) {
 		s.realtimePublisher = publisher
 	}
@@ -504,7 +504,7 @@ func (s *Service) publishRealtimeNotifications(ctx context.Context, task Task, r
 		return
 	}
 	for _, row := range rows {
-		envelope, err := platformrealtime.NewEnvelope(realtimeNotificationCreatedV1, fmt.Sprintf("notification-task-%d-%d", task.ID, row.UserID), map[string]any{
+		envelope, err := infrarealtime.NewEnvelope(realtimeNotificationCreatedV1, fmt.Sprintf("notification-task-%d-%d", task.ID, row.UserID), map[string]any{
 			"task_id":           task.ID,
 			"title":             row.Title,
 			"content":           row.Content,
@@ -515,7 +515,7 @@ func (s *Service) publishRealtimeNotifications(ctx context.Context, task Task, r
 		if err != nil {
 			continue
 		}
-		if err := s.realtimePublisher.Publish(ctx, platformrealtime.Publication{
+		if err := s.realtimePublisher.Publish(ctx, infrarealtime.Publication{
 			Platform: platform,
 			UserID:   row.UserID,
 			Envelope: envelope,

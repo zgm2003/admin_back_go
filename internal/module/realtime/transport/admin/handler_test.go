@@ -10,8 +10,8 @@ import (
 	"time"
 
 	projecti18n "admin_back_go/internal/i18n"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
-	platformrealtime "admin_back_go/internal/platform/realtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -30,8 +30,8 @@ func TestWebSocketConnectsAndRepliesToPing(t *testing.T) {
 	})
 	RegisterRoutes(router, NewHandler(
 		NewService(25_000_000_000),
-		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-		platformrealtime.NewManager(),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	))
 
@@ -41,7 +41,7 @@ func TestWebSocketConnectsAndRepliesToPing(t *testing.T) {
 	client := dialRealtime(t, server.URL)
 	defer client.Close()
 
-	var connected platformrealtime.Envelope
+	var connected infrarealtime.Envelope
 	if err := client.ReadJSON(&connected); err != nil {
 		t.Fatalf("read connected: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestWebSocketConnectsAndRepliesToPing(t *testing.T) {
 		t.Fatalf("write ping: %v", err)
 	}
 
-	var pong platformrealtime.Envelope
+	var pong infrarealtime.Envelope
 	if err := client.ReadJSON(&pong); err != nil {
 		t.Fatalf("read pong: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestWebSocketUsesDefaultUpgraderWhenNil(t *testing.T) {
 	RegisterRoutes(router, NewHandler(
 		NewService(25*time.Second),
 		nil,
-		platformrealtime.NewManager(),
+		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	))
 
@@ -97,7 +97,7 @@ func TestWebSocketUsesDefaultUpgraderWhenNil(t *testing.T) {
 	client := dialRealtime(t, server.URL)
 	defer client.Close()
 
-	var connected platformrealtime.Envelope
+	var connected infrarealtime.Envelope
 	if err := client.ReadJSON(&connected); err != nil {
 		t.Fatalf("read connected: %v", err)
 	}
@@ -119,8 +119,8 @@ func TestWebSocketRejectsWhenRealtimeDisabled(t *testing.T) {
 	})
 	RegisterRoutes(router, NewHandler(
 		NewService(25*time.Second),
-		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-		platformrealtime.NewManager(),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		WithEnabled(false),
 	))
@@ -152,8 +152,8 @@ func TestWebSocketLocalizesDisabledResponse(t *testing.T) {
 	})
 	RegisterRoutes(router, NewHandler(
 		NewService(25*time.Second),
-		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-		platformrealtime.NewManager(),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		WithEnabled(false),
 	))
@@ -181,8 +181,8 @@ func TestWebSocketLocalizesMissingIdentity(t *testing.T) {
 	router.Use(projecti18n.Localize())
 	RegisterRoutes(router, NewHandler(
 		NewService(25*time.Second),
-		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-		platformrealtime.NewManager(),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	))
 
@@ -205,7 +205,7 @@ func TestWebSocketLocalizesMissingIdentity(t *testing.T) {
 
 func TestWebSocketRegistersAndCleansUpSession(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
-	manager := platformrealtime.NewManager()
+	manager := infrarealtime.NewManager()
 	service := NewService(25 * time.Second)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -218,7 +218,7 @@ func TestWebSocketRegistersAndCleansUpSession(t *testing.T) {
 	})
 	RegisterRoutes(router, NewHandler(
 		service,
-		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
 		manager,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	))
@@ -227,7 +227,7 @@ func TestWebSocketRegistersAndCleansUpSession(t *testing.T) {
 	defer server.Close()
 
 	client := dialRealtime(t, server.URL)
-	var connected platformrealtime.Envelope
+	var connected infrarealtime.Envelope
 	if err := client.ReadJSON(&connected); err != nil {
 		t.Fatalf("read connected: %v", err)
 	}
@@ -263,8 +263,8 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 	})
 	RegisterRoutes(router, NewHandler(
 		NewService(25*time.Second),
-		platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
-		platformrealtime.NewManager(),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	))
 
@@ -273,7 +273,7 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 
 	client := dialRealtime(t, server.URL)
 	defer client.Close()
-	var connected platformrealtime.Envelope
+	var connected infrarealtime.Envelope
 	if err := client.ReadJSON(&connected); err != nil {
 		t.Fatalf("read connected: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 		t.Fatalf("write subscribe: %v", err)
 	}
 
-	var reply platformrealtime.Envelope
+	var reply infrarealtime.Envelope
 	if err := client.ReadJSON(&reply); err != nil {
 		t.Fatalf("read subscribe error: %v", err)
 	}

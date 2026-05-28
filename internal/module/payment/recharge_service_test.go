@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/enum"
-	gateway "admin_back_go/internal/platform/payment"
+	gateway "admin_back_go/internal/infra/payment"
 )
 
 func TestCreateRechargeChoosesLowestSortEnabledAlipayConfig(t *testing.T) {

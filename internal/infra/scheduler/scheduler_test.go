@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/platform/redislock"
+	"admin_back_go/internal/infra/redislock"
 )
 
 func TestNewRejectsInvalidTimezone(t *testing.T) {

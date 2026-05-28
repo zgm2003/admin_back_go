@@ -14,7 +14,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"

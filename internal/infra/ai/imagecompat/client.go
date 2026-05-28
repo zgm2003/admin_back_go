@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 const (
@@ -53,16 +53,16 @@ func New(config Config) *Client {
 	}
 }
 
-func (c *Client) GenerateImages(ctx context.Context, input platformai.ImageInput) (*platformai.ImageResult, error) {
+func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (*infraai.ImageResult, error) {
 	if c == nil {
-		return nil, fmt.Errorf("%w: OpenAI image client is nil", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: OpenAI image client is nil", infraai.ErrInvalidConfig)
 	}
 	input = normalizeInput(input)
 	if input.Model == "" {
-		return nil, fmt.Errorf("%w: missing image model", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: missing image model", infraai.ErrInvalidConfig)
 	}
 	if input.Prompt == "" {
-		return nil, fmt.Errorf("%w: missing image prompt", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: missing image prompt", infraai.ErrInvalidConfig)
 	}
 	var (
 		req *http.Request
@@ -78,7 +78,7 @@ func (c *Client) GenerateImages(ctx context.Context, input platformai.ImageInput
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", platformai.ErrUpstreamFailed, err)
+		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
 	}
 	defer resp.Body.Close()
 	if !isSuccessStatus(resp.StatusCode) {
@@ -93,7 +93,7 @@ func (c *Client) GenerateImages(ctx context.Context, input platformai.ImageInput
 	return decodeImageResponse(resp.Body, imageMime(input.OutputFormat))
 }
 
-func (c *Client) newGenerationRequest(ctx context.Context, input platformai.ImageInput) (*http.Request, error) {
+func (c *Client) newGenerationRequest(ctx context.Context, input infraai.ImageInput) (*http.Request, error) {
 	body := imageRequest{
 		Model:             input.Model,
 		Prompt:            input.Prompt,
@@ -107,7 +107,7 @@ func (c *Client) newGenerationRequest(ctx context.Context, input platformai.Imag
 	return c.newJSONRequest(ctx, http.MethodPost, "/images/generations", body)
 }
 
-func (c *Client) newEditRequest(ctx context.Context, input platformai.ImageInput) (*http.Request, error) {
+func (c *Client) newEditRequest(ctx context.Context, input infraai.ImageInput) (*http.Request, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	fields := map[string]string{
@@ -153,9 +153,9 @@ func (c *Client) newEditRequest(ctx context.Context, input platformai.ImageInput
 	return req, nil
 }
 
-func writeFormFile(writer *multipart.Writer, field string, asset platformai.ImageAsset) error {
+func writeFormFile(writer *multipart.Writer, field string, asset infraai.ImageAsset) error {
 	if len(asset.Data) == 0 {
-		return fmt.Errorf("%w: image asset data is empty", platformai.ErrInvalidConfig)
+		return fmt.Errorf("%w: image asset data is empty", infraai.ErrInvalidConfig)
 	}
 	name := strings.TrimSpace(asset.Name)
 	if name == "" {
@@ -196,7 +196,7 @@ func (c *Client) newRawRequest(ctx context.Context, method string, endpoint stri
 		return nil, err
 	}
 	if c.apiKey == "" {
-		return nil, fmt.Errorf("%w: missing OpenAI API key", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: missing OpenAI API key", infraai.ErrInvalidConfig)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint, body)
 	if err != nil {
@@ -220,12 +220,12 @@ func (c *Client) requireSuccess(resp *http.Response, body []byte) error {
 	}
 	message := sanitizeBody(body, c.apiKey)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("%w: %s %s", platformai.ErrUnauthorized, resp.Status, message)
+		return fmt.Errorf("%w: %s %s", infraai.ErrUnauthorized, resp.Status, message)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("%w: %s %s", platformai.ErrRateLimited, resp.Status, message)
+		return fmt.Errorf("%w: %s %s", infraai.ErrRateLimited, resp.Status, message)
 	}
-	return fmt.Errorf("%w: %s %s", platformai.ErrUpstreamFailed, resp.Status, message)
+	return fmt.Errorf("%w: %s %s", infraai.ErrUpstreamFailed, resp.Status, message)
 }
 
 func isSuccessStatus(statusCode int) bool {
@@ -238,7 +238,7 @@ func readLimitedResponseBody(body io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	if len(data) > maxBodyBytes {
-		return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
+		return nil, fmt.Errorf("%w: OpenAI image response too large", infraai.ErrUpstreamFailed)
 	}
 	return data, nil
 }
@@ -272,7 +272,7 @@ type imageResponse struct {
 	N                 int    `json:"n"`
 }
 
-func parseImageResponse(body []byte, fallbackMime string) (*platformai.ImageResult, error) {
+func parseImageResponse(body []byte, fallbackMime string) (*infraai.ImageResult, error) {
 	var payload imageResponse
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI image response: %w", err)
@@ -280,7 +280,7 @@ func parseImageResponse(body []byte, fallbackMime string) (*platformai.ImageResu
 	return imageResultFromPayload(payload, append([]byte(nil), body...), fallbackMime)
 }
 
-func decodeImageResponse(body io.Reader, fallbackMime string) (*platformai.ImageResult, error) {
+func decodeImageResponse(body io.Reader, fallbackMime string) (*infraai.ImageResult, error) {
 	var (
 		raw     bytes.Buffer
 		payload imageResponse
@@ -288,21 +288,21 @@ func decodeImageResponse(body io.Reader, fallbackMime string) (*platformai.Image
 	decoder := json.NewDecoder(io.TeeReader(io.LimitReader(body, maxBodyBytes+1), &raw))
 	if err := decoder.Decode(&payload); err != nil {
 		if raw.Len() > maxBodyBytes {
-			return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
+			return nil, fmt.Errorf("%w: OpenAI image response too large", infraai.ErrUpstreamFailed)
 		}
 		return nil, fmt.Errorf("decode OpenAI image response: %w", err)
 	}
 	if raw.Len() > maxBodyBytes {
-		return nil, fmt.Errorf("%w: OpenAI image response too large", platformai.ErrUpstreamFailed)
+		return nil, fmt.Errorf("%w: OpenAI image response too large", infraai.ErrUpstreamFailed)
 	}
 	return imageResultFromPayload(payload, append([]byte(nil), raw.Bytes()...), fallbackMime)
 }
 
-func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime string) (*platformai.ImageResult, error) {
+func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime string) (*infraai.ImageResult, error) {
 	if len(payload.Data) == 0 {
-		return nil, fmt.Errorf("%w: OpenAI image response contains no data", platformai.ErrUpstreamFailed)
+		return nil, fmt.Errorf("%w: OpenAI image response contains no data", infraai.ErrUpstreamFailed)
 	}
-	images := make([]platformai.GeneratedImage, 0, len(payload.Data))
+	images := make([]infraai.GeneratedImage, 0, len(payload.Data))
 	for _, item := range payload.Data {
 		if strings.TrimSpace(item.B64JSON) == "" && strings.TrimSpace(item.URL) == "" {
 			continue
@@ -311,7 +311,7 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 		if item.OutputFormat != "" {
 			mimeType = imageMime(item.OutputFormat)
 		}
-		images = append(images, platformai.GeneratedImage{
+		images = append(images, infraai.GeneratedImage{
 			B64JSON:       strings.TrimSpace(item.B64JSON),
 			URL:           strings.TrimSpace(item.URL),
 			MimeType:      mimeType,
@@ -319,9 +319,9 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 		})
 	}
 	if len(images) == 0 {
-		return nil, fmt.Errorf("%w: OpenAI image response contains no usable image", platformai.ErrUpstreamFailed)
+		return nil, fmt.Errorf("%w: OpenAI image response contains no usable image", infraai.ErrUpstreamFailed)
 	}
-	return &platformai.ImageResult{
+	return &infraai.ImageResult{
 		Images:       images,
 		ActualParams: actualParams(payload),
 		RawResponse:  raw,
@@ -354,7 +354,7 @@ func actualParams(payload imageResponse) map[string]any {
 	return out
 }
 
-func normalizeInput(input platformai.ImageInput) platformai.ImageInput {
+func normalizeInput(input infraai.ImageInput) infraai.ImageInput {
 	input.Model = strings.TrimSpace(input.Model)
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	input.Size = strings.TrimSpace(input.Size)
@@ -377,10 +377,10 @@ func normalizeBaseURL(value string) (string, error) {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url", platformai.ErrInvalidConfig)
+		return "", fmt.Errorf("%w: invalid OpenAI base url", infraai.ErrInvalidConfig)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url scheme", platformai.ErrInvalidConfig)
+		return "", fmt.Errorf("%w: invalid OpenAI base url scheme", infraai.ErrInvalidConfig)
 	}
 	return raw, nil
 }

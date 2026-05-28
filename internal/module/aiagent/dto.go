@@ -5,7 +5,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 type InitResponse struct {
@@ -105,7 +105,7 @@ type AgentOptionsResponse struct {
 }
 
 type ConnectionTester interface {
-	TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error)
+	TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error)
 }
 
 type HTTPService interface {
@@ -116,7 +116,7 @@ type HTTPService interface {
 	Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error)
 	Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error
 	ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error
-	Test(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error)
+	Test(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error)
 	Delete(ctx context.Context, id uint64) *apperror.Error
 	Options(ctx context.Context, query OptionQuery) (*AgentOptionsResponse, *apperror.Error)
 }

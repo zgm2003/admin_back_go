@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	platformrealtime "admin_back_go/internal/platform/realtime"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 type EnvelopeEvent struct {
 	ID       string
 	Event    string
-	Envelope platformrealtime.Envelope
+	Envelope infrarealtime.Envelope
 }
 
 type StreamIDGenerator struct {
@@ -104,7 +104,7 @@ func BuildEventFromPayload(eventType string, payload any) (EnvelopeEvent, error)
 
 func buildEvent(eventType string, payload any) (EnvelopeEvent, error) {
 	id := NewStreamIDGenerator().Next()
-	envelope, err := platformrealtime.NewEnvelope(eventType, id, payload)
+	envelope, err := infrarealtime.NewEnvelope(eventType, id, payload)
 	if err != nil {
 		return EnvelopeEvent{}, err
 	}

@@ -10,9 +10,9 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 type fakeRepository struct {
@@ -60,21 +60,21 @@ func (f *fakeRepository) TimeoutRuns(ctx context.Context, limit int, staleBefore
 }
 
 type fakePublisher struct {
-	pubs []platformrealtime.Publication
+	pubs []infrarealtime.Publication
 }
 
-func (f *fakePublisher) Publish(ctx context.Context, p platformrealtime.Publication) error {
+func (f *fakePublisher) Publish(ctx context.Context, p infrarealtime.Publication) error {
 	f.pubs = append(f.pubs, p)
 	return nil
 }
 
 type fakeEngineFactory struct {
-	engine platformai.Engine
+	engine infraai.Engine
 	input  EngineConfig
 	err    error
 }
 
-func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error) {
+func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (infraai.Engine, error) {
 	f.input = input
 	if f.err != nil {
 		return nil, f.err
@@ -83,48 +83,48 @@ func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (
 }
 
 type blankEngine struct {
-	platformai.FakeEngine
+	infraai.FakeEngine
 }
 
-func (blankEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
-	return &platformai.ChatResult{}, nil
+func (blankEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+	return &infraai.ChatResult{}, nil
 }
 
 type splitDeltaEngine struct{}
 
-func (splitDeltaEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
-	return &platformai.TestConnectionResult{OK: true}, nil
+func (splitDeltaEngine) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
 }
 
-func (splitDeltaEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+func (splitDeltaEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	for _, delta := range []string{"你", "好"} {
-		if err := sink.Emit(ctx, platformai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
+		if err := sink.Emit(ctx, infraai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
 			return nil, err
 		}
 	}
-	return &platformai.ChatResult{Answer: "你好", PromptTokens: 4, CompletionTokens: 8, TotalTokens: 12}, nil
+	return &infraai.ChatResult{Answer: "你好", PromptTokens: 4, CompletionTokens: 8, TotalTokens: 12}, nil
 }
 
 type captureEngine struct {
-	input platformai.ChatInput
+	input infraai.ChatInput
 }
 
-func (c *captureEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
-	return &platformai.TestConnectionResult{OK: true}, nil
+func (c *captureEngine) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
 }
 
-func (c *captureEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+func (c *captureEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	c.input = input
-	return &platformai.ChatResult{Answer: "看到了图片"}, nil
+	return &infraai.ChatResult{Answer: "看到了图片"}, nil
 }
 
 type canceledEngine struct{}
 
-func (canceledEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
-	return &platformai.TestConnectionResult{OK: true}, nil
+func (canceledEngine) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
 }
 
-func (canceledEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+func (canceledEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	return nil, context.Canceled
 }
 
@@ -142,7 +142,7 @@ func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 		ModelID:          "gpt-5.4",
 		ModelDisplayName: "GPT-5.4",
 		ScenesJSON:       `["chat"]`,
-		EngineType:       string(platformai.EngineTypeOpenAI),
+		EngineType:       string(infraai.EngineTypeOpenAI),
 		EngineBaseURL:    "https://api.openai.test/v1",
 		EngineAPIKeyEnc:  cipher,
 		AgentStatus:      enum.CommonYes,
@@ -160,7 +160,7 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 		},
 	}
 	pub := &fakePublisher{}
-	factory := &fakeEngineFactory{engine: platformai.NewFakeEngine("ok")}
+	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}
 	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
@@ -168,7 +168,7 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "ok" || repo.assistant.ConversationID != 3 {
 		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
 	}
-	if factory.input.APIKey != "provider-key" || factory.input.EngineType != platformai.EngineTypeOpenAI {
+	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
 	if repo.createdRun.ConversationID != 3 || repo.createdRun.RequestID != "rid" || repo.createdRun.ModelID != "gpt-5.4" || repo.createdRun.ModelDisplayName != "GPT-5.4" {
@@ -259,7 +259,7 @@ func TestExecuteConversationReplyPublishesFailedForEngineError(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
 	pub := &fakePublisher{}
-	_, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: &platformai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := NewService(Dependencies{Repository: repo, Publisher: pub, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected engine error")
 	}
@@ -458,20 +458,20 @@ func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing
 }
 
 type toolCallEngine struct {
-	calls  []platformai.ChatInput
+	calls  []infraai.ChatInput
 	stages int
 }
 
-func (e *toolCallEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
-	return &platformai.TestConnectionResult{OK: true}, nil
+func (e *toolCallEngine) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
 }
 
-func (e *toolCallEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+func (e *toolCallEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	e.calls = append(e.calls, input)
 	if len(input.ToolOutputs) == 0 {
-		return &platformai.ChatResult{ToolCalls: []platformai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, PromptTokens: 7, CompletionTokens: 1, TotalTokens: 8}, nil
+		return &infraai.ChatResult{ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, PromptTokens: 7, CompletionTokens: 1, TotalTokens: 8}, nil
 	}
-	return &platformai.ChatResult{Answer: "当前用户量1015", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}, nil
+	return &infraai.ChatResult{Answer: "当前用户量1015", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}, nil
 }
 
 func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
@@ -524,9 +524,9 @@ func TestExecuteConversationReplyRejectsSecondToolRound(t *testing.T) {
 
 type doubleToolRoundEngine struct{}
 
-func (doubleToolRoundEngine) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
-	return &platformai.TestConnectionResult{OK: true}, nil
+func (doubleToolRoundEngine) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
 }
-func (doubleToolRoundEngine) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
-	return &platformai.ChatResult{ToolCalls: []platformai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}}, nil
+func (doubleToolRoundEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+	return &infraai.ChatResult{ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}}, nil
 }

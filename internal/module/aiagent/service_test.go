@@ -10,8 +10,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 type fakeAIAgentRepository struct {
@@ -106,16 +106,16 @@ func (f *fakeAIAgentRepository) ListVisibleAgents(ctx context.Context, query Opt
 }
 
 type fakeAIAgentTester struct {
-	input platformai.TestConnectionInput
+	input infraai.TestConnectionInput
 	err   error
 }
 
-func (f *fakeAIAgentTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (f *fakeAIAgentTester) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
 	f.input = input
 	if f.err != nil {
-		return &platformai.TestConnectionResult{OK: false, Status: "500", Message: f.err.Error()}, f.err
+		return &infraai.TestConnectionResult{OK: false, Status: "500", Message: f.err.Error()}, f.err
 	}
-	return &platformai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
+	return &infraai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
 }
 
 func TestCreateRejectsMissingActiveProvider(t *testing.T) {
@@ -405,7 +405,7 @@ func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 	if result == nil || !result.OK {
 		t.Fatalf("expected successful test result, got %#v", result)
 	}
-	if tester.input.APIKey != "plain-provider-key" || tester.input.BaseURL != "https://api.openai.test/v1" || tester.input.EngineType != platformai.EngineTypeOpenAI {
+	if tester.input.APIKey != "plain-provider-key" || tester.input.BaseURL != "https://api.openai.test/v1" || tester.input.EngineType != infraai.EngineTypeOpenAI {
 		t.Fatalf("unexpected tester input: %#v", tester.input)
 	}
 }

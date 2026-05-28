@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/platform/scheduler"
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/scheduler"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 type ScheduleRegistrar interface {

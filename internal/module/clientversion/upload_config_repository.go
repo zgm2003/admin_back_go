@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/database"
+	"admin_back_go/internal/infra/database"
 
 	"gorm.io/gorm"
 )

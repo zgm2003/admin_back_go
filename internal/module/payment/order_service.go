@@ -10,7 +10,7 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	gateway "admin_back_go/internal/platform/payment"
+	gateway "admin_back_go/internal/infra/payment"
 )
 
 const defaultOrderExpireMinutes = 30

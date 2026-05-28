@@ -7,7 +7,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 type JSONObject = map[string]any
@@ -139,13 +139,13 @@ type GenerateAgentConfig struct {
 }
 
 type EngineConfig struct {
-	EngineType platformai.EngineType
+	EngineType infraai.EngineType
 	BaseURL    string
 	APIKey     string
 }
 
 type EngineFactory interface {
-	NewEngine(ctx context.Context, input EngineConfig) (platformai.Engine, error)
+	NewEngine(ctx context.Context, input EngineConfig) (infraai.Engine, error)
 }
 
 type AgentToolsResponse struct {

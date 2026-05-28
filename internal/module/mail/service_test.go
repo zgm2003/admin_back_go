@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/systemsetting"
-	"admin_back_go/internal/platform/secretbox"
 	sharedsetting "admin_back_go/internal/shared/setting"
 )
 

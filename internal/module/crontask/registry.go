@@ -3,10 +3,10 @@ package crontask
 import (
 	"strings"
 
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payment"
-	"admin_back_go/internal/platform/taskqueue"
 )
 
 type RegistryEntry struct {

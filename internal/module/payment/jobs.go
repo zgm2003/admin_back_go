@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 const (

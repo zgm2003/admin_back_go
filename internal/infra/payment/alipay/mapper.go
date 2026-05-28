@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/url"
 
-	paymentcore "admin_back_go/internal/platform/payment"
+	paymentcore "admin_back_go/internal/infra/payment"
 )
 
 var ErrGatewayNotConfigured = errors.New("alipay: gateway not configured")

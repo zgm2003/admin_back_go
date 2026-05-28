@@ -7,7 +7,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/secretbox"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 type fakeRepository struct {

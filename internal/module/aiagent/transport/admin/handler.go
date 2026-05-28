@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/apperror"
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/middleware"
-	platformai "admin_back_go/internal/platform/ai"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
@@ -204,7 +204,7 @@ func (nilHTTPService) Update(ctx context.Context, id uint64, input UpdateInput) 
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
 	return apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Test(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (nilHTTPService) Test(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {

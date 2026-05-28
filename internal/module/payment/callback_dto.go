@@ -5,10 +5,10 @@ import "net/url"
 const (
 	callbackProcessPending = "pending"
 	callbackProcessSuccess = "success"
-	callbackProcessFailed   = "failed"
-	callbackProcessIgnored  = "ignored"
-	callbackResultSuccess   = "success"
-	callbackResultFail      = "fail"
+	callbackProcessFailed  = "failed"
+	callbackProcessIgnored = "ignored"
+	callbackResultSuccess  = "success"
+	callbackResultFail     = "fail"
 )
 
 type AlipayCallbackInput struct {

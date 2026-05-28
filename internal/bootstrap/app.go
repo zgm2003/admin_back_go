@@ -9,6 +9,19 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/ai/imagecompat"
+	"admin_back_go/internal/infra/ai/openaicompat"
+	"admin_back_go/internal/infra/logstore"
+	inframail "admin_back_go/internal/infra/mail/tencentcloudses"
+	"admin_back_go/internal/infra/payment"
+	payalipay "admin_back_go/internal/infra/payment/alipay"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/infra/secretkey"
+	infrasms "admin_back_go/internal/infra/sms/tencentcloudsms"
+	storagecos "admin_back_go/internal/infra/storage/cos"
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
@@ -40,19 +53,6 @@ import (
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userquickentry"
 	walletmodule "admin_back_go/internal/module/wallet"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/ai/imagecompat"
-	"admin_back_go/internal/platform/ai/openaicompat"
-	"admin_back_go/internal/platform/logstore"
-	platformmail "admin_back_go/internal/platform/mail/tencentcloudses"
-	"admin_back_go/internal/platform/payment"
-	payalipay "admin_back_go/internal/platform/payment/alipay"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/secretbox"
-	"admin_back_go/internal/platform/secretkey"
-	platformsms "admin_back_go/internal/platform/sms/tencentcloudsms"
-	storagecos "admin_back_go/internal/platform/storage/cos"
-	"admin_back_go/internal/platform/taskqueue"
 	"admin_back_go/internal/server"
 )
 
@@ -77,9 +77,9 @@ type App struct {
 	queueClient        *taskqueue.Client
 	queueInspector     *taskqueue.Inspector
 	queueMonitorUI     *queuemonitor.MonitorUI
-	realtimeManager    *platformrealtime.Manager
-	realtimePublisher  platformrealtime.Publisher
-	realtimeSubscriber *platformrealtime.RedisSubscriber
+	realtimeManager    *infrarealtime.Manager
+	realtimePublisher  infrarealtime.Publisher
+	realtimeSubscriber *infrarealtime.RedisSubscriber
 	aiReplyDispatcher  *aiConversationReplyDispatcher
 }
 
@@ -140,9 +140,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	cosObjectReader := storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true})
 	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true})
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
-	sesClient := platformmail.New(10 * time.Second)
+	sesClient := inframail.New(10 * time.Second)
 	mailSender := mail.SenderFunc(func(ctx context.Context, input mail.SendInput) (mail.SendResult, error) {
-		result, err := sesClient.Send(ctx, platformmail.SendInput{
+		result, err := sesClient.Send(ctx, inframail.SendInput{
 			SecretID:     input.SecretID,
 			SecretKey:    input.SecretKey,
 			Region:       input.Region,
@@ -161,9 +161,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return mail.SendResult{RequestID: result.RequestID, MessageID: result.MessageID}, nil
 	})
 	mailService := mail.NewService(mail.NewGormRepository(resources.DB, resources.Redis), secretBox, mailSender)
-	smsClient := platformsms.New(10 * time.Second)
+	smsClient := infrasms.New(10 * time.Second)
 	smsSender := sms.SenderFunc(func(ctx context.Context, input sms.SendInput) (sms.SendResult, error) {
-		result, err := smsClient.Send(ctx, platformsms.SendInput{
+		result, err := smsClient.Send(ctx, infrasms.SendInput{
 			SecretID:         input.SecretID,
 			SecretKey:        input.SecretKey,
 			Region:           input.Region,
@@ -392,16 +392,16 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 
 type aiProviderTester struct{}
 
-func (aiProviderTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (aiProviderTester) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
 	switch input.EngineType {
-	case platformai.EngineTypeOpenAI:
+	case infraai.EngineTypeOpenAI:
 		return openaicompat.New(openaicompat.Config{
 			BaseURL: input.BaseURL,
 			APIKey:  input.APIKey,
 			Timeout: time.Duration(input.TimeoutMs) * time.Millisecond,
 		}).TestConnection(ctx, input)
 	default:
-		return nil, platformai.ErrInvalidConfig
+		return nil, infraai.ErrInvalidConfig
 	}
 }
 
@@ -435,9 +435,9 @@ type aiChatEngineFactory struct {
 	streamIdleTimeout time.Duration
 }
 
-func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (platformai.Engine, error) {
+func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineConfig) (infraai.Engine, error) {
 	switch input.EngineType {
-	case platformai.EngineTypeOpenAI:
+	case infraai.EngineTypeOpenAI:
 		return openaicompat.New(openaicompat.Config{
 			BaseURL:           input.BaseURL,
 			APIKey:            input.APIKey,
@@ -445,15 +445,15 @@ func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineC
 			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, config.DefaultAIChatStreamIdleTimeout),
 		}), nil
 	default:
-		return nil, platformai.ErrInvalidConfig
+		return nil, infraai.ErrInvalidConfig
 	}
 }
 
 type aiImageEngineFactory struct{}
 
-func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) platformai.ImageEngine {
-	switch platformai.EngineType(config.EngineType) {
-	case platformai.EngineTypeOpenAI:
+func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) infraai.ImageEngine {
+	switch infraai.EngineType(config.EngineType) {
+	case infraai.EngineTypeOpenAI:
 		return imagecompat.New(imagecompat.Config{
 			BaseURL: config.BaseURL,
 			APIKey:  config.APIKey,
@@ -466,16 +466,16 @@ func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) pla
 
 type aiToolGenerateEngineFactory struct{}
 
-func (aiToolGenerateEngineFactory) NewEngine(ctx context.Context, input aitool.EngineConfig) (platformai.Engine, error) {
+func (aiToolGenerateEngineFactory) NewEngine(ctx context.Context, input aitool.EngineConfig) (infraai.Engine, error) {
 	switch input.EngineType {
-	case platformai.EngineTypeOpenAI:
+	case infraai.EngineTypeOpenAI:
 		return openaicompat.New(openaicompat.Config{
 			BaseURL: input.BaseURL,
 			APIKey:  input.APIKey,
 			Timeout: 30 * time.Second,
 		}), nil
 	default:
-		return nil, platformai.ErrInvalidConfig
+		return nil, infraai.ErrInvalidConfig
 	}
 }
 

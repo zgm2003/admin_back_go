@@ -14,8 +14,8 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	gateway "admin_back_go/internal/platform/payment"
-	"admin_back_go/internal/platform/secretbox"
+	gateway "admin_back_go/internal/infra/payment"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 const timeLayout = "2006-01-02 15:04:05"

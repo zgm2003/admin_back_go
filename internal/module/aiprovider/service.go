@@ -10,9 +10,9 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	platformai "admin_back_go/internal/platform/ai"
-	"admin_back_go/internal/platform/ai/provider"
-	"admin_back_go/internal/platform/secretbox"
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/ai/provider"
+	"admin_back_go/internal/infra/secretbox"
 )
 
 const (
@@ -181,7 +181,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id uint64, status int) *appe
 	return nil
 }
 
-func (s *Service) TestConnection(ctx context.Context, id uint64) (*platformai.TestConnectionResult, *apperror.Error) {
+func (s *Service) TestConnection(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	if id == 0 {
 		return nil, apperror.BadRequest("无效的AI供应商ID")
 	}
@@ -383,12 +383,12 @@ func (s *Service) openAIDriver() ModelDriver {
 	return provider.NewOpenAIDriver(nil)
 }
 
-func (s *Service) testOpenAI(ctx context.Context, baseURL string, apiKey string) (*platformai.TestConnectionResult, error) {
+func (s *Service) testOpenAI(ctx context.Context, baseURL string, apiKey string) (*infraai.TestConnectionResult, error) {
 	result, err := s.openAIDriver().TestConnection(ctx, provider.Config{Driver: driverOpenAI, BaseURL: baseURL, APIKey: apiKey, TimeoutMs: 10000})
 	if result == nil {
 		return nil, err
 	}
-	return &platformai.TestConnectionResult{OK: result.OK, Status: result.Status, LatencyMs: int(result.LatencyMs), Message: result.Message}, err
+	return &infraai.TestConnectionResult{OK: result.OK, Status: result.Status, LatencyMs: int(result.LatencyMs), Message: result.Message}, err
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {
@@ -581,7 +581,7 @@ func emptyAs(value string, fallback string) string {
 	return value
 }
 
-func errorMessage(err error, result *platformai.TestConnectionResult) string {
+func errorMessage(err error, result *infraai.TestConnectionResult) string {
 	if err != nil {
 		return err.Error()
 	}
@@ -632,6 +632,6 @@ func formatPtrTime(value *time.Time) string {
 
 type unsupportedTester struct{}
 
-func (unsupportedTester) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (unsupportedTester) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
 	return nil, fmt.Errorf("ai provider tester not configured")
 }

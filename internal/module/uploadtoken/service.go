@@ -13,8 +13,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/platform/secretbox"
-	storagecos "admin_back_go/internal/platform/storage/cos"
+	"admin_back_go/internal/infra/secretbox"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 )
 
 const (

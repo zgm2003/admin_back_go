@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/taskqueue"
 
 	"golang.org/x/crypto/bcrypt"
 )

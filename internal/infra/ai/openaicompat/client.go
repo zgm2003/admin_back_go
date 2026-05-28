@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	platformai "admin_back_go/internal/platform/ai"
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 const (
@@ -68,9 +68,9 @@ func New(config Config) *Client {
 	}
 }
 
-func (c *Client) TestConnection(ctx context.Context, input platformai.TestConnectionInput) (*platformai.TestConnectionResult, error) {
+func (c *Client) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
 	if c == nil {
-		return nil, fmt.Errorf("%w: OpenAI client is nil", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
 	}
 	client := c
 	if strings.TrimSpace(input.BaseURL) != "" || strings.TrimSpace(input.APIKey) != "" || input.TimeoutMs > 0 {
@@ -96,30 +96,30 @@ func (c *Client) TestConnection(ctx context.Context, input platformai.TestConnec
 	resp, err := client.httpClient.Do(req)
 	latency := int(time.Since(start).Milliseconds())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", platformai.ErrUpstreamFailed, err)
+		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
 	}
 	defer resp.Body.Close()
 	if err := client.requireSuccess(resp); err != nil {
-		return &platformai.TestConnectionResult{OK: false, Status: resp.Status, LatencyMs: latency, Message: err.Error()}, err
+		return &infraai.TestConnectionResult{OK: false, Status: resp.Status, LatencyMs: latency, Message: err.Error()}, err
 	}
-	return &platformai.TestConnectionResult{OK: true, Status: resp.Status, LatencyMs: latency, Message: "ok"}, nil
+	return &infraai.TestConnectionResult{OK: true, Status: resp.Status, LatencyMs: latency, Message: "ok"}, nil
 }
 
-func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sink platformai.EventSink) (*platformai.ChatResult, error) {
+func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	if c == nil {
-		return nil, fmt.Errorf("%w: OpenAI client is nil", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
 	}
 	if strings.TrimSpace(input.Content) == "" {
 		if len(inputAttachments(input.Inputs)) == 0 {
-			return nil, fmt.Errorf("%w: missing message content", platformai.ErrInvalidConfig)
+			return nil, fmt.Errorf("%w: missing message content", infraai.ErrInvalidConfig)
 		}
 	}
 	model := inputString(input.Inputs, "model_id")
 	if model == "" {
-		return nil, fmt.Errorf("%w: missing model_id", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: missing model_id", infraai.ErrInvalidConfig)
 	}
 	if len(input.ToolOutputs) > 0 && len(input.ToolCalls) == 0 {
-		return nil, fmt.Errorf("%w: tool outputs require preceding tool calls", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: tool outputs require preceding tool calls", infraai.ErrInvalidConfig)
 	}
 	body := chatCompletionRequest{
 		Model:         model,
@@ -149,7 +149,7 @@ func (c *Client) StreamChat(ctx context.Context, input platformai.ChatInput, sin
 	}
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", platformai.ErrUpstreamFailed, err)
+		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
 	}
 	defer resp.Body.Close()
 	if err := c.requireSuccess(resp); err != nil {
@@ -175,7 +175,7 @@ func (c *Client) newRequest(ctx context.Context, method string, endpoint string,
 		return nil, err
 	}
 	if c.apiKey == "" {
-		return nil, fmt.Errorf("%w: missing OpenAI API key", platformai.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: missing OpenAI API key", infraai.ErrInvalidConfig)
 	}
 	var reader io.Reader
 	if body != nil {
@@ -265,23 +265,23 @@ func (c *Client) requireSuccess(resp *http.Response) error {
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
-		return fmt.Errorf("%w: %s", platformai.ErrUpstreamFailed, resp.Status)
+		return fmt.Errorf("%w: %s", infraai.ErrUpstreamFailed, resp.Status)
 	}
 	message := sanitizeBody(body, c.apiKey)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("%w: %s %s", platformai.ErrUnauthorized, resp.Status, message)
+		return fmt.Errorf("%w: %s %s", infraai.ErrUnauthorized, resp.Status, message)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("%w: %s %s", platformai.ErrRateLimited, resp.Status, message)
+		return fmt.Errorf("%w: %s %s", infraai.ErrRateLimited, resp.Status, message)
 	}
-	return fmt.Errorf("%w: %s %s", platformai.ErrUpstreamFailed, resp.Status, message)
+	return fmt.Errorf("%w: %s %s", infraai.ErrUpstreamFailed, resp.Status, message)
 }
 
-func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, sink platformai.EventSink, touch func()) (*platformai.ChatResult, error) {
+func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, sink infraai.EventSink, touch func()) (*infraai.ChatResult, error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	var answer strings.Builder
-	result := &platformai.ChatResult{}
+	result := &infraai.ChatResult{}
 	for scanner.Scan() {
 		if touch != nil {
 			touch()
@@ -325,7 +325,7 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			answer.WriteString(delta)
 			result.Answer = strings.TrimSpace(answer.String())
 			if sink != nil {
-				if err := sink.Emit(ctx, platformai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
+				if err := sink.Emit(ctx, infraai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
 					return nil, err
 				}
 			}
@@ -422,7 +422,7 @@ func (r chatCompletionResponse) firstContent() string {
 	return contentText(r.Choices[0].Message.Content)
 }
 
-func chatMessages(input platformai.ChatInput) []chatMessage {
+func chatMessages(input infraai.ChatInput) []chatMessage {
 	messages := []chatMessage{}
 	if systemPrompt := inputString(input.Inputs, "system_prompt"); systemPrompt != "" {
 		messages = append(messages, chatMessage{Role: "system", Content: systemPrompt})
@@ -441,7 +441,7 @@ func chatMessages(input platformai.ChatInput) []chatMessage {
 	return messages
 }
 
-func chatAssistantToolCalls(calls []platformai.ToolCall) []chatMessageToolCall {
+func chatAssistantToolCalls(calls []infraai.ToolCall) []chatMessageToolCall {
 	out := make([]chatMessageToolCall, 0, len(calls))
 	for _, call := range calls {
 		id := strings.TrimSpace(call.ID)
@@ -465,7 +465,7 @@ func chatAssistantToolCalls(calls []platformai.ToolCall) []chatMessageToolCall {
 	return out
 }
 
-func chatTools(tools []platformai.ToolDefinition) []chatTool {
+func chatTools(tools []infraai.ToolDefinition) []chatTool {
 	out := make([]chatTool, 0, len(tools))
 	for _, tool := range tools {
 		name := strings.TrimSpace(tool.Name)
@@ -502,7 +502,7 @@ func historyMessages(inputs map[string]any) []chatMessage {
 	return messages
 }
 
-func userContent(input platformai.ChatInput) any {
+func userContent(input infraai.ChatInput) any {
 	text := strings.TrimSpace(input.Content)
 	attachments := inputAttachments(input.Inputs)
 	if len(attachments) == 0 {
@@ -619,10 +619,10 @@ func normalizeBaseURL(value string) (string, error) {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url", platformai.ErrInvalidConfig)
+		return "", fmt.Errorf("%w: invalid OpenAI base url", infraai.ErrInvalidConfig)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url scheme", platformai.ErrInvalidConfig)
+		return "", fmt.Errorf("%w: invalid OpenAI base url scheme", infraai.ErrInvalidConfig)
 	}
 	return raw, nil
 }
@@ -645,13 +645,13 @@ func nonEmpty(value string, fallback string) string {
 	return fallback
 }
 
-func mergeToolCall(result *platformai.ChatResult, call chatStreamToolCall) {
+func mergeToolCall(result *infraai.ChatResult, call chatStreamToolCall) {
 	if result == nil {
 		return
 	}
 	idx := call.Index
 	for len(result.ToolCalls) <= idx {
-		result.ToolCalls = append(result.ToolCalls, platformai.ToolCall{})
+		result.ToolCalls = append(result.ToolCalls, infraai.ToolCall{})
 	}
 	current := result.ToolCalls[idx]
 	if strings.TrimSpace(call.ID) != "" {

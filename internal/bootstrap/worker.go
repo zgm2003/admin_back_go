@@ -6,6 +6,15 @@ import (
 	"log/slog"
 
 	"admin_back_go/internal/config"
+	paymentcore "admin_back_go/internal/infra/payment"
+	payalipay "admin_back_go/internal/infra/payment/alipay"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/redislock"
+	"admin_back_go/internal/infra/scheduler"
+	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/infra/secretkey"
+	storagecos "admin_back_go/internal/infra/storage/cos"
+	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiimage"
@@ -15,15 +24,6 @@ import (
 	"admin_back_go/internal/module/notificationtask"
 	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
-	paymentcore "admin_back_go/internal/platform/payment"
-	payalipay "admin_back_go/internal/platform/payment/alipay"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/redislock"
-	"admin_back_go/internal/platform/scheduler"
-	"admin_back_go/internal/platform/secretbox"
-	"admin_back_go/internal/platform/secretkey"
-	storagecos "admin_back_go/internal/platform/storage/cos"
-	"admin_back_go/internal/platform/taskqueue"
 )
 
 type Worker struct {
@@ -225,10 +225,10 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func realtimePublisherForWorker(cfg config.Config, resources *Resources) platformrealtime.Publisher {
+func realtimePublisherForWorker(cfg config.Config, resources *Resources) infrarealtime.Publisher {
 	realtimeConfig := withRealtimePolicyDefaults(cfg.Realtime)
 	if !realtimeConfig.Enabled {
-		return platformrealtime.NoopPublisher{}
+		return infrarealtime.NoopPublisher{}
 	}
 	publisherName := realtimeConfig.Publisher
 	if publisherName == "" {
@@ -237,16 +237,16 @@ func realtimePublisherForWorker(cfg config.Config, resources *Resources) platfor
 	switch publisherName {
 	case config.RealtimePublisherRedis:
 		if resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
-			return platformrealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel)
+			return infrarealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel)
 		}
-		return platformrealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel)
+		return infrarealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel)
 	case config.RealtimePublisherNoop:
-		return platformrealtime.NoopPublisher{}
+		return infrarealtime.NoopPublisher{}
 	case config.RealtimePublisherLocal:
 		// Worker has no WebSocket sessions. Local mode would be a fake cross-process
 		// fan-out, so keep it explicitly disabled in the worker.
-		return platformrealtime.NoopPublisher{}
+		return infrarealtime.NoopPublisher{}
 	default:
-		return platformrealtime.NoopPublisher{}
+		return infrarealtime.NoopPublisher{}
 	}
 }

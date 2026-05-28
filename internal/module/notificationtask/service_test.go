@@ -10,8 +10,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
-	platformrealtime "admin_back_go/internal/platform/realtime"
-	"admin_back_go/internal/platform/taskqueue"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 type fakeRepository struct {
@@ -119,11 +119,11 @@ type fakeEnqueuer struct {
 }
 
 type fakeRealtimePublisher struct {
-	publications []platformrealtime.Publication
+	publications []infrarealtime.Publication
 	err          error
 }
 
-func (f *fakeRealtimePublisher) Publish(ctx context.Context, publication platformrealtime.Publication) error {
+func (f *fakeRealtimePublisher) Publish(ctx context.Context, publication infrarealtime.Publication) error {
 	f.publications = append(f.publications, publication)
 	return f.err
 }

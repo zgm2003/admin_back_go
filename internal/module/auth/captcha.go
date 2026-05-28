@@ -14,8 +14,8 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
+	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/module/systemsetting"
-	"admin_back_go/internal/platform/redisclient"
 	sharedsetting "admin_back_go/internal/shared/setting"
 
 	"github.com/redis/go-redis/v9"

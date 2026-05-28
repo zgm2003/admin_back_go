@@ -9,7 +9,7 @@ import (
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/platform/accesstoken"
+	"admin_back_go/internal/infra/accesstoken"
 )
 
 type fakeSessionCache struct {

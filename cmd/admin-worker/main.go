@@ -9,8 +9,8 @@ import (
 
 	"admin_back_go/internal/bootstrap"
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/platform/logging"
-	"admin_back_go/internal/platform/taskqueue"
+	"admin_back_go/internal/infra/logging"
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 func main() {
