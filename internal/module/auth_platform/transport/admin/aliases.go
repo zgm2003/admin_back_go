@@ -1,6 +1,6 @@
 package admin
 
-import authplatformmodule "admin_back_go/internal/module/authplatform"
+import authplatformmodule "admin_back_go/internal/module/auth_platform"
 
 type (
 	InitResponse         = authplatformmodule.InitResponse

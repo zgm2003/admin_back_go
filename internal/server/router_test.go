@@ -28,7 +28,7 @@ import (
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/authplatform"
+	"admin_back_go/internal/module/auth_platform"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/exporttask"

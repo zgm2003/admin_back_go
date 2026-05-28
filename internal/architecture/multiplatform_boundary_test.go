@@ -124,7 +124,7 @@ func TestCommsUploadAdminTransportShells(t *testing.T) {
 func TestCommerceRBACAdminTransportShells(t *testing.T) {
 	root := backendRoot(t)
 	for _, module := range []string{
-		"authplatform",
+		"auth_platform",
 		"permission",
 		"role",
 		"wallet",
@@ -135,6 +135,12 @@ func TestCommerceRBACAdminTransportShells(t *testing.T) {
 		mustNotExist(t, root, moduleRoot+"route.go")
 		mustNotExist(t, root, moduleRoot+"handler.go")
 	}
+}
+
+func TestAuthPlatformModuleUsesSnakeCaseDirectory(t *testing.T) {
+	root := backendRoot(t)
+	mustNotExist(t, root, "internal/module/authplatform")
+	mustExist(t, root, "internal/module/auth_platform/transport/admin/route.go")
 }
 
 func TestUserProfileTransportShape(t *testing.T) {

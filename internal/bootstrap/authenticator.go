@@ -10,7 +10,7 @@ import (
 	"admin_back_go/internal/infra/secretkey"
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/authplatform"
+	"admin_back_go/internal/module/auth_platform"
 	"admin_back_go/internal/shared/apperror"
 )
 
