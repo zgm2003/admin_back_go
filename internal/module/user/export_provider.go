@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/export"
 )
 
 type ExportDataProvider struct {

@@ -19,7 +19,7 @@ import (
 	authplatformadmin "admin_back_go/internal/module/authplatform/transport/admin"
 	clientversionadmin "admin_back_go/internal/module/clientversion/transport/admin"
 	crontaskadmin "admin_back_go/internal/module/crontask/transport/admin"
-	exporttaskadmin "admin_back_go/internal/module/exporttask/transport/admin"
+	exporttaskadmin "admin_back_go/internal/module/export/transport/admin"
 	mailadmin "admin_back_go/internal/module/mail/transport/admin"
 	notificationadmin "admin_back_go/internal/module/notification/transport/admin"
 	notificationtaskadmin "admin_back_go/internal/module/notificationtask/transport/admin"

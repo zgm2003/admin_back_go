@@ -14,7 +14,7 @@ import (
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/aiimage"
 	"admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/export"
 	"admin_back_go/internal/module/notificationtask"
 	"admin_back_go/internal/module/payment"
 )
