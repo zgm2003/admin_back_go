@@ -42,6 +42,7 @@ import (
 	"admin_back_go/internal/module/operationlog"
 	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/sms"
@@ -50,7 +51,6 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userquickentry"
 	walletmodule "admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/server"
 	"admin_back_go/internal/shared/apperror"
@@ -318,7 +318,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		user.WithAddressDictCache(addressDictCache),
 	)
 	sessionRevoker := auth.NewSessionRevocationService(auth.NewSessionRedisCache(resourcesTokenRedis(resources)), auth.SessionRevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
-	userQuickEntryService := userquickentry.NewService(userquickentry.NewGormRepository(resources.DB))
+	userQuickEntryService := profile.NewQuickEntryService(profile.NewGormQuickEntryRepository(resources.DB))
 	loginLogService := auth.NewLoginLogService(auth.NewLoginLogGormRepository(resources.DB))
 	sessionAdminService := auth.NewSessionAdminService(auth.NewSessionAdminGormRepository(resources.DB), auth.WithSessionAdminCacheRevoker(sessionRevoker))
 	router := server.NewRouter(server.Dependencies{

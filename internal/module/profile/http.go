@@ -4,7 +4,6 @@ import (
 	"context"
 
 	usermodule "admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -36,5 +35,5 @@ type AppService interface {
 }
 
 type QuickEntryService interface {
-	Save(ctx context.Context, userID int64, input userquickentry.SaveInput) (*userquickentry.SaveResponse, *apperror.Error)
+	Save(ctx context.Context, userID int64, input SaveInput) (*SaveResponse, *apperror.Error)
 }

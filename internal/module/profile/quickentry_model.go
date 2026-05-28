@@ -1,8 +1,8 @@
-package userquickentry
+package profile
 
 import "time"
 
-type EntryModel struct {
+type QuickEntryModel struct {
 	ID           int64     `gorm:"column:id"`
 	UserID       int64     `gorm:"column:user_id"`
 	PermissionID int64     `gorm:"column:permission_id"`
@@ -12,6 +12,6 @@ type EntryModel struct {
 	UpdatedAt    time.Time `gorm:"column:updated_at"`
 }
 
-func (EntryModel) TableName() string {
+func (QuickEntryModel) TableName() string {
 	return "users_quick_entry"
 }

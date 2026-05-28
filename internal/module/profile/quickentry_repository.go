@@ -1,4 +1,4 @@
-package userquickentry
+package profile
 
 import (
 	"context"
@@ -11,27 +11,27 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrRepositoryNotConfigured = errors.New("user quick entry repository is not configured")
+var ErrQuickEntryRepositoryNotConfigured = errors.New("user quick entry repository is not configured")
 
-type Repository interface {
+type QuickEntryRepository interface {
 	ActiveAdminPagePermissionIDs(ctx context.Context, ids []int64) (map[int64]struct{}, error)
 	ReplaceForUser(ctx context.Context, userID int64, permissionIDs []int64) ([]QuickEntry, error)
 }
 
-type GormRepository struct {
+type GormQuickEntryRepository struct {
 	db *gorm.DB
 }
 
-func NewGormRepository(client *database.Client) Repository {
+func NewGormQuickEntryRepository(client *database.Client) QuickEntryRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm}
+	return &GormQuickEntryRepository{db: client.Gorm}
 }
 
-func (r *GormRepository) ActiveAdminPagePermissionIDs(ctx context.Context, ids []int64) (map[int64]struct{}, error) {
+func (r *GormQuickEntryRepository) ActiveAdminPagePermissionIDs(ctx context.Context, ids []int64) (map[int64]struct{}, error) {
 	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
+		return nil, ErrQuickEntryRepositoryNotConfigured
 	}
 	result := make(map[int64]struct{}, len(ids))
 	if len(ids) == 0 {
@@ -59,14 +59,14 @@ func (r *GormRepository) ActiveAdminPagePermissionIDs(ctx context.Context, ids [
 	return result, nil
 }
 
-func (r *GormRepository) ReplaceForUser(ctx context.Context, userID int64, permissionIDs []int64) ([]QuickEntry, error) {
+func (r *GormQuickEntryRepository) ReplaceForUser(ctx context.Context, userID int64, permissionIDs []int64) ([]QuickEntry, error) {
 	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
+		return nil, ErrQuickEntryRepositoryNotConfigured
 	}
 	var entries []QuickEntry
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
-		if err := tx.Model(&EntryModel{}).
+		if err := tx.Model(&QuickEntryModel{}).
 			Where("user_id = ?", userID).
 			Where("is_del = ?", enum.CommonNo).
 			Updates(map[string]any{"is_del": enum.CommonYes, "updated_at": now}).Error; err != nil {
@@ -74,9 +74,9 @@ func (r *GormRepository) ReplaceForUser(ctx context.Context, userID int64, permi
 		}
 
 		if len(permissionIDs) > 0 {
-			rows := make([]EntryModel, 0, len(permissionIDs))
+			rows := make([]QuickEntryModel, 0, len(permissionIDs))
 			for index, permissionID := range permissionIDs {
-				rows = append(rows, EntryModel{
+				rows = append(rows, QuickEntryModel{
 					UserID:       userID,
 					PermissionID: permissionID,
 					Sort:         index + 1,
@@ -88,7 +88,7 @@ func (r *GormRepository) ReplaceForUser(ctx context.Context, userID int64, permi
 			}
 		}
 
-		return tx.Model(&EntryModel{}).
+		return tx.Model(&QuickEntryModel{}).
 			Select("id", "permission_id", "sort").
 			Where("user_id = ?", userID).
 			Where("permission_id > ?", 0).

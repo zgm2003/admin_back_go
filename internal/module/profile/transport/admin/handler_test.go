@@ -11,7 +11,6 @@ import (
 
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/profile"
-	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -51,13 +50,13 @@ func (f *fakeProfileService) UpdatePhone(ctx context.Context, input profile.Upda
 
 type fakeQuickEntryService struct {
 	userID int64
-	input  userquickentry.SaveInput
+	input  profile.SaveInput
 }
 
-func (f *fakeQuickEntryService) Save(ctx context.Context, userID int64, input userquickentry.SaveInput) (*userquickentry.SaveResponse, *apperror.Error) {
+func (f *fakeQuickEntryService) Save(ctx context.Context, userID int64, input profile.SaveInput) (*profile.SaveResponse, *apperror.Error) {
 	f.userID = userID
 	f.input = input
-	return &userquickentry.SaveResponse{QuickEntry: []userquickentry.QuickEntry{{ID: 7, PermissionID: 3, Sort: 1}}}, nil
+	return &profile.SaveResponse{QuickEntry: []profile.QuickEntry{{ID: 7, PermissionID: 3, Sort: 1}}}, nil
 }
 
 func TestAdminProfileTransportPreservesCurrentUserProfileAndQuickEntryRoutes(t *testing.T) {

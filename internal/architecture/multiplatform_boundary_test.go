@@ -158,6 +158,13 @@ func TestUserProfileTransportShape(t *testing.T) {
 	}
 }
 
+func TestUserQuickEntryOwnedByProfileModule(t *testing.T) {
+	root := backendRoot(t)
+	if _, err := os.Stat(filepath.Join(root, "internal", "module", "userquickentry")); !os.IsNotExist(err) {
+		t.Fatalf("userquickentry must be owned by internal/module/profile, not a standalone module")
+	}
+}
+
 func TestNoModuleRootHTTPSurface(t *testing.T) {
 	root := backendRoot(t)
 	moduleRoot := filepath.Join(root, "internal", "module")

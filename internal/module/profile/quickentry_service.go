@@ -1,4 +1,4 @@
-package userquickentry
+package profile
 
 import (
 	"context"
@@ -8,15 +8,15 @@ import (
 
 const maxQuickEntryCount = 6
 
-type Service struct {
-	repository Repository
+type quickEntryService struct {
+	repository QuickEntryRepository
 }
 
-func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+func NewQuickEntryService(repository QuickEntryRepository) QuickEntryService {
+	return &quickEntryService{repository: repository}
 }
 
-func (s *Service) Save(ctx context.Context, userID int64, input SaveInput) (*SaveResponse, *apperror.Error) {
+func (s *quickEntryService) Save(ctx context.Context, userID int64, input SaveInput) (*SaveResponse, *apperror.Error) {
 	if userID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}

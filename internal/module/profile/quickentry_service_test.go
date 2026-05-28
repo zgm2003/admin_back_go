@@ -1,4 +1,4 @@
-package userquickentry
+package profile
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func (f *fakeRepository) ReplaceForUser(ctx context.Context, userID int64, permi
 }
 
 func TestSaveRejectsMissingUser(t *testing.T) {
-	service := NewService(&fakeRepository{})
+	service := NewQuickEntryService(&fakeRepository{})
 
 	if _, appErr := service.Save(context.Background(), 0, SaveInput{PermissionIDs: []int64{1}}); appErr == nil {
 		t.Fatalf("expected missing user to fail")
@@ -50,7 +50,7 @@ func TestSaveRejectsMissingUser(t *testing.T) {
 }
 
 func TestSaveRejectsMoreThanSixPermissionIDsAfterDeduplication(t *testing.T) {
-	service := NewService(&fakeRepository{})
+	service := NewQuickEntryService(&fakeRepository{})
 
 	_, appErr := service.Save(context.Background(), 12, SaveInput{PermissionIDs: []int64{1, 2, 3, 4, 5, 6, 7}})
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "userquickentry.too_many" {
@@ -67,7 +67,7 @@ func TestSaveDeduplicatesPermissionIDsPreservingOrder(t *testing.T) {
 			{ID: 12, PermissionID: 2, Sort: 3},
 		},
 	}
-	service := NewService(repo)
+	service := NewQuickEntryService(repo)
 
 	got, appErr := service.Save(context.Background(), 44, SaveInput{PermissionIDs: []int64{3, 1, 3, 2, 1}})
 	if appErr != nil {
@@ -86,7 +86,7 @@ func TestSaveDeduplicatesPermissionIDsPreservingOrder(t *testing.T) {
 
 func TestSaveRejectsInactiveOrNonPagePermissions(t *testing.T) {
 	repo := &fakeRepository{activeIDs: map[int64]struct{}{1: {}, 3: {}}}
-	service := NewService(repo)
+	service := NewQuickEntryService(repo)
 
 	if _, appErr := service.Save(context.Background(), 44, SaveInput{PermissionIDs: []int64{1, 2, 3}}); appErr == nil || appErr.MessageID != "userquickentry.invalid_permission" {
 		t.Fatalf("expected keyed invalid permission id error, got %#v", appErr)
@@ -97,7 +97,7 @@ func TestSaveRejectsInactiveOrNonPagePermissions(t *testing.T) {
 }
 
 func TestSaveWrapsRepositoryError(t *testing.T) {
-	service := NewService(&fakeRepository{err: errors.New("db down")})
+	service := NewQuickEntryService(&fakeRepository{err: errors.New("db down")})
 
 	if _, appErr := service.Save(context.Background(), 44, SaveInput{PermissionIDs: []int64{1}}); appErr == nil {
 		t.Fatalf("expected repository error to fail")
