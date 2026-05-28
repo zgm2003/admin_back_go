@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/taskqueue"
-	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/export"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"

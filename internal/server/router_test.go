@@ -31,7 +31,7 @@ import (
 	"admin_back_go/internal/module/auth_platform"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
-	"admin_back_go/internal/module/exporttask"
+	"admin_back_go/internal/module/export"
 	"admin_back_go/internal/module/mail"
 	"admin_back_go/internal/module/notification"
 	"admin_back_go/internal/module/notificationtask"

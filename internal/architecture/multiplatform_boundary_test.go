@@ -74,7 +74,7 @@ func TestFoundationAdminTransportShells(t *testing.T) {
 		"crontask",
 		"queuemonitor",
 		"clientversion",
-		"exporttask",
+		"export",
 		"realtime",
 	} {
 		moduleRoot := "internal/module/" + module + "/"
@@ -82,6 +82,12 @@ func TestFoundationAdminTransportShells(t *testing.T) {
 		mustNotExist(t, root, moduleRoot+"route.go")
 		mustNotExist(t, root, moduleRoot+"handler.go")
 	}
+}
+
+func TestExportModuleDirectoryName(t *testing.T) {
+	root := backendRoot(t)
+	mustNotExist(t, root, "internal/module/exporttask")
+	mustExist(t, root, "internal/module/export")
 }
 
 func TestAIAdminTransportShells(t *testing.T) {

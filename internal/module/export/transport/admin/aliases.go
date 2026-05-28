@@ -1,6 +1,6 @@
 package admin
 
-import exporttaskmodule "admin_back_go/internal/module/exporttask"
+import exporttaskmodule "admin_back_go/internal/module/export"
 
 type (
 	StatusCountQuery           = exporttaskmodule.StatusCountQuery
