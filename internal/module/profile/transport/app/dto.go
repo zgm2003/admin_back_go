@@ -1,4 +1,6 @@
-package user
+package app
+
+import "admin_back_go/internal/module/profile"
 
 type appUser struct {
 	ID       int64  `json:"id"`
@@ -16,8 +18,8 @@ type appProfileUpdateResponse struct {
 }
 
 type appProfileDict struct {
-	AuthAddressTree []AddressTreeNode `json:"auth_address_tree"`
-	SexArr          []SexOption       `json:"sexArr"`
+	AuthAddressTree []profile.AddressTreeNode `json:"auth_address_tree"`
+	SexArr          []profile.SexOption       `json:"sexArr"`
 }
 
 type appProfile struct {
@@ -34,31 +36,21 @@ type appProfile struct {
 	HasPassword   bool   `json:"has_password"`
 }
 
-type appUpdateProfileRequest struct {
-	Nickname      string  `json:"nickname" binding:"required,max=64"`
-	Avatar        string  `json:"avatar" binding:"omitempty,max=255"`
-	Sex           int     `json:"sex" binding:"user_sex"`
-	Birthday      *string `json:"birthday" binding:"omitempty"`
-	AddressID     *int64  `json:"address_id" binding:"required,min=0"`
-	DetailAddress string  `json:"detail_address" binding:"omitempty,max=255"`
-	Bio           string  `json:"bio" binding:"omitempty,max=1000"`
-}
-
-func appUserFromInit(currentUser *InitResponse) appUser {
+func appUserFromInit(currentUser *profile.InitResponse) appUser {
 	if currentUser == nil {
 		return appUser{}
 	}
 	return appUser{ID: currentUser.UserID, Nickname: currentUser.Username, Avatar: currentUser.Avatar}
 }
 
-func appUserFromProfile(result *ProfileResponse) appUser {
+func appUserFromProfile(result *profile.ProfileResponse) appUser {
 	if result == nil {
 		return appUser{}
 	}
 	return appUser{ID: result.Profile.UserID, Nickname: result.Profile.Username, Avatar: result.Profile.Avatar}
 }
 
-func appProfileFromUserProfile(result *ProfileResponse) appProfileResponse {
+func appProfileFromUserProfile(result *profile.ProfileResponse) appProfileResponse {
 	if result == nil {
 		return appProfileResponse{}
 	}

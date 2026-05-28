@@ -1,15 +1,24 @@
-package user
+package app
 
 import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-func (h *Handler) AppMe(c *gin.Context) {
+type Handler struct {
+	service profile.AppService
+}
+
+func NewHandler(service profile.AppService) *Handler {
+	return &Handler{service: service}
+}
+
+func (h *Handler) Me(c *gin.Context) {
 	identity, ok := h.appIdentity(c)
 	if !ok {
 		return
@@ -18,7 +27,7 @@ func (h *Handler) AppMe(c *gin.Context) {
 		response.Error(c, apperror.InternalKey("user.service_missing", nil, "用户管理服务未配置"))
 		return
 	}
-	currentUser, appErr := h.service.Init(c.Request.Context(), InitInput{UserID: identity.UserID, Platform: enum.PlatformApp})
+	currentUser, appErr := h.service.Init(c.Request.Context(), profile.InitInput{UserID: identity.UserID, Platform: enum.PlatformApp})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -26,7 +35,7 @@ func (h *Handler) AppMe(c *gin.Context) {
 	response.OK(c, appUserFromInit(currentUser))
 }
 
-func (h *Handler) AppProfile(c *gin.Context) {
+func (h *Handler) Profile(c *gin.Context) {
 	identity, ok := h.appIdentity(c)
 	if !ok {
 		return
@@ -43,7 +52,7 @@ func (h *Handler) AppProfile(c *gin.Context) {
 	response.OK(c, appProfileFromUserProfile(result))
 }
 
-func (h *Handler) AppUpdateProfile(c *gin.Context) {
+func (h *Handler) UpdateProfile(c *gin.Context) {
 	identity, ok := h.appIdentity(c)
 	if !ok {
 		return
@@ -52,12 +61,12 @@ func (h *Handler) AppUpdateProfile(c *gin.Context) {
 		response.Error(c, apperror.InternalKey("user.service_missing", nil, "用户管理服务未配置"))
 		return
 	}
-	var req appUpdateProfileRequest
+	var req updateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.AddressID == nil {
 		response.Error(c, apperror.BadRequestKey("app.profile.request.invalid", nil, "个人资料参数错误"))
 		return
 	}
-	if appErr := h.service.UpdateProfile(c.Request.Context(), UpdateProfileInput{
+	if appErr := h.service.UpdateProfile(c.Request.Context(), profile.UpdateProfileInput{
 		UserID:        identity.UserID,
 		Username:      req.Nickname,
 		Avatar:        req.Avatar,

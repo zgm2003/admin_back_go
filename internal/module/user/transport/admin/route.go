@@ -1,12 +1,13 @@
-package user
+package admin
 
 import (
+	usermodule "admin_back_go/internal/module/user"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService) {
+func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 
@@ -22,18 +23,4 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	users.PATCH("", handler.BatchUpdateProfile)
 	users.DELETE("/:id", handler.DeleteOne)
 	users.DELETE("", handler.DeleteBatch)
-
-	profile := router.Group("/api/admin/v1/profile")
-	profile.GET("", handler.CurrentProfile)
-	profile.PUT("", handler.UpdateCurrentProfile)
-	profile.PUT("/security/password", handler.UpdatePassword)
-	profile.PUT("/security/email", handler.UpdateEmail)
-	profile.PUT("/security/phone", handler.UpdatePhone)
-
-	appUsers := router.Group("/api/app/v1/users")
-	appUsers.GET("/me", handler.AppMe)
-
-	appProfile := router.Group("/api/app/v1/profile")
-	appProfile.GET("", handler.AppProfile)
-	appProfile.PUT("", handler.AppUpdateProfile)
 }

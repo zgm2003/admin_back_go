@@ -1,13 +1,15 @@
 package server
 
 import (
-	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userquickentry"
+	profileadmin "admin_back_go/internal/module/profile/transport/admin"
+	profileapp "admin_back_go/internal/module/profile/transport/app"
+	useradmin "admin_back_go/internal/module/user/transport/admin"
 
 	"github.com/gin-gonic/gin"
 )
 
 func registerAdminUserRoutes(router *gin.Engine, deps Dependencies) {
-	user.RegisterRoutes(router, deps.UserService)
-	userquickentry.RegisterRoutes(router, deps.UserQuickEntryService)
+	useradmin.RegisterRoutes(router, deps.UserService)
+	profileadmin.RegisterRoutes(router, deps.UserService, deps.UserQuickEntryService)
+	profileapp.RegisterRoutes(router, deps.UserService)
 }

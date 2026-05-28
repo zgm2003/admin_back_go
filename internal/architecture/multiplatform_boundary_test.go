@@ -137,6 +137,27 @@ func TestCommerceRBACAdminTransportShells(t *testing.T) {
 	}
 }
 
+func TestUserProfileTransportShape(t *testing.T) {
+	root := backendRoot(t)
+	for _, rel := range []string{
+		"internal/module/user/transport/admin/route.go",
+		"internal/module/profile/transport/admin/route.go",
+		"internal/module/profile/transport/app/route.go",
+	} {
+		mustExist(t, root, rel)
+	}
+	for _, rel := range []string{
+		"internal/module/user/route.go",
+		"internal/module/user/handler.go",
+		"internal/module/user/app_handler.go",
+		"internal/module/user/app_dto.go",
+		"internal/module/userquickentry/route.go",
+		"internal/module/userquickentry/handler.go",
+	} {
+		mustNotExist(t, root, rel)
+	}
+}
+
 func TestNoLegacyUsersRoutesInGoRuntime(t *testing.T) {
 	root := backendRoot(t)
 	legacyUsersPrefix := "/api/" + "Users"
