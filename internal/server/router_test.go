@@ -38,6 +38,7 @@ import (
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
@@ -47,7 +48,6 @@ import (
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/readiness"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -369,13 +369,13 @@ func (f *fakeRouterSessionAdminService) BatchRevoke(ctx context.Context, input a
 
 type fakeRouterUserQuickEntryService struct {
 	userID int64
-	input  userquickentry.SaveInput
+	input  profile.SaveInput
 }
 
-func (f *fakeRouterUserQuickEntryService) Save(ctx context.Context, userID int64, input userquickentry.SaveInput) (*userquickentry.SaveResponse, *apperror.Error) {
+func (f *fakeRouterUserQuickEntryService) Save(ctx context.Context, userID int64, input profile.SaveInput) (*profile.SaveResponse, *apperror.Error) {
 	f.userID = userID
 	f.input = input
-	return &userquickentry.SaveResponse{QuickEntry: []userquickentry.QuickEntry{{ID: 1, PermissionID: 2, Sort: 1}}}, nil
+	return &profile.SaveResponse{QuickEntry: []profile.QuickEntry{{ID: 1, PermissionID: 2, Sort: 1}}}, nil
 }
 
 type fakeRouterLoginLogService struct {

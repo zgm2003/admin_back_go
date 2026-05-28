@@ -5,7 +5,6 @@ import (
 
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/profile"
-	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -159,7 +158,7 @@ func (h *Handler) SaveQuickEntries(c *gin.Context) {
 		return
 	}
 
-	result, appErr := h.requireQuickEntryService().Save(c.Request.Context(), userID, userquickentry.SaveInput{PermissionIDs: req.PermissionIDs})
+	result, appErr := h.requireQuickEntryService().Save(c.Request.Context(), userID, profile.SaveInput{PermissionIDs: req.PermissionIDs})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -176,7 +175,7 @@ func (h *Handler) requireQuickEntryService() profile.QuickEntryService {
 
 type nilQuickEntryService struct{}
 
-func (nilQuickEntryService) Save(_ context.Context, _ int64, _ userquickentry.SaveInput) (*userquickentry.SaveResponse, *apperror.Error) {
+func (nilQuickEntryService) Save(_ context.Context, _ int64, _ profile.SaveInput) (*profile.SaveResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("userquickentry.service_missing", nil, "快捷入口服务未配置")
 }
 

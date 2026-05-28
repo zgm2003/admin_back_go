@@ -1,14 +1,4 @@
-package userquickentry
-
-import (
-	"context"
-
-	"admin_back_go/internal/shared/apperror"
-)
-
-type HTTPService interface {
-	Save(ctx context.Context, userID int64, input SaveInput) (*SaveResponse, *apperror.Error)
-}
+package profile
 
 type SaveInput struct {
 	PermissionIDs []int64
