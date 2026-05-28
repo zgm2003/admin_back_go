@@ -158,6 +158,56 @@ func TestUserProfileTransportShape(t *testing.T) {
 	}
 }
 
+func TestNoModuleRootHTTPSurface(t *testing.T) {
+	root := backendRoot(t)
+	moduleRoot := filepath.Join(root, "internal", "module")
+	bannedNames := map[string]struct{}{
+		"route.go":            {},
+		"handler.go":          {},
+		"app_handler.go":      {},
+		"platform_handler.go": {},
+		"app_route_test.go":   {},
+		"platform_route.go":   {},
+	}
+	// Root module files are reserved for business/runtime code. If a future
+	// non-HTTP file trips this guard, add a tiny explicit allowlist entry here
+	// with owner, reason, and removal plan instead of weakening the rule.
+	allowed := map[string]string{}
+
+	var offenders []string
+	entries, err := os.ReadDir(moduleRoot)
+	if err != nil {
+		t.Fatalf("read internal/module: %v", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		moduleDir := filepath.Join(moduleRoot, entry.Name())
+		files, err := os.ReadDir(moduleDir)
+		if err != nil {
+			t.Fatalf("read module %s: %v", entry.Name(), err)
+		}
+		for _, file := range files {
+			if file.IsDir() {
+				continue
+			}
+			if _, banned := bannedNames[file.Name()]; !banned {
+				continue
+			}
+			rel, _ := filepath.Rel(root, filepath.Join(moduleDir, file.Name()))
+			rel = filepath.ToSlash(rel)
+			if _, ok := allowed[rel]; ok {
+				continue
+			}
+			offenders = append(offenders, rel)
+		}
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("module root HTTP surface files must move under transport/{platform}:\n  %s", strings.Join(offenders, "\n  "))
+	}
+}
+
 func TestNoLegacyUsersRoutesInGoRuntime(t *testing.T) {
 	root := backendRoot(t)
 	legacyUsersPrefix := "/api/" + "Users"

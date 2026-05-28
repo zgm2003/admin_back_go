@@ -59,7 +59,7 @@ route -> handler -> service -> repository -> model
 
 `internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
 
-App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth`，`/api/app/v1/users/me` 与 `/api/app/v1/profile` 由 `internal/module/profile/transport/app` 注册并复用现有 user service，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken`。
+App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth/transport/app`，`/api/app/v1/users/me` 与 `/api/app/v1/profile` 由 `internal/module/profile/transport/app` 注册并复用现有 user service，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken/transport/app`。
 
 当前 user/profile split 口径：
 
@@ -67,9 +67,12 @@ App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但
 internal/module/user/transport/admin     # admin 用户管理 HTTP 表面
 internal/module/profile/transport/admin  # current-user profile/account-security/quick-entry HTTP 表面
 internal/module/profile/transport/app    # app current-user profile compile route
+internal/module/uploadtoken/transport/app # app upload-token HTTP 表面
 ```
 
 本切片只拆 HTTP ownership，不改 admin URL、DB schema、RBAC permission code，也不强行把 user/profile repository 一刀切开。`user` 是 admin user-management capability；`profile` 是 current-user self-service HTTP capability；底层 service/repository 的进一步归属治理需要单独计划。
+
+根 module 不再注册 HTTP 表面。`route.go`、`handler.go`、`app_handler.go`、`platform_handler.go`、`app_route_test.go`、`platform_route.go` 必须移入对应 `transport/{platform}`，并由 `TestNoModuleRootHTTPSurface` 守住；service/repository/model/jobs 仍留在能力根目录。
 
 平台差异默认收敛在 route / handler / presenter / policy。`authplatform` 只拥有认证/会话策略，例如登录方式、验证码类型、token TTL、会话绑定、单端登录和是否允许注册；它不是 AI、钱包、通知等业务的全局平台配置中心。
 
