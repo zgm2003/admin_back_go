@@ -1,17 +1,17 @@
 package admin
 
-type statusCountRequest struct {
+type taskStatusCountRequest struct {
 	Title string `form:"title" binding:"max=100"`
 }
 
-type listRequest struct {
+type taskListRequest struct {
 	CurrentPage int    `form:"current_page" binding:"required,min=1"`
 	PageSize    int    `form:"page_size" binding:"required,min=1,max=50"`
 	Status      *int   `form:"status" binding:"omitempty,notification_task_status"`
 	Title       string `form:"title" binding:"max=100"`
 }
 
-type createRequest struct {
+type taskCreateRequest struct {
 	Title      string  `json:"title" binding:"required,max=100"`
 	Content    string  `json:"content"`
 	Type       int     `json:"type" binding:"omitempty,notification_type"`

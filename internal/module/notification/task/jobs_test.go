@@ -1,4 +1,4 @@
-package notificationtask
+package task
 
 import (
 	"context"

@@ -6,9 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService) {
+func RegisterTaskRoutes(router *gin.Engine, service TaskHTTPService) {
 	validate.MustRegister()
-	handler := NewHandler(service)
+	handler := NewTaskHandler(service)
 
 	v1 := router.Group("/api/admin/v1/notification-tasks")
 	v1.GET("/init", handler.Init)

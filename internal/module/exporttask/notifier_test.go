@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"admin_back_go/internal/module/notificationtask"
+	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )

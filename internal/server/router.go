@@ -22,7 +22,6 @@ import (
 	exporttaskadmin "admin_back_go/internal/module/exporttask/transport/admin"
 	mailadmin "admin_back_go/internal/module/mail/transport/admin"
 	notificationadmin "admin_back_go/internal/module/notification/transport/admin"
-	notificationtaskadmin "admin_back_go/internal/module/notificationtask/transport/admin"
 	operationlogadmin "admin_back_go/internal/module/operationlog/transport/admin"
 	"admin_back_go/internal/module/payment"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
@@ -73,7 +72,7 @@ type Dependencies struct {
 	LoginLogService         auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
 	NotificationService     notificationadmin.HTTPService
-	NotificationTaskService notificationtaskadmin.HTTPService
+	NotificationTaskService notificationadmin.TaskHTTPService
 	OperationLogService     operationlogadmin.HTTPService
 	MailService             mailadmin.HTTPService
 	SmsService              smsadmin.HTTPService

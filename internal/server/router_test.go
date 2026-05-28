@@ -34,7 +34,7 @@ import (
 	"admin_back_go/internal/module/exporttask"
 	"admin_back_go/internal/module/mail"
 	"admin_back_go/internal/module/notification"
-	"admin_back_go/internal/module/notificationtask"
+	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/permission"

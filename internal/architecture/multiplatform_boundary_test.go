@@ -110,7 +110,6 @@ func TestCommsUploadAdminTransportShells(t *testing.T) {
 		"mail",
 		"sms",
 		"notification",
-		"notificationtask",
 		"uploadconfig",
 		"uploadtoken",
 	} {
@@ -118,6 +117,30 @@ func TestCommsUploadAdminTransportShells(t *testing.T) {
 		mustExist(t, root, moduleRoot+"transport/admin/route.go")
 		mustNotExist(t, root, moduleRoot+"route.go")
 		mustNotExist(t, root, moduleRoot+"handler.go")
+	}
+}
+
+func TestNotificationTaskOwnershipUnderNotificationModule(t *testing.T) {
+	root := backendRoot(t)
+
+	mustNotExist(t, root, "internal/module/notificationtask")
+	mustExist(t, root, "internal/module/notification/task")
+	mustExist(t, root, "internal/module/notification/transport/admin/route.go")
+	mustExist(t, root, "internal/module/notification/transport/admin/task_route.go")
+
+	routerTest, err := os.ReadFile(filepath.Join(root, "internal/server/router_test.go"))
+	if err != nil {
+		t.Fatalf("read route snapshot test: %v", err)
+	}
+	routerTestText := string(routerTest)
+	for _, want := range []string{
+		"TestAdminRouteSnapshot",
+		"/api/admin/v1/notification-tasks",
+		"TestRouterInstallsNotificationTaskRESTRoutes",
+	} {
+		if !strings.Contains(routerTestText, want) {
+			t.Fatalf("expected router_test.go to keep notification-task route truth %q", want)
+		}
 	}
 }
 
