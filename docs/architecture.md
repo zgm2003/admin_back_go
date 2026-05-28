@@ -708,6 +708,8 @@ DELETE /api/admin/v1/system-settings
 
 ```text
 system_settings 是少量 typed key/value 配置的管理入口，不是所有模块的垃圾抽屉
+systemsetting module 只拥有后台 CRUD；已经迁出的跨模块读取不再通过业务模块自己解释 system_settings
+shared/setting 拥有已迁移 typed keys：auth.captcha.ttl_minutes、auth.verify_code.ttl_minutes、upload.token.ttl_minutes
 value_type 只来自 internal/enum -> internal/dict，handler 用 validator 拒绝非法 type
 service 做值类型校验：数字、布尔、JSON object/array
 key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
@@ -1316,7 +1318,8 @@ upload token 探针不再读取 COS STS Docker env 开关；没有 enabled uploa
 Go 后端从认证平台开始建立统一基础件：
 
 - `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景、通知类型/级别。
-- `internal/dict` 负责把 enum 转成前端 `dict` 选项，不允许业务页面自己手写一份枚举标签。
+- `internal/shared/dict` 是新的跨模块字典边界，首批统一 `common_status`、`common_yes_no`、`platform`、`system_setting_value_type`。
+- `internal/dict` 作为兼容包继续保留并保持 payload 不变；迁移按页面初始化链路逐步推进，不一次性重写所有 dict call site。
 - `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`payment_provider`、`payment_method`（仅历史兼容标签，当前 payment-config request 不使用）；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
 - 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。

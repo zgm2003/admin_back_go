@@ -1,0 +1,49 @@
+package dict
+
+import (
+	"reflect"
+	"testing"
+
+	legacydict "admin_back_go/internal/dict"
+)
+
+func TestRegistryContainsInitialProvidersWithLegacyPayloads(t *testing.T) {
+	registry := NewRegistry()
+
+	tests := []struct {
+		name string
+		want any
+	}{
+		{name: ProviderCommonStatus, want: legacydict.CommonStatusOptions()},
+		{name: ProviderCommonYesNo, want: legacydict.CommonYesNoOptions()},
+		{name: ProviderPlatform, want: legacydict.PlatformOptions()},
+		{name: ProviderSystemSettingValueType, want: legacydict.SystemSettingValueTypeOptions()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := registry.Options(tt.name)
+			if !ok {
+				t.Fatalf("expected provider %q to be registered", tt.name)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("provider %q payload mismatch:\n got: %#v\nwant: %#v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServiceUsesDefaultRegistryAndPreservesCompatibilityHelpers(t *testing.T) {
+	service := NewService(nil)
+
+	got, ok := service.Options(ProviderSystemSettingValueType)
+	if !ok {
+		t.Fatalf("expected default service registry to include %q", ProviderSystemSettingValueType)
+	}
+	if !reflect.DeepEqual(got, SystemSettingValueTypeOptions()) {
+		t.Fatalf("service payload must match helper payload, got %#v", got)
+	}
+	if !reflect.DeepEqual(SystemSettingValueTypeOptions(), legacydict.SystemSettingValueTypeOptions()) {
+		t.Fatalf("shared helper must preserve legacy system setting value type payload")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
+	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 type fakeCaptchaPolicyRepository struct {
@@ -28,8 +29,8 @@ func (f *fakeCaptchaPolicyRepository) SettingByKey(ctx context.Context, key stri
 
 func TestSystemSettingCaptchaPolicyProviderReadsTTLAndPadding(t *testing.T) {
 	repo := &fakeCaptchaPolicyRepository{rows: map[string]*systemsetting.Setting{
-		CaptchaTTLSettingKey: {
-			SettingKey:   CaptchaTTLSettingKey,
+		sharedsetting.AuthCaptchaTTLKey: {
+			SettingKey:   sharedsetting.AuthCaptchaTTLKey,
 			SettingValue: "5",
 			ValueType:    enum.SystemSettingValueNumber,
 			Status:       enum.CommonYes,
@@ -60,7 +61,7 @@ func TestSystemSettingCaptchaPolicyProviderReadsTTLAndPadding(t *testing.T) {
 	if padding != 12 {
 		t.Fatalf("expected padding 12 from system setting, got %d", padding)
 	}
-	wantKeys := []string{CaptchaTTLSettingKey, CaptchaSlidePaddingSettingKey}
+	wantKeys := []string{sharedsetting.AuthCaptchaTTLKey, CaptchaSlidePaddingSettingKey}
 	if !reflect.DeepEqual(repo.keys, wantKeys) {
 		t.Fatalf("expected SettingByKey keys %#v, got %#v", wantKeys, repo.keys)
 	}
@@ -88,11 +89,11 @@ func TestSystemSettingCaptchaPolicyProviderFailsClosedForInvalidSettings(t *test
 	}{
 		{name: "missing", rows: map[string]*systemsetting.Setting{}},
 		{name: "disabled", rows: map[string]*systemsetting.Setting{
-			CaptchaTTLSettingKey: validCaptchaSetting(CaptchaTTLSettingKey, "2", enum.CommonNo),
+			sharedsetting.AuthCaptchaTTLKey: validCaptchaSetting(sharedsetting.AuthCaptchaTTLKey, "2", enum.CommonNo),
 		}},
 		{name: "wrong type", rows: map[string]*systemsetting.Setting{
-			CaptchaTTLSettingKey: {
-				SettingKey:   CaptchaTTLSettingKey,
+			sharedsetting.AuthCaptchaTTLKey: {
+				SettingKey:   sharedsetting.AuthCaptchaTTLKey,
 				SettingValue: "2",
 				ValueType:    enum.SystemSettingValueString,
 				Status:       enum.CommonYes,
@@ -100,10 +101,10 @@ func TestSystemSettingCaptchaPolicyProviderFailsClosedForInvalidSettings(t *test
 			},
 		}},
 		{name: "not integer", rows: map[string]*systemsetting.Setting{
-			CaptchaTTLSettingKey: validCaptchaSetting(CaptchaTTLSettingKey, "1.5", enum.CommonYes),
+			sharedsetting.AuthCaptchaTTLKey: validCaptchaSetting(sharedsetting.AuthCaptchaTTLKey, "1.5", enum.CommonYes),
 		}},
 		{name: "non positive", rows: map[string]*systemsetting.Setting{
-			CaptchaTTLSettingKey: validCaptchaSetting(CaptchaTTLSettingKey, "0", enum.CommonYes),
+			sharedsetting.AuthCaptchaTTLKey: validCaptchaSetting(sharedsetting.AuthCaptchaTTLKey, "0", enum.CommonYes),
 		}},
 	}
 

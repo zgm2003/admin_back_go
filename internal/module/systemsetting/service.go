@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
+	shareddict "admin_back_go/internal/shared/dict"
 )
 
 const (
@@ -33,7 +33,7 @@ func NewService(repository Repository) *Service {
 
 func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
-		SystemSettingValueTypeArr: dict.SystemSettingValueTypeOptions(),
+		SystemSettingValueTypeArr: shareddict.SystemSettingValueTypeOptions(),
 	}}, nil
 }
 
@@ -314,7 +314,7 @@ func statusLabel(status int) string {
 }
 
 func valueTypeLabel(valueType int) string {
-	for _, item := range dict.SystemSettingValueTypeOptions() {
+	for _, item := range shareddict.SystemSettingValueTypeOptions() {
 		if item.Value == valueType {
 			return item.Label
 		}

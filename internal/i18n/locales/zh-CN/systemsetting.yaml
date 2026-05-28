@@ -25,3 +25,12 @@ systemsetting.value.number_invalid: 数值类型需为数字
 systemsetting.value.bool_invalid: 布尔类型需为 true/false 或 0/1
 systemsetting.value.json_invalid: JSON 类型需为合法 JSON
 systemsetting.value.json_object_invalid: JSON 类型需为合法对象或数组
+setting.repository_missing: 系统设置仓储未配置
+setting.query_failed: 查询系统设置失败
+setting.save_failed: 保存系统设置失败
+setting.cache_clear_failed: 清理系统设置缓存失败
+setting.missing: 系统设置缺失
+setting.disabled: 系统设置已禁用
+setting.type_invalid: 系统设置类型必须为数字
+setting.integer_required: 系统设置必须为整数
+setting.out_of_range: 系统设置取值超出范围
