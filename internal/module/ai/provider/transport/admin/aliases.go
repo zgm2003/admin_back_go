@@ -1,6 +1,6 @@
 package admin
 
-import aiprovidermodule "admin_back_go/internal/module/aiprovider"
+import aiprovidermodule "admin_back_go/internal/module/ai/provider"
 
 type (
 	InitResponse           = aiprovidermodule.InitResponse

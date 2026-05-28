@@ -92,18 +92,17 @@ func TestExportModuleDirectoryName(t *testing.T) {
 
 func TestAIAdminTransportShells(t *testing.T) {
 	root := backendRoot(t)
-	for _, module := range []string{
-		"aiprovider",
-		"aiagent",
-		"aitool",
-		"aiknowledge",
-		"aiconversation",
-		"aimessage",
-		"airun",
-		"aichat",
-		"aiimage",
+	for _, moduleRoot := range []string{
+		"internal/module/ai/provider/",
+		"internal/module/ai/agent/",
+		"internal/module/ai/tool/",
+		"internal/module/aiknowledge/",
+		"internal/module/aiconversation/",
+		"internal/module/aimessage/",
+		"internal/module/airun/",
+		"internal/module/aichat/",
+		"internal/module/aiimage/",
 	} {
-		moduleRoot := "internal/module/" + module + "/"
 		mustExist(t, root, moduleRoot+"transport/admin/route.go")
 		mustNotExist(t, root, moduleRoot+"route.go")
 		mustNotExist(t, root, moduleRoot+"handler.go")

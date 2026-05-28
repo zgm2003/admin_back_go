@@ -1,6 +1,6 @@
 package admin
 
-import aiagentmodule "admin_back_go/internal/module/aiagent"
+import aiagentmodule "admin_back_go/internal/module/ai/agent"
 
 type (
 	InitResponse           = aiagentmodule.InitResponse
