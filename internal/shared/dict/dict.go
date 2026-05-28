@@ -1,79 +1,200 @@
 package dict
 
-import legacydict "admin_back_go/internal/dict"
+import "admin_back_go/internal/shared/enum"
 
-type Option[T string | int] = legacydict.Option[T]
-
-const (
-	ProviderCommonStatus           = "common_status"
-	ProviderCommonYesNo            = "common_yes_no"
-	ProviderPlatform               = "platform"
-	ProviderSystemSettingValueType = "system_setting_value_type"
-)
-
-type providerFunc func() any
-
-type Registry struct {
-	providers map[string]providerFunc
-}
-
-func NewRegistry() *Registry {
-	registry := &Registry{providers: map[string]providerFunc{}}
-	registry.Register(ProviderCommonStatus, func() any { return CommonStatusOptions() })
-	registry.Register(ProviderCommonYesNo, func() any { return CommonYesNoOptions() })
-	registry.Register(ProviderPlatform, func() any { return PlatformOptions() })
-	registry.Register(ProviderSystemSettingValueType, func() any { return SystemSettingValueTypeOptions() })
-	return registry
-}
-
-func (r *Registry) Register(name string, provider providerFunc) {
-	if r == nil || name == "" || provider == nil {
-		return
-	}
-	r.providers[name] = provider
-}
-
-func (r *Registry) Options(name string) (any, bool) {
-	if r == nil {
-		return nil, false
-	}
-	provider, ok := r.providers[name]
-	if !ok {
-		return nil, false
-	}
-	return provider(), true
-}
-
-type Service struct {
-	registry *Registry
-}
-
-func NewService(registry *Registry) *Service {
-	if registry == nil {
-		registry = NewRegistry()
-	}
-	return &Service{registry: registry}
-}
-
-func (s *Service) Options(name string) (any, bool) {
-	if s == nil {
-		return nil, false
-	}
-	return s.registry.Options(name)
+type Option[T string | int] struct {
+	Label string `json:"label"`
+	Value T      `json:"value"`
 }
 
 func CommonStatusOptions() []Option[int] {
-	return legacydict.CommonStatusOptions()
+	return []Option[int]{
+		{Label: "启用", Value: enum.CommonYes},
+		{Label: "禁用", Value: enum.CommonNo},
+	}
 }
 
 func CommonYesNoOptions() []Option[int] {
-	return legacydict.CommonYesNoOptions()
+	return []Option[int]{
+		{Label: "是", Value: enum.CommonYes},
+		{Label: "否", Value: enum.CommonNo},
+	}
+}
+
+func AuthPlatformLoginTypeOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "邮箱登录", Value: enum.LoginTypeEmail},
+		{Label: "手机号登录", Value: enum.LoginTypePhone},
+		{Label: "密码登录", Value: enum.LoginTypePassword},
+	}
+}
+
+func AuthPlatformCaptchaTypeOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "滑块验证", Value: enum.CaptchaTypeSlide},
+	}
+}
+
+func PermissionTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "目录", Value: enum.PermissionTypeDir},
+		{Label: "页面", Value: enum.PermissionTypePage},
+		{Label: "按钮", Value: enum.PermissionTypeButton},
+	}
 }
 
 func PlatformOptions() []Option[string] {
-	return legacydict.PlatformOptions()
+	return []Option[string]{
+		{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
+		{Label: enum.PlatformApp, Value: enum.PlatformApp},
+	}
+}
+
+func NotificationTaskPlatformOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "全平台", Value: enum.PlatformAll},
+		{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
+		{Label: enum.PlatformApp, Value: enum.PlatformApp},
+	}
+}
+
+func SexOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "未知", Value: enum.SexUnknown},
+		{Label: "男", Value: enum.SexMale},
+		{Label: "女", Value: enum.SexFemale},
+	}
+}
+
+func UserVerifyTypeOptions() []Option[string] {
+	return []Option[string]{
+		{Label: "密码验证", Value: enum.VerifyTypePassword},
+		{Label: "验证码验证", Value: enum.VerifyTypeCode},
+	}
+}
+
+func LogLevelOptions() []Option[string] {
+	return []Option[string]{
+		{Label: enum.LogLevelDebug, Value: enum.LogLevelDebug},
+		{Label: enum.LogLevelInfo, Value: enum.LogLevelInfo},
+		{Label: enum.LogLevelWarning, Value: enum.LogLevelWarning},
+		{Label: enum.LogLevelError, Value: enum.LogLevelError},
+		{Label: enum.LogLevelCritical, Value: enum.LogLevelCritical},
+	}
+}
+
+func LogTailOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "最近 100 行", Value: enum.LogTail100},
+		{Label: "最近 300 行", Value: enum.LogTail300},
+		{Label: "最近 500 行", Value: enum.LogTail500},
+		{Label: "最近 1000 行", Value: enum.LogTail1000},
+		{Label: "最近 2000 行", Value: enum.LogTail2000},
+	}
 }
 
 func SystemSettingValueTypeOptions() []Option[int] {
-	return legacydict.SystemSettingValueTypeOptions()
+	return []Option[int]{
+		{Label: "字符串", Value: enum.SystemSettingValueString},
+		{Label: "数字", Value: enum.SystemSettingValueNumber},
+		{Label: "布尔", Value: enum.SystemSettingValueBool},
+		{Label: "JSON", Value: enum.SystemSettingValueJSON},
+	}
+}
+
+func NotificationTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeInfo], Value: enum.NotificationTypeInfo},
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeSuccess], Value: enum.NotificationTypeSuccess},
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeWarning], Value: enum.NotificationTypeWarning},
+		{Label: enum.NotificationTypeLabels[enum.NotificationTypeError], Value: enum.NotificationTypeError},
+	}
+}
+
+func NotificationLevelOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationLevelLabels[enum.NotificationLevelNormal], Value: enum.NotificationLevelNormal},
+		{Label: enum.NotificationLevelLabels[enum.NotificationLevelUrgent], Value: enum.NotificationLevelUrgent},
+	}
+}
+
+func NotificationReadStatusOptions() []Option[int] {
+	return []Option[int]{
+		{Label: "已读", Value: enum.CommonYes},
+		{Label: "未读", Value: enum.CommonNo},
+	}
+}
+
+func NotificationTargetTypeOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationTargetTypeLabels[enum.NotificationTargetAll], Value: enum.NotificationTargetAll},
+		{Label: enum.NotificationTargetTypeLabels[enum.NotificationTargetUsers], Value: enum.NotificationTargetUsers},
+		{Label: enum.NotificationTargetTypeLabels[enum.NotificationTargetRoles], Value: enum.NotificationTargetRoles},
+	}
+}
+
+func NotificationTaskStatusOptions() []Option[int] {
+	return []Option[int]{
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusPending], Value: enum.NotificationTaskStatusPending},
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusSending], Value: enum.NotificationTaskStatusSending},
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusSuccess], Value: enum.NotificationTaskStatusSuccess},
+		{Label: enum.NotificationTaskStatusLabels[enum.NotificationTaskStatusFailed], Value: enum.NotificationTaskStatusFailed},
+	}
+}
+
+func PaymentMethodOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.PaymentMethods))
+	for _, value := range enum.PaymentMethods {
+		options = append(options, Option[string]{Label: enum.PaymentMethodLabels[value], Value: value})
+	}
+	return options
+}
+
+func UploadDriverOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.UploadDrivers))
+	for _, value := range enum.UploadDrivers {
+		options = append(options, Option[string]{
+			Label: enum.UploadDriverLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func ClientVersionPlatformOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.ClientPlatforms))
+	for _, value := range enum.ClientPlatforms {
+		options = append(options, Option[string]{
+			Label: enum.ClientPlatformLabels[value],
+			Value: value,
+		})
+	}
+	return options
+}
+
+func UploadImageExtOptions() []Option[string] {
+	return uploadExtOptions(enum.UploadImageExts)
+}
+
+func UploadFileExtOptions() []Option[string] {
+	return uploadExtOptions(enum.UploadFileExts)
+}
+
+func uploadExtOptions(values []string) []Option[string] {
+	options := make([]Option[string], 0, len(values))
+	for _, value := range values {
+		options = append(options, Option[string]{
+			Label: value,
+			Value: value,
+		})
+	}
+	return options
+}
+
+func AIRunStatusOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIRunStatuses))
+	for _, value := range enum.AIRunStatuses {
+		options = append(options, Option[string]{Label: enum.AIRunStatusLabels[value], Value: value})
+	}
+	return options
 }

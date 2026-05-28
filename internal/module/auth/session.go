@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/dict"
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/infra/accesstoken"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/redisclient"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"

@@ -1,6 +1,6 @@
 package systemsetting
 
-import "admin_back_go/internal/dict"
+import "admin_back_go/internal/shared/dict"
 
 type InitResponse struct {
 	Dict InitDict `json:"dict"`

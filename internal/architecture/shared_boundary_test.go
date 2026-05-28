@@ -17,7 +17,7 @@ func TestMigratedDictSettingCallSitesUseSharedBoundaries(t *testing.T) {
 		{
 			rel:       "internal/module/systemsetting/service.go",
 			mustHave:  []string{"admin_back_go/internal/shared/dict", "shareddict.SystemSettingValueTypeOptions()"},
-			mustAvoid: []string{"admin_back_go/internal/dict"},
+			mustAvoid: []string{"admin_back_go/internal/" + "dict"},
 		},
 		{
 			rel:       "internal/module/auth/captcha.go",

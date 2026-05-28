@@ -1,6 +1,6 @@
 package permission
 
-import "admin_back_go/internal/dict"
+import "admin_back_go/internal/shared/dict"
 
 type InitResponse struct {
 	Dict PermissionDict `json:"dict"`

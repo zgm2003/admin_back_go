@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"

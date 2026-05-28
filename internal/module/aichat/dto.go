@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/aitool"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type ConversationReplyInput = ConversationReplyPayload

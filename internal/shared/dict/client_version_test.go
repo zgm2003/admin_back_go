@@ -3,7 +3,7 @@ package dict
 import (
 	"testing"
 
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/enum"
 )
 
 func TestClientVersionPlatformOptionsUseEnumOrder(t *testing.T) {

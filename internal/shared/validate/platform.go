@@ -3,7 +3,7 @@ package validate
 import (
 	"regexp"
 
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/enum"
 
 	playground "github.com/go-playground/validator/v10"
 )

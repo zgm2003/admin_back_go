@@ -3,7 +3,7 @@ package aimessage
 import (
 	"context"
 
-	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type ListQuery struct {

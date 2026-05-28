@@ -1,6 +1,6 @@
 package wallet
 
-import "admin_back_go/internal/dict"
+import "admin_back_go/internal/shared/dict"
 
 const (
 	DirectionIn  = "in"

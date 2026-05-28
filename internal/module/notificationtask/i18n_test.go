@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/enum"
-	projecti18n "admin_back_go/internal/i18n"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
+	projecti18n "admin_back_go/internal/shared/i18n"
 )
 
 func TestNotificationTaskCatalogKeysMatch(t *testing.T) {

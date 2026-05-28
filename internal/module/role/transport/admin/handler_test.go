@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/dict"
 	rolemodule "admin_back_go/internal/module/role"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
 
 	"github.com/gin-gonic/gin"
 )

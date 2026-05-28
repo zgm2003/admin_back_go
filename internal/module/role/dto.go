@@ -1,8 +1,8 @@
 package role
 
 import (
-	"admin_back_go/internal/dict"
 	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/shared/dict"
 )
 
 type InitResponse struct {

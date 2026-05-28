@@ -3,7 +3,7 @@ package uploadconfig
 import (
 	"errors"
 
-	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/shared/apperror"
 )
 
 var ErrRepositoryNotConfigured = errors.New("upload config repository is not configured")

@@ -3,9 +3,9 @@ package profile
 import (
 	"context"
 
-	"admin_back_go/internal/apperror"
 	usermodule "admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userquickentry"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type InitInput = usermodule.InitInput

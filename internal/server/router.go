@@ -5,8 +5,6 @@ import (
 	"net/http"
 
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/enum"
-	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/aiagent"
 	"admin_back_go/internal/module/aichat"
@@ -40,7 +38,9 @@ import (
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userquickentry"
 	walletadmin "admin_back_go/internal/module/wallet/transport/admin"
-	"admin_back_go/internal/validate"
+	"admin_back_go/internal/shared/enum"
+	projecti18n "admin_back_go/internal/shared/i18n"
+	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )

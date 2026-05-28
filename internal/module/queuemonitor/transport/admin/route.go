@@ -3,7 +3,7 @@ package admin
 import (
 	"net/http"
 
-	"admin_back_go/internal/validate"
+	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )

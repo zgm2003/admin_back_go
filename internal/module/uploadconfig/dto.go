@@ -1,6 +1,6 @@
 package uploadconfig
 
-import "admin_back_go/internal/dict"
+import "admin_back_go/internal/shared/dict"
 
 type DriverInitResponse struct {
 	Dict DriverInitDict `json:"dict"`

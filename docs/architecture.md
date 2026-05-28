@@ -254,7 +254,7 @@ response shape 不变：{ code, data, msg }。
 response 是唯一的 HTTP msg 本地化边界。
 msg 是展示文案，业务判断不能依赖 msg。
 apperror.Error 保留 fallback Message；MessageID 只做内部翻译 key，不返回给前端。
-Catalog 按 internal/i18n/locales/{lang}/{module}.yaml 分模块维护。
+Catalog 按 internal/shared/i18n/locales/{lang}/{module}.yaml 分模块维护。
 已显式收口的模块使用 module-scoped MessageID；剩余 legacy fallback 文案通过 deterministic legacy.{sha1} catalog bridge 在 response 边界翻译。
 缺翻译 key 时继续返回 fallback 中文，不允许因为缺翻译 key panic。
 legacy fallback 只是一座迁移桥；source coverage tests 会约束它和 explicit MessageID。
@@ -373,7 +373,7 @@ DELETE /api/admin/v1/resources/:id
 
 ## App error baseline
 
-服务层返回 `internal/apperror.Error`，不要返回 Gin 响应。
+服务层返回 `internal/shared/apperror.Error`，不要返回 Gin 响应。
 
 ```text
 service -> apperror.Error
@@ -710,7 +710,7 @@ DELETE /api/admin/v1/system-settings
 system_settings 是少量 typed key/value 配置的管理入口，不是所有模块的垃圾抽屉
 systemsetting module 只拥有后台 CRUD；已经迁出的跨模块读取不再通过业务模块自己解释 system_settings
 shared/setting 拥有已迁移 typed keys：auth.captcha.ttl_minutes、auth.verify_code.ttl_minutes、upload.token.ttl_minutes
-value_type 只来自 internal/enum -> internal/dict，handler 用 validator 拒绝非法 type
+value_type 只来自 internal/shared/enum -> internal/shared/dict，handler 用 validator 拒绝非法 type
 service 做值类型校验：数字、布尔、JSON object/array
 key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
 写入、状态、删除必须清理 Redis cache；key 规则继承 legacy：sys_setting_raw_ + setting key 中的 "." 替换为 "_"
@@ -1037,7 +1037,7 @@ DELETE /api/admin/v1/auth-platforms
 规则：
 
 ```text
-init dict 从 internal/dict 派生，dict 再从 internal/enum 派生；前端页面不手写登录方式或验证码 label/value
+init dict 从 internal/shared/dict 派生，dict 再从 internal/shared/enum 派生；前端页面不手写登录方式或验证码 label/value
 login_types 只允许 email / phone / password，写入前按 enum 稳定顺序 email -> phone -> password 去重归一化
 captcha_type 只允许 slide；Go 后端只实现 go-captcha slide，不返回也不接受未实现类型
 create/update 在 handler 边界用 validate tag 拒绝非法 enum；service 再做同一业务规则校验，防止绕过 HTTP handler
@@ -1317,10 +1317,12 @@ upload token 探针不再读取 COS STS Docker env 开关；没有 enabled uploa
 
 Go 后端从认证平台开始建立统一基础件：
 
-- `internal/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景、通知类型/级别。
-- `internal/shared/dict` 是新的跨模块字典边界，首批统一 `common_status`、`common_yes_no`、`platform`、`system_setting_value_type`。
-- `internal/dict` 作为兼容包继续保留并保持 payload 不变；迁移按页面初始化链路逐步推进，不一次性重写所有 dict call site。
-- `internal/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`payment_provider`、`payment_method`（仅历史兼容标签，当前 payment-config request 不使用）；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
+- `internal/shared` now owns `apperror`、`response`、`i18n`、`enum`、`validate`、`dict`、`setting`；旧 root shared-like packages 已删除。
+- `internal/shared/enum` 只放跨模块稳定常量，例如 `CommonYes/CommonNo`、登录方式、平台标识、验证码类型、验证码场景、通知类型/级别。
+- `internal/shared/dict` 是跨模块字典边界，统一 option payload 和 `common_status`、`common_yes_no`、`platform`、`system_setting_value_type` registry providers；labels / values 不变。
+- `internal/shared/setting` 仍是 migrated typed settings key 的跨模块边界；`systemsetting` 仍只是 `system_settings` 的 admin CRUD surface。
+- `internal/shared/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`payment_provider`、`payment_method`（仅历史兼容标签，当前 payment-config request 不使用）；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
+- Plan 11 只迁移 shared package ownership，不声明 module aggregation、DB schema、URL、response shape、enum value、validation semantics 或 i18n catalog behavior 变化。
 - 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
 - `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
@@ -1329,9 +1331,9 @@ Go 后端从认证平台开始建立统一基础件：
 上传配置当前新增：
 
 ```text
-internal/enum/upload.go      # COS-only 上传驱动、上传扩展名、上传 folder 白名单
-internal/dict.Upload*Options # upload driver/image ext/file ext dict
-internal/validate/upload.go  # upload_driver/upload_image_ext/upload_file_ext/upload_folder
+internal/shared/enum/upload.go      # COS-only 上传驱动、上传扩展名、上传 folder 白名单
+internal/shared/dict.Upload*Options # upload driver/image ext/file ext dict
+internal/shared/validate/upload.go  # upload_driver/upload_image_ext/upload_file_ext/upload_folder
 ```
 
 `internal/module/uploadconfig` 只管理配置事实源：
@@ -1598,9 +1600,9 @@ src/lib/upload/uploadClient.ts 只保留 cos-js-sdk-v5 动态加载
 客户端版本管理当前新增：
 
 ```text
-internal/enum/client_version.go          # windows-x86_64 / darwin-x86_64 平台枚举
-internal/dict.ClientVersionPlatformOptions
-internal/validate/client_version.go      # client_platform validator
+internal/shared/enum/client_version.go          # windows-x86_64 / darwin-x86_64 平台枚举
+internal/shared/dict.ClientVersionPlatformOptions
+internal/shared/validate/client_version.go      # client_platform validator
 internal/module/clientversion            # 客户端版本 REST + manifest 发布
 internal/infra/storage/cos.ObjectWriter # 仅服务端 PutObject 小边界
 ```

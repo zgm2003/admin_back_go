@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
 
 	"golang.org/x/crypto/bcrypt"
 )

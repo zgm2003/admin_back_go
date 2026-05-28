@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const defaultPermissionCheckCacheTTL = 30 * time.Minute

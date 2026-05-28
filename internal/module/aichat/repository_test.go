@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/enum"
 
 	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"

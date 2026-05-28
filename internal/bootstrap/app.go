@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/imagecompat"
@@ -54,6 +53,7 @@ import (
 	"admin_back_go/internal/module/userquickentry"
 	walletmodule "admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/server"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const shutdownTimeout = 5 * time.Second

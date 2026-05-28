@@ -1,7 +1,7 @@
 package app
 
 import (
-	"admin_back_go/internal/validate"
+	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )

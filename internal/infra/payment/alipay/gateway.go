@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/enum"
 	"github.com/go-pay/gopay"
 	gopayalipay "github.com/go-pay/gopay/alipay"
 )

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
 )

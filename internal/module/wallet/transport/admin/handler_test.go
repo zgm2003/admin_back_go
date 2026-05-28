@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
 	walletmodule "admin_back_go/internal/module/wallet"
+	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"
 )

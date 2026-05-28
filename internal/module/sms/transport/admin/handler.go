@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	smsmodule "admin_back_go/internal/module/sms"
-	"admin_back_go/internal/response"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )

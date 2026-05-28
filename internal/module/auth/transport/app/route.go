@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	authmodule "admin_back_go/internal/module/auth"
-	"admin_back_go/internal/validate"
+	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )

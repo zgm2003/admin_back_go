@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/dict"
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/enum"
 )
 
 type Service struct {

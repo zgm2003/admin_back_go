@@ -1,6 +1,6 @@
 package permission
 
-import "admin_back_go/internal/enum"
+import "admin_back_go/internal/shared/enum"
 
 const (
 	CommonYes = enum.CommonYes

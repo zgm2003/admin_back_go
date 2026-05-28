@@ -1,6 +1,6 @@
 package systemsetting
 
-import "admin_back_go/internal/apperror"
+import "admin_back_go/internal/shared/apperror"
 
 const ErrRepositoryNotConfiguredMessage = "系统设置仓储未配置"
 

@@ -3,21 +3,19 @@ package dict
 import (
 	"reflect"
 	"testing"
-
-	legacydict "admin_back_go/internal/dict"
 )
 
-func TestRegistryContainsInitialProvidersWithLegacyPayloads(t *testing.T) {
+func TestRegistryContainsInitialProviders(t *testing.T) {
 	registry := NewRegistry()
 
 	tests := []struct {
 		name string
 		want any
 	}{
-		{name: ProviderCommonStatus, want: legacydict.CommonStatusOptions()},
-		{name: ProviderCommonYesNo, want: legacydict.CommonYesNoOptions()},
-		{name: ProviderPlatform, want: legacydict.PlatformOptions()},
-		{name: ProviderSystemSettingValueType, want: legacydict.SystemSettingValueTypeOptions()},
+		{name: ProviderCommonStatus, want: CommonStatusOptions()},
+		{name: ProviderCommonYesNo, want: CommonYesNoOptions()},
+		{name: ProviderPlatform, want: PlatformOptions()},
+		{name: ProviderSystemSettingValueType, want: SystemSettingValueTypeOptions()},
 	}
 
 	for _, tt := range tests {
@@ -42,8 +40,5 @@ func TestServiceUsesDefaultRegistryAndPreservesCompatibilityHelpers(t *testing.T
 	}
 	if !reflect.DeepEqual(got, SystemSettingValueTypeOptions()) {
 		t.Fatalf("service payload must match helper payload, got %#v", got)
-	}
-	if !reflect.DeepEqual(SystemSettingValueTypeOptions(), legacydict.SystemSettingValueTypeOptions()) {
-		t.Fatalf("shared helper must preserve legacy system setting value type payload")
 	}
 }

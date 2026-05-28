@@ -3,7 +3,7 @@ package userquickentry
 import (
 	"context"
 
-	"admin_back_go/internal/apperror"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type HTTPService interface {

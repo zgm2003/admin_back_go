@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/notificationtask"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakeNotificationCreator struct {

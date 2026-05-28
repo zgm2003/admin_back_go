@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakeRepository struct {

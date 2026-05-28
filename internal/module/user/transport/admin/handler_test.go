@@ -9,9 +9,9 @@ import (
 	"reflect"
 	"testing"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
 	usermodule "admin_back_go/internal/module/user"
+	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"
 )

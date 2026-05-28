@@ -4,9 +4,9 @@ import (
 	"context"
 	"strconv"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/middleware"
-	"admin_back_go/internal/response"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )

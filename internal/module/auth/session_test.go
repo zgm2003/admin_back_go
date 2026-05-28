@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/accesstoken"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type fakeSessionCache struct {

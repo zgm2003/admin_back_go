@@ -16,9 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/enum"
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
@@ -51,6 +49,8 @@ import (
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userquickentry"
 	"admin_back_go/internal/readiness"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/gorilla/websocket"
 )

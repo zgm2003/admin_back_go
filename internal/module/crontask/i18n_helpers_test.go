@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 func assertCronTaskMessageID(t *testing.T, appErr *apperror.Error, want string) {

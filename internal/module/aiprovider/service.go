@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/dict"
-	"admin_back_go/internal/enum"
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/provider"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/enum"
 )
 
 const (

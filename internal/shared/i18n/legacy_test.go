@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -87,7 +88,17 @@ func projectRoot(t *testing.T) string {
 	if !ok {
 		t.Fatalf("runtime caller unavailable")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	dir := filepath.Dir(file)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("project root unavailable from %s", file)
+		}
+		dir = parent
+	}
 }
 
 func publicErrorStringLiterals(t *testing.T, root string) map[string]struct{} {
@@ -102,7 +113,10 @@ func publicErrorStringLiterals(t *testing.T, root string) map[string]struct{} {
 			return nil
 		}
 		clean := filepath.ToSlash(path)
-		if strings.Contains(clean, "/internal/apperror/") || strings.Contains(clean, "/internal/i18n/") {
+		if strings.Contains(clean, "/internal/shared/apperror/") ||
+			strings.Contains(clean, "/internal/shared/i18n/") ||
+			strings.Contains(clean, "/internal/apperror/") ||
+			strings.Contains(clean, "/internal/i18n/") {
 			return nil
 		}
 		file, parseErr := parser.ParseFile(fset, path, nil, 0)

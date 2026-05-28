@@ -6,8 +6,8 @@ import (
 
 	rolemodule "admin_back_go/internal/module/role"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/response"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )

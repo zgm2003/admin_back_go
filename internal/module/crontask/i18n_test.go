@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"admin_back_go/internal/enum"
-	projecti18n "admin_back_go/internal/i18n"
+	"admin_back_go/internal/shared/enum"
+	projecti18n "admin_back_go/internal/shared/i18n"
 )
 
 func TestCronTaskCatalogKeysMatch(t *testing.T) {

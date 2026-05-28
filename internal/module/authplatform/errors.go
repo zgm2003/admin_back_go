@@ -1,6 +1,6 @@
 package authplatform
 
-import "admin_back_go/internal/apperror"
+import "admin_back_go/internal/shared/apperror"
 
 const ErrManagementRepositoryNotConfiguredMessage = "认证平台管理仓储未配置"
 

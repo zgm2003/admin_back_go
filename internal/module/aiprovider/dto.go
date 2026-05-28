@@ -3,10 +3,10 @@ package aiprovider
 import (
 	"context"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/dict"
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/provider"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
 )
 
 type InitResponse struct {

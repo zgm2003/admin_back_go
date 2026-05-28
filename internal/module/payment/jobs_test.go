@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/enum"
 	gateway "admin_back_go/internal/infra/payment"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/enum"
 )
 
 func TestNewPaymentSyncPendingOrderTaskUsesVersionedType(t *testing.T) {

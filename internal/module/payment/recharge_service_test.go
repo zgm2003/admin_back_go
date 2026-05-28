@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/enum"
 	gateway "admin_back_go/internal/infra/payment"
+	"admin_back_go/internal/shared/enum"
 )
 
 func TestCreateRechargeChoosesLowestSortEnabledAlipayConfig(t *testing.T) {

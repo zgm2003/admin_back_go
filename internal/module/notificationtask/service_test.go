@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/enum"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakeRepository struct {

@@ -1,9 +1,9 @@
 package server
 
 import (
-	"admin_back_go/internal/enum"
 	authadmin "admin_back_go/internal/module/auth/transport/admin"
 	authapp "admin_back_go/internal/module/auth/transport/app"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/gin-gonic/gin"
 )

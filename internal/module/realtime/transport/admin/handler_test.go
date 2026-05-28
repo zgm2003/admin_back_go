@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	projecti18n "admin_back_go/internal/i18n"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
+	projecti18n "admin_back_go/internal/shared/i18n"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"

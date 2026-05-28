@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"admin_back_go/internal/apperror"
-	projecti18n "admin_back_go/internal/i18n"
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
+	"admin_back_go/internal/shared/apperror"
+	projecti18n "admin_back_go/internal/shared/i18n"
 
 	"github.com/gin-gonic/gin"
 )

@@ -3,7 +3,7 @@ package validate
 import (
 	"testing"
 
-	"admin_back_go/internal/enum"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/go-playground/validator/v10"
 )

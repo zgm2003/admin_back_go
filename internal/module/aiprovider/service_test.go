@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/apperror"
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/provider"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type fakeRepository struct {

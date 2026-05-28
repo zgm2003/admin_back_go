@@ -63,7 +63,10 @@ func sourceResponseMessageKeys(t *testing.T, root string) ([]sourceMessageKey, [
 			return nil
 		}
 		clean := filepath.ToSlash(path)
-		if strings.Contains(clean, "/internal/apperror/") || strings.Contains(clean, "/internal/i18n/") {
+		if strings.Contains(clean, "/internal/shared/apperror/") ||
+			strings.Contains(clean, "/internal/shared/i18n/") ||
+			strings.Contains(clean, "/internal/apperror/") ||
+			strings.Contains(clean, "/internal/i18n/") {
 			return nil
 		}
 		file, parseErr := parser.ParseFile(fset, path, nil, 0)

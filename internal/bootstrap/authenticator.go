@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/accesstoken"
 	"admin_back_go/internal/infra/database"
@@ -12,6 +11,7 @@ import (
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/authplatform"
+	"admin_back_go/internal/shared/apperror"
 )
 
 func NewSessionAuthenticator(resources *Resources, cfg config.Config, keys *secretkey.KeyRing) *authmodule.Authenticator {

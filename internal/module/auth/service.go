@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"

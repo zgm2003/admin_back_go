@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"admin_back_go/internal/apperror"
 	paymentmodule "admin_back_go/internal/module/payment"
+	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"
 )

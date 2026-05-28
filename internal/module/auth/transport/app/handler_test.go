@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/enum"
 	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/gin-gonic/gin"
 )

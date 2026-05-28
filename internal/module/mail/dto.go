@@ -3,7 +3,7 @@ package mail
 import (
 	"time"
 
-	"admin_back_go/internal/dict"
+	"admin_back_go/internal/shared/dict"
 )
 
 const (

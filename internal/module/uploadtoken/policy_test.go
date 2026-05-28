@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
+	"admin_back_go/internal/shared/enum"
 	sharedsetting "admin_back_go/internal/shared/setting"
 )
 

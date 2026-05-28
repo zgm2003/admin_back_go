@@ -3,9 +3,9 @@ package admin
 import (
 	"context"
 
-	"admin_back_go/internal/apperror"
 	uploadtokenmodule "admin_back_go/internal/module/uploadtoken"
-	"admin_back_go/internal/response"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )

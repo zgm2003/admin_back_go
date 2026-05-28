@@ -1,6 +1,6 @@
 package dict
 
-import "admin_back_go/internal/enum"
+import "admin_back_go/internal/shared/enum"
 
 func MailSceneOptions() []Option[string] {
 	return []Option[string]{

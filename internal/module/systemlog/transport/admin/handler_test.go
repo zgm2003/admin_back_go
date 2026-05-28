@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"admin_back_go/internal/apperror"
-	"admin_back_go/internal/dict"
-	projecti18n "admin_back_go/internal/i18n"
+	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
+	projecti18n "admin_back_go/internal/shared/i18n"
 
 	"github.com/gin-gonic/gin"
 )
