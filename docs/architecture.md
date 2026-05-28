@@ -1188,7 +1188,7 @@ DELETE /api/admin/v1/notification-tasks/:id
 发布/调度边界：
 
 ```text
-notificationtask service 拥有 target_type/platform/send_at 业务校验。
+notification/task service 归属 notification capability，拥有 target_type/platform/send_at 业务校验。
 POST 无 send_at：写 notification_task pending 后立即 enqueue notification:send-task:v1。
 POST 有 send_at：只写 pending，等待 admin-worker scheduler。
 admin-worker 通过 cron_task 表里的 notification_task_scheduler 配置注册 gocron，触发后 enqueue notification:dispatch-due:v1。

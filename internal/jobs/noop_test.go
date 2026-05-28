@@ -12,7 +12,7 @@ import (
 	"admin_back_go/internal/module/aichat"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/export"
-	"admin_back_go/internal/module/notificationtask"
+	notificationtask "admin_back_go/internal/module/notification/task"
 )
 
 func TestNewNoopTaskUsesVersionedType(t *testing.T) {

@@ -21,7 +21,7 @@ import (
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/export"
-	"admin_back_go/internal/module/notificationtask"
+	notificationtask "admin_back_go/internal/module/notification/task"
 	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
 )

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/module/aichat"
-	"admin_back_go/internal/module/notificationtask"
+	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
 )
 

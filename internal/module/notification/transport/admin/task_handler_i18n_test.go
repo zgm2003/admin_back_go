@@ -13,29 +13,29 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type fakeHTTPService struct{}
+type fakeTaskHTTPService struct{}
 
-func (f fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{}, nil
+func (f fakeTaskHTTPService) Init(ctx context.Context) (*TaskInitResponse, *apperror.Error) {
+	return &TaskInitResponse{}, nil
 }
 
-func (f fakeHTTPService) StatusCount(ctx context.Context, query StatusCountQuery) ([]StatusCountItem, *apperror.Error) {
-	return []StatusCountItem{}, nil
+func (f fakeTaskHTTPService) StatusCount(ctx context.Context, query TaskStatusCountQuery) ([]TaskStatusCountItem, *apperror.Error) {
+	return []TaskStatusCountItem{}, nil
 }
 
-func (f fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return &ListResponse{List: []ListItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+func (f fakeTaskHTTPService) List(ctx context.Context, query TaskListQuery) (*TaskListResponse, *apperror.Error) {
+	return &TaskListResponse{List: []TaskListItem{}, Page: TaskPage{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
-func (f fakeHTTPService) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
-	return &CreateResponse{ID: 1, Queued: false}, nil
+func (f fakeTaskHTTPService) Create(ctx context.Context, input TaskCreateInput) (*TaskCreateResponse, *apperror.Error) {
+	return &TaskCreateResponse{ID: 1, Queued: false}, nil
 }
 
-func (f fakeHTTPService) Cancel(ctx context.Context, id int64) *apperror.Error {
+func (f fakeTaskHTTPService) Cancel(ctx context.Context, id int64) *apperror.Error {
 	return nil
 }
 
-func (f fakeHTTPService) Delete(ctx context.Context, id int64) *apperror.Error {
+func (f fakeTaskHTTPService) Delete(ctx context.Context, id int64) *apperror.Error {
 	return nil
 }
 
@@ -43,7 +43,7 @@ func TestNotificationTaskHandlerLocalizesListRequestError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())
-	RegisterRoutes(router, fakeHTTPService{})
+	RegisterTaskRoutes(router, fakeTaskHTTPService{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks?current_page=1&page_size=20&status=99", nil)
@@ -62,4 +62,4 @@ func TestNotificationTaskHandlerLocalizesListRequestError(t *testing.T) {
 	}
 }
 
-var _ HTTPService = fakeHTTPService{}
+var _ TaskHTTPService = fakeTaskHTTPService{}

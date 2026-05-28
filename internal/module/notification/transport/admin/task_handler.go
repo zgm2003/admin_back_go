@@ -4,33 +4,33 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/middleware"
-	notificationtaskmodule "admin_back_go/internal/module/notificationtask"
+	notificationtaskmodule "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-type HTTPService = notificationtaskmodule.HTTPService
-type InitResponse = notificationtaskmodule.InitResponse
-type StatusCountQuery = notificationtaskmodule.StatusCountQuery
-type StatusCountItem = notificationtaskmodule.StatusCountItem
-type ListQuery = notificationtaskmodule.ListQuery
-type ListResponse = notificationtaskmodule.ListResponse
-type ListItem = notificationtaskmodule.ListItem
-type Page = notificationtaskmodule.Page
-type CreateInput = notificationtaskmodule.CreateInput
-type CreateResponse = notificationtaskmodule.CreateResponse
+type TaskHTTPService = notificationtaskmodule.HTTPService
+type TaskInitResponse = notificationtaskmodule.InitResponse
+type TaskStatusCountQuery = notificationtaskmodule.StatusCountQuery
+type TaskStatusCountItem = notificationtaskmodule.StatusCountItem
+type TaskListQuery = notificationtaskmodule.ListQuery
+type TaskListResponse = notificationtaskmodule.ListResponse
+type TaskListItem = notificationtaskmodule.ListItem
+type TaskPage = notificationtaskmodule.Page
+type TaskCreateInput = notificationtaskmodule.CreateInput
+type TaskCreateResponse = notificationtaskmodule.CreateResponse
 
-type Handler struct {
-	service HTTPService
+type TaskHandler struct {
+	service TaskHTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
-	return &Handler{service: service}
+func NewTaskHandler(service TaskHTTPService) *TaskHandler {
+	return &TaskHandler{service: service}
 }
 
-func (h *Handler) Init(c *gin.Context) {
+func (h *TaskHandler) Init(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
@@ -43,17 +43,17 @@ func (h *Handler) Init(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *Handler) StatusCount(c *gin.Context) {
+func (h *TaskHandler) StatusCount(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
-	var req statusCountRequest
+	var req taskStatusCountRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, apperror.BadRequestKey("notificationtask.status_count.request.invalid", nil, "状态统计参数错误"))
 		return
 	}
-	result, appErr := h.service.StatusCount(c.Request.Context(), StatusCountQuery{Title: req.Title})
+	result, appErr := h.service.StatusCount(c.Request.Context(), TaskStatusCountQuery{Title: req.Title})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -61,17 +61,17 @@ func (h *Handler) StatusCount(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *Handler) List(c *gin.Context) {
+func (h *TaskHandler) List(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
-	var req listRequest
+	var req taskListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, apperror.BadRequestKey("notificationtask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), ListQuery{
+	result, appErr := h.service.List(c.Request.Context(), TaskListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Status:      req.Status,
@@ -84,7 +84,7 @@ func (h *Handler) List(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *Handler) Create(c *gin.Context) {
+func (h *TaskHandler) Create(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
@@ -94,12 +94,12 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return
 	}
-	var req createRequest
+	var req taskCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperror.BadRequestKey("notificationtask.create.request.invalid", nil, "参数错误"))
 		return
 	}
-	result, appErr := h.service.Create(c.Request.Context(), CreateInput{
+	result, appErr := h.service.Create(c.Request.Context(), TaskCreateInput{
 		Title:      req.Title,
 		Content:    req.Content,
 		Type:       req.Type,
@@ -118,12 +118,12 @@ func (h *Handler) Create(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *Handler) Cancel(c *gin.Context) {
+func (h *TaskHandler) Cancel(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
-	id, ok := routeID(c)
+	id, ok := taskRouteID(c)
 	if !ok {
 		return
 	}
@@ -134,12 +134,12 @@ func (h *Handler) Cancel(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) Delete(c *gin.Context) {
+func (h *TaskHandler) Delete(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
-	id, ok := routeID(c)
+	id, ok := taskRouteID(c)
 	if !ok {
 		return
 	}
@@ -150,7 +150,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func routeID(c *gin.Context) (int64, bool) {
+func taskRouteID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		response.Error(c, apperror.BadRequestKey("notificationtask.id.invalid", nil, "无效的通知任务ID"))
@@ -159,4 +159,4 @@ func routeID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-var _ HTTPService = (*notificationtaskmodule.Service)(nil)
+var _ TaskHTTPService = (*notificationtaskmodule.Service)(nil)
