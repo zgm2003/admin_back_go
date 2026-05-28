@@ -1,6 +1,6 @@
 package admin
 
-import aiimagemodule "admin_back_go/internal/module/aiimage"
+import aiimagemodule "admin_back_go/internal/module/ai/image"
 
 type (
 	Page                   = aiimagemodule.Page
