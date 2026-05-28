@@ -5,7 +5,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
-	"admin_back_go/internal/module/aitool"
+	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/shared/apperror"
 )
 

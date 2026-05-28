@@ -1,15 +1,15 @@
 package server
 
 import (
-	aiagentadmin "admin_back_go/internal/module/aiagent/transport/admin"
+	aiagentadmin "admin_back_go/internal/module/ai/agent/transport/admin"
+	aiprovideradmin "admin_back_go/internal/module/ai/provider/transport/admin"
+	aitooladmin "admin_back_go/internal/module/ai/tool/transport/admin"
 	aichatadmin "admin_back_go/internal/module/aichat/transport/admin"
 	aiconversationadmin "admin_back_go/internal/module/aiconversation/transport/admin"
 	aiimageadmin "admin_back_go/internal/module/aiimage/transport/admin"
 	aiknowledgeadmin "admin_back_go/internal/module/aiknowledge/transport/admin"
 	aimessageadmin "admin_back_go/internal/module/aimessage/transport/admin"
-	aiprovideradmin "admin_back_go/internal/module/aiprovider/transport/admin"
 	airunadmin "admin_back_go/internal/module/airun/transport/admin"
-	aitooladmin "admin_back_go/internal/module/aitool/transport/admin"
 
 	"github.com/gin-gonic/gin"
 )

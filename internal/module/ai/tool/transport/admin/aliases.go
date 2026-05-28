@@ -1,6 +1,6 @@
 package admin
 
-import aitoolmodule "admin_back_go/internal/module/aitool"
+import aitoolmodule "admin_back_go/internal/module/ai/tool"
 
 type (
 	JSONObject               = aitoolmodule.JSONObject
