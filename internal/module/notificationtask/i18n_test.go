@@ -2,10 +2,7 @@ package notificationtask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -13,35 +10,7 @@ import (
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
 	projecti18n "admin_back_go/internal/i18n"
-
-	"github.com/gin-gonic/gin"
 )
-
-type fakeHTTPService struct{}
-
-func (f fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return NewService(&fakeRepository{}).Init(ctx)
-}
-
-func (f fakeHTTPService) StatusCount(ctx context.Context, query StatusCountQuery) ([]StatusCountItem, *apperror.Error) {
-	return []StatusCountItem{}, nil
-}
-
-func (f fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return &ListResponse{List: []ListItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
-}
-
-func (f fakeHTTPService) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
-	return &CreateResponse{ID: 1, Queued: false}, nil
-}
-
-func (f fakeHTTPService) Cancel(ctx context.Context, id int64) *apperror.Error {
-	return nil
-}
-
-func (f fakeHTTPService) Delete(ctx context.Context, id int64) *apperror.Error {
-	return nil
-}
 
 func TestNotificationTaskCatalogKeysMatch(t *testing.T) {
 	want := []string{
@@ -167,29 +136,6 @@ func TestNotificationTaskNormalizeCreateInputErrorsUseMessageIDs(t *testing.T) {
 			_, _, appErr := normalizeCreateInput(input, now)
 			assertNotificationTaskMessageID(t, appErr, tt.want)
 		})
-	}
-}
-
-func TestNotificationTaskHandlerLocalizesListRequestError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.Use(projecti18n.Localize())
-	RegisterRoutes(router, fakeHTTPService{})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks?current_page=1&page_size=20&status=99", nil)
-	request.Header.Set("Accept-Language", "en-US")
-	router.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload["msg"] != "Invalid list request" {
-		t.Fatalf("expected localized list request error, got %#v", payload["msg"])
 	}
 }
 

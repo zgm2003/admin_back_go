@@ -40,6 +40,7 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
+	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/systemlog"
@@ -3549,7 +3550,7 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
-		RealtimeHandler: realtimemodule.NewHandler(
+		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
 			platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
 			platformrealtime.NewManager(),
@@ -3585,7 +3586,7 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 			gotInput = input
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
 		},
-		RealtimeHandler: realtimemodule.NewHandler(
+		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
 			platformrealtime.NewUpgrader(func(*http.Request) bool { return true }),
 			platformrealtime.NewManager(),
@@ -3595,7 +3596,7 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimemodule.WSPath, http.Header{
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimeadmin.WSPath, http.Header{
 		"Cookie": []string{middleware.DefaultAccessTokenCookie + "=cookie-access-token"},
 	})
 	if err != nil {
@@ -3629,7 +3630,7 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
 		},
-		RealtimeHandler: realtimemodule.NewHandler(
+		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
 			platformrealtime.NewUpgrader(platformrealtime.NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})),
 			platformrealtime.NewManager(),
@@ -3639,7 +3640,7 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimemodule.WSPath, http.Header{
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimeadmin.WSPath, http.Header{
 		"Cookie": []string{middleware.DefaultAccessTokenCookie + "=cookie-access-token"},
 		"Origin": []string{"http://127.0.0.1:5173"},
 	})

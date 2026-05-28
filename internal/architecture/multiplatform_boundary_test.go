@@ -64,6 +64,79 @@ func TestAuthTransportBoundaryShape(t *testing.T) {
 	}
 }
 
+func TestFoundationAdminTransportShells(t *testing.T) {
+	root := backendRoot(t)
+	for _, module := range []string{
+		"system",
+		"systemsetting",
+		"systemlog",
+		"operationlog",
+		"crontask",
+		"queuemonitor",
+		"clientversion",
+		"exporttask",
+		"realtime",
+	} {
+		moduleRoot := "internal/module/" + module + "/"
+		mustExist(t, root, moduleRoot+"transport/admin/route.go")
+		mustNotExist(t, root, moduleRoot+"route.go")
+		mustNotExist(t, root, moduleRoot+"handler.go")
+	}
+}
+
+func TestAIAdminTransportShells(t *testing.T) {
+	root := backendRoot(t)
+	for _, module := range []string{
+		"aiprovider",
+		"aiagent",
+		"aitool",
+		"aiknowledge",
+		"aiconversation",
+		"aimessage",
+		"airun",
+		"aichat",
+		"aiimage",
+	} {
+		moduleRoot := "internal/module/" + module + "/"
+		mustExist(t, root, moduleRoot+"transport/admin/route.go")
+		mustNotExist(t, root, moduleRoot+"route.go")
+		mustNotExist(t, root, moduleRoot+"handler.go")
+	}
+}
+
+func TestCommsUploadAdminTransportShells(t *testing.T) {
+	root := backendRoot(t)
+	for _, module := range []string{
+		"mail",
+		"sms",
+		"notification",
+		"notificationtask",
+		"uploadconfig",
+		"uploadtoken",
+	} {
+		moduleRoot := "internal/module/" + module + "/"
+		mustExist(t, root, moduleRoot+"transport/admin/route.go")
+		mustNotExist(t, root, moduleRoot+"route.go")
+		mustNotExist(t, root, moduleRoot+"handler.go")
+	}
+}
+
+func TestCommerceRBACAdminTransportShells(t *testing.T) {
+	root := backendRoot(t)
+	for _, module := range []string{
+		"authplatform",
+		"permission",
+		"role",
+		"wallet",
+		"payment",
+	} {
+		moduleRoot := "internal/module/" + module + "/"
+		mustExist(t, root, moduleRoot+"transport/admin/route.go")
+		mustNotExist(t, root, moduleRoot+"route.go")
+		mustNotExist(t, root, moduleRoot+"handler.go")
+	}
+}
+
 func TestNoLegacyUsersRoutesInGoRuntime(t *testing.T) {
 	root := backendRoot(t)
 	legacyUsersPrefix := "/api/" + "Users"

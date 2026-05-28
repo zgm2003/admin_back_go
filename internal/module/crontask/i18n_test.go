@@ -2,18 +2,12 @@ package crontask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/enum"
 	projecti18n "admin_back_go/internal/i18n"
-
-	"github.com/gin-gonic/gin"
 )
 
 func TestCronTaskCatalogKeysMatch(t *testing.T) {
@@ -165,86 +159,4 @@ func TestCronTaskNormalizeErrorsUseMessageIDs(t *testing.T) {
 			assertCronTaskMessageID(t, appErr, tt.want)
 		})
 	}
-}
-
-func TestCronTaskHandlerLocalizesListRequestError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.Use(projecti18n.Localize())
-	RegisterRoutes(router, &fakeCronHTTPService{})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks?current_page=1&page_size=20&status=bad", nil)
-	request.Header.Set("Accept-Language", "en-US")
-	router.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload["msg"] != "Invalid cron task list request" {
-		t.Fatalf("expected localized list request error, got %#v", payload["msg"])
-	}
-}
-
-func validCronTaskInput() SaveInput {
-	return SaveInput{Name: "demo_task", Title: "Demo", Cron: "0 * * * * *", Status: enum.CommonYes}
-}
-
-func assertCronTaskMessageID(t *testing.T, appErr *apperror.Error, want string) {
-	t.Helper()
-	if appErr == nil {
-		t.Fatalf("expected error %q, got nil", want)
-	}
-	if appErr.MessageID != want {
-		t.Fatalf("expected message id %q, got %#v", want, appErr)
-	}
-}
-
-type failingCreateRepository struct {
-	fakeRepository
-	createErr error
-}
-
-func (f *failingCreateRepository) Create(ctx context.Context, row Task) (int64, error) {
-	return 0, f.createErr
-}
-
-type failingUpdateRepository struct {
-	fakeRepository
-}
-
-func (f *failingUpdateRepository) Get(ctx context.Context, id int64) (*Task, error) {
-	return &Task{ID: id, Name: "demo_task", Title: "Demo", Cron: "0 * * * * *", Status: enum.CommonYes}, nil
-}
-
-func (f *failingUpdateRepository) Update(ctx context.Context, id int64, row Task) error {
-	return errors.New("update failed")
-}
-
-type failingStatusRepository struct {
-	fakeRepository
-}
-
-func (f *failingStatusRepository) Get(ctx context.Context, id int64) (*Task, error) {
-	return &Task{ID: id, Name: "demo_task", Title: "Demo", Cron: "0 * * * * *", Status: enum.CommonYes}, nil
-}
-
-func (f *failingStatusRepository) UpdateStatus(ctx context.Context, id int64, status int) error {
-	return errors.New("status update failed")
-}
-
-type failingDeleteRepository struct {
-	fakeRepository
-}
-
-func (f *failingDeleteRepository) Get(ctx context.Context, id int64) (*Task, error) {
-	return &Task{ID: id, Name: "demo_task", Title: "Demo", Cron: "0 * * * * *", Status: enum.CommonYes}, nil
-}
-
-func (f *failingDeleteRepository) Delete(ctx context.Context, ids []int64) error {
-	return errors.New("delete failed")
 }

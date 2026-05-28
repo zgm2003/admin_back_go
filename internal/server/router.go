@@ -18,35 +18,35 @@ import (
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
-	"admin_back_go/internal/module/authplatform"
-	"admin_back_go/internal/module/clientversion"
-	"admin_back_go/internal/module/crontask"
-	"admin_back_go/internal/module/exporttask"
-	"admin_back_go/internal/module/mail"
-	"admin_back_go/internal/module/notification"
-	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/operationlog"
+	authplatformadmin "admin_back_go/internal/module/authplatform/transport/admin"
+	clientversionadmin "admin_back_go/internal/module/clientversion/transport/admin"
+	crontaskadmin "admin_back_go/internal/module/crontask/transport/admin"
+	exporttaskadmin "admin_back_go/internal/module/exporttask/transport/admin"
+	mailadmin "admin_back_go/internal/module/mail/transport/admin"
+	notificationadmin "admin_back_go/internal/module/notification/transport/admin"
+	notificationtaskadmin "admin_back_go/internal/module/notificationtask/transport/admin"
+	operationlogadmin "admin_back_go/internal/module/operationlog/transport/admin"
 	"admin_back_go/internal/module/payment"
-	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/module/queuemonitor"
-	"admin_back_go/internal/module/realtime"
-	"admin_back_go/internal/module/role"
-	"admin_back_go/internal/module/sms"
-	"admin_back_go/internal/module/system"
-	"admin_back_go/internal/module/systemlog"
-	"admin_back_go/internal/module/systemsetting"
-	"admin_back_go/internal/module/uploadconfig"
-	"admin_back_go/internal/module/uploadtoken"
+	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
+	queuemonitoradmin "admin_back_go/internal/module/queuemonitor/transport/admin"
+	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
+	roleadmin "admin_back_go/internal/module/role/transport/admin"
+	smsadmin "admin_back_go/internal/module/sms/transport/admin"
+	systemadmin "admin_back_go/internal/module/system/transport/admin"
+	systemlogadmin "admin_back_go/internal/module/systemlog/transport/admin"
+	systemsettingadmin "admin_back_go/internal/module/systemsetting/transport/admin"
+	uploadconfigadmin "admin_back_go/internal/module/uploadconfig/transport/admin"
+	uploadtokenadmin "admin_back_go/internal/module/uploadtoken/transport/admin"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/module/userquickentry"
-	"admin_back_go/internal/module/wallet"
+	walletadmin "admin_back_go/internal/module/wallet/transport/admin"
 	"admin_back_go/internal/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Dependencies struct {
-	Readiness               system.ReadinessChecker
+	Readiness               systemadmin.ReadinessChecker
 	Logger                  *slog.Logger
 	CORS                    config.CORSConfig
 	Authenticator           middleware.TokenAuthenticator
@@ -56,7 +56,7 @@ type Dependencies struct {
 	OperationRules          map[middleware.RouteKey]middleware.OperationRule
 	AuthService             auth.SessionService
 	CaptchaService          auth.CaptchaHTTPService
-	ClientVersionService    clientversion.HTTPService
+	ClientVersionService    clientversionadmin.HTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
 	AiImageService          aiimage.HTTPService
@@ -66,29 +66,29 @@ type Dependencies struct {
 	AiMessageService        aimessage.HTTPService
 	AiRunService            airun.HTTPService
 	AiToolService           aitool.HTTPService
-	CronTaskService         crontask.HTTPService
-	ExportTaskService       exporttask.HTTPService
+	CronTaskService         crontaskadmin.HTTPService
+	ExportTaskService       exporttaskadmin.HTTPService
 	UserService             user.HTTPService
 	UserQuickEntryService   userquickentry.HTTPService
 	LoginLogService         auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
-	NotificationService     notification.HTTPService
-	NotificationTaskService notificationtask.HTTPService
-	OperationLogService     operationlog.HTTPService
-	MailService             mail.HTTPService
-	SmsService              sms.HTTPService
+	NotificationService     notificationadmin.HTTPService
+	NotificationTaskService notificationtaskadmin.HTTPService
+	OperationLogService     operationlogadmin.HTTPService
+	MailService             mailadmin.HTTPService
+	SmsService              smsadmin.HTTPService
 	PaymentService          payment.HTTPService
-	WalletService           wallet.HTTPService
-	PermissionService       permission.ManagementService
-	QueueMonitorService     queuemonitor.HTTPService
+	WalletService           walletadmin.HTTPService
+	PermissionService       permissionadmin.ManagementService
+	QueueMonitorService     queuemonitoradmin.HTTPService
 	QueueMonitorUI          http.Handler
-	SystemSettingService    systemsetting.HTTPService
-	SystemLogService        systemlog.HTTPService
-	UploadConfigService     uploadconfig.HTTPService
-	UploadTokenService      uploadtoken.HTTPService
-	RealtimeHandler         *realtime.Handler
-	RoleService             role.HTTPService
-	AuthPlatformService     authplatform.HTTPService
+	SystemSettingService    systemsettingadmin.HTTPService
+	SystemLogService        systemlogadmin.HTTPService
+	UploadConfigService     uploadconfigadmin.HTTPService
+	UploadTokenService      uploadtokenadmin.HTTPService
+	RealtimeHandler         *realtimeadmin.Handler
+	RoleService             roleadmin.HTTPService
+	AuthPlatformService     authplatformadmin.HTTPService
 	AuthSkipPaths           map[string]struct{}
 }
 
@@ -108,7 +108,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		Authenticator: deps.Authenticator,
 		SkipPaths:     authSkipPaths(deps.AuthSkipPaths),
 		CookieTokenPath: middleware.CookieTokenPathConfig{
-			PathPrefixes: []string{queuemonitor.UIPath, realtime.WSPath},
+			PathPrefixes: []string{queuemonitoradmin.UIPath, realtimeadmin.WSPath},
 			Platform:     enum.PlatformAdmin,
 		},
 	}))

@@ -1,21 +1,23 @@
 package server
 
 import (
-	"admin_back_go/internal/module/mail"
-	"admin_back_go/internal/module/notification"
-	"admin_back_go/internal/module/notificationtask"
-	"admin_back_go/internal/module/sms"
-	"admin_back_go/internal/module/uploadconfig"
-	"admin_back_go/internal/module/uploadtoken"
+	mailadmin "admin_back_go/internal/module/mail/transport/admin"
+	notificationadmin "admin_back_go/internal/module/notification/transport/admin"
+	notificationtaskadmin "admin_back_go/internal/module/notificationtask/transport/admin"
+	smsadmin "admin_back_go/internal/module/sms/transport/admin"
+	uploadconfigadmin "admin_back_go/internal/module/uploadconfig/transport/admin"
+	uploadtokenadmin "admin_back_go/internal/module/uploadtoken/transport/admin"
+	uploadtokenapp "admin_back_go/internal/module/uploadtoken/transport/app"
 
 	"github.com/gin-gonic/gin"
 )
 
 func registerAdminCommsRoutes(router *gin.Engine, deps Dependencies) {
-	notification.RegisterRoutes(router, deps.NotificationService)
-	notificationtask.RegisterRoutes(router, deps.NotificationTaskService)
-	mail.RegisterRoutes(router, deps.MailService)
-	sms.RegisterRoutes(router, deps.SmsService)
-	uploadconfig.RegisterRoutes(router, deps.UploadConfigService)
-	uploadtoken.RegisterRoutes(router, deps.UploadTokenService)
+	notificationadmin.RegisterRoutes(router, deps.NotificationService)
+	notificationtaskadmin.RegisterRoutes(router, deps.NotificationTaskService)
+	mailadmin.RegisterRoutes(router, deps.MailService)
+	smsadmin.RegisterRoutes(router, deps.SmsService)
+	uploadconfigadmin.RegisterRoutes(router, deps.UploadConfigService)
+	uploadtokenadmin.RegisterRoutes(router, deps.UploadTokenService)
+	uploadtokenapp.RegisterRoutes(router, deps.UploadTokenService)
 }

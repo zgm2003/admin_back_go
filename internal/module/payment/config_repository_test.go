@@ -25,7 +25,6 @@ func TestConfigListQueryDefaults(t *testing.T) {
 func TestPaymentConfigContractDoesNotCarryReturnURL(t *testing.T) {
 	for _, typ := range []reflect.Type{
 		reflect.TypeOf(Config{}),
-		reflect.TypeOf(configMutationRequest{}),
 		reflect.TypeOf(ConfigMutationInput{}),
 		reflect.TypeOf(ConfigListItem{}),
 	} {

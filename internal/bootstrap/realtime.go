@@ -5,6 +5,7 @@ import (
 
 	"admin_back_go/internal/config"
 	modulerealtime "admin_back_go/internal/module/realtime"
+	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
 	platformrealtime "admin_back_go/internal/platform/realtime"
 	"admin_back_go/internal/platform/redisclient"
 )
@@ -14,7 +15,7 @@ type realtimeStack struct {
 	manager    *platformrealtime.Manager
 	publisher  platformrealtime.Publisher
 	subscriber *platformrealtime.RedisSubscriber
-	handler    *modulerealtime.Handler
+	handler    *realtimeadmin.Handler
 }
 
 func withRealtimePolicyDefaults(cfg config.RealtimeConfig) config.RealtimeConfig {
@@ -46,13 +47,13 @@ func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []strin
 	localPublisher := platformrealtime.NewLocalPublisher(manager)
 	publisher, subscriber := realtimePublisherFor(cfg, enabled, redis, localPublisher, logger)
 	service := modulerealtime.NewService(cfg.HeartbeatInterval)
-	handler := modulerealtime.NewHandler(
+	handler := realtimeadmin.NewHandler(
 		service,
 		platformrealtime.NewUpgrader(platformrealtime.NewAllowedOriginChecker(allowedOrigins)),
 		manager,
 		logger,
-		modulerealtime.WithEnabled(enabled),
-		modulerealtime.WithSendBuffer(cfg.SendBuffer),
+		realtimeadmin.WithEnabled(enabled),
+		realtimeadmin.WithSendBuffer(cfg.SendBuffer),
 	)
 
 	return realtimeStack{
