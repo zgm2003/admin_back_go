@@ -8,6 +8,7 @@ import (
 
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
+	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 type fakeTTLPolicyRepository struct {
@@ -33,8 +34,8 @@ func TestSystemSettingTTLPolicyProviderReturnsConfiguredTTL(t *testing.T) {
 	if got != 20*time.Minute {
 		t.Fatalf("expected 20m, got %s", got)
 	}
-	if repo.key != UploadTokenTTLSettingKey {
-		t.Fatalf("expected key %s, got %s", UploadTokenTTLSettingKey, repo.key)
+	if repo.key != sharedsetting.UploadTokenTTLKey {
+		t.Fatalf("expected key %s, got %s", sharedsetting.UploadTokenTTLKey, repo.key)
 	}
 }
 

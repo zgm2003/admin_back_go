@@ -3,6 +3,12 @@ auth.token.invalid_format: Invalid token format
 auth.token.invalid_or_expired: Token is invalid or expired
 auth.token.authenticator_missing: Token authenticator is not configured
 auth.verify_code.sent: Verification code sent
+auth.verify_code.ttl.missing: Verification code TTL config is missing
+auth.verify_code.ttl.disabled: Verification code TTL config is disabled
+auth.verify_code.ttl.type_invalid: Verification code TTL config type must be number
+auth.verify_code.ttl.integer_required: Verification code TTL must be an integer number of minutes
+auth.verify_code.ttl.out_of_range: Verification code TTL must be between 1 and 60 minutes
+auth.verify_code.ttl.query_failed: Failed to query verification code TTL config
 auth.logout.success: Signed out successfully
 auth.platform.service_missing: Login service is not configured
 auth.platform.user_service_missing: User service is not configured

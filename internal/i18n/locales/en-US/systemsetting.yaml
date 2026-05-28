@@ -25,3 +25,12 @@ systemsetting.value.number_invalid: Number value must be numeric
 systemsetting.value.bool_invalid: Boolean value must be true/false or 0/1
 systemsetting.value.json_invalid: JSON value must be valid JSON
 systemsetting.value.json_object_invalid: JSON value must be an object or array
+setting.repository_missing: System setting repository is not configured
+setting.query_failed: Failed to query system setting
+setting.save_failed: Failed to save system setting
+setting.cache_clear_failed: Failed to clear system setting cache
+setting.missing: System setting is missing
+setting.disabled: System setting is disabled
+setting.type_invalid: System setting type must be number
+setting.integer_required: System setting must be an integer
+setting.out_of_range: System setting value is out of range

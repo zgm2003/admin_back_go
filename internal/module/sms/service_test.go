@@ -10,6 +10,7 @@ import (
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/platform/secretbox"
+	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 func TestPageInitKeepsSmsScenesDomesticAndBounded(t *testing.T) {
@@ -177,7 +178,7 @@ func newFakeSmsRepository() *fakeSmsRepository {
 		templates: map[string]*Template{},
 		logs:      map[uint64]*Log{},
 		finishes:  map[uint64]LogFinish{},
-		setting:   &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "5", Status: enum.CommonYes, IsDel: enum.CommonNo},
+		setting:   &systemsetting.Setting{SettingKey: sharedsetting.AuthVerifyCodeTTLKey, SettingValue: "5", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
 		nextID:    1,
 	}
 }
@@ -287,7 +288,7 @@ func (r *fakeSmsRepository) SoftDeleteLogs(ctx context.Context, ids []uint64) er
 	return nil
 }
 func (r *fakeSmsRepository) SettingByKey(ctx context.Context, key string) (*systemsetting.Setting, error) {
-	if key != verifyCodeTTLSettingKey {
+	if key != sharedsetting.AuthVerifyCodeTTLKey {
 		return nil, nil
 	}
 	return r.setting, nil

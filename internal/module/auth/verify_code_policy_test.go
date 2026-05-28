@@ -8,6 +8,7 @@ import (
 
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
+	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 type fakeVerifyCodePolicyRepository struct {
@@ -29,7 +30,7 @@ func TestSystemSettingVerifyCodePolicyProviderTTL(t *testing.T) {
 		{
 			name: "enabled",
 			row: &systemsetting.Setting{
-				SettingKey:   VerifyCodeTTLSettingKey,
+				SettingKey:   sharedsetting.AuthVerifyCodeTTLKey,
 				SettingValue: "7",
 				ValueType:    enum.SystemSettingValueNumber,
 				Status:       enum.CommonYes,
@@ -41,7 +42,7 @@ func TestSystemSettingVerifyCodePolicyProviderTTL(t *testing.T) {
 		{
 			name: "disabled",
 			row: &systemsetting.Setting{
-				SettingKey:   VerifyCodeTTLSettingKey,
+				SettingKey:   sharedsetting.AuthVerifyCodeTTLKey,
 				SettingValue: "5",
 				ValueType:    enum.SystemSettingValueNumber,
 				Status:       enum.CommonNo,
@@ -52,7 +53,7 @@ func TestSystemSettingVerifyCodePolicyProviderTTL(t *testing.T) {
 		{
 			name: "wrong type",
 			row: &systemsetting.Setting{
-				SettingKey:   VerifyCodeTTLSettingKey,
+				SettingKey:   sharedsetting.AuthVerifyCodeTTLKey,
 				SettingValue: "5",
 				ValueType:    enum.SystemSettingValueString,
 				Status:       enum.CommonYes,
@@ -63,7 +64,7 @@ func TestSystemSettingVerifyCodePolicyProviderTTL(t *testing.T) {
 		{
 			name: "zero",
 			row: &systemsetting.Setting{
-				SettingKey:   VerifyCodeTTLSettingKey,
+				SettingKey:   sharedsetting.AuthVerifyCodeTTLKey,
 				SettingValue: "0",
 				ValueType:    enum.SystemSettingValueNumber,
 				Status:       enum.CommonYes,
@@ -74,7 +75,7 @@ func TestSystemSettingVerifyCodePolicyProviderTTL(t *testing.T) {
 		{
 			name: "too large",
 			row: &systemsetting.Setting{
-				SettingKey:   VerifyCodeTTLSettingKey,
+				SettingKey:   sharedsetting.AuthVerifyCodeTTLKey,
 				SettingValue: "61",
 				ValueType:    enum.SystemSettingValueNumber,
 				Status:       enum.CommonYes,
@@ -85,7 +86,7 @@ func TestSystemSettingVerifyCodePolicyProviderTTL(t *testing.T) {
 		{
 			name: "decimal",
 			row: &systemsetting.Setting{
-				SettingKey:   VerifyCodeTTLSettingKey,
+				SettingKey:   sharedsetting.AuthVerifyCodeTTLKey,
 				SettingValue: "1.5",
 				ValueType:    enum.SystemSettingValueNumber,
 				Status:       enum.CommonYes,

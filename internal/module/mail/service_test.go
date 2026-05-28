@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/platform/secretbox"
+	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 type fakeMailRepository struct {
@@ -234,7 +235,7 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 func TestServiceConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
 	repo := &fakeMailRepository{
 		config:  &Config{ID: 1, SecretIDEnc: "cipher-id", SecretIDHint: "***t-id", SecretKeyEnc: "cipher-key", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
-		setting: &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "6", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
+		setting: &systemsetting.Setting{SettingKey: sharedsetting.AuthVerifyCodeTTLKey, SettingValue: "6", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
 	}
 	service := NewService(repo, testSecretBox(), &fakeMailSender{})
 
@@ -258,7 +259,7 @@ func TestServiceConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
 func TestServiceConfigIncludesVerifyCodeTTLFromSystemSetting(t *testing.T) {
 	repo := &fakeMailRepository{
 		config:  &Config{ID: 1, SecretIDHint: "***t-id", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
-		setting: &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "11", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
+		setting: &systemsetting.Setting{SettingKey: sharedsetting.AuthVerifyCodeTTLKey, SettingValue: "11", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
 	}
 	service := NewService(repo, testSecretBox(), &fakeMailSender{})
 
@@ -274,7 +275,7 @@ func TestServiceConfigIncludesVerifyCodeTTLFromSystemSetting(t *testing.T) {
 
 func TestServiceDefaultConfigIncludesVerifyCodeTTLFromSystemSetting(t *testing.T) {
 	repo := &fakeMailRepository{
-		setting: &systemsetting.Setting{SettingKey: verifyCodeTTLSettingKey, SettingValue: "12", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
+		setting: &systemsetting.Setting{SettingKey: sharedsetting.AuthVerifyCodeTTLKey, SettingValue: "12", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
 	}
 	service := NewService(repo, testSecretBox(), &fakeMailSender{})
 
@@ -296,7 +297,7 @@ func TestServiceDefaultConfigFallsBackToDefaultVerifyCodeTTLWhenSettingMissing(t
 	if appErr != nil {
 		t.Fatalf("expected Config to succeed, got %v", appErr)
 	}
-	if result.Configured || result.VerifyCodeTTLMinutes != defaultVerifyCodeTTLMin {
+	if result.Configured || result.VerifyCodeTTLMinutes != sharedsetting.DefaultAuthVerifyCodeTTLMinutes {
 		t.Fatalf("expected default ttl, got %#v", result)
 	}
 }
@@ -401,14 +402,14 @@ func TestServiceSaveConfigPersistsVerifyCodeTTLToSystemSettings(t *testing.T) {
 		t.Fatalf("expected SaveConfig to succeed, got %v", appErr)
 	}
 	if repo.savedSetting == nil ||
-		repo.savedSetting.SettingKey != verifyCodeTTLSettingKey ||
+		repo.savedSetting.SettingKey != sharedsetting.AuthVerifyCodeTTLKey ||
 		repo.savedSetting.SettingValue != "11" ||
 		repo.savedSetting.ValueType != enum.SystemSettingValueNumber ||
 		repo.savedSetting.Status != enum.CommonYes ||
 		repo.savedSetting.IsDel != enum.CommonNo {
 		t.Fatalf("unexpected saved setting: %#v", repo.savedSetting)
 	}
-	if len(repo.invalidatedSettings) != 1 || repo.invalidatedSettings[0] != verifyCodeTTLSettingKey {
+	if len(repo.invalidatedSettings) != 1 || repo.invalidatedSettings[0] != sharedsetting.AuthVerifyCodeTTLKey {
 		t.Fatalf("expected ttl cache invalidation, got %#v", repo.invalidatedSettings)
 	}
 }

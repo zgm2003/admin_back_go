@@ -9,26 +9,21 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"admin_back_go/internal/apperror"
 	"admin_back_go/internal/dict"
 	"admin_back_go/internal/enum"
-	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/platform/secretbox"
+	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 const (
-	timeLayout              = "2006-01-02 15:04:05"
-	defaultPage             = 1
-	defaultPageSize         = 20
-	maxTemplateVarLen       = 64
-	verifyCodeTTLSettingKey = "auth.verify_code.ttl_minutes"
-	defaultVerifyCodeTTLMin = 5
-	minVerifyCodeTTLMin     = 1
-	maxVerifyCodeTTLMin     = 60
+	timeLayout        = "2006-01-02 15:04:05"
+	defaultPage       = 1
+	defaultPageSize   = 20
+	maxTemplateVarLen = 64
 )
 
 var simpleEmailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
@@ -66,7 +61,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 		MailRegionArr:     dict.MailRegionOptions(),
 		DefaultRegion:     DefaultRegion,
 		DefaultEndpoint:   DefaultEndpoint,
-		DefaultTTLMinutes: defaultVerifyCodeTTLMin,
+		DefaultTTLMinutes: sharedsetting.DefaultAuthVerifyCodeTTLMinutes,
 	}}, nil
 }
 
@@ -98,7 +93,7 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	if appErr != nil {
 		return appErr
 	}
-	ttl, appErr := normalizeVerifyCodeTTLMinutes(input.VerifyCodeTTLMinutes)
+	ttl, appErr := sharedsetting.NormalizeAuthVerifyCodeTTLMinutes(input.VerifyCodeTTLMinutes)
 	if appErr != nil {
 		return appErr
 	}
@@ -113,18 +108,8 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	if err := repo.SaveDefaultConfig(ctx, row); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存邮件配置失败", err)
 	}
-	if err := repo.SaveSetting(ctx, systemsetting.Setting{
-		SettingKey:   verifyCodeTTLSettingKey,
-		SettingValue: strconv.Itoa(ttl),
-		ValueType:    enum.SystemSettingValueNumber,
-		Remark:       "验证码有效期分钟数，邮件和短信共用",
-		Status:       enum.CommonYes,
-		IsDel:        enum.CommonNo,
-	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存验证码有效期配置失败", err)
-	}
-	if err := repo.InvalidateSettingCache(ctx, verifyCodeTTLSettingKey); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "清理验证码有效期配置缓存失败", err)
+	if appErr := sharedsetting.SaveAuthVerifyCodeTTLMinutes(ctx, repo, ttl); appErr != nil {
+		return appErr
 	}
 	return nil
 }
@@ -447,18 +432,7 @@ func (s *Service) enabledConfig(ctx context.Context, repo Repository) (*Config, 
 }
 
 func (s *Service) configuredVerifyCodeTTL(ctx context.Context, repo Repository) (int, *apperror.Error) {
-	row, err := repo.SettingByKey(ctx, verifyCodeTTLSettingKey)
-	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询验证码有效期配置失败", err)
-	}
-	if row == nil || row.IsDel != enum.CommonNo || row.Status != enum.CommonYes || strings.TrimSpace(row.SettingValue) == "" {
-		return defaultVerifyCodeTTLMin, nil
-	}
-	ttl, err := strconv.Atoi(strings.TrimSpace(row.SettingValue))
-	if err != nil {
-		return 0, apperror.BadRequest("验证码有效期必须为整数分钟")
-	}
-	return normalizeVerifyCodeTTLMinutes(ttl)
+	return sharedsetting.AuthVerifyCodeTTLMinutesOrDefault(ctx, repo)
 }
 
 func enabledTemplate(ctx context.Context, repo Repository, scene string) (*Template, *apperror.Error) {
@@ -565,13 +539,6 @@ func normalizeConfigInput(input SaveConfigInput) (SaveConfigInput, *apperror.Err
 		return input, apperror.BadRequest("无效的状态")
 	}
 	return input, nil
-}
-
-func normalizeVerifyCodeTTLMinutes(value int) (int, *apperror.Error) {
-	if value < minVerifyCodeTTLMin || value > maxVerifyCodeTTLMin {
-		return 0, apperror.BadRequest("验证码有效期必须在 1-60 分钟之间")
-	}
-	return value, nil
 }
 
 func templateRowFromInput(input SaveTemplateInput) (Template, *apperror.Error) {

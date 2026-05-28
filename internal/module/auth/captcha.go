@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/enum"
 	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/platform/redisclient"
+	sharedsetting "admin_back_go/internal/shared/setting"
 
 	"github.com/redis/go-redis/v9"
 	assetimages "github.com/wenlng/go-captcha-assets/resources/imagesv2"
@@ -159,8 +160,6 @@ func (e *SlideCaptchaEngine) Generate() (*GeneratedCaptchaChallenge, error) {
 }
 
 const (
-	// CaptchaTTLSettingKey is the system_settings key for slide CAPTCHA lifetime in minutes.
-	CaptchaTTLSettingKey = "auth.captcha.ttl_minutes"
 	// CaptchaSlidePaddingSettingKey is the system_settings key for tolerated slide-answer offset.
 	CaptchaSlidePaddingSettingKey = "auth.captcha.slide_padding"
 )
@@ -188,7 +187,7 @@ func NewSystemSettingCaptchaPolicyProvider(repository CaptchaPolicyRepository) *
 
 // TTL returns the enabled CAPTCHA lifetime.
 func (p *SystemSettingCaptchaPolicyProvider) TTL(ctx context.Context) (time.Duration, *apperror.Error) {
-	minutes, appErr := p.positiveIntSetting(ctx, CaptchaTTLSettingKey)
+	minutes, appErr := sharedsetting.AuthCaptchaTTLMinutes(ctx, p.repository)
 	if appErr != nil {
 		return 0, appErr
 	}
@@ -198,17 +197,6 @@ func (p *SystemSettingCaptchaPolicyProvider) TTL(ctx context.Context) (time.Dura
 // SlidePadding returns the enabled tolerated slide-answer offset.
 func (p *SystemSettingCaptchaPolicyProvider) SlidePadding(ctx context.Context) (int, *apperror.Error) {
 	return p.nonNegativeIntSetting(ctx, CaptchaSlidePaddingSettingKey)
-}
-
-func (p *SystemSettingCaptchaPolicyProvider) positiveIntSetting(ctx context.Context, key string) (int, *apperror.Error) {
-	value, appErr := p.intSetting(ctx, key)
-	if appErr != nil {
-		return 0, appErr
-	}
-	if value <= 0 {
-		return 0, apperror.BadRequestKey("captcha.policy.value_invalid", map[string]any{"key": key}, "验证码策略配置取值无效")
-	}
-	return value, nil
 }
 
 func (p *SystemSettingCaptchaPolicyProvider) nonNegativeIntSetting(ctx context.Context, key string) (int, *apperror.Error) {
