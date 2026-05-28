@@ -1,7 +1,7 @@
 package server
 
 import (
-	authplatformadmin "admin_back_go/internal/module/authplatform/transport/admin"
+	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
 	paymentadmin "admin_back_go/internal/module/payment/transport/admin"
 	paymentcallback "admin_back_go/internal/module/payment/transport/callback"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"

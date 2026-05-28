@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	authplatformmodule "admin_back_go/internal/module/authplatform"
+	authplatformmodule "admin_back_go/internal/module/auth_platform"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 

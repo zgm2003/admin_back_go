@@ -1020,7 +1020,7 @@ full smoke 不随机踢 live session；只验证当前 session anti-kick，非�
 
 ## Auth platform management baseline
 
-`internal/module/authplatform` 是认证平台策略的唯一写入口。它控制登录方式、验证码类型、token TTL、会话绑定策略和是否允许自动注册，不是普通配置页。
+`internal/module/auth_platform` 是认证平台策略的唯一写入口。它控制登录方式、验证码类型、token TTL、会话绑定策略和是否允许自动注册，不是普通配置页。
 
 当前 REST 路由：
 

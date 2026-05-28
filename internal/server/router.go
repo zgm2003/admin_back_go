@@ -16,7 +16,7 @@ import (
 	"admin_back_go/internal/module/airun"
 	"admin_back_go/internal/module/aitool"
 	"admin_back_go/internal/module/auth"
-	authplatformadmin "admin_back_go/internal/module/authplatform/transport/admin"
+	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
 	clientversionadmin "admin_back_go/internal/module/clientversion/transport/admin"
 	crontaskadmin "admin_back_go/internal/module/crontask/transport/admin"
 	exporttaskadmin "admin_back_go/internal/module/exporttask/transport/admin"
