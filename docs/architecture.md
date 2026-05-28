@@ -1483,12 +1483,13 @@ internal/infra/ai            # OpenAI-compatible chat/test interface; no Dify/RA
 internal/infra/ai/provider   # provider discovery/test boundary; first driver is OpenAI / GET /models
 internal/module/ai/provider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/ai/agent         # ai_agents local agent config MVP
-internal/module/aiknowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
-internal/module/aiconversation  # current-user conversations; canonical agent_id -> ai_agents
-internal/module/aimessage       # conversation messages, feedback, branch cleanup
-internal/module/airun           # ai_runs / ai_run_events token-only run monitor
-internal/module/aichat          # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
+internal/module/ai/image         # ai_image_tasks / ai_image_assets generation runtime
+internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
+internal/module/aiconversation   # current-user conversations; canonical agent_id -> ai_agents
+internal/module/aimessage        # conversation messages, feedback, branch cleanup
+internal/module/airun            # ai_runs / ai_run_events token-only run monitor
+internal/module/aichat           # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
 ```
 
 Retired AI active runtime:

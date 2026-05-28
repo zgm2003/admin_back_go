@@ -1,6 +1,6 @@
 package admin
 
-import aiknowledgemodule "admin_back_go/internal/module/aiknowledge"
+import aiknowledgemodule "admin_back_go/internal/module/ai/knowledge"
 
 type (
 	ChunkOptions                      = aiknowledgemodule.ChunkOptions

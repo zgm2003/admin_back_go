@@ -3,11 +3,11 @@ package server
 import (
 	aiagentadmin "admin_back_go/internal/module/ai/agent/transport/admin"
 	aiimageadmin "admin_back_go/internal/module/ai/image/transport/admin"
+	aiknowledgeadmin "admin_back_go/internal/module/ai/knowledge/transport/admin"
 	aiprovideradmin "admin_back_go/internal/module/ai/provider/transport/admin"
 	aitooladmin "admin_back_go/internal/module/ai/tool/transport/admin"
 	aichatadmin "admin_back_go/internal/module/aichat/transport/admin"
 	aiconversationadmin "admin_back_go/internal/module/aiconversation/transport/admin"
-	aiknowledgeadmin "admin_back_go/internal/module/aiknowledge/transport/admin"
 	aimessageadmin "admin_back_go/internal/module/aimessage/transport/admin"
 	airunadmin "admin_back_go/internal/module/airun/transport/admin"
 
