@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	systemsettingmodule "admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 	projecti18n "admin_back_go/internal/shared/i18n"
@@ -16,27 +17,27 @@ import (
 )
 
 type fakeHTTPService struct {
-	listQuery   ListQuery
-	createInput CreateInput
+	listQuery   systemsettingmodule.ListQuery
+	createInput systemsettingmodule.CreateInput
 	statusID    int64
 	status      int
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{Dict: InitDict{}}, nil
+func (f *fakeHTTPService) Init(ctx context.Context) (*systemsettingmodule.InitResponse, *apperror.Error) {
+	return &systemsettingmodule.InitResponse{Dict: systemsettingmodule.InitDict{}}, nil
 }
 
-func (f *fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (f *fakeHTTPService) List(ctx context.Context, query systemsettingmodule.ListQuery) (*systemsettingmodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &ListResponse{List: []ListItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &systemsettingmodule.ListResponse{List: []systemsettingmodule.ListItem{}, Page: systemsettingmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
-func (f *fakeHTTPService) Create(ctx context.Context, input CreateInput) (int64, *apperror.Error) {
+func (f *fakeHTTPService) Create(ctx context.Context, input systemsettingmodule.CreateInput) (int64, *apperror.Error) {
 	f.createInput = input
 	return 1, nil
 }
 
-func (f *fakeHTTPService) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
+func (f *fakeHTTPService) Update(ctx context.Context, id int64, input systemsettingmodule.UpdateInput) *apperror.Error {
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	operationlogmodule "admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -16,22 +17,22 @@ import (
 )
 
 type fakeHTTPService struct {
-	listQuery  ListQuery
-	listResult *ListResponse
+	listQuery  operationlogmodule.ListQuery
+	listResult *operationlogmodule.ListResponse
 	deleteIDs  []int64
 	err        *apperror.Error
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{}, f.err
+func (f *fakeHTTPService) Init(ctx context.Context) (*operationlogmodule.InitResponse, *apperror.Error) {
+	return &operationlogmodule.InitResponse{}, f.err
 }
 
-func (f *fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (f *fakeHTTPService) List(ctx context.Context, query operationlogmodule.ListQuery) (*operationlogmodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
 	if f.listResult != nil {
 		return f.listResult, f.err
 	}
-	return &ListResponse{Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
+	return &operationlogmodule.ListResponse{Page: operationlogmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
 }
 
 func (f *fakeHTTPService) Delete(ctx context.Context, ids []int64) *apperror.Error {
@@ -40,9 +41,9 @@ func (f *fakeHTTPService) Delete(ctx context.Context, ids []int64) *apperror.Err
 }
 
 func TestHandlerListBindsRESTQuery(t *testing.T) {
-	service := &fakeHTTPService{listResult: &ListResponse{
-		List: []ListItem{{ID: 1, Action: "编辑用户"}},
-		Page: Page{CurrentPage: 1, PageSize: 20, Total: 1, TotalPage: 1},
+	service := &fakeHTTPService{listResult: &operationlogmodule.ListResponse{
+		List: []operationlogmodule.ListItem{{ID: 1, Action: "编辑用户"}},
+		Page: operationlogmodule.Page{CurrentPage: 1, PageSize: 20, Total: 1, TotalPage: 1},
 	}}
 	router := newOperationLogTestRouter(service)
 

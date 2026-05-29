@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	queuemonitormodule "admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -11,8 +12,8 @@ import (
 )
 
 type HTTPService interface {
-	List(ctx context.Context) ([]QueueItem, *apperror.Error)
-	FailedList(ctx context.Context, query FailedListQuery) (*FailedListResponse, *apperror.Error)
+	List(ctx context.Context) ([]queuemonitormodule.QueueItem, *apperror.Error)
+	FailedList(ctx context.Context, query queuemonitormodule.FailedListQuery) (*queuemonitormodule.FailedListResponse, *apperror.Error)
 }
 
 type Handler struct {
@@ -47,7 +48,7 @@ func (h *Handler) FailedList(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("queuemonitor.failed_query.invalid", nil, "队列失败任务参数错误"))
 		return
 	}
-	result, appErr := h.service.FailedList(c.Request.Context(), FailedListQuery{
+	result, appErr := h.service.FailedList(c.Request.Context(), queuemonitormodule.FailedListQuery{
 		Queue:       req.Queue,
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
@@ -61,7 +62,7 @@ func (h *Handler) FailedList(c *gin.Context) {
 
 func (h *Handler) UI(c *gin.Context) {
 	if h.monitor == nil {
-		response.Error(c, apperror.InternalKey("queuemonitor.ui_unavailable", nil, ErrUIUnavailable))
+		response.Error(c, apperror.InternalKey("queuemonitor.ui_unavailable", nil, queuemonitormodule.ErrUIUnavailable))
 		return
 	}
 	h.monitor.ServeHTTP(c.Writer, c.Request)

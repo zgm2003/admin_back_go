@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	mailmodule "admin_back_go/internal/module/mail"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 
@@ -15,39 +16,39 @@ import (
 )
 
 type fakeMailHTTPService struct {
-	pageInitResult *PageInitResponse
-	configResult   *ConfigResponse
-	logResult      *LogDTO
-	savedConfig    SaveConfigInput
+	pageInitResult *mailmodule.PageInitResponse
+	configResult   *mailmodule.ConfigResponse
+	logResult      *mailmodule.LogDTO
+	savedConfig    mailmodule.SaveConfigInput
 	deletedIDs     []uint64
 }
 
-func (f *fakeMailHTTPService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
+func (f *fakeMailHTTPService) PageInit(ctx context.Context) (*mailmodule.PageInitResponse, *apperror.Error) {
 	if f.pageInitResult != nil {
 		return f.pageInitResult, nil
 	}
-	return (&Service{}).PageInit(ctx)
+	return (&mailmodule.Service{}).PageInit(ctx)
 }
 
-func (f *fakeMailHTTPService) Config(ctx context.Context) (*ConfigResponse, *apperror.Error) {
+func (f *fakeMailHTTPService) Config(ctx context.Context) (*mailmodule.ConfigResponse, *apperror.Error) {
 	return f.configResult, nil
 }
 
-func (f *fakeMailHTTPService) SaveConfig(ctx context.Context, input SaveConfigInput) *apperror.Error {
+func (f *fakeMailHTTPService) SaveConfig(ctx context.Context, input mailmodule.SaveConfigInput) *apperror.Error {
 	f.savedConfig = input
 	return nil
 }
 func (f *fakeMailHTTPService) DeleteConfig(ctx context.Context) *apperror.Error { return nil }
-func (f *fakeMailHTTPService) TestSend(ctx context.Context, input TestInput) *apperror.Error {
+func (f *fakeMailHTTPService) TestSend(ctx context.Context, input mailmodule.TestInput) *apperror.Error {
 	return nil
 }
-func (f *fakeMailHTTPService) Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error) {
+func (f *fakeMailHTTPService) Templates(ctx context.Context) ([]mailmodule.TemplateDTO, *apperror.Error) {
 	return nil, nil
 }
-func (f *fakeMailHTTPService) CreateTemplate(ctx context.Context, input SaveTemplateInput) (uint64, *apperror.Error) {
+func (f *fakeMailHTTPService) CreateTemplate(ctx context.Context, input mailmodule.SaveTemplateInput) (uint64, *apperror.Error) {
 	return 1, nil
 }
-func (f *fakeMailHTTPService) UpdateTemplate(ctx context.Context, id uint64, input SaveTemplateInput) *apperror.Error {
+func (f *fakeMailHTTPService) UpdateTemplate(ctx context.Context, id uint64, input mailmodule.SaveTemplateInput) *apperror.Error {
 	return nil
 }
 func (f *fakeMailHTTPService) ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -56,10 +57,10 @@ func (f *fakeMailHTTPService) ChangeTemplateStatus(ctx context.Context, id uint6
 func (f *fakeMailHTTPService) DeleteTemplate(ctx context.Context, id uint64) *apperror.Error {
 	return nil
 }
-func (f *fakeMailHTTPService) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *apperror.Error) {
-	return &LogListResponse{}, nil
+func (f *fakeMailHTTPService) Logs(ctx context.Context, query mailmodule.LogQuery) (*mailmodule.LogListResponse, *apperror.Error) {
+	return &mailmodule.LogListResponse{}, nil
 }
-func (f *fakeMailHTTPService) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error) {
+func (f *fakeMailHTTPService) Log(ctx context.Context, id uint64) (*mailmodule.LogDTO, *apperror.Error) {
 	return f.logResult, nil
 }
 func (f *fakeMailHTTPService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
@@ -80,19 +81,19 @@ func TestHandlerPageInitReturnsDataDict(t *testing.T) {
 	var body struct {
 		Code int `json:"code"`
 		Data struct {
-			Dict PageInitDict `json:"dict"`
+			Dict mailmodule.PageInitDict `json:"dict"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if body.Code != 0 || len(body.Data.Dict.MailSceneArr) != 4 || body.Data.Dict.DefaultEndpoint != DefaultEndpoint {
+	if body.Code != 0 || len(body.Data.Dict.MailSceneArr) != 4 || body.Data.Dict.DefaultEndpoint != mailmodule.DefaultEndpoint {
 		t.Fatalf("unexpected page-init response: %#v", body)
 	}
 }
 
 func TestHandlerConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
-	service := &fakeMailHTTPService{configResult: &ConfigResponse{Configured: true, SecretIDHint: "***t-id", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes}}
+	service := &fakeMailHTTPService{configResult: &mailmodule.ConfigResponse{Configured: true, SecretIDHint: "***t-id", SecretKeyHint: "***-key", Region: mailmodule.DefaultRegion, Endpoint: mailmodule.DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes}}
 	router := newMailTestRouter(service)
 
 	recorder := httptest.NewRecorder()
@@ -114,7 +115,7 @@ func TestHandlerConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
 }
 
 func TestHandlerLogResponseDoesNotExposeTemplateDataOrVerifyCode(t *testing.T) {
-	service := &fakeMailHTTPService{logResult: &LogDTO{ID: 7, Scene: enum.VerifyCodeSceneLogin, ToEmail: "user@example.com", Subject: "Login", Status: enum.MailLogStatusSuccess, TencentRequestID: "req"}}
+	service := &fakeMailHTTPService{logResult: &mailmodule.LogDTO{ID: 7, Scene: enum.VerifyCodeSceneLogin, ToEmail: "user@example.com", Subject: "Login", Status: enum.MailLogStatusSuccess, TencentRequestID: "req"}}
 	router := newMailTestRouter(service)
 
 	recorder := httptest.NewRecorder()

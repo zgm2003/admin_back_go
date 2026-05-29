@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	systemlogmodule "admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	projecti18n "admin_back_go/internal/shared/i18n"
@@ -16,21 +17,21 @@ import (
 
 type fakeService struct {
 	filesCalled bool
-	linesQuery  LinesQuery
+	linesQuery  systemlogmodule.LinesQuery
 }
 
-func (f *fakeService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{Dict: InitDict{LogLevelArr: []dict.Option[string]{{Label: "ERROR", Value: "ERROR"}}, LogTailArr: []dict.Option[int]{{Label: "最近 500 行", Value: 500}}}}, nil
+func (f *fakeService) Init(ctx context.Context) (*systemlogmodule.InitResponse, *apperror.Error) {
+	return &systemlogmodule.InitResponse{Dict: systemlogmodule.InitDict{LogLevelArr: []dict.Option[string]{{Label: "ERROR", Value: "ERROR"}}, LogTailArr: []dict.Option[int]{{Label: "最近 500 行", Value: 500}}}}, nil
 }
 
-func (f *fakeService) Files(ctx context.Context) (*FilesResponse, *apperror.Error) {
+func (f *fakeService) Files(ctx context.Context) (*systemlogmodule.FilesResponse, *apperror.Error) {
 	f.filesCalled = true
-	return &FilesResponse{List: []FileItem{{Name: "admin-api.log", Size: 10, SizeHuman: "10 B", MTime: "2026-05-04 10:00:00"}}}, nil
+	return &systemlogmodule.FilesResponse{List: []systemlogmodule.FileItem{{Name: "admin-api.log", Size: 10, SizeHuman: "10 B", MTime: "2026-05-04 10:00:00"}}}, nil
 }
 
-func (f *fakeService) Lines(ctx context.Context, query LinesQuery) (*LinesResponse, *apperror.Error) {
+func (f *fakeService) Lines(ctx context.Context, query systemlogmodule.LinesQuery) (*systemlogmodule.LinesResponse, *apperror.Error) {
 	f.linesQuery = query
-	return &LinesResponse{Filename: query.Filename, Total: 1, Lines: []LineItem{{Number: 1, Level: "ERROR", Content: "ERROR boom"}}}, nil
+	return &systemlogmodule.LinesResponse{Filename: query.Filename, Total: 1, Lines: []systemlogmodule.LineItem{{Number: 1, Level: "ERROR", Content: "ERROR boom"}}}, nil
 }
 
 func TestHandlerUsesRESTRoutes(t *testing.T) {

@@ -17,11 +17,12 @@ import (
 	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/module/auth"
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
-	clientversionadmin "admin_back_go/internal/module/clientversion/transport/admin"
-	crontaskadmin "admin_back_go/internal/module/crontask/transport/admin"
-	exporttaskadmin "admin_back_go/internal/module/export/transport/admin"
+	clientversion "admin_back_go/internal/module/clientversion"
+	crontask "admin_back_go/internal/module/crontask"
+	exporttask "admin_back_go/internal/module/export"
 	mailadmin "admin_back_go/internal/module/mail/transport/admin"
-	notificationadmin "admin_back_go/internal/module/notification/transport/admin"
+	notification "admin_back_go/internal/module/notification"
+	notificationtask "admin_back_go/internal/module/notification/task"
 	operationlogadmin "admin_back_go/internal/module/operationlog/transport/admin"
 	"admin_back_go/internal/module/payment"
 	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
@@ -31,7 +32,7 @@ import (
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
 	roleadmin "admin_back_go/internal/module/role/transport/admin"
 	smsadmin "admin_back_go/internal/module/sms/transport/admin"
-	systemadmin "admin_back_go/internal/module/system/transport/admin"
+	system "admin_back_go/internal/module/system"
 	systemlogadmin "admin_back_go/internal/module/systemlog/transport/admin"
 	systemsettingadmin "admin_back_go/internal/module/systemsetting/transport/admin"
 	uploadconfigadmin "admin_back_go/internal/module/uploadconfig/transport/admin"
@@ -45,7 +46,7 @@ import (
 )
 
 type Dependencies struct {
-	Readiness               systemadmin.ReadinessChecker
+	Readiness               system.ReadinessChecker
 	Logger                  *slog.Logger
 	CORS                    config.CORSConfig
 	Authenticator           middleware.TokenAuthenticator
@@ -55,7 +56,7 @@ type Dependencies struct {
 	OperationRules          map[middleware.RouteKey]middleware.OperationRule
 	AuthService             auth.SessionService
 	CaptchaService          auth.CaptchaHTTPService
-	ClientVersionService    clientversionadmin.HTTPService
+	ClientVersionService    clientversion.HTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
 	AiImageService          aiimage.HTTPService
@@ -65,14 +66,14 @@ type Dependencies struct {
 	AiMessageService        aimessage.HTTPService
 	AiRunService            airun.HTTPService
 	AiToolService           aitool.HTTPService
-	CronTaskService         crontaskadmin.HTTPService
-	ExportTaskService       exporttaskadmin.HTTPService
+	CronTaskService         crontask.HTTPService
+	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
 	UserQuickEntryService   profile.QuickEntryService
 	LoginLogService         auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
-	NotificationService     notificationadmin.HTTPService
-	NotificationTaskService notificationadmin.TaskHTTPService
+	NotificationService     notification.HTTPService
+	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlogadmin.HTTPService
 	MailService             mailadmin.HTTPService
 	SmsService              smsadmin.HTTPService

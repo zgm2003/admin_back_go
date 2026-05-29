@@ -9,6 +9,7 @@ import (
 
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
+	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -19,7 +20,7 @@ const defaultSendBuffer = 16
 
 // Handler owns the HTTP/WebSocket boundary for admin realtime.
 type Handler struct {
-	service    *Service
+	service    *realtimemodule.Service
 	upgrader   *infrarealtime.Upgrader
 	manager    *infrarealtime.Manager
 	logger     *slog.Logger
@@ -47,7 +48,7 @@ func WithSendBuffer(size int) Option {
 }
 
 // NewHandler creates a realtime handler.
-func NewHandler(service *Service, upgrader *infrarealtime.Upgrader, manager *infrarealtime.Manager, logger *slog.Logger, options ...Option) *Handler {
+func NewHandler(service *realtimemodule.Service, upgrader *infrarealtime.Upgrader, manager *infrarealtime.Manager, logger *slog.Logger, options ...Option) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}

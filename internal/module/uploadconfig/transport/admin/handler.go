@@ -11,35 +11,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type DriverInitResponse = uploadconfigmodule.DriverInitResponse
-type DriverListQuery = uploadconfigmodule.DriverListQuery
-type DriverListResponse = uploadconfigmodule.DriverListResponse
-type DriverCreateInput = uploadconfigmodule.DriverCreateInput
-type DriverUpdateInput = uploadconfigmodule.DriverUpdateInput
-type RuleInitResponse = uploadconfigmodule.RuleInitResponse
-type RuleListQuery = uploadconfigmodule.RuleListQuery
-type RuleListResponse = uploadconfigmodule.RuleListResponse
-type RuleMutationInput = uploadconfigmodule.RuleMutationInput
-type SettingInitResponse = uploadconfigmodule.SettingInitResponse
-type SettingListQuery = uploadconfigmodule.SettingListQuery
-type SettingListResponse = uploadconfigmodule.SettingListResponse
-type SettingMutationInput = uploadconfigmodule.SettingMutationInput
-
 type HTTPService interface {
-	DriverInit(ctx context.Context) (*DriverInitResponse, *apperror.Error)
-	DriverList(ctx context.Context, query DriverListQuery) (*DriverListResponse, *apperror.Error)
-	CreateDriver(ctx context.Context, input DriverCreateInput) (int64, *apperror.Error)
-	UpdateDriver(ctx context.Context, id int64, input DriverUpdateInput) *apperror.Error
+	DriverInit(ctx context.Context) (*uploadconfigmodule.DriverInitResponse, *apperror.Error)
+	DriverList(ctx context.Context, query uploadconfigmodule.DriverListQuery) (*uploadconfigmodule.DriverListResponse, *apperror.Error)
+	CreateDriver(ctx context.Context, input uploadconfigmodule.DriverCreateInput) (int64, *apperror.Error)
+	UpdateDriver(ctx context.Context, id int64, input uploadconfigmodule.DriverUpdateInput) *apperror.Error
 	DeleteDrivers(ctx context.Context, ids []int64) *apperror.Error
-	RuleInit(ctx context.Context) (*RuleInitResponse, *apperror.Error)
-	RuleList(ctx context.Context, query RuleListQuery) (*RuleListResponse, *apperror.Error)
-	CreateRule(ctx context.Context, input RuleMutationInput) (int64, *apperror.Error)
-	UpdateRule(ctx context.Context, id int64, input RuleMutationInput) *apperror.Error
+	RuleInit(ctx context.Context) (*uploadconfigmodule.RuleInitResponse, *apperror.Error)
+	RuleList(ctx context.Context, query uploadconfigmodule.RuleListQuery) (*uploadconfigmodule.RuleListResponse, *apperror.Error)
+	CreateRule(ctx context.Context, input uploadconfigmodule.RuleMutationInput) (int64, *apperror.Error)
+	UpdateRule(ctx context.Context, id int64, input uploadconfigmodule.RuleMutationInput) *apperror.Error
 	DeleteRules(ctx context.Context, ids []int64) *apperror.Error
-	SettingInit(ctx context.Context) (*SettingInitResponse, *apperror.Error)
-	SettingList(ctx context.Context, query SettingListQuery) (*SettingListResponse, *apperror.Error)
-	CreateSetting(ctx context.Context, input SettingMutationInput) (int64, *apperror.Error)
-	UpdateSetting(ctx context.Context, id int64, input SettingMutationInput) *apperror.Error
+	SettingInit(ctx context.Context) (*uploadconfigmodule.SettingInitResponse, *apperror.Error)
+	SettingList(ctx context.Context, query uploadconfigmodule.SettingListQuery) (*uploadconfigmodule.SettingListResponse, *apperror.Error)
+	CreateSetting(ctx context.Context, input uploadconfigmodule.SettingMutationInput) (int64, *apperror.Error)
+	UpdateSetting(ctx context.Context, id int64, input uploadconfigmodule.SettingMutationInput) *apperror.Error
 	ChangeSettingStatus(ctx context.Context, id int64, status int) *apperror.Error
 	DeleteSettings(ctx context.Context, ids []int64) *apperror.Error
 }
@@ -63,7 +49,7 @@ func (h *Handler) DriverList(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传驱动列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().DriverList(c.Request.Context(), DriverListQuery{
+	result, appErr := h.requireService().DriverList(c.Request.Context(), uploadconfigmodule.DriverListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Driver:      req.Driver,
@@ -77,7 +63,7 @@ func (h *Handler) DriverCreate(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传驱动参数错误"))
 		return
 	}
-	id, appErr := h.requireService().CreateDriver(c.Request.Context(), DriverCreateInput{
+	id, appErr := h.requireService().CreateDriver(c.Request.Context(), uploadconfigmodule.DriverCreateInput{
 		Driver: req.Driver, SecretID: req.SecretID, SecretKey: req.SecretKey, Bucket: req.Bucket, Region: req.Region,
 		RoleARN: req.RoleARN, AppID: req.AppID, Endpoint: req.Endpoint, BucketDomain: req.BucketDomain,
 	})
@@ -98,7 +84,7 @@ func (h *Handler) DriverUpdate(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传驱动参数错误"))
 		return
 	}
-	appErr := h.requireService().UpdateDriver(c.Request.Context(), id, DriverUpdateInput{
+	appErr := h.requireService().UpdateDriver(c.Request.Context(), id, uploadconfigmodule.DriverUpdateInput{
 		Driver: req.Driver, SecretID: req.SecretID, SecretKey: req.SecretKey, Bucket: req.Bucket, Region: req.Region,
 		RoleARN: req.RoleARN, AppID: req.AppID, Endpoint: req.Endpoint, BucketDomain: req.BucketDomain,
 	})
@@ -145,7 +131,7 @@ func (h *Handler) RuleList(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传规则列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().RuleList(c.Request.Context(), RuleListQuery{
+	result, appErr := h.requireService().RuleList(c.Request.Context(), uploadconfigmodule.RuleListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Title:       req.Title,
@@ -159,7 +145,7 @@ func (h *Handler) RuleCreate(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传规则参数错误"))
 		return
 	}
-	id, appErr := h.requireService().CreateRule(c.Request.Context(), RuleMutationInput{
+	id, appErr := h.requireService().CreateRule(c.Request.Context(), uploadconfigmodule.RuleMutationInput{
 		Title: req.Title, MaxSizeMB: req.MaxSizeMB, ImageExts: req.ImageExts, FileExts: req.FileExts,
 	})
 	if appErr != nil {
@@ -179,7 +165,7 @@ func (h *Handler) RuleUpdate(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传规则参数错误"))
 		return
 	}
-	if appErr := h.requireService().UpdateRule(c.Request.Context(), id, RuleMutationInput{
+	if appErr := h.requireService().UpdateRule(c.Request.Context(), id, uploadconfigmodule.RuleMutationInput{
 		Title: req.Title, MaxSizeMB: req.MaxSizeMB, ImageExts: req.ImageExts, FileExts: req.FileExts,
 	}); appErr != nil {
 		response.Error(c, appErr)
@@ -224,7 +210,7 @@ func (h *Handler) SettingList(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传设置列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().SettingList(c.Request.Context(), SettingListQuery{
+	result, appErr := h.requireService().SettingList(c.Request.Context(), uploadconfigmodule.SettingListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Remark:      req.Remark,
@@ -241,7 +227,7 @@ func (h *Handler) SettingCreate(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传设置参数错误"))
 		return
 	}
-	id, appErr := h.requireService().CreateSetting(c.Request.Context(), SettingMutationInput{
+	id, appErr := h.requireService().CreateSetting(c.Request.Context(), uploadconfigmodule.SettingMutationInput{
 		DriverID: req.DriverID,
 		RuleID:   req.RuleID,
 		Status:   req.Status,
@@ -264,7 +250,7 @@ func (h *Handler) SettingUpdate(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("上传设置参数错误"))
 		return
 	}
-	if appErr := h.requireService().UpdateSetting(c.Request.Context(), id, SettingMutationInput{
+	if appErr := h.requireService().UpdateSetting(c.Request.Context(), id, uploadconfigmodule.SettingMutationInput{
 		DriverID: req.DriverID,
 		RuleID:   req.RuleID,
 		Status:   req.Status,
@@ -327,19 +313,19 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) DriverInit(ctx context.Context) (*DriverInitResponse, *apperror.Error) {
+func (failingService) DriverInit(ctx context.Context) (*uploadconfigmodule.DriverInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) DriverList(ctx context.Context, query DriverListQuery) (*DriverListResponse, *apperror.Error) {
+func (failingService) DriverList(ctx context.Context, query uploadconfigmodule.DriverListQuery) (*uploadconfigmodule.DriverListResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) CreateDriver(ctx context.Context, input DriverCreateInput) (int64, *apperror.Error) {
+func (failingService) CreateDriver(ctx context.Context, input uploadconfigmodule.DriverCreateInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) UpdateDriver(ctx context.Context, id int64, input DriverUpdateInput) *apperror.Error {
+func (failingService) UpdateDriver(ctx context.Context, id int64, input uploadconfigmodule.DriverUpdateInput) *apperror.Error {
 	return apperror.Internal("上传配置服务未配置")
 }
 
@@ -347,19 +333,19 @@ func (failingService) DeleteDrivers(ctx context.Context, ids []int64) *apperror.
 	return apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) RuleInit(ctx context.Context) (*RuleInitResponse, *apperror.Error) {
+func (failingService) RuleInit(ctx context.Context) (*uploadconfigmodule.RuleInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) RuleList(ctx context.Context, query RuleListQuery) (*RuleListResponse, *apperror.Error) {
+func (failingService) RuleList(ctx context.Context, query uploadconfigmodule.RuleListQuery) (*uploadconfigmodule.RuleListResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) CreateRule(ctx context.Context, input RuleMutationInput) (int64, *apperror.Error) {
+func (failingService) CreateRule(ctx context.Context, input uploadconfigmodule.RuleMutationInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) UpdateRule(ctx context.Context, id int64, input RuleMutationInput) *apperror.Error {
+func (failingService) UpdateRule(ctx context.Context, id int64, input uploadconfigmodule.RuleMutationInput) *apperror.Error {
 	return apperror.Internal("上传配置服务未配置")
 }
 
@@ -367,19 +353,19 @@ func (failingService) DeleteRules(ctx context.Context, ids []int64) *apperror.Er
 	return apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) SettingInit(ctx context.Context) (*SettingInitResponse, *apperror.Error) {
+func (failingService) SettingInit(ctx context.Context) (*uploadconfigmodule.SettingInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) SettingList(ctx context.Context, query SettingListQuery) (*SettingListResponse, *apperror.Error) {
+func (failingService) SettingList(ctx context.Context, query uploadconfigmodule.SettingListQuery) (*uploadconfigmodule.SettingListResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) CreateSetting(ctx context.Context, input SettingMutationInput) (int64, *apperror.Error) {
+func (failingService) CreateSetting(ctx context.Context, input uploadconfigmodule.SettingMutationInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) UpdateSetting(ctx context.Context, id int64, input SettingMutationInput) *apperror.Error {
+func (failingService) UpdateSetting(ctx context.Context, id int64, input uploadconfigmodule.SettingMutationInput) *apperror.Error {
 	return apperror.Internal("上传配置服务未配置")
 }
 

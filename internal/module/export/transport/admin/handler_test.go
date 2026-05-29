@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/middleware"
+	exporttaskmodule "admin_back_go/internal/module/export"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -16,23 +17,23 @@ import (
 )
 
 type fakeHTTPService struct {
-	statusQuery StatusCountQuery
-	listQuery   ListQuery
-	deleteInput DeleteInput
+	statusQuery exporttaskmodule.StatusCountQuery
+	listQuery   exporttaskmodule.ListQuery
+	deleteInput exporttaskmodule.DeleteInput
 	err         *apperror.Error
 }
 
-func (f *fakeHTTPService) StatusCount(ctx context.Context, query StatusCountQuery) ([]StatusCountItem, *apperror.Error) {
+func (f *fakeHTTPService) StatusCount(ctx context.Context, query exporttaskmodule.StatusCountQuery) ([]exporttaskmodule.StatusCountItem, *apperror.Error) {
 	f.statusQuery = query
-	return []StatusCountItem{{Label: "处理中", Value: 1, Num: 1}}, f.err
+	return []exporttaskmodule.StatusCountItem{{Label: "处理中", Value: 1, Num: 1}}, f.err
 }
 
-func (f *fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (f *fakeHTTPService) List(ctx context.Context, query exporttaskmodule.ListQuery) (*exporttaskmodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &ListResponse{List: []ListItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
+	return &exporttaskmodule.ListResponse{List: []exporttaskmodule.ListItem{}, Page: exporttaskmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
 }
 
-func (f *fakeHTTPService) Delete(ctx context.Context, input DeleteInput) *apperror.Error {
+func (f *fakeHTTPService) Delete(ctx context.Context, input exporttaskmodule.DeleteInput) *apperror.Error {
 	f.deleteInput = input
 	return f.err
 }
@@ -128,7 +129,7 @@ func TestHandlerListLocalizesMissingIdentity(t *testing.T) {
 	}
 }
 
-func newExportTaskTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+func newExportTaskTestRouter(service exporttaskmodule.HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	if identity != nil {
@@ -141,7 +142,7 @@ func newExportTaskTestRouter(service HTTPService, identity *middleware.AuthIdent
 	return router
 }
 
-func newExportTaskLocalizedTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+func newExportTaskLocalizedTestRouter(service exporttaskmodule.HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())

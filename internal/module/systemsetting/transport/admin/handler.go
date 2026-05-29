@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	systemsettingmodule "admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -11,10 +12,10 @@ import (
 )
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
-	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
-	Create(ctx context.Context, input CreateInput) (int64, *apperror.Error)
-	Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error
+	Init(ctx context.Context) (*systemsettingmodule.InitResponse, *apperror.Error)
+	List(ctx context.Context, query systemsettingmodule.ListQuery) (*systemsettingmodule.ListResponse, *apperror.Error)
+	Create(ctx context.Context, input systemsettingmodule.CreateInput) (int64, *apperror.Error)
+	Update(ctx context.Context, id int64, input systemsettingmodule.UpdateInput) *apperror.Error
 	Delete(ctx context.Context, ids []int64) *apperror.Error
 	ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error
 }
@@ -50,7 +51,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("systemsetting.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), ListQuery{
+	result, appErr := h.service.List(c.Request.Context(), systemsettingmodule.ListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Key:         req.Key,
@@ -73,7 +74,7 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("systemsetting.create.request.invalid", nil, "参数错误"))
 		return
 	}
-	id, appErr := h.service.Create(c.Request.Context(), CreateInput{Key: req.Key, Value: req.Value, Type: req.Type, Remark: req.Remark})
+	id, appErr := h.service.Create(c.Request.Context(), systemsettingmodule.CreateInput{Key: req.Key, Value: req.Value, Type: req.Type, Remark: req.Remark})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -95,7 +96,7 @@ func (h *Handler) Update(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("systemsetting.update.request.invalid", nil, "参数错误"))
 		return
 	}
-	if appErr := h.service.Update(c.Request.Context(), id, UpdateInput{Value: req.Value, Type: req.Type, Remark: req.Remark}); appErr != nil {
+	if appErr := h.service.Update(c.Request.Context(), id, systemsettingmodule.UpdateInput{Value: req.Value, Type: req.Type, Remark: req.Remark}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}

@@ -1,12 +1,13 @@
 package admin
 
 import (
+	notificationmodule "admin_back_go/internal/module/notification"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService) {
+func RegisterRoutes(router *gin.Engine, service notificationmodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 

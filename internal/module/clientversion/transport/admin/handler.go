@@ -3,6 +3,7 @@ package admin
 import (
 	"strconv"
 
+	clientversionmodule "admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -10,10 +11,10 @@ import (
 )
 
 type Handler struct {
-	service HTTPService
+	service clientversionmodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service clientversionmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -40,7 +41,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("clientversion.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := service.List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: req.Platform})
+	result, appErr := service.List(c.Request.Context(), clientversionmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: req.Platform})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -80,7 +81,7 @@ func (h *Handler) Update(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("clientversion.update.request.invalid", nil, "参数错误"))
 		return
 	}
-	if appErr := service.Update(c.Request.Context(), id, UpdateInput(createInput(req))); appErr != nil {
+	if appErr := service.Update(c.Request.Context(), id, clientversionmodule.UpdateInput(createInput(req))); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
@@ -168,7 +169,7 @@ func (h *Handler) CurrentCheck(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("clientversion.current_check.request.invalid", nil, "参数错误"))
 		return
 	}
-	result, appErr := service.CurrentCheck(c.Request.Context(), CurrentCheckQuery{Version: req.Version, Platform: req.Platform})
+	result, appErr := service.CurrentCheck(c.Request.Context(), clientversionmodule.CurrentCheckQuery{Version: req.Version, Platform: req.Platform})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -176,7 +177,7 @@ func (h *Handler) CurrentCheck(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func (h *Handler) requireService(c *gin.Context) (HTTPService, bool) {
+func (h *Handler) requireService(c *gin.Context) (clientversionmodule.HTTPService, bool) {
 	if h == nil || h.service == nil {
 		response.Error(c, apperror.InternalKey("clientversion.service_missing", nil, "客户端版本服务未配置"))
 		return nil, false
@@ -193,8 +194,8 @@ func routeID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-func createInput(req saveRequest) CreateInput {
-	return CreateInput{
+func createInput(req saveRequest) clientversionmodule.CreateInput {
+	return clientversionmodule.CreateInput{
 		Version:     req.Version,
 		Notes:       req.Notes,
 		FileURL:     req.FileURL,

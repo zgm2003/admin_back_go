@@ -1,5 +1,7 @@
 package admin
 
+import aiknowledgemodule "admin_back_go/internal/module/ai/knowledge"
+
 type baseListRequest struct {
 	CurrentPage int    `form:"current_page" binding:"omitempty,min=1"`
 	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=50"`
@@ -47,5 +49,5 @@ type retrievalTestRequest struct {
 }
 
 type updateAgentKnowledgeBindingsRequest struct {
-	Bindings []AgentKnowledgeBindingInput `json:"bindings" binding:"omitempty,dive"`
+	Bindings []aiknowledgemodule.AgentKnowledgeBindingInput `json:"bindings" binding:"omitempty,dive"`
 }

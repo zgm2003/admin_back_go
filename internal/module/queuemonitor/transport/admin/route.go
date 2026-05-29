@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const UIPath = "/api/admin/v1/queue-monitor-ui"
+
 func RegisterRoutes(router *gin.Engine, service HTTPService, monitor http.Handler) {
 	validate.MustRegister()
 	handler := NewHandler(service, monitor)

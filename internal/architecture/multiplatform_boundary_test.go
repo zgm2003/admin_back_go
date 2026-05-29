@@ -3,6 +3,7 @@ package architecture
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -255,6 +256,44 @@ func TestNoModuleRootHTTPSurface(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Fatalf("module root HTTP surface files must move under transport/{platform}:\n  %s", strings.Join(offenders, "\n  "))
+	}
+}
+
+func TestTransportDoesNotReExportModuleTypes(t *testing.T) {
+	root := backendRoot(t)
+	moduleRoot := filepath.Join(root, "internal", "module")
+	moduleReExport := regexp.MustCompile(`(?m)(^\s*(?:type|const|var)\s+[A-Z][A-Za-z0-9_]*\s*=\s*[a-zA-Z0-9_]+module\.)|(^\s*[A-Z][A-Za-z0-9_]*\s*=\s*[a-zA-Z0-9_]+module\.)`)
+
+	var offenders []string
+	err := filepath.WalkDir(moduleRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if !strings.Contains(rel, "/transport/") {
+			return nil
+		}
+		if filepath.Base(path) == "aliases.go" {
+			offenders = append(offenders, rel+" uses aliases.go under transport")
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if moduleReExport.Match(body) {
+			offenders = append(offenders, rel+" re-exports root module symbols")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk module transport files: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("transport packages must not re-export root module symbols:\n  %s", strings.Join(offenders, "\n  "))
 	}
 }
 

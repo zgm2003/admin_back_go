@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	clientversionmodule "admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -17,19 +18,19 @@ type fakeHTTPService struct {
 	err *apperror.Error
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{}, f.err
+func (f *fakeHTTPService) Init(ctx context.Context) (*clientversionmodule.InitResponse, *apperror.Error) {
+	return &clientversionmodule.InitResponse{}, f.err
 }
 
-func (f *fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return &ListResponse{Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
+func (f *fakeHTTPService) List(ctx context.Context, query clientversionmodule.ListQuery) (*clientversionmodule.ListResponse, *apperror.Error) {
+	return &clientversionmodule.ListResponse{Page: clientversionmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
 }
 
-func (f *fakeHTTPService) Create(ctx context.Context, input CreateInput) (int64, *apperror.Error) {
+func (f *fakeHTTPService) Create(ctx context.Context, input clientversionmodule.CreateInput) (int64, *apperror.Error) {
 	return 1, f.err
 }
 
-func (f *fakeHTTPService) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
+func (f *fakeHTTPService) Update(ctx context.Context, id int64, input clientversionmodule.UpdateInput) *apperror.Error {
 	return f.err
 }
 
@@ -49,8 +50,8 @@ func (f *fakeHTTPService) UpdateJSON(ctx context.Context, platform string) (any,
 	return []any{}, f.err
 }
 
-func (f *fakeHTTPService) CurrentCheck(ctx context.Context, query CurrentCheckQuery) (*CurrentCheckResponse, *apperror.Error) {
-	return &CurrentCheckResponse{}, f.err
+func (f *fakeHTTPService) CurrentCheck(ctx context.Context, query clientversionmodule.CurrentCheckQuery) (*clientversionmodule.CurrentCheckResponse, *apperror.Error) {
+	return &clientversionmodule.CurrentCheckResponse{}, f.err
 }
 
 func TestHandlerListLocalizesInvalidQuery(t *testing.T) {
@@ -70,7 +71,7 @@ func TestHandlerListLocalizesInvalidQuery(t *testing.T) {
 	}
 }
 
-func newClientVersionLocalizedRouter(service HTTPService) *gin.Engine {
+func newClientVersionLocalizedRouter(service clientversionmodule.HTTPService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())

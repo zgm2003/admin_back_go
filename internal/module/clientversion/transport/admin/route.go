@@ -1,12 +1,13 @@
 package admin
 
 import (
+	clientversionmodule "admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService) {
+func RegisterRoutes(router *gin.Engine, service clientversionmodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 

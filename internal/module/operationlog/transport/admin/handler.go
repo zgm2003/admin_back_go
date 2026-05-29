@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	operationlogmodule "admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -12,8 +13,8 @@ import (
 )
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
-	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
+	Init(ctx context.Context) (*operationlogmodule.InitResponse, *apperror.Error)
+	List(ctx context.Context, query operationlogmodule.ListQuery) (*operationlogmodule.ListResponse, *apperror.Error)
 	Delete(ctx context.Context, ids []int64) *apperror.Error
 }
 
@@ -48,7 +49,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("operationlog.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	query := ListQuery{
+	query := operationlogmodule.ListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		UserID:      req.UserID,

@@ -1,12 +1,13 @@
 package admin
 
 import (
+	exporttaskmodule "admin_back_go/internal/module/export"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService) {
+func RegisterRoutes(router *gin.Engine, service exporttaskmodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 

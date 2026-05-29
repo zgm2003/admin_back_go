@@ -5,15 +5,16 @@ import (
 	"strconv"
 
 	infraai "admin_back_go/internal/infra/ai"
+	aiprovidermodule "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-type Handler struct{ service HTTPService }
+type Handler struct{ service aiprovidermodule.HTTPService }
 
-func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
+func NewHandler(service aiprovidermodule.HTTPService) *Handler { return &Handler{service: service} }
 
 func (h *Handler) Init(c *gin.Context) {
 	result, appErr := h.requireService().Init(c.Request.Context())
@@ -26,7 +27,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI供应商列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, EngineType: req.EngineType, Status: req.Status})
+	result, appErr := h.requireService().List(c.Request.Context(), aiprovidermodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, EngineType: req.EngineType, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
@@ -153,7 +154,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() aiprovidermodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
@@ -169,15 +170,17 @@ func routeID(c *gin.Context) (uint64, bool) {
 	return id, true
 }
 
-func createInput(req mutationRequest) CreateInput {
-	return CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
+func createInput(req mutationRequest) aiprovidermodule.CreateInput {
+	return aiprovidermodule.CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
 }
-func updateInput(req mutationRequest) UpdateInput { return UpdateInput(createInput(req)) }
-func modelOptionsInput(req modelOptionsRequest) ModelOptionsInput {
-	return ModelOptionsInput{EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey}
+func updateInput(req mutationRequest) aiprovidermodule.UpdateInput {
+	return aiprovidermodule.UpdateInput(createInput(req))
 }
-func updateModelsInput(req updateModelsRequest) UpdateModelsInput {
-	return UpdateModelsInput{ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
+func modelOptionsInput(req modelOptionsRequest) aiprovidermodule.ModelOptionsInput {
+	return aiprovidermodule.ModelOptionsInput{EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey}
+}
+func updateModelsInput(req updateModelsRequest) aiprovidermodule.UpdateModelsInput {
+	return aiprovidermodule.UpdateModelsInput{ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
@@ -190,16 +193,16 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (nilHTTPService) Init(ctx context.Context) (*aiprovidermodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (nilHTTPService) List(ctx context.Context, query aiprovidermodule.ListQuery) (*aiprovidermodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error) {
+func (nilHTTPService) Create(ctx context.Context, input aiprovidermodule.CreateInput) (uint64, *apperror.Error) {
 	return 0, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error {
+func (nilHTTPService) Update(ctx context.Context, id uint64, input aiprovidermodule.UpdateInput) *apperror.Error {
 	return apperror.Internal("AI供应商服务未配置")
 }
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -208,19 +211,19 @@ func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *
 func (nilHTTPService) TestConnection(ctx context.Context, id uint64) (*infraai.TestConnectionResult, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error) {
+func (nilHTTPService) PreviewModels(ctx context.Context, input aiprovidermodule.ModelOptionsInput) (*aiprovidermodule.ModelOptionsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
+func (nilHTTPService) PreviewStoredModels(ctx context.Context, id uint64) (*aiprovidermodule.ModelOptionsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
+func (nilHTTPService) SyncModels(ctx context.Context, id uint64) (*aiprovidermodule.ModelOptionsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) ListProviderModels(ctx context.Context, id uint64) (*ProviderModelsResponse, *apperror.Error) {
+func (nilHTTPService) ListProviderModels(ctx context.Context, id uint64) (*aiprovidermodule.ProviderModelsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI供应商服务未配置")
 }
-func (nilHTTPService) UpdateProviderModels(ctx context.Context, id uint64, input UpdateModelsInput) *apperror.Error {
+func (nilHTTPService) UpdateProviderModels(ctx context.Context, id uint64, input aiprovidermodule.UpdateModelsInput) *apperror.Error {
 	return apperror.Internal("AI供应商服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {

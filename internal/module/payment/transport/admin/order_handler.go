@@ -1,6 +1,7 @@
 package admin
 
 import (
+	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -18,7 +19,7 @@ func (h *Handler) ListOrders(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("支付订单列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().ListOrders(c.Request.Context(), OrderListQuery{
+	result, appErr := h.requireService().ListOrders(c.Request.Context(), paymentmodule.OrderListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Keyword:     req.Keyword,
@@ -47,7 +48,7 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("支付订单参数错误"))
 		return
 	}
-	result, appErr := h.requireService().CreateOrder(c.Request.Context(), OrderCreateInput{
+	result, appErr := h.requireService().CreateOrder(c.Request.Context(), paymentmodule.OrderCreateInput{
 		ConfigCode:    req.ConfigCode,
 		PayMethod:     req.PayMethod,
 		Subject:       req.Subject,

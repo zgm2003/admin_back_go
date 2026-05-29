@@ -15,29 +15,19 @@ import (
 
 const timeLayout = "2006-01-02 15:04:05"
 
-type PageInitResponse = smsmodule.PageInitResponse
-type ConfigResponse = smsmodule.ConfigResponse
-type SaveConfigInput = smsmodule.SaveConfigInput
-type TestInput = smsmodule.TestInput
-type TemplateDTO = smsmodule.TemplateDTO
-type SaveTemplateInput = smsmodule.SaveTemplateInput
-type LogQuery = smsmodule.LogQuery
-type LogListResponse = smsmodule.LogListResponse
-type LogDTO = smsmodule.LogDTO
-
 type HTTPService interface {
-	PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error)
-	Config(ctx context.Context) (*ConfigResponse, *apperror.Error)
-	SaveConfig(ctx context.Context, input SaveConfigInput) *apperror.Error
+	PageInit(ctx context.Context) (*smsmodule.PageInitResponse, *apperror.Error)
+	Config(ctx context.Context) (*smsmodule.ConfigResponse, *apperror.Error)
+	SaveConfig(ctx context.Context, input smsmodule.SaveConfigInput) *apperror.Error
 	DeleteConfig(ctx context.Context) *apperror.Error
-	TestSend(ctx context.Context, input TestInput) *apperror.Error
-	Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error)
-	CreateTemplate(ctx context.Context, input SaveTemplateInput) (uint64, *apperror.Error)
-	UpdateTemplate(ctx context.Context, id uint64, input SaveTemplateInput) *apperror.Error
+	TestSend(ctx context.Context, input smsmodule.TestInput) *apperror.Error
+	Templates(ctx context.Context) ([]smsmodule.TemplateDTO, *apperror.Error)
+	CreateTemplate(ctx context.Context, input smsmodule.SaveTemplateInput) (uint64, *apperror.Error)
+	UpdateTemplate(ctx context.Context, id uint64, input smsmodule.SaveTemplateInput) *apperror.Error
 	ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error
 	DeleteTemplate(ctx context.Context, id uint64) *apperror.Error
-	Logs(ctx context.Context, query LogQuery) (*LogListResponse, *apperror.Error)
-	Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
+	Logs(ctx context.Context, query smsmodule.LogQuery) (*smsmodule.LogListResponse, *apperror.Error)
+	Log(ctx context.Context, id uint64) (*smsmodule.LogDTO, *apperror.Error)
 	DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error
 }
 
@@ -61,7 +51,7 @@ func (h *Handler) SaveConfig(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("sms.config.request.invalid", nil, "短信配置参数错误"))
 		return
 	}
-	appErr := h.requireService().SaveConfig(c.Request.Context(), SaveConfigInput{
+	appErr := h.requireService().SaveConfig(c.Request.Context(), smsmodule.SaveConfigInput{
 		SecretID: req.SecretID, SecretKey: req.SecretKey, SmsSdkAppID: req.SmsSdkAppID, SignName: req.SignName,
 		Region: req.Region, Endpoint: req.Endpoint, Status: req.Status, VerifyCodeTTLMinutes: req.VerifyCodeTTLMinutes,
 	})
@@ -78,7 +68,7 @@ func (h *Handler) TestSend(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("sms.test.request.invalid", nil, "测试短信参数错误"))
 		return
 	}
-	appErr := h.requireService().TestSend(c.Request.Context(), TestInput{ToPhone: req.ToPhone, TemplateScene: req.TemplateScene})
+	appErr := h.requireService().TestSend(c.Request.Context(), smsmodule.TestInput{ToPhone: req.ToPhone, TemplateScene: req.TemplateScene})
 	writeResult(c, gin.H{}, appErr)
 }
 
@@ -181,28 +171,28 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
+func (failingService) PageInit(ctx context.Context) (*smsmodule.PageInitResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) Config(ctx context.Context) (*ConfigResponse, *apperror.Error) {
+func (failingService) Config(ctx context.Context) (*smsmodule.ConfigResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) SaveConfig(ctx context.Context, input SaveConfigInput) *apperror.Error {
+func (failingService) SaveConfig(ctx context.Context, input smsmodule.SaveConfigInput) *apperror.Error {
 	return serviceNotConfigured()
 }
 func (failingService) DeleteConfig(ctx context.Context) *apperror.Error {
 	return serviceNotConfigured()
 }
-func (failingService) TestSend(ctx context.Context, input TestInput) *apperror.Error {
+func (failingService) TestSend(ctx context.Context, input smsmodule.TestInput) *apperror.Error {
 	return serviceNotConfigured()
 }
-func (failingService) Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error) {
+func (failingService) Templates(ctx context.Context) ([]smsmodule.TemplateDTO, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) CreateTemplate(ctx context.Context, input SaveTemplateInput) (uint64, *apperror.Error) {
+func (failingService) CreateTemplate(ctx context.Context, input smsmodule.SaveTemplateInput) (uint64, *apperror.Error) {
 	return 0, serviceNotConfigured()
 }
-func (failingService) UpdateTemplate(ctx context.Context, id uint64, input SaveTemplateInput) *apperror.Error {
+func (failingService) UpdateTemplate(ctx context.Context, id uint64, input smsmodule.SaveTemplateInput) *apperror.Error {
 	return serviceNotConfigured()
 }
 func (failingService) ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -211,10 +201,10 @@ func (failingService) ChangeTemplateStatus(ctx context.Context, id uint64, statu
 func (failingService) DeleteTemplate(ctx context.Context, id uint64) *apperror.Error {
 	return serviceNotConfigured()
 }
-func (failingService) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *apperror.Error) {
+func (failingService) Logs(ctx context.Context, query smsmodule.LogQuery) (*smsmodule.LogListResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error) {
+func (failingService) Log(ctx context.Context, id uint64) (*smsmodule.LogDTO, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
 func (failingService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
@@ -234,20 +224,20 @@ func routeID(c *gin.Context, key string, fallback string) (uint64, bool) {
 	return id, true
 }
 
-func templateInput(req templateRequest) SaveTemplateInput {
-	return SaveTemplateInput{Scene: req.Scene, Name: req.Name, TencentTemplateID: req.TencentTemplateID, Variables: req.Variables, SampleVariables: req.SampleVariables, Status: req.Status}
+func templateInput(req templateRequest) smsmodule.SaveTemplateInput {
+	return smsmodule.SaveTemplateInput{Scene: req.Scene, Name: req.Name, TencentTemplateID: req.TencentTemplateID, Variables: req.Variables, SampleVariables: req.SampleVariables, Status: req.Status}
 }
 
-func logQueryFromRequest(req logListRequest) (LogQuery, *apperror.Error) {
+func logQueryFromRequest(req logListRequest) (smsmodule.LogQuery, *apperror.Error) {
 	start, appErr := parseTime(req.CreatedAtStart)
 	if appErr != nil {
-		return LogQuery{}, appErr
+		return smsmodule.LogQuery{}, appErr
 	}
 	end, appErr := parseTime(req.CreatedAtEnd)
 	if appErr != nil {
-		return LogQuery{}, appErr
+		return smsmodule.LogQuery{}, appErr
 	}
-	return LogQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Scene: req.Scene, Status: req.Status, ToPhone: req.ToPhone, CreatedAtStart: start, CreatedAtEnd: end}, nil
+	return smsmodule.LogQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Scene: req.Scene, Status: req.Status, ToPhone: req.ToPhone, CreatedAtStart: start, CreatedAtEnd: end}, nil
 }
 
 func parseTime(value string) (*time.Time, *apperror.Error) {

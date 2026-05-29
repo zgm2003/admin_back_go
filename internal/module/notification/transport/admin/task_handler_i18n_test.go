@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	notificationtaskmodule "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -15,20 +16,20 @@ import (
 
 type fakeTaskHTTPService struct{}
 
-func (f fakeTaskHTTPService) Init(ctx context.Context) (*TaskInitResponse, *apperror.Error) {
-	return &TaskInitResponse{}, nil
+func (f fakeTaskHTTPService) Init(ctx context.Context) (*notificationtaskmodule.InitResponse, *apperror.Error) {
+	return &notificationtaskmodule.InitResponse{}, nil
 }
 
-func (f fakeTaskHTTPService) StatusCount(ctx context.Context, query TaskStatusCountQuery) ([]TaskStatusCountItem, *apperror.Error) {
-	return []TaskStatusCountItem{}, nil
+func (f fakeTaskHTTPService) StatusCount(ctx context.Context, query notificationtaskmodule.StatusCountQuery) ([]notificationtaskmodule.StatusCountItem, *apperror.Error) {
+	return []notificationtaskmodule.StatusCountItem{}, nil
 }
 
-func (f fakeTaskHTTPService) List(ctx context.Context, query TaskListQuery) (*TaskListResponse, *apperror.Error) {
-	return &TaskListResponse{List: []TaskListItem{}, Page: TaskPage{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+func (f fakeTaskHTTPService) List(ctx context.Context, query notificationtaskmodule.ListQuery) (*notificationtaskmodule.ListResponse, *apperror.Error) {
+	return &notificationtaskmodule.ListResponse{List: []notificationtaskmodule.ListItem{}, Page: notificationtaskmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
-func (f fakeTaskHTTPService) Create(ctx context.Context, input TaskCreateInput) (*TaskCreateResponse, *apperror.Error) {
-	return &TaskCreateResponse{ID: 1, Queued: false}, nil
+func (f fakeTaskHTTPService) Create(ctx context.Context, input notificationtaskmodule.CreateInput) (*notificationtaskmodule.CreateResponse, *apperror.Error) {
+	return &notificationtaskmodule.CreateResponse{ID: 1, Queued: false}, nil
 }
 
 func (f fakeTaskHTTPService) Cancel(ctx context.Context, id int64) *apperror.Error {
@@ -62,4 +63,4 @@ func TestNotificationTaskHandlerLocalizesListRequestError(t *testing.T) {
 	}
 }
 
-var _ TaskHTTPService = fakeTaskHTTPService{}
+var _ notificationtaskmodule.HTTPService = fakeTaskHTTPService{}

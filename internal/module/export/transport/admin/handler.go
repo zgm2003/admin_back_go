@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/middleware"
+	exporttaskmodule "admin_back_go/internal/module/export"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -11,10 +12,10 @@ import (
 )
 
 type Handler struct {
-	service HTTPService
+	service exporttaskmodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service exporttaskmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -32,7 +33,7 @@ func (h *Handler) StatusCount(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("exporttask.status_count.request.invalid", nil, "状态统计参数错误"))
 		return
 	}
-	result, appErr := h.service.StatusCount(c.Request.Context(), StatusCountQuery{UserID: identity.UserID, Title: req.Title, FileName: req.FileName})
+	result, appErr := h.service.StatusCount(c.Request.Context(), exporttaskmodule.StatusCountQuery{UserID: identity.UserID, Title: req.Title, FileName: req.FileName})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -54,7 +55,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("exporttask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), ListQuery{
+	result, appErr := h.service.List(c.Request.Context(), exporttaskmodule.ListQuery{
 		UserID:      identity.UserID,
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
@@ -82,7 +83,7 @@ func (h *Handler) DeleteOne(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if appErr := h.service.Delete(c.Request.Context(), DeleteInput{UserID: identity.UserID, IDs: []int64{id}}); appErr != nil {
+	if appErr := h.service.Delete(c.Request.Context(), exporttaskmodule.DeleteInput{UserID: identity.UserID, IDs: []int64{id}}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
@@ -103,7 +104,7 @@ func (h *Handler) DeleteBatch(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("exporttask.delete.request.invalid", nil, "参数错误"))
 		return
 	}
-	if appErr := h.service.Delete(c.Request.Context(), DeleteInput{UserID: identity.UserID, IDs: req.IDs}); appErr != nil {
+	if appErr := h.service.Delete(c.Request.Context(), exporttaskmodule.DeleteInput{UserID: identity.UserID, IDs: req.IDs}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
@@ -128,4 +129,4 @@ func routeID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-var _ HTTPService = (*Service)(nil)
+var _ exporttaskmodule.HTTPService = (*exporttaskmodule.Service)(nil)

@@ -1,12 +1,13 @@
 package admin
 
 import (
+	notificationtaskmodule "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterTaskRoutes(router *gin.Engine, service TaskHTTPService) {
+func RegisterTaskRoutes(router *gin.Engine, service notificationtaskmodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewTaskHandler(service)
 

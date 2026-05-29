@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	crontaskmodule "admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 
@@ -15,31 +16,31 @@ import (
 )
 
 type fakeCronHTTPService struct {
-	listQuery   ListQuery
-	createInput SaveInput
+	listQuery   crontaskmodule.ListQuery
+	createInput crontaskmodule.SaveInput
 	updateID    int64
-	updateInput SaveInput
+	updateInput crontaskmodule.SaveInput
 	statusID    int64
 	status      int
 	deleteIDs   []int64
-	logsQuery   LogsQuery
+	logsQuery   crontaskmodule.LogsQuery
 }
 
-func (f *fakeCronHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{Dict: InitDict{}}, nil
+func (f *fakeCronHTTPService) Init(ctx context.Context) (*crontaskmodule.InitResponse, *apperror.Error) {
+	return &crontaskmodule.InitResponse{Dict: crontaskmodule.InitDict{}}, nil
 }
 
-func (f *fakeCronHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (f *fakeCronHTTPService) List(ctx context.Context, query crontaskmodule.ListQuery) (*crontaskmodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &ListResponse{List: []ListItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &crontaskmodule.ListResponse{List: []crontaskmodule.ListItem{}, Page: crontaskmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
-func (f *fakeCronHTTPService) Create(ctx context.Context, input SaveInput) (*ListItem, *apperror.Error) {
+func (f *fakeCronHTTPService) Create(ctx context.Context, input crontaskmodule.SaveInput) (*crontaskmodule.ListItem, *apperror.Error) {
 	f.createInput = input
-	return &ListItem{ID: 1, Name: input.Name, Title: input.Title}, nil
+	return &crontaskmodule.ListItem{ID: 1, Name: input.Name, Title: input.Title}, nil
 }
 
-func (f *fakeCronHTTPService) Update(ctx context.Context, id int64, input SaveInput) *apperror.Error {
+func (f *fakeCronHTTPService) Update(ctx context.Context, id int64, input crontaskmodule.SaveInput) *apperror.Error {
 	f.updateID = id
 	f.updateInput = input
 	return nil
@@ -56,9 +57,9 @@ func (f *fakeCronHTTPService) Delete(ctx context.Context, ids []int64) *apperror
 	return nil
 }
 
-func (f *fakeCronHTTPService) Logs(ctx context.Context, query LogsQuery) (*LogsResponse, *apperror.Error) {
+func (f *fakeCronHTTPService) Logs(ctx context.Context, query crontaskmodule.LogsQuery) (*crontaskmodule.LogsResponse, *apperror.Error) {
 	f.logsQuery = query
-	return &LogsResponse{List: []LogItem{}, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &crontaskmodule.LogsResponse{List: []crontaskmodule.LogItem{}, Page: crontaskmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
 func TestCronTaskHandlerInitAndList(t *testing.T) {
@@ -125,7 +126,7 @@ func TestCronTaskHandlerCreateUpdateStatusDeleteAndLogs(t *testing.T) {
 
 	logsRecorder := httptest.NewRecorder()
 	router.ServeHTTP(logsRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks/9/logs?current_page=1&page_size=20&status=1", nil))
-	if logsRecorder.Code != http.StatusOK || service.logsQuery.TaskID != 9 || service.logsQuery.Status == nil || *service.logsQuery.Status != LogStatusSuccess {
+	if logsRecorder.Code != http.StatusOK || service.logsQuery.TaskID != 9 || service.logsQuery.Status == nil || *service.logsQuery.Status != crontaskmodule.LogStatusSuccess {
 		t.Fatalf("unexpected logs query: code=%d body=%s query=%#v", logsRecorder.Code, logsRecorder.Body.String(), service.logsQuery)
 	}
 }

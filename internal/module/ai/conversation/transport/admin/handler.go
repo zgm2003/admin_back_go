@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/middleware"
+	aiconversationmodule "admin_back_go/internal/module/ai/conversation"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -12,10 +13,10 @@ import (
 )
 
 type Handler struct {
-	service HTTPService
+	service aiconversationmodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service aiconversationmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -29,7 +30,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI会话列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, ListQuery{AgentID: req.AgentID, BeforeID: req.BeforeID, Limit: req.Limit})
+	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, aiconversationmodule.ListQuery{AgentID: req.AgentID, BeforeID: req.BeforeID, Limit: req.Limit})
 	writeResult(c, res, appErr)
 }
 
@@ -56,12 +57,12 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI会话参数错误"))
 		return
 	}
-	id, appErr := h.requireService().Create(c.Request.Context(), identity.UserID, CreateInput{AgentID: req.AgentID, Title: req.Title})
+	id, appErr := h.requireService().Create(c.Request.Context(), identity.UserID, aiconversationmodule.CreateInput{AgentID: req.AgentID, Title: req.Title})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
-	response.OK(c, CreateResponse{ID: id})
+	response.OK(c, aiconversationmodule.CreateResponse{ID: id})
 }
 
 func (h *Handler) Update(c *gin.Context) {
@@ -78,7 +79,7 @@ func (h *Handler) Update(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI会话参数错误"))
 		return
 	}
-	if appErr := h.requireService().Update(c.Request.Context(), identity.UserID, id, UpdateInput{Title: req.Title}); appErr != nil {
+	if appErr := h.requireService().Update(c.Request.Context(), identity.UserID, id, aiconversationmodule.UpdateInput{Title: req.Title}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
@@ -101,7 +102,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() aiconversationmodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
@@ -136,16 +137,16 @@ func writeResult(c *gin.Context, res any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error) {
+func (nilHTTPService) List(ctx context.Context, userID int64, query aiconversationmodule.ListQuery) (*aiconversationmodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI会话服务未配置")
 }
-func (nilHTTPService) Detail(ctx context.Context, userID int64, id int64) (*ConversationDetail, *apperror.Error) {
+func (nilHTTPService) Detail(ctx context.Context, userID int64, id int64) (*aiconversationmodule.ConversationDetail, *apperror.Error) {
 	return nil, apperror.Internal("AI会话服务未配置")
 }
-func (nilHTTPService) Create(ctx context.Context, userID int64, input CreateInput) (int64, *apperror.Error) {
+func (nilHTTPService) Create(ctx context.Context, userID int64, input aiconversationmodule.CreateInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("AI会话服务未配置")
 }
-func (nilHTTPService) Update(ctx context.Context, userID int64, id int64, input UpdateInput) *apperror.Error {
+func (nilHTTPService) Update(ctx context.Context, userID int64, id int64, input aiconversationmodule.UpdateInput) *apperror.Error {
 	return apperror.Internal("AI会话服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {

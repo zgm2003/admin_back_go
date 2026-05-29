@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	airunmodule "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -11,10 +12,10 @@ import (
 )
 
 type Handler struct {
-	service HTTPService
+	service airunmodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service airunmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -29,7 +30,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID, DateStart: req.DateStart, DateEnd: req.DateEnd})
+	res, appErr := h.requireService().List(c.Request.Context(), airunmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID, DateStart: req.DateStart, DateEnd: req.DateEnd})
 	writeResult(c, res, appErr)
 }
 
@@ -48,7 +49,7 @@ func (h *Handler) Stats(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行统计参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Stats(c.Request.Context(), StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID})
+	res, appErr := h.requireService().Stats(c.Request.Context(), airunmodule.StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID})
 	writeResult(c, res, appErr)
 }
 
@@ -79,20 +80,20 @@ func (h *Handler) StatsByUser(c *gin.Context) {
 	writeResult(c, res, appErr)
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() airunmodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
 	return h.service
 }
 
-func bindStatsList(c *gin.Context) (StatsListQuery, bool) {
+func bindStatsList(c *gin.Context) (airunmodule.StatsListQuery, bool) {
 	var req statsListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, apperror.BadRequest("AI运行统计列表参数错误"))
-		return StatsListQuery{}, false
+		return airunmodule.StatsListQuery{}, false
 	}
-	return StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID}, true
+	return airunmodule.StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID}, true
 }
 
 func routeID(c *gin.Context, name string, msg string) (int64, bool) {
@@ -114,24 +115,24 @@ func writeResult(c *gin.Context, res any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (nilHTTPService) Init(ctx context.Context) (*airunmodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (nilHTTPService) List(ctx context.Context, query airunmodule.ListQuery) (*airunmodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) Detail(ctx context.Context, id int64) (*DetailResponse, *apperror.Error) {
+func (nilHTTPService) Detail(ctx context.Context, id int64) (*airunmodule.DetailResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) Stats(ctx context.Context, query StatsFilter) (*StatsResponse, *apperror.Error) {
+func (nilHTTPService) Stats(ctx context.Context, query airunmodule.StatsFilter) (*airunmodule.StatsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) StatsByDate(ctx context.Context, query StatsListQuery) (*StatsByDateResponse, *apperror.Error) {
+func (nilHTTPService) StatsByDate(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByDateResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) StatsByAgent(ctx context.Context, query StatsListQuery) (*StatsByAgentResponse, *apperror.Error) {
+func (nilHTTPService) StatsByAgent(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByAgentResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) StatsByUser(ctx context.Context, query StatsListQuery) (*StatsByUserResponse, *apperror.Error) {
+func (nilHTTPService) StatsByUser(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByUserResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }

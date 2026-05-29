@@ -13,25 +13,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	DefaultEndpoint = mailmodule.DefaultEndpoint
-	DefaultRegion   = mailmodule.DefaultRegion
-	timeLayout      = "2006-01-02 15:04:05"
-)
+const timeLayout = "2006-01-02 15:04:05"
 
 type HTTPService interface {
-	PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error)
-	Config(ctx context.Context) (*ConfigResponse, *apperror.Error)
-	SaveConfig(ctx context.Context, input SaveConfigInput) *apperror.Error
+	PageInit(ctx context.Context) (*mailmodule.PageInitResponse, *apperror.Error)
+	Config(ctx context.Context) (*mailmodule.ConfigResponse, *apperror.Error)
+	SaveConfig(ctx context.Context, input mailmodule.SaveConfigInput) *apperror.Error
 	DeleteConfig(ctx context.Context) *apperror.Error
-	TestSend(ctx context.Context, input TestInput) *apperror.Error
-	Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error)
-	CreateTemplate(ctx context.Context, input SaveTemplateInput) (uint64, *apperror.Error)
-	UpdateTemplate(ctx context.Context, id uint64, input SaveTemplateInput) *apperror.Error
+	TestSend(ctx context.Context, input mailmodule.TestInput) *apperror.Error
+	Templates(ctx context.Context) ([]mailmodule.TemplateDTO, *apperror.Error)
+	CreateTemplate(ctx context.Context, input mailmodule.SaveTemplateInput) (uint64, *apperror.Error)
+	UpdateTemplate(ctx context.Context, id uint64, input mailmodule.SaveTemplateInput) *apperror.Error
 	ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error
 	DeleteTemplate(ctx context.Context, id uint64) *apperror.Error
-	Logs(ctx context.Context, query LogQuery) (*LogListResponse, *apperror.Error)
-	Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
+	Logs(ctx context.Context, query mailmodule.LogQuery) (*mailmodule.LogListResponse, *apperror.Error)
+	Log(ctx context.Context, id uint64) (*mailmodule.LogDTO, *apperror.Error)
 	DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error
 }
 
@@ -55,7 +51,7 @@ func (h *Handler) SaveConfig(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("邮件配置参数错误"))
 		return
 	}
-	appErr := h.requireService().SaveConfig(c.Request.Context(), SaveConfigInput{
+	appErr := h.requireService().SaveConfig(c.Request.Context(), mailmodule.SaveConfigInput{
 		SecretID: req.SecretID, SecretKey: req.SecretKey, Region: req.Region, Endpoint: req.Endpoint,
 		FromEmail: req.FromEmail, FromName: req.FromName, ReplyTo: req.ReplyTo, Status: req.Status,
 		VerifyCodeTTLMinutes: req.VerifyCodeTTLMinutes,
@@ -73,7 +69,7 @@ func (h *Handler) TestSend(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("测试邮件参数错误"))
 		return
 	}
-	appErr := h.requireService().TestSend(c.Request.Context(), TestInput{ToEmail: req.ToEmail, TemplateScene: req.TemplateScene})
+	appErr := h.requireService().TestSend(c.Request.Context(), mailmodule.TestInput{ToEmail: req.ToEmail, TemplateScene: req.TemplateScene})
 	writeResult(c, gin.H{}, appErr)
 }
 
@@ -176,28 +172,28 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
+func (failingService) PageInit(ctx context.Context) (*mailmodule.PageInitResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) Config(ctx context.Context) (*ConfigResponse, *apperror.Error) {
+func (failingService) Config(ctx context.Context) (*mailmodule.ConfigResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) SaveConfig(ctx context.Context, input SaveConfigInput) *apperror.Error {
+func (failingService) SaveConfig(ctx context.Context, input mailmodule.SaveConfigInput) *apperror.Error {
 	return serviceNotConfigured()
 }
 func (failingService) DeleteConfig(ctx context.Context) *apperror.Error {
 	return serviceNotConfigured()
 }
-func (failingService) TestSend(ctx context.Context, input TestInput) *apperror.Error {
+func (failingService) TestSend(ctx context.Context, input mailmodule.TestInput) *apperror.Error {
 	return serviceNotConfigured()
 }
-func (failingService) Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error) {
+func (failingService) Templates(ctx context.Context) ([]mailmodule.TemplateDTO, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) CreateTemplate(ctx context.Context, input SaveTemplateInput) (uint64, *apperror.Error) {
+func (failingService) CreateTemplate(ctx context.Context, input mailmodule.SaveTemplateInput) (uint64, *apperror.Error) {
 	return 0, serviceNotConfigured()
 }
-func (failingService) UpdateTemplate(ctx context.Context, id uint64, input SaveTemplateInput) *apperror.Error {
+func (failingService) UpdateTemplate(ctx context.Context, id uint64, input mailmodule.SaveTemplateInput) *apperror.Error {
 	return serviceNotConfigured()
 }
 func (failingService) ChangeTemplateStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -206,10 +202,10 @@ func (failingService) ChangeTemplateStatus(ctx context.Context, id uint64, statu
 func (failingService) DeleteTemplate(ctx context.Context, id uint64) *apperror.Error {
 	return serviceNotConfigured()
 }
-func (failingService) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *apperror.Error) {
+func (failingService) Logs(ctx context.Context, query mailmodule.LogQuery) (*mailmodule.LogListResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
-func (failingService) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error) {
+func (failingService) Log(ctx context.Context, id uint64) (*mailmodule.LogDTO, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
 func (failingService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
@@ -227,23 +223,23 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 	return id, true
 }
 
-func templateInput(req templateRequest) SaveTemplateInput {
-	return SaveTemplateInput{
+func templateInput(req templateRequest) mailmodule.SaveTemplateInput {
+	return mailmodule.SaveTemplateInput{
 		Scene: req.Scene, Name: req.Name, Subject: req.Subject, TencentTemplateID: req.TencentTemplateID,
 		Variables: req.Variables, SampleVariables: req.SampleVariables, Status: req.Status,
 	}
 }
 
-func logQueryFromRequest(req logListRequest) (LogQuery, *apperror.Error) {
+func logQueryFromRequest(req logListRequest) (mailmodule.LogQuery, *apperror.Error) {
 	start, appErr := parseTime(req.CreatedAtStart)
 	if appErr != nil {
-		return LogQuery{}, appErr
+		return mailmodule.LogQuery{}, appErr
 	}
 	end, appErr := parseTime(req.CreatedAtEnd)
 	if appErr != nil {
-		return LogQuery{}, appErr
+		return mailmodule.LogQuery{}, appErr
 	}
-	return LogQuery{
+	return mailmodule.LogQuery{
 		CurrentPage: req.CurrentPage, PageSize: req.PageSize, Scene: req.Scene, Status: req.Status,
 		ToEmail: req.ToEmail, CreatedAtStart: start, CreatedAtEnd: end,
 	}, nil

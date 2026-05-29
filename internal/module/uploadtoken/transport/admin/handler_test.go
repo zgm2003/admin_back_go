@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	uploadtokenmodule "admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -14,16 +15,16 @@ import (
 )
 
 type fakeHTTPService struct {
-	input CreateInput
+	input uploadtokenmodule.CreateInput
 	err   *apperror.Error
 }
 
-func (f *fakeHTTPService) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
+func (f *fakeHTTPService) Create(ctx context.Context, input uploadtokenmodule.CreateInput) (*uploadtokenmodule.CreateResponse, *apperror.Error) {
 	f.input = input
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &CreateResponse{Provider: ProviderCOS, Bucket: "bucket-a", Region: "ap-nanjing", Key: "images/demo.png"}, nil
+	return &uploadtokenmodule.CreateResponse{Provider: uploadtokenmodule.ProviderCOS, Bucket: "bucket-a", Region: "ap-nanjing", Key: "images/demo.png"}, nil
 }
 
 func TestHandlerCreateLocalizesInvalidRequest(t *testing.T) {

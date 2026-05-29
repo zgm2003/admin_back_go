@@ -11,22 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type TaskHTTPService = notificationtaskmodule.HTTPService
-type TaskInitResponse = notificationtaskmodule.InitResponse
-type TaskStatusCountQuery = notificationtaskmodule.StatusCountQuery
-type TaskStatusCountItem = notificationtaskmodule.StatusCountItem
-type TaskListQuery = notificationtaskmodule.ListQuery
-type TaskListResponse = notificationtaskmodule.ListResponse
-type TaskListItem = notificationtaskmodule.ListItem
-type TaskPage = notificationtaskmodule.Page
-type TaskCreateInput = notificationtaskmodule.CreateInput
-type TaskCreateResponse = notificationtaskmodule.CreateResponse
-
 type TaskHandler struct {
-	service TaskHTTPService
+	service notificationtaskmodule.HTTPService
 }
 
-func NewTaskHandler(service TaskHTTPService) *TaskHandler {
+func NewTaskHandler(service notificationtaskmodule.HTTPService) *TaskHandler {
 	return &TaskHandler{service: service}
 }
 
@@ -53,7 +42,7 @@ func (h *TaskHandler) StatusCount(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("notificationtask.status_count.request.invalid", nil, "状态统计参数错误"))
 		return
 	}
-	result, appErr := h.service.StatusCount(c.Request.Context(), TaskStatusCountQuery{Title: req.Title})
+	result, appErr := h.service.StatusCount(c.Request.Context(), notificationtaskmodule.StatusCountQuery{Title: req.Title})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -71,7 +60,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("notificationtask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), TaskListQuery{
+	result, appErr := h.service.List(c.Request.Context(), notificationtaskmodule.ListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Status:      req.Status,
@@ -99,7 +88,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("notificationtask.create.request.invalid", nil, "参数错误"))
 		return
 	}
-	result, appErr := h.service.Create(c.Request.Context(), TaskCreateInput{
+	result, appErr := h.service.Create(c.Request.Context(), notificationtaskmodule.CreateInput{
 		Title:      req.Title,
 		Content:    req.Content,
 		Type:       req.Type,
@@ -159,4 +148,4 @@ func taskRouteID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-var _ TaskHTTPService = (*notificationtaskmodule.Service)(nil)
+var _ notificationtaskmodule.HTTPService = (*notificationtaskmodule.Service)(nil)

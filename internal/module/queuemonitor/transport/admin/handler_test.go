@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	queuemonitormodule "admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -15,22 +16,22 @@ import (
 
 type fakeHTTPService struct {
 	listCalled       bool
-	failedListQuery  FailedListQuery
-	failedListResult *FailedListResponse
+	failedListQuery  queuemonitormodule.FailedListQuery
+	failedListResult *queuemonitormodule.FailedListResponse
 	err              *apperror.Error
 }
 
-func (f *fakeHTTPService) List(ctx context.Context) ([]QueueItem, *apperror.Error) {
+func (f *fakeHTTPService) List(ctx context.Context) ([]queuemonitormodule.QueueItem, *apperror.Error) {
 	f.listCalled = true
-	return []QueueItem{{Name: "critical", Label: "高优先级队列", Group: "critical"}}, f.err
+	return []queuemonitormodule.QueueItem{{Name: "critical", Label: "高优先级队列", Group: "critical"}}, f.err
 }
 
-func (f *fakeHTTPService) FailedList(ctx context.Context, query FailedListQuery) (*FailedListResponse, *apperror.Error) {
+func (f *fakeHTTPService) FailedList(ctx context.Context, query queuemonitormodule.FailedListQuery) (*queuemonitormodule.FailedListResponse, *apperror.Error) {
 	f.failedListQuery = query
 	if f.failedListResult != nil {
 		return f.failedListResult, f.err
 	}
-	return &FailedListResponse{Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
+	return &queuemonitormodule.FailedListResponse{Page: queuemonitormodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
 }
 
 func TestHandlerListUsesRESTReadOnlyRoute(t *testing.T) {
@@ -54,9 +55,9 @@ func TestHandlerListUsesRESTReadOnlyRoute(t *testing.T) {
 }
 
 func TestHandlerFailedListBindsQueueAndPagination(t *testing.T) {
-	service := &fakeHTTPService{failedListResult: &FailedListResponse{
-		List: []FailedTaskItem{{ID: "task-1", State: "retry"}},
-		Page: Page{CurrentPage: 2, PageSize: 10, Total: 1, TotalPage: 1},
+	service := &fakeHTTPService{failedListResult: &queuemonitormodule.FailedListResponse{
+		List: []queuemonitormodule.FailedTaskItem{{ID: "task-1", State: "retry"}},
+		Page: queuemonitormodule.Page{CurrentPage: 2, PageSize: 10, Total: 1, TotalPage: 1},
 	}}
 	router := newQueueMonitorTestRouter(service)
 

@@ -1,8 +1,12 @@
 package admin
 
-import "github.com/gin-gonic/gin"
+import (
+	aiknowledgemodule "admin_back_go/internal/module/ai/knowledge"
 
-func Register(router *gin.Engine, service HTTPService) {
+	"github.com/gin-gonic/gin"
+)
+
+func Register(router *gin.Engine, service aiknowledgemodule.HTTPService) {
 	h := NewHandler(service)
 	group := router.Group("/api/admin/v1")
 	{

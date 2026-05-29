@@ -4,15 +4,16 @@ import (
 	"context"
 	"strconv"
 
+	aiknowledgemodule "admin_back_go/internal/module/ai/knowledge"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-type Handler struct{ service HTTPService }
+type Handler struct{ service aiknowledgemodule.HTTPService }
 
-func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
+func NewHandler(service aiknowledgemodule.HTTPService) *Handler { return &Handler{service: service} }
 
 func (h *Handler) Init(c *gin.Context) {
 	result, appErr := h.requireService().Init(c.Request.Context())
@@ -25,7 +26,7 @@ func (h *Handler) ListBases(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI知识库列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().ListBases(c.Request.Context(), BaseListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, Status: req.Status})
+	result, appErr := h.requireService().ListBases(c.Request.Context(), aiknowledgemodule.BaseListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
@@ -93,7 +94,7 @@ func (h *Handler) ListDocuments(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI知识库文档列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().ListDocuments(c.Request.Context(), baseID, DocumentListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Status: req.Status})
+	result, appErr := h.requireService().ListDocuments(c.Request.Context(), baseID, aiknowledgemodule.DocumentListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
@@ -183,7 +184,7 @@ func (h *Handler) RetrievalTest(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI知识库检索测试参数错误"))
 		return
 	}
-	result, appErr := h.requireService().RetrievalTest(c.Request.Context(), baseID, RetrievalTestInput{Query: req.Query, TopK: req.TopK, MinScore: req.MinScore, MaxContextChars: req.MaxContextChars})
+	result, appErr := h.requireService().RetrievalTest(c.Request.Context(), baseID, aiknowledgemodule.RetrievalTestInput{Query: req.Query, TopK: req.TopK, MinScore: req.MinScore, MaxContextChars: req.MaxContextChars})
 	writeResult(c, result, appErr)
 }
 
@@ -206,26 +207,26 @@ func (h *Handler) UpdateAgentKnowledgeBases(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("智能体知识库绑定参数错误"))
 		return
 	}
-	appErr := h.requireService().UpdateAgentKnowledgeBases(c.Request.Context(), agentID, UpdateAgentKnowledgeBindingsInput{Bindings: req.Bindings})
+	appErr := h.requireService().UpdateAgentKnowledgeBases(c.Request.Context(), agentID, aiknowledgemodule.UpdateAgentKnowledgeBindingsInput{Bindings: req.Bindings})
 	writeResult(c, gin.H{}, appErr)
 }
 
-func bindBaseMutation(c *gin.Context) (BaseMutationInput, bool) {
+func bindBaseMutation(c *gin.Context) (aiknowledgemodule.BaseMutationInput, bool) {
 	var req baseMutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperror.BadRequest("AI知识库参数错误"))
-		return BaseMutationInput{}, false
+		return aiknowledgemodule.BaseMutationInput{}, false
 	}
-	return BaseMutationInput{Name: req.Name, Code: req.Code, Description: req.Description, ChunkSizeChars: req.ChunkSizeChars, ChunkOverlapChars: req.ChunkOverlapChars, DefaultTopK: req.DefaultTopK, DefaultMinScore: req.DefaultMinScore, DefaultMaxContextChars: req.DefaultMaxContextChars, Status: req.Status}, true
+	return aiknowledgemodule.BaseMutationInput{Name: req.Name, Code: req.Code, Description: req.Description, ChunkSizeChars: req.ChunkSizeChars, ChunkOverlapChars: req.ChunkOverlapChars, DefaultTopK: req.DefaultTopK, DefaultMinScore: req.DefaultMinScore, DefaultMaxContextChars: req.DefaultMaxContextChars, Status: req.Status}, true
 }
 
-func bindDocumentMutation(c *gin.Context) (DocumentMutationInput, bool) {
+func bindDocumentMutation(c *gin.Context) (aiknowledgemodule.DocumentMutationInput, bool) {
 	var req documentMutationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperror.BadRequest("AI知识库文档参数错误"))
-		return DocumentMutationInput{}, false
+		return aiknowledgemodule.DocumentMutationInput{}, false
 	}
-	return DocumentMutationInput{Title: req.Title, SourceType: req.SourceType, SourceRef: req.SourceRef, Content: req.Content, Status: req.Status}, true
+	return aiknowledgemodule.DocumentMutationInput{Title: req.Title, SourceType: req.SourceType, SourceRef: req.SourceRef, Content: req.Content, Status: req.Status}, true
 }
 
 func parseID(c *gin.Context, name string) (uint64, bool) {
@@ -237,7 +238,7 @@ func parseID(c *gin.Context, name string) (uint64, bool) {
 	return id, true
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() aiknowledgemodule.HTTPService {
 	if h == nil || h.service == nil {
 		return missingService{}
 	}
@@ -246,19 +247,19 @@ func (h *Handler) requireService() HTTPService {
 
 type missingService struct{}
 
-func (missingService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (missingService) Init(ctx context.Context) (*aiknowledgemodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) ListBases(ctx context.Context, query BaseListQuery) (*BaseListResponse, *apperror.Error) {
+func (missingService) ListBases(ctx context.Context, query aiknowledgemodule.BaseListQuery) (*aiknowledgemodule.BaseListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) GetBase(ctx context.Context, id uint64) (*BaseDetailResponse, *apperror.Error) {
+func (missingService) GetBase(ctx context.Context, id uint64) (*aiknowledgemodule.BaseDetailResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) CreateBase(ctx context.Context, input BaseMutationInput) (uint64, *apperror.Error) {
+func (missingService) CreateBase(ctx context.Context, input aiknowledgemodule.BaseMutationInput) (uint64, *apperror.Error) {
 	return 0, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) UpdateBase(ctx context.Context, id uint64, input BaseMutationInput) *apperror.Error {
+func (missingService) UpdateBase(ctx context.Context, id uint64, input aiknowledgemodule.BaseMutationInput) *apperror.Error {
 	return apperror.Internal("AI知识库服务未配置")
 }
 func (missingService) ChangeBaseStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -267,16 +268,16 @@ func (missingService) ChangeBaseStatus(ctx context.Context, id uint64, status in
 func (missingService) DeleteBase(ctx context.Context, id uint64) *apperror.Error {
 	return apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) ListDocuments(ctx context.Context, baseID uint64, query DocumentListQuery) (*DocumentListResponse, *apperror.Error) {
+func (missingService) ListDocuments(ctx context.Context, baseID uint64, query aiknowledgemodule.DocumentListQuery) (*aiknowledgemodule.DocumentListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) GetDocument(ctx context.Context, id uint64) (*DocumentDetailResponse, *apperror.Error) {
+func (missingService) GetDocument(ctx context.Context, id uint64) (*aiknowledgemodule.DocumentDetailResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) CreateDocument(ctx context.Context, baseID uint64, input DocumentMutationInput) (uint64, *apperror.Error) {
+func (missingService) CreateDocument(ctx context.Context, baseID uint64, input aiknowledgemodule.DocumentMutationInput) (uint64, *apperror.Error) {
 	return 0, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) UpdateDocument(ctx context.Context, id uint64, input DocumentMutationInput) *apperror.Error {
+func (missingService) UpdateDocument(ctx context.Context, id uint64, input aiknowledgemodule.DocumentMutationInput) *apperror.Error {
 	return apperror.Internal("AI知识库服务未配置")
 }
 func (missingService) ChangeDocumentStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -288,16 +289,16 @@ func (missingService) DeleteDocument(ctx context.Context, id uint64) *apperror.E
 func (missingService) ReindexDocument(ctx context.Context, id uint64) *apperror.Error {
 	return apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) ListChunks(ctx context.Context, documentID uint64) (*ChunkListResponse, *apperror.Error) {
+func (missingService) ListChunks(ctx context.Context, documentID uint64) (*aiknowledgemodule.ChunkListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) RetrievalTest(ctx context.Context, baseID uint64, input RetrievalTestInput) (*RetrievalResult, *apperror.Error) {
+func (missingService) RetrievalTest(ctx context.Context, baseID uint64, input aiknowledgemodule.RetrievalTestInput) (*aiknowledgemodule.RetrievalResult, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) AgentKnowledgeBases(ctx context.Context, agentID uint64) (*AgentKnowledgeBindingsResponse, *apperror.Error) {
+func (missingService) AgentKnowledgeBases(ctx context.Context, agentID uint64) (*aiknowledgemodule.AgentKnowledgeBindingsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
-func (missingService) UpdateAgentKnowledgeBases(ctx context.Context, agentID uint64, input UpdateAgentKnowledgeBindingsInput) *apperror.Error {
+func (missingService) UpdateAgentKnowledgeBases(ctx context.Context, agentID uint64, input aiknowledgemodule.UpdateAgentKnowledgeBindingsInput) *apperror.Error {
 	return apperror.Internal("AI知识库服务未配置")
 }
 

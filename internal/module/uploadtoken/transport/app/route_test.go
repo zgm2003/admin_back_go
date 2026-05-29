@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/middleware"
+	uploadtokenmodule "admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 
@@ -16,12 +17,12 @@ import (
 )
 
 type fakeAppUploadTokenService struct {
-	input CreateInput
+	input uploadtokenmodule.CreateInput
 }
 
-func (f *fakeAppUploadTokenService) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
+func (f *fakeAppUploadTokenService) Create(ctx context.Context, input uploadtokenmodule.CreateInput) (*uploadtokenmodule.CreateResponse, *apperror.Error) {
 	f.input = input
-	return &CreateResponse{Provider: ProviderCOS, Bucket: "bucket-a", Region: "ap-nanjing", Key: "avatars/avatar.png"}, nil
+	return &uploadtokenmodule.CreateResponse{Provider: uploadtokenmodule.ProviderCOS, Bucket: "bucket-a", Region: "ap-nanjing", Key: "avatars/avatar.png"}, nil
 }
 
 func TestUploadTokenModuleRegistersAppRoute(t *testing.T) {
@@ -41,7 +42,7 @@ func TestUploadTokenModuleRegistersAppRoute(t *testing.T) {
 	}
 	body := decodeAppUploadTokenBody(t, recorder)
 	data := body["data"].(map[string]any)
-	if data["provider"] != ProviderCOS || data["bucket"] != "bucket-a" {
+	if data["provider"] != uploadtokenmodule.ProviderCOS || data["bucket"] != "bucket-a" {
 		t.Fatalf("unexpected response data: %#v", data)
 	}
 }

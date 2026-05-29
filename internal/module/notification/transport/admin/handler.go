@@ -11,20 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type HTTPService = notificationmodule.HTTPService
-type InitResponse = notificationmodule.InitResponse
-type ListQuery = notificationmodule.ListQuery
-type ListResponse = notificationmodule.ListResponse
-type Page = notificationmodule.Page
-type Identity = notificationmodule.Identity
-type UnreadCountResponse = notificationmodule.UnreadCountResponse
-type Service = notificationmodule.Service
-
 type Handler struct {
-	service HTTPService
+	service notificationmodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service notificationmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -55,7 +46,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("notification.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), ListQuery{
+	result, appErr := h.service.List(c.Request.Context(), notificationmodule.ListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		UserID:      identity.UserID,
@@ -157,13 +148,13 @@ func (h *Handler) delete(c *gin.Context, ids []int64) {
 	response.OK(c, gin.H{})
 }
 
-func identityFromContext(c *gin.Context) (Identity, bool) {
+func identityFromContext(c *gin.Context) (notificationmodule.Identity, bool) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
 		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
-		return Identity{}, false
+		return notificationmodule.Identity{}, false
 	}
-	return Identity{UserID: identity.UserID, Platform: identity.Platform}, true
+	return notificationmodule.Identity{UserID: identity.UserID, Platform: identity.Platform}, true
 }
 
 func routeID(c *gin.Context) (int64, bool) {
@@ -175,4 +166,4 @@ func routeID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-var _ HTTPService = (*notificationmodule.Service)(nil)
+var _ notificationmodule.HTTPService = (*notificationmodule.Service)(nil)

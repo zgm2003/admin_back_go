@@ -1,12 +1,13 @@
 package admin
 
 import (
+	crontaskmodule "admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService) {
+func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 

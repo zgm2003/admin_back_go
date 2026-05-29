@@ -2,6 +2,7 @@ package admin
 
 import (
 	"admin_back_go/internal/middleware"
+	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -27,7 +28,7 @@ func (h *Handler) ListRecharges(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("充值记录列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().ListRecharges(c.Request.Context(), RechargeListQuery{
+	result, appErr := h.requireService().ListRecharges(c.Request.Context(), paymentmodule.RechargeListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		UserID:      userID,
@@ -62,7 +63,7 @@ func (h *Handler) CreateRecharge(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("充值参数错误"))
 		return
 	}
-	result, appErr := h.requireService().CreateRecharge(c.Request.Context(), RechargeCreateInput{
+	result, appErr := h.requireService().CreateRecharge(c.Request.Context(), paymentmodule.RechargeCreateInput{
 		UserID:      userID,
 		PackageCode: req.PackageCode,
 		PayMethod:   req.PayMethod,

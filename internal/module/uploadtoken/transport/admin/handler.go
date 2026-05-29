@@ -10,13 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const ProviderCOS = uploadtokenmodule.ProviderCOS
-
-type CreateInput = uploadtokenmodule.CreateInput
-type CreateResponse = uploadtokenmodule.CreateResponse
-
 type HTTPService interface {
-	Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error)
+	Create(ctx context.Context, input uploadtokenmodule.CreateInput) (*uploadtokenmodule.CreateResponse, *apperror.Error)
 }
 
 type Handler struct {
@@ -33,7 +28,7 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("uploadtoken.request.invalid", nil, "上传 token 参数错误"))
 		return
 	}
-	result, appErr := h.requireService().Create(c.Request.Context(), CreateInput(req))
+	result, appErr := h.requireService().Create(c.Request.Context(), uploadtokenmodule.CreateInput(req))
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -50,7 +45,7 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
+func (failingService) Create(ctx context.Context, input uploadtokenmodule.CreateInput) (*uploadtokenmodule.CreateResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("uploadtoken.service_missing", nil, "上传运行时服务未配置")
 }
 

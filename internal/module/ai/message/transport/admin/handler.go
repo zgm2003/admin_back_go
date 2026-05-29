@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/middleware"
+	aimessagemodule "admin_back_go/internal/module/ai/message"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -12,10 +13,10 @@ import (
 )
 
 type Handler struct {
-	service HTTPService
+	service aimessagemodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service aimessagemodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -33,7 +34,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI消息列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, ListQuery{ConversationID: conversationID, BeforeID: req.BeforeID, Limit: req.Limit})
+	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, aimessagemodule.ListQuery{ConversationID: conversationID, BeforeID: req.BeforeID, Limit: req.Limit})
 	writeResult(c, res, appErr)
 }
 
@@ -51,7 +52,7 @@ func (h *Handler) Send(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI消息参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, Attachments: req.Attachments, RuntimeParams: req.RuntimeParams})
+	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, aimessagemodule.SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, Attachments: req.Attachments, RuntimeParams: req.RuntimeParams})
 	writeResult(c, res, appErr)
 }
 
@@ -69,11 +70,11 @@ func (h *Handler) Cancel(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI消息参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Cancel(c.Request.Context(), identity.UserID, CancelInput{ConversationID: conversationID, RequestID: req.RequestID})
+	res, appErr := h.requireService().Cancel(c.Request.Context(), identity.UserID, aimessagemodule.CancelInput{ConversationID: conversationID, RequestID: req.RequestID})
 	writeResult(c, res, appErr)
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() aimessagemodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
@@ -108,12 +109,12 @@ func writeResult(c *gin.Context, res any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error) {
+func (nilHTTPService) List(ctx context.Context, userID int64, query aimessagemodule.ListQuery) (*aimessagemodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI消息服务未配置")
 }
-func (nilHTTPService) Send(ctx context.Context, userID int64, input SendInput) (*SendResponse, *apperror.Error) {
+func (nilHTTPService) Send(ctx context.Context, userID int64, input aimessagemodule.SendInput) (*aimessagemodule.SendResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI消息服务未配置")
 }
-func (nilHTTPService) Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error) {
+func (nilHTTPService) Cancel(ctx context.Context, userID int64, input aimessagemodule.CancelInput) (*aimessagemodule.CancelResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI消息服务未配置")
 }

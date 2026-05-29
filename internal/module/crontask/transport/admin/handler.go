@@ -3,6 +3,7 @@ package admin
 import (
 	"strconv"
 
+	crontaskmodule "admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -10,10 +11,10 @@ import (
 )
 
 type Handler struct {
-	service HTTPService
+	service crontaskmodule.HTTPService
 }
 
-func NewHandler(service HTTPService) *Handler {
+func NewHandler(service crontaskmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -40,7 +41,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("crontask.list.request.invalid", nil, "列表参数错误"))
 		return
 	}
-	result, appErr := h.service.List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Name: req.Name, Status: req.Status})
+	result, appErr := h.service.List(c.Request.Context(), crontaskmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Title: req.Title, Name: req.Name, Status: req.Status})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -155,7 +156,7 @@ func (h *Handler) Logs(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("crontask.logs.request.invalid", nil, "日志参数错误"))
 		return
 	}
-	result, appErr := h.service.Logs(c.Request.Context(), LogsQuery{TaskID: id, CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, StartDate: req.StartDate, EndDate: req.EndDate})
+	result, appErr := h.service.Logs(c.Request.Context(), crontaskmodule.LogsQuery{TaskID: id, CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, StartDate: req.StartDate, EndDate: req.EndDate})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -163,8 +164,8 @@ func (h *Handler) Logs(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func saveInputFromRequest(req saveRequest) SaveInput {
-	return SaveInput{Name: req.Name, Title: req.Title, Description: req.Description, Cron: req.Cron, CronReadable: req.CronReadable, Handler: req.Handler, Status: req.Status}
+func saveInputFromRequest(req saveRequest) crontaskmodule.SaveInput {
+	return crontaskmodule.SaveInput{Name: req.Name, Title: req.Title, Description: req.Description, Cron: req.Cron, CronReadable: req.CronReadable, Handler: req.Handler, Status: req.Status}
 }
 
 func routeID(c *gin.Context) (int64, bool) {

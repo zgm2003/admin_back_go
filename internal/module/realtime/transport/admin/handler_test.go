@@ -11,6 +11,7 @@ import (
 
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
+	realtimemodule "admin_back_go/internal/module/realtime"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,7 @@ func TestWebSocketConnectsAndRepliesToPing(t *testing.T) {
 		c.Next()
 	})
 	RegisterRoutes(router, NewHandler(
-		NewService(25_000_000_000),
+		realtimemodule.NewService(25_000_000_000),
 		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
 		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -45,12 +46,12 @@ func TestWebSocketConnectsAndRepliesToPing(t *testing.T) {
 	if err := client.ReadJSON(&connected); err != nil {
 		t.Fatalf("read connected: %v", err)
 	}
-	if connected.Type != TypeConnectedV1 {
+	if connected.Type != realtimemodule.TypeConnectedV1 {
 		t.Fatalf("expected connected event, got %#v", connected)
 	}
 
 	if err := client.WriteJSON(map[string]any{
-		"type":       TypePingV1,
+		"type":       realtimemodule.TypePingV1,
 		"request_id": "rid-1",
 		"data":       map[string]any{},
 	}); err != nil {
@@ -61,7 +62,7 @@ func TestWebSocketConnectsAndRepliesToPing(t *testing.T) {
 	if err := client.ReadJSON(&pong); err != nil {
 		t.Fatalf("read pong: %v", err)
 	}
-	if pong.Type != TypePongV1 || pong.RequestID != "rid-1" {
+	if pong.Type != realtimemodule.TypePongV1 || pong.RequestID != "rid-1" {
 		t.Fatalf("unexpected pong: %#v", pong)
 	}
 	var data map[string]any
@@ -85,7 +86,7 @@ func TestWebSocketUsesDefaultUpgraderWhenNil(t *testing.T) {
 		c.Next()
 	})
 	RegisterRoutes(router, NewHandler(
-		NewService(25*time.Second),
+		realtimemodule.NewService(25*time.Second),
 		nil,
 		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -101,7 +102,7 @@ func TestWebSocketUsesDefaultUpgraderWhenNil(t *testing.T) {
 	if err := client.ReadJSON(&connected); err != nil {
 		t.Fatalf("read connected: %v", err)
 	}
-	if connected.Type != TypeConnectedV1 {
+	if connected.Type != realtimemodule.TypeConnectedV1 {
 		t.Fatalf("expected connected event, got %#v", connected)
 	}
 }
@@ -118,7 +119,7 @@ func TestWebSocketRejectsWhenRealtimeDisabled(t *testing.T) {
 		c.Next()
 	})
 	RegisterRoutes(router, NewHandler(
-		NewService(25*time.Second),
+		realtimemodule.NewService(25*time.Second),
 		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
 		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -151,7 +152,7 @@ func TestWebSocketLocalizesDisabledResponse(t *testing.T) {
 		c.Next()
 	})
 	RegisterRoutes(router, NewHandler(
-		NewService(25*time.Second),
+		realtimemodule.NewService(25*time.Second),
 		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
 		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -180,7 +181,7 @@ func TestWebSocketLocalizesMissingIdentity(t *testing.T) {
 	router := gin.New()
 	router.Use(projecti18n.Localize())
 	RegisterRoutes(router, NewHandler(
-		NewService(25*time.Second),
+		realtimemodule.NewService(25*time.Second),
 		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
 		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -206,7 +207,7 @@ func TestWebSocketLocalizesMissingIdentity(t *testing.T) {
 func TestWebSocketRegistersAndCleansUpSession(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	manager := infrarealtime.NewManager()
-	service := NewService(25 * time.Second)
+	service := realtimemodule.NewService(25 * time.Second)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{
@@ -262,7 +263,7 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 		c.Next()
 	})
 	RegisterRoutes(router, NewHandler(
-		NewService(25*time.Second),
+		realtimemodule.NewService(25*time.Second),
 		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
 		infrarealtime.NewManager(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -279,7 +280,7 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 	}
 
 	if err := client.WriteJSON(map[string]any{
-		"type":       TypeSubscribeV1,
+		"type":       realtimemodule.TypeSubscribeV1,
 		"request_id": "rid-subscribe",
 		"data": map[string]any{
 			"topics": []string{"user:8"},
@@ -292,7 +293,7 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 	if err := client.ReadJSON(&reply); err != nil {
 		t.Fatalf("read subscribe error: %v", err)
 	}
-	if reply.Type != TypeErrorV1 || reply.RequestID != "rid-subscribe" {
+	if reply.Type != realtimemodule.TypeErrorV1 || reply.RequestID != "rid-subscribe" {
 		t.Fatalf("unexpected subscribe error reply: %#v", reply)
 	}
 }

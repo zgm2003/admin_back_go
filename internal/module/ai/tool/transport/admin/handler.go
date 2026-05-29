@@ -5,15 +5,16 @@ import (
 	"strconv"
 
 	"admin_back_go/internal/middleware"
+	aitoolmodule "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-type Handler struct{ service HTTPService }
+type Handler struct{ service aitoolmodule.HTTPService }
 
-func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
+func NewHandler(service aitoolmodule.HTTPService) *Handler { return &Handler{service: service} }
 
 func (h *Handler) Init(c *gin.Context) {
 	result, appErr := h.requireService().Init(c.Request.Context())
@@ -26,7 +27,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI工具列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, RiskLevel: req.RiskLevel, Status: req.Status})
+	result, appErr := h.requireService().List(c.Request.Context(), aitoolmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Name: req.Name, Code: req.Code, RiskLevel: req.RiskLevel, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
@@ -46,7 +47,7 @@ func (h *Handler) GenerateDraft(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
 		return
 	}
-	result, appErr := h.requireService().GenerateDraft(c.Request.Context(), GenerateDraftInput{AgentID: req.AgentID, UserID: uint64(identity.UserID), Requirement: req.Requirement, CodeHint: req.CodeHint})
+	result, appErr := h.requireService().GenerateDraft(c.Request.Context(), aitoolmodule.GenerateDraftInput{AgentID: req.AgentID, UserID: uint64(identity.UserID), Requirement: req.Requirement, CodeHint: req.CodeHint})
 	writeResult(c, result, appErr)
 }
 
@@ -129,14 +130,14 @@ func (h *Handler) UpdateAgentTools(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("智能体工具绑定参数错误"))
 		return
 	}
-	if appErr := h.requireService().UpdateAgentTools(c.Request.Context(), agentID, UpdateAgentToolsInput{ToolIDs: req.ToolIDs}); appErr != nil {
+	if appErr := h.requireService().UpdateAgentTools(c.Request.Context(), agentID, aitoolmodule.UpdateAgentToolsInput{ToolIDs: req.ToolIDs}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() aitoolmodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
@@ -152,8 +153,8 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 	return id, true
 }
 
-func mutationInput(req mutationRequest) MutationInput {
-	return MutationInput{Name: req.Name, Code: req.Code, Description: req.Description, ParametersJSON: req.ParametersJSON, ResultSchemaJSON: req.ResultSchemaJSON, RiskLevel: req.RiskLevel, TimeoutMS: req.TimeoutMS, Status: req.Status}
+func mutationInput(req mutationRequest) aitoolmodule.MutationInput {
+	return aitoolmodule.MutationInput{Name: req.Name, Code: req.Code, Description: req.Description, ParametersJSON: req.ParametersJSON, ResultSchemaJSON: req.ResultSchemaJSON, RiskLevel: req.RiskLevel, TimeoutMS: req.TimeoutMS, Status: req.Status}
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
@@ -166,22 +167,22 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (nilHTTPService) Init(ctx context.Context) (*aitoolmodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (nilHTTPService) List(ctx context.Context, query aitoolmodule.ListQuery) (*aitoolmodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) GeneratePageInit(ctx context.Context) (*GeneratePageInitResponse, *apperror.Error) {
+func (nilHTTPService) GeneratePageInit(ctx context.Context) (*aitoolmodule.GeneratePageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) GenerateDraft(ctx context.Context, input GenerateDraftInput) (*GenerateDraftResponse, *apperror.Error) {
+func (nilHTTPService) GenerateDraft(ctx context.Context, input aitoolmodule.GenerateDraftInput) (*aitoolmodule.GenerateDraftResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) Create(ctx context.Context, input MutationInput) (uint64, *apperror.Error) {
+func (nilHTTPService) Create(ctx context.Context, input aitoolmodule.MutationInput) (uint64, *apperror.Error) {
 	return 0, apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) Update(ctx context.Context, id uint64, input MutationInput) *apperror.Error {
+func (nilHTTPService) Update(ctx context.Context, id uint64, input aitoolmodule.MutationInput) *apperror.Error {
 	return apperror.Internal("AI工具服务未配置")
 }
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -190,9 +191,9 @@ func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {
 	return apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) AgentTools(ctx context.Context, agentID uint64) (*AgentToolsResponse, *apperror.Error) {
+func (nilHTTPService) AgentTools(ctx context.Context, agentID uint64) (*aitoolmodule.AgentToolsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI工具服务未配置")
 }
-func (nilHTTPService) UpdateAgentTools(ctx context.Context, agentID uint64, input UpdateAgentToolsInput) *apperror.Error {
+func (nilHTTPService) UpdateAgentTools(ctx context.Context, agentID uint64, input aitoolmodule.UpdateAgentToolsInput) *apperror.Error {
 	return apperror.Internal("AI工具服务未配置")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	systemlogmodule "admin_back_go/internal/module/systemlog"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -11,9 +12,9 @@ import (
 )
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
-	Files(ctx context.Context) (*FilesResponse, *apperror.Error)
-	Lines(ctx context.Context, query LinesQuery) (*LinesResponse, *apperror.Error)
+	Init(ctx context.Context) (*systemlogmodule.InitResponse, *apperror.Error)
+	Files(ctx context.Context) (*systemlogmodule.FilesResponse, *apperror.Error)
+	Lines(ctx context.Context, query systemlogmodule.LinesQuery) (*systemlogmodule.LinesResponse, *apperror.Error)
 }
 
 type Handler struct {
@@ -60,7 +61,7 @@ func (h *Handler) Lines(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("systemlog.query.invalid", nil, "日志查询参数错误"))
 		return
 	}
-	result, appErr := h.service.Lines(c.Request.Context(), LinesQuery{
+	result, appErr := h.service.Lines(c.Request.Context(), systemlogmodule.LinesQuery{
 		Filename: strings.TrimSpace(c.Param("name")),
 		Tail:     req.Tail,
 		Level:    strings.ToUpper(strings.TrimSpace(req.Level)),

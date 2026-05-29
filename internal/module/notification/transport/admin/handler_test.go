@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/middleware"
+	notificationmodule "admin_back_go/internal/module/notification"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -18,23 +19,23 @@ type fakeHTTPService struct {
 	err *apperror.Error
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{}, f.err
+func (f *fakeHTTPService) Init(ctx context.Context) (*notificationmodule.InitResponse, *apperror.Error) {
+	return &notificationmodule.InitResponse{}, f.err
 }
 
-func (f *fakeHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
-	return &ListResponse{Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
+func (f *fakeHTTPService) List(ctx context.Context, query notificationmodule.ListQuery) (*notificationmodule.ListResponse, *apperror.Error) {
+	return &notificationmodule.ListResponse{Page: notificationmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
 }
 
-func (f *fakeHTTPService) UnreadCount(ctx context.Context, identity Identity) (*UnreadCountResponse, *apperror.Error) {
-	return &UnreadCountResponse{}, f.err
+func (f *fakeHTTPService) UnreadCount(ctx context.Context, identity notificationmodule.Identity) (*notificationmodule.UnreadCountResponse, *apperror.Error) {
+	return &notificationmodule.UnreadCountResponse{}, f.err
 }
 
-func (f *fakeHTTPService) MarkRead(ctx context.Context, identity Identity, ids []int64) *apperror.Error {
+func (f *fakeHTTPService) MarkRead(ctx context.Context, identity notificationmodule.Identity, ids []int64) *apperror.Error {
 	return f.err
 }
 
-func (f *fakeHTTPService) Delete(ctx context.Context, identity Identity, ids []int64) *apperror.Error {
+func (f *fakeHTTPService) Delete(ctx context.Context, identity notificationmodule.Identity, ids []int64) *apperror.Error {
 	return f.err
 }
 
@@ -72,7 +73,7 @@ func TestHandlerListLocalizesMissingIdentity(t *testing.T) {
 	}
 }
 
-func newNotificationLocalizedTestRouter(service HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
+func newNotificationLocalizedTestRouter(service notificationmodule.HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())

@@ -6,15 +6,16 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/middleware"
+	aiagentmodule "admin_back_go/internal/module/ai/agent"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-type Handler struct{ service HTTPService }
+type Handler struct{ service aiagentmodule.HTTPService }
 
-func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
+func NewHandler(service aiagentmodule.HTTPService) *Handler { return &Handler{service: service} }
 
 func (h *Handler) Init(c *gin.Context) {
 	result, appErr := h.requireService().Init(c.Request.Context())
@@ -27,7 +28,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI智能体列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().List(c.Request.Context(), ListQuery{
+	result, appErr := h.requireService().List(c.Request.Context(), aiagentmodule.ListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Name:        req.Name,
@@ -49,7 +50,7 @@ func (h *Handler) Options(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI智能体选项参数错误"))
 		return
 	}
-	result, appErr := h.requireService().Options(c.Request.Context(), OptionQuery{
+	result, appErr := h.requireService().Options(c.Request.Context(), aiagentmodule.OptionQuery{
 		UserID: identity.UserID,
 		Scene:  req.Scene,
 	})
@@ -143,7 +144,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) requireService() HTTPService {
+func (h *Handler) requireService() aiagentmodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
@@ -159,8 +160,8 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 	return id, true
 }
 
-func createInput(req mutationRequest) CreateInput {
-	return CreateInput{
+func createInput(req mutationRequest) aiagentmodule.CreateInput {
+	return aiagentmodule.CreateInput{
 		ProviderID:   req.ProviderID,
 		Name:         req.Name,
 		ModelID:      req.ModelID,
@@ -171,7 +172,9 @@ func createInput(req mutationRequest) CreateInput {
 	}
 }
 
-func updateInput(req mutationRequest) UpdateInput { return UpdateInput(createInput(req)) }
+func updateInput(req mutationRequest) aiagentmodule.UpdateInput {
+	return aiagentmodule.UpdateInput(createInput(req))
+}
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 	if appErr != nil {
@@ -183,22 +186,22 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (nilHTTPService) Init(ctx context.Context) (*aiagentmodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) ProviderModels(ctx context.Context, providerID uint64) (*ProviderModelsResponse, *apperror.Error) {
+func (nilHTTPService) ProviderModels(ctx context.Context, providerID uint64) (*aiagentmodule.ProviderModelsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (nilHTTPService) List(ctx context.Context, query aiagentmodule.ListQuery) (*aiagentmodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Detail(ctx context.Context, id uint64) (*DetailResponse, *apperror.Error) {
+func (nilHTTPService) Detail(ctx context.Context, id uint64) (*aiagentmodule.DetailResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error) {
+func (nilHTTPService) Create(ctx context.Context, input aiagentmodule.CreateInput) (uint64, *apperror.Error) {
 	return 0, apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error {
+func (nilHTTPService) Update(ctx context.Context, id uint64, input aiagentmodule.UpdateInput) *apperror.Error {
 	return apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error {
@@ -210,6 +213,6 @@ func (nilHTTPService) Test(ctx context.Context, id uint64) (*infraai.TestConnect
 func (nilHTTPService) Delete(ctx context.Context, id uint64) *apperror.Error {
 	return apperror.Internal("AI智能体服务未配置")
 }
-func (nilHTTPService) Options(ctx context.Context, query OptionQuery) (*AgentOptionsResponse, *apperror.Error) {
+func (nilHTTPService) Options(ctx context.Context, query aiagentmodule.OptionQuery) (*aiagentmodule.AgentOptionsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }

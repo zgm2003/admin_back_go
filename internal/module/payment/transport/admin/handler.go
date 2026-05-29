@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -12,6 +13,31 @@ import (
 
 type Handler struct {
 	service HTTPService
+}
+
+type HTTPService interface {
+	ConfigInit(ctx context.Context) (*paymentmodule.ConfigInitResponse, *apperror.Error)
+	ListConfigs(ctx context.Context, query paymentmodule.ConfigListQuery) (*paymentmodule.ConfigListResponse, *apperror.Error)
+	CreateConfig(ctx context.Context, input paymentmodule.ConfigMutationInput) (int64, *apperror.Error)
+	UpdateConfig(ctx context.Context, id int64, input paymentmodule.ConfigMutationInput) *apperror.Error
+	ChangeConfigStatus(ctx context.Context, id int64, status int) *apperror.Error
+	DeleteConfig(ctx context.Context, id int64) *apperror.Error
+	UploadCertificate(ctx context.Context, input paymentmodule.CertificateUploadInput) (*paymentmodule.CertificateUploadResponse, *apperror.Error)
+	TestConfig(ctx context.Context, id int64) (*paymentmodule.ConfigTestResponse, *apperror.Error)
+	OrderInit(ctx context.Context) (*paymentmodule.OrderInitResponse, *apperror.Error)
+	ListOrders(ctx context.Context, query paymentmodule.OrderListQuery) (*paymentmodule.OrderListResponse, *apperror.Error)
+	GetOrder(ctx context.Context, id int64) (*paymentmodule.OrderDetail, *apperror.Error)
+	CreateOrder(ctx context.Context, input paymentmodule.OrderCreateInput) (*paymentmodule.OrderCreateResponse, *apperror.Error)
+	PayOrder(ctx context.Context, id int64) (*paymentmodule.OrderPayResponse, *apperror.Error)
+	SyncOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error)
+	CloseOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error)
+	RechargeInit(ctx context.Context, userID int64) (*paymentmodule.RechargeInitResponse, *apperror.Error)
+	ListRecharges(ctx context.Context, query paymentmodule.RechargeListQuery) (*paymentmodule.RechargeListResponse, *apperror.Error)
+	GetRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeDetail, *apperror.Error)
+	CreateRecharge(ctx context.Context, input paymentmodule.RechargeCreateInput) (*paymentmodule.RechargePayResponse, *apperror.Error)
+	PayRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargePayResponse, *apperror.Error)
+	SyncRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeStatusResponse, *apperror.Error)
+	CloseRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeStatusResponse, *apperror.Error)
 }
 
 func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
@@ -27,7 +53,7 @@ func (h *Handler) ListConfigs(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("支付配置列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().ListConfigs(c.Request.Context(), ConfigListQuery{
+	result, appErr := h.requireService().ListConfigs(c.Request.Context(), paymentmodule.ConfigListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
 		Name:        req.Name,
@@ -98,7 +124,7 @@ func (h *Handler) UploadCertificate(c *gin.Context) {
 		return
 	}
 	defer file.Close()
-	result, appErr := h.requireService().UploadCertificate(c.Request.Context(), CertificateUploadInput{
+	result, appErr := h.requireService().UploadCertificate(c.Request.Context(), paymentmodule.CertificateUploadInput{
 		ConfigCode: c.PostForm("config_code"),
 		CertType:   c.PostForm("cert_type"),
 		FileName:   fileHeader.Filename,
@@ -133,8 +159,8 @@ func routeInt64(c *gin.Context, name string, msg string) (int64, bool) {
 	return id, true
 }
 
-func configInput(req configMutationRequest) ConfigMutationInput {
-	return ConfigMutationInput{
+func configInput(req configMutationRequest) paymentmodule.ConfigMutationInput {
+	return paymentmodule.ConfigMutationInput{
 		Provider:         req.Provider,
 		Code:             req.Code,
 		Name:             req.Name,
@@ -170,16 +196,16 @@ func writeEmpty(c *gin.Context, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) ConfigInit(ctx context.Context) (*ConfigInitResponse, *apperror.Error) {
+func (nilHTTPService) ConfigInit(ctx context.Context) (*paymentmodule.ConfigInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) ListConfigs(ctx context.Context, query ConfigListQuery) (*ConfigListResponse, *apperror.Error) {
+func (nilHTTPService) ListConfigs(ctx context.Context, query paymentmodule.ConfigListQuery) (*paymentmodule.ConfigListResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) CreateConfig(ctx context.Context, input ConfigMutationInput) (int64, *apperror.Error) {
+func (nilHTTPService) CreateConfig(ctx context.Context, input paymentmodule.ConfigMutationInput) (int64, *apperror.Error) {
 	return 0, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) UpdateConfig(ctx context.Context, id int64, input ConfigMutationInput) *apperror.Error {
+func (nilHTTPService) UpdateConfig(ctx context.Context, id int64, input paymentmodule.ConfigMutationInput) *apperror.Error {
 	return apperror.Internal("支付服务未配置")
 }
 func (nilHTTPService) ChangeConfigStatus(ctx context.Context, id int64, status int) *apperror.Error {
@@ -188,51 +214,51 @@ func (nilHTTPService) ChangeConfigStatus(ctx context.Context, id int64, status i
 func (nilHTTPService) DeleteConfig(ctx context.Context, id int64) *apperror.Error {
 	return apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) UploadCertificate(ctx context.Context, input CertificateUploadInput) (*CertificateUploadResponse, *apperror.Error) {
+func (nilHTTPService) UploadCertificate(ctx context.Context, input paymentmodule.CertificateUploadInput) (*paymentmodule.CertificateUploadResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) TestConfig(ctx context.Context, id int64) (*ConfigTestResponse, *apperror.Error) {
+func (nilHTTPService) TestConfig(ctx context.Context, id int64) (*paymentmodule.ConfigTestResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) OrderInit(ctx context.Context) (*OrderInitResponse, *apperror.Error) {
+func (nilHTTPService) OrderInit(ctx context.Context) (*paymentmodule.OrderInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) ListOrders(ctx context.Context, query OrderListQuery) (*OrderListResponse, *apperror.Error) {
+func (nilHTTPService) ListOrders(ctx context.Context, query paymentmodule.OrderListQuery) (*paymentmodule.OrderListResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) GetOrder(ctx context.Context, id int64) (*OrderDetail, *apperror.Error) {
+func (nilHTTPService) GetOrder(ctx context.Context, id int64) (*paymentmodule.OrderDetail, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) CreateOrder(ctx context.Context, input OrderCreateInput) (*OrderCreateResponse, *apperror.Error) {
+func (nilHTTPService) CreateOrder(ctx context.Context, input paymentmodule.OrderCreateInput) (*paymentmodule.OrderCreateResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *apperror.Error) {
+func (nilHTTPService) PayOrder(ctx context.Context, id int64) (*paymentmodule.OrderPayResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error) {
+func (nilHTTPService) SyncOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) CloseOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error) {
+func (nilHTTPService) CloseOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) RechargeInit(ctx context.Context, userID int64) (*RechargeInitResponse, *apperror.Error) {
+func (nilHTTPService) RechargeInit(ctx context.Context, userID int64) (*paymentmodule.RechargeInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) ListRecharges(ctx context.Context, query RechargeListQuery) (*RechargeListResponse, *apperror.Error) {
+func (nilHTTPService) ListRecharges(ctx context.Context, query paymentmodule.RechargeListQuery) (*paymentmodule.RechargeListResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeDetail, *apperror.Error) {
+func (nilHTTPService) GetRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeDetail, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) CreateRecharge(ctx context.Context, input RechargeCreateInput) (*RechargePayResponse, *apperror.Error) {
+func (nilHTTPService) CreateRecharge(ctx context.Context, input paymentmodule.RechargeCreateInput) (*paymentmodule.RechargePayResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) PayRecharge(ctx context.Context, userID int64, id int64) (*RechargePayResponse, *apperror.Error) {
+func (nilHTTPService) PayRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargePayResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) SyncRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error) {
+func (nilHTTPService) SyncRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) CloseRecharge(ctx context.Context, userID int64, id int64) (*RechargeStatusResponse, *apperror.Error) {
+func (nilHTTPService) CloseRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }

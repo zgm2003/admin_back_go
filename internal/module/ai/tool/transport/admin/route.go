@@ -1,12 +1,13 @@
 package admin
 
 import (
+	aitoolmodule "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func Register(router *gin.Engine, service HTTPService) {
+func Register(router *gin.Engine, service aitoolmodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 
