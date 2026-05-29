@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"admin_back_go/internal/middleware"
-	walletmodule "admin_back_go/internal/module/wallet"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 

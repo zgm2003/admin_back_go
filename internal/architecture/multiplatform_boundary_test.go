@@ -160,7 +160,6 @@ func TestCommerceRBACAdminTransportShells(t *testing.T) {
 		"auth_platform",
 		"permission",
 		"role",
-		"wallet",
 		"payment",
 	} {
 		moduleRoot := "internal/module/" + module + "/"
@@ -168,6 +167,11 @@ func TestCommerceRBACAdminTransportShells(t *testing.T) {
 		mustNotExist(t, root, moduleRoot+"route.go")
 		mustNotExist(t, root, moduleRoot+"handler.go")
 	}
+
+	walletRoot := "internal/module/payment/wallet/"
+	mustExist(t, root, walletRoot+"transport/admin/route.go")
+	mustNotExist(t, root, walletRoot+"route.go")
+	mustNotExist(t, root, walletRoot+"handler.go")
 }
 
 func TestAuthPlatformModuleUsesSnakeCaseDirectory(t *testing.T) {
