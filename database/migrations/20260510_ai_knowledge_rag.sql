@@ -234,7 +234,7 @@ INSERT INTO `ai_knowledge_documents` (
   (@admin_go_project_architecture_kb_id, 'Go 后端架构', 'markdown', 'docs/architecture/04-go-backend-framework.md', @doc_content_go_backend, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, '开发质量规则', 'markdown', 'docs/architecture/05-development-quality-rules.md', @doc_content_quality_rules, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, 'AI 模块当前事实', 'markdown', 'docs/migration/current-status.md#ai', @doc_content_ai_current_facts, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
-  (@admin_go_project_architecture_kb_id, 'AI 对话运行链路', 'text', 'admin_back_go/internal/module/aichat/service.go', @doc_content_ai_chat_runtime, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
+  (@admin_go_project_architecture_kb_id, 'AI 对话运行链路', 'text', 'admin_back_go/internal/module/ai/chat/service.go', @doc_content_ai_chat_runtime, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, 'Vue 前端 AI 页面结构', 'text', 'admin_front_ts/src/views/Main/ai', @doc_content_vue_ai_pages, 'indexed', '', CURRENT_TIMESTAMP, 1, 2)
 ON DUPLICATE KEY UPDATE
   `title` = VALUES(`title`),
@@ -265,7 +265,7 @@ WHERE `knowledge_base_id` = @admin_go_project_architecture_kb_id
     'docs/architecture/04-go-backend-framework.md',
     'docs/architecture/05-development-quality-rules.md',
     'docs/migration/current-status.md#ai',
-    'admin_back_go/internal/module/aichat/service.go',
+    'admin_back_go/internal/module/ai/chat/service.go',
     'admin_front_ts/src/views/Main/ai'
   )
   AND `is_del` = 2

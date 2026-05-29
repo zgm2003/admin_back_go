@@ -1486,10 +1486,10 @@ internal/module/ai/agent         # ai_agents local agent config MVP
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
 internal/module/ai/image         # ai_image_tasks / ai_image_assets generation runtime
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
-internal/module/aiconversation   # current-user conversations; canonical agent_id -> ai_agents
-internal/module/aimessage        # conversation messages, feedback, branch cleanup
-internal/module/airun            # ai_runs / ai_run_events token-only run monitor
-internal/module/aichat           # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
+internal/module/ai/conversation   # current-user conversations; canonical agent_id -> ai_agents
+internal/module/ai/message        # conversation messages, feedback, branch cleanup
+internal/module/ai/run            # ai_runs / ai_run_events token-only run monitor
+internal/module/ai/chat           # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
 ```
 
 Retired AI active runtime:
