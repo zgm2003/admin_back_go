@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
-	"admin_back_go/internal/module/aichat"
-	"admin_back_go/internal/module/aimessage"
+	aichat "admin_back_go/internal/module/ai/chat"
+	aimessage "admin_back_go/internal/module/ai/message"
 )
 
 type fakeConversationReplyService struct {

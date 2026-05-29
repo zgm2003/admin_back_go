@@ -1,6 +1,6 @@
 package admin
 
-import airunmodule "admin_back_go/internal/module/airun"
+import airunmodule "admin_back_go/internal/module/ai/run"
 
 type (
 	JSONObject             = airunmodule.JSONObject

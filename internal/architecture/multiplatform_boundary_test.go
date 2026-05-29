@@ -98,10 +98,10 @@ func TestAIAdminTransportShells(t *testing.T) {
 		"internal/module/ai/tool/",
 		"internal/module/ai/image/",
 		"internal/module/ai/knowledge/",
-		"internal/module/aiconversation/",
-		"internal/module/aimessage/",
-		"internal/module/airun/",
-		"internal/module/aichat/",
+		"internal/module/ai/conversation/",
+		"internal/module/ai/message/",
+		"internal/module/ai/run/",
+		"internal/module/ai/chat/",
 	} {
 		mustExist(t, root, moduleRoot+"transport/admin/route.go")
 		mustNotExist(t, root, moduleRoot+"route.go")

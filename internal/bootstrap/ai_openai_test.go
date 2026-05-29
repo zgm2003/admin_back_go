@@ -8,7 +8,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
-	"admin_back_go/internal/module/aichat"
+	aichat "admin_back_go/internal/module/ai/chat"
 )
 
 func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {

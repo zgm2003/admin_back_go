@@ -9,7 +9,7 @@ import (
 
 	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
-	"admin_back_go/internal/module/aichat"
+	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"

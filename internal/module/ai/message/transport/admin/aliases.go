@@ -1,6 +1,6 @@
 package admin
 
-import aimessagemodule "admin_back_go/internal/module/aimessage"
+import aimessagemodule "admin_back_go/internal/module/ai/message"
 
 type (
 	ListQuery      = aimessagemodule.ListQuery

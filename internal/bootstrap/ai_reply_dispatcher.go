@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"admin_back_go/internal/module/aichat"
-	"admin_back_go/internal/module/aimessage"
+	aichat "admin_back_go/internal/module/ai/chat"
+	aimessage "admin_back_go/internal/module/ai/message"
 )
 
 const aiConversationReplyTimeout = 2 * time.Minute

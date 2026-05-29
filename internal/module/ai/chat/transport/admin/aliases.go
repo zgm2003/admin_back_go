@@ -1,6 +1,6 @@
 package admin
 
-import aichatmodule "admin_back_go/internal/module/aichat"
+import aichatmodule "admin_back_go/internal/module/ai/chat"
 
 type (
 	ConversationReplyInput   = aichatmodule.ConversationReplyInput

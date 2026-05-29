@@ -1,6 +1,6 @@
 package admin
 
-import aiconversationmodule "admin_back_go/internal/module/aiconversation"
+import aiconversationmodule "admin_back_go/internal/module/ai/conversation"
 
 type (
 	ListQuery          = aiconversationmodule.ListQuery
