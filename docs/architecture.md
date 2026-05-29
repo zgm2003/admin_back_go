@@ -11,15 +11,15 @@ E:\admin_go\docs\architecture\05-development-quality-rules.md
 
 ## 当前阶段
 
-当前后端已经不是早期 admin core foundation。`admin_back_go` 是 Go active runtime：认证、RBAC、用户、App API、日志、通知、邮件、上传、队列、定时任务、支付、AI、WebSocket realtime 等模块已经按 `docs/status/current-status.md` 分批落地。
+当前后端已经不是早期 admin core foundation。`admin_back_go` 是 Go active runtime：认证、RBAC、用户、App API、日志、通知、邮件、上传、队列、定时任务、支付、AI、WebSocket realtime 等模块已经按根仓库 `E:/admin_go/docs/status/current-status.md` 分批落地。
 
 当前事实来源顺序：
 
 ```text
 1. live runtime behavior
 2. smoke / focused tests
-3. docs/status/current-status.md
-4. docs/contracts/*.md
+3. E:/admin_go/docs/status/current-status.md
+4. E:/admin_go/docs/contracts/*.md
 5. 本文件
 6. historical specs/plans/comments
 ```
@@ -57,7 +57,7 @@ route -> handler -> service -> repository -> model
 
 ## 模块家族
 
-`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/ai/realtime/queue-monitor 等已落地切片。
+`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以根仓库 `E:/admin_go/docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/ai/realtime/queue-monitor 等已落地切片。
 
 当前模块拓扑索引：
 
@@ -82,7 +82,7 @@ internal/module/uploadtoken/transport/app # app upload-token HTTP 表面
 
 本切片只拆 HTTP ownership，不改 admin URL、DB schema、RBAC permission code，也不强行把 user/profile repository 一刀切开。`user` 是 admin user-management capability；`profile` 是 current-user self-service HTTP capability；底层 service/repository 的进一步归属治理需要单独计划。
 
-根 module 不再注册 HTTP 表面。`route.go`、`handler.go`、`app_handler.go`、`platform_handler.go`、`app_route_test.go`、`platform_route.go` 必须移入对应 `transport/{platform}`，并由 `TestNoModuleRootHTTPSurface` 守住；service/repository/model/jobs 仍留在能力根目录。
+根 module 不再注册 HTTP 表面。旧 `app_handler.go`、`platform_handler.go`、`app_route_test.go`、`platform_route.go` 不得新增；HTTP 表面统一放在对应 `transport/{platform}/route.go|handler.go|request.go|presenter.go`，并由 `TestNoModuleRootHTTPSurface` 守住；service/repository/model/jobs 仍留在能力根目录。
 
 平台差异默认收敛在 route / handler / presenter / policy。`authplatform` 只拥有认证/会话策略，例如登录方式、验证码类型、token TTL、会话绑定、单端登录和是否允许注册；它不是 AI、钱包、通知等业务的全局平台配置中心。
 

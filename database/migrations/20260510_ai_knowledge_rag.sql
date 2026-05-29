@@ -187,12 +187,14 @@ SET @admin_go_project_architecture_kb_id := (
 );
 
 SET @doc_content_project_principles := '项目总原则：E:\\admin_go 是 open-source-first admin rewrite workspace，不是闭门造车实验场。冷启动必须先读当前状态，再读架构、契约、测试文档，再按 agent 角色接一个窄切片，最后才改代码、跑验证、同步文档。Linus 三问固定是：这是真问题还是臆想？有更简单的方法吗？会破坏已有前端、接口、登录和权限吗？不可协商原则是代码质量、架构质量、文档真实性永远优先。没有验证证据，不准说完成；文档与运行时冲突时，以运行时为准并修正文档。';
-SET @doc_content_go_backend := 'Go 后端架构：admin_back_go 采用 Gin modular monolith。顶层方向是 cmd -> bootstrap -> server -> module -> platform，业务模块内部默认 route -> handler -> service -> repository -> model。不要把 Go 写成 Java，不要制造 ServiceImpl、Manager、Factory、BO、VO、Converter everywhere。旧 PHP 只提供业务事实和兼容桥，不能污染新 REST 设计。admin-api 负责 HTTP，admin-worker 负责队列消费和定时调度。';
+SET @doc_content_go_backend := 'Go 后端架构：admin_back_go 采用 Gin modular monolith。顶层方向是 cmd -> bootstrap -> server -> module/{capability}/transport/{platform} -> service -> repository，并通过 shared/infra 访问公共能力和运行时技术资源。不要把 Go 写成 Java，不要制造 ServiceImpl、Manager、Factory、BO、VO、Converter everywhere。旧 PHP 只提供业务事实和兼容桥，不能污染新 REST 设计。admin-api 负责 HTTP，admin-worker 负责队列消费和定时调度。';
 SET @doc_content_quality_rules := '开发质量规则：代码要简单、明确、可测、无隐藏兜底、无无主 goroutine。架构边界要清楚，职责单一，尊重既定分层。数据库迁移必须幂等，可重复执行；状态字段遵守 status=1 启用、status=2 禁用，is_del=1 删除、is_del=2 正常。前后端字段以契约和运行时事实为准，不靠猜测。触碰代码后必须给出验证命令和结果。';
 SET @doc_content_ai_current_facts := 'AI 模块当前事实：AI 产品菜单包含 /ai/providers、/ai/agents、/ai/knowledge、/ai/tools、/ai/runs、/ai/chat。当前 AI 链路已有 provider、agent、chat、run、tool 基础能力。live DB 已有 ai_agents、ai_conversations、ai_messages、ai_runs、ai_run_events、ai_tools、ai_agent_tools、ai_tool_calls；知识库新设计使用 ai_knowledge_bases、ai_knowledge_documents、ai_knowledge_chunks、ai_agent_knowledge_bases、ai_knowledge_retrievals、ai_knowledge_retrieval_hits。';
-SET @doc_content_ai_chat_runtime := 'AI 对话运行链路：聊天是 WebSocket-first，不走 SSE。aichat 创建 ai_runs，加载智能体和工具，调用 provider，保存助手消息并完成 run。知识库检索应该插入在第一次 StreamChat 前：根据当前会话 agent_id 读取启用绑定，对本轮用户消息执行本地检索，按 top_k、min_score、max_context_chars 筛选片段，把选中片段注入本轮 user content，并写入检索记录和命中记录。默认未绑定知识库时不能改变现有聊天行为。';
+SET @doc_content_ai_chat_runtime := 'AI 对话运行链路：聊天是 WebSocket-first，不走 SSE。internal/module/ai/chat 创建 ai_runs，加载智能体、工具和知识库绑定，经 internal/infra/ai 调用 provider，保存助手消息并完成 run。知识库检索应该插入在第一次 StreamChat 前：根据当前会话 agent_id 读取启用绑定，对本轮用户消息执行本地检索，按 top_k、min_score、max_context_chars 筛选片段，把选中片段注入本轮 user content，并写入检索记录和命中记录。默认未绑定知识库时不能改变现有聊天行为。';
 SET @doc_content_vue_ai_pages := 'Vue 前端 AI 页面结构：当前前端 AI 菜单按产品能力分为供应商配置、智能体配置、知识库、工具、运行监控、对话。知识库页面负责知识库、文档、分块和检索测试；智能体配置页负责绑定可读取的知识库以及 top_k、min_score、max_context_chars；运行监控页展示每轮检索、耗时、命中数量、选中数量、错误和命中快照；对话页只消费最终运行链路，不直接越过后端读取知识库。';
 
+-- Keep reruns clean: retire old seed refs and the stale pre-status-split docs/migration pointer
+-- before inserting the current source_ref rows below.
 UPDATE `ai_knowledge_chunks` AS c
 JOIN `ai_knowledge_documents` AS d ON d.`id` = c.`document_id`
 SET
@@ -206,7 +208,8 @@ WHERE d.`knowledge_base_id` = @admin_go_project_architecture_kb_id
     CONCAT('seed', '/admin_go/development-quality-rules'),
     CONCAT('seed', '/admin_go/ai-current-facts'),
     CONCAT('seed', '/admin_go/ai-chat-runtime-flow'),
-    CONCAT('seed', '/admin_go/vue-ai-page-structure')
+    CONCAT('seed', '/admin_go/vue-ai-page-structure'),
+    'docs/migration/current-status.md#ai'
   )
   AND c.`is_del` = 2;
 
@@ -222,7 +225,8 @@ WHERE `knowledge_base_id` = @admin_go_project_architecture_kb_id
     CONCAT('seed', '/admin_go/development-quality-rules'),
     CONCAT('seed', '/admin_go/ai-current-facts'),
     CONCAT('seed', '/admin_go/ai-chat-runtime-flow'),
-    CONCAT('seed', '/admin_go/vue-ai-page-structure')
+    CONCAT('seed', '/admin_go/vue-ai-page-structure'),
+    'docs/migration/current-status.md#ai'
   )
   AND `is_del` = 2;
 
@@ -233,7 +237,7 @@ INSERT INTO `ai_knowledge_documents` (
   (@admin_go_project_architecture_kb_id, '项目总原则', 'markdown', 'docs/architecture/00-open-source-first.md', @doc_content_project_principles, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, 'Go 后端架构', 'markdown', 'docs/architecture/04-go-backend-framework.md', @doc_content_go_backend, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, '开发质量规则', 'markdown', 'docs/architecture/05-development-quality-rules.md', @doc_content_quality_rules, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
-  (@admin_go_project_architecture_kb_id, 'AI 模块当前事实', 'markdown', 'docs/migration/current-status.md#ai', @doc_content_ai_current_facts, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
+  (@admin_go_project_architecture_kb_id, 'AI 模块当前事实', 'markdown', 'docs/status/module-matrix.md#ai-suite-and-realtime-conversation-runtime', @doc_content_ai_current_facts, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, 'AI 对话运行链路', 'text', 'admin_back_go/internal/module/ai/chat/service.go', @doc_content_ai_chat_runtime, 'indexed', '', CURRENT_TIMESTAMP, 1, 2),
   (@admin_go_project_architecture_kb_id, 'Vue 前端 AI 页面结构', 'text', 'admin_front_ts/src/views/Main/ai', @doc_content_vue_ai_pages, 'indexed', '', CURRENT_TIMESTAMP, 1, 2)
 ON DUPLICATE KEY UPDATE
@@ -264,7 +268,7 @@ WHERE `knowledge_base_id` = @admin_go_project_architecture_kb_id
     'docs/architecture/00-open-source-first.md',
     'docs/architecture/04-go-backend-framework.md',
     'docs/architecture/05-development-quality-rules.md',
-    'docs/migration/current-status.md#ai',
+    'docs/status/module-matrix.md#ai-suite-and-realtime-conversation-runtime',
     'admin_back_go/internal/module/ai/chat/service.go',
     'admin_front_ts/src/views/Main/ai'
   )

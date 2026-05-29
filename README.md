@@ -104,20 +104,18 @@ admin_back_go/
     migrations/            # 当前增量迁移 SQL，不是完整建库脚本
   deploy/
     docker-first/          # 后端 Docker-first Compose 部署模板
-  docs/                    # 后端架构、模块设计、迁移文档
+  docs/                    # 后端运行时架构说明；总控状态/契约在 ../docs
   internal/
+    architecture/          # 架构边界 guard tests
     bootstrap/             # 装配 config/db/redis/router/services/worker
     config/                # 环境变量读取和默认值
-    enum/                  # 业务枚举
-    dict/                  # 字典输出
+    infra/                 # DB/Redis/queue/storage/realtime/AI/payment 等基础设施
     jobs/                  # 版本化队列任务注册
     middleware/            # RequestID/CORS/Auth/Permission/OperationLog
     module/                # 业务模块
-    platform/              # DB/Redis/queue/storage/realtime/AI/payment 等基础设施
     readiness/             # /ready 依赖检查
-    response/              # 统一响应
     server/                # Gin router 和 middleware 顺序
-    validate/              # validator 扩展
+    shared/                # enum/dict/response/apperror/validate/i18n/setting
     version/               # 版本信息
   runtime/                 # 本地运行日志/证书等运行时目录
   scripts/                 # smoke、contract、证书辅助脚本
@@ -160,7 +158,7 @@ Queue monitor
 具体状态以这些文件为准，不要靠 README 猜：
 
 ```text
-../docs/migration/current-status.md
+../docs/status/current-status.md
 ../docs/contracts/admin-api-v1.md
 ../docs/contracts/admin-realtime-v1.md
 docs/architecture.md
@@ -712,7 +710,7 @@ curl -fsS https://www.zgm2003.cn/ready
 
 `/health` 只表示进程活着。
 
-`/ready` 会检查：
+`/ready` 会报告：
 
 ```text
 database
@@ -721,6 +719,8 @@ token_redis
 queue_redis
 realtime
 ```
+
+未配置或未启用的资源返回 `disabled`，不算失败；已配置或已启用的资源才做 ping 或配置有效性检查。
 
 ### 日志
 
@@ -860,7 +860,7 @@ Nginx、SSL、伪静态、反代都在宿主机宝塔里。
 ../docs/architecture/01-step-by-step-roadmap.md
 ../docs/architecture/04-go-backend-framework.md
 ../docs/architecture/05-development-quality-rules.md
-../docs/migration/current-status.md
+../docs/status/current-status.md
 ../docs/contracts/admin-api-v1.md
 ../docs/contracts/admin-realtime-v1.md
 docs/architecture.md

@@ -17,7 +17,7 @@ internal/module/{capability}/
     presenter*.go   # platform-specific response projection
 ```
 
-模块根目录不注册 HTTP 表面。`route.go`、`handler.go`、`app_handler.go`、`platform_handler.go`、`platform_route.go` 这类 HTTP 文件必须落在 `transport/{platform}`。
+模块根目录不注册 HTTP 表面。旧 `app_handler.go`、`platform_handler.go`、`platform_route.go` 不得新增；HTTP 表面统一放在 `transport/{platform}/route.go|handler.go|request.go|presenter.go`。
 
 ## 每层职责
 
@@ -36,7 +36,7 @@ jobs.go                             queue task type、payload、handler
 
 ## 当前能力家族
 
-当前代码事实以目录和 `docs/status/current-status.md` 为准：
+当前代码事实以目录和根仓库 `E:/admin_go/docs/status/current-status.md` 为准：
 
 ```text
 system / systemsetting / systemlog
