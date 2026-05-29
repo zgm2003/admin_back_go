@@ -719,7 +719,7 @@ DELETE /api/admin/v1/system-settings
 ```text
 system_settings 是少量 typed key/value 配置的管理入口，不是所有模块的垃圾抽屉
 systemsetting module 只拥有后台 CRUD；已经迁出的跨模块读取不再通过业务模块自己解释 system_settings
-shared/setting 拥有仍属于 system_settings 的 typed keys：auth.captcha.ttl_minutes、upload.token.ttl_minutes；验证码发送 TTL 已迁出到 mail_configs.verify_code_ttl_minutes 和 sms_configs.verify_code_ttl_minutes
+shared/setting 拥有仍属于 system_settings 的 typed keys：auth.captcha.ttl_minutes、upload.token.ttl_minutes；验证码发送 TTL 已迁出到 mail_configs.verify_code_ttl_minutes 和 sms_configs.verify_code_ttl_minutes。email code 使用 Tencent SES + mail_configs TTL；phone code 当前固定 123456 写入 Redis，不发送 Tencent SMS，但 Redis TTL 仍来自 sms_configs.verify_code_ttl_minutes。
 value_type 只来自 internal/shared/enum -> internal/shared/dict，handler 用 validator 拒绝非法 type
 service 做值类型校验：数字、布尔、JSON object/array
 key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
@@ -768,8 +768,9 @@ mail_logs 只记录场景、收件人、主题、腾讯 RequestId/MessageId、�
 
 ```text
 auth.Service 只依赖 VerifyCodeMailSender 小接口，不 import module/mail 或 Tencent SDK
-phone：固定验证码 123456，写 Redis 后返回成功，不接短信，不受 env 控制
-email：生成随机验证码，先写 Redis，再发 Tencent SES，发信失败 best-effort 删除 Redis key 并返回错误
+email：生成随机验证码，先写 Redis，再发 Tencent SES，TTL 来自 mail_configs.verify_code_ttl_minutes；发信失败 best-effort 删除 Redis key 并返回错误
+phone：固定验证码 123456，写 Redis 后返回成功，不接短信，不受 env 控制；Redis TTL 仍来自 sms_configs.verify_code_ttl_minutes
+Tencent SMS 模块当前只拥有配置、模板、日志和 test-send；不声明登录短信发送已接入
 如果生产不开放手机号登录，由 `auth_platforms.login_types` 关闭 `phone`
 ```
 
@@ -972,7 +973,7 @@ captcha 是公开接口，使用 go-captcha/v2 slide 生成 master/tile 图片�
 send-code 是公开接口，只接受 account + scene；scene 必须来自 enum，验证码 key = VERIFY_CODE_REDIS_PREFIX + account_type + scene + md5(account)
 login 是公开接口；password login 必须带 captcha_id + captcha_answer，go-captcha fail-closed 且一次性消费
 password login 只支持邮箱/手机号账号 + bcrypt $2y$ 密码校验
-email/phone code login 使用 Redis 短 TTL 验证码；手机号验证码固定 123456，不接短信，不受 env 控制；邮箱账号经 `VerifyCodeMailSender` 调 `internal/module/mail.SendVerifyCode` 真实发送腾讯云 SES 邮件
+email/phone code login 使用 Redis 短 TTL 验证码；email 随机码经 `VerifyCodeMailSender` 调 `internal/module/mail.SendVerifyCode` 真实发送腾讯云 SES 邮件，TTL 来自 mail_configs.verify_code_ttl_minutes；phone 固定验证码 123456，不接短信、不受 env 控制，但 Redis TTL 仍来自 sms_configs.verify_code_ttl_minutes
 验证码登录支持自动注册：先校验 code 不消费，再检查 auth_platforms.allow_register；允许注册后消费 code，并在同一事务创建 users + user_profiles + 默认角色
 登录成功通过 session.Create 生成 JWT access_token + opaque refresh_token，并按 auth_platforms 执行单端/最大会话策略
 登录成功/密码错误/验证码错误写 users_login_log；有 queue producer 时投递 `auth:login-log:v1` 到 critical lane，由 `cmd/admin-worker` 消费；producer 未配置或投递失败时同步写库兜底，写日志失败不影响主登录结果
@@ -1065,7 +1066,7 @@ admin 核心平台不允许删除，不允许禁用
 
 ```text
 /health 只证明进程活着，不访问 DB/Redis
-/ready 证明运行期依赖是否可用
+/ready 证明配置的运行期依赖是否可达，并检查 realtime 配置值是否可接受；它不证明 WebSocket upgrade 或跨进程 fan-out
 ```
 
 当前 readiness 规则：

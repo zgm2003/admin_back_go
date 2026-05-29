@@ -1,6 +1,6 @@
-# Backend Docker-first Development Assets
+# Backend Docker-first Compose Assets
 
-This directory contains the backend Docker-first Compose asset and local validation template.
+This directory contains the backend Docker-first Compose asset and shared env template.
 
 Production/Baota Docker operation is documented in the root runbook: `E:/admin_go/docs/deployment/docker-first-backend.md`. Use that root runbook for server layout, lifecycle, and release steps; use this directory for the actual backend Compose files and local checks.
 
@@ -13,7 +13,7 @@ Production/Baota Docker operation is documented in the root runbook: `E:/admin_g
 
 ## Current defaults
 
-`docker-compose.yml` is intentionally developer-first and does not require a Compose `.env` file:
+`docker-compose.yml` is the local validation Compose asset and does not require a Compose `.env` file. `admin-go.env.example` is the shared backend runtime env template; copy it to `admin-go.env` locally, or to the production path described by the root Docker-first runbook.
 
 ```text
 build context: ../..
@@ -43,4 +43,4 @@ curl -fsS http://127.0.0.1:8080/health
 curl -fsS http://127.0.0.1:8080/ready
 ```
 
-`/health` only proves the process is alive. `/ready` proves MySQL, Redis, token Redis, queue Redis, and realtime configuration are usable.
+`/health` only proves the process is alive. `/ready` proves configured MySQL, Redis, token Redis, and queue Redis are reachable and that realtime configuration is accepted. It is not a WebSocket upgrade or Redis Pub/Sub fan-out smoke.
