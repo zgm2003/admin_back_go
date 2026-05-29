@@ -30,7 +30,7 @@ E:\admin_go\docs\architecture\05-development-quality-rules.md
 cmd/admin-api HTTP runtime
 cmd/admin-worker queue consumer / scheduler runtime
 internal/bootstrap/config/server/middleware/response/version/readiness 基础设施
-internal/infra database/redis/taskqueue/scheduler/storage/realtime/AI/payment 等外部资源边界
+internal/infra database/redis/taskqueue/scheduler/storage/realtime/ai/payment 等外部资源边界
 internal/module 下按业务边界维护 Go modules
 internal/jobs 下维护版本化 Asynq task type 和 cron-to-queue 注册
 ```
@@ -57,7 +57,17 @@ route -> handler -> service -> repository -> model
 
 ## 模块家族
 
-`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/AI/realtime/queue-monitor 等已落地切片。
+`internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以 `docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/ai/realtime/queue-monitor 等已落地切片。
+
+当前模块拓扑索引：
+
+```text
+core/system: system, systemsetting, systemlog, operationlog, crontask, queuemonitor, realtime
+identity/RBAC: auth, auth_platform, profile, user, permission, role
+comms/upload: mail, sms, notification, notification/task, uploadconfig, uploadtoken, export, clientversion
+commerce: payment, payment/wallet
+ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image
+```
 
 App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth/transport/app`，`/api/app/v1/users/me` 与 `/api/app/v1/profile` 由 `internal/module/profile/transport/app` 注册并复用现有 user service，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken/transport/app`。
 
@@ -793,7 +803,7 @@ payment_close_expired_order -> payment:close-expired-order:v1
 
 `cron_task.handler` 不允许按字符串动态执行 handler。已接入 Go registry 的任务必须保存/返回版本化 Asynq task type，例如：`notification_task_scheduler -> notification:dispatch-due:v1`、`ai_run_timeout -> ai:run-timeout:v1`、`payment_sync_pending_order -> payment:sync-pending-order:v1`、`payment_close_expired_order -> payment:close-expired-order:v1`。公共列表不再展示 registry status / legacy handler 迁移态；已废弃的 `clean_expired_contact_request` 通过 cleanup migration 从 active rows 软删除。当前 payment order Alipay pay v1 slice 的 scheduler 只负责充值完成补偿，不包含退款、对账、微信支付或业务履约。
 
-修改 cron_task 后当前不做 worker 热重载；需要重启 admin-worker。未来多 worker 部署再引入 scheduler lock/reload，不在 admin-api 里跑 cron。
+修改 cron_task 后当前不做 worker 热重载；需要重启 admin-worker。scheduler Redis lock 已在 `internal/infra/scheduler` 通过 `internal/infra/redislock` 接入；worker 热重载、outbox 和更高级的多 worker 编排仍是 planned，不在 admin-api 里跑 cron。
 
 ## Queue / worker baseline
 
@@ -896,6 +906,7 @@ worker handler 必须幂等，Asynq 是 at-least-once 语义
 taskqueue.Mux 保存显式 handler registry；未知 task type 返回 ErrHandlerNotRegistered: <type>
 jobs.Register 是唯一 worker handler 注册入口
 cron-to-queue 注册入口迁到 internal/module/crontask.SchedulerService.RegisterEnabled，数据源是 cron_task 表 + Go registry
+internal/infra/scheduler 会在配置 locker 时用 Redis lock 包裹任务，避免多 worker 重复触发同一 cron callback
 当前第一条真实 Go cron registry 是 notification_task_scheduler：scheduler callback 写 cron_task_log 并 enqueue notification:dispatch-due:v1，不在 callback 里扫描业务表或写通知
 ```
 
@@ -1323,7 +1334,7 @@ Go 后端从认证平台开始建立统一基础件：
 - `internal/shared/setting` 仍是 migrated typed settings key 的跨模块边界；`systemsetting` 仍只是 `system_settings` 的 admin CRUD surface。
 - `internal/shared/validate` 注册 Gin binding / go-playground validator 自定义 tag，例如 `common_status`、`common_yes_no`、`platform_scope`、`platform_code`、`permission_type`、`auth_platform_login_type`、`captcha_type`、`verify_code_scene`、`user_sex`、`notification_type`、`notification_level`、`payment_provider`、`payment_method`（仅历史兼容标签，当前 payment-config request 不使用）；handler 只能用这些 enum-backed tag，不允许散落硬编码 `oneof=...`。
 - Plan 11 只迁移 shared package ownership，不声明 module aggregation、DB schema、URL、response shape、enum value、validation semantics 或 i18n catalog behavior 变化。
-- 模块 HTTP 入参结构放在 `internal/module/<name>/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
+- 模块 HTTP 入参结构放在 `internal/module/<capability>/transport/{platform}/request.go`，handler 只 bind request 并转换到 service input；`dto.go` 不承载 Gin binding tag。
 - HTTP 入参先在 handler 边界拒绝明显非法数据；service 再做业务规则校验。handler 校验是边界，不是业务真相源。
 - `auth_platforms.captcha_type` 是认证平台策略字段，当前只允许 `slide`，因为后端只实现了 go-captcha slide；不假装支持未实现类型。
 - 新 REST 接口继续走 `/api/admin/v1/...`，旧 all POST 只作为业务事实参考。

@@ -1,6 +1,8 @@
 # Backend Docker-first Development Assets
 
-This directory is the canonical Docker-first backend entry for local developer runs.
+This directory contains the backend Docker-first Compose asset and local validation template.
+
+Production/Baota Docker operation is documented in the root runbook: `E:/admin_go/docs/deployment/docker-first-backend.md`. Use that root runbook for server layout, lifecycle, and release steps; use this directory for the actual backend Compose files and local checks.
 
 ## Scope
 
@@ -27,6 +29,9 @@ If `8080` is occupied, edit the `ports` line in `docker-compose.yml` directly.
 
 ```bash
 mkdir -p runtime exports
+cp -n admin-go.env.example admin-go.env
+# Edit admin-go.env before starting. Inside containers, 127.0.0.1 is the container itself;
+# use private IP/DNS for state services, or host.docker.internal on Docker Desktop.
 docker compose up -d --build
 ```
 
