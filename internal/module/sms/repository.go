@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
-	"admin_back_go/internal/infra/redisclient"
-	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -31,25 +29,17 @@ type Repository interface {
 	ListLogs(ctx context.Context, query LogQuery) ([]Log, int64, error)
 	LogByID(ctx context.Context, id uint64) (*Log, error)
 	SoftDeleteLogs(ctx context.Context, ids []uint64) error
-	SettingByKey(ctx context.Context, key string) (*systemsetting.Setting, error)
-	SaveSetting(ctx context.Context, row systemsetting.Setting) error
-	InvalidateSettingCache(ctx context.Context, key string) error
 }
 
 type GormRepository struct {
-	db    *gorm.DB
-	cache *redisclient.Client
+	db *gorm.DB
 }
 
-func NewGormRepository(client *database.Client, cache ...*redisclient.Client) *GormRepository {
+func NewGormRepository(client *database.Client) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	repo := &GormRepository{db: client.Gorm}
-	if len(cache) > 0 {
-		repo.cache = cache[0]
-	}
-	return repo
+	return &GormRepository{db: client.Gorm}
 }
 
 func (r *GormRepository) DefaultConfig(ctx context.Context) (*Config, error) {
@@ -77,16 +67,17 @@ func (r *GormRepository) SaveDefaultConfig(ctx context.Context, row Config) erro
 		var existing Config
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("config_key = ?", defaultConfigKey).First(&existing).Error
 		fields := map[string]any{
-			"secret_id_enc":   row.SecretIDEnc,
-			"secret_id_hint":  row.SecretIDHint,
-			"secret_key_enc":  row.SecretKeyEnc,
-			"secret_key_hint": row.SecretKeyHint,
-			"sms_sdk_app_id":  row.SmsSdkAppID,
-			"sign_name":       row.SignName,
-			"region":          row.Region,
-			"endpoint":        row.Endpoint,
-			"status":          row.Status,
-			"is_del":          enum.CommonNo,
+			"secret_id_enc":           row.SecretIDEnc,
+			"secret_id_hint":          row.SecretIDHint,
+			"secret_key_enc":          row.SecretKeyEnc,
+			"secret_key_hint":         row.SecretKeyHint,
+			"sms_sdk_app_id":          row.SmsSdkAppID,
+			"sign_name":               row.SignName,
+			"region":                  row.Region,
+			"endpoint":                row.Endpoint,
+			"verify_code_ttl_minutes": row.VerifyCodeTTLMinutes,
+			"status":                  row.Status,
+			"is_del":                  enum.CommonNo,
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return tx.Create(&row).Error
@@ -307,63 +298,6 @@ func (r *GormRepository) SoftDeleteLogs(ctx context.Context, ids []uint64) error
 		return nil
 	}
 	return r.db.WithContext(ctx).Model(&Log{}).Where("id IN ?", ids).Where("is_del = ?", enum.CommonNo).Update("is_del", enum.CommonYes).Error
-}
-
-func (r *GormRepository) SettingByKey(ctx context.Context, key string) (*systemsetting.Setting, error) {
-	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
-	}
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return nil, nil
-	}
-	var row systemsetting.Setting
-	err := r.db.WithContext(ctx).Where("setting_key = ?", key).Where("is_del = ?", enum.CommonNo).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &row, nil
-}
-
-func (r *GormRepository) SaveSetting(ctx context.Context, row systemsetting.Setting) error {
-	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
-	}
-	row.SettingKey = strings.TrimSpace(row.SettingKey)
-	row.IsDel = enum.CommonNo
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing systemsetting.Setting
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("setting_key = ?", row.SettingKey).First(&existing).Error
-		fields := map[string]any{
-			"setting_key":   row.SettingKey,
-			"setting_value": row.SettingValue,
-			"value_type":    row.ValueType,
-			"remark":        row.Remark,
-			"status":        row.Status,
-			"is_del":        enum.CommonNo,
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&row).Error
-		}
-		if err != nil {
-			return err
-		}
-		return tx.Model(&systemsetting.Setting{}).Where("id = ?", existing.ID).Updates(fields).Error
-	})
-}
-
-func (r *GormRepository) InvalidateSettingCache(ctx context.Context, key string) error {
-	if r == nil || r.cache == nil || r.cache.Redis == nil {
-		return nil
-	}
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return nil
-	}
-	return r.cache.Redis.Del(ctx, "system_setting:"+key).Err()
 }
 
 func normalizeUint64IDs(ids []uint64) []uint64 {

@@ -47,6 +47,13 @@ func TestMailModelsKeepSoftDeleteFields(t *testing.T) {
 			t.Fatalf("%s.IsDel must map to is_del, got tag %q", typ.Name(), tag)
 		}
 	}
+	field, ok := reflect.TypeOf(Config{}).FieldByName("VerifyCodeTTLMinutes")
+	if !ok {
+		t.Fatal("Config must expose VerifyCodeTTLMinutes")
+	}
+	if tag := field.Tag.Get("gorm"); !strings.Contains(tag, "column:verify_code_ttl_minutes") {
+		t.Fatalf("Config.VerifyCodeTTLMinutes must map to verify_code_ttl_minutes, got tag %q", tag)
+	}
 }
 
 func TestRepositoryReadContractsRequireIsDelFilter(t *testing.T) {
@@ -102,14 +109,14 @@ func TestRepositorySaveDefaultConfigRestoresSoftDeletedDefault(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `mail_configs` WHERE config_key = ? ORDER BY `mail_configs`.`id` LIMIT ? FOR UPDATE")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "config_key", "secret_id_enc", "secret_id_hint", "secret_key_enc", "secret_key_hint", "region", "endpoint", "from_email", "from_name", "reply_to", "status", "is_del", "created_at", "updated_at"}).
-			AddRow(uint64(7), defaultConfigKey, "old-id", "***d-id", "old-key", "***-key", DefaultRegion, DefaultEndpoint, "old@example.com", "old", "", enum.CommonNo, enum.CommonYes, time.Now(), time.Now()))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `mail_configs` SET")).WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "config_key", "secret_id_enc", "secret_id_hint", "secret_key_enc", "secret_key_hint", "region", "endpoint", "from_email", "from_name", "reply_to", "verify_code_ttl_minutes", "status", "is_del", "created_at", "updated_at"}).
+			AddRow(uint64(7), defaultConfigKey, "old-id", "***d-id", "old-key", "***-key", DefaultRegion, DefaultEndpoint, "old@example.com", "old", "", 5, enum.CommonNo, enum.CommonYes, time.Now(), time.Now()))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `mail_configs` SET") + ".*`verify_code_ttl_minutes`").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	err := repo.SaveDefaultConfig(context.Background(), Config{
 		SecretIDEnc: "new-id", SecretIDHint: "***w-id", SecretKeyEnc: "new-key", SecretKeyHint: "***-key",
-		Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes,
+		Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", VerifyCodeTTLMinutes: 9, Status: enum.CommonYes,
 	})
 	if err != nil {
 		t.Fatalf("SaveDefaultConfig returned error: %v", err)

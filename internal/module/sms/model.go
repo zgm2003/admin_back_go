@@ -6,22 +6,23 @@ const defaultConfigKey = "default"
 
 // Config maps sms_configs. Secret fields are encrypted and must never be returned by HTTP DTOs.
 type Config struct {
-	ID            uint64     `gorm:"column:id;primaryKey"`
-	ConfigKey     string     `gorm:"column:config_key"`
-	SecretIDEnc   string     `gorm:"column:secret_id_enc"`
-	SecretIDHint  string     `gorm:"column:secret_id_hint"`
-	SecretKeyEnc  string     `gorm:"column:secret_key_enc"`
-	SecretKeyHint string     `gorm:"column:secret_key_hint"`
-	SmsSdkAppID   string     `gorm:"column:sms_sdk_app_id"`
-	SignName      string     `gorm:"column:sign_name"`
-	Region        string     `gorm:"column:region"`
-	Endpoint      string     `gorm:"column:endpoint"`
-	Status        int        `gorm:"column:status"`
-	LastTestAt    *time.Time `gorm:"column:last_test_at"`
-	LastTestError string     `gorm:"column:last_test_error"`
-	IsDel         int        `gorm:"column:is_del"`
-	CreatedAt     time.Time  `gorm:"column:created_at"`
-	UpdatedAt     time.Time  `gorm:"column:updated_at"`
+	ID                   uint64     `gorm:"column:id;primaryKey"`
+	ConfigKey            string     `gorm:"column:config_key"`
+	SecretIDEnc          string     `gorm:"column:secret_id_enc"`
+	SecretIDHint         string     `gorm:"column:secret_id_hint"`
+	SecretKeyEnc         string     `gorm:"column:secret_key_enc"`
+	SecretKeyHint        string     `gorm:"column:secret_key_hint"`
+	SmsSdkAppID          string     `gorm:"column:sms_sdk_app_id"`
+	SignName             string     `gorm:"column:sign_name"`
+	Region               string     `gorm:"column:region"`
+	Endpoint             string     `gorm:"column:endpoint"`
+	VerifyCodeTTLMinutes int        `gorm:"column:verify_code_ttl_minutes"`
+	Status               int        `gorm:"column:status"`
+	LastTestAt           *time.Time `gorm:"column:last_test_at"`
+	LastTestError        string     `gorm:"column:last_test_error"`
+	IsDel                int        `gorm:"column:is_del"`
+	CreatedAt            time.Time  `gorm:"column:created_at"`
+	UpdatedAt            time.Time  `gorm:"column:updated_at"`
 }
 
 func (Config) TableName() string { return "sms_configs" }

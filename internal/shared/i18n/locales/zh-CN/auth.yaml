@@ -9,6 +9,10 @@ auth.verify_code.ttl.type_invalid: 验证码有效期配置类型必须为数字
 auth.verify_code.ttl.integer_required: 验证码有效期必须为整数分钟
 auth.verify_code.ttl.out_of_range: 验证码有效期必须在 1-60 分钟之间
 auth.verify_code.ttl.query_failed: 查询验证码有效期配置失败
+auth.verify_code.policy_missing: 验证码有效期策略未配置
+auth.verify_code.email_policy_missing: 邮箱验证码有效期策略未配置
+auth.verify_code.phone_policy_missing: 短信验证码有效期策略未配置
+auth.verify_code.account_type_invalid: 无效的验证码账号类型
 auth.logout.success: 退出成功
 auth.platform.service_missing: 登录服务未配置
 auth.platform.user_service_missing: 用户服务未配置

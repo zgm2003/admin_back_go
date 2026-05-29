@@ -17,15 +17,17 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
-	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 const (
-	timeLayout        = "2006-01-02 15:04:05"
-	defaultPage       = 1
-	defaultPageSize   = 20
-	maxTemplateVarLen = 64
-	testCode          = "123456"
+	timeLayout                  = "2006-01-02 15:04:05"
+	defaultPage                 = 1
+	defaultPageSize             = 20
+	maxTemplateVarLen           = 64
+	testCode                    = "123456"
+	defaultVerifyCodeTTLMinutes = 5
+	minVerifyCodeTTLMinutes     = 1
+	maxVerifyCodeTTLMinutes     = 60
 )
 
 var phonePattern = regexp.MustCompile(`^1[3-9][0-9]{9}$`)
@@ -63,7 +65,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 		SmsRegionArr:      dict.SmsRegionOptions(),
 		DefaultRegion:     DefaultRegion,
 		DefaultEndpoint:   DefaultEndpoint,
-		DefaultTTLMinutes: sharedsetting.DefaultAuthVerifyCodeTTLMinutes,
+		DefaultTTLMinutes: defaultVerifyCodeTTLMinutes,
 	}}, nil
 }
 
@@ -76,12 +78,12 @@ func (s *Service) Config(ctx context.Context) (*ConfigResponse, *apperror.Error)
 	if err != nil {
 		return nil, wrapInternal("sms.config.query_failed", "查询短信配置失败", err)
 	}
-	ttl, appErr := s.configuredVerifyCodeTTL(ctx, repo)
+	if row == nil {
+		return defaultConfigResponse(defaultVerifyCodeTTLMinutes), nil
+	}
+	ttl, appErr := verifyCodeTTLMinutesFromConfig(row)
 	if appErr != nil {
 		return nil, appErr
-	}
-	if row == nil {
-		return defaultConfigResponse(ttl), nil
 	}
 	return configResponseFromRow(*row, ttl), nil
 }
@@ -95,10 +97,11 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	if appErr != nil {
 		return appErr
 	}
-	ttl, appErr := sharedsetting.NormalizeAuthVerifyCodeTTLMinutes(input.VerifyCodeTTLMinutes)
+	ttl, appErr := normalizeVerifyCodeTTLMinutes(input.VerifyCodeTTLMinutes)
 	if appErr != nil {
 		return appErr
 	}
+	input.VerifyCodeTTLMinutes = ttl
 	existing, err := repo.DefaultConfig(ctx)
 	if err != nil {
 		return wrapInternal("sms.config.query_failed", "查询短信配置失败", err)
@@ -109,9 +112,6 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	}
 	if err := repo.SaveDefaultConfig(ctx, row); err != nil {
 		return wrapInternal("sms.config.save_failed", "保存短信配置失败", err)
-	}
-	if appErr := sharedsetting.SaveAuthVerifyCodeTTLMinutes(ctx, repo, ttl); appErr != nil {
-		return appErr
 	}
 	return nil
 }
@@ -154,7 +154,7 @@ func (s *Service) TestSend(ctx context.Context, input TestInput) *apperror.Error
 		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
 		return appErr
 	}
-	ttl, appErr := s.configuredVerifyCodeTTL(ctx, repo)
+	ttl, appErr := verifyCodeTTLMinutesFromConfig(cfg)
 	if appErr != nil {
 		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
 		return appErr
@@ -198,6 +198,22 @@ func (s *Service) TestSend(ctx context.Context, input TestInput) *apperror.Error
 		return wrapInternal("sms.config.test_result_failed", "更新短信测试结果失败", err)
 	}
 	return nil
+}
+
+func (s *Service) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return 0, appErr
+	}
+	row, err := repo.DefaultConfig(ctx)
+	if err != nil {
+		return 0, wrapInternal("sms.config.query_failed", "查询短信配置失败", err)
+	}
+	minutes, appErr := verifyCodeTTLMinutesFromConfig(row)
+	if appErr != nil {
+		return 0, appErr
+	}
+	return time.Duration(minutes) * time.Minute, nil
 }
 
 func (s *Service) Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error) {
@@ -369,10 +385,6 @@ func (s *Service) enabledConfig(ctx context.Context, repo Repository) (*Config, 
 	return cfg, nil
 }
 
-func (s *Service) configuredVerifyCodeTTL(ctx context.Context, repo Repository) (int, *apperror.Error) {
-	return sharedsetting.AuthVerifyCodeTTLMinutesOrDefault(ctx, repo)
-}
-
 func enabledTemplate(ctx context.Context, repo Repository, scene string) (*Template, *apperror.Error) {
 	tmpl, err := repo.TemplateByScene(ctx, scene)
 	if err != nil {
@@ -411,7 +423,7 @@ func (s *Service) configRowFromInput(existing *Config, input SaveConfigInput) (C
 	if appErr != nil {
 		return Config{}, appErr
 	}
-	return Config{ConfigKey: defaultConfigKey, SecretIDEnc: secretIDEnc, SecretIDHint: secretIDHint, SecretKeyEnc: secretKeyEnc, SecretKeyHint: secretKeyHint, SmsSdkAppID: input.SmsSdkAppID, SignName: input.SignName, Region: input.Region, Endpoint: input.Endpoint, Status: input.Status, IsDel: enum.CommonNo}, nil
+	return Config{ConfigKey: defaultConfigKey, SecretIDEnc: secretIDEnc, SecretIDHint: secretIDHint, SecretKeyEnc: secretKeyEnc, SecretKeyHint: secretKeyHint, SmsSdkAppID: input.SmsSdkAppID, SignName: input.SignName, Region: input.Region, Endpoint: input.Endpoint, VerifyCodeTTLMinutes: input.VerifyCodeTTLMinutes, Status: input.Status, IsDel: enum.CommonNo}, nil
 }
 
 func (s *Service) secretValue(existing *Config, plain string, secretID bool) (string, string, *apperror.Error) {
@@ -471,6 +483,20 @@ func normalizeConfigInput(input SaveConfigInput) (SaveConfigInput, *apperror.Err
 		return input, badRequest("sms.status.invalid", "无效的状态")
 	}
 	return input, nil
+}
+
+func verifyCodeTTLMinutesFromConfig(row *Config) (int, *apperror.Error) {
+	if row == nil {
+		return defaultVerifyCodeTTLMinutes, nil
+	}
+	return normalizeVerifyCodeTTLMinutes(row.VerifyCodeTTLMinutes)
+}
+
+func normalizeVerifyCodeTTLMinutes(minutes int) (int, *apperror.Error) {
+	if minutes < minVerifyCodeTTLMinutes || minutes > maxVerifyCodeTTLMinutes {
+		return 0, badRequest("auth.verify_code.ttl.out_of_range", "验证码有效期必须在 1-60 分钟之间")
+	}
+	return minutes, nil
 }
 
 func templateRowFromInput(input SaveTemplateInput) (Template, *apperror.Error) {

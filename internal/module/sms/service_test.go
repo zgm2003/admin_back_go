@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/secretbox"
-	"admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/shared/enum"
-	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 func TestPageInitKeepsSmsScenesDomesticAndBounded(t *testing.T) {
@@ -83,7 +81,7 @@ func TestTestSendCreatesPendingLogAndFinishesSuccessWithoutSensitivePayload(t *t
 	repo := newFakeSmsRepository()
 	repo.config = &Config{
 		ID: 1, SecretIDEnc: secretID, SecretKeyEnc: secretKey, SmsSdkAppID: "1400000000", SignName: "签名",
-		Region: DefaultRegion, Endpoint: DefaultEndpoint, Status: enum.CommonYes, IsDel: enum.CommonNo,
+		Region: DefaultRegion, Endpoint: DefaultEndpoint, VerifyCodeTTLMinutes: 12, Status: enum.CommonYes, IsDel: enum.CommonNo,
 	}
 	repo.templates[enum.VerifyCodeSceneLogin] = &Template{
 		ID: 7, Scene: enum.VerifyCodeSceneLogin, Name: "登录验证码", TencentTemplateID: "12345",
@@ -107,7 +105,7 @@ func TestTestSendCreatesPendingLogAndFinishesSuccessWithoutSensitivePayload(t *t
 	if created.ErrorMessage != "" || created.TencentRequestID != "" || created.TencentSerialNo != "" {
 		t.Fatalf("pending log must not contain payload/result fields: %#v", created)
 	}
-	if !reflect.DeepEqual(sender.input.TemplateParamSet, []string{"123456", "5"}) {
+	if !reflect.DeepEqual(sender.input.TemplateParamSet, []string{"123456", "12"}) {
 		t.Fatalf("template params = %#v", sender.input.TemplateParamSet)
 	}
 	finish := repo.finishes[1]
@@ -124,7 +122,7 @@ func TestTestSendFinishesFailedLogWithRequestIDFromSenderError(t *testing.T) {
 	secretID, _ := box.Encrypt("AKID")
 	secretKey, _ := box.Encrypt("SECRET")
 	repo := newFakeSmsRepository()
-	repo.config = &Config{ID: 1, SecretIDEnc: secretID, SecretKeyEnc: secretKey, SmsSdkAppID: "1400000000", SignName: "签名", Region: DefaultRegion, Endpoint: DefaultEndpoint, Status: enum.CommonYes, IsDel: enum.CommonNo}
+	repo.config = &Config{ID: 1, SecretIDEnc: secretID, SecretKeyEnc: secretKey, SmsSdkAppID: "1400000000", SignName: "签名", Region: DefaultRegion, Endpoint: DefaultEndpoint, VerifyCodeTTLMinutes: 5, Status: enum.CommonYes, IsDel: enum.CommonNo}
 	repo.templates[enum.VerifyCodeSceneLogin] = &Template{ID: 7, Scene: enum.VerifyCodeSceneLogin, Name: "登录验证码", TencentTemplateID: "12345", VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes, IsDel: enum.CommonNo}
 	sender := &fakeSmsSender{result: SendResult{RequestID: "req-fail", SerialNo: "serial-fail", Fee: 1}, err: fakeCodedError{code: "FailedOperation.TemplateIncorrect", message: "template incorrect"}}
 	service := NewService(repo, box, sender)
@@ -139,6 +137,89 @@ func TestTestSendFinishesFailedLogWithRequestIDFromSenderError(t *testing.T) {
 	}
 	if repo.lastTestError == "" || repo.lastTestAt == nil {
 		t.Fatalf("failure test result not recorded: at=%v err=%q", repo.lastTestAt, repo.lastTestError)
+	}
+}
+
+func TestConfigUsesVerifyCodeTTLFromConfigRow(t *testing.T) {
+	repo := newFakeSmsRepository()
+	repo.config = &Config{ID: 1, SmsSdkAppID: "1400000000", SignName: "签名", Region: DefaultRegion, Endpoint: DefaultEndpoint, VerifyCodeTTLMinutes: 14, Status: enum.CommonYes, IsDel: enum.CommonNo}
+	service := NewService(repo, secretbox.Box{}, nil)
+
+	result, appErr := service.Config(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("Config error = %v", appErr)
+	}
+	if result.VerifyCodeTTLMinutes != 14 {
+		t.Fatalf("ttl = %d, want 14", result.VerifyCodeTTLMinutes)
+	}
+}
+
+func TestConfigUsesDefaultVerifyCodeTTLWhenConfigMissing(t *testing.T) {
+	service := NewService(newFakeSmsRepository(), secretbox.Box{}, nil)
+
+	result, appErr := service.Config(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("Config error = %v", appErr)
+	}
+	if result.Configured || result.VerifyCodeTTLMinutes != 5 {
+		t.Fatalf("unexpected default config: %#v", result)
+	}
+}
+
+func TestSaveConfigPersistsVerifyCodeTTLToConfigRow(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	secretID, _ := box.Encrypt("AKID")
+	secretKey, _ := box.Encrypt("SECRET")
+	repo := newFakeSmsRepository()
+	repo.config = &Config{ID: 1, SecretIDEnc: secretID, SecretKeyEnc: secretKey, SmsSdkAppID: "1400000000", SignName: "旧签名", Region: DefaultRegion, Endpoint: DefaultEndpoint, VerifyCodeTTLMinutes: 5, Status: enum.CommonYes, IsDel: enum.CommonNo}
+	service := NewService(repo, box, nil)
+
+	appErr := service.SaveConfig(context.Background(), SaveConfigInput{
+		SmsSdkAppID: "1400000000", SignName: "新签名", Region: DefaultRegion, Endpoint: DefaultEndpoint,
+		Status: enum.CommonYes, VerifyCodeTTLMinutes: 15,
+	})
+
+	if appErr != nil {
+		t.Fatalf("SaveConfig error = %v", appErr)
+	}
+	if repo.config == nil || repo.config.VerifyCodeTTLMinutes != 15 {
+		t.Fatalf("saved config = %#v", repo.config)
+	}
+}
+
+func TestVerifyCodeTTLUsesSmsConfigRow(t *testing.T) {
+	repo := newFakeSmsRepository()
+	repo.config = &Config{VerifyCodeTTLMinutes: 16}
+	service := NewService(repo, secretbox.Box{}, nil)
+
+	got, appErr := service.VerifyCodeTTL(context.Background())
+
+	if appErr != nil || got != 16*time.Minute {
+		t.Fatalf("ttl=%s err=%#v", got, appErr)
+	}
+}
+
+func TestVerifyCodeTTLUsesDefaultWhenSmsConfigMissing(t *testing.T) {
+	service := NewService(newFakeSmsRepository(), secretbox.Box{}, nil)
+
+	got, appErr := service.VerifyCodeTTL(context.Background())
+
+	if appErr != nil || got != 5*time.Minute {
+		t.Fatalf("ttl=%s err=%#v", got, appErr)
+	}
+}
+
+func TestVerifyCodeTTLRejectsInvalidSmsConfigRow(t *testing.T) {
+	for _, ttl := range []int{0, 61} {
+		repo := newFakeSmsRepository()
+		repo.config = &Config{VerifyCodeTTLMinutes: ttl}
+		service := NewService(repo, secretbox.Box{}, nil)
+		got, appErr := service.VerifyCodeTTL(context.Background())
+		if appErr == nil || appErr.Message != "验证码有效期必须在 1-60 分钟之间" || got != 0 {
+			t.Fatalf("ttl=%d got duration=%s err=%#v", ttl, got, appErr)
+		}
 	}
 }
 
@@ -167,7 +248,6 @@ type fakeSmsRepository struct {
 	logs          map[uint64]*Log
 	createdLogs   []Log
 	finishes      map[uint64]LogFinish
-	setting       *systemsetting.Setting
 	lastTestAt    *time.Time
 	lastTestError string
 	nextID        uint64
@@ -178,7 +258,6 @@ func newFakeSmsRepository() *fakeSmsRepository {
 		templates: map[string]*Template{},
 		logs:      map[uint64]*Log{},
 		finishes:  map[uint64]LogFinish{},
-		setting:   &systemsetting.Setting{SettingKey: sharedsetting.AuthVerifyCodeTTLKey, SettingValue: "5", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonNo},
 		nextID:    1,
 	}
 }
@@ -287,14 +366,3 @@ func (r *fakeSmsRepository) SoftDeleteLogs(ctx context.Context, ids []uint64) er
 	}
 	return nil
 }
-func (r *fakeSmsRepository) SettingByKey(ctx context.Context, key string) (*systemsetting.Setting, error) {
-	if key != sharedsetting.AuthVerifyCodeTTLKey {
-		return nil, nil
-	}
-	return r.setting, nil
-}
-func (r *fakeSmsRepository) SaveSetting(ctx context.Context, row systemsetting.Setting) error {
-	r.setting = &row
-	return nil
-}
-func (r *fakeSmsRepository) InvalidateSettingCache(ctx context.Context, key string) error { return nil }

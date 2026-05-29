@@ -160,7 +160,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		}
 		return mail.SendResult{RequestID: result.RequestID, MessageID: result.MessageID}, nil
 	})
-	mailService := mail.NewService(mail.NewGormRepository(resources.DB, resources.Redis), secretBox, mailSender)
+	mailService := mail.NewService(mail.NewGormRepository(resources.DB), secretBox, mailSender)
 	smsClient := infrasms.New(10 * time.Second)
 	smsSender := sms.SenderFunc(func(ctx context.Context, input sms.SendInput) (sms.SendResult, error) {
 		result, err := smsClient.Send(ctx, infrasms.SendInput{
@@ -179,7 +179,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		}
 		return sms.SendResult{RequestID: result.RequestID, SerialNo: result.SerialNo, Fee: result.Fee}, nil
 	})
-	smsService := sms.NewService(sms.NewGormRepository(resources.DB, resources.Redis), secretBox, smsSender)
+	smsService := sms.NewService(sms.NewGormRepository(resources.DB), secretBox, smsSender)
 	clientVersionService := clientversion.NewService(
 		clientversion.NewGormRepository(resources.DB),
 		clientversion.NewManifestPublisher(
@@ -259,7 +259,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		captchaService,
 		auth.WithCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		auth.WithVerifyCodeMailSender(mailService),
-		auth.WithVerifyCodePolicyProvider(auth.NewSystemSettingVerifyCodePolicyProvider(systemSettingRepository)),
+		auth.WithVerifyCodePolicyProvider(auth.NewChannelVerifyCodePolicyProvider(mailService, smsService)),
 		auth.WithLoginLogEnqueuer(loginLogEnqueuer),
 		auth.WithLogger(logger),
 	)

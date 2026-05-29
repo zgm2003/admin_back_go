@@ -5,37 +5,43 @@ import (
 	"time"
 
 	"admin_back_go/internal/shared/apperror"
-	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
-// VerifyCodePolicyProvider reads shared verification-code policy for auth flows.
+// VerifyCodePolicyProvider chooses the verification-code TTL for an auth account type.
 type VerifyCodePolicyProvider interface {
+	VerifyCodeTTL(ctx context.Context, accountType string) (time.Duration, *apperror.Error)
+}
+
+// VerifyCodeTTLProvider is the narrow channel service contract auth needs.
+type VerifyCodeTTLProvider interface {
 	VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error)
 }
 
-// VerifyCodePolicyRepository is the minimal system-setting read boundary auth needs.
-type VerifyCodePolicyRepository interface {
-	sharedsetting.Reader
+type ChannelVerifyCodePolicyProvider struct {
+	email VerifyCodeTTLProvider
+	phone VerifyCodeTTLProvider
 }
 
-// SystemSettingVerifyCodePolicyProvider reads verification-code policy from system_settings.
-type SystemSettingVerifyCodePolicyProvider struct {
-	repository VerifyCodePolicyRepository
+func NewChannelVerifyCodePolicyProvider(email VerifyCodeTTLProvider, phone VerifyCodeTTLProvider) *ChannelVerifyCodePolicyProvider {
+	return &ChannelVerifyCodePolicyProvider{email: email, phone: phone}
 }
 
-// NewSystemSettingVerifyCodePolicyProvider returns a DB-backed verification-code policy provider.
-func NewSystemSettingVerifyCodePolicyProvider(repository VerifyCodePolicyRepository) *SystemSettingVerifyCodePolicyProvider {
-	return &SystemSettingVerifyCodePolicyProvider{repository: repository}
-}
-
-// VerifyCodeTTL returns the enabled shared verification-code TTL.
-func (p *SystemSettingVerifyCodePolicyProvider) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
-	if p == nil || p.repository == nil {
-		return 0, apperror.InternalKey("setting.repository_missing", nil, "系统设置仓储未配置")
+func (p *ChannelVerifyCodePolicyProvider) VerifyCodeTTL(ctx context.Context, accountType string) (time.Duration, *apperror.Error) {
+	if p == nil {
+		return 0, apperror.InternalKey("auth.verify_code.policy_missing", nil, "验证码有效期策略未配置")
 	}
-	minutes, appErr := sharedsetting.AuthVerifyCodeTTLMinutes(ctx, p.repository)
-	if appErr != nil {
-		return 0, appErr
+	switch accountType {
+	case LoginTypeEmail:
+		if p.email == nil {
+			return 0, apperror.InternalKey("auth.verify_code.email_policy_missing", nil, "邮箱验证码有效期策略未配置")
+		}
+		return p.email.VerifyCodeTTL(ctx)
+	case LoginTypePhone:
+		if p.phone == nil {
+			return 0, apperror.InternalKey("auth.verify_code.phone_policy_missing", nil, "短信验证码有效期策略未配置")
+		}
+		return p.phone.VerifyCodeTTL(ctx)
+	default:
+		return 0, apperror.BadRequestKey("auth.verify_code.account_type_invalid", map[string]any{"account_type": accountType}, "无效的验证码账号类型")
 	}
-	return time.Duration(minutes) * time.Minute, nil
 }

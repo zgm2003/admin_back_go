@@ -777,13 +777,19 @@ func (f *fakeVerifyCodeMailSender) SendVerifyCode(ctx context.Context, scene str
 }
 
 type fakeVerifyCodePolicyProvider struct {
-	ttl time.Duration
-	err *apperror.Error
+	ttlByAccountType map[string]time.Duration
+	ttl              time.Duration
+	err              *apperror.Error
+	accountTypes     []string
 }
 
-func (f fakeVerifyCodePolicyProvider) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
+func (f *fakeVerifyCodePolicyProvider) VerifyCodeTTL(ctx context.Context, accountType string) (time.Duration, *apperror.Error) {
+	f.accountTypes = append(f.accountTypes, accountType)
 	if f.err != nil {
 		return 0, f.err
+	}
+	if f.ttlByAccountType != nil {
+		return f.ttlByAccountType[accountType], nil
 	}
 	return f.ttl, nil
 }
@@ -798,7 +804,7 @@ func TestServiceSendCodeUsesPolicyTTLForEmailCacheAndMailSender(t *testing.T) {
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeMailSender(mailSender),
-		WithVerifyCodePolicyProvider(fakeVerifyCodePolicyProvider{ttl: 9 * time.Minute}),
+		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypeEmail: 9 * time.Minute}}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 	_, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
@@ -818,7 +824,7 @@ func TestServiceSendCodeUsesPolicyTTLForPhoneCache(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
-		WithVerifyCodePolicyProvider(fakeVerifyCodePolicyProvider{ttl: 8 * time.Minute}),
+		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypePhone: 8 * time.Minute}}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 	)
 	_, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "15671628271", Scene: VerifyCodeSceneLogin})
@@ -827,6 +833,30 @@ func TestServiceSendCodeUsesPolicyTTLForPhoneCache(t *testing.T) {
 	}
 	if store.setCode != "123456" || store.setTTL != 8*time.Minute {
 		t.Fatalf("code=%q ttl=%s", store.setCode, store.setTTL)
+	}
+}
+
+func TestServiceSendCodePassesAccountTypeToPolicyProvider(t *testing.T) {
+	store := &fakeCodeStore{}
+	policy := &fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypeEmail: 9 * time.Minute}}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
+		WithVerifyCodePolicyProvider(policy),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	_, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})
+
+	if appErr != nil {
+		t.Fatalf("unexpected err %#v", appErr)
+	}
+	if len(policy.accountTypes) != 1 || policy.accountTypes[0] != LoginTypeEmail {
+		t.Fatalf("policy account types = %#v", policy.accountTypes)
 	}
 }
 
@@ -839,7 +869,7 @@ func TestServiceSendCodeStopsWhenPolicyTTLInvalid(t *testing.T) {
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
-		WithVerifyCodePolicyProvider(fakeVerifyCodePolicyProvider{err: apperror.BadRequest("验证码有效期配置已禁用")}),
+		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{err: apperror.BadRequest("验证码有效期配置已禁用")}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{Account: "user@example.com", Scene: VerifyCodeSceneLogin})

@@ -69,72 +69,6 @@ func TestAuthCaptchaTTLMinutesPreservesRequiredPositiveNumberPolicy(t *testing.T
 	}
 }
 
-func TestAuthVerifyCodeTTLMinutesPreservesRequiredRangePolicy(t *testing.T) {
-	ctx := context.Background()
-
-	got, appErr := AuthVerifyCodeTTLMinutes(ctx, &fakeRepository{rows: map[string]*systemsetting.Setting{
-		AuthVerifyCodeTTLKey: numberSetting(AuthVerifyCodeTTLKey, "11", enum.CommonYes),
-	}})
-	if appErr != nil || got != 11 {
-		t.Fatalf("expected configured ttl 11, got ttl=%d err=%v", got, appErr)
-	}
-
-	for _, tt := range []struct {
-		name string
-		row  *systemsetting.Setting
-		code int
-	}{
-		{name: "missing", row: nil, code: apperror.CodeInternal},
-		{name: "deleted", row: &systemsetting.Setting{SettingKey: AuthVerifyCodeTTLKey, SettingValue: "11", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonYes}, code: apperror.CodeInternal},
-		{name: "disabled", row: numberSetting(AuthVerifyCodeTTLKey, "11", enum.CommonNo), code: apperror.CodeBadRequest},
-		{name: "wrong type", row: &systemsetting.Setting{SettingKey: AuthVerifyCodeTTLKey, SettingValue: "11", ValueType: enum.SystemSettingValueString, Status: enum.CommonYes, IsDel: enum.CommonNo}, code: apperror.CodeInternal},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got, appErr := AuthVerifyCodeTTLMinutes(ctx, &fakeRepository{rows: map[string]*systemsetting.Setting{AuthVerifyCodeTTLKey: tt.row}})
-			if appErr == nil || appErr.Code != tt.code || got != 0 {
-				t.Fatalf("expected code %d and zero ttl, got ttl=%d err=%#v", tt.code, got, appErr)
-			}
-		})
-	}
-
-	for _, tt := range []struct {
-		name string
-		row  *systemsetting.Setting
-	}{
-		{name: "not integer", row: numberSetting(AuthVerifyCodeTTLKey, "abc", enum.CommonYes)},
-		{name: "too small", row: numberSetting(AuthVerifyCodeTTLKey, "0", enum.CommonYes)},
-		{name: "too large", row: numberSetting(AuthVerifyCodeTTLKey, "61", enum.CommonYes)},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			_, appErr := AuthVerifyCodeTTLMinutes(ctx, &fakeRepository{rows: map[string]*systemsetting.Setting{AuthVerifyCodeTTLKey: tt.row}})
-			if appErr == nil || appErr.Code != apperror.CodeBadRequest {
-				t.Fatalf("expected bad request, got %#v", appErr)
-			}
-		})
-	}
-}
-
-func TestAuthVerifyCodeTTLMinutesOrDefaultPreservesConfigPageFallbackPolicy(t *testing.T) {
-	ctx := context.Background()
-
-	for _, tt := range []struct {
-		name string
-		row  *systemsetting.Setting
-	}{
-		{name: "missing", row: nil},
-		{name: "deleted", row: &systemsetting.Setting{SettingKey: AuthVerifyCodeTTLKey, SettingValue: "11", ValueType: enum.SystemSettingValueNumber, Status: enum.CommonYes, IsDel: enum.CommonYes}},
-		{name: "disabled", row: numberSetting(AuthVerifyCodeTTLKey, "11", enum.CommonNo)},
-		{name: "empty", row: numberSetting(AuthVerifyCodeTTLKey, " ", enum.CommonYes)},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got, appErr := AuthVerifyCodeTTLMinutesOrDefault(ctx, &fakeRepository{rows: map[string]*systemsetting.Setting{AuthVerifyCodeTTLKey: tt.row}})
-			if appErr != nil || got != DefaultAuthVerifyCodeTTLMinutes {
-				t.Fatalf("expected default ttl %d, got ttl=%d err=%v", DefaultAuthVerifyCodeTTLMinutes, got, appErr)
-			}
-		})
-	}
-}
-
 func TestUploadTokenTTLMinutesPreservesFallbackPolicy(t *testing.T) {
 	ctx := context.Background()
 
@@ -166,33 +100,8 @@ func TestUploadTokenTTLMinutesPreservesFallbackPolicy(t *testing.T) {
 	}
 }
 
-func TestSaveAuthVerifyCodeTTLMinutesPersistsTypedSettingAndInvalidatesCache(t *testing.T) {
-	repo := &fakeRepository{}
-
-	appErr := SaveAuthVerifyCodeTTLMinutes(context.Background(), repo, 9)
-	if appErr != nil {
-		t.Fatalf("expected save to succeed, got %v", appErr)
-	}
-	if repo.saved == nil ||
-		repo.saved.SettingKey != AuthVerifyCodeTTLKey ||
-		repo.saved.SettingValue != "9" ||
-		repo.saved.ValueType != enum.SystemSettingValueNumber ||
-		repo.saved.Status != enum.CommonYes ||
-		repo.saved.IsDel != enum.CommonNo {
-		t.Fatalf("unexpected saved setting: %#v", repo.saved)
-	}
-	if len(repo.invalidated) != 1 || repo.invalidated[0] != AuthVerifyCodeTTLKey {
-		t.Fatalf("expected auth verify code ttl cache invalidation, got %#v", repo.invalidated)
-	}
-
-	appErr = SaveAuthVerifyCodeTTLMinutes(context.Background(), repo, 61)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
-		t.Fatalf("expected invalid ttl to be rejected, got %#v", appErr)
-	}
-}
-
 func TestSettingReaderWrapsRepositoryErrors(t *testing.T) {
-	_, appErr := AuthVerifyCodeTTLMinutes(context.Background(), &fakeRepository{err: errors.New("db down")})
+	_, appErr := AuthCaptchaTTLMinutes(context.Background(), &fakeRepository{err: errors.New("db down")})
 	if appErr == nil || appErr.Code != apperror.CodeInternal {
 		t.Fatalf("expected repository error to be wrapped, got %#v", appErr)
 	}

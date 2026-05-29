@@ -6,23 +6,24 @@ const defaultConfigKey = "default"
 
 // Config maps mail_configs. Secret fields are encrypted and must never be returned by HTTP DTOs.
 type Config struct {
-	ID            uint64     `gorm:"column:id;primaryKey"`
-	ConfigKey     string     `gorm:"column:config_key"`
-	SecretIDEnc   string     `gorm:"column:secret_id_enc"`
-	SecretIDHint  string     `gorm:"column:secret_id_hint"`
-	SecretKeyEnc  string     `gorm:"column:secret_key_enc"`
-	SecretKeyHint string     `gorm:"column:secret_key_hint"`
-	Region        string     `gorm:"column:region"`
-	Endpoint      string     `gorm:"column:endpoint"`
-	FromEmail     string     `gorm:"column:from_email"`
-	FromName      string     `gorm:"column:from_name"`
-	ReplyTo       string     `gorm:"column:reply_to"`
-	Status        int        `gorm:"column:status"`
-	IsDel         int        `gorm:"column:is_del"`
-	LastTestAt    *time.Time `gorm:"column:last_test_at"`
-	LastTestError string     `gorm:"column:last_test_error"`
-	CreatedAt     time.Time  `gorm:"column:created_at"`
-	UpdatedAt     time.Time  `gorm:"column:updated_at"`
+	ID                   uint64     `gorm:"column:id;primaryKey"`
+	ConfigKey            string     `gorm:"column:config_key"`
+	SecretIDEnc          string     `gorm:"column:secret_id_enc"`
+	SecretIDHint         string     `gorm:"column:secret_id_hint"`
+	SecretKeyEnc         string     `gorm:"column:secret_key_enc"`
+	SecretKeyHint        string     `gorm:"column:secret_key_hint"`
+	Region               string     `gorm:"column:region"`
+	Endpoint             string     `gorm:"column:endpoint"`
+	FromEmail            string     `gorm:"column:from_email"`
+	FromName             string     `gorm:"column:from_name"`
+	ReplyTo              string     `gorm:"column:reply_to"`
+	VerifyCodeTTLMinutes int        `gorm:"column:verify_code_ttl_minutes"`
+	Status               int        `gorm:"column:status"`
+	IsDel                int        `gorm:"column:is_del"`
+	LastTestAt           *time.Time `gorm:"column:last_test_at"`
+	LastTestError        string     `gorm:"column:last_test_error"`
+	CreatedAt            time.Time  `gorm:"column:created_at"`
+	UpdatedAt            time.Time  `gorm:"column:updated_at"`
 }
 
 func (Config) TableName() string { return "mail_configs" }

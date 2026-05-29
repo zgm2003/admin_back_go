@@ -709,7 +709,7 @@ DELETE /api/admin/v1/system-settings
 ```text
 system_settings 是少量 typed key/value 配置的管理入口，不是所有模块的垃圾抽屉
 systemsetting module 只拥有后台 CRUD；已经迁出的跨模块读取不再通过业务模块自己解释 system_settings
-shared/setting 拥有已迁移 typed keys：auth.captcha.ttl_minutes、auth.verify_code.ttl_minutes、upload.token.ttl_minutes
+shared/setting 拥有仍属于 system_settings 的 typed keys：auth.captcha.ttl_minutes、upload.token.ttl_minutes；验证码发送 TTL 已迁出到 mail_configs.verify_code_ttl_minutes 和 sms_configs.verify_code_ttl_minutes
 value_type 只来自 internal/shared/enum -> internal/shared/dict，handler 用 validator 拒绝非法 type
 service 做值类型校验：数字、布尔、JSON object/array
 key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义

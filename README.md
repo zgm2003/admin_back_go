@@ -286,7 +286,7 @@ Scheduler timezone、Redis lock prefix 和 lock TTL 是 Go 默认值。业务定
 
 ### 验证码
 
-规则很简单：手机号验证码固定 `123456`，不接短信，也不受 `.env` 控制；邮箱验证码始终走腾讯云 SES，需要先在邮件管理里启用发信配置和审核通过的模板。验证码有效期通过后台系统设置 `auth.verify_code.ttl_minutes` 调整；Redis namespace `auth:verify_code:` 由代码内置，不通过 env 配置。生产如果不开放手机号登录，直接在 `auth_platforms.login_types` 里关闭 `phone`。
+规则很简单：手机号验证码固定 `123456`，不受 `.env` 控制；邮箱验证码始终走腾讯云 SES，需要先在邮件管理里启用发信配置和审核通过的模板。验证码有效期归各自渠道配置所有：邮箱读取 `mail_configs.verify_code_ttl_minutes`，短信读取 `sms_configs.verify_code_ttl_minutes`；Redis namespace `auth:verify_code:` 由代码内置，不通过 env 配置。生产如果不开放手机号登录，直接在 `auth_platforms.login_types` 里关闭 `phone`。
 
 ### Upload runtime
 

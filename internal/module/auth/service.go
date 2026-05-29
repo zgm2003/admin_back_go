@@ -190,7 +190,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if accountType == "" {
 		return "", apperror.BadRequest("请输入正确的邮箱或手机号")
 	}
-	ttl, appErr := s.verifyCodeTTL(ctx)
+	ttl, appErr := s.verifyCodeTTL(ctx, accountType)
 	if appErr != nil {
 		return "", appErr
 	}
@@ -564,9 +564,9 @@ func (s *Service) verifyCodeCacheKey(accountType string, scene string, account s
 	return VerifyCodeCacheKey(accountType, scene, account)
 }
 
-func (s *Service) verifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
+func (s *Service) verifyCodeTTL(ctx context.Context, accountType string) (time.Duration, *apperror.Error) {
 	if s != nil && s.verifyCodePolicy != nil {
-		return s.verifyCodePolicy.VerifyCodeTTL(ctx)
+		return s.verifyCodePolicy.VerifyCodeTTL(ctx, accountType)
 	}
 	return s.verifyCodeOptions.TTL, nil
 }

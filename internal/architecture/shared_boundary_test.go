@@ -25,24 +25,9 @@ func TestMigratedDictSettingCallSitesUseSharedBoundaries(t *testing.T) {
 			mustAvoid: []string{"CaptchaTTLSettingKey = \"auth.captcha.ttl_minutes\"", "p.positiveIntSetting(ctx, CaptchaTTLSettingKey)"},
 		},
 		{
-			rel:       "internal/module/auth/verify_code_policy.go",
-			mustHave:  []string{"admin_back_go/internal/shared/setting", "sharedsetting.AuthVerifyCodeTTLMinutes(ctx, p.repository)"},
-			mustAvoid: []string{"admin_back_go/internal/module/systemsetting", "VerifyCodeTTLSettingKey = \"auth.verify_code.ttl_minutes\"", "p.repository.SettingByKey"},
-		},
-		{
 			rel:       "internal/module/uploadtoken/policy.go",
 			mustHave:  []string{"admin_back_go/internal/shared/setting", "sharedsetting.UploadTokenTTLMinutes(ctx, p.repo)"},
 			mustAvoid: []string{"admin_back_go/internal/module/systemsetting", "UploadTokenTTLSettingKey = \"upload.token.ttl_minutes\"", "p.repo.SettingByKey"},
-		},
-		{
-			rel:       "internal/module/mail/service.go",
-			mustHave:  []string{"admin_back_go/internal/shared/setting", "sharedsetting.AuthVerifyCodeTTLMinutesOrDefault(ctx, repo)", "sharedsetting.SaveAuthVerifyCodeTTLMinutes(ctx, repo, ttl)"},
-			mustAvoid: []string{"verifyCodeTTLSettingKey = \"auth.verify_code.ttl_minutes\"", "repo.SettingByKey(ctx, verifyCodeTTLSettingKey)", "repo.SaveSetting(ctx, systemsetting.Setting"},
-		},
-		{
-			rel:       "internal/module/sms/service.go",
-			mustHave:  []string{"admin_back_go/internal/shared/setting", "sharedsetting.AuthVerifyCodeTTLMinutesOrDefault(ctx, repo)", "sharedsetting.SaveAuthVerifyCodeTTLMinutes(ctx, repo, ttl)"},
-			mustAvoid: []string{"verifyCodeTTLSettingKey = \"auth.verify_code.ttl_minutes\"", "repo.SettingByKey(ctx, verifyCodeTTLSettingKey)", "repo.SaveSetting(ctx, systemsetting.Setting"},
 		},
 	} {
 		t.Run(check.rel, func(t *testing.T) {
@@ -62,5 +47,61 @@ func TestMigratedDictSettingCallSitesUseSharedBoundaries(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVerifyCodeTTLDoesNotUseSystemSettingRuntime(t *testing.T) {
+	root := backendRoot(t)
+	files := []string{
+		"internal/module/auth/verify_code_policy.go",
+		"internal/module/mail/service.go",
+		"internal/module/mail/repository.go",
+		"internal/module/sms/service.go",
+		"internal/module/sms/repository.go",
+		"internal/shared/setting/setting.go",
+	}
+	banned := []string{
+		"AuthVerifyCodeTTLKey",
+		"AuthVerifyCodeTTLMinutes",
+		"AuthVerifyCodeTTLMinutesOrDefault",
+		"SaveAuthVerifyCodeTTLMinutes",
+		"SystemSettingVerifyCodePolicyProvider",
+		"auth.verify_code.ttl_minutes",
+	}
+	for _, rel := range files {
+		t.Run(rel, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+			if err != nil {
+				t.Fatalf("read %s: %v", rel, err)
+			}
+			text := string(body)
+			for _, token := range banned {
+				if strings.Contains(text, token) {
+					t.Fatalf("%s must not contain verify-code system-setting runtime token %q", rel, token)
+				}
+			}
+		})
+	}
+}
+
+func TestChannelVerifyCodeTTLMigrationOwnsColumnsAndRetiresGlobalKey(t *testing.T) {
+	root := backendRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "database", "migrations", "20260529_channel_verify_code_ttl.sql"))
+	if err != nil {
+		t.Fatalf("read channel verify-code ttl migration: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"ALTER TABLE `mail_configs` ADD COLUMN `verify_code_ttl_minutes`",
+		"ALTER TABLE `sms_configs` ADD COLUMN `verify_code_ttl_minutes`",
+		"@mail_ttl_column_exists = 0",
+		"@sms_ttl_column_exists = 0",
+		"auth.verify_code.ttl_minutes",
+		"SET `status` = 2",
+		"`is_del` = 1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("migration must contain %q", want)
+		}
 	}
 }

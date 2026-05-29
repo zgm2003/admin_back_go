@@ -16,14 +16,16 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
-	sharedsetting "admin_back_go/internal/shared/setting"
 )
 
 const (
-	timeLayout        = "2006-01-02 15:04:05"
-	defaultPage       = 1
-	defaultPageSize   = 20
-	maxTemplateVarLen = 64
+	timeLayout                  = "2006-01-02 15:04:05"
+	defaultPage                 = 1
+	defaultPageSize             = 20
+	maxTemplateVarLen           = 64
+	defaultVerifyCodeTTLMinutes = 5
+	minVerifyCodeTTLMinutes     = 1
+	maxVerifyCodeTTLMinutes     = 60
 )
 
 var simpleEmailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
@@ -61,7 +63,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 		MailRegionArr:     dict.MailRegionOptions(),
 		DefaultRegion:     DefaultRegion,
 		DefaultEndpoint:   DefaultEndpoint,
-		DefaultTTLMinutes: sharedsetting.DefaultAuthVerifyCodeTTLMinutes,
+		DefaultTTLMinutes: defaultVerifyCodeTTLMinutes,
 	}}, nil
 }
 
@@ -74,12 +76,12 @@ func (s *Service) Config(ctx context.Context) (*ConfigResponse, *apperror.Error)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
 	}
-	ttl, appErr := s.configuredVerifyCodeTTL(ctx, repo)
+	if row == nil {
+		return defaultConfigResponse(defaultVerifyCodeTTLMinutes), nil
+	}
+	ttl, appErr := verifyCodeTTLMinutesFromConfig(row)
 	if appErr != nil {
 		return nil, appErr
-	}
-	if row == nil {
-		return defaultConfigResponse(ttl), nil
 	}
 	return configResponseFromRow(*row, ttl), nil
 }
@@ -93,10 +95,11 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	if appErr != nil {
 		return appErr
 	}
-	ttl, appErr := sharedsetting.NormalizeAuthVerifyCodeTTLMinutes(input.VerifyCodeTTLMinutes)
+	ttl, appErr := normalizeVerifyCodeTTLMinutes(input.VerifyCodeTTLMinutes)
 	if appErr != nil {
 		return appErr
 	}
+	input.VerifyCodeTTLMinutes = ttl
 	existing, err := repo.DefaultConfig(ctx)
 	if err != nil {
 		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
@@ -107,9 +110,6 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	}
 	if err := repo.SaveDefaultConfig(ctx, row); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存邮件配置失败", err)
-	}
-	if appErr := sharedsetting.SaveAuthVerifyCodeTTLMinutes(ctx, repo, ttl); appErr != nil {
-		return appErr
 	}
 	return nil
 }
@@ -346,6 +346,22 @@ func (s *Service) SendVerifyCode(ctx context.Context, scene string, toEmail stri
 	return s.send(ctx, scene, scene, toEmail, data)
 }
 
+func (s *Service) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return 0, appErr
+	}
+	row, err := repo.DefaultConfig(ctx)
+	if err != nil {
+		return 0, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
+	}
+	minutes, appErr := verifyCodeTTLMinutesFromConfig(row)
+	if appErr != nil {
+		return 0, appErr
+	}
+	return time.Duration(minutes) * time.Minute, nil
+}
+
 func (s *Service) send(ctx context.Context, templateScene string, logScene string, toEmail string, data map[string]string) *apperror.Error {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -431,10 +447,6 @@ func (s *Service) enabledConfig(ctx context.Context, repo Repository) (*Config, 
 	return cfg, nil
 }
 
-func (s *Service) configuredVerifyCodeTTL(ctx context.Context, repo Repository) (int, *apperror.Error) {
-	return sharedsetting.AuthVerifyCodeTTLMinutesOrDefault(ctx, repo)
-}
-
 func enabledTemplate(ctx context.Context, repo Repository, scene string) (*Template, *apperror.Error) {
 	tmpl, err := repo.TemplateByScene(ctx, scene)
 	if err != nil {
@@ -477,7 +489,8 @@ func (s *Service) configRowFromInput(existing *Config, input SaveConfigInput) (C
 		ConfigKey: defaultConfigKey, SecretIDEnc: secretIDEnc, SecretIDHint: secretIDHint,
 		SecretKeyEnc: secretKeyEnc, SecretKeyHint: secretKeyHint, Region: input.Region,
 		Endpoint: input.Endpoint, FromEmail: input.FromEmail, FromName: input.FromName,
-		ReplyTo: input.ReplyTo, Status: input.Status, IsDel: enum.CommonNo,
+		ReplyTo: input.ReplyTo, VerifyCodeTTLMinutes: input.VerifyCodeTTLMinutes,
+		Status: input.Status, IsDel: enum.CommonNo,
 	}, nil
 }
 
@@ -539,6 +552,20 @@ func normalizeConfigInput(input SaveConfigInput) (SaveConfigInput, *apperror.Err
 		return input, apperror.BadRequest("无效的状态")
 	}
 	return input, nil
+}
+
+func verifyCodeTTLMinutesFromConfig(row *Config) (int, *apperror.Error) {
+	if row == nil {
+		return defaultVerifyCodeTTLMinutes, nil
+	}
+	return normalizeVerifyCodeTTLMinutes(row.VerifyCodeTTLMinutes)
+}
+
+func normalizeVerifyCodeTTLMinutes(minutes int) (int, *apperror.Error) {
+	if minutes < minVerifyCodeTTLMinutes || minutes > maxVerifyCodeTTLMinutes {
+		return 0, apperror.BadRequestKey("auth.verify_code.ttl.out_of_range", nil, "验证码有效期必须在 1-60 分钟之间")
+	}
+	return minutes, nil
 }
 
 func templateRowFromInput(input SaveTemplateInput) (Template, *apperror.Error) {

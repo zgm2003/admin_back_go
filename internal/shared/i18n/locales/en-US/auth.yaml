@@ -9,6 +9,10 @@ auth.verify_code.ttl.type_invalid: Verification code TTL config type must be num
 auth.verify_code.ttl.integer_required: Verification code TTL must be an integer number of minutes
 auth.verify_code.ttl.out_of_range: Verification code TTL must be between 1 and 60 minutes
 auth.verify_code.ttl.query_failed: Failed to query verification code TTL config
+auth.verify_code.policy_missing: Verification code TTL policy is not configured
+auth.verify_code.email_policy_missing: Email verification code TTL policy is not configured
+auth.verify_code.phone_policy_missing: SMS verification code TTL policy is not configured
+auth.verify_code.account_type_invalid: Invalid verification code account type
 auth.logout.success: Signed out successfully
 auth.platform.service_missing: Login service is not configured
 auth.platform.user_service_missing: User service is not configured

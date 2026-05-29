@@ -13,27 +13,18 @@ import (
 )
 
 const (
-	AuthCaptchaTTLKey    = "auth.captcha.ttl_minutes"
-	AuthVerifyCodeTTLKey = "auth.verify_code.ttl_minutes"
-	UploadTokenTTLKey    = "upload.token.ttl_minutes"
+	AuthCaptchaTTLKey = "auth.captcha.ttl_minutes"
+	UploadTokenTTLKey = "upload.token.ttl_minutes"
 
-	DefaultAuthVerifyCodeTTLMinutes = 5
-	DefaultUploadTokenTTL           = 15 * time.Minute
+	DefaultUploadTokenTTL = 15 * time.Minute
 
-	minAuthCaptchaTTLMinutes    = 1
-	minAuthVerifyCodeTTLMinutes = 1
-	maxAuthVerifyCodeTTLMinutes = 60
-	minUploadTokenTTLMinutes    = 1
-	maxUploadTokenTTLMinutes    = 1440
+	minAuthCaptchaTTLMinutes = 1
+	minUploadTokenTTLMinutes = 1
+	maxUploadTokenTTLMinutes = 1440
 )
 
 type Reader interface {
 	SettingByKey(ctx context.Context, key string) (*systemsetting.Setting, error)
-}
-
-type Writer interface {
-	SaveSetting(ctx context.Context, row systemsetting.Setting) error
-	InvalidateSettingCache(ctx context.Context, key string) error
 }
 
 func AuthCaptchaTTLMinutes(ctx context.Context, reader Reader) (int, *apperror.Error) {
@@ -60,39 +51,6 @@ func AuthCaptchaTTLMinutes(ctx context.Context, reader Reader) (int, *apperror.E
 	})
 }
 
-func AuthVerifyCodeTTLMinutes(ctx context.Context, reader Reader) (int, *apperror.Error) {
-	return requiredInt(ctx, reader, AuthVerifyCodeTTLKey, authVerifyCodeTTLRule())
-}
-
-func AuthVerifyCodeTTLMinutesOrDefault(ctx context.Context, reader Reader) (int, *apperror.Error) {
-	return optionalInt(ctx, reader, AuthVerifyCodeTTLKey, DefaultAuthVerifyCodeTTLMinutes, authVerifyCodeTTLRule())
-}
-
-func authVerifyCodeTTLRule() intRule {
-	return intRule{
-		min: minAuthVerifyCodeTTLMinutes,
-		max: maxAuthVerifyCodeTTLMinutes,
-		missing: func(key string) *apperror.Error {
-			return apperror.InternalKey("auth.verify_code.ttl.missing", map[string]any{"key": key}, "验证码有效期配置缺失")
-		},
-		disabled: func(key string) *apperror.Error {
-			return apperror.BadRequestKey("auth.verify_code.ttl.disabled", map[string]any{"key": key}, "验证码有效期配置已禁用")
-		},
-		wrongType: func(key string) *apperror.Error {
-			return apperror.InternalKey("auth.verify_code.ttl.type_invalid", map[string]any{"key": key}, "验证码有效期配置类型必须为数字")
-		},
-		notInteger: func(key string) *apperror.Error {
-			return apperror.BadRequestKey("auth.verify_code.ttl.integer_required", map[string]any{"key": key}, "验证码有效期必须为整数分钟")
-		},
-		outOfRange: func(key string) *apperror.Error {
-			return apperror.BadRequestKey("auth.verify_code.ttl.out_of_range", map[string]any{"key": key}, "验证码有效期必须在 1-60 分钟之间")
-		},
-		queryFailed: func(key string, err error) *apperror.Error {
-			return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "auth.verify_code.ttl.query_failed", map[string]any{"key": key}, "查询验证码有效期配置失败", err)
-		},
-	}
-}
-
 func UploadTokenTTLMinutes(ctx context.Context, reader Reader) int {
 	minutes, appErr := optionalInt(ctx, reader, UploadTokenTTLKey, int(DefaultUploadTokenTTL/time.Minute), intRule{
 		min: minUploadTokenTTLMinutes,
@@ -102,37 +60,6 @@ func UploadTokenTTLMinutes(ctx context.Context, reader Reader) int {
 		return int(DefaultUploadTokenTTL / time.Minute)
 	}
 	return minutes
-}
-
-func SaveAuthVerifyCodeTTLMinutes(ctx context.Context, writer Writer, minutes int) *apperror.Error {
-	if writer == nil {
-		return apperror.InternalKey("setting.repository_missing", nil, "系统设置仓储未配置")
-	}
-	normalized, appErr := NormalizeAuthVerifyCodeTTLMinutes(minutes)
-	if appErr != nil {
-		return appErr
-	}
-	if err := writer.SaveSetting(ctx, systemsetting.Setting{
-		SettingKey:   AuthVerifyCodeTTLKey,
-		SettingValue: strconv.Itoa(normalized),
-		ValueType:    enum.SystemSettingValueNumber,
-		Remark:       "验证码有效期分钟数，邮件和短信共用",
-		Status:       enum.CommonYes,
-		IsDel:        enum.CommonNo,
-	}); err != nil {
-		return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "setting.save_failed", map[string]any{"key": AuthVerifyCodeTTLKey}, "保存系统设置失败", err)
-	}
-	if err := writer.InvalidateSettingCache(ctx, AuthVerifyCodeTTLKey); err != nil {
-		return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "setting.cache_clear_failed", map[string]any{"key": AuthVerifyCodeTTLKey}, "清理系统设置缓存失败", err)
-	}
-	return nil
-}
-
-func NormalizeAuthVerifyCodeTTLMinutes(minutes int) (int, *apperror.Error) {
-	if minutes < minAuthVerifyCodeTTLMinutes || minutes > maxAuthVerifyCodeTTLMinutes {
-		return 0, apperror.BadRequestKey("auth.verify_code.ttl.out_of_range", map[string]any{"key": AuthVerifyCodeTTLKey}, "验证码有效期必须在 1-60 分钟之间")
-	}
-	return minutes, nil
 }
 
 type intRule struct {
