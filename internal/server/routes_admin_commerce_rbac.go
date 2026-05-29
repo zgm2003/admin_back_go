@@ -4,9 +4,9 @@ import (
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
 	paymentadmin "admin_back_go/internal/module/payment/transport/admin"
 	paymentcallback "admin_back_go/internal/module/payment/transport/callback"
+	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
 	roleadmin "admin_back_go/internal/module/role/transport/admin"
-	walletadmin "admin_back_go/internal/module/wallet/transport/admin"
 
 	"github.com/gin-gonic/gin"
 )

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/middleware"
-	walletmodule "admin_back_go/internal/module/wallet"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"

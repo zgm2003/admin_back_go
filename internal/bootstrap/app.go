@@ -41,6 +41,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/operationlog"
 	paymentmodule "admin_back_go/internal/module/payment"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/module/queuemonitor"
@@ -51,7 +52,6 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	walletmodule "admin_back_go/internal/module/wallet"
 	"admin_back_go/internal/server"
 	"admin_back_go/internal/shared/apperror"
 )
