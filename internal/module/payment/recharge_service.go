@@ -2,7 +2,6 @@ package payment
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -408,11 +407,11 @@ func rechargeStatusText(status string) string {
 }
 
 func newPaymentRechargeNo(now time.Time) string {
-	return "RCG" + now.Format("20060102150405") + fmt.Sprintf("%06d", now.Nanosecond()%1000000)
+	return newPaymentSerialNo("RCG", now)
 }
 
 func newWalletTransactionNo(now time.Time) string {
-	return "WLT" + now.Format("20060102150405") + fmt.Sprintf("%06d", now.Nanosecond()%1000000)
+	return newPaymentSerialNo("WLT", now)
 }
 
 func rechargeReturnURL(base string, rechargeNo string) string {

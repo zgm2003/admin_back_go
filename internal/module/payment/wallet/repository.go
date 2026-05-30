@@ -3,7 +3,6 @@ package wallet
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -231,10 +230,6 @@ func normalizePage(currentPage int, pageSize int) (int, int, int) {
 		pageSize = maxPageSize
 	}
 	return currentPage, pageSize, (currentPage - 1) * pageSize
-}
-
-func newTransactionNo(now time.Time) string {
-	return "WLT" + now.Format("20060102150405") + fmt.Sprintf("%06d", now.Nanosecond()%1000000)
 }
 
 func nextDateOnlyDay(value string) (string, bool) {

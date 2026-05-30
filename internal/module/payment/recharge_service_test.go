@@ -40,6 +40,23 @@ func TestCreateRechargeChoosesLowestSortEnabledAlipayConfig(t *testing.T) {
 	}
 }
 
+func TestRechargeNumbersKeepMillisecondDistinct(t *testing.T) {
+	base := time.Date(2026, 5, 30, 12, 0, 0, 123, time.UTC)
+
+	if newPaymentRechargeNo(base) == newPaymentRechargeNo(base.Add(time.Millisecond)) {
+		t.Fatalf("recharge numbers must differ across millisecond-separated timestamps: %s", newPaymentRechargeNo(base))
+	}
+	if newWalletTransactionNo(base) == newWalletTransactionNo(base.Add(time.Millisecond)) {
+		t.Fatalf("wallet transaction numbers must differ across millisecond-separated timestamps: %s", newWalletTransactionNo(base))
+	}
+	if newPaymentRechargeNo(base) == newPaymentRechargeNo(base) {
+		t.Fatalf("recharge numbers must differ across repeated calls at the same timestamp")
+	}
+	if newWalletTransactionNo(base) == newWalletTransactionNo(base) {
+		t.Fatalf("wallet transaction numbers must differ across repeated calls at the same timestamp")
+	}
+}
+
 func TestCreateRechargeRejectsInvalidInputs(t *testing.T) {
 	tests := []struct {
 		name  string

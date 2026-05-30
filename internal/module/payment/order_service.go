@@ -496,7 +496,7 @@ func formatPtrTime(value *time.Time) string {
 }
 
 func newPaymentOrderNo(now time.Time) string {
-	return "PAY" + now.Format("20060102150405") + fmt.Sprintf("%06d", now.Nanosecond()%1000000)
+	return newPaymentSerialNo("PAY", now)
 }
 
 func resultStatus(result *gateway.QueryResult) string {

@@ -87,6 +87,17 @@ func TestRepositoryListTransactionsUsesExclusiveNextDayDateEnd(t *testing.T) {
 	assertMockExpectations(t, mock)
 }
 
+func TestTransactionNoKeepsMillisecondDistinct(t *testing.T) {
+	base := time.Date(2026, 5, 30, 12, 0, 0, 123, time.UTC)
+
+	if newTransactionNo(base) == newTransactionNo(base.Add(time.Millisecond)) {
+		t.Fatalf("transaction numbers must differ across millisecond-separated timestamps: %s", newTransactionNo(base))
+	}
+	if newTransactionNo(base) == newTransactionNo(base) {
+		t.Fatalf("transaction numbers must differ across repeated calls at the same timestamp")
+	}
+}
+
 func newMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

@@ -39,6 +39,17 @@ func TestCreateOrderStoresPendingOrder(t *testing.T) {
 	}
 }
 
+func TestPaymentOrderNoKeepsMillisecondDistinct(t *testing.T) {
+	base := time.Date(2026, 5, 30, 12, 0, 0, 123, time.UTC)
+
+	if newPaymentOrderNo(base) == newPaymentOrderNo(base.Add(time.Millisecond)) {
+		t.Fatalf("order numbers must differ across millisecond-separated timestamps: %s", newPaymentOrderNo(base))
+	}
+	if newPaymentOrderNo(base) == newPaymentOrderNo(base) {
+		t.Fatalf("order numbers must differ across repeated calls at the same timestamp")
+	}
+}
+
 func TestCreateOrderRejectsDisabledConfig(t *testing.T) {
 	repo := newFakeOrderRepo()
 	repo.config = enabledOrderConfig()
