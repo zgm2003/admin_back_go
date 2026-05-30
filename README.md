@@ -382,6 +382,8 @@ go test ./...
 # 合同检查
 powershell -ExecutionPolicy Bypass -File ./scripts/check-contract.ps1
 
+# smoke 当前只自动导入仓库根 .env；如果不使用 .env，先在当前 shell 显式设置 MYSQL_DSN/REDIS_ADDR/APP_SECRET 等运行 env
+
 # 基础 smoke，会自行构建并启动临时 API/Worker；需要 18080 空闲，并传真实测试账号
 powershell -ExecutionPolicy Bypass -File ./scripts/basic-admin-smoke.ps1 -Account <account> -Password <password>
 
