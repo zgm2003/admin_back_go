@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
@@ -32,6 +33,91 @@ func TestHandleAlipayCallbackSuccessFinalizesRechargeAndAudits(t *testing.T) {
 	}
 	if repo.callbackEvent.ProcessStatus != callbackProcessSuccess || repo.callbackEvent.SignatureValid != enum.CommonYes {
 		t.Fatalf("expected success callback audit, got %#v", repo.callbackEvent)
+	}
+}
+
+func TestHandleAlipayCallbackUsesDisabledBoundConfigForExistingOrder(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	cfg := enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})
+	cfg.Status = enum.CommonNo
+	repo.configs = []Config{cfg}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	gw := &fakeOrderGateway{notifyPayload: &gateway.NotifyPayload{NotifyID: "notify-1", OutTradeNo: repo.order.OrderNo, TradeNo: "202605212200", TradeStatus: "TRADE_SUCCESS", AppID: cfg.AppID, TotalAmountCents: 1000, Raw: map[string]string{"out_trade_no": repo.order.OrderNo}}}
+	service := newRechargeService(repo, gw)
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
+	if appErr != nil {
+		t.Fatalf("HandleAlipayCallback error=%v", appErr)
+	}
+	if result == nil || result.Text != callbackResultSuccess {
+		t.Fatalf("expected success text, got %#v", result)
+	}
+	if repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited {
+		t.Fatalf("disabled config bound to an existing order must still settle, order=%#v recharge=%#v", repo.order, repo.recharge)
+	}
+}
+
+func TestHandleAlipayCallbackUsesDeletedBoundConfigForExistingOrder(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	cfg := enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})
+	cfg.Status = enum.CommonNo
+	cfg.IsDel = enum.CommonYes
+	repo.configs = []Config{cfg}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	gw := &fakeOrderGateway{notifyPayload: &gateway.NotifyPayload{NotifyID: "notify-1", OutTradeNo: repo.order.OrderNo, TradeNo: "202605212200", TradeStatus: "TRADE_SUCCESS", AppID: cfg.AppID, TotalAmountCents: 1000, Raw: map[string]string{"out_trade_no": repo.order.OrderNo}}}
+	service := newRechargeService(repo, gw)
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
+	if appErr != nil || result == nil || result.Text != callbackResultSuccess {
+		t.Fatalf("deleted bound config must still settle existing order, result=%#v err=%v", result, appErr)
+	}
+	if repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited {
+		t.Fatalf("deleted config bound to an existing order must still settle, order=%#v recharge=%#v", repo.order, repo.recharge)
+	}
+}
+
+func TestHandleAlipayCallbackStoresValidAuditJSONForLongPayload(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.rejectInvalidCallbackJSON = true
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	form := callbackForm(repo.order.OrderNo, "10.00")
+	form.Set("passback_params", strings.Repeat("x", 5000))
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: form})
+	if appErr != nil || result == nil || result.Text != callbackResultSuccess {
+		t.Fatalf("long audit payload must not break callback settlement, result=%#v err=%v", result, appErr)
+	}
+	if !json.Valid([]byte(repo.callbackEvent.RawPayloadJSON)) {
+		t.Fatalf("audit payload must stay valid JSON: %q", repo.callbackEvent.RawPayloadJSON)
+	}
+	if repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited {
+		t.Fatalf("expected callback settlement despite long audit payload, order=%#v recharge=%#v", repo.order, repo.recharge)
+	}
+}
+
+func TestHandleAlipayCallbackContinuesWhenAuditCreateFails(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.callbackCreateErr = errors.New("audit insert failed")
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
+	if appErr != nil || result == nil || result.Text != callbackResultSuccess {
+		t.Fatalf("audit insert failure must not block verified settlement, result=%#v err=%v", result, appErr)
+	}
+	if repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited {
+		t.Fatalf("expected settlement even when audit insert fails, order=%#v recharge=%#v", repo.order, repo.recharge)
 	}
 }
 

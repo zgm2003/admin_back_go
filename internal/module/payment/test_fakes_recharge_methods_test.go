@@ -83,6 +83,9 @@ func (r *fakeOrderRepo) UpdateRechargePaid(ctx context.Context, id int64, paidAt
 }
 func (r *fakeOrderRepo) UpdateRechargeClosed(ctx context.Context, id int64) error {
 	if r.recharge != nil && r.recharge.ID == id {
+		if !canCloseLinkedRecharge(r.recharge.Status) {
+			return nil
+		}
 		r.recharge.Status = rechargeStatusClosed
 	}
 	return nil

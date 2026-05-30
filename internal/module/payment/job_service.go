@@ -255,15 +255,31 @@ func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID i
 	if err := repo.UpdateOrderClosed(ctx, orderID, closedAt); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
 	}
+	order, err := repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
+	}
+	if order == nil || order.Status != orderStatusClosed {
+		return nil
+	}
 	recharge, err := repo.GetRechargeByOrderID(ctx, orderID)
 	if err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "payment.job.linked_recharge.query_failed", nil, "查询支付订单关联充值单失败", err)
 	}
-	if recharge == nil || recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusPaid || recharge.Status == rechargeStatusCredited {
+	if recharge == nil || !canCloseLinkedRecharge(recharge.Status) {
 		return nil
 	}
 	if err := repo.UpdateRechargeClosed(ctx, recharge.ID); err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "payment.job.linked_recharge.close_failed", nil, "关闭支付订单关联充值单失败", err)
 	}
 	return nil
+}
+
+func canCloseLinkedRecharge(status string) bool {
+	for _, allowed := range rechargeClosedCASStatuses {
+		if status == allowed {
+			return true
+		}
+	}
+	return false
 }

@@ -21,6 +21,7 @@ type Repository interface {
 	ListConfigs(ctx context.Context, query ConfigListQuery) ([]Config, int64, error)
 	GetConfig(ctx context.Context, id int64) (*Config, error)
 	GetConfigByCode(ctx context.Context, code string) (*Config, error)
+	GetConfigByIDForSettlement(ctx context.Context, id int64) (*Config, error)
 	CreateConfig(ctx context.Context, cfg Config) (int64, error)
 	UpdateConfig(ctx context.Context, cfg Config, keepPrivateKey bool) error
 	ChangeConfigStatus(ctx context.Context, id int64, status int) error
@@ -112,6 +113,18 @@ func (r *GormRepository) GetConfigByCode(ctx context.Context, code string) (*Con
 	}
 	var row Config
 	err := r.db.WithContext(ctx).Where("code = ? AND is_del = ?", strings.TrimSpace(code), enum.CommonNo).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
+func (r *GormRepository) GetConfigByIDForSettlement(ctx context.Context, id int64) (*Config, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row Config
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

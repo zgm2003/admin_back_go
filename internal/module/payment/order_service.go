@@ -15,6 +15,15 @@ import (
 
 const defaultOrderExpireMinutes = 30
 
+var (
+	orderOpenStatuses         = []string{orderStatusPending, orderStatusPaying}
+	orderPayingCASStatuses    = []string{orderStatusPending, orderStatusFailed}
+	orderFailedCASStatuses    = []string{orderStatusPending, orderStatusFailed}
+	orderPaidCASStatuses      = []string{orderStatusPending, orderStatusPaying, orderStatusPaid}
+	orderClosedCASStatuses    = []string{orderStatusPending, orderStatusFailed, orderStatusPaying}
+	rechargeClosedCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed, rechargeStatusPaying}
+)
+
 func (s *Service) OrderInit(ctx context.Context) (*OrderInitResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -347,12 +356,22 @@ func (s *Service) configByOrder(ctx context.Context, row *Order) (*Config, *appe
 	if row == nil {
 		return nil, apperror.NotFound("支付订单不存在")
 	}
-	cfg, appErr := s.enabledConfigByCode(ctx, row.ConfigCode)
+	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
 	}
-	if cfg.ID != row.ConfigID {
+	cfg, err := repo.GetConfigByIDForSettlement(ctx, row.ConfigID)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+	}
+	if cfg == nil {
+		return nil, apperror.NotFound("支付配置不存在")
+	}
+	if cfg.ID != row.ConfigID || strings.TrimSpace(cfg.Code) != strings.TrimSpace(row.ConfigCode) {
 		return nil, apperror.BadRequest("支付订单绑定配置不一致")
+	}
+	if cfg.Provider != providerAlipay {
+		return nil, apperror.BadRequest("当前仅支持支付宝支付配置")
 	}
 	return cfg, nil
 }

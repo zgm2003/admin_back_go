@@ -359,6 +359,13 @@ func (r *fakeOrderRepo) GetConfigByCode(ctx context.Context, code string) (*Conf
 	copy := *r.config
 	return &copy, nil
 }
+func (r *fakeOrderRepo) GetConfigByIDForSettlement(ctx context.Context, id int64) (*Config, error) {
+	if r.config == nil || r.config.ID != id {
+		return nil, nil
+	}
+	copy := *r.config
+	return &copy, nil
+}
 func (r *fakeOrderRepo) CreateConfig(ctx context.Context, cfg Config) (int64, error) { return 0, nil }
 func (r *fakeOrderRepo) UpdateConfig(ctx context.Context, cfg Config, keepPrivateKey bool) error {
 	return nil
@@ -406,17 +413,26 @@ func (r *fakeOrderRepo) CreateOrder(ctx context.Context, order Order) (int64, er
 	return order.ID, nil
 }
 func (r *fakeOrderRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL string) error {
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
+		return nil
+	}
 	r.order.Status = orderStatusPaying
 	r.order.PayURL = payURL
 	r.order.FailureReason = ""
 	return nil
 }
 func (r *fakeOrderRepo) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
+		return nil
+	}
 	r.order.Status = orderStatusFailed
 	r.order.FailureReason = reason
 	return nil
 }
 func (r *fakeOrderRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusPaying && r.order.Status != orderStatusPaid {
+		return nil
+	}
 	r.order.Status = orderStatusPaid
 	r.order.AlipayTradeNo = tradeNo
 	r.order.PaidAt = &paidAt
@@ -424,6 +440,9 @@ func (r *fakeOrderRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo s
 	return nil
 }
 func (r *fakeOrderRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed && r.order.Status != orderStatusPaying {
+		return nil
+	}
 	r.order.Status = orderStatusClosed
 	r.order.ClosedAt = &closedAt
 	return nil

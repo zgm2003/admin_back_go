@@ -139,15 +139,17 @@ func enabledRechargeConfig(id int64, code string, sort int, methods []string) Co
 }
 
 type fakeRechargeRepo struct {
-	packages        []RechargePackage
-	configs         []Config
-	wallet          *Wallet
-	order           *Order
-	recharge        *Recharge
-	rechargeByOrder map[int64]*Recharge
-	batchOrders     []Order
-	callbackEvent   CallbackEvent
-	creditCount     int
+	packages                  []RechargePackage
+	configs                   []Config
+	wallet                    *Wallet
+	order                     *Order
+	recharge                  *Recharge
+	rechargeByOrder           map[int64]*Recharge
+	batchOrders               []Order
+	callbackEvent             CallbackEvent
+	callbackCreateErr         error
+	rejectInvalidCallbackJSON bool
+	creditCount               int
 }
 
 func newFakeRechargeRepo() *fakeRechargeRepo {
@@ -169,6 +171,15 @@ func (r *fakeRechargeRepo) GetConfig(ctx context.Context, id int64) (*Config, er
 func (r *fakeRechargeRepo) GetConfigByCode(ctx context.Context, code string) (*Config, error) {
 	for idx := range r.configs {
 		if r.configs[idx].Code == strings.TrimSpace(code) {
+			copy := r.configs[idx]
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+func (r *fakeRechargeRepo) GetConfigByIDForSettlement(ctx context.Context, id int64) (*Config, error) {
+	for idx := range r.configs {
+		if r.configs[idx].ID == id {
 			copy := r.configs[idx]
 			return &copy, nil
 		}
@@ -286,11 +297,17 @@ func (r *fakeRechargeRepo) CreateOrder(ctx context.Context, order Order) (int64,
 	return order.ID, nil
 }
 func (r *fakeRechargeRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL string) error {
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
+		return nil
+	}
 	r.order.Status = orderStatusPaying
 	r.order.PayURL = payURL
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
+		return nil
+	}
 	r.order.Status = orderStatusFailed
 	r.order.FailureReason = reason
 	return nil
@@ -298,6 +315,9 @@ func (r *fakeRechargeRepo) UpdateOrderFailed(ctx context.Context, id int64, reas
 func (r *fakeRechargeRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
 	order := r.findOrderRef(id)
 	if order == nil {
+		return nil
+	}
+	if order.Status != orderStatusPending && order.Status != orderStatusPaying && order.Status != orderStatusPaid {
 		return nil
 	}
 	order.Status = orderStatusPaid
@@ -308,6 +328,9 @@ func (r *fakeRechargeRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeN
 func (r *fakeRechargeRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
 	order := r.findOrderRef(id)
 	if order == nil {
+		return nil
+	}
+	if order.Status != orderStatusPending && order.Status != orderStatusFailed && order.Status != orderStatusPaying {
 		return nil
 	}
 	order.Status = orderStatusClosed
@@ -371,6 +394,9 @@ func (r *fakeRechargeRepo) UpdateRechargePaid(ctx context.Context, id int64, pai
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateRechargeClosed(ctx context.Context, id int64) error {
+	if !canCloseLinkedRecharge(r.recharge.Status) {
+		return nil
+	}
 	r.recharge.Status = rechargeStatusClosed
 	return nil
 }

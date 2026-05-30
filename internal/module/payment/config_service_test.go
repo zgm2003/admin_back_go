@@ -56,6 +56,40 @@ func TestChangeConfigStatusToEnabledRunsLocalConfigTest(t *testing.T) {
 	}
 }
 
+func TestChangeConfigStatusRejectsDisableWhenOpenOrdersExist(t *testing.T) {
+	repo := newFakeConfigRepo()
+	repo.config = validStoredConfig()
+	repo.config.Status = enum.CommonYes
+	repo.order = &Order{ID: 9, ConfigCode: repo.config.Code, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	service := NewService(Dependencies{Repository: repo, Secretbox: &fakeSecretbox{}, Gateway: &fakeGateway{}, CertResolver: fakeResolver{}, CertStore: &fakeCertStore{}, Now: fixedPaymentNow})
+
+	appErr := service.ChangeConfigStatus(context.Background(), repo.config.ID, enum.CommonNo)
+	if appErr == nil || !strings.Contains(appErr.Message, "未完成") {
+		t.Fatalf("expected open order guard, got %v", appErr)
+	}
+	if repo.config.Status != enum.CommonYes {
+		t.Fatalf("config status must stay enabled while open orders exist, cfg=%#v", repo.config)
+	}
+}
+
+func TestUpdateConfigRejectsMutationWhenOpenOrdersExist(t *testing.T) {
+	repo := newFakeConfigRepo()
+	repo.config = validStoredConfig()
+	repo.config.Status = enum.CommonYes
+	repo.order = &Order{ID: 9, ConfigCode: repo.config.Code, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	service := NewService(Dependencies{Repository: repo, Secretbox: &fakeSecretbox{}, Gateway: &fakeGateway{}, CertResolver: fakeResolver{}, CertStore: &fakeCertStore{}, Now: fixedPaymentNow})
+	input := validConfigInput()
+	input.Name = "new name"
+
+	appErr := service.UpdateConfig(context.Background(), repo.config.ID, input)
+	if appErr == nil || !strings.Contains(appErr.Message, "未完成") {
+		t.Fatalf("expected open order guard, got %v", appErr)
+	}
+	if repo.config.Name != "支付宝默认配置" {
+		t.Fatalf("config must not mutate while open orders exist, cfg=%#v", repo.config)
+	}
+}
+
 func TestUploadCertificateDelegatesToStore(t *testing.T) {
 	store := &fakeCertStore{}
 	service := NewService(Dependencies{Repository: newFakeConfigRepo(), Secretbox: &fakeSecretbox{}, Gateway: &fakeGateway{}, CertResolver: fakeResolver{}, CertStore: store, Now: fixedPaymentNow})
@@ -142,6 +176,7 @@ func fixedPaymentNow() time.Time { return time.Date(2026, 5, 15, 10, 0, 0, 0, ti
 
 type fakeConfigRepo struct {
 	config         *Config
+	order          *Order
 	keepPrivateKey bool
 	status         int
 }
@@ -163,6 +198,9 @@ func (r *fakeConfigRepo) GetConfig(ctx context.Context, id int64) (*Config, erro
 }
 func (r *fakeConfigRepo) GetConfigByCode(ctx context.Context, code string) (*Config, error) {
 	return nil, nil
+}
+func (r *fakeConfigRepo) GetConfigByIDForSettlement(ctx context.Context, id int64) (*Config, error) {
+	return r.GetConfig(ctx, id)
 }
 func (r *fakeConfigRepo) CreateConfig(ctx context.Context, cfg Config) (int64, error) {
 	cfg.ID = 1
@@ -193,7 +231,16 @@ func (r *fakeConfigRepo) DeleteConfig(ctx context.Context, id int64) error {
 	return nil
 }
 func (r *fakeConfigRepo) ListOrders(ctx context.Context, query OrderListQuery) ([]Order, int64, error) {
-	return nil, 0, nil
+	if r.order == nil {
+		return nil, 0, nil
+	}
+	if query.ConfigCode != "" && r.order.ConfigCode != strings.TrimSpace(query.ConfigCode) {
+		return nil, 0, nil
+	}
+	if query.Status != "" && r.order.Status != strings.TrimSpace(query.Status) {
+		return nil, 0, nil
+	}
+	return []Order{*r.order}, 1, nil
 }
 func (r *fakeConfigRepo) GetOrder(ctx context.Context, id int64) (*Order, error) { return nil, nil }
 func (r *fakeConfigRepo) CreateOrder(ctx context.Context, order Order) (int64, error) {

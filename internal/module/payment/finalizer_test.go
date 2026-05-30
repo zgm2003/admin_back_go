@@ -45,3 +45,21 @@ func TestFinalizeOrderPaidAllowsRawOrderWithoutRecharge(t *testing.T) {
 		t.Fatalf("unexpected raw finalize result=%#v order=%#v", result, repo.order)
 	}
 }
+
+func TestCloseOrderAndLinkedRechargeDoesNotOverwritePaidOrder(t *testing.T) {
+	paidAt := fixedOrderNow()
+	repo := newFakeOrderRepoWithOrder(orderStatusPaid)
+	repo.order.PaidAt = &paidAt
+	repo.recharge = &Recharge{ID: 10, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaid, AmountCents: repo.order.AmountCents, PaidAt: &paidAt, IsDel: enum.CommonNo}
+
+	appErr := closeOrderAndLinkedRecharge(context.Background(), repo, repo.order.ID, fixedOrderNow().Add(time.Minute))
+	if appErr != nil {
+		t.Fatalf("closeOrderAndLinkedRecharge error=%v", appErr)
+	}
+	if repo.order.Status != orderStatusPaid || repo.order.ClosedAt != nil {
+		t.Fatalf("close helper must not overwrite paid order, order=%#v", repo.order)
+	}
+	if repo.recharge.Status != rechargeStatusPaid {
+		t.Fatalf("close helper must not close paid recharge, recharge=%#v", repo.recharge)
+	}
+}

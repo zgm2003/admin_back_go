@@ -17,8 +17,7 @@ func (s *Service) HandleAlipayCallback(ctx context.Context, input AlipayCallback
 		return failCallbackResult(), nil
 	}
 	receivedAt := s.now()
-	raw, _ := json.Marshal(formFirstValues(input.Form))
-	rawPayload := trimMax(string(raw), 4096)
+	rawPayload := callbackAuditPayloadJSON(input.Form)
 	eventID, err := repo.CreateCallbackEvent(ctx, CallbackEvent{
 		Provider:         providerAlipay,
 		NotifyID:         strings.TrimSpace(input.Form.Get("notify_id")),
@@ -34,10 +33,12 @@ func (s *Service) HandleAlipayCallback(ctx context.Context, input AlipayCallback
 		IsDel:            enum.CommonNo,
 	})
 	if err != nil {
-		return failCallbackResult(), nil
+		eventID = 0
 	}
 	mark := func(signatureValid int, status string, message string) (*AlipayCallbackResult, *apperror.Error) {
-		_ = repo.UpdateCallbackEventProcessed(ctx, eventID, signatureValid, status, message, s.now())
+		if eventID > 0 {
+			_ = repo.UpdateCallbackEventProcessed(ctx, eventID, signatureValid, status, message, s.now())
+		}
 		if status == callbackProcessFailed {
 			return failCallbackResult(), nil
 		}
@@ -102,13 +103,29 @@ func callbackPayloadFromForm(form map[string][]string) *gateway.NotifyPayload {
 	}
 }
 
+func callbackAuditPayloadJSON(form map[string][]string) string {
+	raw, err := json.Marshal(formFirstValuesLimited(form, 4096))
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
 func formFirstValues(form map[string][]string) map[string]string {
+	return formFirstValuesLimited(form, 0)
+}
+
+func formFirstValuesLimited(form map[string][]string, maxValueRunes int) map[string]string {
 	raw := make(map[string]string, len(form))
 	for key, values := range form {
 		if len(values) == 0 {
 			continue
 		}
-		raw[key] = values[0]
+		value := values[0]
+		if maxValueRunes > 0 {
+			value = trimMax(value, maxValueRunes)
+		}
+		raw[key] = value
 	}
 	return raw
 }

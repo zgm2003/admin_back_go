@@ -215,7 +215,7 @@ func (r *GormRepository) UpdateRechargeClosed(ctx context.Context, id int64) err
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Update("status", rechargeStatusClosed).Error
+	return r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, rechargeClosedCASStatuses).Update("status", rechargeStatusClosed).Error
 }
 
 func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {

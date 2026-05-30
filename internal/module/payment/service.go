@@ -160,6 +160,9 @@ func (s *Service) UpdateConfig(ctx context.Context, id int64, input ConfigMutati
 	if existing == nil {
 		return apperror.NotFound("支付配置不存在")
 	}
+	if appErr := s.ensureNoOpenOrdersForConfig(ctx, repo, existing.Code); appErr != nil {
+		return appErr
+	}
 	cfg, keepPrivateKey, appErr := s.normalizeMutation(input, existing, false)
 	if appErr != nil {
 		return appErr
@@ -184,8 +187,10 @@ func (s *Service) ChangeConfigStatus(ctx context.Context, id int64, status int) 
 	if appErr != nil {
 		return appErr
 	}
+	var cfg *Config
 	if status == enum.CommonYes {
-		cfg, err := repo.GetConfig(ctx, id)
+		var err error
+		cfg, err = repo.GetConfig(ctx, id)
 		if err != nil {
 			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 		}
@@ -193,6 +198,18 @@ func (s *Service) ChangeConfigStatus(ctx context.Context, id int64, status int) 
 			return apperror.NotFound("支付配置不存在")
 		}
 		if _, appErr := s.testConfigRow(ctx, *cfg); appErr != nil {
+			return appErr
+		}
+	} else {
+		var err error
+		cfg, err = repo.GetConfig(ctx, id)
+		if err != nil {
+			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		}
+		if cfg == nil {
+			return apperror.NotFound("支付配置不存在")
+		}
+		if appErr := s.ensureNoOpenOrdersForConfig(ctx, repo, cfg.Code); appErr != nil {
 			return appErr
 		}
 	}
@@ -208,6 +225,16 @@ func (s *Service) DeleteConfig(ctx context.Context, id int64) *apperror.Error {
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
+		return appErr
+	}
+	cfg, err := repo.GetConfig(ctx, id)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+	}
+	if cfg == nil {
+		return apperror.NotFound("支付配置不存在")
+	}
+	if appErr := s.ensureNoOpenOrdersForConfig(ctx, repo, cfg.Code); appErr != nil {
 		return appErr
 	}
 	if err := repo.DeleteConfig(ctx, id); err != nil {
@@ -249,6 +276,23 @@ func (s *Service) TestConfig(ctx context.Context, id int64) (*ConfigTestResponse
 		return nil, apperror.NotFound("支付配置不存在")
 	}
 	return s.testConfigRow(ctx, *cfg)
+}
+
+func (s *Service) ensureNoOpenOrdersForConfig(ctx context.Context, repo Repository, code string) *apperror.Error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil
+	}
+	for _, status := range orderOpenStatuses {
+		rows, total, err := repo.ListOrders(ctx, OrderListQuery{ConfigCode: code, Status: status, CurrentPage: 1, PageSize: 1})
+		if err != nil {
+			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
+		}
+		if total > 0 || len(rows) > 0 {
+			return apperror.BadRequest("支付配置存在未完成支付订单，不能修改、禁用或删除")
+		}
+	}
+	return nil
 }
 
 func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config, create bool) (Config, bool, *apperror.Error) {

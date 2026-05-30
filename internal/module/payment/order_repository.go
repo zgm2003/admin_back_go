@@ -75,7 +75,7 @@ func (r *GormRepository) UpdateOrderPaying(ctx context.Context, id int64, payURL
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderPayingCASStatuses).Updates(map[string]any{
 		"status":         orderStatusPaying,
 		"pay_url":        strings.TrimSpace(payURL),
 		"failure_reason": "",
@@ -86,7 +86,7 @@ func (r *GormRepository) UpdateOrderFailed(ctx context.Context, id int64, reason
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderFailedCASStatuses).Updates(map[string]any{
 		"status":         orderStatusFailed,
 		"failure_reason": trimMax(reason, 255),
 	}).Error
@@ -96,7 +96,7 @@ func (r *GormRepository) UpdateOrderPaid(ctx context.Context, id int64, tradeNo 
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderPaidCASStatuses).Updates(map[string]any{
 		"status":          orderStatusPaid,
 		"alipay_trade_no": strings.TrimSpace(tradeNo),
 		"paid_at":         paidAt,
@@ -108,7 +108,7 @@ func (r *GormRepository) UpdateOrderClosed(ctx context.Context, id int64, closed
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderClosedCASStatuses).Updates(map[string]any{
 		"status":    orderStatusClosed,
 		"closed_at": closedAt,
 	}).Error

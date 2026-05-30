@@ -2,6 +2,8 @@ package payment
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -22,6 +24,12 @@ func (r *fakeOrderRepo) UpdateCallbackEventProcessed(ctx context.Context, id int
 }
 
 func (r *fakeRechargeRepo) CreateCallbackEvent(ctx context.Context, event CallbackEvent) (int64, error) {
+	if r.callbackCreateErr != nil {
+		return 0, r.callbackCreateErr
+	}
+	if r.rejectInvalidCallbackJSON && !json.Valid([]byte(event.RawPayloadJSON)) {
+		return 0, errors.New("invalid callback json")
+	}
 	event.ID = 1
 	r.callbackEvent = event
 	return event.ID, nil
