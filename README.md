@@ -346,7 +346,7 @@ New-Item -ItemType Directory -Force -Path runtime/logs, exports
 
 ```env
 MYSQL_DSN=你的 MySQL DSN
-REDIS_ADDR=host.docker.internal:6379
+REDIS_ADDR=host.docker.internal:6380
 # 至少 32 位随机字符串；修改会让旧登录态和已加密业务密钥失效
 APP_SECRET=本地长随机字符串
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
