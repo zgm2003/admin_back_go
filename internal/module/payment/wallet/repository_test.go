@@ -66,6 +66,44 @@ func TestRepositoryConsumeRejectsDuplicateSourceOwnedByAnotherUser(t *testing.T)
 	assertMockExpectations(t, mock)
 }
 
+func TestRepositoryConsumeReturnsExistingTransactionAfterDuplicateSourceRace(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
+		WithArgs(SourceConsume, int64(88), enum.CommonNo, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
+		WithArgs(int64(7), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_cents", "total_recharge_cents", "total_consume_cents", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(7), int64(1000), int64(1000), int64(0), enum.CommonNo, now, now))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
+		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry 'consume-88' for key 'uk_wallet_transaction_source'"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ? FOR UPDATE")).
+		WithArgs(SourceConsume, int64(88), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_cents", "balance_before_cents", "balance_after_cents", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(9), "WLT20260521120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), SourceConsume, int64(88), "race winner", enum.CommonNo, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ?")).
+		WithArgs(int64(1), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_cents", "total_recharge_cents", "total_consume_cents", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(7), int64(900), int64(1000), int64(100), enum.CommonNo, now, now))
+	mock.ExpectCommit()
+
+	wallet, tx, err := repo.Consume(context.Background(), ConsumeInput{UserID: 7, AmountCents: 100, SourceID: 88}, now)
+	if err != nil {
+		t.Fatalf("expected duplicate source race to return existing transaction, got err=%v", err)
+	}
+	if tx == nil || tx.ID != 9 || tx.UserID != 7 || tx.SourceID != 88 {
+		t.Fatalf("expected existing transaction after duplicate source race, got %#v", tx)
+	}
+	if wallet == nil || wallet.ID != 1 || wallet.BalanceCents != 900 || wallet.TotalConsumeCents != 100 {
+		t.Fatalf("expected existing transaction wallet after duplicate source race, got %#v", wallet)
+	}
+	assertMockExpectations(t, mock)
+}
+
 func TestRepositoryListTransactionsUsesExclusiveNextDayDateEnd(t *testing.T) {
 	repo, mock, closeDB := newMockRepository(t)
 	defer closeDB()

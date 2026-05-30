@@ -9,6 +9,7 @@ import (
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/shared/enum"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -114,23 +115,18 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 	var resultTransaction Transaction
 	var domainErr error
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing Transaction
-		err := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", SourceConsume, input.SourceID, enum.CommonNo).First(&existing).Error
-		if err == nil {
-			if existing.UserID != input.UserID {
-				domainErr = ErrConsumeSourceOwnerMismatch
+		existingWallet, existingTransaction, err := findConsumeSource(tx, input.UserID, input.SourceID, false)
+		if err != nil {
+			if errors.Is(err, ErrConsumeSourceOwnerMismatch) {
+				domainErr = err
 				return nil
 			}
-			var wallet Wallet
-			if walletErr := tx.Where("id = ? AND is_del = ?", existing.WalletID, enum.CommonNo).First(&wallet).Error; walletErr != nil {
-				return walletErr
-			}
-			resultWallet = wallet
-			resultTransaction = existing
-			return nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if existingTransaction != nil {
+			resultWallet = *existingWallet
+			resultTransaction = *existingTransaction
+			return nil
 		}
 
 		wallet, err := lockOrCreateWalletForUpdate(tx, input.UserID)
@@ -158,6 +154,24 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 			IsDel:              enum.CommonNo,
 		}
 		if err := tx.Create(&txRow).Error; err != nil {
+			if isDuplicateKey(err) {
+				// A competing transaction may have inserted the same consume source after
+				// our first read. Use a locking read here so MySQL returns the latest row
+				// instead of the transaction's earlier repeatable-read snapshot.
+				existingWallet, existingTransaction, lookupErr := findConsumeSource(tx, input.UserID, input.SourceID, true)
+				if lookupErr != nil {
+					if errors.Is(lookupErr, ErrConsumeSourceOwnerMismatch) {
+						domainErr = lookupErr
+						return nil
+					}
+					return lookupErr
+				}
+				if existingTransaction != nil {
+					resultWallet = *existingWallet
+					resultTransaction = *existingTransaction
+					return nil
+				}
+			}
 			return err
 		}
 		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{
@@ -182,6 +196,40 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 		return &resultWallet, nil, domainErr
 	}
 	return &resultWallet, &resultTransaction, nil
+}
+
+func findConsumeSource(tx *gorm.DB, userID int64, sourceID int64, lock bool) (*Wallet, *Transaction, error) {
+	var existing Transaction
+	query := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", SourceConsume, sourceID, enum.CommonNo)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	err := query.First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if existing.UserID != userID {
+		return nil, nil, ErrConsumeSourceOwnerMismatch
+	}
+	var wallet Wallet
+	if err := tx.Where("id = ? AND is_del = ?", existing.WalletID, enum.CommonNo).First(&wallet).Error; err != nil {
+		return nil, nil, err
+	}
+	return &wallet, &existing, nil
+}
+
+func isDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return true
+	}
+	return strings.Contains(err.Error(), "Duplicate entry")
 }
 
 func getOrCreateWallet(ctx context.Context, db *gorm.DB, userID int64) (*Wallet, error) {
