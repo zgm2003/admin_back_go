@@ -424,7 +424,7 @@ database/migrations/*.sql
 
 ## Docker 部署
 
-Backend deployment and local backend development are Docker-first. Use `deploy/docker-first/docker-compose.yml` with Baota Docker or `docker compose`; do not use repository-root `.env` / `.env.example`, and do not start `admin-api` or `admin-worker` with `go run`.
+Backend deployment and local backend development are Docker-first. `deploy/docker-first/docker-compose.yml` is the source template and local validation Compose file; production Baota Docker runs from `/www/docker/admin-go-backend/docker-compose.yml` after copying the template and changing path fields for that working directory. Do not use repository-root `.env` / `.env.example`, and do not start `admin-api` or `admin-worker` with `go run`.
 
 MySQL/Redis 可以也推荐用宝塔 Docker 管，但不要写进后端 Compose。生产默认拆成 `admin-go-state` 和 `admin-go-backend` 两个项目：状态服务独立保护，后端应用可随代码发布重建。
 
@@ -467,7 +467,7 @@ git pull
 
 ### 3. 准备运行配置
 
-容器业务运行配置在 `deploy/docker-first/admin-go.env`；新环境可从 `admin-go.env.example` 复制后再改真实值。
+本地容器业务运行配置在 `deploy/docker-first/admin-go.env`；生产运行配置在 `/www/docker/admin-go-backend/admin-go.env`。新环境可从 `deploy/docker-first/admin-go.env.example` 复制后再改真实值。
 
 ### 4. 修改业务环境变量
 
@@ -501,6 +501,8 @@ CORS_ALLOW_ORIGINS=https://<frontend-domain>
 如果 MySQL/Redis 在 `admin-go-state` Docker 项目里，把连接地址改成对应 Docker network、宿主本地端口或内网 IP。别把 MySQL/Redis 裸奔到公网；必须用安全组/防火墙只放行后端机器。
 
 ### 5. 启动
+
+生产 Compose 工作目录必须已经有从 `deploy/docker-first/docker-compose.yml` 复制并改好路径的 `docker-compose.yml`，尤其是 `build.context=/www/project/admin_back_go`、`env_file=./admin-go.env` 和 `./runtime` / `./exports` 挂载。
 
 ```bash
 cd /www/docker/admin-go-backend
