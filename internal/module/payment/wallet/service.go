@@ -105,6 +105,9 @@ func (s *Service) Consume(ctx context.Context, input ConsumeInput) (*ConsumeResp
 		if errors.Is(err, ErrInsufficientBalance) {
 			return nil, apperror.BadRequestKey("wallet.consume.insufficient_balance", nil, "余额不足")
 		}
+		if errors.Is(err, ErrConsumeSourceOwnerMismatch) {
+			return nil, apperror.BadRequestKey("wallet.consume.source_id.owner_mismatch", nil, "消费来源已被其他用户使用")
+		}
 		return nil, wrapInternal("wallet.consume.failed", "消费扣款失败", err)
 	}
 	return &ConsumeResponse{Transaction: transactionItem(TransactionWithUser{Transaction: *tx}), Wallet: *summaryResponse(wallet)}, nil

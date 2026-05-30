@@ -4,6 +4,7 @@ wallet.users.query_failed: 查询用户钱包失败
 wallet.transactions.query_failed: 查询资金流水失败
 wallet.consume.amount.invalid: 消费金额必须大于0
 wallet.consume.source_id.invalid: 消费来源ID必须大于0
+wallet.consume.source_id.owner_mismatch: 消费来源已被其他用户使用
 wallet.consume.insufficient_balance: 余额不足
 wallet.consume.failed: 消费扣款失败
 wallet.transactions.request.invalid: 资金明细查询参数错误

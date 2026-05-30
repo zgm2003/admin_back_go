@@ -16,6 +16,7 @@ import (
 
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
+var ErrConsumeSourceOwnerMismatch = errors.New("wallet consume source owner mismatch")
 
 type Repository interface {
 	GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error)
@@ -113,6 +114,10 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 		var existing Transaction
 		err := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", SourceConsume, input.SourceID, enum.CommonNo).First(&existing).Error
 		if err == nil {
+			if existing.UserID != input.UserID {
+				domainErr = ErrConsumeSourceOwnerMismatch
+				return nil
+			}
 			var wallet Wallet
 			if walletErr := tx.Where("id = ? AND is_del = ?", existing.WalletID, enum.CommonNo).First(&wallet).Error; walletErr != nil {
 				return walletErr
@@ -168,6 +173,9 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 		return nil, nil, err
 	}
 	if domainErr != nil {
+		if !errors.Is(domainErr, ErrInsufficientBalance) {
+			return nil, nil, domainErr
+		}
 		return &resultWallet, nil, domainErr
 	}
 	return &resultWallet, &resultTransaction, nil

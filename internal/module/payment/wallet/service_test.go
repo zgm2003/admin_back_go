@@ -33,6 +33,16 @@ func TestServiceConsumeRejectsInsufficientBalance(t *testing.T) {
 	}
 }
 
+func TestServiceConsumeRejectsSourceOwnedByAnotherUser(t *testing.T) {
+	repo := &fakeRepo{consumeErr: ErrConsumeSourceOwnerMismatch}
+	service := NewService(repo)
+
+	_, appErr := service.Consume(context.Background(), ConsumeInput{UserID: 8, AmountCents: 100, SourceID: 88})
+	if appErr == nil || appErr.MessageID != "wallet.consume.source_id.owner_mismatch" {
+		t.Fatalf("expected source owner mismatch keyed error, got %v", appErr)
+	}
+}
+
 func TestServiceConsumeReturnsTransactionAndWallet(t *testing.T) {
 	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepo{

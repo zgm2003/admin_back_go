@@ -44,6 +44,28 @@ func TestRepositoryConsumeReturnsLockedWalletOnInsufficientBalance(t *testing.T)
 	assertMockExpectations(t, mock)
 }
 
+func TestRepositoryConsumeRejectsDuplicateSourceOwnedByAnotherUser(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
+		WithArgs(SourceConsume, int64(88), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_cents", "balance_before_cents", "balance_after_cents", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(9), "WLT20260521120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), SourceConsume, int64(88), "owner-a", enum.CommonNo, now, now))
+	mock.ExpectCommit()
+
+	wallet, tx, err := repo.Consume(context.Background(), ConsumeInput{UserID: 8, AmountCents: 100, SourceID: 88}, now)
+	if err == nil || err.Error() != "wallet consume source owner mismatch" {
+		t.Fatalf("expected source owner mismatch, got wallet=%#v tx=%#v err=%v", wallet, tx, err)
+	}
+	if wallet != nil || tx != nil {
+		t.Fatalf("source owner mismatch must not return another user's wallet/transaction, wallet=%#v tx=%#v", wallet, tx)
+	}
+	assertMockExpectations(t, mock)
+}
+
 func newMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
