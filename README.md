@@ -352,7 +352,7 @@ APP_SECRET=本地长随机字符串
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
 ```
 
-如果宿主 `8080` 被占用，直接改 `docker-compose.yml` 的 `ports` 行，例如 `127.0.0.1:18081:8080`；不要为了端口再引入 Compose `.env`。
+如果宿主 `8080` 被占用，直接改 `docker-compose.yml` 的 `ports` 行，例如 `127.0.0.1:18082:8080`；不要为了端口再引入 Compose `.env`，也不要用 full smoke 默认端口 `18081`。
 
 局域网真机调试时，再把 `ports` 行按需改成 `0.0.0.0:8080:8080`，并确认防火墙和 `CORS_ALLOW_ORIGINS` 覆盖当前 H5/LAN dev origin。
 
