@@ -23,6 +23,9 @@ func (r *fakeConfigRepo) ListRecharges(ctx context.Context, query RechargeListQu
 func (r *fakeConfigRepo) ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error) {
 	return nil, nil
 }
+func (r *fakeConfigRepo) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
+	return nil, nil
+}
 func (r *fakeConfigRepo) GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error) {
 	return nil, nil
 }
@@ -62,6 +65,9 @@ func (r *fakeOrderRepo) ListRecharges(ctx context.Context, query RechargeListQue
 func (r *fakeOrderRepo) ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error) {
 	return nil, nil
 }
+func (r *fakeOrderRepo) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
+	return nil, nil
+}
 func (r *fakeOrderRepo) GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error) {
 	return nil, nil
 }
@@ -75,7 +81,12 @@ func (r *fakeOrderRepo) UpdateRechargeFailed(ctx context.Context, id int64, reas
 func (r *fakeOrderRepo) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
 	return nil
 }
-func (r *fakeOrderRepo) UpdateRechargeClosed(ctx context.Context, id int64) error { return nil }
+func (r *fakeOrderRepo) UpdateRechargeClosed(ctx context.Context, id int64) error {
+	if r.recharge != nil && r.recharge.ID == id {
+		r.recharge.Status = rechargeStatusClosed
+	}
+	return nil
+}
 func (r *fakeOrderRepo) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
 	return &Wallet{ID: 1, UserID: 1, IsDel: 2}, &Recharge{ID: rechargeID, Status: rechargeStatusCredited, PaidAt: &paidAt, CreditedAt: &now}, nil
 }
@@ -96,5 +107,8 @@ func (r *fakeConfigRepo) GetRechargeByOrderID(ctx context.Context, orderID int64
 	return nil, nil
 }
 func (r *fakeOrderRepo) GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error) {
+	if r.recharge != nil && r.recharge.PaymentOrderID == orderID {
+		return r.recharge, nil
+	}
 	return nil, nil
 }

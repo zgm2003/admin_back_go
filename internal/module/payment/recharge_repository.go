@@ -109,6 +109,20 @@ func (r *GormRepository) ListRecentRecharges(ctx context.Context, userID int64, 
 	return rows, err
 }
 
+func (r *GormRepository) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	limit = normalizePaymentJobLimit(limit)
+	var rows []RechargeWithOrder
+	err := rechargeJoinQuery(r.db.WithContext(ctx)).
+		Where("po.status = ? AND r.status IN ? AND r.credited_at IS NULL AND r.is_del = ?", orderStatusPaid, []string{rechargeStatusPending, rechargeStatusPaying, rechargeStatusPaid}, enum.CommonNo).
+		Order("r.id asc").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
 func (r *GormRepository) GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured

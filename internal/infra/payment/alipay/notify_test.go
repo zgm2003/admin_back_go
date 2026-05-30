@@ -29,9 +29,23 @@ func TestParseNotifyPayloadNormalizesAmountToCents(t *testing.T) {
 }
 
 func TestParseNotifyPayloadRejectsInvalidAmount(t *testing.T) {
-	form := url.Values{"total_amount": []string{"10.005"}}
-	_, err := ParseNotifyPayload(form)
-	if err == nil {
-		t.Fatal("expected invalid amount error")
+	tests := []string{
+		"10.005",
+		"10.-1",
+		"10.+1",
+		"10.a",
+		"10.0a",
+		"10..1",
+		"-1",
+		"abc",
+	}
+	for _, value := range tests {
+		t.Run(value, func(t *testing.T) {
+			form := url.Values{"total_amount": []string{value}}
+			_, err := ParseNotifyPayload(form)
+			if err == nil {
+				t.Fatal("expected invalid amount error")
+			}
+		})
 	}
 }

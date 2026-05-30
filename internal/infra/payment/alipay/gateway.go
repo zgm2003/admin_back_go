@@ -222,13 +222,16 @@ func parseAmountCents(value string) (int64, error) {
 	if len(parts) > 2 || parts[0] == "" {
 		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
 	}
+	if !isASCIIAmountDigits(parts[0]) {
+		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
+	}
 	yuan, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || yuan < 0 {
 		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
 	}
 	centText := "00"
 	if len(parts) == 2 {
-		if len(parts[1]) > 2 {
+		if parts[1] == "" || len(parts[1]) > 2 || !isASCIIAmountDigits(parts[1]) {
 			return 0, fmt.Errorf("alipay: invalid total amount %q", value)
 		}
 		centText = (parts[1] + "00")[:2]
@@ -238,6 +241,18 @@ func parseAmountCents(value string) (int64, error) {
 		return 0, fmt.Errorf("alipay: invalid total amount %q", value)
 	}
 	return yuan*100 + cents, nil
+}
+
+func isASCIIAmountDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func parseAlipayTime(value string) (*time.Time, error) {

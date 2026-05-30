@@ -38,6 +38,7 @@ type Repository interface {
 	UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error
 	GetOrderByNo(ctx context.Context, orderNo string) (*Order, error)
 	ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error)
+	ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error)
 	ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error)
 	ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error)
 	ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error)

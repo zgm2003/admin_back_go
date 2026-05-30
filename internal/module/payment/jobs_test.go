@@ -53,6 +53,32 @@ func TestSyncPendingOrdersCreditsPaidAndContinuesAfterFailures(t *testing.T) {
 	}
 }
 
+func TestSyncPendingOrdersCreditsPreviouslyPaidUncreditedRecharge(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	paidAt := fixedRechargeNow().Add(time.Minute)
+	repo.batchOrders = []Order{
+		{ID: 1, OrderNo: "PAY20260521000000000001", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaid, PaidAt: &paidAt, IsDel: enum.CommonNo},
+	}
+	repo.order = &repo.batchOrders[0]
+	repo.rechargeByOrder = map[int64]*Recharge{
+		1: {ID: 10, RechargeNo: "RCG1", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPaid, AmountCents: 1000, PaidAt: &paidAt, IsDel: enum.CommonNo},
+	}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, err := service.SyncPendingOrders(context.Background(), SyncPendingOrderInput{Limit: 1})
+	if err != nil {
+		t.Fatalf("SyncPendingOrders error=%v", err)
+	}
+	if result.Scanned != 1 || result.Paid != 1 || result.Failed != 0 || repo.creditCount != 1 {
+		t.Fatalf("expected paid uncredited recharge to be compensated, result=%#v creditCount=%d", result, repo.creditCount)
+	}
+	if repo.rechargeByOrder[1].Status != rechargeStatusCredited || repo.rechargeByOrder[1].CreditedAt == nil {
+		t.Fatalf("expected credited recharge, got %#v", repo.rechargeByOrder[1])
+	}
+}
+
 func TestCloseExpiredOrdersClosesPendingAndFinalizesPaidPaying(t *testing.T) {
 	repo := newFakeRechargeRepo()
 	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}

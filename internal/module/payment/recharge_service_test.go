@@ -242,6 +242,35 @@ func (r *fakeRechargeRepo) ListPendingPayingOrders(ctx context.Context, cutoff t
 	}
 	return rows, nil
 }
+func (r *fakeRechargeRepo) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
+	rows := make([]RechargeWithOrder, 0, len(r.rechargeByOrder))
+	for orderID, recharge := range r.rechargeByOrder {
+		if recharge == nil || recharge.CreditedAt != nil || recharge.Status == rechargeStatusCredited || recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed {
+			continue
+		}
+		var order *Order
+		for idx := range r.batchOrders {
+			if r.batchOrders[idx].ID == orderID {
+				order = &r.batchOrders[idx]
+				break
+			}
+		}
+		if order == nil || order.Status != orderStatusPaid {
+			continue
+		}
+		r.recharge = recharge
+		row := RechargeWithOrder{Recharge: *recharge}
+		row.PaymentOrderNo = order.OrderNo
+		row.OrderStatus = order.Status
+		row.AlipayTradeNo = order.AlipayTradeNo
+		row.OrderPaidAt = order.PaidAt
+		rows = append(rows, row)
+		if limit > 0 && len(rows) >= limit {
+			break
+		}
+	}
+	return rows, nil
+}
 func (r *fakeRechargeRepo) ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error) {
 	rows := make([]Order, 0, len(r.batchOrders))
 	for _, row := range r.batchOrders {

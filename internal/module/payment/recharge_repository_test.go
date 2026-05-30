@@ -58,6 +58,33 @@ func TestGormRepositoryCreditRechargeRetriesDuplicateTransactionNo(t *testing.T)
 	assertPaymentMockExpectations(t, mock)
 }
 
+func TestGormRepositoryListUncreditedPaidRechargesFindsPaidOrdersWithoutWalletCredit(t *testing.T) {
+	repo, mock, closeDB := newPaymentMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	paidAt := now.Add(-time.Minute)
+	mock.ExpectQuery(`SELECT r\.\*, po\.order_no AS payment_order_no.*FROM payment_recharges AS r.*JOIN payment_orders AS po.*po\.status = \?.*r\.status IN.*r\.credited_at IS NULL.*r\.is_del = \?.*ORDER BY r\.id asc.*LIMIT \?`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "recharge_no", "user_id", "package_code", "package_name", "amount_cents", "payment_order_id",
+			"status", "paid_at", "credited_at", "failure_reason", "is_del", "created_at", "updated_at",
+			"payment_order_no", "pay_url", "order_status", "alipay_trade_no", "order_paid_at",
+		}).AddRow(
+			int64(10), "RCG20260530115900000001", int64(7), "recharge_5", "¥5", int64(500), int64(20),
+			rechargeStatusPaid, &paidAt, nil, "", enum.CommonNo, now, now,
+			"PAY20260530115900000001", "", orderStatusPaid, "202605302200", &paidAt,
+		))
+
+	rows, err := repo.ListUncreditedPaidRecharges(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("ListUncreditedPaidRecharges error=%v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != 10 || rows[0].PaymentOrderNo == "" || rows[0].OrderPaidAt == nil {
+		t.Fatalf("unexpected rows=%#v", rows)
+	}
+	assertPaymentMockExpectations(t, mock)
+}
+
 func newPaymentMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

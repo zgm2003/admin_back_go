@@ -154,6 +154,7 @@ func TestSyncOrderMapsTradeSuccessToPaid(t *testing.T) {
 
 func TestSyncOrderMapsTradeClosedToClosed(t *testing.T) {
 	repo := newFakeOrderRepoWithOrder(orderStatusPaying)
+	repo.recharge = &Recharge{ID: 10, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: repo.order.AmountCents, IsDel: enum.CommonNo}
 	gw := &fakeOrderGateway{queryResult: &gateway.QueryResult{Status: "TRADE_CLOSED"}}
 	service := newOrderService(repo, gw)
 
@@ -164,11 +165,15 @@ func TestSyncOrderMapsTradeClosedToClosed(t *testing.T) {
 	if result.Status != orderStatusClosed || repo.order.ClosedAt == nil {
 		t.Fatalf("expected closed order, result=%#v order=%#v", result, repo.order)
 	}
+	if repo.recharge.Status != rechargeStatusClosed {
+		t.Fatalf("expected linked recharge to close with order, recharge=%#v", repo.recharge)
+	}
 }
 
 func TestSyncOrderClosesExpiredTradeNotExist(t *testing.T) {
 	repo := newFakeOrderRepoWithOrder(orderStatusPaying)
 	repo.order.ExpiredAt = fixedOrderNow().Add(-time.Minute)
+	repo.recharge = &Recharge{ID: 10, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: repo.order.AmountCents, IsDel: enum.CommonNo}
 	gw := &fakeOrderGateway{queryErr: errors.New(`alipay: query: {"sub_code":"ACQ.TRADE_NOT_EXIST","sub_msg":"交易不存在"}`)}
 	service := newOrderService(repo, gw)
 
@@ -178,6 +183,9 @@ func TestSyncOrderClosesExpiredTradeNotExist(t *testing.T) {
 	}
 	if result.Status != orderStatusClosed || repo.order.ClosedAt == nil {
 		t.Fatalf("expected expired missing trade to close locally, result=%#v order=%#v", result, repo.order)
+	}
+	if repo.recharge.Status != rechargeStatusClosed {
+		t.Fatalf("expected linked recharge to close with missing expired trade, recharge=%#v", repo.recharge)
 	}
 }
 
@@ -324,8 +332,9 @@ func newOrderService(repo *fakeOrderRepo, gw *fakeOrderGateway) *Service {
 func fixedOrderNow() time.Time { return time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC) }
 
 type fakeOrderRepo struct {
-	config *Config
-	order  *Order
+	config   *Config
+	order    *Order
+	recharge *Recharge
 }
 
 func newFakeOrderRepo() *fakeOrderRepo { return &fakeOrderRepo{} }

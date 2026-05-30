@@ -56,6 +56,24 @@ func (s *Service) SyncPendingOrders(ctx context.Context, input SyncPendingOrderI
 		}
 		applyPaymentJobOutcome(result, outcome)
 	}
+	remaining := limit - len(rows)
+	if remaining <= 0 {
+		return result, nil
+	}
+	uncreditedRows, err := repo.ListUncreditedPaidRecharges(ctx, remaining)
+	if err != nil {
+		return nil, err
+	}
+	result.Scanned += len(uncreditedRows)
+	for idx := range uncreditedRows {
+		outcome, err := s.creditUncreditedPaidRecharge(ctx, uncreditedRows[idx])
+		if err != nil {
+			result.Failed++
+			slog.WarnContext(ctx, "payment credit paid recharge failed", "recharge_id", uncreditedRows[idx].ID, "payment_order_id", uncreditedRows[idx].PaymentOrderID, "error", err)
+			continue
+		}
+		applyPaymentJobOutcome(result, outcome)
+	}
 	return result, nil
 }
 
@@ -186,6 +204,23 @@ func (s *Service) closeExpiredOrder(ctx context.Context, row Order) (paymentJobO
 	}
 }
 
+func (s *Service) creditUncreditedPaidRecharge(ctx context.Context, row RechargeWithOrder) (paymentJobOutcome, error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return "", appErr
+	}
+	paidAt := s.now()
+	if row.PaidAt != nil {
+		paidAt = *row.PaidAt
+	} else if row.OrderPaidAt != nil {
+		paidAt = *row.OrderPaidAt
+	}
+	if _, _, err := repo.CreditRecharge(ctx, row.ID, paidAt, s.now()); err != nil {
+		return "", err
+	}
+	return paymentJobOutcomePaid, nil
+}
+
 func normalizePaymentJobLimit(limit int) int {
 	if limit <= 0 || limit > 100 {
 		return defaultPaymentJobLimit
@@ -216,7 +251,7 @@ func applyPaymentJobOutcome(result any, outcome paymentJobOutcome) {
 	}
 }
 
-func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID int64, closedAt time.Time) error {
+func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID int64, closedAt time.Time) *apperror.Error {
 	if err := repo.UpdateOrderClosed(ctx, orderID, closedAt); err != nil {
 		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
 	}

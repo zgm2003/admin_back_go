@@ -217,8 +217,8 @@ func (s *Service) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse
 	if err != nil {
 		now := s.now()
 		if isAlipayTradeNotExistError(err) && orderExpired(*row, now) {
-			if err := repo.UpdateOrderClosed(ctx, row.ID, now); err != nil {
-				return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
+			if appErr := closeOrderAndLinkedRecharge(ctx, repo, row.ID, now); appErr != nil {
+				return nil, appErr
 			}
 			latest, appErr := s.orderByID(ctx, id)
 			if appErr != nil {
@@ -239,8 +239,8 @@ func (s *Service) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse
 			return nil, appErr
 		}
 	case "TRADE_CLOSED":
-		if err := repo.UpdateOrderClosed(ctx, row.ID, s.now()); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
+		if appErr := closeOrderAndLinkedRecharge(ctx, repo, row.ID, s.now()); appErr != nil {
+			return nil, appErr
 		}
 	case "WAIT_BUYER_PAY":
 	default:
