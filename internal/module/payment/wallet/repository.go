@@ -67,7 +67,11 @@ func (r *GormRepository) ListTransactions(ctx context.Context, query Transaction
 		db = db.Where("wt.created_at >= ?", start)
 	}
 	if end := strings.TrimSpace(query.DateEnd); end != "" {
-		db = db.Where("wt.created_at <= ?", end)
+		if nextDay, ok := nextDateOnlyDay(end); ok {
+			db = db.Where("wt.created_at < ?", nextDay)
+		} else {
+			db = db.Where("wt.created_at <= ?", end)
+		}
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -231,4 +235,12 @@ func normalizePage(currentPage int, pageSize int) (int, int, int) {
 
 func newTransactionNo(now time.Time) string {
 	return "WLT" + now.Format("20060102150405") + fmt.Sprintf("%06d", now.Nanosecond()%1000000)
+}
+
+func nextDateOnlyDay(value string) (string, bool) {
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return "", false
+	}
+	return parsed.AddDate(0, 0, 1).Format("2006-01-02"), true
 }

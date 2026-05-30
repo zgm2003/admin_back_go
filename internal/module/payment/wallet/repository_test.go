@@ -66,6 +66,27 @@ func TestRepositoryConsumeRejectsDuplicateSourceOwnedByAnotherUser(t *testing.T)
 	assertMockExpectations(t, mock)
 }
 
+func TestRepositoryListTransactionsUsesExclusiveNextDayDateEnd(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM wallet_transactions AS wt .*wt\\.created_at < \\?").
+		WithArgs(enum.CommonNo, enum.CommonNo, "2026-05-31").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery("SELECT wt\\.\\*, u\\.username AS username, u\\.phone AS phone, u\\.email AS email FROM wallet_transactions AS wt .*wt\\.created_at < \\?").
+		WithArgs(enum.CommonNo, enum.CommonNo, "2026-05-31", defaultPageSize).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_cents", "balance_before_cents", "balance_after_cents", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at", "username", "phone", "email"}))
+
+	rows, total, err := repo.ListTransactions(context.Background(), TransactionListQuery{DateEnd: "2026-05-30"})
+	if err != nil {
+		t.Fatalf("ListTransactions error=%v", err)
+	}
+	if total != 0 || len(rows) != 0 {
+		t.Fatalf("expected empty rows, total=%d rows=%#v", total, rows)
+	}
+	assertMockExpectations(t, mock)
+}
+
 func newMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
