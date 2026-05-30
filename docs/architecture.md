@@ -1422,6 +1422,7 @@ payment_configs.sort 参与充值自动选配置：status=1、provider=alipay、
 return_url 不属于 payment_configs，也不是用户可编辑字段；充值页按当前 `/payment/recharge` 路由生成，后端追加 `tab=records&recharge_no=...`。
 paid/credited 状态只能由已验签支付宝 callback、手动支付宝 query/sync 或 payment_sync_pending_order 补偿路径写入，后台不能手工改 paid。
 callback、manual sync、cron compensation 必须共用 paid finalizer；钱包入账必须在 DB transaction 内完成，并通过 wallet_transactions(source_type, source_id) 保证同一充值单只入账一次。
+finalizer 状态推进必须单调：旧 callback/sync/cron 快照不能把 `credited` 倒退回 `paid`，已经 `closed` 或 `failed` 的充值单不能被迟到 finalizer 重新打开或入账。
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
 支付宝 SDK 只允许出现在 internal/infra/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
 应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 private_key_enc。

@@ -150,6 +150,7 @@ type fakeRechargeRepo struct {
 	callbackCreateErr         error
 	rejectInvalidCallbackJSON bool
 	creditCount               int
+	beforeUpdateRechargePaid  func(paidAt time.Time)
 }
 
 func newFakeRechargeRepo() *fakeRechargeRepo {
@@ -389,6 +390,16 @@ func (r *fakeRechargeRepo) UpdateRechargeFailed(ctx context.Context, id int64, r
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
+	if r.beforeUpdateRechargePaid != nil {
+		r.beforeUpdateRechargePaid(paidAt)
+		r.beforeUpdateRechargePaid = nil
+	}
+	if r.recharge.Status == rechargeStatusCredited || r.recharge.CreditedAt != nil {
+		return nil
+	}
+	if r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusPaying && r.recharge.Status != rechargeStatusPaid {
+		return nil
+	}
 	r.recharge.Status = rechargeStatusPaid
 	r.recharge.PaidAt = &paidAt
 	return nil
@@ -409,7 +420,11 @@ func (r *fakeRechargeRepo) CreditRecharge(ctx context.Context, rechargeID int64,
 			}
 		}
 	}
+	if r.recharge.Status == rechargeStatusClosed || r.recharge.Status == rechargeStatusFailed {
+		return nil, nil, ErrPaymentStateChanged
+	}
 	if r.recharge.Status == rechargeStatusCredited || r.recharge.CreditedAt != nil {
+		r.recharge.Status = rechargeStatusCredited
 		return r.wallet, r.recharge, nil
 	}
 	r.creditCount++

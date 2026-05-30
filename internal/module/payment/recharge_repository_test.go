@@ -85,6 +85,20 @@ func TestGormRepositoryListUncreditedPaidRechargesFindsPaidOrdersWithoutWalletCr
 	assertPaymentMockExpectations(t, mock)
 }
 
+func TestGormRepositoryUpdateRechargePaidDoesNotMatchCreditedRows(t *testing.T) {
+	repo, mock, closeDB := newPaymentMockRepository(t)
+	defer closeDB()
+
+	paidAt := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	mock.ExpectExec("UPDATE `payment_recharges` SET .*WHERE id = \\? AND is_del = \\? AND status IN \\(\\?,\\?,\\?\\) AND credited_at IS NULL").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := repo.UpdateRechargePaid(context.Background(), 10, paidAt); err != nil {
+		t.Fatalf("credited-row CAS miss should stay idempotent, got err=%v", err)
+	}
+	assertPaymentMockExpectations(t, mock)
+}
+
 func newPaymentMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

@@ -204,11 +204,13 @@ func (r *GormRepository) UpdateRechargePaid(ctx context.Context, id int64, paidA
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
-		"status":         rechargeStatusPaid,
-		"paid_at":        paidAt,
-		"failure_reason": "",
-	}).Error
+	return r.db.WithContext(ctx).Model(&Recharge{}).
+		Where("id = ? AND is_del = ? AND status IN ? AND credited_at IS NULL", id, enum.CommonNo, rechargePaidCASStatuses).
+		Updates(map[string]any{
+			"status":         rechargeStatusPaid,
+			"paid_at":        paidAt,
+			"failure_reason": "",
+		}).Error
 }
 
 func (r *GormRepository) UpdateRechargeClosed(ctx context.Context, id int64) error {
@@ -241,10 +243,35 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 			Count(&existing).Error; err != nil {
 			return err
 		}
+		if recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed {
+			return ErrPaymentStateChanged
+		}
 		if existing > 0 || recharge.CreditedAt != nil || recharge.Status == rechargeStatusCredited {
+			if recharge.Status != rechargeStatusCredited {
+				updates := map[string]any{
+					"status":         rechargeStatusCredited,
+					"failure_reason": "",
+				}
+				if recharge.PaidAt == nil {
+					updates["paid_at"] = paidAt
+					recharge.PaidAt = &paidAt
+				}
+				if recharge.CreditedAt == nil {
+					updates["credited_at"] = now
+					recharge.CreditedAt = &now
+				}
+				if err := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(updates).Error; err != nil {
+					return err
+				}
+				recharge.Status = rechargeStatusCredited
+				recharge.FailureReason = ""
+			}
 			creditedWallet = *wallet
 			creditedRecharge = recharge
 			return nil
+		}
+		if recharge.Status != rechargeStatusPending && recharge.Status != rechargeStatusPaying && recharge.Status != rechargeStatusPaid {
+			return ErrPaymentStateChanged
 		}
 		before := wallet.BalanceCents
 		after := before + recharge.AmountCents

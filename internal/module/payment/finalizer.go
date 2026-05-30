@@ -80,6 +80,9 @@ func (s *Service) FinalizeOrderPaid(ctx context.Context, orderID int64, tradeNo 
 		}
 	}
 	if _, credited, err := repo.CreditRecharge(ctx, recharge.ID, paidAt, s.now()); err != nil {
+		if errors.Is(err, ErrPaymentStateChanged) {
+			return nil, apperror.BadRequest("充值单状态已变化，不能入账")
+		}
 		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "充值入账失败", err)
 	} else if credited != nil && credited.Status == rechargeStatusCredited {
 		result.RechargeCredited = true

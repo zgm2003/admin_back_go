@@ -67,6 +67,58 @@ func TestFinalizeOrderPaidDoesNotCreditWhenOrderPaidCASMisses(t *testing.T) {
 	}
 }
 
+func TestFinalizeOrderPaidDoesNotDowngradeCreditedRechargeOnStaleSnapshot(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	now := fixedRechargeNow()
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.beforeUpdateRechargePaid = func(paidAt time.Time) {
+		creditedAt := now.Add(-time.Millisecond)
+		repo.wallet.BalanceCents += repo.recharge.AmountCents
+		repo.wallet.TotalRechargeCents += repo.recharge.AmountCents
+		repo.recharge.Status = rechargeStatusCredited
+		repo.recharge.PaidAt = &paidAt
+		repo.recharge.CreditedAt = &creditedAt
+		repo.creditCount++
+	}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.FinalizeOrderPaid(context.Background(), repo.order.ID, "202605212200", now, finalizeSourceCallback)
+	if appErr != nil {
+		t.Fatalf("FinalizeOrderPaid stale snapshot error=%v", appErr)
+	}
+	if repo.recharge.Status != rechargeStatusCredited || repo.recharge.CreditedAt == nil {
+		t.Fatalf("stale finalizer must not downgrade credited recharge, result=%#v recharge=%#v", result, repo.recharge)
+	}
+	if repo.wallet.BalanceCents != 1000 || repo.creditCount != 1 {
+		t.Fatalf("stale finalizer must not double credit wallet=%#v creditCount=%d", repo.wallet, repo.creditCount)
+	}
+	if !result.RechargeCredited {
+		t.Fatalf("stale finalizer should observe credited recharge, result=%#v", result)
+	}
+}
+
+func TestFinalizeOrderPaidDoesNotCreditRechargeClosedAfterStaleSnapshot(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	now := fixedRechargeNow()
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.beforeUpdateRechargePaid = func(paidAt time.Time) {
+		repo.recharge.Status = rechargeStatusClosed
+	}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.FinalizeOrderPaid(context.Background(), repo.order.ID, "202605212200", now, finalizeSourceCallback)
+	if appErr == nil {
+		t.Fatalf("expected closed recharge conflict, got result=%#v", result)
+	}
+	if repo.recharge.Status != rechargeStatusClosed || repo.creditCount != 0 || repo.wallet.BalanceCents != 0 {
+		t.Fatalf("stale finalizer must not reopen or credit closed recharge, recharge=%#v wallet=%#v creditCount=%d", repo.recharge, repo.wallet, repo.creditCount)
+	}
+}
+
 func TestCloseOrderAndLinkedRechargeDoesNotOverwritePaidOrder(t *testing.T) {
 	paidAt := fixedOrderNow()
 	repo := newFakeOrderRepoWithOrder(orderStatusPaid)
