@@ -637,15 +637,15 @@ location / {
 
 这个只解决前端路由刷新 404，不解决 WebSocket 认证。
 
-### 前端同域 WebSocket 反代
+### 后端域名 WebSocket 反代
 
-浏览器原生 WebSocket 不能稳定附带自定义 `Authorization` header，本项目生产 WebSocket 依赖路径限定 cookie token。为了避免 `<frontend-domain>` 页面连 `<api-domain>` 时 cookie 丢失，生产推荐让 WebSocket 走前端同域：
+生产域名分工固定为：前端静态站 `<frontend-domain>`，Go 后端入口 `<api-domain>`。WebSocket 是 Go 后端能力，默认也走 `<api-domain>`：
 
 ```text
-wss://<frontend-domain>/api/admin/v1/realtime/ws
+wss://<api-domain>/api/admin/v1/realtime/ws
 ```
 
-所以前端站点 `<frontend-domain>` 还需要加一条精确反代，放在 `location /` 前面：
+所以后端站点 `<api-domain>` 必须有一条精确 WebSocket 反代，放在普通 API 反代前面：
 
 ```nginx
 location = /api/admin/v1/realtime/ws {
@@ -684,7 +684,7 @@ location = /api/admin/v1/realtime/ws {
 
 ```env
 VITE_GO_API_BASE_URL=https://<api-domain>
-VITE_WEB_SOCKET_URL=wss://<frontend-domain>/api/admin/v1/realtime/ws
+VITE_WEB_SOCKET_URL=wss://<api-domain>/api/admin/v1/realtime/ws
 VITE_PLATFORM=admin
 ```
 
@@ -692,7 +692,7 @@ VITE_PLATFORM=admin
 
 ```text
 普通 REST API 走 `<api-domain>` 后端域名。
-WebSocket 走 `<frontend-domain>` 前端同域，避免浏览器 cookie 跨子域丢失导致 401。
+WebSocket 也走 `<api-domain>` 后端域名；不要写成 `<frontend-domain>` 静态站域名。
 ```
 
 前端 GitHub Actions 通过 `DEPLOY_PATH` 上传 `dist`。宝塔静态站点常见路径：
@@ -809,10 +809,10 @@ realtime    REALTIME_ENABLED/REALTIME_PUBLISHER 配置错误
 推荐配置：
 
 ```env
-VITE_WEB_SOCKET_URL=wss://<frontend-domain>/api/admin/v1/realtime/ws
+VITE_WEB_SOCKET_URL=wss://<api-domain>/api/admin/v1/realtime/ws
 ```
 
-并在 `<frontend-domain>` 前端站加精确反代：
+并确认 `<api-domain>` 后端站保留精确 WebSocket 反代：
 
 ```nginx
 location = /api/admin/v1/realtime/ws { ... proxy_pass http://127.0.0.1:8080; ... }
