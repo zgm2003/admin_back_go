@@ -46,6 +46,27 @@ func TestFinalizeOrderPaidAllowsRawOrderWithoutRecharge(t *testing.T) {
 	}
 }
 
+func TestFinalizeOrderPaidDoesNotCreditWhenOrderPaidCASMisses(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	now := fixedRechargeNow()
+	closedAt := now.Add(-time.Minute)
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusClosed, ClosedAt: &closedAt, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusClosed, AmountCents: 1000, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.FinalizeOrderPaid(context.Background(), repo.order.ID, "202605212200", now, finalizeSourceCallback)
+	if appErr == nil {
+		t.Fatalf("expected state conflict, got result=%#v", result)
+	}
+	if repo.creditCount != 0 || repo.wallet.BalanceCents != 0 {
+		t.Fatalf("CAS miss must not credit wallet, wallet=%#v creditCount=%d", repo.wallet, repo.creditCount)
+	}
+	if repo.order.Status != orderStatusClosed || repo.recharge.Status != rechargeStatusClosed {
+		t.Fatalf("CAS miss must not reopen closed rows, order=%#v recharge=%#v", repo.order, repo.recharge)
+	}
+}
+
 func TestCloseOrderAndLinkedRechargeDoesNotOverwritePaidOrder(t *testing.T) {
 	paidAt := fixedOrderNow()
 	repo := newFakeOrderRepoWithOrder(orderStatusPaid)

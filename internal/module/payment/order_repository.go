@@ -75,43 +75,47 @@ func (r *GormRepository) UpdateOrderPaying(ctx context.Context, id int64, payURL
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderPayingCASStatuses).Updates(map[string]any{
+	tx := r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderPayingCASStatuses).Updates(map[string]any{
 		"status":         orderStatusPaying,
 		"pay_url":        strings.TrimSpace(payURL),
 		"failure_reason": "",
-	}).Error
+	})
+	return ensurePaymentRowsChanged(tx)
 }
 
 func (r *GormRepository) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderFailedCASStatuses).Updates(map[string]any{
+	tx := r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderFailedCASStatuses).Updates(map[string]any{
 		"status":         orderStatusFailed,
 		"failure_reason": trimMax(reason, 255),
-	}).Error
+	})
+	return ensurePaymentRowsChanged(tx)
 }
 
 func (r *GormRepository) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderPaidCASStatuses).Updates(map[string]any{
+	tx := r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderPaidCASStatuses).Updates(map[string]any{
 		"status":          orderStatusPaid,
 		"alipay_trade_no": strings.TrimSpace(tradeNo),
 		"paid_at":         paidAt,
 		"failure_reason":  "",
-	}).Error
+	})
+	return ensurePaymentRowsChanged(tx)
 }
 
 func (r *GormRepository) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderClosedCASStatuses).Updates(map[string]any{
+	tx := r.db.WithContext(ctx).Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, orderClosedCASStatuses).Updates(map[string]any{
 		"status":    orderStatusClosed,
 		"closed_at": closedAt,
-	}).Error
+	})
+	return ensurePaymentRowsChanged(tx)
 }
 
 func (r *GormRepository) GetOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
@@ -173,4 +177,17 @@ func trimMax(value string, max int) string {
 		return value
 	}
 	return string([]rune(value)[:max])
+}
+
+func ensurePaymentRowsChanged(tx *gorm.DB) error {
+	if tx == nil {
+		return ErrRepositoryNotConfigured
+	}
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return ErrPaymentStateChanged
+	}
+	return nil
 }

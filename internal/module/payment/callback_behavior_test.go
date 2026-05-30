@@ -121,6 +121,32 @@ func TestHandleAlipayCallbackContinuesWhenAuditCreateFails(t *testing.T) {
 	}
 }
 
+func TestHandleAlipayCallbackRejectsMalformedAuditAmount(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 999, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 999, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.-1")})
+	if appErr != nil {
+		t.Fatalf("HandleAlipayCallback should return plain fail result, got appErr=%v", appErr)
+	}
+	if result == nil || result.Text != callbackResultFail {
+		t.Fatalf("expected malformed amount to fail, got %#v", result)
+	}
+	if repo.callbackEvent.TotalAmountCents == 999 {
+		t.Fatalf("audit amount must not normalize malformed total_amount to 999 cents, event=%#v", repo.callbackEvent)
+	}
+	if repo.callbackEvent.ProcessStatus != callbackProcessFailed {
+		t.Fatalf("expected failed audit for malformed amount, got %#v", repo.callbackEvent)
+	}
+	if repo.order.Status != orderStatusPaying || repo.recharge.Status != rechargeStatusPaying || repo.creditCount != 0 {
+		t.Fatalf("malformed amount must not settle order, order=%#v recharge=%#v credit=%d", repo.order, repo.recharge, repo.creditCount)
+	}
+}
+
 func TestHandleAlipayCallbackInvalidSignatureReturnsFailWithoutMutation(t *testing.T) {
 	repo := newFakeRechargeRepo()
 	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}

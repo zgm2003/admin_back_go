@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -253,6 +254,9 @@ func applyPaymentJobOutcome(result any, outcome paymentJobOutcome) {
 
 func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID int64, closedAt time.Time) *apperror.Error {
 	if err := repo.UpdateOrderClosed(ctx, orderID, closedAt); err != nil {
+		if errors.Is(err, ErrPaymentStateChanged) {
+			return nil
+		}
 		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
 	}
 	order, err := repo.GetOrder(ctx, orderID)

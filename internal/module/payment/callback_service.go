@@ -154,6 +154,9 @@ func amountStringToCents(value string) (int64, error) {
 	if len(parts) > 2 || parts[0] == "" {
 		return 0, apperror.BadRequestKey("payment.callback.amount.invalid", nil, "无效的支付宝回调金额")
 	}
+	if !asciiDigits(parts[0]) {
+		return 0, apperror.BadRequestKey("payment.callback.amount.invalid", nil, "无效的支付宝回调金额")
+	}
 	yuan, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || yuan < 0 {
 		return 0, apperror.BadRequestKey("payment.callback.amount.invalid", nil, "无效的支付宝回调金额")
@@ -163,6 +166,9 @@ func amountStringToCents(value string) (int64, error) {
 		if len(parts[1]) > 2 {
 			return 0, apperror.BadRequestKey("payment.callback.amount.invalid", nil, "无效的支付宝回调金额")
 		}
+		if parts[1] != "" && !asciiDigits(parts[1]) {
+			return 0, apperror.BadRequestKey("payment.callback.amount.invalid", nil, "无效的支付宝回调金额")
+		}
 		centText := (parts[1] + "00")[:2]
 		cents, err = strconv.ParseInt(centText, 10, 64)
 		if err != nil {
@@ -170,6 +176,15 @@ func amountStringToCents(value string) (int64, error) {
 		}
 	}
 	return yuan*100 + cents, nil
+}
+
+func asciiDigits(value string) bool {
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return value != ""
 }
 
 func successCallbackResult() *AlipayCallbackResult {

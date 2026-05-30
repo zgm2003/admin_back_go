@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -193,9 +194,19 @@ func (s *Service) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *a
 		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
 	}
 	if err := repo.UpdateOrderPaying(ctx, row.ID, payURL); err != nil {
+		if errors.Is(err, ErrPaymentStateChanged) {
+			return s.payOrderChangedResponse(ctx, row.ID)
+		}
 		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付链接失败", err)
 	}
-	return &OrderPayResponse{ID: row.ID, OrderNo: row.OrderNo, Status: orderStatusPaying, PayURL: payURL}, nil
+	latest, appErr := s.orderByID(ctx, row.ID)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if latest.Status == orderStatusPaying && strings.TrimSpace(latest.PayURL) != "" {
+		return &OrderPayResponse{ID: latest.ID, OrderNo: latest.OrderNo, Status: latest.Status, PayURL: latest.PayURL}, nil
+	}
+	return nil, apperror.BadRequest("支付订单状态已变化，请刷新后重试")
 }
 
 func (s *Service) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error) {
@@ -329,6 +340,17 @@ func (s *Service) orderByID(ctx context.Context, id int64) (*Order, *apperror.Er
 		return nil, apperror.NotFound("支付订单不存在")
 	}
 	return row, nil
+}
+
+func (s *Service) payOrderChangedResponse(ctx context.Context, id int64) (*OrderPayResponse, *apperror.Error) {
+	latest, appErr := s.orderByID(ctx, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if latest.Status == orderStatusPaying && strings.TrimSpace(latest.PayURL) != "" {
+		return &OrderPayResponse{ID: latest.ID, OrderNo: latest.OrderNo, Status: latest.Status, PayURL: latest.PayURL}, nil
+	}
+	return nil, apperror.BadRequest("支付订单状态已变化，请刷新后重试")
 }
 
 func (s *Service) enabledConfigByCode(ctx context.Context, code string) (*Config, *apperror.Error) {

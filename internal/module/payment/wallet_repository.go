@@ -10,6 +10,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const duplicateKeyUserWalletUser = "uk_user_wallet_user"
+
 func (r *GormRepository) GetWallet(ctx context.Context, userID int64) (*Wallet, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
@@ -32,6 +34,15 @@ func (r *GormRepository) GetOrCreateWallet(ctx context.Context, userID int64) (*
 	}
 	row := Wallet{UserID: userID, IsDel: enum.CommonNo}
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		if isDuplicateKeyFor(err, duplicateKeyUserWalletUser) {
+			wallet, lookupErr := r.GetWallet(ctx, userID)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			if wallet != nil {
+				return wallet, nil
+			}
+		}
 		return nil, err
 	}
 	return &row, nil

@@ -137,6 +137,25 @@ func TestPayOrderAllowsFailedRetry(t *testing.T) {
 	}
 }
 
+func TestPayOrderDoesNotReturnPayURLWhenPayingCASMisses(t *testing.T) {
+	repo := newFakeOrderRepoWithOrder(orderStatusPending)
+	gw := &fakeOrderGateway{
+		payResult: &gateway.PayResult{PayURL: "https://pay.example.test/race"},
+		afterPay: func() {
+			repo.order.Status = orderStatusClosed
+		},
+	}
+	service := newOrderService(repo, gw)
+
+	result, appErr := service.PayOrder(context.Background(), repo.order.ID)
+	if appErr == nil {
+		t.Fatalf("expected changed-state error, got result=%#v", result)
+	}
+	if repo.order.Status != orderStatusClosed || repo.order.PayURL != "" {
+		t.Fatalf("CAS miss must not expose stale pay url, order=%#v", repo.order)
+	}
+}
+
 func TestSyncOrderMapsTradeSuccessToPaid(t *testing.T) {
 	repo := newFakeOrderRepoWithOrder(orderStatusPaying)
 	paidAt := fixedOrderNow().Add(2 * time.Minute)
@@ -467,6 +486,7 @@ type fakeOrderGateway struct {
 	closeCount      int
 	payCalled       bool
 	payInput        gateway.PayInput
+	afterPay        func()
 	closeOutTradeNo string
 }
 
@@ -480,7 +500,13 @@ func (g *fakeOrderGateway) Pay(ctx context.Context, cfg gateway.ChannelConfig, i
 		return nil, g.payErr
 	}
 	if g.payResult == nil {
+		if g.afterPay != nil {
+			g.afterPay()
+		}
 		return &gateway.PayResult{PayURL: "https://pay.example.test"}, nil
+	}
+	if g.afterPay != nil {
+		g.afterPay()
 	}
 	return g.payResult, nil
 }

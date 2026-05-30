@@ -21,6 +21,7 @@ var ErrConsumeSourceOwnerMismatch = errors.New("wallet consume source owner mism
 const (
 	duplicateKeyWalletTransactionNo     = "uk_wallet_transaction_no"
 	duplicateKeyWalletTransactionSource = "uk_wallet_transaction_source"
+	duplicateKeyUserWalletUser          = "uk_user_wallet_user"
 	maxTransactionNoInsertAttempts      = 3
 )
 
@@ -267,6 +268,9 @@ func getOrCreateWallet(ctx context.Context, db *gorm.DB, userID int64) (*Wallet,
 	}
 	wallet = Wallet{UserID: userID, IsDel: enum.CommonNo}
 	if err := db.WithContext(ctx).Create(&wallet).Error; err != nil {
+		if isDuplicateKeyFor(err, duplicateKeyUserWalletUser) {
+			return getWalletByUserID(ctx, db, userID, false)
+		}
 		return nil, err
 	}
 	return &wallet, nil
@@ -283,9 +287,28 @@ func lockOrCreateWalletForUpdate(tx *gorm.DB, userID int64) (*Wallet, error) {
 	}
 	wallet = Wallet{UserID: userID, IsDel: enum.CommonNo}
 	if err := tx.Create(&wallet).Error; err != nil {
+		if isDuplicateKeyFor(err, duplicateKeyUserWalletUser) {
+			ctx := tx.Statement.Context
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			return getWalletByUserID(ctx, tx, userID, true)
+		}
 		return nil, err
 	}
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", wallet.ID).First(&wallet).Error; err != nil {
+		return nil, err
+	}
+	return &wallet, nil
+}
+
+func getWalletByUserID(ctx context.Context, db *gorm.DB, userID int64, lock bool) (*Wallet, error) {
+	var wallet Wallet
+	query := db.WithContext(ctx).Where("user_id = ? AND is_del = ?", userID, enum.CommonNo)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.First(&wallet).Error; err != nil {
 		return nil, err
 	}
 	return &wallet, nil
