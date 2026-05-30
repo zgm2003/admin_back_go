@@ -168,20 +168,20 @@ docs/architecture.md
 
 ### 配置来源
 
-启动时会先读取 `.env`，再读取系统环境变量：
+底层配置 loader 仍支持先读取仓库根 `.env`、再读取系统环境变量：
 
 ```go
 _ = config.LoadDotEnv()
 cfg := config.Load()
 ```
 
-本地开发默认用：
+但这是兼容能力，不是当前项目默认入口。后端本地开发统一 Docker-first，正常不要创建仓库根 `.env`；本地容器运行配置用：
 
 ```text
-admin_back_go/.env
+admin_back_go/deploy/docker-first/admin-go.env
 ```
 
-部署时 Docker Compose 默认用：
+生产 / 宝塔 Docker Compose 默认用：
 
 ```text
 /www/docker/admin-go-backend/admin-go.env
@@ -485,8 +485,8 @@ MYSQL_DSN=admin_user:CHANGE_ME@tcp(127.0.0.1:3306)/admin?charset=utf8mb4&parseTi
 REDIS_ADDR=127.0.0.1:6379
 REDIS_PASSWORD=
 
-# 所有 admin-api/admin-worker 节点必须一致；至少 64 位随机字符串
-APP_SECRET=CHANGE_ME_AT_LEAST_64_RANDOM_CHARS
+# 代码最低 32 位；生产建议 64+ 位随机字符串；所有 admin-api/admin-worker 节点必须一致
+APP_SECRET=CHANGE_ME_TO_64_PLUS_RANDOM_CHARS
 
 QUEUE_ENABLED=true
 REALTIME_ENABLED=true
