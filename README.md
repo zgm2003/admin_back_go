@@ -382,10 +382,10 @@ go test ./...
 # 合同检查
 powershell -ExecutionPolicy Bypass -File ./scripts/check-contract.ps1
 
-# 基础 smoke，需要后端 Docker 容器已启动，并传真实测试账号
+# 基础 smoke，会自行构建并启动临时 API/Worker；需要 18080 空闲，并传真实测试账号
 powershell -ExecutionPolicy Bypass -File ./scripts/basic-admin-smoke.ps1 -Account <account> -Password <password>
 
-# 完整 smoke
+# 完整 smoke，会自行构建并启动临时 API；需要 18080/18081 空闲
 powershell -ExecutionPolicy Bypass -File ./scripts/full-admin-smoke.ps1 -Account <account> -Password <password>
 ```
 
