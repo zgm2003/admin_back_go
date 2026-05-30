@@ -300,10 +300,10 @@ CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.
 
 `http://192.168.5.20:5173` 是当前局域网真机调试 origin；如需手机访问开发机上的 Go 后端，把 `deploy/docker-first/docker-compose.yml` 的 `ports` 行改成 `0.0.0.0:8080:8080`，并让 `CORS_ALLOW_ORIGINS` 覆盖该 origin。
 
-线上演示：
+生产示例（按你的前端域名替换）：
 
 ```env
-CORS_ALLOW_ORIGINS=https://zgm2003.cn
+CORS_ALLOW_ORIGINS=https://<frontend-domain>
 ```
 
 `CORS_ALLOW_ORIGINS` 是 Docker-first 唯一 CORS env。允许的请求头、暴露响应头、`AllowCredentials=true` 和预检缓存 `12h` 都是代码内置默认值；不要把 CORS policy 放进 `system_settings`。
@@ -493,7 +493,7 @@ REALTIME_ENABLED=true
 REALTIME_PUBLISHER=redis
 SCHEDULER_ENABLED=true
 
-CORS_ALLOW_ORIGINS=https://zgm2003.cn
+CORS_ALLOW_ORIGINS=https://<frontend-domain>
 ```
 
 如果 MySQL/Redis 在 `admin-go-state` Docker 项目里，把连接地址改成对应 Docker network、宿主本地端口或内网 IP。别把 MySQL/Redis 裸奔到公网；必须用安全组/防火墙只放行后端机器。
@@ -543,7 +543,7 @@ docker compose up -d --build
 如果你把后端代码放在宝塔站点目录，也就是当前单体演示常用方式：
 
 ```bash
-cd /www/wwwroot/www.zgm2003.cn
+cd /www/wwwroot/<api-domain>
 git pull
 
 cd /www/docker/admin-go-backend
@@ -580,21 +580,21 @@ MySQL / Redis 即使用 Docker，也属于独立的 admin-go-state 项目。
 后端站点建议：
 
 ```text
-www.zgm2003.cn  -> http://127.0.0.1:8080
+<api-domain>       -> http://127.0.0.1:8080
 ```
 
 前端站点建议：
 
 ```text
-zgm2003.cn      -> /www/wwwroot/zgm2003.cn 静态 dist
+<frontend-domain>  -> /www/wwwroot/<frontend-domain> 静态 dist
 ```
 
-### 后端站点 `www.zgm2003.cn`
+### 后端站点 `<api-domain>`
 
 宝塔路径：
 
 ```text
-宝塔 -> 网站 -> www.zgm2003.cn -> 设置 -> 配置文件
+宝塔 -> 网站 -> <api-domain> -> 设置 -> 配置文件
 ```
 
 核心反代：
@@ -621,7 +621,7 @@ location ^~ / {
 
 如果宝塔已经生成了 `location ^~ /`，不要再新建第二个 `location /`；直接改已有块。
 
-### 前端站点 `zgm2003.cn` 的 SPA 伪静态
+### 前端站点 `<frontend-domain>` 的 SPA 伪静态
 
 前端 Vue/Vite 刷新页面需要：
 
@@ -635,13 +635,13 @@ location / {
 
 ### 前端同域 WebSocket 反代
 
-浏览器原生 WebSocket 不能稳定附带自定义 `Authorization` header，本项目生产 WebSocket 依赖路径限定 cookie token。为了避免 `zgm2003.cn` 页面连 `www.zgm2003.cn` 时 cookie 丢失，生产推荐让 WebSocket 走前端同域：
+浏览器原生 WebSocket 不能稳定附带自定义 `Authorization` header，本项目生产 WebSocket 依赖路径限定 cookie token。为了避免 `<frontend-domain>` 页面连 `<api-domain>` 时 cookie 丢失，生产推荐让 WebSocket 走前端同域：
 
 ```text
-wss://zgm2003.cn/api/admin/v1/realtime/ws
+wss://<frontend-domain>/api/admin/v1/realtime/ws
 ```
 
-所以前端站点 `zgm2003.cn` 还需要加一条精确反代，放在 `location /` 前面：
+所以前端站点 `<frontend-domain>` 还需要加一条精确反代，放在 `location /` 前面：
 
 ```nginx
 location = /api/admin/v1/realtime/ws {
@@ -679,22 +679,22 @@ location = /api/admin/v1/realtime/ws {
 生产环境建议：
 
 ```env
-VITE_GO_API_BASE_URL=https://www.zgm2003.cn
-VITE_WEB_SOCKET_URL=wss://zgm2003.cn/api/admin/v1/realtime/ws
+VITE_GO_API_BASE_URL=https://<api-domain>
+VITE_WEB_SOCKET_URL=wss://<frontend-domain>/api/admin/v1/realtime/ws
 VITE_PLATFORM=admin
 ```
 
 解释：
 
 ```text
-普通 REST API 走 www.zgm2003.cn 后端域名。
-WebSocket 走 zgm2003.cn 前端同域，避免浏览器 cookie 跨子域丢失导致 401。
+普通 REST API 走 `<api-domain>` 后端域名。
+WebSocket 走 `<frontend-domain>` 前端同域，避免浏览器 cookie 跨子域丢失导致 401。
 ```
 
-前端 GitHub Actions 当前会把 `dist` 上传到：
+前端 GitHub Actions 通过 `DEPLOY_PATH` 上传 `dist`。宝塔静态站点常见路径：
 
 ```text
-/www/wwwroot/zgm2003.cn
+/www/wwwroot/<frontend-domain>
 ```
 
 ## 验证和运维
@@ -704,8 +704,8 @@ WebSocket 走 zgm2003.cn 前端同域，避免浏览器 cookie 跨子域丢失�
 ```bash
 curl -fsS http://127.0.0.1:8080/health
 curl -fsS http://127.0.0.1:8080/ready
-curl -fsS https://www.zgm2003.cn/health
-curl -fsS https://www.zgm2003.cn/ready
+curl -fsS https://<api-domain>/health
+curl -fsS https://<api-domain>/ready
 ```
 
 `/health` 只表示进程活着。
@@ -742,10 +742,10 @@ docker compose logs -f admin-worker
 宝塔 Nginx 日志一般在：
 
 ```text
-/www/wwwlogs/www.zgm2003.cn.log
-/www/wwwlogs/www.zgm2003.cn.error.log
-/www/wwwlogs/zgm2003.cn.log
-/www/wwwlogs/zgm2003.cn.error.log
+/www/wwwlogs/<api-domain>.log
+/www/wwwlogs/<api-domain>.error.log
+/www/wwwlogs/<frontend-domain>.log
+/www/wwwlogs/<frontend-domain>.error.log
 ```
 
 ### Smoke
@@ -805,10 +805,10 @@ realtime    REALTIME_ENABLED/REALTIME_PUBLISHER 配置错误
 推荐配置：
 
 ```env
-VITE_WEB_SOCKET_URL=wss://zgm2003.cn/api/admin/v1/realtime/ws
+VITE_WEB_SOCKET_URL=wss://<frontend-domain>/api/admin/v1/realtime/ws
 ```
 
-并在 `zgm2003.cn` 前端站加精确反代：
+并在 `<frontend-domain>` 前端站加精确反代：
 
 ```nginx
 location = /api/admin/v1/realtime/ws { ... proxy_pass http://127.0.0.1:8080; ... }
