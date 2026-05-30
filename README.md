@@ -552,7 +552,7 @@ cd /www/docker/admin-go-backend
 docker compose up -d --build
 ```
 
-重点是：`docker compose up -d --build` 在 `deploy/docker-first` 执行；MySQL/Redis 不写进后端 Compose。
+重点是：生产更新时 `git pull` 在代码目录执行，`docker compose up -d --build` 在 Compose 工作目录 `/www/docker/admin-go-backend` 执行；MySQL/Redis 不写进后端 Compose。
 
 ### 7. 停止 / 重启
 
