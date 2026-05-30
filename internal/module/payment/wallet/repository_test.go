@@ -104,6 +104,40 @@ func TestRepositoryConsumeReturnsExistingTransactionAfterDuplicateSourceRace(t *
 	assertMockExpectations(t, mock)
 }
 
+func TestRepositoryConsumeRetriesDuplicateTransactionNo(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 123, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
+		WithArgs(SourceConsume, int64(88), enum.CommonNo, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
+		WithArgs(int64(7), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_cents", "total_recharge_cents", "total_consume_cents", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(7), int64(1000), int64(1000), int64(0), enum.CommonNo, now, now))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
+		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry 'WLT20260530120000000000123000001' for key 'uk_wallet_transaction_no'"))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
+		WillReturnResult(sqlmock.NewResult(10, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	wallet, tx, err := repo.Consume(context.Background(), ConsumeInput{UserID: 7, AmountCents: 100, SourceID: 88}, now)
+	if err != nil {
+		t.Fatalf("expected duplicate transaction_no to retry, got err=%v", err)
+	}
+	if tx == nil || tx.ID != 10 || tx.UserID != 7 || tx.SourceID != 88 {
+		t.Fatalf("expected retried transaction, got %#v", tx)
+	}
+	if wallet == nil || wallet.BalanceCents != 900 || wallet.TotalConsumeCents != 100 {
+		t.Fatalf("expected updated wallet after retry, got %#v", wallet)
+	}
+	assertMockExpectations(t, mock)
+}
+
 func TestRepositoryListTransactionsUsesExclusiveNextDayDateEnd(t *testing.T) {
 	repo, mock, closeDB := newMockRepository(t)
 	defer closeDB()

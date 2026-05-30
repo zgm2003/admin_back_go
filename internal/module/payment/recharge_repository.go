@@ -8,8 +8,14 @@ import (
 
 	"admin_back_go/internal/shared/enum"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+)
+
+const (
+	duplicateKeyWalletTransactionNo = "uk_wallet_transaction_no"
+	maxWalletTransactionNoAttempts  = 3
 )
 
 func (r *GormRepository) ListRechargePackages(ctx context.Context) ([]RechargePackage, error) {
@@ -241,7 +247,7 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 			Remark:             "支付宝充值",
 			IsDel:              enum.CommonNo,
 		}
-		if err := tx.Create(&txRow).Error; err != nil {
+		if err := createWalletTransactionWithNumberRetry(tx, &txRow, now); err != nil {
 			return err
 		}
 		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{
@@ -271,6 +277,35 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 		return nil, nil, err
 	}
 	return &creditedWallet, &creditedRecharge, nil
+}
+
+func createWalletTransactionWithNumberRetry(tx *gorm.DB, row *WalletTransaction, now time.Time) error {
+	var err error
+	for attempt := 0; attempt < maxWalletTransactionNoAttempts; attempt++ {
+		if attempt > 0 {
+			row.TransactionNo = newWalletTransactionNo(now)
+		}
+		err = tx.Create(row).Error
+		if err == nil {
+			return nil
+		}
+		if !isDuplicateKeyFor(err, duplicateKeyWalletTransactionNo) {
+			return err
+		}
+	}
+	return err
+}
+
+func isDuplicateKeyFor(err error, key string) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return strings.Contains(mysqlErr.Message, key)
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Duplicate entry") && strings.Contains(msg, key)
 }
 
 func rechargeJoinQuery(db *gorm.DB) *gorm.DB {

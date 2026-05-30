@@ -18,6 +18,12 @@ var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
 var ErrConsumeSourceOwnerMismatch = errors.New("wallet consume source owner mismatch")
 
+const (
+	duplicateKeyWalletTransactionNo     = "uk_wallet_transaction_no"
+	duplicateKeyWalletTransactionSource = "uk_wallet_transaction_source"
+	maxTransactionNoInsertAttempts      = 3
+)
+
 type Repository interface {
 	GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error)
 	ListTransactions(ctx context.Context, query TransactionListQuery) ([]TransactionWithUser, int64, error)
@@ -153,8 +159,8 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 			Remark:             input.Remark,
 			IsDel:              enum.CommonNo,
 		}
-		if err := tx.Create(&txRow).Error; err != nil {
-			if isDuplicateKey(err) {
+		if err := createTransactionWithNumberRetry(tx, &txRow, now); err != nil {
+			if isDuplicateKeyFor(err, duplicateKeyWalletTransactionSource) {
 				// A competing transaction may have inserted the same consume source after
 				// our first read. Use a locking read here so MySQL returns the latest row
 				// instead of the transaction's earlier repeatable-read snapshot.
@@ -221,15 +227,33 @@ func findConsumeSource(tx *gorm.DB, userID int64, sourceID int64, lock bool) (*W
 	return &wallet, &existing, nil
 }
 
-func isDuplicateKey(err error) bool {
+func createTransactionWithNumberRetry(tx *gorm.DB, row *Transaction, now time.Time) error {
+	var err error
+	for attempt := 0; attempt < maxTransactionNoInsertAttempts; attempt++ {
+		if attempt > 0 {
+			row.TransactionNo = newTransactionNo(now)
+		}
+		err = tx.Create(row).Error
+		if err == nil {
+			return nil
+		}
+		if !isDuplicateKeyFor(err, duplicateKeyWalletTransactionNo) {
+			return err
+		}
+	}
+	return err
+}
+
+func isDuplicateKeyFor(err error, key string) bool {
 	if err == nil {
 		return false
 	}
 	var mysqlErr *mysqlDriver.MySQLError
 	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
-		return true
+		return strings.Contains(mysqlErr.Message, key)
 	}
-	return strings.Contains(err.Error(), "Duplicate entry")
+	msg := err.Error()
+	return strings.Contains(msg, "Duplicate entry") && strings.Contains(msg, key)
 }
 
 func getOrCreateWallet(ctx context.Context, db *gorm.DB, userID int64) (*Wallet, error) {
