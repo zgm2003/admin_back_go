@@ -14,7 +14,6 @@ import (
 type HTTPService interface {
 	Summary(ctx context.Context, userID int64) (*walletmodule.SummaryResponse, *apperror.Error)
 	Transactions(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error)
-	Consume(ctx context.Context, input walletmodule.ConsumeInput) (*walletmodule.ConsumeResponse, *apperror.Error)
 	WalletUsersPageInit(ctx context.Context) (*walletmodule.WalletUsersPageInitResponse, *apperror.Error)
 	WalletUsers(ctx context.Context, query walletmodule.WalletUserListQuery) (*walletmodule.WalletUserListResponse, *apperror.Error)
 	LedgerPageInit(ctx context.Context) (*walletmodule.LedgerPageInitResponse, *apperror.Error)
@@ -45,20 +44,6 @@ func (h *Handler) Transactions(c *gin.Context) {
 		return
 	}
 	result, appErr := h.requireService().Transactions(c.Request.Context(), walletmodule.TransactionListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, UserID: identity.UserID, Keyword: req.Keyword, Direction: req.Direction, SourceType: req.SourceType, DateStart: req.DateStart, DateEnd: req.DateEnd})
-	writeResult(c, result, appErr)
-}
-
-func (h *Handler) Consume(c *gin.Context) {
-	identity, ok := currentIdentity(c)
-	if !ok {
-		return
-	}
-	var req consumeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("wallet.consume.request.invalid", nil, "消费参数错误"))
-		return
-	}
-	result, appErr := h.requireService().Consume(c.Request.Context(), walletmodule.ConsumeInput{UserID: identity.UserID, AmountCents: req.AmountCents, SourceID: req.SourceID, Remark: req.Remark})
 	writeResult(c, result, appErr)
 }
 
@@ -105,9 +90,6 @@ func (failingService) Summary(ctx context.Context, userID int64) (*walletmodule.
 	return nil, serviceNotConfigured()
 }
 func (failingService) Transactions(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error) {
-	return nil, serviceNotConfigured()
-}
-func (failingService) Consume(ctx context.Context, input walletmodule.ConsumeInput) (*walletmodule.ConsumeResponse, *apperror.Error) {
 	return nil, serviceNotConfigured()
 }
 func (failingService) WalletUsersPageInit(ctx context.Context) (*walletmodule.WalletUsersPageInitResponse, *apperror.Error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	aibilling "admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 )
@@ -147,4 +148,11 @@ type HTTPService interface {
 
 type JobService interface {
 	ExecuteGenerate(ctx context.Context, input GenerateInput) (*GenerateResult, error)
+}
+
+type BillingService interface {
+	Charge(ctx context.Context, input aibilling.ChargeInput) (*aibilling.ChargeResult, *apperror.Error)
+	BindProviderTask(ctx context.Context, billingRecordID int64, providerTaskID string) *apperror.Error
+	MarkSuccess(ctx context.Context, billingRecordID int64) *apperror.Error
+	Refund(ctx context.Context, input aibilling.RefundInput) *apperror.Error
 }

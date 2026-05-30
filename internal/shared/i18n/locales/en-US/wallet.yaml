@@ -11,3 +11,13 @@ wallet.transactions.request.invalid: Invalid wallet transaction query
 wallet.consume.request.invalid: Invalid consume request
 wallet.users.request.invalid: Invalid wallet user query
 wallet.ledger.request.invalid: Invalid wallet ledger query
+
+wallet.debit.amount.invalid: Debit amount must be greater than 0
+wallet.debit.source_type.invalid: Invalid debit source type
+wallet.debit.source_id.invalid: Debit source ID must be greater than 0
+wallet.debit.insufficient_balance: Insufficient balance
+wallet.credit.amount.invalid: Credit amount must be greater than 0
+wallet.credit.source_type.invalid: Invalid credit source type
+wallet.credit.source_id.invalid: Credit source ID must be greater than 0
+wallet.mutation.source_id.owner_mismatch: Wallet mutation source is already owned by another user
+wallet.mutation.failed: Failed to mutate wallet balance

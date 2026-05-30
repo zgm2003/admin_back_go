@@ -17,6 +17,7 @@ import (
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
 var ErrConsumeSourceOwnerMismatch = errors.New("wallet consume source owner mismatch")
+var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
 
 const (
 	duplicateKeyWalletTransactionNo     = "uk_wallet_transaction_no"
@@ -30,6 +31,8 @@ type Repository interface {
 	ListTransactions(ctx context.Context, query TransactionListQuery) ([]TransactionWithUser, int64, error)
 	ListWalletUsers(ctx context.Context, query WalletUserListQuery) ([]WalletWithUser, int64, error)
 	Consume(ctx context.Context, input ConsumeInput, now time.Time) (*Wallet, *Transaction, error)
+	Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
+	Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
 }
 
 type GormRepository struct{ db *gorm.DB }
@@ -115,6 +118,28 @@ func (r *GormRepository) ListWalletUsers(ctx context.Context, query WalletUserLi
 }
 
 func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now time.Time) (*Wallet, *Transaction, error) {
+	wallet, tx, err := r.Debit(ctx, MutationInput{
+		UserID:      input.UserID,
+		AmountCents: input.AmountCents,
+		SourceType:  SourceConsume,
+		SourceID:    input.SourceID,
+		Remark:      input.Remark,
+	}, now)
+	if errors.Is(err, ErrMutationSourceOwnerMismatch) {
+		return nil, nil, ErrConsumeSourceOwnerMismatch
+	}
+	return wallet, tx, err
+}
+
+func (r *GormRepository) Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
+	return r.applyMutation(ctx, input, DirectionOut, now)
+}
+
+func (r *GormRepository) Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
+	return r.applyMutation(ctx, input, DirectionIn, now)
+}
+
+func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput, direction string, now time.Time) (*Wallet, *Transaction, error) {
 	if r == nil || r.db == nil {
 		return nil, nil, ErrRepositoryNotConfigured
 	}
@@ -122,9 +147,9 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 	var resultTransaction Transaction
 	var domainErr error
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existingWallet, existingTransaction, err := findConsumeSource(tx, input.UserID, input.SourceID, false)
+		existingWallet, existingTransaction, err := findMutationSource(tx, input.UserID, input.SourceType, input.SourceID, false)
 		if err != nil {
-			if errors.Is(err, ErrConsumeSourceOwnerMismatch) {
+			if errors.Is(err, ErrMutationSourceOwnerMismatch) {
 				domainErr = err
 				return nil
 			}
@@ -140,34 +165,35 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 		if err != nil {
 			return err
 		}
-		if wallet.BalanceCents < input.AmountCents {
-			resultWallet = *wallet
-			domainErr = ErrInsufficientBalance
-			return nil
-		}
 		before := wallet.BalanceCents
-		after := before - input.AmountCents
+		after := before + input.AmountCents
+		if direction == DirectionOut {
+			if before < input.AmountCents {
+				resultWallet = *wallet
+				domainErr = ErrInsufficientBalance
+				return nil
+			}
+			after = before - input.AmountCents
+		}
+
 		txRow := Transaction{
 			TransactionNo:      newTransactionNo(now),
 			WalletID:           wallet.ID,
 			UserID:             input.UserID,
-			Direction:          DirectionOut,
+			Direction:          direction,
 			AmountCents:        input.AmountCents,
 			BalanceBeforeCents: before,
 			BalanceAfterCents:  after,
-			SourceType:         SourceConsume,
+			SourceType:         input.SourceType,
 			SourceID:           input.SourceID,
 			Remark:             input.Remark,
 			IsDel:              enum.CommonNo,
 		}
 		if err := createTransactionWithNumberRetry(tx, &txRow, now); err != nil {
 			if isDuplicateKeyFor(err, duplicateKeyWalletTransactionSource) {
-				// A competing transaction may have inserted the same consume source after
-				// our first read. Use a locking read here so MySQL returns the latest row
-				// instead of the transaction's earlier repeatable-read snapshot.
-				existingWallet, existingTransaction, lookupErr := findConsumeSource(tx, input.UserID, input.SourceID, true)
+				existingWallet, existingTransaction, lookupErr := findMutationSource(tx, input.UserID, input.SourceType, input.SourceID, true)
 				if lookupErr != nil {
-					if errors.Is(lookupErr, ErrConsumeSourceOwnerMismatch) {
+					if errors.Is(lookupErr, ErrMutationSourceOwnerMismatch) {
 						domainErr = lookupErr
 						return nil
 					}
@@ -181,14 +207,18 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 			}
 			return err
 		}
-		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{
-			"balance_cents":       after,
-			"total_consume_cents": wallet.TotalConsumeCents + input.AmountCents,
-		}).Error; err != nil {
+
+		updates := map[string]any{"balance_cents": after}
+		if direction == DirectionOut {
+			updates["total_consume_cents"] = wallet.TotalConsumeCents + input.AmountCents
+		}
+		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(updates).Error; err != nil {
 			return err
 		}
 		wallet.BalanceCents = after
-		wallet.TotalConsumeCents += input.AmountCents
+		if direction == DirectionOut {
+			wallet.TotalConsumeCents += input.AmountCents
+		}
 		resultWallet = *wallet
 		resultTransaction = txRow
 		return nil
@@ -197,17 +227,17 @@ func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now ti
 		return nil, nil, err
 	}
 	if domainErr != nil {
-		if !errors.Is(domainErr, ErrInsufficientBalance) {
-			return nil, nil, domainErr
+		if errors.Is(domainErr, ErrInsufficientBalance) {
+			return &resultWallet, nil, domainErr
 		}
-		return &resultWallet, nil, domainErr
+		return nil, nil, domainErr
 	}
 	return &resultWallet, &resultTransaction, nil
 }
 
-func findConsumeSource(tx *gorm.DB, userID int64, sourceID int64, lock bool) (*Wallet, *Transaction, error) {
+func findMutationSource(tx *gorm.DB, userID int64, sourceType string, sourceID int64, lock bool) (*Wallet, *Transaction, error) {
 	var existing Transaction
-	query := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", SourceConsume, sourceID, enum.CommonNo)
+	query := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", sourceType, sourceID, enum.CommonNo)
 	if lock {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
@@ -219,10 +249,14 @@ func findConsumeSource(tx *gorm.DB, userID int64, sourceID int64, lock bool) (*W
 		return nil, nil, err
 	}
 	if existing.UserID != userID {
-		return nil, nil, ErrConsumeSourceOwnerMismatch
+		return nil, nil, ErrMutationSourceOwnerMismatch
 	}
 	var wallet Wallet
-	if err := tx.Where("id = ? AND is_del = ?", existing.WalletID, enum.CommonNo).First(&wallet).Error; err != nil {
+	walletQuery := tx.Where("id = ? AND is_del = ?", existing.WalletID, enum.CommonNo)
+	if lock {
+		walletQuery = walletQuery.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := walletQuery.First(&wallet).Error; err != nil {
 		return nil, nil, err
 	}
 	return &wallet, &existing, nil
@@ -296,10 +330,11 @@ func lockOrCreateWalletForUpdate(tx *gorm.DB, userID int64) (*Wallet, error) {
 		}
 		return nil, err
 	}
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", wallet.ID).First(&wallet).Error; err != nil {
+	var locked Wallet
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", wallet.ID).First(&locked).Error; err != nil {
 		return nil, err
 	}
-	return &wallet, nil
+	return &locked, nil
 }
 
 func getWalletByUserID(ctx context.Context, db *gorm.DB, userID int64, lock bool) (*Wallet, error) {

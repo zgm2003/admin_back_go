@@ -95,27 +95,10 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "payment_config_del"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates", "payment_config_upload_cert"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "payment_config_test"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/page-init", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders", "payment_order_list"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/:id", "payment_order_list"},
-		{http.MethodPost, "/api/admin/v1/payment/orders", "payment_order_add"},
-		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay", "payment_order_pay"},
-		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync", "payment_order_sync"},
-		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close", "payment_order_close"},
-		{http.MethodGet, "/api/admin/v1/payment/recharges/page-init", "payment_recharge_list"},
-		{http.MethodGet, "/api/admin/v1/payment/recharges", "payment_recharge_list"},
-		{http.MethodGet, "/api/admin/v1/payment/recharges/:id", "payment_recharge_list"},
-		{http.MethodPost, "/api/admin/v1/payment/recharges", "payment_recharge_add"},
-		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay", "payment_recharge_pay"},
-		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync", "payment_recharge_sync"},
-		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close", "payment_recharge_close"},
-		{http.MethodGet, "/api/admin/v1/wallet/summary", "wallet_transaction_list"},
-		{http.MethodGet, "/api/admin/v1/wallet/transactions", "wallet_transaction_list"},
-		{http.MethodPost, "/api/admin/v1/wallet/consumptions", "wallet_consume_add"},
-		{http.MethodGet, "/api/admin/v1/wallet/users/page-init", "wallet_user_list"},
-		{http.MethodGet, "/api/admin/v1/wallet/users", "wallet_user_list"},
-		{http.MethodGet, "/api/admin/v1/wallet/ledger/page-init", "wallet_ledger_list"},
-		{http.MethodGet, "/api/admin/v1/wallet/ledger", "wallet_ledger_list"},
+		{http.MethodGet, "/api/admin/v1/payment/ledger/page-init", "payment_ledger_list"},
+		{http.MethodGet, "/api/admin/v1/payment/ledger", "payment_ledger_list"},
+		{http.MethodGet, "/api/admin/v1/payment/wallets/page-init", "payment_wallet_list"},
+		{http.MethodGet, "/api/admin/v1/payment/wallets", "payment_wallet_list"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "system_clientVersion_add"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "system_clientVersion_edit"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "system_clientVersion_setLatest"},
@@ -129,6 +112,10 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPut, "/api/admin/v1/ai-providers/:id/models", "ai_provider_edit"},
 		{http.MethodPatch, "/api/admin/v1/ai-providers/:id/status", "ai_provider_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-providers/:id", "ai_provider_del"},
+		{http.MethodPost, "/api/admin/v1/ai-billing-rules", "ai_billing_rule_edit"},
+		{http.MethodPut, "/api/admin/v1/ai-billing-rules/:id", "ai_billing_rule_edit"},
+		{http.MethodPatch, "/api/admin/v1/ai-billing-rules/:id/status", "ai_billing_rule_edit"},
+		{http.MethodDelete, "/api/admin/v1/ai-billing-rules/:id", "ai_billing_rule_edit"},
 		{http.MethodPost, "/api/admin/v1/ai-agents", "ai_agent_add"},
 		{http.MethodPut, "/api/admin/v1/ai-agents/:id", "ai_agent_edit"},
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "ai_agent_test"},
@@ -201,9 +188,39 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/payment/orders/:order_no/cancel"},
 		{http.MethodGet, "/api/admin/v1/payment/events"},
 		{http.MethodPost, "/api/payment/callbacks/alipay"},
+		{http.MethodGet, "/api/admin/v1/wallet/summary"},
+		{http.MethodGet, "/api/admin/v1/wallet/transactions"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges/page-init"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges"},
+		{http.MethodGet, "/api/admin/v1/payment/recharges/:id"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay"},
 	} {
 		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
-			t.Fatalf("payment current-user/read/callback route %s %s must not require RBAC button permission", tt.method, tt.path)
+			t.Fatalf("payment/wallet current-user route %s %s must not require RBAC button permission", tt.method, tt.path)
+		}
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/admin/v1/payment/orders/page-init"},
+		{http.MethodGet, "/api/admin/v1/payment/orders"},
+		{http.MethodGet, "/api/admin/v1/payment/orders/:id"},
+		{http.MethodPost, "/api/admin/v1/payment/orders"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"},
+		{http.MethodGet, "/api/admin/v1/wallet/users/page-init"},
+		{http.MethodGet, "/api/admin/v1/wallet/users"},
+		{http.MethodGet, "/api/admin/v1/wallet/ledger/page-init"},
+		{http.MethodGet, "/api/admin/v1/wallet/ledger"},
+		{http.MethodPost, "/api/admin/v1/wallet/consumptions"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("retired payment/wallet route metadata must not remain: %s %s", tt.method, tt.path)
 		}
 	}
 	for _, tt := range []struct {
@@ -289,6 +306,8 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-providers/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-providers"},
 		{http.MethodGet, "/api/admin/v1/ai-providers/:id/models"},
+		{http.MethodGet, "/api/admin/v1/ai-billing-rules/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-billing-rules"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/provider-models/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
@@ -417,14 +436,8 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/payment/configs/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates", "upload_cert"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test", "test"},
-		{http.MethodPost, "/api/admin/v1/payment/orders", "create"},
-		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay", "pay"},
-		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync", "sync"},
-		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close", "close"},
 		{http.MethodPost, "/api/admin/v1/payment/recharges", "add"},
 		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay", "pay"},
-		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync", "sync"},
-		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close", "close"},
 		{http.MethodPost, "/api/admin/v1/client-versions", "create"},
 		{http.MethodPut, "/api/admin/v1/client-versions/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/client-versions/:id/latest", "set_latest"},
@@ -438,6 +451,10 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPut, "/api/admin/v1/ai-providers/:id/models", "update_models"},
 		{http.MethodPatch, "/api/admin/v1/ai-providers/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-providers/:id", "delete"},
+		{http.MethodPost, "/api/admin/v1/ai-billing-rules", "create"},
+		{http.MethodPut, "/api/admin/v1/ai-billing-rules/:id", "update"},
+		{http.MethodPatch, "/api/admin/v1/ai-billing-rules/:id/status", "change_status"},
+		{http.MethodDelete, "/api/admin/v1/ai-billing-rules/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-agents", "create"},
 		{http.MethodPut, "/api/admin/v1/ai-agents/:id", "update"},
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "test"},
@@ -492,19 +509,9 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		}
 	}
 
-	payRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/pay")]
-	if payRule.Module != "payment_order" || payRule.Action != "pay" || !payRule.SkipResponsePayload {
-		t.Fatalf("payment order pay operation rule must skip pay_url response payload: %#v", payRule)
-	}
-
 	rechargePayRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay")]
 	if rechargePayRule.Module != "payment_recharge" || rechargePayRule.Action != "pay" || !rechargePayRule.SkipResponsePayload {
 		t.Fatalf("payment recharge pay operation rule must skip pay_url response payload: %#v", rechargePayRule)
-	}
-
-	walletConsumeRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/wallet/consumptions")]
-	if walletConsumeRule.Module != "wallet" || walletConsumeRule.Action != "consume" || walletConsumeRule.Title == "" {
-		t.Fatalf("wallet consume operation rule mismatch: %#v", walletConsumeRule)
 	}
 
 	for _, tt := range []struct {
@@ -537,6 +544,22 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 			t.Fatalf("retired AI route must not be operation-logged: %s %s", tt.method, tt.path)
 		}
 	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/admin/v1/payment/orders"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close"},
+		{http.MethodPost, "/api/admin/v1/wallet/consumptions"},
+	} {
+		if _, ok := rules[middleware.NewRouteKey(tt.method, tt.path)]; ok {
+			t.Fatalf("retired payment/wallet route must not be operation-logged: %s %s", tt.method, tt.path)
+		}
+	}
 
 	for _, tt := range []struct {
 		method string
@@ -552,6 +575,8 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/client-versions/update-json"},
 		{http.MethodGet, "/api/admin/v1/client-versions/current-check"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-billing-rules/page-init"},
+		{http.MethodGet, "/api/admin/v1/ai-billing-rules"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/provider-models/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},

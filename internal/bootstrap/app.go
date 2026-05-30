@@ -23,6 +23,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
+	aibilling "admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -139,6 +140,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	secretBox := secretbox.New(keys.SecretboxKey())
 	cosObjectReader := storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true})
 	cosObjectWriter := storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true})
+	walletService := walletmodule.NewService(walletmodule.NewGormRepository(resources.DB))
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &secretBox)
 	sesClient := inframail.New(10 * time.Second)
 	mailSender := mail.SenderFunc(func(ctx context.Context, input mail.SendInput) (mail.SendResult, error) {
@@ -189,12 +191,14 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		),
 	)
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
+	aiBillingService := aibilling.NewServiceWithWallet(aibilling.NewGormRepository(resources.DB), walletService, time.Now)
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
 		Repository:    aiimage.NewGormRepository(resources.DB),
 		Enqueuer:      queueClient,
 		Secretbox:     secretBox,
 		EngineFactory: aiImageEngineFactory{},
+		Billing:       aiBillingService,
 		ObjectReader:  cosObjectReader,
 		ObjectWriter:  cosObjectWriter,
 	})
@@ -222,7 +226,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		CertResolver: paymentCertResolver,
 		CertStore:    paymentCertStore,
 	})
-	walletService := walletmodule.NewService(walletmodule.NewGormRepository(resources.DB))
 
 	cosSigner := storagecos.NewSigner(storagecos.Config{Enabled: true})
 	uploadTokenService := uploadtoken.NewService(
@@ -342,6 +345,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiConversationService:   aiConversationService,
 		AiImageService:          aiImageService,
 		AiAgentService:          aiAgentService,
+		AiBillingService:        aiBillingService,
 		AiProviderService:       aiProviderService,
 		AiKnowledgeService:      aiKnowledgeService,
 		AiMessageService:        aiMessageService,

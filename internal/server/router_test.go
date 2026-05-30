@@ -3198,7 +3198,7 @@ func TestRouterInstallsSmsRoutes(t *testing.T) {
 		t.Fatalf("sms logs delete route mismatch: code=%d body=%s ids=%#v", recorder.Code, recorder.Body.String(), smsService.deletedLogs)
 	}
 }
-func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
+func TestRouterInstallsPaymentConfigAndRechargeRoutes(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
@@ -3208,11 +3208,6 @@ func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/configs"):            "payment_config_list",
 			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/configs"):           "payment_config_add",
 			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/configs/:id/test"):  "payment_config_test",
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/orders"):             "payment_order_list",
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders"):            "payment_order_add",
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"):    "payment_order_pay",
-			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"):   "payment_order_sync",
-			middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"): "payment_order_close",
 			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/payment/recharges"):          "payment_recharge_list",
 			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges"):         "payment_recharge_add",
 			middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay"): "payment_recharge_pay",
@@ -3250,58 +3245,6 @@ func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/orders?current_page=3&page_size=20&keyword=PAY&config_code=alipay_default&pay_method=web&status=pending", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.orderListQuery.CurrentPage != 3 || paymentService.orderListQuery.ConfigCode != "alipay_default" || paymentService.orderListQuery.Status != "pending" {
-		t.Fatalf("expected payment order list route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), paymentService.orderListQuery)
-	}
-	var orderListBody struct {
-		Data struct {
-			List []payment.OrderListItem `json:"list"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &orderListBody); err != nil {
-		t.Fatalf("invalid payment order list json: %v", err)
-	}
-	if len(orderListBody.Data.List) != 1 || orderListBody.Data.List[0].PayURL == "" {
-		t.Fatalf("expected payment order list to include pay_url for paying reopen, body=%s", recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders", strings.NewReader(`{"config_code":"alipay_default","pay_method":"web","subject":"测试订单","amount_cents":100,"return_url":"https://example.test/return","expire_minutes":30}`))
-	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.orderInput.ConfigCode != "alipay_default" || paymentService.orderInput.AmountCents != 100 {
-		t.Fatalf("expected payment order create route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), paymentService.orderInput)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders/1/pay", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.payID != 1 {
-		t.Fatalf("expected payment order pay route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/payment/orders/1/sync", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.syncID != 1 {
-		t.Fatalf("expected payment order sync route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
-	}
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPatch, "/api/admin/v1/payment/orders/1/close", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || paymentService.closeID != 1 {
-		t.Fatalf("expected payment order close route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
-	}
-
-	recorder = httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/recharges?current_page=1&page_size=10&keyword=RCG&status=paying", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
@@ -3333,6 +3276,13 @@ func TestRouterInstallsPaymentConfigAndOrderRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/payment/channels"},
 		{http.MethodGet, "/api/admin/v1/payment/events"},
 		{http.MethodGet, "/api/admin/v1/payment/" + "order"},
+		{http.MethodGet, "/api/admin/v1/payment/orders"},
+		{http.MethodPost, "/api/admin/v1/payment/orders"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/1/pay"},
+		{http.MethodPost, "/api/admin/v1/payment/orders/1/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/orders/1/close"},
+		{http.MethodPost, "/api/admin/v1/payment/recharges/2/sync"},
+		{http.MethodPatch, "/api/admin/v1/payment/recharges/2/close"},
 		{http.MethodPost, "/api/payment/notify/alipay"},
 		{http.MethodPost, "/api/pay/notify/alipay"},
 	} {

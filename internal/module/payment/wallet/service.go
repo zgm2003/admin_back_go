@@ -113,6 +113,68 @@ func (s *Service) Consume(ctx context.Context, input ConsumeInput) (*ConsumeResp
 	return &ConsumeResponse{Transaction: transactionItem(TransactionWithUser{Transaction: *tx}), Wallet: *summaryResponse(wallet)}, nil
 }
 
+func (s *Service) Debit(ctx context.Context, input MutationInput) (*MutationResponse, *apperror.Error) {
+	return s.mutate(ctx, input, DirectionOut)
+}
+
+func (s *Service) Credit(ctx context.Context, input MutationInput) (*MutationResponse, *apperror.Error) {
+	return s.mutate(ctx, input, DirectionIn)
+}
+
+func (s *Service) mutate(ctx context.Context, input MutationInput, direction string) (*MutationResponse, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	input.Remark = strings.TrimSpace(input.Remark)
+	prefix := "wallet.credit"
+	if direction == DirectionOut {
+		prefix = "wallet.debit"
+	}
+	if input.UserID <= 0 {
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+	}
+	if input.AmountCents <= 0 {
+		return nil, apperror.BadRequestKey(prefix+".amount.invalid", nil, "钱包变动金额必须大于0")
+	}
+	if !validMutationSource(direction, input.SourceType) {
+		return nil, apperror.BadRequestKey(prefix+".source_type.invalid", nil, "钱包变动来源类型无效")
+	}
+	if input.SourceID <= 0 {
+		return nil, apperror.BadRequestKey(prefix+".source_id.invalid", nil, "钱包变动来源ID必须大于0")
+	}
+
+	var wallet *Wallet
+	var tx *Transaction
+	var err error
+	if direction == DirectionOut {
+		wallet, tx, err = repo.Debit(ctx, input, s.now())
+	} else {
+		wallet, tx, err = repo.Credit(ctx, input, s.now())
+	}
+	if err != nil {
+		if errors.Is(err, ErrInsufficientBalance) {
+			return nil, apperror.BadRequestKey("wallet.debit.insufficient_balance", nil, "余额不足")
+		}
+		if errors.Is(err, ErrMutationSourceOwnerMismatch) {
+			return nil, apperror.BadRequestKey("wallet.mutation.source_id.owner_mismatch", nil, "资金变动来源已被其他用户使用")
+		}
+		return nil, wrapInternal("wallet.mutation.failed", "钱包资金变动失败", err)
+	}
+	return &MutationResponse{Transaction: transactionItem(TransactionWithUser{Transaction: *tx}), Wallet: *summaryResponse(wallet)}, nil
+}
+
+func validMutationSource(direction string, sourceType string) bool {
+	switch direction {
+	case DirectionOut:
+		return sourceType == SourceAIGenerate || sourceType == SourceConsume
+	case DirectionIn:
+		return sourceType == SourceAIRefund
+	default:
+		return false
+	}
+}
+
 func (s *Service) listTransactions(ctx context.Context, query TransactionListQuery) (*TransactionListResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -231,6 +293,10 @@ func sourceTypeText(value string) string {
 		return "充值"
 	case SourceConsume:
 		return "消费"
+	case SourceAIGenerate:
+		return "AI 生成"
+	case SourceAIRefund:
+		return "AI 退款"
 	default:
 		return value
 	}
@@ -239,7 +305,7 @@ func sourceTypeText(value string) string {
 func walletDict() WalletDict {
 	return WalletDict{
 		DirectionArr:  []dict.Option[string]{{Label: "收入", Value: DirectionIn}, {Label: "支出", Value: DirectionOut}},
-		SourceTypeArr: []dict.Option[string]{{Label: "充值", Value: SourceRecharge}, {Label: "消费", Value: SourceConsume}},
+		SourceTypeArr: []dict.Option[string]{{Label: "充值", Value: SourceRecharge}, {Label: "AI生成", Value: SourceAIGenerate}, {Label: "AI退款", Value: SourceAIRefund}},
 	}
 }
 

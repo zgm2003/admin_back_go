@@ -18,6 +18,7 @@ type ImageTask struct {
 	OutputCompression        *int       `gorm:"column:output_compression"`
 	Moderation               string     `gorm:"column:moderation"`
 	N                        int        `gorm:"column:n"`
+	BillingRecordID          *int64     `gorm:"column:billing_record_id"`
 	Status                   string     `gorm:"column:status"`
 	ErrorMessage             string     `gorm:"column:error_message"`
 	ActualParamsJSON         *string    `gorm:"column:actual_params_json"`

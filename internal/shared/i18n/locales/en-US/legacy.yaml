@@ -311,6 +311,7 @@ legacy.862f6cacf433: Invalid email template ID
 legacy.86b961cd783b: Invalid AI agent status parameters
 legacy.86bca6e8c150: AI provider service is not configured
 legacy.86db8c400b25: Failed to query platform login config
+legacy.87bbc910c086: Recharge order status changed; cannot credit
 legacy.87f3cc7d3a05: Invalid AI knowledge base parameters
 legacy.8814647ad938: Failed to update email log
 legacy.884a3655fb00: Select users to update
@@ -320,6 +321,7 @@ legacy.89b2b7cd7471: Image count must be at most 5
 legacy.8a32ba9aa926: Failed to delete permission
 legacy.8adcddad86c2: Failed to decrypt AI provider API key
 legacy.8b9ca69063bb: Invalid phone number format
+legacy.8be1e2e74b79: Payment order status changed; refresh and try again
 legacy.8c64c0a3b509: Failed to validate upload driver
 legacy.8cccac529b74: payment event does not exist
 legacy.8cea2ca5c8bf: Invalid token format
@@ -428,6 +430,7 @@ legacy.bae2242c561d: AI knowledge document statusis invalid
 legacy.bb479a447d07: Failed to query payment channel
 legacy.bb74a0522522: A node cannot select itself as parent
 legacy.bbd8105e20c4: Payment service is not configured
+legacy.bc7973e7ea3c: Payment order status changed; cannot credit
 legacy.bcd1c4f13e0f: Failed to test AI provider connection
 legacy.bce2c680ec35: Platform is not configured or is disabled
 legacy.bd49aebbbeba: Failed to query AI run user statistics
@@ -594,6 +597,7 @@ legacy.fdf0fc9b7b76: Failed to query parent permission
 legacy.fe06f3001ef9: User management service is not configured
 legacy.fe581d198bb3: Invalid upload config ID
 legacy.fe6b83842810: Default context characters must be between 1000 and 30000
+legacy.ff1724f17f2a: Payment config has unfinished payment orders and cannot be modified, disabled, or deleted
 legacy.ffb6832c4a9e: Missing platform code
 
 # AI image playground legacy fallback messages.

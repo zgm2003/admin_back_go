@@ -311,6 +311,7 @@ legacy.862f6cacf433: 无效的邮件模板ID
 legacy.86b961cd783b: AI智能体状态参数错误
 legacy.86bca6e8c150: AI供应商服务未配置
 legacy.86db8c400b25: 平台登录配置查询失败
+legacy.87bbc910c086: 充值单状态已变化，不能入账
 legacy.87f3cc7d3a05: AI知识库参数错误
 legacy.8814647ad938: 更新邮件日志失败
 legacy.884a3655fb00: 请选择要修改的用户
@@ -320,6 +321,7 @@ legacy.89b2b7cd7471: 图片数量不能超过5张
 legacy.8a32ba9aa926: 删除权限失败
 legacy.8adcddad86c2: 解密AI供应商API Key失败
 legacy.8b9ca69063bb: 手机号格式不正确
+legacy.8be1e2e74b79: 支付订单状态已变化，请刷新后重试
 legacy.8c64c0a3b509: 校验上传驱动失败
 legacy.8cccac529b74: 支付事件不存在
 legacy.8cea2ca5c8bf: Token格式错误
@@ -428,6 +430,7 @@ legacy.bae2242c561d: AI知识库文档状态错误
 legacy.bb479a447d07: 查询支付渠道失败
 legacy.bb74a0522522: 节点不能选择自己作为父级
 legacy.bbd8105e20c4: 支付服务未配置
+legacy.bc7973e7ea3c: 支付订单状态已变化，不能入账
 legacy.bcd1c4f13e0f: 测试AI供应商连接失败
 legacy.bce2c680ec35: 平台未配置或已禁用
 legacy.bd49aebbbeba: 查询AI运行用户统计失败
@@ -594,6 +597,7 @@ legacy.fdf0fc9b7b76: 查询父权限失败
 legacy.fe06f3001ef9: 用户管理服务未配置
 legacy.fe581d198bb3: 无效的上传配置ID
 legacy.fe6b83842810: 默认上下文字符数必须在1000到30000之间
+legacy.ff1724f17f2a: 支付配置存在未完成支付订单，不能修改、禁用或删除
 legacy.ffb6832c4a9e: 缺少平台标识
 
 # AI image playground legacy fallback messages.

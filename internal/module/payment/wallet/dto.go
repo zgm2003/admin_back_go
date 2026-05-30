@@ -6,8 +6,10 @@ const (
 	DirectionIn  = "in"
 	DirectionOut = "out"
 
-	SourceRecharge = "recharge"
-	SourceConsume  = "consume"
+	SourceRecharge   = "recharge"
+	SourceConsume    = "consume"
+	SourceAIGenerate = "ai_generate"
+	SourceAIRefund   = "ai_refund"
 
 	defaultPageSize = 20
 	maxPageSize     = 100
@@ -112,6 +114,19 @@ type ConsumeInput struct {
 }
 
 type ConsumeResponse struct {
+	Transaction TransactionItem `json:"transaction"`
+	Wallet      SummaryResponse `json:"wallet"`
+}
+
+type MutationInput struct {
+	UserID      int64
+	AmountCents int64
+	SourceType  string
+	SourceID    int64
+	Remark      string
+}
+
+type MutationResponse struct {
 	Transaction TransactionItem `json:"transaction"`
 	Wallet      SummaryResponse `json:"wallet"`
 }

@@ -1,6 +1,7 @@
 CONNECT /api/admin/v1/queue-monitor-ui
 CONNECT /api/admin/v1/queue-monitor-ui/*path
 DELETE /api/admin/v1/ai-agents/:id
+DELETE /api/admin/v1/ai-billing-rules/:id
 DELETE /api/admin/v1/ai-conversations/:id
 DELETE /api/admin/v1/ai-images/:id
 DELETE /api/admin/v1/ai-knowledge-bases/:id
@@ -51,6 +52,8 @@ GET /api/admin/v1/ai-agents/:id/tools
 GET /api/admin/v1/ai-agents/options
 GET /api/admin/v1/ai-agents/page-init
 GET /api/admin/v1/ai-agents/provider-models/:id
+GET /api/admin/v1/ai-billing-rules
+GET /api/admin/v1/ai-billing-rules/page-init
 GET /api/admin/v1/ai-conversations
 GET /api/admin/v1/ai-conversations/:id
 GET /api/admin/v1/ai-conversations/:id/messages
@@ -104,12 +107,13 @@ GET /api/admin/v1/operation-logs
 GET /api/admin/v1/operation-logs/init
 GET /api/admin/v1/payment/configs
 GET /api/admin/v1/payment/configs/page-init
-GET /api/admin/v1/payment/orders
-GET /api/admin/v1/payment/orders/:id
-GET /api/admin/v1/payment/orders/page-init
+GET /api/admin/v1/payment/ledger
+GET /api/admin/v1/payment/ledger/page-init
 GET /api/admin/v1/payment/recharges
 GET /api/admin/v1/payment/recharges/:id
 GET /api/admin/v1/payment/recharges/page-init
+GET /api/admin/v1/payment/wallets
+GET /api/admin/v1/payment/wallets/page-init
 GET /api/admin/v1/permissions
 GET /api/admin/v1/permissions/init
 GET /api/admin/v1/ping
@@ -147,12 +151,8 @@ GET /api/admin/v1/users/login-logs
 GET /api/admin/v1/users/login-logs/page-init
 GET /api/admin/v1/users/me
 GET /api/admin/v1/users/page-init
-GET /api/admin/v1/wallet/ledger
-GET /api/admin/v1/wallet/ledger/page-init
 GET /api/admin/v1/wallet/summary
 GET /api/admin/v1/wallet/transactions
-GET /api/admin/v1/wallet/users
-GET /api/admin/v1/wallet/users/page-init
 GET /health
 GET /ready
 HEAD /api/admin/v1/queue-monitor-ui
@@ -160,6 +160,7 @@ HEAD /api/admin/v1/queue-monitor-ui/*path
 OPTIONS /api/admin/v1/queue-monitor-ui
 OPTIONS /api/admin/v1/queue-monitor-ui/*path
 PATCH /api/admin/v1/ai-agents/:id/status
+PATCH /api/admin/v1/ai-billing-rules/:id/status
 PATCH /api/admin/v1/ai-images/:id/favorite
 PATCH /api/admin/v1/ai-knowledge-bases/:id/status
 PATCH /api/admin/v1/ai-knowledge-documents/:id/status
@@ -174,8 +175,6 @@ PATCH /api/admin/v1/notification-tasks/:id/cancel
 PATCH /api/admin/v1/notifications/:id/read
 PATCH /api/admin/v1/notifications/read
 PATCH /api/admin/v1/payment/configs/:id/status
-PATCH /api/admin/v1/payment/orders/:id/close
-PATCH /api/admin/v1/payment/recharges/:id/close
 PATCH /api/admin/v1/permissions/:id/status
 PATCH /api/admin/v1/queue-monitor-ui
 PATCH /api/admin/v1/queue-monitor-ui/*path
@@ -189,6 +188,7 @@ PATCH /api/admin/v1/users
 PATCH /api/admin/v1/users/:id/status
 POST /api/admin/v1/ai-agents
 POST /api/admin/v1/ai-agents/:id/test
+POST /api/admin/v1/ai-billing-rules
 POST /api/admin/v1/ai-conversations
 POST /api/admin/v1/ai-conversations/:id/messages
 POST /api/admin/v1/ai-conversations/:id/messages/cancel
@@ -219,12 +219,8 @@ POST /api/admin/v1/notification-tasks
 POST /api/admin/v1/payment/certificates
 POST /api/admin/v1/payment/configs
 POST /api/admin/v1/payment/configs/:id/test
-POST /api/admin/v1/payment/orders
-POST /api/admin/v1/payment/orders/:id/pay
-POST /api/admin/v1/payment/orders/:id/sync
 POST /api/admin/v1/payment/recharges
 POST /api/admin/v1/payment/recharges/:id/pay
-POST /api/admin/v1/payment/recharges/:id/sync
 POST /api/admin/v1/permissions
 POST /api/admin/v1/queue-monitor-ui
 POST /api/admin/v1/queue-monitor-ui/*path
@@ -237,11 +233,11 @@ POST /api/admin/v1/upload-rules
 POST /api/admin/v1/upload-settings
 POST /api/admin/v1/upload-tokens
 POST /api/admin/v1/users/export
-POST /api/admin/v1/wallet/consumptions
 POST /api/payment/callbacks/alipay
 PUT /api/admin/v1/ai-agents/:id
 PUT /api/admin/v1/ai-agents/:id/knowledge-bases
 PUT /api/admin/v1/ai-agents/:id/tools
+PUT /api/admin/v1/ai-billing-rules/:id
 PUT /api/admin/v1/ai-conversations/:id
 PUT /api/admin/v1/ai-knowledge-bases/:id
 PUT /api/admin/v1/ai-knowledge-documents/:id

@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
+func TestRegisterRoutesInstallsPaymentConfigAndRechargeEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterRoutes(router, nil)
@@ -29,20 +29,11 @@ func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/payment/configs/:id"},
 		{http.MethodPost, "/api/admin/v1/payment/configs/:id/test"},
 		{http.MethodPost, "/api/admin/v1/payment/certificates"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/page-init"},
-		{http.MethodGet, "/api/admin/v1/payment/orders"},
-		{http.MethodGet, "/api/admin/v1/payment/orders/:id"},
-		{http.MethodPost, "/api/admin/v1/payment/orders"},
-		{http.MethodPost, "/api/admin/v1/payment/orders/:id/pay"},
-		{http.MethodPost, "/api/admin/v1/payment/orders/:id/sync"},
-		{http.MethodPatch, "/api/admin/v1/payment/orders/:id/close"},
 		{http.MethodGet, "/api/admin/v1/payment/recharges/page-init"},
 		{http.MethodGet, "/api/admin/v1/payment/recharges"},
 		{http.MethodGet, "/api/admin/v1/payment/recharges/:id"},
 		{http.MethodPost, "/api/admin/v1/payment/recharges"},
 		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay"},
-		{http.MethodPost, "/api/admin/v1/payment/recharges/:id/sync"},
-		{http.MethodPatch, "/api/admin/v1/payment/recharges/:id/close"},
 	} {
 		if !routes[route.method+" "+route.path] {
 			t.Fatalf("missing route %s %s", route.method, route.path)
@@ -51,7 +42,16 @@ func TestRegisterRoutesInstallsPaymentConfigAndOrderEndpoints(t *testing.T) {
 	for _, retired := range []string{
 		"GET /api/admin/v1/payment/channels",
 		"GET /api/admin/v1/payment/events",
-		"GET /api/admin/v1/payment/" + "order",
+		"GET /api/admin/v1/payment/order",
+		"GET /api/admin/v1/payment/orders/page-init",
+		"GET /api/admin/v1/payment/orders",
+		"GET /api/admin/v1/payment/orders/:id",
+		"POST /api/admin/v1/payment/orders",
+		"POST /api/admin/v1/payment/orders/:id/pay",
+		"POST /api/admin/v1/payment/orders/:id/sync",
+		"PATCH /api/admin/v1/payment/orders/:id/close",
+		"POST /api/admin/v1/payment/recharges/:id/sync",
+		"PATCH /api/admin/v1/payment/recharges/:id/close",
 		"POST /api/payment/notify/alipay",
 		"POST /api/pay/notify/alipay",
 	} {

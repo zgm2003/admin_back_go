@@ -1006,6 +1006,53 @@ function Assert-WalletLedgerInit($Response) {
   }
 }
 
+function Assert-AIBillingRuleInit($Response) {
+  Assert-ApiOK $Response 'AI billing rule init'
+
+  $scenes = Get-ObjectArray $Response.data.dict.scene_arr
+  $units = Get-ObjectArray $Response.data.dict.unit_arr
+  $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
+  if ($scenes.Count -lt 4 -or $units.Count -lt 3 -or $statuses.Count -lt 2) {
+    throw "AI billing rule init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  $adminImageScene = $false
+  foreach ($item in $scenes) {
+    if ([string]$item.value -eq 'admin_image_generate') { $adminImageScene = $true }
+  }
+  if (-not $adminImageScene) {
+    throw "AI billing rule init missing admin_image_generate scene: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  return [pscustomobject]@{
+    SceneCount = $scenes.Count
+    UnitCount = $units.Count
+    StatusCount = $statuses.Count
+  }
+}
+
+function Assert-AIBillingRuleList($Response) {
+  Assert-ApiOK $Response 'AI billing rule list'
+
+  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
+    throw "AI billing rule list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
+  }
+
+  foreach ($item in (Get-ObjectArray $Response.data.list)) {
+    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.scene) -or [string]::IsNullOrWhiteSpace([string]$item.unit)) {
+      throw "AI billing rule item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+    if ($null -eq $item.unit_price_cents -or [int64]$item.unit_price_cents -le 0 -or $null -eq $item.status) {
+      throw "AI billing rule item price/status mismatch: $($item | ConvertTo-Json -Depth 12)"
+    }
+  }
+
+  return [pscustomobject]@{
+    ListCount = (Get-ObjectArray $Response.data.list).Count
+    Total = [int64]$Response.data.page.total
+  }
+}
+
 function Assert-UsersInitPaymentRoutes($Response) {
   Assert-ApiOK $Response 'users init payment route gate'
   $payPresent = Test-RoutePath $Response.data.router '/pay'
@@ -1032,19 +1079,22 @@ function Assert-UsersInitPaymentRoutes($Response) {
   }
   $oldEventCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'payment_event_'
   $configPresent = Test-RoutePath $Response.data.router '/payment/config'
+  $ledgerPresent = Test-RoutePath $Response.data.router '/payment/ledger'
+  $walletsPresent = Test-RoutePath $Response.data.router '/payment/wallets'
   $ordersPresent = Test-RoutePath $Response.data.router '/payment/orders'
   $rechargePresent = Test-RoutePath $Response.data.router '/payment/recharge'
+  $profileWalletPresent = Test-RoutePath $Response.data.router '/profile/wallet'
   $channelPresent = Test-RoutePath $Response.data.router '/payment/channel'
   $retiredOrderPath = '/payment/' + 'order'
   $orderPresent = Test-RoutePath $Response.data.router $retiredOrderPath
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
-  if ($payPresent -or $retiredWalletRootRoutePresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $rechargePresent -or -not $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
-    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet-root-route=$retiredWalletRootRoutePresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/recharge=$rechargePresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
+  if ($payPresent -or $retiredWalletRootRoutePresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $ledgerPresent -or -not $walletsPresent -or -not $rechargePresent -or -not $profileWalletPresent -or $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
+    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet-root-route=$retiredWalletRootRoutePresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/ledger=$ledgerPresent /payment/wallets=$walletsPresent /payment/recharge=$rechargePresent /profile/wallet=$profileWalletPresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
   }
-  if (-not $rechargeAddButtonPresent -or -not $rechargePayButtonPresent -or -not $rechargeSyncButtonPresent -or -not $rechargeCloseButtonPresent) {
+  if (-not $rechargeAddButtonPresent -or -not $rechargePayButtonPresent -or $rechargeSyncButtonPresent -or $rechargeCloseButtonPresent) {
     throw "users/init payment recharge button gate mismatch: add=$rechargeAddButtonPresent pay=$rechargePayButtonPresent sync=$rechargeSyncButtonPresent close=$rechargeCloseButtonPresent"
   }
-  if (-not $orderPayButtonPresent -or -not $orderSyncButtonPresent -or -not $orderCloseButtonPresent) {
+  if ($orderAddButtonPresent -or $orderPayButtonPresent -or $orderSyncButtonPresent -or $orderCloseButtonPresent) {
     throw "users/init payment order button gate mismatch: pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
   }
 
@@ -1052,29 +1102,48 @@ function Assert-UsersInitPaymentRoutes($Response) {
   if ($null -eq $configRoute -or [string]$configRoute.view_key -ne 'payment/config') {
     throw "users/init payment config route view_key mismatch: expected=payment/config actual=$([string]$configRoute.view_key)"
   }
+  $ledgerRoute = Get-RouteByPath $Response.data.router '/payment/ledger'
+  if ($null -eq $ledgerRoute -or [string]$ledgerRoute.view_key -ne 'payment/ledger') {
+    throw "users/init payment ledger route view_key mismatch: expected=payment/ledger actual=$([string]$ledgerRoute.view_key)"
+  }
+  $walletsRoute = Get-RouteByPath $Response.data.router '/payment/wallets'
+  if ($null -eq $walletsRoute -or [string]$walletsRoute.view_key -ne 'payment/wallets') {
+    throw "users/init payment wallets route view_key mismatch: expected=payment/wallets actual=$([string]$walletsRoute.view_key)"
+  }
   $rechargeRoute = Get-RouteByPath $Response.data.router '/payment/recharge'
   if ($null -eq $rechargeRoute -or [string]$rechargeRoute.view_key -ne 'payment/recharge') {
     throw "users/init payment recharge route view_key mismatch: expected=payment/recharge actual=$([string]$rechargeRoute.view_key)"
   }
+  $profileWalletRoute = Get-RouteByPath $Response.data.router '/profile/wallet'
+  if ($null -eq $profileWalletRoute -or [string]$profileWalletRoute.view_key -ne 'profile/wallet') {
+    throw "users/init profile wallet route view_key mismatch: expected=profile/wallet actual=$([string]$profileWalletRoute.view_key)"
+  }
   $ordersRoute = Get-RouteByPath $Response.data.router '/payment/orders'
   $ordersViewKey = ''
   if ($null -ne $ordersRoute) { $ordersViewKey = [string]$ordersRoute.view_key }
-  if ($null -eq $ordersRoute -or [string]$ordersRoute.view_key -ne 'payment/orders') {
-    throw "users/init payment orders route view_key mismatch: expected=payment/orders actual=$ordersViewKey"
+  if ($null -ne $ordersRoute) {
+    throw "users/init payment orders route should be retired, actual view_key=$ordersViewKey"
   }
 
+  $paymentRootMenu = Get-MenuByPath $Response.data.permissions '/payment'
   $configMenu = Get-MenuByPath $Response.data.permissions '/payment/config'
+  $ledgerMenu = Get-MenuByPath $Response.data.permissions '/payment/ledger'
+  $walletsMenu = Get-MenuByPath $Response.data.permissions '/payment/wallets'
   $rechargeMenu = Get-MenuByPath $Response.data.permissions '/payment/recharge'
   $ordersMenu = Get-MenuByPath $Response.data.permissions '/payment/orders'
-  if ($null -eq $configMenu -or [int]$configMenu.show_menu -ne 1 -or $null -eq $rechargeMenu -or [int]$rechargeMenu.show_menu -ne 1 -or $null -eq $ordersMenu -or [int]$ordersMenu.show_menu -ne 1) {
-    throw "users/init payment visible menu gate mismatch: config=$($configMenu | ConvertTo-Json -Depth 4) recharge=$($rechargeMenu | ConvertTo-Json -Depth 4) orders=$($ordersMenu | ConvertTo-Json -Depth 4)"
+  $profileWalletMenu = Get-MenuByPath $Response.data.permissions '/profile/wallet'
+  if (($null -ne $paymentRootMenu -and [int]$paymentRootMenu.show_menu -ne 1) -or $null -eq $configMenu -or [int]$configMenu.show_menu -ne 1 -or $null -eq $ledgerMenu -or [int]$ledgerMenu.show_menu -ne 1 -or $null -eq $walletsMenu -or [int]$walletsMenu.show_menu -ne 1) {
+    throw "users/init payment visible menu gate mismatch: root=$($paymentRootMenu | ConvertTo-Json -Depth 4) config=$($configMenu | ConvertTo-Json -Depth 4) ledger=$($ledgerMenu | ConvertTo-Json -Depth 4) wallets=$($walletsMenu | ConvertTo-Json -Depth 4)"
   }
-  Assert-RoutePathOrder $Response.data.permissions @('/payment/config', '/payment/recharge', '/payment/orders') 'users init payment menu order'
+  if (($null -ne $rechargeMenu -and [int]$rechargeMenu.show_menu -eq 1) -or ($null -ne $ordersMenu -and [int]$ordersMenu.show_menu -eq 1) -or ($null -ne $profileWalletMenu -and [int]$profileWalletMenu.show_menu -eq 1)) {
+    throw "users/init hidden/retired payment menu gate mismatch: recharge=$($rechargeMenu | ConvertTo-Json -Depth 4) orders=$($ordersMenu | ConvertTo-Json -Depth 4) profileWallet=$($profileWalletMenu | ConvertTo-Json -Depth 4)"
+  }
+  Assert-RoutePathOrder $Response.data.permissions @('/payment/config', '/payment/ledger', '/payment/wallets') 'users init payment menu order'
   $walletTransactionsRoute = Get-RouteByPath $Response.data.router '/wallet/transactions'
   $walletUsersRoute = Get-RouteByPath $Response.data.router '/wallet/users'
   $walletLedgerRoute = Get-RouteByPath $Response.data.router '/wallet/ledger'
-  if ($null -eq $walletTransactionsRoute -or [string]$walletTransactionsRoute.view_key -ne 'wallet/transactions' -or $null -eq $walletUsersRoute -or [string]$walletUsersRoute.view_key -ne 'wallet/users' -or $null -eq $walletLedgerRoute -or [string]$walletLedgerRoute.view_key -ne 'wallet/ledger') {
-    throw "users/init wallet route view_key mismatch: transactions=$([string]$walletTransactionsRoute.view_key) users=$([string]$walletUsersRoute.view_key) ledger=$([string]$walletLedgerRoute.view_key)"
+  if ($null -ne $walletTransactionsRoute -or $null -ne $walletUsersRoute -or $null -ne $walletLedgerRoute) {
+    throw "users/init wallet legacy route should be retired: transactions=$([string]$walletTransactionsRoute.view_key) users=$([string]$walletUsersRoute.view_key) ledger=$([string]$walletLedgerRoute.view_key)"
   }
 
   $walletCenterMenu = Get-MenuByI18nKey $Response.data.permissions 'menu.wallet_center'
@@ -1082,7 +1151,7 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $walletManageMenu = Get-MenuByI18nKey $Response.data.permissions 'menu.wallet_manage'
   $walletUsersMenu = Get-MenuByPath $Response.data.permissions '/wallet/users'
   $walletLedgerMenu = Get-MenuByPath $Response.data.permissions '/wallet/ledger'
-  if ($null -eq $walletCenterMenu -or [int]$walletCenterMenu.show_menu -ne 1 -or $null -eq $walletTransactionsMenu -or [int]$walletTransactionsMenu.show_menu -ne 1 -or $null -eq $walletManageMenu -or [int]$walletManageMenu.show_menu -ne 1 -or $null -eq $walletUsersMenu -or [int]$walletUsersMenu.show_menu -ne 1 -or $null -eq $walletLedgerMenu -or [int]$walletLedgerMenu.show_menu -ne 1) {
+  if (($null -ne $walletCenterMenu -and [int]$walletCenterMenu.show_menu -eq 1) -or ($null -ne $walletTransactionsMenu -and [int]$walletTransactionsMenu.show_menu -eq 1) -or ($null -ne $walletManageMenu -and [int]$walletManageMenu.show_menu -eq 1) -or ($null -ne $walletUsersMenu -and [int]$walletUsersMenu.show_menu -eq 1) -or ($null -ne $walletLedgerMenu -and [int]$walletLedgerMenu.show_menu -eq 1)) {
     throw "users/init wallet visible menu gate mismatch: center=$($walletCenterMenu | ConvertTo-Json -Depth 4) transactions=$($walletTransactionsMenu | ConvertTo-Json -Depth 4) manage=$($walletManageMenu | ConvertTo-Json -Depth 4) users=$($walletUsersMenu | ConvertTo-Json -Depth 4) ledger=$($walletLedgerMenu | ConvertTo-Json -Depth 4)"
   }
 
@@ -1102,21 +1171,32 @@ function Assert-UsersInitPaymentRoutes($Response) {
     RechargeCloseButtonPresent = $rechargeCloseButtonPresent
     OldEventCodePresent = $oldEventCodePresent
     ConfigPresent = $configPresent
+    LedgerPresent = $ledgerPresent
+    WalletsPresent = $walletsPresent
     OrdersPresent = $ordersPresent
     RechargePresent = $rechargePresent
+    ProfileWalletPresent = $profileWalletPresent
     ChannelPresent = $channelPresent
     OrderPresent = $orderPresent
     EventPresent = $eventPresent
     ConfigViewKey = [string]$configRoute.view_key
+    LedgerViewKey = [string]$ledgerRoute.view_key
+    WalletsViewKey = [string]$walletsRoute.view_key
     OrdersViewKey = $ordersViewKey
     RechargeViewKey = [string]$rechargeRoute.view_key
-    OrdersShowMenu = [int]$ordersMenu.show_menu
+    ProfileWalletViewKey = [string]$profileWalletRoute.view_key
+    PaymentRootShowMenu = if ($null -eq $paymentRootMenu) { 0 } else { [int]$paymentRootMenu.show_menu }
+    ConfigShowMenu = [int]$configMenu.show_menu
+    LedgerShowMenu = [int]$ledgerMenu.show_menu
+    WalletsShowMenu = [int]$walletsMenu.show_menu
+    RechargeShowMenu = if ($null -eq $rechargeMenu) { 0 } else { [int]$rechargeMenu.show_menu }
+    OrdersShowMenu = if ($null -eq $ordersMenu) { 0 } else { [int]$ordersMenu.show_menu }
     WalletTransactionsPresent = $($null -ne $walletTransactionsRoute)
     WalletUsersPresent = $($null -ne $walletUsersRoute)
     WalletLedgerPresent = $($null -ne $walletLedgerRoute)
-    WalletTransactionsViewKey = [string]$walletTransactionsRoute.view_key
-    WalletUsersViewKey = [string]$walletUsersRoute.view_key
-    WalletLedgerViewKey = [string]$walletLedgerRoute.view_key
+    WalletTransactionsShowMenu = if ($null -eq $walletTransactionsMenu) { 0 } else { [int]$walletTransactionsMenu.show_menu }
+    WalletUsersShowMenu = if ($null -eq $walletUsersMenu) { 0 } else { [int]$walletUsersMenu.show_menu }
+    WalletLedgerShowMenu = if ($null -eq $walletLedgerMenu) { 0 } else { [int]$walletLedgerMenu.show_menu }
   }
 }
 
@@ -2978,16 +3058,6 @@ func main() {
     -TimeoutSec 10
   $paymentConfigListSummary = Assert-PaymentConfigList $paymentConfigList
 
-  $paymentOrderInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentOrderInitSummary = Assert-PaymentOrderInit $paymentOrderInit
-
-  $paymentOrderList = Invoke-RestMethod "$baseURL/api/admin/v1/payment/orders?current_page=1&page_size=20" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $paymentOrderListSummary = Assert-PaymentOrderList $paymentOrderList
-
   $paymentRechargeInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/recharges/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
@@ -3008,25 +3078,35 @@ func main() {
     -TimeoutSec 10
   $walletTransactionsSummary = Assert-WalletTransactionList $walletTransactions 'wallet transactions'
 
-  $walletUsersInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/users/page-init" `
+  $walletUsersInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/wallets/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   Assert-ApiOK $walletUsersInit 'wallet users init'
 
-  $walletUsers = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/users?current_page=1&page_size=10" `
+  $walletUsers = Invoke-RestMethod "$baseURL/api/admin/v1/payment/wallets?current_page=1&page_size=10" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $walletUsersSummary = Assert-WalletUserList $walletUsers
 
-  $walletLedgerInit = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/ledger/page-init" `
+  $walletUsersFiltered = Invoke-RestMethod "$baseURL/api/admin/v1/payment/wallets?current_page=1&page_size=10&keyword=$([uri]::EscapeDataString($Account))" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletUsersFilteredSummary = Assert-WalletUserList $walletUsersFiltered
+
+  $walletLedgerInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/ledger/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $walletLedgerInitSummary = Assert-WalletLedgerInit $walletLedgerInit
 
-  $walletLedger = Invoke-RestMethod "$baseURL/api/admin/v1/wallet/ledger?current_page=1&page_size=10" `
+  $walletLedger = Invoke-RestMethod "$baseURL/api/admin/v1/payment/ledger?current_page=1&page_size=10" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $walletLedgerSummary = Assert-WalletTransactionList $walletLedger 'wallet ledger'
+
+  $walletLedgerFiltered = Invoke-RestMethod "$baseURL/api/admin/v1/payment/ledger?current_page=1&page_size=10&direction=in&source_type=recharge&date_start=2000-01-01&date_end=2099-12-31" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $walletLedgerFilteredSummary = Assert-WalletTransactionList $walletLedgerFiltered 'wallet ledger filtered'
 
   $aiProviderInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-providers/page-init" `
     -Headers $authHeaders `
@@ -3117,6 +3197,16 @@ func main() {
     -Headers $authHeaders `
     -TimeoutSec 10
   $aiToolListSummary = Assert-AIToolList $aiToolList
+
+  $aiBillingRuleInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-billing-rules/page-init" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiBillingRuleInitSummary = Assert-AIBillingRuleInit $aiBillingRuleInit
+
+  $aiBillingRuleList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-billing-rules?current_page=1&page_size=50" `
+    -Headers $authHeaders `
+    -TimeoutSec 10
+  $aiBillingRuleListSummary = Assert-AIBillingRuleList $aiBillingRuleList
 
   $aiToolAgentBindingSummary = [pscustomobject]@{ ToolCount = 0; ActiveToolCount = 0 }
   $aiToolAgentRows = Get-ObjectArray $aiAgentOptions.data.list
@@ -3518,8 +3608,11 @@ func main() {
     payment_route_wallet_root_route_present = $usersInitPaymentRouteSummary.WalletRootRoutePresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent
     payment_route_config_present = $usersInitPaymentRouteSummary.ConfigPresent
+    payment_route_ledger_present = $usersInitPaymentRouteSummary.LedgerPresent
+    payment_route_wallets_present = $usersInitPaymentRouteSummary.WalletsPresent
     payment_route_orders_present = $usersInitPaymentRouteSummary.OrdersPresent
     payment_route_recharge_present = $usersInitPaymentRouteSummary.RechargePresent
+    payment_route_profile_wallet_present = $usersInitPaymentRouteSummary.ProfileWalletPresent
     payment_route_channel_present = $usersInitPaymentRouteSummary.ChannelPresent
     payment_route_order_present = $usersInitPaymentRouteSummary.OrderPresent
     payment_route_event_present = $usersInitPaymentRouteSummary.EventPresent
@@ -3534,8 +3627,16 @@ func main() {
     payment_recharge_close_button_present = $usersInitPaymentRouteSummary.RechargeCloseButtonPresent
     payment_route_old_event_code_present = $usersInitPaymentRouteSummary.OldEventCodePresent
     payment_route_config_view_key = $usersInitPaymentRouteSummary.ConfigViewKey
+    payment_route_ledger_view_key = $usersInitPaymentRouteSummary.LedgerViewKey
+    payment_route_wallets_view_key = $usersInitPaymentRouteSummary.WalletsViewKey
     payment_route_orders_view_key = $usersInitPaymentRouteSummary.OrdersViewKey
     payment_route_recharge_view_key = $usersInitPaymentRouteSummary.RechargeViewKey
+    payment_route_profile_wallet_view_key = $usersInitPaymentRouteSummary.ProfileWalletViewKey
+    payment_menu_root_show_menu = $usersInitPaymentRouteSummary.PaymentRootShowMenu
+    payment_menu_config_show_menu = $usersInitPaymentRouteSummary.ConfigShowMenu
+    payment_menu_ledger_show_menu = $usersInitPaymentRouteSummary.LedgerShowMenu
+    payment_menu_wallets_show_menu = $usersInitPaymentRouteSummary.WalletsShowMenu
+    payment_menu_recharge_show_menu = $usersInitPaymentRouteSummary.RechargeShowMenu
     payment_config_init_code = $paymentConfigInit.code
     payment_config_environment_count = $paymentConfigInitSummary.EnvironmentCount
     payment_config_method_count = $paymentConfigInitSummary.MethodCount
@@ -3544,13 +3645,6 @@ func main() {
     payment_config_list_code = $paymentConfigList.code
     payment_config_list_count = $paymentConfigListSummary.ListCount
     payment_config_total = $paymentConfigListSummary.Total
-    payment_order_init_code = $paymentOrderInit.code
-    payment_order_method_count = $paymentOrderInitSummary.MethodCount
-    payment_order_status_count = $paymentOrderInitSummary.StatusCount
-    payment_order_config_option_count = $paymentOrderInitSummary.ConfigOptionCount
-    payment_order_list_code = $paymentOrderList.code
-    payment_order_list_count = $paymentOrderListSummary.ListCount
-    payment_order_total = $paymentOrderListSummary.Total
     payment_recharge_init_code = $paymentRechargeInit.code
     payment_recharge_package_count = $paymentRechargeInitSummary.PackageCount
     payment_recharge_status_count = $paymentRechargeInitSummary.StatusCount
@@ -3573,12 +3667,28 @@ func main() {
     wallet_users_code = $walletUsers.code
     wallet_users_count = $walletUsersSummary.ListCount
     wallet_users_total = $walletUsersSummary.Total
+    wallet_users_filtered_code = $walletUsersFiltered.code
+    wallet_users_filtered_count = $walletUsersFilteredSummary.ListCount
+    wallet_users_filtered_total = $walletUsersFilteredSummary.Total
     wallet_ledger_init_code = $walletLedgerInit.code
     wallet_ledger_direction_count = $walletLedgerInitSummary.DirectionCount
     wallet_ledger_source_type_count = $walletLedgerInitSummary.SourceTypeCount
     wallet_ledger_code = $walletLedger.code
     wallet_ledger_count = $walletLedgerSummary.ListCount
     wallet_ledger_total = $walletLedgerSummary.Total
+    wallet_ledger_filtered_code = $walletLedgerFiltered.code
+    wallet_ledger_filtered_count = $walletLedgerFilteredSummary.ListCount
+    wallet_ledger_filtered_total = $walletLedgerFilteredSummary.Total
+    wallet_route_transactions_show_menu = $usersInitPaymentRouteSummary.WalletTransactionsShowMenu
+    wallet_route_users_show_menu = $usersInitPaymentRouteSummary.WalletUsersShowMenu
+    wallet_route_ledger_show_menu = $usersInitPaymentRouteSummary.WalletLedgerShowMenu
+    ai_billing_rule_init_code = $aiBillingRuleInit.code
+    ai_billing_rule_scene_count = $aiBillingRuleInitSummary.SceneCount
+    ai_billing_rule_unit_count = $aiBillingRuleInitSummary.UnitCount
+    ai_billing_rule_status_count = $aiBillingRuleInitSummary.StatusCount
+    ai_billing_rule_list_code = $aiBillingRuleList.code
+    ai_billing_rule_list_count = $aiBillingRuleListSummary.ListCount
+    ai_billing_rule_total = $aiBillingRuleListSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID

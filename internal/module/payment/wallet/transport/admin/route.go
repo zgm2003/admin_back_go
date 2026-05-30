@@ -9,12 +9,16 @@ import (
 func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
-	group := router.Group("/api/admin/v1/wallet")
-	group.GET("/summary", handler.Summary)
-	group.GET("/transactions", handler.Transactions)
-	group.POST("/consumptions", handler.Consume)
-	group.GET("/users/page-init", handler.WalletUsersPageInit)
-	group.GET("/users", handler.WalletUsers)
-	group.GET("/ledger/page-init", handler.LedgerPageInit)
-	group.GET("/ledger", handler.Ledger)
+
+	current := router.Group("/api/admin/v1/wallet")
+	current.GET("/summary", handler.Summary)
+	current.GET("/transactions", handler.Transactions)
+
+	ledger := router.Group("/api/admin/v1/payment/ledger")
+	ledger.GET("/page-init", handler.LedgerPageInit)
+	ledger.GET("", handler.Ledger)
+
+	wallets := router.Group("/api/admin/v1/payment/wallets")
+	wallets.GET("/page-init", handler.WalletUsersPageInit)
+	wallets.GET("", handler.WalletUsers)
 }
