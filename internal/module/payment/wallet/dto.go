@@ -7,7 +7,6 @@ const (
 	DirectionOut = "out"
 
 	SourceRecharge   = "recharge"
-	SourceConsume    = "consume"
 	SourceAIGenerate = "ai_generate"
 	SourceAIRefund   = "ai_refund"
 
@@ -104,18 +103,6 @@ type WalletUserItem struct {
 	TotalConsumeCents  int64  `json:"total_consume_cents"`
 	TotalConsumeText   string `json:"total_consume_text"`
 	UpdatedAt          string `json:"updated_at"`
-}
-
-type ConsumeInput struct {
-	UserID      int64
-	AmountCents int64
-	SourceID    int64
-	Remark      string
-}
-
-type ConsumeResponse struct {
-	Transaction TransactionItem `json:"transaction"`
-	Wallet      SummaryResponse `json:"wallet"`
 }
 
 type MutationInput struct {

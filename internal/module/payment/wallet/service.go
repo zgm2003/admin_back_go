@@ -85,34 +85,6 @@ func (s *Service) Ledger(ctx context.Context, query TransactionListQuery) (*Tran
 	return s.listTransactions(ctx, normalizeTransactionQuery(query))
 }
 
-func (s *Service) Consume(ctx context.Context, input ConsumeInput) (*ConsumeResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	input.Remark = strings.TrimSpace(input.Remark)
-	if input.UserID <= 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-	}
-	if input.AmountCents <= 0 {
-		return nil, apperror.BadRequestKey("wallet.consume.amount.invalid", nil, "消费金额必须大于0")
-	}
-	if input.SourceID <= 0 {
-		return nil, apperror.BadRequestKey("wallet.consume.source_id.invalid", nil, "消费来源ID必须大于0")
-	}
-	wallet, tx, err := repo.Consume(ctx, input, s.now())
-	if err != nil {
-		if errors.Is(err, ErrInsufficientBalance) {
-			return nil, apperror.BadRequestKey("wallet.consume.insufficient_balance", nil, "余额不足")
-		}
-		if errors.Is(err, ErrConsumeSourceOwnerMismatch) {
-			return nil, apperror.BadRequestKey("wallet.consume.source_id.owner_mismatch", nil, "消费来源已被其他用户使用")
-		}
-		return nil, wrapInternal("wallet.consume.failed", "消费扣款失败", err)
-	}
-	return &ConsumeResponse{Transaction: transactionItem(TransactionWithUser{Transaction: *tx}), Wallet: *summaryResponse(wallet)}, nil
-}
-
 func (s *Service) Debit(ctx context.Context, input MutationInput) (*MutationResponse, *apperror.Error) {
 	return s.mutate(ctx, input, DirectionOut)
 }
@@ -167,7 +139,7 @@ func (s *Service) mutate(ctx context.Context, input MutationInput, direction str
 func validMutationSource(direction string, sourceType string) bool {
 	switch direction {
 	case DirectionOut:
-		return sourceType == SourceAIGenerate || sourceType == SourceConsume
+		return sourceType == SourceAIGenerate
 	case DirectionIn:
 		return sourceType == SourceAIRefund
 	default:
@@ -291,8 +263,6 @@ func sourceTypeText(value string) string {
 	switch value {
 	case SourceRecharge:
 		return "充值"
-	case SourceConsume:
-		return "消费"
 	case SourceAIGenerate:
 		return "AI 生成"
 	case SourceAIRefund:

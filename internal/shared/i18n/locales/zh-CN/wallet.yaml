@@ -2,13 +2,7 @@ wallet.service_missing: 钱包服务未配置
 wallet.summary.query_failed: 查询钱包失败
 wallet.users.query_failed: 查询用户钱包失败
 wallet.transactions.query_failed: 查询资金流水失败
-wallet.consume.amount.invalid: 消费金额必须大于0
-wallet.consume.source_id.invalid: 消费来源ID必须大于0
-wallet.consume.source_id.owner_mismatch: 消费来源已被其他用户使用
-wallet.consume.insufficient_balance: 余额不足
-wallet.consume.failed: 消费扣款失败
 wallet.transactions.request.invalid: 资金明细查询参数错误
-wallet.consume.request.invalid: 消费参数错误
 wallet.users.request.invalid: 用户钱包查询参数错误
 wallet.ledger.request.invalid: 资金流水查询参数错误
 

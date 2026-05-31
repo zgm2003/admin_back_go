@@ -15,9 +15,9 @@ func TestWalletTransactionNoSharesSequenceWithRechargeTransactions(t *testing.T)
 	now := time.Date(2026, 5, 30, 12, 0, 0, 123, time.UTC)
 
 	rechargeNo := paymentWalletTransactionNo(now)
-	consumeNo := newTransactionNo(now)
+	debitNo := newTransactionNo(now)
 
-	if rechargeNo == consumeNo {
-		t.Fatalf("recharge and consume wallet transaction numbers must share one WLT sequence, got duplicate %s", rechargeNo)
+	if rechargeNo == debitNo {
+		t.Fatalf("recharge and debit wallet transaction numbers must share one WLT sequence, got duplicate %s", rechargeNo)
 	}
 }

@@ -16,7 +16,6 @@ import (
 
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
-var ErrConsumeSourceOwnerMismatch = errors.New("wallet consume source owner mismatch")
 var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
 
 const (
@@ -30,7 +29,6 @@ type Repository interface {
 	GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error)
 	ListTransactions(ctx context.Context, query TransactionListQuery) ([]TransactionWithUser, int64, error)
 	ListWalletUsers(ctx context.Context, query WalletUserListQuery) ([]WalletWithUser, int64, error)
-	Consume(ctx context.Context, input ConsumeInput, now time.Time) (*Wallet, *Transaction, error)
 	Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
 	Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
 }
@@ -115,20 +113,6 @@ func (r *GormRepository) ListWalletUsers(ctx context.Context, query WalletUserLi
 	var rows []WalletWithUser
 	err := db.Order("w.updated_at desc, w.id desc").Limit(limit).Offset(offset).Find(&rows).Error
 	return rows, total, err
-}
-
-func (r *GormRepository) Consume(ctx context.Context, input ConsumeInput, now time.Time) (*Wallet, *Transaction, error) {
-	wallet, tx, err := r.Debit(ctx, MutationInput{
-		UserID:      input.UserID,
-		AmountCents: input.AmountCents,
-		SourceType:  SourceConsume,
-		SourceID:    input.SourceID,
-		Remark:      input.Remark,
-	}, now)
-	if errors.Is(err, ErrMutationSourceOwnerMismatch) {
-		return nil, nil, ErrConsumeSourceOwnerMismatch
-	}
-	return wallet, tx, err
 }
 
 func (r *GormRepository) Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {

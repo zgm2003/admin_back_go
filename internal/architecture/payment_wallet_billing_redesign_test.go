@@ -14,6 +14,11 @@ func TestPaymentWalletBillingRedesignContract(t *testing.T) {
 	migration := readArchitectureFile(t, root, "database/migrations/20260530_payment_wallet_billing_redesign.sql")
 	paymentRoutes := readArchitectureFile(t, root, "internal/module/payment/transport/admin/route.go")
 	walletRoutes := readArchitectureFile(t, root, "internal/module/payment/wallet/transport/admin/route.go")
+	walletDTO := readArchitectureFile(t, root, "internal/module/payment/wallet/dto.go")
+	walletService := readArchitectureFile(t, root, "internal/module/payment/wallet/service.go")
+	walletRepository := readArchitectureFile(t, root, "internal/module/payment/wallet/repository.go")
+	walletZh := readArchitectureFile(t, root, "internal/shared/i18n/locales/zh-CN/wallet.yaml")
+	walletEn := readArchitectureFile(t, root, "internal/shared/i18n/locales/en-US/wallet.yaml")
 	routes := paymentRoutes + "\n" + walletRoutes
 
 	for _, want := range []string{
@@ -56,6 +61,21 @@ func TestPaymentWalletBillingRedesignContract(t *testing.T) {
 	} {
 		if strings.Contains(routes, forbidden) {
 			t.Fatalf("admin payment/wallet routes must not expose %q", forbidden)
+		}
+	}
+
+	for _, forbidden := range []string{
+		"SourceConsume",
+		"type ConsumeInput",
+		"type ConsumeResponse",
+		"func (s *Service) Consume",
+		"func (r *GormRepository) Consume",
+		"ErrConsumeSourceOwnerMismatch",
+		"wallet.consume.",
+	} {
+		source := strings.Join([]string{walletDTO, walletService, walletRepository, walletZh, walletEn}, "\n")
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("legacy wallet consume surface must not remain: %q", forbidden)
 		}
 	}
 }
