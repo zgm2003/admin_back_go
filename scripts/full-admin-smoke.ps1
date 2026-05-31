@@ -2942,7 +2942,7 @@ func main() {
     throw "queue monitor UI HEAD returned status $($queueMonitorUI.StatusCode)"
   }
 
-  $systemLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-logs/init" `
+  $systemLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-logs/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $systemLogInitSummary = Assert-SystemLogInit $systemLogInit
@@ -2953,7 +2953,7 @@ func main() {
   $systemLogFilesSummary = Assert-SystemLogFiles $systemLogFiles
   $systemLogLinesProbe = Invoke-SystemLogLinesProbe $baseURL $authHeaders $systemLogFilesSummary.FirstName
 
-  $systemSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-settings/init" `
+  $systemSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/system-settings/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $systemSettingValueTypeCount = Assert-SystemSettingInit $systemSettingInit
@@ -3018,7 +3018,7 @@ func main() {
     -TimeoutSec 10
   $clientVersionUpdateJsonSummary = Assert-ClientVersionUpdateJSON $clientVersionUpdateJson
 
-  $uploadDriverInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-drivers/init" `
+  $uploadDriverInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-drivers/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $uploadDriverDictCount = Assert-UploadDriverInit $uploadDriverInit
@@ -3028,7 +3028,7 @@ func main() {
     -TimeoutSec 10
   $uploadDriverListSummary = Assert-UploadDriverList $uploadDriverList
 
-  $uploadRuleInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-rules/init" `
+  $uploadRuleInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-rules/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $uploadRuleDictSummary = Assert-UploadRuleInit $uploadRuleInit
@@ -3038,7 +3038,7 @@ func main() {
     -TimeoutSec 10
   $uploadRuleListSummary = Assert-UploadRuleList $uploadRuleList
 
-  $uploadSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-settings/init" `
+  $uploadSettingInit = Invoke-RestMethod "$baseURL/api/admin/v1/upload-settings/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $uploadSettingDictSummary = Assert-UploadSettingInit $uploadSettingInit
@@ -3326,7 +3326,7 @@ func main() {
 
   $accountSecurityProbe = Assert-AccountSecurityFailureProbe $baseURL $authHeaders
 
-  $notificationInit = Invoke-RestMethod "$baseURL/api/admin/v1/notifications/init" `
+  $notificationInit = Invoke-RestMethod "$baseURL/api/admin/v1/notifications/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $notificationInitSummary = Assert-NotificationInit $notificationInit
@@ -3341,7 +3341,7 @@ func main() {
     -TimeoutSec 10
   $notificationUnreadTotal = Assert-NotificationUnreadCount $notificationUnreadCount
 
-  $notificationTaskInit = Invoke-RestMethod "$baseURL/api/admin/v1/notification-tasks/init" `
+  $notificationTaskInit = Invoke-RestMethod "$baseURL/api/admin/v1/notification-tasks/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $notificationTaskInitSummary = Assert-NotificationTaskInit $notificationTaskInit
@@ -3356,7 +3356,7 @@ func main() {
     -TimeoutSec 10
   $notificationTaskListSummary = Assert-NotificationTaskList $notificationTaskList
 
-  $cronTaskInit = Invoke-RestMethod "$baseURL/api/admin/v1/cron-tasks/init" `
+  $cronTaskInit = Invoke-RestMethod "$baseURL/api/admin/v1/cron-tasks/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $cronTaskInitSummary = Assert-CronTaskInit $cronTaskInit
@@ -3376,7 +3376,7 @@ func main() {
     $cronTaskLogsSummary = Assert-CronTaskLogs $cronTaskLogs
   }
 
-  $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/init" `
+  $operationLogInit = Invoke-RestMethod "$baseURL/api/admin/v1/operation-logs/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
   Assert-ApiOK $operationLogInit 'operation log init'

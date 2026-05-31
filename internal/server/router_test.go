@@ -2446,11 +2446,11 @@ func TestRouterInstallsNotificationTaskRESTRoutes(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks/init", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/notification-tasks/page-init", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected notification task init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+		t.Fatalf("expected notification task page-init status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
 
 	recorder = httptest.NewRecorder()

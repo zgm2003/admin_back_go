@@ -66,9 +66,9 @@ func TestCronTaskHandlerInitAndList(t *testing.T) {
 	router, service := newCronTaskHandlerRouter()
 
 	initRecorder := httptest.NewRecorder()
-	router.ServeHTTP(initRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks/init", nil))
+	router.ServeHTTP(initRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks/page-init", nil))
 	if initRecorder.Code != http.StatusOK {
-		t.Fatalf("expected init status %d, got %d body=%s", http.StatusOK, initRecorder.Code, initRecorder.Body.String())
+		t.Fatalf("expected page-init status %d, got %d body=%s", http.StatusOK, initRecorder.Code, initRecorder.Body.String())
 	}
 
 	recorder := httptest.NewRecorder()

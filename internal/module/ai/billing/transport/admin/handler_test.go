@@ -64,7 +64,7 @@ func TestHandlerPageInitAndList(t *testing.T) {
 	}
 }
 
-func TestHandlerStatusAndDelete(t *testing.T) {
+func TestHandlerStatusAndDeleteOne(t *testing.T) {
 	router, service := newAdminTestRouter()
 
 	statusRecorder := httptest.NewRecorder()

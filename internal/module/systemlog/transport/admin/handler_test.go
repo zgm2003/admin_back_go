@@ -65,11 +65,11 @@ func TestHandlerInitReturnsDictionaries(t *testing.T) {
 	router := newTestRouter(&fakeService{})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-logs/init", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/system-logs/page-init", nil)
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected init status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+		t.Fatalf("expected page-init status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	body := decodeBody(t, recorder)
 	data := body["data"].(map[string]any)

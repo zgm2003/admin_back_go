@@ -16,5 +16,5 @@ func Register(router *gin.Engine, service aibilling.HTTPService) {
 	group.POST("", handler.Create)
 	group.PUT("/:id", handler.Update)
 	group.PATCH("/:id/status", handler.ChangeStatus)
-	group.DELETE("/:id", handler.Delete)
+	group.DELETE("/:id", handler.DeleteOne)
 }

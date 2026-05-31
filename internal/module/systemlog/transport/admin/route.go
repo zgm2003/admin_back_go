@@ -11,7 +11,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	handler := NewHandler(service)
 
 	v1 := router.Group("/api/admin/v1/system-logs")
-	v1.GET("/init", handler.Init)
+	v1.GET("/page-init", handler.Init)
 	v1.GET("/files", handler.Files)
 	v1.GET("/files/:name/lines", handler.Lines)
 }

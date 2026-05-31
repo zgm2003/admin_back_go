@@ -64,7 +64,7 @@ func TestHandlerInstallsRoleRESTRoutes(t *testing.T) {
 	}
 	router := newRoleTestRouter(service)
 
-	assertRoleStatus(t, router, http.MethodGet, "/api/admin/v1/roles/init", "", http.StatusOK)
+	assertRoleStatus(t, router, http.MethodGet, "/api/admin/v1/roles/page-init", "", http.StatusOK)
 	assertRoleStatus(t, router, http.MethodGet, "/api/admin/v1/roles?current_page=1&page_size=50&name=运营", "", http.StatusOK)
 	assertRoleStatus(t, router, http.MethodPost, "/api/admin/v1/roles", `{"name":"运营","permission_id":[2,3]}`, http.StatusOK)
 	assertRoleStatus(t, router, http.MethodPut, "/api/admin/v1/roles/9", `{"name":"运营","permission_id":[2]}`, http.StatusOK)

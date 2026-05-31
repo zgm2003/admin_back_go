@@ -12,7 +12,7 @@ func RegisterTaskRoutes(router *gin.Engine, service notificationtaskmodule.HTTPS
 	handler := NewTaskHandler(service)
 
 	v1 := router.Group("/api/admin/v1/notification-tasks")
-	v1.GET("/init", handler.Init)
+	v1.GET("/page-init", handler.Init)
 	v1.GET("/status-count", handler.StatusCount)
 	v1.GET("", handler.List)
 	v1.POST("", handler.Create)

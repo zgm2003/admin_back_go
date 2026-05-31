@@ -517,7 +517,7 @@ func main() {
   $init = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
   $usersPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/page-init" -Headers $authHeaders -TimeoutSec 10
   $usersList = Invoke-RestMethod "$baseURL/api/admin/v1/users?current_page=1&page_size=10" -Headers $authHeaders -TimeoutSec 10
-  $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/init" -Headers $authHeaders -TimeoutSec 10
+  $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/page-init" -Headers $authHeaders -TimeoutSec 10
   $authPlatformList = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms?current_page=1&page_size=50" -Headers $authHeaders -TimeoutSec 10
   Assert-ApiOK $init 'users init'
   Assert-ApiOK $usersPageInit 'users page-init'

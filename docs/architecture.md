@@ -682,7 +682,7 @@ admin-worker 默认写 runtime/logs/admin-worker.log。
 路由：
 
 ```text
-GET /api/admin/v1/system-logs/init
+GET /api/admin/v1/system-logs/page-init
 GET /api/admin/v1/system-logs/files
 GET /api/admin/v1/system-logs/files/:name/lines
 ```
@@ -705,7 +705,7 @@ GET /api/admin/v1/system-logs/files/:name/lines
 系统设置菜单页已经迁到 Go REST：
 
 ```text
-GET    /api/admin/v1/system-settings/init
+GET    /api/admin/v1/system-settings/page-init
 GET    /api/admin/v1/system-settings
 POST   /api/admin/v1/system-settings
 PUT    /api/admin/v1/system-settings/:id
@@ -1037,7 +1037,7 @@ full smoke 不随机踢 live session；只验证当前 session anti-kick，非�
 当前 REST 路由：
 
 ```text
-GET    /api/admin/v1/auth-platforms/init
+GET    /api/admin/v1/auth-platforms/page-init
 GET    /api/admin/v1/auth-platforms
 POST   /api/admin/v1/auth-platforms
 PUT    /api/admin/v1/auth-platforms/:id
@@ -1167,7 +1167,7 @@ users/init 仍只做当前登录用户 bootstrap；用户管理页字典使用 u
 当前用户通知接口：
 
 ```text
-GET    /api/admin/v1/notifications/init
+GET    /api/admin/v1/notifications/page-init
 GET    /api/admin/v1/notifications
 GET    /api/admin/v1/notifications/unread-count
 PATCH  /api/admin/v1/notifications/:id/read
@@ -1189,7 +1189,7 @@ PATCH /read 空 ids 表示标记当前用户可见全部未读通知；DELETE �
 后台通知任务接口：
 
 ```text
-GET    /api/admin/v1/notification-tasks/init
+GET    /api/admin/v1/notification-tasks/page-init
 GET    /api/admin/v1/notification-tasks/status-count
 GET    /api/admin/v1/notification-tasks
 POST   /api/admin/v1/notification-tasks
@@ -1420,6 +1420,7 @@ payment V1 范围是 Alipay config、recharge cashier、底层 Alipay order pay 
 payment_callback_events 只做支付宝回调审计，不作为业务真相源。
 payment_configs.sort 参与充值自动选配置：status=1、provider=alipay、enabled_methods_json 包含当前 pay_method 后按 sort ASC, id ASC 取第一条。
 return_url 不属于 payment_configs，也不是用户可编辑字段；充值页按当前 `/payment/recharge` 路由生成，后端追加 `tab=records&recharge_no=...`。
+RCG/PAY/WLT 单号由后端生成并只当不透明唯一字符串使用；新单号保留时间和纳秒段，但序列后缀使用紧凑大写 base36，不再追加 20 位补零十进制序列；历史单号不迁移。
 paid/credited 状态只能由已验签支付宝 callback、手动支付宝 query/sync 或 payment_sync_pending_order 补偿路径写入，后台不能手工改 paid。
 callback、manual sync、cron compensation 必须共用 paid finalizer；钱包入账必须在 DB transaction 内完成，并通过 wallet_transactions(source_type, source_id) 保证同一充值单只入账一次。
 finalizer 状态推进必须单调：旧 callback/sync/cron 快照不能把 `credited` 倒退回 `paid`，已经 `closed` 或 `failed` 的充值单不能被迟到 finalizer 重新打开或入账。

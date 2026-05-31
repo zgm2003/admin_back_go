@@ -12,7 +12,7 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService) {
 	handler := NewHandler(service)
 
 	group := router.Group("/api/admin/v1/cron-tasks")
-	group.GET("/init", handler.Init)
+	group.GET("/page-init", handler.Init)
 	group.GET("", handler.List)
 	group.POST("", handler.Create)
 	group.PUT("/:id", handler.Update)

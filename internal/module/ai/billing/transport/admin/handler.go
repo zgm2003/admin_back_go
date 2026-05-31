@@ -78,7 +78,7 @@ func (h *Handler) ChangeStatus(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) Delete(c *gin.Context) {
+func (h *Handler) DeleteOne(c *gin.Context) {
 	id, ok := routeID(c)
 	if !ok {
 		return

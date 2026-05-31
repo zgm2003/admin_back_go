@@ -67,7 +67,7 @@ func TestPermissionRoutesUseRESTfulMethods(t *testing.T) {
 	}
 	router := newPermissionTestRouter(service)
 
-	assertPermissionStatus(t, router, http.MethodGet, "/api/admin/v1/permissions/init", nil, http.StatusOK)
+	assertPermissionStatus(t, router, http.MethodGet, "/api/admin/v1/permissions/page-init", nil, http.StatusOK)
 	assertPermissionStatus(t, router, http.MethodGet, "/api/admin/v1/permissions?platform=admin&name=系统", nil, http.StatusOK)
 	assertPermissionStatus(t, router, http.MethodPost, "/api/admin/v1/permissions", permissionRequestBody(permissionmodule.TypeDir), http.StatusOK)
 	assertPermissionStatus(t, router, http.MethodPut, "/api/admin/v1/permissions/9", permissionRequestBody(permissionmodule.TypePage), http.StatusOK)

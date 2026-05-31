@@ -11,7 +11,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	handler := NewHandler(service)
 
 	drivers := router.Group("/api/admin/v1/upload-drivers")
-	drivers.GET("/init", handler.DriverInit)
+	drivers.GET("/page-init", handler.DriverInit)
 	drivers.GET("", handler.DriverList)
 	drivers.POST("", handler.DriverCreate)
 	drivers.PUT("/:id", handler.DriverUpdate)
@@ -19,7 +19,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	drivers.DELETE("", handler.DriverDeleteBatch)
 
 	rules := router.Group("/api/admin/v1/upload-rules")
-	rules.GET("/init", handler.RuleInit)
+	rules.GET("/page-init", handler.RuleInit)
 	rules.GET("", handler.RuleList)
 	rules.POST("", handler.RuleCreate)
 	rules.PUT("/:id", handler.RuleUpdate)
@@ -27,7 +27,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	rules.DELETE("", handler.RuleDeleteBatch)
 
 	settings := router.Group("/api/admin/v1/upload-settings")
-	settings.GET("/init", handler.SettingInit)
+	settings.GET("/page-init", handler.SettingInit)
 	settings.GET("", handler.SettingList)
 	settings.POST("", handler.SettingCreate)
 	settings.PUT("/:id", handler.SettingUpdate)
