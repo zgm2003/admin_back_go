@@ -91,40 +91,6 @@ func TestAppProfileTransportPreservesAppCurrentUserAndProfileRoutes(t *testing.T
 	}
 }
 
-func TestAppProfileTransportCanRegisterCanvasCurrentUser(t *testing.T) {
-	service := &fakeAppProfileService{}
-	gin.SetMode(gin.ReleaseMode)
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 8, Platform: enum.PlatformCanvas})
-		c.Next()
-	})
-	RegisterRoutesWithOptions(router, RouteOptions{UsersPrefix: "/api/canvas/v1/users", Platform: enum.PlatformCanvas, Service: service})
-
-	meData := requestAppProfileData(t, router, http.MethodGet, "/api/canvas/v1/users/me", "")
-	if service.initInput.UserID != 8 || service.initInput.Platform != enum.PlatformCanvas {
-		t.Fatalf("unexpected canvas init input: %#v", service.initInput)
-	}
-	if meData["id"] != float64(8) || meData["nickname"] != "App User" {
-		t.Fatalf("unexpected canvas users/me payload: %#v", meData)
-	}
-
-	profileRecorder := httptest.NewRecorder()
-	router.ServeHTTP(profileRecorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/profile", nil))
-	if profileRecorder.Code != http.StatusNotFound {
-		t.Fatalf("canvas registration must not mount app profile route, got %d body=%s", profileRecorder.Code, profileRecorder.Body.String())
-	}
-}
-func TestAppProfileTransportPanicsOnInvalidPlatform(t *testing.T) {
-	gin.SetMode(gin.ReleaseMode)
-	router := gin.New()
-	defer func() {
-		if recovered := recover(); recovered == nil {
-			t.Fatalf("expected invalid platform to panic")
-		}
-	}()
-	RegisterRoutesWithOptions(router, RouteOptions{UsersPrefix: "/api/bad/v1/users", Platform: "", Service: &fakeAppProfileService{}})
-}
 func TestAppProfileTransportRejectsWrongPlatformScope(t *testing.T) {
 	router := newAppProfileTestRouter(&fakeAppProfileService{}, &middleware.AuthIdentity{UserID: 7, Platform: enum.PlatformAdmin})
 

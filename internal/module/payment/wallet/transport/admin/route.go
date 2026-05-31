@@ -10,7 +10,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 
-	registerCurrentUserRoutes(router, "/api/admin/v1/wallet", handler)
+	registerCurrentUserRoutes(router, handler)
 
 	ledger := router.Group("/api/admin/v1/payment/ledger")
 	ledger.GET("/page-init", handler.LedgerPageInit)
@@ -21,13 +21,8 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	wallets.GET("", handler.WalletUsers)
 }
 
-func RegisterCurrentUserRoutes(router *gin.Engine, prefix string, service HTTPService) {
-	validate.MustRegister()
-	registerCurrentUserRoutes(router, prefix, NewHandler(service))
-}
-
-func registerCurrentUserRoutes(router *gin.Engine, prefix string, handler *Handler) {
-	current := router.Group(prefix)
+func registerCurrentUserRoutes(router *gin.Engine, handler *Handler) {
+	current := router.Group("/api/admin/v1/wallet")
 	current.GET("/summary", handler.Summary)
 	current.GET("/transactions", handler.Transactions)
 }

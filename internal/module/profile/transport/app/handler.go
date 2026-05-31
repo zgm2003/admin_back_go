@@ -1,8 +1,6 @@
 package app
 
 import (
-	"strings"
-
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/shared/apperror"
@@ -13,16 +11,11 @@ import (
 )
 
 type Handler struct {
-	service  profile.AppService
-	platform string
+	service profile.AppService
 }
 
-func NewHandler(service profile.AppService, platform string) *Handler {
-	platform = strings.TrimSpace(platform)
-	if platform == "" {
-		platform = enum.PlatformApp
-	}
-	return &Handler{service: service, platform: platform}
+func NewHandler(service profile.AppService) *Handler {
+	return &Handler{service: service}
 }
 
 func (h *Handler) Me(c *gin.Context) {
@@ -34,7 +27,7 @@ func (h *Handler) Me(c *gin.Context) {
 		response.Error(c, apperror.InternalKey("user.service_missing", nil, "用户管理服务未配置"))
 		return
 	}
-	currentUser, appErr := h.service.Init(c.Request.Context(), profile.InitInput{UserID: identity.UserID, Platform: h.platform})
+	currentUser, appErr := h.service.Init(c.Request.Context(), profile.InitInput{UserID: identity.UserID, Platform: enum.PlatformApp})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -100,7 +93,7 @@ func (h *Handler) appIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {
 		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return nil, false
 	}
-	if identity.Platform != "" && identity.Platform != h.platform {
+	if identity.Platform != "" && identity.Platform != enum.PlatformApp {
 		response.Error(c, apperror.UnauthorizedKey("auth.platform.invalid", map[string]any{"platform": identity.Platform}, "Token平台不匹配"))
 		return nil, false
 	}

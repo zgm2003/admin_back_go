@@ -47,6 +47,11 @@ func TestAuthTransportBoundaryShape(t *testing.T) {
 		authRoot + "transport/app/handler_test.go",
 		authRoot + "transport/app/request.go",
 		authRoot + "transport/app/presenter.go",
+		authRoot + "transport/canvas/route.go",
+		authRoot + "transport/canvas/handler.go",
+		authRoot + "transport/canvas/handler_test.go",
+		authRoot + "transport/canvas/request.go",
+		authRoot + "transport/canvas/presenter.go",
 	} {
 		mustExist(t, root, rel)
 	}
@@ -170,7 +175,9 @@ func TestCommerceRBACAdminTransportShells(t *testing.T) {
 	}
 
 	walletRoot := "internal/module/payment/wallet/"
+	mustExist(t, root, "internal/module/payment/transport/canvas/route.go")
 	mustExist(t, root, walletRoot+"transport/admin/route.go")
+	mustExist(t, root, walletRoot+"transport/canvas/route.go")
 	mustNotExist(t, root, walletRoot+"route.go")
 	mustNotExist(t, root, walletRoot+"handler.go")
 }
@@ -187,6 +194,8 @@ func TestUserProfileTransportShape(t *testing.T) {
 		"internal/module/user/transport/admin/route.go",
 		"internal/module/profile/transport/admin/route.go",
 		"internal/module/profile/transport/app/route.go",
+		"internal/module/profile/transport/canvas/route.go",
+		"internal/module/profile/transport/canvas/handler.go",
 	} {
 		mustExist(t, root, rel)
 	}

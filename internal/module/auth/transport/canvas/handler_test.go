@@ -1,4 +1,4 @@
-package app
+package canvas
 
 import (
 	"context"
@@ -26,7 +26,7 @@ type fakeSessionService struct {
 
 func (f *fakeSessionService) Login(ctx context.Context, input authmodule.LoginInput) (*authmodule.LoginResponse, *apperror.Error) {
 	f.loginInput = input
-	return &authmodule.LoginResponse{AccessToken: "app-token", UserID: 7}, nil
+	return &authmodule.LoginResponse{AccessToken: "canvas-token", UserID: 9}, nil
 }
 func (f *fakeSessionService) SendCode(ctx context.Context, input authmodule.SendCodeInput) (string, *apperror.Error) {
 	f.sendCodeInput = input
@@ -37,7 +37,7 @@ func (f *fakeSessionService) ForgetPassword(ctx context.Context, input authmodul
 }
 func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*authmodule.LoginConfigResponse, *apperror.Error) {
 	f.configPlatform = platform
-	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide, AllowRegister: false}, nil
+	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide, AllowRegister: true}, nil
 }
 func (f *fakeSessionService) Refresh(ctx context.Context, input authmodule.RefreshInput) (*authmodule.TokenResult, *apperror.Error) {
 	return &authmodule.TokenResult{}, nil
@@ -60,72 +60,72 @@ type fakeUserService struct {
 func (f *fakeUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
 	f.input = input
 	return &user.InitResponse{
-		UserID: input.UserID, Username: "App User", Avatar: "avatar.png", RoleName: "app",
+		UserID: input.UserID, Username: "Canvas User", Avatar: "canvas.png", RoleName: "canvas",
 		Permissions: []permission.MenuItem{}, Router: []permission.RouteItem{}, ButtonCodes: []string{},
 	}, nil
 }
 
-func TestAuthRoutesForceConfiguredPlatform(t *testing.T) {
+func TestCanvasAuthRoutesForceCanvasPlatform(t *testing.T) {
 	authService := &fakeSessionService{}
 	userService := &fakeUserService{}
-	router := newAuthTestRouter(authService, userService)
+	router := newCanvasAuthTestRouter(authService, userService)
 
 	configRecorder := httptest.NewRecorder()
-	configRequest := httptest.NewRequest(http.MethodGet, "/api/app/v1/auth/login-config", nil)
+	configRequest := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/auth/login-config", nil)
 	configRequest.Header.Set("platform", enum.PlatformAdmin)
 	router.ServeHTTP(configRecorder, configRequest)
 	if configRecorder.Code != http.StatusOK {
 		t.Fatalf("expected login-config status 200, got %d body=%s", configRecorder.Code, configRecorder.Body.String())
 	}
-	if authService.configPlatform != enum.PlatformApp {
-		t.Fatalf("expected app platform, got %q", authService.configPlatform)
+	if authService.configPlatform != enum.PlatformCanvas {
+		t.Fatalf("expected canvas platform, got %q", authService.configPlatform)
 	}
 	configData := decodeAuthData(t, configRecorder)
-	if configData["allow_register"] != false {
-		t.Fatalf("expected login-config to expose allow_register=false, got %#v", configData)
+	if configData["allow_register"] != true {
+		t.Fatalf("expected login-config to expose allow_register=true, got %#v", configData)
 	}
 
 	loginRecorder := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/login", strings.NewReader(`{"login_type":"password","login_account":"15671628271","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/login", strings.NewReader(`{"login_type":"password","login_account":"15671628271","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("platform", enum.PlatformAdmin)
-	loginRequest.Header.Set("device-id", "ios-1")
+	loginRequest.Header.Set("device-id", "web-1")
 	loginRequest.Header.Set("User-Agent", "agent")
 	router.ServeHTTP(loginRecorder, loginRequest)
 	if loginRecorder.Code != http.StatusOK {
 		t.Fatalf("expected login status 200, got %d body=%s", loginRecorder.Code, loginRecorder.Body.String())
 	}
-	if authService.loginInput.Platform != enum.PlatformApp || authService.loginInput.DeviceID != "ios-1" {
+	if authService.loginInput.Platform != enum.PlatformCanvas || authService.loginInput.DeviceID != "web-1" {
 		t.Fatalf("unexpected login input: %#v", authService.loginInput)
 	}
-	if userService.input.UserID != 7 || userService.input.Platform != enum.PlatformApp {
+	if userService.input.UserID != 9 || userService.input.Platform != enum.PlatformCanvas {
 		t.Fatalf("unexpected init input: %#v", userService.input)
 	}
 	data := decodeAuthData(t, loginRecorder)
-	if data["token"] != "app-token" {
-		t.Fatalf("expected app token response, got %#v", data)
+	if data["token"] != "canvas-token" {
+		t.Fatalf("expected canvas token response, got %#v", data)
 	}
 	if _, ok := data["access_token"]; ok {
-		t.Fatalf("app login response must not expose admin token field: %#v", data)
+		t.Fatalf("canvas login response must not expose admin token field: %#v", data)
 	}
 	userData := data["user"].(map[string]any)
-	if userData["nickname"] != "App User" || userData["avatar"] != "avatar.png" {
-		t.Fatalf("unexpected app user payload: %#v", userData)
+	if userData["nickname"] != "Canvas User" || userData["avatar"] != "canvas.png" {
+		t.Fatalf("unexpected canvas user payload: %#v", userData)
 	}
 }
 
-func TestAuthRoutesExposeCaptchaSendCodeAndLogout(t *testing.T) {
+func TestCanvasAuthRoutesExposeCaptchaSendCodeAndLogout(t *testing.T) {
 	authService := &fakeSessionService{}
-	router := newAuthTestRouter(authService, &fakeUserService{})
+	router := newCanvasAuthTestRouter(authService, &fakeUserService{})
 
 	captchaRecorder := httptest.NewRecorder()
-	router.ServeHTTP(captchaRecorder, httptest.NewRequest(http.MethodGet, "/api/app/v1/auth/captcha", nil))
+	router.ServeHTTP(captchaRecorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/auth/captcha", nil))
 	if captchaRecorder.Code != http.StatusOK {
 		t.Fatalf("expected captcha status 200, got %d body=%s", captchaRecorder.Code, captchaRecorder.Body.String())
 	}
 
 	sendCodeRecorder := httptest.NewRecorder()
-	sendCodeRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/send-code", strings.NewReader(`{"account":"15671628271","scene":"login"}`))
+	sendCodeRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/send-code", strings.NewReader(`{"account":"15671628271","scene":"login"}`))
 	sendCodeRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(sendCodeRecorder, sendCodeRequest)
 	if sendCodeRecorder.Code != http.StatusOK {
@@ -136,18 +136,18 @@ func TestAuthRoutesExposeCaptchaSendCodeAndLogout(t *testing.T) {
 	}
 
 	logoutRecorder := httptest.NewRecorder()
-	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/logout", nil)
-	logoutRequest.Header.Set("Authorization", "Bearer app-token")
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/logout", nil)
+	logoutRequest.Header.Set("Authorization", "Bearer canvas-token")
 	router.ServeHTTP(logoutRecorder, logoutRequest)
 	if logoutRecorder.Code != http.StatusOK {
 		t.Fatalf("expected logout status 200, got %d body=%s", logoutRecorder.Code, logoutRecorder.Body.String())
 	}
-	if authService.logoutToken != "app-token" {
-		t.Fatalf("expected logout token app-token, got %q", authService.logoutToken)
+	if authService.logoutToken != "canvas-token" {
+		t.Fatalf("expected logout token canvas-token, got %q", authService.logoutToken)
 	}
 }
 
-func newAuthTestRouter(authService authmodule.SessionService, userService UserInitService) *gin.Engine {
+func newCanvasAuthTestRouter(authService authmodule.SessionService, userService UserInitService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	Register(router, Dependencies{

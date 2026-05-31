@@ -1,4 +1,4 @@
-package app
+package canvas
 
 import (
 	authmodule "admin_back_go/internal/module/auth"
@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const routePrefix = "/api/app/v1/auth"
+const routePrefix = "/api/canvas/v1/auth"
 
 type Dependencies struct {
 	AuthService    authmodule.SessionService

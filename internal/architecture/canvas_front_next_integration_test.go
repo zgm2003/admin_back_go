@@ -31,15 +31,10 @@ func TestCanvasFrontNextIntegration(t *testing.T) {
 
 	t.Run("AuthRoutesAndPlatform", func(t *testing.T) {
 		routesAuth := readCanvasIntegrationFile(t, "internal/server/routes_auth.go")
-		authToken := readCanvasIntegrationFile(t, "internal/middleware/auth_token.go")
-		permissionService := readCanvasIntegrationFile(t, "internal/module/permission/service.go")
 
-		assertCanvasContains(t, routesAuth, `Prefix:         "/api/canvas/v1/auth"`)
-		assertCanvasContains(t, routesAuth, `Platform:       enum.PlatformCanvas`)
-		assertCanvasContains(t, authToken, `"/api/canvas/v1/auth/login-config"`)
-		assertCanvasContains(t, authToken, `strings.HasPrefix(path, "/api/canvas/v1/")`)
-		assertCanvasContains(t, permissionService, `enum.PlatformCanvas`)
-		assertCanvasPathMissing(t, "internal/module/auth/transport/canvas")
+		assertCanvasContains(t, routesAuth, `authcanvas.Register(router, authcanvas.Dependencies{`)
+		assertCanvasNotContains(t, routesAuth, `Prefix:         "/api/canvas/v1/auth"`)
+		assertCanvasPathExists(t, "internal/module/auth/transport/canvas")
 	})
 }
 
@@ -66,11 +61,9 @@ func assertCanvasNotContains(t *testing.T, haystack, needle string) {
 	}
 }
 
-func assertCanvasPathMissing(t *testing.T, rel string) {
+func assertCanvasPathExists(t *testing.T, rel string) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(backendRoot(t), rel)); err == nil {
-		t.Fatalf("path must not exist: %s", rel)
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("stat %s: %v", rel, err)
+	if _, err := os.Stat(filepath.Join(backendRoot(t), rel)); err != nil {
+		t.Fatalf("path must exist: %s: %v", rel, err)
 	}
 }

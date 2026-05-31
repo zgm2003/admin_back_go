@@ -3478,13 +3478,50 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
 	walletService := &fakeRouterWalletService{}
-	router := newTestRouter(t, Dependencies{
+	router := NewRouter(Dependencies{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
 		PaymentService: paymentService,
 		WalletService:  walletService,
 	})
+
+	routes := map[string]bool{}
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{
+		http.MethodGet + " /api/canvas/v1/auth/login-config",
+		http.MethodGet + " /api/canvas/v1/auth/captcha",
+		http.MethodPost + " /api/canvas/v1/auth/send-code",
+		http.MethodPost + " /api/canvas/v1/auth/login",
+		http.MethodPost + " /api/canvas/v1/auth/logout",
+		http.MethodGet + " /api/canvas/v1/users/me",
+		http.MethodGet + " /api/canvas/v1/wallet/summary",
+		http.MethodGet + " /api/canvas/v1/wallet/transactions",
+		http.MethodGet + " /api/canvas/v1/payment/recharges/page-init",
+		http.MethodGet + " /api/canvas/v1/payment/recharges",
+		http.MethodPost + " /api/canvas/v1/payment/recharges",
+		http.MethodPost + " /api/canvas/v1/payment/recharges/:id/pay",
+	} {
+		if !routes[route] {
+			t.Fatalf("expected canvas route to be installed: %s", route)
+		}
+	}
+	for _, route := range []string{
+		http.MethodGet + " /api/canvas/v1/profile",
+		http.MethodPut + " /api/canvas/v1/profile",
+		http.MethodGet + " /api/canvas/v1/payment/ledger",
+		http.MethodGet + " /api/canvas/v1/payment/wallets",
+		http.MethodPost + " /api/canvas/v1/wallet/consumptions",
+		http.MethodPost + " /api/canvas/v1/payment/recharges/:id/sync",
+		http.MethodPatch + " /api/canvas/v1/payment/recharges/:id/close",
+	} {
+		if routes[route] {
+			t.Fatalf("canvas route must not be installed: %s", route)
+		}
+	}
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/wallet/summary", nil)

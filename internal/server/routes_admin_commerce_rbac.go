@@ -4,7 +4,9 @@ import (
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
 	paymentadmin "admin_back_go/internal/module/payment/transport/admin"
 	paymentcallback "admin_back_go/internal/module/payment/transport/callback"
+	paymentcanvas "admin_back_go/internal/module/payment/transport/canvas"
 	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
+	walletcanvas "admin_back_go/internal/module/payment/wallet/transport/canvas"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
 	roleadmin "admin_back_go/internal/module/role/transport/admin"
 
@@ -18,6 +20,6 @@ func registerAdminCommerceRBACRoutes(router *gin.Engine, deps Dependencies) {
 	permissionadmin.RegisterRoutes(router, deps.PermissionService)
 	roleadmin.RegisterRoutes(router, deps.RoleService)
 	authplatformadmin.RegisterRoutes(router, deps.AuthPlatformService)
-	walletadmin.RegisterCurrentUserRoutes(router, "/api/canvas/v1/wallet", deps.WalletService)
-	paymentadmin.RegisterRechargeRoutes(router, "/api/canvas/v1/payment/recharges", deps.PaymentService)
+	walletcanvas.RegisterRoutes(router, deps.WalletService)
+	paymentcanvas.RegisterRechargeRoutes(router, deps.PaymentService)
 }

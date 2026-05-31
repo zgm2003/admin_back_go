@@ -1,4 +1,4 @@
-package app
+package canvas
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const platform = enum.PlatformApp
+const platform = enum.PlatformCanvas
 
 type UserInitService interface {
 	Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error)
