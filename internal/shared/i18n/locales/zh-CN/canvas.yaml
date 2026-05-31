@@ -1,0 +1,47 @@
+canvas.service_missing: Canvas服务未配置
+canvas.prompt.request.invalid: 提示词参数错误
+canvas.prompt.query_failed: 查询Canvas提示词失败
+canvas.prompt.create_failed: 创建Canvas提示词失败
+canvas.asset.request.invalid: 素材参数错误
+canvas.asset.query_failed: 查询Canvas素材失败
+canvas.asset.create_failed: 创建Canvas素材失败
+canvas.settings.auth_policy_failed: 读取Canvas注册策略失败
+canvas.ai.chat.request.invalid: 文本生成参数错误
+canvas.ai.chat.service_missing: Canvas文本生成服务未配置
+canvas.ai.chat.result_invalid: Canvas文本生成结果无效
+canvas.ai.chat.provider_failed: Canvas文本生成失败
+canvas.ai.chat.empty_result: Canvas文本生成结果为空
+canvas.ai.chat.repository_missing: Canvas文本生成仓储未配置
+canvas.ai.chat.agent_query_failed: 查询文本智能体失败
+canvas.ai.chat.agent_not_found: 文本智能体不存在
+canvas.ai.chat.agent_unavailable: 该智能体不支持文本生成
+canvas.ai.chat.provider_key_missing: AI供应商API Key未配置
+canvas.ai.chat.secretbox_missing: AI密钥服务未配置
+canvas.ai.chat.provider_key_decrypt_failed: 解密AI供应商API Key失败
+canvas.ai.chat.engine_missing: AI引擎未配置
+canvas.ai.chat.engine_create_failed: 创建AI引擎失败
+canvas.ai.image.request.invalid: 图片生成参数错误
+canvas.ai.image.service_missing: Canvas图片生成服务未配置
+canvas.ai.image.result_invalid: Canvas图片生成结果无效
+canvas.ai.video.request.invalid: 视频生成参数错误
+canvas.ai.video.service_missing: Canvas视频生成服务未配置
+canvas.ai.video.billing_missing: Canvas视频计费服务未配置
+canvas.ai.video.charge_invalid: Canvas视频计费结果无效
+canvas.ai.video.content_empty: Canvas视频内容为空
+canvas.ai.video.id.invalid: 视频任务ID无效
+canvas.ai.video.not_found: Canvas视频任务不存在
+canvas.ai.video.provider_failed: Canvas视频生成失败
+canvas.ai.video.provider_task_invalid: Canvas视频任务创建结果无效
+canvas.ai.video.provider_status_failed: 查询Canvas视频任务失败
+canvas.ai.video.provider_status_invalid: Canvas视频任务状态无效
+canvas.ai.video.provider_content_failed: 下载Canvas视频内容失败
+canvas.ai.video.repository_missing: Canvas视频生成仓储未配置
+canvas.ai.video.agent_query_failed: 查询视频智能体失败
+canvas.ai.video.agent_not_found: 视频智能体不存在
+canvas.ai.video.agent_unavailable: 该智能体不支持视频生成
+canvas.ai.video.provider_key_missing: AI供应商API Key未配置
+canvas.ai.video.secretbox_missing: AI密钥服务未配置
+canvas.ai.video.provider_key_decrypt_failed: 解密AI供应商API Key失败
+canvas.ai.video.engine_missing: AI视频引擎未配置
+canvas.ai.video.engine_create_failed: 创建AI视频引擎失败
+canvas.ai.video.provider_task_missing: Canvas视频任务尚未绑定Provider任务

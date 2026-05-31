@@ -34,6 +34,7 @@ import (
 	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/auth_platform"
+	canvasmodule "admin_back_go/internal/module/canvas"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/export"
@@ -219,6 +220,25 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	paymentCertStore := payment.LocalCertStore{BaseDir: cfg.Payment.CertBaseDir}
 	alipayGateway := payalipay.NewGopayGateway()
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
+	canvasTextRuntime := canvasmodule.NewTextRuntimeService(canvasmodule.TextRuntimeDependencies{
+		Repository:    canvasmodule.NewTextGormRepository(resources.DB),
+		Billing:       aiBillingService,
+		Secretbox:     secretBox,
+		EngineFactory: canvasTextEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
+	})
+	canvasVideoRuntime := canvasmodule.NewVideoRuntimeService(canvasmodule.VideoRuntimeDependencies{
+		Repository:    canvasmodule.NewVideoGormRepository(resources.DB),
+		Secretbox:     secretBox,
+		EngineFactory: canvasVideoEngineFactory{},
+	})
+	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
+		AuthPolicy: authPlatformService,
+		Billing:    aiBillingService,
+		Wallet:     walletService,
+		Image:      aiImageService,
+		Text:       canvasTextRuntime,
+		Video:      canvasVideoRuntime,
+	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),
 		Gateway:      paymentGateway,
@@ -374,6 +394,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		RealtimeHandler:         realtimeStack.handler,
 		RoleService:             roleService,
 		AuthPlatformService:     authPlatformService,
+		CanvasService:           canvasService,
 	})
 	return &App{
 		cfg:                cfg,
@@ -453,6 +474,24 @@ func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineC
 	}
 }
 
+type canvasTextEngineFactory struct {
+	streamIdleTimeout time.Duration
+}
+
+func (f canvasTextEngineFactory) NewEngine(ctx context.Context, input canvasmodule.TextEngineConfig) (infraai.Engine, error) {
+	switch input.EngineType {
+	case infraai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL:           input.BaseURL,
+			APIKey:            input.APIKey,
+			Timeout:           config.DefaultAIChatStreamMaxDuration,
+			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, config.DefaultAIChatStreamIdleTimeout),
+		}), nil
+	default:
+		return nil, infraai.ErrInvalidConfig
+	}
+}
+
 type aiImageEngineFactory struct{}
 
 func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) infraai.ImageEngine {
@@ -465,6 +504,21 @@ func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) inf
 		})
 	default:
 		return nil
+	}
+}
+
+type canvasVideoEngineFactory struct{}
+
+func (canvasVideoEngineFactory) NewVideoEngine(ctx context.Context, input canvasmodule.VideoEngineConfig) (infraai.VideoEngine, error) {
+	switch input.EngineType {
+	case infraai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 10 * time.Minute,
+		}), nil
+	default:
+		return nil, infraai.ErrInvalidConfig
 	}
 }
 

@@ -37,7 +37,7 @@ func (f *fakeSessionService) ForgetPassword(ctx context.Context, input authmodul
 }
 func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (*authmodule.LoginConfigResponse, *apperror.Error) {
 	f.configPlatform = platform
-	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide}, nil
+	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide, AllowRegister: false}, nil
 }
 func (f *fakeSessionService) Refresh(ctx context.Context, input authmodule.RefreshInput) (*authmodule.TokenResult, *apperror.Error) {
 	return &authmodule.TokenResult{}, nil
@@ -79,6 +79,10 @@ func TestAuthRoutesForceConfiguredPlatform(t *testing.T) {
 	}
 	if authService.configPlatform != enum.PlatformApp {
 		t.Fatalf("expected app platform, got %q", authService.configPlatform)
+	}
+	configData := decodeAuthData(t, configRecorder)
+	if configData["allow_register"] != false {
+		t.Fatalf("expected login-config to expose allow_register=false, got %#v", configData)
 	}
 
 	loginRecorder := httptest.NewRecorder()

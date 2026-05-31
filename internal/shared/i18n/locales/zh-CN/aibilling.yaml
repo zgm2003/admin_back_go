@@ -16,6 +16,7 @@ aibilling.wallet_missing: AI计费钱包服务未配置
 aibilling.charge.input.invalid: AI计费扣款参数无效
 aibilling.charge.amount.invalid: AI计费金额无效
 aibilling.record.not_found: AI计费记录不存在
+aibilling.record.id.invalid: AI计费记录ID无效
 aibilling.record.status.invalid: AI计费记录状态无效
 aibilling.record.create_failed: 创建AI计费记录失败
 aibilling.record.update_failed: 更新AI计费记录失败

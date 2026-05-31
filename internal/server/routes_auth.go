@@ -17,4 +17,11 @@ func registerAuthRoutes(router *gin.Engine, deps Dependencies) {
 		CaptchaService: deps.CaptchaService,
 		UserService:    deps.UserService,
 	})
+	authapp.Register(router, authapp.RouteOptions{
+		Prefix:         "/api/canvas/v1/auth",
+		Platform:       enum.PlatformCanvas,
+		AuthService:    deps.AuthService,
+		CaptchaService: deps.CaptchaService,
+		UserService:    deps.UserService,
+	})
 }

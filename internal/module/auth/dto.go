@@ -9,6 +9,7 @@ type LoginConfigResponse struct {
 	LoginTypeArr   []LoginTypeOption `json:"login_type_arr"`
 	CaptchaEnabled bool              `json:"captcha_enabled"`
 	CaptchaType    string            `json:"captcha_type"`
+	AllowRegister  bool              `json:"allow_register"`
 }
 
 type LoginInput struct {

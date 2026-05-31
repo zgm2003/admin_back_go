@@ -114,6 +114,8 @@ type RegisterAssetInput struct {
 type CreateInput struct {
 	UserID            uint64
 	AgentID           uint64
+	Platform          string
+	BillingScene      string
 	Prompt            string
 	Size              string
 	Quality           string

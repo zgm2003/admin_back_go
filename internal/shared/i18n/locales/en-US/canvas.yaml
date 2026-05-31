@@ -1,0 +1,47 @@
+canvas.service_missing: Canvas service is not configured
+canvas.prompt.request.invalid: Invalid prompt request
+canvas.prompt.query_failed: Failed to query Canvas prompts
+canvas.prompt.create_failed: Failed to create Canvas prompt
+canvas.asset.request.invalid: Invalid asset request
+canvas.asset.query_failed: Failed to query Canvas assets
+canvas.asset.create_failed: Failed to create Canvas asset
+canvas.settings.auth_policy_failed: Failed to read Canvas registration policy
+canvas.ai.chat.request.invalid: Invalid text generation request
+canvas.ai.chat.service_missing: Canvas text generation service is not configured
+canvas.ai.chat.result_invalid: Invalid Canvas text generation result
+canvas.ai.chat.provider_failed: Canvas text generation failed
+canvas.ai.chat.empty_result: Empty Canvas text generation result
+canvas.ai.chat.repository_missing: Canvas text generation repository is not configured
+canvas.ai.chat.agent_query_failed: Failed to query text agent
+canvas.ai.chat.agent_not_found: Text agent does not exist
+canvas.ai.chat.agent_unavailable: This agent does not support text generation
+canvas.ai.chat.provider_key_missing: AI provider API key is not configured
+canvas.ai.chat.secretbox_missing: AI secret service is not configured
+canvas.ai.chat.provider_key_decrypt_failed: Failed to decrypt AI provider API key
+canvas.ai.chat.engine_missing: AI engine is not configured
+canvas.ai.chat.engine_create_failed: Failed to create AI engine
+canvas.ai.image.request.invalid: Invalid image generation request
+canvas.ai.image.service_missing: Canvas image generation service is not configured
+canvas.ai.image.result_invalid: Invalid Canvas image generation result
+canvas.ai.video.request.invalid: Invalid video generation request
+canvas.ai.video.service_missing: Canvas video generation service is not configured
+canvas.ai.video.billing_missing: Canvas video billing service is not configured
+canvas.ai.video.charge_invalid: Invalid Canvas video billing result
+canvas.ai.video.content_empty: Canvas video content is empty
+canvas.ai.video.id.invalid: Invalid video task ID
+canvas.ai.video.not_found: Canvas video task does not exist
+canvas.ai.video.provider_failed: Canvas video generation failed
+canvas.ai.video.provider_task_invalid: Invalid Canvas video task creation result
+canvas.ai.video.provider_status_failed: Failed to query Canvas video task
+canvas.ai.video.provider_status_invalid: Invalid Canvas video task status
+canvas.ai.video.provider_content_failed: Failed to download Canvas video content
+canvas.ai.video.repository_missing: Canvas video generation repository is not configured
+canvas.ai.video.agent_query_failed: Failed to query video agent
+canvas.ai.video.agent_not_found: Video agent does not exist
+canvas.ai.video.agent_unavailable: This agent does not support video generation
+canvas.ai.video.provider_key_missing: AI provider API key is not configured
+canvas.ai.video.secretbox_missing: AI secret service is not configured
+canvas.ai.video.provider_key_decrypt_failed: Failed to decrypt AI provider API key
+canvas.ai.video.engine_missing: AI video engine is not configured
+canvas.ai.video.engine_create_failed: Failed to create AI video engine
+canvas.ai.video.provider_task_missing: Canvas video task has no bound provider task

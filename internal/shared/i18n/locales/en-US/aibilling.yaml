@@ -16,6 +16,7 @@ aibilling.wallet_missing: AI billing wallet service is not configured
 aibilling.charge.input.invalid: Invalid AI billing charge request
 aibilling.charge.amount.invalid: Invalid AI billing amount
 aibilling.record.not_found: AI billing record does not exist
+aibilling.record.id.invalid: Invalid AI billing record ID
 aibilling.record.status.invalid: Invalid AI billing record status
 aibilling.record.create_failed: Failed to create AI billing record
 aibilling.record.update_failed: Failed to update AI billing record

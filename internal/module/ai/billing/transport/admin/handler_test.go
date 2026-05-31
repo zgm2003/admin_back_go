@@ -134,3 +134,6 @@ func (f *fakeHTTPService) DeleteRule(ctx context.Context, id uint64) *apperror.E
 func (f *fakeHTTPService) EnabledRule(ctx context.Context, scene string) (*aibilling.RuleDTO, *apperror.Error) {
 	return nil, nil
 }
+func (f *fakeHTTPService) BillingRecord(ctx context.Context, id int64) (*aibilling.BillingRecord, *apperror.Error) {
+	return &aibilling.BillingRecord{ID: id}, nil
+}

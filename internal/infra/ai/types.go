@@ -66,6 +66,27 @@ type ChatResult struct {
 	LatencyMs            int
 }
 
+type VideoInput struct {
+	Model           string
+	Prompt          string
+	DurationSeconds int
+	Size            string
+	ResolutionName  string
+}
+
+type VideoTask struct {
+	ID           string
+	Status       string
+	ErrorMessage string
+	RawResponse  map[string]any
+}
+
+type VideoEngine interface {
+	CreateVideo(ctx context.Context, input VideoInput) (*VideoTask, error)
+	GetVideo(ctx context.Context, taskID string) (*VideoTask, error)
+	DownloadVideo(ctx context.Context, taskID string) ([]byte, string, error)
+}
+
 type Event struct {
 	Type      string
 	DeltaText string

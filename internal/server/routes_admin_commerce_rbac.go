@@ -18,4 +18,6 @@ func registerAdminCommerceRBACRoutes(router *gin.Engine, deps Dependencies) {
 	permissionadmin.RegisterRoutes(router, deps.PermissionService)
 	roleadmin.RegisterRoutes(router, deps.RoleService)
 	authplatformadmin.RegisterRoutes(router, deps.AuthPlatformService)
+	walletadmin.RegisterCurrentUserRoutes(router, "/api/canvas/v1/wallet", deps.WalletService)
+	paymentadmin.RegisterRechargeRoutes(router, "/api/canvas/v1/payment/recharges", deps.PaymentService)
 }

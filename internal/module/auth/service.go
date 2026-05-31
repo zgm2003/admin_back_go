@@ -167,10 +167,15 @@ func (s *Service) LoginConfig(ctx context.Context, platform string) (*LoginConfi
 	if appErr != nil {
 		return nil, appErr
 	}
+	allowRegister, appErr := s.registerAllowed(ctx, platform)
+	if appErr != nil {
+		return nil, appErr
+	}
 	return &LoginConfigResponse{
 		LoginTypeArr:   options,
 		CaptchaEnabled: true,
 		CaptchaType:    captchaType,
+		AllowRegister:  allowRegister,
 	}, nil
 }
 

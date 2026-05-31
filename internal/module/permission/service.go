@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/enum"
 )
 
 type Service struct {
@@ -32,7 +33,7 @@ func WithCacheInvalidator(cacheInvalidator CacheInvalidator) ServiceOption {
 
 func NewService(repository Repository, allowedPlatforms []string, options ...ServiceOption) *Service {
 	if len(allowedPlatforms) == 0 {
-		allowedPlatforms = []string{"admin", "app"}
+		allowedPlatforms = []string{enum.PlatformAdmin, enum.PlatformApp, enum.PlatformCanvas}
 	}
 	allowed := make(map[string]struct{}, len(allowedPlatforms))
 	platforms := make([]string, 0, len(allowedPlatforms))

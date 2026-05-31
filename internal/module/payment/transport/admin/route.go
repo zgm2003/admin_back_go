@@ -19,12 +19,23 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	configs.DELETE("/:id", handler.DeleteConfig)
 	configs.POST("/:id/test", handler.TestConfig)
 
-	recharges := router.Group("/api/admin/v1/payment/recharges")
-	recharges.GET("/page-init", handler.RechargePageInit)
-	recharges.GET("", handler.ListRecharges)
-	recharges.GET("/:id", handler.GetRecharge)
-	recharges.POST("", handler.CreateRecharge)
-	recharges.POST("/:id/pay", handler.PayRecharge)
+	registerRechargeRoutes(router, "/api/admin/v1/payment/recharges", handler, true)
 
 	router.POST("/api/admin/v1/payment/certificates", handler.UploadCertificate)
+}
+
+func RegisterRechargeRoutes(router *gin.Engine, prefix string, service HTTPService) {
+	validate.MustRegister()
+	registerRechargeRoutes(router, prefix, NewHandler(service), false)
+}
+
+func registerRechargeRoutes(router *gin.Engine, prefix string, handler *Handler, includeDetail bool) {
+	recharges := router.Group(prefix)
+	recharges.GET("/page-init", handler.RechargePageInit)
+	recharges.GET("", handler.ListRecharges)
+	if includeDetail {
+		recharges.GET("/:id", handler.GetRecharge)
+	}
+	recharges.POST("", handler.CreateRecharge)
+	recharges.POST("/:id/pay", handler.PayRecharge)
 }

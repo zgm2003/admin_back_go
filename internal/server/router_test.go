@@ -29,6 +29,7 @@ import (
 	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/auth_platform"
+	canvasmodule "admin_back_go/internal/module/canvas"
 	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/export"
@@ -37,6 +38,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/payment"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/module/queuemonitor"
@@ -1428,6 +1430,72 @@ func (f *fakeRouterUploadTokenService) Create(ctx context.Context, input uploadt
 	}, nil
 }
 
+type fakeRouterCanvasService struct {
+	promptQuery canvasmodule.PromptListQuery
+	assetQuery  canvasmodule.AssetListQuery
+	settings    canvasmodule.SettingsInput
+	chatInput   canvasmodule.ChatCompletionInput
+	imageInput  canvasmodule.ImageGenerationInput
+	videoInput  canvasmodule.VideoGenerationInput
+}
+
+func (f *fakeRouterCanvasService) PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error) {
+	f.promptQuery = query
+	return &canvasmodule.PromptListResponse{List: []canvasmodule.PromptItem{{ID: 1, Slug: "prompt", Title: "Prompt"}}}, nil
+}
+func (f *fakeRouterCanvasService) PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error) {
+	f.assetQuery = query
+	return &canvasmodule.AssetListResponse{List: []canvasmodule.AssetItem{{ID: 2, Slug: "asset", Type: canvasmodule.AssetTypeImage, Title: "Asset"}}}, nil
+}
+func (f *fakeRouterCanvasService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
+	f.settings = input
+	return &canvasmodule.SettingsResponse{AllowRegister: true, Scenes: []string{"canvas_text_generate"}}, nil
+}
+func (f *fakeRouterCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
+	f.chatInput = input
+	return &canvasmodule.ChatCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
+}
+func (f *fakeRouterCanvasService) GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error) {
+	f.imageInput = input
+	return &canvasmodule.ImageGenerationResponse{TaskID: 88, Status: "pending"}, nil
+}
+func (f *fakeRouterCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
+	f.videoInput = input
+	return &canvasmodule.VideoGenerationResponse{ID: 99, Status: "pending"}, nil
+}
+func (f *fakeRouterCanvasService) VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error) {
+	return &canvasmodule.VideoStatusResponse{ID: id, Status: "pending"}, nil
+}
+func (f *fakeRouterCanvasService) VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
+	return []byte("video"), "video/mp4", nil
+}
+
+type fakeRouterWalletService struct {
+	summaryUserID int64
+	query         walletmodule.TransactionListQuery
+}
+
+func (f *fakeRouterWalletService) Summary(ctx context.Context, userID int64) (*walletmodule.SummaryResponse, *apperror.Error) {
+	f.summaryUserID = userID
+	return &walletmodule.SummaryResponse{BalanceCents: 1200, BalanceText: "12.00"}, nil
+}
+func (f *fakeRouterWalletService) Transactions(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error) {
+	f.query = query
+	return &walletmodule.TransactionListResponse{List: []walletmodule.TransactionItem{{ID: 1, UserID: query.UserID, TransactionNo: "WLT1", AmountCents: 100}}, Page: walletmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
+}
+func (f *fakeRouterWalletService) WalletUsersPageInit(ctx context.Context) (*walletmodule.WalletUsersPageInitResponse, *apperror.Error) {
+	return &walletmodule.WalletUsersPageInitResponse{}, nil
+}
+func (f *fakeRouterWalletService) WalletUsers(ctx context.Context, query walletmodule.WalletUserListQuery) (*walletmodule.WalletUserListResponse, *apperror.Error) {
+	return &walletmodule.WalletUserListResponse{}, nil
+}
+func (f *fakeRouterWalletService) LedgerPageInit(ctx context.Context) (*walletmodule.LedgerPageInitResponse, *apperror.Error) {
+	return &walletmodule.LedgerPageInitResponse{}, nil
+}
+func (f *fakeRouterWalletService) Ledger(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error) {
+	return &walletmodule.TransactionListResponse{}, nil
+}
+
 type fakeRouterQueueMonitorService struct {
 	listCalled      bool
 	failedListQuery queuemonitor.FailedListQuery
@@ -1947,6 +2015,85 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 	}
 }
 
+func TestRouterInstallsCanvasAuthAndCurrentUserRoutes(t *testing.T) {
+	var authInput auth.LoginInput
+	var loginConfigPlatform string
+	var tokenInput middleware.TokenInput
+	var logoutToken string
+	userService := &fakeRouterUserService{result: &user.InitResponse{UserID: 8, Username: "画布用户", Avatar: "canvas.png"}}
+	authService := &fakeAppRouterAuthService{
+		loginConfigFn: func(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
+			loginConfigPlatform = platform
+			return &auth.LoginConfigResponse{LoginTypeArr: []auth.LoginTypeOption{{Label: "密码登录", Value: auth.LoginTypePassword}}, CaptchaEnabled: true, CaptchaType: auth.TypeSlide}, nil
+		},
+		loginFn: func(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
+			authInput = input
+			return &auth.LoginResponse{UserID: 8, AccessToken: "canvas-token", ExpiresIn: 14400}, nil
+		},
+		logoutFn: func(ctx context.Context, accessToken string) *apperror.Error {
+			logoutToken = accessToken
+			return nil
+		},
+	}
+	router := newTestRouter(t, Dependencies{
+		AuthService:    authService,
+		CaptchaService: fakeCaptchaService{},
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			tokenInput = input
+			return &middleware.AuthIdentity{UserID: 8, SessionID: 21, Platform: input.Platform}, nil
+		},
+		UserService: userService,
+	})
+
+	configRecorder := httptest.NewRecorder()
+	configRequest := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/auth/login-config", nil)
+	configRequest.Header.Set("platform", "admin")
+	router.ServeHTTP(configRecorder, configRequest)
+	if configRecorder.Code != http.StatusOK {
+		t.Fatalf("expected canvas login-config status %d, got %d body=%s", http.StatusOK, configRecorder.Code, configRecorder.Body.String())
+	}
+	if loginConfigPlatform != enum.PlatformCanvas {
+		t.Fatalf("expected canvas login-config to force platform canvas, got %q", loginConfigPlatform)
+	}
+
+	loginRecorder := httptest.NewRecorder()
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/login", strings.NewReader(`{"login_type":"password","login_account":"15671628271","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRequest.Header.Set("device-id", "web-1")
+	router.ServeHTTP(loginRecorder, loginRequest)
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("expected canvas login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())
+	}
+	if authInput.Platform != enum.PlatformCanvas || authInput.DeviceID != "web-1" {
+		t.Fatalf("unexpected canvas login input: %#v", authInput)
+	}
+
+	meRecorder := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/users/me", nil)
+	meRequest.Header.Set("Authorization", "Bearer canvas-token")
+	meRequest.Header.Set("device-id", "web-1")
+	router.ServeHTTP(meRecorder, meRequest)
+	if meRecorder.Code != http.StatusOK {
+		t.Fatalf("expected canvas users/me status %d, got %d body=%s", http.StatusOK, meRecorder.Code, meRecorder.Body.String())
+	}
+	if tokenInput.AccessToken != "canvas-token" || tokenInput.Platform != enum.PlatformCanvas || tokenInput.DeviceID != "web-1" {
+		t.Fatalf("unexpected canvas token input: %#v", tokenInput)
+	}
+	if userService.input.UserID != 8 || userService.input.Platform != enum.PlatformCanvas {
+		t.Fatalf("unexpected canvas user service input: %#v", userService.input)
+	}
+
+	logoutRecorder := httptest.NewRecorder()
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/logout", nil)
+	logoutRequest.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(logoutRecorder, logoutRequest)
+	if logoutRecorder.Code != http.StatusOK {
+		t.Fatalf("expected canvas logout status %d, got %d body=%s", http.StatusOK, logoutRecorder.Code, logoutRecorder.Body.String())
+	}
+	if logoutToken != "canvas-token" {
+		t.Fatalf("expected canvas logout token canvas-token, got %q", logoutToken)
+	}
+}
 func TestRouterInstallsAppProfileAndUploadRoutes(t *testing.T) {
 	var tokenInput middleware.TokenInput
 	permissionChecked := false
@@ -3292,6 +3439,118 @@ func TestRouterInstallsPaymentConfigAndRechargeRoutes(t *testing.T) {
 		router.ServeHTTP(recorder, request)
 		if recorder.Code == http.StatusOK {
 			t.Fatalf("retired payment route still returns OK: %s %s", retired.method, retired.path)
+		}
+	}
+}
+func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
+	canvasService := &fakeRouterCanvasService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
+		},
+		CanvasService: canvasService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/settings", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || canvasService.settings.UserID != 9 {
+		t.Fatalf("expected canvas settings route for token user, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), canvasService.settings)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/prompts?keyword=cat&category=style", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || canvasService.promptQuery.Keyword != "cat" || canvasService.promptQuery.Category != "style" {
+		t.Fatalf("expected canvas prompt route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), canvasService.promptQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/assets?keyword=sky&type=image", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || canvasService.assetQuery.Keyword != "sky" || canvasService.assetQuery.Type != canvasmodule.AssetTypeImage {
+		t.Fatalf("expected canvas asset route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), canvasService.assetQuery)
+	}
+}
+func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
+	paymentService := &fakeRouterPaymentService{}
+	walletService := &fakeRouterWalletService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
+		},
+		PaymentService: paymentService,
+		WalletService:  walletService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/wallet/summary", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || walletService.summaryUserID != 9 {
+		t.Fatalf("expected canvas wallet summary for token user, code=%d body=%s user=%d", recorder.Code, recorder.Body.String(), walletService.summaryUserID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/wallet/transactions?current_page=2&page_size=10&user_id=999&keyword=WLT", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || walletService.query.UserID != 9 || walletService.query.CurrentPage != 2 || walletService.query.Keyword != "WLT" {
+		t.Fatalf("expected canvas wallet transactions to force token user, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), walletService.query)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/payment/recharges/page-init", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected canvas recharge page-init, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/payment/recharges?current_page=1&page_size=10&status=paying", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || paymentService.rechargeQuery.UserID != 9 || paymentService.rechargeQuery.Status != "paying" {
+		t.Fatalf("expected canvas recharge list to force token user, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), paymentService.rechargeQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/payment/recharges", strings.NewReader(`{"package_code":"recharge_10","pay_method":"web","return_url":"https://canvas.example.test/recharge"}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || paymentService.rechargeInput.UserID != 9 || paymentService.rechargeInput.PackageCode != "recharge_10" {
+		t.Fatalf("expected canvas recharge create to force token user, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), paymentService.rechargeInput)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/payment/recharges/2/pay", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || paymentService.payID != 2 {
+		t.Fatalf("expected canvas recharge pay, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), paymentService)
+	}
+
+	for _, retired := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/canvas/v1/payment/ledger"},
+		{http.MethodGet, "/api/canvas/v1/payment/wallets"},
+		{http.MethodPost, "/api/canvas/v1/wallet/consumptions"},
+		{http.MethodPost, "/api/canvas/v1/payment/recharges/2/sync"},
+		{http.MethodPatch, "/api/canvas/v1/payment/recharges/2/close"},
+	} {
+		recorder = httptest.NewRecorder()
+		request = httptest.NewRequest(retired.method, retired.path, nil)
+		request.Header.Set("Authorization", "Bearer canvas-token")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code == http.StatusOK {
+			t.Fatalf("canvas must not expose route: %s %s", retired.method, retired.path)
 		}
 	}
 }

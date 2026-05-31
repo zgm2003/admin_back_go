@@ -1,9 +1,10 @@
 package enum
 
 const (
-	PlatformAll   = "all"
-	PlatformAdmin = "admin"
-	PlatformApp   = "app"
+	PlatformAll    = "all"
+	PlatformAdmin  = "admin"
+	PlatformApp    = "app"
+	PlatformCanvas = "canvas"
 )
 
 var NotificationTaskPlatforms = []string{
@@ -15,6 +16,7 @@ var NotificationTaskPlatforms = []string{
 var Platforms = []string{
 	PlatformAdmin,
 	PlatformApp,
+	PlatformCanvas,
 }
 
 func IsPlatform(value string) bool {

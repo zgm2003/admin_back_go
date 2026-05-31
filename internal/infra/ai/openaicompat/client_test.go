@@ -23,6 +23,50 @@ func (s *captureSink) Emit(ctx context.Context, event infraai.Event) error {
 	return nil
 }
 
+func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
+	var createBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
+			t.Fatalf("authorization = %q", got)
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/videos":
+			if err := json.NewDecoder(r.Body).Decode(&createBody); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "video-task-1", "status": "running"})
+		case r.Method == http.MethodGet && r.URL.Path == "/videos/video-task-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "video-task-1", "status": "completed"})
+		case r.Method == http.MethodGet && r.URL.Path == "/videos/video-task-1/content":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("video"))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second})
+	created, err := client.CreateVideo(context.Background(), infraai.VideoInput{Model: "grok-imagine-video", Prompt: "clip", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
+	if err != nil {
+		t.Fatalf("CreateVideo returned error: %v", err)
+	}
+	if created.ID != "video-task-1" || created.Status != "running" {
+		t.Fatalf("unexpected create result: %#v", created)
+	}
+	if createBody["model"] != "grok-imagine-video" || createBody["prompt"] != "clip" || createBody["seconds"] != float64(4) || createBody["size"] != "1280x720" || createBody["resolution_name"] != "720p" {
+		t.Fatalf("unexpected create body: %#v", createBody)
+	}
+	status, err := client.GetVideo(context.Background(), "video-task-1")
+	if err != nil || status.Status != "completed" {
+		t.Fatalf("GetVideo mismatch status=%#v err=%v", status, err)
+	}
+	body, contentType, err := client.DownloadVideo(context.Background(), "video-task-1")
+	if err != nil || string(body) != "video" || contentType != "video/mp4" {
+		t.Fatalf("DownloadVideo mismatch body=%q contentType=%q err=%v", string(body), contentType, err)
+	}
+}
+
 func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

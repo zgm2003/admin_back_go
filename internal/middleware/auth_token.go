@@ -152,6 +152,10 @@ func DefaultAuthSkipPaths() map[string]struct{} {
 		"/api/app/v1/auth/login-config":               {},
 		"/api/app/v1/auth/send-code":                  {},
 		"/api/app/v1/auth/login":                      {},
+		"/api/canvas/v1/auth/captcha":                 {},
+		"/api/canvas/v1/auth/login-config":            {},
+		"/api/canvas/v1/auth/send-code":               {},
+		"/api/canvas/v1/auth/login":                   {},
 		"/api/admin/v1/client-versions/current-check": {},
 		"/api/payment/callbacks/alipay":               {},
 		"/favicon.ico":                                {},
@@ -225,6 +229,9 @@ func matchesCookieTokenPath(path string, prefixes []string) bool {
 func defaultPlatformForPath(path string) string {
 	if strings.HasPrefix(path, "/api/app/v1/") || path == "/api/app/v1" {
 		return enum.PlatformApp
+	}
+	if strings.HasPrefix(path, "/api/canvas/v1/") || path == "/api/canvas/v1" {
+		return enum.PlatformCanvas
 	}
 	return ""
 }

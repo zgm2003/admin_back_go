@@ -18,6 +18,7 @@ import (
 	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/module/auth"
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
+	canvastransport "admin_back_go/internal/module/canvas/transport/canvas"
 	clientversion "admin_back_go/internal/module/clientversion"
 	crontask "admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
@@ -91,6 +92,7 @@ type Dependencies struct {
 	RealtimeHandler         *realtimeadmin.Handler
 	RoleService             roleadmin.HTTPService
 	AuthPlatformService     authplatformadmin.HTTPService
+	CanvasService           canvastransport.HTTPService
 	AuthSkipPaths           map[string]struct{}
 }
 
@@ -130,6 +132,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	registerAdminUserRoutes(router, deps)
 	registerAdminCommsRoutes(router, deps)
 	registerAdminCommerceRBACRoutes(router, deps)
+	registerCanvasRoutes(router, deps)
 
 	return router
 }

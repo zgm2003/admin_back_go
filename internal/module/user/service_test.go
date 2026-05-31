@@ -693,8 +693,8 @@ func TestServiceUpdateUserProfileAndInvalidatesRoleCacheWhenRoleChanges(t *testi
 	if repo.updatedProfileUserID != 9 || repo.updatedProfileFields["address_id"] != int64(3) || repo.updatedProfileFields["sex"] != enum.SexFemale {
 		t.Fatalf("profile update mismatch: %#v", repo.updatedProfileFields)
 	}
-	if cache.key != "auth_perm_uid_9_app_rbac_route_access_grants" {
-		t.Fatalf("expected cache invalidation to visit sorted admin/app keys, last key=%q", cache.key)
+	if cache.key != "auth_perm_uid_9_canvas_rbac_route_access_grants" {
+		t.Fatalf("expected cache invalidation to visit sorted admin/app/canvas keys, last key=%q", cache.key)
 	}
 }
 

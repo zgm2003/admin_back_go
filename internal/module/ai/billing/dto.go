@@ -92,6 +92,7 @@ type HTTPService interface {
 	ChangeStatus(ctx context.Context, id uint64, status int) *apperror.Error
 	DeleteRule(ctx context.Context, id uint64) *apperror.Error
 	EnabledRule(ctx context.Context, scene string) (*RuleDTO, *apperror.Error)
+	BillingRecord(ctx context.Context, id int64) (*BillingRecord, *apperror.Error)
 }
 
 type ChargeInput struct {

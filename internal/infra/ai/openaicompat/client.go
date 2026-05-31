@@ -169,6 +169,113 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 	return result, nil
 }
 
+func (c *Client) CreateVideo(ctx context.Context, input infraai.VideoInput) (*infraai.VideoTask, error) {
+	if c == nil {
+		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
+	}
+	model := strings.TrimSpace(input.Model)
+	if model == "" {
+		return nil, fmt.Errorf("%w: missing video model", infraai.ErrInvalidConfig)
+	}
+	prompt := strings.TrimSpace(input.Prompt)
+	if prompt == "" {
+		return nil, fmt.Errorf("%w: missing video prompt", infraai.ErrInvalidConfig)
+	}
+	body := map[string]any{"model": model, "prompt": prompt}
+	if input.DurationSeconds > 0 {
+		body["seconds"] = input.DurationSeconds
+	}
+	if size := strings.TrimSpace(input.Size); size != "" {
+		body["size"] = size
+	}
+	if resolution := strings.TrimSpace(input.ResolutionName); resolution != "" {
+		body["resolution_name"] = resolution
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, "/videos", body)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
+	}
+	defer resp.Body.Close()
+	if err := c.requireSuccess(resp); err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode OpenAI video create response: %w", err)
+	}
+	task := videoTaskFromPayload(payload)
+	if strings.TrimSpace(task.ID) == "" {
+		return nil, fmt.Errorf("%w: video create response missing task id", infraai.ErrUpstreamFailed)
+	}
+	return task, nil
+}
+
+func (c *Client) GetVideo(ctx context.Context, taskID string) (*infraai.VideoTask, error) {
+	if c == nil {
+		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("%w: missing video task id", infraai.ErrInvalidConfig)
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, "/videos/"+url.PathEscape(taskID), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
+	}
+	defer resp.Body.Close()
+	if err := c.requireSuccess(resp); err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode OpenAI video status response: %w", err)
+	}
+	task := videoTaskFromPayload(payload)
+	if task.ID == "" {
+		task.ID = taskID
+	}
+	return task, nil
+}
+
+func (c *Client) DownloadVideo(ctx context.Context, taskID string) ([]byte, string, error) {
+	if c == nil {
+		return nil, "", fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, "", fmt.Errorf("%w: missing video task id", infraai.ErrInvalidConfig)
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, "/videos/"+url.PathEscape(taskID)+"/content", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
+	}
+	defer resp.Body.Close()
+	if err := c.requireSuccess(resp); err != nil {
+		return nil, "", err
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("read OpenAI video content: %w", err)
+	}
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return body, contentType, nil
+}
+
 func (c *Client) newRequest(ctx context.Context, method string, endpoint string, body any) (*http.Request, error) {
 	baseURL, err := normalizeBaseURL(c.baseURL)
 	if err != nil {
@@ -345,6 +452,23 @@ type chatCompletionRequest struct {
 	Tools         []chatTool         `json:"tools,omitempty"`
 	Temperature   *float64           `json:"temperature,omitempty"`
 	MaxTokens     *int               `json:"max_tokens,omitempty"`
+}
+
+func videoTaskFromPayload(payload map[string]any) *infraai.VideoTask {
+	if payload == nil {
+		return &infraai.VideoTask{}
+	}
+	task := &infraai.VideoTask{ID: stringFromAny(payload["id"]), Status: stringFromAny(payload["status"]), RawResponse: payload}
+	if task.Status == "" {
+		task.Status = stringFromAny(payload["state"])
+	}
+	if errorValue, ok := payload["error"].(map[string]any); ok {
+		task.ErrorMessage = stringFromAny(errorValue["message"])
+	}
+	if task.ErrorMessage == "" {
+		task.ErrorMessage = stringFromAny(payload["error_message"])
+	}
+	return task
 }
 
 type chatStreamOptions struct {
@@ -557,6 +681,11 @@ func inputString(inputs map[string]any, key string) string {
 	}
 	value, _ := inputs[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func stringFromAny(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
 }
 
 func inputNumber(inputs map[string]any, key string) (float64, bool) {

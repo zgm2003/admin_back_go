@@ -137,3 +137,6 @@ func (nilHTTPService) DeleteRule(ctx context.Context, id uint64) *apperror.Error
 func (nilHTTPService) EnabledRule(ctx context.Context, scene string) (*aibilling.RuleDTO, *apperror.Error) {
 	return nil, apperror.InternalKey("aibilling.service_missing", nil, "AI计费服务未配置")
 }
+func (nilHTTPService) BillingRecord(ctx context.Context, id int64) (*aibilling.BillingRecord, *apperror.Error) {
+	return nil, apperror.InternalKey("aibilling.service_missing", nil, "AI计费服务未配置")
+}

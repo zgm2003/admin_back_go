@@ -392,11 +392,19 @@ func (s *Service) chargeImageGeneration(ctx context.Context, input CreateInput, 
 	if appErr != nil {
 		return nil, appErr
 	}
+	platform := strings.TrimSpace(input.Platform)
+	if platform == "" {
+		platform = "admin"
+	}
+	scene := strings.TrimSpace(input.BillingScene)
+	if scene == "" {
+		scene = aibilling.SceneAdminImageGenerate
+	}
 	return s.billing.Charge(ctx, aibilling.ChargeInput{
 		RequestNo:  requestNo,
 		UserID:     int64(input.UserID),
-		Platform:   "admin",
-		Scene:      aibilling.SceneAdminImageGenerate,
+		Platform:   platform,
+		Scene:      scene,
 		AgentID:    int64(agent.AgentID),
 		ProviderID: int64(agent.ProviderID),
 		ModelID:    agent.ModelID,

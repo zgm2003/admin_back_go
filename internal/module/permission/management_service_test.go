@@ -164,6 +164,25 @@ func TestServiceInitReturnsTypedDictWithoutFallbackFields(t *testing.T) {
 	}
 }
 
+func TestServiceInitDefaultPlatformsIncludeCanvas(t *testing.T) {
+	repo := &fakeManagementRepository{}
+	svc := NewService(repo, nil)
+
+	got, appErr := svc.PageInit(context.Background())
+
+	if appErr != nil {
+		t.Fatalf("expected no app error, got %v", appErr)
+	}
+	gotPlatforms := make([]string, 0, len(got.Dict.PermissionPlatformArr))
+	for _, item := range got.Dict.PermissionPlatformArr {
+		gotPlatforms = append(gotPlatforms, item.Value)
+	}
+	want := []string{"admin", "app", "canvas"}
+	if !reflect.DeepEqual(gotPlatforms, want) {
+		t.Fatalf("default permission platforms mismatch\nwant=%#v\n got=%#v", want, gotPlatforms)
+	}
+}
+
 func TestServiceListReturnsPermissionTreeForRequestedPlatform(t *testing.T) {
 	repo := &fakeManagementRepository{perms: []Permission{
 		{ID: 1, Name: "系统", ParentID: RootParentID, Platform: "admin", Type: TypeDir, Sort: 1, Status: CommonYes, ShowMenu: CommonYes},

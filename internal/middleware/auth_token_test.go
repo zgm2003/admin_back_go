@@ -61,6 +61,46 @@ func TestAuthTokenDefaultSkipPathsExcludeLegacyUsersRoutes(t *testing.T) {
 	}
 }
 
+func TestDefaultAuthSkipPathsExposeCanvasAuthPublicEndpoints(t *testing.T) {
+	paths := DefaultAuthSkipPaths()
+	for _, path := range []string{
+		"/api/canvas/v1/auth/captcha",
+		"/api/canvas/v1/auth/login-config",
+		"/api/canvas/v1/auth/send-code",
+		"/api/canvas/v1/auth/login",
+	} {
+		if _, ok := paths[path]; !ok {
+			t.Fatalf("canvas auth public endpoint %s must be skipped", path)
+		}
+	}
+}
+
+func TestAuthTokenDefaultsPlatformForCanvasAPIBearerRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var gotInput TokenInput
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
+			gotInput = input
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "canvas"}, nil
+		},
+	}))
+	router.GET("/api/canvas/v1/users/me", func(c *gin.Context) {
+		c.String(http.StatusOK, "me")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/users/me", nil)
+	request.Header.Set("Authorization", "Bearer bearer-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if gotInput.Platform != "canvas" {
+		t.Fatalf("expected canvas API bearer request to default platform canvas, got %q", gotInput.Platform)
+	}
+}
 func TestAuthTokenRejectsMissingBearer(t *testing.T) {
 	router := newAuthTokenTestRouter(AuthTokenConfig{})
 

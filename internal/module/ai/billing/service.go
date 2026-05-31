@@ -184,6 +184,24 @@ func (s *Service) EnabledRule(ctx context.Context, scene string) (*RuleDTO, *app
 	return &dto, nil
 }
 
+func (s *Service) BillingRecord(ctx context.Context, id int64) (*BillingRecord, *apperror.Error) {
+	if id <= 0 {
+		return nil, apperror.BadRequestKey("aibilling.record.id.invalid", nil, "AI计费记录ID无效")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	record, err := repo.GetRecord(ctx, id)
+	if err != nil {
+		return nil, wrapInternal("aibilling.record.query_failed", "查询AI计费记录失败", err)
+	}
+	if record == nil {
+		return nil, apperror.NotFoundKey("aibilling.record.not_found", nil, "AI计费记录不存在")
+	}
+	return record, nil
+}
+
 func (s *Service) Charge(ctx context.Context, input ChargeInput) (*ChargeResult, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {

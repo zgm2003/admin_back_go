@@ -166,7 +166,7 @@ func (f *fakeLoginLogEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task)
 }
 
 func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
-	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: TypeSlide}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: TypeSlide, allowRegister: true}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
 
 	result, appErr := service.LoginConfig(context.Background(), "admin")
 
@@ -184,6 +184,22 @@ func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
 	}
 	if !result.CaptchaEnabled || result.CaptchaType != TypeSlide {
 		t.Fatalf("expected slide captcha config, got %#v", result)
+	}
+	if !result.AllowRegister {
+		t.Fatalf("expected login-config to expose allow_register=true, got %#v", result)
+	}
+}
+
+func TestServiceLoginConfigReturnsRegisterSwitch(t *testing.T) {
+	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"password"}, captchaType: TypeSlide, allowRegister: false}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+
+	result, appErr := service.LoginConfig(context.Background(), "canvas")
+
+	if appErr != nil {
+		t.Fatalf("expected login config to succeed, got %v", appErr)
+	}
+	if result.AllowRegister {
+		t.Fatalf("expected login-config to expose allow_register=false, got %#v", result)
 	}
 }
 

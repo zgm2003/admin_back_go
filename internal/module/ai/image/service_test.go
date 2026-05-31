@@ -311,6 +311,28 @@ func TestCreateChargesBillingBeforePersistingAndQueueingTask(t *testing.T) {
 	}
 }
 
+func TestCreateCanChargeCanvasImageScene(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
+	billing := &fakeImageBilling{chargeResult: &aibilling.ChargeResult{RecordID: 501}}
+	service := NewService(Dependencies{
+		Repository: repo,
+		Enqueuer:   &fakeImageEnqueuer{},
+		Secretbox:  box,
+		Billing:    billing,
+		Now:        fixedImageNow(),
+	})
+
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: "canvas", BillingScene: aibilling.SceneCanvasImageGenerate, Prompt: "draw", N: 2})
+
+	if appErr != nil {
+		t.Fatalf("Create returned error: %#v", appErr)
+	}
+	if billing.chargeInput.Platform != "canvas" || billing.chargeInput.Scene != aibilling.SceneCanvasImageGenerate || billing.chargeInput.UnitCount != 2 {
+		t.Fatalf("canvas billing charge input mismatch: %#v", billing.chargeInput)
+	}
+}
+
 func TestCreateRefundsBillingWhenEnqueueFails(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
