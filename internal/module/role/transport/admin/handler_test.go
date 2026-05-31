@@ -27,7 +27,7 @@ type fakeHTTPService struct {
 	defaultID   int64
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*rolemodule.InitResponse, *apperror.Error) {
+func (f *fakeHTTPService) PageInit(ctx context.Context) (*rolemodule.InitResponse, *apperror.Error) {
 	return f.initResult, f.err
 }
 

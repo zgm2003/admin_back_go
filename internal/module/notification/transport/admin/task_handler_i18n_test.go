@@ -16,7 +16,7 @@ import (
 
 type fakeTaskHTTPService struct{}
 
-func (f fakeTaskHTTPService) Init(ctx context.Context) (*notificationtaskmodule.InitResponse, *apperror.Error) {
+func (f fakeTaskHTTPService) PageInit(ctx context.Context) (*notificationtaskmodule.InitResponse, *apperror.Error) {
 	return &notificationtaskmodule.InitResponse{}, nil
 }
 

@@ -19,7 +19,7 @@ const (
 )
 
 type PermissionDictionary interface {
-	Init(ctx context.Context) (*permission.InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*permission.InitResponse, *apperror.Error)
 }
 
 type CacheInvalidator interface {
@@ -45,12 +45,12 @@ func NewService(repository Repository, permissionDictionary PermissionDictionary
 	}
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if s == nil || s.permissionDictionary == nil {
 		return nil, apperror.Internal("权限字典服务未配置")
 	}
 
-	result, appErr := s.permissionDictionary.Init(ctx)
+	result, appErr := s.permissionDictionary.PageInit(ctx)
 	if appErr != nil {
 		return nil, appErr
 	}

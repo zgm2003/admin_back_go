@@ -15,11 +15,11 @@ type Page struct {
 	Total       int64 `json:"total"`
 }
 
-type ConfigInitResponse struct {
-	Dict ConfigInitDict `json:"dict"`
+type ConfigPageInitResponse struct {
+	Dict ConfigPageInitDict `json:"dict"`
 }
 
-type ConfigInitDict struct {
+type ConfigPageInitDict struct {
 	ProviderArr        []dict.Option[string] `json:"provider_arr"`
 	EnvironmentArr     []dict.Option[string] `json:"environment_arr"`
 	CommonStatusArr    []dict.Option[int]    `json:"common_status_arr"`
@@ -105,7 +105,7 @@ type ConfigTestResponse struct {
 }
 
 type HTTPService interface {
-	ConfigInit(ctx context.Context) (*ConfigInitResponse, *apperror.Error)
+	ConfigPageInit(ctx context.Context) (*ConfigPageInitResponse, *apperror.Error)
 	ListConfigs(ctx context.Context, query ConfigListQuery) (*ConfigListResponse, *apperror.Error)
 	CreateConfig(ctx context.Context, input ConfigMutationInput) (int64, *apperror.Error)
 	UpdateConfig(ctx context.Context, id int64, input ConfigMutationInput) *apperror.Error
@@ -120,7 +120,7 @@ type HTTPService interface {
 	PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *apperror.Error)
 	SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error)
 	CloseOrder(ctx context.Context, id int64) (*OrderStatusResponse, *apperror.Error)
-	RechargeInit(ctx context.Context, userID int64) (*RechargeInitResponse, *apperror.Error)
+	RechargePageInit(ctx context.Context, userID int64) (*RechargePageInitResponse, *apperror.Error)
 	ListRecharges(ctx context.Context, query RechargeListQuery) (*RechargeListResponse, *apperror.Error)
 	GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeDetail, *apperror.Error)
 	CreateRecharge(ctx context.Context, input RechargeCreateInput) (*RechargePayResponse, *apperror.Error)

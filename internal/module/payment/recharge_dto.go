@@ -14,15 +14,15 @@ const (
 	walletSourceRecharge = "recharge"
 )
 
-type RechargeInitResponse struct {
+type RechargePageInitResponse struct {
 	Wallet        WalletSummary         `json:"wallet"`
 	Packages      []RechargePackageItem `json:"packages"`
 	PaymentMethod RechargePaymentMethod `json:"payment_method"`
-	Dict          RechargeInitDict      `json:"dict"`
+	Dict          RechargePageInitDict  `json:"dict"`
 	Recent        []RechargeListItem    `json:"recent"`
 }
 
-type RechargeInitDict struct {
+type RechargePageInitDict struct {
 	StatusArr []dict.Option[string] `json:"status_arr"`
 }
 

@@ -137,9 +137,9 @@ func (f *fakeEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (taskqu
 }
 
 func TestInitReturnsTaskDicts(t *testing.T) {
-	got, appErr := NewService(&fakeRepository{}).Init(context.Background())
+	got, appErr := NewService(&fakeRepository{}).PageInit(context.Background())
 	if appErr != nil {
-		t.Fatalf("Init returned error: %v", appErr)
+		t.Fatalf("PageInit returned error: %v", appErr)
 	}
 	if got.Dict.NotificationTargetTypeArr[0].Value != enum.NotificationTargetAll || got.Dict.NotificationTaskStatusArr[3].Value != enum.NotificationTaskStatusFailed {
 		t.Fatalf("unexpected task dict: %#v", got.Dict)

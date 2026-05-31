@@ -19,12 +19,12 @@ func NewTaskHandler(service notificationtaskmodule.HTTPService) *TaskHandler {
 	return &TaskHandler{service: service}
 }
 
-func (h *TaskHandler) Init(c *gin.Context) {
+func (h *TaskHandler) PageInit(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notificationtask.service_missing", nil, "通知任务服务未配置"))
 		return
 	}
-	result, appErr := h.service.Init(c.Request.Context())
+	result, appErr := h.service.PageInit(c.Request.Context())
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

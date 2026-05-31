@@ -126,7 +126,7 @@ func (s *Service) AllowRegister(ctx context.Context, platform string) (bool, err
 	return row.AllowRegister == enum.CommonYes, nil
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
 		CommonStatusArr:            dict.CommonStatusOptions(),
 		AuthPlatformLoginTypeArr:   dict.AuthPlatformLoginTypeOptions(),

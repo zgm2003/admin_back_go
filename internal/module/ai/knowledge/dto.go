@@ -331,7 +331,7 @@ type Repository interface {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	ListBases(ctx context.Context, query BaseListQuery) (*BaseListResponse, *apperror.Error)
 	GetBase(ctx context.Context, id uint64) (*BaseDetailResponse, *apperror.Error)
 	CreateBase(ctx context.Context, input BaseMutationInput) (uint64, *apperror.Error)

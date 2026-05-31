@@ -23,7 +23,7 @@ type fakeHTTPService struct {
 	status      int
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*systemsettingmodule.InitResponse, *apperror.Error) {
+func (f *fakeHTTPService) PageInit(ctx context.Context) (*systemsettingmodule.InitResponse, *apperror.Error) {
 	return &systemsettingmodule.InitResponse{Dict: systemsettingmodule.InitDict{}}, nil
 }
 

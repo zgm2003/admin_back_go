@@ -125,7 +125,7 @@ type ModelDriver interface {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error)
 	Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error

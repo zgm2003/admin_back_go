@@ -109,7 +109,7 @@ type ConnectionTester interface {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	ProviderModels(ctx context.Context, providerID uint64) (*ProviderModelsResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Detail(ctx context.Context, id uint64) (*DetailResponse, *apperror.Error)

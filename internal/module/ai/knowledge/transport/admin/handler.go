@@ -15,8 +15,8 @@ type Handler struct{ service aiknowledgemodule.HTTPService }
 
 func NewHandler(service aiknowledgemodule.HTTPService) *Handler { return &Handler{service: service} }
 
-func (h *Handler) Init(c *gin.Context) {
-	result, appErr := h.requireService().Init(c.Request.Context())
+func (h *Handler) PageInit(c *gin.Context) {
+	result, appErr := h.requireService().PageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 
@@ -247,7 +247,7 @@ func (h *Handler) requireService() aiknowledgemodule.HTTPService {
 
 type missingService struct{}
 
-func (missingService) Init(ctx context.Context) (*aiknowledgemodule.InitResponse, *apperror.Error) {
+func (missingService) PageInit(ctx context.Context) (*aiknowledgemodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI知识库服务未配置")
 }
 func (missingService) ListBases(ctx context.Context, query aiknowledgemodule.BaseListQuery) (*aiknowledgemodule.BaseListResponse, *apperror.Error) {

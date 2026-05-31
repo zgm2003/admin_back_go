@@ -29,7 +29,7 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{LogLevelArr: dict.LogLevelOptions(), LogTailArr: dict.LogTailOptions()}}, nil
 }
 

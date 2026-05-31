@@ -9,12 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (h *Handler) RechargeInit(c *gin.Context) {
+func (h *Handler) RechargePageInit(c *gin.Context) {
 	userID, ok := rechargeUserID(c)
 	if !ok {
 		return
 	}
-	result, appErr := h.requireService().RechargeInit(c.Request.Context(), userID)
+	result, appErr := h.requireService().RechargePageInit(c.Request.Context(), userID)
 	writeResult(c, result, appErr)
 }
 

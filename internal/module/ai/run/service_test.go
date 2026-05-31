@@ -70,9 +70,9 @@ func (f *fakeRepository) StatsByUser(ctx context.Context, query StatsListQuery) 
 
 func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
 	repo := &fakeRepository{agents: []OptionRow{{ID: 3, Name: "客服智能体"}}, engines: []OptionRow{{ID: 2, Name: "OpenAI"}}}
-	res, appErr := NewService(repo).Init(context.Background())
+	res, appErr := NewService(repo).PageInit(context.Background())
 	if appErr != nil {
-		t.Fatalf("Init returned error: %v", appErr)
+		t.Fatalf("PageInit returned error: %v", appErr)
 	}
 	if len(res.Dict.StatusArr) == 0 || res.Dict.AgentArr[0].Value != 3 || res.Dict.ProviderArr[0].Value != 2 {
 		t.Fatalf("unexpected init response: %#v", res)

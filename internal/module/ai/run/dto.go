@@ -395,7 +395,7 @@ type Repository interface {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Detail(ctx context.Context, id int64) (*DetailResponse, *apperror.Error)
 	Stats(ctx context.Context, query StatsFilter) (*StatsResponse, *apperror.Error)

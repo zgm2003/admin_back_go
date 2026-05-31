@@ -169,10 +169,10 @@ func (f *fakeRepository) DeleteSettings(ctx context.Context, ids []int64) error 
 	return nil
 }
 
-func TestDriverInitReturnsEnumBackedDict(t *testing.T) {
+func TestDriverPageInitReturnsEnumBackedDict(t *testing.T) {
 	service := NewService(&fakeRepository{}, nil)
 
-	got, appErr := service.DriverInit(context.Background())
+	got, appErr := service.DriverPageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}
@@ -182,10 +182,10 @@ func TestDriverInitReturnsEnumBackedDict(t *testing.T) {
 	}
 }
 
-func TestRuleInitReturnsEnumBackedDict(t *testing.T) {
+func TestRulePageInitReturnsEnumBackedDict(t *testing.T) {
 	service := NewService(&fakeRepository{}, nil)
 
-	got, appErr := service.RuleInit(context.Background())
+	got, appErr := service.RulePageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}
@@ -459,14 +459,14 @@ func TestRuleDeleteRejectsReferencedRule(t *testing.T) {
 	}
 }
 
-func TestSettingInitReturnsDriverAndRuleDicts(t *testing.T) {
+func TestSettingPageInitReturnsDriverAndRuleDicts(t *testing.T) {
 	repo := &fakeRepository{
 		settingDriverDict: []Driver{{ID: 1, Driver: enum.UploadDriverCOS, Bucket: "bucket-a"}},
 		settingRuleDict:   []Rule{{ID: 2, Title: "图片规则"}},
 	}
 	service := NewService(repo, nil)
 
-	got, appErr := service.SettingInit(context.Background())
+	got, appErr := service.SettingPageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("expected setting init to succeed, got %v", appErr)
 	}

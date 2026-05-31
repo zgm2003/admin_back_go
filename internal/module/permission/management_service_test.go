@@ -142,7 +142,7 @@ func TestServiceInitReturnsTypedDictWithoutFallbackFields(t *testing.T) {
 	}}
 	svc := NewService(repo, []string{"admin", "app"})
 
-	got, appErr := svc.Init(context.Background())
+	got, appErr := svc.PageInit(context.Background())
 
 	if appErr != nil {
 		t.Fatalf("expected no app error, got %v", appErr)

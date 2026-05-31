@@ -17,7 +17,7 @@ type fakePermissionDict struct {
 	err    *apperror.Error
 }
 
-func (f *fakePermissionDict) Init(ctx context.Context) (*permission.InitResponse, *apperror.Error) {
+func (f *fakePermissionDict) PageInit(ctx context.Context) (*permission.InitResponse, *apperror.Error) {
 	f.called = true
 	return f.result, f.err
 }
@@ -193,7 +193,7 @@ func TestServiceInitUsesPermissionDictionary(t *testing.T) {
 	}}}
 	svc := NewService(&fakeRepository{}, dict, nil, nil)
 
-	got, appErr := svc.Init(context.Background())
+	got, appErr := svc.PageInit(context.Background())
 
 	if appErr != nil {
 		t.Fatalf("expected init to succeed, got %v", appErr)

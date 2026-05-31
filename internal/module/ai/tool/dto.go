@@ -225,7 +225,7 @@ type Executor interface {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	GeneratePageInit(ctx context.Context) (*GeneratePageInitResponse, *apperror.Error)
 	GenerateDraft(ctx context.Context, input GenerateDraftInput) (*GenerateDraftResponse, *apperror.Error)

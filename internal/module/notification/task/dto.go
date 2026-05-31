@@ -110,7 +110,7 @@ type SendTaskResult struct {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	StatusCount(ctx context.Context, query StatusCountQuery) ([]StatusCountItem, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error)

@@ -88,7 +88,7 @@ func (s *Service) BuildContextByRole(ctx context.Context, roleID int64, platform
 	return buildContext(enabledIDs, permMap), nil
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("权限仓储未配置")
 	}

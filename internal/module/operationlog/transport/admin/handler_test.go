@@ -23,7 +23,7 @@ type fakeHTTPService struct {
 	err        *apperror.Error
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*operationlogmodule.InitResponse, *apperror.Error) {
+func (f *fakeHTTPService) PageInit(ctx context.Context) (*operationlogmodule.InitResponse, *apperror.Error) {
 	return &operationlogmodule.InitResponse{}, f.err
 }
 

@@ -38,7 +38,7 @@ func NewService(repository Repository, box secretbox.Box, tester ConnectionTeste
 	return &Service{repository: repository, secretbox: box, tester: tester}
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr

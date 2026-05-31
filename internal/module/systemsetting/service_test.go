@@ -78,7 +78,7 @@ func (f *fakeRepository) InvalidateCache(ctx context.Context, key string) error 
 func TestInitReturnsEnumBackedDict(t *testing.T) {
 	service := NewService(&fakeRepository{})
 
-	got, appErr := service.Init(context.Background())
+	got, appErr := service.PageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}

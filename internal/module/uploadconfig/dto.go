@@ -2,28 +2,28 @@ package uploadconfig
 
 import "admin_back_go/internal/shared/dict"
 
-type DriverInitResponse struct {
-	Dict DriverInitDict `json:"dict"`
+type DriverPageInitResponse struct {
+	Dict DriverPageInitDict `json:"dict"`
 }
 
-type DriverInitDict struct {
+type DriverPageInitDict struct {
 	UploadDriverArr []dict.Option[string] `json:"upload_driver_arr"`
 }
 
-type RuleInitResponse struct {
-	Dict RuleInitDict `json:"dict"`
+type RulePageInitResponse struct {
+	Dict RulePageInitDict `json:"dict"`
 }
 
-type RuleInitDict struct {
+type RulePageInitDict struct {
 	UploadImageExtArr []dict.Option[string] `json:"upload_image_ext_arr"`
 	UploadFileExtArr  []dict.Option[string] `json:"upload_file_ext_arr"`
 }
 
-type SettingInitResponse struct {
-	Dict SettingInitDict `json:"dict"`
+type SettingPageInitResponse struct {
+	Dict SettingPageInitDict `json:"dict"`
 }
 
-type SettingInitDict struct {
+type SettingPageInitDict struct {
 	UploadDriverList []dict.Option[int] `json:"upload_driver_list"`
 	UploadRuleList   []dict.Option[int] `json:"upload_rule_list"`
 	CommonStatusArr  []dict.Option[int] `json:"common_status_arr"`

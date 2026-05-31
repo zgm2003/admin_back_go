@@ -31,7 +31,7 @@ func NewService(repository Repository, registry Registry) *Service {
 	return &Service{repository: repository, registry: registry, now: time.Now}
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
 		CronPresetArr: []dict.Option[string]{
 			{Label: "每分钟", Value: "0 * * * * *"},

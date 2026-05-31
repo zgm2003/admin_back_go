@@ -92,7 +92,7 @@ type LogItem struct {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Create(ctx context.Context, input SaveInput) (*ListItem, *apperror.Error)
 	Update(ctx context.Context, id int64, input SaveInput) *apperror.Error

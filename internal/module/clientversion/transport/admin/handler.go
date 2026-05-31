@@ -18,12 +18,12 @@ func NewHandler(service clientversionmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Init(c *gin.Context) {
+func (h *Handler) PageInit(c *gin.Context) {
 	service, ok := h.requireService(c)
 	if !ok {
 		return
 	}
-	result, appErr := service.Init(c.Request.Context())
+	result, appErr := service.PageInit(c.Request.Context())
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

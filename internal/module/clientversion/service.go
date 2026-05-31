@@ -29,7 +29,7 @@ func NewService(repository Repository, publisher ManifestPublisher) *Service {
 	return &Service{repository: repository, publisher: publisher}
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
 		ClientVersionPlatformArr: dict.ClientVersionPlatformOptions(),
 		CommonYesNoArr:           dict.CommonYesNoOptions(),

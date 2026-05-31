@@ -12,7 +12,7 @@ func Register(router *gin.Engine, service aiagentmodule.HTTPService) {
 	handler := NewHandler(service)
 
 	group := router.Group("/api/admin/v1/ai-agents")
-	group.GET("/page-init", handler.Init)
+	group.GET("/page-init", handler.PageInit)
 	group.GET("", handler.List)
 	group.GET("/options", handler.Options)
 	group.GET("/provider-models/:id", handler.ProviderModels)

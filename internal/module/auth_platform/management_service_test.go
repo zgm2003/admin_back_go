@@ -73,7 +73,7 @@ func (f *fakeManagementRepository) Delete(ctx context.Context, ids []int64) erro
 func TestManagementInitReturnsEnumBackedDict(t *testing.T) {
 	service := NewService(&fakeManagementRepository{})
 
-	got, appErr := service.Init(context.Background())
+	got, appErr := service.PageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 type ManagementService interface {
-	Init(ctx context.Context) (*permissionmodule.InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*permissionmodule.InitResponse, *apperror.Error)
 	List(ctx context.Context, query permissionmodule.PermissionListQuery) ([]permissionmodule.PermissionListItem, *apperror.Error)
 	Create(ctx context.Context, input permissionmodule.PermissionMutationInput) (int64, *apperror.Error)
 	Update(ctx context.Context, id int64, input permissionmodule.PermissionMutationInput) *apperror.Error
@@ -29,12 +29,12 @@ func NewManagementHandler(service ManagementService) *ManagementHandler {
 	return &ManagementHandler{service: service}
 }
 
-func (h *ManagementHandler) Init(c *gin.Context) {
+func (h *ManagementHandler) PageInit(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.Internal("权限服务未配置"))
 		return
 	}
-	result, appErr := h.service.Init(c.Request.Context())
+	result, appErr := h.service.PageInit(c.Request.Context())
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

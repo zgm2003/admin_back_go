@@ -53,7 +53,7 @@ func NewServiceWithDriver(repository Repository, box secretbox.Box, tester Provi
 	return service
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{EngineTypeArr: engineTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), HealthStatusArr: healthStatusOptions, ModelSyncArr: modelSyncStatusOptions}}, nil
 }
 

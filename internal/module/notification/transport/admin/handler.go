@@ -19,12 +19,12 @@ func NewHandler(service notificationmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Init(c *gin.Context) {
+func (h *Handler) PageInit(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("notification.service_missing", nil, "通知服务未配置"))
 		return
 	}
-	result, appErr := h.service.Init(c.Request.Context())
+	result, appErr := h.service.PageInit(c.Request.Context())
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

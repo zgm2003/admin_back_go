@@ -12,17 +12,17 @@ import (
 )
 
 type HTTPService interface {
-	DriverInit(ctx context.Context) (*uploadconfigmodule.DriverInitResponse, *apperror.Error)
+	DriverPageInit(ctx context.Context) (*uploadconfigmodule.DriverPageInitResponse, *apperror.Error)
 	DriverList(ctx context.Context, query uploadconfigmodule.DriverListQuery) (*uploadconfigmodule.DriverListResponse, *apperror.Error)
 	CreateDriver(ctx context.Context, input uploadconfigmodule.DriverCreateInput) (int64, *apperror.Error)
 	UpdateDriver(ctx context.Context, id int64, input uploadconfigmodule.DriverUpdateInput) *apperror.Error
 	DeleteDrivers(ctx context.Context, ids []int64) *apperror.Error
-	RuleInit(ctx context.Context) (*uploadconfigmodule.RuleInitResponse, *apperror.Error)
+	RulePageInit(ctx context.Context) (*uploadconfigmodule.RulePageInitResponse, *apperror.Error)
 	RuleList(ctx context.Context, query uploadconfigmodule.RuleListQuery) (*uploadconfigmodule.RuleListResponse, *apperror.Error)
 	CreateRule(ctx context.Context, input uploadconfigmodule.RuleMutationInput) (int64, *apperror.Error)
 	UpdateRule(ctx context.Context, id int64, input uploadconfigmodule.RuleMutationInput) *apperror.Error
 	DeleteRules(ctx context.Context, ids []int64) *apperror.Error
-	SettingInit(ctx context.Context) (*uploadconfigmodule.SettingInitResponse, *apperror.Error)
+	SettingPageInit(ctx context.Context) (*uploadconfigmodule.SettingPageInitResponse, *apperror.Error)
 	SettingList(ctx context.Context, query uploadconfigmodule.SettingListQuery) (*uploadconfigmodule.SettingListResponse, *apperror.Error)
 	CreateSetting(ctx context.Context, input uploadconfigmodule.SettingMutationInput) (int64, *apperror.Error)
 	UpdateSetting(ctx context.Context, id int64, input uploadconfigmodule.SettingMutationInput) *apperror.Error
@@ -38,8 +38,8 @@ func NewHandler(service HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) DriverInit(c *gin.Context) {
-	result, appErr := h.requireService().DriverInit(c.Request.Context())
+func (h *Handler) DriverPageInit(c *gin.Context) {
+	result, appErr := h.requireService().DriverPageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 
@@ -120,8 +120,8 @@ func (h *Handler) DriverDeleteBatch(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) RuleInit(c *gin.Context) {
-	result, appErr := h.requireService().RuleInit(c.Request.Context())
+func (h *Handler) RulePageInit(c *gin.Context) {
+	result, appErr := h.requireService().RulePageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 
@@ -199,8 +199,8 @@ func (h *Handler) RuleDeleteBatch(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *Handler) SettingInit(c *gin.Context) {
-	result, appErr := h.requireService().SettingInit(c.Request.Context())
+func (h *Handler) SettingPageInit(c *gin.Context) {
+	result, appErr := h.requireService().SettingPageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 
@@ -313,7 +313,7 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) DriverInit(ctx context.Context) (*uploadconfigmodule.DriverInitResponse, *apperror.Error) {
+func (failingService) DriverPageInit(ctx context.Context) (*uploadconfigmodule.DriverPageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
@@ -333,7 +333,7 @@ func (failingService) DeleteDrivers(ctx context.Context, ids []int64) *apperror.
 	return apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) RuleInit(ctx context.Context) (*uploadconfigmodule.RuleInitResponse, *apperror.Error) {
+func (failingService) RulePageInit(ctx context.Context) (*uploadconfigmodule.RulePageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 
@@ -353,7 +353,7 @@ func (failingService) DeleteRules(ctx context.Context, ids []int64) *apperror.Er
 	return apperror.Internal("上传配置服务未配置")
 }
 
-func (failingService) SettingInit(ctx context.Context) (*uploadconfigmodule.SettingInitResponse, *apperror.Error) {
+func (failingService) SettingPageInit(ctx context.Context) (*uploadconfigmodule.SettingPageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("上传配置服务未配置")
 }
 

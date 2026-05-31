@@ -75,7 +75,7 @@ type DeleteInput struct {
 }
 
 type HTTPService interface {
-	Init(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	UnreadCount(ctx context.Context, identity Identity) (*UnreadCountResponse, *apperror.Error)
 	MarkRead(ctx context.Context, identity Identity, ids []int64) *apperror.Error

@@ -11,7 +11,7 @@ func Register(router *gin.Engine, service aiprovidermodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 	group := router.Group("/api/admin/v1/ai-providers")
-	group.GET("/page-init", handler.Init)
+	group.GET("/page-init", handler.PageInit)
 	group.GET("", handler.List)
 	group.POST("/model-options", handler.PreviewModels)
 	group.POST("", handler.Create)

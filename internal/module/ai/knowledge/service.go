@@ -45,7 +45,7 @@ type Service struct{ repo Repository }
 
 func NewService(repo Repository) *Service { return &Service{repo: repo} }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
 		CommonStatusArr: dict.CommonStatusOptions(),
 		SourceTypeArr:   stringOptions([]string{SourceTypeText, SourceTypeMarkdown, SourceTypeFile}, sourceTypeLabels),

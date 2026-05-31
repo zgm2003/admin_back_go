@@ -19,8 +19,8 @@ func NewHandler(service airunmodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Init(c *gin.Context) {
-	res, appErr := h.requireService().Init(c.Request.Context())
+func (h *Handler) PageInit(c *gin.Context) {
+	res, appErr := h.requireService().PageInit(c.Request.Context())
 	writeResult(c, res, appErr)
 }
 
@@ -115,7 +115,7 @@ func writeResult(c *gin.Context, res any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) Init(ctx context.Context) (*airunmodule.InitResponse, *apperror.Error) {
+func (nilHTTPService) PageInit(ctx context.Context) (*airunmodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) List(ctx context.Context, query airunmodule.ListQuery) (*airunmodule.ListResponse, *apperror.Error) {

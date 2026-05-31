@@ -17,8 +17,8 @@ type Handler struct{ service aiagentmodule.HTTPService }
 
 func NewHandler(service aiagentmodule.HTTPService) *Handler { return &Handler{service: service} }
 
-func (h *Handler) Init(c *gin.Context) {
-	result, appErr := h.requireService().Init(c.Request.Context())
+func (h *Handler) PageInit(c *gin.Context) {
+	result, appErr := h.requireService().PageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 
@@ -186,7 +186,7 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) Init(ctx context.Context) (*aiagentmodule.InitResponse, *apperror.Error) {
+func (nilHTTPService) PageInit(ctx context.Context) (*aiagentmodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI智能体服务未配置")
 }
 func (nilHTTPService) ProviderModels(ctx context.Context, providerID uint64) (*aiagentmodule.ProviderModelsResponse, *apperror.Error) {

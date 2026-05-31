@@ -12,7 +12,7 @@ import (
 )
 
 type HTTPService interface {
-	Init(ctx context.Context) (*systemsettingmodule.InitResponse, *apperror.Error)
+	PageInit(ctx context.Context) (*systemsettingmodule.InitResponse, *apperror.Error)
 	List(ctx context.Context, query systemsettingmodule.ListQuery) (*systemsettingmodule.ListResponse, *apperror.Error)
 	Create(ctx context.Context, input systemsettingmodule.CreateInput) (int64, *apperror.Error)
 	Update(ctx context.Context, id int64, input systemsettingmodule.UpdateInput) *apperror.Error
@@ -28,12 +28,12 @@ func NewHandler(service HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Init(c *gin.Context) {
+func (h *Handler) PageInit(c *gin.Context) {
 	if h.service == nil {
 		response.Error(c, apperror.InternalKey("systemsetting.service_missing", nil, "系统设置服务未配置"))
 		return
 	}
-	result, appErr := h.service.Init(c.Request.Context())
+	result, appErr := h.service.PageInit(c.Request.Context())
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

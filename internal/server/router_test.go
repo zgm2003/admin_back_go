@@ -80,7 +80,7 @@ type fakeRouterAIKnowledgeService struct {
 	updatedAgentBindingsID uint64
 }
 
-func (f *fakeRouterAIKnowledgeService) Init(ctx context.Context) (*aiknowledge.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIKnowledgeService) PageInit(ctx context.Context) (*aiknowledge.InitResponse, *apperror.Error) {
 	f.initCalled = true
 	return &aiknowledge.InitResponse{}, nil
 }
@@ -187,7 +187,7 @@ func (fakeRouterAIMessageService) Cancel(ctx context.Context, userID int64, inpu
 
 type fakeRouterAIRunService struct{}
 
-func (fakeRouterAIRunService) Init(ctx context.Context) (*airun.InitResponse, *apperror.Error) {
+func (fakeRouterAIRunService) PageInit(ctx context.Context) (*airun.InitResponse, *apperror.Error) {
 	return &airun.InitResponse{}, nil
 }
 
@@ -470,7 +470,7 @@ type fakeRouterPermissionService struct {
 	listQuery permission.PermissionListQuery
 }
 
-func (f *fakeRouterPermissionService) Init(ctx context.Context) (*permission.InitResponse, *apperror.Error) {
+func (f *fakeRouterPermissionService) PageInit(ctx context.Context) (*permission.InitResponse, *apperror.Error) {
 	return &permission.InitResponse{Dict: permission.PermissionDict{}}, nil
 }
 
@@ -499,7 +499,7 @@ type fakeRouterRoleService struct {
 	listQuery role.ListQuery
 }
 
-func (f *fakeRouterRoleService) Init(ctx context.Context) (*role.InitResponse, *apperror.Error) {
+func (f *fakeRouterRoleService) PageInit(ctx context.Context) (*role.InitResponse, *apperror.Error) {
 	return &role.InitResponse{}, nil
 }
 
@@ -531,8 +531,8 @@ type fakeRouterAuthPlatformService struct {
 	listQuery authplatform.ListQuery
 }
 
-func (f *fakeRouterAuthPlatformService) Init(ctx context.Context) (*authplatform.InitResponse, *apperror.Error) {
-	return (&authplatform.Service{}).Init(ctx)
+func (f *fakeRouterAuthPlatformService) PageInit(ctx context.Context) (*authplatform.InitResponse, *apperror.Error) {
+	return (&authplatform.Service{}).PageInit(ctx)
 }
 
 func (f *fakeRouterAuthPlatformService) List(ctx context.Context, query authplatform.ListQuery) (*authplatform.ListResponse, *apperror.Error) {
@@ -573,7 +573,7 @@ type fakeRouterClientVersionService struct {
 	currentCheckQuery  clientversion.CurrentCheckQuery
 }
 
-func (f *fakeRouterClientVersionService) Init(ctx context.Context) (*clientversion.InitResponse, *apperror.Error) {
+func (f *fakeRouterClientVersionService) PageInit(ctx context.Context) (*clientversion.InitResponse, *apperror.Error) {
 	f.initCalled = true
 	return &clientversion.InitResponse{}, nil
 }
@@ -640,7 +640,7 @@ type fakeRouterAIProviderService struct {
 	updateModelsBody aiprovider.UpdateModelsInput
 }
 
-func (f *fakeRouterAIProviderService) Init(ctx context.Context) (*aiprovider.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIProviderService) PageInit(ctx context.Context) (*aiprovider.InitResponse, *apperror.Error) {
 	f.initCalled = true
 	return &aiprovider.InitResponse{}, nil
 }
@@ -709,7 +709,7 @@ type fakeRouterAIAgentService struct {
 	optionQuery      aiagent.OptionQuery
 }
 
-func (f *fakeRouterAIAgentService) Init(ctx context.Context) (*aiagent.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIAgentService) PageInit(ctx context.Context) (*aiagent.InitResponse, *apperror.Error) {
 	f.initCalled = true
 	return &aiagent.InitResponse{}, nil
 }
@@ -770,7 +770,7 @@ type fakeRouterAIToolService struct {
 	generateInput aitool.GenerateDraftInput
 }
 
-func (f *fakeRouterAIToolService) Init(ctx context.Context) (*aitool.InitResponse, *apperror.Error) {
+func (f *fakeRouterAIToolService) PageInit(ctx context.Context) (*aitool.InitResponse, *apperror.Error) {
 	f.initCalled = true
 	return &aitool.InitResponse{}, nil
 }
@@ -844,7 +844,7 @@ type fakeRouterOperationLogService struct {
 	listResult *operationlog.ListResponse
 }
 
-func (f *fakeRouterOperationLogService) Init(ctx context.Context) (*operationlog.InitResponse, *apperror.Error) {
+func (f *fakeRouterOperationLogService) PageInit(ctx context.Context) (*operationlog.InitResponse, *apperror.Error) {
 	f.initCalled = true
 	return &operationlog.InitResponse{}, nil
 }
@@ -873,8 +873,8 @@ type fakeRouterNotificationService struct {
 	deleteIDs      []int64
 }
 
-func (f *fakeRouterNotificationService) Init(ctx context.Context) (*notification.InitResponse, *apperror.Error) {
-	return notification.NewService(&fakeRepositoryForNotificationRouter{}).Init(ctx)
+func (f *fakeRouterNotificationService) PageInit(ctx context.Context) (*notification.InitResponse, *apperror.Error) {
+	return notification.NewService(&fakeRepositoryForNotificationRouter{}).PageInit(ctx)
 }
 
 func (f *fakeRouterNotificationService) List(ctx context.Context, query notification.ListQuery) (*notification.ListResponse, *apperror.Error) {
@@ -910,8 +910,8 @@ type fakeRouterNotificationTaskService struct {
 	deleteID         int64
 }
 
-func (f *fakeRouterNotificationTaskService) Init(ctx context.Context) (*notificationtask.InitResponse, *apperror.Error) {
-	return notificationtask.NewService(&fakeRepositoryForNotificationTaskRouter{}).Init(ctx)
+func (f *fakeRouterNotificationTaskService) PageInit(ctx context.Context) (*notificationtask.InitResponse, *apperror.Error) {
+	return notificationtask.NewService(&fakeRepositoryForNotificationTaskRouter{}).PageInit(ctx)
 }
 
 func (f *fakeRouterNotificationTaskService) StatusCount(ctx context.Context, query notificationtask.StatusCountQuery) ([]notificationtask.StatusCountItem, *apperror.Error) {
@@ -1046,8 +1046,8 @@ type fakeRouterCronTaskService struct {
 	logsQuery crontask.LogsQuery
 }
 
-func (f *fakeRouterCronTaskService) Init(ctx context.Context) (*crontask.InitResponse, *apperror.Error) {
-	return crontask.NewService(&fakeCronTaskRepositoryForRouter{}, crontask.NewDefaultRegistry()).Init(ctx)
+func (f *fakeRouterCronTaskService) PageInit(ctx context.Context) (*crontask.InitResponse, *apperror.Error) {
+	return crontask.NewService(&fakeCronTaskRepositoryForRouter{}, crontask.NewDefaultRegistry()).PageInit(ctx)
 }
 
 func (f *fakeRouterCronTaskService) List(ctx context.Context, query crontask.ListQuery) (*crontask.ListResponse, *apperror.Error) {
@@ -1120,8 +1120,8 @@ type fakeRouterSystemLogService struct {
 	linesQuery  systemlog.LinesQuery
 }
 
-func (f *fakeRouterSystemLogService) Init(ctx context.Context) (*systemlog.InitResponse, *apperror.Error) {
-	return systemlog.NewService(nil).Init(ctx)
+func (f *fakeRouterSystemLogService) PageInit(ctx context.Context) (*systemlog.InitResponse, *apperror.Error) {
+	return systemlog.NewService(nil).PageInit(ctx)
 }
 
 func (f *fakeRouterSystemLogService) Files(ctx context.Context) (*systemlog.FilesResponse, *apperror.Error) {
@@ -1140,8 +1140,8 @@ type fakeRouterSystemSettingService struct {
 	status    int
 }
 
-func (f *fakeRouterSystemSettingService) Init(ctx context.Context) (*systemsetting.InitResponse, *apperror.Error) {
-	return systemsetting.NewService(nil).Init(ctx)
+func (f *fakeRouterSystemSettingService) PageInit(ctx context.Context) (*systemsetting.InitResponse, *apperror.Error) {
+	return systemsetting.NewService(nil).PageInit(ctx)
 }
 
 func (f *fakeRouterSystemSettingService) List(ctx context.Context, query systemsetting.ListQuery) (*systemsetting.ListResponse, *apperror.Error) {
@@ -1292,8 +1292,8 @@ type fakeRouterPaymentService struct {
 	callbackInput   payment.AlipayCallbackInput
 }
 
-func (f *fakeRouterPaymentService) ConfigInit(ctx context.Context) (*payment.ConfigInitResponse, *apperror.Error) {
-	return payment.NewService(payment.Dependencies{}).ConfigInit(ctx)
+func (f *fakeRouterPaymentService) ConfigPageInit(ctx context.Context) (*payment.ConfigPageInitResponse, *apperror.Error) {
+	return payment.NewService(payment.Dependencies{}).ConfigPageInit(ctx)
 }
 
 func (f *fakeRouterPaymentService) ListConfigs(ctx context.Context, query payment.ConfigListQuery) (*payment.ConfigListResponse, *apperror.Error) {
@@ -1358,8 +1358,8 @@ func (f *fakeRouterPaymentService) CloseOrder(ctx context.Context, id int64) (*p
 	f.closeID = id
 	return &payment.OrderStatusResponse{ID: id, OrderNo: "PAY20260515100000000000", Status: "closed", StatusText: "已关闭"}, nil
 }
-func (f *fakeRouterPaymentService) RechargeInit(ctx context.Context, userID int64) (*payment.RechargeInitResponse, *apperror.Error) {
-	return &payment.RechargeInitResponse{
+func (f *fakeRouterPaymentService) RechargePageInit(ctx context.Context, userID int64) (*payment.RechargePageInitResponse, *apperror.Error) {
+	return &payment.RechargePageInitResponse{
 		Wallet:        payment.WalletSummary{},
 		Packages:      []payment.RechargePackageItem{{Code: "recharge_10", Name: "¥10", AmountCents: 1000, AmountText: "10.00"}},
 		PaymentMethod: payment.RechargePaymentMethod{Provider: "alipay", Label: "支付宝", Enabled: true},

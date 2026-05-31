@@ -55,7 +55,7 @@ func NewService(repository Repository, executors map[string]Executor, opts ...Op
 	return service
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{RiskLevelArr: riskOptions(), CommonStatusArr: dict.CommonStatusOptions()}}, nil
 }
 

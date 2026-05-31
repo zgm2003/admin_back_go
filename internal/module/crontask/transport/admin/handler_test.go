@@ -26,7 +26,7 @@ type fakeCronHTTPService struct {
 	logsQuery   crontaskmodule.LogsQuery
 }
 
-func (f *fakeCronHTTPService) Init(ctx context.Context) (*crontaskmodule.InitResponse, *apperror.Error) {
+func (f *fakeCronHTTPService) PageInit(ctx context.Context) (*crontaskmodule.InitResponse, *apperror.Error) {
 	return &crontaskmodule.InitResponse{Dict: crontaskmodule.InitDict{}}, nil
 }
 

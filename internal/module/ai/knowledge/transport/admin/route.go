@@ -10,7 +10,7 @@ func Register(router *gin.Engine, service aiknowledgemodule.HTTPService) {
 	h := NewHandler(service)
 	group := router.Group("/api/admin/v1")
 	{
-		group.GET("/ai-knowledge-bases/page-init", h.Init)
+		group.GET("/ai-knowledge-bases/page-init", h.PageInit)
 		group.GET("/ai-knowledge-bases", h.ListBases)
 		group.GET("/ai-knowledge-bases/:id", h.GetBase)
 		group.POST("/ai-knowledge-bases", h.CreateBase)

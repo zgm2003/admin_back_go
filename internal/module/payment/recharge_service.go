@@ -13,7 +13,7 @@ import (
 
 const defaultRechargeRecentLimit = 5
 
-func (s *Service) RechargeInit(ctx context.Context, userID int64) (*RechargeInitResponse, *apperror.Error) {
+func (s *Service) RechargePageInit(ctx context.Context, userID int64) (*RechargePageInitResponse, *apperror.Error) {
 	if userID <= 0 {
 		return nil, apperror.Unauthorized("Token无效或已过期")
 	}
@@ -37,11 +37,11 @@ func (s *Service) RechargeInit(ctx context.Context, userID int64) (*RechargeInit
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
 	}
-	return &RechargeInitResponse{
+	return &RechargePageInitResponse{
 		Wallet:        walletSummary(wallet),
 		Packages:      rechargePackageItems(packages),
 		PaymentMethod: RechargePaymentMethod{Provider: providerAlipay, Label: providerText(providerAlipay), Enabled: len(packages) > 0 && payConfig != nil},
-		Dict:          RechargeInitDict{StatusArr: rechargeStatusOptions()},
+		Dict:          RechargePageInitDict{StatusArr: rechargeStatusOptions()},
 		Recent:        rechargeListItems(recent),
 	}, nil
 }

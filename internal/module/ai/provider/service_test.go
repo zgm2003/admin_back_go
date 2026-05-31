@@ -121,7 +121,7 @@ func TestInitOnlyReturnsOpenAIDriver(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	result, appErr := service.Init(context.Background())
+	result, appErr := service.PageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("Init error = %v", appErr)
 	}

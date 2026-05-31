@@ -28,7 +28,7 @@ type fakeManagementService struct {
 	statusValue int
 }
 
-func (f *fakeManagementService) Init(ctx context.Context) (*permissionmodule.InitResponse, *apperror.Error) {
+func (f *fakeManagementService) PageInit(ctx context.Context) (*permissionmodule.InitResponse, *apperror.Error) {
 	return f.initResult, f.err
 }
 

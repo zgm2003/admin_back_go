@@ -19,7 +19,7 @@ func NewService(repository Repository) *Service {
 	return &Service{repository: repository}
 }
 
-func (s *Service) Init(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
 	return &InitResponse{Dict: InitDict{
 		NotificationTypeArr:       dict.NotificationTypeOptions(),
 		NotificationLevelArr:      dict.NotificationLevelOptions(),

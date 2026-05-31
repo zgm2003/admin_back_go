@@ -30,18 +30,18 @@ func NewService(repository Repository, box *secretbox.Box) *Service {
 	return service
 }
 
-func (s *Service) DriverInit(ctx context.Context) (*DriverInitResponse, *apperror.Error) {
-	return &DriverInitResponse{Dict: DriverInitDict{UploadDriverArr: dict.UploadDriverOptions()}}, nil
+func (s *Service) DriverPageInit(ctx context.Context) (*DriverPageInitResponse, *apperror.Error) {
+	return &DriverPageInitResponse{Dict: DriverPageInitDict{UploadDriverArr: dict.UploadDriverOptions()}}, nil
 }
 
-func (s *Service) RuleInit(ctx context.Context) (*RuleInitResponse, *apperror.Error) {
-	return &RuleInitResponse{Dict: RuleInitDict{
+func (s *Service) RulePageInit(ctx context.Context) (*RulePageInitResponse, *apperror.Error) {
+	return &RulePageInitResponse{Dict: RulePageInitDict{
 		UploadImageExtArr: dict.UploadImageExtOptions(),
 		UploadFileExtArr:  dict.UploadFileExtOptions(),
 	}}, nil
 }
 
-func (s *Service) SettingInit(ctx context.Context) (*SettingInitResponse, *apperror.Error) {
+func (s *Service) SettingPageInit(ctx context.Context) (*SettingPageInitResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
@@ -54,7 +54,7 @@ func (s *Service) SettingInit(ctx context.Context) (*SettingInitResponse, *apper
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传规则字典失败", err)
 	}
-	return &SettingInitResponse{Dict: SettingInitDict{
+	return &SettingPageInitResponse{Dict: SettingPageInitDict{
 		UploadDriverList: settingDriverOptions(drivers),
 		UploadRuleList:   settingRuleOptions(rules),
 		CommonStatusArr:  dict.CommonStatusOptions(),

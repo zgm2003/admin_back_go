@@ -19,7 +19,7 @@ type fakeHTTPService struct {
 	err *apperror.Error
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*notificationmodule.InitResponse, *apperror.Error) {
+func (f *fakeHTTPService) PageInit(ctx context.Context) (*notificationmodule.InitResponse, *apperror.Error) {
 	return &notificationmodule.InitResponse{}, f.err
 }
 

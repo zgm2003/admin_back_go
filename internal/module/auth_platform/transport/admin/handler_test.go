@@ -22,8 +22,8 @@ type fakeHTTPService struct {
 	status      int
 }
 
-func (f *fakeHTTPService) Init(ctx context.Context) (*authplatformmodule.InitResponse, *apperror.Error) {
-	return (&authplatformmodule.Service{}).Init(ctx)
+func (f *fakeHTTPService) PageInit(ctx context.Context) (*authplatformmodule.InitResponse, *apperror.Error) {
+	return (&authplatformmodule.Service{}).PageInit(ctx)
 }
 
 func (f *fakeHTTPService) List(ctx context.Context, query authplatformmodule.ListQuery) (*authplatformmodule.ListResponse, *apperror.Error) {

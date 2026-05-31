@@ -16,7 +16,7 @@ type Handler struct {
 }
 
 type HTTPService interface {
-	ConfigInit(ctx context.Context) (*paymentmodule.ConfigInitResponse, *apperror.Error)
+	ConfigPageInit(ctx context.Context) (*paymentmodule.ConfigPageInitResponse, *apperror.Error)
 	ListConfigs(ctx context.Context, query paymentmodule.ConfigListQuery) (*paymentmodule.ConfigListResponse, *apperror.Error)
 	CreateConfig(ctx context.Context, input paymentmodule.ConfigMutationInput) (int64, *apperror.Error)
 	UpdateConfig(ctx context.Context, id int64, input paymentmodule.ConfigMutationInput) *apperror.Error
@@ -31,7 +31,7 @@ type HTTPService interface {
 	PayOrder(ctx context.Context, id int64) (*paymentmodule.OrderPayResponse, *apperror.Error)
 	SyncOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error)
 	CloseOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error)
-	RechargeInit(ctx context.Context, userID int64) (*paymentmodule.RechargeInitResponse, *apperror.Error)
+	RechargePageInit(ctx context.Context, userID int64) (*paymentmodule.RechargePageInitResponse, *apperror.Error)
 	ListRecharges(ctx context.Context, query paymentmodule.RechargeListQuery) (*paymentmodule.RechargeListResponse, *apperror.Error)
 	GetRecharge(ctx context.Context, userID int64, id int64) (*paymentmodule.RechargeDetail, *apperror.Error)
 	CreateRecharge(ctx context.Context, input paymentmodule.RechargeCreateInput) (*paymentmodule.RechargePayResponse, *apperror.Error)
@@ -42,8 +42,8 @@ type HTTPService interface {
 
 func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
 
-func (h *Handler) ConfigInit(c *gin.Context) {
-	result, appErr := h.requireService().ConfigInit(c.Request.Context())
+func (h *Handler) ConfigPageInit(c *gin.Context) {
+	result, appErr := h.requireService().ConfigPageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 
@@ -196,7 +196,7 @@ func writeEmpty(c *gin.Context, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) ConfigInit(ctx context.Context) (*paymentmodule.ConfigInitResponse, *apperror.Error) {
+func (nilHTTPService) ConfigPageInit(ctx context.Context) (*paymentmodule.ConfigPageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
 func (nilHTTPService) ListConfigs(ctx context.Context, query paymentmodule.ConfigListQuery) (*paymentmodule.ConfigListResponse, *apperror.Error) {
@@ -241,7 +241,7 @@ func (nilHTTPService) SyncOrder(ctx context.Context, id int64) (*paymentmodule.O
 func (nilHTTPService) CloseOrder(ctx context.Context, id int64) (*paymentmodule.OrderStatusResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) RechargeInit(ctx context.Context, userID int64) (*paymentmodule.RechargeInitResponse, *apperror.Error) {
+func (nilHTTPService) RechargePageInit(ctx context.Context, userID int64) (*paymentmodule.RechargePageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
 func (nilHTTPService) ListRecharges(ctx context.Context, query paymentmodule.RechargeListQuery) (*paymentmodule.RechargeListResponse, *apperror.Error) {

@@ -12,7 +12,7 @@ func RegisterRoutes(router *gin.Engine, service notificationmodule.HTTPService) 
 	handler := NewHandler(service)
 
 	v1 := router.Group("/api/admin/v1/notifications")
-	v1.GET("/page-init", handler.Init)
+	v1.GET("/page-init", handler.PageInit)
 	v1.GET("/unread-count", handler.UnreadCount)
 	v1.GET("", handler.List)
 	v1.PATCH("/:id/read", handler.MarkOneRead)

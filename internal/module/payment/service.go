@@ -89,9 +89,9 @@ func NewService(deps Dependencies) *Service {
 	}
 }
 
-func (s *Service) ConfigInit(ctx context.Context) (*ConfigInitResponse, *apperror.Error) {
+func (s *Service) ConfigPageInit(ctx context.Context) (*ConfigPageInitResponse, *apperror.Error) {
 	_ = ctx
-	return &ConfigInitResponse{Dict: ConfigInitDict{
+	return &ConfigPageInitResponse{Dict: ConfigPageInitDict{
 		ProviderArr:        paymentProviderOptions(),
 		EnvironmentArr:     paymentEnvironmentOptions(),
 		CommonStatusArr:    dict.CommonStatusOptions(),

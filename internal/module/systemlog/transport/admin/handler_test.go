@@ -20,7 +20,7 @@ type fakeService struct {
 	linesQuery  systemlogmodule.LinesQuery
 }
 
-func (f *fakeService) Init(ctx context.Context) (*systemlogmodule.InitResponse, *apperror.Error) {
+func (f *fakeService) PageInit(ctx context.Context) (*systemlogmodule.InitResponse, *apperror.Error) {
 	return &systemlogmodule.InitResponse{Dict: systemlogmodule.InitDict{LogLevelArr: []dict.Option[string]{{Label: "ERROR", Value: "ERROR"}}, LogTailArr: []dict.Option[int]{{Label: "最近 500 行", Value: 500}}}}, nil
 }
 

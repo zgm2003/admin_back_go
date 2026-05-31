@@ -11,7 +11,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	handler := NewHandler(service)
 
 	configs := router.Group("/api/admin/v1/payment/configs")
-	configs.GET("/page-init", handler.ConfigInit)
+	configs.GET("/page-init", handler.ConfigPageInit)
 	configs.GET("", handler.ListConfigs)
 	configs.POST("", handler.CreateConfig)
 	configs.PUT("/:id", handler.UpdateConfig)
@@ -20,7 +20,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	configs.POST("/:id/test", handler.TestConfig)
 
 	recharges := router.Group("/api/admin/v1/payment/recharges")
-	recharges.GET("/page-init", handler.RechargeInit)
+	recharges.GET("/page-init", handler.RechargePageInit)
 	recharges.GET("", handler.ListRecharges)
 	recharges.GET("/:id", handler.GetRecharge)
 	recharges.POST("", handler.CreateRecharge)

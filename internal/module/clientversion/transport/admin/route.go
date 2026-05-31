@@ -12,7 +12,7 @@ func RegisterRoutes(router *gin.Engine, service clientversionmodule.HTTPService)
 	handler := NewHandler(service)
 
 	group := router.Group("/api/admin/v1/client-versions")
-	group.GET("/page-init", handler.Init)
+	group.GET("/page-init", handler.PageInit)
 	group.GET("/update-json", handler.UpdateJSON)
 	group.GET("/current-check", handler.CurrentCheck)
 	group.GET("", handler.List)
