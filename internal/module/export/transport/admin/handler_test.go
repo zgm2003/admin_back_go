@@ -52,12 +52,16 @@ func TestHandlerStatusCountScopesCurrentUser(t *testing.T) {
 	service := &fakeHTTPService{}
 	router := newExportTaskTestRouter(service, &middleware.AuthIdentity{UserID: 9, Platform: "admin"})
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks/status-count?title=%E7%94%A8%E6%88%B7", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks/status-count?kind=user_list&title=%E7%94%A8%E6%88%B7&file_name=u.xlsx", nil)
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.statusQuery.UserID != 9 || service.statusQuery.Title != "用户" {
+	if service.statusQuery.UserID != 9 ||
+		service.statusQuery.Platform != "admin" ||
+		service.statusQuery.Kind != "user_list" ||
+		service.statusQuery.Title != "用户" ||
+		service.statusQuery.FileName != "u.xlsx" {
 		t.Fatalf("unexpected status query: %#v", service.statusQuery)
 	}
 }
@@ -66,12 +70,19 @@ func TestHandlerListBindsQueryAndScopesCurrentUser(t *testing.T) {
 	service := &fakeHTTPService{}
 	router := newExportTaskTestRouter(service, &middleware.AuthIdentity{UserID: 9, Platform: "admin"})
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks?current_page=2&page_size=10&status=2&file_name=u.xlsx", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/export-tasks?kind=user_list&current_page=2&page_size=10&status=2&file_name=u.xlsx", nil)
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.listQuery.UserID != 9 || service.listQuery.CurrentPage != 2 || service.listQuery.PageSize != 10 || service.listQuery.Status == nil || *service.listQuery.Status != 2 || service.listQuery.FileName != "u.xlsx" {
+	if service.listQuery.UserID != 9 ||
+		service.listQuery.Platform != "admin" ||
+		service.listQuery.Kind != "user_list" ||
+		service.listQuery.CurrentPage != 2 ||
+		service.listQuery.PageSize != 10 ||
+		service.listQuery.Status == nil ||
+		*service.listQuery.Status != 2 ||
+		service.listQuery.FileName != "u.xlsx" {
 		t.Fatalf("unexpected list query: %#v", service.listQuery)
 	}
 }
@@ -82,7 +93,7 @@ func TestHandlerDeleteSupportsSingleAndBatch(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodDelete, "/api/admin/v1/export-tasks/7", nil)
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.deleteInput.UserID != 9 || len(service.deleteInput.IDs) != 1 || service.deleteInput.IDs[0] != 7 {
+	if recorder.Code != http.StatusOK || service.deleteInput.UserID != 9 || service.deleteInput.Platform != "admin" || len(service.deleteInput.IDs) != 1 || service.deleteInput.IDs[0] != 7 {
 		t.Fatalf("single delete mismatch: code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.deleteInput)
 	}
 
@@ -90,7 +101,7 @@ func TestHandlerDeleteSupportsSingleAndBatch(t *testing.T) {
 	request = httptest.NewRequest(http.MethodDelete, "/api/admin/v1/export-tasks", strings.NewReader(`{"ids":[3,2]}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.deleteInput.UserID != 9 || len(service.deleteInput.IDs) != 2 || service.deleteInput.IDs[0] != 3 || service.deleteInput.IDs[1] != 2 {
+	if recorder.Code != http.StatusOK || service.deleteInput.UserID != 9 || service.deleteInput.Platform != "admin" || len(service.deleteInput.IDs) != 2 || service.deleteInput.IDs[0] != 3 || service.deleteInput.IDs[1] != 2 {
 		t.Fatalf("batch delete mismatch: code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.deleteInput)
 	}
 }
