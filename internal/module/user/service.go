@@ -314,7 +314,12 @@ func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportRespons
 	if len(rows) == 0 {
 		return nil, apperror.NotFound("导出用户不存在")
 	}
-	taskID, err := s.exportTaskCreator.CreatePending(ctx, exporttask.CreatePendingInput{UserID: input.UserID, Title: "用户列表导出"})
+	taskID, err := s.exportTaskCreator.CreatePending(ctx, exporttask.CreatePendingInput{
+		UserID:   input.UserID,
+		Platform: input.Platform,
+		Kind:     exporttask.KindUserList,
+		Title:    "用户列表导出",
+	})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建导出任务失败", err)
 	}
@@ -323,6 +328,7 @@ func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportRespons
 		Kind:     exporttask.KindUserList,
 		UserID:   input.UserID,
 		Platform: input.Platform,
+		Scope:    exporttask.ScopeSelected,
 		IDs:      ids,
 	})
 	if err != nil {

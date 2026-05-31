@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"admin_back_go/internal/module/export"
 )
@@ -16,14 +17,19 @@ func NewExportDataProvider(repository Repository) *ExportDataProvider {
 	return &ExportDataProvider{repository: repository}
 }
 
-func (p *ExportDataProvider) BuildExportData(ctx context.Context, kind string, ids []int64) (*exporttask.FileData, error) {
+func (p *ExportDataProvider) BuildExportData(ctx context.Context, input exporttask.BuildInput) (*exporttask.FileData, error) {
 	if p == nil || p.repository == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
+	kind := strings.TrimSpace(input.Kind)
 	if kind != exporttask.KindUserList {
 		return nil, fmt.Errorf("unsupported export kind: %s", kind)
 	}
-	ids = normalizeIDs(ids)
+	scope := strings.TrimSpace(input.Scope)
+	if scope != exporttask.ScopeSelected {
+		return nil, fmt.Errorf("unsupported user export scope: %s", scope)
+	}
+	ids := normalizeIDs(input.IDs)
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("export user ids are required")
 	}
