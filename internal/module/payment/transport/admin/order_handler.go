@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (h *Handler) OrderInit(c *gin.Context) {
-	result, appErr := h.requireService().OrderInit(c.Request.Context())
+func (h *Handler) OrderPageInit(c *gin.Context) {
+	result, appErr := h.requireService().OrderPageInit(c.Request.Context())
 	writeResult(c, result, appErr)
 }
 

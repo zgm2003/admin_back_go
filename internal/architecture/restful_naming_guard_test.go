@@ -17,6 +17,7 @@ func TestRESTfulRouteNamingGuard(t *testing.T) {
 	var violations []string
 	routeActionPattern := regexp.MustCompile(`\.(GET|POST|PUT|PATCH|DELETE)\("/(list|add|edit|del)"`)
 	pageInitInitPattern := regexp.MustCompile(`\.GET\("/page-init",\s*handler\.([A-Za-z]*Init)\)`)
+	pageDictionaryFuncPattern := regexp.MustCompile(`func \([^)]*\*(Handler|Service)[^)]*\) ([A-Za-z]*Init)\(`)
 
 	err := filepath.WalkDir(moduleRoot, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -46,6 +47,16 @@ func TestRESTfulRouteNamingGuard(t *testing.T) {
 				continue
 			}
 			violations = append(violations, formatGoViolation(source, rel, match[0], "/page-init bound to handler."+name))
+		}
+		for _, match := range pageDictionaryFuncPattern.FindAllStringSubmatchIndex(source, -1) {
+			name := source[match[4]:match[5]]
+			if name == "Init" && strings.HasPrefix(filepath.ToSlash(rel), "internal/module/user/") {
+				continue
+			}
+			if name == "PageInit" || strings.HasSuffix(name, "PageInit") {
+				continue
+			}
+			violations = append(violations, formatGoViolation(source, rel, match[0], "page dictionary function must be PageInit-style, not "+name))
 		}
 
 		return nil

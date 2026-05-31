@@ -10,12 +10,12 @@ const (
 	orderStatusFailed  = "failed"
 )
 
-type OrderInitResponse struct {
-	Dict          OrderInitDict       `json:"dict"`
+type OrderPageInitResponse struct {
+	Dict          OrderPageInitDict   `json:"dict"`
 	ConfigOptions []OrderConfigOption `json:"config_options"`
 }
 
-type OrderInitDict struct {
+type OrderPageInitDict struct {
 	ProviderArr    []dict.Option[string] `json:"provider_arr"`
 	PayMethodArr   []dict.Option[string] `json:"pay_method_arr"`
 	OrderStatusArr []dict.Option[string] `json:"order_status_arr"`

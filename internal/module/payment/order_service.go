@@ -26,7 +26,7 @@ var (
 	rechargeClosedCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed, rechargeStatusPaying}
 )
 
-func (s *Service) OrderInit(ctx context.Context) (*OrderInitResponse, *apperror.Error) {
+func (s *Service) OrderPageInit(ctx context.Context) (*OrderPageInitResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
@@ -48,8 +48,8 @@ func (s *Service) OrderInit(ctx context.Context) (*OrderInitResponse, *apperror.
 			EnabledMethods: methods,
 		})
 	}
-	return &OrderInitResponse{
-		Dict: OrderInitDict{
+	return &OrderPageInitResponse{
+		Dict: OrderPageInitDict{
 			ProviderArr:    paymentProviderOptions(),
 			PayMethodArr:   dict.PaymentMethodOptions(),
 			OrderStatusArr: orderStatusOptions(),

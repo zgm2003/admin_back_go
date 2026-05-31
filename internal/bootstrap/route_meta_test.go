@@ -282,7 +282,7 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/api/payment/callbacks/alipay"},
-		{http.MethodGet, "/api/admin/v1/notifications/init"},
+		{http.MethodGet, "/api/admin/v1/notifications/page-init"},
 		{http.MethodGet, "/api/admin/v1/notifications"},
 		{http.MethodGet, "/api/admin/v1/notifications/unread-count"},
 		{http.MethodGet, "/api/admin/v1/mail/page-init"},

@@ -24,7 +24,7 @@ type HTTPService interface {
 	DeleteConfig(ctx context.Context, id int64) *apperror.Error
 	UploadCertificate(ctx context.Context, input paymentmodule.CertificateUploadInput) (*paymentmodule.CertificateUploadResponse, *apperror.Error)
 	TestConfig(ctx context.Context, id int64) (*paymentmodule.ConfigTestResponse, *apperror.Error)
-	OrderInit(ctx context.Context) (*paymentmodule.OrderInitResponse, *apperror.Error)
+	OrderPageInit(ctx context.Context) (*paymentmodule.OrderPageInitResponse, *apperror.Error)
 	ListOrders(ctx context.Context, query paymentmodule.OrderListQuery) (*paymentmodule.OrderListResponse, *apperror.Error)
 	GetOrder(ctx context.Context, id int64) (*paymentmodule.OrderDetail, *apperror.Error)
 	CreateOrder(ctx context.Context, input paymentmodule.OrderCreateInput) (*paymentmodule.OrderCreateResponse, *apperror.Error)
@@ -220,7 +220,7 @@ func (nilHTTPService) UploadCertificate(ctx context.Context, input paymentmodule
 func (nilHTTPService) TestConfig(ctx context.Context, id int64) (*paymentmodule.ConfigTestResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
-func (nilHTTPService) OrderInit(ctx context.Context) (*paymentmodule.OrderInitResponse, *apperror.Error) {
+func (nilHTTPService) OrderPageInit(ctx context.Context) (*paymentmodule.OrderPageInitResponse, *apperror.Error) {
 	return nil, apperror.Internal("支付服务未配置")
 }
 func (nilHTTPService) ListOrders(ctx context.Context, query paymentmodule.OrderListQuery) (*paymentmodule.OrderListResponse, *apperror.Error) {

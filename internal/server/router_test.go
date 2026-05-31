@@ -1331,8 +1331,8 @@ func (f *fakeRouterPaymentService) TestConfig(ctx context.Context, id int64) (*p
 	f.testID = id
 	return &payment.ConfigTestResponse{OK: true, Checks: []string{"local"}, Message: "ok"}, nil
 }
-func (f *fakeRouterPaymentService) OrderInit(ctx context.Context) (*payment.OrderInitResponse, *apperror.Error) {
-	return &payment.OrderInitResponse{Dict: payment.OrderInitDict{}, ConfigOptions: []payment.OrderConfigOption{}}, nil
+func (f *fakeRouterPaymentService) OrderPageInit(ctx context.Context) (*payment.OrderPageInitResponse, *apperror.Error) {
+	return &payment.OrderPageInitResponse{Dict: payment.OrderPageInitDict{}, ConfigOptions: []payment.OrderConfigOption{}}, nil
 }
 func (f *fakeRouterPaymentService) ListOrders(ctx context.Context, query payment.OrderListQuery) (*payment.OrderListResponse, *apperror.Error) {
 	f.orderListQuery = query
