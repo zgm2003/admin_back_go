@@ -26,6 +26,16 @@ import (
 	"admin_back_go/internal/module/user"
 )
 
+type exportDataProviderAdapter struct {
+	provider interface {
+		BuildExportData(ctx context.Context, kind string, ids []int64) (*exporttask.FileData, error)
+	}
+}
+
+func (a exportDataProviderAdapter) BuildExportData(ctx context.Context, input exporttask.BuildInput) (*exporttask.FileData, error) {
+	return a.provider.BuildExportData(ctx, input.Kind, input.IDs)
+}
+
 type Worker struct {
 	cfg         config.Config
 	logger      *slog.Logger
@@ -92,9 +102,21 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	)
 	secretBox := secretbox.New(keys.SecretboxKey())
 	exportTaskRepository := exporttask.NewGormRepository(resources.DB)
+	userExportProvider := user.NewExportDataProvider(user.NewGormRepository(resources.DB))
+	exportRegistry, err := exporttask.NewRegistry(exporttask.Definition{
+		Kind:     exporttask.KindUserList,
+		Title:    "用户列表",
+		Provider: exportDataProviderAdapter{provider: userExportProvider},
+	})
+	if err != nil {
+		queueServer.Shutdown()
+		_ = queueClient.Close()
+		_ = resources.Close()
+		return nil, err
+	}
 	exportTaskService := exporttask.NewService(
 		exportTaskRepository,
-		exporttask.WithExportDataProvider(user.NewExportDataProvider(user.NewGormRepository(resources.DB))),
+		exporttask.WithDefinitionRegistry(exportRegistry),
 		exporttask.WithFileWriter(exporttask.XLSXWriter{}),
 		exporttask.WithFileUploader(exporttask.NewCOSUploader(
 			exporttask.NewGormUploadConfigRepository(resources.DB),

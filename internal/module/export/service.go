@@ -23,7 +23,7 @@ const (
 
 type Service struct {
 	repository Repository
-	provider   ExportDataProvider
+	registry   *Registry
 	writer     FileWriter
 	uploader   FileUploader
 	notifier   Notifier
@@ -41,9 +41,24 @@ func WithNow(now func() time.Time) Option {
 	}
 }
 
+// WithExportDataProvider keeps the legacy single user_list provider option.
+// Deprecated: use WithDefinitionRegistry for new export kinds.
 func WithExportDataProvider(provider ExportDataProvider) Option {
 	return func(s *Service) {
-		s.provider = provider
+		if provider == nil {
+			s.registry = nil
+			return
+		}
+		registry, err := NewRegistry(Definition{Kind: KindUserList, Title: kindText(KindUserList), Provider: legacyExportDataProvider{provider: provider}})
+		if err == nil {
+			s.registry = registry
+		}
+	}
+}
+
+func WithDefinitionRegistry(registry *Registry) Option {
+	return func(s *Service) {
+		s.registry = registry
 	}
 }
 
@@ -85,6 +100,14 @@ func NewService(repository Repository, opts ...Option) *Service {
 
 type ExportDataProvider interface {
 	BuildExportData(ctx context.Context, kind string, ids []int64) (*FileData, error)
+}
+
+type legacyExportDataProvider struct {
+	provider ExportDataProvider
+}
+
+func (p legacyExportDataProvider) BuildExportData(ctx context.Context, input BuildInput) (*FileData, error) {
+	return p.provider.BuildExportData(ctx, input.Kind, input.IDs)
 }
 
 type FileWriter interface {
@@ -219,6 +242,7 @@ func (s *Service) Delete(ctx context.Context, input DeleteInput) *apperror.Error
 }
 
 func (s *Service) Run(ctx context.Context, input RunInput) error {
+	input = normalizeRunPayload(input)
 	if err := validateRunInput(input); err != nil {
 		return err
 	}
@@ -233,11 +257,20 @@ func (s *Service) Run(ctx context.Context, input RunInput) error {
 	if task == nil || task.IsDel == enum.CommonYes || task.Status == enum.ExportTaskStatusSuccess {
 		return nil
 	}
-	if s.provider == nil || s.writer == nil || s.uploader == nil {
+	definition, ok := s.registry.Resolve(input.Kind)
+	if !ok || definition.Provider == nil || s.writer == nil || s.uploader == nil {
 		return s.failRun(ctx, *task, input, fmt.Errorf("export task runtime is not configured"))
 	}
 
-	data, err := s.provider.BuildExportData(ctx, input.Kind, input.IDs)
+	data, err := definition.Provider.BuildExportData(ctx, BuildInput{
+		TaskID:   input.TaskID,
+		UserID:   input.UserID,
+		Platform: input.Platform,
+		Kind:     input.Kind,
+		Scope:    input.Scope,
+		IDs:      append([]int64{}, input.IDs...),
+		Params:   input.Params,
+	})
 	if err != nil {
 		return s.failRun(ctx, *task, input, fmt.Errorf("build export data: %w", err))
 	}

@@ -3,22 +3,30 @@ package exporttask
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"admin_back_go/internal/shared/enum"
 )
 
 type fakeDataProvider struct {
-	kind string
-	ids  []int64
-	data *FileData
-	err  error
+	input BuildInput
+	data  *FileData
+	err   error
 }
 
-func (f *fakeDataProvider) BuildExportData(ctx context.Context, kind string, ids []int64) (*FileData, error) {
-	f.kind = kind
-	f.ids = append([]int64{}, ids...)
+func (f *fakeDataProvider) BuildExportData(ctx context.Context, input BuildInput) (*FileData, error) {
+	f.input = input
 	return f.data, f.err
+}
+
+func testRegistry(t *testing.T, provider Provider) *Registry {
+	t.Helper()
+	registry, err := NewRegistry(Definition{Kind: KindUserList, Title: "用户列表", Provider: provider})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	return registry
 }
 
 type fakeFileWriter struct {
@@ -65,12 +73,12 @@ func TestRunGeneratesUploadsMarksSuccessAndNotifies(t *testing.T) {
 	uploader := &fakeUploader{result: &UploadResult{FileName: "u.xlsx", FileURL: "https://cos/u.xlsx", ObjectKey: "exports/user_list/20260507/u.xlsx", FileSize: 4, RowCount: 1}}
 	notifier := &fakeNotifier{}
 
-	err := NewService(repo, WithExportDataProvider(provider), WithFileWriter(writer), WithFileUploader(uploader), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, Platform: "admin", IDs: []int64{3}})
+	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, provider)), WithFileWriter(writer), WithFileUploader(uploader), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, Platform: "admin", Scope: ScopeSelected, IDs: []int64{3}})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if provider.kind != KindUserList || len(provider.ids) != 1 || provider.ids[0] != 3 {
-		t.Fatalf("unexpected provider call: kind=%s ids=%#v", provider.kind, provider.ids)
+	if provider.input.TaskID != 7 || provider.input.Kind != KindUserList || provider.input.UserID != 9 || provider.input.Platform != "admin" || provider.input.Scope != ScopeSelected || len(provider.input.IDs) != 1 || provider.input.IDs[0] != 3 {
+		t.Fatalf("unexpected provider input: %#v", provider.input)
 	}
 	if uploader.input.TaskID != 7 || uploader.input.Kind != KindUserList || uploader.input.Prefix != "用户列表导出" || string(uploader.input.Body) != "xlsx" || uploader.input.RowCount != 1 {
 		t.Fatalf("unexpected upload input: %#v", uploader.input)
@@ -88,7 +96,7 @@ func TestRunMarksFailedAndNotifiesWhenGenerationFails(t *testing.T) {
 	provider := &fakeDataProvider{err: errors.New("provider failed")}
 	notifier := &fakeNotifier{}
 
-	err := NewService(repo, WithExportDataProvider(provider), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, IDs: []int64{3}})
+	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, provider)), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, Scope: ScopeSelected, IDs: []int64{3}})
 	if err == nil {
 		t.Fatalf("expected Run error")
 	}
@@ -96,6 +104,22 @@ func TestRunMarksFailedAndNotifiesWhenGenerationFails(t *testing.T) {
 		t.Fatalf("expected task failure mark, got id=%d msg=%q", repo.markFailedID, repo.failedMessage)
 	}
 	if notifier.failed.TaskID != 7 || notifier.failed.UserID != 9 || notifier.failed.Link != "/system/exportTask?status=3" {
+		t.Fatalf("unexpected failed notification: %#v", notifier.failed)
+	}
+}
+
+func TestRunMarksFailedForUnknownKind(t *testing.T) {
+	repo := &fakeRepository{getRow: &Task{ID: 7, UserID: 9, Title: "订单导出", Status: enum.ExportTaskStatusPending, IsDel: enum.CommonNo}}
+	notifier := &fakeNotifier{}
+
+	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, &fakeDataProvider{})), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: "payment_orders", UserID: 9, Scope: ScopeSelected, IDs: []int64{3}})
+	if err == nil {
+		t.Fatalf("expected Run error")
+	}
+	if repo.markFailedID != 7 || !strings.Contains(repo.failedMessage, "runtime is not configured") {
+		t.Fatalf("expected unknown kind to mark failed, got id=%d msg=%q", repo.markFailedID, repo.failedMessage)
+	}
+	if notifier.failed.TaskID != 7 || notifier.failed.UserID != 9 {
 		t.Fatalf("unexpected failed notification: %#v", notifier.failed)
 	}
 }
