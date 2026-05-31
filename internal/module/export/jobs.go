@@ -17,11 +17,13 @@ const (
 )
 
 type RunPayload struct {
-	TaskID   int64   `json:"task_id"`
-	Kind     string  `json:"kind"`
-	UserID   int64   `json:"user_id"`
-	Platform string  `json:"platform"`
-	IDs      []int64 `json:"ids"`
+	TaskID   int64           `json:"task_id"`
+	Kind     string          `json:"kind"`
+	UserID   int64           `json:"user_id"`
+	Platform string          `json:"platform"`
+	Scope    string          `json:"scope"`
+	IDs      []int64         `json:"ids,omitempty"`
+	Params   json.RawMessage `json:"params,omitempty"`
 }
 
 type RunInput = RunPayload
@@ -76,7 +78,11 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 
 func normalizeRunPayload(payload RunPayload) RunPayload {
 	payload.Kind = strings.TrimSpace(payload.Kind)
-	payload.Platform = strings.TrimSpace(payload.Platform)
+	payload.Platform = normalizePlatform(payload.Platform)
+	payload.Scope = strings.TrimSpace(payload.Scope)
+	if payload.Scope == "" && payload.Kind == KindUserList {
+		payload.Scope = ScopeSelected
+	}
 	payload.IDs = normalizeIDs(payload.IDs)
 	return payload
 }
@@ -85,14 +91,20 @@ func validateRunInput(input RunInput) error {
 	if input.TaskID <= 0 {
 		return fmt.Errorf("%s payload task_id is required", TypeRunV1)
 	}
-	if strings.TrimSpace(input.Kind) == "" {
+	if input.Kind == "" {
 		return fmt.Errorf("%s payload kind is required", TypeRunV1)
 	}
 	if input.UserID <= 0 {
 		return fmt.Errorf("%s payload user_id is required", TypeRunV1)
 	}
-	if len(normalizeIDs(input.IDs)) == 0 {
-		return fmt.Errorf("%s payload ids are required", TypeRunV1)
+	switch input.Scope {
+	case ScopeSelected:
+		if len(normalizeIDs(input.IDs)) == 0 {
+			return fmt.Errorf("%s payload ids are required", TypeRunV1)
+		}
+	case ScopeFiltered:
+	default:
+		return fmt.Errorf("%s payload scope is required", TypeRunV1)
 	}
 	return nil
 }

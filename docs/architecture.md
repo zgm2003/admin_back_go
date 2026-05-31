@@ -82,6 +82,8 @@ internal/module/uploadtoken/transport/app # app upload-token HTTP 表面
 
 本切片只拆 HTTP ownership，不改 admin URL、DB schema、RBAC permission code，也不强行把 user/profile repository 一刀切开。`user` 是 admin user-management capability；`profile` 是 current-user self-service HTTP capability；底层 service/repository 的进一步归属治理需要单独计划。
 
+导出是 `internal/module/export` 的通用运行时能力：业务模块拥有 submit endpoint、权限码和 provider；export runtime 统一拥有 `export_tasks` 生命周期、`export:run:v1`、xlsx writer、COS uploader、状态落库和通知。用户导出只是第一条 `kind=user_list` provider；后续 payment/wallet/AI 导出不得复制任务表、writer 或上传逻辑。
+
 根 module 不再注册 HTTP 表面。旧 `app_handler.go`、`platform_handler.go`、`app_route_test.go`、`platform_route.go` 不得新增；HTTP 表面统一放在对应 `transport/{platform}/route.go|handler.go|request.go|presenter.go`，并由 `TestNoModuleRootHTTPSurface` 守住；service/repository/model/jobs 仍留在能力根目录。
 
 平台差异默认收敛在 route / handler / presenter / policy。`authplatform` 只拥有认证/会话策略，例如登录方式、验证码类型、token TTL、会话绑定、单端登录和是否允许注册；它不是 AI、钱包、通知等业务的全局平台配置中心。

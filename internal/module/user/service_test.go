@@ -753,7 +753,7 @@ type fakeExportTaskCreator struct {
 }
 
 func (f *fakeExportTaskCreator) CreatePending(ctx context.Context, input exporttask.CreatePendingInput) (int64, error) {
-	f.createdInput = CreateExportTaskInput{UserID: input.UserID, Title: input.Title}
+	f.createdInput = CreateExportTaskInput{UserID: input.UserID, Title: input.Title, Platform: input.Platform, Kind: input.Kind}
 	if f.createdID == 0 {
 		f.createdID = 77
 	}
@@ -767,8 +767,10 @@ func (f *fakeExportTaskCreator) MarkFailed(ctx context.Context, id int64, messag
 }
 
 type CreateExportTaskInput struct {
-	UserID int64
-	Title  string
+	UserID   int64
+	Title    string
+	Platform string
+	Kind     string
 }
 
 type fakeExportEnqueuer struct {
@@ -805,7 +807,7 @@ func TestServiceExportNormalizesCreatesPendingAndEnqueuesLowTask(t *testing.T) {
 	if !reflect.DeepEqual(repo.exportIDs, []int64{2, 3}) {
 		t.Fatalf("expected normalized ids, got %#v", repo.exportIDs)
 	}
-	if creator.createdInput.UserID != 9 || creator.createdInput.Title != "用户列表导出" {
+	if creator.createdInput.UserID != 9 || creator.createdInput.Title != "用户列表导出" || creator.createdInput.Kind != exporttask.KindUserList || creator.createdInput.Platform != enum.PlatformAdmin {
 		t.Fatalf("unexpected created task input: %#v", creator.createdInput)
 	}
 	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != exporttask.TypeRunV1 || enqueuer.tasks[0].Queue != taskqueue.QueueLow {
@@ -815,7 +817,7 @@ func TestServiceExportNormalizesCreatesPendingAndEnqueuesLowTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode enqueued payload: %v", err)
 	}
-	if payload.TaskID != 88 || payload.Kind != exporttask.KindUserList || payload.UserID != 9 || !reflect.DeepEqual(payload.IDs, []int64{2, 3}) {
+	if payload.TaskID != 88 || payload.Kind != exporttask.KindUserList || payload.UserID != 9 || payload.Platform != enum.PlatformAdmin || payload.Scope != exporttask.ScopeSelected || !reflect.DeepEqual(payload.IDs, []int64{2, 3}) {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
 }
@@ -845,7 +847,7 @@ func TestServiceExportReturnsNotFoundWhenNoSelectedUsersExist(t *testing.T) {
 
 func TestExportDataProviderBuildsUserListFileData(t *testing.T) {
 	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "alice", Email: "a@example.com", Phone: "15671628271", Avatar: "avatar.png", Sex: 2, RoleName: "管理员"}}}
-	data, err := NewExportDataProvider(repo).BuildExportData(context.Background(), exporttask.KindUserList, []int64{2})
+	data, err := NewExportDataProvider(repo).BuildExportData(context.Background(), exporttask.BuildInput{Kind: exporttask.KindUserList, Scope: exporttask.ScopeSelected, IDs: []int64{2}})
 	if err != nil {
 		t.Fatalf("BuildExportData returned error: %v", err)
 	}
@@ -854,6 +856,16 @@ func TestExportDataProviderBuildsUserListFileData(t *testing.T) {
 	}
 	if len(data.Rows) != 1 || data.Rows[0]["id"] != "2" || data.Rows[0]["sex"] != "女" || data.Rows[0]["role"] != "管理员" {
 		t.Fatalf("unexpected export rows: %#v", data.Rows)
+	}
+}
+
+func TestExportDataProviderRejectsMissingOrUnsupportedScope(t *testing.T) {
+	provider := NewExportDataProvider(&fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "alice"}}})
+	for _, scope := range []string{"", exporttask.ScopeFiltered} {
+		_, err := provider.BuildExportData(context.Background(), exporttask.BuildInput{Kind: exporttask.KindUserList, Scope: scope, IDs: []int64{2}})
+		if err == nil {
+			t.Fatalf("expected scope %q to be rejected", scope)
+		}
 	}
 }
 

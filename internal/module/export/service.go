@@ -23,7 +23,7 @@ const (
 
 type Service struct {
 	repository Repository
-	provider   ExportDataProvider
+	registry   *Registry
 	writer     FileWriter
 	uploader   FileUploader
 	notifier   Notifier
@@ -41,9 +41,24 @@ func WithNow(now func() time.Time) Option {
 	}
 }
 
+// WithExportDataProvider keeps the legacy single user_list provider option.
+// Deprecated: use WithDefinitionRegistry for new export kinds.
 func WithExportDataProvider(provider ExportDataProvider) Option {
 	return func(s *Service) {
-		s.provider = provider
+		if provider == nil {
+			s.registry = nil
+			return
+		}
+		registry, err := NewRegistry(Definition{Kind: KindUserList, Title: kindText(KindUserList), Provider: legacyExportDataProvider{provider: provider}})
+		if err == nil {
+			s.registry = registry
+		}
+	}
+}
+
+func WithDefinitionRegistry(registry *Registry) Option {
+	return func(s *Service) {
+		s.registry = registry
 	}
 }
 
@@ -85,6 +100,14 @@ func NewService(repository Repository, opts ...Option) *Service {
 
 type ExportDataProvider interface {
 	BuildExportData(ctx context.Context, kind string, ids []int64) (*FileData, error)
+}
+
+type legacyExportDataProvider struct {
+	provider ExportDataProvider
+}
+
+func (p legacyExportDataProvider) BuildExportData(ctx context.Context, input BuildInput) (*FileData, error) {
+	return p.provider.BuildExportData(ctx, input.Kind, input.IDs)
 }
 
 type FileWriter interface {
@@ -157,6 +180,8 @@ func (s *Service) CreatePending(ctx context.Context, input CreatePendingInput) (
 		return 0, err
 	}
 	input.Title = strings.TrimSpace(input.Title)
+	input.Kind = normalizeKind(input.Kind)
+	input.Platform = normalizePlatform(input.Platform)
 	if input.UserID <= 0 || input.Title == "" {
 		return 0, apperror.BadRequestKey("exporttask.create_pending.invalid", nil, "导出任务参数错误")
 	}
@@ -164,7 +189,9 @@ func (s *Service) CreatePending(ctx context.Context, input CreatePendingInput) (
 	expireAt := now.Add(defaultExpireDuration)
 	return repo.Create(ctx, Task{
 		UserID:    input.UserID,
+		Platform:  input.Platform,
 		Title:     input.Title,
+		Kind:      input.Kind,
 		Status:    enum.ExportTaskStatusPending,
 		ExpireAt:  &expireAt,
 		IsDel:     enum.CommonNo,
@@ -207,13 +234,15 @@ func (s *Service) Delete(ctx context.Context, input DeleteInput) *apperror.Error
 	if len(ids) == 0 {
 		return apperror.BadRequestKey("exporttask.delete.empty", nil, "请选择要删除的导出任务")
 	}
-	if err := repo.DeleteByUser(ctx, input.UserID, ids); err != nil {
+	platform := normalizePlatform(input.Platform)
+	if err := repo.DeleteByUser(ctx, input.UserID, platform, ids); err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.delete_failed", nil, "删除导出任务失败", err)
 	}
 	return nil
 }
 
 func (s *Service) Run(ctx context.Context, input RunInput) error {
+	input = normalizeRunPayload(input)
 	if err := validateRunInput(input); err != nil {
 		return err
 	}
@@ -228,11 +257,20 @@ func (s *Service) Run(ctx context.Context, input RunInput) error {
 	if task == nil || task.IsDel == enum.CommonYes || task.Status == enum.ExportTaskStatusSuccess {
 		return nil
 	}
-	if s.provider == nil || s.writer == nil || s.uploader == nil {
+	definition, ok := s.registry.Resolve(input.Kind)
+	if !ok || definition.Provider == nil || s.writer == nil || s.uploader == nil {
 		return s.failRun(ctx, *task, input, fmt.Errorf("export task runtime is not configured"))
 	}
 
-	data, err := s.provider.BuildExportData(ctx, input.Kind, input.IDs)
+	data, err := definition.Provider.BuildExportData(ctx, BuildInput{
+		TaskID:   input.TaskID,
+		UserID:   input.UserID,
+		Platform: input.Platform,
+		Kind:     input.Kind,
+		Scope:    input.Scope,
+		IDs:      append([]int64{}, input.IDs...),
+		Params:   input.Params,
+	})
 	if err != nil {
 		return s.failRun(ctx, *task, input, fmt.Errorf("build export data: %w", err))
 	}
@@ -243,7 +281,7 @@ func (s *Service) Run(ctx context.Context, input RunInput) error {
 	if err != nil {
 		return s.failRun(ctx, *task, input, fmt.Errorf("write xlsx: %w", err))
 	}
-	result, err := s.uploader.Upload(ctx, UploadInput{TaskID: input.TaskID, Prefix: data.Prefix, Body: body, RowCount: int64(len(data.Rows))})
+	result, err := s.uploader.Upload(ctx, UploadInput{TaskID: input.TaskID, Kind: input.Kind, Prefix: data.Prefix, Body: body, RowCount: int64(len(data.Rows))})
 	if err != nil {
 		return s.failRun(ctx, *task, input, fmt.Errorf("upload xlsx: %w", err))
 	}
@@ -251,10 +289,11 @@ func (s *Service) Run(ctx context.Context, input RunInput) error {
 		return s.failRun(ctx, *task, input, fmt.Errorf("upload xlsx: empty result"))
 	}
 	if err := repo.MarkSuccess(ctx, input.TaskID, SuccessResult{
-		FileName: result.FileName,
-		FileURL:  result.FileURL,
-		FileSize: result.FileSize,
-		RowCount: result.RowCount,
+		FileName:  result.FileName,
+		FileURL:   result.FileURL,
+		ObjectKey: result.ObjectKey,
+		FileSize:  result.FileSize,
+		RowCount:  result.RowCount,
 	}); err != nil {
 		return fmt.Errorf("mark export task success: %w", err)
 	}
@@ -321,7 +360,34 @@ func (s *Service) requireRepositoryError() (Repository, error) {
 	return s.repository, nil
 }
 
+func normalizeKind(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return KindUserList
+	}
+	return value
+}
+
+func normalizePlatform(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return enum.PlatformAdmin
+	}
+	return value
+}
+
+func kindText(kind string) string {
+	switch normalizeKind(kind) {
+	case KindUserList:
+		return "用户列表"
+	default:
+		return normalizeKind(kind)
+	}
+}
+
 func normalizeStatusCountQuery(query StatusCountQuery) StatusCountQuery {
+	query.Platform = normalizePlatform(query.Platform)
+	query.Kind = strings.TrimSpace(query.Kind)
 	query.Title = strings.TrimSpace(query.Title)
 	query.FileName = strings.TrimSpace(query.FileName)
 	return query
@@ -333,6 +399,8 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	if query.UserID <= 0 {
 		return query, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
+	query.Platform = normalizePlatform(query.Platform)
+	query.Kind = strings.TrimSpace(query.Kind)
 	if query.CurrentPage <= 0 {
 		query.CurrentPage = 1
 	}
@@ -360,6 +428,8 @@ func statusCountItems(counts map[int]int64) []StatusCountItem {
 func listItemFromTask(row Task) ListItem {
 	return ListItem{
 		ID:           row.ID,
+		Kind:         normalizeKind(row.Kind),
+		KindText:     kindText(row.Kind),
 		Title:        row.Title,
 		FileName:     optionalString(row.FileName),
 		FileURL:      optionalString(row.FileURL),

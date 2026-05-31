@@ -92,9 +92,21 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	)
 	secretBox := secretbox.New(keys.SecretboxKey())
 	exportTaskRepository := exporttask.NewGormRepository(resources.DB)
+	userExportProvider := user.NewExportDataProvider(user.NewGormRepository(resources.DB))
+	exportRegistry, err := exporttask.NewRegistry(exporttask.Definition{
+		Kind:     exporttask.KindUserList,
+		Title:    "用户列表",
+		Provider: userExportProvider,
+	})
+	if err != nil {
+		queueServer.Shutdown()
+		_ = queueClient.Close()
+		_ = resources.Close()
+		return nil, err
+	}
 	exportTaskService := exporttask.NewService(
 		exportTaskRepository,
-		exporttask.WithExportDataProvider(user.NewExportDataProvider(user.NewGormRepository(resources.DB))),
+		exporttask.WithDefinitionRegistry(exportRegistry),
 		exporttask.WithFileWriter(exporttask.XLSXWriter{}),
 		exporttask.WithFileUploader(exporttask.NewCOSUploader(
 			exporttask.NewGormUploadConfigRepository(resources.DB),

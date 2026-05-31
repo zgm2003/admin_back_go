@@ -19,16 +19,18 @@ type SecretDecrypter interface {
 
 type UploadInput struct {
 	TaskID   int64
+	Kind     string
 	Prefix   string
 	Body     []byte
 	RowCount int64
 }
 
 type UploadResult struct {
-	FileName string
-	FileURL  string
-	FileSize int64
-	RowCount int64
+	FileName  string
+	FileURL   string
+	ObjectKey string
+	FileSize  int64
+	RowCount  int64
 }
 
 type COSUploader struct {
@@ -89,7 +91,7 @@ func (u *COSUploader) Upload(ctx context.Context, input UploadInput) (*UploadRes
 		prefix = "export"
 	}
 	fileName := fmt.Sprintf("%s_%s_%d.xlsx", prefix, now.Format("20060102_150405"), input.TaskID)
-	key := path.Join("exports", now.Format("20060102"), fileName)
+	key := path.Join("exports", safePathSegment(normalizeKind(input.Kind)), now.Format("20060102"), safePathSegment(fileName))
 	if err := u.writer.Put(ctx, storagecos.PutInput{
 		SecretID:    secretID,
 		SecretKey:   secretKey,
@@ -102,7 +104,16 @@ func (u *COSUploader) Upload(ctx context.Context, input UploadInput) (*UploadRes
 	}); err != nil {
 		return nil, fmt.Errorf("export upload: put cos object: %w", err)
 	}
-	return &UploadResult{FileName: fileName, FileURL: objectURL(*cfg, key), FileSize: int64(len(input.Body)), RowCount: input.RowCount}, nil
+	return &UploadResult{FileName: fileName, FileURL: objectURL(*cfg, key), ObjectKey: key, FileSize: int64(len(input.Body)), RowCount: input.RowCount}, nil
+}
+
+func safePathSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "export"
+	}
+	replacer := strings.NewReplacer("/", "_", "\\", "_", "..", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
+	return replacer.Replace(value)
 }
 
 func objectURL(cfg UploadConfig, key string) string {
