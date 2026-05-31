@@ -5,9 +5,12 @@ import "time"
 type Task struct {
 	ID        int64      `gorm:"column:id"`
 	UserID    int64      `gorm:"column:user_id"`
+	Platform  string     `gorm:"column:platform"`
 	Title     string     `gorm:"column:title"`
+	Kind      string     `gorm:"column:kind"`
 	FileName  string     `gorm:"column:file_name"`
 	FileURL   string     `gorm:"column:file_url"`
+	ObjectKey string     `gorm:"column:object_key"`
 	FileSize  *int64     `gorm:"column:file_size"`
 	RowCount  *int64     `gorm:"column:row_count"`
 	Status    int        `gorm:"column:status"`

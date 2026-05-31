@@ -33,22 +33,23 @@ type plainSecretbox struct{}
 
 func (plainSecretbox) Decrypt(ciphertext string) (string, error) { return ciphertext, nil }
 
-func TestCOSUploaderUploadsXLSXToExportsFolder(t *testing.T) {
+func TestCOSUploaderUploadsXLSXToKindFolderAndReturnsObjectKey(t *testing.T) {
 	writer := &fakeCOSWriter{}
 	now := time.Date(2026, 5, 7, 12, 13, 14, 0, time.UTC)
 	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{
 		Driver: enum.UploadDriverCOS, SecretIDEnc: "sid", SecretKeyEnc: "skey", Bucket: "bucket", Region: "ap-guangzhou", BucketDomain: "https://cdn.example.com",
 	}}, plainSecretbox{}, writer, WithUploadNow(func() time.Time { return now }))
 
-	got, err := uploader.Upload(context.Background(), UploadInput{TaskID: 88, Prefix: "用户列表导出", Body: []byte("xlsx"), RowCount: 3})
+	got, err := uploader.Upload(context.Background(), UploadInput{TaskID: 88, Kind: KindUserList, Prefix: "用户列表导出", Body: []byte("xlsx"), RowCount: 3})
 	if err != nil {
 		t.Fatalf("Upload returned error: %v", err)
 	}
-	if got.FileName != "用户列表导出_20260507_121314_88.xlsx" || got.FileURL != "https://cdn.example.com/exports/20260507/用户列表导出_20260507_121314_88.xlsx" || got.FileSize != 4 || got.RowCount != 3 {
+	wantKey := "exports/user_list/20260507/用户列表导出_20260507_121314_88.xlsx"
+	if got.FileName != "用户列表导出_20260507_121314_88.xlsx" || got.ObjectKey != wantKey || got.FileURL != "https://cdn.example.com/"+wantKey || got.FileSize != 4 || got.RowCount != 3 {
 		t.Fatalf("unexpected upload result: %#v", got)
 	}
-	if !strings.HasPrefix(writer.input.Key, "exports/20260507/") {
-		t.Fatalf("expected exports date key, got %q", writer.input.Key)
+	if writer.input.Key != wantKey {
+		t.Fatalf("expected object key %q, got %q", wantKey, writer.input.Key)
 	}
 	if writer.input.ContentType != XLSXContentType || string(writer.input.Body) != "xlsx" || writer.input.SecretID != "sid" || writer.input.SecretKey != "skey" {
 		t.Fatalf("unexpected put input: %#v", writer.input)
@@ -64,7 +65,7 @@ func TestCOSUploaderBuildsDefaultCOSURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upload returned error: %v", err)
 	}
-	if got.FileURL != "https://bucket.cos.ap-guangzhou.myqcloud.com/exports/20260507/export_20260507_010203_5.xlsx" {
+	if got.FileURL != "https://bucket.cos.ap-guangzhou.myqcloud.com/exports/user_list/20260507/export_20260507_010203_5.xlsx" {
 		t.Fatalf("unexpected default url: %q", got.FileURL)
 	}
 }

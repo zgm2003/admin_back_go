@@ -21,7 +21,7 @@ type Repository interface {
 	Create(ctx context.Context, row Task) (int64, error)
 	MarkSuccess(ctx context.Context, id int64, result SuccessResult) error
 	MarkFailed(ctx context.Context, id int64, message string) error
-	DeleteByUser(ctx context.Context, userID int64, ids []int64) error
+	DeleteByUser(ctx context.Context, userID int64, platform string, ids []int64) error
 	Get(ctx context.Context, id int64) (*Task, error)
 }
 
@@ -55,7 +55,7 @@ func (r *GormRepository) CountByStatus(ctx context.Context, query StatusCountQue
 		Status int   `gorm:"column:status"`
 		Num    int64 `gorm:"column:num"`
 	}
-	db := r.scopedQuery(ctx, query.UserID, query.Title, query.FileName)
+	db := r.scopedQuery(ctx, query.UserID, query.Platform, query.Kind, query.Title, query.FileName)
 	if err := db.Select("status, COUNT(*) AS num").Group("status").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Task, int
 	if r == nil || r.db == nil {
 		return nil, 0, ErrRepositoryNotConfigured
 	}
-	db := r.scopedQuery(ctx, query.UserID, query.Title, query.FileName)
+	db := r.scopedQuery(ctx, query.UserID, query.Platform, query.Kind, query.Title, query.FileName)
 	if query.Status != nil {
 		db = db.Where("status = ?", *query.Status)
 	}
@@ -112,6 +112,7 @@ func (r *GormRepository) MarkSuccess(ctx context.Context, id int64, result Succe
 			"status":     enum.ExportTaskStatusSuccess,
 			"file_name":  result.FileName,
 			"file_url":   result.FileURL,
+			"object_key": result.ObjectKey,
 			"file_size":  result.FileSize,
 			"row_count":  result.RowCount,
 			"error_msg":  "",
@@ -135,7 +136,7 @@ func (r *GormRepository) MarkFailed(ctx context.Context, id int64, message strin
 		}).Error
 }
 
-func (r *GormRepository) DeleteByUser(ctx context.Context, userID int64, ids []int64) error {
+func (r *GormRepository) DeleteByUser(ctx context.Context, userID int64, platform string, ids []int64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
@@ -146,6 +147,7 @@ func (r *GormRepository) DeleteByUser(ctx context.Context, userID int64, ids []i
 	return r.db.WithContext(ctx).
 		Model(&Task{}).
 		Where("user_id = ?", userID).
+		Where("platform = ?", normalizePlatform(platform)).
 		Where("id IN ?", ids).
 		Where("is_del = ?", enum.CommonNo).
 		Updates(map[string]any{"is_del": enum.CommonYes, "updated_at": time.Now()}).Error
@@ -169,8 +171,15 @@ func (r *GormRepository) Get(ctx context.Context, id int64) (*Task, error) {
 	return &row, nil
 }
 
-func (r *GormRepository) scopedQuery(ctx context.Context, userID int64, title string, fileName string) *gorm.DB {
-	db := r.db.WithContext(ctx).Model(&Task{}).Where("user_id = ?", userID).Where("is_del = ?", enum.CommonNo)
+func (r *GormRepository) scopedQuery(ctx context.Context, userID int64, platform string, kind string, title string, fileName string) *gorm.DB {
+	db := r.db.WithContext(ctx).
+		Model(&Task{}).
+		Where("user_id = ?", userID).
+		Where("platform = ?", normalizePlatform(platform)).
+		Where("is_del = ?", enum.CommonNo)
+	if kind = strings.TrimSpace(kind); kind != "" {
+		db = db.Where("kind = ?", kind)
+	}
 	if title = strings.TrimSpace(title); title != "" {
 		db = db.Where("title LIKE ?", title+"%")
 	}

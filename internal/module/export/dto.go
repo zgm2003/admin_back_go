@@ -8,6 +8,8 @@ import (
 
 type StatusCountQuery struct {
 	UserID   int64
+	Platform string
+	Kind     string
 	Title    string
 	FileName string
 }
@@ -20,6 +22,8 @@ type StatusCountItem struct {
 
 type ListQuery struct {
 	UserID      int64
+	Platform    string
+	Kind        string
 	CurrentPage int
 	PageSize    int
 	Status      *int
@@ -41,6 +45,8 @@ type ListResponse struct {
 
 type ListItem struct {
 	ID           int64   `json:"id"`
+	Kind         string  `json:"kind"`
+	KindText     string  `json:"kind_text"`
 	Title        string  `json:"title"`
 	FileName     *string `json:"file_name"`
 	FileURL      *string `json:"file_url"`
@@ -54,8 +60,10 @@ type ListItem struct {
 }
 
 type CreatePendingInput struct {
-	UserID int64
-	Title  string
+	UserID   int64
+	Platform string
+	Kind     string
+	Title    string
 }
 
 type CreatePendingResponse struct {
@@ -63,15 +71,17 @@ type CreatePendingResponse struct {
 }
 
 type DeleteInput struct {
-	UserID int64
-	IDs    []int64
+	UserID   int64
+	Platform string
+	IDs      []int64
 }
 
 type SuccessResult struct {
-	FileName string
-	FileURL  string
-	FileSize int64
-	RowCount int64
+	FileName  string
+	FileURL   string
+	ObjectKey string
+	FileSize  int64
+	RowCount  int64
 }
 
 type HTTPService interface {

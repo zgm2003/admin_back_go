@@ -62,7 +62,7 @@ func TestRunGeneratesUploadsMarksSuccessAndNotifies(t *testing.T) {
 	repo := &fakeRepository{getRow: &Task{ID: 7, UserID: 9, Title: "用户列表导出", Status: enum.ExportTaskStatusPending, IsDel: enum.CommonNo}}
 	provider := &fakeDataProvider{data: &FileData{Prefix: "用户列表导出", Headers: []Column{{Key: "id", Title: "ID"}}, Rows: []map[string]string{{"id": "3"}}}}
 	writer := &fakeFileWriter{body: []byte("xlsx")}
-	uploader := &fakeUploader{result: &UploadResult{FileName: "u.xlsx", FileURL: "https://cos/u.xlsx", FileSize: 4, RowCount: 1}}
+	uploader := &fakeUploader{result: &UploadResult{FileName: "u.xlsx", FileURL: "https://cos/u.xlsx", ObjectKey: "exports/user_list/20260507/u.xlsx", FileSize: 4, RowCount: 1}}
 	notifier := &fakeNotifier{}
 
 	err := NewService(repo, WithExportDataProvider(provider), WithFileWriter(writer), WithFileUploader(uploader), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, Platform: "admin", IDs: []int64{3}})
@@ -72,10 +72,10 @@ func TestRunGeneratesUploadsMarksSuccessAndNotifies(t *testing.T) {
 	if provider.kind != KindUserList || len(provider.ids) != 1 || provider.ids[0] != 3 {
 		t.Fatalf("unexpected provider call: kind=%s ids=%#v", provider.kind, provider.ids)
 	}
-	if uploader.input.TaskID != 7 || uploader.input.Prefix != "用户列表导出" || string(uploader.input.Body) != "xlsx" || uploader.input.RowCount != 1 {
+	if uploader.input.TaskID != 7 || uploader.input.Kind != KindUserList || uploader.input.Prefix != "用户列表导出" || string(uploader.input.Body) != "xlsx" || uploader.input.RowCount != 1 {
 		t.Fatalf("unexpected upload input: %#v", uploader.input)
 	}
-	if repo.successResult.FileName != "u.xlsx" || repo.successResult.FileURL != "https://cos/u.xlsx" || repo.successID != 7 {
+	if repo.successResult.FileName != "u.xlsx" || repo.successResult.FileURL != "https://cos/u.xlsx" || repo.successResult.ObjectKey != "exports/user_list/20260507/u.xlsx" || repo.successID != 7 {
 		t.Fatalf("unexpected success mark id=%d result=%#v", repo.successID, repo.successResult)
 	}
 	if notifier.success.TaskID != 7 || notifier.success.UserID != 9 || notifier.success.Link != "/system/exportTask?status=2" {

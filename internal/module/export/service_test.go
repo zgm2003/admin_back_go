@@ -12,22 +12,23 @@ import (
 )
 
 type fakeRepository struct {
-	cleanedAt     time.Time
-	counts        map[int]int64
-	gotCount      StatusCountQuery
-	rows          []Task
-	total         int64
-	gotList       ListQuery
-	created       Task
-	createdID     int64
-	deletedUserID int64
-	deletedIDs    []int64
-	getRow        *Task
-	successID     int64
-	successResult SuccessResult
-	markFailedID  int64
-	failedMessage string
-	err           error
+	cleanedAt       time.Time
+	counts          map[int]int64
+	gotCount        StatusCountQuery
+	rows            []Task
+	total           int64
+	gotList         ListQuery
+	created         Task
+	createdID       int64
+	deletedUserID   int64
+	deletedPlatform string
+	deletedIDs      []int64
+	getRow          *Task
+	successID       int64
+	successResult   SuccessResult
+	markFailedID    int64
+	failedMessage   string
+	err             error
 }
 
 func (f *fakeRepository) CleanExpired(ctx context.Context, now time.Time) error {
@@ -65,8 +66,9 @@ func (f *fakeRepository) MarkFailed(ctx context.Context, id int64, message strin
 	return f.err
 }
 
-func (f *fakeRepository) DeleteByUser(ctx context.Context, userID int64, ids []int64) error {
+func (f *fakeRepository) DeleteByUser(ctx context.Context, userID int64, platform string, ids []int64) error {
 	f.deletedUserID = userID
+	f.deletedPlatform = platform
 	f.deletedIDs = append([]int64{}, ids...)
 	return f.err
 }
@@ -99,29 +101,29 @@ func TestStatusCountReturnsFixedOrderAndScopesUser(t *testing.T) {
 	}
 }
 
-func TestListScopesUserAndFormatsFileSize(t *testing.T) {
+func TestListScopesUserPlatformKindAndFormatsFileSize(t *testing.T) {
 	createdAt := time.Date(2026, 5, 7, 12, 30, 0, 0, time.UTC)
 	expireAt := createdAt.Add(7 * 24 * time.Hour)
 	fileSize := int64(2048)
 	rowCount := int64(3)
 	repo := &fakeRepository{rows: []Task{{
-		ID: 7, UserID: 9, Title: "用户列表导出", FileName: "u.xlsx", FileURL: "https://cos/u.xlsx",
+		ID: 7, UserID: 9, Platform: enum.PlatformAdmin, Kind: KindUserList, Title: "用户列表导出", FileName: "u.xlsx", FileURL: "https://cos/u.xlsx",
 		FileSize: &fileSize, RowCount: &rowCount, Status: enum.ExportTaskStatusSuccess, ExpireAt: &expireAt, CreatedAt: createdAt,
 	}}, total: 1}
 	got, appErr := NewService(repo).List(context.Background(), ListQuery{
-		UserID: 9, CurrentPage: 1, PageSize: 20, Status: ptrInt(enum.ExportTaskStatusSuccess), FileName: " u ",
+		UserID: 9, Platform: enum.PlatformAdmin, Kind: KindUserList, CurrentPage: 1, PageSize: 20, Status: ptrInt(enum.ExportTaskStatusSuccess), FileName: " u ",
 	})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.gotList.UserID != 9 || repo.gotList.FileName != "u" {
+	if repo.gotList.UserID != 9 || repo.gotList.Platform != enum.PlatformAdmin || repo.gotList.Kind != KindUserList || repo.gotList.FileName != "u" {
 		t.Fatalf("expected scoped trimmed list query, got %#v", repo.gotList)
 	}
 	if got.Page.Total != 1 || got.Page.TotalPage != 1 || len(got.List) != 1 {
 		t.Fatalf("unexpected page/list: %#v", got)
 	}
 	item := got.List[0]
-	if item.FileSizeText != "2 KB" || item.StatusText != "已完成" || item.ExpireAt == nil || *item.ExpireAt != "2026-05-14 12:30:00" {
+	if item.Kind != KindUserList || item.KindText != "用户列表" || item.FileSizeText != "2 KB" || item.StatusText != "已完成" || item.ExpireAt == nil || *item.ExpireAt != "2026-05-14 12:30:00" {
 		t.Fatalf("unexpected list item: %#v", item)
 	}
 }
@@ -177,6 +179,36 @@ func TestDeleteRejectsEmptyIDsWithKey(t *testing.T) {
 	appErr := NewService(&fakeRepository{}).Delete(context.Background(), DeleteInput{UserID: 9, IDs: []int64{0}})
 	if appErr == nil || appErr.MessageID != "exporttask.delete.empty" {
 		t.Fatalf("expected keyed empty delete error, got %#v", appErr)
+	}
+}
+
+func TestCreatePendingStoresKindPlatformAndDefaults(t *testing.T) {
+	now := time.Date(2026, 5, 30, 9, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{createdID: 88}
+
+	got, err := NewService(repo, WithNow(func() time.Time { return now })).CreatePending(context.Background(), CreatePendingInput{
+		UserID:   9,
+		Title:    "用户列表导出",
+		Kind:     " user_list ",
+		Platform: " admin ",
+	})
+	if err != nil {
+		t.Fatalf("CreatePending returned error: %v", err)
+	}
+	if got != 88 {
+		t.Fatalf("expected id 88, got %d", got)
+	}
+	if repo.created.Kind != KindUserList || repo.created.Platform != enum.PlatformAdmin {
+		t.Fatalf("expected kind/platform to be stored, got kind=%q platform=%q", repo.created.Kind, repo.created.Platform)
+	}
+
+	repo = &fakeRepository{createdID: 89}
+	_, err = NewService(repo, WithNow(func() time.Time { return now })).CreatePending(context.Background(), CreatePendingInput{UserID: 9, Title: "用户列表导出"})
+	if err != nil {
+		t.Fatalf("CreatePending with defaults returned error: %v", err)
+	}
+	if repo.created.Kind != KindUserList || repo.created.Platform != enum.PlatformAdmin {
+		t.Fatalf("expected default kind/platform, got kind=%q platform=%q", repo.created.Kind, repo.created.Platform)
 	}
 }
 
