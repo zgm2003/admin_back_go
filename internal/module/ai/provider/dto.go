@@ -45,8 +45,6 @@ type ProviderDTO struct {
 	Name                string             `json:"name"`
 	EngineType          string             `json:"engine_type"`
 	EngineTypeName      string             `json:"engine_type_name"`
-	Driver              string             `json:"driver"`
-	DriverName          string             `json:"driver_name"`
 	BaseURL             string             `json:"base_url"`
 	BaseURLEffective    string             `json:"base_url_effective"`
 	APIKeyMasked        string             `json:"api_key_masked"`
@@ -92,7 +90,6 @@ type ProviderModelsResponse struct {
 type CreateInput struct {
 	Name              string
 	EngineType        string
-	Driver            string
 	BaseURL           string
 	APIKey            string
 	ModelIDs          []string
@@ -104,7 +101,6 @@ type UpdateInput = CreateInput
 
 type ModelOptionsInput struct {
 	EngineType string
-	Driver     string
 	BaseURL    string
 	APIKey     string
 }

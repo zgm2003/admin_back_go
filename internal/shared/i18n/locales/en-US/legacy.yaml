@@ -742,3 +742,4 @@ legacy.b5a25edb97ec: Failed to query recent recharge records
 legacy.dc5834177674: Failed to credit recharge amount
 legacy.f03a14fefd4f: Failed to query available payment configuration
 legacy.fae508f03784: Recharge order not found
+legacy.6214459efc23: AI driver is required

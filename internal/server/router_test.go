@@ -2918,7 +2918,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-providers/model-options", strings.NewReader(`{"driver":"openai","api_key":"sk-test"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-providers/model-options", strings.NewReader(`{"engine_type":"openai","api_key":"sk-test"}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)

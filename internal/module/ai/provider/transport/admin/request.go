@@ -10,8 +10,7 @@ type listRequest struct {
 
 type mutationRequest struct {
 	Name              string            `json:"name" binding:"required,max=128"`
-	Driver            string            `json:"driver" binding:"omitempty,oneof=openai"`
-	EngineType        string            `json:"engine_type" binding:"omitempty,oneof=openai"`
+	EngineType        string            `json:"engine_type" binding:"required,oneof=openai"`
 	BaseURL           string            `json:"base_url" binding:"omitempty,max=512"`
 	APIKey            string            `json:"api_key" binding:"omitempty,max=4096"`
 	ModelIDs          []string          `json:"model_ids" binding:"required,min=1,dive,required,max=191"`
@@ -20,8 +19,7 @@ type mutationRequest struct {
 }
 
 type modelOptionsRequest struct {
-	Driver     string `json:"driver" binding:"omitempty,oneof=openai"`
-	EngineType string `json:"engine_type" binding:"omitempty,oneof=openai"`
+	EngineType string `json:"engine_type" binding:"required,oneof=openai"`
 	BaseURL    string `json:"base_url" binding:"omitempty,max=512"`
 	APIKey     string `json:"api_key" binding:"required,max=4096"`
 }

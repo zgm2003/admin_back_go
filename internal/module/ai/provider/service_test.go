@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 type fakeRepository struct {
 	rows               []Provider
 	total              int64
+	listQuery          ListQuery
 	rowByID            map[uint64]Provider
 	exists             bool
 	created            *Provider
@@ -31,6 +33,7 @@ type fakeRepository struct {
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Provider, int64, error) {
+	f.listQuery = query
 	return f.rows, f.total, nil
 }
 
@@ -143,6 +146,63 @@ func TestCreateRequiresAPIKeyAndModels(t *testing.T) {
 	}
 }
 
+func TestListDoesNotDefaultBlankEngineTypeFilter(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr != nil {
+		t.Fatalf("expected list to succeed, got %v", appErr)
+	}
+	if repo.listQuery.EngineType != "" {
+		t.Fatalf("blank engine_type filter must stay blank, got %q", repo.listQuery.EngineType)
+	}
+}
+
+func TestCreateRequiresCanonicalEngineTypeInsteadOfDriverFallback(t *testing.T) {
+	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{
+		Name:     "OpenAI",
+		APIKey:   "sk-test",
+		ModelIDs: []string{"gpt-4.1-mini"},
+		Status:   1,
+	})
+	if appErr == nil || appErr.Message != "AI驱动不能为空" {
+		t.Fatalf("expected canonical engine_type error, got %#v", appErr)
+	}
+}
+
+func TestPreviewModelsRequiresCanonicalEngineTypeInsteadOfDriverFallback(t *testing.T) {
+	driver := &fakeModelDriver{}
+	service := NewServiceWithDriver(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil, driver)
+
+	_, appErr := service.PreviewModels(context.Background(), ModelOptionsInput{
+		APIKey: "sk-test",
+	})
+	if appErr == nil || appErr.Message != "AI驱动不能为空" {
+		t.Fatalf("expected canonical engine_type error, got %#v", appErr)
+	}
+	if driver.config.Driver != "" {
+		t.Fatalf("driver should not be called for missing canonical engine_type, got %#v", driver.config)
+	}
+}
+
+func TestProviderContractDoesNotExposeDriverAlias(t *testing.T) {
+	for _, file := range []string{"dto.go", "service.go", "transport/admin/request.go"} {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		source := string(raw)
+		for _, forbidden := range []string{`json:"driver"`, "DriverName", "driverFromInput(", "normalizeDriver("} {
+			if strings.Contains(source, forbidden) {
+				t.Fatalf("%s must not contain provider driver alias %q", file, forbidden)
+			}
+		}
+	}
+}
+
 func TestCreatePersistsSelectedModels(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -237,6 +297,9 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	}
 	if strings.Contains(body, "default_model_id") || strings.Contains(body, "is_default") {
 		t.Fatalf("provider response must not expose default model concept: %s", body)
+	}
+	if strings.Contains(body, `"driver"`) || strings.Contains(body, `"driver_name"`) {
+		t.Fatalf("provider response must not expose driver alias fields: %s", body)
 	}
 	for _, forbidden := range []string{`"source"`, `"raw"`, `"config_json"`} {
 		if strings.Contains(body, forbidden) {

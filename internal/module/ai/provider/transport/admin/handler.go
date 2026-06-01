@@ -171,13 +171,13 @@ func routeID(c *gin.Context) (uint64, bool) {
 }
 
 func createInput(req mutationRequest) aiprovidermodule.CreateInput {
-	return aiprovidermodule.CreateInput{Name: req.Name, EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
+	return aiprovidermodule.CreateInput{Name: req.Name, EngineType: req.EngineType, BaseURL: req.BaseURL, APIKey: req.APIKey, ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
 }
 func updateInput(req mutationRequest) aiprovidermodule.UpdateInput {
 	return aiprovidermodule.UpdateInput(createInput(req))
 }
 func modelOptionsInput(req modelOptionsRequest) aiprovidermodule.ModelOptionsInput {
-	return aiprovidermodule.ModelOptionsInput{EngineType: req.EngineType, Driver: req.Driver, BaseURL: req.BaseURL, APIKey: req.APIKey}
+	return aiprovidermodule.ModelOptionsInput{EngineType: req.EngineType, BaseURL: req.BaseURL, APIKey: req.APIKey}
 }
 func updateModelsInput(req updateModelsRequest) aiprovidermodule.UpdateModelsInput {
 	return aiprovidermodule.UpdateModelsInput{ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}

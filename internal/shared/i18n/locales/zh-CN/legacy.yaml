@@ -742,3 +742,4 @@ legacy.b5a25edb97ec: 查询最近充值记录失败
 legacy.dc5834177674: 充值入账失败
 legacy.f03a14fefd4f: 查询可用支付配置失败
 legacy.fae508f03784: 充值单不存在
+legacy.6214459efc23: AI驱动不能为空

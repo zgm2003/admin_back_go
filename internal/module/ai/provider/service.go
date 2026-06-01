@@ -133,7 +133,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if appErr != nil {
 		return appErr
 	}
-	exists, err := repo.ExistsByTypeName(ctx, strings.TrimSpace(driverFromInput(input.EngineType, input.Driver)), strings.TrimSpace(input.Name), id)
+	exists, err := repo.ExistsByTypeName(ctx, strings.TrimSpace(input.EngineType), strings.TrimSpace(input.Name), id)
 	if err != nil {
 		return apperror.Wrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
 	}
@@ -225,15 +225,15 @@ func (s *Service) TestConnection(ctx context.Context, id uint64) (*infraai.TestC
 }
 
 func (s *Service) PreviewModels(ctx context.Context, input ModelOptionsInput) (*ModelOptionsResponse, *apperror.Error) {
-	driverName := normalizeDriver(driverFromInput(input.EngineType, input.Driver))
-	if !isEngineType(driverName) {
-		return nil, apperror.BadRequest("无效的AI驱动")
+	engineType, appErr := requireEngineType(input.EngineType)
+	if appErr != nil {
+		return nil, appErr
 	}
 	apiKey := strings.TrimSpace(input.APIKey)
 	if apiKey == "" {
 		return nil, apperror.BadRequest("API Key不能为空")
 	}
-	models, err := s.openAIDriver().ListModels(ctx, provider.Config{Driver: driverName, BaseURL: input.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
+	models, err := s.openAIDriver().ListModels(ctx, provider.Config{Driver: engineType, BaseURL: input.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", err)
 	}
@@ -402,12 +402,12 @@ func normalizeListQuery(query ListQuery) ListQuery {
 		query.PageSize = enum.PageSizeMax
 	}
 	query.Name = strings.TrimSpace(query.Name)
-	query.EngineType = normalizeDriver(query.EngineType)
+	query.EngineType = strings.TrimSpace(query.EngineType)
 	return query
 }
 
 func normalizeCreateInput(input CreateInput) (Provider, []ProviderModel, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
+	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.Status)
 	if appErr != nil {
 		return Provider{}, nil, appErr
 	}
@@ -419,7 +419,7 @@ func normalizeCreateInput(input CreateInput) (Provider, []ProviderModel, *apperr
 }
 
 func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input.Name, driverFromInput(input.EngineType, input.Driver), input.BaseURL, input.Status)
+	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.Status)
 	if appErr != nil {
 		return nil, nil, appErr
 	}
@@ -437,16 +437,17 @@ type normalizedFields struct {
 
 func normalizeMutationFields(name, engineType, baseURL string, status int) (normalizedFields, *apperror.Error) {
 	name = strings.TrimSpace(name)
-	engineType = normalizeDriver(engineType)
+	var appErr *apperror.Error
+	engineType, appErr = requireEngineType(engineType)
+	if appErr != nil {
+		return normalizedFields{}, appErr
+	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if name == "" {
 		return normalizedFields{}, apperror.BadRequest("供应商名称不能为空")
 	}
 	if len([]rune(name)) > 128 {
 		return normalizedFields{}, apperror.BadRequest("供应商名称不能超过128个字符")
-	}
-	if !isEngineType(engineType) {
-		return normalizedFields{}, apperror.BadRequest("无效的AI驱动")
 	}
 	if len([]rune(baseURL)) > 512 {
 		return normalizedFields{}, apperror.BadRequest("供应商地址不能超过512个字符")
@@ -510,8 +511,6 @@ func providerDTO(row Provider, models []ProviderModel) ProviderDTO {
 		Name:                row.Name,
 		EngineType:          row.EngineType,
 		EngineTypeName:      engineTypeLabels[row.EngineType],
-		Driver:              row.EngineType,
-		DriverName:          engineTypeLabels[row.EngineType],
 		BaseURL:             row.BaseURL,
 		BaseURLEffective:    effectiveBaseURL(row.BaseURL),
 		APIKeyMasked:        row.APIKeyHint,
@@ -552,19 +551,15 @@ func engineTypeOptions() []dict.Option[string] {
 
 func isEngineType(value string) bool { _, ok := engineTypeLabels[value]; return ok }
 
-func normalizeDriver(value string) string {
+func requireEngineType(value string) (string, *apperror.Error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return driverOpenAI
+		return "", apperror.BadRequest("AI驱动不能为空")
 	}
-	return value
-}
-
-func driverFromInput(engineType string, driver string) string {
-	if strings.TrimSpace(driver) != "" {
-		return driver
+	if !isEngineType(value) {
+		return "", apperror.BadRequest("无效的AI驱动")
 	}
-	return engineType
+	return value, nil
 }
 
 func effectiveBaseURL(value string) string {
