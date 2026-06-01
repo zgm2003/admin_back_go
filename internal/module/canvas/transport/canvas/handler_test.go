@@ -21,6 +21,7 @@ type fakeCanvasService struct {
 	settingsUserID int64
 	chatInput      canvasmodule.ChatCompletionInput
 	imageInput     canvasmodule.ImageGenerationInput
+	imageStatusID  uint64
 	videoInput     canvasmodule.VideoGenerationInput
 	videoStatusID  int64
 	videoContentID int64
@@ -53,6 +54,10 @@ func (f *fakeCanvasService) ChatCompletion(ctx context.Context, input canvasmodu
 func (f *fakeCanvasService) GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error) {
 	f.imageInput = input
 	return &canvasmodule.ImageGenerationResponse{TaskID: 88, Status: "pending"}, nil
+}
+func (f *fakeCanvasService) ImageStatus(ctx context.Context, userID int64, id uint64) (*canvasmodule.ImageStatusResponse, *apperror.Error) {
+	f.imageStatusID = id
+	return &canvasmodule.ImageStatusResponse{}, nil
 }
 func (f *fakeCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
 	f.videoInput = input
@@ -157,6 +162,13 @@ func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || service.imageInput.UserID != 9 || service.imageInput.AgentID != 8 || service.imageInput.N != 2 {
 		t.Fatalf("image route mismatch code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.imageInput)
+	}
+	assertNoProviderSecrets(t, recorder.Body.Bytes())
+
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/images/88", nil))
+	if recorder.Code != http.StatusOK || service.imageStatusID != 88 {
+		t.Fatalf("image status route mismatch code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), service.imageStatusID)
 	}
 	assertNoProviderSecrets(t, recorder.Body.Bytes())
 

@@ -19,6 +19,7 @@ type HTTPService interface {
 	PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error)
 	ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error)
 	GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error)
+	ImageStatus(ctx context.Context, userID int64, id uint64) (*canvasmodule.ImageStatusResponse, *apperror.Error)
 	GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error)
 	VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error)
 	VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error)
@@ -93,6 +94,20 @@ func (h *Handler) ImageEdits(c *gin.Context) {
 	h.ImageGenerations(c)
 }
 
+func (h *Handler) ImageStatus(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.id.invalid", nil, "图片任务ID无效"))
+		return
+	}
+	result, appErr := h.requireService().ImageStatus(c.Request.Context(), userID, id)
+	writeResult(c, result, appErr)
+}
+
 func (h *Handler) VideoGenerations(c *gin.Context) {
 	userID, ok := currentUserID(c)
 	if !ok {
@@ -157,6 +172,9 @@ func (failingService) ChatCompletion(ctx context.Context, input canvasmodule.Cha
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
 }
 func (failingService) GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
+}
+func (failingService) ImageStatus(ctx context.Context, userID int64, id uint64) (*canvasmodule.ImageStatusResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
 }
 func (failingService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {

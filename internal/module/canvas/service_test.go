@@ -234,6 +234,9 @@ func (f *fakeCanvasImageRuntime) Create(ctx context.Context, input aiimagemodule
 	f.input = input
 	return &aiimagemodule.CreateTaskResponse{Task: aiimagemodule.TaskDTO{ID: 501, Status: "pending"}}, nil
 }
+func (f *fakeCanvasImageRuntime) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error) {
+	return &aiimagemodule.DetailResponse{Task: aiimagemodule.TaskDTO{ID: taskID, Status: aiimagemodule.StatusSuccess}}, nil
+}
 
 type fakeCanvasTextRuntime struct {
 	input  TextGenerationInput

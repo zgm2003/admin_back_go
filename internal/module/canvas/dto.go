@@ -157,6 +157,11 @@ type ImageGenerationResponse struct {
 	Status string `json:"status"`
 }
 
+type ImageStatusResponse struct {
+	Task    aiimagemodule.TaskDTO    `json:"task"`
+	Outputs []aiimagemodule.AssetDTO `json:"outputs"`
+}
+
 type VideoGenerationInput struct {
 	UserID          int64
 	AgentID         int64
@@ -250,6 +255,7 @@ type VideoProviderStatus struct {
 
 type ImageRuntime interface {
 	Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error)
+	Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error)
 }
 
 type TextRuntime interface {

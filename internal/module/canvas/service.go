@@ -156,6 +156,26 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 	return &ImageGenerationResponse{TaskID: result.Task.ID, Status: result.Task.Status}, nil
 }
 
+func (s *Service) ImageStatus(ctx context.Context, userID int64, id uint64) (*ImageStatusResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+	}
+	if id == 0 {
+		return nil, apperror.BadRequestKey("canvas.ai.image.id.invalid", nil, "图片任务ID无效")
+	}
+	if s == nil || s.settings.Image == nil {
+		return nil, apperror.InternalKey("canvas.ai.image.service_missing", nil, "Canvas图片生成服务未配置")
+	}
+	result, appErr := s.settings.Image.Detail(ctx, uint64(userID), id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if result == nil {
+		return nil, apperror.InternalKey("canvas.ai.image.result_invalid", nil, "Canvas图片生成结果无效")
+	}
+	return &ImageStatusResponse{Task: result.Task, Outputs: result.Outputs}, nil
+}
+
 func (s *Service) GenerateVideo(ctx context.Context, input VideoGenerationInput) (*VideoGenerationResponse, *apperror.Error) {
 	if input.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")

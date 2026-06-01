@@ -1424,6 +1424,7 @@ type fakeRouterCanvasService struct {
 	settings    canvasmodule.SettingsInput
 	chatInput   canvasmodule.ChatCompletionInput
 	imageInput  canvasmodule.ImageGenerationInput
+	imageStatus uint64
 	videoInput  canvasmodule.VideoGenerationInput
 }
 
@@ -1446,6 +1447,10 @@ func (f *fakeRouterCanvasService) ChatCompletion(ctx context.Context, input canv
 func (f *fakeRouterCanvasService) GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error) {
 	f.imageInput = input
 	return &canvasmodule.ImageGenerationResponse{TaskID: 88, Status: "pending"}, nil
+}
+func (f *fakeRouterCanvasService) ImageStatus(ctx context.Context, userID int64, id uint64) (*canvasmodule.ImageStatusResponse, *apperror.Error) {
+	f.imageStatus = id
+	return &canvasmodule.ImageStatusResponse{}, nil
 }
 func (f *fakeRouterCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
 	f.videoInput = input
