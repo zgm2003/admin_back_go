@@ -14,8 +14,25 @@ func TestCanvasFrontNextIntegration(t *testing.T) {
 			"auth_platforms", "'canvas'", "无限画布",
 			"canvas_prompts", "canvas_assets",
 			"uk_canvas_prompts_slug", "uk_canvas_assets_slug",
+			"canvas_pages", "canvas_buttons",
+			"'/canvas'", "'canvas_page'",
+			"'/image'", "'canvas_image_page'",
+			"'/video'", "'canvas_video_page'",
+			"'/prompts'", "'canvas_prompts_page'",
+			"'/assets'", "'canvas_assets_page'",
+			"'/profile'", "'canvas_profile_page'",
+			"'/wallet'", "'canvas_wallet_page'",
+			"'canvas_prompt_read'", "'canvas_asset_read'",
+			"'canvas_ai_image_generate'", "'canvas_ai_video_generate'",
+			"'canvas_recharge_add'", "'canvas_recharge_pay'",
 		} {
 			assertCanvasContains(t, migration, want)
+		}
+		for _, forbiddenPermissionShape := range []string{
+			"SELECT permission_name, '', '', 0, '', 'canvas', 3",
+			"'canvas_access' AS permission_code",
+		} {
+			assertCanvasNotContains(t, migration, forbiddenPermissionShape)
 		}
 		for _, forbidden := range []string{
 			"CREATE TABLE `canvas_users`",

@@ -32,7 +32,7 @@ func (h *Handler) Me(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	response.OK(c, canvasUserFromInit(currentUser))
+	response.OK(c, currentUser)
 }
 
 func (h *Handler) canvasIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {

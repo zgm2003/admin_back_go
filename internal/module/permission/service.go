@@ -986,6 +986,7 @@ func buildRouteRecord(permission Permission) RouteItem {
 		ViewKey: strings.TrimLeft(permission.Component, "/"),
 		Meta: map[string]string{
 			"menuId": strconv.FormatInt(permission.ID, 10),
+			"code":   permission.Code,
 		},
 	}
 }

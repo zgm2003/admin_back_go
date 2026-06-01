@@ -61,7 +61,12 @@ func (f *fakeUserService) Init(ctx context.Context, input user.InitInput) (*user
 	f.input = input
 	return &user.InitResponse{
 		UserID: input.UserID, Username: "Canvas User", Avatar: "canvas.png", RoleName: "canvas",
-		Permissions: []permission.MenuItem{}, Router: []permission.RouteItem{}, ButtonCodes: []string{},
+		Permissions: []permission.MenuItem{},
+		Router: []permission.RouteItem{
+			{Path: "/canvas", Meta: map[string]string{"code": "canvas_page"}},
+			{Path: "/prompts", Meta: map[string]string{"code": "canvas_prompts_page"}},
+		},
+		ButtonCodes: []string{"canvas_access", "canvas_prompt_read"},
 	}, nil
 }
 
@@ -109,8 +114,22 @@ func TestCanvasAuthRoutesForceCanvasPlatform(t *testing.T) {
 		t.Fatalf("canvas login response must not expose admin token field: %#v", data)
 	}
 	userData := data["user"].(map[string]any)
-	if userData["nickname"] != "Canvas User" || userData["avatar"] != "canvas.png" {
+	if userData["user_id"] != float64(9) || userData["username"] != "Canvas User" || userData["avatar"] != "canvas.png" || userData["role_name"] != "canvas" {
 		t.Fatalf("unexpected canvas user payload: %#v", userData)
+	}
+	for _, forbidden := range []string{"id", "nickname", "display_name", "avatar_url", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := userData[forbidden]; ok {
+			t.Fatalf("canvas user payload must not expose fallback/alias field %q: %#v", forbidden, userData)
+		}
+	}
+	if _, ok := userData["permissions"].([]any); !ok {
+		t.Fatalf("expected permissions in canvas login user payload, got %#v", userData["permissions"])
+	}
+	if !routeSliceEqual(userData["router"], []string{"/canvas", "/prompts"}) {
+		t.Fatalf("expected router in canvas login user payload, got %#v", userData["router"])
+	}
+	if !stringSliceEqual(userData["buttonCodes"], []string{"canvas_access", "canvas_prompt_read"}) {
+		t.Fatalf("expected canvas button codes in login payload, got %#v", userData["buttonCodes"])
 	}
 }
 
@@ -165,4 +184,31 @@ func decodeAuthData(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 		t.Fatalf("invalid json response: %v", err)
 	}
 	return body["data"].(map[string]any)
+}
+
+func stringSliceEqual(value any, want []string) bool {
+	got, ok := value.([]any)
+	if !ok || len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func routeSliceEqual(value any, wantPaths []string) bool {
+	got, ok := value.([]any)
+	if !ok || len(got) != len(wantPaths) {
+		return false
+	}
+	for i := range wantPaths {
+		item, ok := got[i].(map[string]any)
+		if !ok || item["path"] != wantPaths[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -116,7 +116,7 @@ func (h *Handler) Login(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	response.OK(c, loginResponse{Token: result.AccessToken, User: userFromInit(currentUser)})
+	response.OK(c, loginResponse{Token: result.AccessToken, User: currentUser})
 }
 
 func (h *Handler) Logout(c *gin.Context) {
