@@ -54,8 +54,12 @@ func (s *Service) SettingPageInit(ctx context.Context) (*SettingPageInitResponse
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传规则字典失败", err)
 	}
+	driverOptions, appErr := settingDriverOptions(drivers)
+	if appErr != nil {
+		return nil, appErr
+	}
 	return &SettingPageInitResponse{Dict: SettingPageInitDict{
-		UploadDriverList: settingDriverOptions(drivers),
+		UploadDriverList: driverOptions,
 		UploadRuleList:   settingRuleOptions(rules),
 		CommonStatusArr:  dict.CommonStatusOptions(),
 	}}, nil
@@ -73,7 +77,11 @@ func (s *Service) DriverList(ctx context.Context, query DriverListQuery) (*Drive
 	}
 	list := make([]DriverItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, driverItemFromRow(row))
+		item, appErr := driverItemFromRow(row)
+		if appErr != nil {
+			return nil, appErr
+		}
+		list = append(list, item)
 	}
 	return &DriverListResponse{
 		List: list,
@@ -315,7 +323,11 @@ func (s *Service) SettingList(ctx context.Context, query SettingListQuery) (*Set
 	}
 	list := make([]SettingItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, settingItemFromRow(row))
+		item, appErr := settingItemFromRow(row)
+		if appErr != nil {
+			return nil, appErr
+		}
+		list = append(list, item)
 	}
 	return &SettingListResponse{
 		List: list,
@@ -607,14 +619,18 @@ func normalizeSettingMutationInput(input SettingMutationInput) (SettingMutationI
 	return input, nil
 }
 
-func driverItemFromRow(row Driver) DriverItem {
+func driverItemFromRow(row Driver) (DriverItem, *apperror.Error) {
+	driverShow, ok := uploadDriverLabel(row.Driver)
+	if !ok {
+		return DriverItem{}, apperror.InternalKey("uploadconfig.driver.data_invalid", nil, "上传驱动数据异常")
+	}
 	return DriverItem{
-		ID: row.ID, Driver: row.Driver, DriverShow: enum.UploadDriverLabels[row.Driver],
+		ID: row.ID, Driver: row.Driver, DriverShow: driverShow,
 		SecretIDHint: row.SecretIDHint, SecretKeyHint: row.SecretKeyHint,
 		Bucket: row.Bucket, Region: row.Region, RoleARN: optionalString(row.RoleARN), AppID: optionalString(row.AppID),
 		Endpoint: optionalString(row.Endpoint), BucketDomain: optionalString(row.BucketDomain),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
-	}
+	}, nil
 }
 
 func ruleItemFromRow(row Rule) (RuleItem, error) {
@@ -636,35 +652,34 @@ func ruleItemFromRow(row Rule) (RuleItem, error) {
 	}, nil
 }
 
-func settingItemFromRow(row SettingListRow) SettingItem {
-	driverName := enum.UploadDriverLabels[row.Driver]
+func settingItemFromRow(row SettingListRow) (SettingItem, *apperror.Error) {
+	driverName, ok := uploadDriverLabel(row.Driver)
+	if !ok || !enum.IsCommonStatus(row.Status) {
+		return SettingItem{}, apperror.InternalKey("uploadconfig.setting.data_invalid", nil, "上传设置数据异常")
+	}
 	if row.Bucket != "" {
-		if driverName == "" {
-			driverName = row.Bucket
-		} else {
-			driverName += " - " + row.Bucket
-		}
+		driverName += " - " + row.Bucket
 	}
 	return SettingItem{
 		ID: row.ID, DriverID: row.DriverID, RuleID: row.RuleID, DriverName: driverName, RuleName: row.RuleTitle,
 		Status: row.Status, StatusName: statusLabel(row.Status), Remark: row.Remark,
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
-	}
+	}, nil
 }
 
-func settingDriverOptions(rows []Driver) []dict.Option[int] {
+func settingDriverOptions(rows []Driver) ([]dict.Option[int], *apperror.Error) {
 	options := make([]dict.Option[int], 0, len(rows))
 	for _, row := range rows {
-		label := enum.UploadDriverLabels[row.Driver]
-		if label == "" {
-			label = row.Driver
+		label, ok := uploadDriverLabel(row.Driver)
+		if !ok {
+			return nil, apperror.InternalKey("uploadconfig.driver.data_invalid", nil, "上传驱动数据异常")
 		}
 		if row.Bucket != "" {
 			label += " - " + row.Bucket
 		}
 		options = append(options, dict.Option[int]{Label: label, Value: int(row.ID)})
 	}
-	return options
+	return options, nil
 }
 
 func settingRuleOptions(rows []Rule) []dict.Option[int] {
@@ -682,6 +697,11 @@ func statusLabel(status int) string {
 		}
 	}
 	return ""
+}
+
+func uploadDriverLabel(driver string) (string, bool) {
+	label := enum.UploadDriverLabels[driver]
+	return label, label != ""
 }
 
 func normalizeIDs(ids []int64) []int64 {

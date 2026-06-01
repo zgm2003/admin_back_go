@@ -556,7 +556,7 @@ func normalizeConfigInput(input SaveConfigInput) (SaveConfigInput, *apperror.Err
 
 func verifyCodeTTLMinutesFromConfig(row *Config) (int, *apperror.Error) {
 	if row == nil {
-		return defaultVerifyCodeTTLMinutes, nil
+		return 0, apperror.InternalKey("mail.ttl.unconfigured", nil, "邮件验证码配置未启用")
 	}
 	return normalizeVerifyCodeTTLMinutes(row.VerifyCodeTTLMinutes)
 }

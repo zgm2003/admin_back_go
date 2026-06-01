@@ -33,6 +33,7 @@ sms.service_disabled: SMS service is disabled
 sms.template.unconfigured: SMS template is not configured
 sms.template.disabled: SMS template is disabled
 sms.ttl.query_failed: Failed to query verification code TTL
+sms.ttl.unconfigured: SMS verification code config is not enabled
 sms.ttl.integer_required: Verification code TTL must be an integer number of minutes
 sms.secret_id.decrypt_failed: Failed to decrypt Tencent SecretId
 sms.secret_key.decrypt_failed: Failed to decrypt Tencent SecretKey

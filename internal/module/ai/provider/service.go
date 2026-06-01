@@ -73,7 +73,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 		if err != nil {
 			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 		}
-		list = append(list, providerDTO(row, models))
+		dto, appErr := providerDTO(row, models)
+		if appErr != nil {
+			return nil, appErr
+		}
+		list = append(list, dto)
 	}
 	return &ListResponse{List: list, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}}, nil
 }
@@ -320,7 +324,11 @@ func (s *Service) ListProviderModels(ctx context.Context, id uint64) (*ProviderM
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 	}
-	return &ProviderModelsResponse{List: providerModelDTOs(models)}, nil
+	list, appErr := providerModelDTOs(models)
+	if appErr != nil {
+		return nil, appErr
+	}
+	return &ProviderModelsResponse{List: list}, nil
 }
 
 func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input UpdateModelsInput) *apperror.Error {
@@ -499,7 +507,15 @@ func buildProviderModels(modelIDs []string, displayNames map[string]string, stat
 	return models, nil
 }
 
-func providerDTO(row Provider, models []ProviderModel) ProviderDTO {
+func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.Error) {
+	engineTypeName, ok := engineTypeLabels[row.EngineType]
+	if !ok || !isHealthStatus(row.HealthStatus) || !isHealthStatus(row.LastModelSyncStatus) || !enum.IsCommonStatus(row.Status) {
+		return ProviderDTO{}, apperror.InternalKey("aiprovider.data.invalid", nil, "AI供应商数据异常")
+	}
+	modelDTOs, appErr := providerModelDTOs(models)
+	if appErr != nil {
+		return ProviderDTO{}, appErr
+	}
 	enabledCount := 0
 	for _, model := range models {
 		if model.Status == enum.CommonYes {
@@ -510,31 +526,34 @@ func providerDTO(row Provider, models []ProviderModel) ProviderDTO {
 		ID:                  row.ID,
 		Name:                row.Name,
 		EngineType:          row.EngineType,
-		EngineTypeName:      engineTypeLabels[row.EngineType],
+		EngineTypeName:      engineTypeName,
 		BaseURL:             row.BaseURL,
 		BaseURLEffective:    effectiveBaseURL(row.BaseURL),
 		APIKeyMasked:        row.APIKeyHint,
-		HealthStatus:        emptyAs(row.HealthStatus, provider.HealthUnknown),
+		HealthStatus:        row.HealthStatus,
 		LastCheckedAt:       formatPtrTime(row.LastCheckedAt),
 		LastCheckError:      row.LastCheckError,
 		LastModelSyncAt:     formatPtrTime(row.LastModelSyncAt),
-		LastModelSyncStatus: emptyAs(row.LastModelSyncStatus, provider.HealthUnknown),
+		LastModelSyncStatus: row.LastModelSyncStatus,
 		LastModelSyncError:  row.LastModelSyncError,
 		EnabledModelCount:   enabledCount,
-		Models:              providerModelDTOs(models),
+		Models:              modelDTOs,
 		Status:              row.Status,
 		StatusName:          statusText(row.Status),
 		CreatedAt:           formatTime(row.CreatedAt),
 		UpdatedAt:           formatTime(row.UpdatedAt),
-	}
+	}, nil
 }
 
-func providerModelDTOs(rows []ProviderModel) []ProviderModelDTO {
+func providerModelDTOs(rows []ProviderModel) ([]ProviderModelDTO, *apperror.Error) {
 	list := make([]ProviderModelDTO, 0, len(rows))
 	for _, row := range rows {
+		if !enum.IsCommonStatus(row.Status) {
+			return nil, apperror.InternalKey("aiprovider.model.data_invalid", nil, "AI供应商模型数据异常")
+		}
 		list = append(list, ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)})
 	}
-	return list
+	return list, nil
 }
 
 func modelOptionsDTO(models []provider.Model) []ModelOptionDTO {
@@ -550,6 +569,15 @@ func engineTypeOptions() []dict.Option[string] {
 }
 
 func isEngineType(value string) bool { _, ok := engineTypeLabels[value]; return ok }
+
+func isHealthStatus(value string) bool {
+	switch value {
+	case provider.HealthUnknown, provider.HealthOK, provider.HealthFailed:
+		return true
+	default:
+		return false
+	}
+}
 
 func requireEngineType(value string) (string, *apperror.Error) {
 	value = strings.TrimSpace(value)
@@ -567,13 +595,6 @@ func effectiveBaseURL(value string) string {
 		return defaultOpenAIBaseURL
 	}
 	return strings.TrimRight(strings.TrimSpace(value), "/")
-}
-
-func emptyAs(value string, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
 }
 
 func errorMessage(err error, result *infraai.TestConnectionResult) string {

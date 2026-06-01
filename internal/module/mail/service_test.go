@@ -379,12 +379,12 @@ func TestServiceVerifyCodeTTLUsesConfigRow(t *testing.T) {
 	}
 }
 
-func TestServiceVerifyCodeTTLUsesDefaultWhenConfigMissing(t *testing.T) {
+func TestServiceVerifyCodeTTLRejectsMissingConfig(t *testing.T) {
 	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
 
 	got, appErr := service.VerifyCodeTTL(context.Background())
 
-	if appErr != nil || got != 5*time.Minute {
+	if appErr == nil || appErr.Message != "邮件验证码配置未启用" || got != 0 {
 		t.Fatalf("ttl=%s err=%#v", got, appErr)
 	}
 }

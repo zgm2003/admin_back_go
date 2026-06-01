@@ -201,12 +201,12 @@ func TestVerifyCodeTTLUsesSmsConfigRow(t *testing.T) {
 	}
 }
 
-func TestVerifyCodeTTLUsesDefaultWhenSmsConfigMissing(t *testing.T) {
+func TestVerifyCodeTTLRejectsMissingSmsConfig(t *testing.T) {
 	service := NewService(newFakeSmsRepository(), secretbox.Box{}, nil)
 
 	got, appErr := service.VerifyCodeTTL(context.Background())
 
-	if appErr != nil || got != 5*time.Minute {
+	if appErr == nil || appErr.Message != "短信验证码配置未启用" || got != 0 {
 		t.Fatalf("ttl=%s err=%#v", got, appErr)
 	}
 }

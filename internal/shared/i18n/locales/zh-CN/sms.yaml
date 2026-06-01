@@ -33,6 +33,7 @@ sms.service_disabled: 短信服务已禁用
 sms.template.unconfigured: 短信模板未配置
 sms.template.disabled: 短信模板已禁用
 sms.ttl.query_failed: 查询验证码有效期配置失败
+sms.ttl.unconfigured: 短信验证码配置未启用
 sms.ttl.integer_required: 验证码有效期必须为整数分钟
 sms.secret_id.decrypt_failed: 解密 Tencent SecretId 失败
 sms.secret_key.decrypt_failed: 解密 Tencent SecretKey 失败

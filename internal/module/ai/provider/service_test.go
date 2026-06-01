@@ -159,6 +159,40 @@ func TestListDoesNotDefaultBlankEngineTypeFilter(t *testing.T) {
 	}
 }
 
+func TestListRejectsInvalidStoredProviderStateInsteadOfInventingDTOFallback(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	validProvider := Provider{ID: 1, Name: "OpenAI", EngineType: "openai", HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, Status: 1, CreatedAt: now, UpdatedAt: now}
+	validModels := []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1, CreatedAt: now, UpdatedAt: now}}
+	cases := []struct {
+		name     string
+		row      Provider
+		models   []ProviderModel
+		errorMsg string
+	}{
+		{name: "blank engine_type", row: func() Provider { row := validProvider; row.EngineType = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
+		{name: "blank health_status", row: func() Provider { row := validProvider; row.HealthStatus = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
+		{name: "blank last_model_sync_status", row: func() Provider { row := validProvider; row.LastModelSyncStatus = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
+		{name: "invalid provider status", row: func() Provider { row := validProvider; row.Status = 99; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
+		{name: "invalid model status", row: validProvider, models: []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 99, CreatedAt: now, UpdatedAt: now}}, errorMsg: "AI供应商模型数据异常"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepository{
+				rows:             []Provider{tc.row},
+				total:            1,
+				modelsByProvider: map[uint64][]ProviderModel{1: tc.models},
+			}
+			service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+			got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+			if appErr == nil || appErr.Message != tc.errorMsg {
+				t.Fatalf("expected %q error, got response=%#v error=%#v", tc.errorMsg, got, appErr)
+			}
+		})
+	}
+}
+
 func TestCreateRequiresCanonicalEngineTypeInsteadOfDriverFallback(t *testing.T) {
 	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
@@ -274,7 +308,7 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{
-		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", Status: 1, CreatedAt: now, UpdatedAt: now}},
+		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", LastModelSyncStatus: "unknown", Status: 1, CreatedAt: now, UpdatedAt: now}},
 		total:            1,
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1}}},
 	}

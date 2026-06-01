@@ -34,6 +34,8 @@ type fakeRepository struct {
 	settingDriverOK   bool
 	settingRuleOK     bool
 	settingEnabled    bool
+	settings          []SettingListRow
+	settingTotal      int64
 	createdSetting    *Setting
 	updatedSettingID  int64
 	updatedSetting    map[string]any
@@ -112,7 +114,7 @@ func (f *fakeRepository) RuleReferenced(ctx context.Context, ids []int64) (bool,
 }
 
 func (f *fakeRepository) ListSettings(ctx context.Context, query SettingListQuery) ([]SettingListRow, int64, error) {
-	return []SettingListRow{}, 0, nil
+	return f.settings, f.settingTotal, nil
 }
 
 func (f *fakeRepository) DriverDict(ctx context.Context) ([]Driver, error) {
@@ -374,6 +376,16 @@ func TestDriverListNeverReturnsPlaintextOrCiphertext(t *testing.T) {
 	}
 }
 
+func TestDriverListRejectsUnknownStoredDriverInsteadOfBlankLabel(t *testing.T) {
+	repo := &fakeRepository{drivers: []Driver{{ID: 1, Driver: "oss", Bucket: "legacy-bucket"}}, driverTotal: 1}
+	service := NewService(repo, nil)
+
+	got, appErr := service.DriverList(context.Background(), DriverListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr == nil || appErr.Message != "上传驱动数据异常" {
+		t.Fatalf("expected invalid driver data error, got response=%#v error=%#v", got, appErr)
+	}
+}
+
 func TestDriverDeleteRejectsReferencedDriver(t *testing.T) {
 	service := NewService(&fakeRepository{driverReferenced: true}, nil)
 
@@ -478,6 +490,32 @@ func TestSettingPageInitReturnsDriverAndRuleDicts(t *testing.T) {
 	}
 	if len(got.Dict.CommonStatusArr) != 2 {
 		t.Fatalf("unexpected status dict: %#v", got.Dict.CommonStatusArr)
+	}
+}
+
+func TestSettingPageInitRejectsUnknownStoredDriverInsteadOfOptionFallback(t *testing.T) {
+	repo := &fakeRepository{
+		settingDriverDict: []Driver{{ID: 1, Driver: "oss", Bucket: "legacy-bucket"}},
+		settingRuleDict:   []Rule{{ID: 2, Title: "图片规则"}},
+	}
+	service := NewService(repo, nil)
+
+	got, appErr := service.SettingPageInit(context.Background())
+	if appErr == nil || appErr.Message != "上传驱动数据异常" {
+		t.Fatalf("expected invalid driver dict error, got response=%#v error=%#v", got, appErr)
+	}
+}
+
+func TestSettingListRejectsUnknownStoredDriverInsteadOfBucketFallback(t *testing.T) {
+	repo := &fakeRepository{
+		settings:     []SettingListRow{{ID: 1, DriverID: 1, RuleID: 2, Status: enum.CommonYes, Driver: "oss", Bucket: "legacy-bucket", RuleTitle: "图片规则"}},
+		settingTotal: 1,
+	}
+	service := NewService(repo, nil)
+
+	got, appErr := service.SettingList(context.Background(), SettingListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr == nil || appErr.Message != "上传设置数据异常" {
+		t.Fatalf("expected invalid setting data error, got response=%#v error=%#v", got, appErr)
 	}
 }
 
