@@ -6,7 +6,6 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/enum"
 )
 
@@ -14,6 +13,16 @@ type fakeVideoRepository struct{ agent *VideoAgentRuntime }
 
 func (f *fakeVideoRepository) AgentForVideoRuntime(ctx context.Context, agentID int64) (*VideoAgentRuntime, error) {
 	return f.agent, nil
+}
+
+func (f *fakeVideoRepository) CreateVideoTask(ctx context.Context, task VideoTask) (int64, error) {
+	return 77, nil
+}
+func (f *fakeVideoRepository) UpdateVideoTask(ctx context.Context, userID int64, id int64, fields map[string]any) error {
+	return nil
+}
+func (f *fakeVideoRepository) GetVideoTask(ctx context.Context, userID int64, id int64) (*VideoTask, error) {
+	return &VideoTask{ID: id, UserID: userID, AgentID: 8, ProviderTaskID: "provider-task-1", IsDel: IsDelActive}, nil
 }
 
 type fakeVideoEngineFactory struct {
@@ -53,7 +62,7 @@ func validVideoRuntimeAgent(t *testing.T, box secretbox.Box) *VideoAgentRuntime 
 	if err != nil {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
-	return &VideoAgentRuntime{AgentID: 8, ProviderID: 9, ModelID: "grok-imagine-video", ScenesJSON: `["image_generate"]`, EngineType: string(infraai.EngineTypeOpenAI), EngineBaseURL: "https://api.openai.test/v1", EngineAPIKeyEnc: cipher, AgentStatus: enum.CommonYes, EngineStatus: enum.CommonYes}
+	return &VideoAgentRuntime{AgentID: 8, ProviderID: 9, ModelID: "grok-imagine-video", ScenesJSON: `["canvas_video_generate"]`, EngineType: string(infraai.EngineTypeOpenAI), EngineBaseURL: "https://api.openai.test/v1", EngineAPIKeyEnc: cipher, AgentStatus: enum.CommonYes, EngineStatus: enum.CommonYes}
 }
 
 func TestVideoRuntimeCreateUsesAgentModelAndReturnsProviderTask(t *testing.T) {
@@ -75,18 +84,18 @@ func TestVideoRuntimeCreateUsesAgentModelAndReturnsProviderTask(t *testing.T) {
 	}
 }
 
-func TestVideoRuntimeStatusAndContentUseBillingRecordProviderTaskID(t *testing.T) {
+func TestVideoRuntimeStatusAndContentUseCanvasVideoTaskProviderTaskID(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	engine := &fakeVideoEngine{statusTask: &infraai.VideoTask{ID: "provider-task-1", Status: "completed"}}
 	svc := NewVideoRuntimeService(VideoRuntimeDependencies{Repository: &fakeVideoRepository{agent: validVideoRuntimeAgent(t, box)}, Secretbox: box, EngineFactory: &fakeVideoEngineFactory{engine: engine}})
-	record := &aibilling.BillingRecord{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1"}
+	task := &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", IsDel: IsDelActive}
 
-	status, appErr := svc.Status(context.Background(), VideoStatusInput{UserID: 7, BillingRecord: record})
+	status, appErr := svc.Status(context.Background(), VideoStatusInput{UserID: 7, Task: task})
 	if appErr != nil || status.Status != "completed" || engine.statusID != "provider-task-1" {
 		t.Fatalf("status mismatch status=%#v id=%q err=%#v", status, engine.statusID, appErr)
 	}
 
-	body, contentType, appErr := svc.Content(context.Background(), VideoContentInput{UserID: 7, BillingRecord: record})
+	body, contentType, appErr := svc.Content(context.Background(), VideoContentInput{UserID: 7, Task: task})
 	if appErr != nil || string(body) != "video" || contentType != "video/mp4" || engine.contentID != "provider-task-1" {
 		t.Fatalf("content mismatch body=%q type=%q id=%q err=%#v", string(body), contentType, engine.contentID, appErr)
 	}

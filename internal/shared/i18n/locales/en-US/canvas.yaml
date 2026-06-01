@@ -26,8 +26,6 @@ canvas.ai.image.service_missing: Canvas image generation service is not configur
 canvas.ai.image.result_invalid: Invalid Canvas image generation result
 canvas.ai.video.request.invalid: Invalid video generation request
 canvas.ai.video.service_missing: Canvas video generation service is not configured
-canvas.ai.video.billing_missing: Canvas video billing service is not configured
-canvas.ai.video.charge_invalid: Invalid Canvas video billing result
 canvas.ai.video.content_empty: Canvas video content is empty
 canvas.ai.video.id.invalid: Invalid video task ID
 canvas.ai.video.not_found: Canvas video task does not exist
@@ -46,3 +44,7 @@ canvas.ai.video.provider_key_decrypt_failed: Failed to decrypt AI provider API k
 canvas.ai.video.engine_missing: AI video engine is not configured
 canvas.ai.video.engine_create_failed: Failed to create AI video engine
 canvas.ai.video.provider_task_missing: Canvas video task has no bound provider task
+canvas.ai.video.task_create_failed: Failed to create Canvas video task
+canvas.ai.video.task_invalid: Invalid Canvas video task creation result
+canvas.ai.video.task_query_failed: Failed to query Canvas video task
+canvas.ai.video.task_update_failed: Failed to update Canvas video task

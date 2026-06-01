@@ -1006,52 +1006,6 @@ function Assert-WalletLedgerInit($Response) {
   }
 }
 
-function Assert-AIBillingRuleInit($Response) {
-  Assert-ApiOK $Response 'AI billing rule init'
-
-  $scenes = Get-ObjectArray $Response.data.dict.scene_arr
-  $units = Get-ObjectArray $Response.data.dict.unit_arr
-  $statuses = Get-ObjectArray $Response.data.dict.common_status_arr
-  if ($scenes.Count -lt 4 -or $units.Count -lt 3 -or $statuses.Count -lt 2) {
-    throw "AI billing rule init dict mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $adminImageScene = $false
-  foreach ($item in $scenes) {
-    if ([string]$item.value -eq 'admin_image_generate') { $adminImageScene = $true }
-  }
-  if (-not $adminImageScene) {
-    throw "AI billing rule init missing admin_image_generate scene: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    SceneCount = $scenes.Count
-    UnitCount = $units.Count
-    StatusCount = $statuses.Count
-  }
-}
-
-function Assert-AIBillingRuleList($Response) {
-  Assert-ApiOK $Response 'AI billing rule list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI billing rule list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    if ([int64]$item.id -le 0 -or [string]::IsNullOrWhiteSpace([string]$item.scene) -or [string]::IsNullOrWhiteSpace([string]$item.unit)) {
-      throw "AI billing rule item shape mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-    if ($null -eq $item.unit_price_cents -or [int64]$item.unit_price_cents -le 0 -or $null -eq $item.status) {
-      throw "AI billing rule item price/status mismatch: $($item | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
 
 function Assert-UsersInitPaymentRoutes($Response) {
   Assert-ApiOK $Response 'users me payment route gate'
@@ -3073,16 +3027,6 @@ func main() {
     -TimeoutSec 10
   $aiToolListSummary = Assert-AIToolList $aiToolList
 
-  $aiBillingRuleInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-billing-rules/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $aiBillingRuleInitSummary = Assert-AIBillingRuleInit $aiBillingRuleInit
-
-  $aiBillingRuleList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-billing-rules?current_page=1&page_size=50" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $aiBillingRuleListSummary = Assert-AIBillingRuleList $aiBillingRuleList
-
   $aiToolAgentBindingSummary = [pscustomobject]@{ ToolCount = 0; ActiveToolCount = 0 }
   $aiToolAgentRows = Get-ObjectArray $aiAgentOptions.data.list
   if ($aiToolAgentRows.Count -gt 0) {
@@ -3552,13 +3496,6 @@ func main() {
     wallet_route_transactions_show_menu = $usersInitPaymentRouteSummary.WalletTransactionsShowMenu
     wallet_route_users_show_menu = $usersInitPaymentRouteSummary.WalletUsersShowMenu
     wallet_route_ledger_show_menu = $usersInitPaymentRouteSummary.WalletLedgerShowMenu
-    ai_billing_rule_init_code = $aiBillingRuleInit.code
-    ai_billing_rule_scene_count = $aiBillingRuleInitSummary.SceneCount
-    ai_billing_rule_unit_count = $aiBillingRuleInitSummary.UnitCount
-    ai_billing_rule_status_count = $aiBillingRuleInitSummary.StatusCount
-    ai_billing_rule_list_code = $aiBillingRuleList.code
-    ai_billing_rule_list_count = $aiBillingRuleListSummary.ListCount
-    ai_billing_rule_total = $aiBillingRuleListSummary.Total
     upload_write_probe = $uploadWriteProbe.Status
     upload_write_probe_driver_id = $uploadWriteProbe.DriverID
     upload_write_probe_rule_id = $uploadWriteProbe.RuleID

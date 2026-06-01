@@ -10,7 +10,6 @@ import (
 
 	"admin_back_go/internal/middleware"
 	canvasmodule "admin_back_go/internal/module/canvas"
-	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"
@@ -41,12 +40,10 @@ func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodu
 		AllowRegister: true,
 		Scenes:        []string{"canvas_text_generate", "canvas_image_generate", "canvas_video_generate"},
 		Agents: canvasmodule.CanvasAgentGroups{
-			Text:  []canvasmodule.CanvasAgentOption{{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: "chat"}},
-			Image: []canvasmodule.CanvasAgentOption{{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "image_generate"}},
-			Video: []canvasmodule.CanvasAgentOption{{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "image_generate"}},
+			Text:  []canvasmodule.CanvasAgentOption{{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: "canvas_text_generate"}},
+			Image: []canvasmodule.CanvasAgentOption{{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "canvas_image_generate"}},
+			Video: []canvasmodule.CanvasAgentOption{{ID: 9, Name: "视频助手", ModelID: "video-model", ModelDisplayName: "Video Model", Scene: "canvas_video_generate"}},
 		},
-		Billing: []canvasmodule.BillingRule{{Scene: "canvas_image_generate", Unit: "image", UnitPriceCents: 100}},
-		Wallet:  &walletmodule.SummaryResponse{BalanceCents: 0, BalanceText: "0.00"},
 	}, nil
 }
 func (f *fakeCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
@@ -122,18 +119,14 @@ func TestCanvasSettingsReturnsOnlyPublicFacade(t *testing.T) {
 		`"image"`,
 		`"video"`,
 		`"model_id":"gpt-image-2"`,
-		`"scene":"image_generate"`,
-		`"billing"`,
-		`"unit_price_cents":100`,
-		`"wallet"`,
-		`"balance_cents":0`,
+		`"scene":"canvas_image_generate"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("settings response missing %s: %s", want, body)
 		}
 	}
 	assertNoProviderSecrets(t, recorder.Body.Bytes())
-	for _, forbidden := range []string{"provider_config", "raw_config"} {
+	for _, forbidden := range []string{"provider_config", "raw_config", "billing", "wallet", "unit_price_cents"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("settings response leaks %s: %s", forbidden, body)
 		}

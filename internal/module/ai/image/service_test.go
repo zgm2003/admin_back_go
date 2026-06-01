@@ -11,7 +11,6 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/infra/taskqueue"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -191,47 +190,6 @@ func (f *fakeImageEngine) GenerateImages(ctx context.Context, input infraai.Imag
 	return f.result, nil
 }
 
-type fakeImageBilling struct {
-	chargeInput     aibilling.ChargeInput
-	chargeResult    *aibilling.ChargeResult
-	chargeErr       *apperror.Error
-	refundErr       *apperror.Error
-	successErr      *apperror.Error
-	refundInputs    []aibilling.RefundInput
-	successRecordID int64
-}
-
-func (f *fakeImageBilling) Charge(ctx context.Context, input aibilling.ChargeInput) (*aibilling.ChargeResult, *apperror.Error) {
-	f.chargeInput = input
-	if f.chargeErr != nil {
-		return nil, f.chargeErr
-	}
-	if f.chargeResult == nil {
-		f.chargeResult = &aibilling.ChargeResult{RecordID: 501}
-	}
-	return f.chargeResult, nil
-}
-
-func (f *fakeImageBilling) BindProviderTask(ctx context.Context, billingRecordID int64, providerTaskID string) *apperror.Error {
-	return nil
-}
-
-func (f *fakeImageBilling) MarkSuccess(ctx context.Context, billingRecordID int64) *apperror.Error {
-	f.successRecordID = billingRecordID
-	if f.successErr != nil {
-		return f.successErr
-	}
-	return nil
-}
-
-func (f *fakeImageBilling) Refund(ctx context.Context, input aibilling.RefundInput) *apperror.Error {
-	f.refundInputs = append(f.refundInputs, input)
-	if f.refundErr != nil {
-		return f.refundErr
-	}
-	return nil
-}
-
 func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{
@@ -244,7 +202,6 @@ func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 		Repository: repo,
 		Enqueuer:   enqueuer,
 		Secretbox:  box,
-		Billing:    &fakeImageBilling{},
 		Now:        func() time.Time { return now },
 	})
 
@@ -278,127 +235,6 @@ func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 	}
 	if payload.TaskID != 77 || payload.UserID != 9 {
 		t.Fatalf("queued payload mismatch: %#v", payload)
-	}
-}
-
-func TestCreateChargesBillingBeforePersistingAndQueueingTask(t *testing.T) {
-	box := testImageSecretBox()
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
-	billing := &fakeImageBilling{chargeResult: &aibilling.ChargeResult{RecordID: 501}}
-	enqueuer := &fakeImageEnqueuer{}
-	now := time.Date(2026, 5, 30, 15, 1, 2, 0, time.UTC)
-	service := NewService(Dependencies{
-		Repository: repo,
-		Enqueuer:   enqueuer,
-		Secretbox:  box,
-		Billing:    billing,
-		Now:        func() time.Time { return now },
-	})
-
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw", N: 2})
-
-	if appErr != nil {
-		t.Fatalf("Create returned error: %#v", appErr)
-	}
-	if billing.chargeInput.Scene != aibilling.SceneAdminImageGenerate || billing.chargeInput.Platform != "admin" || billing.chargeInput.UserID != 9 || billing.chargeInput.AgentID != 1 || billing.chargeInput.ProviderID != 8 || billing.chargeInput.ModelID != RequiredModelID || billing.chargeInput.UnitCount != 2 {
-		t.Fatalf("billing charge input mismatch: %#v", billing.chargeInput)
-	}
-	if repo.createdTask.BillingRecordID == nil || *repo.createdTask.BillingRecordID != 501 {
-		t.Fatalf("billing record id was not persisted on image task: %#v", repo.createdTask.BillingRecordID)
-	}
-	if len(enqueuer.tasks) != 1 {
-		t.Fatalf("expected queue task after billing charge, got %#v", enqueuer.tasks)
-	}
-}
-
-func TestCreateCanChargeCanvasImageScene(t *testing.T) {
-	box := testImageSecretBox()
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
-	billing := &fakeImageBilling{chargeResult: &aibilling.ChargeResult{RecordID: 501}}
-	service := NewService(Dependencies{
-		Repository: repo,
-		Enqueuer:   &fakeImageEnqueuer{},
-		Secretbox:  box,
-		Billing:    billing,
-		Now:        fixedImageNow(),
-	})
-
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: "canvas", BillingScene: aibilling.SceneCanvasImageGenerate, Prompt: "draw", N: 2})
-
-	if appErr != nil {
-		t.Fatalf("Create returned error: %#v", appErr)
-	}
-	if billing.chargeInput.Platform != "canvas" || billing.chargeInput.Scene != aibilling.SceneCanvasImageGenerate || billing.chargeInput.UnitCount != 2 {
-		t.Fatalf("canvas billing charge input mismatch: %#v", billing.chargeInput)
-	}
-}
-
-func TestCreateRefundsBillingWhenEnqueueFails(t *testing.T) {
-	box := testImageSecretBox()
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
-	billing := &fakeImageBilling{chargeResult: &aibilling.ChargeResult{RecordID: 501}}
-	service := NewService(Dependencies{
-		Repository: repo,
-		Enqueuer:   &fakeImageEnqueuer{err: errors.New("queue down")},
-		Secretbox:  box,
-		Billing:    billing,
-		Now:        fixedImageNow(),
-	})
-
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
-
-	if appErr == nil || appErr.MessageID != "aiimage.queue_task.enqueue_failed" {
-		t.Fatalf("expected enqueue failure, got %#v", appErr)
-	}
-	if len(billing.refundInputs) != 1 || billing.refundInputs[0].BillingRecordID != 501 || billing.refundInputs[0].Reason != "图片生成任务入队失败" {
-		t.Fatalf("billing refund mismatch: %#v", billing.refundInputs)
-	}
-}
-
-func TestCreateReturnsRefundErrorWhenTaskCreateFailsAfterCharge(t *testing.T) {
-	box := testImageSecretBox()
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), createTaskErr: errors.New("db down")}
-	billing := &fakeImageBilling{
-		chargeResult: &aibilling.ChargeResult{RecordID: 501},
-		refundErr:    apperror.InternalKey("aibilling.refund.failed", nil, "AI计费退款失败"),
-	}
-	service := NewService(Dependencies{
-		Repository: repo,
-		Enqueuer:   &fakeImageEnqueuer{},
-		Secretbox:  box,
-		Billing:    billing,
-		Now:        fixedImageNow(),
-	})
-
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
-
-	if appErr == nil || appErr.MessageID != "aibilling.refund.failed" {
-		t.Fatalf("expected refund failure to be visible, got %#v", appErr)
-	}
-	if len(billing.refundInputs) != 1 || billing.refundInputs[0].BillingRecordID != 501 || billing.refundInputs[0].Reason != "图片生成任务创建失败" {
-		t.Fatalf("billing refund mismatch: %#v", billing.refundInputs)
-	}
-}
-
-func TestCreateStopsBeforeTaskCreateWhenBillingChargeFails(t *testing.T) {
-	box := testImageSecretBox()
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
-	enqueuer := &fakeImageEnqueuer{}
-	service := NewService(Dependencies{
-		Repository: repo,
-		Enqueuer:   enqueuer,
-		Secretbox:  box,
-		Billing:    &fakeImageBilling{chargeErr: apperror.BadRequestKey("wallet.debit.insufficient_balance", nil, "余额不足")},
-		Now:        fixedImageNow(),
-	})
-
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
-
-	if appErr == nil || appErr.MessageID != "wallet.debit.insufficient_balance" {
-		t.Fatalf("expected billing charge error, got %#v", appErr)
-	}
-	if repo.createdTask.UserID != 0 || len(enqueuer.tasks) != 0 {
-		t.Fatalf("billing failure must stop before task create/enqueue: task=%#v queue=%#v", repo.createdTask, enqueuer.tasks)
 	}
 }
 
@@ -529,102 +365,6 @@ func TestExecuteGenerateStoresRemoteOutputAndSanitizesRawResponse(t *testing.T) 
 	}
 }
 
-func TestExecuteGenerateMarksBillingSuccessForBilledTask(t *testing.T) {
-	box := testImageSecretBox()
-	task := validPendingTask()
-	recordID := int64(501)
-	task.BillingRecordID = &recordID
-	engine := &fakeImageEngine{result: &infraai.ImageResult{Images: []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}}}}
-	billing := &fakeImageBilling{}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true, nextAssetID: 500}
-	service := NewService(Dependencies{
-		Repository:    repo,
-		Secretbox:     box,
-		EngineFactory: &fakeImageEngineFactory{engine: engine},
-		Billing:       billing,
-		Now:           fixedImageNow(),
-	})
-
-	_, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
-
-	if err != nil {
-		t.Fatalf("ExecuteGenerate returned error: %v", err)
-	}
-	if billing.successRecordID != 501 {
-		t.Fatalf("billing success was not marked: %d", billing.successRecordID)
-	}
-}
-
-func TestExecuteGenerateRefundsBillingForFailedBilledTask(t *testing.T) {
-	box := testImageSecretBox()
-	task := validPendingTask()
-	recordID := int64(501)
-	task.BillingRecordID = &recordID
-	billing := &fakeImageBilling{}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true}
-	service := NewService(Dependencies{
-		Repository:    repo,
-		Secretbox:     box,
-		EngineFactory: &fakeImageEngineFactory{engine: &fakeImageEngine{err: errors.New("upstream boom")}},
-		Billing:       billing,
-		Now:           fixedImageNow(),
-	})
-
-	_, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
-
-	if err != nil {
-		t.Fatalf("ExecuteGenerate should persist failure and refund without retry: %v", err)
-	}
-	if len(billing.refundInputs) != 1 || billing.refundInputs[0].BillingRecordID != 501 {
-		t.Fatalf("billing refund was not called: %#v", billing.refundInputs)
-	}
-}
-
-func TestExecuteGenerateReturnsRefundErrorForFailedBilledTask(t *testing.T) {
-	box := testImageSecretBox()
-	task := validPendingTask()
-	recordID := int64(501)
-	task.BillingRecordID = &recordID
-	billing := &fakeImageBilling{refundErr: apperror.InternalKey("aibilling.refund.failed", nil, "AI计费退款失败")}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true}
-	service := NewService(Dependencies{
-		Repository:    repo,
-		Secretbox:     box,
-		EngineFactory: &fakeImageEngineFactory{engine: &fakeImageEngine{err: errors.New("upstream boom")}},
-		Billing:       billing,
-		Now:           fixedImageNow(),
-	})
-
-	_, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
-
-	if err == nil || !strings.Contains(err.Error(), "AI计费退款失败") {
-		t.Fatalf("expected refund failure to be returned, got %v", err)
-	}
-}
-
-func TestExecuteGenerateDoesNotFinishFailedWhenBillingTaskReloadFails(t *testing.T) {
-	box := testImageSecretBox()
-	task := validPendingTask()
-	billing := &fakeImageBilling{}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true, getTaskErr: errors.New("db reload down")}
-	service := NewService(Dependencies{
-		Repository:    repo,
-		Secretbox:     box,
-		EngineFactory: &fakeImageEngineFactory{engine: &fakeImageEngine{err: errors.New("upstream boom")}},
-		Billing:       billing,
-		Now:           fixedImageNow(),
-	})
-
-	_, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
-
-	if err == nil || !strings.Contains(err.Error(), "load failed image task") {
-		t.Fatalf("expected task reload error, got %v", err)
-	}
-	if repo.failedTaskID != 0 || len(billing.refundInputs) != 0 {
-		t.Fatalf("must not finish failed or refund when billing id cannot be loaded: failed=%d refunds=%#v", repo.failedTaskID, billing.refundInputs)
-	}
-}
-
 func TestPublicCOSURLNormalizesSchemeLessPublicDomain(t *testing.T) {
 	got := publicCOSURL(cosRuntimeConfig{BucketDomain: "cos.example.com"}, "ai-images/out.png")
 	if got != "https://cos.example.com/ai-images/out.png" {
@@ -675,7 +415,6 @@ func validPendingTask() ImageTask {
 		OutputFormat:             defaultOutputFormat,
 		Moderation:               defaultModeration,
 		N:                        defaultN,
-		BillingRecordID:          nil,
 		Status:                   StatusPending,
 		IsDel:                    enum.CommonNo,
 		CreatedAt:                time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC),

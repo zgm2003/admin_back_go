@@ -105,10 +105,6 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id/models"):                 "ai_provider_edit",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-providers/:id/status"):               "ai_provider_status",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-providers/:id"):                     "ai_provider_del",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-billing-rules"):                       "ai_billing_rule_edit",
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-billing-rules/:id"):                    "ai_billing_rule_edit",
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-billing-rules/:id/status"):           "ai_billing_rule_edit",
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-billing-rules/:id"):                 "ai_billing_rule_edit",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents"):                              "ai_agent_add",
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-agents/:id"):                           "ai_agent_edit",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents/:id/test"):                     "ai_agent_test",
@@ -623,26 +619,6 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "ai_provider",
 			Action: "delete",
 			Title:  "删除AI供应商",
-		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-billing-rules"): {
-			Module: "ai_billing_rule",
-			Action: "create",
-			Title:  "新增AI计费规则",
-		},
-		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-billing-rules/:id"): {
-			Module: "ai_billing_rule",
-			Action: "update",
-			Title:  "编辑AI计费规则",
-		},
-		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-billing-rules/:id/status"): {
-			Module: "ai_billing_rule",
-			Action: "change_status",
-			Title:  "修改AI计费规则状态",
-		},
-		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-billing-rules/:id"): {
-			Module: "ai_billing_rule",
-			Action: "delete",
-			Title:  "删除AI计费规则",
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents"): {
 			Module: "ai_agent",

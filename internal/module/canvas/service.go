@@ -6,51 +6,29 @@ import (
 	"strings"
 	"time"
 
-	aibilling "admin_back_go/internal/module/ai/billing"
 	aiimagemodule "admin_back_go/internal/module/ai/image"
-	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
 
 var publicCanvasScenes = []string{
-	aibilling.SceneCanvasTextGenerate,
-	aibilling.SceneCanvasImageGenerate,
-	aibilling.SceneCanvasVideoGenerate,
+	canvasTextAgentScene,
+	canvasImageAgentScene,
+	canvasVideoAgentScene,
 }
 
 const (
-	canvasTextAgentScene  = "chat"
-	canvasImageAgentScene = "image_generate"
+	canvasTextAgentScene  = "canvas_text_generate"
+	canvasImageAgentScene = "canvas_image_generate"
+	canvasVideoAgentScene = "canvas_video_generate"
 )
 
 type AuthPolicyService interface {
 	AllowRegister(ctx context.Context, platform string) (bool, error)
 }
 
-type BillingRuleService interface {
-	EnabledRule(ctx context.Context, scene string) (*aibilling.RuleDTO, *apperror.Error)
-	Charge(ctx context.Context, input aibilling.ChargeInput) (*aibilling.ChargeResult, *apperror.Error)
-	Refund(ctx context.Context, input aibilling.RefundInput) *apperror.Error
-	BillingRecord(ctx context.Context, id int64) (*aibilling.BillingRecord, *apperror.Error)
-}
-
-type BillingTaskBinder interface {
-	BindProviderTask(ctx context.Context, billingRecordID int64, providerTaskID string) *apperror.Error
-}
-
-type BillingSuccessMarker interface {
-	MarkSuccess(ctx context.Context, billingRecordID int64) *apperror.Error
-}
-
-type WalletSummaryService interface {
-	Summary(ctx context.Context, userID int64) (*walletmodule.SummaryResponse, *apperror.Error)
-}
-
 type SettingsDependencies struct {
 	AuthPolicy AuthPolicyService
-	Billing    BillingRuleService
-	Wallet     WalletSummaryService
 	Image      ImageRuntime
 	Text       TextRuntime
 	Video      VideoRuntime
@@ -128,27 +106,15 @@ func (s *Service) PublicSettings(ctx context.Context, input SettingsInput) (*Set
 	if appErr != nil {
 		return nil, appErr
 	}
-	billing, appErr := s.canvasBillingRules(ctx)
-	if appErr != nil {
-		return nil, appErr
-	}
 	result := &SettingsResponse{
 		AllowRegister: allowRegister,
 		Scenes:        append([]string(nil), publicCanvasScenes...),
-		Billing:       billing,
 	}
 	agents, appErr := s.canvasAgentGroups(ctx)
 	if appErr != nil {
 		return nil, appErr
 	}
 	result.Agents = agents
-	if input.UserID > 0 && s.settings.Wallet != nil {
-		wallet, walletErr := s.settings.Wallet.Summary(ctx, input.UserID)
-		if walletErr != nil {
-			return nil, walletErr
-		}
-		result.Wallet = wallet
-	}
 	return result, nil
 }
 
@@ -177,7 +143,7 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 		return nil, apperror.InternalKey("canvas.ai.image.service_missing", nil, "Canvas图片生成服务未配置")
 	}
 	result, appErr := s.settings.Image.Create(ctx, aiimagemodule.CreateInput{
-		UserID: uint64(input.UserID), AgentID: uint64(input.AgentID), Platform: enum.PlatformCanvas, BillingScene: aibilling.SceneCanvasImageGenerate,
+		UserID: uint64(input.UserID), AgentID: uint64(input.AgentID), Platform: enum.PlatformCanvas,
 		Prompt: input.Prompt, Size: input.Size, Quality: input.Quality, OutputFormat: input.OutputFormat, OutputCompression: input.OutputCompression, Moderation: input.Moderation,
 		N: input.N, InputAssetIDs: input.InputAssetIDs, MaskAssetID: input.MaskAssetID, MaskTargetAssetID: input.MaskTargetAssetID,
 	})
@@ -194,123 +160,81 @@ func (s *Service) GenerateVideo(ctx context.Context, input VideoGenerationInput)
 	if input.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
-	if s == nil || s.settings.Billing == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.billing_missing", nil, "Canvas视频计费服务未配置")
-	}
-	if s.settings.Video == nil {
+	if s == nil || s.settings.Video == nil {
 		return nil, apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
 	}
 	unitCount := input.DurationSeconds
 	if unitCount <= 0 {
 		unitCount = 1
 	}
-	charge, appErr := s.settings.Billing.Charge(ctx, aibilling.ChargeInput{
-		RequestNo: fmt.Sprintf("CANVASVID%d%d", input.UserID, time.Now().UnixNano()),
-		UserID:    input.UserID,
-		Platform:  enum.PlatformCanvas,
-		Scene:     aibilling.SceneCanvasVideoGenerate,
-		AgentID:   input.AgentID,
-		UnitCount: unitCount,
-		Remark:    "Canvas视频生成",
-	})
-	if appErr != nil {
-		return nil, appErr
-	}
-	if charge == nil || charge.RecordID <= 0 {
-		return nil, apperror.InternalKey("canvas.ai.video.charge_invalid", nil, "Canvas视频计费结果无效")
-	}
 	created, appErr := s.settings.Video.Create(ctx, VideoCreateInput{
 		UserID: input.UserID, AgentID: input.AgentID, ModelID: input.ModelID, Prompt: input.Prompt,
 		DurationSeconds: unitCount, Size: input.Size, ResolutionName: input.ResolutionName,
 	})
 	if appErr != nil {
-		_ = s.settings.Billing.Refund(context.Background(), aibilling.RefundInput{BillingRecordID: charge.RecordID, Reason: appErr.Message})
 		return nil, appErr
 	}
-	if created == nil || strings.TrimSpace(created.ProviderTaskID) == "" {
-		_ = s.settings.Billing.Refund(context.Background(), aibilling.RefundInput{BillingRecordID: charge.RecordID, Reason: "Canvas视频任务创建结果无效"})
-		return nil, apperror.InternalKey("canvas.ai.video.provider_task_invalid", nil, "Canvas视频任务创建结果无效")
+	if created == nil || created.ID <= 0 {
+		return nil, apperror.InternalKey("canvas.ai.video.task_invalid", nil, "Canvas视频任务创建结果无效")
 	}
-	if binder, ok := s.settings.Billing.(BillingTaskBinder); ok && binder != nil {
-		if appErr := binder.BindProviderTask(ctx, charge.RecordID, created.ProviderTaskID); appErr != nil {
-			_ = s.settings.Billing.Refund(context.Background(), aibilling.RefundInput{BillingRecordID: charge.RecordID, Reason: appErr.Message})
-			return nil, appErr
-		}
-	}
-	return &VideoGenerationResponse{ID: charge.RecordID, Status: normalizeVideoStatus(created.Status)}, nil
+	return &VideoGenerationResponse{ID: created.ID, Status: normalizeVideoStatus(created.Status)}, nil
 }
 
 func (s *Service) VideoStatus(ctx context.Context, userID int64, id int64) (*VideoStatusResponse, *apperror.Error) {
-	record, appErr := s.canvasVideoRecord(ctx, userID, id)
+	task, appErr := s.canvasVideoTask(ctx, userID, id)
 	if appErr != nil {
 		return nil, appErr
 	}
 	if s.settings.Video == nil {
-		return &VideoStatusResponse{ID: record.ID, Status: billingVideoStatus(record.Status)}, nil
+		return &VideoStatusResponse{ID: task.ID, Status: normalizeVideoStatus(task.Status)}, nil
 	}
-	status, appErr := s.settings.Video.Status(ctx, VideoStatusInput{UserID: userID, BillingRecord: record})
+	status, appErr := s.settings.Video.Status(ctx, VideoStatusInput{UserID: userID, Task: task})
 	if appErr != nil {
 		return nil, appErr
 	}
-	nextStatus := normalizeVideoStatus("")
+	nextStatus := normalizeVideoStatus(task.Status)
 	if status != nil {
 		nextStatus = normalizeVideoStatus(status.Status)
 	}
-	if nextStatus == "failed" || nextStatus == "cancelled" {
-		_ = s.settings.Billing.Refund(context.Background(), aibilling.RefundInput{BillingRecordID: record.ID, Reason: firstNonBlank(statusError(status), "Canvas视频生成失败")})
-	}
-	if nextStatus == "success" || nextStatus == "completed" {
-		if marker, ok := s.settings.Billing.(BillingSuccessMarker); ok && marker != nil {
-			if appErr := marker.MarkSuccess(ctx, record.ID); appErr != nil {
-				return nil, appErr
-			}
-		}
-		nextStatus = "completed"
-	}
-	return &VideoStatusResponse{ID: record.ID, Status: nextStatus}, nil
+	return &VideoStatusResponse{ID: task.ID, Status: nextStatus}, nil
 }
 
 func (s *Service) VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
-	record, appErr := s.canvasVideoRecord(ctx, userID, id)
+	task, appErr := s.canvasVideoTask(ctx, userID, id)
 	if appErr != nil {
 		return nil, "", appErr
 	}
 	if s.settings.Video == nil {
 		return nil, "", apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
 	}
-	body, contentType, appErr := s.settings.Video.Content(ctx, VideoContentInput{UserID: userID, BillingRecord: record})
+	body, contentType, appErr := s.settings.Video.Content(ctx, VideoContentInput{UserID: userID, Task: task})
 	if appErr != nil {
 		return nil, "", appErr
 	}
 	if len(body) == 0 {
 		return nil, "", apperror.BadRequestKey("canvas.ai.video.content_empty", nil, "Canvas视频内容为空")
 	}
-	if marker, ok := s.settings.Billing.(BillingSuccessMarker); ok && marker != nil {
-		if appErr := marker.MarkSuccess(ctx, record.ID); appErr != nil {
-			return nil, "", appErr
-		}
-	}
 	return body, contentType, nil
 }
 
-func (s *Service) canvasVideoRecord(ctx context.Context, userID int64, id int64) (*aibilling.BillingRecord, *apperror.Error) {
+func (s *Service) canvasVideoTask(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
 	if userID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if id <= 0 {
 		return nil, apperror.BadRequestKey("canvas.ai.video.id.invalid", nil, "视频任务ID无效")
 	}
-	if s == nil || s.settings.Billing == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.billing_missing", nil, "Canvas视频计费服务未配置")
+	if s == nil || s.settings.Video == nil {
+		return nil, apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
 	}
-	record, appErr := s.settings.Billing.BillingRecord(ctx, id)
+	task, appErr := s.settings.Video.Task(ctx, userID, id)
 	if appErr != nil {
 		return nil, appErr
 	}
-	if record == nil || record.UserID != userID || record.Platform != enum.PlatformCanvas || record.Scene != aibilling.SceneCanvasVideoGenerate {
+	if task == nil || task.UserID != userID || task.IsDel != IsDelActive {
 		return nil, apperror.NotFoundKey("canvas.ai.video.not_found", nil, "Canvas视频任务不存在")
 	}
-	return record, nil
+	return task, nil
 }
 
 func normalizeVideoStatus(value string) string {
@@ -328,33 +252,6 @@ func normalizeVideoStatus(value string) string {
 	}
 }
 
-func billingVideoStatus(value string) string {
-	switch value {
-	case aibilling.BillingStatusSuccess:
-		return "completed"
-	case aibilling.BillingStatusRefunded, aibilling.BillingStatusFailed:
-		return "failed"
-	default:
-		return "pending"
-	}
-}
-
-func statusError(status *VideoProviderStatus) string {
-	if status == nil {
-		return ""
-	}
-	return status.ErrorMessage
-}
-
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 func (s *Service) canvasAllowRegister(ctx context.Context) (bool, *apperror.Error) {
 	if s == nil || s.settings.AuthPolicy == nil {
 		return false, nil
@@ -366,24 +263,6 @@ func (s *Service) canvasAllowRegister(ctx context.Context) (bool, *apperror.Erro
 	return allowed, nil
 }
 
-func (s *Service) canvasBillingRules(ctx context.Context) ([]BillingRule, *apperror.Error) {
-	if s == nil || s.settings.Billing == nil {
-		return []BillingRule{}, nil
-	}
-	rules := make([]BillingRule, 0, len(publicCanvasScenes))
-	for _, scene := range publicCanvasScenes {
-		rule, appErr := s.settings.Billing.EnabledRule(ctx, scene)
-		if appErr != nil {
-			continue
-		}
-		if rule == nil {
-			continue
-		}
-		rules = append(rules, BillingRule{Scene: rule.Scene, Unit: rule.Unit, UnitPriceCents: rule.UnitPriceCents})
-	}
-	return rules, nil
-}
-
 func (s *Service) canvasAgentGroups(ctx context.Context) (CanvasAgentGroups, *apperror.Error) {
 	text, appErr := s.canvasAgentsByScene(ctx, canvasTextAgentScene)
 	if appErr != nil {
@@ -393,7 +272,10 @@ func (s *Service) canvasAgentGroups(ctx context.Context) (CanvasAgentGroups, *ap
 	if appErr != nil {
 		return CanvasAgentGroups{}, appErr
 	}
-	video := append([]CanvasAgentOption(nil), image...)
+	video, appErr := s.canvasAgentsByScene(ctx, canvasVideoAgentScene)
+	if appErr != nil {
+		return CanvasAgentGroups{}, appErr
+	}
 	return CanvasAgentGroups{Text: text, Image: image, Video: video}, nil
 }
 

@@ -7,7 +7,6 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -62,7 +61,6 @@ type Dependencies struct {
 	AiConversationService   aiconversation.HTTPService
 	AiImageService          aiimage.HTTPService
 	AiAgentService          aiagent.HTTPService
-	AiBillingService        aibilling.HTTPService
 	AiProviderService       aiprovider.HTTPService
 	AiKnowledgeService      aiknowledge.HTTPService
 	AiMessageService        aimessage.HTTPService

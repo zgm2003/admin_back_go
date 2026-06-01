@@ -54,3 +54,51 @@ func (r *VideoGormRepository) AgentForVideoRuntime(ctx context.Context, agentID 
 	}
 	return &row, nil
 }
+
+func (r *VideoGormRepository) CreateVideoTask(ctx context.Context, task VideoTask) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrRepositoryNotConfigured
+	}
+	if task.IsDel == 0 {
+		task.IsDel = IsDelActive
+	}
+	if task.Status == "" {
+		task.Status = "pending"
+	}
+	if err := r.db.WithContext(ctx).Create(&task).Error; err != nil {
+		return 0, err
+	}
+	return task.ID, nil
+}
+
+func (r *VideoGormRepository) UpdateVideoTask(ctx context.Context, userID int64, id int64, fields map[string]any) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	if userID <= 0 || id <= 0 {
+		return gorm.ErrRecordNotFound
+	}
+	tx := r.db.WithContext(ctx).Model(&VideoTask{}).Where("user_id = ? AND id = ? AND is_del = ?", userID, id, IsDelActive).Updates(fields)
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *VideoGormRepository) GetVideoTask(ctx context.Context, userID int64, id int64) (*VideoTask, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if userID <= 0 || id <= 0 {
+		return nil, nil
+	}
+	var row VideoTask
+	err := r.db.WithContext(ctx).Where("user_id = ? AND id = ? AND is_del = ?", userID, id, IsDelActive).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}

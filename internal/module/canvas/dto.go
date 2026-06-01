@@ -4,9 +4,7 @@ import (
 	"context"
 
 	infraai "admin_back_go/internal/infra/ai"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	aiimagemodule "admin_back_go/internal/module/ai/image"
-	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -106,11 +104,9 @@ type SettingsInput struct {
 }
 
 type SettingsResponse struct {
-	AllowRegister bool                          `json:"allow_register"`
-	Scenes        []string                      `json:"scenes"`
-	Agents        CanvasAgentGroups             `json:"agents"`
-	Billing       []BillingRule                 `json:"billing"`
-	Wallet        *walletmodule.SummaryResponse `json:"wallet,omitempty"`
+	AllowRegister bool              `json:"allow_register"`
+	Scenes        []string          `json:"scenes"`
+	Agents        CanvasAgentGroups `json:"agents"`
 }
 
 type CanvasAgentGroups struct {
@@ -126,12 +122,6 @@ type CanvasAgentOption struct {
 	ModelID          string `json:"model_id"`
 	ModelDisplayName string `json:"model_display_name"`
 	Scene            string `json:"scene"`
-}
-
-type BillingRule struct {
-	Scene          string `json:"scene"`
-	Unit           string `json:"unit"`
-	UnitPriceCents int64  `json:"unit_price_cents"`
 }
 
 type ChatCompletionInput struct {
@@ -189,6 +179,7 @@ type VideoStatusResponse struct {
 
 type VideoRuntime interface {
 	Create(ctx context.Context, input VideoCreateInput) (*VideoCreateResult, *apperror.Error)
+	Task(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error)
 	Status(ctx context.Context, input VideoStatusInput) (*VideoProviderStatus, *apperror.Error)
 	Content(ctx context.Context, input VideoContentInput) ([]byte, string, *apperror.Error)
 }
@@ -209,6 +200,9 @@ type VideoAgentRuntime struct {
 
 type VideoRepository interface {
 	AgentForVideoRuntime(ctx context.Context, agentID int64) (*VideoAgentRuntime, error)
+	CreateVideoTask(ctx context.Context, task VideoTask) (int64, error)
+	UpdateVideoTask(ctx context.Context, userID int64, id int64, fields map[string]any) error
+	GetVideoTask(ctx context.Context, userID int64, id int64) (*VideoTask, error)
 }
 
 type VideoEngineFactory interface {
@@ -232,6 +226,7 @@ type VideoCreateInput struct {
 }
 
 type VideoCreateResult struct {
+	ID             int64
 	ProviderID     int64
 	ModelID        string
 	ProviderTaskID string
@@ -239,13 +234,13 @@ type VideoCreateResult struct {
 }
 
 type VideoStatusInput struct {
-	UserID        int64
-	BillingRecord *aibilling.BillingRecord
+	UserID int64
+	Task   *VideoTask
 }
 
 type VideoContentInput struct {
-	UserID        int64
-	BillingRecord *aibilling.BillingRecord
+	UserID int64
+	Task   *VideoTask
 }
 
 type VideoProviderStatus struct {

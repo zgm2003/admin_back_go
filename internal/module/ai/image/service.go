@@ -17,7 +17,6 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -67,7 +66,6 @@ type Service struct {
 	enqueuer      taskqueue.Enqueuer
 	secretbox     secretbox.Box
 	engineFactory ImageEngineFactory
-	billing       BillingService
 	objectReader  storagecos.ObjectReader
 	objectWriter  storagecos.ObjectWriter
 	now           func() time.Time
@@ -79,7 +77,6 @@ type Dependencies struct {
 	Enqueuer      taskqueue.Enqueuer
 	Secretbox     secretbox.Box
 	EngineFactory ImageEngineFactory
-	Billing       BillingService
 	ObjectReader  storagecos.ObjectReader
 	ObjectWriter  storagecos.ObjectWriter
 	Now           func() time.Time
@@ -113,7 +110,7 @@ func NewService(deps Dependencies) *Service {
 	if deps.Random == nil {
 		deps.Random = rand.Read
 	}
-	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, billing: deps.Billing, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, now: deps.Now, random: deps.Random}
+	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, now: deps.Now, random: deps.Random}
 }
 
 func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
@@ -221,35 +218,19 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 		return nil, appErr
 	}
 	now := s.now()
-	charge, appErr := s.chargeImageGeneration(ctx, normalized, agent, now)
-	if appErr != nil {
-		return nil, appErr
-	}
 	task := ImageTask{UserID: normalized.UserID, AgentID: normalized.AgentID, AgentNameSnapshot: agent.AgentName, ProviderIDSnapshot: agent.ProviderID, ProviderNameSnapshot: agent.ProviderName, ModelIDSnapshot: agent.ModelID, ModelDisplayNameSnapshot: agent.ModelDisplayName, Prompt: normalized.Prompt, Size: normalized.Size, Quality: normalized.Quality, OutputFormat: normalized.OutputFormat, OutputCompression: normalized.OutputCompression, Moderation: normalized.Moderation, N: normalized.N, Status: StatusPending, IsFavorite: enum.CommonNo, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}
-	if charge != nil {
-		task.BillingRecordID = &charge.RecordID
-	}
 	links := inputLinks(normalized, assets, now)
 	id, err := repo.CreateTaskWithAssets(ctx, task, links)
 	if err != nil {
-		if refundErr := s.refundBilling(context.Background(), task.BillingRecordID, "图片生成任务创建失败"); refundErr != nil {
-			return nil, refundErr
-		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.create_failed", nil, "创建图片任务失败", err)
 	}
 	task.ID = id
 	queueTask, err := NewGenerateTask(GeneratePayload{TaskID: id, UserID: normalized.UserID})
 	if err != nil {
-		if refundErr := s.refundBilling(context.Background(), task.BillingRecordID, "图片生成队列任务创建失败"); refundErr != nil {
-			return nil, refundErr
-		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.create_failed", nil, "创建图片队列任务失败", err)
 	}
 	if _, err := s.enqueuer.Enqueue(ctx, queueTask); err != nil {
 		_ = repo.FinishTaskFailed(context.Background(), normalized.UserID, id, "图片生成任务入队失败", 0, s.now())
-		if refundErr := s.refundBilling(context.Background(), task.BillingRecordID, "图片生成任务入队失败"); refundErr != nil {
-			return nil, refundErr
-		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.enqueue_failed", nil, "图片生成任务入队失败", err)
 	}
 	return &CreateTaskResponse{Task: taskDTO(task)}, nil
@@ -371,9 +352,6 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if err := repo.FinishTaskSuccess(ctx, task.UserID, task.ID, actualParamsJSON, rawResponseJSON, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
 		return nil, fmt.Errorf("finish image task success: %w", err)
 	}
-	if appErr := s.markBillingSuccess(ctx, task.BillingRecordID); appErr != nil {
-		return nil, appErr
-	}
 	return &GenerateResult{TaskID: task.ID, Status: StatusSuccess}, nil
 }
 
@@ -382,57 +360,6 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 		return nil, apperror.InternalKey("aiimage.repository_missing", nil, "AI图片仓储未配置")
 	}
 	return s.repository, nil
-}
-
-func (s *Service) chargeImageGeneration(ctx context.Context, input CreateInput, agent *AgentRuntime, now time.Time) (*aibilling.ChargeResult, *apperror.Error) {
-	if s == nil || s.billing == nil {
-		return nil, apperror.InternalKey("aibilling.service_missing", nil, "AI计费服务未配置")
-	}
-	requestNo, appErr := s.newImageBillingRequestNo(now, input.UserID)
-	if appErr != nil {
-		return nil, appErr
-	}
-	platform := strings.TrimSpace(input.Platform)
-	if platform == "" {
-		platform = "admin"
-	}
-	scene := strings.TrimSpace(input.BillingScene)
-	if scene == "" {
-		scene = aibilling.SceneAdminImageGenerate
-	}
-	return s.billing.Charge(ctx, aibilling.ChargeInput{
-		RequestNo:  requestNo,
-		UserID:     int64(input.UserID),
-		Platform:   platform,
-		Scene:      scene,
-		AgentID:    int64(agent.AgentID),
-		ProviderID: int64(agent.ProviderID),
-		ModelID:    agent.ModelID,
-		UnitCount:  input.N,
-		Remark:     "AI图片生成",
-	})
-}
-
-func (s *Service) markBillingSuccess(ctx context.Context, billingRecordID *int64) *apperror.Error {
-	if billingRecordID == nil || *billingRecordID == 0 || s == nil || s.billing == nil {
-		return nil
-	}
-	return s.billing.MarkSuccess(ctx, *billingRecordID)
-}
-
-func (s *Service) refundBilling(ctx context.Context, billingRecordID *int64, reason string) *apperror.Error {
-	if billingRecordID == nil || *billingRecordID == 0 || s == nil || s.billing == nil {
-		return nil
-	}
-	return s.billing.Refund(ctx, aibilling.RefundInput{BillingRecordID: *billingRecordID, Reason: reason})
-}
-
-func (s *Service) newImageBillingRequestNo(now time.Time, userID uint64) (string, *apperror.Error) {
-	random := make([]byte, 6)
-	if _, err := s.random(random); err != nil {
-		return "", apperror.WrapKey(apperror.CodeInternal, 500, "aibilling.request_no.generate_failed", nil, "生成AI计费请求号失败", err)
-	}
-	return fmt.Sprintf("AIIMG%d%06d%s", now.UnixNano(), userID, hex.EncodeToString(random)), nil
 }
 
 func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
@@ -785,17 +712,8 @@ func (s *Service) finishGenerateFailed(ctx context.Context, repo Repository, inp
 func (s *Service) finishFailed(ctx context.Context, repo Repository, input GenerateInput, startedAt time.Time, message string, cause error) error {
 	message = trimErrorMessage(message, cause)
 	finishedAt := s.now()
-	var billingRecordID *int64
-	if task, err := repo.GetTaskForWorker(ctx, input.UserID, input.TaskID); err != nil {
-		return fmt.Errorf("load failed image task: %w", err)
-	} else if task != nil {
-		billingRecordID = task.BillingRecordID
-	}
 	if err := repo.FinishTaskFailed(ctx, input.UserID, input.TaskID, message, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
 		return fmt.Errorf("finish image task failed state: %w", err)
-	}
-	if appErr := s.refundBilling(ctx, billingRecordID, message); appErr != nil {
-		return appErr
 	}
 	return nil
 }

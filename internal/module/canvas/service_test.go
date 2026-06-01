@@ -4,9 +4,7 @@ import (
 	"context"
 	"testing"
 
-	aibilling "admin_back_go/internal/module/ai/billing"
 	aiimagemodule "admin_back_go/internal/module/ai/image"
-	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -95,19 +93,14 @@ func TestServiceAdminListCanFilterDisabledRows(t *testing.T) {
 	}
 }
 
-func TestServicePublicSettingsReturnsOnlyPublicPolicyBillingAndWallet(t *testing.T) {
+func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing.T) {
 	auth := &fakeSettingsAuthPolicy{allowRegister: true}
-	billing := &fakeSettingsBilling{rules: map[string]*aibilling.RuleDTO{
-		aibilling.SceneCanvasTextGenerate:  {Scene: aibilling.SceneCanvasTextGenerate, Unit: aibilling.UnitRequest, UnitPriceCents: 10},
-		aibilling.SceneCanvasImageGenerate: {Scene: aibilling.SceneCanvasImageGenerate, Unit: aibilling.UnitImage, UnitPriceCents: 100},
-		aibilling.SceneCanvasVideoGenerate: {Scene: aibilling.SceneCanvasVideoGenerate, Unit: aibilling.UnitSecond, UnitPriceCents: 50},
-	}}
-	wallet := &fakeSettingsWallet{summary: &walletmodule.SummaryResponse{BalanceCents: 123, BalanceText: "1.23"}}
 	repo := &fakeCanvasRepository{agentsByScene: map[string][]CanvasAgentOption{
-		"chat":           {{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: "chat"}},
-		"image_generate": {{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "image_generate"}},
+		canvasTextAgentScene:  {{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: canvasTextAgentScene}},
+		canvasImageAgentScene: {{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: canvasImageAgentScene}},
+		canvasVideoAgentScene: {{ID: 9, Name: "视频助手", ModelID: "video-model", ModelDisplayName: "Video", Scene: canvasVideoAgentScene}},
 	}}
-	svc := NewServiceWithSettings(repo, SettingsDependencies{AuthPolicy: auth, Billing: billing, Wallet: wallet})
+	svc := NewServiceWithSettings(repo, SettingsDependencies{AuthPolicy: auth})
 
 	result, appErr := svc.PublicSettings(context.Background(), SettingsInput{UserID: 7})
 
@@ -117,63 +110,20 @@ func TestServicePublicSettingsReturnsOnlyPublicPolicyBillingAndWallet(t *testing
 	if !result.AllowRegister || auth.platform != "canvas" {
 		t.Fatalf("auth policy mismatch result=%#v platform=%q", result, auth.platform)
 	}
-	if len(result.Scenes) != 3 || result.Scenes[0] != aibilling.SceneCanvasTextGenerate || result.Scenes[2] != aibilling.SceneCanvasVideoGenerate {
+	if len(result.Scenes) != 3 || result.Scenes[0] != canvasTextAgentScene || result.Scenes[2] != canvasVideoAgentScene {
 		t.Fatalf("unexpected scenes: %#v", result.Scenes)
 	}
-	if len(result.Billing) != 3 || result.Billing[1].Scene != aibilling.SceneCanvasImageGenerate || result.Billing[1].UnitPriceCents != 100 {
-		t.Fatalf("unexpected billing: %#v", result.Billing)
+	if len(result.Agents.Text) != 1 || result.Agents.Text[0].Scene != canvasTextAgentScene {
+		t.Fatalf("text agents must come from canvas text scene, got %#v", result.Agents.Text)
 	}
-	if len(result.Agents.Text) != 1 || result.Agents.Text[0].ID != 7 || result.Agents.Text[0].ModelID != "gpt-4.1-mini" {
-		t.Fatalf("text agents must come from ai_agents chat scene, got %#v", result.Agents.Text)
+	if len(result.Agents.Image) != 1 || result.Agents.Image[0].Scene != canvasImageAgentScene {
+		t.Fatalf("image agents must come from canvas image scene, got %#v", result.Agents.Image)
 	}
-	if len(result.Agents.Image) != 1 || result.Agents.Image[0].ID != 8 || result.Agents.Image[0].Scene != "image_generate" {
-		t.Fatalf("image agents must come from ai_agents image_generate scene, got %#v", result.Agents.Image)
+	if len(result.Agents.Video) != 1 || result.Agents.Video[0].Scene != canvasVideoAgentScene {
+		t.Fatalf("video agents must come from canvas video scene, got %#v", result.Agents.Video)
 	}
-	if len(result.Agents.Video) != 1 || result.Agents.Video[0].ID != 8 {
-		t.Fatalf("video agents must also come from configured ai_agents, got %#v", result.Agents.Video)
-	}
-	if len(repo.agentScenes) != 2 || repo.agentScenes[0] != "chat" || repo.agentScenes[1] != "image_generate" {
-		t.Fatalf("settings must query configured agent scenes, got %#v", repo.agentScenes)
-	}
-	if result.Wallet == nil || result.Wallet.BalanceCents != 123 || wallet.userID != 7 {
-		t.Fatalf("wallet mismatch result=%#v user=%d", result.Wallet, wallet.userID)
-	}
-}
-
-func TestServicePublicSettingsDoesNotInventAgentsFromBillingScenes(t *testing.T) {
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{
-		AuthPolicy: &fakeSettingsAuthPolicy{allowRegister: true},
-		Billing: &fakeSettingsBilling{rules: map[string]*aibilling.RuleDTO{
-			aibilling.SceneCanvasImageGenerate: {Scene: aibilling.SceneCanvasImageGenerate, Unit: aibilling.UnitImage, UnitPriceCents: 100},
-		}},
-	})
-
-	result, appErr := svc.PublicSettings(context.Background(), SettingsInput{UserID: 7})
-
-	if appErr != nil {
-		t.Fatalf("PublicSettings error=%#v", appErr)
-	}
-	if len(result.Agents.Text) != 0 || len(result.Agents.Image) != 0 || len(result.Agents.Video) != 0 {
-		t.Fatalf("billing scenes must not become selectable agents: %#v", result.Agents)
-	}
-}
-
-func TestServicePublicSettingsOmitsWalletForAnonymousUser(t *testing.T) {
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{
-		AuthPolicy: &fakeSettingsAuthPolicy{allowRegister: true},
-		Billing: &fakeSettingsBilling{rules: map[string]*aibilling.RuleDTO{
-			aibilling.SceneCanvasTextGenerate: {Scene: aibilling.SceneCanvasTextGenerate, Unit: aibilling.UnitRequest, UnitPriceCents: 10},
-		}},
-		Wallet: &fakeSettingsWallet{summary: &walletmodule.SummaryResponse{BalanceCents: 123}},
-	})
-
-	result, appErr := svc.PublicSettings(context.Background(), SettingsInput{})
-
-	if appErr != nil {
-		t.Fatalf("PublicSettings error=%#v", appErr)
-	}
-	if result.Wallet != nil {
-		t.Fatalf("anonymous settings must not query/include wallet: %#v", result.Wallet)
+	if len(repo.agentScenes) != 3 || repo.agentScenes[0] != canvasTextAgentScene || repo.agentScenes[1] != canvasImageAgentScene || repo.agentScenes[2] != canvasVideoAgentScene {
+		t.Fatalf("settings must query canvas agent scenes, got %#v", repo.agentScenes)
 	}
 }
 
@@ -216,15 +166,14 @@ func TestServiceGenerateImageUsesCanvasUserAndCanvasSceneRuntime(t *testing.T) {
 	if result.TaskID != 501 || result.Status != "pending" {
 		t.Fatalf("unexpected image result: %#v", result)
 	}
-	if image.input.UserID != 7 || image.input.AgentID != 8 || image.input.Platform != "canvas" || image.input.BillingScene != aibilling.SceneCanvasImageGenerate || image.input.Prompt != "cat" || image.input.N != 2 {
+	if image.input.UserID != 7 || image.input.AgentID != 8 || image.input.Platform != "canvas" || image.input.Prompt != "cat" || image.input.N != 2 {
 		t.Fatalf("image runtime input mismatch: %#v", image.input)
 	}
 }
 
-func TestServiceGenerateVideoChargesBeforeProviderBindsTaskAndReturnsBillingRecordID(t *testing.T) {
-	billing := &fakeSettingsBilling{chargeResult: &aibilling.ChargeResult{RecordID: 77}}
-	video := &fakeCanvasVideoRuntime{createResult: &VideoCreateResult{ProviderTaskID: "provider-task-1", Status: "running"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Billing: billing, Video: video})
+func TestServiceGenerateVideoCreatesFreeCanvasTask(t *testing.T) {
+	video := &fakeCanvasVideoRuntime{createResult: &VideoCreateResult{ID: 77, ProviderTaskID: "provider-task-1", Status: "running"}}
+	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
 
 	result, appErr := svc.GenerateVideo(context.Background(), VideoGenerationInput{UserID: 7, AgentID: 8, ModelID: "video-model", Prompt: "clip", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
 
@@ -234,95 +183,36 @@ func TestServiceGenerateVideoChargesBeforeProviderBindsTaskAndReturnsBillingReco
 	if result.ID != 77 || result.Status != "running" {
 		t.Fatalf("unexpected video result: %#v", result)
 	}
-	if billing.chargeInput.Platform != "canvas" || billing.chargeInput.Scene != aibilling.SceneCanvasVideoGenerate || billing.chargeInput.UserID != 7 || billing.chargeInput.UnitCount != 4 {
-		t.Fatalf("video charge input mismatch: %#v", billing.chargeInput)
-	}
 	if video.createInput.UserID != 7 || video.createInput.AgentID != 8 || video.createInput.ModelID != "video-model" || video.createInput.Size != "1280x720" || video.createInput.ResolutionName != "720p" {
 		t.Fatalf("video provider input mismatch: %#v", video.createInput)
 	}
-	if billing.boundRecordID != 77 || billing.boundProviderTaskID != "provider-task-1" {
-		t.Fatalf("provider task not bound: id=%d task=%q", billing.boundRecordID, billing.boundProviderTaskID)
-	}
 }
 
-func TestServiceGenerateVideoStopsBeforeProviderOnInsufficientBalance(t *testing.T) {
-	billing := &fakeSettingsBilling{chargeErr: apperror.BadRequestKey("wallet.debit.insufficient_balance", nil, "余额不足")}
-	video := &fakeCanvasVideoRuntime{createResult: &VideoCreateResult{ProviderTaskID: "task"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Billing: billing, Video: video})
-
-	result, appErr := svc.GenerateVideo(context.Background(), VideoGenerationInput{UserID: 7, AgentID: 8, Prompt: "clip", DurationSeconds: 4})
-
-	if appErr == nil || appErr.MessageID != "wallet.debit.insufficient_balance" {
-		t.Fatalf("expected insufficient balance, result=%#v err=%#v", result, appErr)
-	}
-	if len(billing.refundInputs) != 0 {
-		t.Fatalf("must not refund when charge never succeeded: %#v", billing.refundInputs)
-	}
-	if video.createInput.UserID != 0 {
-		t.Fatalf("provider must not be called when charge fails: %#v", video.createInput)
-	}
-}
-
-func TestServiceGenerateVideoRefundsOnceWhenProviderCreateFails(t *testing.T) {
-	billing := &fakeSettingsBilling{chargeResult: &aibilling.ChargeResult{RecordID: 77}}
-	video := &fakeCanvasVideoRuntime{createErr: apperror.BadRequestKey("canvas.ai.video.provider_failed", nil, "provider failed")}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Billing: billing, Video: video})
-
-	_, appErr := svc.GenerateVideo(context.Background(), VideoGenerationInput{UserID: 7, AgentID: 8, Prompt: "clip", DurationSeconds: 4})
-
-	if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_failed" {
-		t.Fatalf("expected provider failure, got %#v", appErr)
-	}
-	if len(billing.refundInputs) != 1 || billing.refundInputs[0].BillingRecordID != 77 {
-		t.Fatalf("expected one refund, got %#v", billing.refundInputs)
-	}
-}
-
-func TestServiceVideoStatusUsesBillingRecordOwnershipContract(t *testing.T) {
-	billing := &fakeSettingsBilling{record: &aibilling.BillingRecord{ID: 77, UserID: 7, Platform: "canvas", Scene: aibilling.SceneCanvasVideoGenerate, Status: aibilling.BillingStatusCharged, ProviderTaskID: "provider-task-1"}}
-	video := &fakeCanvasVideoRuntime{statusResult: &VideoProviderStatus{Status: "completed"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Billing: billing, Video: video})
+func TestServiceVideoStatusUsesCanvasVideoTaskOwnership(t *testing.T) {
+	video := &fakeCanvasVideoRuntime{task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: "running", IsDel: IsDelActive}, statusResult: &VideoProviderStatus{Status: "completed"}}
+	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
 
 	result, appErr := svc.VideoStatus(context.Background(), 7, 77)
 
 	if appErr != nil {
 		t.Fatalf("VideoStatus error=%#v", appErr)
 	}
-	if result.ID != 77 || result.Status != "completed" || billing.recordQueryID != 77 || video.statusInput.BillingRecord.ProviderTaskID != "provider-task-1" {
-		t.Fatalf("video status mismatch result=%#v recordID=%d input=%#v", result, billing.recordQueryID, video.statusInput)
-	}
-	if billing.markSuccessID != 77 {
-		t.Fatalf("completed video must mark billing success, got %d", billing.markSuccessID)
+	if result.ID != 77 || result.Status != "completed" || video.statusInput.Task.ProviderTaskID != "provider-task-1" {
+		t.Fatalf("video status mismatch result=%#v input=%#v", result, video.statusInput)
 	}
 }
 
-func TestServiceVideoStatusRefundsFailedProviderStatusOnce(t *testing.T) {
-	billing := &fakeSettingsBilling{record: &aibilling.BillingRecord{ID: 77, UserID: 7, Platform: "canvas", Scene: aibilling.SceneCanvasVideoGenerate, Status: aibilling.BillingStatusCharged, ProviderTaskID: "provider-task-1"}}
-	video := &fakeCanvasVideoRuntime{statusResult: &VideoProviderStatus{Status: "failed", ErrorMessage: "provider failed"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Billing: billing, Video: video})
-
-	result, appErr := svc.VideoStatus(context.Background(), 7, 77)
-
-	if appErr != nil || result.Status != "failed" {
-		t.Fatalf("expected failed status without service error, result=%#v err=%#v", result, appErr)
-	}
-	if len(billing.refundInputs) != 1 || billing.refundInputs[0].BillingRecordID != 77 {
-		t.Fatalf("expected one refund, got %#v", billing.refundInputs)
-	}
-}
-
-func TestServiceVideoContentStreamsProviderContentAndMarksSuccess(t *testing.T) {
-	billing := &fakeSettingsBilling{record: &aibilling.BillingRecord{ID: 77, UserID: 7, Platform: "canvas", Scene: aibilling.SceneCanvasVideoGenerate, Status: aibilling.BillingStatusCharged, ProviderTaskID: "provider-task-1"}}
-	video := &fakeCanvasVideoRuntime{contentBody: []byte("video"), contentType: "video/mp4"}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Billing: billing, Video: video})
+func TestServiceVideoContentStreamsProviderContent(t *testing.T) {
+	video := &fakeCanvasVideoRuntime{task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: "completed", IsDel: IsDelActive}, contentBody: []byte("video"), contentType: "video/mp4"}
+	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
 
 	body, contentType, appErr := svc.VideoContent(context.Background(), 7, 77)
 
 	if appErr != nil || string(body) != "video" || contentType != "video/mp4" {
 		t.Fatalf("VideoContent mismatch body=%q contentType=%q err=%#v", string(body), contentType, appErr)
 	}
-	if video.contentInput.BillingRecord.ProviderTaskID != "provider-task-1" || billing.markSuccessID != 77 {
-		t.Fatalf("content input/mark success mismatch input=%#v mark=%d", video.contentInput, billing.markSuccessID)
+	if video.contentInput.Task.ProviderTaskID != "provider-task-1" {
+		t.Fatalf("content input mismatch input=%#v", video.contentInput)
 	}
 }
 
@@ -334,65 +224,6 @@ type fakeSettingsAuthPolicy struct {
 func (f *fakeSettingsAuthPolicy) AllowRegister(ctx context.Context, platform string) (bool, error) {
 	f.platform = platform
 	return f.allowRegister, nil
-}
-
-type fakeSettingsBilling struct {
-	rules               map[string]*aibilling.RuleDTO
-	scenes              []string
-	chargeInput         aibilling.ChargeInput
-	chargeResult        *aibilling.ChargeResult
-	chargeErr           *apperror.Error
-	refundInputs        []aibilling.RefundInput
-	record              *aibilling.BillingRecord
-	recordQueryID       int64
-	boundRecordID       int64
-	boundProviderTaskID string
-	markSuccessID       int64
-}
-
-func (f *fakeSettingsBilling) EnabledRule(ctx context.Context, scene string) (*aibilling.RuleDTO, *apperror.Error) {
-	f.scenes = append(f.scenes, scene)
-	if rule, ok := f.rules[scene]; ok {
-		return rule, nil
-	}
-	return nil, apperror.BadRequestKey("aibilling.rule.not_configured", nil, "AI计费规则未配置或已禁用")
-}
-func (f *fakeSettingsBilling) Charge(ctx context.Context, input aibilling.ChargeInput) (*aibilling.ChargeResult, *apperror.Error) {
-	f.chargeInput = input
-	if f.chargeErr != nil {
-		return nil, f.chargeErr
-	}
-	if f.chargeResult != nil {
-		return f.chargeResult, nil
-	}
-	return &aibilling.ChargeResult{RecordID: 1}, nil
-}
-func (f *fakeSettingsBilling) Refund(ctx context.Context, input aibilling.RefundInput) *apperror.Error {
-	f.refundInputs = append(f.refundInputs, input)
-	return nil
-}
-func (f *fakeSettingsBilling) BillingRecord(ctx context.Context, id int64) (*aibilling.BillingRecord, *apperror.Error) {
-	f.recordQueryID = id
-	return f.record, nil
-}
-func (f *fakeSettingsBilling) BindProviderTask(ctx context.Context, billingRecordID int64, providerTaskID string) *apperror.Error {
-	f.boundRecordID = billingRecordID
-	f.boundProviderTaskID = providerTaskID
-	return nil
-}
-func (f *fakeSettingsBilling) MarkSuccess(ctx context.Context, billingRecordID int64) *apperror.Error {
-	f.markSuccessID = billingRecordID
-	return nil
-}
-
-type fakeSettingsWallet struct {
-	userID  int64
-	summary *walletmodule.SummaryResponse
-}
-
-func (f *fakeSettingsWallet) Summary(ctx context.Context, userID int64) (*walletmodule.SummaryResponse, *apperror.Error) {
-	f.userID = userID
-	return f.summary, nil
 }
 
 type fakeCanvasImageRuntime struct {
@@ -420,6 +251,7 @@ func (f *fakeCanvasTextRuntime) Generate(ctx context.Context, input TextGenerati
 
 type fakeCanvasVideoRuntime struct {
 	createInput  VideoCreateInput
+	task         *VideoTask
 	createResult *VideoCreateResult
 	createErr    *apperror.Error
 	statusInput  VideoStatusInput
@@ -440,6 +272,9 @@ func (f *fakeCanvasVideoRuntime) Create(ctx context.Context, input VideoCreateIn
 		return f.createResult, nil
 	}
 	return &VideoCreateResult{ProviderTaskID: "provider-task", Status: "pending"}, nil
+}
+func (f *fakeCanvasVideoRuntime) Task(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
+	return f.task, nil
 }
 func (f *fakeCanvasVideoRuntime) Status(ctx context.Context, input VideoStatusInput) (*VideoProviderStatus, *apperror.Error) {
 	f.statusInput = input

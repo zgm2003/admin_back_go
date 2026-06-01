@@ -207,25 +207,39 @@ func TestCreateAcceptsImageGenerateScene(t *testing.T) {
 		ProviderID: 1,
 		Name:       "图片智能体",
 		ModelID:    "gpt-image-2",
-		Scenes:     []string{"image_generate"},
+		Scenes:     []string{"image_generate", "canvas_text_generate", "canvas_image_generate", "canvas_video_generate"},
 		Status:     enum.CommonYes,
 	})
 
 	if appErr != nil {
 		t.Fatalf("expected image_generate scene to be accepted, got %v", appErr)
 	}
-	if repo.created == nil || repo.created.ScenesJSON != `["image_generate"]` {
+	if repo.created == nil || repo.created.ScenesJSON != `["image_generate","canvas_text_generate","canvas_image_generate","canvas_video_generate"]` {
 		t.Fatalf("unexpected image scenes json: %#v", repo.created)
 	}
 }
 
-func TestSceneOptionsIncludeAgentAndImageGenerate(t *testing.T) {
+func TestSceneOptionsIncludeAgentImageAndCanvasScenes(t *testing.T) {
 	options := sceneOptions()
-	if len(options) != 3 {
-		t.Fatalf("expected three scene options, got %#v", options)
+	values := map[string]string{}
+	for _, item := range options {
+		values[item.Value] = item.Label
 	}
-	if options[0].Value != "chat" || options[1].Value != "agent_generate" || options[1].Label != "智能体生成" || options[2].Value != "image_generate" || options[2].Label != "图片生成" {
-		t.Fatalf("unexpected scene options: %#v", options)
+	expected := map[string]string{
+		"chat":                  "对话",
+		"agent_generate":        "智能体生成",
+		"image_generate":        "图片生成",
+		"canvas_text_generate":  "无限画布-文本",
+		"canvas_image_generate": "无限画布-图片",
+		"canvas_video_generate": "无限画布-视频",
+	}
+	if len(options) != len(expected) {
+		t.Fatalf("unexpected scene option count: %#v", options)
+	}
+	for value, label := range expected {
+		if values[value] != label {
+			t.Fatalf("scene %s label=%q want=%q all=%#v", value, values[value], label, options)
+		}
 	}
 }
 

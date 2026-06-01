@@ -3,9 +3,9 @@ package canvas
 import (
 	"context"
 	"strings"
+	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -40,22 +40,50 @@ func (s *VideoRuntimeService) Create(ctx context.Context, input VideoCreateInput
 		return nil, appErr
 	}
 	modelID := strings.TrimSpace(agent.ModelID)
+	now := time.Now()
+	videoTask := VideoTask{UserID: input.UserID, AgentID: input.AgentID, ProviderID: agent.ProviderID, ModelID: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds, Size: input.Size, ResolutionName: input.ResolutionName, Status: "pending", IsDel: IsDelActive, CreatedAt: now, UpdatedAt: now}
+	taskID, err := s.repository.CreateVideoTask(ctx, videoTask)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_create_failed", nil, "创建Canvas视频任务失败", err)
+	}
+	videoTask.ID = taskID
 	task, err := engine.CreateVideo(ctx, infraai.VideoInput{
 		Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds,
 		Size: input.Size, ResolutionName: input.ResolutionName,
 	})
 	if err != nil {
+		_ = s.repository.UpdateVideoTask(context.Background(), input.UserID, taskID, map[string]any{"status": "failed", "error_message": "Canvas视频生成失败", "updated_at": time.Now(), "finished_at": time.Now()})
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.provider_failed", nil, "Canvas视频生成失败", err)
 	}
 	if task == nil || strings.TrimSpace(task.ID) == "" {
+		_ = s.repository.UpdateVideoTask(context.Background(), input.UserID, taskID, map[string]any{"status": "failed", "error_message": "Canvas视频任务创建结果无效", "updated_at": time.Now(), "finished_at": time.Now()})
 		return nil, apperror.InternalKey("canvas.ai.video.provider_task_invalid", nil, "Canvas视频任务创建结果无效")
 	}
-	task.ID = strings.TrimSpace(task.ID)
-	return &VideoCreateResult{ProviderID: agent.ProviderID, ModelID: modelID, ProviderTaskID: task.ID, Status: task.Status}, nil
+	providerTaskID := strings.TrimSpace(task.ID)
+	status := normalizeVideoStatus(task.Status)
+	fields := map[string]any{"provider_task_id": providerTaskID, "provider_id": agent.ProviderID, "model_id": modelID, "status": status, "updated_at": time.Now()}
+	if status == "completed" || status == "failed" || status == "cancelled" {
+		fields["finished_at"] = time.Now()
+	}
+	if err := s.repository.UpdateVideoTask(ctx, input.UserID, taskID, fields); err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
+	}
+	return &VideoCreateResult{ID: taskID, ProviderID: agent.ProviderID, ModelID: modelID, ProviderTaskID: providerTaskID, Status: status}, nil
+}
+
+func (s *VideoRuntimeService) Task(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
+	if s == nil || s.repository == nil {
+		return nil, apperror.InternalKey("canvas.ai.video.repository_missing", nil, "Canvas视频生成仓储未配置")
+	}
+	task, err := s.repository.GetVideoTask(ctx, userID, id)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_query_failed", nil, "查询Canvas视频任务失败", err)
+	}
+	return task, nil
 }
 
 func (s *VideoRuntimeService) Status(ctx context.Context, input VideoStatusInput) (*VideoProviderStatus, *apperror.Error) {
-	engine, taskID, appErr := s.engineForRecord(ctx, input.BillingRecord)
+	engine, taskID, appErr := s.engineForTask(ctx, input.Task)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -66,11 +94,17 @@ func (s *VideoRuntimeService) Status(ctx context.Context, input VideoStatusInput
 	if task == nil {
 		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
 	}
-	return &VideoProviderStatus{Status: task.Status, ErrorMessage: task.ErrorMessage}, nil
+	status := normalizeVideoStatus(task.Status)
+	fields := map[string]any{"status": status, "error_message": strings.TrimSpace(task.ErrorMessage), "updated_at": time.Now()}
+	if status == "completed" || status == "failed" || status == "cancelled" {
+		fields["finished_at"] = time.Now()
+	}
+	_ = s.repository.UpdateVideoTask(ctx, input.UserID, input.Task.ID, fields)
+	return &VideoProviderStatus{Status: status, ErrorMessage: task.ErrorMessage}, nil
 }
 
 func (s *VideoRuntimeService) Content(ctx context.Context, input VideoContentInput) ([]byte, string, *apperror.Error) {
-	engine, taskID, appErr := s.engineForRecord(ctx, input.BillingRecord)
+	engine, taskID, appErr := s.engineForTask(ctx, input.Task)
 	if appErr != nil {
 		return nil, "", appErr
 	}
@@ -81,15 +115,15 @@ func (s *VideoRuntimeService) Content(ctx context.Context, input VideoContentInp
 	return body, contentType, nil
 }
 
-func (s *VideoRuntimeService) engineForRecord(ctx context.Context, record *aibilling.BillingRecord) (infraai.VideoEngine, string, *apperror.Error) {
-	if record == nil {
+func (s *VideoRuntimeService) engineForTask(ctx context.Context, task *VideoTask) (infraai.VideoEngine, string, *apperror.Error) {
+	if task == nil {
 		return nil, "", apperror.NotFoundKey("canvas.ai.video.not_found", nil, "Canvas视频任务不存在")
 	}
-	taskID := strings.TrimSpace(record.ProviderTaskID)
+	taskID := strings.TrimSpace(task.ProviderTaskID)
 	if taskID == "" {
 		return nil, "", missingVideoTaskID()
 	}
-	agent, appErr := s.agentForRecord(ctx, record.AgentID)
+	agent, appErr := s.validVideoAgent(ctx, task.AgentID)
 	if appErr != nil {
 		return nil, "", appErr
 	}
@@ -111,7 +145,7 @@ func (s *VideoRuntimeService) validVideoAgent(ctx context.Context, agentID int64
 	if agent == nil || agent.AgentID <= 0 {
 		return nil, apperror.NotFoundKey("canvas.ai.video.agent_not_found", nil, "视频智能体不存在")
 	}
-	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !supportsScene(agent.ScenesJSON, "image_generate") {
+	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !supportsScene(agent.ScenesJSON, canvasVideoAgentScene) {
 		return nil, apperror.BadRequestKey("canvas.ai.video.agent_unavailable", nil, "该智能体不支持视频生成")
 	}
 	if strings.TrimSpace(agent.EngineAPIKeyEnc) == "" {
@@ -142,13 +176,6 @@ func (s *VideoRuntimeService) engine(ctx context.Context, agent *VideoAgentRunti
 		return nil, apperror.InternalKey("canvas.ai.video.engine_missing", nil, "AI视频引擎未配置")
 	}
 	return engine, nil
-}
-
-func (s *VideoRuntimeService) agentForRecord(ctx context.Context, agentID int64) (*VideoAgentRuntime, *apperror.Error) {
-	if agentID <= 0 {
-		return nil, apperror.BadRequestKey("canvas.ai.video.agent_not_found", nil, "视频智能体不存在")
-	}
-	return s.validVideoAgent(ctx, agentID)
 }
 
 func missingVideoTaskID() *apperror.Error {

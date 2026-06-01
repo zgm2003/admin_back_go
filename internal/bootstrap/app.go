@@ -23,7 +23,6 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -191,14 +190,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		),
 	)
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
-	aiBillingService := aibilling.NewServiceWithWallet(aibilling.NewGormRepository(resources.DB), walletService, time.Now)
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
 		Repository:    aiimage.NewGormRepository(resources.DB),
 		Enqueuer:      queueClient,
 		Secretbox:     secretBox,
 		EngineFactory: aiImageEngineFactory{},
-		Billing:       aiBillingService,
 		ObjectReader:  cosObjectReader,
 		ObjectWriter:  cosObjectWriter,
 	})
@@ -221,7 +218,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
 	canvasTextRuntime := canvasmodule.NewTextRuntimeService(canvasmodule.TextRuntimeDependencies{
 		Repository:    canvasmodule.NewTextGormRepository(resources.DB),
-		Billing:       aiBillingService,
 		Secretbox:     secretBox,
 		EngineFactory: canvasTextEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
 	})
@@ -232,8 +228,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	})
 	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
 		AuthPolicy: authPlatformService,
-		Billing:    aiBillingService,
-		Wallet:     walletService,
 		Image:      aiImageService,
 		Text:       canvasTextRuntime,
 		Video:      canvasVideoRuntime,
@@ -363,7 +357,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiConversationService:   aiConversationService,
 		AiImageService:          aiImageService,
 		AiAgentService:          aiAgentService,
-		AiBillingService:        aiBillingService,
 		AiProviderService:       aiProviderService,
 		AiKnowledgeService:      aiKnowledgeService,
 		AiMessageService:        aiMessageService,

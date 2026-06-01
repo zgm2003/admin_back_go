@@ -8,14 +8,12 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
-	aibilling "admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
 
 type TextRuntimeService struct {
 	repository    TextRepository
-	billing       BillingRuleService
 	secretbox     Secretbox
 	engineFactory TextEngineFactory
 	now           func() time.Time
@@ -23,7 +21,6 @@ type TextRuntimeService struct {
 
 type TextRuntimeDependencies struct {
 	Repository    TextRepository
-	Billing       BillingRuleService
 	Secretbox     Secretbox
 	EngineFactory TextEngineFactory
 	Now           func() time.Time
@@ -33,7 +30,7 @@ func NewTextRuntimeService(deps TextRuntimeDependencies) *TextRuntimeService {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	return &TextRuntimeService{repository: deps.Repository, billing: deps.Billing, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, now: deps.Now}
+	return &TextRuntimeService{repository: deps.Repository, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, now: deps.Now}
 }
 
 func (s *TextRuntimeService) Generate(ctx context.Context, input TextGenerationInput) (*TextGenerationResponse, *apperror.Error) {
@@ -46,13 +43,8 @@ func (s *TextRuntimeService) Generate(ctx context.Context, input TextGenerationI
 	if appErr != nil {
 		return nil, appErr
 	}
-	charge, appErr := s.charge(ctx, input, agent)
-	if appErr != nil {
-		return nil, appErr
-	}
 	engine, appErr := s.engine(ctx, agent)
 	if appErr != nil {
-		_ = s.refund(context.Background(), charge, appErr.Message)
 		return nil, appErr
 	}
 	result, err := engine.StreamChat(ctx, infraai.ChatInput{
@@ -63,7 +55,6 @@ func (s *TextRuntimeService) Generate(ctx context.Context, input TextGenerationI
 		Inputs:  textInputs(agent, agent.ModelID),
 	}, discardSink{})
 	if err != nil {
-		_ = s.refund(context.Background(), charge, "Canvas文本生成失败")
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.provider_failed", nil, "Canvas文本生成失败", err)
 	}
 	answer := ""
@@ -71,11 +62,7 @@ func (s *TextRuntimeService) Generate(ctx context.Context, input TextGenerationI
 		answer = strings.TrimSpace(result.Answer)
 	}
 	if answer == "" {
-		_ = s.refund(context.Background(), charge, "Canvas文本生成结果为空")
 		return nil, apperror.BadRequestKey("canvas.ai.chat.empty_result", nil, "Canvas文本生成结果为空")
-	}
-	if appErr := s.markSuccess(ctx, charge); appErr != nil {
-		return nil, appErr
 	}
 	return &TextGenerationResponse{Content: answer}, nil
 }
@@ -91,30 +78,13 @@ func (s *TextRuntimeService) validTextAgent(ctx context.Context, agentID int64) 
 	if agent == nil || agent.AgentID <= 0 {
 		return nil, apperror.NotFoundKey("canvas.ai.chat.agent_not_found", nil, "文本智能体不存在")
 	}
-	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !supportsScene(agent.ScenesJSON, "chat") {
+	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !supportsScene(agent.ScenesJSON, canvasTextAgentScene) {
 		return nil, apperror.BadRequestKey("canvas.ai.chat.agent_unavailable", nil, "该智能体不支持文本生成")
 	}
 	if strings.TrimSpace(agent.EngineAPIKeyEnc) == "" {
 		return nil, apperror.BadRequestKey("canvas.ai.chat.provider_key_missing", nil, "AI供应商API Key未配置")
 	}
 	return agent, nil
-}
-
-func (s *TextRuntimeService) charge(ctx context.Context, input TextGenerationInput, agent *TextAgentRuntime) (*aibilling.ChargeResult, *apperror.Error) {
-	if s == nil || s.billing == nil {
-		return nil, apperror.InternalKey("aibilling.service_missing", nil, "AI计费服务未配置")
-	}
-	return s.billing.Charge(ctx, aibilling.ChargeInput{
-		RequestNo:  fmt.Sprintf("CANVASTXT%d%d", input.UserID, s.now().UnixNano()),
-		UserID:     input.UserID,
-		Platform:   enum.PlatformCanvas,
-		Scene:      aibilling.SceneCanvasTextGenerate,
-		AgentID:    input.AgentID,
-		ProviderID: agent.ProviderID,
-		ModelID:    agent.ModelID,
-		UnitCount:  1,
-		Remark:     "Canvas文本生成",
-	})
 }
 
 func (s *TextRuntimeService) engine(ctx context.Context, agent *TextAgentRuntime) (infraai.Engine, *apperror.Error) {
@@ -139,26 +109,6 @@ func (s *TextRuntimeService) engine(ctx context.Context, agent *TextAgentRuntime
 		return nil, apperror.InternalKey("canvas.ai.chat.engine_missing", nil, "AI引擎未配置")
 	}
 	return engine, nil
-}
-
-func (s *TextRuntimeService) refund(ctx context.Context, charge *aibilling.ChargeResult, reason string) *apperror.Error {
-	if charge == nil || charge.RecordID <= 0 || s == nil || s.billing == nil {
-		return nil
-	}
-	return s.billing.Refund(ctx, aibilling.RefundInput{BillingRecordID: charge.RecordID, Reason: reason})
-}
-
-func (s *TextRuntimeService) markSuccess(ctx context.Context, charge *aibilling.ChargeResult) *apperror.Error {
-	if charge == nil || charge.RecordID <= 0 || s == nil || s.billing == nil {
-		return nil
-	}
-	successMarker, ok := s.billing.(interface {
-		MarkSuccess(context.Context, int64) *apperror.Error
-	})
-	if !ok || successMarker == nil {
-		return nil
-	}
-	return successMarker.MarkSuccess(ctx, charge.RecordID)
 }
 
 func textInputs(agent *TextAgentRuntime, modelID string) map[string]any {

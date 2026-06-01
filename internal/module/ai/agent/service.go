@@ -17,15 +17,21 @@ import (
 
 const (
 	timeLayout         = "2006-01-02 15:04:05"
-	sceneChat          = "chat"
-	sceneAgentGenerate = "agent_generate"
-	sceneImageGenerate = "image_generate"
+	sceneChat                = "chat"
+	sceneAgentGenerate       = "agent_generate"
+	sceneImageGenerate       = "image_generate"
+	sceneCanvasTextGenerate  = "canvas_text_generate"
+	sceneCanvasImageGenerate = "canvas_image_generate"
+	sceneCanvasVideoGenerate = "canvas_video_generate"
 )
 
 var sceneLabels = map[string]string{
 	sceneChat:          "对话",
 	sceneAgentGenerate: "智能体生成",
-	sceneImageGenerate: "图片生成",
+	sceneImageGenerate:       "图片生成",
+	sceneCanvasTextGenerate:  "无限画布-文本",
+	sceneCanvasImageGenerate: "无限画布-图片",
+	sceneCanvasVideoGenerate: "无限画布-视频",
 }
 
 type Service struct {
@@ -449,7 +455,7 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 }
 
 func sceneOptions() []dict.Option[string] {
-	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneImageGenerate}, sceneLabels)
+	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneImageGenerate, sceneCanvasTextGenerate, sceneCanvasImageGenerate, sceneCanvasVideoGenerate}, sceneLabels)
 }
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))

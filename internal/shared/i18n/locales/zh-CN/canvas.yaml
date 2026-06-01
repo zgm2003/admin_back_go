@@ -26,8 +26,6 @@ canvas.ai.image.service_missing: Canvas图片生成服务未配置
 canvas.ai.image.result_invalid: Canvas图片生成结果无效
 canvas.ai.video.request.invalid: 视频生成参数错误
 canvas.ai.video.service_missing: Canvas视频生成服务未配置
-canvas.ai.video.billing_missing: Canvas视频计费服务未配置
-canvas.ai.video.charge_invalid: Canvas视频计费结果无效
 canvas.ai.video.content_empty: Canvas视频内容为空
 canvas.ai.video.id.invalid: 视频任务ID无效
 canvas.ai.video.not_found: Canvas视频任务不存在
@@ -46,3 +44,7 @@ canvas.ai.video.provider_key_decrypt_failed: 解密AI供应商API Key失败
 canvas.ai.video.engine_missing: AI视频引擎未配置
 canvas.ai.video.engine_create_failed: 创建AI视频引擎失败
 canvas.ai.video.provider_task_missing: Canvas视频任务尚未绑定Provider任务
+canvas.ai.video.task_create_failed: 创建Canvas视频任务失败
+canvas.ai.video.task_invalid: Canvas视频任务创建结果无效
+canvas.ai.video.task_query_failed: 查询Canvas视频任务失败
+canvas.ai.video.task_update_failed: 更新Canvas视频任务失败
