@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	timeLayout         = "2006-01-02 15:04:05"
+	timeLayout               = "2006-01-02 15:04:05"
 	sceneChat                = "chat"
 	sceneAgentGenerate       = "agent_generate"
 	sceneImageGenerate       = "image_generate"
@@ -26,8 +26,8 @@ const (
 )
 
 var sceneLabels = map[string]string{
-	sceneChat:          "对话",
-	sceneAgentGenerate: "智能体生成",
+	sceneChat:                "对话",
+	sceneAgentGenerate:       "智能体生成",
 	sceneImageGenerate:       "图片生成",
 	sceneCanvasTextGenerate:  "无限画布-文本",
 	sceneCanvasImageGenerate: "无限画布-图片",
