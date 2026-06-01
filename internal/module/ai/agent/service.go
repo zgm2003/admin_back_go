@@ -27,7 +27,7 @@ const (
 
 var sceneLabels = map[string]string{
 	sceneChat:                "对话",
-	sceneAgentGenerate:       "智能体生成",
+	sceneAgentGenerate:       "工具生成",
 	sceneImageGenerate:       "图片生成",
 	sceneCanvasTextGenerate:  "无限画布-文本",
 	sceneCanvasImageGenerate: "无限画布-图片",

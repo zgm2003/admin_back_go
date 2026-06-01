@@ -180,7 +180,7 @@ func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
-		Name:       "智能体生成器",
+		Name:       "工具生成器",
 		ModelID:    "gpt-4.1-mini",
 		Scenes:     []string{"agent_generate", "chat", "agent_generate"},
 		Status:     enum.CommonYes,
@@ -227,7 +227,7 @@ func TestSceneOptionsIncludeAgentImageAndCanvasScenes(t *testing.T) {
 	}
 	expected := map[string]string{
 		"chat":                  "对话",
-		"agent_generate":        "智能体生成",
+		"agent_generate":        "工具生成",
 		"image_generate":        "图片生成",
 		"canvas_text_generate":  "无限画布-文本",
 		"canvas_image_generate": "无限画布-图片",
