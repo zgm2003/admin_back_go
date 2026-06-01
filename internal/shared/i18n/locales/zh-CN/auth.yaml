@@ -16,6 +16,7 @@ auth.verify_code.account_type_invalid: 无效的验证码账号类型
 auth.logout.success: 退出成功
 auth.platform.service_missing: 登录服务未配置
 auth.platform.user_service_missing: 用户服务未配置
+auth.platform.current_user_missing: 当前用户信息未返回
 auth.login.request.invalid: 登录参数错误
 auth.platform_login.result_invalid: 登录结果无效
 auth.send_code.request.invalid: 验证码参数错误

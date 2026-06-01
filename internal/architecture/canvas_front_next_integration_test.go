@@ -55,6 +55,44 @@ func TestCanvasFrontNextIntegration(t *testing.T) {
 	})
 }
 
+func TestCanvasRBACMigrationSeedsPageButtonRoleGrants(t *testing.T) {
+	migration := readCanvasIntegrationFile(t, "database/migrations/20260531_canvas_front_next_integration.sql")
+
+	for _, code := range []string{
+		"canvas_page",
+		"canvas_image_page",
+		"canvas_video_page",
+		"canvas_prompts_page",
+		"canvas_assets_page",
+		"canvas_profile_page",
+		"canvas_wallet_page",
+	} {
+		assertCanvasContains(t, migration, "'"+code+"'")
+	}
+	for _, code := range []string{
+		"canvas_access",
+		"canvas_prompt_read",
+		"canvas_asset_read",
+		"canvas_ai_image_generate",
+		"canvas_ai_video_generate",
+		"canvas_wallet_read",
+		"canvas_recharge_add",
+		"canvas_recharge_pay",
+	} {
+		assertCanvasContains(t, migration, "'"+code+"'")
+	}
+
+	assertCanvasContains(t, migration, "INSERT INTO `role_permissions`")
+
+	normalized := normalizeSQLForStaticCheck(migration)
+	for _, want := range []string{
+		"platform='canvas'",
+		"typeIN(2,3)",
+	} {
+		assertCanvasContains(t, normalized, want)
+	}
+}
+
 func readCanvasIntegrationFile(t *testing.T, rel string) string {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(backendRoot(t), rel))
@@ -83,4 +121,9 @@ func assertCanvasPathExists(t *testing.T, rel string) {
 	if _, err := os.Stat(filepath.Join(backendRoot(t), rel)); err != nil {
 		t.Fatalf("path must exist: %s: %v", rel, err)
 	}
+}
+
+func normalizeSQLForStaticCheck(sql string) string {
+	replacer := strings.NewReplacer("`", "", " ", "", "\t", "", "\r", "", "\n", "")
+	return replacer.Replace(sql)
 }

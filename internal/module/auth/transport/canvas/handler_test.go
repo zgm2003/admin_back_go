@@ -54,11 +54,15 @@ func (fakeCaptchaService) Generate(ctx context.Context) (*authmodule.ChallengeRe
 }
 
 type fakeUserService struct {
-	input user.InitInput
+	input     user.InitInput
+	returnNil bool
 }
 
 func (f *fakeUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
 	f.input = input
+	if f.returnNil {
+		return nil, nil
+	}
 	return &user.InitResponse{
 		UserID: input.UserID, Username: "Canvas User", Avatar: "canvas.png", RoleName: "canvas",
 		Permissions: []permission.MenuItem{},
@@ -117,7 +121,7 @@ func TestCanvasAuthRoutesForceCanvasPlatform(t *testing.T) {
 	if userData["user_id"] != float64(9) || userData["username"] != "Canvas User" || userData["avatar"] != "canvas.png" || userData["role_name"] != "canvas" {
 		t.Fatalf("unexpected canvas user payload: %#v", userData)
 	}
-	for _, forbidden := range []string{"id", "nickname", "display_name", "avatar_url", "permissionCodes", "permission_codes", "button_codes"} {
+	for _, forbidden := range []string{"id", "nickname", "quick_entry", "quickEntry", "display_name", "avatar_url", "permissionCodes", "permission_codes", "button_codes"} {
 		if _, ok := userData[forbidden]; ok {
 			t.Fatalf("canvas user payload must not expose fallback/alias field %q: %#v", forbidden, userData)
 		}
@@ -130,6 +134,19 @@ func TestCanvasAuthRoutesForceCanvasPlatform(t *testing.T) {
 	}
 	if !stringSliceEqual(userData["buttonCodes"], []string{"canvas_access", "canvas_prompt_read"}) {
 		t.Fatalf("expected canvas button codes in login payload, got %#v", userData["buttonCodes"])
+	}
+}
+
+func TestCanvasAuthLoginFailsWhenCurrentUserMissing(t *testing.T) {
+	router := newCanvasAuthTestRouter(&fakeSessionService{}, &fakeUserService{returnNil: true})
+
+	loginRecorder := httptest.NewRecorder()
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/login", strings.NewReader(`{"login_type":"password","login_account":"15671628271","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(loginRecorder, loginRequest)
+
+	if loginRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("missing current user must be an internal error, got %d body=%s", loginRecorder.Code, loginRecorder.Body.String())
 	}
 }
 

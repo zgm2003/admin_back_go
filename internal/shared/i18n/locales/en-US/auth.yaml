@@ -16,6 +16,7 @@ auth.verify_code.account_type_invalid: Invalid verification code account type
 auth.logout.success: Signed out successfully
 auth.platform.service_missing: Login service is not configured
 auth.platform.user_service_missing: User service is not configured
+auth.platform.current_user_missing: Current user data was not returned
 auth.login.request.invalid: Invalid login request
 auth.platform_login.result_invalid: Invalid login result
 auth.send_code.request.invalid: Invalid verification code request

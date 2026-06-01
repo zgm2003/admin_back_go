@@ -153,11 +153,6 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 		}
 	}
 
-	quickEntry, err := s.repository.QuickEntries(ctx, currentUser.ID)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询快捷入口失败", err)
-	}
-
 	if role != nil && s.routeAccessCache != nil {
 		_ = s.routeAccessCache.Set(ctx, permission.RouteAccessCacheKey(currentUser.ID, input.Platform), perm.RouteAccessCodes, s.routeAccessCacheTTL)
 	}
@@ -175,7 +170,6 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 		Permissions: perm.Permissions,
 		Router:      perm.Router,
 		ButtonCodes: perm.ButtonCodes,
-		QuickEntry:  quickEntry,
 	}, nil
 }
 

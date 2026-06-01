@@ -18,23 +18,6 @@ func NewHandler(service profile.AppService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Me(c *gin.Context) {
-	identity, ok := h.appIdentity(c)
-	if !ok {
-		return
-	}
-	if h.service == nil {
-		response.Error(c, apperror.InternalKey("user.service_missing", nil, "用户管理服务未配置"))
-		return
-	}
-	currentUser, appErr := h.service.Init(c.Request.Context(), profile.InitInput{UserID: identity.UserID, Platform: enum.PlatformApp})
-	if appErr != nil {
-		response.Error(c, appErr)
-		return
-	}
-	response.OK(c, appUserFromInit(currentUser))
-}
-
 func (h *Handler) Profile(c *gin.Context) {
 	identity, ok := h.appIdentity(c)
 	if !ok {
@@ -47,6 +30,10 @@ func (h *Handler) Profile(c *gin.Context) {
 	result, appErr := h.service.Profile(c.Request.Context(), identity.UserID, identity.UserID)
 	if appErr != nil {
 		response.Error(c, appErr)
+		return
+	}
+	if result == nil {
+		response.Error(c, apperror.InternalKey("app.profile.result_missing", nil, "个人资料信息未返回"))
 		return
 	}
 	response.OK(c, appProfileFromUserProfile(result))
@@ -82,6 +69,10 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	result, appErr := h.service.Profile(c.Request.Context(), identity.UserID, identity.UserID)
 	if appErr != nil {
 		response.Error(c, appErr)
+		return
+	}
+	if result == nil {
+		response.Error(c, apperror.InternalKey("app.profile.result_missing", nil, "个人资料信息未返回"))
 		return
 	}
 	response.OK(c, appProfileUpdateResponse{User: appUserFromProfile(result)})

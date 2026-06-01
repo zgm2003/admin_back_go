@@ -28,7 +28,3 @@ type updatePhoneRequest struct {
 	Phone string `json:"phone" binding:"required,max=32"`
 	Code  string `json:"code" binding:"required,max=16"`
 }
-
-type saveQuickEntriesRequest struct {
-	PermissionIDs []int64 `json:"permission_ids" binding:"required,max=6,dive,min=1"`
-}

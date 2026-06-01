@@ -1,21 +1,33 @@
 package app
 
-import "admin_back_go/internal/module/user"
+import (
+	"admin_back_go/internal/module/permission"
+	"admin_back_go/internal/module/user"
+)
 
 type loginResponse struct {
-	Token string  `json:"token"`
-	User  appUser `json:"user"`
+	Token string    `json:"token"`
+	User  loginUser `json:"user"`
 }
 
-type appUser struct {
-	ID       int64  `json:"id"`
-	Nickname string `json:"nickname"`
-	Avatar   string `json:"avatar"`
+type loginUser struct {
+	UserID      int64                  `json:"user_id"`
+	Username    string                 `json:"username"`
+	Avatar      string                 `json:"avatar"`
+	RoleName    string                 `json:"role_name"`
+	Permissions []permission.MenuItem  `json:"permissions"`
+	Router      []permission.RouteItem `json:"router"`
+	ButtonCodes []string               `json:"buttonCodes"`
 }
 
-func userFromInit(currentUser *user.InitResponse) appUser {
-	if currentUser == nil {
-		return appUser{}
+func userFromInit(currentUser *user.InitResponse) loginUser {
+	return loginUser{
+		UserID:      currentUser.UserID,
+		Username:    currentUser.Username,
+		Avatar:      currentUser.Avatar,
+		RoleName:    currentUser.RoleName,
+		Permissions: currentUser.Permissions,
+		Router:      currentUser.Router,
+		ButtonCodes: currentUser.ButtonCodes,
 	}
-	return appUser{ID: currentUser.UserID, Nickname: currentUser.Username, Avatar: currentUser.Avatar}
 }

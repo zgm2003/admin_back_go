@@ -7,8 +7,6 @@ import (
 	"admin_back_go/internal/shared/apperror"
 )
 
-type InitInput = usermodule.InitInput
-type InitResponse = usermodule.InitResponse
 type ProfileResponse = usermodule.ProfileResponse
 type ProfileDetail = usermodule.ProfileDetail
 type ProfileDict = usermodule.ProfileDict
@@ -29,11 +27,6 @@ type HTTPService interface {
 }
 
 type AppService interface {
-	Init(ctx context.Context, input InitInput) (*InitResponse, *apperror.Error)
 	Profile(ctx context.Context, userID int64, currentUserID int64) (*ProfileResponse, *apperror.Error)
 	UpdateProfile(ctx context.Context, input UpdateProfileInput) *apperror.Error
-}
-
-type QuickEntryService interface {
-	Save(ctx context.Context, userID int64, input SaveInput) (*SaveResponse, *apperror.Error)
 }

@@ -36,24 +36,11 @@ type appProfile struct {
 	HasPassword   bool   `json:"has_password"`
 }
 
-func appUserFromInit(currentUser *profile.InitResponse) appUser {
-	if currentUser == nil {
-		return appUser{}
-	}
-	return appUser{ID: currentUser.UserID, Nickname: currentUser.Username, Avatar: currentUser.Avatar}
-}
-
 func appUserFromProfile(result *profile.ProfileResponse) appUser {
-	if result == nil {
-		return appUser{}
-	}
 	return appUser{ID: result.Profile.UserID, Nickname: result.Profile.Username, Avatar: result.Profile.Avatar}
 }
 
 func appProfileFromUserProfile(result *profile.ProfileResponse) appProfileResponse {
-	if result == nil {
-		return appProfileResponse{}
-	}
 	detail := result.Profile
 	return appProfileResponse{
 		Profile: appProfile{

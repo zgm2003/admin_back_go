@@ -45,7 +45,6 @@ import (
 	paymentmodule "admin_back_go/internal/module/payment"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/module/queuemonitor"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/sms"
@@ -341,7 +340,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		user.WithAddressDictCache(addressDictCache),
 	)
 	sessionRevoker := auth.NewSessionRevocationService(auth.NewSessionRedisCache(resourcesTokenRedis(resources)), auth.SessionRevocationConfig{RedisPrefix: cfg.Token.RedisPrefix})
-	userQuickEntryService := profile.NewQuickEntryService(profile.NewGormQuickEntryRepository(resources.DB))
 	loginLogService := auth.NewLoginLogService(auth.NewLoginLogGormRepository(resources.DB))
 	sessionAdminService := auth.NewSessionAdminService(auth.NewSessionAdminGormRepository(resources.DB), auth.WithSessionAdminCacheRevoker(sessionRevoker))
 	router := server.NewRouter(server.Dependencies{
@@ -374,7 +372,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		CronTaskService:         cronTaskService,
 		ExportTaskService:       exportTaskService,
 		UserService:             userService,
-		UserQuickEntryService:   userQuickEntryService,
 		LoginLogService:         loginLogService,
 		SessionAdminService:     sessionAdminService,
 		NotificationService:     notificationService,

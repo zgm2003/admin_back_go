@@ -12,7 +12,6 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService) {
 	handler := NewHandler(service)
 
 	users := router.Group("/api/admin/v1/users")
-	users.GET("/init", handler.Init)
 	users.GET("/me", handler.Me)
 	users.GET("/page-init", handler.PageInit)
 	users.GET("/:id/profile", handler.UserProfile)

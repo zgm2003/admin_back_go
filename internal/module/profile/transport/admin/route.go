@@ -7,9 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service profile.HTTPService, quickEntryService profile.QuickEntryService) {
+func RegisterRoutes(router *gin.Engine, service profile.HTTPService) {
 	validate.MustRegister()
-	handler := NewHandler(service, quickEntryService)
+	handler := NewHandler(service)
 
 	group := router.Group("/api/admin/v1/profile")
 	group.GET("", handler.CurrentProfile)
@@ -17,7 +17,4 @@ func RegisterRoutes(router *gin.Engine, service profile.HTTPService, quickEntryS
 	group.PUT("/security/password", handler.UpdatePassword)
 	group.PUT("/security/email", handler.UpdateEmail)
 	group.PUT("/security/phone", handler.UpdatePhone)
-
-	quickEntry := router.Group("/api/admin/v1/users/me/quick-entries")
-	quickEntry.PUT("", handler.SaveQuickEntries)
 }

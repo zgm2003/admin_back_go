@@ -69,18 +69,18 @@ commerce: payment, payment/wallet
 ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image
 ```
 
-App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth/transport/app`，`/api/app/v1/users/me` 与 `/api/app/v1/profile` 由 `internal/module/profile/transport/app` 注册并复用现有 user service，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken/transport/app`。
+App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth/transport/app`，`/api/app/v1/users/me` 归属 `internal/module/user/transport/app`，`/api/app/v1/profile` 归属 `internal/module/profile/transport/app`，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken/transport/app`。
 
 当前 user/profile split 口径：
 
 ```text
-internal/module/user/transport/admin     # admin 用户管理 HTTP 表面
-internal/module/profile/transport/admin  # current-user profile/account-security/quick-entry HTTP 表面
-internal/module/profile/transport/app    # app current-user profile compile route
+internal/module/user/transport/admin     # admin users/me + admin 用户管理 HTTP 表面
+internal/module/user/transport/app       # app users/me
+internal/module/user/transport/canvas    # canvas users/me
+internal/module/profile/transport/app    # app profile read/write
 internal/module/uploadtoken/transport/app # app upload-token HTTP 表面
 ```
 
-本切片只拆 HTTP ownership，不改 admin URL、DB schema、RBAC permission code，也不强行把 user/profile repository 一刀切开。`user` 是 admin user-management capability；`profile` 是 current-user self-service HTTP capability；底层 service/repository 的进一步归属治理需要单独计划。
 
 导出是 `internal/module/export` 的通用运行时能力：业务模块拥有 submit endpoint、权限码和 provider；export runtime 统一拥有 `export_tasks` 生命周期、`export:run:v1`、xlsx writer、COS uploader、状态落库和通知。用户导出只是第一条 `kind=user_list` provider；后续 payment/wallet/AI 导出不得复制任务表、writer 或上传逻辑。
 
@@ -998,7 +998,6 @@ logout 后 revoke session，并清 token:session:<session_id> Redis 缓存；单
 当前 Go-owned 路由：
 
 ```text
-PUT   /api/admin/v1/users/me/quick-entries
 GET   /api/admin/v1/users/login-logs/page-init
 GET   /api/admin/v1/users/login-logs
 GET   /api/admin/v1/user-sessions/page-init
@@ -1011,7 +1010,6 @@ PATCH /api/admin/v1/user-sessions/revoke
 边界：
 
 ```text
-profile 拥有当前登录用户快捷入口保存：校验 permission 是 admin PAGE 且启用，最多 6 个，事务内软删旧 rows 再插入新 rows，返回 quick_entry；i18n key 继续保持 userquickentry.*，避免响应文案漂移。
 auth.LoginLogService 只拥有 users_login_log 读路径：LEFT JOIN users，账号/IP 前缀过滤，date_start/date_end 展开全日边界，用户不存在时 user_name=""。
 auth.SessionAdminService 拥有 user_sessions 读和 revoke 写路径：列表不返回 access_token_hash/refresh_token_hash；状态由 revoked_at + refresh_expires_at 计算；revoke 禁止踢当前 AuthIdentity.SessionID。
 auth.SessionRevocationService 是 token Redis 清理边界：删除 "token:session:"+session_id；只有 "token:cur_sess:<platform>:<user_id>" 当前值等于被撤销 session id 时才删 pointer。
@@ -1089,13 +1087,14 @@ Ping 失败：整体 status = not_ready，响应带 checks 明细
 
 这条边界很重要：别把 liveness endpoint 写成外部资源压力测试。外部依赖检查只属于 readiness。
 
-## Users/init RBAC read baseline
+## Users/me RBAC read baseline
 
 当前 RBAC 只读切片由 Go REST 接口提供：
 
 ```text
 GET /api/admin/v1/users/me
-GET /api/admin/v1/users/init
+GET /api/app/v1/users/me
+GET /api/canvas/v1/users/me
 ```
 
 边界：
@@ -1127,7 +1126,7 @@ cache 是性能边界，不是权限真相源；miss 或 cache error 必须回�
 | PAGE 授权 | `permissions` tree + `router` 都包含该 PAGE；PAGE code 可进入内部 `RouteAccessCodes`；`buttonCodes` 不增加 | 动态路由来自 `router`，按钮显隐不能读 PAGE code |
 | BUTTON 授权 | service 自动包含父 PAGE 和祖先 DIR；内部 `RouteAccessCodes` 包含 BUTTON code；`buttonCodes` 只包含 BUTTON code | 按钮显隐只读 `userStore.can(code)`，也就是 `buttonCodes` |
 | `show_menu = 2` | 只保留在 menu item 上；不删除 `router`，不影响 PAGE 访问真相 | 可以隐藏菜单，但不能据此推断没有页面权限 |
-| role 权限变更 | `SyncPermissions` 做 grant/remove diff；变更后清理绑定用户的 `auth_perm_uid_{userId}_{platform}_rbac_route_access_grants` | 下次 `users/init` 以 Go 返回结果为准 |
+| role 权限变更 | `SyncPermissions` 做 grant/remove diff；变更后清理绑定用户的 `auth_perm_uid_{userId}_{platform}_rbac_route_access_grants` | 下次 `users/me` 以 Go 返回结果为准 |
 | PermissionCheck cache hit | 先验证 user 和 role 存在，再用 Redis route access grant codes 判断 PAGE/BUTTON route metadata code | 前端不参与 API 放行 |
 | PermissionCheck cache miss/error | 回源计算 RBAC context；计算失败拒绝 | 前端不兜底 |
 | user/role 不存在 | fail-closed：401 或 403 | 重新登录或显示无权限 |
@@ -1151,7 +1150,7 @@ POST   /api/admin/v1/users/export        # 创建导出任务并投递 worker
 关键规则：
 
 ```text
-users/init 仍只做当前登录用户 bootstrap；用户管理页字典使用 users/page-init。
+users/me 仍只做当前登录用户 bootstrap；用户管理页字典使用 users/page-init。
 新契约只接受 address_id，不接受旧 address 别名。
 用户列表查询由 handler 做入参绑定，service 做业务归一化，repository 只负责 SQL。
 列表搜索默认使用 prefix LIKE，避免把 Go 重构写成全表模糊扫描。
@@ -1259,7 +1258,7 @@ GET  /api/admin/v1/auth/captcha
 POST /api/admin/v1/auth/send-code
 POST /api/admin/v1/auth/login
 GET  /api/admin/v1/users/me
-GET  /api/admin/v1/users/init
+GET  /api/admin/v1/users/me
 GET  /api/admin/v1/users/page-init
 GET  /api/admin/v1/users
 POST /api/admin/v1/permissions          # DIR/PAGE/BUTTON smoke subtree
@@ -1291,10 +1290,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\full-admin-smoke.ps1 `
 自己编译并启动临时 admin-api/admin-worker smoke binary
 使用 go-captcha 真实 challenge，不绕过验证码
 只用 Redis 读取本次 challenge 的服务端答案做自动化 smoke
-登录后必须访问 users/me 和 users/init，证明 session/RBAC bootstrap 能跑
+登录后必须访问 users/me，证明 session/RBAC bootstrap 能跑
 必须访问 users/page-init 和 users list，证明用户管理页已经走 Go REST 基础链路
 必须等待 users_login_log 近 5 分钟内出现本账号登录记录，证明 auth queue/worker 或同步兜底路径能跑
-创建临时 DIR/PAGE/BUTTON，临时授给测试账号角色，重新 users/init 验证 router 和 buttonCodes，再恢复角色授权并批量删除临时权限
+创建临时 DIR/PAGE/BUTTON，临时授给测试账号角色，重新 users/me 验证 router 和 buttonCodes，再恢复角色授权并批量删除临时权限
 最后调用 logout 清理本次 smoke session
 成功后清理临时 binary/helper/log
 失败时保留 .tmp/basic-admin-smoke-*.log 供排查
@@ -1429,7 +1428,7 @@ finalizer 状态推进必须单调：旧 callback/sync/cron 快照不能把 `cre
 证书上传只写本地私有相对路径：runtime/payment/certs/alipay/<config_code>/<sha256>.crt，不走 COS，不暴露 public URL，不提供下载。
 支付宝 SDK 只允许出现在 internal/infra/payment/alipay；module/payment 只能依赖明确的小接口/DTO，不能直接 import 第三方 SDK。
 应用私钥只允许写入、加密保存、本地测试时解密；响应、operation log、smoke 输出和前端类型都不能泄露 app_private_key 或 private_key_enc。
-菜单路径展示 /payment/config、/payment/recharge 和 /payment/orders；/payment/orders 是支付订单/支出流水入口，但不能再暴露 raw create UX；旧 channel/event/pay/wallet 菜单必须从 users/init router 消失。
+菜单路径展示 /payment/config、/payment/recharge 和 /payment/orders；/payment/orders 是支付订单/支出流水入口，但不能再暴露 raw create UX；旧 channel/event/pay/wallet 菜单必须从 users/me router 消失。
 provider 是当前字段合同的一部分，但只允许 alipay；merchant_id、sign_type、extra_config 不属于当前字段合同。
 ```
 

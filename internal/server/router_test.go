@@ -40,7 +40,6 @@ import (
 	"admin_back_go/internal/module/payment"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/module/profile"
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
@@ -367,17 +366,6 @@ func (f *fakeRouterSessionAdminService) BatchRevoke(ctx context.Context, input a
 	f.batchInput = input
 	f.currentSession = currentSessionID
 	return &auth.SessionBatchRevokeResponse{Count: int64(len(input.IDs))}, nil
-}
-
-type fakeRouterUserQuickEntryService struct {
-	userID int64
-	input  profile.SaveInput
-}
-
-func (f *fakeRouterUserQuickEntryService) Save(ctx context.Context, userID int64, input profile.SaveInput) (*profile.SaveResponse, *apperror.Error) {
-	f.userID = userID
-	f.input = input
-	return &profile.SaveResponse{QuickEntry: []profile.QuickEntry{{ID: 1, PermissionID: 2, Sort: 1}}}, nil
 }
 
 type fakeRouterLoginLogService struct {
@@ -1829,7 +1817,6 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 		Permissions: []permission.MenuItem{{Index: "1", Label: "系统", Children: []permission.MenuItem{}}},
 		Router:      []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index"}},
 		ButtonCodes: []string{"user_add"},
-		QuickEntry:  []user.QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
 	}}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
@@ -1872,9 +1859,13 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 	var tokenInput middleware.TokenInput
 	var logoutToken string
 	userService := &fakeRouterUserService{result: &user.InitResponse{
-		UserID:   7,
-		Username: "移动端用户",
-		Avatar:   "avatar.png",
+		UserID:      7,
+		Username:    "移动端用户",
+		Avatar:      "avatar.png",
+		RoleName:    "移动端角色",
+		Permissions: []permission.MenuItem{{Index: "app_home", Label: "App Home", Path: "/app/home"}},
+		Router:      []permission.RouteItem{{Name: "AppHome", Path: "/app/home", ViewKey: "app/home"}},
+		ButtonCodes: []string{"app_access"},
 	}}
 	authService := &fakeAppRouterAuthService{
 		loginConfigFn: func(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
@@ -1966,8 +1957,22 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 		t.Fatalf("expected app token response, got %#v", loginData)
 	}
 	loginUser, ok := loginData["user"].(map[string]any)
-	if !ok || loginUser["id"] != float64(7) || loginUser["nickname"] != "移动端用户" || loginUser["avatar"] != "avatar.png" {
+	if !ok || loginUser["user_id"] != float64(7) || loginUser["username"] != "移动端用户" || loginUser["avatar"] != "avatar.png" || loginUser["role_name"] != "移动端角色" {
 		t.Fatalf("unexpected app login user payload: %#v", loginData["user"])
+	}
+	if _, ok := loginUser["permissions"].([]any); !ok {
+		t.Fatalf("expected permissions in app login user payload: %#v", loginUser)
+	}
+	if !routerRouteSliceContains(loginUser["router"], "/app/home") {
+		t.Fatalf("expected router in app login user payload: %#v", loginUser)
+	}
+	if !routerStringSliceEqual(loginUser["buttonCodes"], []string{"app_access"}) {
+		t.Fatalf("expected buttonCodes in app login user payload: %#v", loginUser)
+	}
+	for _, forbidden := range []string{"id", "nickname", "quick_entry", "quickEntry", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := loginUser[forbidden]; ok {
+			t.Fatalf("app login user response must not include alias/admin-only field %q: %#v", forbidden, loginUser)
+		}
 	}
 	if _, ok := loginData["access_token"]; ok {
 		t.Fatalf("app login response must not leak admin token field names: %#v", loginData)
@@ -1989,11 +1994,22 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 	}
 	meBody := decodeRouterBody(t, meRecorder)
 	meData := mustRouterData(t, meBody)
-	if meData["id"] != float64(7) || meData["nickname"] != "移动端用户" || meData["avatar"] != "avatar.png" {
+	if meData["user_id"] != float64(7) || meData["username"] != "移动端用户" || meData["avatar"] != "avatar.png" || meData["role_name"] != "移动端角色" {
 		t.Fatalf("unexpected app users/me payload: %#v", meData)
 	}
-	if _, ok := meData["buttonCodes"]; ok {
-		t.Fatalf("app users/me response must not include admin RBAC fields: %#v", meData)
+	if _, ok := meData["permissions"].([]any); !ok {
+		t.Fatalf("expected permissions array in app users/me payload: %#v", meData)
+	}
+	if !routerRouteSliceContains(meData["router"], "/app/home") {
+		t.Fatalf("expected router in app users/me payload: %#v", meData)
+	}
+	if !routerStringSliceEqual(meData["buttonCodes"], []string{"app_access"}) {
+		t.Fatalf("expected buttonCodes in app users/me payload: %#v", meData)
+	}
+	for _, forbidden := range []string{"id", "nickname", "quick_entry", "quickEntry", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := meData[forbidden]; ok {
+			t.Fatalf("app users/me response must not include alias/admin-only field %q: %#v", forbidden, meData)
+		}
 	}
 
 	logoutRecorder := httptest.NewRecorder()
@@ -2020,7 +2036,15 @@ func TestRouterInstallsCanvasAuthAndCurrentUserRoutes(t *testing.T) {
 	var loginConfigPlatform string
 	var tokenInput middleware.TokenInput
 	var logoutToken string
-	userService := &fakeRouterUserService{result: &user.InitResponse{UserID: 8, Username: "画布用户", Avatar: "canvas.png"}}
+	userService := &fakeRouterUserService{result: &user.InitResponse{
+		UserID:      8,
+		Username:    "画布用户",
+		Avatar:      "canvas.png",
+		RoleName:    "画布角色",
+		Permissions: []permission.MenuItem{{Index: "canvas_home", Label: "Canvas Home", Path: "/canvas/home"}},
+		Router:      []permission.RouteItem{{Name: "CanvasHome", Path: "/canvas/home", ViewKey: "canvas/home"}},
+		ButtonCodes: []string{"canvas_access"},
+	}}
 	authService := &fakeAppRouterAuthService{
 		loginConfigFn: func(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
 			loginConfigPlatform = platform
@@ -2067,6 +2091,31 @@ func TestRouterInstallsCanvasAuthAndCurrentUserRoutes(t *testing.T) {
 	if authInput.Platform != enum.PlatformCanvas || authInput.DeviceID != "web-1" {
 		t.Fatalf("unexpected canvas login input: %#v", authInput)
 	}
+	loginData := mustRouterData(t, decodeRouterBody(t, loginRecorder))
+	if loginData["token"] != "canvas-token" {
+		t.Fatalf("expected canvas token response, got %#v", loginData)
+	}
+	loginUser, ok := loginData["user"].(map[string]any)
+	if !ok || loginUser["user_id"] != float64(8) || loginUser["username"] != "画布用户" || loginUser["avatar"] != "canvas.png" || loginUser["role_name"] != "画布角色" {
+		t.Fatalf("unexpected canvas login user payload: %#v", loginData["user"])
+	}
+	if _, ok := loginUser["permissions"].([]any); !ok {
+		t.Fatalf("expected permissions in canvas login user payload: %#v", loginUser)
+	}
+	if !routerRouteSliceContains(loginUser["router"], "/canvas/home") {
+		t.Fatalf("expected router in canvas login user payload: %#v", loginUser)
+	}
+	if !routerStringSliceEqual(loginUser["buttonCodes"], []string{"canvas_access"}) {
+		t.Fatalf("expected buttonCodes in canvas login user payload: %#v", loginUser)
+	}
+	for _, forbidden := range []string{"id", "nickname", "quick_entry", "quickEntry", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := loginUser[forbidden]; ok {
+			t.Fatalf("canvas login user response must not include alias/admin-only field %q: %#v", forbidden, loginUser)
+		}
+	}
+	if _, ok := loginData["access_token"]; ok {
+		t.Fatalf("canvas login response must not leak admin token field names: %#v", loginData)
+	}
 
 	meRecorder := httptest.NewRecorder()
 	meRequest := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/users/me", nil)
@@ -2081,6 +2130,25 @@ func TestRouterInstallsCanvasAuthAndCurrentUserRoutes(t *testing.T) {
 	}
 	if userService.input.UserID != 8 || userService.input.Platform != enum.PlatformCanvas {
 		t.Fatalf("unexpected canvas user service input: %#v", userService.input)
+	}
+	meBody := decodeRouterBody(t, meRecorder)
+	meData := mustRouterData(t, meBody)
+	if meData["user_id"] != float64(8) || meData["username"] != "画布用户" || meData["avatar"] != "canvas.png" || meData["role_name"] != "画布角色" {
+		t.Fatalf("unexpected canvas users/me payload: %#v", meData)
+	}
+	if _, ok := meData["permissions"].([]any); !ok {
+		t.Fatalf("expected permissions array in canvas users/me payload: %#v", meData)
+	}
+	if !routerRouteSliceContains(meData["router"], "/canvas/home") {
+		t.Fatalf("expected router in canvas users/me payload: %#v", meData)
+	}
+	if !routerStringSliceEqual(meData["buttonCodes"], []string{"canvas_access"}) {
+		t.Fatalf("expected buttonCodes in canvas users/me payload: %#v", meData)
+	}
+	for _, forbidden := range []string{"id", "nickname", "quick_entry", "quickEntry", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := meData[forbidden]; ok {
+			t.Fatalf("canvas users/me response must not include alias/admin-only field %q: %#v", forbidden, meData)
+		}
 	}
 
 	logoutRecorder := httptest.NewRecorder()
@@ -2199,24 +2267,12 @@ func TestRouterInstallsAppProfileAndUploadRoutes(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsUsersInitAsProtectedRESTPath(t *testing.T) {
-	var authInput middleware.TokenInput
-	userService := &fakeRouterUserService{result: &user.InitResponse{
-		UserID:      1,
-		Username:    "admin",
-		Avatar:      "avatar.png",
-		RoleName:    "管理员",
-		Permissions: []permission.MenuItem{{Index: "1", Label: "系统", Children: []permission.MenuItem{}}},
-		Router:      []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index"}},
-		ButtonCodes: []string{"user_add"},
-		QuickEntry:  []user.QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
-	}}
+func TestRouterDoesNotInstallUsersInitBootstrapRoute(t *testing.T) {
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			authInput = input
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: input.Platform}, nil
 		},
-		UserService: userService,
+		UserService: &fakeRouterUserService{result: &user.InitResponse{UserID: 1, Username: "admin"}},
 	})
 
 	recorder := httptest.NewRecorder()
@@ -2226,22 +2282,8 @@ func TestRouterInstallsUsersInitAsProtectedRESTPath(t *testing.T) {
 	request.Header.Set("device-id", "desktop-1")
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if authInput.AccessToken != "access-token" || authInput.Platform != "admin" || authInput.DeviceID != "desktop-1" {
-		t.Fatalf("unexpected auth input: %#v", authInput)
-	}
-	if userService.input.UserID != 1 || userService.input.Platform != "admin" {
-		t.Fatalf("unexpected user service input: %#v", userService.input)
-	}
-	body := decodeRouterBody(t, recorder)
-	data := mustRouterData(t, body)
-	if data["username"] != "admin" || data["role_name"] != "管理员" {
-		t.Fatalf("unexpected users/init payload: %#v", data)
-	}
-	if _, ok := data["buttonCodes"]; !ok {
-		t.Fatalf("missing buttonCodes in users/init payload: %#v", data)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("users/init must not be mounted, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -2371,16 +2413,14 @@ func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 }
 
 func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
-	quickEntryService := &fakeRouterUserQuickEntryService{}
 	loginLogService := &fakeRouterLoginLogService{}
 	sessionAdminService := &fakeRouterSessionAdminService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 44, SessionID: 55, Platform: "admin"}, nil
 		},
-		UserQuickEntryService: quickEntryService,
-		LoginLogService:       loginLogService,
-		SessionAdminService:   sessionAdminService,
+		LoginLogService:     loginLogService,
+		SessionAdminService: sessionAdminService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -2388,8 +2428,8 @@ func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || quickEntryService.userID != 44 || !reflect.DeepEqual(quickEntryService.input.PermissionIDs, []int64{3, 1, 3}) {
-		t.Fatalf("expected quick-entry route, code=%d body=%s service=%#v", recorder.Code, recorder.Body.String(), quickEntryService)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("quick-entry route must not be mounted, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 
 	recorder = httptest.NewRecorder()
@@ -4076,6 +4116,8 @@ func TestAdminRouteSnapshot(t *testing.T) {
 	for _, route := range router.Routes() {
 		path := route.Path
 		if strings.HasPrefix(path, "/api/admin/v1/") ||
+			path == "/api/app/v1/users/me" ||
+			path == "/api/canvas/v1/users/me" ||
 			strings.HasPrefix(path, "/api/payment/callbacks/") ||
 			path == "/health" || path == "/ready" {
 			routes = append(routes, route.Method+" "+path)
@@ -4137,6 +4179,33 @@ func mustRouterData(t *testing.T, body map[string]any) map[string]any {
 		t.Fatalf("expected data object, got %#v", body["data"])
 	}
 	return data
+}
+
+func routerStringSliceEqual(value any, want []string) bool {
+	got, ok := value.([]any)
+	if !ok || len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func routerRouteSliceContains(value any, wantPath string) bool {
+	got, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range got {
+		item, ok := raw.(map[string]any)
+		if ok && item["path"] == wantPath {
+			return true
+		}
+	}
+	return false
 }
 
 func assertRequestID(t *testing.T, recorder *httptest.ResponseRecorder) {

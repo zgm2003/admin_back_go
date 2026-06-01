@@ -1054,7 +1054,7 @@ function Assert-AIBillingRuleList($Response) {
 }
 
 function Assert-UsersInitPaymentRoutes($Response) {
-  Assert-ApiOK $Response 'users init payment route gate'
+  Assert-ApiOK $Response 'users me payment route gate'
   $payPresent = Test-RoutePath $Response.data.router '/pay'
   $retiredWalletRootRoutePresent = Test-RoutePath $Response.data.router '/wallet'
   $oldPayCodePresent = Test-ButtonCodePrefix $Response.data.buttonCodes 'pay_'
@@ -1089,40 +1089,40 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $orderPresent = Test-RoutePath $Response.data.router $retiredOrderPath
   $eventPresent = Test-RoutePath $Response.data.router '/payment/event'
   if ($payPresent -or $retiredWalletRootRoutePresent -or $oldPayCodePresent -or $oldChannelCodePresent -or $oldEventCodePresent -or -not $configPresent -or -not $ledgerPresent -or -not $walletsPresent -or -not $rechargePresent -or -not $profileWalletPresent -or $ordersPresent -or $channelPresent -or $orderPresent -or $eventPresent) {
-    throw "users/init payment route gate mismatch: /pay=$payPresent /wallet-root-route=$retiredWalletRootRoutePresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/ledger=$ledgerPresent /payment/wallets=$walletsPresent /payment/recharge=$rechargePresent /profile/wallet=$profileWalletPresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
+    throw "users/me payment route gate mismatch: /pay=$payPresent /wallet-root-route=$retiredWalletRootRoutePresent oldPayCode=$oldPayCodePresent oldChannelCode=$oldChannelCodePresent oldEventCode=$oldEventCodePresent /payment/config=$configPresent /payment/ledger=$ledgerPresent /payment/wallets=$walletsPresent /payment/recharge=$rechargePresent /profile/wallet=$profileWalletPresent /payment/orders=$ordersPresent /payment/channel=$channelPresent retiredOrder=$orderPresent /payment/event=$eventPresent"
   }
   if (-not $rechargeAddButtonPresent -or -not $rechargePayButtonPresent -or $rechargeSyncButtonPresent -or $rechargeCloseButtonPresent) {
-    throw "users/init payment recharge button gate mismatch: add=$rechargeAddButtonPresent pay=$rechargePayButtonPresent sync=$rechargeSyncButtonPresent close=$rechargeCloseButtonPresent"
+    throw "users/me payment recharge button gate mismatch: add=$rechargeAddButtonPresent pay=$rechargePayButtonPresent sync=$rechargeSyncButtonPresent close=$rechargeCloseButtonPresent"
   }
   if ($orderAddButtonPresent -or $orderPayButtonPresent -or $orderSyncButtonPresent -or $orderCloseButtonPresent) {
-    throw "users/init payment order button gate mismatch: pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
+    throw "users/me payment order button gate mismatch: pay=$orderPayButtonPresent sync=$orderSyncButtonPresent close=$orderCloseButtonPresent"
   }
 
   $configRoute = Get-RouteByPath $Response.data.router '/payment/config'
   if ($null -eq $configRoute -or [string]$configRoute.view_key -ne 'payment/config') {
-    throw "users/init payment config route view_key mismatch: expected=payment/config actual=$([string]$configRoute.view_key)"
+    throw "users/me payment config route view_key mismatch: expected=payment/config actual=$([string]$configRoute.view_key)"
   }
   $ledgerRoute = Get-RouteByPath $Response.data.router '/payment/ledger'
   if ($null -eq $ledgerRoute -or [string]$ledgerRoute.view_key -ne 'payment/ledger') {
-    throw "users/init payment ledger route view_key mismatch: expected=payment/ledger actual=$([string]$ledgerRoute.view_key)"
+    throw "users/me payment ledger route view_key mismatch: expected=payment/ledger actual=$([string]$ledgerRoute.view_key)"
   }
   $walletsRoute = Get-RouteByPath $Response.data.router '/payment/wallets'
   if ($null -eq $walletsRoute -or [string]$walletsRoute.view_key -ne 'payment/wallets') {
-    throw "users/init payment wallets route view_key mismatch: expected=payment/wallets actual=$([string]$walletsRoute.view_key)"
+    throw "users/me payment wallets route view_key mismatch: expected=payment/wallets actual=$([string]$walletsRoute.view_key)"
   }
   $rechargeRoute = Get-RouteByPath $Response.data.router '/payment/recharge'
   if ($null -eq $rechargeRoute -or [string]$rechargeRoute.view_key -ne 'payment/recharge') {
-    throw "users/init payment recharge route view_key mismatch: expected=payment/recharge actual=$([string]$rechargeRoute.view_key)"
+    throw "users/me payment recharge route view_key mismatch: expected=payment/recharge actual=$([string]$rechargeRoute.view_key)"
   }
   $profileWalletRoute = Get-RouteByPath $Response.data.router '/profile/wallet'
   if ($null -eq $profileWalletRoute -or [string]$profileWalletRoute.view_key -ne 'profile/wallet') {
-    throw "users/init profile wallet route view_key mismatch: expected=profile/wallet actual=$([string]$profileWalletRoute.view_key)"
+    throw "users/me profile wallet route view_key mismatch: expected=profile/wallet actual=$([string]$profileWalletRoute.view_key)"
   }
   $ordersRoute = Get-RouteByPath $Response.data.router '/payment/orders'
   $ordersViewKey = ''
   if ($null -ne $ordersRoute) { $ordersViewKey = [string]$ordersRoute.view_key }
   if ($null -ne $ordersRoute) {
-    throw "users/init payment orders route should be retired, actual view_key=$ordersViewKey"
+    throw "users/me payment orders route should be retired, actual view_key=$ordersViewKey"
   }
 
   $paymentRootMenu = Get-MenuByPath $Response.data.permissions '/payment'
@@ -1133,17 +1133,17 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $ordersMenu = Get-MenuByPath $Response.data.permissions '/payment/orders'
   $profileWalletMenu = Get-MenuByPath $Response.data.permissions '/profile/wallet'
   if (($null -ne $paymentRootMenu -and [int]$paymentRootMenu.show_menu -ne 1) -or $null -eq $configMenu -or [int]$configMenu.show_menu -ne 1 -or $null -eq $ledgerMenu -or [int]$ledgerMenu.show_menu -ne 1 -or $null -eq $walletsMenu -or [int]$walletsMenu.show_menu -ne 1) {
-    throw "users/init payment visible menu gate mismatch: root=$($paymentRootMenu | ConvertTo-Json -Depth 4) config=$($configMenu | ConvertTo-Json -Depth 4) ledger=$($ledgerMenu | ConvertTo-Json -Depth 4) wallets=$($walletsMenu | ConvertTo-Json -Depth 4)"
+    throw "users/me payment visible menu gate mismatch: root=$($paymentRootMenu | ConvertTo-Json -Depth 4) config=$($configMenu | ConvertTo-Json -Depth 4) ledger=$($ledgerMenu | ConvertTo-Json -Depth 4) wallets=$($walletsMenu | ConvertTo-Json -Depth 4)"
   }
   if (($null -ne $rechargeMenu -and [int]$rechargeMenu.show_menu -eq 1) -or ($null -ne $ordersMenu -and [int]$ordersMenu.show_menu -eq 1) -or ($null -ne $profileWalletMenu -and [int]$profileWalletMenu.show_menu -eq 1)) {
-    throw "users/init hidden/retired payment menu gate mismatch: recharge=$($rechargeMenu | ConvertTo-Json -Depth 4) orders=$($ordersMenu | ConvertTo-Json -Depth 4) profileWallet=$($profileWalletMenu | ConvertTo-Json -Depth 4)"
+    throw "users/me hidden/retired payment menu gate mismatch: recharge=$($rechargeMenu | ConvertTo-Json -Depth 4) orders=$($ordersMenu | ConvertTo-Json -Depth 4) profileWallet=$($profileWalletMenu | ConvertTo-Json -Depth 4)"
   }
-  Assert-RoutePathOrder $Response.data.permissions @('/payment/config', '/payment/ledger', '/payment/wallets') 'users init payment menu order'
+  Assert-RoutePathOrder $Response.data.permissions @('/payment/config', '/payment/ledger', '/payment/wallets') 'users me payment menu order'
   $walletTransactionsRoute = Get-RouteByPath $Response.data.router '/wallet/transactions'
   $walletUsersRoute = Get-RouteByPath $Response.data.router '/wallet/users'
   $walletLedgerRoute = Get-RouteByPath $Response.data.router '/wallet/ledger'
   if ($null -ne $walletTransactionsRoute -or $null -ne $walletUsersRoute -or $null -ne $walletLedgerRoute) {
-    throw "users/init wallet legacy route should be retired: transactions=$([string]$walletTransactionsRoute.view_key) users=$([string]$walletUsersRoute.view_key) ledger=$([string]$walletLedgerRoute.view_key)"
+    throw "users/me wallet legacy route should be retired: transactions=$([string]$walletTransactionsRoute.view_key) users=$([string]$walletUsersRoute.view_key) ledger=$([string]$walletLedgerRoute.view_key)"
   }
 
   $walletCenterMenu = Get-MenuByI18nKey $Response.data.permissions 'menu.wallet_center'
@@ -1152,7 +1152,7 @@ function Assert-UsersInitPaymentRoutes($Response) {
   $walletUsersMenu = Get-MenuByPath $Response.data.permissions '/wallet/users'
   $walletLedgerMenu = Get-MenuByPath $Response.data.permissions '/wallet/ledger'
   if (($null -ne $walletCenterMenu -and [int]$walletCenterMenu.show_menu -eq 1) -or ($null -ne $walletTransactionsMenu -and [int]$walletTransactionsMenu.show_menu -eq 1) -or ($null -ne $walletManageMenu -and [int]$walletManageMenu.show_menu -eq 1) -or ($null -ne $walletUsersMenu -and [int]$walletUsersMenu.show_menu -eq 1) -or ($null -ne $walletLedgerMenu -and [int]$walletLedgerMenu.show_menu -eq 1)) {
-    throw "users/init wallet visible menu gate mismatch: center=$($walletCenterMenu | ConvertTo-Json -Depth 4) transactions=$($walletTransactionsMenu | ConvertTo-Json -Depth 4) manage=$($walletManageMenu | ConvertTo-Json -Depth 4) users=$($walletUsersMenu | ConvertTo-Json -Depth 4) ledger=$($walletLedgerMenu | ConvertTo-Json -Depth 4)"
+    throw "users/me wallet visible menu gate mismatch: center=$($walletCenterMenu | ConvertTo-Json -Depth 4) transactions=$($walletTransactionsMenu | ConvertTo-Json -Depth 4) manage=$($walletManageMenu | ConvertTo-Json -Depth 4) users=$($walletUsersMenu | ConvertTo-Json -Depth 4) ledger=$($walletLedgerMenu | ConvertTo-Json -Depth 4)"
   }
 
   return [pscustomobject]@{
@@ -1201,7 +1201,7 @@ function Assert-UsersInitPaymentRoutes($Response) {
 }
 
 function Assert-UsersInitAIRoutes($Response) {
-  Assert-ApiOK $Response 'users init AI route gate'
+  Assert-ApiOK $Response 'users me AI route gate'
 
   $retiredAINameRoutes = @{
     models = '/ai/models'
@@ -1214,7 +1214,7 @@ function Assert-UsersInitAIRoutes($Response) {
     $present = Test-RoutePath $Response.data.router $route
     $retiredPresent[$route] = $present
     if ($present) {
-      throw "users init still returns retired AI route ${route}: $($Response | ConvertTo-Json -Depth 12)"
+      throw "users me still returns retired AI route ${route}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
 
@@ -1224,10 +1224,10 @@ function Assert-UsersInitAIRoutes($Response) {
     $present = Test-RoutePath $Response.data.router $route
     $requiredPresent[$route] = $present
     if (-not $present) {
-      throw "users init missing AI route ${route}: $($Response | ConvertTo-Json -Depth 12)"
+      throw "users me missing AI route ${route}: $($Response | ConvertTo-Json -Depth 12)"
     }
   }
-  Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users init AI menu order'
+  Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users me AI menu order'
   $aiToolAddButton = $false
   $aiToolGenerateButton = $false
   $aiImageTaskAddButton = $false
@@ -1239,15 +1239,15 @@ function Assert-UsersInitAIRoutes($Response) {
     if ([string]$code -eq 'ai_image_asset_add') { $aiImageAssetAddButton = $true }
   }
   if ($aiToolAddButton -and -not $aiToolGenerateButton) {
-    throw "users init has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
+    throw "users me has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
   }
   if ($requiredPresent['/ai/image-playground'] -and (-not $aiImageTaskAddButton -or -not $aiImageAssetAddButton)) {
-    throw "users init has /ai/image-playground but missing image task/asset buttons; run 20260515_ai_image_playground_permission.sql"
+    throw "users me has /ai/image-playground but missing image task/asset buttons; run 20260515_ai_image_playground_permission.sql"
   }
 
   $imageRoute = Get-RouteByPath $Response.data.router '/ai/image-playground'
   if ($null -eq $imageRoute -or [string]$imageRoute.view_key -ne 'ai/image-playground') {
-    throw "users/init AI image route view_key mismatch: expected=ai/image-playground actual=$([string]$imageRoute.view_key)"
+    throw "users/me AI image route view_key mismatch: expected=ai/image-playground actual=$([string]$imageRoute.view_key)"
   }
 
   return [pscustomobject]@{
@@ -1863,130 +1863,6 @@ function Assert-UserSessionStats($Response) {
     TotalActive = [int64]$Response.data.total_active
     Admin = [int64]$Response.data.platform_distribution.admin
     App = [int64]$Response.data.platform_distribution.app
-  }
-}
-
-function Get-QuickEntryPermissionIDs($Response) {
-  $ids = @()
-  if ($null -eq $Response -or $null -eq $Response.data) { return $ids }
-  foreach ($item in (Get-ObjectArray $Response.data.quick_entry)) {
-    if ($null -ne $item.permission_id -and [int64]$item.permission_id -gt 0) {
-      $ids += [int64]$item.permission_id
-    }
-  }
-  return $ids
-}
-
-function Get-FirstPagePermissionID($Items) {
-  foreach ($item in (Get-ObjectArray $Items)) {
-    if ($null -eq $item) { continue }
-    if ([int]$item.type -eq 2 -and [int64]$item.id -gt 0) {
-      return [int64]$item.id
-    }
-    $childID = Get-FirstPagePermissionID $item.children
-    if ($childID -gt 0) {
-      return $childID
-    }
-  }
-  return 0
-}
-
-function Assert-QuickEntrySave($Response, [int64[]]$ExpectedIDs, [string]$Label) {
-  Assert-ApiOK $Response $Label
-  if ($null -eq $Response.data.quick_entry) {
-    throw "$Label missing quick_entry: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  $entries = Get-ObjectArray $Response.data.quick_entry
-  if ($entries.Count -ne $ExpectedIDs.Count) {
-    throw "$Label quick_entry count mismatch: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  for ($i = 0; $i -lt $ExpectedIDs.Count; $i++) {
-    if ([int64]$entries[$i].permission_id -ne [int64]$ExpectedIDs[$i]) {
-      throw "$Label quick_entry order mismatch: $($Response | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    Count = $entries.Count
-  }
-}
-
-function Resolve-QuickEntryCandidateID($UsersInitResponse) {
-  $routeMenuIDs = New-Object System.Collections.Generic.HashSet[int64]
-  foreach ($route in (Get-ObjectArray $UsersInitResponse.data.router)) {
-    if ($null -eq $route.meta -or $null -eq $route.meta.menuId) { continue }
-    [int64]$menuID = 0
-    if ([int64]::TryParse([string]$route.meta.menuId, [ref]$menuID) -and $menuID -gt 0) {
-      [void]$routeMenuIDs.Add($menuID)
-    }
-  }
-
-  foreach ($menuID in $routeMenuIDs) {
-    return [int64]$menuID
-  }
-  return Get-FirstPagePermissionID $UsersInitResponse.data.permissions
-}
-
-function Invoke-QuickEntryRoundTripProbe([string]$BaseURL, [hashtable]$Headers, $UsersInitResponse) {
-  [int64[]]$originalIDs = @(Get-QuickEntryPermissionIDs $UsersInitResponse)
-  $candidateID = Resolve-QuickEntryCandidateID $UsersInitResponse
-  if ($candidateID -le 0) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_page_permission'
-      SaveCode = -1
-      SaveCount = -1
-      InitRoundTrip = $true
-      RestoreCode = -1
-    }
-  }
-
-  $restoreCode = -1
-  $status = 'passed'
-  $saveCode = -1
-  $saveCount = -1
-  $roundTrip = $false
-  try {
-    $save = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/users/me/quick-entries" $Headers @{
-      permission_ids = @($candidateID)
-    }
-    $saveSummary = Assert-QuickEntrySave $save @($candidateID) 'users quick-entry save'
-    $saveCode = $save.code
-    $saveCount = $saveSummary.Count
-
-    $afterInit = Invoke-RestMethod "$BaseURL/api/admin/v1/users/init" `
-      -Headers $Headers `
-      -TimeoutSec 10
-    Assert-ApiOK $afterInit 'users init after quick-entry save'
-    $afterIDs = @(Get-QuickEntryPermissionIDs $afterInit)
-    $roundTrip = ($afterIDs.Count -eq 1 -and [int64]$afterIDs[0] -eq [int64]$candidateID)
-    if (-not $roundTrip) {
-      throw "users/init quick_entry did not reflect saved entry: $($afterInit | ConvertTo-Json -Depth 12)"
-    }
-  } finally {
-    try {
-      $restore = Invoke-JsonRequestAllowFailure 'Put' "$BaseURL/api/admin/v1/users/me/quick-entries" $Headers @{
-        permission_ids = @($originalIDs)
-      }
-      Assert-ApiOK $restore 'users quick-entry restore'
-      $restoreCode = $restore.code
-    } catch {
-      $status = 'restore_failed'
-      Write-Host "Failed to restore users quick-entry for current smoke user"
-    }
-  }
-
-  if ($status -ne 'passed') {
-    throw "users quick-entry probe did not restore original state: $status"
-  }
-
-  return [pscustomobject]@{
-    Status = $status
-    SaveCode = $saveCode
-    SaveCount = $saveCount
-    InitRoundTrip = $roundTrip
-    RestoreCode = $restoreCode
   }
 }
 
@@ -2890,13 +2766,12 @@ func main() {
   Assert-ApiOK $me 'full smoke users me'
   Clear-UserRouteAccessGrantCache ([int64]$me.data.user_id) $Platform
 
-  $usersInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" `
+  $usersInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $usersInitAIRouteSummary = Assert-UsersInitAIRoutes $usersInit
   $usersInitPaymentRouteSummary = Assert-UsersInitPaymentRoutes $usersInit
 
-  $quickEntryProbe = Invoke-QuickEntryRoundTripProbe $baseURL $authHeaders $usersInit
 
   $userLoginLogPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/login-logs/page-init" `
     -Headers $authHeaders `
@@ -3081,7 +2956,7 @@ func main() {
   $walletUsersInit = Invoke-RestMethod "$baseURL/api/admin/v1/payment/wallets/page-init" `
     -Headers $authHeaders `
     -TimeoutSec 10
-  Assert-ApiOK $walletUsersInit 'wallet users init'
+  Assert-ApiOK $walletUsersInit 'wallet users me'
 
   $walletUsers = Invoke-RestMethod "$baseURL/api/admin/v1/payment/wallets?current_page=1&page_size=10" `
     -Headers $authHeaders `
@@ -3425,11 +3300,6 @@ func main() {
 
   $summary = [ordered]@{
     basic = $basicSummary
-    users_quick_entry_save_status = $quickEntryProbe.Status
-    users_quick_entry_save_code = $quickEntryProbe.SaveCode
-    users_quick_entry_save_count = $quickEntryProbe.SaveCount
-    users_quick_entry_init_round_trip = $quickEntryProbe.InitRoundTrip
-    users_quick_entry_restore_code = $quickEntryProbe.RestoreCode
     users_login_log_init_code = $userLoginLogPageInit.code
     users_login_log_platform_dict_count = $userLoginLogPageInitSummary.PlatformCount
     users_login_log_type_dict_count = $userLoginLogPageInitSummary.LoginTypeCount

@@ -1,19 +1,16 @@
 package canvas
 
 import (
-	"admin_back_go/internal/module/profile"
+	usermodule "admin_back_go/internal/module/user"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-type Dependencies struct {
-	Service profile.AppService
-}
-
-func RegisterRoutes(router *gin.Engine, deps Dependencies) {
+func RegisterRoutes(router *gin.Engine, service usermodule.InitService) {
 	validate.MustRegister()
-	handler := NewHandler(deps.Service)
+	handler := NewHandler(service)
+
 	users := router.Group("/api/canvas/v1/users")
 	users.GET("/me", handler.Me)
 }

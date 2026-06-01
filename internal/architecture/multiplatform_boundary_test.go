@@ -192,10 +192,12 @@ func TestUserProfileTransportShape(t *testing.T) {
 	root := backendRoot(t)
 	for _, rel := range []string{
 		"internal/module/user/transport/admin/route.go",
+		"internal/module/user/transport/app/route.go",
+		"internal/module/user/transport/app/handler.go",
+		"internal/module/user/transport/canvas/route.go",
+		"internal/module/user/transport/canvas/handler.go",
 		"internal/module/profile/transport/admin/route.go",
 		"internal/module/profile/transport/app/route.go",
-		"internal/module/profile/transport/canvas/route.go",
-		"internal/module/profile/transport/canvas/handler.go",
 	} {
 		mustExist(t, root, rel)
 	}
@@ -206,15 +208,25 @@ func TestUserProfileTransportShape(t *testing.T) {
 		"internal/module/user/app_dto.go",
 		"internal/module/userquickentry/route.go",
 		"internal/module/userquickentry/handler.go",
+		"internal/module/profile/transport/canvas/route.go",
+		"internal/module/profile/transport/canvas/handler.go",
 	} {
 		mustNotExist(t, root, rel)
 	}
 }
 
-func TestUserQuickEntryOwnedByProfileModule(t *testing.T) {
+func TestQuickEntryModuleIsRemoved(t *testing.T) {
 	root := backendRoot(t)
 	if _, err := os.Stat(filepath.Join(root, "internal", "module", "userquickentry")); !os.IsNotExist(err) {
-		t.Fatalf("userquickentry must be owned by internal/module/profile, not a standalone module")
+		t.Fatalf("userquickentry module must not exist")
+	}
+	for _, rel := range []string{
+		"internal/module/profile/quickentry_dto.go",
+		"internal/module/profile/quickentry_model.go",
+		"internal/module/profile/quickentry_repository.go",
+		"internal/module/profile/quickentry_service.go",
+	} {
+		mustNotExist(t, root, rel)
 	}
 }
 

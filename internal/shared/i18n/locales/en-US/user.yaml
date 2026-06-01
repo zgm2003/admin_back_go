@@ -1,2 +1,4 @@
 user.service_missing: User service is not configured
+user.current_user_missing: Current user data was not returned
 app.profile.request.invalid: Invalid profile request
+app.profile.result_missing: Profile data was not returned

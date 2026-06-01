@@ -12,8 +12,10 @@ func TestPlatformRouteLineOwnership(t *testing.T) {
 	for _, rel := range []string{
 		"internal/module/auth/transport/canvas/route.go",
 		"internal/module/auth/transport/canvas/handler.go",
-		"internal/module/profile/transport/canvas/route.go",
-		"internal/module/profile/transport/canvas/handler.go",
+		"internal/module/user/transport/app/route.go",
+		"internal/module/user/transport/app/handler.go",
+		"internal/module/user/transport/canvas/route.go",
+		"internal/module/user/transport/canvas/handler.go",
 		"internal/module/payment/transport/canvas/route.go",
 		"internal/module/payment/transport/canvas/handler.go",
 		"internal/module/payment/wallet/transport/canvas/route.go",
@@ -31,8 +33,11 @@ func TestPlatformRouteLineOwnership(t *testing.T) {
 	mustNotContainRouteLine(t, routesAuth, `authapp.RouteOptions`)
 
 	routesUser := readRouteLineSource(t, root, "internal/server/routes_admin_user.go")
-	mustContainRouteLine(t, routesUser, `profilecanvas "admin_back_go/internal/module/profile/transport/canvas"`)
-	mustContainRouteLine(t, routesUser, `profilecanvas.RegisterRoutes(router, profilecanvas.Dependencies{`)
+	mustContainRouteLine(t, routesUser, `userapp "admin_back_go/internal/module/user/transport/app"`)
+	mustContainRouteLine(t, routesUser, `usercanvas "admin_back_go/internal/module/user/transport/canvas"`)
+	mustContainRouteLine(t, routesUser, `userapp.RegisterRoutes(router, deps.UserService)`)
+	mustContainRouteLine(t, routesUser, `usercanvas.RegisterRoutes(router, deps.UserService)`)
+	mustNotContainRouteLine(t, routesUser, `profilecanvas`)
 	mustNotContainRouteLine(t, routesUser, `RegisterRoutesWithOptions`)
 	mustNotContainRouteLine(t, routesUser, `UsersPrefix: "/api/canvas/v1/users"`)
 

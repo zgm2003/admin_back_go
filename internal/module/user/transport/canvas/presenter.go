@@ -2,15 +2,10 @@ package canvas
 
 import (
 	"admin_back_go/internal/module/permission"
-	"admin_back_go/internal/module/user"
+	usermodule "admin_back_go/internal/module/user"
 )
 
-type loginResponse struct {
-	Token string    `json:"token"`
-	User  loginUser `json:"user"`
-}
-
-type loginUser struct {
+type currentUserResponse struct {
 	UserID      int64                  `json:"user_id"`
 	Username    string                 `json:"username"`
 	Avatar      string                 `json:"avatar"`
@@ -20,8 +15,8 @@ type loginUser struct {
 	ButtonCodes []string               `json:"buttonCodes"`
 }
 
-func userFromInit(currentUser *user.InitResponse) loginUser {
-	return loginUser{
+func currentUserFromInit(currentUser *usermodule.InitResponse) currentUserResponse {
+	return currentUserResponse{
 		UserID:      currentUser.UserID,
 		Username:    currentUser.Username,
 		Avatar:      currentUser.Avatar,

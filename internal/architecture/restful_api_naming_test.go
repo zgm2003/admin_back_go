@@ -30,11 +30,26 @@ func TestAdminRoutesExposePageInitForPageDictionariesWithoutLegacyInitAliases(t 
 		assertRouteSnapshotContains(t, routes, route)
 	}
 	for route := range routes {
-		if strings.HasSuffix(routePath(route), "/init") && route != "GET /api/admin/v1/users/init" {
-			t.Fatalf("legacy page dictionary init route remains: %s", route)
+		if strings.HasSuffix(routePath(route), "/init") {
+			t.Fatalf("legacy init route remains: %s", route)
 		}
 	}
-	assertRouteSnapshotContains(t, routes, "GET /api/admin/v1/users/init")
+}
+
+func TestCurrentUserBootstrapUsesUsersMeForEveryPlatform(t *testing.T) {
+	routes := readRouteSnapshot(t, backendRoot(t))
+	for _, route := range []string{
+		"GET /api/admin/v1/users/me",
+		"GET /api/app/v1/users/me",
+		"GET /api/canvas/v1/users/me",
+	} {
+		assertRouteSnapshotContains(t, routes, route)
+	}
+	for route := range routes {
+		if strings.Contains(routePath(route), "/users/init") {
+			t.Fatalf("current-user bootstrap must not expose users/init: %s", route)
+		}
+	}
 }
 
 func TestAdminRoutesDoNotUseLegacyActionPaths(t *testing.T) {
@@ -62,7 +77,7 @@ func readRouteSnapshot(t *testing.T, root string) map[string]struct{} {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(root, "internal", "server", "testdata", "admin_routes_golden.txt"))
 	if err != nil {
-		t.Fatalf("read admin route snapshot: %v", err)
+		t.Fatalf("read route snapshot: %v", err)
 	}
 	routes := make(map[string]struct{})
 	for _, line := range strings.Split(string(body), "\n") {
@@ -86,6 +101,6 @@ func routePath(route string) string {
 func assertRouteSnapshotContains(t *testing.T, routes map[string]struct{}, route string) {
 	t.Helper()
 	if _, ok := routes[route]; !ok {
-		t.Fatalf("admin route snapshot must contain %s", route)
+		t.Fatalf("route snapshot must contain %s", route)
 	}
 }

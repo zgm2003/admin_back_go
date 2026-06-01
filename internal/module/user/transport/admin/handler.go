@@ -20,10 +20,6 @@ func NewHandler(service usermodule.HTTPService) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Init(c *gin.Context) {
-	h.respondWithCurrentUser(c)
-}
-
 func (h *Handler) Me(c *gin.Context) {
 	h.respondWithCurrentUser(c)
 }

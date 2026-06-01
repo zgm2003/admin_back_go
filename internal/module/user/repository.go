@@ -22,7 +22,6 @@ type Repository interface {
 	FindUser(ctx context.Context, userID int64) (*User, error)
 	FindProfile(ctx context.Context, userID int64) (*Profile, error)
 	FindRole(ctx context.Context, roleID int64) (*Role, error)
-	QuickEntries(ctx context.Context, userID int64) ([]QuickEntry, error)
 	RoleOptions(ctx context.Context) ([]Role, error)
 	ActiveAddresses(ctx context.Context) ([]Address, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
@@ -391,22 +390,4 @@ func (r *GormRepository) FindRole(ctx context.Context, roleID int64) (*Role, err
 		return nil, err
 	}
 	return &role, nil
-}
-
-func (r *GormRepository) QuickEntries(ctx context.Context, userID int64) ([]QuickEntry, error) {
-	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
-	}
-
-	var entries []QuickEntry
-	err := r.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Where("permission_id > ?", 0).
-		Where("is_del = ?", commonNo).
-		Order("sort asc").
-		Find(&entries).Error
-	if err != nil {
-		return nil, err
-	}
-	return entries, nil
 }

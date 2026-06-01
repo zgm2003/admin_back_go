@@ -18,7 +18,6 @@ legacy.0756301c2c15: 支付事件列表参数错误
 legacy.0817d4f9f22f: 页面类型的子节点只能是按钮
 legacy.081fae036713: bucket 不能为空
 legacy.08277539c26a: secret_key 不能为空
-legacy.082ee820140b: 查询快捷入口失败
 legacy.0935950c6fe0: 验证码缓存读取失败
 legacy.09b2dd970da1: AI知识库文档列表参数错误
 legacy.09cd4c9667b9: AI供应商不能为空

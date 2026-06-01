@@ -514,19 +514,19 @@ func main() {
   }
 
   $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
-  $init = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
+  $init = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
   $usersPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/page-init" -Headers $authHeaders -TimeoutSec 10
   $usersList = Invoke-RestMethod "$baseURL/api/admin/v1/users?current_page=1&page_size=10" -Headers $authHeaders -TimeoutSec 10
   $authPlatformInit = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms/page-init" -Headers $authHeaders -TimeoutSec 10
   $authPlatformList = Invoke-RestMethod "$baseURL/api/admin/v1/auth-platforms?current_page=1&page_size=50" -Headers $authHeaders -TimeoutSec 10
-  Assert-ApiOK $init 'users init'
+  Assert-ApiOK $init 'users me'
   Assert-ApiOK $usersPageInit 'users page-init'
   Assert-ApiOK $usersList 'users list'
   if (-not (Test-RoutePath $init.data.router '/system/clientVersion')) {
-    throw 'users init missing canonical client version route path /system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
+    throw 'users me missing canonical client version route path /system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
   }
   if (-not (Test-RouteViewKey $init.data.router 'system/clientVersion')) {
-    throw 'users init missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
+    throw 'users me missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
   }
   $retiredAINameRoutes = @{
     models = '/ai/models'
@@ -536,16 +536,16 @@ func main() {
   $retiredAIRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
   foreach ($route in $retiredAIRoutes) {
     if (Test-RoutePath $init.data.router $route) {
-      throw "users init still returns retired AI route $route; run AI core rebuild migration and clear operator-side caches"
+      throw "users me still returns retired AI route $route; run AI core rebuild migration and clear operator-side caches"
     }
   }
   $requiredAIRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
   foreach ($route in $requiredAIRoutes) {
     if (-not (Test-RoutePath $init.data.router $route)) {
-      throw "users init missing AI product route $route"
+      throw "users me missing AI product route $route"
     }
   }
-  Assert-RoutePathOrder $init.data.permissions $requiredAIRoutes 'users init AI menu order'
+  Assert-RoutePathOrder $init.data.permissions $requiredAIRoutes 'users me AI menu order'
   $permissionSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $dirBody = @{
     platform = $Platform
@@ -618,8 +618,8 @@ func main() {
     -TimeoutSec 10
   Assert-ApiOK $roleUpdate 'role permission grant'
 
-  $rbacInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/init" -Headers $authHeaders -TimeoutSec 10
-  Assert-ApiOK $rbacInit 'users init after rbac grant'
+  $rbacInit = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
+  Assert-ApiOK $rbacInit 'users me after rbac grant'
   if (-not (Test-RoutePath $rbacInit.data.router $smokePagePath)) {
     throw "RBAC smoke route missing after page/button grant: $smokePagePath"
   }

@@ -20,7 +20,6 @@ type InitResponse struct {
 	Permissions []permission.MenuItem  `json:"permissions"`
 	Router      []permission.RouteItem `json:"router"`
 	ButtonCodes []string               `json:"buttonCodes"`
-	QuickEntry  []QuickEntry           `json:"quick_entry"`
 }
 
 type RoleOption = dict.Option[int]

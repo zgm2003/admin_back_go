@@ -18,7 +18,6 @@ legacy.0756301c2c15: Invalid payment event list parameters
 legacy.0817d4f9f22f: Page node children can only be buttons
 legacy.081fae036713: bucket is required
 legacy.08277539c26a: secret_key is required
-legacy.082ee820140b: Failed to query quick entries
 legacy.0935950c6fe0: Failed to read verification-code cache
 legacy.09b2dd970da1: Invalid AI knowledge document list parameters
 legacy.09cd4c9667b9: AI provider is required

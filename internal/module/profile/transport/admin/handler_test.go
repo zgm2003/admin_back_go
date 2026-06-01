@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"admin_back_go/internal/middleware"
@@ -48,21 +47,9 @@ func (f *fakeProfileService) UpdatePhone(ctx context.Context, input profile.Upda
 	return nil
 }
 
-type fakeQuickEntryService struct {
-	userID int64
-	input  profile.SaveInput
-}
-
-func (f *fakeQuickEntryService) Save(ctx context.Context, userID int64, input profile.SaveInput) (*profile.SaveResponse, *apperror.Error) {
-	f.userID = userID
-	f.input = input
-	return &profile.SaveResponse{QuickEntry: []profile.QuickEntry{{ID: 7, PermissionID: 3, Sort: 1}}}, nil
-}
-
-func TestAdminProfileTransportPreservesCurrentUserProfileAndQuickEntryRoutes(t *testing.T) {
+func TestAdminProfileTransportPreservesCurrentUserProfileRoutes(t *testing.T) {
 	profileService := &fakeProfileService{}
-	quickEntryService := &fakeQuickEntryService{}
-	router := newAdminProfileTestRouter(profileService, quickEntryService, &middleware.AuthIdentity{UserID: 44, Platform: "admin"})
+	router := newAdminProfileTestRouter(profileService, &middleware.AuthIdentity{UserID: 44, Platform: "admin"})
 
 	data := requestAdminProfileData(t, router, http.MethodGet, "/api/admin/v1/profile", "")
 	if profileService.profileUserID != 44 || profileService.profileViewer != 44 {
@@ -91,15 +78,10 @@ func TestAdminProfileTransportPreservesCurrentUserProfileAndQuickEntryRoutes(t *
 	if profileService.phoneInput.UserID != 44 || profileService.phoneInput.Phone != "15671628271" {
 		t.Fatalf("unexpected phone input: %#v", profileService.phoneInput)
 	}
-
-	_ = requestAdminProfileData(t, router, http.MethodPut, "/api/admin/v1/users/me/quick-entries", `{"permission_ids":[3,1,3]}`)
-	if quickEntryService.userID != 44 || !reflect.DeepEqual(quickEntryService.input.PermissionIDs, []int64{3, 1, 3}) {
-		t.Fatalf("unexpected quick-entry input: user=%d input=%#v", quickEntryService.userID, quickEntryService.input)
-	}
 }
 
-func TestAdminProfileTransportLocalizesInvalidQuickEntryRequest(t *testing.T) {
-	router := newAdminProfileLocalizedTestRouter(&fakeProfileService{}, &fakeQuickEntryService{}, &middleware.AuthIdentity{UserID: 44, Platform: "admin"})
+func TestAdminProfileTransportDoesNotMountQuickEntryRoute(t *testing.T) {
+	router := newAdminProfileLocalizedTestRouter(&fakeProfileService{}, &middleware.AuthIdentity{UserID: 44, Platform: "admin"})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/api/admin/v1/users/me/quick-entries", bytes.NewBufferString(`{`))
@@ -107,19 +89,12 @@ func TestAdminProfileTransportLocalizesInvalidQuickEntryRequest(t *testing.T) {
 	request.Header.Set("Accept-Language", "en-US")
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil {
-		t.Fatalf("invalid json: %v", err)
-	}
-	if decoded["msg"] != "Invalid quick entry request" {
-		t.Fatalf("expected localized quick-entry message, got %#v", decoded["msg"])
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("quick-entry route must not be mounted, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
-func newAdminProfileTestRouter(service profile.HTTPService, quickEntryService profile.QuickEntryService, identity *middleware.AuthIdentity) *gin.Engine {
+func newAdminProfileTestRouter(service profile.HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	if identity != nil {
@@ -128,11 +103,11 @@ func newAdminProfileTestRouter(service profile.HTTPService, quickEntryService pr
 			c.Next()
 		})
 	}
-	RegisterRoutes(router, service, quickEntryService)
+	RegisterRoutes(router, service)
 	return router
 }
 
-func newAdminProfileLocalizedTestRouter(service profile.HTTPService, quickEntryService profile.QuickEntryService, identity *middleware.AuthIdentity) *gin.Engine {
+func newAdminProfileLocalizedTestRouter(service profile.HTTPService, identity *middleware.AuthIdentity) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(projecti18n.Localize())
@@ -142,7 +117,7 @@ func newAdminProfileLocalizedTestRouter(service profile.HTTPService, quickEntryS
 			c.Next()
 		})
 	}
-	RegisterRoutes(router, service, quickEntryService)
+	RegisterRoutes(router, service)
 	return router
 }
 

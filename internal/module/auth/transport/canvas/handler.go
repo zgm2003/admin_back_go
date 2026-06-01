@@ -116,7 +116,11 @@ func (h *Handler) Login(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	response.OK(c, loginResponse{Token: result.AccessToken, User: currentUser})
+	if currentUser == nil {
+		response.Error(c, apperror.InternalKey("auth.platform.current_user_missing", nil, "当前用户信息未返回"))
+		return
+	}
+	response.OK(c, loginResponse{Token: result.AccessToken, User: userFromInit(currentUser)})
 }
 
 func (h *Handler) Logout(c *gin.Context) {

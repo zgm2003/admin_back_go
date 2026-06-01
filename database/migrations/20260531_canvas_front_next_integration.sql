@@ -106,6 +106,57 @@ ON DUPLICATE KEY UPDATE
   `is_del` = VALUES(`is_del`),
   `updated_at` = CURRENT_TIMESTAMP;
 
+UPDATE `role_permissions` rp
+JOIN `permissions` p ON p.`id` = rp.`permission_id`
+SET rp.`is_del` = 1,
+    rp.`updated_at` = CURRENT_TIMESTAMP
+WHERE p.`platform` = 'canvas'
+  AND p.`type` = 3
+  AND p.`code` NOT IN (
+    'canvas_access',
+    'canvas_prompt_read',
+    'canvas_asset_read',
+    'canvas_ai_image_generate',
+    'canvas_ai_video_generate',
+    'canvas_wallet_read',
+    'canvas_recharge_add',
+    'canvas_recharge_pay'
+  )
+  AND rp.`is_del` = 2;
+
+UPDATE `permissions`
+SET `status` = 2,
+    `is_del` = 1,
+    `updated_at` = CURRENT_TIMESTAMP
+WHERE `platform` = 'canvas'
+  AND `type` = 3
+  AND `code` NOT IN (
+    'canvas_access',
+    'canvas_prompt_read',
+    'canvas_asset_read',
+    'canvas_ai_image_generate',
+    'canvas_ai_video_generate',
+    'canvas_wallet_read',
+    'canvas_recharge_add',
+    'canvas_recharge_pay'
+  )
+  AND `is_del` = 2;
+
+INSERT INTO `role_permissions` (`role_id`, `permission_id`, `is_del`)
+SELECT r.`id`, p.`id`, 2
+FROM `roles` r
+JOIN `permissions` p
+  ON p.`platform` = 'canvas'
+ AND p.`type` IN (2, 3)
+ AND p.`is_del` = 2
+ AND p.`status` = 1
+LEFT JOIN `role_permissions` rp
+  ON rp.`role_id` = r.`id`
+ AND rp.`permission_id` = p.`id`
+ AND rp.`is_del` = 2
+WHERE r.`is_del` = 2
+  AND rp.`id` IS NULL;
+
 CREATE TABLE IF NOT EXISTS `canvas_prompts` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `slug` VARCHAR(191) NOT NULL,

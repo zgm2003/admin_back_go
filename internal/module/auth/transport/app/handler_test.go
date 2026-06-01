@@ -54,14 +54,20 @@ func (fakeCaptchaService) Generate(ctx context.Context) (*authmodule.ChallengeRe
 }
 
 type fakeUserService struct {
-	input user.InitInput
+	input     user.InitInput
+	returnNil bool
 }
 
 func (f *fakeUserService) Init(ctx context.Context, input user.InitInput) (*user.InitResponse, *apperror.Error) {
 	f.input = input
+	if f.returnNil {
+		return nil, nil
+	}
 	return &user.InitResponse{
 		UserID: input.UserID, Username: "App User", Avatar: "avatar.png", RoleName: "app",
-		Permissions: []permission.MenuItem{}, Router: []permission.RouteItem{}, ButtonCodes: []string{},
+		Permissions: []permission.MenuItem{{Index: "app_home", Label: "App Home", Path: "/app/home"}},
+		Router:      []permission.RouteItem{{Path: "/app/home"}},
+		ButtonCodes: []string{"app_access"},
 	}, nil
 }
 
@@ -109,8 +115,35 @@ func TestAuthRoutesForceConfiguredPlatform(t *testing.T) {
 		t.Fatalf("app login response must not expose admin token field: %#v", data)
 	}
 	userData := data["user"].(map[string]any)
-	if userData["nickname"] != "App User" || userData["avatar"] != "avatar.png" {
+	if userData["user_id"] != float64(7) || userData["username"] != "App User" || userData["avatar"] != "avatar.png" || userData["role_name"] != "app" {
 		t.Fatalf("unexpected app user payload: %#v", userData)
+	}
+	if _, ok := userData["permissions"].([]any); !ok {
+		t.Fatalf("expected permissions in app login user payload, got %#v", userData["permissions"])
+	}
+	if !routeSliceEqual(userData["router"], []string{"/app/home"}) {
+		t.Fatalf("expected router in app login user payload, got %#v", userData["router"])
+	}
+	if !stringSliceEqual(userData["buttonCodes"], []string{"app_access"}) {
+		t.Fatalf("expected app button codes in login payload, got %#v", userData["buttonCodes"])
+	}
+	for _, forbidden := range []string{"id", "nickname", "quick_entry", "quickEntry", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := userData[forbidden]; ok {
+			t.Fatalf("app user payload must not expose fallback/alias field %q: %#v", forbidden, userData)
+		}
+	}
+}
+
+func TestAuthLoginFailsWhenCurrentUserMissing(t *testing.T) {
+	router := newAuthTestRouter(&fakeSessionService{}, &fakeUserService{returnNil: true})
+
+	loginRecorder := httptest.NewRecorder()
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/login", strings.NewReader(`{"login_type":"password","login_account":"15671628271","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(loginRecorder, loginRequest)
+
+	if loginRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("missing current user must be an internal error, got %d body=%s", loginRecorder.Code, loginRecorder.Body.String())
 	}
 }
 
@@ -165,4 +198,31 @@ func decodeAuthData(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 		t.Fatalf("invalid json response: %v", err)
 	}
 	return body["data"].(map[string]any)
+}
+
+func stringSliceEqual(value any, want []string) bool {
+	got, ok := value.([]any)
+	if !ok || len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func routeSliceEqual(value any, wantPaths []string) bool {
+	got, ok := value.([]any)
+	if !ok || len(got) != len(wantPaths) {
+		return false
+	}
+	for i := range wantPaths {
+		item, ok := got[i].(map[string]any)
+		if !ok || item["path"] != wantPaths[i] {
+			return false
+		}
+	}
+	return true
 }

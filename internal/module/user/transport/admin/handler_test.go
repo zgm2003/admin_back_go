@@ -83,9 +83,14 @@ func TestAdminUserTransportPreservesAdminUserRoutes(t *testing.T) {
 	service := &fakeUserService{}
 	router := newAdminUserTestRouter(service, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
 
-	data := requestAdminUserData(t, router, http.MethodGet, "/api/admin/v1/users/init", "")
+	data := requestAdminUserData(t, router, http.MethodGet, "/api/admin/v1/users/me", "")
 	if service.input.UserID != 7 || service.input.Platform != "admin" || data["username"] != "admin" {
-		t.Fatalf("unexpected init input/data: input=%#v data=%#v", service.input, data)
+		t.Fatalf("unexpected current-user input/data: input=%#v data=%#v", service.input, data)
+	}
+	for _, forbidden := range []string{"quick_entry", "quickEntry", "id", "nickname", "display_name", "avatar_url", "permissionCodes", "permission_codes", "button_codes"} {
+		if _, ok := data[forbidden]; ok {
+			t.Fatalf("admin users/me payload must not expose %q: %#v", forbidden, data)
+		}
 	}
 
 	_ = requestAdminUserData(t, router, http.MethodGet, "/api/admin/v1/users/page-init", "")
@@ -120,6 +125,16 @@ func TestAdminUserTransportRejectsLegacyAddressAlias(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected bad request for legacy address alias, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAdminUserTransportDoesNotMountInitRoute(t *testing.T) {
+	router := newAdminUserTestRouter(&fakeUserService{}, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/init", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected users/init route to be removed, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

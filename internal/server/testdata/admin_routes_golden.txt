@@ -146,13 +146,14 @@ GET /api/admin/v1/user-sessions/page-init
 GET /api/admin/v1/user-sessions/stats
 GET /api/admin/v1/users
 GET /api/admin/v1/users/:id/profile
-GET /api/admin/v1/users/init
 GET /api/admin/v1/users/login-logs
 GET /api/admin/v1/users/login-logs/page-init
 GET /api/admin/v1/users/me
 GET /api/admin/v1/users/page-init
 GET /api/admin/v1/wallet/summary
 GET /api/admin/v1/wallet/transactions
+GET /api/app/v1/users/me
+GET /api/canvas/v1/users/me
 GET /health
 GET /ready
 HEAD /api/admin/v1/queue-monitor-ui
@@ -265,6 +266,5 @@ PUT /api/admin/v1/upload-drivers/:id
 PUT /api/admin/v1/upload-rules/:id
 PUT /api/admin/v1/upload-settings/:id
 PUT /api/admin/v1/users/:id
-PUT /api/admin/v1/users/me/quick-entries
 TRACE /api/admin/v1/queue-monitor-ui
 TRACE /api/admin/v1/queue-monitor-ui/*path

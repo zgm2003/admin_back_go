@@ -26,7 +26,6 @@ type fakeUserRepository struct {
 	listTotal            int64
 	exportRows           []ExportUserRow
 	exportIDs            []int64
-	entries              []QuickEntry
 	rolesByID            map[int64]*Role
 	emailUsed            bool
 	phoneUsed            bool
@@ -58,10 +57,6 @@ func (f *fakeUserRepository) FindProfile(ctx context.Context, userID int64) (*Pr
 
 func (f *fakeUserRepository) FindRole(ctx context.Context, roleID int64) (*Role, error) {
 	return f.role, f.err
-}
-
-func (f *fakeUserRepository) QuickEntries(ctx context.Context, userID int64) ([]QuickEntry, error) {
-	return f.entries, f.err
 }
 
 func (f *fakeUserRepository) WithTx(ctx context.Context, fn func(Repository) error) error {
@@ -252,7 +247,6 @@ func TestServiceInitReturnsLegacyResponseAndCachesRouteAccess(t *testing.T) {
 		user:    &User{ID: 1, Username: "admin", RoleID: 7},
 		profile: &Profile{UserID: 1, Avatar: "avatar.png"},
 		role:    &Role{ID: 7, Name: "管理员"},
-		entries: []QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
 	}, builder, cache, 30*time.Minute)
 
 	got, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "admin"})
@@ -265,9 +259,6 @@ func TestServiceInitReturnsLegacyResponseAndCachesRouteAccess(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ButtonCodes, []string{"user_add"}) || len(got.Permissions) != 1 || len(got.Router) != 1 {
 		t.Fatalf("permission response mismatch: %#v", got)
-	}
-	if len(got.QuickEntry) != 1 || got.QuickEntry[0].ID != 3 || got.QuickEntry[0].PermissionID != 2 || got.QuickEntry[0].Sort != 1 {
-		t.Fatalf("quick_entry mismatch: %#v", got.QuickEntry)
 	}
 	if builder.roleID != 7 || builder.platform != "admin" {
 		t.Fatalf("permission builder input mismatch: role=%d platform=%q", builder.roleID, builder.platform)
@@ -308,7 +299,6 @@ func TestServiceInitSkipsPermissionBuildWhenRoleMissing(t *testing.T) {
 		user:    &User{ID: 1, Username: "admin", RoleID: 7},
 		profile: &Profile{UserID: 1, Avatar: "avatar.png"},
 		role:    nil,
-		entries: []QuickEntry{{ID: 3, PermissionID: 2, Sort: 1}},
 	}, builder, cache, time.Minute)
 
 	got, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "admin"})
@@ -324,9 +314,6 @@ func TestServiceInitSkipsPermissionBuildWhenRoleMissing(t *testing.T) {
 	}
 	if got.RoleName != "" || len(got.ButtonCodes) != 0 || len(got.Permissions) != 0 || len(got.Router) != 0 {
 		t.Fatalf("expected empty permission payload when role is missing, got %#v", got)
-	}
-	if len(got.QuickEntry) != 1 || got.QuickEntry[0].ID != 3 {
-		t.Fatalf("quick_entry should still be returned, got %#v", got.QuickEntry)
 	}
 }
 

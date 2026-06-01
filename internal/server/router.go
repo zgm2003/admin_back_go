@@ -29,7 +29,6 @@ import (
 	"admin_back_go/internal/module/payment"
 	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
-	"admin_back_go/internal/module/profile"
 	queuemonitoradmin "admin_back_go/internal/module/queuemonitor/transport/admin"
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
 	roleadmin "admin_back_go/internal/module/role/transport/admin"
@@ -72,7 +71,6 @@ type Dependencies struct {
 	CronTaskService         crontask.HTTPService
 	ExportTaskService       exporttask.HTTPService
 	UserService             user.HTTPService
-	UserQuickEntryService   profile.QuickEntryService
 	LoginLogService         auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
 	NotificationService     notification.HTTPService
