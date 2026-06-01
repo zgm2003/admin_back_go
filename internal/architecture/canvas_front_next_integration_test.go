@@ -93,6 +93,16 @@ func TestCanvasRBACMigrationSeedsPageButtonRoleGrants(t *testing.T) {
 	}
 }
 
+func TestCanvasRechargeMenuMigration(t *testing.T) {
+	migration := readCanvasIntegrationFile(t, "database/migrations/20260601_canvas_profile_wallet_recharge_menu.sql")
+	for _, want := range []string{"SET NAMES utf8mb4", "canvas_recharge_page", "'/recharge'", "'recharge'", "'menu.canvas_recharge'", "canvas_wallet_read", "canvas_recharge_add", "canvas_recharge_pay", "INSERT INTO `role_permissions`"} {
+		assertCanvasContains(t, migration, want)
+	}
+	for _, forbidden := range []string{"CREATE TABLE `canvas_users`", "CREATE TABLE `canvas_wallets`", "CREATE TABLE `canvas_recharges`", "CREATE TABLE `canvas_credit_logs`"} {
+		assertCanvasNotContains(t, migration, forbidden)
+	}
+}
+
 func readCanvasIntegrationFile(t *testing.T, rel string) string {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(backendRoot(t), rel))

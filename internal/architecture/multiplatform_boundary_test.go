@@ -198,6 +198,8 @@ func TestUserProfileTransportShape(t *testing.T) {
 		"internal/module/user/transport/canvas/handler.go",
 		"internal/module/profile/transport/admin/route.go",
 		"internal/module/profile/transport/app/route.go",
+		"internal/module/profile/transport/canvas/route.go",
+		"internal/module/profile/transport/canvas/handler.go",
 	} {
 		mustExist(t, root, rel)
 	}
@@ -208,8 +210,6 @@ func TestUserProfileTransportShape(t *testing.T) {
 		"internal/module/user/app_dto.go",
 		"internal/module/userquickentry/route.go",
 		"internal/module/userquickentry/handler.go",
-		"internal/module/profile/transport/canvas/route.go",
-		"internal/module/profile/transport/canvas/handler.go",
 	} {
 		mustNotExist(t, root, rel)
 	}
