@@ -19,6 +19,11 @@ var publicCanvasScenes = []string{
 	aibilling.SceneCanvasVideoGenerate,
 }
 
+const (
+	canvasTextAgentScene  = "chat"
+	canvasImageAgentScene = "image_generate"
+)
+
 type AuthPolicyService interface {
 	AllowRegister(ctx context.Context, platform string) (bool, error)
 }
@@ -132,6 +137,11 @@ func (s *Service) PublicSettings(ctx context.Context, input SettingsInput) (*Set
 		Scenes:        append([]string(nil), publicCanvasScenes...),
 		Billing:       billing,
 	}
+	agents, appErr := s.canvasAgentGroups(ctx)
+	if appErr != nil {
+		return nil, appErr
+	}
+	result.Agents = agents
 	if input.UserID > 0 && s.settings.Wallet != nil {
 		wallet, walletErr := s.settings.Wallet.Summary(ctx, input.UserID)
 		if walletErr != nil {
@@ -374,6 +384,30 @@ func (s *Service) canvasBillingRules(ctx context.Context) ([]BillingRule, *apper
 	return rules, nil
 }
 
+func (s *Service) canvasAgentGroups(ctx context.Context) (CanvasAgentGroups, *apperror.Error) {
+	text, appErr := s.canvasAgentsByScene(ctx, canvasTextAgentScene)
+	if appErr != nil {
+		return CanvasAgentGroups{}, appErr
+	}
+	image, appErr := s.canvasAgentsByScene(ctx, canvasImageAgentScene)
+	if appErr != nil {
+		return CanvasAgentGroups{}, appErr
+	}
+	video := append([]CanvasAgentOption(nil), image...)
+	return CanvasAgentGroups{Text: text, Image: image, Video: video}, nil
+}
+
+func (s *Service) canvasAgentsByScene(ctx context.Context, scene string) ([]CanvasAgentOption, *apperror.Error) {
+	agents, err := s.repo().ListAgentsByScene(ctx, scene)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.settings.agents_query_failed", nil, "查询Canvas智能体配置失败", err)
+	}
+	if agents == nil {
+		return []CanvasAgentOption{}, nil
+	}
+	return agents, nil
+}
+
 func (s *Service) repo() Repository {
 	if s == nil || s.repository == nil {
 		return failingRepository{}
@@ -400,6 +434,9 @@ func (failingRepository) CreateAsset(ctx context.Context, row Asset) (int64, err
 }
 func (failingRepository) SoftDeleteAsset(ctx context.Context, id int64) error {
 	return ErrRepositoryNotConfigured
+}
+func (failingRepository) ListAgentsByScene(ctx context.Context, scene string) ([]CanvasAgentOption, error) {
+	return nil, ErrRepositoryNotConfigured
 }
 
 func normalizePromptInput(input PromptInput) PromptInput {

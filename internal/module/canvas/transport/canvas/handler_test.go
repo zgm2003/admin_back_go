@@ -40,8 +40,13 @@ func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodu
 	return &canvasmodule.SettingsResponse{
 		AllowRegister: true,
 		Scenes:        []string{"canvas_text_generate", "canvas_image_generate", "canvas_video_generate"},
-		Billing:       []canvasmodule.BillingRule{{Scene: "canvas_image_generate", Unit: "image", UnitPriceCents: 100}},
-		Wallet:        &walletmodule.SummaryResponse{BalanceCents: 0, BalanceText: "0.00"},
+		Agents: canvasmodule.CanvasAgentGroups{
+			Text:  []canvasmodule.CanvasAgentOption{{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: "chat"}},
+			Image: []canvasmodule.CanvasAgentOption{{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "image_generate"}},
+			Video: []canvasmodule.CanvasAgentOption{{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "image_generate"}},
+		},
+		Billing: []canvasmodule.BillingRule{{Scene: "canvas_image_generate", Unit: "image", UnitPriceCents: 100}},
+		Wallet:  &walletmodule.SummaryResponse{BalanceCents: 0, BalanceText: "0.00"},
 	}, nil
 }
 func (f *fakeCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
@@ -112,6 +117,12 @@ func TestCanvasSettingsReturnsOnlyPublicFacade(t *testing.T) {
 		`"canvas_text_generate"`,
 		`"canvas_image_generate"`,
 		`"canvas_video_generate"`,
+		`"agents"`,
+		`"text"`,
+		`"image"`,
+		`"video"`,
+		`"model_id":"gpt-image-2"`,
+		`"scene":"image_generate"`,
 		`"billing"`,
 		`"unit_price_cents":100`,
 		`"wallet"`,

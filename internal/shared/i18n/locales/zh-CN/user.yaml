@@ -2,3 +2,6 @@ user.service_missing: 用户管理服务未配置
 user.current_user_missing: 当前用户信息未返回
 app.profile.request.invalid: 个人资料参数错误
 app.profile.result_missing: 个人资料信息未返回
+profile.service_missing: 用户资料服务未配置
+canvas.profile.request.invalid: 个人资料参数错误
+canvas.profile.result_missing: 个人资料信息未返回

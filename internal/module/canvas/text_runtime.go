@@ -55,16 +55,12 @@ func (s *TextRuntimeService) Generate(ctx context.Context, input TextGenerationI
 		_ = s.refund(context.Background(), charge, appErr.Message)
 		return nil, appErr
 	}
-	modelID := agent.ModelID
-	if input.ModelID != "" {
-		modelID = input.ModelID
-	}
 	result, err := engine.StreamChat(ctx, infraai.ChatInput{
 		AgentID: uint64(agent.AgentID),
 		UserID:  uint64(input.UserID),
 		UserKey: fmt.Sprintf("canvas:%d", input.UserID),
 		Content: input.Message,
-		Inputs:  textInputs(agent, modelID),
+		Inputs:  textInputs(agent, agent.ModelID),
 	}, discardSink{})
 	if err != nil {
 		_ = s.refund(context.Background(), charge, "Canvas文本生成失败")

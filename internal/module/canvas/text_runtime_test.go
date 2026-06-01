@@ -85,6 +85,30 @@ func TestTextRuntimeChargesCanvasTextBeforeProviderAndMarksSuccess(t *testing.T)
 	}
 }
 
+func TestTextRuntimeUsesAgentModelInsteadOfClientSuppliedModel(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	cipher, err := box.Encrypt("provider-key")
+	if err != nil {
+		t.Fatalf("encrypt fixture: %v", err)
+	}
+	engine := &fakeTextEngine{answer: "你好"}
+	svc := NewTextRuntimeService(TextRuntimeDependencies{
+		Repository:    &fakeTextRepository{agent: &TextAgentRuntime{AgentID: 8, ProviderID: 9, ModelID: "gpt-4.1-mini", ScenesJSON: `["chat"]`, EngineType: string(infraai.EngineTypeOpenAI), EngineAPIKeyEnc: cipher, AgentStatus: enum.CommonYes, EngineStatus: enum.CommonYes}},
+		Billing:       &fakeTextBilling{fakeSettingsBilling: fakeSettingsBilling{chargeResult: &aibilling.ChargeResult{RecordID: 88}}},
+		Secretbox:     box,
+		EngineFactory: &fakeTextEngineFactory{engine: engine},
+	})
+
+	_, appErr := svc.Generate(context.Background(), TextGenerationInput{UserID: 7, AgentID: 8, ModelID: "client-invented-model", Message: "hi"})
+
+	if appErr != nil {
+		t.Fatalf("Generate error=%#v", appErr)
+	}
+	if engine.input.Inputs["model_id"] != "gpt-4.1-mini" {
+		t.Fatalf("client model override must be ignored; engine input=%#v", engine.input.Inputs)
+	}
+}
+
 func TestTextRuntimeRefundsOnceWhenProviderFails(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("provider-key")

@@ -108,8 +108,24 @@ type SettingsInput struct {
 type SettingsResponse struct {
 	AllowRegister bool                          `json:"allow_register"`
 	Scenes        []string                      `json:"scenes"`
+	Agents        CanvasAgentGroups             `json:"agents"`
 	Billing       []BillingRule                 `json:"billing"`
 	Wallet        *walletmodule.SummaryResponse `json:"wallet,omitempty"`
+}
+
+type CanvasAgentGroups struct {
+	Text  []CanvasAgentOption `json:"text"`
+	Image []CanvasAgentOption `json:"image"`
+	Video []CanvasAgentOption `json:"video"`
+}
+
+type CanvasAgentOption struct {
+	ID               uint64 `json:"id"`
+	Name             string `json:"name"`
+	Avatar           string `json:"avatar"`
+	ModelID          string `json:"model_id"`
+	ModelDisplayName string `json:"model_display_name"`
+	Scene            string `json:"scene"`
 }
 
 type BillingRule struct {

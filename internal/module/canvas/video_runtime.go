@@ -39,10 +39,7 @@ func (s *VideoRuntimeService) Create(ctx context.Context, input VideoCreateInput
 	if appErr != nil {
 		return nil, appErr
 	}
-	modelID := strings.TrimSpace(input.ModelID)
-	if modelID == "" {
-		modelID = agent.ModelID
-	}
+	modelID := strings.TrimSpace(agent.ModelID)
 	task, err := engine.CreateVideo(ctx, infraai.VideoInput{
 		Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds,
 		Size: input.Size, ResolutionName: input.ResolutionName,

@@ -3538,6 +3538,8 @@ func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
 		http.MethodPost + " /api/canvas/v1/auth/login",
 		http.MethodPost + " /api/canvas/v1/auth/logout",
 		http.MethodGet + " /api/canvas/v1/users/me",
+		http.MethodGet + " /api/canvas/v1/profile",
+		http.MethodPut + " /api/canvas/v1/profile",
 		http.MethodGet + " /api/canvas/v1/wallet/summary",
 		http.MethodGet + " /api/canvas/v1/wallet/transactions",
 		http.MethodGet + " /api/canvas/v1/payment/recharges/page-init",
@@ -3550,8 +3552,6 @@ func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
 		}
 	}
 	for _, route := range []string{
-		http.MethodGet + " /api/canvas/v1/profile",
-		http.MethodPut + " /api/canvas/v1/profile",
 		http.MethodGet + " /api/canvas/v1/payment/ledger",
 		http.MethodGet + " /api/canvas/v1/payment/wallets",
 		http.MethodPost + " /api/canvas/v1/wallet/consumptions",

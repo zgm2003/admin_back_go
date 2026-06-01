@@ -56,7 +56,7 @@ func validVideoRuntimeAgent(t *testing.T, box secretbox.Box) *VideoAgentRuntime 
 	return &VideoAgentRuntime{AgentID: 8, ProviderID: 9, ModelID: "grok-imagine-video", ScenesJSON: `["image_generate"]`, EngineType: string(infraai.EngineTypeOpenAI), EngineBaseURL: "https://api.openai.test/v1", EngineAPIKeyEnc: cipher, AgentStatus: enum.CommonYes, EngineStatus: enum.CommonYes}
 }
 
-func TestVideoRuntimeCreateUsesProviderAndReturnsProviderTask(t *testing.T) {
+func TestVideoRuntimeCreateUsesAgentModelAndReturnsProviderTask(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "task-1", Status: "running"}}
 	factory := &fakeVideoEngineFactory{engine: engine}
@@ -67,10 +67,10 @@ func TestVideoRuntimeCreateUsesProviderAndReturnsProviderTask(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("Create error=%#v", appErr)
 	}
-	if result.ProviderTaskID != "task-1" || result.ProviderID != 9 || result.ModelID != "override-video" {
+	if result.ProviderTaskID != "task-1" || result.ProviderID != 9 || result.ModelID != "grok-imagine-video" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-	if factory.input.APIKey != "provider-key" || engine.createInput.Model != "override-video" || engine.createInput.DurationSeconds != 4 || engine.createInput.Size != "1280x720" {
+	if factory.input.APIKey != "provider-key" || engine.createInput.Model != "grok-imagine-video" || engine.createInput.DurationSeconds != 4 || engine.createInput.Size != "1280x720" {
 		t.Fatalf("engine input mismatch factory=%#v create=%#v", factory.input, engine.createInput)
 	}
 }

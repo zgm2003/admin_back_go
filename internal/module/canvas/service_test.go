@@ -13,10 +13,12 @@ import (
 type fakeCanvasRepository struct {
 	prompts       []Prompt
 	assets        []Asset
+	agentsByScene map[string][]CanvasAgentOption
 	createdPrompt Prompt
 	createdAsset  Asset
 	promptQuery   PromptListQuery
 	assetQuery    AssetListQuery
+	agentScenes   []string
 	err           error
 }
 
@@ -38,6 +40,13 @@ func (f *fakeCanvasRepository) CreateAsset(ctx context.Context, row Asset) (int6
 	return 2, f.err
 }
 func (f *fakeCanvasRepository) SoftDeleteAsset(ctx context.Context, id int64) error { return f.err }
+func (f *fakeCanvasRepository) ListAgentsByScene(ctx context.Context, scene string) ([]CanvasAgentOption, error) {
+	f.agentScenes = append(f.agentScenes, scene)
+	if f.agentsByScene == nil {
+		return nil, f.err
+	}
+	return f.agentsByScene[scene], f.err
+}
 
 func TestServiceValidatesPromptCreate(t *testing.T) {
 	svc := NewService(&fakeCanvasRepository{})
@@ -94,7 +103,11 @@ func TestServicePublicSettingsReturnsOnlyPublicPolicyBillingAndWallet(t *testing
 		aibilling.SceneCanvasVideoGenerate: {Scene: aibilling.SceneCanvasVideoGenerate, Unit: aibilling.UnitSecond, UnitPriceCents: 50},
 	}}
 	wallet := &fakeSettingsWallet{summary: &walletmodule.SummaryResponse{BalanceCents: 123, BalanceText: "1.23"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{AuthPolicy: auth, Billing: billing, Wallet: wallet})
+	repo := &fakeCanvasRepository{agentsByScene: map[string][]CanvasAgentOption{
+		"chat":           {{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: "chat"}},
+		"image_generate": {{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: "image_generate"}},
+	}}
+	svc := NewServiceWithSettings(repo, SettingsDependencies{AuthPolicy: auth, Billing: billing, Wallet: wallet})
 
 	result, appErr := svc.PublicSettings(context.Background(), SettingsInput{UserID: 7})
 
@@ -110,8 +123,38 @@ func TestServicePublicSettingsReturnsOnlyPublicPolicyBillingAndWallet(t *testing
 	if len(result.Billing) != 3 || result.Billing[1].Scene != aibilling.SceneCanvasImageGenerate || result.Billing[1].UnitPriceCents != 100 {
 		t.Fatalf("unexpected billing: %#v", result.Billing)
 	}
+	if len(result.Agents.Text) != 1 || result.Agents.Text[0].ID != 7 || result.Agents.Text[0].ModelID != "gpt-4.1-mini" {
+		t.Fatalf("text agents must come from ai_agents chat scene, got %#v", result.Agents.Text)
+	}
+	if len(result.Agents.Image) != 1 || result.Agents.Image[0].ID != 8 || result.Agents.Image[0].Scene != "image_generate" {
+		t.Fatalf("image agents must come from ai_agents image_generate scene, got %#v", result.Agents.Image)
+	}
+	if len(result.Agents.Video) != 1 || result.Agents.Video[0].ID != 8 {
+		t.Fatalf("video agents must also come from configured ai_agents, got %#v", result.Agents.Video)
+	}
+	if len(repo.agentScenes) != 2 || repo.agentScenes[0] != "chat" || repo.agentScenes[1] != "image_generate" {
+		t.Fatalf("settings must query configured agent scenes, got %#v", repo.agentScenes)
+	}
 	if result.Wallet == nil || result.Wallet.BalanceCents != 123 || wallet.userID != 7 {
 		t.Fatalf("wallet mismatch result=%#v user=%d", result.Wallet, wallet.userID)
+	}
+}
+
+func TestServicePublicSettingsDoesNotInventAgentsFromBillingScenes(t *testing.T) {
+	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{
+		AuthPolicy: &fakeSettingsAuthPolicy{allowRegister: true},
+		Billing: &fakeSettingsBilling{rules: map[string]*aibilling.RuleDTO{
+			aibilling.SceneCanvasImageGenerate: {Scene: aibilling.SceneCanvasImageGenerate, Unit: aibilling.UnitImage, UnitPriceCents: 100},
+		}},
+	})
+
+	result, appErr := svc.PublicSettings(context.Background(), SettingsInput{UserID: 7})
+
+	if appErr != nil {
+		t.Fatalf("PublicSettings error=%#v", appErr)
+	}
+	if len(result.Agents.Text) != 0 || len(result.Agents.Image) != 0 || len(result.Agents.Video) != 0 {
+		t.Fatalf("billing scenes must not become selectable agents: %#v", result.Agents)
 	}
 }
 

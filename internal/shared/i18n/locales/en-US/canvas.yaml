@@ -6,6 +6,7 @@ canvas.asset.request.invalid: Invalid asset request
 canvas.asset.query_failed: Failed to query Canvas assets
 canvas.asset.create_failed: Failed to create Canvas asset
 canvas.settings.auth_policy_failed: Failed to read Canvas registration policy
+canvas.settings.agents_query_failed: Failed to query Canvas agent configuration
 canvas.ai.chat.request.invalid: Invalid text generation request
 canvas.ai.chat.service_missing: Canvas text generation service is not configured
 canvas.ai.chat.result_invalid: Invalid Canvas text generation result
