@@ -49,6 +49,9 @@ func (r *GormRepository) ListPrompts(ctx context.Context, query PromptListQuery)
 		like := "%" + query.Keyword + "%"
 		db = db.Where("(title LIKE ? OR slug LIKE ? OR prompt LIKE ?)", like, like, like)
 	}
+	for _, tag := range query.Tags {
+		db = db.Where("JSON_CONTAINS(CAST(tags_json AS JSON), JSON_QUOTE(?))", tag)
+	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -166,6 +169,7 @@ func (r *GormRepository) ListAgentsByScene(ctx context.Context, scene string) ([
 func normalizePromptListQuery(query PromptListQuery) PromptListQuery {
 	query.Keyword = strings.TrimSpace(query.Keyword)
 	query.Category = strings.TrimSpace(query.Category)
+	query.Tags = normalizedTags(query.Tags)
 	if query.CurrentPage <= 0 {
 		query.CurrentPage = 1
 	}
@@ -179,6 +183,26 @@ func normalizePromptListQuery(query PromptListQuery) PromptListQuery {
 		query.IsDel = IsDelActive
 	}
 	return query
+}
+
+func normalizedTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	return out
 }
 
 func normalizeAssetListQuery(query AssetListQuery) AssetListQuery {

@@ -19,6 +19,7 @@ import (
 
 type fakeSessionService struct {
 	loginInput     authmodule.LoginInput
+	refreshInput   authmodule.RefreshInput
 	configPlatform string
 	sendCodeInput  authmodule.SendCodeInput
 	logoutToken    string
@@ -26,7 +27,7 @@ type fakeSessionService struct {
 
 func (f *fakeSessionService) Login(ctx context.Context, input authmodule.LoginInput) (*authmodule.LoginResponse, *apperror.Error) {
 	f.loginInput = input
-	return &authmodule.LoginResponse{AccessToken: "canvas-token", UserID: 9}, nil
+	return &authmodule.LoginResponse{AccessToken: "canvas-token", RefreshToken: "canvas-refresh", ExpiresIn: 14400, RefreshExpiresIn: 1209600, UserID: 9}, nil
 }
 func (f *fakeSessionService) SendCode(ctx context.Context, input authmodule.SendCodeInput) (string, *apperror.Error) {
 	f.sendCodeInput = input
@@ -40,7 +41,8 @@ func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (
 	return &authmodule.LoginConfigResponse{CaptchaEnabled: true, CaptchaType: authmodule.TypeSlide, AllowRegister: true}, nil
 }
 func (f *fakeSessionService) Refresh(ctx context.Context, input authmodule.RefreshInput) (*authmodule.TokenResult, *apperror.Error) {
-	return &authmodule.TokenResult{}, nil
+	f.refreshInput = input
+	return &authmodule.TokenResult{AccessToken: "next-canvas-token", RefreshToken: "next-canvas-refresh", ExpiresIn: 14400, RefreshExpiresIn: 1209600}, nil
 }
 func (f *fakeSessionService) Logout(ctx context.Context, accessToken string) *apperror.Error {
 	f.logoutToken = accessToken
@@ -114,6 +116,9 @@ func TestCanvasAuthRoutesForceCanvasPlatform(t *testing.T) {
 	if data["token"] != "canvas-token" {
 		t.Fatalf("expected canvas token response, got %#v", data)
 	}
+	if data["refresh_token"] != "canvas-refresh" || data["expires_in"] != float64(14400) || data["refresh_expires_in"] != float64(1209600) {
+		t.Fatalf("expected canvas refresh token metadata, got %#v", data)
+	}
 	if _, ok := data["access_token"]; ok {
 		t.Fatalf("canvas login response must not expose admin token field: %#v", data)
 	}
@@ -169,6 +174,25 @@ func TestCanvasAuthRoutesExposeCaptchaSendCodeAndLogout(t *testing.T) {
 	}
 	if authService.sendCodeInput.Account != "15671628271" || authService.sendCodeInput.Scene != authmodule.VerifyCodeSceneLogin {
 		t.Fatalf("unexpected send-code input: %#v", authService.sendCodeInput)
+	}
+
+	refreshRecorder := httptest.NewRecorder()
+	refreshRequest := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/auth/refresh", strings.NewReader(`{"refresh_token":"old-canvas-refresh"}`))
+	refreshRequest.Header.Set("Content-Type", "application/json")
+	refreshRequest.Header.Set("User-Agent", "canvas-agent")
+	router.ServeHTTP(refreshRecorder, refreshRequest)
+	if refreshRecorder.Code != http.StatusOK {
+		t.Fatalf("expected refresh status 200, got %d body=%s", refreshRecorder.Code, refreshRecorder.Body.String())
+	}
+	if authService.refreshInput.RefreshToken != "old-canvas-refresh" || authService.refreshInput.UserAgent != "canvas-agent" {
+		t.Fatalf("unexpected refresh input: %#v", authService.refreshInput)
+	}
+	refreshData := decodeAuthData(t, refreshRecorder)
+	if refreshData["token"] != "next-canvas-token" || refreshData["refresh_token"] != "next-canvas-refresh" {
+		t.Fatalf("expected canvas refresh response, got %#v", refreshData)
+	}
+	if _, ok := refreshData["access_token"]; ok {
+		t.Fatalf("canvas refresh response must not expose admin token field: %#v", refreshData)
 	}
 
 	logoutRecorder := httptest.NewRecorder()

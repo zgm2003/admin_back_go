@@ -79,8 +79,8 @@ func TestCanvasPublicRoutes(t *testing.T) {
 	RegisterRoutes(router, service)
 
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/prompts?keyword=cat&category=style", nil))
-	if recorder.Code != http.StatusOK || service.promptQuery.Keyword != "cat" || service.promptQuery.Category != "style" {
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/prompts?keyword=cat&category=style&tag=游戏素材&tag=nano-banana-pro", nil))
+	if recorder.Code != http.StatusOK || service.promptQuery.Keyword != "cat" || service.promptQuery.Category != "style" || len(service.promptQuery.Tags) != 2 || service.promptQuery.Tags[0] != "游戏素材" || service.promptQuery.Tags[1] != "nano-banana-pro" {
 		t.Fatalf("prompt route mismatch code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), service.promptQuery)
 	}
 	assertNoProviderSecrets(t, recorder.Body.Bytes())

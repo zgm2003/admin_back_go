@@ -68,6 +68,7 @@ func TestDefaultAuthSkipPathsExposeCanvasAuthPublicEndpoints(t *testing.T) {
 		"/api/canvas/v1/auth/login-config",
 		"/api/canvas/v1/auth/send-code",
 		"/api/canvas/v1/auth/login",
+		"/api/canvas/v1/auth/refresh",
 	} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("canvas auth public endpoint %s must be skipped", path)

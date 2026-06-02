@@ -18,3 +18,7 @@ type LoginRequest struct {
 	CaptchaID     string                `json:"captcha_id" binding:"omitempty,max=128"`
 	CaptchaAnswer *captchaAnswerRequest `json:"captcha_answer"`
 }
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}

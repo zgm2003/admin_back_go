@@ -23,5 +23,6 @@ func Register(router *gin.Engine, deps Dependencies) {
 	group.GET("/captcha", handler.Captcha)
 	group.POST("/send-code", handler.SendCode)
 	group.POST("/login", handler.Login)
+	group.POST("/refresh", handler.Refresh)
 	group.POST("/logout", handler.Logout)
 }

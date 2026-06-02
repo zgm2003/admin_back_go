@@ -120,7 +120,38 @@ func (h *Handler) Login(c *gin.Context) {
 		response.Error(c, apperror.InternalKey("auth.platform.current_user_missing", nil, "当前用户信息未返回"))
 		return
 	}
-	response.OK(c, loginResponse{Token: result.AccessToken, User: userFromInit(currentUser)})
+	response.OK(c, loginResponse{tokenResponse: tokenResponseFromLogin(result), User: userFromInit(currentUser)})
+}
+
+func (h *Handler) Refresh(c *gin.Context) {
+	if h.authService == nil {
+		response.Error(c, apperror.UnauthorizedKey("auth.platform.service_missing", nil, "登录服务未配置"))
+		return
+	}
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.UnauthorizedKey("auth.refresh_token.missing", nil, "缺少刷新令牌"))
+		return
+	}
+	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
+	if req.RefreshToken == "" {
+		response.Error(c, apperror.UnauthorizedKey("auth.refresh_token.missing", nil, "缺少刷新令牌"))
+		return
+	}
+	result, appErr := h.authService.Refresh(c.Request.Context(), authmodule.RefreshInput{
+		RefreshToken: req.RefreshToken,
+		ClientIP:     c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
+	})
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	if result == nil || strings.TrimSpace(result.AccessToken) == "" || strings.TrimSpace(result.RefreshToken) == "" {
+		response.Error(c, apperror.InternalKey("auth.refresh.result_invalid", nil, "刷新Token结果无效"))
+		return
+	}
+	response.OK(c, tokenResponseFromResult(result))
 }
 
 func (h *Handler) Logout(c *gin.Context) {

@@ -35,7 +35,7 @@ func (h *Handler) Prompts(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("canvas.prompt.request.invalid", nil, "提示词列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().PublicPrompts(c.Request.Context(), canvasmodule.PromptListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Keyword: req.Keyword, Category: req.Category})
+	result, appErr := h.requireService().PublicPrompts(c.Request.Context(), canvasmodule.PromptListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Keyword: req.Keyword, Category: req.Category, Tags: req.Tag})
 	writeResult(c, result, appErr)
 }
 

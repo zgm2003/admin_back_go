@@ -18,15 +18,15 @@ func TestRepositoryListPromptsFiltersAndOrders(t *testing.T) {
 	repo, mock, closeDB := newCanvasMockRepository(t)
 	defer closeDB()
 	now := time.Now()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM `canvas_prompts` WHERE is_del = ? AND status = ? AND category = ? AND ((title LIKE ? OR slug LIKE ? OR prompt LIKE ?))")).
-		WithArgs(IsDelActive, StatusEnabled, "style", "%cat%", "%cat%", "%cat%").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM `canvas_prompts` WHERE is_del = ? AND status = ? AND category = ? AND ((title LIKE ? OR slug LIKE ? OR prompt LIKE ?)) AND JSON_CONTAINS(CAST(tags_json AS JSON), JSON_QUOTE(?))")).
+		WithArgs(IsDelActive, StatusEnabled, "style", "%cat%", "%cat%", "%cat%", "游戏素材").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `canvas_prompts` WHERE is_del = ? AND status = ? AND category = ? AND ((title LIKE ? OR slug LIKE ? OR prompt LIKE ?)) ORDER BY updated_at DESC, id DESC LIMIT ?")).
-		WithArgs(IsDelActive, StatusEnabled, "style", "%cat%", "%cat%", "%cat%", 20).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `canvas_prompts` WHERE is_del = ? AND status = ? AND category = ? AND ((title LIKE ? OR slug LIKE ? OR prompt LIKE ?)) AND JSON_CONTAINS(CAST(tags_json AS JSON), JSON_QUOTE(?)) ORDER BY updated_at DESC, id DESC LIMIT ?")).
+		WithArgs(IsDelActive, StatusEnabled, "style", "%cat%", "%cat%", "%cat%", "游戏素材", 20).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "category", "title", "cover_url", "prompt", "preview", "tags_json", "source_url", "status", "is_del", "created_at", "updated_at"}).
 			AddRow(int64(1), "cat", "style", "Cat", "", "draw cat", "", "[]", "", StatusEnabled, IsDelActive, now, now))
 
-	rows, total, err := repo.ListPrompts(context.Background(), PromptListQuery{CurrentPage: 1, PageSize: 20, Keyword: "cat", Category: "style", Status: StatusEnabled, IsDel: IsDelActive})
+	rows, total, err := repo.ListPrompts(context.Background(), PromptListQuery{CurrentPage: 1, PageSize: 20, Keyword: "cat", Category: "style", Tags: []string{"游戏素材"}, Status: StatusEnabled, IsDel: IsDelActive})
 	if err != nil || total != 1 || len(rows) != 1 || rows[0].Slug != "cat" {
 		t.Fatalf("unexpected prompt list: rows=%#v total=%d err=%v", rows, total, err)
 	}

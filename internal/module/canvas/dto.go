@@ -20,6 +20,7 @@ type PromptListQuery struct {
 	PageSize    int
 	Keyword     string
 	Category    string
+	Tags        []string
 	Status      int
 	IsDel       int
 }

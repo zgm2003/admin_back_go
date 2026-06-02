@@ -156,6 +156,7 @@ func DefaultAuthSkipPaths() map[string]struct{} {
 		"/api/canvas/v1/auth/login-config":            {},
 		"/api/canvas/v1/auth/send-code":               {},
 		"/api/canvas/v1/auth/login":                   {},
+		"/api/canvas/v1/auth/refresh":                 {},
 		"/api/admin/v1/client-versions/current-check": {},
 		"/api/payment/callbacks/alipay":               {},
 		"/favicon.ico":                                {},
