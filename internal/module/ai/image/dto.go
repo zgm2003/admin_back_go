@@ -126,6 +126,17 @@ type CreateInput struct {
 	MaskTargetAssetID uint64
 }
 
+type UploadedAssetInput struct {
+	FileName string
+	MimeType string
+	Body     []byte
+}
+
+type CreateWithUploadedAssetsInput struct {
+	CreateInput
+	Assets []UploadedAssetInput
+}
+
 type FavoriteInput struct {
 	UserID     uint64
 	TaskID     uint64
@@ -142,6 +153,7 @@ type HTTPService interface {
 	Detail(ctx context.Context, userID uint64, taskID uint64) (*DetailResponse, *apperror.Error)
 	RegisterAsset(ctx context.Context, input RegisterAssetInput) (*AssetDTO, *apperror.Error)
 	Create(ctx context.Context, input CreateInput) (*CreateTaskResponse, *apperror.Error)
+	CreateWithUploadedAssets(ctx context.Context, input CreateWithUploadedAssetsInput) (*CreateTaskResponse, *apperror.Error)
 	Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, *apperror.Error)
 	Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error
 }

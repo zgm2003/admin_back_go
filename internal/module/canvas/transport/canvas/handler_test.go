@@ -1,8 +1,10 @@
 package canvas
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -192,6 +194,47 @@ func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/videos/99/content", nil))
 	if recorder.Code != http.StatusOK || service.videoContentID != 99 || recorder.Body.String() != "video" {
 		t.Fatalf("video content route mismatch code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), service.videoContentID)
+	}
+}
+
+func TestCanvasImageEditsAcceptMultipartReferenceImages(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	service := &fakeCanvasService{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: "canvas"})
+	})
+	RegisterRoutes(router, service)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("agent_id", "8")
+	_ = writer.WriteField("prompt", "use this reference")
+	_ = writer.WriteField("n", "1")
+	file, err := writer.CreateFormFile("image", "reference.png")
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if _, err := file.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/edits", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected multipart edit status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.imageInput.UserID != 9 || service.imageInput.AgentID != 8 || service.imageInput.Prompt != "use this reference" {
+		t.Fatalf("edit route input mismatch: %#v", service.imageInput)
+	}
+	if len(service.imageInput.UploadedAssets) != 1 || service.imageInput.UploadedAssets[0].FileName != "reference.png" || string(service.imageInput.UploadedAssets[0].Body) == "" {
+		t.Fatalf("edit route must pass uploaded reference image, got %#v", service.imageInput.UploadedAssets)
 	}
 }
 

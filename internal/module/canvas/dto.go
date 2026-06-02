@@ -151,6 +151,7 @@ type ImageGenerationInput struct {
 	InputAssetIDs     []uint64
 	MaskAssetID       uint64
 	MaskTargetAssetID uint64
+	UploadedAssets    []aiimagemodule.UploadedAssetInput
 }
 
 type ImageGenerationResponse struct {
@@ -256,6 +257,7 @@ type VideoProviderStatus struct {
 
 type ImageRuntime interface {
 	Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error)
+	CreateWithUploadedAssets(ctx context.Context, input aiimagemodule.CreateWithUploadedAssetsInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error)
 	Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error)
 }
 

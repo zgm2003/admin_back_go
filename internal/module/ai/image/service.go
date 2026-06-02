@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
@@ -214,6 +215,40 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
+	return s.createNormalized(ctx, repo, normalized, agent)
+}
+
+func (s *Service) CreateWithUploadedAssets(ctx context.Context, input CreateWithUploadedAssetsInput) (*CreateTaskResponse, *apperror.Error) {
+	if len(input.Assets) == 0 {
+		return s.Create(ctx, input.CreateInput)
+	}
+	if s == nil || s.enqueuer == nil {
+		return nil, apperror.InternalKey("aiimage.queue_missing", nil, "图片生成队列未配置")
+	}
+	normalized, appErr := s.normalizeCreateInput(input.CreateInput)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if len(normalized.InputAssetIDs)+len(input.Assets) > 10 {
+		return nil, apperror.BadRequestKey("aiimage.input_assets.too_many", nil, "参考图最多10张")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, requiredImageScene(normalized.Platform))
+	if appErr != nil {
+		return nil, appErr
+	}
+	assetIDs, appErr := s.storeUploadedAssets(ctx, repo, normalized.UserID, input.Assets)
+	if appErr != nil {
+		return nil, appErr
+	}
+	normalized.InputAssetIDs = uniqueIDs(append(normalized.InputAssetIDs, assetIDs...))
+	return s.createNormalized(ctx, repo, normalized, agent)
+}
+
+func (s *Service) createNormalized(ctx context.Context, repo Repository, normalized CreateInput, agent *AgentRuntime) (*CreateTaskResponse, *apperror.Error) {
 	assets, appErr := s.validInputAssets(ctx, repo, normalized)
 	if appErr != nil {
 		return nil, appErr
@@ -629,6 +664,45 @@ func (s *Service) readCOSAsset(ctx context.Context, cfg *cosRuntimeConfig, asset
 	return infraai.ImageAsset{Name: path.Base(asset.StorageKey), MimeType: mimeType, Data: result.Body}, nil
 }
 
+func (s *Service) storeUploadedAssets(ctx context.Context, repo Repository, userID uint64, uploads []UploadedAssetInput) ([]uint64, *apperror.Error) {
+	if s == nil || s.objectWriter == nil {
+		return nil, apperror.InternalKey("aiimage.cos_writer.missing", nil, "COS写入器未配置")
+	}
+	cfg, appErr := s.loadCOSConfig(ctx, repo)
+	if appErr != nil {
+		return nil, appErr
+	}
+	now := s.now()
+	ids := make([]uint64, 0, len(uploads))
+	for index, upload := range uploads {
+		body := upload.Body
+		if len(body) == 0 {
+			return nil, apperror.BadRequestKey("aiimage.asset.request.invalid", nil, "图片资产参数错误")
+		}
+		mimeType := strings.TrimSpace(upload.MimeType)
+		if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+			mimeType = http.DetectContentType(body)
+		}
+		if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+			return nil, apperror.BadRequestKey("aiimage.asset.mime.invalid", nil, "图片MIME类型不合法")
+		}
+		key, err := s.inputKey(userID, index, mimeType, now)
+		if err != nil {
+			return nil, apperror.InternalKey("aiimage.input_key.build_failed", nil, "参考图存储路径生成失败")
+		}
+		if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: key, Body: body, ContentType: mimeType}); err != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.input.upload_failed", nil, "上传参考图失败", err)
+		}
+		asset := ImageAsset{UserID: userID, StorageProvider: StorageProviderCOS, StorageKey: key, StorageURL: publicCOSURL(*cfg, key), MimeType: mimeType, SizeBytes: int64(len(body)), SourceType: SourceTypeUpload, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}
+		id, err := repo.CreateAsset(ctx, asset)
+		if err != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.asset.register_failed", nil, "注册图片资产失败", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func (s *Service) decryptProviderKey(apiKeyEnc string) (string, *apperror.Error) {
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
@@ -716,6 +790,14 @@ func (s *Service) outputKey(taskID uint64, index int, mimeType string, now time.
 		return "", err
 	}
 	return fmt.Sprintf("ai-images/%04d/%02d/%02d/%d-%02d-%s%s", now.Year(), int(now.Month()), now.Day(), taskID, index+1, hex.EncodeToString(randBytes), extensionForMime(mimeType)), nil
+}
+
+func (s *Service) inputKey(userID uint64, index int, mimeType string, now time.Time) (string, error) {
+	randBytes := make([]byte, 6)
+	if _, err := s.random(randBytes); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("ai-image-inputs/%04d/%02d/%02d/%d-%02d-%s%s", now.Year(), int(now.Month()), now.Day(), userID, index+1, hex.EncodeToString(randBytes), extensionForMime(mimeType)), nil
 }
 
 func (s *Service) finishGenerateFailed(ctx context.Context, repo Repository, input GenerateInput, startedAt time.Time, message string, cause error) (*GenerateResult, error) {

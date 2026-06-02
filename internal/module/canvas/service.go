@@ -142,11 +142,18 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 	if s == nil || s.settings.Image == nil {
 		return nil, apperror.InternalKey("canvas.ai.image.service_missing", nil, "Canvas图片生成服务未配置")
 	}
-	result, appErr := s.settings.Image.Create(ctx, aiimagemodule.CreateInput{
+	createInput := aiimagemodule.CreateInput{
 		UserID: uint64(input.UserID), AgentID: uint64(input.AgentID), Platform: enum.PlatformCanvas,
 		Prompt: input.Prompt, Size: input.Size, Quality: input.Quality, OutputFormat: input.OutputFormat, OutputCompression: input.OutputCompression, Moderation: input.Moderation,
 		N: input.N, InputAssetIDs: input.InputAssetIDs, MaskAssetID: input.MaskAssetID, MaskTargetAssetID: input.MaskTargetAssetID,
-	})
+	}
+	var result *aiimagemodule.CreateTaskResponse
+	var appErr *apperror.Error
+	if len(input.UploadedAssets) > 0 {
+		result, appErr = s.settings.Image.CreateWithUploadedAssets(ctx, aiimagemodule.CreateWithUploadedAssetsInput{CreateInput: createInput, Assets: input.UploadedAssets})
+	} else {
+		result, appErr = s.settings.Image.Create(ctx, createInput)
+	}
 	if appErr != nil {
 		return nil, appErr
 	}

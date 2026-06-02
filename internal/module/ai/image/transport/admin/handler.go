@@ -160,6 +160,9 @@ func (nilHTTPService) RegisterAsset(ctx context.Context, input aiimagemodule.Reg
 func (nilHTTPService) Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
+func (nilHTTPService) CreateWithUploadedAssets(ctx context.Context, input aiimagemodule.CreateWithUploadedAssetsInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
+}
 func (nilHTTPService) Favorite(ctx context.Context, input aiimagemodule.FavoriteInput) (*aiimagemodule.TaskDTO, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }

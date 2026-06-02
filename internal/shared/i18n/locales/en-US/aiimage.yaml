@@ -52,6 +52,8 @@ aiimage.cos_secret_key.unavailable: COS SecretKey is unavailable
 aiimage.cos_reader.missing: COS reader is not configured
 aiimage.cos_config.not_loaded: COS config is not loaded
 aiimage.asset.read_failed: Failed to read image asset
+aiimage.input_key.build_failed: Failed to build reference image storage path
+aiimage.input.upload_failed: Failed to upload reference image
 aiimage.provider.api_key_decrypt_failed: Failed to decrypt AI provider API key
 aiimage.output_asset.save_failed: Failed to save generated image asset
 aiimage.generate.empty_result: Image generation returned no result

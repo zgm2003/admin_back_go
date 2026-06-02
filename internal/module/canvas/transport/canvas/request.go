@@ -22,17 +22,17 @@ type chatCompletionRequest struct {
 }
 
 type imageGenerationRequest struct {
-	AgentID           int64    `json:"agent_id"`
-	Prompt            string   `json:"prompt"`
-	Size              string   `json:"size"`
-	Quality           string   `json:"quality"`
-	OutputFormat      string   `json:"output_format"`
-	OutputCompression *int     `json:"output_compression"`
-	Moderation        string   `json:"moderation"`
-	N                 int      `json:"n"`
-	InputAssetIDs     []uint64 `json:"input_asset_ids"`
-	MaskAssetID       uint64   `json:"mask_asset_id"`
-	MaskTargetAssetID uint64   `json:"mask_target_asset_id"`
+	AgentID           int64    `json:"agent_id" form:"agent_id"`
+	Prompt            string   `json:"prompt" form:"prompt"`
+	Size              string   `json:"size" form:"size"`
+	Quality           string   `json:"quality" form:"quality"`
+	OutputFormat      string   `json:"output_format" form:"output_format"`
+	OutputCompression *int     `json:"output_compression" form:"output_compression"`
+	Moderation        string   `json:"moderation" form:"moderation"`
+	N                 int      `json:"n" form:"n"`
+	InputAssetIDs     []uint64 `json:"input_asset_ids" form:"input_asset_ids"`
+	MaskAssetID       uint64   `json:"mask_asset_id" form:"mask_asset_id"`
+	MaskTargetAssetID uint64   `json:"mask_target_asset_id" form:"mask_target_asset_id"`
 }
 
 type videoGenerationRequest struct {

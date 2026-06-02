@@ -10,6 +10,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -76,6 +77,7 @@ func (f *fakeImageRepository) CreateAsset(ctx context.Context, row ImageAsset) (
 	row.ID = f.nextAssetID
 	f.nextAssetID++
 	f.createdAssets = append(f.createdAssets, row)
+	f.assets = append(f.assets, row)
 	return row.ID, nil
 }
 
@@ -164,6 +166,16 @@ func (f *fakeImageEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (t
 	}
 	f.tasks = append(f.tasks, task)
 	return taskqueue.EnqueueResult{ID: "task-1", Queue: task.Queue, Type: task.Type}, nil
+}
+
+type fakeImageObjectWriter struct {
+	inputs []storagecos.PutInput
+	err    error
+}
+
+func (f *fakeImageObjectWriter) Put(ctx context.Context, input storagecos.PutInput) error {
+	f.inputs = append(f.inputs, input)
+	return f.err
 }
 
 type fakeImageEngineFactory struct {
@@ -301,6 +313,56 @@ func TestCreateRejectsCanvasImageOnlyAgentForAdminImageScene(t *testing.T) {
 	}
 	if repo.createdTask.ID != 0 {
 		t.Fatalf("admin task must not be created with a canvas-only image agent: %#v", repo.createdTask)
+	}
+}
+
+func TestCreateWithUploadedAssetsStoresCOSInputsAndCreatesCanvasTask(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{
+		agent:        validImageAgent(t, box),
+		uploadConfig: validImageUploadConfig(t, box),
+		nextTaskID:   88,
+		nextAssetID:  700,
+	}
+	repo.agent.ScenesJSON = `["canvas_image_generate"]`
+	writer := &fakeImageObjectWriter{}
+	enqueuer := &fakeImageEnqueuer{}
+	service := NewService(Dependencies{
+		Repository:   repo,
+		Enqueuer:     enqueuer,
+		Secretbox:    box,
+		ObjectWriter: writer,
+		Now:          fixedImageNow(),
+		Random: func(buf []byte) (int, error) {
+			for i := range buf {
+				buf[i] = byte(i + 1)
+			}
+			return len(buf), nil
+		},
+	})
+
+	result, appErr := service.CreateWithUploadedAssets(context.Background(), CreateWithUploadedAssetsInput{
+		CreateInput: CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformCanvas, Prompt: "use reference"},
+		Assets:      []UploadedAssetInput{{FileName: "reference.png", MimeType: "image/png", Body: []byte("png-body")}},
+	})
+
+	if appErr != nil {
+		t.Fatalf("CreateWithUploadedAssets error=%#v", appErr)
+	}
+	if result.Task.ID != 88 || repo.createdTask.Prompt != "use reference" {
+		t.Fatalf("unexpected created task result=%#v task=%#v", result.Task, repo.createdTask)
+	}
+	if len(writer.inputs) != 1 || string(writer.inputs[0].Body) != "png-body" || writer.inputs[0].ContentType != "image/png" {
+		t.Fatalf("uploaded reference was not written to COS: %#v", writer.inputs)
+	}
+	if len(repo.createdAssets) != 1 || repo.createdAssets[0].StorageProvider != StorageProviderCOS || repo.createdAssets[0].SourceType != SourceTypeUpload {
+		t.Fatalf("uploaded reference was not registered as a COS input asset: %#v", repo.createdAssets)
+	}
+	if len(repo.createdLinks) != 1 || repo.createdLinks[0].AssetID != repo.createdAssets[0].ID || repo.createdLinks[0].Role != AssetRoleInput {
+		t.Fatalf("created task must link uploaded input asset: links=%#v assets=%#v", repo.createdLinks, repo.createdAssets)
+	}
+	if len(enqueuer.tasks) != 1 {
+		t.Fatalf("created image edit task must be enqueued, got %d", len(enqueuer.tasks))
 	}
 }
 
@@ -450,6 +512,19 @@ func TestPublicCOSURLNormalizesSchemeLessPublicDomain(t *testing.T) {
 
 func testImageSecretBox() secretbox.Box {
 	return secretbox.New([]byte("12345678901234567890123456789012"))
+}
+
+func validImageUploadConfig(t *testing.T, box secretbox.Box) *UploadConfig {
+	t.Helper()
+	secretID, err := box.Encrypt("sid")
+	if err != nil {
+		t.Fatalf("encrypt secret id: %v", err)
+	}
+	secretKey, err := box.Encrypt("skey")
+	if err != nil {
+		t.Fatalf("encrypt secret key: %v", err)
+	}
+	return &UploadConfig{SettingID: 1, Driver: StorageProviderCOS, SecretIDEnc: secretID, SecretKeyEnc: secretKey, Bucket: "bucket", Region: "ap-nanjing", BucketDomain: "https://cos.example.com"}
 }
 
 func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {

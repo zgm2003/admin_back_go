@@ -2,10 +2,13 @@ package canvas
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"admin_back_go/internal/middleware"
+	aiimagemodule "admin_back_go/internal/module/ai/image"
 	canvasmodule "admin_back_go/internal/module/canvas"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
@@ -28,6 +31,12 @@ type HTTPService interface {
 type Handler struct{ service HTTPService }
 
 func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
+
+const (
+	maxImageEditFiles     = 10
+	maxImageEditFileBytes = 20 << 20
+	maxImageEditBodyBytes = maxImageEditFiles*maxImageEditFileBytes + 1<<20
+)
 
 func (h *Handler) Prompts(c *gin.Context) {
 	var req listPromptsRequest
@@ -91,7 +100,21 @@ func (h *Handler) ImageGenerations(c *gin.Context) {
 }
 
 func (h *Handler) ImageEdits(c *gin.Context) {
-	h.ImageGenerations(c)
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	req, uploads, ok := bindImageEditRequest(c)
+	if !ok {
+		return
+	}
+	result, appErr := h.requireService().GenerateImage(c.Request.Context(), canvasmodule.ImageGenerationInput{
+		UserID: userID, AgentID: req.AgentID, Prompt: req.Prompt, Size: req.Size, Quality: req.Quality,
+		OutputFormat: req.OutputFormat, OutputCompression: req.OutputCompression, Moderation: req.Moderation,
+		N: req.N, InputAssetIDs: req.InputAssetIDs, MaskAssetID: req.MaskAssetID, MaskTargetAssetID: req.MaskTargetAssetID,
+		UploadedAssets: uploads,
+	})
+	writeResult(c, result, appErr)
 }
 
 func (h *Handler) ImageStatus(c *gin.Context) {
@@ -215,4 +238,47 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func bindImageEditRequest(c *gin.Context) (imageGenerationRequest, []aiimagemodule.UploadedAssetInput, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImageEditBodyBytes)
+	if err := c.Request.ParseMultipartForm(maxImageEditFileBytes); err != nil {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
+		return imageGenerationRequest{}, nil, false
+	}
+	var req imageGenerationRequest
+	if err := c.ShouldBind(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
+		return imageGenerationRequest{}, nil, false
+	}
+	form := c.Request.MultipartForm
+	if form == nil || len(form.File["image"]) == 0 {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
+		return imageGenerationRequest{}, nil, false
+	}
+	files := form.File["image"]
+	if len(files) > maxImageEditFiles {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
+		return imageGenerationRequest{}, nil, false
+	}
+	uploads := make([]aiimagemodule.UploadedAssetInput, 0, len(files))
+	for _, header := range files {
+		file, err := header.Open()
+		if err != nil {
+			response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
+			return imageGenerationRequest{}, nil, false
+		}
+		body, readErr := io.ReadAll(io.LimitReader(file, maxImageEditFileBytes+1))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil || len(body) == 0 || len(body) > maxImageEditFileBytes {
+			response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
+			return imageGenerationRequest{}, nil, false
+		}
+		mimeType := strings.TrimSpace(header.Header.Get("Content-Type"))
+		if mimeType == "" {
+			mimeType = http.DetectContentType(body)
+		}
+		uploads = append(uploads, aiimagemodule.UploadedAssetInput{FileName: header.Filename, MimeType: mimeType, Body: body})
+	}
+	return req, uploads, true
 }

@@ -227,11 +227,16 @@ func (f *fakeSettingsAuthPolicy) AllowRegister(ctx context.Context, platform str
 }
 
 type fakeCanvasImageRuntime struct {
-	input aiimagemodule.CreateInput
+	input       aiimagemodule.CreateInput
+	uploadInput aiimagemodule.CreateWithUploadedAssetsInput
 }
 
 func (f *fakeCanvasImageRuntime) Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
 	f.input = input
+	return &aiimagemodule.CreateTaskResponse{Task: aiimagemodule.TaskDTO{ID: 501, Status: "pending"}}, nil
+}
+func (f *fakeCanvasImageRuntime) CreateWithUploadedAssets(ctx context.Context, input aiimagemodule.CreateWithUploadedAssetsInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
+	f.uploadInput = input
 	return &aiimagemodule.CreateTaskResponse{Task: aiimagemodule.TaskDTO{ID: 501, Status: "pending"}}, nil
 }
 func (f *fakeCanvasImageRuntime) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error) {

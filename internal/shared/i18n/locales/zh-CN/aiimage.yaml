@@ -52,6 +52,8 @@ aiimage.cos_secret_key.unavailable: COS SecretKey 不可用
 aiimage.cos_reader.missing: COS读取器未配置
 aiimage.cos_config.not_loaded: COS配置未加载
 aiimage.asset.read_failed: 读取图片资产失败
+aiimage.input_key.build_failed: 参考图存储路径生成失败
+aiimage.input.upload_failed: 上传参考图失败
 aiimage.provider.api_key_decrypt_failed: 解密AI供应商API Key失败
 aiimage.output_asset.save_failed: 保存生成图片资产失败
 aiimage.generate.empty_result: 图片生成结果为空
