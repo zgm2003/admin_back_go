@@ -24,6 +24,7 @@ canvas.ai.chat.engine_create_failed: Failed to create AI engine
 canvas.ai.image.request.invalid: Invalid image generation request
 canvas.ai.image.service_missing: Canvas image generation service is not configured
 canvas.ai.image.result_invalid: Invalid Canvas image generation result
+canvas.ai.image.id.invalid: Invalid image task ID
 canvas.ai.video.request.invalid: Invalid video generation request
 canvas.ai.video.service_missing: Canvas video generation service is not configured
 canvas.ai.video.content_empty: Canvas video content is empty

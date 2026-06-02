@@ -19,5 +19,7 @@ auth.platform.user_service_missing: 用户服务未配置
 auth.platform.current_user_missing: 当前用户信息未返回
 auth.login.request.invalid: 登录参数错误
 auth.platform_login.result_invalid: 登录结果无效
+auth.refresh_token.missing: 缺少刷新令牌
+auth.refresh.result_invalid: 刷新Token结果无效
 auth.send_code.request.invalid: 验证码参数错误
 auth.platform.invalid: Token平台不匹配

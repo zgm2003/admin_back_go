@@ -19,5 +19,7 @@ auth.platform.user_service_missing: User service is not configured
 auth.platform.current_user_missing: Current user data was not returned
 auth.login.request.invalid: Invalid login request
 auth.platform_login.result_invalid: Invalid login result
+auth.refresh_token.missing: Missing refresh token
+auth.refresh.result_invalid: Invalid refresh token result
 auth.send_code.request.invalid: Invalid verification code request
 auth.platform.invalid: Token platform mismatch

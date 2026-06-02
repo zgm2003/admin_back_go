@@ -24,6 +24,7 @@ canvas.ai.chat.engine_create_failed: 创建AI引擎失败
 canvas.ai.image.request.invalid: 图片生成参数错误
 canvas.ai.image.service_missing: Canvas图片生成服务未配置
 canvas.ai.image.result_invalid: Canvas图片生成结果无效
+canvas.ai.image.id.invalid: 图片任务ID无效
 canvas.ai.video.request.invalid: 视频生成参数错误
 canvas.ai.video.service_missing: Canvas视频生成服务未配置
 canvas.ai.video.content_empty: Canvas视频内容为空
