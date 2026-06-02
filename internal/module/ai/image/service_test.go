@@ -259,6 +259,82 @@ func TestCreateRejectsAgentWithoutImageScene(t *testing.T) {
 	}
 }
 
+func TestCreateAcceptsCanvasImageSceneWithoutAdminImageScene(t *testing.T) {
+	box := testImageSecretBox()
+	agent := validImageAgent(t, box)
+	agent.ScenesJSON = `["canvas_image_generate"]`
+	repo := &fakeImageRepository{
+		agent:      agent,
+		nextTaskID: 78,
+	}
+	service := NewService(Dependencies{
+		Repository: repo,
+		Enqueuer:   &fakeImageEnqueuer{},
+		Secretbox:  box,
+	})
+
+	result, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformCanvas, Prompt: "draw"})
+
+	if appErr != nil {
+		t.Fatalf("expected canvas image scene to pass without admin image scene, got %#v", appErr)
+	}
+	if result.Task.ID != 78 || repo.createdTask.AgentID != 1 {
+		t.Fatalf("canvas task was not created from the canvas image agent: result=%#v task=%#v", result.Task, repo.createdTask)
+	}
+}
+
+func TestCreateRejectsCanvasImageOnlyAgentForAdminImageScene(t *testing.T) {
+	box := testImageSecretBox()
+	agent := validImageAgent(t, box)
+	agent.ScenesJSON = `["canvas_image_generate"]`
+	repo := &fakeImageRepository{agent: agent}
+	service := NewService(Dependencies{
+		Repository: repo,
+		Enqueuer:   &fakeImageEnqueuer{},
+		Secretbox:  box,
+	})
+
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
+
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "智能体未启用图片生成场景" {
+		t.Fatalf("expected admin image scene gate error, got %#v", appErr)
+	}
+	if repo.createdTask.ID != 0 {
+		t.Fatalf("admin task must not be created with a canvas-only image agent: %#v", repo.createdTask)
+	}
+}
+
+func TestExecuteGenerateAllowsCanvasImageSceneTaskCreatedEarlier(t *testing.T) {
+	box := testImageSecretBox()
+	agent := validImageAgent(t, box)
+	agent.ScenesJSON = `["canvas_image_generate"]`
+	task := validPendingTask()
+	engine := &fakeImageEngine{result: &infraai.ImageResult{
+		Images: []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}},
+	}}
+	repo := &fakeImageRepository{
+		agent:       agent,
+		task:        &task,
+		claimTask:   true,
+		nextAssetID: 501,
+	}
+	service := NewService(Dependencies{
+		Repository:    repo,
+		Secretbox:     box,
+		EngineFactory: &fakeImageEngineFactory{engine: engine},
+		Now:           fixedImageNow(),
+	})
+
+	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
+
+	if err != nil {
+		t.Fatalf("expected worker to execute a canvas image scene task, got %v", err)
+	}
+	if result == nil || result.Status != StatusSuccess || repo.successTaskID != task.ID {
+		t.Fatalf("canvas image task was not finalized as success: result=%#v successTaskID=%d failed=%q", result, repo.successTaskID, repo.failedMessage)
+	}
+}
+
 func TestCreateRejectsForeignInputAssets(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{

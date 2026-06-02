@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	SceneImageGenerate = "image_generate"
-	RequiredModelID    = "gpt-image-2"
+	SceneImageGenerate       = "image_generate"
+	SceneCanvasImageGenerate = "canvas_image_generate"
+	RequiredModelID          = "gpt-image-2"
 
 	StatusPending = "pending"
 	StatusRunning = "running"
@@ -209,7 +210,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
-	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID)
+	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, requiredImageScene(normalized.Platform))
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -316,7 +317,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if task == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片任务不存在", nil)
 	}
-	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID)
+	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, "")
 	if appErr != nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
 	}
@@ -456,7 +457,7 @@ func normalizeAssetInput(input RegisterAssetInput) (ImageAsset, *apperror.Error)
 	return ImageAsset{UserID: input.UserID, StorageProvider: provider, StorageKey: key, StorageURL: urlValue, MimeType: mimeType, Width: input.Width, Height: input.Height, SizeBytes: input.SizeBytes, SourceType: sourceType, IsDel: enum.CommonNo}, nil
 }
 
-func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID uint64) (*AgentRuntime, *apperror.Error) {
+func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID uint64, requiredScene string) (*AgentRuntime, *apperror.Error) {
 	agent, err := repo.LoadAgentRuntime(ctx, agentID)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.agent.query_failed", nil, "查询图片智能体失败", err)
@@ -467,7 +468,7 @@ func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID 
 	if agent.AgentStatus != enum.CommonYes || agent.ProviderStatus != enum.CommonYes || agent.ModelStatus != enum.CommonYes {
 		return nil, apperror.BadRequestKey("aiimage.agent.runtime_disabled", nil, "图片智能体、供应商或模型未启用")
 	}
-	if !sceneEnabled(agent.ScenesJSON, SceneImageGenerate) {
+	if !imageSceneEnabled(agent.ScenesJSON, requiredScene) {
 		return nil, apperror.BadRequestKey("aiimage.agent.scene_missing", nil, "智能体未启用图片生成场景")
 	}
 	if strings.TrimSpace(agent.ModelID) != RequiredModelID {
@@ -480,6 +481,21 @@ func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID 
 		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "图片工作台只支持 OpenAI-compatible 供应商")
 	}
 	return agent, nil
+}
+
+func requiredImageScene(platform string) string {
+	if strings.TrimSpace(platform) == enum.PlatformCanvas {
+		return SceneCanvasImageGenerate
+	}
+	return SceneImageGenerate
+}
+
+func imageSceneEnabled(raw string, requiredScene string) bool {
+	requiredScene = strings.TrimSpace(requiredScene)
+	if requiredScene != "" {
+		return sceneEnabled(raw, requiredScene)
+	}
+	return sceneEnabled(raw, SceneImageGenerate) || sceneEnabled(raw, SceneCanvasImageGenerate)
 }
 
 func (s *Service) validInputAssets(ctx context.Context, repo Repository, input CreateInput) (map[uint64]ImageAsset, *apperror.Error) {
