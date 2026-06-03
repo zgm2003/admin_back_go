@@ -94,6 +94,52 @@ func TestPlatformRouteLineNoCrossPlatformURLPrefixInsideWrongTransport(t *testin
 	}
 }
 
+func TestCanvasAIImageRoutesOwnedByAIImageTransport(t *testing.T) {
+	root := backendRoot(t)
+
+	canvasRoute := readRouteLineSource(t, root, "internal/module/canvas/transport/canvas/route.go")
+	mustNotContainRouteLine(t, canvasRoute, `"/ai/images`)
+
+	aiImageCanvasRoute := filepath.Join(root, "internal", "module", "ai", "image", "transport", "canvas", "route.go")
+	if _, err := os.Stat(aiImageCanvasRoute); err != nil {
+		t.Fatalf("expected ai image canvas route transport to exist: %v", err)
+	}
+
+	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
+	mustContainRouteLine(t, routesCanvas, `aiimagecanvas "admin_back_go/internal/module/ai/image/transport/canvas"`)
+	mustContainRouteLine(t, routesCanvas, `aiimagecanvas.RegisterRoutes(router, deps.AiImageService)`)
+}
+
+func TestCanvasModuleProductionCodeDoesNotImportAIImage(t *testing.T) {
+	root := backendRoot(t)
+	canvasRoot := filepath.Join(root, "internal", "module", "canvas")
+	var offenders []string
+
+	err := filepath.WalkDir(canvasRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(body), `admin_back_go/internal/module/ai/image`) {
+			rel, _ := filepath.Rel(root, path)
+			offenders = append(offenders, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk canvas module: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("canvas module production code must not import ai/image; offenders=%v", offenders)
+	}
+}
+
 func readRouteLineSource(t *testing.T, root string, rel string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(root, rel))
