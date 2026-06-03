@@ -1,10 +1,8 @@
 package canvas
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,8 +20,6 @@ type fakeCanvasService struct {
 	assetQuery     canvasmodule.AssetListQuery
 	settingsUserID int64
 	chatInput      canvasmodule.ChatCompletionInput
-	imageInput     canvasmodule.ImageGenerationInput
-	imageStatusID  uint64
 	videoInput     canvasmodule.VideoGenerationInput
 	videoStatusID  int64
 	videoContentID int64
@@ -52,14 +48,6 @@ func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodu
 func (f *fakeCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
 	f.chatInput = input
 	return &canvasmodule.ChatCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
-}
-func (f *fakeCanvasService) GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error) {
-	f.imageInput = input
-	return &canvasmodule.ImageGenerationResponse{TaskID: 88, Status: "pending"}, nil
-}
-func (f *fakeCanvasService) ImageStatus(ctx context.Context, userID int64, id uint64) (*canvasmodule.ImageStatusResponse, *apperror.Error) {
-	f.imageStatusID = id
-	return &canvasmodule.ImageStatusResponse{}, nil
 }
 func (f *fakeCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
 	f.videoInput = input
@@ -159,22 +147,6 @@ func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing
 	assertNoProviderSecrets(t, recorder.Body.Bytes())
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/generations", strings.NewReader(`{"agent_id":8,"prompt":"cat","n":2}`))
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.imageInput.UserID != 9 || service.imageInput.AgentID != 8 || service.imageInput.N != 2 {
-		t.Fatalf("image route mismatch code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.imageInput)
-	}
-	assertNoProviderSecrets(t, recorder.Body.Bytes())
-
-	recorder = httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/images/88", nil))
-	if recorder.Code != http.StatusOK || service.imageStatusID != 88 {
-		t.Fatalf("image status route mismatch code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), service.imageStatusID)
-	}
-	assertNoProviderSecrets(t, recorder.Body.Bytes())
-
-	recorder = httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -197,7 +169,7 @@ func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing
 	}
 }
 
-func TestCanvasImageEditsAcceptMultipartReferenceImages(t *testing.T) {
+func TestCanvasTransportDoesNotOwnAIImageRoutes(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	service := &fakeCanvasService{}
 	router := gin.New()
@@ -206,35 +178,19 @@ func TestCanvasImageEditsAcceptMultipartReferenceImages(t *testing.T) {
 	})
 	RegisterRoutes(router, service)
 
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	_ = writer.WriteField("agent_id", "8")
-	_ = writer.WriteField("prompt", "use this reference")
-	_ = writer.WriteField("n", "1")
-	file, err := writer.CreateFormFile("image", "reference.png")
-	if err != nil {
-		t.Fatalf("create multipart file: %v", err)
-	}
-	if _, err := file.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}); err != nil {
-		t.Fatalf("write multipart file: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close multipart writer: %v", err)
-	}
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/edits", &body)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	router.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected multipart edit status 200, got %d body=%s", recorder.Code, recorder.Body.String())
-	}
-	if service.imageInput.UserID != 9 || service.imageInput.AgentID != 8 || service.imageInput.Prompt != "use this reference" {
-		t.Fatalf("edit route input mismatch: %#v", service.imageInput)
-	}
-	if len(service.imageInput.UploadedAssets) != 1 || service.imageInput.UploadedAssets[0].FileName != "reference.png" || string(service.imageInput.UploadedAssets[0].Body) == "" {
-		t.Fatalf("edit route must pass uploaded reference image, got %#v", service.imageInput.UploadedAssets)
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/canvas/v1/ai/images/generations"},
+		{http.MethodPost, "/api/canvas/v1/ai/images/edits"},
+		{http.MethodGet, "/api/canvas/v1/ai/images/88"},
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("canvas transport must not own %s %s, got code=%d body=%s", tc.method, tc.path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 

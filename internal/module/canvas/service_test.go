@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	aiimagemodule "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -154,23 +153,6 @@ func TestServiceChatCompletionDoesNotReturnNotImplemented(t *testing.T) {
 	}
 }
 
-func TestServiceGenerateImageUsesCanvasUserAndCanvasSceneRuntime(t *testing.T) {
-	image := &fakeCanvasImageRuntime{}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Image: image})
-
-	result, appErr := svc.GenerateImage(context.Background(), ImageGenerationInput{UserID: 7, AgentID: 8, Prompt: "cat", N: 2})
-
-	if appErr != nil {
-		t.Fatalf("GenerateImage error=%#v", appErr)
-	}
-	if result.TaskID != 501 || result.Status != "pending" {
-		t.Fatalf("unexpected image result: %#v", result)
-	}
-	if image.input.UserID != 7 || image.input.AgentID != 8 || image.input.Platform != "canvas" || image.input.Prompt != "cat" || image.input.N != 2 {
-		t.Fatalf("image runtime input mismatch: %#v", image.input)
-	}
-}
-
 func TestServiceGenerateVideoCreatesFreeCanvasTask(t *testing.T) {
 	video := &fakeCanvasVideoRuntime{createResult: &VideoCreateResult{ID: 77, ProviderTaskID: "provider-task-1", Status: "running"}}
 	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
@@ -224,23 +206,6 @@ type fakeSettingsAuthPolicy struct {
 func (f *fakeSettingsAuthPolicy) AllowRegister(ctx context.Context, platform string) (bool, error) {
 	f.platform = platform
 	return f.allowRegister, nil
-}
-
-type fakeCanvasImageRuntime struct {
-	input       aiimagemodule.CreateInput
-	uploadInput aiimagemodule.CreateWithUploadedAssetsInput
-}
-
-func (f *fakeCanvasImageRuntime) Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
-	f.input = input
-	return &aiimagemodule.CreateTaskResponse{Task: aiimagemodule.TaskDTO{ID: 501, Status: "pending"}}, nil
-}
-func (f *fakeCanvasImageRuntime) CreateWithUploadedAssets(ctx context.Context, input aiimagemodule.CreateWithUploadedAssetsInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
-	f.uploadInput = input
-	return &aiimagemodule.CreateTaskResponse{Task: aiimagemodule.TaskDTO{ID: 501, Status: "pending"}}, nil
-}
-func (f *fakeCanvasImageRuntime) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error) {
-	return &aiimagemodule.DetailResponse{Task: aiimagemodule.TaskDTO{ID: taskID, Status: aiimagemodule.StatusSuccess}}, nil
 }
 
 type fakeCanvasTextRuntime struct {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	aiimagecanvas "admin_back_go/internal/module/ai/image/transport/canvas"
 	canvastransport "admin_back_go/internal/module/canvas/transport/canvas"
 
 	"github.com/gin-gonic/gin"
@@ -8,4 +9,5 @@ import (
 
 func registerCanvasRoutes(router *gin.Engine, deps Dependencies) {
 	canvastransport.RegisterRoutes(router, deps.CanvasService)
+	aiimagecanvas.RegisterRoutes(router, deps.AiImageService)
 }

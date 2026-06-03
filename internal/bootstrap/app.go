@@ -228,7 +228,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	})
 	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
 		AuthPolicy: authPlatformService,
-		Image:      aiImageService,
 		Text:       canvasTextRuntime,
 		Video:      canvasVideoRuntime,
 	})

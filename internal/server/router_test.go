@@ -22,6 +22,7 @@ import (
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
+	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
 	aiprovider "admin_back_go/internal/module/ai/provider"
@@ -184,6 +185,47 @@ func (fakeRouterAIMessageService) Send(ctx context.Context, userID int64, input 
 
 func (fakeRouterAIMessageService) Cancel(ctx context.Context, userID int64, input aimessage.CancelInput) (*aimessage.CancelResponse, *apperror.Error) {
 	return &aimessage.CancelResponse{ConversationID: input.ConversationID, RequestID: input.RequestID, Status: "canceled"}, nil
+}
+
+type fakeRouterAIImageService struct {
+	createInput  aiimage.CreateInput
+	detailUserID uint64
+	detailTaskID uint64
+}
+
+func (fakeRouterAIImageService) PageInit(ctx context.Context) (*aiimage.PageInitResponse, *apperror.Error) {
+	return &aiimage.PageInitResponse{}, nil
+}
+
+func (fakeRouterAIImageService) List(ctx context.Context, userID uint64, query aiimage.ListQuery) (*aiimage.ListResponse, *apperror.Error) {
+	return &aiimage.ListResponse{}, nil
+}
+
+func (f *fakeRouterAIImageService) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimage.DetailResponse, *apperror.Error) {
+	f.detailUserID = userID
+	f.detailTaskID = taskID
+	return &aiimage.DetailResponse{Task: aiimage.TaskDTO{ID: taskID, Status: aiimage.StatusSuccess}}, nil
+}
+
+func (fakeRouterAIImageService) RegisterAsset(ctx context.Context, input aiimage.RegisterAssetInput) (*aiimage.AssetDTO, *apperror.Error) {
+	return &aiimage.AssetDTO{ID: 1}, nil
+}
+
+func (f *fakeRouterAIImageService) Create(ctx context.Context, input aiimage.CreateInput) (*aiimage.CreateTaskResponse, *apperror.Error) {
+	f.createInput = input
+	return &aiimage.CreateTaskResponse{Task: aiimage.TaskDTO{ID: 88, Status: aiimage.StatusPending}}, nil
+}
+
+func (fakeRouterAIImageService) CreateWithUploadedAssets(ctx context.Context, input aiimage.CreateWithUploadedAssetsInput) (*aiimage.CreateTaskResponse, *apperror.Error) {
+	return &aiimage.CreateTaskResponse{Task: aiimage.TaskDTO{ID: 89, Status: aiimage.StatusPending}}, nil
+}
+
+func (fakeRouterAIImageService) Favorite(ctx context.Context, input aiimage.FavoriteInput) (*aiimage.TaskDTO, *apperror.Error) {
+	return &aiimage.TaskDTO{ID: input.TaskID, IsFavorite: input.IsFavorite}, nil
+}
+
+func (fakeRouterAIImageService) Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error {
+	return nil
 }
 
 type fakeRouterAIRunService struct{}
@@ -1423,8 +1465,6 @@ type fakeRouterCanvasService struct {
 	assetQuery  canvasmodule.AssetListQuery
 	settings    canvasmodule.SettingsInput
 	chatInput   canvasmodule.ChatCompletionInput
-	imageInput  canvasmodule.ImageGenerationInput
-	imageStatus uint64
 	videoInput  canvasmodule.VideoGenerationInput
 }
 
@@ -1443,14 +1483,6 @@ func (f *fakeRouterCanvasService) PublicSettings(ctx context.Context, input canv
 func (f *fakeRouterCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
 	f.chatInput = input
 	return &canvasmodule.ChatCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
-}
-func (f *fakeRouterCanvasService) GenerateImage(ctx context.Context, input canvasmodule.ImageGenerationInput) (*canvasmodule.ImageGenerationResponse, *apperror.Error) {
-	f.imageInput = input
-	return &canvasmodule.ImageGenerationResponse{TaskID: 88, Status: "pending"}, nil
-}
-func (f *fakeRouterCanvasService) ImageStatus(ctx context.Context, userID int64, id uint64) (*canvasmodule.ImageStatusResponse, *apperror.Error) {
-	f.imageStatus = id
-	return &canvasmodule.ImageStatusResponse{}, nil
 }
 func (f *fakeRouterCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
 	f.videoInput = input
@@ -3518,6 +3550,41 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || canvasService.assetQuery.Keyword != "sky" || canvasService.assetQuery.Type != canvasmodule.AssetTypeImage {
 		t.Fatalf("expected canvas asset route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), canvasService.assetQuery)
+	}
+}
+
+func TestRouterInstallsCanvasAIImageRoutesFromAIImageService(t *testing.T) {
+	canvasService := &fakeRouterCanvasService{}
+	aiImageService := &fakeRouterAIImageService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
+		},
+		CanvasService:  canvasService,
+		AiImageService: aiImageService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/generations", strings.NewReader(`{"agent_id":8,"prompt":"cat","n":2}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI image generation status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if aiImageService.createInput.UserID != 9 || aiImageService.createInput.AgentID != 8 || aiImageService.createInput.Platform != enum.PlatformCanvas || aiImageService.createInput.N != 2 {
+		t.Fatalf("expected AI image service Create input from canvas route, got %#v", aiImageService.createInput)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/images/88", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI image detail status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if aiImageService.detailUserID != 9 || aiImageService.detailTaskID != 88 {
+		t.Fatalf("expected AI image service Detail user=9 task=88, got user=%d task=%d", aiImageService.detailUserID, aiImageService.detailTaskID)
 	}
 }
 func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {

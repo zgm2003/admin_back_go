@@ -4,7 +4,6 @@ import (
 	"context"
 
 	infraai "admin_back_go/internal/infra/ai"
-	aiimagemodule "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -138,32 +137,6 @@ type ChatCompletionResponse struct {
 	Content string `json:"content"`
 }
 
-type ImageGenerationInput struct {
-	UserID            int64
-	AgentID           int64
-	Prompt            string
-	Size              string
-	Quality           string
-	OutputFormat      string
-	OutputCompression *int
-	Moderation        string
-	N                 int
-	InputAssetIDs     []uint64
-	MaskAssetID       uint64
-	MaskTargetAssetID uint64
-	UploadedAssets    []aiimagemodule.UploadedAssetInput
-}
-
-type ImageGenerationResponse struct {
-	TaskID uint64 `json:"task_id"`
-	Status string `json:"status"`
-}
-
-type ImageStatusResponse struct {
-	Task    aiimagemodule.TaskDTO    `json:"task"`
-	Outputs []aiimagemodule.AssetDTO `json:"outputs"`
-}
-
 type VideoGenerationInput struct {
 	UserID          int64
 	AgentID         int64
@@ -253,12 +226,6 @@ type VideoContentInput struct {
 type VideoProviderStatus struct {
 	Status       string
 	ErrorMessage string
-}
-
-type ImageRuntime interface {
-	Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error)
-	CreateWithUploadedAssets(ctx context.Context, input aiimagemodule.CreateWithUploadedAssetsInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error)
-	Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error)
 }
 
 type TextRuntime interface {
