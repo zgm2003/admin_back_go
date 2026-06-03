@@ -67,7 +67,7 @@ func (h *Handler) Status(c *gin.Context) {
 		return
 	}
 	result, appErr := h.requireService().Detail(c.Request.Context(), userID, id)
-	writeResult(c, result, appErr)
+	writeDetailResult(c, result, appErr)
 }
 
 func (h *Handler) requireService() aiimagemodule.HTTPService {
@@ -120,9 +120,13 @@ func writeCreateResult(c *gin.Context, result *aiimagemodule.CreateTaskResponse,
 	response.OK(c, imageGenerationResponse{TaskID: result.Task.ID, Status: result.Task.Status})
 }
 
-func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
+func writeDetailResult(c *gin.Context, result *aiimagemodule.DetailResponse, appErr *apperror.Error) {
 	if appErr != nil {
 		response.Error(c, appErr)
+		return
+	}
+	if result == nil || result.Task.ID == 0 {
+		response.Error(c, apperror.InternalKey("canvas.ai.image.result_invalid", nil, "Canvas图片生成结果无效"))
 		return
 	}
 	response.OK(c, result)

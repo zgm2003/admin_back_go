@@ -18,10 +18,12 @@ import (
 )
 
 type fakeCanvasImageService struct {
-	createInput  aiimagemodule.CreateInput
-	uploadInput  aiimagemodule.CreateWithUploadedAssetsInput
-	detailUserID uint64
-	detailTaskID uint64
+	createInput       aiimagemodule.CreateInput
+	uploadInput       aiimagemodule.CreateWithUploadedAssetsInput
+	detailUserID      uint64
+	detailTaskID      uint64
+	returnNilDetail   bool
+	returnEmptyDetail bool
 }
 
 func (f *fakeCanvasImageService) PageInit(ctx context.Context) (*aiimagemodule.PageInitResponse, *apperror.Error) {
@@ -35,6 +37,12 @@ func (f *fakeCanvasImageService) List(ctx context.Context, userID uint64, query 
 func (f *fakeCanvasImageService) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error) {
 	f.detailUserID = userID
 	f.detailTaskID = taskID
+	if f.returnNilDetail {
+		return nil, nil
+	}
+	if f.returnEmptyDetail {
+		return &aiimagemodule.DetailResponse{}, nil
+	}
 	return &aiimagemodule.DetailResponse{
 		Task: aiimagemodule.TaskDTO{ID: taskID, Status: aiimagemodule.StatusSuccess},
 		Outputs: []aiimagemodule.AssetDTO{{
@@ -183,5 +191,39 @@ func TestCanvasImageStatusReturnsTaskAndOutputs(t *testing.T) {
 		if !strings.Contains(recorder.Body.String(), want) {
 			t.Fatalf("response missing %s: %s", want, recorder.Body.String())
 		}
+	}
+}
+
+func TestCanvasImageStatusRejectsInvalidDetailResult(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	tests := []struct {
+		name    string
+		service *fakeCanvasImageService
+	}{
+		{name: "nil detail", service: &fakeCanvasImageService{returnNilDetail: true}},
+		{name: "empty detail", service: &fakeCanvasImageService{returnEmptyDetail: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: enum.PlatformCanvas})
+			})
+			RegisterRoutes(router, tt.service)
+
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/images/88", nil))
+
+			if recorder.Code == http.StatusOK {
+				t.Fatalf("expected non-200 status for invalid detail result, got %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if tt.service.detailUserID != 9 || tt.service.detailTaskID != 88 {
+				t.Fatalf("unexpected detail lookup user=%d task=%d", tt.service.detailUserID, tt.service.detailTaskID)
+			}
+			if !strings.Contains(recorder.Body.String(), "Canvas图片生成结果无效") {
+				t.Fatalf("response missing invalid result message: %s", recorder.Body.String())
+			}
+		})
 	}
 }
