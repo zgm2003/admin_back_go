@@ -101,6 +101,10 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 		return 0, false
 	}
+	if identity.Platform != "" && identity.Platform != enum.PlatformCanvas {
+		response.Error(c, apperror.UnauthorizedKey("auth.platform.invalid", map[string]any{"platform": identity.Platform}, "Token平台不匹配"))
+		return 0, false
+	}
 	return uint64(identity.UserID), true
 }
 

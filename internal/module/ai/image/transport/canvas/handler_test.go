@@ -95,6 +95,28 @@ func TestCanvasImageGenerationCreatesCanvasPlatformTask(t *testing.T) {
 	}
 }
 
+func TestCanvasImageGenerationRejectsAdminPlatformIdentity(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	service := &fakeCanvasImageService{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: enum.PlatformAdmin})
+	})
+	RegisterRoutes(router, service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/generations", strings.NewReader(`{"agent_id":8,"prompt":"cat","n":2}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.createInput.UserID != 0 {
+		t.Fatalf("service should not be called for wrong platform, got input: %#v", service.createInput)
+	}
+}
+
 func TestCanvasImageEditUploadsReferencesAndCreatesCanvasPlatformTask(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	service := &fakeCanvasImageService{}
