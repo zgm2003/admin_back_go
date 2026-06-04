@@ -17,7 +17,6 @@ type HTTPService interface {
 	PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error)
 	PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error)
 	PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error)
-	ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error)
 	GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error)
 	VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error)
 	VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error)
@@ -53,20 +52,6 @@ func (h *Handler) Settings(c *gin.Context) {
 		userID = identity.UserID
 	}
 	result, appErr := h.requireService().PublicSettings(c.Request.Context(), canvasmodule.SettingsInput{UserID: userID})
-	writeResult(c, result, appErr)
-}
-
-func (h *Handler) ChatCompletions(c *gin.Context) {
-	userID, ok := currentUserID(c)
-	if !ok {
-		return
-	}
-	var req chatCompletionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("canvas.ai.chat.request.invalid", nil, "文本生成参数错误"))
-		return
-	}
-	result, appErr := h.requireService().ChatCompletion(c.Request.Context(), canvasmodule.ChatCompletionInput{UserID: userID, AgentID: req.AgentID, ModelID: req.ModelID, Message: req.Message})
 	writeResult(c, result, appErr)
 }
 
@@ -128,9 +113,6 @@ func (failingService) PublicAssets(ctx context.Context, query canvasmodule.Asset
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
 }
 func (failingService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
-func (failingService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
 }
 func (failingService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {

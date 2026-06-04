@@ -19,7 +19,6 @@ type fakeCanvasService struct {
 	promptQuery    canvasmodule.PromptListQuery
 	assetQuery     canvasmodule.AssetListQuery
 	settingsUserID int64
-	chatInput      canvasmodule.ChatCompletionInput
 	videoInput     canvasmodule.VideoGenerationInput
 	videoStatusID  int64
 	videoContentID int64
@@ -44,10 +43,6 @@ func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodu
 			Video: []canvasmodule.CanvasAgentOption{{ID: 9, Name: "视频助手", ModelID: "video-model", ModelDisplayName: "Video Model", Scene: "canvas_video_generate"}},
 		},
 	}, nil
-}
-func (f *fakeCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
-	f.chatInput = input
-	return &canvasmodule.ChatCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
 }
 func (f *fakeCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
 	f.videoInput = input
@@ -128,7 +123,7 @@ func TestCanvasSettingsReturnsOnlyPublicFacade(t *testing.T) {
 	}
 }
 
-func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing.T) {
+func TestCanvasVideoRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	service := &fakeCanvasService{}
 	router := gin.New()
@@ -138,16 +133,7 @@ func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing
 	RegisterRoutes(router, service)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":7,"message":"hello"}`))
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.chatInput.UserID != 9 || service.chatInput.AgentID != 7 || service.chatInput.Message != "hello" {
-		t.Fatalf("chat route mismatch code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.chatInput)
-	}
-	assertNoProviderSecrets(t, recorder.Body.Bytes())
-
-	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || service.videoInput.UserID != 9 || service.videoInput.AgentID != 10 || service.videoInput.DurationSeconds != 4 {
@@ -166,6 +152,25 @@ func TestCanvasAIRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/videos/99/content", nil))
 	if recorder.Code != http.StatusOK || service.videoContentID != 99 || recorder.Body.String() != "video" {
 		t.Fatalf("video content route mismatch code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), service.videoContentID)
+	}
+}
+
+func TestCanvasTransportDoesNotOwnAIChatRoute(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	service := &fakeCanvasService{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: "canvas"})
+	})
+	RegisterRoutes(router, service)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":7,"message":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("canvas transport must not own AI chat completion route, got code=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

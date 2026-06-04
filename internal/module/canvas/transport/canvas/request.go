@@ -15,12 +15,6 @@ type listAssetsRequest struct {
 	Type        string `form:"type"`
 }
 
-type chatCompletionRequest struct {
-	AgentID int64  `json:"agent_id"`
-	ModelID string `json:"model"`
-	Message string `json:"message"`
-}
-
 type videoGenerationRequest struct {
 	AgentID         int64  `json:"agent_id"`
 	ModelID         string `json:"model"`

@@ -1472,7 +1472,6 @@ type fakeRouterCanvasService struct {
 	promptQuery canvasmodule.PromptListQuery
 	assetQuery  canvasmodule.AssetListQuery
 	settings    canvasmodule.SettingsInput
-	chatInput   canvasmodule.ChatCompletionInput
 	videoInput  canvasmodule.VideoGenerationInput
 }
 
@@ -1487,10 +1486,6 @@ func (f *fakeRouterCanvasService) PublicAssets(ctx context.Context, query canvas
 func (f *fakeRouterCanvasService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	f.settings = input
 	return &canvasmodule.SettingsResponse{AllowRegister: true, Scenes: []string{"canvas_text_generate"}}, nil
-}
-func (f *fakeRouterCanvasService) ChatCompletion(ctx context.Context, input canvasmodule.ChatCompletionInput) (*canvasmodule.ChatCompletionResponse, *apperror.Error) {
-	f.chatInput = input
-	return &canvasmodule.ChatCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
 }
 func (f *fakeRouterCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
 	f.videoInput = input
@@ -3595,6 +3590,32 @@ func TestRouterInstallsCanvasAIImageRoutesFromAIImageService(t *testing.T) {
 		t.Fatalf("expected AI image service Detail user=9 task=88, got user=%d task=%d", aiImageService.detailUserID, aiImageService.detailTaskID)
 	}
 }
+
+func TestRouterInstallsCanvasAIChatRouteFromAIChatService(t *testing.T) {
+	canvasService := &fakeRouterCanvasService{}
+	aiChatService := &fakeRouterAIChatService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
+		},
+		CanvasService: canvasService,
+		AiChatService: aiChatService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":8,"message":"hello","model":"client-model"}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI chat completion status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if aiChatService.input.UserID != 9 || aiChatService.input.AgentID != 8 || aiChatService.input.Message != "hello" || aiChatService.input.ModelID != "client-model" {
+		t.Fatalf("expected AI chat service input from canvas route, got %#v", aiChatService.input)
+	}
+}
+
 func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
 	walletService := &fakeRouterWalletService{}

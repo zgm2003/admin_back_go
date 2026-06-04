@@ -13,7 +13,6 @@ func RegisterRoutes(router *gin.Engine, service HTTPService) {
 	group.GET("/settings", handler.Settings)
 	group.GET("/prompts", handler.Prompts)
 	group.GET("/assets", handler.Assets)
-	group.POST("/ai/chat/completions", handler.ChatCompletions)
 	group.POST("/ai/videos", handler.VideoGenerations)
 	group.GET("/ai/videos/:id", handler.VideoStatus)
 	group.GET("/ai/videos/:id/content", handler.VideoContent)
