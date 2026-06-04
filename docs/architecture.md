@@ -66,7 +66,7 @@ core/system: system, systemsetting, systemlog, operationlog, crontask, queuemoni
 identity/RBAC: auth, auth_platform, profile, user, permission, role
 comms/upload: mail, sms, notification, notification/task, uploadconfig, uploadtoken, export, clientversion
 commerce: payment, payment/wallet
-ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image
+ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image, ai/video
 ```
 
 App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth/transport/app`，`/api/app/v1/users/me` 归属 `internal/module/user/transport/app`，`/api/app/v1/profile` 归属 `internal/module/profile/transport/app`，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken/transport/app`。
@@ -1500,6 +1500,7 @@ internal/module/ai/provider      # ai_providers provider config + ai_provider_mo
 internal/module/ai/agent         # ai_agents local agent config MVP
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
 internal/module/ai/image         # ai_image_tasks / ai_image_assets generation runtime
+internal/module/ai/video         # canvas_video_tasks Canvas video generation runtime
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
 internal/module/ai/conversation   # current-user conversations; canonical agent_id -> ai_agents
 internal/module/ai/message        # conversation messages, feedback, branch cleanup
