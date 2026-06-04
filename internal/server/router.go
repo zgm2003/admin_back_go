@@ -15,6 +15,7 @@ import (
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
+	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
 	canvastransport "admin_back_go/internal/module/canvas/transport/canvas"
@@ -60,6 +61,7 @@ type Dependencies struct {
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
 	AiImageService          aiimage.HTTPService
+	AiVideoService          aivideo.HTTPService
 	AiAgentService          aiagent.HTTPService
 	AiProviderService       aiprovider.HTTPService
 	AiKnowledgeService      aiknowledge.HTTPService

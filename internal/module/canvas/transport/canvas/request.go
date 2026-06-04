@@ -14,12 +14,3 @@ type listAssetsRequest struct {
 	Keyword     string `form:"keyword"`
 	Type        string `form:"type"`
 }
-
-type videoGenerationRequest struct {
-	AgentID         int64  `json:"agent_id"`
-	ModelID         string `json:"model"`
-	Prompt          string `json:"prompt"`
-	DurationSeconds int    `json:"duration_seconds"`
-	Size            string `json:"size"`
-	ResolutionName  string `json:"resolution_name"`
-}

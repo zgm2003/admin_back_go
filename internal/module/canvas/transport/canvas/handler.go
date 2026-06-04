@@ -2,8 +2,6 @@ package canvas
 
 import (
 	"context"
-	"net/http"
-	"strconv"
 
 	"admin_back_go/internal/middleware"
 	canvasmodule "admin_back_go/internal/module/canvas"
@@ -17,9 +15,6 @@ type HTTPService interface {
 	PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error)
 	PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error)
 	PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error)
-	GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error)
-	VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error)
-	VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error)
 }
 
 type Handler struct{ service HTTPService }
@@ -55,48 +50,6 @@ func (h *Handler) Settings(c *gin.Context) {
 	writeResult(c, result, appErr)
 }
 
-func (h *Handler) VideoGenerations(c *gin.Context) {
-	userID, ok := currentUserID(c)
-	if !ok {
-		return
-	}
-	var req videoGenerationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("canvas.ai.video.request.invalid", nil, "视频生成参数错误"))
-		return
-	}
-	result, appErr := h.requireService().GenerateVideo(c.Request.Context(), canvasmodule.VideoGenerationInput{
-		UserID: userID, AgentID: req.AgentID, ModelID: req.ModelID, Prompt: req.Prompt,
-		DurationSeconds: req.DurationSeconds, Size: req.Size, ResolutionName: req.ResolutionName,
-	})
-	writeResult(c, result, appErr)
-}
-
-func (h *Handler) VideoStatus(c *gin.Context) {
-	userID, id, ok := currentUserIDAndRouteID(c)
-	if !ok {
-		return
-	}
-	result, appErr := h.requireService().VideoStatus(c.Request.Context(), userID, id)
-	writeResult(c, result, appErr)
-}
-
-func (h *Handler) VideoContent(c *gin.Context) {
-	userID, id, ok := currentUserIDAndRouteID(c)
-	if !ok {
-		return
-	}
-	body, contentType, appErr := h.requireService().VideoContent(c.Request.Context(), userID, id)
-	if appErr != nil {
-		response.Error(c, appErr)
-		return
-	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	c.Data(http.StatusOK, contentType, body)
-}
-
 func (h *Handler) requireService() HTTPService {
 	if h == nil || h.service == nil {
 		return failingService{}
@@ -114,37 +67,6 @@ func (failingService) PublicAssets(ctx context.Context, query canvasmodule.Asset
 }
 func (failingService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
-func (failingService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
-func (failingService) VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
-func (failingService) VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
-	return nil, "", apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
-
-func currentUserID(c *gin.Context) (int64, bool) {
-	identity := middleware.GetAuthIdentity(c)
-	if identity == nil || identity.UserID <= 0 {
-		response.Error(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
-		return 0, false
-	}
-	return identity.UserID, true
-}
-
-func currentUserIDAndRouteID(c *gin.Context) (int64, int64, bool) {
-	userID, ok := currentUserID(c)
-	if !ok {
-		return 0, 0, false
-	}
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		response.Error(c, apperror.BadRequestKey("canvas.ai.video.id.invalid", nil, "视频任务ID无效"))
-		return 0, 0, false
-	}
-	return userID, id, true
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {

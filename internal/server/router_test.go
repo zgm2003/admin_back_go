@@ -29,6 +29,7 @@ import (
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
+	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/auth_platform"
 	canvasmodule "admin_back_go/internal/module/canvas"
@@ -266,6 +267,31 @@ type fakeRouterAIChatService struct {
 func (f *fakeRouterAIChatService) CanvasCompletion(ctx context.Context, input aichat.CanvasCompletionInput) (*aichat.CanvasCompletionResponse, *apperror.Error) {
 	f.input = input
 	return &aichat.CanvasCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
+}
+
+type fakeRouterAIVideoService struct {
+	createInput   aivideo.CreateInput
+	statusUserID  int64
+	statusID      int64
+	contentUserID int64
+	contentID     int64
+}
+
+func (f *fakeRouterAIVideoService) Create(ctx context.Context, input aivideo.CreateInput) (*aivideo.CreateResponse, *apperror.Error) {
+	f.createInput = input
+	return &aivideo.CreateResponse{ID: 99, Status: aivideo.StatusPending}, nil
+}
+
+func (f *fakeRouterAIVideoService) Status(ctx context.Context, userID int64, id int64) (*aivideo.StatusResponse, *apperror.Error) {
+	f.statusUserID = userID
+	f.statusID = id
+	return &aivideo.StatusResponse{ID: id, Status: aivideo.StatusRunning}, nil
+}
+
+func (f *fakeRouterAIVideoService) Content(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
+	f.contentUserID = userID
+	f.contentID = id
+	return []byte("video"), "video/mp4", nil
 }
 
 type fakeAppRouterAuthService struct {
@@ -1472,7 +1498,6 @@ type fakeRouterCanvasService struct {
 	promptQuery canvasmodule.PromptListQuery
 	assetQuery  canvasmodule.AssetListQuery
 	settings    canvasmodule.SettingsInput
-	videoInput  canvasmodule.VideoGenerationInput
 }
 
 func (f *fakeRouterCanvasService) PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error) {
@@ -1486,16 +1511,6 @@ func (f *fakeRouterCanvasService) PublicAssets(ctx context.Context, query canvas
 func (f *fakeRouterCanvasService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	f.settings = input
 	return &canvasmodule.SettingsResponse{AllowRegister: true, Scenes: []string{"canvas_text_generate"}}, nil
-}
-func (f *fakeRouterCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
-	f.videoInput = input
-	return &canvasmodule.VideoGenerationResponse{ID: 99, Status: "pending"}, nil
-}
-func (f *fakeRouterCanvasService) VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error) {
-	return &canvasmodule.VideoStatusResponse{ID: id, Status: "pending"}, nil
-}
-func (f *fakeRouterCanvasService) VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
-	return []byte("video"), "video/mp4", nil
 }
 
 type fakeRouterWalletService struct {
@@ -3613,6 +3628,52 @@ func TestRouterInstallsCanvasAIChatRouteFromAIChatService(t *testing.T) {
 	}
 	if aiChatService.input.UserID != 9 || aiChatService.input.AgentID != 8 || aiChatService.input.Message != "hello" || aiChatService.input.ModelID != "client-model" {
 		t.Fatalf("expected AI chat service input from canvas route, got %#v", aiChatService.input)
+	}
+}
+
+func TestRouterInstallsCanvasAIVideoRoutesFromAIVideoService(t *testing.T) {
+	canvasService := &fakeRouterCanvasService{}
+	aiVideoService := &fakeRouterAIVideoService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
+		},
+		CanvasService:  canvasService,
+		AiVideoService: aiVideoService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":8,"prompt":"clip","duration_seconds":4,"size":"1280x720","resolution_name":"720p","model":"client-model"}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI video create status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if aiVideoService.createInput.UserID != 9 || aiVideoService.createInput.AgentID != 8 || aiVideoService.createInput.Prompt != "clip" || aiVideoService.createInput.DurationSeconds != 4 || aiVideoService.createInput.Size != "1280x720" || aiVideoService.createInput.ResolutionName != "720p" || aiVideoService.createInput.ModelID != "client-model" {
+		t.Fatalf("expected AI video service Create input from canvas route, got %#v", aiVideoService.createInput)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/videos/99", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI video status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if aiVideoService.statusUserID != 9 || aiVideoService.statusID != 99 {
+		t.Fatalf("expected AI video service Status user=9 id=99, got user=%d id=%d", aiVideoService.statusUserID, aiVideoService.statusID)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/videos/99/content", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "video" || recorder.Header().Get("Content-Type") != "video/mp4" {
+		t.Fatalf("expected AI video content route, got code=%d type=%s body=%s", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String())
+	}
+	if aiVideoService.contentUserID != 9 || aiVideoService.contentID != 99 {
+		t.Fatalf("expected AI video service Content user=9 id=99, got user=%d id=%d", aiVideoService.contentUserID, aiVideoService.contentID)
 	}
 }
 

@@ -19,9 +19,6 @@ type fakeCanvasService struct {
 	promptQuery    canvasmodule.PromptListQuery
 	assetQuery     canvasmodule.AssetListQuery
 	settingsUserID int64
-	videoInput     canvasmodule.VideoGenerationInput
-	videoStatusID  int64
-	videoContentID int64
 }
 
 func (f *fakeCanvasService) PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error) {
@@ -44,19 +41,6 @@ func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodu
 		},
 	}, nil
 }
-func (f *fakeCanvasService) GenerateVideo(ctx context.Context, input canvasmodule.VideoGenerationInput) (*canvasmodule.VideoGenerationResponse, *apperror.Error) {
-	f.videoInput = input
-	return &canvasmodule.VideoGenerationResponse{ID: 99, Status: "pending"}, nil
-}
-func (f *fakeCanvasService) VideoStatus(ctx context.Context, userID int64, id int64) (*canvasmodule.VideoStatusResponse, *apperror.Error) {
-	f.videoStatusID = id
-	return &canvasmodule.VideoStatusResponse{ID: id, Status: "pending"}, nil
-}
-func (f *fakeCanvasService) VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
-	f.videoContentID = id
-	return []byte("video"), "video/mp4", nil
-}
-
 func TestCanvasPublicRoutes(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	service := &fakeCanvasService{}
@@ -123,7 +107,7 @@ func TestCanvasSettingsReturnsOnlyPublicFacade(t *testing.T) {
 	}
 }
 
-func TestCanvasVideoRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *testing.T) {
+func TestCanvasTransportDoesNotOwnAIVideoRoutes(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	service := &fakeCanvasService{}
 	router := gin.New()
@@ -132,26 +116,21 @@ func TestCanvasVideoRoutesUseAuthenticatedUserAndDoNotLeakProviderConfig(t *test
 	})
 	RegisterRoutes(router, service)
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4}`))
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.videoInput.UserID != 9 || service.videoInput.AgentID != 10 || service.videoInput.DurationSeconds != 4 {
-		t.Fatalf("video route mismatch code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), service.videoInput)
-	}
-	assertNoProviderSecrets(t, recorder.Body.Bytes())
-
-	recorder = httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/videos/99", nil))
-	if recorder.Code != http.StatusOK || service.videoStatusID != 99 {
-		t.Fatalf("video status route mismatch code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), service.videoStatusID)
-	}
-	assertNoProviderSecrets(t, recorder.Body.Bytes())
-
-	recorder = httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/videos/99/content", nil))
-	if recorder.Code != http.StatusOK || service.videoContentID != 99 || recorder.Body.String() != "video" {
-		t.Fatalf("video content route mismatch code=%d body=%s id=%d", recorder.Code, recorder.Body.String(), service.videoContentID)
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/canvas/v1/ai/videos"},
+		{http.MethodGet, "/api/canvas/v1/ai/videos/99"},
+		{http.MethodGet, "/api/canvas/v1/ai/videos/99/content"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4}`))
+		request.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("canvas transport must not own %s %s, got code=%d body=%s", tc.method, tc.path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
