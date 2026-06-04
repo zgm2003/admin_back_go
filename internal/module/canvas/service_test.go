@@ -3,8 +3,6 @@ package canvas
 import (
 	"context"
 	"testing"
-
-	"admin_back_go/internal/shared/apperror"
 )
 
 type fakeCanvasRepository struct {
@@ -126,51 +124,6 @@ func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing
 	}
 }
 
-func TestServiceGenerateVideoCreatesFreeCanvasTask(t *testing.T) {
-	video := &fakeCanvasVideoRuntime{createResult: &VideoCreateResult{ID: 77, ProviderTaskID: "provider-task-1", Status: "running"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
-
-	result, appErr := svc.GenerateVideo(context.Background(), VideoGenerationInput{UserID: 7, AgentID: 8, ModelID: "video-model", Prompt: "clip", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
-
-	if appErr != nil {
-		t.Fatalf("GenerateVideo error=%#v", appErr)
-	}
-	if result.ID != 77 || result.Status != "running" {
-		t.Fatalf("unexpected video result: %#v", result)
-	}
-	if video.createInput.UserID != 7 || video.createInput.AgentID != 8 || video.createInput.ModelID != "video-model" || video.createInput.Size != "1280x720" || video.createInput.ResolutionName != "720p" {
-		t.Fatalf("video provider input mismatch: %#v", video.createInput)
-	}
-}
-
-func TestServiceVideoStatusUsesCanvasVideoTaskOwnership(t *testing.T) {
-	video := &fakeCanvasVideoRuntime{task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: "running", IsDel: IsDelActive}, statusResult: &VideoProviderStatus{Status: "completed"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
-
-	result, appErr := svc.VideoStatus(context.Background(), 7, 77)
-
-	if appErr != nil {
-		t.Fatalf("VideoStatus error=%#v", appErr)
-	}
-	if result.ID != 77 || result.Status != "completed" || video.statusInput.Task.ProviderTaskID != "provider-task-1" {
-		t.Fatalf("video status mismatch result=%#v input=%#v", result, video.statusInput)
-	}
-}
-
-func TestServiceVideoContentStreamsProviderContent(t *testing.T) {
-	video := &fakeCanvasVideoRuntime{task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: "completed", IsDel: IsDelActive}, contentBody: []byte("video"), contentType: "video/mp4"}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
-
-	body, contentType, appErr := svc.VideoContent(context.Background(), 7, 77)
-
-	if appErr != nil || string(body) != "video" || contentType != "video/mp4" {
-		t.Fatalf("VideoContent mismatch body=%q contentType=%q err=%#v", string(body), contentType, appErr)
-	}
-	if video.contentInput.Task.ProviderTaskID != "provider-task-1" {
-		t.Fatalf("content input mismatch input=%#v", video.contentInput)
-	}
-}
-
 type fakeSettingsAuthPolicy struct {
 	allowRegister bool
 	platform      string
@@ -179,49 +132,4 @@ type fakeSettingsAuthPolicy struct {
 func (f *fakeSettingsAuthPolicy) AllowRegister(ctx context.Context, platform string) (bool, error) {
 	f.platform = platform
 	return f.allowRegister, nil
-}
-
-type fakeCanvasVideoRuntime struct {
-	createInput  VideoCreateInput
-	task         *VideoTask
-	createResult *VideoCreateResult
-	createErr    *apperror.Error
-	statusInput  VideoStatusInput
-	statusResult *VideoProviderStatus
-	statusErr    *apperror.Error
-	contentInput VideoContentInput
-	contentBody  []byte
-	contentType  string
-	contentErr   *apperror.Error
-}
-
-func (f *fakeCanvasVideoRuntime) Create(ctx context.Context, input VideoCreateInput) (*VideoCreateResult, *apperror.Error) {
-	f.createInput = input
-	if f.createErr != nil {
-		return nil, f.createErr
-	}
-	if f.createResult != nil {
-		return f.createResult, nil
-	}
-	return &VideoCreateResult{ProviderTaskID: "provider-task", Status: "pending"}, nil
-}
-func (f *fakeCanvasVideoRuntime) Task(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
-	return f.task, nil
-}
-func (f *fakeCanvasVideoRuntime) Status(ctx context.Context, input VideoStatusInput) (*VideoProviderStatus, *apperror.Error) {
-	f.statusInput = input
-	if f.statusErr != nil {
-		return nil, f.statusErr
-	}
-	if f.statusResult != nil {
-		return f.statusResult, nil
-	}
-	return &VideoProviderStatus{Status: "running"}, nil
-}
-func (f *fakeCanvasVideoRuntime) Content(ctx context.Context, input VideoContentInput) ([]byte, string, *apperror.Error) {
-	f.contentInput = input
-	if f.contentErr != nil {
-		return nil, "", f.contentErr
-	}
-	return f.contentBody, f.contentType, nil
 }

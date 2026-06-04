@@ -31,6 +31,7 @@ import (
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
+	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/auth_platform"
 	canvasmodule "admin_back_go/internal/module/canvas"
@@ -216,14 +217,13 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	paymentCertStore := payment.LocalCertStore{BaseDir: cfg.Payment.CertBaseDir}
 	alipayGateway := payalipay.NewGopayGateway()
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
-	canvasVideoRuntime := canvasmodule.NewVideoRuntimeService(canvasmodule.VideoRuntimeDependencies{
-		Repository:    canvasmodule.NewVideoGormRepository(resources.DB),
+	aiVideoService := aivideo.NewService(aivideo.Dependencies{
+		Repository:    aivideo.NewGormRepository(resources.DB),
 		Secretbox:     secretBox,
-		EngineFactory: canvasVideoEngineFactory{},
+		EngineFactory: aiVideoEngineFactory{},
 	})
 	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
 		AuthPolicy: authPlatformService,
-		Video:      canvasVideoRuntime,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),
@@ -349,6 +349,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
 		AiImageService:          aiImageService,
+		AiVideoService:          aiVideoService,
 		AiAgentService:          aiAgentService,
 		AiProviderService:       aiProviderService,
 		AiKnowledgeService:      aiKnowledgeService,
@@ -472,9 +473,9 @@ func (aiImageEngineFactory) NewImageEngine(config aiimage.ImageEngineConfig) inf
 	}
 }
 
-type canvasVideoEngineFactory struct{}
+type aiVideoEngineFactory struct{}
 
-func (canvasVideoEngineFactory) NewVideoEngine(ctx context.Context, input canvasmodule.VideoEngineConfig) (infraai.VideoEngine, error) {
+func (aiVideoEngineFactory) NewVideoEngine(ctx context.Context, input aivideo.EngineConfig) (infraai.VideoEngine, error) {
 	switch input.EngineType {
 	case infraai.EngineTypeOpenAI:
 		return openaicompat.New(openaicompat.Config{

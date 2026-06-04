@@ -216,6 +216,82 @@ func TestCanvasModuleProductionCodeDoesNotOwnAIChatRuntime(t *testing.T) {
 	}
 }
 
+func TestCanvasAIVideoRoutesOwnedByAIVideoTransport(t *testing.T) {
+	root := backendRoot(t)
+	canvasRoute := readRouteLineSource(t, root, "internal/module/canvas/transport/canvas/route.go")
+	mustNotContainRouteLine(t, canvasRoute, `"/ai/videos`)
+
+	aiVideoCanvasRoute := filepath.Join(root, "internal", "module", "ai", "video", "transport", "canvas", "route.go")
+	if _, err := os.Stat(aiVideoCanvasRoute); err != nil {
+		t.Fatalf("expected ai video canvas route transport to exist: %v", err)
+	}
+	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
+	mustContainRouteLine(t, routesCanvas, `aivideocanvas "admin_back_go/internal/module/ai/video/transport/canvas"`)
+	mustContainRouteLine(t, routesCanvas, `aivideocanvas.RegisterRoutes(router, deps.AiVideoService)`)
+}
+
+func TestAIVideoCanvasTransportDoesNotImportCanvasModule(t *testing.T) {
+	root := backendRoot(t)
+	transportRoot := filepath.Join(root, "internal", "module", "ai", "video", "transport", "canvas")
+	var offenders []string
+	err := filepath.WalkDir(transportRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(body), `admin_back_go/internal/module/canvas`) {
+			rel, _ := filepath.Rel(root, path)
+			offenders = append(offenders, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk ai video canvas transport: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("ai/video canvas transport must not import canvas module; offenders=%v", offenders)
+	}
+}
+
+func TestCanvasModuleProductionCodeDoesNotOwnAIVideoRuntime(t *testing.T) {
+	root := backendRoot(t)
+	canvasRoot := filepath.Join(root, "internal", "module", "canvas")
+	forbidden := []string{"GenerateVideo(", "VideoGenerationInput", "VideoGenerationResponse", "VideoStatusResponse", "VideoRuntimeService", "NewVideoRuntimeService", "VideoGormRepository", "NewVideoGormRepository", "AgentForVideoRuntime", "VideoEngineFactory", "VideoRepository", "VideoTask) TableName"}
+	var offenders []string
+	err := filepath.WalkDir(canvasRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(body)
+		for _, token := range forbidden {
+			if strings.Contains(text, token) {
+				rel, _ := filepath.Rel(root, path)
+				offenders = append(offenders, filepath.ToSlash(rel)+" contains "+token)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk canvas module: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("canvas module production code must not own AI video runtime:\n  %s", strings.Join(offenders, "\n  "))
+	}
+}
+
 func readRouteLineSource(t *testing.T, root string, rel string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(root, rel))

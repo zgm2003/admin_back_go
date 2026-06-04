@@ -27,7 +27,6 @@ type AuthPolicyService interface {
 
 type SettingsDependencies struct {
 	AuthPolicy AuthPolicyService
-	Video      VideoRuntime
 }
 
 type Service struct {
@@ -112,102 +111,6 @@ func (s *Service) PublicSettings(ctx context.Context, input SettingsInput) (*Set
 	}
 	result.Agents = agents
 	return result, nil
-}
-
-func (s *Service) GenerateVideo(ctx context.Context, input VideoGenerationInput) (*VideoGenerationResponse, *apperror.Error) {
-	if input.UserID <= 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-	}
-	if s == nil || s.settings.Video == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
-	}
-	unitCount := input.DurationSeconds
-	if unitCount <= 0 {
-		unitCount = 1
-	}
-	created, appErr := s.settings.Video.Create(ctx, VideoCreateInput{
-		UserID: input.UserID, AgentID: input.AgentID, ModelID: input.ModelID, Prompt: input.Prompt,
-		DurationSeconds: unitCount, Size: input.Size, ResolutionName: input.ResolutionName,
-	})
-	if appErr != nil {
-		return nil, appErr
-	}
-	if created == nil || created.ID <= 0 {
-		return nil, apperror.InternalKey("canvas.ai.video.task_invalid", nil, "Canvas视频任务创建结果无效")
-	}
-	return &VideoGenerationResponse{ID: created.ID, Status: normalizeVideoStatus(created.Status)}, nil
-}
-
-func (s *Service) VideoStatus(ctx context.Context, userID int64, id int64) (*VideoStatusResponse, *apperror.Error) {
-	task, appErr := s.canvasVideoTask(ctx, userID, id)
-	if appErr != nil {
-		return nil, appErr
-	}
-	if s.settings.Video == nil {
-		return &VideoStatusResponse{ID: task.ID, Status: normalizeVideoStatus(task.Status)}, nil
-	}
-	status, appErr := s.settings.Video.Status(ctx, VideoStatusInput{UserID: userID, Task: task})
-	if appErr != nil {
-		return nil, appErr
-	}
-	nextStatus := normalizeVideoStatus(task.Status)
-	if status != nil {
-		nextStatus = normalizeVideoStatus(status.Status)
-	}
-	return &VideoStatusResponse{ID: task.ID, Status: nextStatus}, nil
-}
-
-func (s *Service) VideoContent(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
-	task, appErr := s.canvasVideoTask(ctx, userID, id)
-	if appErr != nil {
-		return nil, "", appErr
-	}
-	if s.settings.Video == nil {
-		return nil, "", apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
-	}
-	body, contentType, appErr := s.settings.Video.Content(ctx, VideoContentInput{UserID: userID, Task: task})
-	if appErr != nil {
-		return nil, "", appErr
-	}
-	if len(body) == 0 {
-		return nil, "", apperror.BadRequestKey("canvas.ai.video.content_empty", nil, "Canvas视频内容为空")
-	}
-	return body, contentType, nil
-}
-
-func (s *Service) canvasVideoTask(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
-	if userID <= 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-	}
-	if id <= 0 {
-		return nil, apperror.BadRequestKey("canvas.ai.video.id.invalid", nil, "视频任务ID无效")
-	}
-	if s == nil || s.settings.Video == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
-	}
-	task, appErr := s.settings.Video.Task(ctx, userID, id)
-	if appErr != nil {
-		return nil, appErr
-	}
-	if task == nil || task.UserID != userID || task.IsDel != IsDelActive {
-		return nil, apperror.NotFoundKey("canvas.ai.video.not_found", nil, "Canvas视频任务不存在")
-	}
-	return task, nil
-}
-
-func normalizeVideoStatus(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "success", "completed", "succeeded":
-		return "completed"
-	case "failed", "failure", "error":
-		return "failed"
-	case "cancelled", "canceled":
-		return "cancelled"
-	case "running", "processing", "in_progress":
-		return "running"
-	default:
-		return "pending"
-	}
 }
 
 func (s *Service) canvasAllowRegister(ctx context.Context) (bool, *apperror.Error) {
