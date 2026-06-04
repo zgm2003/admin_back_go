@@ -65,7 +65,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	}
 	providerTask, err := engine.CreateVideo(ctx, infraai.VideoInput{Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds, Size: input.Size, ResolutionName: input.ResolutionName})
 	if err != nil {
-		s.markTaskFailed(input.UserID, taskID, "Canvas视频生成失败")
+		if markErr := s.markTaskFailed(input.UserID, taskID, "Canvas视频生成失败"); markErr != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
+		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.provider_failed", nil, "Canvas视频生成失败", err)
 	}
 	providerTaskID := ""
@@ -73,12 +75,14 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 		providerTaskID = strings.TrimSpace(providerTask.ID)
 	}
 	if providerTaskID == "" {
-		s.markTaskFailed(input.UserID, taskID, "Canvas视频任务创建结果无效")
+		if markErr := s.markTaskFailed(input.UserID, taskID, "Canvas视频任务创建结果无效"); markErr != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
+		}
 		return nil, apperror.InternalKey("canvas.ai.video.provider_task_invalid", nil, "Canvas视频任务创建结果无效")
 	}
-	status := StatusPending
-	if providerTask != nil {
-		status = normalizeVideoStatus(providerTask.Status)
+	status, ok := normalizeVideoStatus(providerTask.Status)
+	if !ok {
+		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
 	}
 	fields := map[string]any{"provider_task_id": providerTaskID, "provider_id": agent.ProviderID, "model_id": modelID, "status": status, "updated_at": s.now()}
 	if isTerminalStatus(status) {
@@ -106,13 +110,16 @@ func (s *Service) Status(ctx context.Context, userID int64, id int64) (*StatusRe
 	if providerTask == nil {
 		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
 	}
-	status := normalizeVideoStatus(providerTask.Status)
+	status, ok := normalizeVideoStatus(providerTask.Status)
+	if !ok {
+		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
+	}
 	fields := map[string]any{"status": status, "error_message": strings.TrimSpace(providerTask.ErrorMessage), "updated_at": s.now()}
 	if isTerminalStatus(status) {
 		fields["finished_at"] = s.now()
 	}
-	if s != nil && s.repository != nil {
-		_ = s.repository.UpdateTask(ctx, userID, id, fields)
+	if err := s.repository.UpdateTask(ctx, userID, id, fields); err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
 	}
 	return &StatusResponse{ID: task.ID, Status: status}, nil
 }
@@ -163,7 +170,7 @@ func (s *Service) engineForTask(ctx context.Context, task *VideoTask) (infraai.V
 	}
 	providerTaskID := strings.TrimSpace(task.ProviderTaskID)
 	if providerTaskID == "" {
-		return nil, "", apperror.BadRequestKey("canvas.ai.video.provider_task_missing", nil, "Canvas视频任务尚未绑定Provider任务")
+		return nil, "", apperror.InternalKey("canvas.ai.video.provider_task_missing", nil, "Canvas视频任务尚未绑定Provider任务")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -228,26 +235,28 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func (s *Service) markTaskFailed(userID int64, id int64, message string) {
+func (s *Service) markTaskFailed(userID int64, id int64, message string) error {
 	if s == nil || s.repository == nil || userID <= 0 || id <= 0 {
-		return
+		return ErrRepositoryNotConfigured
 	}
 	now := s.now()
-	_ = s.repository.UpdateTask(context.Background(), userID, id, map[string]any{"status": StatusFailed, "error_message": strings.TrimSpace(message), "updated_at": now, "finished_at": now})
+	return s.repository.UpdateTask(context.Background(), userID, id, map[string]any{"status": StatusFailed, "error_message": strings.TrimSpace(message), "updated_at": now, "finished_at": now})
 }
 
-func normalizeVideoStatus(value string) string {
+func normalizeVideoStatus(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "success", "completed", "succeeded":
-		return StatusCompleted
+		return StatusCompleted, true
 	case "failed", "failure", "error":
-		return StatusFailed
+		return StatusFailed, true
 	case "cancelled", "canceled":
-		return StatusCancelled
+		return StatusCancelled, true
 	case "running", "processing", "in_progress":
-		return StatusRunning
+		return StatusRunning, true
+	case "pending", "queued":
+		return StatusPending, true
 	default:
-		return StatusPending
+		return "", false
 	}
 }
 

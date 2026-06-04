@@ -41,8 +41,8 @@ func (r *GormRepository) AgentForRuntime(ctx context.Context, agentID int64) (*A
 			e.base_url AS engine_base_url,
 			e.api_key_enc AS engine_api_key_enc,
 			e.status AS engine_status`).
-		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
-		Where("a.id = ? AND a.is_del = ? AND a.status = ?", agentID, enum.CommonNo, enum.CommonYes).
+		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).
+		Where("a.id = ? AND a.is_del = ?", agentID, enum.CommonNo).
 		Limit(1).
 		Scan(&row).Error
 	if err != nil {
@@ -57,12 +57,6 @@ func (r *GormRepository) AgentForRuntime(ctx context.Context, agentID int64) (*A
 func (r *GormRepository) CreateTask(ctx context.Context, task VideoTask) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
-	}
-	if task.IsDel == 0 {
-		task.IsDel = IsDelActive
-	}
-	if task.Status == "" {
-		task.Status = StatusPending
 	}
 	if err := r.db.WithContext(ctx).Create(&task).Error; err != nil {
 		return 0, err

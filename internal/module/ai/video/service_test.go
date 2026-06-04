@@ -3,12 +3,18 @@ package aivideo
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type fakeRepository struct {
@@ -20,6 +26,7 @@ type fakeRepository struct {
 	task          *VideoTask
 	getUserID     int64
 	getID         int64
+	updateErr     error
 }
 
 type updateCall struct {
@@ -43,7 +50,7 @@ func (f *fakeRepository) CreateTask(ctx context.Context, task VideoTask) (int64,
 
 func (f *fakeRepository) UpdateTask(ctx context.Context, userID int64, id int64, fields map[string]any) error {
 	f.updates = append(f.updates, updateCall{userID: userID, id: id, fields: fields})
-	return nil
+	return f.updateErr
 }
 
 func (f *fakeRepository) GetTask(ctx context.Context, userID int64, id int64) (*VideoTask, error) {
@@ -158,6 +165,21 @@ func TestCreateProviderFailureMarksLocalTaskFailed(t *testing.T) {
 	}
 }
 
+func TestCreateReturnsTaskUpdateFailedWhenProviderFailureCannotMarkFailed(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), updateErr: errors.New("update failed")}
+	engine := &fakeVideoEngine{createErr: errors.New("provider down")}
+
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+
+	if appErr == nil || appErr.MessageID != "canvas.ai.video.task_update_failed" {
+		t.Fatalf("expected task update failed error, got %#v", appErr)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].fields["status"] != StatusFailed {
+		t.Fatalf("provider failure must attempt failed marker, updates=%#v", repo.updates)
+	}
+}
+
 func TestCreateRejectsEmptyProviderTaskID(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
@@ -170,6 +192,40 @@ func TestCreateRejectsEmptyProviderTaskID(t *testing.T) {
 	}
 	if len(repo.updates) != 1 || repo.updates[0].fields["status"] != StatusFailed {
 		t.Fatalf("invalid provider task must mark task failed, updates=%#v", repo.updates)
+	}
+}
+
+func TestCreateReturnsTaskUpdateFailedWhenInvalidProviderTaskCannotMarkFailed(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), updateErr: errors.New("update failed")}
+	engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "  ", Status: "running"}}
+
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+
+	if appErr == nil || appErr.MessageID != "canvas.ai.video.task_update_failed" {
+		t.Fatalf("expected task update failed error, got %#v", appErr)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].fields["status"] != StatusFailed {
+		t.Fatalf("invalid provider task must attempt failed marker, updates=%#v", repo.updates)
+	}
+}
+
+func TestCreateRejectsUnknownProviderStatus(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	for _, providerStatus := range []string{"paused", " "} {
+		t.Run(providerStatus, func(t *testing.T) {
+			repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
+			engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "provider-task-1", Status: providerStatus}}
+
+			_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+
+			if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_status_invalid" {
+				t.Fatalf("expected provider status invalid error for status %q, got %#v", providerStatus, appErr)
+			}
+			if len(repo.updates) != 0 {
+				t.Fatalf("unknown provider status must not persist task update, updates=%#v", repo.updates)
+			}
+		})
 	}
 }
 
@@ -186,6 +242,40 @@ func TestStatusAndContentUseOwnedActiveTaskProviderTaskID(t *testing.T) {
 	body, contentType, appErr := svc.Content(context.Background(), 7, 77)
 	if appErr != nil || string(body) != "video" || contentType != "video/mp4" || engine.contentID != "provider-task-1" || repo.getUserID != 7 || repo.getID != 77 {
 		t.Fatalf("content mismatch body=%q type=%q id=%q repo=%#v err=%#v", string(body), contentType, engine.contentID, repo, appErr)
+	}
+}
+
+func TestStatusReturnsTaskUpdateFailedWhenPersistingProviderStatusFails(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	engine := &fakeVideoEngine{statusTask: &infraai.VideoTask{ID: "provider-task-1", Status: "completed"}}
+	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: StatusRunning, IsDel: IsDelActive}, updateErr: errors.New("update failed")}
+
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Status(context.Background(), 7, 77)
+
+	if appErr == nil || appErr.MessageID != "canvas.ai.video.task_update_failed" {
+		t.Fatalf("expected task update failed error, got %#v", appErr)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].fields["status"] != StatusCompleted {
+		t.Fatalf("status must attempt provider status persist, updates=%#v", repo.updates)
+	}
+}
+
+func TestStatusRejectsUnknownProviderStatus(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	for _, providerStatus := range []string{"paused", " "} {
+		t.Run(providerStatus, func(t *testing.T) {
+			engine := &fakeVideoEngine{statusTask: &infraai.VideoTask{ID: "provider-task-1", Status: providerStatus}}
+			repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: StatusRunning, IsDel: IsDelActive}}
+
+			_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Status(context.Background(), 7, 77)
+
+			if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_status_invalid" {
+				t.Fatalf("expected provider status invalid error for status %q, got %#v", providerStatus, appErr)
+			}
+			if len(repo.updates) != 0 {
+				t.Fatalf("unknown provider status must not persist task update, updates=%#v", repo.updates)
+			}
+		})
 	}
 }
 
@@ -208,6 +298,9 @@ func TestContentRejectsMissingProviderTaskID(t *testing.T) {
 
 	if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_task_missing" {
 		t.Fatalf("expected missing provider task error, got %#v", appErr)
+	}
+	if appErr.Code != apperror.CodeInternal {
+		t.Fatalf("provider task missing is stored-state inconsistency, expected code=500, got %#v", appErr)
 	}
 }
 
@@ -234,6 +327,27 @@ func TestCreateRejectsNonCanvasVideoScene(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsDisabledAgentAsUnavailable(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	cipher, err := box.Encrypt("provider-key")
+	if err != nil {
+		t.Fatalf("encrypt fixture: %v", err)
+	}
+	repo, mock, closeDB := newVideoMockRepository(t)
+	defer closeDB()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT a.id AS agent_id,\n\t\t\ta.provider_id AS provider_id,\n\t\t\ta.model_id AS model_id,\n\t\t\ta.model_display_name AS model_display_name,\n\t\t\ta.system_prompt AS system_prompt,\n\t\t\ta.scenes_json AS scenes_json,\n\t\t\ta.status AS agent_status,\n\t\t\te.engine_type AS engine_type,\n\t\t\te.base_url AS engine_base_url,\n\t\t\te.api_key_enc AS engine_api_key_enc,\n\t\t\te.status AS engine_status FROM ai_agents AS a JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? WHERE a.id = ? AND a.is_del = ? LIMIT ?")).
+		WithArgs(enum.CommonNo, int64(8), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "provider_id", "model_id", "model_display_name", "system_prompt", "scenes_json", "agent_status", "engine_type", "engine_base_url", "engine_api_key_enc", "engine_status"}).
+			AddRow(int64(8), int64(9), "grok-imagine-video", "Video", "", `["canvas_video_generate"]`, enum.CommonNo, string(infraai.EngineTypeOpenAI), "https://api.openai.test/v1", cipher, enum.CommonYes))
+
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: &fakeVideoEngine{}}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+
+	if appErr == nil || appErr.MessageID != "canvas.ai.video.agent_unavailable" {
+		t.Fatalf("expected disabled agent unavailable error, got %#v", appErr)
+	}
+	assertVideoMockExpectations(t, mock)
+}
+
 func TestCreateRejectsInvalidRequest(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cases := []CreateInput{
@@ -246,5 +360,25 @@ func TestCreateRejectsInvalidRequest(t *testing.T) {
 		if appErr == nil || appErr.MessageID != "canvas.ai.video.request.invalid" {
 			t.Fatalf("expected invalid request error for %#v, got %#v", input, appErr)
 		}
+	}
+}
+
+func newVideoMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("create sql mock: %v", err)
+	}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true, SkipDefaultTransaction: false, Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+	return &GormRepository{db: db}, mock, func() { _ = sqlDB.Close() }
+}
+
+func assertVideoMockExpectations(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
