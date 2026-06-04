@@ -21,6 +21,7 @@ import (
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
+	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
@@ -258,7 +259,14 @@ func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.Stats
 	return &airun.StatsByUserResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
-type fakeRouterAIChatService struct{}
+type fakeRouterAIChatService struct {
+	input aichat.CanvasCompletionInput
+}
+
+func (f *fakeRouterAIChatService) CanvasCompletion(ctx context.Context, input aichat.CanvasCompletionInput) (*aichat.CanvasCompletionResponse, *apperror.Error) {
+	f.input = input
+	return &aichat.CanvasCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
+}
 
 type fakeAppRouterAuthService struct {
 	loginFn       func(context.Context, auth.LoginInput) (*auth.LoginResponse, *apperror.Error)
@@ -4141,7 +4149,7 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 		AiConversationService: fakeRouterAIConversationService{},
 		AiMessageService:      fakeRouterAIMessageService{},
 		AiRunService:          fakeRouterAIRunService{},
-		AiChatService:         fakeRouterAIChatService{},
+		AiChatService:         &fakeRouterAIChatService{},
 	})
 
 	cases := []struct{ method, path, body string }{

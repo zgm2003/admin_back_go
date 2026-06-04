@@ -135,7 +135,22 @@ type Repository interface {
 	TimeoutRuns(ctx context.Context, limit int, staleBefore time.Time, message string) (int64, error)
 }
 
-type HTTPService interface{}
+type CanvasCompletionInput struct {
+	UserID  int64
+	AgentID int64
+	ModelID string
+	Message string
+}
+
+type CanvasCompletionResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Content string `json:"content"`
+}
+
+type HTTPService interface {
+	CanvasCompletion(ctx context.Context, input CanvasCompletionInput) (*CanvasCompletionResponse, *apperror.Error)
+}
 
 type JobService interface {
 	ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error)

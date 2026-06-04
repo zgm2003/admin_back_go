@@ -18,6 +18,7 @@ import (
 type fakeRepository struct {
 	conversation *Conversation
 	agent        *AgentEngineConfig
+	agentID      uint64
 	history      []MessageHistory
 	assistant    AssistantMessageRecord
 	message      Message
@@ -32,6 +33,7 @@ func (f *fakeRepository) ConversationForReply(ctx context.Context, id int64, use
 	return f.conversation, nil
 }
 func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error) {
+	f.agentID = agentID
 	return f.agent, nil
 }
 func (f *fakeRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
@@ -148,6 +150,92 @@ func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 		AgentStatus:      enum.CommonYes,
 		EngineStatus:     enum.CommonYes,
 	}, box
+}
+
+func validCanvasTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
+	t.Helper()
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	cipher, err := box.Encrypt("provider-key")
+	if err != nil {
+		t.Fatalf("encrypt fixture: %v", err)
+	}
+	return &AgentEngineConfig{
+		AgentID:          8,
+		AgentName:        "Canvas文本助手",
+		ProviderID:       2,
+		ModelID:          "gpt-4.1-mini",
+		ModelDisplayName: "GPT 4.1 Mini",
+		SystemPrompt:     "用中文回答",
+		ScenesJSON:       `["canvas_text_generate"]`,
+		EngineType:       string(infraai.EngineTypeOpenAI),
+		EngineBaseURL:    "https://api.openai.test/v1",
+		EngineAPIKeyEnc:  cipher,
+		AgentStatus:      enum.CommonYes,
+		EngineStatus:     enum.CommonYes,
+	}, box
+}
+
+func TestCanvasCompletionUsesCanvasTextAgentAndDoesNotPersistConversation(t *testing.T) {
+	agent, box := validCanvasTextAgentConfig(t)
+	repo := &fakeRepository{agent: agent}
+	engine := &captureEngine{}
+	factory := &fakeEngineFactory{engine: engine}
+	pub := &fakePublisher{}
+	now := time.Date(2026, 6, 4, 12, 0, 0, 123, time.UTC)
+
+	res, appErr := NewService(Dependencies{
+		Repository:    repo,
+		Publisher:     pub,
+		EngineFactory: factory,
+		Secretbox:     box,
+		Now:           func() time.Time { return now },
+	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello canvas "})
+
+	if appErr != nil {
+		t.Fatalf("CanvasCompletion returned error: %#v", appErr)
+	}
+	if res == nil || res.ID != "canvas-chat-1780574400000000123" || res.Object != "chat.completion" || res.Content != "看到了图片" {
+		t.Fatalf("unexpected response: %#v", res)
+	}
+	if repo.agentID != 8 {
+		t.Fatalf("expected runtime agent id 8, got %d", repo.agentID)
+	}
+	if engine.input.UserID != 7 || engine.input.AgentID != 8 || engine.input.UserKey != "canvas:7" || engine.input.Content != "hello canvas" {
+		t.Fatalf("unexpected engine input: %#v", engine.input)
+	}
+	if engine.input.Inputs["model_id"] != "gpt-4.1-mini" || engine.input.Inputs["system_prompt"] != "用中文回答" {
+		t.Fatalf("agent model/system prompt not used: %#v", engine.input.Inputs)
+	}
+	if repo.createdRun.ConversationID != 0 || repo.createdRun.UserMessageID != 0 || repo.assistant.Content != "" || len(pub.pubs) != 0 {
+		t.Fatalf("stateless completion must not persist or publish: repo=%#v pubs=%#v", repo, pub.pubs)
+	}
+	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
+		t.Fatalf("unexpected engine config: %#v", factory.input)
+	}
+}
+
+func TestCanvasCompletionRejectsNonCanvasTextScene(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	_, appErr := NewService(Dependencies{
+		Repository:    &fakeRepository{agent: agent},
+		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
+		Secretbox:     box,
+	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 5, Message: "hi"})
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.chat.agent_unavailable" {
+		t.Fatalf("expected canvas text scene rejection, got %#v", appErr)
+	}
+}
+
+func TestCanvasCompletionRejectsEmptyProviderAnswer(t *testing.T) {
+	agent, box := validCanvasTextAgentConfig(t)
+	_, appErr := NewService(Dependencies{
+		Repository:    &fakeRepository{agent: agent},
+		EngineFactory: &fakeEngineFactory{engine: &blankEngine{}},
+		Secretbox:     box,
+	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 8, Message: "hi"})
+	if appErr == nil || appErr.MessageID != "canvas.ai.chat.empty_result" {
+		t.Fatalf("expected empty result error, got %#v", appErr)
+	}
 }
 
 func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAssistant(t *testing.T) {

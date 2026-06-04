@@ -21,6 +21,7 @@ const defaultTimeoutLimit = 100
 const defaultRunStaleTimeout = 15 * time.Minute
 const historyLimit = 20
 const maxHistoryLimit = 50
+const canvasTextGenerateScene = "canvas_text_generate"
 
 type Dependencies struct {
 	Repository       Repository
@@ -221,6 +222,53 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
 }
 
+func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionInput) (*CanvasCompletionResponse, *apperror.Error) {
+	input.Message = strings.TrimSpace(input.Message)
+	input.ModelID = strings.TrimSpace(input.ModelID)
+	if input.UserID <= 0 {
+		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+	}
+	if input.AgentID <= 0 || input.Message == "" {
+		return nil, apperror.BadRequestKey("canvas.ai.chat.request.invalid", nil, "文本生成参数错误")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, apperror.InternalKey("canvas.ai.chat.repository_missing", nil, "Canvas文本生成仓储未配置")
+	}
+	agent, err := repo.AgentForRuntime(ctx, uint64(input.AgentID))
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.agent_query_failed", nil, "查询文本智能体失败", err)
+	}
+	if agent == nil || agent.AgentID == 0 {
+		return nil, apperror.NotFoundKey("canvas.ai.chat.agent_not_found", nil, "文本智能体不存在")
+	}
+	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsCanvasText(agent.ScenesJSON) {
+		return nil, apperror.BadRequestKey("canvas.ai.chat.agent_unavailable", nil, "该智能体不支持文本生成")
+	}
+	engine, appErr := s.canvasCompletionEngine(ctx, *agent)
+	if appErr != nil {
+		return nil, appErr
+	}
+	result, err := engine.StreamChat(ctx, infraai.ChatInput{
+		AgentID: agent.AgentID,
+		UserID:  uint64(input.UserID),
+		UserKey: canvasUserKey(input.UserID),
+		Content: input.Message,
+		Inputs:  canvasCompletionInputs(*agent),
+	}, discardEventSink{})
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.provider_failed", nil, "Canvas文本生成失败", err)
+	}
+	answer := ""
+	if result != nil {
+		answer = strings.TrimSpace(result.Answer)
+	}
+	if answer == "" {
+		return nil, apperror.BadRequestKey("canvas.ai.chat.empty_result", nil, "Canvas文本生成结果为空")
+	}
+	return &CanvasCompletionResponse{ID: fmt.Sprintf("canvas-chat-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
+}
+
 type tokenResult struct{ Prompt, Completion, Total int }
 
 func resultTokens(result *infraai.ChatResult) tokenResult {
@@ -311,6 +359,34 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	return engine, nil
 }
 
+func (s *Service) canvasCompletionEngine(ctx context.Context, agent AgentEngineConfig) (infraai.Engine, *apperror.Error) {
+	if agent.AgentID == 0 || agent.ProviderID == 0 {
+		return nil, apperror.BadRequestKey("canvas.ai.chat.agent_unavailable", nil, "该智能体不支持文本生成")
+	}
+	apiKeyEnc := strings.TrimSpace(agent.EngineAPIKeyEnc)
+	if apiKeyEnc == "" {
+		return nil, apperror.BadRequestKey("canvas.ai.chat.provider_key_missing", nil, "AI供应商API Key未配置")
+	}
+	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.provider_key_decrypt_failed", nil, "解密AI供应商API Key失败", err)
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, apperror.BadRequestKey("canvas.ai.chat.provider_key_missing", nil, "AI供应商API Key未配置")
+	}
+	if s.engineFactory == nil {
+		return nil, apperror.InternalKey("canvas.ai.chat.engine_missing", nil, "AI引擎工厂未配置")
+	}
+	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.engine_create_failed", nil, "创建AI引擎失败", err)
+	}
+	if engine == nil {
+		return nil, apperror.InternalKey("canvas.ai.chat.engine_missing", nil, "AI引擎未配置")
+	}
+	return engine, nil
+}
+
 func (s *Service) publishStart(ctx context.Context, input ConversationReplyInput) error {
 	event, err := BuildStartEvent(StartPayload{ConversationID: input.ConversationID, RequestID: input.RequestID, UserMessageID: input.UserMessageID, AgentID: input.AgentID})
 	if err != nil {
@@ -383,13 +459,39 @@ func (s *conversationEventSink) Emit(ctx context.Context, event infraai.Event) e
 	return nil
 }
 
+func canvasCompletionInputs(agent AgentEngineConfig) map[string]any {
+	inputs := map[string]any{"model_id": agent.ModelID}
+	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
+		inputs["system_prompt"] = systemPrompt
+	}
+	return inputs
+}
+
+func canvasUserKey(userID int64) string {
+	return fmt.Sprintf("canvas:%d", userID)
+}
+
+type discardEventSink struct{}
+
+func (discardEventSink) Emit(ctx context.Context, event infraai.Event) error {
+	return nil
+}
+
+func agentSupportsCanvasText(raw string) bool {
+	return agentSupportsScene(raw, canvasTextGenerateScene)
+}
+
 func agentSupportsChat(raw string) bool {
+	return agentSupportsScene(raw, "chat")
+}
+
+func agentSupportsScene(raw string, want string) bool {
 	var scenes []string
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &scenes); err != nil || len(scenes) == 0 {
 		return false
 	}
 	for _, scene := range scenes {
-		if strings.TrimSpace(scene) == "chat" {
+		if strings.TrimSpace(scene) == want {
 			return true
 		}
 	}
