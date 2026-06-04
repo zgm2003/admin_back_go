@@ -124,19 +124,6 @@ type CanvasAgentOption struct {
 	Scene            string `json:"scene"`
 }
 
-type ChatCompletionInput struct {
-	UserID  int64
-	AgentID int64
-	ModelID string
-	Message string
-}
-
-type ChatCompletionResponse struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Content string `json:"content"`
-}
-
 type VideoGenerationInput struct {
 	UserID          int64
 	AgentID         int64
@@ -226,49 +213,6 @@ type VideoContentInput struct {
 type VideoProviderStatus struct {
 	Status       string
 	ErrorMessage string
-}
-
-type TextRuntime interface {
-	Generate(ctx context.Context, input TextGenerationInput) (*TextGenerationResponse, *apperror.Error)
-}
-
-type TextGenerationInput struct {
-	UserID  int64
-	AgentID int64
-	ModelID string
-	Message string
-}
-
-type TextGenerationResponse struct {
-	Content string
-}
-
-type TextAgentRuntime struct {
-	AgentID          int64
-	ProviderID       int64
-	ModelID          string
-	ModelDisplayName string
-	SystemPrompt     string
-	ScenesJSON       string
-	EngineType       string
-	EngineBaseURL    string
-	EngineAPIKeyEnc  string
-	AgentStatus      int
-	EngineStatus     int
-}
-
-type TextRepository interface {
-	AgentForTextRuntime(ctx context.Context, agentID int64) (*TextAgentRuntime, error)
-}
-
-type TextEngineFactory interface {
-	NewEngine(ctx context.Context, input TextEngineConfig) (infraai.Engine, error)
-}
-
-type TextEngineConfig struct {
-	EngineType infraai.EngineType
-	BaseURL    string
-	APIKey     string
 }
 
 type Secretbox interface {

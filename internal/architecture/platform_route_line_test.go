@@ -140,6 +140,82 @@ func TestCanvasModuleProductionCodeDoesNotImportAIImage(t *testing.T) {
 	}
 }
 
+func TestCanvasAIChatRoutesOwnedByAIChatTransport(t *testing.T) {
+	root := backendRoot(t)
+	canvasRoute := readRouteLineSource(t, root, "internal/module/canvas/transport/canvas/route.go")
+	mustNotContainRouteLine(t, canvasRoute, `"/ai/chat`)
+
+	aiChatCanvasRoute := filepath.Join(root, "internal", "module", "ai", "chat", "transport", "canvas", "route.go")
+	if _, err := os.Stat(aiChatCanvasRoute); err != nil {
+		t.Fatalf("expected ai chat canvas route transport to exist: %v", err)
+	}
+	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
+	mustContainRouteLine(t, routesCanvas, `aichatcanvas "admin_back_go/internal/module/ai/chat/transport/canvas"`)
+	mustContainRouteLine(t, routesCanvas, `aichatcanvas.RegisterRoutes(router, deps.AiChatService)`)
+}
+
+func TestAIChatCanvasTransportDoesNotImportCanvasModule(t *testing.T) {
+	root := backendRoot(t)
+	transportRoot := filepath.Join(root, "internal", "module", "ai", "chat", "transport", "canvas")
+	var offenders []string
+	err := filepath.WalkDir(transportRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(body), `admin_back_go/internal/module/canvas`) {
+			rel, _ := filepath.Rel(root, path)
+			offenders = append(offenders, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk ai chat canvas transport: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("ai/chat canvas transport must not import canvas module; offenders=%v", offenders)
+	}
+}
+
+func TestCanvasModuleProductionCodeDoesNotOwnAIChatRuntime(t *testing.T) {
+	root := backendRoot(t)
+	canvasRoot := filepath.Join(root, "internal", "module", "canvas")
+	forbidden := []string{"ChatCompletion(", "ChatCompletionInput", "ChatCompletionResponse", "TextRuntimeService", "NewTextRuntimeService", "TextGormRepository", "NewTextGormRepository", "AgentForTextRuntime"}
+	var offenders []string
+	err := filepath.WalkDir(canvasRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(body)
+		for _, token := range forbidden {
+			if strings.Contains(text, token) {
+				rel, _ := filepath.Rel(root, path)
+				offenders = append(offenders, filepath.ToSlash(rel)+" contains "+token)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk canvas module: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("canvas module production code must not own AI chat runtime:\n  %s", strings.Join(offenders, "\n  "))
+	}
+}
+
 func readRouteLineSource(t *testing.T, root string, rel string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(root, rel))

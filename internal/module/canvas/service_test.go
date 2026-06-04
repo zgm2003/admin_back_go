@@ -126,33 +126,6 @@ func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing
 	}
 }
 
-func TestServiceChatCompletionUsesCanvasTextRuntime(t *testing.T) {
-	text := &fakeCanvasTextRuntime{result: &TextGenerationResponse{Content: "hello canvas"}}
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Text: text})
-
-	result, appErr := svc.ChatCompletion(context.Background(), ChatCompletionInput{UserID: 7, AgentID: 8, ModelID: "gpt-4.1-mini", Message: "hi"})
-
-	if appErr != nil {
-		t.Fatalf("ChatCompletion error=%#v", appErr)
-	}
-	if result.Content != "hello canvas" || result.Object != "chat.completion" {
-		t.Fatalf("unexpected chat result: %#v", result)
-	}
-	if text.input.UserID != 7 || text.input.AgentID != 8 || text.input.ModelID != "gpt-4.1-mini" || text.input.Message != "hi" {
-		t.Fatalf("text runtime input mismatch: %#v", text.input)
-	}
-}
-
-func TestServiceChatCompletionDoesNotReturnNotImplemented(t *testing.T) {
-	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Text: &fakeCanvasTextRuntime{result: &TextGenerationResponse{Content: "ok"}}})
-
-	_, appErr := svc.ChatCompletion(context.Background(), ChatCompletionInput{UserID: 7, AgentID: 8, Message: "hi"})
-
-	if appErr != nil && appErr.MessageID == "canvas.ai.chat.not_implemented" {
-		t.Fatalf("chat must not be a not-implemented stub: %#v", appErr)
-	}
-}
-
 func TestServiceGenerateVideoCreatesFreeCanvasTask(t *testing.T) {
 	video := &fakeCanvasVideoRuntime{createResult: &VideoCreateResult{ID: 77, ProviderTaskID: "provider-task-1", Status: "running"}}
 	svc := NewServiceWithSettings(&fakeCanvasRepository{}, SettingsDependencies{Video: video})
@@ -206,20 +179,6 @@ type fakeSettingsAuthPolicy struct {
 func (f *fakeSettingsAuthPolicy) AllowRegister(ctx context.Context, platform string) (bool, error) {
 	f.platform = platform
 	return f.allowRegister, nil
-}
-
-type fakeCanvasTextRuntime struct {
-	input  TextGenerationInput
-	result *TextGenerationResponse
-	err    *apperror.Error
-}
-
-func (f *fakeCanvasTextRuntime) Generate(ctx context.Context, input TextGenerationInput) (*TextGenerationResponse, *apperror.Error) {
-	f.input = input
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.result, nil
 }
 
 type fakeCanvasVideoRuntime struct {

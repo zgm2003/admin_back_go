@@ -216,11 +216,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	paymentCertStore := payment.LocalCertStore{BaseDir: cfg.Payment.CertBaseDir}
 	alipayGateway := payalipay.NewGopayGateway()
 	paymentGateway := payalipay.NewPlatformGateway(alipayGateway)
-	canvasTextRuntime := canvasmodule.NewTextRuntimeService(canvasmodule.TextRuntimeDependencies{
-		Repository:    canvasmodule.NewTextGormRepository(resources.DB),
-		Secretbox:     secretBox,
-		EngineFactory: canvasTextEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
-	})
 	canvasVideoRuntime := canvasmodule.NewVideoRuntimeService(canvasmodule.VideoRuntimeDependencies{
 		Repository:    canvasmodule.NewVideoGormRepository(resources.DB),
 		Secretbox:     secretBox,
@@ -228,7 +223,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	})
 	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
 		AuthPolicy: authPlatformService,
-		Text:       canvasTextRuntime,
 		Video:      canvasVideoRuntime,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
@@ -456,24 +450,6 @@ func (f aiChatEngineFactory) NewEngine(ctx context.Context, input aichat.EngineC
 			BaseURL:           input.BaseURL,
 			APIKey:            input.APIKey,
 			Timeout:           30 * time.Second,
-			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, config.DefaultAIChatStreamIdleTimeout),
-		}), nil
-	default:
-		return nil, infraai.ErrInvalidConfig
-	}
-}
-
-type canvasTextEngineFactory struct {
-	streamIdleTimeout time.Duration
-}
-
-func (f canvasTextEngineFactory) NewEngine(ctx context.Context, input canvasmodule.TextEngineConfig) (infraai.Engine, error) {
-	switch input.EngineType {
-	case infraai.EngineTypeOpenAI:
-		return openaicompat.New(openaicompat.Config{
-			BaseURL:           input.BaseURL,
-			APIKey:            input.APIKey,
-			Timeout:           config.DefaultAIChatStreamMaxDuration,
 			StreamIdleTimeout: positiveDuration(f.streamIdleTimeout, config.DefaultAIChatStreamIdleTimeout),
 		}), nil
 	default:

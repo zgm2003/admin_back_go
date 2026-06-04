@@ -2,6 +2,7 @@ package canvas
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -180,4 +181,17 @@ func (s *VideoRuntimeService) engine(ctx context.Context, agent *VideoAgentRunti
 
 func missingVideoTaskID() *apperror.Error {
 	return apperror.BadRequestKey("canvas.ai.video.provider_task_missing", nil, "Canvas视频任务尚未绑定Provider任务")
+}
+
+func supportsScene(raw string, want string) bool {
+	var scenes []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &scenes); err != nil || len(scenes) == 0 {
+		return false
+	}
+	for _, scene := range scenes {
+		if strings.TrimSpace(scene) == want {
+			return true
+		}
+	}
+	return false
 }

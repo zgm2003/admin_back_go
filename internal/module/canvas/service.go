@@ -2,7 +2,6 @@ package canvas
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -28,7 +27,6 @@ type AuthPolicyService interface {
 
 type SettingsDependencies struct {
 	AuthPolicy AuthPolicyService
-	Text       TextRuntime
 	Video      VideoRuntime
 }
 
@@ -114,23 +112,6 @@ func (s *Service) PublicSettings(ctx context.Context, input SettingsInput) (*Set
 	}
 	result.Agents = agents
 	return result, nil
-}
-
-func (s *Service) ChatCompletion(ctx context.Context, input ChatCompletionInput) (*ChatCompletionResponse, *apperror.Error) {
-	if input.UserID <= 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-	}
-	if s == nil || s.settings.Text == nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.service_missing", nil, "Canvas文本生成服务未配置")
-	}
-	result, appErr := s.settings.Text.Generate(ctx, TextGenerationInput{UserID: input.UserID, AgentID: input.AgentID, ModelID: input.ModelID, Message: input.Message})
-	if appErr != nil {
-		return nil, appErr
-	}
-	if result == nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.result_invalid", nil, "Canvas文本生成结果无效")
-	}
-	return &ChatCompletionResponse{ID: fmt.Sprintf("canvas-chat-%d", time.Now().UnixNano()), Object: "chat.completion", Content: result.Content}, nil
 }
 
 func (s *Service) GenerateVideo(ctx context.Context, input VideoGenerationInput) (*VideoGenerationResponse, *apperror.Error) {
