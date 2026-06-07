@@ -8,6 +8,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 
@@ -86,6 +87,67 @@ type fakeVideoEngine struct {
 	contentErr  error
 }
 
+type fakeRunRecorder struct {
+	nextID          int64
+	started         airun.StartInput
+	completed       airun.CompleteInput
+	failed          airun.FailInput
+	canceled        airun.CancelInput
+	timeout         airun.TimeoutInput
+	completedSource airun.CompleteSourceInput
+	failedSource    airun.FailSourceInput
+	canceledSource  airun.CancelSourceInput
+	timeoutSource   airun.TimeoutSourceInput
+}
+
+func (f *fakeRunRecorder) Start(ctx context.Context, input airun.StartInput) (int64, error) {
+	f.started = input
+	if f.nextID == 0 {
+		return 1, nil
+	}
+	return f.nextID, nil
+}
+
+func (f *fakeRunRecorder) Complete(ctx context.Context, input airun.CompleteInput) error {
+	f.completed = input
+	return nil
+}
+
+func (f *fakeRunRecorder) Fail(ctx context.Context, input airun.FailInput) error {
+	f.failed = input
+	return nil
+}
+
+func (f *fakeRunRecorder) Cancel(ctx context.Context, input airun.CancelInput) error {
+	f.canceled = input
+	return nil
+}
+
+func (f *fakeRunRecorder) Timeout(ctx context.Context, input airun.TimeoutInput) error {
+	f.timeout = input
+	return nil
+}
+
+func (f *fakeRunRecorder) CompleteSource(ctx context.Context, input airun.CompleteSourceInput) error {
+	f.completedSource = input
+	return nil
+}
+
+func (f *fakeRunRecorder) FailSource(ctx context.Context, input airun.FailSourceInput) error {
+	f.failedSource = input
+	return nil
+}
+
+func (f *fakeRunRecorder) CancelSource(ctx context.Context, input airun.CancelSourceInput) error {
+	f.canceledSource = input
+	return nil
+}
+
+func (f *fakeRunRecorder) TimeoutSource(ctx context.Context, input airun.TimeoutSourceInput) error {
+	f.timeoutSource = input
+	return nil
+}
+
 func (f *fakeVideoEngine) CreateVideo(ctx context.Context, input infraai.VideoInput) (*infraai.VideoTask, error) {
 	f.createInput = input
 	return f.createTask, f.createErr
@@ -124,8 +186,9 @@ func TestCreateUsesAgentModelCreatesLocalTaskAndStoresProviderTask(t *testing.T)
 	engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "provider-task-1", Status: "running"}}
 	factory := &fakeEngineFactory{engine: engine}
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
+	recorder := &fakeRunRecorder{nextID: 99}
 
-	result, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: factory}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, ModelID: "client-model", Prompt: " clip ", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
+	result, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: factory, RunRecorder: recorder}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, ModelID: "client-model", Prompt: " clip ", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
 
 	if appErr != nil {
 		t.Fatalf("Create error=%#v", appErr)
@@ -148,20 +211,30 @@ func TestCreateUsesAgentModelCreatesLocalTaskAndStoresProviderTask(t *testing.T)
 	if len(repo.updates) != 1 || repo.updates[0].userID != 7 || repo.updates[0].id != 77 || repo.updates[0].fields["provider_task_id"] != "provider-task-1" || repo.updates[0].fields["status"] != StatusRunning {
 		t.Fatalf("provider task update mismatch: %#v", repo.updates)
 	}
+	if recorder.started.Platform != enum.PlatformCanvas || recorder.started.Modality != enum.AIRunModalityVideo || recorder.started.SourceType != enum.AIRunSourceCanvasVideoTask || recorder.started.SourceID != 77 || recorder.started.InputSnapshot != "clip" {
+		t.Fatalf("video run was not started from local task: %#v", recorder.started)
+	}
+	if recorder.completed.RunID != 0 {
+		t.Fatalf("running provider task must not complete run yet: %#v", recorder.completed)
+	}
 }
 
 func TestCreateProviderFailureMarksLocalTaskFailed(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
 	engine := &fakeVideoEngine{createErr: errors.New("provider down")}
+	recorder := &fakeRunRecorder{nextID: 99}
 
-	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: recorder}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
 
 	if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_failed" {
 		t.Fatalf("expected provider failure error, got %#v", appErr)
 	}
 	if len(repo.updates) != 1 || repo.updates[0].fields["status"] != StatusFailed {
 		t.Fatalf("provider failure must mark task failed, updates=%#v", repo.updates)
+	}
+	if recorder.failed.RunID != 99 || recorder.failed.Message != "Canvas视频生成失败" {
+		t.Fatalf("provider failure must fail video run: %#v", recorder.failed)
 	}
 }
 
@@ -170,7 +243,7 @@ func TestCreateReturnsTaskUpdateFailedWhenProviderFailureCannotMarkFailed(t *tes
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), updateErr: errors.New("update failed")}
 	engine := &fakeVideoEngine{createErr: errors.New("provider down")}
 
-	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: &fakeRunRecorder{nextID: 99}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
 
 	if appErr == nil || appErr.MessageID != "canvas.ai.video.task_update_failed" {
 		t.Fatalf("expected task update failed error, got %#v", appErr)
@@ -185,7 +258,7 @@ func TestCreateRejectsEmptyProviderTaskID(t *testing.T) {
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
 	engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "  ", Status: "running"}}
 
-	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: &fakeRunRecorder{nextID: 99}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
 
 	if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_task_invalid" {
 		t.Fatalf("expected provider task invalid error, got %#v", appErr)
@@ -200,7 +273,7 @@ func TestCreateReturnsTaskUpdateFailedWhenInvalidProviderTaskCannotMarkFailed(t 
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), updateErr: errors.New("update failed")}
 	engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "  ", Status: "running"}}
 
-	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+	_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: &fakeRunRecorder{nextID: 99}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
 
 	if appErr == nil || appErr.MessageID != "canvas.ai.video.task_update_failed" {
 		t.Fatalf("expected task update failed error, got %#v", appErr)
@@ -217,7 +290,7 @@ func TestCreateRejectsUnknownProviderStatus(t *testing.T) {
 			repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
 			engine := &fakeVideoEngine{createTask: &infraai.VideoTask{ID: "provider-task-1", Status: providerStatus}}
 
-			_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
+			_, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: &fakeRunRecorder{nextID: 99}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
 
 			if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_status_invalid" {
 				t.Fatalf("expected provider status invalid error for status %q, got %#v", providerStatus, appErr)
@@ -233,11 +306,15 @@ func TestStatusAndContentUseOwnedActiveTaskProviderTaskID(t *testing.T) {
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	engine := &fakeVideoEngine{statusTask: &infraai.VideoTask{ID: "provider-task-1", Status: "completed"}, body: []byte("video"), contentType: "video/mp4"}
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: StatusRunning, IsDel: IsDelActive}}
-	svc := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}})
+	recorder := &fakeRunRecorder{}
+	svc := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: recorder})
 
 	status, appErr := svc.Status(context.Background(), 7, 77)
 	if appErr != nil || status == nil || status.ID != 77 || status.Status != StatusCompleted || engine.statusID != "provider-task-1" || repo.getUserID != 7 || repo.getID != 77 {
 		t.Fatalf("status mismatch status=%#v id=%q repo=%#v err=%#v", status, engine.statusID, repo, appErr)
+	}
+	if recorder.completedSource.SourceType != enum.AIRunSourceCanvasVideoTask || recorder.completedSource.SourceID != 77 || recorder.completedSource.UsageStatus != enum.AIRunUsageUnavailable {
+		t.Fatalf("completed video status must complete run by source: %#v", recorder.completedSource)
 	}
 	body, contentType, appErr := svc.Content(context.Background(), 7, 77)
 	if appErr != nil || string(body) != "video" || contentType != "video/mp4" || engine.contentID != "provider-task-1" || repo.getUserID != 7 || repo.getID != 77 {
@@ -257,6 +334,22 @@ func TestStatusReturnsTaskUpdateFailedWhenPersistingProviderStatusFails(t *testi
 	}
 	if len(repo.updates) != 1 || repo.updates[0].fields["status"] != StatusCompleted {
 		t.Fatalf("status must attempt provider status persist, updates=%#v", repo.updates)
+	}
+}
+
+func TestStatusCancelsVideoRunWhenProviderCancelled(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	engine := &fakeVideoEngine{statusTask: &infraai.VideoTask{ID: "provider-task-1", Status: "cancelled", ErrorMessage: "user cancelled"}}
+	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box), task: &VideoTask{ID: 77, UserID: 7, AgentID: 8, ProviderTaskID: "provider-task-1", Status: StatusRunning, IsDel: IsDelActive}}
+	recorder := &fakeRunRecorder{}
+
+	status, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: engine}, RunRecorder: recorder}).Status(context.Background(), 7, 77)
+
+	if appErr != nil || status == nil || status.Status != StatusCancelled {
+		t.Fatalf("status mismatch status=%#v err=%#v", status, appErr)
+	}
+	if recorder.canceledSource.SourceType != enum.AIRunSourceCanvasVideoTask || recorder.canceledSource.SourceID != 77 || recorder.canceledSource.Message != "user cancelled" {
+		t.Fatalf("cancelled provider status must cancel run by source: %#v", recorder.canceledSource)
 	}
 }
 

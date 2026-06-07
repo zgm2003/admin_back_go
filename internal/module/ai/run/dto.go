@@ -16,14 +16,22 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	StatusArr   []dict.Option[string] `json:"status_arr"`
-	ProviderArr []dict.Option[int]    `json:"providerArr"`
-	AgentArr    []dict.Option[int]    `json:"agentArr"`
+	StatusArr      []dict.Option[string] `json:"status_arr"`
+	PlatformArr    []dict.Option[string] `json:"platform_arr"`
+	ModalityArr    []dict.Option[string] `json:"modality_arr"`
+	SourceTypeArr  []dict.Option[string] `json:"source_type_arr"`
+	UsageStatusArr []dict.Option[string] `json:"usage_status_arr"`
+	ProviderArr    []dict.Option[int]    `json:"providerArr"`
+	AgentArr       []dict.Option[int]    `json:"agentArr"`
 }
 
 type ListQuery struct {
 	CurrentPage int
 	PageSize    int
+	Platform    string
+	Modality    string
+	SourceType  string
+	UsageStatus string
 	Status      string
 	UserID      *int64
 	RequestID   string
@@ -53,7 +61,13 @@ type ListItem struct {
 	AgentName         string `json:"agent_name"`
 	ProviderID        int64  `json:"provider_id"`
 	ProviderName      string `json:"provider_name"`
-	ConversationID    int64  `json:"conversation_id"`
+	Platform          string `json:"platform"`
+	Modality          string `json:"modality"`
+	SourceType        string `json:"source_type"`
+	SourceID          uint64 `json:"source_id"`
+	InputSnapshot     string `json:"input_snapshot"`
+	UsageStatus       string `json:"usage_status"`
+	ConversationID    *int64 `json:"conversation_id"`
 	ConversationTitle string `json:"conversation_title"`
 	Status            string `json:"status"`
 	StatusName        string `json:"status_name"`
@@ -144,7 +158,13 @@ type DetailResponse struct {
 	AgentName           string                   `json:"agent_name"`
 	ProviderID          int64                    `json:"provider_id"`
 	ProviderName        string                   `json:"provider_name"`
-	ConversationID      int64                    `json:"conversation_id"`
+	Platform            string                   `json:"platform"`
+	Modality            string                   `json:"modality"`
+	SourceType          string                   `json:"source_type"`
+	SourceID            uint64                   `json:"source_id"`
+	InputSnapshot       string                   `json:"input_snapshot"`
+	UsageStatus         string                   `json:"usage_status"`
+	ConversationID      *int64                   `json:"conversation_id"`
 	ConversationTitle   string                   `json:"conversation_title"`
 	Status              string                   `json:"status"`
 	StatusName          string                   `json:"status_name"`
@@ -170,6 +190,9 @@ type DetailResponse struct {
 type StatsFilter struct {
 	DateStart  string
 	DateEnd    string
+	Platform   string
+	Modality   string
+	SourceType string
 	AgentID    *int64
 	ProviderID *int64
 	UserID     *int64
@@ -245,7 +268,13 @@ type ListRow struct {
 	AgentName         string
 	ProviderID        int64
 	ProviderName      string
-	ConversationID    int64
+	Platform          string
+	Modality          string
+	SourceType        string
+	SourceID          uint64
+	InputSnapshot     string
+	UsageStatus       string
+	ConversationID    *int64
 	ConversationTitle string
 	Status            string
 	ModelID           string
@@ -267,7 +296,13 @@ type RunDetailRow struct {
 	AgentName         string
 	ProviderID        int64
 	ProviderName      string
-	ConversationID    int64
+	Platform          string
+	Modality          string
+	SourceType        string
+	SourceID          uint64
+	InputSnapshot     string
+	UsageStatus       string
+	ConversationID    *int64
 	ConversationTitle string
 	Status            string
 	ModelID           string
@@ -360,6 +395,9 @@ type StatsListQuery struct {
 	PageSize    int
 	DateStart   string
 	DateEnd     string
+	Platform    string
+	Modality    string
+	SourceType  string
 	AgentID     *int64
 	ProviderID  *int64
 	UserID      *int64

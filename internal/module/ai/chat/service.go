@@ -13,6 +13,8 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
+	airun "admin_back_go/internal/module/ai/run"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -30,6 +32,8 @@ type Dependencies struct {
 	Secretbox        secretbox.Box
 	ToolRuntime      ToolRuntime
 	KnowledgeRuntime KnowledgeRuntime
+	RunRecorder      RunRecorder
+	TextTasks        TextTaskStore
 	RunStaleTimeout  time.Duration
 	Now              func() time.Time
 }
@@ -41,6 +45,8 @@ type Service struct {
 	secretbox        secretbox.Box
 	toolRuntime      ToolRuntime
 	knowledgeRuntime KnowledgeRuntime
+	runRecorder      RunRecorder
+	textTasks        TextTaskStore
 	runStaleTimeout  time.Duration
 	now              func() time.Time
 }
@@ -54,7 +60,7 @@ func NewService(deps Dependencies) *Service {
 	if runStaleTimeout <= 0 {
 		runStaleTimeout = defaultRunStaleTimeout
 	}
-	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runStaleTimeout: runStaleTimeout, now: now}
+	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -84,16 +90,56 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		_ = s.publishFailed(ctx, input, msg)
 		return nil, apperror.BadRequest(msg)
 	}
+	if err := s.publishStart(ctx, input); err != nil {
+		return nil, err
+	}
+	engine, appErr := s.engineForAgent(ctx, *agent)
+	if appErr != nil {
+		_ = s.publishFailed(ctx, input, appErr.Message)
+		return nil, appErr
+	}
+	history, err := repo.LatestMessages(ctx, input.ConversationID, maxHistoryLimit+1)
+	if err != nil {
+		msg := "读取AI消息历史失败"
+		_ = s.publishFailed(ctx, input, msg)
+		return nil, err
+	}
+	userMessage, ok := userMessageForID(history, input.UserMessageID)
+	if !ok {
+		msg := "用户消息不存在"
+		_ = s.publishFailed(ctx, input, msg)
+		appErr := apperror.BadRequest(msg)
+		return nil, appErr
+	}
+	userContent := userMessage.Content
+	inputSnapshot, appErr := chatRunInputSnapshot(userMessage)
+	if appErr != nil {
+		msg := appErr.Message
+		_ = s.publishFailed(ctx, input, msg)
+		return nil, appErr
+	}
+	if s.runRecorder == nil {
+		msg := "AI运行记录服务未配置"
+		_ = s.publishFailed(ctx, input, msg)
+		return nil, apperror.Internal(msg)
+	}
 	startedAt := s.now()
-	runID, err := repo.CreateRun(ctx, CreateRunRecord{
-		ConversationID:   input.ConversationID,
+	conversationID := input.ConversationID
+	userMessageID := input.UserMessageID
+	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
+		Platform:         enum.PlatformAdmin,
+		Modality:         enum.AIRunModalityChat,
+		SourceType:       enum.AIRunSourceChatMessage,
+		SourceID:         uint64(input.UserMessageID),
+		ConversationID:   &conversationID,
+		UserMessageID:    &userMessageID,
 		RequestID:        input.RequestID,
-		UserMessageID:    input.UserMessageID,
 		UserID:           input.UserID,
 		AgentID:          input.AgentID,
 		ProviderID:       int64(agent.ProviderID),
 		ModelID:          agent.ModelID,
 		ModelDisplayName: agent.ModelDisplayName,
+		InputSnapshot:    inputSnapshot,
 		StartedAt:        startedAt,
 	})
 	if err != nil {
@@ -102,32 +148,15 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	finishRun := func(status string, msg string, cause error) {
 		finishedAt := s.now()
-		_ = repo.FinishRun(context.Background(), FinishRunRecord{RunID: runID, Status: status, Message: msg, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-	}
-	if err := s.publishStart(ctx, input); err != nil {
-		finishRun(statusFromError(ctx, err), err.Error(), err)
-		return nil, err
-	}
-	engine, appErr := s.engineForAgent(ctx, *agent)
-	if appErr != nil {
-		_ = s.publishFailed(ctx, input, appErr.Message)
-		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
-		return nil, appErr
-	}
-	history, err := repo.LatestMessages(ctx, input.ConversationID, maxHistoryLimit+1)
-	if err != nil {
-		msg := "读取AI消息历史失败"
-		_ = s.publishFailed(ctx, input, msg)
-		finishRun(enum.AIRunStatusFailed, msg, err)
-		return nil, err
-	}
-	userContent, ok := userMessageContent(history, input.UserMessageID)
-	if !ok {
-		msg := "用户消息不存在"
-		_ = s.publishFailed(ctx, input, msg)
-		appErr := apperror.BadRequest(msg)
-		finishRun(enum.AIRunStatusFailed, msg, appErr)
-		return nil, appErr
+		finishInput := airun.FailInput{RunID: runID, Message: msg, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}
+		switch status {
+		case enum.AIRunStatusCanceled:
+			_ = s.runRecorder.Cancel(context.Background(), airun.CancelInput(finishInput))
+		case enum.AIRunStatusTimeout:
+			_ = s.runRecorder.Timeout(context.Background(), airun.TimeoutInput(finishInput))
+		default:
+			_ = s.runRecorder.Fail(context.Background(), finishInput)
+		}
 	}
 	if s.knowledgeRuntime != nil {
 		knowledge, knowledgeErr := s.knowledgeRuntime.RetrieveForRun(ctx, KnowledgeRuntimeInput{
@@ -166,6 +195,12 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, err
 	}
 	if toolCalls := resultToolCalls(result); len(toolCalls) > 0 {
+		if _, appErr := runUsageStatus(result); appErr != nil {
+			msg := appErr.Message
+			_ = s.publishFailed(ctx, input, msg)
+			finishRun(enum.AIRunStatusFailed, msg, appErr)
+			return nil, appErr
+		}
 		firstUsage := resultTokens(result)
 		outputs, toolErr := s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
 		if toolErr != nil {
@@ -182,6 +217,12 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			_ = s.publishFailed(ctx, input, msg)
 			finishRun(statusFromError(ctx, err), msg, err)
 			return nil, err
+		}
+		if _, appErr := runUsageStatus(result); appErr != nil {
+			msg := appErr.Message
+			_ = s.publishFailed(ctx, input, msg)
+			finishRun(enum.AIRunStatusFailed, msg, appErr)
+			return nil, appErr
 		}
 		addTokenUsage(result, firstUsage)
 		if len(resultToolCalls(result)) > 0 {
@@ -203,6 +244,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			return nil, err
 		}
 	}
+	usageStatus, appErr := runUsageStatus(result)
+	if appErr != nil {
+		msg := appErr.Message
+		_ = s.publishFailed(ctx, input, msg)
+		finishRun(enum.AIRunStatusFailed, msg, appErr)
+		return nil, appErr
+	}
 	assistantID, err := repo.InsertAssistantMessage(ctx, AssistantMessageRecord{ConversationID: input.ConversationID, Content: answer, Now: s.now()})
 	if err != nil {
 		msg := "保存AI助手消息失败"
@@ -211,7 +259,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, err
 	}
 	finishedAt := s.now()
-	if err := repo.CompleteRun(context.Background(), CompleteRunRecord{RunID: runID, AssistantMessageID: assistantID, PromptTokens: resultTokens(result).Prompt, CompletionTokens: resultTokens(result).Completion, TotalTokens: resultTokens(result).Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
+	assistantMessageID := assistantID
+	tokens := resultTokens(result)
+	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, UsageStatus: usageStatus, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
 		msg := "更新AI运行记录失败"
 		_ = s.publishFailed(ctx, input, msg)
 		return nil, err
@@ -249,6 +299,46 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 	if appErr != nil {
 		return nil, appErr
 	}
+	if s.textTasks == nil {
+		return nil, apperror.InternalKey("canvas.ai.chat.text_task_store_missing", nil, "Canvas文本任务仓储未配置")
+	}
+	if s.runRecorder == nil {
+		return nil, apperror.InternalKey("canvas.ai.chat.run_recorder_missing", nil, "Canvas文本运行记录服务未配置")
+	}
+	startedAt := s.now()
+	textTaskID, err := s.textTasks.Create(ctx, aitext.CreateInput{
+		Platform:   enum.PlatformCanvas,
+		UserID:     input.UserID,
+		AgentID:    agent.AgentID,
+		ProviderID: agent.ProviderID,
+		ModelID:    agent.ModelID,
+		Prompt:     input.Message,
+		Status:     aitext.StatusRunning,
+		StartedAt:  startedAt,
+		CreatedAt:  startedAt,
+		UpdatedAt:  startedAt,
+	})
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.text_task_failed", nil, "创建Canvas文本任务失败", err)
+	}
+	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
+		Platform:         enum.PlatformCanvas,
+		Modality:         enum.AIRunModalityText,
+		SourceType:       enum.AIRunSourceTextTask,
+		SourceID:         textTaskID,
+		UserID:           input.UserID,
+		AgentID:          int64(agent.AgentID),
+		ProviderID:       int64(agent.ProviderID),
+		ModelID:          agent.ModelID,
+		ModelDisplayName: agent.ModelDisplayName,
+		InputSnapshot:    input.Message,
+		StartedAt:        startedAt,
+	})
+	if err != nil {
+		finishedAt := s.now()
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "创建Canvas文本运行记录失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.run_start_failed", nil, "创建Canvas文本运行记录失败", err)
+	}
 	result, err := engine.StreamChat(ctx, infraai.ChatInput{
 		AgentID: agent.AgentID,
 		UserID:  uint64(input.UserID),
@@ -257,6 +347,9 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 		Inputs:  canvasCompletionInputs(*agent),
 	}, discardEventSink{})
 	if err != nil {
+		finishedAt := s.now()
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "Canvas文本生成失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "Canvas文本生成失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.provider_failed", nil, "Canvas文本生成失败", err)
 	}
 	answer := ""
@@ -264,18 +357,40 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 		answer = strings.TrimSpace(result.Answer)
 	}
 	if answer == "" {
+		finishedAt := s.now()
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "Canvas文本生成结果为空", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "Canvas文本生成结果为空", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
 		return nil, apperror.BadRequestKey("canvas.ai.chat.empty_result", nil, "Canvas文本生成结果为空")
+	}
+	usageStatus, appErr := runUsageStatus(result)
+	if appErr != nil {
+		finishedAt := s.now()
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: appErr.Message, FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: appErr.Message, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+		return nil, appErr
+	}
+	tokens := resultTokens(result)
+	finishedAt := s.now()
+	if err := s.textTasks.Complete(ctx, aitext.CompleteInput{ID: textTaskID, Answer: answer, FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)}); err != nil {
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "更新Canvas文本任务失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.text_task_complete_failed", nil, "更新Canvas文本任务失败", err)
+	}
+	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, UsageStatus: usageStatus, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.run_complete_failed", nil, "更新Canvas文本运行记录失败", err)
 	}
 	return &CanvasCompletionResponse{ID: fmt.Sprintf("canvas-chat-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
 }
 
-type tokenResult struct{ Prompt, Completion, Total int }
+type tokenResult struct {
+	Prompt, Completion, Total int
+	UsageStatus               string
+}
 
 func resultTokens(result *infraai.ChatResult) tokenResult {
 	if result == nil {
 		return tokenResult{}
 	}
-	return tokenResult{Prompt: result.PromptTokens, Completion: result.CompletionTokens, Total: result.TotalTokens}
+	return tokenResult{Prompt: result.PromptTokens, Completion: result.CompletionTokens, Total: result.TotalTokens, UsageStatus: result.UsageStatus}
 }
 
 func addTokenUsage(result *infraai.ChatResult, usage tokenResult) {
@@ -285,6 +400,25 @@ func addTokenUsage(result *infraai.ChatResult, usage tokenResult) {
 	result.PromptTokens += usage.Prompt
 	result.CompletionTokens += usage.Completion
 	result.TotalTokens += usage.Total
+	if result.UsageStatus == infraai.UsageStatusReported && usage.UsageStatus == infraai.UsageStatusReported {
+		result.UsageStatus = infraai.UsageStatusReported
+		return
+	}
+	result.UsageStatus = infraai.UsageStatusUnavailable
+}
+
+func runUsageStatus(result *infraai.ChatResult) (string, *apperror.Error) {
+	if result == nil {
+		return "", apperror.InternalKey("ai.run.usage_status_missing", nil, "AI供应商用量状态缺失")
+	}
+	switch result.UsageStatus {
+	case infraai.UsageStatusReported:
+		return enum.AIRunUsageReported, nil
+	case infraai.UsageStatusUnavailable:
+		return enum.AIRunUsageUnavailable, nil
+	default:
+		return "", apperror.InternalKey("ai.run.usage_status_missing", nil, "AI供应商用量状态缺失")
+	}
 }
 
 func durationMS(startedAt time.Time, finishedAt time.Time) uint {
@@ -498,13 +632,35 @@ func agentSupportsScene(raw string, want string) bool {
 	return false
 }
 
-func userMessageContent(rows []MessageHistory, userMessageID int64) (string, bool) {
+func userMessageForID(rows []MessageHistory, userMessageID int64) (MessageHistory, bool) {
 	for _, row := range rows {
 		if row.ID == userMessageID {
-			return row.Content, true
+			return row, true
 		}
 	}
-	return "", false
+	return MessageHistory{}, false
+}
+
+func chatRunInputSnapshot(row MessageHistory) (string, *apperror.Error) {
+	content := strings.TrimSpace(row.Content)
+	meta := ""
+	if row.MetaJSON != nil {
+		meta = strings.TrimSpace(*row.MetaJSON)
+	}
+	if content == "" && meta == "" {
+		return "", apperror.BadRequestKey("ai.chat.user_message_empty", nil, "用户消息内容为空")
+	}
+	if meta == "" {
+		return row.Content, nil
+	}
+	if content == "" {
+		return meta, nil
+	}
+	raw, err := json.Marshal(map[string]string{"content": row.Content, "meta_json": meta})
+	if err != nil {
+		return "", apperror.WrapKey(apperror.CodeInternal, 500, "ai.chat.input_snapshot_failed", nil, "生成AI运行输入快照失败", err)
+	}
+	return string(raw), nil
 }
 
 func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string]string {

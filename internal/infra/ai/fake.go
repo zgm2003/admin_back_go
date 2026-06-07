@@ -50,6 +50,7 @@ func (e *FakeEngine) StreamChat(ctx context.Context, input ChatInput, sink Event
 		PromptTokens:         1,
 		CompletionTokens:     1,
 		TotalTokens:          2,
+		UsageStatus:          UsageStatusReported,
 	}, nil
 }
 

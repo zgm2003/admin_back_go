@@ -18,6 +18,8 @@ import (
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
+	airun "admin_back_go/internal/module/ai/run"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	"admin_back_go/internal/module/export"
@@ -116,11 +118,16 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		exporttask.WithNotifier(exporttask.NewNotificationTaskNotifier(notificationTaskService)),
 		exporttask.WithLogger(logger),
 	)
+	aiRunRepository := airun.NewGormRepository(resources.DB)
+	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
+	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:      aichat.NewGormRepository(resources.DB),
 		Publisher:       realtimePublisher,
 		Secretbox:       secretBox,
 		EngineFactory:   aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
+		RunRecorder:     aiRunRecorder,
+		TextTasks:       aiTextTasks,
 		RunStaleTimeout: positiveDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 	})
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
@@ -129,6 +136,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		EngineFactory: aiImageEngineFactory{},
 		ObjectReader:  storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true}),
 		ObjectWriter:  storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
+		RunRecorder:   aiRunRecorder,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),

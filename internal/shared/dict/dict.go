@@ -50,6 +50,14 @@ func PlatformOptions() []Option[string] {
 	}
 }
 
+func AIRunPlatformOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.Platforms))
+	for _, value := range enum.Platforms {
+		options = append(options, Option[string]{Label: value, Value: value})
+	}
+	return options
+}
+
 func NotificationTaskPlatformOptions() []Option[string] {
 	return []Option[string]{
 		{Label: "全平台", Value: enum.PlatformAll},
@@ -195,6 +203,30 @@ func AIRunStatusOptions() []Option[string] {
 	options := make([]Option[string], 0, len(enum.AIRunStatuses))
 	for _, value := range enum.AIRunStatuses {
 		options = append(options, Option[string]{Label: enum.AIRunStatusLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIRunModalityOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIRunModalities))
+	for _, value := range enum.AIRunModalities {
+		options = append(options, Option[string]{Label: enum.AIRunModalityLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIRunSourceTypeOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIRunSourceTypes))
+	for _, value := range enum.AIRunSourceTypes {
+		options = append(options, Option[string]{Label: enum.AIRunSourceTypeLabels[value], Value: value})
+	}
+	return options
+}
+
+func AIRunUsageStatusOptions() []Option[string] {
+	options := make([]Option[string], 0, len(enum.AIRunUsageStatuses))
+	for _, value := range enum.AIRunUsageStatuses {
+		options = append(options, Option[string]{Label: enum.AIRunUsageStatusLabels[value], Value: value})
 	}
 	return options
 }

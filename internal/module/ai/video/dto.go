@@ -5,6 +5,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -79,9 +80,18 @@ type Secretbox interface {
 	Decrypt(cipherText string) (string, error)
 }
 
+type RunRecorder interface {
+	airun.Recorder
+	CompleteSource(ctx context.Context, input airun.CompleteSourceInput) error
+	FailSource(ctx context.Context, input airun.FailSourceInput) error
+	CancelSource(ctx context.Context, input airun.CancelSourceInput) error
+	TimeoutSource(ctx context.Context, input airun.TimeoutSourceInput) error
+}
+
 type Dependencies struct {
 	Repository    Repository
 	Secretbox     Secretbox
 	EngineFactory EngineFactory
+	RunRecorder   RunRecorder
 	Now           func() time.Time
 }

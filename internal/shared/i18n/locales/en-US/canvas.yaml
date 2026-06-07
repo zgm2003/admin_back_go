@@ -22,6 +22,12 @@ canvas.ai.chat.secretbox_missing: AI secret service is not configured
 canvas.ai.chat.provider_key_decrypt_failed: Failed to decrypt AI provider API key
 canvas.ai.chat.engine_missing: AI engine is not configured
 canvas.ai.chat.engine_create_failed: Failed to create AI engine
+canvas.ai.chat.text_task_store_missing: Canvas text task store is not configured
+canvas.ai.chat.run_recorder_missing: Canvas text run recorder is not configured
+canvas.ai.chat.text_task_failed: Failed to create Canvas text task
+canvas.ai.chat.run_start_failed: Failed to create Canvas text run record
+canvas.ai.chat.text_task_complete_failed: Failed to update Canvas text task
+canvas.ai.chat.run_complete_failed: Failed to update Canvas text run record
 canvas.ai.image.request.invalid: Invalid image generation request
 canvas.ai.image.service_missing: Canvas image generation service is not configured
 canvas.ai.image.result_invalid: Invalid Canvas image generation result
@@ -50,3 +56,8 @@ canvas.ai.video.task_create_failed: Failed to create Canvas video task
 canvas.ai.video.task_invalid: Invalid Canvas video task creation result
 canvas.ai.video.task_query_failed: Failed to query Canvas video task
 canvas.ai.video.task_update_failed: Failed to update Canvas video task
+canvas.ai.video.run_recorder_missing: Canvas video run recorder is not configured
+canvas.ai.video.run_start_failed: Failed to create Canvas video run record
+canvas.ai.video.run_complete_failed: Failed to update Canvas video run record
+canvas.ai.video.run_fail_failed: Failed to update Canvas video run record
+canvas.ai.video.run_cancel_failed: Failed to update Canvas video run record

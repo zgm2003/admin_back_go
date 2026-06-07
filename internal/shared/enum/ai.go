@@ -21,6 +21,35 @@ var AIRunStatuses = []string{AIRunStatusRunning, AIRunStatusSuccess, AIRunStatus
 var AIRunStatusLabels = map[string]string{AIRunStatusRunning: "运行中", AIRunStatusSuccess: "成功", AIRunStatusFailed: "失败", AIRunStatusCanceled: "已取消", AIRunStatusTimeout: "超时"}
 
 const (
+	AIRunModalityChat  = "chat"
+	AIRunModalityText  = "text"
+	AIRunModalityImage = "image"
+	AIRunModalityVideo = "video"
+)
+
+var AIRunModalities = []string{AIRunModalityChat, AIRunModalityText, AIRunModalityImage, AIRunModalityVideo}
+var AIRunModalityLabels = map[string]string{AIRunModalityChat: "对话", AIRunModalityText: "文本", AIRunModalityImage: "图片", AIRunModalityVideo: "视频"}
+
+const (
+	AIRunSourceChatMessage     = "ai_chat_message"
+	AIRunSourceTextTask        = "ai_text_task"
+	AIRunSourceImageTask       = "ai_image_task"
+	AIRunSourceCanvasVideoTask = "canvas_video_task"
+)
+
+var AIRunSourceTypes = []string{AIRunSourceChatMessage, AIRunSourceTextTask, AIRunSourceImageTask, AIRunSourceCanvasVideoTask}
+var AIRunSourceTypeLabels = map[string]string{AIRunSourceChatMessage: "AI对话消息", AIRunSourceTextTask: "AI文本任务", AIRunSourceImageTask: "AI图片任务", AIRunSourceCanvasVideoTask: "Canvas视频任务"}
+
+const (
+	AIRunUsagePending     = "pending"
+	AIRunUsageReported    = "reported"
+	AIRunUsageUnavailable = "unavailable"
+)
+
+var AIRunUsageStatuses = []string{AIRunUsagePending, AIRunUsageReported, AIRunUsageUnavailable}
+var AIRunUsageStatusLabels = map[string]string{AIRunUsagePending: "等待用量", AIRunUsageReported: "已上报", AIRunUsageUnavailable: "未提供"}
+
+const (
 	AIRunEventStart     = "start"
 	AIRunEventCompleted = "completed"
 	AIRunEventFailed    = "failed"
@@ -33,7 +62,19 @@ var AIRunEventLabels = map[string]string{AIRunEventStart: "开始生成", AIRunE
 
 func IsAIMessageRole(value int) bool  { return intIn(value, AIMessageRoles) }
 func IsAIRunStatus(value string) bool { return stringIn(value, AIRunStatuses) }
-func IsAIRunEvent(value string) bool  { return stringIn(value, AIRunEvents) }
+func IsAIRunModality(value string) bool {
+	return stringIn(value, AIRunModalities)
+}
+func IsAIRunSourceType(value string) bool {
+	return stringIn(value, AIRunSourceTypes)
+}
+func IsAIRunUsageStatus(value string) bool {
+	return stringIn(value, AIRunUsageStatuses)
+}
+func IsAIRunTerminalUsageStatus(value string) bool {
+	return value == AIRunUsageReported || value == AIRunUsageUnavailable
+}
+func IsAIRunEvent(value string) bool { return stringIn(value, AIRunEvents) }
 
 func intIn(value int, values []int) bool {
 	for _, item := range values {

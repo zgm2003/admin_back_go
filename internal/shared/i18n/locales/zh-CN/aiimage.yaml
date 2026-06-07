@@ -3,6 +3,8 @@ aiimage.task.list.request.invalid: 图片任务列表参数错误
 aiimage.task.id.invalid: 无效的图片任务ID
 aiimage.asset.request.invalid: 图片资产参数错误
 aiimage.task.request.invalid: 图片任务参数错误
+aiimage.platform.required: 图片任务平台不能为空
+aiimage.platform.invalid: 图片任务平台无效
 aiimage.favorite.request.invalid: 图片收藏参数错误
 aiimage.agent.query_failed: 查询图片智能体失败
 aiimage.task.status.invalid: 无效的图片任务状态
@@ -63,3 +65,4 @@ aiimage.output.base64_decode_failed: 生成图片base64解码失败
 aiimage.cos_writer.missing: COS写入器未配置
 aiimage.output_key.build_failed: 生成图片存储路径失败
 aiimage.output.upload_failed: 上传生成图片失败
+aiimage.run.usage_status_missing: 图片生成用量状态缺失

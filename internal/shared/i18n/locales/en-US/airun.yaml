@@ -1,0 +1,3 @@
+ai.run.usage_status_missing: AI run usage status is missing
+ai.chat.user_message_empty: User message content is empty
+ai.chat.input_snapshot_failed: Failed to build AI run input snapshot

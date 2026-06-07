@@ -1501,10 +1501,11 @@ internal/module/ai/agent         # ai_agents local agent config MVP
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
 internal/module/ai/image         # ai_image_tasks / ai_image_assets generation runtime
 internal/module/ai/video         # canvas_video_tasks Canvas video generation runtime
+internal/module/ai/text          # ai_text_tasks Canvas text generation source rows
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
 internal/module/ai/conversation   # current-user conversations; canonical agent_id -> ai_agents
 internal/module/ai/message        # conversation messages, feedback, branch cleanup
-internal/module/ai/run            # ai_runs / ai_run_events token-only run monitor
+internal/module/ai/run            # ai_runs / ai_run_events unified provider-attempt monitor
 internal/module/ai/chat           # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
 ```
 
@@ -1526,7 +1527,8 @@ docs/db/ai-live-schema-mcp-2026-05-10.md # MCP snapshot: the only current AI tab
 20260509_ai_conversation_message_mvp.sql  # ai_conversations / ai_messages WebSocket conversation MVP
 20260509_ai_agent_mvp_prune.sql           # prunes ai_agents down to provider/model/scenes/system_prompt/avatar
 20260509_ai_agent_drop_type_code.sql      # drops fake agent code/type concepts
-20260510_ai_run_monitor_mvp.sql           # ai_runs / ai_run_events token-only monitor
+20260510_ai_run_monitor_mvp.sql           # ai_runs / ai_run_events original chat monitor
+20260607_unified_ai_run_records.sql       # ai_runs unified provider-attempt fields + ai_text_tasks
 20260510_ai_messages_meta_json.sql        # message attachments/runtime params metadata
 20260510_ai_tool_runtime_mvp.sql          # ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
 20260510_ai_tool_drop_executor.sql        # removes duplicate ai_tools.executor; tool code is the dispatch key
@@ -1579,7 +1581,9 @@ POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no en
 Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
 OpenAI-compatible StreamChat does not use a 30s HTTP total timeout while reading response body; live max duration and upstream silence timeout are code-owned AI runtime guardrails, not Docker-first env knobs.
 ai_run_timeout is stale cleanup only: admin-worker marks running rows older than the code-owned AI run stale timeout default, not fresh online replies.
-ai_runs records one reply attempt with status, token totals, duration, and message links.
+ai_runs records one provider attempt across chat/text/image/video with platform, modality, source_type/source_id, input_snapshot, usage_status, status, token totals, and duration.
+Chat runs may link ai_conversations/ai_messages; text/image/video runs do not fake messages and are identified by their source row.
+usage_status is pending while running and becomes reported or unavailable only from provider result handling; token totals are never guessed from prompt length, image count, duration, or model name.
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
 ai_knowledge_retrievals and ai_knowledge_retrieval_hits record knowledge retrieval audit and are shown on run detail; knowledge retrievals are not stuffed into ai_run_events.

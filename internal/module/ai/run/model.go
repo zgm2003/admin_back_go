@@ -4,19 +4,25 @@ import "time"
 
 type Run struct {
 	ID                 int64      `gorm:"column:id;primaryKey"`
-	ConversationID     int64      `gorm:"column:conversation_id"`
+	Platform           string     `gorm:"column:platform"`
+	Modality           string     `gorm:"column:modality"`
+	SourceType         string     `gorm:"column:source_type"`
+	SourceID           uint64     `gorm:"column:source_id"`
+	ConversationID     *int64     `gorm:"column:conversation_id"`
 	RequestID          string     `gorm:"column:request_id"`
-	UserMessageID      int64      `gorm:"column:user_message_id"`
+	UserMessageID      *int64     `gorm:"column:user_message_id"`
 	AssistantMessageID *int64     `gorm:"column:assistant_message_id"`
 	UserID             int64      `gorm:"column:user_id"`
 	AgentID            int64      `gorm:"column:agent_id"`
 	ProviderID         int64      `gorm:"column:provider_id"`
 	ModelID            string     `gorm:"column:model_id"`
 	ModelDisplayName   string     `gorm:"column:model_display_name"`
+	InputSnapshot      string     `gorm:"column:input_snapshot"`
 	Status             string     `gorm:"column:status"`
 	PromptTokens       uint       `gorm:"column:prompt_tokens"`
 	CompletionTokens   uint       `gorm:"column:completion_tokens"`
 	TotalTokens        uint       `gorm:"column:total_tokens"`
+	UsageStatus        string     `gorm:"column:usage_status"`
 	DurationMS         *uint      `gorm:"column:duration_ms"`
 	ErrorMessage       string     `gorm:"column:error_message"`
 	StartedAt          *time.Time `gorm:"column:started_at"`

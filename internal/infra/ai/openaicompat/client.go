@@ -410,6 +410,9 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			continue
 		}
 		if data == "[DONE]" {
+			if result.UsageStatus == "" {
+				result.UsageStatus = infraai.UsageStatusUnavailable
+			}
 			return result, nil
 		}
 		var chunk chatCompletionStreamChunk
@@ -420,6 +423,7 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			result.PromptTokens = chunk.Usage.PromptTokens
 			result.CompletionTokens = chunk.Usage.CompletionTokens
 			result.TotalTokens = chunk.Usage.TotalTokens
+			result.UsageStatus = infraai.UsageStatusReported
 		}
 		for _, choice := range chunk.Choices {
 			for _, call := range choice.Delta.ToolCalls {
@@ -440,6 +444,9 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read OpenAI chat completion stream: %w", err)
+	}
+	if result.UsageStatus == "" {
+		result.UsageStatus = infraai.UsageStatusUnavailable
 	}
 	return result, nil
 }

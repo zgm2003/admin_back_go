@@ -5,6 +5,8 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	airun "admin_back_go/internal/module/ai/run"
+	aitext "admin_back_go/internal/module/ai/text"
 	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -134,6 +136,10 @@ type Repository interface {
 	FinishRun(ctx context.Context, input FinishRunRecord) error
 	TimeoutRuns(ctx context.Context, limit int, staleBefore time.Time, message string) (int64, error)
 }
+
+type RunRecorder = airun.Recorder
+
+type TextTaskStore = aitext.Store
 
 type CanvasCompletionInput struct {
 	UserID  int64

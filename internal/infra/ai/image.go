@@ -29,9 +29,13 @@ type GeneratedImage struct {
 }
 
 type ImageResult struct {
-	Images       []GeneratedImage
-	ActualParams map[string]any
-	RawResponse  []byte
+	Images           []GeneratedImage
+	ActualParams     map[string]any
+	RawResponse      []byte
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	UsageStatus      string
 }
 
 type ImageEngine interface {

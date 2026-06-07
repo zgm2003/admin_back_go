@@ -18,6 +18,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
+	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -70,6 +71,7 @@ type Service struct {
 	engineFactory ImageEngineFactory
 	objectReader  storagecos.ObjectReader
 	objectWriter  storagecos.ObjectWriter
+	runRecorder   airun.Recorder
 	now           func() time.Time
 	random        func([]byte) (int, error)
 }
@@ -81,6 +83,7 @@ type Dependencies struct {
 	EngineFactory ImageEngineFactory
 	ObjectReader  storagecos.ObjectReader
 	ObjectWriter  storagecos.ObjectWriter
+	RunRecorder   airun.Recorder
 	Now           func() time.Time
 	Random        func([]byte) (int, error)
 }
@@ -112,7 +115,7 @@ func NewService(deps Dependencies) *Service {
 	if deps.Random == nil {
 		deps.Random = rand.Read
 	}
-	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, now: deps.Now, random: deps.Random}
+	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, runRecorder: deps.RunRecorder, now: deps.Now, random: deps.Random}
 }
 
 func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
@@ -254,7 +257,7 @@ func (s *Service) createNormalized(ctx context.Context, repo Repository, normali
 		return nil, appErr
 	}
 	now := s.now()
-	task := ImageTask{UserID: normalized.UserID, AgentID: normalized.AgentID, AgentNameSnapshot: agent.AgentName, ProviderIDSnapshot: agent.ProviderID, ProviderNameSnapshot: agent.ProviderName, ModelIDSnapshot: agent.ModelID, ModelDisplayNameSnapshot: agent.ModelDisplayName, Prompt: normalized.Prompt, Size: normalized.Size, Quality: normalized.Quality, OutputFormat: normalized.OutputFormat, OutputCompression: normalized.OutputCompression, Moderation: normalized.Moderation, N: normalized.N, Status: StatusPending, IsFavorite: enum.CommonNo, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}
+	task := ImageTask{Platform: normalized.Platform, UserID: normalized.UserID, AgentID: normalized.AgentID, AgentNameSnapshot: agent.AgentName, ProviderIDSnapshot: agent.ProviderID, ProviderNameSnapshot: agent.ProviderName, ModelIDSnapshot: agent.ModelID, ModelDisplayNameSnapshot: agent.ModelDisplayName, Prompt: normalized.Prompt, Size: normalized.Size, Quality: normalized.Quality, OutputFormat: normalized.OutputFormat, OutputCompression: normalized.OutputCompression, Moderation: normalized.Moderation, N: normalized.N, Status: StatusPending, IsFavorite: enum.CommonNo, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}
 	links := inputLinks(normalized, assets, now)
 	id, err := repo.CreateTaskWithAssets(ctx, task, links)
 	if err != nil {
@@ -352,41 +355,68 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if task == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片任务不存在", nil)
 	}
+	if s.runRecorder == nil {
+		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片运行记录服务未配置", nil)
+	}
+	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
+		Platform:         task.Platform,
+		Modality:         enum.AIRunModalityImage,
+		SourceType:       enum.AIRunSourceImageTask,
+		SourceID:         task.ID,
+		RequestID:        fmt.Sprintf("ai_image_task_%d", task.ID),
+		UserID:           int64(task.UserID),
+		AgentID:          int64(task.AgentID),
+		ProviderID:       int64(task.ProviderIDSnapshot),
+		ModelID:          task.ModelIDSnapshot,
+		ModelDisplayName: task.ModelDisplayNameSnapshot,
+		InputSnapshot:    task.Prompt,
+		StartedAt:        startedAt,
+	})
+	if err != nil {
+		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "创建图片运行记录失败", err)
+	}
 	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, "")
 	if appErr != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
 	links, err := repo.LoadTaskAssets(ctx, task.ID)
 	if err != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "读取图片任务资产失败", err)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "读取图片任务资产失败", err)
 	}
 	assets, appErr := s.engineAssets(ctx, repo, links)
 	if appErr != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
 	apiKey, appErr := s.decryptProviderKey(agent.APIKeyEnc)
 	if appErr != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
 	engine := s.imageEngine(ImageEngineConfig{EngineType: agent.EngineType, BaseURL: agent.BaseURL, APIKey: apiKey, Timeout: 10 * time.Minute})
 	if engine == nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片生成引擎未配置", nil)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成引擎未配置", nil)
 	}
 	result, err := engine.GenerateImages(ctx, infraai.ImageInput{Model: task.ModelIDSnapshot, Prompt: task.Prompt, Size: task.Size, Quality: task.Quality, OutputFormat: task.OutputFormat, OutputCompression: task.OutputCompression, Moderation: task.Moderation, N: task.N, InputAssets: assets.inputs, MaskAsset: assets.mask})
 	if err != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片生成失败", err)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成失败", err)
 	}
 	if result == nil || len(result.Images) == 0 {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片生成结果为空", nil)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成结果为空", nil)
+	}
+	usageStatus, appErr := imageRunUsageStatus(result)
+	if appErr != nil {
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
 	if appErr := s.persistOutputs(ctx, repo, *task, result); appErr != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
+		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
 	finishedAt := s.now()
 	actualParamsJSON := jsonString(result.ActualParams)
 	rawResponseJSON := sanitizeRawResponse(result.RawResponse)
 	if err := repo.FinishTaskSuccess(ctx, task.UserID, task.ID, actualParamsJSON, rawResponseJSON, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
 		return nil, fmt.Errorf("finish image task success: %w", err)
+	}
+	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens, UsageStatus: usageStatus, FinishedAt: finishedAt, DurationMS: uint(elapsedMS(startedAt, finishedAt))}); err != nil {
+		return nil, fmt.Errorf("finish image run success: %w", err)
 	}
 	return &GenerateResult{TaskID: task.ID, Status: StatusSuccess}, nil
 }
@@ -400,6 +430,7 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 
 func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
 	input.Prompt = strings.TrimSpace(input.Prompt)
+	input.Platform = strings.TrimSpace(input.Platform)
 	input.Size = strings.TrimSpace(input.Size)
 	input.Quality = strings.TrimSpace(input.Quality)
 	input.OutputFormat = strings.ToLower(strings.TrimSpace(input.OutputFormat))
@@ -410,6 +441,12 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	}
 	if input.AgentID == 0 {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.agent.required", nil, "图片智能体不能为空")
+	}
+	if input.Platform == "" {
+		return CreateInput{}, apperror.BadRequestKey("aiimage.platform.required", nil, "图片任务平台不能为空")
+	}
+	if input.Platform != enum.PlatformAdmin && input.Platform != enum.PlatformCanvas {
+		return CreateInput{}, apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
 	}
 	if input.Prompt == "" {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.prompt.required", nil, "提示词不能为空")
@@ -807,6 +844,24 @@ func (s *Service) finishGenerateFailed(ctx context.Context, repo Repository, inp
 	return &GenerateResult{TaskID: input.TaskID, Status: StatusFailed}, nil
 }
 
+func (s *Service) finishGenerateFailedWithRun(ctx context.Context, repo Repository, input GenerateInput, runID int64, startedAt time.Time, message string, cause error) (*GenerateResult, error) {
+	finishedAt := s.now()
+	duration := uint(elapsedMS(startedAt, finishedAt))
+	failInput := airun.FailInput{RunID: runID, Message: trimErrorMessage(message, cause), FinishedAt: finishedAt, DurationMS: duration}
+	switch statusFromImageError(ctx, cause) {
+	case enum.AIRunStatusCanceled:
+		_ = s.runRecorder.Cancel(context.Background(), airun.CancelInput(failInput))
+	case enum.AIRunStatusTimeout:
+		_ = s.runRecorder.Timeout(context.Background(), airun.TimeoutInput(failInput))
+	default:
+		_ = s.runRecorder.Fail(context.Background(), failInput)
+	}
+	if err := repo.FinishTaskFailed(ctx, input.UserID, input.TaskID, failInput.Message, int(duration), finishedAt); err != nil {
+		return nil, fmt.Errorf("finish image task failed state: %w", err)
+	}
+	return &GenerateResult{TaskID: input.TaskID, Status: StatusFailed}, nil
+}
+
 func (s *Service) finishFailed(ctx context.Context, repo Repository, input GenerateInput, startedAt time.Time, message string, cause error) error {
 	message = trimErrorMessage(message, cause)
 	finishedAt := s.now()
@@ -814,6 +869,30 @@ func (s *Service) finishFailed(ctx context.Context, repo Repository, input Gener
 		return fmt.Errorf("finish image task failed state: %w", err)
 	}
 	return nil
+}
+
+func imageRunUsageStatus(result *infraai.ImageResult) (string, *apperror.Error) {
+	if result == nil {
+		return "", apperror.InternalKey("aiimage.run.usage_status_missing", nil, "AI图片供应商用量状态缺失")
+	}
+	switch result.UsageStatus {
+	case infraai.UsageStatusReported:
+		return enum.AIRunUsageReported, nil
+	case infraai.UsageStatusUnavailable:
+		return enum.AIRunUsageUnavailable, nil
+	default:
+		return "", apperror.InternalKey("aiimage.run.usage_status_missing", nil, "AI图片供应商用量状态缺失")
+	}
+}
+
+func statusFromImageError(ctx context.Context, err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		return enum.AIRunStatusCanceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return enum.AIRunStatusTimeout
+	}
+	return enum.AIRunStatusFailed
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {

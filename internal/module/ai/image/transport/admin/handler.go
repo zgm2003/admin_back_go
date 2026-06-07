@@ -7,6 +7,7 @@ import (
 	"admin_back_go/internal/middleware"
 	aiimagemodule "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
@@ -72,7 +73,7 @@ func (h *Handler) Create(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("aiimage.task.request.invalid", nil, "图片任务参数错误"))
 		return
 	}
-	result, appErr := h.requireService().Create(c.Request.Context(), aiimagemodule.CreateInput{UserID: userID, AgentID: req.AgentID, Prompt: req.Prompt, Size: req.Size, Quality: req.Quality, OutputFormat: req.OutputFormat, OutputCompression: req.OutputCompression, Moderation: req.Moderation, N: req.N, InputAssetIDs: req.InputAssetIDs, MaskAssetID: req.MaskAssetID, MaskTargetAssetID: req.MaskTargetAssetID})
+	result, appErr := h.requireService().Create(c.Request.Context(), aiimagemodule.CreateInput{UserID: userID, AgentID: req.AgentID, Platform: enum.PlatformAdmin, Prompt: req.Prompt, Size: req.Size, Quality: req.Quality, OutputFormat: req.OutputFormat, OutputCompression: req.OutputCompression, Moderation: req.Moderation, N: req.N, InputAssetIDs: req.InputAssetIDs, MaskAssetID: req.MaskAssetID, MaskTargetAssetID: req.MaskTargetAssetID})
 	writeResult(c, result, appErr)
 }
 

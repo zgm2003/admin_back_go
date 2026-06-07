@@ -30,6 +30,7 @@ import (
 	aimessage "admin_back_go/internal/module/ai/message"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
+	aitext "admin_back_go/internal/module/ai/text"
 	aitool "admin_back_go/internal/module/ai/tool"
 	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
@@ -192,6 +193,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	)
 	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), secretBox, aiProviderTester{})
+	aiRunRepository := airun.NewGormRepository(resources.DB)
+	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
+	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
 		Repository:    aiimage.NewGormRepository(resources.DB),
 		Enqueuer:      queueClient,
@@ -199,6 +203,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		EngineFactory: aiImageEngineFactory{},
 		ObjectReader:  cosObjectReader,
 		ObjectWriter:  cosObjectWriter,
+		RunRecorder:   aiRunRecorder,
 	})
 	aiToolRepo := aitool.NewGormRepository(resources.DB)
 	aiToolService := aitool.NewService(
@@ -209,7 +214,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	)
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
-	aiRunService := airun.NewService(airun.NewGormRepository(resources.DB))
+	aiRunService := airun.NewService(aiRunRepository)
 	paymentCertResolver := payment.CertPathResolver{
 		CertBaseDir: cfg.Payment.CertBaseDir,
 		WorkingDir:  ".",
@@ -221,6 +226,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Repository:    aivideo.NewGormRepository(resources.DB),
 		Secretbox:     secretBox,
 		EngineFactory: aiVideoEngineFactory{},
+		RunRecorder:   aiRunRecorder,
 	})
 	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
 		AuthPolicy: authPlatformService,
@@ -297,6 +303,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		EngineFactory:    aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
 		ToolRuntime:      aiToolService,
 		KnowledgeRuntime: aiKnowledgeRuntimeAdapter{service: aiKnowledgeService},
+		RunRecorder:      aiRunRecorder,
+		TextTasks:        aiTextTasks,
 		RunStaleTimeout:  positiveDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 	})
 	aiReplyDispatcher := newAIConversationReplyDispatcher(aiChatService, logger, aiReplyTimeout(cfg.AI.ChatStreamMaxDuration))

@@ -8,6 +8,11 @@ const (
 	EngineTypeOpenAI EngineType = "openai"
 )
 
+const (
+	UsageStatusReported    = "reported"
+	UsageStatusUnavailable = "unavailable"
+)
+
 type TestConnectionInput struct {
 	EngineType EngineType
 	BaseURL    string
@@ -62,6 +67,7 @@ type ChatResult struct {
 	PromptTokens         int
 	CompletionTokens     int
 	TotalTokens          int
+	UsageStatus          string
 	Cost                 float64
 	LatencyMs            int
 }

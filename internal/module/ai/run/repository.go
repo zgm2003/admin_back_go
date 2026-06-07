@@ -55,6 +55,7 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	err := db.Select(`r.id, r.request_id, r.user_id,
 		r.agent_id, COALESCE(a.name, '') as agent_name,
 		r.provider_id, COALESCE(p.name, '') as provider_name,
+		r.platform, r.modality, r.source_type, r.source_id, r.input_snapshot, r.usage_status,
 		r.conversation_id, COALESCE(c.title, '') as conversation_title,
 		r.status, r.model_id, r.model_display_name,
 		r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message, r.created_at`).
@@ -74,6 +75,7 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 		Select(`r.id, r.request_id, r.user_id, COALESCE(u.username, '') as username,
 			r.agent_id, COALESCE(a.name, '') as agent_name,
 			r.provider_id, COALESCE(p.name, '') as provider_name,
+			r.platform, r.modality, r.source_type, r.source_id, r.input_snapshot, r.usage_status,
 			r.conversation_id, COALESCE(c.title, '') as conversation_title,
 			r.status, r.model_id, r.model_display_name,
 			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message,
@@ -203,6 +205,18 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 	if strings.TrimSpace(query.Status) != "" {
 		db = db.Where("r.status = ?", strings.TrimSpace(query.Status))
 	}
+	if strings.TrimSpace(query.Platform) != "" {
+		db = db.Where("r.platform = ?", strings.TrimSpace(query.Platform))
+	}
+	if strings.TrimSpace(query.Modality) != "" {
+		db = db.Where("r.modality = ?", strings.TrimSpace(query.Modality))
+	}
+	if strings.TrimSpace(query.SourceType) != "" {
+		db = db.Where("r.source_type = ?", strings.TrimSpace(query.SourceType))
+	}
+	if strings.TrimSpace(query.UsageStatus) != "" {
+		db = db.Where("r.usage_status = ?", strings.TrimSpace(query.UsageStatus))
+	}
 	if query.UserID != nil {
 		db = db.Where("r.user_id = ?", *query.UserID)
 	}
@@ -219,6 +233,15 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 }
 
 func applyStatsFilters(db *gorm.DB, query StatsFilter) *gorm.DB {
+	if strings.TrimSpace(query.Platform) != "" {
+		db = db.Where("r.platform = ?", strings.TrimSpace(query.Platform))
+	}
+	if strings.TrimSpace(query.Modality) != "" {
+		db = db.Where("r.modality = ?", strings.TrimSpace(query.Modality))
+	}
+	if strings.TrimSpace(query.SourceType) != "" {
+		db = db.Where("r.source_type = ?", strings.TrimSpace(query.SourceType))
+	}
 	if query.AgentID != nil {
 		db = db.Where("r.agent_id = ?", *query.AgentID)
 	}
@@ -232,7 +255,7 @@ func applyStatsFilters(db *gorm.DB, query StatsFilter) *gorm.DB {
 }
 
 func applyStatsListFilters(db *gorm.DB, query StatsListQuery) *gorm.DB {
-	return applyStatsFilters(db, StatsFilter{DateStart: query.DateStart, DateEnd: query.DateEnd, AgentID: query.AgentID, ProviderID: query.ProviderID, UserID: query.UserID})
+	return applyStatsFilters(db, StatsFilter{DateStart: query.DateStart, DateEnd: query.DateEnd, Platform: query.Platform, Modality: query.Modality, SourceType: query.SourceType, AgentID: query.AgentID, ProviderID: query.ProviderID, UserID: query.UserID})
 }
 
 func applyDateRange(db *gorm.DB, start string, end string) *gorm.DB {

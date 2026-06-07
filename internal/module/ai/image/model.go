@@ -4,6 +4,7 @@ import "time"
 
 type ImageTask struct {
 	ID                       uint64     `gorm:"column:id"`
+	Platform                 string     `gorm:"column:platform"`
 	UserID                   uint64     `gorm:"column:user_id"`
 	AgentID                  uint64     `gorm:"column:agent_id"`
 	AgentNameSnapshot        string     `gorm:"column:agent_name_snapshot"`

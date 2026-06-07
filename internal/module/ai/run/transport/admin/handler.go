@@ -30,7 +30,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), airunmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID, DateStart: req.DateStart, DateEnd: req.DateEnd})
+	res, appErr := h.requireService().List(c.Request.Context(), airunmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: req.Platform, Modality: req.Modality, SourceType: req.SourceType, UsageStatus: req.UsageStatus, Status: req.Status, UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID, DateStart: req.DateStart, DateEnd: req.DateEnd})
 	writeResult(c, res, appErr)
 }
 
@@ -49,7 +49,7 @@ func (h *Handler) Stats(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行统计参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Stats(c.Request.Context(), airunmodule.StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID})
+	res, appErr := h.requireService().Stats(c.Request.Context(), airunmodule.StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, Platform: req.Platform, Modality: req.Modality, SourceType: req.SourceType, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID})
 	writeResult(c, res, appErr)
 }
 
@@ -93,7 +93,7 @@ func bindStatsList(c *gin.Context) (airunmodule.StatsListQuery, bool) {
 		response.Error(c, apperror.BadRequest("AI运行统计列表参数错误"))
 		return airunmodule.StatsListQuery{}, false
 	}
-	return airunmodule.StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID}, true
+	return airunmodule.StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, Platform: req.Platform, Modality: req.Modality, SourceType: req.SourceType, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID}, true
 }
 
 func routeID(c *gin.Context, name string, msg string) (int64, bool) {

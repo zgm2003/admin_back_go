@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
+	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -202,6 +203,43 @@ func (f *fakeImageEngine) GenerateImages(ctx context.Context, input infraai.Imag
 	return f.result, nil
 }
 
+type fakeImageRunRecorder struct {
+	nextID    int64
+	started   airun.StartInput
+	completed airun.CompleteInput
+	failed    airun.FailInput
+	canceled  airun.CancelInput
+	timeout   airun.TimeoutInput
+}
+
+func (f *fakeImageRunRecorder) Start(ctx context.Context, input airun.StartInput) (int64, error) {
+	f.started = input
+	if f.nextID == 0 {
+		return 1, nil
+	}
+	return f.nextID, nil
+}
+
+func (f *fakeImageRunRecorder) Complete(ctx context.Context, input airun.CompleteInput) error {
+	f.completed = input
+	return nil
+}
+
+func (f *fakeImageRunRecorder) Fail(ctx context.Context, input airun.FailInput) error {
+	f.failed = input
+	return nil
+}
+
+func (f *fakeImageRunRecorder) Cancel(ctx context.Context, input airun.CancelInput) error {
+	f.canceled = input
+	return nil
+}
+
+func (f *fakeImageRunRecorder) Timeout(ctx context.Context, input airun.TimeoutInput) error {
+	f.timeout = input
+	return nil
+}
+
 func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{
@@ -218,9 +256,10 @@ func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 	})
 
 	result, appErr := service.Create(context.Background(), CreateInput{
-		UserID:  9,
-		AgentID: 1,
-		Prompt:  "  draw a cat  ",
+		UserID:   9,
+		AgentID:  1,
+		Platform: enum.PlatformAdmin,
+		Prompt:   "  draw a cat  ",
 	})
 
 	if appErr != nil {
@@ -234,6 +273,9 @@ func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 	}
 	if repo.createdTask.ModelIDSnapshot != RequiredModelID || repo.createdTask.Prompt != "draw a cat" {
 		t.Fatalf("model or prompt snapshot mismatch: %#v", repo.createdTask)
+	}
+	if repo.createdTask.Platform != enum.PlatformAdmin {
+		t.Fatalf("admin image task platform must be persisted, got %#v", repo.createdTask)
 	}
 	if repo.createdTask.Size != defaultSize || repo.createdTask.Quality != defaultQuality || repo.createdTask.OutputFormat != defaultOutputFormat || repo.createdTask.Moderation != defaultModeration || repo.createdTask.N != defaultN {
 		t.Fatalf("defaults were not normalized: %#v", repo.createdTask)
@@ -250,6 +292,21 @@ func TestCreateEnqueuesPendingTaskFromImageAgent(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsMissingPlatform(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{agent: validImageAgent(t, box)}
+	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box})
+
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
+
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "图片任务平台不能为空" {
+		t.Fatalf("expected missing platform rejection, got %#v", appErr)
+	}
+	if repo.createdTask.ID != 0 {
+		t.Fatalf("task must not be created without an explicit platform: %#v", repo.createdTask)
+	}
+}
+
 func TestCreateRejectsAgentWithoutImageScene(t *testing.T) {
 	box := testImageSecretBox()
 	agent := validImageAgent(t, box)
@@ -261,7 +318,7 @@ func TestCreateRejectsAgentWithoutImageScene(t *testing.T) {
 		Secretbox:  box,
 	})
 
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"})
 
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "智能体未启用图片生成场景" {
 		t.Fatalf("expected image scene gate error, got %#v", appErr)
@@ -293,6 +350,9 @@ func TestCreateAcceptsCanvasImageSceneWithoutAdminImageScene(t *testing.T) {
 	if result.Task.ID != 78 || repo.createdTask.AgentID != 1 {
 		t.Fatalf("canvas task was not created from the canvas image agent: result=%#v task=%#v", result.Task, repo.createdTask)
 	}
+	if repo.createdTask.Platform != enum.PlatformCanvas {
+		t.Fatalf("canvas image task platform must be persisted, got %#v", repo.createdTask)
+	}
 }
 
 func TestCreateRejectsCanvasImageOnlyAgentForAdminImageScene(t *testing.T) {
@@ -306,7 +366,7 @@ func TestCreateRejectsCanvasImageOnlyAgentForAdminImageScene(t *testing.T) {
 		Secretbox:  box,
 	})
 
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw"})
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"})
 
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "智能体未启用图片生成场景" {
 		t.Fatalf("expected admin image scene gate error, got %#v", appErr)
@@ -371,8 +431,10 @@ func TestExecuteGenerateAllowsCanvasImageSceneTaskCreatedEarlier(t *testing.T) {
 	agent := validImageAgent(t, box)
 	agent.ScenesJSON = `["canvas_image_generate"]`
 	task := validPendingTask()
+	task.Platform = enum.PlatformCanvas
 	engine := &fakeImageEngine{result: &infraai.ImageResult{
-		Images: []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}},
+		Images:      []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}},
+		UsageStatus: infraai.UsageStatusUnavailable,
 	}}
 	repo := &fakeImageRepository{
 		agent:       agent,
@@ -384,6 +446,7 @@ func TestExecuteGenerateAllowsCanvasImageSceneTaskCreatedEarlier(t *testing.T) {
 		Repository:    repo,
 		Secretbox:     box,
 		EngineFactory: &fakeImageEngineFactory{engine: engine},
+		RunRecorder:   &fakeImageRunRecorder{nextID: 600},
 		Now:           fixedImageNow(),
 	})
 
@@ -411,7 +474,7 @@ func TestCreateRejectsForeignInputAssets(t *testing.T) {
 		Secretbox:  box,
 	})
 
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Prompt: "draw", InputAssetIDs: []uint64{12}})
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw", InputAssetIDs: []uint64{12}})
 
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "图片资产不存在或不属于当前用户" {
 		t.Fatalf("expected ownership validation error, got %#v", appErr)
@@ -432,6 +495,7 @@ func TestExecuteGenerateMarksTaskFailedWithoutNilResult(t *testing.T) {
 		Repository:    repo,
 		Secretbox:     box,
 		EngineFactory: factory,
+		RunRecorder:   &fakeImageRunRecorder{nextID: 600},
 		Now:           fixedImageNow(),
 	})
 
@@ -451,6 +515,66 @@ func TestExecuteGenerateMarksTaskFailedWithoutNilResult(t *testing.T) {
 	}
 }
 
+func TestExecuteGenerateRecordsImageRun(t *testing.T) {
+	box := testImageSecretBox()
+	task := validPendingTask()
+	recorder := &fakeImageRunRecorder{nextID: 600}
+	engine := &fakeImageEngine{result: &infraai.ImageResult{
+		Images:           []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}},
+		PromptTokens:     11,
+		CompletionTokens: 13,
+		TotalTokens:      24,
+		UsageStatus:      infraai.UsageStatusReported,
+	}}
+	repo := &fakeImageRepository{
+		agent:       validImageAgent(t, box),
+		task:        &task,
+		claimTask:   true,
+		nextAssetID: 500,
+	}
+	service := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeImageEngineFactory{engine: engine}, RunRecorder: recorder, Now: fixedImageNow()})
+
+	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
+
+	if err != nil || result == nil || result.Status != StatusSuccess {
+		t.Fatalf("expected success, result=%#v err=%v", result, err)
+	}
+	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.Modality != enum.AIRunModalityImage || recorder.started.SourceType != enum.AIRunSourceImageTask || recorder.started.SourceID != task.ID || recorder.started.InputSnapshot != task.Prompt {
+		t.Fatalf("image run not started from source task: %#v", recorder.started)
+	}
+	if recorder.completed.RunID != 600 || recorder.completed.PromptTokens != 11 || recorder.completed.CompletionTokens != 13 || recorder.completed.TotalTokens != 24 || recorder.completed.UsageStatus != enum.AIRunUsageReported {
+		t.Fatalf("image run not completed with provider usage: %#v", recorder.completed)
+	}
+}
+
+func TestExecuteGenerateRejectsMissingImageUsageStatus(t *testing.T) {
+	box := testImageSecretBox()
+	task := validPendingTask()
+	recorder := &fakeImageRunRecorder{nextID: 600}
+	engine := &fakeImageEngine{result: &infraai.ImageResult{
+		Images: []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}},
+	}}
+	repo := &fakeImageRepository{
+		agent:       validImageAgent(t, box),
+		task:        &task,
+		claimTask:   true,
+		nextAssetID: 500,
+	}
+	service := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeImageEngineFactory{engine: engine}, RunRecorder: recorder, Now: fixedImageNow()})
+
+	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
+
+	if err != nil || result == nil || result.Status != StatusFailed {
+		t.Fatalf("missing usage status should fail the task without retry, result=%#v err=%v", result, err)
+	}
+	if recorder.completed.RunID != 0 {
+		t.Fatalf("run must not complete without provider usage status: %#v", recorder.completed)
+	}
+	if recorder.failed.RunID != 600 || !strings.Contains(recorder.failed.Message, "用量状态缺失") {
+		t.Fatalf("run failure not recorded for missing usage status: %#v", recorder.failed)
+	}
+}
+
 func TestExecuteGenerateStoresRemoteOutputAndSanitizesRawResponse(t *testing.T) {
 	box := testImageSecretBox()
 	task := validPendingTask()
@@ -463,6 +587,7 @@ func TestExecuteGenerateStoresRemoteOutputAndSanitizesRawResponse(t *testing.T) 
 		}},
 		ActualParams: map[string]any{"size": "1024x1024"},
 		RawResponse:  raw,
+		UsageStatus:  infraai.UsageStatusUnavailable,
 	}}
 	repo := &fakeImageRepository{
 		agent:       validImageAgent(t, box),
@@ -474,6 +599,7 @@ func TestExecuteGenerateStoresRemoteOutputAndSanitizesRawResponse(t *testing.T) 
 		Repository:    repo,
 		Secretbox:     box,
 		EngineFactory: &fakeImageEngineFactory{engine: engine},
+		RunRecorder:   &fakeImageRunRecorder{nextID: 600},
 		Now:           fixedImageNow(),
 	})
 
@@ -553,6 +679,7 @@ func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 func validPendingTask() ImageTask {
 	return ImageTask{
 		ID:                       88,
+		Platform:                 enum.PlatformAdmin,
 		UserID:                   9,
 		AgentID:                  1,
 		AgentNameSnapshot:        "图片助手",

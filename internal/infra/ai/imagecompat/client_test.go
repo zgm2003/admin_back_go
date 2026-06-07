@@ -56,6 +56,30 @@ func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	if result.ActualParams["size"] != "1024x1024" || result.ActualParams["n"] != 2 {
 		t.Fatalf("actual params not parsed: %#v", result.ActualParams)
 	}
+	if result.UsageStatus != infraai.UsageStatusUnavailable {
+		t.Fatalf("missing image usage must be explicit unavailable, got %q", result.UsageStatus)
+	}
+}
+
+func TestClientGenerateImagesParsesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}],"usage":{"input_tokens":11,"output_tokens":13,"total_tokens":24}}`))
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
+		Model:        "gpt-image-2",
+		Prompt:       "draw a cat",
+		OutputFormat: "png",
+	})
+
+	if err != nil {
+		t.Fatalf("GenerateImages returned error: %v", err)
+	}
+	if result.UsageStatus != infraai.UsageStatusReported || result.PromptTokens != 11 || result.CompletionTokens != 13 || result.TotalTokens != 24 {
+		t.Fatalf("image usage not parsed from provider response: %#v", result)
+	}
 }
 
 func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.T) {
@@ -85,6 +109,9 @@ func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.
 	}
 	if len(result.Images) != 1 || result.Images[0].B64JSON != "aW1hZ2U=" {
 		t.Fatalf("unexpected parsed image result: %#v", result)
+	}
+	if result.UsageStatus != infraai.UsageStatusReported || result.TotalTokens != 1 {
+		t.Fatalf("usage object from early-close response not parsed: %#v", result)
 	}
 }
 

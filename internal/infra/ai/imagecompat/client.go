@@ -270,6 +270,11 @@ type imageResponse struct {
 	OutputCompression int    `json:"output_compression"`
 	Moderation        string `json:"moderation"`
 	N                 int    `json:"n"`
+	Usage             *struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 func parseImageResponse(body []byte, fallbackMime string) (*infraai.ImageResult, error) {
@@ -321,11 +326,19 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 	if len(images) == 0 {
 		return nil, fmt.Errorf("%w: OpenAI image response contains no usable image", infraai.ErrUpstreamFailed)
 	}
-	return &infraai.ImageResult{
+	result := &infraai.ImageResult{
 		Images:       images,
 		ActualParams: actualParams(payload),
 		RawResponse:  raw,
-	}, nil
+		UsageStatus:  infraai.UsageStatusUnavailable,
+	}
+	if payload.Usage != nil {
+		result.PromptTokens = payload.Usage.InputTokens
+		result.CompletionTokens = payload.Usage.OutputTokens
+		result.TotalTokens = payload.Usage.TotalTokens
+		result.UsageStatus = infraai.UsageStatusReported
+	}
+	return result, nil
 }
 
 func actualParams(payload imageResponse) map[string]any {
