@@ -7,6 +7,7 @@ canvas.asset.query_failed: 查询Canvas素材失败
 canvas.asset.create_failed: 创建Canvas素材失败
 canvas.settings.auth_policy_failed: 读取Canvas注册策略失败
 canvas.settings.agents_query_failed: 查询Canvas智能体配置失败
+canvas.ai.request.model_override_forbidden: 客户端不能覆盖Canvas智能体模型
 canvas.ai.chat.request.invalid: 文本生成参数错误
 canvas.ai.chat.service_missing: Canvas文本生成服务未配置
 canvas.ai.chat.result_invalid: Canvas文本生成结果无效

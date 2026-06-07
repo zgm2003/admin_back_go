@@ -3618,7 +3618,7 @@ func TestRouterInstallsCanvasAIChatRouteFromAIChatService(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":8,"message":"hello","model":"client-model"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":8,"message":"hello"}`))
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -3626,7 +3626,7 @@ func TestRouterInstallsCanvasAIChatRouteFromAIChatService(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected AI chat completion status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if aiChatService.input.UserID != 9 || aiChatService.input.AgentID != 8 || aiChatService.input.Message != "hello" || aiChatService.input.ModelID != "client-model" {
+	if aiChatService.input.UserID != 9 || aiChatService.input.AgentID != 8 || aiChatService.input.Message != "hello" || aiChatService.input.ModelID != "" {
 		t.Fatalf("expected AI chat service input from canvas route, got %#v", aiChatService.input)
 	}
 }
@@ -3643,14 +3643,14 @@ func TestRouterInstallsCanvasAIVideoRoutesFromAIVideoService(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":8,"prompt":"clip","duration_seconds":4,"size":"1280x720","resolution_name":"720p","model":"client-model"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":8,"prompt":"clip","duration_seconds":4,"size":"1280x720","resolution_name":"720p"}`))
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected AI video create status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if aiVideoService.createInput.UserID != 9 || aiVideoService.createInput.AgentID != 8 || aiVideoService.createInput.Prompt != "clip" || aiVideoService.createInput.DurationSeconds != 4 || aiVideoService.createInput.Size != "1280x720" || aiVideoService.createInput.ResolutionName != "720p" || aiVideoService.createInput.ModelID != "client-model" {
+	if aiVideoService.createInput.UserID != 9 || aiVideoService.createInput.AgentID != 8 || aiVideoService.createInput.Prompt != "clip" || aiVideoService.createInput.DurationSeconds != 4 || aiVideoService.createInput.Size != "1280x720" || aiVideoService.createInput.ResolutionName != "720p" || aiVideoService.createInput.ModelID != "" {
 		t.Fatalf("expected AI video service Create input from canvas route, got %#v", aiVideoService.createInput)
 	}
 

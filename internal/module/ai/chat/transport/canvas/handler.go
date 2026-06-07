@@ -6,6 +6,7 @@ import (
 
 	"admin_back_go/internal/middleware"
 	aichatmodule "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/internal/canvasrequest"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/response"
@@ -27,14 +28,12 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	var req chatCompletionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("canvas.ai.chat.request.invalid", nil, "文本生成参数错误"))
+	if !canvasrequest.BindAgentOwnedJSON(c, &req, "canvas.ai.chat.request.invalid", "文本生成参数错误") {
 		return
 	}
 	result, appErr := h.requireService().CanvasCompletion(c.Request.Context(), aichatmodule.CanvasCompletionInput{
 		UserID:  userID,
 		AgentID: req.AgentID,
-		ModelID: req.ModelID,
 		Message: req.Message,
 	})
 	if appErr != nil {

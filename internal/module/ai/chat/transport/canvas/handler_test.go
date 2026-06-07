@@ -42,20 +42,58 @@ func TestCanvasChatCompletionUsesCanvasIdentityAndService(t *testing.T) {
 	RegisterRoutes(router, service)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":7,"message":"hello","model":"client-model"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(`{"agent_id":7,"message":"hello"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.input.UserID != 9 || service.input.AgentID != 7 || service.input.Message != "hello" || service.input.ModelID != "client-model" {
+	if service.input.UserID != 9 || service.input.AgentID != 7 || service.input.Message != "hello" || service.input.ModelID != "" {
 		t.Fatalf("unexpected service input: %#v", service.input)
 	}
 	for _, want := range []string{`"id":"chat-1"`, `"object":"chat.completion"`, `"content":"ok"`} {
 		if !strings.Contains(recorder.Body.String(), want) {
 			t.Fatalf("response missing %s: %s", want, recorder.Body.String())
 		}
+	}
+}
+
+func TestCanvasChatCompletionRejectsClientModelConfigOverride(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "model", body: `{"agent_id":7,"message":"hello","model":"client-model"}`},
+		{name: "provider", body: `{"agent_id":7,"message":"hello","provider":"client-provider"}`},
+		{name: "api_key", body: `{"agent_id":7,"message":"hello","api_key":"client-secret"}`},
+		{name: "base_url", body: `{"agent_id":7,"message":"hello","base_url":"https://client.example.test"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeCanvasChatService{}
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: enum.PlatformCanvas})
+			})
+			RegisterRoutes(router, service)
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/chat/completions", strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if service.input.UserID != 0 || service.input.AgentID != 0 || service.input.Message != "" || service.input.ModelID != "" {
+				t.Fatalf("service must not be called when client overrides model config: %#v", service.input)
+			}
+			if !strings.Contains(recorder.Body.String(), "客户端不能覆盖Canvas智能体模型") {
+				t.Fatalf("response missing model override message: %s", recorder.Body.String())
+			}
+		})
 	}
 }
 

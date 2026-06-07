@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/ai/internal/canvasrequest"
 	aivideomodule "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -25,12 +26,11 @@ func (h *Handler) VideoGenerations(c *gin.Context) {
 		return
 	}
 	var req videoGenerationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("canvas.ai.video.request.invalid", nil, "视频生成参数错误"))
+	if !canvasrequest.BindAgentOwnedJSONOrForm(c, &req, "canvas.ai.video.request.invalid", "视频生成参数错误") {
 		return
 	}
 	result, appErr := h.requireService().Create(c.Request.Context(), aivideomodule.CreateInput{
-		UserID: userID, AgentID: req.AgentID, ModelID: req.ModelID, Prompt: req.Prompt,
+		UserID: userID, AgentID: req.AgentID, Prompt: req.Prompt,
 		DurationSeconds: req.DurationSeconds, Size: req.Size, ResolutionName: req.ResolutionName,
 	})
 	writeResult(c, result, appErr)
