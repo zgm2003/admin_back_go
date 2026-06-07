@@ -57,10 +57,64 @@ CREATE TABLE `ai_text_tasks` (
   CONSTRAINT `chk_ai_text_tasks_status` CHECK (`status` IN ('running', 'success', 'failed'))
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI文本生成任务';
 
-ALTER TABLE `ai_image_tasks` ADD COLUMN `platform` VARCHAR(32) NULL AFTER `id`;
-UPDATE `ai_image_tasks` SET `platform` = 'admin' WHERE `platform` IS NULL;
-ALTER TABLE `ai_image_tasks` MODIFY COLUMN `platform` VARCHAR(32) NOT NULL;
-CREATE INDEX `idx_ai_image_tasks_platform_created` ON `ai_image_tasks` (`platform`, `created_at`, `id`);
+SET @ai_image_tasks_exists := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.TABLES
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'ai_image_tasks'
+);
+
+SET @ai_image_tasks_has_platform := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'ai_image_tasks'
+    AND COLUMN_NAME = 'platform'
+);
+
+SET @ai_image_tasks_add_platform_sql := IF(
+  @ai_image_tasks_exists > 0 AND @ai_image_tasks_has_platform = 0,
+  'ALTER TABLE `ai_image_tasks` ADD COLUMN `platform` VARCHAR(32) NULL AFTER `id`',
+  'SELECT 1'
+);
+PREPARE ai_image_tasks_add_platform_stmt FROM @ai_image_tasks_add_platform_sql;
+EXECUTE ai_image_tasks_add_platform_stmt;
+DEALLOCATE PREPARE ai_image_tasks_add_platform_stmt;
+
+SET @ai_image_tasks_update_platform_sql := IF(
+  @ai_image_tasks_exists > 0,
+  'UPDATE `ai_image_tasks` SET `platform` = ''admin'' WHERE `platform` IS NULL',
+  'SELECT 1'
+);
+PREPARE ai_image_tasks_update_platform_stmt FROM @ai_image_tasks_update_platform_sql;
+EXECUTE ai_image_tasks_update_platform_stmt;
+DEALLOCATE PREPARE ai_image_tasks_update_platform_stmt;
+
+SET @ai_image_tasks_modify_platform_sql := IF(
+  @ai_image_tasks_exists > 0,
+  'ALTER TABLE `ai_image_tasks` MODIFY COLUMN `platform` VARCHAR(32) NOT NULL',
+  'SELECT 1'
+);
+PREPARE ai_image_tasks_modify_platform_stmt FROM @ai_image_tasks_modify_platform_sql;
+EXECUTE ai_image_tasks_modify_platform_stmt;
+DEALLOCATE PREPARE ai_image_tasks_modify_platform_stmt;
+
+SET @ai_image_tasks_has_platform_idx := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'ai_image_tasks'
+    AND INDEX_NAME = 'idx_ai_image_tasks_platform_created'
+);
+
+SET @ai_image_tasks_add_platform_idx_sql := IF(
+  @ai_image_tasks_exists > 0 AND @ai_image_tasks_has_platform_idx = 0,
+  'CREATE INDEX `idx_ai_image_tasks_platform_created` ON `ai_image_tasks` (`platform`, `created_at`, `id`)',
+  'SELECT 1'
+);
+PREPARE ai_image_tasks_add_platform_idx_stmt FROM @ai_image_tasks_add_platform_idx_sql;
+EXECUTE ai_image_tasks_add_platform_idx_stmt;
+DEALLOCATE PREPARE ai_image_tasks_add_platform_idx_stmt;
 
 ALTER TABLE `ai_runs`
   ADD CONSTRAINT `chk_ai_runs_usage_status` CHECK (`usage_status` IN ('pending', 'reported', 'unavailable'));

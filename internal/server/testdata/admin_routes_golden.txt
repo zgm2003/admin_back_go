@@ -189,7 +189,6 @@ POST /api/admin/v1/ai-conversations
 POST /api/admin/v1/ai-conversations/:id/messages
 POST /api/admin/v1/ai-conversations/:id/messages/cancel
 POST /api/admin/v1/ai-images
-POST /api/admin/v1/ai-images/assets
 POST /api/admin/v1/ai-knowledge-bases
 POST /api/admin/v1/ai-knowledge-bases/:id/documents
 POST /api/admin/v1/ai-knowledge-bases/:id/retrieval-tests

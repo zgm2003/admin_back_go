@@ -32,6 +32,7 @@ func TestMultiPlatformPhase2ClosureRuntimeShape(t *testing.T) {
 		"internal/module/ai/agent/transport/admin/route.go",
 		"internal/module/ai/tool/transport/admin/route.go",
 		"internal/module/ai/image/transport/admin/route.go",
+		"internal/module/ai/image/transport/canvas/route.go",
 		"internal/module/ai/knowledge/transport/admin/route.go",
 		"internal/module/ai/conversation/transport/admin/route.go",
 		"internal/module/ai/message/transport/admin/route.go",

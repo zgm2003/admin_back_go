@@ -26,16 +26,17 @@ type ImageTask struct {
 	IsFavorite               int        `gorm:"column:is_favorite"`
 	FinishedAt               *time.Time `gorm:"column:finished_at"`
 	ElapsedMS                int        `gorm:"column:elapsed_ms"`
-	IsDel                    int        `gorm:"column:is_del"`
 	CreatedAt                time.Time  `gorm:"column:created_at"`
 	UpdatedAt                time.Time  `gorm:"column:updated_at"`
 }
 
 func (ImageTask) TableName() string { return "ai_image_tasks" }
 
-type ImageAsset struct {
+type ImageFile struct {
 	ID              uint64    `gorm:"column:id"`
-	UserID          uint64    `gorm:"column:user_id"`
+	TaskID          uint64    `gorm:"column:task_id"`
+	Role            string    `gorm:"column:role"`
+	SortOrder       int       `gorm:"column:sort_order"`
 	StorageProvider string    `gorm:"column:storage_provider"`
 	StorageKey      string    `gorm:"column:storage_key"`
 	StorageURL      string    `gorm:"column:storage_url"`
@@ -43,29 +44,22 @@ type ImageAsset struct {
 	Width           int       `gorm:"column:width"`
 	Height          int       `gorm:"column:height"`
 	SizeBytes       int64     `gorm:"column:size_bytes"`
-	SourceType      string    `gorm:"column:source_type"`
-	IsDel           int       `gorm:"column:is_del"`
+	RelatedFileID   *uint64   `gorm:"column:related_file_id"`
+	RevisedPrompt   *string   `gorm:"column:revised_prompt"`
 	CreatedAt       time.Time `gorm:"column:created_at"`
-	UpdatedAt       time.Time `gorm:"column:updated_at"`
 }
 
-func (ImageAsset) TableName() string { return "ai_image_assets" }
+func (ImageFile) TableName() string { return "ai_image_files" }
 
-type ImageTaskAsset struct {
-	ID               uint64    `gorm:"column:id"`
-	TaskID           uint64    `gorm:"column:task_id"`
-	AssetID          uint64    `gorm:"column:asset_id"`
-	Role             string    `gorm:"column:role"`
-	SortOrder        int       `gorm:"column:sort_order"`
-	RelatedAssetID   *uint64   `gorm:"column:related_asset_id"`
-	ActualParamsJSON *string   `gorm:"column:actual_params_json"`
-	RevisedPrompt    *string   `gorm:"column:revised_prompt"`
-	IsDel            int       `gorm:"column:is_del"`
-	CreatedAt        time.Time `gorm:"column:created_at"`
-	UpdatedAt        time.Time `gorm:"column:updated_at"`
+type TaskFileSet struct {
+	Inputs []ImageFile
+	Mask   *MaskImageFile
 }
 
-func (ImageTaskAsset) TableName() string { return "ai_image_task_assets" }
+type MaskImageFile struct {
+	File             ImageFile
+	RelatedSortOrder int
+}
 
 type AgentRuntime struct {
 	AgentID          uint64 `gorm:"column:agent_id"`
@@ -93,9 +87,4 @@ type UploadConfig struct {
 	AppID        string `gorm:"column:appid"`
 	Endpoint     string `gorm:"column:endpoint"`
 	BucketDomain string `gorm:"column:bucket_domain"`
-}
-
-type TaskAssetRow struct {
-	ImageTaskAsset
-	Asset ImageAsset
 }

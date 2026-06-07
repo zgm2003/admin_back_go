@@ -147,7 +147,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,
 		AIChatService:           aiChatService,
-		AIImageService:          aiImageService,
+		AiImageService:          aiImageService,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		ExportTaskService:       exportTaskService,
 		NotificationTaskService: notificationTaskService,

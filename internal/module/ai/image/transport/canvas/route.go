@@ -11,7 +11,9 @@ func RegisterRoutes(router *gin.Engine, service aiimagemodule.HTTPService) {
 	validate.MustRegister()
 	handler := NewHandler(service)
 	group := router.Group("/api/canvas/v1/ai/images")
+	group.GET("", handler.List)
 	group.POST("/generations", handler.Generations)
 	group.POST("/edits", handler.Edits)
 	group.GET("/:id", handler.Status)
+	group.DELETE("/:id", handler.Delete)
 }

@@ -61,3 +61,4 @@ canvas.ai.video.run_start_failed: Failed to create Canvas video run record
 canvas.ai.video.run_complete_failed: Failed to update Canvas video run record
 canvas.ai.video.run_fail_failed: Failed to update Canvas video run record
 canvas.ai.video.run_cancel_failed: Failed to update Canvas video run record
+canvas.ai.image.list.request.invalid: Invalid image task list request

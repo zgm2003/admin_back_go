@@ -66,3 +66,5 @@ aiimage.cos_writer.missing: COS写入器未配置
 aiimage.output_key.build_failed: 生成图片存储路径失败
 aiimage.output.upload_failed: 上传生成图片失败
 aiimage.run.usage_status_missing: 图片生成用量状态缺失
+aiimage.upload.empty: 上传图片不能为空
+aiimage.upload.mime.invalid: 上传图片MIME类型不合法

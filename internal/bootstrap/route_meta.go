@@ -110,7 +110,6 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-agents/:id/test"):                     "ai_agent_test",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-agents/:id/status"):                  "ai_agent_status",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-agents/:id"):                        "ai_agent_del",
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-images/assets"):                       "ai_image_asset_add",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-images"):                              "ai_image_task_add",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite"):                "ai_image_task_favorite",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-images/:id"):                        "ai_image_task_del",
@@ -644,13 +643,6 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Module: "ai_agent",
 			Action: "delete",
 			Title:  "删除AI智能体",
-		},
-		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-images/assets"): {
-			Module:              "ai_image",
-			Action:              "register_asset",
-			Title:               "注册AI图片资产",
-			SkipRequestPayload:  true,
-			SkipResponsePayload: true,
 		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-images"): {
 			Module:              "ai_image",

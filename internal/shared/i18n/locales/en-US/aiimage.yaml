@@ -66,3 +66,5 @@ aiimage.cos_writer.missing: COS writer is not configured
 aiimage.output_key.build_failed: Failed to build generated image storage path
 aiimage.output.upload_failed: Failed to upload generated image
 aiimage.run.usage_status_missing: Image generation usage status is missing
+aiimage.upload.empty: Uploaded image must not be empty
+aiimage.upload.mime.invalid: Invalid uploaded image MIME type

@@ -32,7 +32,7 @@ type Dependencies struct {
 	Logger                  *slog.Logger
 	AuthRepository          auth.Repository
 	AIChatService           aichat.JobService
-	AIImageService          aiimage.JobService
+	AiImageService          aiimage.JobService
 	ExportTaskService       exporttask.JobService
 	NotificationTaskService notificationtask.JobService
 	PaymentService          payment.JobService
@@ -80,7 +80,7 @@ func Register(mux *taskqueue.Mux, deps Dependencies) {
 	})
 	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
 	aichat.RegisterHandlers(mux, deps.AIChatService, logger)
-	aiimage.RegisterHandlers(mux, deps.AIImageService, logger)
+	aiimage.RegisterHandlers(mux, deps.AiImageService, logger)
 	exporttask.RegisterHandlers(mux, deps.ExportTaskService, logger)
 	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
 	payment.RegisterHandlers(mux, deps.PaymentService, logger)

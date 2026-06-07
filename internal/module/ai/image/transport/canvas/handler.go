@@ -26,6 +26,29 @@ type Handler struct{ service aiimagemodule.HTTPService }
 
 func NewHandler(service aiimagemodule.HTTPService) *Handler { return &Handler{service: service} }
 
+func (h *Handler) List(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	var req listRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.list.request.invalid", nil, "图片任务列表参数错误"))
+		return
+	}
+	result, appErr := h.requireService().List(c.Request.Context(), userID, aiimagemodule.ListQuery{
+		CurrentPage: req.Page,
+		PageSize:    req.PageSize,
+		Platform:    enum.PlatformCanvas,
+		Status:      req.Status,
+	})
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *Handler) Generations(c *gin.Context) {
 	userID, ok := currentUserID(c)
 	if !ok {
@@ -49,9 +72,9 @@ func (h *Handler) Edits(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, appErr := h.requireService().CreateWithUploadedAssets(c.Request.Context(), aiimagemodule.CreateWithUploadedAssetsInput{
+	result, appErr := h.requireService().CreateWithUploadedFiles(c.Request.Context(), aiimagemodule.CreateWithUploadedFilesInput{
 		CreateInput: createInput(userID, req),
-		Assets:      uploads,
+		Files:       uploads,
 	})
 	writeCreateResult(c, result, appErr)
 }
@@ -66,8 +89,25 @@ func (h *Handler) Status(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("canvas.ai.image.id.invalid", nil, "图片任务ID无效"))
 		return
 	}
-	result, appErr := h.requireService().Detail(c.Request.Context(), userID, id)
+	result, appErr := h.requireService().Detail(c.Request.Context(), userID, id, enum.PlatformCanvas)
 	writeDetailResult(c, result, appErr)
+}
+
+func (h *Handler) Delete(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.image.id.invalid", nil, "图片任务ID无效"))
+		return
+	}
+	if appErr := h.requireService().Delete(c.Request.Context(), userID, id, enum.PlatformCanvas); appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.OK(c, gin.H{})
 }
 
 func (h *Handler) requireService() aiimagemodule.HTTPService {
@@ -89,9 +129,6 @@ func createInput(userID uint64, req imageGenerationRequest) aiimagemodule.Create
 		OutputCompression: req.OutputCompression,
 		Moderation:        req.Moderation,
 		N:                 req.N,
-		InputAssetIDs:     req.InputAssetIDs,
-		MaskAssetID:       req.MaskAssetID,
-		MaskTargetAssetID: req.MaskTargetAssetID,
 	}
 }
 
@@ -132,7 +169,7 @@ func writeDetailResult(c *gin.Context, result *aiimagemodule.DetailResponse, app
 	response.OK(c, result)
 }
 
-func bindImageEditRequest(c *gin.Context) (imageGenerationRequest, []aiimagemodule.UploadedAssetInput, bool) {
+func bindImageEditRequest(c *gin.Context) (imageGenerationRequest, []aiimagemodule.UploadedFileInput, bool) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImageEditBodyBytes)
 	if err := c.Request.ParseMultipartForm(maxImageEditFileBytes); err != nil {
 		response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
@@ -153,7 +190,7 @@ func bindImageEditRequest(c *gin.Context) (imageGenerationRequest, []aiimagemodu
 		response.Error(c, apperror.BadRequestKey("canvas.ai.image.request.invalid", nil, "图片生成参数错误"))
 		return imageGenerationRequest{}, nil, false
 	}
-	uploads := make([]aiimagemodule.UploadedAssetInput, 0, len(files))
+	uploads := make([]aiimagemodule.UploadedFileInput, 0, len(files))
 	for _, header := range files {
 		file, err := header.Open()
 		if err != nil {
@@ -170,7 +207,7 @@ func bindImageEditRequest(c *gin.Context) (imageGenerationRequest, []aiimagemodu
 		if mimeType == "" {
 			mimeType = http.DetectContentType(body)
 		}
-		uploads = append(uploads, aiimagemodule.UploadedAssetInput{FileName: header.Filename, MimeType: mimeType, Body: body})
+		uploads = append(uploads, aiimagemodule.UploadedFileInput{FileName: header.Filename, MimeType: mimeType, Body: body})
 	}
 	return req, uploads, true
 }
@@ -183,21 +220,18 @@ func (nilHTTPService) PageInit(ctx context.Context) (*aiimagemodule.PageInitResp
 func (nilHTTPService) List(ctx context.Context, userID uint64, query aiimagemodule.ListQuery) (*aiimagemodule.ListResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
-func (nilHTTPService) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimagemodule.DetailResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
-}
-func (nilHTTPService) RegisterAsset(ctx context.Context, input aiimagemodule.RegisterAssetInput) (*aiimagemodule.AssetDTO, *apperror.Error) {
+func (nilHTTPService) Detail(ctx context.Context, userID uint64, taskID uint64, platform string) (*aiimagemodule.DetailResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Create(ctx context.Context, input aiimagemodule.CreateInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
-func (nilHTTPService) CreateWithUploadedAssets(ctx context.Context, input aiimagemodule.CreateWithUploadedAssetsInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
+func (nilHTTPService) CreateWithUploadedFiles(ctx context.Context, input aiimagemodule.CreateWithUploadedFilesInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Favorite(ctx context.Context, input aiimagemodule.FavoriteInput) (*aiimagemodule.TaskDTO, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
-func (nilHTTPService) Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error {
+func (nilHTTPService) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {
 	return apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }

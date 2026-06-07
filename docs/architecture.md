@@ -1309,6 +1309,7 @@ full smoke 规则：
 upload config 写探针依赖 API/worker 启动时已验证的 APP_SECRET，只创建 disabled 临时 driver/rule/setting，再按 setting -> rule -> driver 反向清理；永远不启用临时 setting，也不修改现有 enabled setting
 upload token 探针不再读取 COS STS Docker env 开关；没有 enabled upload setting 时输出 upload_token_probe=skipped_upload_setting_missing，enabled setting 不可用于 COS runtime 时输出 skipped_upload_setting_not_usable
 存在 enabled COS setting 时 POST /api/admin/v1/upload-tokens 只校验 provider/key/credentials shape，不上传真实文件
+AI 图片探针创建一个临时 Admin 图片任务，验证 detail/list，再删除任务；不等待付费 provider 出图
 再单独验证 operation log init/list/delete
 用临时权限触发 `新增权限` 审计日志
 删除 operation log 行后必须确认它不再出现在列表里
@@ -1499,7 +1500,7 @@ internal/infra/ai/provider   # provider discovery/test boundary; first driver is
 internal/module/ai/provider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/ai/agent         # ai_agents local agent config MVP
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
-internal/module/ai/image         # ai_image_tasks / ai_image_assets generation runtime
+internal/module/ai/image         # ai_image_tasks / ai_image_files image generation runtime; transport/admin and transport/canvas
 internal/module/ai/video         # canvas_video_tasks Canvas video generation runtime
 internal/module/ai/text          # ai_text_tasks Canvas text generation source rows
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit

@@ -189,44 +189,54 @@ func (fakeRouterAIMessageService) Cancel(ctx context.Context, userID int64, inpu
 	return &aimessage.CancelResponse{ConversationID: input.ConversationID, RequestID: input.RequestID, Status: "canceled"}, nil
 }
 
-type fakeRouterAIImageService struct {
-	createInput  aiimage.CreateInput
-	detailUserID uint64
-	detailTaskID uint64
+type fakeRouterAiImageService struct {
+	createInput    aiimage.CreateInput
+	editInput      aiimage.CreateWithUploadedFilesInput
+	listUserID     uint64
+	listQuery      aiimage.ListQuery
+	detailUserID   uint64
+	detailTaskID   uint64
+	detailPlatform string
+	deleteUserID   uint64
+	deleteTaskID   uint64
+	deletePlatform string
 }
 
-func (fakeRouterAIImageService) PageInit(ctx context.Context) (*aiimage.PageInitResponse, *apperror.Error) {
+func (f *fakeRouterAiImageService) PageInit(ctx context.Context) (*aiimage.PageInitResponse, *apperror.Error) {
 	return &aiimage.PageInitResponse{}, nil
 }
 
-func (fakeRouterAIImageService) List(ctx context.Context, userID uint64, query aiimage.ListQuery) (*aiimage.ListResponse, *apperror.Error) {
-	return &aiimage.ListResponse{}, nil
+func (f *fakeRouterAiImageService) List(ctx context.Context, userID uint64, query aiimage.ListQuery) (*aiimage.ListResponse, *apperror.Error) {
+	f.listUserID = userID
+	f.listQuery = query
+	return &aiimage.ListResponse{List: []aiimage.TaskDTO{{ID: 88, Status: aiimage.StatusSuccess, Platform: enum.PlatformCanvas}}, Page: aiimage.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
 }
 
-func (f *fakeRouterAIImageService) Detail(ctx context.Context, userID uint64, taskID uint64) (*aiimage.DetailResponse, *apperror.Error) {
+func (f *fakeRouterAiImageService) Detail(ctx context.Context, userID uint64, taskID uint64, platform string) (*aiimage.DetailResponse, *apperror.Error) {
 	f.detailUserID = userID
 	f.detailTaskID = taskID
+	f.detailPlatform = platform
 	return &aiimage.DetailResponse{Task: aiimage.TaskDTO{ID: taskID, Status: aiimage.StatusSuccess}}, nil
 }
 
-func (fakeRouterAIImageService) RegisterAsset(ctx context.Context, input aiimage.RegisterAssetInput) (*aiimage.AssetDTO, *apperror.Error) {
-	return &aiimage.AssetDTO{ID: 1}, nil
-}
-
-func (f *fakeRouterAIImageService) Create(ctx context.Context, input aiimage.CreateInput) (*aiimage.CreateTaskResponse, *apperror.Error) {
+func (f *fakeRouterAiImageService) Create(ctx context.Context, input aiimage.CreateInput) (*aiimage.CreateTaskResponse, *apperror.Error) {
 	f.createInput = input
 	return &aiimage.CreateTaskResponse{Task: aiimage.TaskDTO{ID: 88, Status: aiimage.StatusPending}}, nil
 }
 
-func (fakeRouterAIImageService) CreateWithUploadedAssets(ctx context.Context, input aiimage.CreateWithUploadedAssetsInput) (*aiimage.CreateTaskResponse, *apperror.Error) {
+func (f *fakeRouterAiImageService) CreateWithUploadedFiles(ctx context.Context, input aiimage.CreateWithUploadedFilesInput) (*aiimage.CreateTaskResponse, *apperror.Error) {
+	f.editInput = input
 	return &aiimage.CreateTaskResponse{Task: aiimage.TaskDTO{ID: 89, Status: aiimage.StatusPending}}, nil
 }
 
-func (fakeRouterAIImageService) Favorite(ctx context.Context, input aiimage.FavoriteInput) (*aiimage.TaskDTO, *apperror.Error) {
+func (f *fakeRouterAiImageService) Favorite(ctx context.Context, input aiimage.FavoriteInput) (*aiimage.TaskDTO, *apperror.Error) {
 	return &aiimage.TaskDTO{ID: input.TaskID, IsFavorite: input.IsFavorite}, nil
 }
 
-func (fakeRouterAIImageService) Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error {
+func (f *fakeRouterAiImageService) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {
+	f.deleteUserID = userID
+	f.deleteTaskID = taskID
+	f.deletePlatform = platform
 	return nil
 }
 
@@ -3571,27 +3581,38 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsCanvasAIImageRoutesFromAIImageService(t *testing.T) {
+func TestRouterInstallsCanvasAIImageRoutesFromAiImageService(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
-	aiImageService := &fakeRouterAIImageService{}
+	canvasImageService := &fakeRouterAiImageService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
 		CanvasService:  canvasService,
-		AiImageService: aiImageService,
+		AiImageService: canvasImageService,
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/generations", strings.NewReader(`{"agent_id":8,"prompt":"cat","n":2}`))
+	request := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/ai/images?page=2&page_size=5&status=success", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI image list status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if canvasImageService.listUserID != 9 || canvasImageService.listQuery.Platform != enum.PlatformCanvas || canvasImageService.listQuery.CurrentPage != 2 || canvasImageService.listQuery.PageSize != 5 || canvasImageService.listQuery.Status != aiimage.StatusSuccess {
+		t.Fatalf("expected AI image service List user=9 platform=canvas page=2 size=5 status=success, got user=%d query=%#v", canvasImageService.listUserID, canvasImageService.listQuery)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/generations", strings.NewReader(`{"agent_id":8,"prompt":"cat","n":2}`))
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected AI image generation status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if aiImageService.createInput.UserID != 9 || aiImageService.createInput.AgentID != 8 || aiImageService.createInput.Platform != enum.PlatformCanvas || aiImageService.createInput.N != 2 {
-		t.Fatalf("expected AI image service Create input from canvas route, got %#v", aiImageService.createInput)
+	if canvasImageService.createInput.UserID != 9 || canvasImageService.createInput.Platform != enum.PlatformCanvas || canvasImageService.createInput.AgentID != 8 || canvasImageService.createInput.N != 2 {
+		t.Fatalf("expected AI image service Create input from canvas route, got %#v", canvasImageService.createInput)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -3601,8 +3622,19 @@ func TestRouterInstallsCanvasAIImageRoutesFromAIImageService(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected AI image detail status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if aiImageService.detailUserID != 9 || aiImageService.detailTaskID != 88 {
-		t.Fatalf("expected AI image service Detail user=9 task=88, got user=%d task=%d", aiImageService.detailUserID, aiImageService.detailTaskID)
+	if canvasImageService.detailUserID != 9 || canvasImageService.detailTaskID != 88 || canvasImageService.detailPlatform != enum.PlatformCanvas {
+		t.Fatalf("expected AI image service Detail user=9 task=88 platform=canvas, got user=%d task=%d platform=%q", canvasImageService.detailUserID, canvasImageService.detailTaskID, canvasImageService.detailPlatform)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/canvas/v1/ai/images/88", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI image delete status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if canvasImageService.deleteUserID != 9 || canvasImageService.deleteTaskID != 88 || canvasImageService.deletePlatform != enum.PlatformCanvas {
+		t.Fatalf("expected AI image service Delete user=9 task=88 platform=canvas, got user=%d task=%d platform=%q", canvasImageService.deleteUserID, canvasImageService.deleteTaskID, canvasImageService.deletePlatform)
 	}
 }
 

@@ -38,6 +38,7 @@ type AgentOption struct {
 type ListQuery struct {
 	CurrentPage int
 	PageSize    int
+	Platform    string
 	Status      string
 	IsFavorite  int
 }
@@ -48,14 +49,15 @@ type ListResponse struct {
 }
 
 type DetailResponse struct {
-	Task    TaskDTO    `json:"task"`
-	Inputs  []AssetDTO `json:"inputs"`
-	Mask    *AssetDTO  `json:"mask"`
-	Outputs []AssetDTO `json:"outputs"`
+	Task    TaskDTO   `json:"task"`
+	Inputs  []FileDTO `json:"inputs"`
+	Mask    *FileDTO  `json:"mask"`
+	Outputs []FileDTO `json:"outputs"`
 }
 
 type TaskDTO struct {
 	ID                       uint64          `json:"id"`
+	Platform                 string          `json:"platform"`
 	AgentID                  uint64          `json:"agent_id"`
 	AgentNameSnapshot        string          `json:"agent_name_snapshot"`
 	ProviderIDSnapshot       uint64          `json:"provider_id_snapshot"`
@@ -80,26 +82,24 @@ type TaskDTO struct {
 	UpdatedAt                string          `json:"updated_at"`
 }
 
-type AssetDTO struct {
-	ID               uint64          `json:"id"`
-	StorageProvider  string          `json:"storage_provider"`
-	StorageKey       string          `json:"storage_key"`
-	StorageURL       string          `json:"storage_url"`
-	MimeType         string          `json:"mime_type"`
-	Width            int             `json:"width"`
-	Height           int             `json:"height"`
-	SizeBytes        int64           `json:"size_bytes"`
-	SourceType       string          `json:"source_type"`
-	Role             string          `json:"role,omitempty"`
-	SortOrder        int             `json:"sort_order,omitempty"`
-	RelatedAssetID   *uint64         `json:"related_asset_id,omitempty"`
-	RevisedPrompt    string          `json:"revised_prompt,omitempty"`
-	ActualParamsJSON json.RawMessage `json:"actual_params_json,omitempty"`
-	CreatedAt        string          `json:"created_at"`
+type FileDTO struct {
+	ID              uint64  `json:"id"`
+	TaskID          uint64  `json:"task_id"`
+	Role            string  `json:"role"`
+	SortOrder       int     `json:"sort_order"`
+	StorageProvider string  `json:"storage_provider"`
+	StorageKey      string  `json:"storage_key"`
+	StorageURL      string  `json:"storage_url"`
+	MimeType        string  `json:"mime_type"`
+	Width           int     `json:"width"`
+	Height          int     `json:"height"`
+	SizeBytes       int64   `json:"size_bytes"`
+	RelatedFileID   *uint64 `json:"related_file_id,omitempty"`
+	RevisedPrompt   string  `json:"revised_prompt,omitempty"`
+	CreatedAt       string  `json:"created_at"`
 }
 
-type RegisterAssetInput struct {
-	UserID          uint64
+type ImageFileInput struct {
 	StorageProvider string
 	StorageKey      string
 	StorageURL      string
@@ -107,7 +107,11 @@ type RegisterAssetInput struct {
 	Width           int
 	Height          int
 	SizeBytes       int64
-	SourceType      string
+}
+
+type MaskFileInput struct {
+	ImageFileInput
+	RelatedSortOrder int
 }
 
 type CreateInput struct {
@@ -121,25 +125,25 @@ type CreateInput struct {
 	OutputCompression *int
 	Moderation        string
 	N                 int
-	InputAssetIDs     []uint64
-	MaskAssetID       uint64
-	MaskTargetAssetID uint64
+	InputFiles        []ImageFileInput
+	MaskFile          *MaskFileInput
 }
 
-type UploadedAssetInput struct {
+type UploadedFileInput struct {
 	FileName string
 	MimeType string
 	Body     []byte
 }
 
-type CreateWithUploadedAssetsInput struct {
+type CreateWithUploadedFilesInput struct {
 	CreateInput
-	Assets []UploadedAssetInput
+	Files []UploadedFileInput
 }
 
 type FavoriteInput struct {
 	UserID     uint64
 	TaskID     uint64
+	Platform   string
 	IsFavorite int
 }
 
@@ -150,12 +154,11 @@ type CreateTaskResponse struct {
 type HTTPService interface {
 	PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error)
 	List(ctx context.Context, userID uint64, query ListQuery) (*ListResponse, *apperror.Error)
-	Detail(ctx context.Context, userID uint64, taskID uint64) (*DetailResponse, *apperror.Error)
-	RegisterAsset(ctx context.Context, input RegisterAssetInput) (*AssetDTO, *apperror.Error)
+	Detail(ctx context.Context, userID uint64, taskID uint64, platform string) (*DetailResponse, *apperror.Error)
 	Create(ctx context.Context, input CreateInput) (*CreateTaskResponse, *apperror.Error)
-	CreateWithUploadedAssets(ctx context.Context, input CreateWithUploadedAssetsInput) (*CreateTaskResponse, *apperror.Error)
+	CreateWithUploadedFiles(ctx context.Context, input CreateWithUploadedFilesInput) (*CreateTaskResponse, *apperror.Error)
 	Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, *apperror.Error)
-	Delete(ctx context.Context, userID uint64, taskID uint64) *apperror.Error
+	Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error
 }
 
 type JobService interface {
