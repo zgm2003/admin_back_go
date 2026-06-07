@@ -1160,7 +1160,6 @@ function Assert-UsersInitAIRoutes($Response) {
   $retiredAINameRoutes = @{
     models = '/ai/models'
     agents = '/ai/agent'
-    prompts = '/ai/prompts'
   }
   $retiredRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
   $retiredPresent = @{}
@@ -1172,7 +1171,7 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/image-playground')
+  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/image-playground', '/ai/prompts', '/ai/assets')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -1207,7 +1206,8 @@ function Assert-UsersInitAIRoutes($Response) {
     CinePresent = $retiredPresent['/ai/cine']
     ModelsPresent = $retiredPresent[$retiredAINameRoutes['models']]
     RetiredAgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
-    PromptsPresent = $retiredPresent[$retiredAINameRoutes['prompts']]
+    PromptsPresent = $requiredPresent['/ai/prompts']
+    AssetsPresent = $requiredPresent['/ai/assets']
     ProvidersPresent = $requiredPresent['/ai/providers']
     AgentsPresent = $requiredPresent['/ai/agents']
     ChatPresent = $requiredPresent['/ai/chat']
@@ -3529,6 +3529,7 @@ func main() {
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
     retired_ai_agents_route_present = $usersInitAIRouteSummary.RetiredAgentsPresent
     ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
+    ai_assets_route_present = $usersInitAIRouteSummary.AssetsPresent
     ai_providers_route_present = $usersInitAIRouteSummary.ProvidersPresent
     ai_agents_route_present = $usersInitAIRouteSummary.AgentsPresent
     ai_chat_route_present = $usersInitAIRouteSummary.ChatPresent

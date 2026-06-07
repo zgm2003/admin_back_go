@@ -531,7 +531,6 @@ func main() {
   $retiredAINameRoutes = @{
     models = '/ai/models'
     agents = '/ai/agent'
-    prompts = '/ai/prompts'
   }
   $retiredAIRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
   foreach ($route in $retiredAIRoutes) {
@@ -539,7 +538,7 @@ func main() {
       throw "users me still returns retired AI route $route; run AI core rebuild migration and clear operator-side caches"
     }
   }
-  $requiredAIRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
+  $requiredAIRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/prompts', '/ai/assets')
   foreach ($route in $requiredAIRoutes) {
     if (-not (Test-RoutePath $init.data.router $route)) {
       throw "users me missing AI product route $route"
@@ -675,7 +674,8 @@ func main() {
     ai_cine_route_present = Test-RoutePath $init.data.router '/ai/cine'
     ai_models_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['models']
     retired_ai_agents_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['agents']
-    ai_prompts_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['prompts']
+    ai_prompts_route_present = Test-RoutePath $init.data.router '/ai/prompts'
+    ai_assets_route_present = Test-RoutePath $init.data.router '/ai/assets'
     ai_providers_route_present = Test-RoutePath $init.data.router '/ai/providers'
     ai_agents_route_present = Test-RoutePath $init.data.router '/ai/agents'
     ai_chat_route_present = Test-RoutePath $init.data.router '/ai/chat'
