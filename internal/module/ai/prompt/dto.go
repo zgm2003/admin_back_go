@@ -1,5 +1,11 @@
 package prompt
 
+import "admin_back_go/internal/shared/dict"
+
+type PageInitResponse struct {
+	CommonStatusArr []dict.Option[int] `json:"common_status_arr"`
+}
+
 type Page struct {
 	PageSize    int   `json:"page_size"`
 	CurrentPage int   `json:"current_page"`

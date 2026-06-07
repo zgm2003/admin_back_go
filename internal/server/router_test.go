@@ -1556,6 +1556,91 @@ func (f *fakeRouterAiAssetService) Delete(ctx context.Context, id int64) *apperr
 	return nil
 }
 
+type fakeRouterAdminAIPromptService struct {
+	listQuery       aiprompt.ListQuery
+	detailID        int64
+	created         aiprompt.Input
+	updatedID       int64
+	updated         aiprompt.Input
+	statusID        int64
+	status          int
+	deletedID       int64
+	batchDeletedIDs []int64
+}
+
+func (f *fakeRouterAdminAIPromptService) PageInit(ctx context.Context) (*aiprompt.PageInitResponse, *apperror.Error) {
+	return &aiprompt.PageInitResponse{}, nil
+}
+func (f *fakeRouterAdminAIPromptService) List(ctx context.Context, query aiprompt.ListQuery) (*aiprompt.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &aiprompt.ListResponse{List: []aiprompt.Item{{ID: 1, Slug: "prompt", Title: "Prompt", Prompt: "text"}}}, nil
+}
+func (f *fakeRouterAdminAIPromptService) Detail(ctx context.Context, id int64) (*aiprompt.Item, *apperror.Error) {
+	f.detailID = id
+	return &aiprompt.Item{ID: id, Slug: "prompt", Title: "Prompt", Prompt: "text"}, nil
+}
+func (f *fakeRouterAdminAIPromptService) Create(ctx context.Context, input aiprompt.Input) (int64, *apperror.Error) {
+	f.created = input
+	return 31, nil
+}
+func (f *fakeRouterAdminAIPromptService) Update(ctx context.Context, id int64, input aiprompt.Input) *apperror.Error {
+	f.updatedID = id
+	f.updated = input
+	return nil
+}
+func (f *fakeRouterAdminAIPromptService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
+	f.statusID = id
+	f.status = status
+	return nil
+}
+func (f *fakeRouterAdminAIPromptService) DeleteOne(ctx context.Context, id int64) *apperror.Error {
+	f.deletedID = id
+	return nil
+}
+func (f *fakeRouterAdminAIPromptService) DeleteBatch(ctx context.Context, ids []int64) *apperror.Error {
+	f.batchDeletedIDs = append([]int64(nil), ids...)
+	return nil
+}
+
+type fakeRouterAdminAIAssetService struct {
+	listQuery       aiasset.ListQuery
+	detailID        int64
+	created         aiasset.Input
+	updatedID       int64
+	updated         aiasset.Input
+	deletedID       int64
+	batchDeletedIDs []int64
+}
+
+func (f *fakeRouterAdminAIAssetService) PageInit(ctx context.Context) (*aiasset.PageInitResponse, *apperror.Error) {
+	return &aiasset.PageInitResponse{}, nil
+}
+func (f *fakeRouterAdminAIAssetService) List(ctx context.Context, query aiasset.ListQuery) (*aiasset.ListResponse, *apperror.Error) {
+	f.listQuery = query
+	return &aiasset.ListResponse{List: []aiasset.Item{{ID: 2, Slug: "asset", Type: aiasset.AssetTypeImage, Title: "Asset"}}}, nil
+}
+func (f *fakeRouterAdminAIAssetService) Detail(ctx context.Context, id int64) (*aiasset.Item, *apperror.Error) {
+	f.detailID = id
+	return &aiasset.Item{ID: id, Slug: "asset", Type: aiasset.AssetTypeImage, Title: "Asset"}, nil
+}
+func (f *fakeRouterAdminAIAssetService) Create(ctx context.Context, input aiasset.Input) (int64, *apperror.Error) {
+	f.created = input
+	return 32, nil
+}
+func (f *fakeRouterAdminAIAssetService) Update(ctx context.Context, id int64, input aiasset.Input) *apperror.Error {
+	f.updatedID = id
+	f.updated = input
+	return nil
+}
+func (f *fakeRouterAdminAIAssetService) DeleteOne(ctx context.Context, id int64) *apperror.Error {
+	f.deletedID = id
+	return nil
+}
+func (f *fakeRouterAdminAIAssetService) DeleteBatch(ctx context.Context, ids []int64) *apperror.Error {
+	f.batchDeletedIDs = append([]int64(nil), ids...)
+	return nil
+}
+
 type fakeRouterWalletService struct {
 	summaryUserID int64
 	query         walletmodule.TransactionListQuery
@@ -3644,6 +3729,65 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	}
 }
 
+func TestRouterInstallsAdminAIPromptAssetRoutes(t *testing.T) {
+	promptService := &fakeRouterAdminAIPromptService{}
+	assetService := &fakeRouterAdminAIAssetService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
+		},
+		AiPromptAdminService: promptService,
+		AiAssetAdminService:  assetService,
+	})
+
+	requests := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/admin/v1/ai-prompts/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-prompts?keyword=cat&category=style&status=2", ""},
+		{http.MethodGet, "/api/admin/v1/ai-prompts/9", ""},
+		{http.MethodPost, "/api/admin/v1/ai-prompts", `{"slug":"cat","title":"Cat","prompt":"draw cat","status":2}`},
+		{http.MethodPut, "/api/admin/v1/ai-prompts/7", `{"slug":"cat","title":"Cat","prompt":"draw cat","status":1}`},
+		{http.MethodPatch, "/api/admin/v1/ai-prompts/7/status", `{"status":2}`},
+		{http.MethodDelete, "/api/admin/v1/ai-prompts/7", ""},
+		{http.MethodDelete, "/api/admin/v1/ai-prompts", `{"ids":[3,4]}`},
+		{http.MethodGet, "/api/admin/v1/ai-assets/page-init", ""},
+		{http.MethodGet, "/api/admin/v1/ai-assets?keyword=sky&type=image&status=2", ""},
+		{http.MethodGet, "/api/admin/v1/ai-assets/9", ""},
+		{http.MethodPost, "/api/admin/v1/ai-assets", `{"slug":"hero","type":"image","title":"Hero","status":2}`},
+		{http.MethodPut, "/api/admin/v1/ai-assets/7", `{"slug":"hero","type":"image","title":"Hero","url":"https://example.test/hero.png"}`},
+		{http.MethodDelete, "/api/admin/v1/ai-assets/7", ""},
+		{http.MethodDelete, "/api/admin/v1/ai-assets", `{"ids":[5,6]}`},
+	}
+	for _, tc := range requests {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tc.method, tc.path, body)
+			request.Header.Set("Authorization", "Bearer access-token")
+			if tc.body != "" {
+				request.Header.Set("Content-Type", "application/json")
+			}
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected admin AI prompt/asset route, code=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	if promptService.listQuery.Keyword != "cat" || promptService.detailID != 9 || promptService.created.Status != aiprompt.StatusDisabled || promptService.updatedID != 7 || promptService.statusID != 7 || promptService.status != aiprompt.StatusDisabled || promptService.deletedID != 7 || !reflect.DeepEqual(promptService.batchDeletedIDs, []int64{3, 4}) {
+		t.Fatalf("admin AI prompt routes not wired correctly: %#v", promptService)
+	}
+	if assetService.listQuery.Type != aiasset.AssetTypeImage || assetService.detailID != 9 || assetService.created.Status != aiasset.StatusDisabled || assetService.updatedID != 7 || assetService.deletedID != 7 || !reflect.DeepEqual(assetService.batchDeletedIDs, []int64{5, 6}) {
+		t.Fatalf("admin AI asset routes not wired correctly: %#v", assetService)
+	}
+}
+
 func TestRouterInstallsCanvasAIImageRoutesFromAiImageService(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	canvasImageService := &fakeRouterAiImageService{}
@@ -4275,8 +4419,6 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-models/page-init", ""},
 		{http.MethodGet, "/api/admin/v1/ai-models", ""},
 		{http.MethodPost, "/api/admin/v1/ai-models", `{"name":"model"}`},
-		{http.MethodGet, "/api/admin/v1/ai-prompts", ""},
-		{http.MethodPost, "/api/admin/v1/ai-prompts", `{"title":"prompt","content":"text"}`},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps/page-init", ""},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-maps", ""},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-maps", `{"name":"kb"}`},

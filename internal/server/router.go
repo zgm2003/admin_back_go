@@ -7,12 +7,14 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
+	aiassetadmin "admin_back_go/internal/module/ai/asset/transport/admin"
 	aiassetcanvas "admin_back_go/internal/module/ai/asset/transport/canvas"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
+	aipromptadmin "admin_back_go/internal/module/ai/prompt/transport/admin"
 	aipromptcanvas "admin_back_go/internal/module/ai/prompt/transport/canvas"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
@@ -63,7 +65,9 @@ type Dependencies struct {
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
 	AiImageService          aiimage.HTTPService
+	AiAssetAdminService     aiassetadmin.HTTPService
 	AiAssetService          aiassetcanvas.HTTPService
+	AiPromptAdminService    aipromptadmin.HTTPService
 	AiPromptService         aipromptcanvas.HTTPService
 	AiVideoService          aivideo.HTTPService
 	AiAgentService          aiagent.HTTPService

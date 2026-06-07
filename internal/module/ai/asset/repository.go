@@ -12,12 +12,15 @@ import (
 )
 
 var ErrRepositoryNotConfigured = errors.New("ai asset repository not configured")
+var ErrNotFound = errors.New("ai asset not found")
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]Asset, int64, error)
+	Detail(ctx context.Context, id int64) (*Asset, error)
 	Create(ctx context.Context, row Asset) (int64, error)
 	Update(ctx context.Context, id int64, row Asset) error
 	SoftDelete(ctx context.Context, id int64) error
+	SoftDeleteBatch(ctx context.Context, ids []int64) error
 }
 
 type GormRepository struct{ db *gorm.DB }
@@ -54,6 +57,21 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Asset, in
 	return rows, total, err
 }
 
+func (r *GormRepository) Detail(ctx context.Context, id int64) (*Asset, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row Asset
+	err := r.db.WithContext(ctx).Where("id = ? AND is_del = ?", id, IsDelActive).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 func (r *GormRepository) Create(ctx context.Context, row Asset) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
@@ -74,9 +92,6 @@ func (r *GormRepository) Update(ctx context.Context, id int64, row Asset) error 
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	if id <= 0 {
-		return nil
-	}
 	if row.Status == 0 {
 		row.Status = StatusEnabled
 	}
@@ -93,17 +108,42 @@ func (r *GormRepository) Update(ctx context.Context, id int64, row Asset) error 
 		"status":      row.Status,
 		"updated_at":  time.Now(),
 	}
-	return r.db.WithContext(ctx).Model(&Asset{}).Where("id = ? AND is_del = ?", id, IsDelActive).Updates(updates).Error
+	result := r.db.WithContext(ctx).Model(&Asset{}).Where("id = ? AND is_del = ?", id, IsDelActive).Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *GormRepository) SoftDelete(ctx context.Context, id int64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	if id <= 0 {
-		return nil
+	result := r.db.WithContext(ctx).Model(&Asset{}).Where("id = ? AND is_del = ?", id, IsDelActive).Updates(map[string]any{"is_del": IsDelDeleted, "updated_at": time.Now()})
+	if result.Error != nil {
+		return result.Error
 	}
-	return r.db.WithContext(ctx).Model(&Asset{}).Where("id = ? AND is_del = ?", id, IsDelActive).Updates(map[string]any{"is_del": IsDelDeleted, "updated_at": time.Now()}).Error
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *GormRepository) SoftDeleteBatch(ctx context.Context, ids []int64) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	result := r.db.WithContext(ctx).Model(&Asset{}).Where("id IN ? AND is_del = ?", ids, IsDelActive).Updates(map[string]any{"is_del": IsDelDeleted, "updated_at": time.Now()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != int64(len(ids)) {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {

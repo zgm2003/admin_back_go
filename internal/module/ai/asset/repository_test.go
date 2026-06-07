@@ -2,6 +2,7 @@ package asset
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -58,6 +59,22 @@ func TestRepositoryCreateUpdateAndSoftDeleteWriteAIAssets(t *testing.T) {
 	}
 	if err := repo.SoftDelete(context.Background(), 7); err != nil {
 		t.Fatalf("soft delete asset: %v", err)
+	}
+	assertAssetMockExpectations(t, mock)
+}
+
+func TestRepositorySoftDeleteBatchRequiresEveryAssetIDToMatch(t *testing.T) {
+	repo, mock, closeDB := newAssetMockRepository(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `ai_assets` SET `is_del`=?,`updated_at`=? WHERE id IN (?,?) AND is_del = ?")).
+		WithArgs(IsDelDeleted, sqlmock.AnyArg(), int64(3), int64(4), IsDelActive).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := repo.SoftDeleteBatch(context.Background(), []int64{3, 4})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when only part of batch matched, got %v", err)
 	}
 	assertAssetMockExpectations(t, mock)
 }

@@ -2,17 +2,34 @@ package asset
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/dict"
 )
 
 type Service struct{ repository Repository }
 
 func NewService(repository Repository) *Service { return &Service{repository: repository} }
 
+func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
+	return &PageInitResponse{
+		CommonStatusArr: dict.CommonStatusOptions(),
+		AIAssetTypeArr: []dict.Option[string]{
+			{Label: "文本", Value: AssetTypeText},
+			{Label: "图片", Value: AssetTypeImage},
+			{Label: "视频", Value: AssetTypeVideo},
+		},
+	}, nil
+}
+
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+	if !isStatusFilter(query.Status) {
+		return nil, apperror.BadRequestKey("ai.asset.status.invalid", nil, "素材状态无效")
+	}
 	rows, total, err := s.repo().List(ctx, query)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "ai.asset.query_failed", nil, "查询AI素材失败", err)
@@ -25,6 +42,21 @@ func (s *Service) PublicList(ctx context.Context, query ListQuery) (*ListRespons
 	query.Status = StatusEnabled
 	query.IsDel = IsDelActive
 	return s.List(ctx, query)
+}
+
+func (s *Service) Detail(ctx context.Context, id int64) (*Item, *apperror.Error) {
+	if id <= 0 {
+		return nil, apperror.BadRequestKey("ai.asset.id.invalid", nil, "素材ID无效")
+	}
+	row, err := s.repo().Detail(ctx, id)
+	if err != nil {
+		return nil, mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.query_failed", "查询AI素材失败")
+	}
+	if row == nil {
+		return nil, apperror.NotFoundKey("ai.asset.not_found", nil, "AI素材不存在")
+	}
+	item := item(*row)
+	return &item, nil
 }
 
 func (s *Service) Create(ctx context.Context, input Input) (int64, *apperror.Error) {
@@ -48,17 +80,31 @@ func (s *Service) Update(ctx context.Context, id int64, input Input) *apperror.E
 		return apperror.BadRequestKey("ai.asset.request.invalid", nil, "素材参数错误")
 	}
 	if err := s.repo().Update(ctx, id, assetFromInput(input)); err != nil {
-		return apperror.WrapKey(apperror.CodeInternal, 500, "ai.asset.update_failed", nil, "更新AI素材失败", err)
+		return mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.update_failed", "更新AI素材失败")
 	}
 	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64) *apperror.Error {
+	return s.DeleteOne(ctx, id)
+}
+
+func (s *Service) DeleteOne(ctx context.Context, id int64) *apperror.Error {
 	if id <= 0 {
 		return apperror.BadRequestKey("ai.asset.id.invalid", nil, "素材ID无效")
 	}
 	if err := s.repo().SoftDelete(ctx, id); err != nil {
-		return apperror.WrapKey(apperror.CodeInternal, 500, "ai.asset.delete_failed", nil, "删除AI素材失败", err)
+		return mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.delete_failed", "删除AI素材失败")
+	}
+	return nil
+}
+
+func (s *Service) DeleteBatch(ctx context.Context, ids []int64) *apperror.Error {
+	if !validIDs(ids) {
+		return apperror.BadRequestKey("ai.asset.ids.invalid", nil, "素材ID列表无效")
+	}
+	if err := s.repo().SoftDeleteBatch(ctx, ids); err != nil {
+		return mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.delete_batch_failed", "批量删除AI素材失败")
 	}
 	return nil
 }
@@ -75,6 +121,9 @@ type failingRepository struct{}
 func (failingRepository) List(ctx context.Context, query ListQuery) ([]Asset, int64, error) {
 	return nil, 0, ErrRepositoryNotConfigured
 }
+func (failingRepository) Detail(ctx context.Context, id int64) (*Asset, error) {
+	return nil, ErrRepositoryNotConfigured
+}
 func (failingRepository) Create(ctx context.Context, row Asset) (int64, error) {
 	return 0, ErrRepositoryNotConfigured
 }
@@ -84,17 +133,29 @@ func (failingRepository) Update(ctx context.Context, id int64, row Asset) error 
 func (failingRepository) SoftDelete(ctx context.Context, id int64) error {
 	return ErrRepositoryNotConfigured
 }
+func (failingRepository) SoftDeleteBatch(ctx context.Context, ids []int64) error {
+	return ErrRepositoryNotConfigured
+}
 
 func normalizeInput(input Input) Input {
 	input.Slug = strings.TrimSpace(input.Slug)
 	input.Type = strings.TrimSpace(input.Type)
 	input.Category = strings.TrimSpace(input.Category)
 	input.Title = strings.TrimSpace(input.Title)
+	input.TagsJSON = normalizeTagsJSON(input.TagsJSON)
 	return input
 }
 
 func validInput(input Input) bool {
-	return input.Slug != "" && input.Title != "" && isAssetType(input.Type) && isAssetStatus(input.Status)
+	return input.Slug != "" && input.Title != "" && isAssetType(input.Type) && isAssetStatus(input.Status) && json.Valid([]byte(input.TagsJSON))
+}
+
+func normalizeTagsJSON(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "[]"
+	}
+	return value
 }
 
 func isAssetType(value string) bool {
@@ -109,6 +170,10 @@ func normalizeStatus(status int) int {
 }
 
 func isAssetStatus(status int) bool {
+	return status == 0 || status == StatusEnabled || status == StatusDisabled
+}
+
+func isStatusFilter(status int) bool {
 	return status == 0 || status == StatusEnabled || status == StatusDisabled
 }
 
@@ -131,9 +196,37 @@ func assetFromInput(input Input) Asset {
 func items(rows []Asset) []Item {
 	result := make([]Item, 0, len(rows))
 	for _, r := range rows {
-		result = append(result, Item{ID: r.ID, Slug: r.Slug, Type: r.Type, Category: r.Category, Title: r.Title, CoverURL: r.CoverURL, Description: r.Description, Content: r.Content, URL: r.URL, TagsJSON: r.TagsJSON, Status: r.Status, CreatedAt: formatTime(r.CreatedAt), UpdatedAt: formatTime(r.UpdatedAt)})
+		result = append(result, item(r))
 	}
 	return result
+}
+
+func item(r Asset) Item {
+	return Item{ID: r.ID, Slug: r.Slug, Type: r.Type, Category: r.Category, Title: r.Title, CoverURL: r.CoverURL, Description: r.Description, Content: r.Content, URL: r.URL, TagsJSON: r.TagsJSON, Status: r.Status, CreatedAt: formatTime(r.CreatedAt), UpdatedAt: formatTime(r.UpdatedAt)}
+}
+
+func validIDs(ids []int64) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return false
+		}
+		if _, ok := seen[id]; ok {
+			return false
+		}
+		seen[id] = struct{}{}
+	}
+	return true
+}
+
+func mapRepositoryError(err error, notFoundKey, notFoundFallback, internalKey, internalFallback string) *apperror.Error {
+	if errors.Is(err, ErrNotFound) {
+		return apperror.NotFoundKey(notFoundKey, nil, notFoundFallback)
+	}
+	return apperror.WrapKey(apperror.CodeInternal, 500, internalKey, nil, internalFallback, err)
 }
 
 func page(current, size int, total int64) Page {

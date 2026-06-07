@@ -1,10 +1,15 @@
 ai.asset.service_missing: AI asset service is not configured
 ai.asset.request.invalid: Invalid AI asset request
 ai.asset.id.invalid: Invalid AI asset ID
+ai.asset.ids.invalid: Invalid AI asset ID list
+ai.asset.status.invalid: Invalid AI asset status
+ai.asset.not_found: AI asset does not exist
 ai.asset.query_failed: Failed to query AI assets
 ai.asset.create_failed: Failed to create AI asset
 ai.asset.update_failed: Failed to update AI asset
 ai.asset.delete_failed: Failed to delete AI asset
+ai.asset.delete_batch_failed: Failed to delete AI assets
 ai.asset.create_success: AI asset created successfully
 ai.asset.update_success: AI asset updated successfully
 ai.asset.delete_success: AI asset deleted successfully
+ai.asset.delete_batch_success: AI assets deleted successfully

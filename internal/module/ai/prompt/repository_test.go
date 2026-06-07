@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -44,6 +45,22 @@ func TestRepositoryCreateWritesAIPrompts(t *testing.T) {
 	id, err := repo.Create(context.Background(), Prompt{Slug: "cat", Title: "Cat", Prompt: "draw cat"})
 	if err != nil || id != 9 {
 		t.Fatalf("unexpected create id=%d err=%v", id, err)
+	}
+	assertPromptMockExpectations(t, mock)
+}
+
+func TestRepositorySoftDeleteBatchRequiresEveryPromptIDToMatch(t *testing.T) {
+	repo, mock, closeDB := newPromptMockRepository(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `ai_prompts` SET `is_del`=?,`updated_at`=? WHERE id IN (?,?) AND is_del = ?")).
+		WithArgs(IsDelDeleted, sqlmock.AnyArg(), int64(3), int64(4), IsDelActive).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := repo.SoftDeleteBatch(context.Background(), []int64{3, 4})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when only part of batch matched, got %v", err)
 	}
 	assertPromptMockExpectations(t, mock)
 }

@@ -1,4 +1,17 @@
 ai.prompt.service_missing: AI提示词服务未配置
 ai.prompt.request.invalid: 提示词参数错误
+ai.prompt.id.invalid: 提示词ID无效
+ai.prompt.ids.invalid: 提示词ID列表无效
+ai.prompt.status.invalid: 提示词状态无效
+ai.prompt.not_found: AI提示词不存在
 ai.prompt.query_failed: 查询AI提示词失败
 ai.prompt.create_failed: 创建AI提示词失败
+ai.prompt.update_failed: 更新AI提示词失败
+ai.prompt.status_failed: 修改AI提示词状态失败
+ai.prompt.delete_failed: 删除AI提示词失败
+ai.prompt.delete_batch_failed: 批量删除AI提示词失败
+ai.prompt.create_success: 创建AI提示词成功
+ai.prompt.update_success: 更新AI提示词成功
+ai.prompt.status_success: 修改AI提示词状态成功
+ai.prompt.delete_success: 删除AI提示词成功
+ai.prompt.delete_batch_success: 批量删除AI提示词成功

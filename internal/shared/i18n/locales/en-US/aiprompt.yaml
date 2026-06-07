@@ -1,4 +1,17 @@
 ai.prompt.service_missing: AI prompt service is not configured
 ai.prompt.request.invalid: Invalid AI prompt request
+ai.prompt.id.invalid: Invalid AI prompt ID
+ai.prompt.ids.invalid: Invalid AI prompt ID list
+ai.prompt.status.invalid: Invalid AI prompt status
+ai.prompt.not_found: AI prompt does not exist
 ai.prompt.query_failed: Failed to query AI prompts
 ai.prompt.create_failed: Failed to create AI prompt
+ai.prompt.update_failed: Failed to update AI prompt
+ai.prompt.status_failed: Failed to change AI prompt status
+ai.prompt.delete_failed: Failed to delete AI prompt
+ai.prompt.delete_batch_failed: Failed to delete AI prompts
+ai.prompt.create_success: AI prompt created successfully
+ai.prompt.update_success: AI prompt updated successfully
+ai.prompt.status_success: AI prompt status changed successfully
+ai.prompt.delete_success: AI prompt deleted successfully
+ai.prompt.delete_batch_success: AI prompts deleted successfully
