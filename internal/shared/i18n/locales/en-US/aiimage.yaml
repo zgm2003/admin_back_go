@@ -5,7 +5,6 @@ aiimage.asset.request.invalid: Invalid image asset request
 aiimage.task.request.invalid: Invalid image task request
 aiimage.platform.required: Image task platform is required
 aiimage.platform.invalid: Invalid image task platform
-aiimage.favorite.request.invalid: Invalid image favorite request
 aiimage.agent.query_failed: Failed to query image agent
 aiimage.task.status.invalid: Invalid image task status
 aiimage.task.query_failed: Failed to query image task
@@ -16,8 +15,6 @@ aiimage.queue_missing: Image generation queue is not configured
 aiimage.task.create_failed: Failed to create image task
 aiimage.queue_task.create_failed: Failed to create image queue task
 aiimage.queue_task.enqueue_failed: Failed to enqueue image generation task
-aiimage.favorite.status.invalid: Invalid favorite status
-aiimage.favorite.update_failed: Failed to update image favorite state
 aiimage.task.delete_failed: Failed to delete image task
 aiimage.repository_missing: AI image repository is not configured
 aiimage.agent.required: Image agent is required

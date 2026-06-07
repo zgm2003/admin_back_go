@@ -118,7 +118,6 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "ai_agent_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "ai_agent_del"},
 		{http.MethodPost, "/api/admin/v1/ai-images", "ai_image_task_add"},
-		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite", "ai_image_task_favorite"},
 		{http.MethodDelete, "/api/admin/v1/ai-images/:id", "ai_image_task_del"},
 		{http.MethodPost, "/api/admin/v1/ai-prompts", "ai_prompt_add"},
 		{http.MethodPut, "/api/admin/v1/ai-prompts/:id", "ai_prompt_edit"},
@@ -459,7 +458,6 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-images", "create_task"},
-		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite", "favorite"},
 		{http.MethodDelete, "/api/admin/v1/ai-images/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "create"},
 		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "update"},
@@ -516,7 +514,6 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/api/admin/v1/ai-images"},
-		{http.MethodPatch, "/api/admin/v1/ai-images/:id/favorite"},
 		{http.MethodDelete, "/api/admin/v1/ai-images/:id"},
 	} {
 		rule := rules[middleware.NewRouteKey(tt.method, tt.path)]

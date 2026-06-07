@@ -32,6 +32,76 @@ func TestImagePackageUsesTaskOwnedFilesOnly(t *testing.T) {
 	}
 }
 
+func TestAdminImageWorkspaceDoesNotExposeFavoriteSurface(t *testing.T) {
+	root := packageRoot(t)
+	adminPublicFiles := []string{
+		"dto.go",
+		"service.go",
+		"repository.go",
+		"transport/admin/route.go",
+		"transport/admin/request.go",
+		"transport/admin/handler.go",
+	}
+	for _, file := range adminPublicFiles {
+		assertSourceTokensAbsent(t, filepath.Join(root, filepath.FromSlash(file)), []string{
+			"/favorite",
+			"Favorite(",
+			"favoriteRequest",
+			"is_favorite",
+			"FavoriteArr",
+		})
+	}
+
+	canvasTransportFiles := []string{
+		"transport/canvas/handler.go",
+		"transport/canvas/handler_test.go",
+	}
+	for _, file := range canvasTransportFiles {
+		assertSourceTokensAbsent(t, filepath.Join(root, filepath.FromSlash(file)), []string{
+			"Favorite(",
+		})
+	}
+
+	assertSourceTokensAbsent(t, filepath.Join(root, "..", "..", "..", "..", "scripts", "full-admin-smoke.ps1"), []string{
+		"favorite_arr",
+		"is_favorite",
+		"/favorite",
+	})
+	assertSourceTokensAbsent(t, filepath.Join(root, "..", "..", "..", "..", "internal", "bootstrap", "route_meta.go"), []string{
+		"ai_image_task_favorite",
+		"/api/admin/v1/ai-images/:id/favorite",
+	})
+	assertRetiredPermissionCleanupMigration(t, filepath.Join(root, "..", "..", "..", "..", "database", "migrations", "20260607_ai_image_retire_favorite_permission.sql"))
+}
+
+func assertRetiredPermissionCleanupMigration(t *testing.T, file string) {
+	t.Helper()
+	body, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read retired favorite permission cleanup migration: %v", err)
+	}
+	text := string(body)
+	for _, token := range []string{"ai_image_task_favorite", "UPDATE `role_permissions`", "UPDATE `permissions`", "`is_del` = 1"} {
+		if !strings.Contains(text, token) {
+			t.Fatalf("%s must retire favorite permission and role grants; missing %q", file, token)
+		}
+	}
+}
+
+func assertSourceTokensAbsent(t *testing.T, file string, tokens []string) {
+	t.Helper()
+	body, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read %s: %v", file, err)
+	}
+	text := string(body)
+	for _, token := range tokens {
+		if strings.Contains(text, token) {
+			t.Fatalf("%s must not expose retired image favorite surface token %q", file, token)
+		}
+	}
+}
+
 func packageRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()

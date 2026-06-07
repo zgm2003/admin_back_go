@@ -125,7 +125,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	if agents == nil {
 		agents = []AgentOption{}
 	}
-	return &PageInitResponse{Dict: PageInitDict{SizeArr: stringOptions([]string{"auto", "1024x1024", "1536x1024", "1024x1536"}, sizeLabels), QualityArr: stringOptions([]string{"auto", "low", "medium", "high"}, qualityLabels), OutputFormatArr: stringOptions([]string{"png", "jpeg", "webp"}, formatLabels), ModerationArr: stringOptions([]string{"auto", "low"}, moderationLabels), StatusArr: stringOptions([]string{StatusPending, StatusRunning, StatusSuccess, StatusFailed}, statusLabels), FavoriteArr: dict.CommonYesNoOptions()}, AgentOptions: agents}, nil
+	return &PageInitResponse{Dict: PageInitDict{SizeArr: stringOptions([]string{"auto", "1024x1024", "1536x1024", "1024x1536"}, sizeLabels), QualityArr: stringOptions([]string{"auto", "low", "medium", "high"}, qualityLabels), OutputFormatArr: stringOptions([]string{"png", "jpeg", "webp"}, formatLabels), ModerationArr: stringOptions([]string{"auto", "low"}, moderationLabels), StatusArr: stringOptions([]string{StatusPending, StatusRunning, StatusSuccess, StatusFailed}, statusLabels)}, AgentOptions: agents}, nil
 }
 
 func (s *Service) List(ctx context.Context, userID uint64, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -227,40 +227,6 @@ func (s *Service) CreateWithUploadedFiles(ctx context.Context, input CreateWithU
 	}
 	input.CreateInput.InputFiles = append(input.CreateInput.InputFiles, uploaded...)
 	return s.Create(ctx, input.CreateInput)
-}
-
-func (s *Service) Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, *apperror.Error) {
-	if input.UserID == 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-	}
-	if input.TaskID == 0 {
-		return nil, apperror.BadRequestKey("aiimage.task.id.invalid", nil, "无效的图片任务ID")
-	}
-	if !enum.IsCommonYesNo(input.IsFavorite) {
-		return nil, apperror.BadRequestKey("aiimage.favorite.status.invalid", nil, "无效的收藏状态")
-	}
-	if appErr := validateTaskPlatform(input.Platform); appErr != nil {
-		return nil, appErr
-	}
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	if err := repo.UpdateFavorite(ctx, input.UserID, input.TaskID, input.Platform, input.IsFavorite); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperror.NotFoundKey("aiimage.task.not_found", nil, "图片任务不存在")
-		}
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.favorite.update_failed", nil, "更新图片收藏失败", err)
-	}
-	task, err := repo.GetTask(ctx, input.UserID, input.TaskID, input.Platform)
-	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.query_failed", nil, "查询图片任务失败", err)
-	}
-	if task == nil {
-		return nil, apperror.NotFoundKey("aiimage.task.not_found", nil, "图片任务不存在")
-	}
-	dto := taskDTO(*task)
-	return &dto, nil
 }
 
 func (s *Service) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {
@@ -809,7 +775,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	return query
 }
 func taskDTO(row ImageTask) TaskDTO {
-	return TaskDTO{ID: row.ID, Platform: row.Platform, AgentID: row.AgentID, AgentNameSnapshot: row.AgentNameSnapshot, ProviderIDSnapshot: row.ProviderIDSnapshot, ProviderNameSnapshot: row.ProviderNameSnapshot, ModelIDSnapshot: row.ModelIDSnapshot, ModelDisplayNameSnapshot: row.ModelDisplayNameSnapshot, Prompt: row.Prompt, Size: row.Size, Quality: row.Quality, OutputFormat: row.OutputFormat, OutputCompression: row.OutputCompression, Moderation: row.Moderation, N: row.N, Status: row.Status, StatusName: statusLabels[row.Status], ErrorMessage: row.ErrorMessage, ActualParamsJSON: rawJSONString(row.ActualParamsJSON), IsFavorite: row.IsFavorite, FinishedAt: formatOptionalTime(row.FinishedAt), ElapsedMS: row.ElapsedMS, CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return TaskDTO{ID: row.ID, Platform: row.Platform, AgentID: row.AgentID, AgentNameSnapshot: row.AgentNameSnapshot, ProviderIDSnapshot: row.ProviderIDSnapshot, ProviderNameSnapshot: row.ProviderNameSnapshot, ModelIDSnapshot: row.ModelIDSnapshot, ModelDisplayNameSnapshot: row.ModelDisplayNameSnapshot, Prompt: row.Prompt, Size: row.Size, Quality: row.Quality, OutputFormat: row.OutputFormat, OutputCompression: row.OutputCompression, Moderation: row.Moderation, N: row.N, Status: row.Status, StatusName: statusLabels[row.Status], ErrorMessage: row.ErrorMessage, ActualParamsJSON: rawJSONString(row.ActualParamsJSON), FinishedAt: formatOptionalTime(row.FinishedAt), ElapsedMS: row.ElapsedMS, CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
 }
 func fileDTO(row ImageFile) FileDTO {
 	dto := FileDTO{ID: row.ID, TaskID: row.TaskID, Role: row.Role, SortOrder: row.SortOrder, StorageProvider: row.StorageProvider, StorageKey: row.StorageKey, StorageURL: row.StorageURL, MimeType: row.MimeType, Width: row.Width, Height: row.Height, SizeBytes: row.SizeBytes, RelatedFileID: row.RelatedFileID, CreatedAt: formatTime(row.CreatedAt)}

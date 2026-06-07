@@ -5,7 +5,6 @@ aiimage.asset.request.invalid: 图片资产参数错误
 aiimage.task.request.invalid: 图片任务参数错误
 aiimage.platform.required: 图片任务平台不能为空
 aiimage.platform.invalid: 图片任务平台无效
-aiimage.favorite.request.invalid: 图片收藏参数错误
 aiimage.agent.query_failed: 查询图片智能体失败
 aiimage.task.status.invalid: 无效的图片任务状态
 aiimage.task.query_failed: 查询图片任务失败
@@ -16,8 +15,6 @@ aiimage.queue_missing: 图片生成队列未配置
 aiimage.task.create_failed: 创建图片任务失败
 aiimage.queue_task.create_failed: 创建图片队列任务失败
 aiimage.queue_task.enqueue_failed: 图片生成任务入队失败
-aiimage.favorite.status.invalid: 无效的收藏状态
-aiimage.favorite.update_failed: 更新图片收藏失败
 aiimage.task.delete_failed: 删除图片任务失败
 aiimage.repository_missing: AI图片仓储未配置
 aiimage.agent.required: 图片智能体不能为空

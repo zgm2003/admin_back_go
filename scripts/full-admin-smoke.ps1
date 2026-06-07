@@ -1365,7 +1365,7 @@ function Assert-AIImageInit($Response) {
   if ($null -eq $Response.data.dict -or $null -eq $Response.data.agent_options) {
     throw "AI image init missing dict/agent_options: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($field in @('size_arr', 'quality_arr', 'output_format_arr', 'moderation_arr', 'status_arr', 'favorite_arr')) {
+  foreach ($field in @('size_arr', 'quality_arr', 'output_format_arr', 'moderation_arr', 'status_arr')) {
     if (-not (Test-HasProperty $Response.data.dict $field)) {
       throw "AI image init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
     }
@@ -1387,7 +1387,7 @@ function Assert-AIImageList($Response) {
     throw "AI image list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    foreach ($field in @('id', 'agent_id', 'agent_name_snapshot', 'model_id_snapshot', 'prompt', 'size', 'quality', 'output_format', 'n', 'status', 'is_favorite', 'created_at')) {
+    foreach ($field in @('id', 'agent_id', 'agent_name_snapshot', 'model_id_snapshot', 'prompt', 'size', 'quality', 'output_format', 'n', 'status', 'created_at')) {
       if (-not (Test-HasProperty $item $field)) {
         throw "AI image item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
       }

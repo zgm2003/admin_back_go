@@ -32,7 +32,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("aiimage.task.list.request.invalid", nil, "图片任务列表参数错误"))
 		return
 	}
-	result, appErr := h.requireService().List(c.Request.Context(), userID, aiimagemodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: enum.PlatformAdmin, Status: req.Status, IsFavorite: req.IsFavorite})
+	result, appErr := h.requireService().List(c.Request.Context(), userID, aiimagemodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: enum.PlatformAdmin, Status: req.Status})
 	writeResult(c, result, appErr)
 }
 
@@ -73,24 +73,6 @@ func (h *Handler) Create(c *gin.Context) {
 		InputFiles:        inputFiles(req.InputFiles),
 		MaskFile:          maskFile(req.MaskFile),
 	})
-	writeResult(c, result, appErr)
-}
-
-func (h *Handler) Favorite(c *gin.Context) {
-	userID, ok := currentUserID(c)
-	if !ok {
-		return
-	}
-	id, ok := routeID(c, "aiimage.task.id.invalid", "无效的图片任务ID")
-	if !ok {
-		return
-	}
-	var req favoriteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("aiimage.favorite.request.invalid", nil, "图片收藏参数错误"))
-		return
-	}
-	result, appErr := h.requireService().Favorite(c.Request.Context(), aiimagemodule.FavoriteInput{UserID: userID, TaskID: id, Platform: enum.PlatformAdmin, IsFavorite: req.IsFavorite})
 	writeResult(c, result, appErr)
 }
 
@@ -185,9 +167,6 @@ func (nilHTTPService) Create(ctx context.Context, input aiimagemodule.CreateInpu
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) CreateWithUploadedFiles(ctx context.Context, input aiimagemodule.CreateWithUploadedFilesInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
-}
-func (nilHTTPService) Favorite(ctx context.Context, input aiimagemodule.FavoriteInput) (*aiimagemodule.TaskDTO, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {

@@ -15,6 +15,5 @@ func Register(router *gin.Engine, service aiimagemodule.HTTPService) {
 	group.GET("", handler.List)
 	group.GET("/:id", handler.Detail)
 	group.POST("", handler.Create)
-	group.PATCH("/:id/favorite", handler.Favorite)
 	group.DELETE("/:id", handler.Delete)
 }

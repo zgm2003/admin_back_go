@@ -168,7 +168,6 @@ HEAD /api/admin/v1/queue-monitor-ui/*path
 OPTIONS /api/admin/v1/queue-monitor-ui
 OPTIONS /api/admin/v1/queue-monitor-ui/*path
 PATCH /api/admin/v1/ai-agents/:id/status
-PATCH /api/admin/v1/ai-images/:id/favorite
 PATCH /api/admin/v1/ai-knowledge-bases/:id/status
 PATCH /api/admin/v1/ai-knowledge-documents/:id/status
 PATCH /api/admin/v1/ai-prompts/:id/status

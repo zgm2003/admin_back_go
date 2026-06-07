@@ -77,10 +77,6 @@ func (f *fakeAiImageService) CreateWithUploadedFiles(ctx context.Context, input 
 	return &aiimagemodule.CreateTaskResponse{Task: aiimagemodule.TaskDTO{ID: 89, Status: aiimagemodule.StatusPending}}, nil
 }
 
-func (f *fakeAiImageService) Favorite(ctx context.Context, input aiimagemodule.FavoriteInput) (*aiimagemodule.TaskDTO, *apperror.Error) {
-	return &aiimagemodule.TaskDTO{}, nil
-}
-
 func (f *fakeAiImageService) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {
 	f.deleteUserID = userID
 	f.deleteTaskID = taskID

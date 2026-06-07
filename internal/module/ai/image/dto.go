@@ -26,7 +26,6 @@ type PageInitDict struct {
 	OutputFormatArr []dict.Option[string] `json:"output_format_arr"`
 	ModerationArr   []dict.Option[string] `json:"moderation_arr"`
 	StatusArr       []dict.Option[string] `json:"status_arr"`
-	FavoriteArr     []dict.Option[int]    `json:"favorite_arr"`
 }
 
 type AgentOption struct {
@@ -40,7 +39,6 @@ type ListQuery struct {
 	PageSize    int
 	Platform    string
 	Status      string
-	IsFavorite  int
 }
 
 type ListResponse struct {
@@ -75,7 +73,6 @@ type TaskDTO struct {
 	StatusName               string          `json:"status_name"`
 	ErrorMessage             string          `json:"error_message"`
 	ActualParamsJSON         json.RawMessage `json:"actual_params_json"`
-	IsFavorite               int             `json:"is_favorite"`
 	FinishedAt               string          `json:"finished_at"`
 	ElapsedMS                int             `json:"elapsed_ms"`
 	CreatedAt                string          `json:"created_at"`
@@ -140,13 +137,6 @@ type CreateWithUploadedFilesInput struct {
 	Files []UploadedFileInput
 }
 
-type FavoriteInput struct {
-	UserID     uint64
-	TaskID     uint64
-	Platform   string
-	IsFavorite int
-}
-
 type CreateTaskResponse struct {
 	Task TaskDTO `json:"task"`
 }
@@ -157,7 +147,6 @@ type HTTPService interface {
 	Detail(ctx context.Context, userID uint64, taskID uint64, platform string) (*DetailResponse, *apperror.Error)
 	Create(ctx context.Context, input CreateInput) (*CreateTaskResponse, *apperror.Error)
 	CreateWithUploadedFiles(ctx context.Context, input CreateWithUploadedFilesInput) (*CreateTaskResponse, *apperror.Error)
-	Favorite(ctx context.Context, input FavoriteInput) (*TaskDTO, *apperror.Error)
 	Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error
 }
 

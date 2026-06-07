@@ -21,7 +21,6 @@ type Repository interface {
 	GetTaskForWorker(ctx context.Context, userID uint64, taskID uint64) (*ImageTask, error)
 	LoadTaskFiles(ctx context.Context, taskID uint64) ([]ImageFile, error)
 	CreateTaskWithFiles(ctx context.Context, task ImageTask, files TaskFileSet) (uint64, error)
-	UpdateFavorite(ctx context.Context, userID uint64, taskID uint64, platform string, isFavorite int) error
 	DeleteTask(ctx context.Context, userID uint64, taskID uint64, platform string) error
 	LoadAgentRuntime(ctx context.Context, agentID uint64) (*AgentRuntime, error)
 	ClaimTask(ctx context.Context, userID uint64, taskID uint64, startedAt time.Time) (bool, error)
@@ -70,9 +69,6 @@ func (r *GormRepository) ListTasks(ctx context.Context, userID uint64, query Lis
 	}
 	if strings.TrimSpace(query.Status) != "" {
 		db = db.Where("status = ?", strings.TrimSpace(query.Status))
-	}
-	if query.IsFavorite == enum.CommonYes || query.IsFavorite == enum.CommonNo {
-		db = db.Where("is_favorite = ?", query.IsFavorite)
 	}
 	var total int64
 	if err := db.Model(&ImageTask{}).Count(&total).Error; err != nil {
@@ -154,24 +150,6 @@ func (r *GormRepository) CreateTaskWithFiles(ctx context.Context, task ImageTask
 		return nil
 	})
 	return task.ID, err
-}
-
-func (r *GormRepository) UpdateFavorite(ctx context.Context, userID uint64, taskID uint64, platform string, isFavorite int) error {
-	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
-	}
-	tx := r.tasks(ctx).Where("user_id = ? AND id = ?", userID, taskID)
-	if strings.TrimSpace(platform) != "" {
-		tx = tx.Where("platform = ?", strings.TrimSpace(platform))
-	}
-	tx = tx.Update("is_favorite", isFavorite)
-	if tx.Error != nil {
-		return tx.Error
-	}
-	if tx.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
 }
 
 func (r *GormRepository) DeleteTask(ctx context.Context, userID uint64, taskID uint64, platform string) error {

@@ -4,7 +4,6 @@ type listRequest struct {
 	CurrentPage int    `form:"current_page" binding:"omitempty,min=1"`
 	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=50"`
 	Status      string `form:"status" binding:"omitempty,max=16"`
-	IsFavorite  int    `form:"is_favorite" binding:"omitempty,oneof=1 2"`
 }
 
 type imageFileRequest struct {
@@ -33,8 +32,4 @@ type createTaskRequest struct {
 	N                 int                `json:"n" binding:"omitempty,min=1,max=4"`
 	InputFiles        []imageFileRequest `json:"input_files" binding:"omitempty,max=10,dive"`
 	MaskFile          *maskFileRequest   `json:"mask_file" binding:"omitempty"`
-}
-
-type favoriteRequest struct {
-	IsFavorite int `json:"is_favorite" binding:"required,oneof=1 2"`
 }

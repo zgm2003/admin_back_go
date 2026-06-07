@@ -229,9 +229,6 @@ func (nilHTTPService) Create(ctx context.Context, input aiimagemodule.CreateInpu
 func (nilHTTPService) CreateWithUploadedFiles(ctx context.Context, input aiimagemodule.CreateWithUploadedFilesInput) (*aiimagemodule.CreateTaskResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }
-func (nilHTTPService) Favorite(ctx context.Context, input aiimagemodule.FavoriteInput) (*aiimagemodule.TaskDTO, *apperror.Error) {
-	return nil, apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
-}
 func (nilHTTPService) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {
 	return apperror.InternalKey("aiimage.service_missing", nil, "AI图片服务未配置")
 }

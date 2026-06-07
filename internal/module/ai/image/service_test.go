@@ -17,24 +17,21 @@ import (
 )
 
 type fakeImageRepository struct {
-	agent            *AgentRuntime
-	task             *ImageTask
-	files            []ImageFile
-	createdTask      ImageTask
-	createdFiles     TaskFileSet
-	appendedFiles    []ImageFile
-	claimTask        bool
-	nextTaskID       uint64
-	favoriteID       uint64
-	favoritePlatform string
-	favoriteFlag     int
-	deletePlatform   string
-	failedID         uint64
-	failedMsg        string
-	successID        uint64
-	successJSON      *string
-	successRaw       *string
-	listAgentsScene  string
+	agent           *AgentRuntime
+	task            *ImageTask
+	files           []ImageFile
+	createdTask     ImageTask
+	createdFiles    TaskFileSet
+	appendedFiles   []ImageFile
+	claimTask       bool
+	nextTaskID      uint64
+	deletePlatform  string
+	failedID        uint64
+	failedMsg       string
+	successID       uint64
+	successJSON     *string
+	successRaw      *string
+	listAgentsScene string
 }
 
 func (f *fakeImageRepository) ListImageAgents(_ context.Context, scene string) ([]AgentOption, error) {
@@ -73,12 +70,6 @@ func (f *fakeImageRepository) CreateTaskWithFiles(_ context.Context, task ImageT
 		f.createdFiles.Mask = &mask
 	}
 	return f.nextTaskID, nil
-}
-func (f *fakeImageRepository) UpdateFavorite(_ context.Context, _ uint64, taskID uint64, platform string, isFavorite int) error {
-	f.favoriteID = taskID
-	f.favoritePlatform = platform
-	f.favoriteFlag = isFavorite
-	return nil
 }
 func (f *fakeImageRepository) DeleteTask(_ context.Context, _ uint64, _ uint64, platform string) error {
 	f.deletePlatform = platform
@@ -232,22 +223,6 @@ func TestCreateRejectsCanvasOnlyAgentForAdminImageScene(t *testing.T) {
 	}
 	if repo.createdTask.ID != 0 {
 		t.Fatalf("admin task must not be created with a canvas-only image agent: %#v", repo.createdTask)
-	}
-}
-
-func TestFavoriteUpdatesAdminTaskOnly(t *testing.T) {
-	box := testImageSecretBox()
-	task := validPendingTask()
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task}
-	service := NewService(Dependencies{Repository: repo, Secretbox: box})
-
-	_, appErr := service.Favorite(context.Background(), FavoriteInput{UserID: task.UserID, TaskID: task.ID, Platform: enum.PlatformAdmin, IsFavorite: enum.CommonYes})
-
-	if appErr != nil {
-		t.Fatalf("favorite returned error: %#v", appErr)
-	}
-	if repo.favoriteID != task.ID || repo.favoritePlatform != enum.PlatformAdmin || repo.favoriteFlag != enum.CommonYes {
-		t.Fatalf("favorite did not target admin task: id=%d platform=%q value=%d", repo.favoriteID, repo.favoritePlatform, repo.favoriteFlag)
 	}
 }
 
