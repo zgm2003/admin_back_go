@@ -14,25 +14,6 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func TestRepositoryListPromptsFiltersAndOrders(t *testing.T) {
-	repo, mock, closeDB := newCanvasMockRepository(t)
-	defer closeDB()
-	now := time.Now()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM `canvas_prompts` WHERE is_del = ? AND status = ? AND category = ? AND ((title LIKE ? OR slug LIKE ? OR prompt LIKE ?)) AND JSON_CONTAINS(CAST(tags_json AS JSON), JSON_QUOTE(?))")).
-		WithArgs(IsDelActive, StatusEnabled, "style", "%cat%", "%cat%", "%cat%", "游戏素材").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `canvas_prompts` WHERE is_del = ? AND status = ? AND category = ? AND ((title LIKE ? OR slug LIKE ? OR prompt LIKE ?)) AND JSON_CONTAINS(CAST(tags_json AS JSON), JSON_QUOTE(?)) ORDER BY updated_at DESC, id DESC LIMIT ?")).
-		WithArgs(IsDelActive, StatusEnabled, "style", "%cat%", "%cat%", "%cat%", "游戏素材", 20).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "category", "title", "cover_url", "prompt", "preview", "tags_json", "source_url", "status", "is_del", "created_at", "updated_at"}).
-			AddRow(int64(1), "cat", "style", "Cat", "", "draw cat", "", "[]", "", StatusEnabled, IsDelActive, now, now))
-
-	rows, total, err := repo.ListPrompts(context.Background(), PromptListQuery{CurrentPage: 1, PageSize: 20, Keyword: "cat", Category: "style", Tags: []string{"游戏素材"}, Status: StatusEnabled, IsDel: IsDelActive})
-	if err != nil || total != 1 || len(rows) != 1 || rows[0].Slug != "cat" {
-		t.Fatalf("unexpected prompt list: rows=%#v total=%d err=%v", rows, total, err)
-	}
-	assertCanvasMockExpectations(t, mock)
-}
-
 func TestRepositoryListAssetsFiltersAndOrders(t *testing.T) {
 	repo, mock, closeDB := newCanvasMockRepository(t)
 	defer closeDB()
@@ -52,11 +33,11 @@ func TestRepositoryListAssetsFiltersAndOrders(t *testing.T) {
 	assertCanvasMockExpectations(t, mock)
 }
 
-func TestRepositorySoftDeleteAndUniqueSlugWriteContracts(t *testing.T) {
+func TestRepositorySoftDeleteAssetAndUniqueSlugWriteContracts(t *testing.T) {
 	repo, mock, closeDB := newCanvasMockRepository(t)
 	defer closeDB()
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `canvas_prompts` SET `is_del`=?,`updated_at`=? WHERE id = ? AND is_del = ?")).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `canvas_assets` SET `is_del`=?,`updated_at`=? WHERE id = ? AND is_del = ?")).
 		WithArgs(IsDelDeleted, sqlmock.AnyArg(), int64(7), IsDelActive).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectBegin()
@@ -64,8 +45,8 @@ func TestRepositorySoftDeleteAndUniqueSlugWriteContracts(t *testing.T) {
 		WillReturnError(assertDuplicateSlugError{})
 	mock.ExpectRollback()
 
-	if err := repo.SoftDeletePrompt(context.Background(), 7); err != nil {
-		t.Fatalf("soft delete prompt: %v", err)
+	if err := repo.SoftDeleteAsset(context.Background(), 7); err != nil {
+		t.Fatalf("soft delete asset: %v", err)
 	}
 	if _, err := repo.CreateAsset(context.Background(), Asset{Slug: "dup", Type: AssetTypeText, Title: "Dup", Status: StatusEnabled, IsDel: IsDelActive}); err == nil {
 		t.Fatalf("expected duplicate slug insert error")

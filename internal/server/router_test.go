@@ -26,6 +26,7 @@ import (
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
+	aiprompt "admin_back_go/internal/module/ai/prompt"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
@@ -1505,15 +1506,10 @@ func (f *fakeRouterUploadTokenService) Create(ctx context.Context, input uploadt
 }
 
 type fakeRouterCanvasService struct {
-	promptQuery canvasmodule.PromptListQuery
-	assetQuery  canvasmodule.AssetListQuery
-	settings    canvasmodule.SettingsInput
+	assetQuery canvasmodule.AssetListQuery
+	settings   canvasmodule.SettingsInput
 }
 
-func (f *fakeRouterCanvasService) PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error) {
-	f.promptQuery = query
-	return &canvasmodule.PromptListResponse{List: []canvasmodule.PromptItem{{ID: 1, Slug: "prompt", Title: "Prompt"}}}, nil
-}
 func (f *fakeRouterCanvasService) PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error) {
 	f.assetQuery = query
 	return &canvasmodule.AssetListResponse{List: []canvasmodule.AssetItem{{ID: 2, Slug: "asset", Type: canvasmodule.AssetTypeImage, Title: "Asset"}}}, nil
@@ -1521,6 +1517,15 @@ func (f *fakeRouterCanvasService) PublicAssets(ctx context.Context, query canvas
 func (f *fakeRouterCanvasService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	f.settings = input
 	return &canvasmodule.SettingsResponse{AllowRegister: true, Scenes: []string{"canvas_text_generate"}}, nil
+}
+
+type fakeRouterAiPromptService struct {
+	query aiprompt.ListQuery
+}
+
+func (f *fakeRouterAiPromptService) PublicList(ctx context.Context, query aiprompt.ListQuery) (*aiprompt.ListResponse, *apperror.Error) {
+	f.query = query
+	return &aiprompt.ListResponse{List: []aiprompt.Item{{ID: 1, Slug: "prompt", Title: "Prompt"}}}, nil
 }
 
 type fakeRouterWalletService struct {
@@ -3549,11 +3554,13 @@ func TestRouterInstallsPaymentConfigAndRechargeRoutes(t *testing.T) {
 }
 func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
+	promptService := &fakeRouterAiPromptService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
-		CanvasService: canvasService,
+		CanvasService:   canvasService,
+		AiPromptService: promptService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -3568,8 +3575,8 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/prompts?keyword=cat&category=style", nil)
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || canvasService.promptQuery.Keyword != "cat" || canvasService.promptQuery.Category != "style" {
-		t.Fatalf("expected canvas prompt route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), canvasService.promptQuery)
+	if recorder.Code != http.StatusOK || promptService.query.Keyword != "cat" || promptService.query.Category != "style" {
+		t.Fatalf("expected canvas prompt route from AI prompt service, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), promptService.query)
 	}
 
 	recorder = httptest.NewRecorder()

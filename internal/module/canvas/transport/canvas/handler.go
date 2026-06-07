@@ -12,7 +12,6 @@ import (
 )
 
 type HTTPService interface {
-	PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error)
 	PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error)
 	PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error)
 }
@@ -20,16 +19,6 @@ type HTTPService interface {
 type Handler struct{ service HTTPService }
 
 func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
-
-func (h *Handler) Prompts(c *gin.Context) {
-	var req listPromptsRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("canvas.prompt.request.invalid", nil, "提示词列表参数错误"))
-		return
-	}
-	result, appErr := h.requireService().PublicPrompts(c.Request.Context(), canvasmodule.PromptListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Keyword: req.Keyword, Category: req.Category, Tags: req.Tag})
-	writeResult(c, result, appErr)
-}
 
 func (h *Handler) Assets(c *gin.Context) {
 	var req listAssetsRequest
@@ -59,9 +48,6 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) PublicPrompts(ctx context.Context, query canvasmodule.PromptListQuery) (*canvasmodule.PromptListResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
 func (failingService) PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
 }

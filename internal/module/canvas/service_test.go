@@ -6,26 +6,14 @@ import (
 )
 
 type fakeCanvasRepository struct {
-	prompts       []Prompt
 	assets        []Asset
 	agentsByScene map[string][]CanvasAgentOption
-	createdPrompt Prompt
 	createdAsset  Asset
-	promptQuery   PromptListQuery
 	assetQuery    AssetListQuery
 	agentScenes   []string
 	err           error
 }
 
-func (f *fakeCanvasRepository) ListPrompts(ctx context.Context, query PromptListQuery) ([]Prompt, int64, error) {
-	f.promptQuery = query
-	return f.prompts, int64(len(f.prompts)), f.err
-}
-func (f *fakeCanvasRepository) CreatePrompt(ctx context.Context, row Prompt) (int64, error) {
-	f.createdPrompt = row
-	return 1, f.err
-}
-func (f *fakeCanvasRepository) SoftDeletePrompt(ctx context.Context, id int64) error { return f.err }
 func (f *fakeCanvasRepository) ListAssets(ctx context.Context, query AssetListQuery) ([]Asset, int64, error) {
 	f.assetQuery = query
 	return f.assets, int64(len(f.assets)), f.err
@@ -43,15 +31,6 @@ func (f *fakeCanvasRepository) ListAgentsByScene(ctx context.Context, scene stri
 	return f.agentsByScene[scene], f.err
 }
 
-func TestServiceValidatesPromptCreate(t *testing.T) {
-	svc := NewService(&fakeCanvasRepository{})
-	for _, input := range []PromptInput{{Slug: "", Title: "T", Prompt: "P"}, {Slug: "s", Title: "", Prompt: "P"}, {Slug: "s", Title: "T", Prompt: ""}} {
-		if _, appErr := svc.CreatePrompt(context.Background(), input); appErr == nil || appErr.Code != 100 {
-			t.Fatalf("expected prompt validation error for %#v, got %#v", input, appErr)
-		}
-	}
-}
-
 func TestServiceValidatesAssetCreate(t *testing.T) {
 	svc := NewService(&fakeCanvasRepository{})
 	for _, input := range []AssetInput{{Slug: "", Type: AssetTypeText, Title: "T"}, {Slug: "s", Type: "", Title: "T"}, {Slug: "s", Type: AssetTypeText, Title: ""}, {Slug: "s", Type: "video", Title: "T"}} {
@@ -61,30 +40,21 @@ func TestServiceValidatesAssetCreate(t *testing.T) {
 	}
 }
 
-func TestServicePublicListsForceEnabledActiveRows(t *testing.T) {
+func TestServicePublicAssetsForceEnabledActiveRows(t *testing.T) {
 	repo := &fakeCanvasRepository{
-		prompts: []Prompt{{ID: 1, Slug: "p", Title: "Prompt", Prompt: "draw", Status: StatusEnabled, IsDel: IsDelActive}},
-		assets:  []Asset{{ID: 2, Slug: "a", Type: AssetTypeImage, Title: "Asset", Status: StatusEnabled, IsDel: IsDelActive}},
+		assets: []Asset{{ID: 2, Slug: "a", Type: AssetTypeImage, Title: "Asset", Status: StatusEnabled, IsDel: IsDelActive}},
 	}
 	svc := NewService(repo)
-	prompts, appErr := svc.PublicPrompts(context.Background(), PromptListQuery{Status: StatusDisabled, IsDel: IsDelDeleted})
-	if appErr != nil || len(prompts.List) != 1 || repo.promptQuery.Status != StatusEnabled || repo.promptQuery.IsDel != IsDelActive {
-		t.Fatalf("public prompts mismatch resp=%#v query=%#v err=%#v", prompts, repo.promptQuery, appErr)
-	}
 	assets, appErr := svc.PublicAssets(context.Background(), AssetListQuery{Status: StatusDisabled, IsDel: IsDelDeleted})
 	if appErr != nil || len(assets.List) != 1 || repo.assetQuery.Status != StatusEnabled || repo.assetQuery.IsDel != IsDelActive {
 		t.Fatalf("public assets mismatch resp=%#v query=%#v err=%#v", assets, repo.assetQuery, appErr)
 	}
 }
 
-func TestServiceAdminListCanFilterDisabledRows(t *testing.T) {
-	repo := &fakeCanvasRepository{prompts: []Prompt{{ID: 1, Slug: "p", Title: "Prompt", Status: StatusDisabled, IsDel: IsDelActive}}, assets: []Asset{{ID: 2, Slug: "a", Type: AssetTypeText, Title: "Asset", Status: StatusDisabled, IsDel: IsDelActive}}}
+func TestServiceAdminAssetListCanFilterDisabledRows(t *testing.T) {
+	repo := &fakeCanvasRepository{assets: []Asset{{ID: 2, Slug: "a", Type: AssetTypeText, Title: "Asset", Status: StatusDisabled, IsDel: IsDelActive}}}
 	svc := NewService(repo)
-	_, appErr := svc.ListPrompts(context.Background(), PromptListQuery{Status: StatusDisabled, IsDel: IsDelActive})
-	if appErr != nil || repo.promptQuery.Status != StatusDisabled {
-		t.Fatalf("admin prompt list mismatch query=%#v err=%#v", repo.promptQuery, appErr)
-	}
-	_, appErr = svc.ListAssets(context.Background(), AssetListQuery{Status: StatusDisabled, IsDel: IsDelActive})
+	_, appErr := svc.ListAssets(context.Background(), AssetListQuery{Status: StatusDisabled, IsDel: IsDelActive})
 	if appErr != nil || repo.assetQuery.Status != StatusDisabled {
 		t.Fatalf("admin asset list mismatch query=%#v err=%#v", repo.assetQuery, appErr)
 	}

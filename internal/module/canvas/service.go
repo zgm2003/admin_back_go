@@ -40,34 +40,6 @@ func NewServiceWithSettings(repository Repository, deps SettingsDependencies) *S
 	return &Service{repository: repository, settings: deps}
 }
 
-func (s *Service) ListPrompts(ctx context.Context, query PromptListQuery) (*PromptListResponse, *apperror.Error) {
-	rows, total, err := s.repo().ListPrompts(ctx, query)
-	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.prompt.query_failed", nil, "查询Canvas提示词失败", err)
-	}
-	query = normalizePromptListQuery(query)
-	return &PromptListResponse{List: promptItems(rows), Page: page(query.CurrentPage, query.PageSize, total)}, nil
-}
-
-func (s *Service) PublicPrompts(ctx context.Context, query PromptListQuery) (*PromptListResponse, *apperror.Error) {
-	query.Status = StatusEnabled
-	query.IsDel = IsDelActive
-	return s.ListPrompts(ctx, query)
-}
-
-func (s *Service) CreatePrompt(ctx context.Context, input PromptInput) (int64, *apperror.Error) {
-	input = normalizePromptInput(input)
-	if input.Slug == "" || input.Title == "" || input.Prompt == "" {
-		return 0, apperror.BadRequestKey("canvas.prompt.request.invalid", nil, "提示词参数错误")
-	}
-	row := Prompt{Slug: input.Slug, Category: input.Category, Title: input.Title, CoverURL: input.CoverURL, Prompt: input.Prompt, Preview: input.Preview, TagsJSON: input.TagsJSON, SourceURL: input.SourceURL, Status: normalizeStatus(input.Status), IsDel: IsDelActive}
-	id, err := s.repo().CreatePrompt(ctx, row)
-	if err != nil {
-		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.prompt.create_failed", nil, "创建Canvas提示词失败", err)
-	}
-	return id, nil
-}
-
 func (s *Service) ListAssets(ctx context.Context, query AssetListQuery) (*AssetListResponse, *apperror.Error) {
 	rows, total, err := s.repo().ListAssets(ctx, query)
 	if err != nil {
@@ -160,15 +132,6 @@ func (s *Service) repo() Repository {
 
 type failingRepository struct{}
 
-func (failingRepository) ListPrompts(ctx context.Context, query PromptListQuery) ([]Prompt, int64, error) {
-	return nil, 0, ErrRepositoryNotConfigured
-}
-func (failingRepository) CreatePrompt(ctx context.Context, row Prompt) (int64, error) {
-	return 0, ErrRepositoryNotConfigured
-}
-func (failingRepository) SoftDeletePrompt(ctx context.Context, id int64) error {
-	return ErrRepositoryNotConfigured
-}
 func (failingRepository) ListAssets(ctx context.Context, query AssetListQuery) ([]Asset, int64, error) {
 	return nil, 0, ErrRepositoryNotConfigured
 }
@@ -182,13 +145,6 @@ func (failingRepository) ListAgentsByScene(ctx context.Context, scene string) ([
 	return nil, ErrRepositoryNotConfigured
 }
 
-func normalizePromptInput(input PromptInput) PromptInput {
-	input.Slug = strings.TrimSpace(input.Slug)
-	input.Category = strings.TrimSpace(input.Category)
-	input.Title = strings.TrimSpace(input.Title)
-	input.Prompt = strings.TrimSpace(input.Prompt)
-	return input
-}
 func normalizeAssetInput(input AssetInput) AssetInput {
 	input.Slug = strings.TrimSpace(input.Slug)
 	input.Type = strings.TrimSpace(input.Type)
@@ -204,13 +160,6 @@ func normalizeStatus(status int) int {
 }
 func isAssetType(value string) bool { return value == AssetTypeText || value == AssetTypeImage }
 
-func promptItems(rows []Prompt) []PromptItem {
-	items := make([]PromptItem, 0, len(rows))
-	for _, r := range rows {
-		items = append(items, PromptItem{ID: r.ID, Slug: r.Slug, Category: r.Category, Title: r.Title, CoverURL: r.CoverURL, Prompt: r.Prompt, Preview: r.Preview, TagsJSON: r.TagsJSON, SourceURL: r.SourceURL, Status: r.Status, CreatedAt: formatTime(r.CreatedAt), UpdatedAt: formatTime(r.UpdatedAt)})
-	}
-	return items
-}
 func assetItems(rows []Asset) []AssetItem {
 	items := make([]AssetItem, 0, len(rows))
 	for _, r := range rows {

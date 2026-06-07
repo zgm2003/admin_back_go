@@ -1,0 +1,4 @@
+ai.prompt.service_missing: AI prompt service is not configured
+ai.prompt.request.invalid: Invalid AI prompt request
+ai.prompt.query_failed: Failed to query AI prompts
+ai.prompt.create_failed: Failed to create AI prompt

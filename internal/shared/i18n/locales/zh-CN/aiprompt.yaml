@@ -1,0 +1,4 @@
+ai.prompt.service_missing: AI提示词服务未配置
+ai.prompt.request.invalid: 提示词参数错误
+ai.prompt.query_failed: 查询AI提示词失败
+ai.prompt.create_failed: 创建AI提示词失败

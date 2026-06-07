@@ -28,6 +28,7 @@ import (
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
+	aiprompt "admin_back_go/internal/module/ai/prompt"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -215,6 +216,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(aiRunRepository)
+	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
 	paymentCertResolver := payment.CertPathResolver{
 		CertBaseDir: cfg.Payment.CertBaseDir,
 		WorkingDir:  ".",
@@ -357,6 +359,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
 		AiImageService:          aiImageService,
+		AiPromptService:         aiPromptService,
 		AiVideoService:          aiVideoService,
 		AiAgentService:          aiAgentService,
 		AiProviderService:       aiProviderService,
