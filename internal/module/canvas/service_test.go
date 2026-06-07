@@ -6,58 +6,17 @@ import (
 )
 
 type fakeCanvasRepository struct {
-	assets        []Asset
 	agentsByScene map[string][]CanvasAgentOption
-	createdAsset  Asset
-	assetQuery    AssetListQuery
 	agentScenes   []string
 	err           error
 }
 
-func (f *fakeCanvasRepository) ListAssets(ctx context.Context, query AssetListQuery) ([]Asset, int64, error) {
-	f.assetQuery = query
-	return f.assets, int64(len(f.assets)), f.err
-}
-func (f *fakeCanvasRepository) CreateAsset(ctx context.Context, row Asset) (int64, error) {
-	f.createdAsset = row
-	return 2, f.err
-}
-func (f *fakeCanvasRepository) SoftDeleteAsset(ctx context.Context, id int64) error { return f.err }
 func (f *fakeCanvasRepository) ListAgentsByScene(ctx context.Context, scene string) ([]CanvasAgentOption, error) {
 	f.agentScenes = append(f.agentScenes, scene)
 	if f.agentsByScene == nil {
 		return nil, f.err
 	}
 	return f.agentsByScene[scene], f.err
-}
-
-func TestServiceValidatesAssetCreate(t *testing.T) {
-	svc := NewService(&fakeCanvasRepository{})
-	for _, input := range []AssetInput{{Slug: "", Type: AssetTypeText, Title: "T"}, {Slug: "s", Type: "", Title: "T"}, {Slug: "s", Type: AssetTypeText, Title: ""}, {Slug: "s", Type: "video", Title: "T"}} {
-		if _, appErr := svc.CreateAsset(context.Background(), input); appErr == nil || appErr.Code != 100 {
-			t.Fatalf("expected asset validation error for %#v, got %#v", input, appErr)
-		}
-	}
-}
-
-func TestServicePublicAssetsForceEnabledActiveRows(t *testing.T) {
-	repo := &fakeCanvasRepository{
-		assets: []Asset{{ID: 2, Slug: "a", Type: AssetTypeImage, Title: "Asset", Status: StatusEnabled, IsDel: IsDelActive}},
-	}
-	svc := NewService(repo)
-	assets, appErr := svc.PublicAssets(context.Background(), AssetListQuery{Status: StatusDisabled, IsDel: IsDelDeleted})
-	if appErr != nil || len(assets.List) != 1 || repo.assetQuery.Status != StatusEnabled || repo.assetQuery.IsDel != IsDelActive {
-		t.Fatalf("public assets mismatch resp=%#v query=%#v err=%#v", assets, repo.assetQuery, appErr)
-	}
-}
-
-func TestServiceAdminAssetListCanFilterDisabledRows(t *testing.T) {
-	repo := &fakeCanvasRepository{assets: []Asset{{ID: 2, Slug: "a", Type: AssetTypeText, Title: "Asset", Status: StatusDisabled, IsDel: IsDelActive}}}
-	svc := NewService(repo)
-	_, appErr := svc.ListAssets(context.Background(), AssetListQuery{Status: StatusDisabled, IsDel: IsDelActive})
-	if appErr != nil || repo.assetQuery.Status != StatusDisabled {
-		t.Fatalf("admin asset list mismatch query=%#v err=%#v", repo.assetQuery, appErr)
-	}
 }
 
 func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing.T) {

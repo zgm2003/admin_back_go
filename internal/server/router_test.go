@@ -21,6 +21,7 @@ import (
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
+	aiasset "admin_back_go/internal/module/ai/asset"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -1506,14 +1507,9 @@ func (f *fakeRouterUploadTokenService) Create(ctx context.Context, input uploadt
 }
 
 type fakeRouterCanvasService struct {
-	assetQuery canvasmodule.AssetListQuery
-	settings   canvasmodule.SettingsInput
+	settings canvasmodule.SettingsInput
 }
 
-func (f *fakeRouterCanvasService) PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error) {
-	f.assetQuery = query
-	return &canvasmodule.AssetListResponse{List: []canvasmodule.AssetItem{{ID: 2, Slug: "asset", Type: canvasmodule.AssetTypeImage, Title: "Asset"}}}, nil
-}
 func (f *fakeRouterCanvasService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	f.settings = input
 	return &canvasmodule.SettingsResponse{AllowRegister: true, Scenes: []string{"canvas_text_generate"}}, nil
@@ -1526,6 +1522,38 @@ type fakeRouterAiPromptService struct {
 func (f *fakeRouterAiPromptService) PublicList(ctx context.Context, query aiprompt.ListQuery) (*aiprompt.ListResponse, *apperror.Error) {
 	f.query = query
 	return &aiprompt.ListResponse{List: []aiprompt.Item{{ID: 1, Slug: "prompt", Title: "Prompt"}}}, nil
+}
+
+type fakeRouterAiAssetService struct {
+	query       aiasset.ListQuery
+	created     aiasset.Input
+	updatedID   int64
+	updated     aiasset.Input
+	deletedID   int64
+	createCalls int
+	updateCalls int
+	deleteCalls int
+}
+
+func (f *fakeRouterAiAssetService) PublicList(ctx context.Context, query aiasset.ListQuery) (*aiasset.ListResponse, *apperror.Error) {
+	f.query = query
+	return &aiasset.ListResponse{List: []aiasset.Item{{ID: 2, Slug: "asset", Type: aiasset.AssetTypeImage, Title: "Asset"}}}, nil
+}
+func (f *fakeRouterAiAssetService) Create(ctx context.Context, input aiasset.Input) (int64, *apperror.Error) {
+	f.created = input
+	f.createCalls++
+	return 22, nil
+}
+func (f *fakeRouterAiAssetService) Update(ctx context.Context, id int64, input aiasset.Input) *apperror.Error {
+	f.updatedID = id
+	f.updated = input
+	f.updateCalls++
+	return nil
+}
+func (f *fakeRouterAiAssetService) Delete(ctx context.Context, id int64) *apperror.Error {
+	f.deletedID = id
+	f.deleteCalls++
+	return nil
 }
 
 type fakeRouterWalletService struct {
@@ -3555,12 +3583,14 @@ func TestRouterInstallsPaymentConfigAndRechargeRoutes(t *testing.T) {
 func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	promptService := &fakeRouterAiPromptService{}
+	assetService := &fakeRouterAiAssetService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
 		CanvasService:   canvasService,
 		AiPromptService: promptService,
+		AiAssetService:  assetService,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -3583,8 +3613,34 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/assets?keyword=sky&type=image", nil)
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || canvasService.assetQuery.Keyword != "sky" || canvasService.assetQuery.Type != canvasmodule.AssetTypeImage {
-		t.Fatalf("expected canvas asset route, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), canvasService.assetQuery)
+	if recorder.Code != http.StatusOK || assetService.query.Keyword != "sky" || assetService.query.Type != aiasset.AssetTypeImage {
+		t.Fatalf("expected canvas asset route from AI asset service, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), assetService.query)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/assets", strings.NewReader(`{"slug":"clip","type":"video","title":"Clip"}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || assetService.createCalls != 1 || assetService.created.Slug != "clip" || assetService.created.Type != aiasset.AssetTypeVideo {
+		t.Fatalf("expected canvas asset create from AI asset service, code=%d body=%s calls=%d input=%#v", recorder.Code, recorder.Body.String(), assetService.createCalls, assetService.created)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/canvas/v1/assets/7", strings.NewReader(`{"slug":"hero","type":"image","title":"Hero"}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || assetService.updateCalls != 1 || assetService.updatedID != 7 || assetService.updated.Type != aiasset.AssetTypeImage {
+		t.Fatalf("expected canvas asset update from AI asset service, code=%d body=%s calls=%d id=%d input=%#v", recorder.Code, recorder.Body.String(), assetService.updateCalls, assetService.updatedID, assetService.updated)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/canvas/v1/assets/7", nil)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || assetService.deleteCalls != 1 || assetService.deletedID != 7 {
+		t.Fatalf("expected canvas asset delete from AI asset service, code=%d body=%s calls=%d id=%d", recorder.Code, recorder.Body.String(), assetService.deleteCalls, assetService.deletedID)
 	}
 }
 

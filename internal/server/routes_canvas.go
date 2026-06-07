@@ -1,6 +1,7 @@
 package server
 
 import (
+	aiassetcanvas "admin_back_go/internal/module/ai/asset/transport/canvas"
 	aichatcanvas "admin_back_go/internal/module/ai/chat/transport/canvas"
 	aiimagecanvas "admin_back_go/internal/module/ai/image/transport/canvas"
 	aipromptcanvas "admin_back_go/internal/module/ai/prompt/transport/canvas"
@@ -12,6 +13,7 @@ import (
 
 func registerCanvasRoutes(router *gin.Engine, deps Dependencies) {
 	canvastransport.RegisterRoutes(router, deps.CanvasService)
+	aiassetcanvas.RegisterRoutes(router, deps.AiAssetService)
 	aipromptcanvas.RegisterRoutes(router, deps.AiPromptService)
 	aiimagecanvas.RegisterRoutes(router, deps.AiImageService)
 	aichatcanvas.RegisterRoutes(router, deps.AiChatService)

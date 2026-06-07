@@ -16,14 +16,9 @@ import (
 )
 
 type fakeCanvasService struct {
-	assetQuery     canvasmodule.AssetListQuery
 	settingsUserID int64
 }
 
-func (f *fakeCanvasService) PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error) {
-	f.assetQuery = query
-	return &canvasmodule.AssetListResponse{List: []canvasmodule.AssetItem{{ID: 2, Slug: "a", Type: canvasmodule.AssetTypeImage, Title: "Asset"}}}, nil
-}
 func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	f.settingsUserID = input.UserID
 	return &canvasmodule.SettingsResponse{
@@ -36,18 +31,31 @@ func (f *fakeCanvasService) PublicSettings(ctx context.Context, input canvasmodu
 		},
 	}, nil
 }
-func TestCanvasPublicAssetRoute(t *testing.T) {
+
+func TestCanvasTransportDoesNotOwnAssetRoutes(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	service := &fakeCanvasService{}
 	router := gin.New()
 	RegisterRoutes(router, service)
 
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/canvas/v1/assets?keyword=sky&type=image", nil))
-	if recorder.Code != http.StatusOK || service.assetQuery.Keyword != "sky" || service.assetQuery.Type != canvasmodule.AssetTypeImage {
-		t.Fatalf("asset route mismatch code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), service.assetQuery)
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/canvas/v1/assets?keyword=sky", ""},
+		{http.MethodPost, "/api/canvas/v1/assets", `{"slug":"a"}`},
+		{http.MethodPut, "/api/canvas/v1/assets/7", `{"slug":"a"}`},
+		{http.MethodDelete, "/api/canvas/v1/assets/7", ""},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("canvas transport must not own %s %s, got code=%d body=%s", tc.method, tc.path, recorder.Code, recorder.Body.String())
+		}
 	}
-	assertNoProviderSecrets(t, recorder.Body.Bytes())
 }
 
 func TestCanvasTransportDoesNotOwnPromptRoute(t *testing.T) {

@@ -1,4 +1,4 @@
-package canvas
+package asset
 
 import "time"
 
@@ -9,6 +9,7 @@ const (
 	IsDelActive    = 2
 	AssetTypeText  = "text"
 	AssetTypeImage = "image"
+	AssetTypeVideo = "video"
 )
 
 type Asset struct {
@@ -28,4 +29,4 @@ type Asset struct {
 	UpdatedAt   time.Time `gorm:"column:updated_at"`
 }
 
-func (Asset) TableName() string { return "canvas_assets" }
+func (Asset) TableName() string { return "ai_assets" }

@@ -23,6 +23,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
+	aiasset "admin_back_go/internal/module/ai/asset"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -216,6 +217,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(aiRunRepository)
+	aiAssetService := aiasset.NewService(aiasset.NewGormRepository(resources.DB))
 	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
 	paymentCertResolver := payment.CertPathResolver{
 		CertBaseDir: cfg.Payment.CertBaseDir,
@@ -359,6 +361,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
 		AiImageService:          aiImageService,
+		AiAssetService:          aiAssetService,
 		AiPromptService:         aiPromptService,
 		AiVideoService:          aiVideoService,
 		AiAgentService:          aiAgentService,

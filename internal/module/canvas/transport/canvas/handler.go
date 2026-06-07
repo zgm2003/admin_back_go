@@ -12,23 +12,12 @@ import (
 )
 
 type HTTPService interface {
-	PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error)
 	PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error)
 }
 
 type Handler struct{ service HTTPService }
 
 func NewHandler(service HTTPService) *Handler { return &Handler{service: service} }
-
-func (h *Handler) Assets(c *gin.Context) {
-	var req listAssetsRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequestKey("canvas.asset.request.invalid", nil, "素材列表参数错误"))
-		return
-	}
-	result, appErr := h.requireService().PublicAssets(c.Request.Context(), canvasmodule.AssetListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Keyword: req.Keyword, Type: req.Type})
-	writeResult(c, result, appErr)
-}
 
 func (h *Handler) Settings(c *gin.Context) {
 	var userID int64
@@ -48,9 +37,6 @@ func (h *Handler) requireService() HTTPService {
 
 type failingService struct{}
 
-func (failingService) PublicAssets(ctx context.Context, query canvasmodule.AssetListQuery) (*canvasmodule.AssetListResponse, *apperror.Error) {
-	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
-}
 func (failingService) PublicSettings(ctx context.Context, input canvasmodule.SettingsInput) (*canvasmodule.SettingsResponse, *apperror.Error) {
 	return nil, apperror.InternalKey("canvas.service_missing", nil, "Canvas服务未配置")
 }

@@ -2,8 +2,6 @@ package canvas
 
 import (
 	"context"
-	"strings"
-	"time"
 
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -38,34 +36,6 @@ func NewService(repository Repository) *Service { return &Service{repository: re
 
 func NewServiceWithSettings(repository Repository, deps SettingsDependencies) *Service {
 	return &Service{repository: repository, settings: deps}
-}
-
-func (s *Service) ListAssets(ctx context.Context, query AssetListQuery) (*AssetListResponse, *apperror.Error) {
-	rows, total, err := s.repo().ListAssets(ctx, query)
-	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.asset.query_failed", nil, "查询Canvas素材失败", err)
-	}
-	query = normalizeAssetListQuery(query)
-	return &AssetListResponse{List: assetItems(rows), Page: page(query.CurrentPage, query.PageSize, total)}, nil
-}
-
-func (s *Service) PublicAssets(ctx context.Context, query AssetListQuery) (*AssetListResponse, *apperror.Error) {
-	query.Status = StatusEnabled
-	query.IsDel = IsDelActive
-	return s.ListAssets(ctx, query)
-}
-
-func (s *Service) CreateAsset(ctx context.Context, input AssetInput) (int64, *apperror.Error) {
-	input = normalizeAssetInput(input)
-	if input.Slug == "" || input.Title == "" || !isAssetType(input.Type) {
-		return 0, apperror.BadRequestKey("canvas.asset.request.invalid", nil, "素材参数错误")
-	}
-	row := Asset{Slug: input.Slug, Type: input.Type, Category: input.Category, Title: input.Title, CoverURL: input.CoverURL, Description: input.Description, Content: input.Content, URL: input.URL, TagsJSON: input.TagsJSON, Status: normalizeStatus(input.Status), IsDel: IsDelActive}
-	id, err := s.repo().CreateAsset(ctx, row)
-	if err != nil {
-		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.asset.create_failed", nil, "创建Canvas素材失败", err)
-	}
-	return id, nil
 }
 
 func (s *Service) PublicSettings(ctx context.Context, input SettingsInput) (*SettingsResponse, *apperror.Error) {
@@ -132,57 +102,6 @@ func (s *Service) repo() Repository {
 
 type failingRepository struct{}
 
-func (failingRepository) ListAssets(ctx context.Context, query AssetListQuery) ([]Asset, int64, error) {
-	return nil, 0, ErrRepositoryNotConfigured
-}
-func (failingRepository) CreateAsset(ctx context.Context, row Asset) (int64, error) {
-	return 0, ErrRepositoryNotConfigured
-}
-func (failingRepository) SoftDeleteAsset(ctx context.Context, id int64) error {
-	return ErrRepositoryNotConfigured
-}
 func (failingRepository) ListAgentsByScene(ctx context.Context, scene string) ([]CanvasAgentOption, error) {
 	return nil, ErrRepositoryNotConfigured
-}
-
-func normalizeAssetInput(input AssetInput) AssetInput {
-	input.Slug = strings.TrimSpace(input.Slug)
-	input.Type = strings.TrimSpace(input.Type)
-	input.Category = strings.TrimSpace(input.Category)
-	input.Title = strings.TrimSpace(input.Title)
-	return input
-}
-func normalizeStatus(status int) int {
-	if status == StatusDisabled {
-		return StatusDisabled
-	}
-	return StatusEnabled
-}
-func isAssetType(value string) bool { return value == AssetTypeText || value == AssetTypeImage }
-
-func assetItems(rows []Asset) []AssetItem {
-	items := make([]AssetItem, 0, len(rows))
-	for _, r := range rows {
-		items = append(items, AssetItem{ID: r.ID, Slug: r.Slug, Type: r.Type, Category: r.Category, Title: r.Title, CoverURL: r.CoverURL, Description: r.Description, Content: r.Content, URL: r.URL, TagsJSON: r.TagsJSON, Status: r.Status, CreatedAt: formatTime(r.CreatedAt), UpdatedAt: formatTime(r.UpdatedAt)})
-	}
-	return items
-}
-func page(current, size int, total int64) Page {
-	if current <= 0 {
-		current = 1
-	}
-	if size <= 0 {
-		size = 20
-	}
-	totalPage := int64(0)
-	if size > 0 {
-		totalPage = (total + int64(size) - 1) / int64(size)
-	}
-	return Page{CurrentPage: current, PageSize: size, Total: total, TotalPage: int(totalPage)}
-}
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.Format("2006-01-02 15:04:05")
 }
