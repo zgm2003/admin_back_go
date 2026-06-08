@@ -1161,7 +1161,7 @@ function Assert-UsersInitAIRoutes($Response) {
     models = '/ai/models'
     agents = '/ai/agent'
   }
-  $retiredRoutes = @('/ai/goods', '/ai/cine') + @($retiredAINameRoutes.Values)
+  $retiredRoutes = @('/ai/goods', '/ai/cine', '/ai/image-playground', '/ai/assets') + @($retiredAINameRoutes.Values)
   $retiredPresent = @{}
   foreach ($route in $retiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -1183,9 +1183,15 @@ function Assert-UsersInitAIRoutes($Response) {
   Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users me AI menu order'
   $aiToolAddButton = $false
   $aiToolGenerateButton = $false
+  $retiredAIButtonCodes = @('ai_image_task_add', 'ai_image_task_del', 'ai_image_task_favorite', 'ai_image_asset_add', 'ai_asset_add', 'ai_asset_edit', 'ai_asset_del')
+  $retiredAIButtonPresent = $false
   foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
     if ([string]$code -eq 'ai_tool_add') { $aiToolAddButton = $true }
     if ([string]$code -eq 'ai_tool_generate') { $aiToolGenerateButton = $true }
+    if ($retiredAIButtonCodes -contains [string]$code) {
+      $retiredAIButtonPresent = $true
+      throw "users me still returns retired AI button code ${code}: $($Response | ConvertTo-Json -Depth 12)"
+    }
   }
   if ($aiToolAddButton -and -not $aiToolGenerateButton) {
     throw "users me has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
@@ -1196,6 +1202,8 @@ function Assert-UsersInitAIRoutes($Response) {
     CinePresent = $retiredPresent['/ai/cine']
     ModelsPresent = $retiredPresent[$retiredAINameRoutes['models']]
     RetiredAgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
+    ImagePlaygroundPresent = $retiredPresent['/ai/image-playground']
+    AssetsPresent = $retiredPresent['/ai/assets']
     PromptsPresent = $requiredPresent['/ai/prompts']
     ProvidersPresent = $requiredPresent['/ai/providers']
     AgentsPresent = $requiredPresent['/ai/agents']
@@ -1205,6 +1213,7 @@ function Assert-UsersInitAIRoutes($Response) {
     ToolsPresent = $requiredPresent['/ai/tools']
     ToolAddButtonPresent = $aiToolAddButton
     ToolGenerateButtonPresent = $aiToolGenerateButton
+    RetiredAIButtonPresent = $retiredAIButtonPresent
   }
 }
 
@@ -3289,6 +3298,8 @@ func main() {
     ai_cine_route_present = $usersInitAIRouteSummary.CinePresent
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
     retired_ai_agents_route_present = $usersInitAIRouteSummary.RetiredAgentsPresent
+    ai_image_playground_route_present = $usersInitAIRouteSummary.ImagePlaygroundPresent
+    ai_assets_route_present = $usersInitAIRouteSummary.AssetsPresent
     ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
     ai_providers_route_present = $usersInitAIRouteSummary.ProvidersPresent
     ai_agents_route_present = $usersInitAIRouteSummary.AgentsPresent
@@ -3298,6 +3309,7 @@ func main() {
     ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
     ai_tool_add_button_present = $usersInitAIRouteSummary.ToolAddButtonPresent
     ai_tool_generate_button_present = $usersInitAIRouteSummary.ToolGenerateButtonPresent
+    retired_ai_button_present = $usersInitAIRouteSummary.RetiredAIButtonPresent
     payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
     payment_route_wallet_root_route_present = $usersInitPaymentRouteSummary.WalletRootRoutePresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent
