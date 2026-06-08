@@ -1,7 +1,6 @@
 package architecture
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +17,7 @@ func TestAIPromptAssetConvergence(t *testing.T) {
 		"INSERT IGNORE INTO `ai_assets`",
 	})
 
-	assertOptionalFileContains(t, filepath.Join(root, "database/migrations/20260607_ai_prompt_asset_drop_legacy.sql"), []string{
+	assertFileContains(t, filepath.Join(root, "database/migrations/20260608_ai_prompt_asset_drop_legacy.sql"), []string{
 		"DROP TABLE IF EXISTS `canvas_prompts`",
 		"DROP TABLE IF EXISTS `canvas_assets`",
 	})
@@ -37,19 +36,6 @@ func assertFileContains(t *testing.T, path string, required []string) {
 	t.Helper()
 
 	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", filepath.ToSlash(path), err)
-	}
-	assertTextContains(t, filepath.ToSlash(path), string(body), required)
-}
-
-func assertOptionalFileContains(t *testing.T, path string, required []string) {
-	t.Helper()
-
-	body, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return
-	}
 	if err != nil {
 		t.Fatalf("read %s: %v", filepath.ToSlash(path), err)
 	}
