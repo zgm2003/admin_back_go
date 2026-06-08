@@ -163,7 +163,7 @@ func (f *recordingRunRecorder) Start(_ context.Context, input airun.StartInput) 
 	return 600, nil
 }
 
-func TestPageInitListsAdminImageGenerateAgentsOnly(t *testing.T) {
+func TestPageInitListsCanvasImageGenerateAgentsOnly(t *testing.T) {
 	repo := &fakeImageRepository{}
 	service := NewService(Dependencies{Repository: repo})
 
@@ -172,19 +172,19 @@ func TestPageInitListsAdminImageGenerateAgentsOnly(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected page init to pass, got %#v", appErr)
 	}
-	if repo.listAgentsScene != SceneImageGenerate {
-		t.Fatalf("admin image page-init must list image_generate agents only, got %q", repo.listAgentsScene)
+	if repo.listAgentsScene != SceneCanvasImageGenerate {
+		t.Fatalf("image page-init must list canvas_image_generate agents only, got %q", repo.listAgentsScene)
 	}
 }
 
-func TestCreateEnqueuesAdminTaskWithTaskOwnedFiles(t *testing.T) {
+func TestCreateEnqueuesCanvasTaskWithTaskOwnedFiles(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
 	enqueuer := &fakeImageEnqueuer{}
 	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
 
 	result, appErr := service.Create(context.Background(), CreateInput{
-		UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "  draw a cat  ",
+		UserID: 9, AgentID: 1, Platform: enum.PlatformCanvas, Prompt: "  draw a cat  ",
 		InputFiles: []ImageFileInput{{StorageProvider: StorageProviderCOS, StorageKey: "inputs/ref.png", StorageURL: "https://cos.test/ref.png", MimeType: "image/png"}},
 		MaskFile:   &MaskFileInput{ImageFileInput: ImageFileInput{StorageProvider: StorageProviderCOS, StorageKey: "inputs/mask.png", StorageURL: "https://cos.test/mask.png", MimeType: "image/png"}, RelatedSortOrder: 1},
 	})
@@ -195,8 +195,8 @@ func TestCreateEnqueuesAdminTaskWithTaskOwnedFiles(t *testing.T) {
 	if result.Task.ID != 77 || result.Task.Status != StatusPending {
 		t.Fatalf("unexpected create response: %#v", result.Task)
 	}
-	if repo.createdTask.UserID != 9 || repo.createdTask.Platform != enum.PlatformAdmin || repo.createdTask.AgentNameSnapshot != "图片助手" || repo.createdTask.Prompt != "draw a cat" {
-		t.Fatalf("admin task snapshot mismatch: %#v", repo.createdTask)
+	if repo.createdTask.UserID != 9 || repo.createdTask.Platform != enum.PlatformCanvas || repo.createdTask.AgentNameSnapshot != "图片助手" || repo.createdTask.Prompt != "draw a cat" {
+		t.Fatalf("canvas task snapshot mismatch: %#v", repo.createdTask)
 	}
 	if len(repo.createdFiles.Inputs) != 1 || repo.createdFiles.Inputs[0].Role != FileRoleInput {
 		t.Fatalf("input file was not task-owned: %#v", repo.createdFiles.Inputs)
@@ -205,37 +205,35 @@ func TestCreateEnqueuesAdminTaskWithTaskOwnedFiles(t *testing.T) {
 		t.Fatalf("mask file was not task-owned: %#v", repo.createdFiles.Mask)
 	}
 	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != TypeGenerateV1 {
-		t.Fatalf("expected one admin image queue task, got %#v", enqueuer.tasks)
+		t.Fatalf("expected one canvas image queue task, got %#v", enqueuer.tasks)
 	}
 }
 
-func TestCreateRejectsCanvasOnlyAgentForAdminImageScene(t *testing.T) {
+func TestCreateRejectsRetiredAdminImagePlatform(t *testing.T) {
 	box := testImageSecretBox()
-	agent := validImageAgent(t, box)
-	agent.ScenesJSON = `["canvas_image_generate"]`
-	repo := &fakeImageRepository{agent: agent}
+	repo := &fakeImageRepository{agent: validImageAgent(t, box)}
 	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box})
 
 	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "智能体未启用图片生成场景" {
-		t.Fatalf("expected admin image scene gate error, got %#v", appErr)
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
+		t.Fatalf("expected retired admin image platform to be rejected, got %#v", appErr)
 	}
 	if repo.createdTask.ID != 0 {
-		t.Fatalf("admin task must not be created with a canvas-only image agent: %#v", repo.createdTask)
+		t.Fatalf("admin image task must not be created: %#v", repo.createdTask)
 	}
 }
 
-func TestDetailRejectsCrossPlatformTask(t *testing.T) {
+func TestDetailRejectsRetiredAdminImagePlatform(t *testing.T) {
 	box := testImageSecretBox()
 	task := validPendingTask()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task}
 	service := NewService(Dependencies{Repository: repo, Secretbox: box})
 
-	_, appErr := service.Detail(context.Background(), task.UserID, task.ID, enum.PlatformCanvas)
+	_, appErr := service.Detail(context.Background(), task.UserID, task.ID, enum.PlatformAdmin)
 
-	if appErr == nil || appErr.MessageID != "aiimage.task.not_found" {
-		t.Fatalf("expected cross-platform detail to be hidden, got %#v", appErr)
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
+		t.Fatalf("expected retired admin image platform to be rejected, got %#v", appErr)
 	}
 }
 
@@ -245,17 +243,17 @@ func TestDeleteUsesPlatformFilter(t *testing.T) {
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task}
 	service := NewService(Dependencies{Repository: repo, Secretbox: box})
 
-	appErr := service.Delete(context.Background(), task.UserID, task.ID, enum.PlatformAdmin)
+	appErr := service.Delete(context.Background(), task.UserID, task.ID, enum.PlatformCanvas)
 
 	if appErr != nil {
 		t.Fatalf("delete returned error: %#v", appErr)
 	}
-	if repo.deletePlatform != enum.PlatformAdmin {
+	if repo.deletePlatform != enum.PlatformCanvas {
 		t.Fatalf("delete did not include platform filter: %q", repo.deletePlatform)
 	}
 }
 
-func TestExecuteGenerateRecordsAdminImageRun(t *testing.T) {
+func TestExecuteGenerateRecordsCanvasImageRun(t *testing.T) {
 	box := testImageSecretBox()
 	task := validPendingTask()
 	recorder := &recordingRunRecorder{}
@@ -274,8 +272,8 @@ func TestExecuteGenerateRecordsAdminImageRun(t *testing.T) {
 	if err != nil || result == nil || result.Status != StatusSuccess {
 		t.Fatalf("expected success, result=%#v err=%v", result, err)
 	}
-	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.SourceType != enum.AIRunSourceImageTask || recorder.started.SourceID != task.ID {
-		t.Fatalf("admin image run source mismatch: %#v", recorder.started)
+	if recorder.started.Platform != enum.PlatformCanvas || recorder.started.SourceType != enum.AIRunSourceImageTask || recorder.started.SourceID != task.ID {
+		t.Fatalf("canvas image run source mismatch: %#v", recorder.started)
 	}
 	if recorder.completed.RunID != 600 || recorder.completed.UsageStatus != enum.AIRunUsageReported {
 		t.Fatalf("image run not completed with provider usage: %#v", recorder.completed)
@@ -322,11 +320,11 @@ func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 	if err != nil {
 		t.Fatalf("encrypt api key: %v", err)
 	}
-	return &AgentRuntime{AgentID: 1, AgentName: "图片助手", ScenesJSON: `["image_generate"]`, AgentStatus: enum.CommonYes, ProviderID: 8, ProviderName: "OpenAI", EngineType: string(infraai.EngineTypeOpenAI), BaseURL: "https://api.openai.test/v1", APIKeyEnc: apiKey, ProviderStatus: enum.CommonYes, ModelID: RequiredModelID, ModelDisplayName: "GPT Image 2", ModelStatus: enum.CommonYes}
+	return &AgentRuntime{AgentID: 1, AgentName: "图片助手", ScenesJSON: `["canvas_image_generate"]`, AgentStatus: enum.CommonYes, ProviderID: 8, ProviderName: "OpenAI", EngineType: string(infraai.EngineTypeOpenAI), BaseURL: "https://api.openai.test/v1", APIKeyEnc: apiKey, ProviderStatus: enum.CommonYes, ModelID: RequiredModelID, ModelDisplayName: "GPT Image 2", ModelStatus: enum.CommonYes}
 }
 
 func validPendingTask() ImageTask {
-	return ImageTask{ID: 88, Platform: enum.PlatformAdmin, UserID: 9, AgentID: 1, AgentNameSnapshot: "图片助手", ProviderIDSnapshot: 8, ProviderNameSnapshot: "OpenAI", ModelIDSnapshot: RequiredModelID, ModelDisplayNameSnapshot: "GPT Image 2", Prompt: "draw a cat", Size: defaultSize, Quality: defaultQuality, OutputFormat: defaultOutputFormat, Moderation: defaultModeration, N: defaultN, Status: StatusPending, IsFavorite: enum.CommonNo, CreatedAt: time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC)}
+	return ImageTask{ID: 88, Platform: enum.PlatformCanvas, UserID: 9, AgentID: 1, AgentNameSnapshot: "图片助手", ProviderIDSnapshot: 8, ProviderNameSnapshot: "OpenAI", ModelIDSnapshot: RequiredModelID, ModelDisplayNameSnapshot: "GPT Image 2", Prompt: "draw a cat", Size: defaultSize, Quality: defaultQuality, OutputFormat: defaultOutputFormat, Moderation: defaultModeration, N: defaultN, Status: StatusPending, IsFavorite: enum.CommonNo, CreatedAt: time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 5, 15, 9, 0, 0, 0, time.UTC)}
 }
 
 func fixedImageNow() func() time.Time {

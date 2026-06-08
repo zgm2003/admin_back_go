@@ -1297,8 +1297,14 @@ function Assert-AIAgentInit($Response) {
   if (-not ($sceneValues -contains 'agent_generate')) {
     throw "AI agent init missing agent_generate scene: $($Response | ConvertTo-Json -Depth 12)"
   }
-  if (-not ($sceneValues -contains 'image_generate')) {
-    throw "AI agent init missing image_generate scene: $($Response | ConvertTo-Json -Depth 12)"
+  foreach ($canvasScene in @('canvas_text_generate', 'canvas_image_generate', 'canvas_video_generate')) {
+    if (-not ($sceneValues -contains $canvasScene)) {
+      throw "AI agent init missing ${canvasScene} scene: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
+  $retiredImageScene = 'image' + '_generate'
+  if ($sceneValues -contains $retiredImageScene) {
+    throw "AI agent init still exposes retired non-Canvas image scene: $($Response | ConvertTo-Json -Depth 12)"
   }
   return [pscustomobject]@{
     SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
@@ -2894,15 +2900,24 @@ func main() {
     -TimeoutSec 10
   [void](Assert-AIAgentList $aiAgentGenerateSceneList)
 
-  $aiAgentImageSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=image_generate" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  [void](Assert-AIAgentList $aiAgentImageSceneList)
+  foreach ($scene in @('canvas_text_generate', 'canvas_image_generate', 'canvas_video_generate')) {
+    $aiAgentCanvasSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=$scene" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    [void](Assert-AIAgentList $aiAgentCanvasSceneList)
+  }
 
   $aiAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options" `
     -Headers $authHeaders `
     -TimeoutSec 10
   $aiAgentOptionsSummary = Assert-AIAgentOptions $aiAgentOptions
+
+  foreach ($scene in @('canvas_text_generate', 'canvas_image_generate', 'canvas_video_generate')) {
+    $aiAgentCanvasOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options?scene=$scene" `
+      -Headers $authHeaders `
+      -TimeoutSec 10
+    [void](Assert-AIAgentOptions $aiAgentCanvasOptions)
+  }
 
 
   $aiKnowledgeInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases/page-init" `

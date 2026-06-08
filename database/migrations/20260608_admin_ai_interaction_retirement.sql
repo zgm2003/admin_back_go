@@ -36,3 +36,20 @@ WHERE `platform` = 'admin'
     'ai_asset_edit',
     'ai_asset_del'
   );
+
+UPDATE `ai_agents`
+SET `scenes_json` = JSON_REMOVE(
+      CAST(`scenes_json` AS JSON),
+      JSON_UNQUOTE(JSON_SEARCH(CAST(`scenes_json` AS JSON), 'one', 'image_generate'))
+    ),
+    `updated_at` = CURRENT_TIMESTAMP
+WHERE `is_del` = 2
+  AND JSON_VALID(`scenes_json`)
+  AND JSON_SEARCH(CAST(`scenes_json` AS JSON), 'one', 'image_generate') IS NOT NULL;
+
+UPDATE `ai_agents`
+SET `scenes_json` = JSON_ARRAY('chat'),
+    `updated_at` = CURRENT_TIMESTAMP
+WHERE `is_del` = 2
+  AND JSON_VALID(`scenes_json`)
+  AND JSON_LENGTH(CAST(`scenes_json` AS JSON)) = 0;

@@ -27,7 +27,6 @@ import (
 )
 
 const (
-	SceneImageGenerate       = "image_generate"
 	SceneCanvasImageGenerate = "canvas_image_generate"
 	RequiredModelID          = "gpt-image-2"
 
@@ -118,7 +117,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	if appErr != nil {
 		return nil, appErr
 	}
-	agents, err := repo.ListImageAgents(ctx, SceneImageGenerate)
+	agents, err := repo.ListImageAgents(ctx, SceneCanvasImageGenerate)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.agent.query_failed", nil, "查询图片智能体失败", err)
 	}
@@ -191,7 +190,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
-	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, requiredImageScene(normalized.Platform))
+	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, SceneCanvasImageGenerate)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -280,6 +279,9 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if task == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片任务不存在", nil)
 	}
+	if appErr := validateTaskPlatform(task.Platform); appErr != nil {
+		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
+	}
 	if s.runRecorder == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片运行记录服务未配置", nil)
 	}
@@ -287,7 +289,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if err != nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "创建图片运行记录失败", err)
 	}
-	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, requiredImageScene(task.Platform))
+	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, SceneCanvasImageGenerate)
 	if appErr != nil {
 		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
@@ -341,7 +343,7 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 }
 
 func validateTaskPlatform(platform string) *apperror.Error {
-	if platform != enum.PlatformAdmin && platform != enum.PlatformCanvas {
+	if platform != enum.PlatformCanvas {
 		return apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
 	}
 	return nil
@@ -363,7 +365,7 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	if input.Prompt == "" {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.prompt.required", nil, "提示词不能为空")
 	}
-	if input.Platform != enum.PlatformAdmin && input.Platform != enum.PlatformCanvas {
+	if input.Platform != enum.PlatformCanvas {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
 	}
 	if len([]rune(input.Prompt)) > 20000 {
@@ -475,13 +477,13 @@ func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID 
 		return nil, apperror.BadRequestKey("aiimage.agent.scene_missing", nil, "智能体未启用图片生成场景")
 	}
 	if agent.ModelID != RequiredModelID {
-		return nil, apperror.BadRequestKey("aiimage.model.unsupported", nil, "图片工作台首版只支持 gpt-image-2")
+		return nil, apperror.BadRequestKey("aiimage.model.unsupported", nil, "Canvas图片生成只支持 gpt-image-2")
 	}
 	if strings.TrimSpace(agent.APIKeyEnc) == "" {
 		return nil, apperror.BadRequestKey("aiimage.provider.api_key_missing", nil, "AI供应商API Key未配置")
 	}
 	if strings.TrimSpace(agent.EngineType) != string(infraai.EngineTypeOpenAI) {
-		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "图片工作台只支持 OpenAI-compatible 供应商")
+		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "Canvas图片生成只支持 OpenAI-compatible 供应商")
 	}
 	return agent, nil
 }
@@ -809,12 +811,6 @@ func stringOptions(values []string, labels map[string]string) []dict.Option[stri
 }
 func knownValue(value string, labels map[string]string) bool { _, ok := labels[value]; return ok }
 func isStatus(value string) bool                             { _, ok := statusLabels[value]; return ok }
-func requiredImageScene(platform string) string {
-	if platform == enum.PlatformCanvas {
-		return SceneCanvasImageGenerate
-	}
-	return SceneImageGenerate
-}
 func sceneEnabled(raw string, expected string) bool {
 	var scenes []string
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &scenes); err != nil {

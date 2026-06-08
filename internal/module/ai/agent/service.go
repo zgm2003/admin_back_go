@@ -19,7 +19,6 @@ const (
 	timeLayout               = "2006-01-02 15:04:05"
 	sceneChat                = "chat"
 	sceneAgentGenerate       = "agent_generate"
-	sceneImageGenerate       = "image_generate"
 	sceneCanvasTextGenerate  = "canvas_text_generate"
 	sceneCanvasImageGenerate = "canvas_image_generate"
 	sceneCanvasVideoGenerate = "canvas_video_generate"
@@ -28,7 +27,6 @@ const (
 var sceneLabels = map[string]string{
 	sceneChat:                "对话",
 	sceneAgentGenerate:       "工具生成",
-	sceneImageGenerate:       "图片生成",
 	sceneCanvasTextGenerate:  "无限画布-文本",
 	sceneCanvasImageGenerate: "无限画布-图片",
 	sceneCanvasVideoGenerate: "无限画布-视频",
@@ -81,6 +79,9 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 		return nil, appErr
 	}
 	query = normalizeListQuery(query)
+	if query.Scene != "" && !isScene(query.Scene) {
+		return nil, apperror.BadRequest("无效的智能体场景")
+	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
@@ -455,7 +456,7 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 }
 
 func sceneOptions() []dict.Option[string] {
-	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneImageGenerate, sceneCanvasTextGenerate, sceneCanvasImageGenerate, sceneCanvasVideoGenerate}, sceneLabels)
+	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneCanvasTextGenerate, sceneCanvasImageGenerate, sceneCanvasVideoGenerate}, sceneLabels)
 }
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))

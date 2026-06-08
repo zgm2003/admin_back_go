@@ -38,9 +38,9 @@ aiimage.asset.source_type.unsupported: 图片资产来源不支持
 aiimage.agent.not_found: 图片智能体不存在或未启用
 aiimage.agent.runtime_disabled: 图片智能体、供应商或模型未启用
 aiimage.agent.scene_missing: 智能体未启用图片生成场景
-aiimage.model.unsupported: 图片工作台首版只支持 gpt-image-2
+aiimage.model.unsupported: Canvas图片生成只支持 gpt-image-2
 aiimage.provider.api_key_missing: AI供应商API Key未配置
-aiimage.provider.unsupported: 图片工作台只支持 OpenAI-compatible 供应商
+aiimage.provider.unsupported: Canvas图片生成只支持 OpenAI-compatible 供应商
 aiimage.asset.query_failed: 查询图片资产失败
 aiimage.asset.not_owned: 图片资产不存在或不属于当前用户
 aiimage.input_asset.cos_required: 参考图必须来自已上传的 COS 图片资产

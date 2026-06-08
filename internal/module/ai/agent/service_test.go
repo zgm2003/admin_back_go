@@ -28,10 +28,12 @@ type fakeAIAgentRepository struct {
 	status           int
 	deletedID        uint64
 	visibleAgents    []Agent
+	listQuery        ListQuery
 	optionQuery      OptionQuery
 }
 
 func (f *fakeAIAgentRepository) List(ctx context.Context, query ListQuery) ([]AgentWithProvider, int64, error) {
+	f.listQuery = query
 	return f.rows, f.total, nil
 }
 
@@ -194,7 +196,7 @@ func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
 	}
 }
 
-func TestCreateAcceptsImageGenerateScene(t *testing.T) {
+func TestCreateRejectsRetiredImageGenerateScene(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {
@@ -211,15 +213,15 @@ func TestCreateAcceptsImageGenerateScene(t *testing.T) {
 		Status:     enum.CommonYes,
 	})
 
-	if appErr != nil {
-		t.Fatalf("expected image_generate scene to be accepted, got %v", appErr)
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+		t.Fatalf("expected retired image_generate scene to be rejected, got %#v", appErr)
 	}
-	if repo.created == nil || repo.created.ScenesJSON != `["image_generate","canvas_text_generate","canvas_image_generate","canvas_video_generate"]` {
-		t.Fatalf("unexpected image scenes json: %#v", repo.created)
+	if repo.created != nil {
+		t.Fatalf("retired image_generate scene must not create agent: %#v", repo.created)
 	}
 }
 
-func TestSceneOptionsIncludeAgentImageAndCanvasScenes(t *testing.T) {
+func TestSceneOptionsIncludeAgentAndCanvasScenesOnly(t *testing.T) {
 	options := sceneOptions()
 	values := map[string]string{}
 	for _, item := range options {
@@ -228,7 +230,6 @@ func TestSceneOptionsIncludeAgentImageAndCanvasScenes(t *testing.T) {
 	expected := map[string]string{
 		"chat":                  "对话",
 		"agent_generate":        "工具生成",
-		"image_generate":        "图片生成",
 		"canvas_text_generate":  "无限画布-文本",
 		"canvas_image_generate": "无限画布-图片",
 		"canvas_video_generate": "无限画布-视频",
@@ -280,6 +281,20 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 
 	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
 		t.Fatalf("expected invalid scene error, got %#v", appErr)
+	}
+}
+
+func TestListRejectsRetiredImageGenerateSceneFilter(t *testing.T) {
+	repo := &fakeAIAgentRepository{}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Scene: "image_generate"})
+
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+		t.Fatalf("expected retired image_generate list scene filter to be rejected, got %#v", appErr)
+	}
+	if repo.listQuery.Scene != "" {
+		t.Fatalf("repository must not be queried for retired image_generate scene, got %#v", repo.listQuery)
 	}
 }
 
@@ -350,19 +365,16 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 	}
 }
 
-func TestOptionsAcceptsImageGenerateSceneFilter(t *testing.T) {
+func TestOptionsRejectsRetiredImageGenerateSceneFilter(t *testing.T) {
 	repo := &fakeAIAgentRepository{visibleAgents: []Agent{{ID: 7, Name: "图片智能体", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	got, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "image_generate"})
-	if appErr != nil {
-		t.Fatalf("expected image options to succeed, got %v", appErr)
+	_, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "image_generate"})
+	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+		t.Fatalf("expected retired image_generate scene filter to be rejected, got %#v", appErr)
 	}
-	if len(got.List) != 1 || got.List[0].ID != 7 {
-		t.Fatalf("unexpected image options: %#v", got.List)
-	}
-	if repo.optionQuery.Scene != "image_generate" {
-		t.Fatalf("expected repository scene filter image_generate, got %#v", repo.optionQuery)
+	if repo.optionQuery.Scene != "" {
+		t.Fatalf("repository must not be queried for retired image_generate scene, got %#v", repo.optionQuery)
 	}
 }
 
