@@ -59,6 +59,7 @@ aiimage.generate.empty_result: Image generation returned no result
 aiimage.output_relation.save_failed: Failed to save generated image relation
 aiimage.output.url.invalid: Generated image URL is invalid
 aiimage.output.base64_decode_failed: Failed to decode generated image base64
+aiimage.output.dimension_decode_failed: Failed to decode generated image dimensions
 aiimage.cos_writer.missing: COS writer is not configured
 aiimage.output_key.build_failed: Failed to build generated image storage path
 aiimage.output.upload_failed: Failed to upload generated image

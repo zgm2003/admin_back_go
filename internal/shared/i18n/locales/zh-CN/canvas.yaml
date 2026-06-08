@@ -57,6 +57,7 @@ canvas.ai.video.task_invalid: Canvas视频任务创建结果无效
 canvas.ai.video.task_query_failed: 查询Canvas视频任务失败
 canvas.ai.video.task_update_failed: 更新Canvas视频任务失败
 canvas.ai.video.run_recorder_missing: Canvas视频运行记录器未配置
+canvas.ai.video.run_binding_missing: Canvas视频任务缺少运行记录绑定
 canvas.ai.video.run_start_failed: 创建Canvas视频运行记录失败
 canvas.ai.video.run_complete_failed: 更新Canvas视频运行记录失败
 canvas.ai.video.run_fail_failed: 更新Canvas视频运行记录失败

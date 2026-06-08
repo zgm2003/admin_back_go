@@ -57,6 +57,7 @@ canvas.ai.video.task_invalid: Invalid Canvas video task creation result
 canvas.ai.video.task_query_failed: Failed to query Canvas video task
 canvas.ai.video.task_update_failed: Failed to update Canvas video task
 canvas.ai.video.run_recorder_missing: Canvas video run recorder is not configured
+canvas.ai.video.run_binding_missing: Canvas video task is missing run record binding
 canvas.ai.video.run_start_failed: Failed to create Canvas video run record
 canvas.ai.video.run_complete_failed: Failed to update Canvas video run record
 canvas.ai.video.run_fail_failed: Failed to update Canvas video run record

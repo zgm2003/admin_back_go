@@ -1,15 +1,21 @@
 package aiimage
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"strings"
 	"testing"
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
@@ -32,6 +38,7 @@ type fakeImageRepository struct {
 	successJSON     *string
 	successRaw      *string
 	listAgentsScene string
+	uploadConfig    *UploadConfig
 }
 
 func (f *fakeImageRepository) ListImageAgents(_ context.Context, scene string) ([]AgentOption, error) {
@@ -101,7 +108,7 @@ func (f *fakeImageRepository) FinishTaskFailed(_ context.Context, _ uint64, task
 	return nil
 }
 func (f *fakeImageRepository) LoadUploadConfig(context.Context) (*UploadConfig, error) {
-	return nil, nil
+	return f.uploadConfig, nil
 }
 
 type fakeImageEnqueuer struct{ tasks []taskqueue.Task }
@@ -125,6 +132,13 @@ type fakeImageEngine struct {
 	input  infraai.ImageInput
 	result *infraai.ImageResult
 	err    error
+}
+
+type fakeObjectWriter struct{ input storagecos.PutInput }
+
+func (f *fakeObjectWriter) Put(_ context.Context, input storagecos.PutInput) error {
+	f.input = input
+	return nil
 }
 
 func (f *fakeImageEngine) GenerateImages(_ context.Context, input infraai.ImageInput) (*infraai.ImageResult, error) {
@@ -289,6 +303,43 @@ func TestExecuteGenerateRecordsCanvasImageRun(t *testing.T) {
 	}
 }
 
+func TestExecuteGeneratePersistsOutputImageDimensions(t *testing.T) {
+	box := testImageSecretBox()
+	task := validPendingTask()
+	body := testPNGBase64(t, 2, 3)
+	writer := &fakeObjectWriter{}
+	engine := &fakeImageEngine{result: &infraai.ImageResult{
+		Images:      []infraai.GeneratedImage{{B64JSON: body, MimeType: "image/png"}},
+		UsageStatus: infraai.UsageStatusUnavailable,
+	}}
+	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true, uploadConfig: testUploadConfig(t, box)}
+	service := NewService(Dependencies{
+		Repository:    repo,
+		Secretbox:     box,
+		EngineFactory: &fakeImageEngineFactory{engine: engine},
+		ObjectWriter:  writer,
+		RunRecorder:   &recordingRunRecorder{},
+		Now:           fixedImageNow(),
+		Random:        fixedImageRandom,
+	})
+
+	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{TaskID: task.ID, UserID: task.UserID})
+
+	if err != nil || result == nil || result.Status != StatusSuccess {
+		t.Fatalf("expected success, result=%#v err=%v", result, err)
+	}
+	if len(repo.appendedFiles) != 1 {
+		t.Fatalf("expected one output file, got %#v", repo.appendedFiles)
+	}
+	output := repo.appendedFiles[0]
+	if output.Width != 2 || output.Height != 3 || output.SizeBytes <= 0 {
+		t.Fatalf("output file must persist real image metadata, got width=%d height=%d size=%d", output.Width, output.Height, output.SizeBytes)
+	}
+	if len(writer.input.Body) == 0 || writer.input.ContentType != "image/png" {
+		t.Fatalf("generated image body was not uploaded: %#v", writer.input)
+	}
+}
+
 func TestExecuteGenerateMarksTaskFailedWithoutNilResult(t *testing.T) {
 	box := testImageSecretBox()
 	task := validPendingTask()
@@ -312,6 +363,41 @@ func TestExecuteGenerateMarksTaskFailedWithoutNilResult(t *testing.T) {
 
 func testImageSecretBox() secretbox.Box {
 	return secretbox.New([]byte("12345678901234567890123456789012"))
+}
+
+func testUploadConfig(t *testing.T, box secretbox.Box) *UploadConfig {
+	t.Helper()
+	secretID, err := box.Encrypt("cos-secret-id")
+	if err != nil {
+		t.Fatalf("encrypt cos secret id: %v", err)
+	}
+	secretKey, err := box.Encrypt("cos-secret-key")
+	if err != nil {
+		t.Fatalf("encrypt cos secret key: %v", err)
+	}
+	return &UploadConfig{Driver: StorageProviderCOS, SecretIDEnc: secretID, SecretKeyEnc: secretKey, Bucket: "bucket-1250000000", Region: "ap-guangzhou", BucketDomain: "https://cos.test"}
+}
+
+func testPNGBase64(t *testing.T, width int, height int) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: 0x44, G: 0x88, B: 0xcc, A: 0xff})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+func fixedImageRandom(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(i + 1)
+	}
+	return len(p), nil
 }
 
 func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {

@@ -59,6 +59,7 @@ aiimage.generate.empty_result: 图片生成结果为空
 aiimage.output_relation.save_failed: 保存生成图片关系失败
 aiimage.output.url.invalid: 生成图片URL不合法
 aiimage.output.base64_decode_failed: 生成图片base64解码失败
+aiimage.output.dimension_decode_failed: 生成图片尺寸解析失败
 aiimage.cos_writer.missing: COS写入器未配置
 aiimage.output_key.build_failed: 生成图片存储路径失败
 aiimage.output.upload_failed: 上传生成图片失败

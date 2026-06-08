@@ -1,6 +1,7 @@
 package aiimage
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -8,6 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
 	"net/url"
 	"path"
@@ -23,6 +28,7 @@ import (
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
 
+	_ "golang.org/x/image/webp"
 	"gorm.io/gorm"
 )
 
@@ -672,6 +678,10 @@ func (s *Service) outputFile(ctx context.Context, repo Repository, task ImageTas
 	if err != nil || len(body) == 0 {
 		return ImageFile{}, apperror.InternalKey("aiimage.output.base64_decode_failed", nil, "生成图片base64解码失败")
 	}
+	width, height, appErr := decodeOutputImageDimensions(body)
+	if appErr != nil {
+		return ImageFile{}, appErr
+	}
 	if s == nil || s.objectWriter == nil {
 		return ImageFile{}, apperror.InternalKey("aiimage.cos_writer.missing", nil, "COS写入器未配置")
 	}
@@ -690,8 +700,17 @@ func (s *Service) outputFile(ctx context.Context, repo Repository, task ImageTas
 	if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: key, Body: body, ContentType: mimeType}); err != nil {
 		return ImageFile{}, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.output.upload_failed", nil, "上传生成图片失败", err)
 	}
-	return ImageFile{TaskID: task.ID, Role: FileRoleOutput, SortOrder: index + 1, StorageProvider: StorageProviderCOS, StorageKey: key, StorageURL: publicCOSURL(*cfg, key), MimeType: mimeType, SizeBytes: int64(len(body)), RevisedPrompt: revisedPrompt, CreatedAt: now}, nil
+	return ImageFile{TaskID: task.ID, Role: FileRoleOutput, SortOrder: index + 1, StorageProvider: StorageProviderCOS, StorageKey: key, StorageURL: publicCOSURL(*cfg, key), MimeType: mimeType, Width: width, Height: height, SizeBytes: int64(len(body)), RevisedPrompt: revisedPrompt, CreatedAt: now}, nil
 }
+
+func decodeOutputImageDimensions(body []byte) (int, int, *apperror.Error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(body))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, apperror.InternalKey("aiimage.output.dimension_decode_failed", nil, "生成图片尺寸解析失败")
+	}
+	return cfg.Width, cfg.Height, nil
+}
+
 func (s *Service) outputKey(taskID uint64, index int, mimeType string, now time.Time) (string, error) {
 	randBytes := make([]byte, 6)
 	if _, err := s.random(randBytes); err != nil {
