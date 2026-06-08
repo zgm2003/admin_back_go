@@ -314,10 +314,10 @@ func TestCanvasCompletionRecordsRun(t *testing.T) {
 	if textTasks.created.Prompt != "draw a cat" || textTasks.created.Platform != enum.PlatformCanvas || textTasks.completed.Answer != "ok" {
 		t.Fatalf("text task not recorded: created=%#v completed=%#v", textTasks.created, textTasks.completed)
 	}
-	if recorder.started.SourceID != 77 || recorder.started.Platform != enum.PlatformCanvas || recorder.started.Modality != enum.AIRunModalityText || recorder.started.SourceType != enum.AIRunSourceTextTask {
+	if recorder.started.Platform != enum.PlatformCanvas || recorder.started.RequestID != "ai_text_task_77" || recorder.started.InputSnapshot != "draw a cat" || recorder.started.UserID != 7 || recorder.started.AgentID != 8 {
 		t.Fatalf("run not started: %#v", recorder.started)
 	}
-	if recorder.completed.RunID != 99 || recorder.completed.TotalTokens != 5 || recorder.completed.UsageStatus != enum.AIRunUsageReported {
+	if recorder.completed.RunID != 99 || recorder.completed.TotalTokens != 5 {
 		t.Fatalf("run not completed: %#v", recorder.completed)
 	}
 }
@@ -370,10 +370,10 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
-	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.Modality != enum.AIRunModalityChat || recorder.started.SourceType != enum.AIRunSourceChatMessage || recorder.started.SourceID != 9 || recorder.started.RequestID != "rid" || recorder.started.ModelID != "gpt-5.4" || recorder.started.ModelDisplayName != "GPT-5.4" {
+	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.RequestID != "rid" || recorder.started.ModelID != "gpt-5.4" || recorder.started.ModelDisplayName != "GPT-5.4" || recorder.started.ConversationID == nil || *recorder.started.ConversationID != 3 || recorder.started.UserMessageID == nil || *recorder.started.UserMessageID != 9 {
 		t.Fatalf("run was not started correctly: %#v", recorder.started)
 	}
-	if recorder.completed.RunID != 100 || recorder.completed.AssistantMessageID == nil || *recorder.completed.AssistantMessageID != 22 || recorder.completed.UsageStatus != enum.AIRunUsageReported {
+	if recorder.completed.RunID != 100 || recorder.completed.AssistantMessageID == nil || *recorder.completed.AssistantMessageID != 22 {
 		t.Fatalf("run was not completed correctly: %#v", recorder.completed)
 	}
 	if len(pub.pubs) < 3 || pub.pubs[0].Envelope.Type != EventAIResponseStart || pub.pubs[1].Envelope.Type != EventAIResponseDelta || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseCompleted {

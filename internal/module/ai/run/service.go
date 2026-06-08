@@ -46,13 +46,10 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	}
 	agentOptions := optionItems(agents)
 	return &InitResponse{Dict: InitDict{
-		StatusArr:      dict.AIRunStatusOptions(),
-		PlatformArr:    dict.AIRunPlatformOptions(),
-		ModalityArr:    dict.AIRunModalityOptions(),
-		SourceTypeArr:  dict.AIRunSourceTypeOptions(),
-		UsageStatusArr: dict.AIRunUsageStatusOptions(),
-		AgentArr:       agentOptions,
-		ProviderArr:    optionItems(engines),
+		StatusArr:   dict.AIRunStatusOptions(),
+		PlatformArr: dict.AIRunPlatformOptions(),
+		AgentArr:    agentOptions,
+		ProviderArr: optionItems(engines),
 	}}, nil
 }
 
@@ -211,9 +208,6 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	}
 	query.RequestID = strings.TrimSpace(query.RequestID)
 	query.Platform = strings.TrimSpace(query.Platform)
-	query.Modality = strings.TrimSpace(query.Modality)
-	query.SourceType = strings.TrimSpace(query.SourceType)
-	query.UsageStatus = strings.TrimSpace(query.UsageStatus)
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	return query
@@ -223,8 +217,6 @@ func normalizeStatsFilter(query StatsFilter) StatsFilter {
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	query.Platform = strings.TrimSpace(query.Platform)
-	query.Modality = strings.TrimSpace(query.Modality)
-	query.SourceType = strings.TrimSpace(query.SourceType)
 	return query
 }
 
@@ -241,8 +233,6 @@ func normalizeStatsListQuery(query StatsListQuery) StatsListQuery {
 	query.DateStart = strings.TrimSpace(query.DateStart)
 	query.DateEnd = strings.TrimSpace(query.DateEnd)
 	query.Platform = strings.TrimSpace(query.Platform)
-	query.Modality = strings.TrimSpace(query.Modality)
-	query.SourceType = strings.TrimSpace(query.SourceType)
 	return query
 }
 
@@ -251,9 +241,7 @@ func listItem(row ListRow) ListItem {
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID,
 		AgentID: row.AgentID, AgentName: row.AgentName,
 		ProviderID: row.ProviderID, ProviderName: row.ProviderName,
-		Platform: row.Platform, Modality: row.Modality,
-		SourceType: row.SourceType, SourceID: row.SourceID,
-		InputSnapshot: row.InputSnapshot, UsageStatus: row.UsageStatus,
+		Platform: row.Platform, InputSnapshot: row.InputSnapshot,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
@@ -276,9 +264,7 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
 		AgentID: row.AgentID, AgentName: row.AgentName,
 		ProviderID: row.ProviderID, ProviderName: row.ProviderName,
-		Platform: row.Platform, Modality: row.Modality,
-		SourceType: row.SourceType, SourceID: row.SourceID,
-		InputSnapshot: row.InputSnapshot, UsageStatus: row.UsageStatus,
+		Platform: row.Platform, InputSnapshot: row.InputSnapshot,
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,

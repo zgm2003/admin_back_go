@@ -75,9 +75,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	runStartedAt := now
 	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
 		Platform:         enum.PlatformCanvas,
-		Modality:         enum.AIRunModalityVideo,
-		SourceType:       enum.AIRunSourceCanvasVideoTask,
-		SourceID:         uint64(taskID),
 		RequestID:        videoRunRequestID(taskID),
 		UserID:           input.UserID,
 		AgentID:          input.AgentID,
@@ -92,6 +89,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
 		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_start_failed", nil, "创建Canvas视频运行记录失败", err)
+	}
+	if err := repo.UpdateTask(ctx, input.UserID, taskID, map[string]any{"run_id": runID, "updated_at": s.now()}); err != nil {
+		s.failRun(context.Background(), runID, "绑定Canvas视频运行记录失败", runStartedAt)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
 	}
 	providerTask, err := engine.CreateVideo(ctx, infraai.VideoInput{Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds, Size: input.Size, ResolutionName: input.ResolutionName})
 	if err != nil {
@@ -125,7 +126,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
 	}
 	if isTerminalStatus(status) {
-		if appErr := s.finishRunForVideoStatus(context.Background(), taskID, status, "", runStartedAt); appErr != nil {
+		if appErr := s.finishRunForVideoStatus(context.Background(), runID, status, "", runStartedAt); appErr != nil {
 			return nil, appErr
 		}
 	}
@@ -160,7 +161,7 @@ func (s *Service) Status(ctx context.Context, userID int64, id int64) (*StatusRe
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
 	}
 	if isTerminalStatus(status) {
-		if appErr := s.finishRunForVideoStatus(context.Background(), id, status, providerTask.ErrorMessage, task.CreatedAt); appErr != nil {
+		if appErr := s.finishRunForVideoStatus(context.Background(), task.RunID, status, providerTask.ErrorMessage, task.CreatedAt); appErr != nil {
 			return nil, appErr
 		}
 	}
@@ -294,24 +295,26 @@ func (s *Service) failRun(ctx context.Context, runID int64, message string, star
 	_ = s.runRecorder.Fail(ctx, airun.FailInput{RunID: runID, Message: strings.TrimSpace(message), FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
 }
 
-func (s *Service) finishRunForVideoStatus(ctx context.Context, taskID int64, status string, message string, startedAt time.Time) *apperror.Error {
+func (s *Service) finishRunForVideoStatus(ctx context.Context, runID int64, status string, message string, startedAt time.Time) *apperror.Error {
 	if s == nil || s.runRecorder == nil {
 		return apperror.InternalKey("canvas.ai.video.run_recorder_missing", nil, "Canvas视频运行记录服务未配置")
 	}
+	if runID <= 0 {
+		return apperror.InternalKey("canvas.ai.video.run_binding_missing", nil, "Canvas视频任务缺少运行记录绑定")
+	}
 	finishedAt := s.now()
 	duration := durationMS(startedAt, finishedAt)
-	sourceID := uint64(taskID)
 	switch status {
 	case StatusCompleted:
-		if err := s.runRecorder.CompleteSource(ctx, airun.CompleteSourceInput{SourceType: enum.AIRunSourceCanvasVideoTask, SourceID: sourceID, UsageStatus: enum.AIRunUsageUnavailable, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
+		if err := s.runRecorder.Complete(ctx, airun.CompleteInput{RunID: runID, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
 			return apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_complete_failed", nil, "更新Canvas视频运行记录失败", err)
 		}
 	case StatusFailed:
-		if err := s.runRecorder.FailSource(ctx, airun.FailSourceInput{SourceType: enum.AIRunSourceCanvasVideoTask, SourceID: sourceID, Message: message, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
+		if err := s.runRecorder.Fail(ctx, airun.FailInput{RunID: runID, Message: message, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
 			return apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_fail_failed", nil, "更新Canvas视频运行记录失败", err)
 		}
 	case StatusCancelled:
-		if err := s.runRecorder.CancelSource(ctx, airun.CancelSourceInput{SourceType: enum.AIRunSourceCanvasVideoTask, SourceID: sourceID, Message: message, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
+		if err := s.runRecorder.Cancel(ctx, airun.CancelInput{RunID: runID, Message: message, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
 			return apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_cancel_failed", nil, "更新Canvas视频运行记录失败", err)
 		}
 	}

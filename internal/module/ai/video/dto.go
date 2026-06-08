@@ -82,10 +82,6 @@ type Secretbox interface {
 
 type RunRecorder interface {
 	airun.Recorder
-	CompleteSource(ctx context.Context, input airun.CompleteSourceInput) error
-	FailSource(ctx context.Context, input airun.FailSourceInput) error
-	CancelSource(ctx context.Context, input airun.CancelSourceInput) error
-	TimeoutSource(ctx context.Context, input airun.TimeoutSourceInput) error
 }
 
 type Dependencies struct {

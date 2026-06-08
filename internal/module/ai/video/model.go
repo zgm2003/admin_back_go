@@ -18,6 +18,7 @@ type VideoTask struct {
 	Size            string     `gorm:"column:size"`
 	ResolutionName  string     `gorm:"column:resolution_name"`
 	ProviderTaskID  string     `gorm:"column:provider_task_id"`
+	RunID           int64      `gorm:"column:run_id"`
 	Status          string     `gorm:"column:status"`
 	ErrorMessage    string     `gorm:"column:error_message"`
 	IsDel           int        `gorm:"column:is_del"`

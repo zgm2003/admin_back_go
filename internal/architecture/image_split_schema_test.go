@@ -114,19 +114,18 @@ func TestImageModelsUseSingleCapabilityTables(t *testing.T) {
 	}
 }
 
-func TestAIRunSourceTypeUsesSingleImageTask(t *testing.T) {
+func TestAIRunDoesNotKeepImageSourceTypes(t *testing.T) {
 	root := imageSchemaRepoRoot(t)
 	enumFile := imageSchemaReadFile(t, filepath.Join(root, "internal", "shared", "enum", "ai.go"))
 
-	if !strings.Contains(enumFile, "AIRunSourceImageTask") || !strings.Contains(enumFile, `"ai_image_task"`) {
-		t.Fatal("AI run image source type must be ai_image_task")
-	}
 	for _, forbidden := range []string{
+		"AIRunSourceImageTask",
+		`"ai_image_task"`,
 		"admin_ai_image_task",
 		"canvas_image_task",
 	} {
 		if strings.Contains(enumFile, forbidden) {
-			t.Fatalf("AI run source type must not contain split image source %q", forbidden)
+			t.Fatalf("AI run source types must be deleted from enum file; found %q", forbidden)
 		}
 	}
 }

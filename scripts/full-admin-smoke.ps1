@@ -1519,6 +1519,11 @@ function Assert-AIRunInit($Response) {
   if (-not (Test-HasProperty $Response.data.dict 'providerArr')) {
     throw "AI run init missing providerArr for provider-backed runtime: $($Response | ConvertTo-Json -Depth 12)"
   }
+  foreach ($removedField in @('modality_arr', 'source_type_arr', 'usage_status_arr')) {
+    if (Test-HasProperty $Response.data.dict $removedField) {
+      throw "AI run init leaked removed dict ${removedField}: $($Response | ConvertTo-Json -Depth 12)"
+    }
+  }
 
   return [pscustomobject]@{
     StatusCount = $statuses.Count
@@ -1540,7 +1545,7 @@ function Assert-AIRunList($Response) {
         throw "AI run list item missing ${requiredField}: $($item | ConvertTo-Json -Depth 12)"
       }
     }
-    foreach ($removedField in @('run_status', 'model_snapshot', 'latency_ms', 'latency_str', 'error_msg', 'engine_task_id', 'engine_run_id', 'usage_json', 'output_snapshot_json')) {
+    foreach ($removedField in @('run_status', 'model_snapshot', 'latency_ms', 'latency_str', 'error_msg', 'engine_task_id', 'engine_run_id', 'usage_json', 'output_snapshot_json', 'modality', 'source_type', 'source_id', 'usage_status')) {
       if (Test-HasProperty $item $removedField) {
         throw "AI run list leaked removed field ${removedField}: $($item | ConvertTo-Json -Depth 12)"
       }

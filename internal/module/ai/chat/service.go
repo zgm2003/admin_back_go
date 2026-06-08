@@ -128,9 +128,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	userMessageID := input.UserMessageID
 	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
 		Platform:         enum.PlatformAdmin,
-		Modality:         enum.AIRunModalityChat,
-		SourceType:       enum.AIRunSourceChatMessage,
-		SourceID:         uint64(input.UserMessageID),
 		ConversationID:   &conversationID,
 		UserMessageID:    &userMessageID,
 		RequestID:        input.RequestID,
@@ -195,7 +192,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, err
 	}
 	if toolCalls := resultToolCalls(result); len(toolCalls) > 0 {
-		if _, appErr := runUsageStatus(result); appErr != nil {
+		if appErr := validateRunUsageStatus(result); appErr != nil {
 			msg := appErr.Message
 			_ = s.publishFailed(ctx, input, msg)
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
@@ -218,7 +215,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			finishRun(statusFromError(ctx, err), msg, err)
 			return nil, err
 		}
-		if _, appErr := runUsageStatus(result); appErr != nil {
+		if appErr := validateRunUsageStatus(result); appErr != nil {
 			msg := appErr.Message
 			_ = s.publishFailed(ctx, input, msg)
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
@@ -244,8 +241,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			return nil, err
 		}
 	}
-	usageStatus, appErr := runUsageStatus(result)
-	if appErr != nil {
+	if appErr := validateRunUsageStatus(result); appErr != nil {
 		msg := appErr.Message
 		_ = s.publishFailed(ctx, input, msg)
 		finishRun(enum.AIRunStatusFailed, msg, appErr)
@@ -261,7 +257,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	finishedAt := s.now()
 	assistantMessageID := assistantID
 	tokens := resultTokens(result)
-	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, UsageStatus: usageStatus, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
+	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
 		msg := "更新AI运行记录失败"
 		_ = s.publishFailed(ctx, input, msg)
 		return nil, err
@@ -323,9 +319,7 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 	}
 	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
 		Platform:         enum.PlatformCanvas,
-		Modality:         enum.AIRunModalityText,
-		SourceType:       enum.AIRunSourceTextTask,
-		SourceID:         textTaskID,
+		RequestID:        "ai_text_task_" + strconv.FormatUint(textTaskID, 10),
 		UserID:           input.UserID,
 		AgentID:          int64(agent.AgentID),
 		ProviderID:       int64(agent.ProviderID),
@@ -362,8 +356,7 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "Canvas文本生成结果为空", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
 		return nil, apperror.BadRequestKey("canvas.ai.chat.empty_result", nil, "Canvas文本生成结果为空")
 	}
-	usageStatus, appErr := runUsageStatus(result)
-	if appErr != nil {
+	if appErr := validateRunUsageStatus(result); appErr != nil {
 		finishedAt := s.now()
 		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: appErr.Message, FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
 		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: appErr.Message, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
@@ -375,7 +368,7 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "更新Canvas文本任务失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.text_task_complete_failed", nil, "更新Canvas文本任务失败", err)
 	}
-	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, UsageStatus: usageStatus, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
+	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.run_complete_failed", nil, "更新Canvas文本运行记录失败", err)
 	}
 	return &CanvasCompletionResponse{ID: fmt.Sprintf("canvas-chat-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
@@ -407,17 +400,15 @@ func addTokenUsage(result *infraai.ChatResult, usage tokenResult) {
 	result.UsageStatus = infraai.UsageStatusUnavailable
 }
 
-func runUsageStatus(result *infraai.ChatResult) (string, *apperror.Error) {
+func validateRunUsageStatus(result *infraai.ChatResult) *apperror.Error {
 	if result == nil {
-		return "", apperror.InternalKey("ai.run.usage_status_missing", nil, "AI供应商用量状态缺失")
+		return apperror.InternalKey("ai.run.usage_status_missing", nil, "AI供应商用量状态缺失")
 	}
 	switch result.UsageStatus {
-	case infraai.UsageStatusReported:
-		return enum.AIRunUsageReported, nil
-	case infraai.UsageStatusUnavailable:
-		return enum.AIRunUsageUnavailable, nil
+	case infraai.UsageStatusReported, infraai.UsageStatusUnavailable:
+		return nil
 	default:
-		return "", apperror.InternalKey("ai.run.usage_status_missing", nil, "AI供应商用量状态缺失")
+		return apperror.InternalKey("ai.run.usage_status_missing", nil, "AI供应商用量状态缺失")
 	}
 }
 

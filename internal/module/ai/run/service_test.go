@@ -2,6 +2,8 @@ package airun
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,8 +82,14 @@ func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
 	if len(res.Dict.PlatformArr) == 0 || res.Dict.PlatformArr[len(res.Dict.PlatformArr)-1].Value != enum.PlatformCanvas {
 		t.Fatalf("AI run platform options must expose canvas runs: %#v", res.Dict.PlatformArr)
 	}
-	if len(res.Dict.UsageStatusArr) == 0 || res.Dict.UsageStatusArr[0].Value != enum.AIRunUsagePending {
-		t.Fatalf("AI run usage status options missing: %#v", res.Dict.UsageStatusArr)
+	encoded, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal page init: %v", err)
+	}
+	for _, key := range []string{"modality_arr", "source_type_arr", "usage_status_arr"} {
+		if strings.Contains(string(encoded), key) {
+			t.Fatalf("AI run page init leaked retired source field %s: %s", key, string(encoded))
+		}
 	}
 }
 
@@ -89,12 +97,12 @@ func TestListFiltersAndMapsDuration(t *testing.T) {
 	created := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	status := enum.AIRunStatusSuccess
 	agentID := int64(3)
-	repo := &fakeRepository{rows: []ListRow{{ID: 1, RequestID: "rid", UserID: 7, AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", Platform: enum.PlatformAdmin, Modality: enum.AIRunModalityChat, SourceType: enum.AIRunSourceChatMessage, SourceID: 10, InputSnapshot: "hi", UsageStatus: enum.AIRunUsageReported, ConversationID: ptrInt64(4), ConversationTitle: "chat", Status: status, ModelID: "gpt-5.4", ModelDisplayName: "GPT-5.4", TotalTokens: 12, DurationMS: ptrUint(1530), CreatedAt: created}}, total: 1}
-	res, appErr := NewService(repo).List(context.Background(), ListQuery{Status: status, RequestID: " rid ", AgentID: &agentID, UsageStatus: " reported ", CurrentPage: 0, PageSize: 0})
+	repo := &fakeRepository{rows: []ListRow{{ID: 1, RequestID: "rid", UserID: 7, AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", Platform: enum.PlatformAdmin, InputSnapshot: "hi", ConversationID: ptrInt64(4), ConversationTitle: "chat", Status: status, ModelID: "gpt-5.4", ModelDisplayName: "GPT-5.4", TotalTokens: 12, DurationMS: ptrUint(1530), CreatedAt: created}}, total: 1}
+	res, appErr := NewService(repo).List(context.Background(), ListQuery{Status: status, RequestID: " rid ", AgentID: &agentID, CurrentPage: 0, PageSize: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.listQuery.CurrentPage != 1 || repo.listQuery.PageSize != 20 || repo.listQuery.RequestID != "rid" || repo.listQuery.UsageStatus != enum.AIRunUsageReported || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
+	if repo.listQuery.CurrentPage != 1 || repo.listQuery.PageSize != 20 || repo.listQuery.RequestID != "rid" || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
 		t.Fatalf("unexpected query: %#v", repo.listQuery)
 	}
 	if len(res.List) != 1 || res.List[0].DurationText != "1.53s" || res.List[0].StatusName == "" || res.List[0].ModelID != "gpt-5.4" {
@@ -105,7 +113,7 @@ func TestListFiltersAndMapsDuration(t *testing.T) {
 func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	startedAt := time.Date(2026, 5, 10, 11, 18, 14, 0, time.UTC)
 	repo := &fakeRepository{
-		run:       &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", Platform: enum.PlatformAdmin, Modality: enum.AIRunModalityChat, SourceType: enum.AIRunSourceChatMessage, SourceID: 10, InputSnapshot: "hi", UsageStatus: enum.AIRunUsageReported, ConversationID: ptrInt64(4), ConversationTitle: "chat", Status: enum.AIRunStatusSuccess, ModelID: "gpt-5.4", StartedAt: &startedAt, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
+		run:       &RunDetailRow{ID: 1, RequestID: "rid", UserID: 7, Username: "admin", AgentID: 3, AgentName: "agent", ProviderID: 2, ProviderName: "OpenAI", Platform: enum.PlatformAdmin, InputSnapshot: "hi", ConversationID: ptrInt64(4), ConversationTitle: "chat", Status: enum.AIRunStatusSuccess, ModelID: "gpt-5.4", StartedAt: &startedAt, UserMessage: &MessageSummary{ID: 10, Content: "hi"}, AssistantMessage: &MessageSummary{ID: 11, Content: "ok"}},
 		events:    []EventRow{{ID: 2, Seq: 1, EventType: enum.AIRunEventCompleted, Message: "生成完成", CreatedAt: startedAt.Add(1530 * time.Millisecond)}},
 		toolCalls: []ToolCallRow{{ID: 8, ToolID: 1, ToolCode: "admin_user_count", ToolName: "查询当前用户量", CallID: ptrString("call-1"), Status: "success", ArgumentsJSON: `{"scope":"all"}`, ResultJSON: ptrString(`{"total_users":1015}`), DurationMS: ptrUint(12), StartedAt: startedAt, FinishedAt: &startedAt}},
 	}
@@ -125,11 +133,10 @@ func TestDetailAllowsImageRunWithoutMessages(t *testing.T) {
 	startedAt := time.Date(2026, 6, 7, 11, 18, 14, 0, time.UTC)
 	repo := &fakeRepository{
 		run: &RunDetailRow{
-			ID: 9, Platform: enum.PlatformCanvas, Modality: enum.AIRunModalityImage,
-			SourceType: enum.AIRunSourceImageTask, SourceID: 77, RequestID: "ai_image_task-77",
+			ID: 9, Platform: enum.PlatformCanvas, RequestID: "ai_image_task-77",
 			UserID: 7, Username: "canvas-user", AgentID: 8, AgentName: "image agent",
 			ProviderID: 3, ProviderName: "OpenAI", Status: enum.AIRunStatusSuccess,
-			ModelID: "gpt-image-1", InputSnapshot: "cat", UsageStatus: enum.AIRunUsageReported,
+			ModelID: "gpt-image-1", InputSnapshot: "cat",
 			TotalTokens: 11, StartedAt: &startedAt,
 		},
 	}
@@ -137,7 +144,16 @@ func TestDetailAllowsImageRunWithoutMessages(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("detail failed: %v", appErr)
 	}
-	if res.Platform != enum.PlatformCanvas || res.Modality != enum.AIRunModalityImage || res.SourceID != 77 || res.UserMessage != nil || res.AssistantMessage != nil {
+	encoded, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal detail: %v", err)
+	}
+	for _, key := range []string{"modality", "source_type", "source_id", "usage_status"} {
+		if strings.Contains(string(encoded), key) {
+			t.Fatalf("AI run detail leaked retired source field %s: %s", key, string(encoded))
+		}
+	}
+	if res.Platform != enum.PlatformCanvas || res.UserMessage != nil || res.AssistantMessage != nil {
 		t.Fatalf("bad detail: %#v", res)
 	}
 }

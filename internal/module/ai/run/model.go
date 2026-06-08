@@ -5,9 +5,6 @@ import "time"
 type Run struct {
 	ID                 int64      `gorm:"column:id;primaryKey"`
 	Platform           string     `gorm:"column:platform"`
-	Modality           string     `gorm:"column:modality"`
-	SourceType         string     `gorm:"column:source_type"`
-	SourceID           uint64     `gorm:"column:source_id"`
 	ConversationID     *int64     `gorm:"column:conversation_id"`
 	RequestID          string     `gorm:"column:request_id"`
 	UserMessageID      *int64     `gorm:"column:user_message_id"`
@@ -22,7 +19,6 @@ type Run struct {
 	PromptTokens       uint       `gorm:"column:prompt_tokens"`
 	CompletionTokens   uint       `gorm:"column:completion_tokens"`
 	TotalTokens        uint       `gorm:"column:total_tokens"`
-	UsageStatus        string     `gorm:"column:usage_status"`
 	DurationMS         *uint      `gorm:"column:duration_ms"`
 	ErrorMessage       string     `gorm:"column:error_message"`
 	StartedAt          *time.Time `gorm:"column:started_at"`

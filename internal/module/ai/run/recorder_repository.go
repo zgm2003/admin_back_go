@@ -17,9 +17,6 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 	startedAt := input.StartedAt
 	run := Run{
 		Platform:         input.Platform,
-		Modality:         input.Modality,
-		SourceType:       input.SourceType,
-		SourceID:         input.SourceID,
 		ConversationID:   input.ConversationID,
 		RequestID:        input.RequestID,
 		UserMessageID:    input.UserMessageID,
@@ -30,7 +27,6 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 		ModelDisplayName: input.ModelDisplayName,
 		InputSnapshot:    input.InputSnapshot,
 		Status:           enum.AIRunStatusRunning,
-		UsageStatus:      enum.AIRunUsagePending,
 		StartedAt:        &startedAt,
 	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -53,7 +49,6 @@ func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRecord) 
 		"prompt_tokens":     input.PromptTokens,
 		"completion_tokens": input.CompletionTokens,
 		"total_tokens":      input.TotalTokens,
-		"usage_status":      input.UsageStatus,
 	}
 	if input.AssistantMessageID != nil {
 		extra["assistant_message_id"] = *input.AssistantMessageID
@@ -62,38 +57,11 @@ func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRecord) 
 	return err
 }
 
-func (r *GormRepository) CompleteRunBySource(ctx context.Context, input CompleteSourceRecord) error {
-	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
-	}
-	extra := map[string]any{
-		"prompt_tokens":     input.PromptTokens,
-		"completion_tokens": input.CompletionTokens,
-		"total_tokens":      input.TotalTokens,
-		"usage_status":      input.UsageStatus,
-	}
-	if input.AssistantMessageID != nil {
-		extra["assistant_message_id"] = *input.AssistantMessageID
-	}
-	_, err := r.finishRecorderRunBySource(ctx, input.SourceType, input.SourceID, enum.AIRunStatusSuccess, enum.AIRunEventCompleted, enum.AIRunEventLabels[enum.AIRunEventCompleted], input.FinishedAt, input.DurationMS, extra)
-	return err
-}
-
 func (r *GormRepository) FinishRun(ctx context.Context, input FinishRecord) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	extra := map[string]any{"usage_status": input.UsageStatus}
-	_, err := r.finishRecorderRun(ctx, input.RunID, input.Status, input.EventType, input.Message, input.FinishedAt, input.DurationMS, extra)
-	return err
-}
-
-func (r *GormRepository) FinishRunBySource(ctx context.Context, input FinishSourceRecord) error {
-	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
-	}
-	extra := map[string]any{"usage_status": input.UsageStatus}
-	_, err := r.finishRecorderRunBySource(ctx, input.SourceType, input.SourceID, input.Status, input.EventType, input.Message, input.FinishedAt, input.DurationMS, extra)
+	_, err := r.finishRecorderRun(ctx, input.RunID, input.Status, input.EventType, input.Message, input.FinishedAt, input.DurationMS, nil)
 	return err
 }
 
@@ -127,17 +95,6 @@ func (r *GormRepository) finishRecorderRun(ctx context.Context, runID int64, sta
 		return tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRecorderRunMessage(message)}).Error
 	})
 	return changed, err
-}
-
-func (r *GormRepository) finishRecorderRunBySource(ctx context.Context, sourceType string, sourceID uint64, status string, eventType string, message string, finishedAt time.Time, durationMS uint, extra map[string]any) (bool, error) {
-	var runID int64
-	if err := r.db.WithContext(ctx).Model(&Run{}).Where("source_type = ? AND source_id = ? AND status = ?", sourceType, sourceID, enum.AIRunStatusRunning).Order("id DESC").Limit(1).Pluck("id", &runID).Error; err != nil {
-		return false, err
-	}
-	if runID == 0 {
-		return false, nil
-	}
-	return r.finishRecorderRun(ctx, runID, status, eventType, message, finishedAt, durationMS, extra)
 }
 
 func truncateRecorderRunMessage(value string) string {

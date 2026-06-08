@@ -14,24 +14,14 @@ func TestUnifiedAIRunMigrationShape(t *testing.T) {
 	sql := string(body)
 	required := []string{
 		"ADD COLUMN `platform` VARCHAR(32) NULL",
-		"ADD COLUMN `modality` VARCHAR(32) NULL",
-		"ADD COLUMN `source_type` VARCHAR(64) NULL",
-		"ADD COLUMN `source_id` BIGINT UNSIGNED NULL",
 		"ADD COLUMN `input_snapshot` MEDIUMTEXT NULL",
-		"ADD COLUMN `usage_status` VARCHAR(16) NULL",
 		"MODIFY COLUMN `platform` VARCHAR(32) NOT NULL",
-		"MODIFY COLUMN `modality` VARCHAR(32) NOT NULL",
-		"MODIFY COLUMN `source_type` VARCHAR(64) NOT NULL",
-		"MODIFY COLUMN `source_id` BIGINT UNSIGNED NOT NULL",
 		"MODIFY COLUMN `input_snapshot` MEDIUMTEXT NOT NULL",
-		"MODIFY COLUMN `usage_status` VARCHAR(16) NOT NULL",
-		"CONSTRAINT `chk_ai_runs_usage_status` CHECK (`usage_status` IN ('pending', 'reported', 'unavailable'))",
 		"MODIFY COLUMN `conversation_id` INT UNSIGNED NULL",
 		"MODIFY COLUMN `user_message_id` BIGINT UNSIGNED NULL",
 		"MODIFY COLUMN `assistant_message_id` BIGINT UNSIGNED NULL",
 		"CREATE TABLE `ai_text_tasks`",
 		"ALTER TABLE `ai_image_tasks` ADD COLUMN `platform` VARCHAR(32) NULL",
-		"CREATE UNIQUE INDEX `uk_ai_runs_source_request`",
 	}
 	for _, want := range required {
 		if !strings.Contains(sql, want) {
@@ -41,6 +31,29 @@ func TestUnifiedAIRunMigrationShape(t *testing.T) {
 	for _, bad := range []string{"ai_billing_records", "ai_billing_rules", "usage_json", "`cost` DECIMAL", "DEFAULT 'admin'", "DEFAULT 'chat'", "DEFAULT 'ai_chat_message'"} {
 		if strings.Contains(sql, bad) {
 			t.Fatalf("migration must not contain %q", bad)
+		}
+	}
+}
+
+func TestAIRunSourceFieldCleanupMigrationShape(t *testing.T) {
+	body, err := os.ReadFile("../../database/migrations/20260608_ai_run_source_field_cleanup.sql")
+	if err != nil {
+		t.Fatalf("read cleanup migration: %v", err)
+	}
+	sql := string(body)
+	for _, want := range []string{
+		"ADD COLUMN `run_id` BIGINT UNSIGNED NULL",
+		"UPDATE `canvas_video_tasks` t",
+		"DROP INDEX `uk_ai_runs_source_request`",
+		"DROP INDEX `idx_ai_runs_platform_modality_created`",
+		"DROP INDEX `idx_ai_runs_source`",
+		"DROP COLUMN `modality`",
+		"DROP COLUMN `source_type`",
+		"DROP COLUMN `source_id`",
+		"DROP COLUMN `usage_status`",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("cleanup migration missing %q", want)
 		}
 	}
 }

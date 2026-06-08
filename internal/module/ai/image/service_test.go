@@ -272,11 +272,11 @@ func TestExecuteGenerateRecordsCanvasImageRun(t *testing.T) {
 	if err != nil || result == nil || result.Status != StatusSuccess {
 		t.Fatalf("expected success, result=%#v err=%v", result, err)
 	}
-	if recorder.started.Platform != enum.PlatformCanvas || recorder.started.SourceType != enum.AIRunSourceImageTask || recorder.started.SourceID != task.ID {
-		t.Fatalf("canvas image run source mismatch: %#v", recorder.started)
+	if recorder.started.Platform != enum.PlatformCanvas || recorder.started.RequestID != "ai_image_task_88" || recorder.started.InputSnapshot != task.Prompt {
+		t.Fatalf("canvas image run mismatch: %#v", recorder.started)
 	}
-	if recorder.completed.RunID != 600 || recorder.completed.UsageStatus != enum.AIRunUsageReported {
-		t.Fatalf("image run not completed with provider usage: %#v", recorder.completed)
+	if recorder.completed.RunID != 600 || recorder.completed.TotalTokens != 24 {
+		t.Fatalf("image run not completed with token counts: %#v", recorder.completed)
 	}
 	if len(repo.appendedFiles) != 1 || repo.appendedFiles[0].Role != FileRoleOutput || repo.appendedFiles[0].StorageProvider != StorageProviderRemoteURL {
 		t.Fatalf("output file mismatch: %#v", repo.appendedFiles)

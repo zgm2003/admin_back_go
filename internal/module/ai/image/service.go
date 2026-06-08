@@ -285,7 +285,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if s.runRecorder == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片运行记录服务未配置", nil)
 	}
-	runID, err := s.runRecorder.Start(ctx, airun.StartInput{Platform: task.Platform, Modality: enum.AIRunModalityImage, SourceType: enum.AIRunSourceImageTask, SourceID: task.ID, RequestID: fmt.Sprintf("ai_image_task_%d", task.ID), UserID: int64(task.UserID), AgentID: int64(task.AgentID), ProviderID: int64(task.ProviderIDSnapshot), ModelID: task.ModelIDSnapshot, ModelDisplayName: task.ModelDisplayNameSnapshot, InputSnapshot: task.Prompt, StartedAt: startedAt})
+	runID, err := s.runRecorder.Start(ctx, airun.StartInput{Platform: task.Platform, RequestID: fmt.Sprintf("ai_image_task_%d", task.ID), UserID: int64(task.UserID), AgentID: int64(task.AgentID), ProviderID: int64(task.ProviderIDSnapshot), ModelID: task.ModelIDSnapshot, ModelDisplayName: task.ModelDisplayNameSnapshot, InputSnapshot: task.Prompt, StartedAt: startedAt})
 	if err != nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "创建图片运行记录失败", err)
 	}
@@ -316,8 +316,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if result == nil || len(result.Images) == 0 {
 		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成结果为空", nil)
 	}
-	usageStatus, appErr := imageRunUsageStatus(result)
-	if appErr != nil {
+	if appErr := validateImageRunUsageStatus(result); appErr != nil {
 		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
 	if appErr := s.persistOutputs(ctx, repo, *task, result); appErr != nil {
@@ -329,7 +328,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if err := repo.FinishTaskSuccess(ctx, task.UserID, task.ID, actualParamsJSON, rawResponseJSON, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
 		return nil, fmt.Errorf("finish ai image task success: %w", err)
 	}
-	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens, UsageStatus: usageStatus, FinishedAt: finishedAt, DurationMS: uint(elapsedMS(startedAt, finishedAt))}); err != nil {
+	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens, FinishedAt: finishedAt, DurationMS: uint(elapsedMS(startedAt, finishedAt))}); err != nil {
 		return nil, fmt.Errorf("finish ai image run success: %w", err)
 	}
 	return &GenerateResult{TaskID: task.ID, Status: StatusSuccess}, nil
@@ -740,17 +739,15 @@ func (s *Service) finishFailed(ctx context.Context, repo Repository, input Gener
 	}
 	return nil
 }
-func imageRunUsageStatus(result *infraai.ImageResult) (string, *apperror.Error) {
+func validateImageRunUsageStatus(result *infraai.ImageResult) *apperror.Error {
 	if result == nil {
-		return "", apperror.InternalKey("aiimage.run.usage_status_missing", nil, "AI图片供应商用量状态缺失")
+		return apperror.InternalKey("aiimage.run.usage_status_missing", nil, "AI图片供应商用量状态缺失")
 	}
 	switch result.UsageStatus {
-	case infraai.UsageStatusReported:
-		return enum.AIRunUsageReported, nil
-	case infraai.UsageStatusUnavailable:
-		return enum.AIRunUsageUnavailable, nil
+	case infraai.UsageStatusReported, infraai.UsageStatusUnavailable:
+		return nil
 	default:
-		return "", apperror.InternalKey("aiimage.run.usage_status_missing", nil, "AI图片供应商用量状态缺失")
+		return apperror.InternalKey("aiimage.run.usage_status_missing", nil, "AI图片供应商用量状态缺失")
 	}
 }
 func statusFromImageError(ctx context.Context, err error) string {
