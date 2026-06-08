@@ -32,18 +32,24 @@ func TestImagePackageUsesTaskOwnedFilesOnly(t *testing.T) {
 	}
 }
 
-func TestAdminImageWorkspaceDoesNotExposeFavoriteSurface(t *testing.T) {
+func TestAdminImageWorkspaceDoesNotExposeRetiredSurfaces(t *testing.T) {
 	root := packageRoot(t)
-	adminPublicFiles := []string{
+	adminTransportFiles, err := filepath.Glob(filepath.Join(root, "transport", "admin", "*.go"))
+	if err != nil {
+		t.Fatalf("glob admin image transport: %v", err)
+	}
+	if len(adminTransportFiles) > 0 {
+		t.Fatalf("admin image transport must stay retired; go files still exist: %v", adminTransportFiles)
+	}
+
+	publicFiles := []string{
 		"dto.go",
 		"service.go",
 		"repository.go",
-		"transport/admin/route.go",
-		"transport/admin/request.go",
-		"transport/admin/handler.go",
 	}
-	for _, file := range adminPublicFiles {
+	for _, file := range publicFiles {
 		assertSourceTokensAbsent(t, filepath.Join(root, filepath.FromSlash(file)), []string{
+			"/api/admin/v1/ai-images",
 			"/favorite",
 			"Favorite(",
 			"favoriteRequest",

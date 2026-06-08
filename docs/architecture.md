@@ -1500,7 +1500,7 @@ internal/infra/ai/provider   # provider discovery/test boundary; first driver is
 internal/module/ai/provider      # ai_providers provider config + ai_provider_models model catalog
 internal/module/ai/agent         # ai_agents local agent config MVP
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
-internal/module/ai/image         # ai_image_tasks / ai_image_files image generation runtime; transport/admin and transport/canvas
+internal/module/ai/image         # ai_image_tasks / ai_image_files Canvas image generation runtime; Admin interactive transport retired
 internal/module/ai/video         # canvas_video_tasks Canvas video generation runtime
 internal/module/ai/text          # ai_text_tasks Canvas text generation source rows
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
@@ -1514,6 +1514,7 @@ Retired AI active runtime:
 
 ```text
 legacy AI model/tool/prompt/knowledge-base REST resources
+Admin AI image playground and Admin asset-management interactive surfaces
 legacy AI knowledge-map metadata/routes
 legacy AI tool-map metadata/routes
 legacy model/prompt Vue menu entries and legacy app naming

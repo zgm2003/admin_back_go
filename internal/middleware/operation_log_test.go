@@ -183,10 +183,10 @@ func TestOperationLogCanSkipConfiguredPayloads(t *testing.T) {
 	var got OperationInput
 	router := newOperationLogTestRouter(OperationLogConfig{
 		Rules: map[RouteKey]OperationRule{
-			NewRouteKey(http.MethodPost, "/api/admin/v1/ai-images"): {
+			NewRouteKey(http.MethodPost, "/api/canvas/v1/ai/images/generations"): {
 				Module:              "ai_image",
 				Action:              "create_task",
-				Title:               "提交AI图片任务",
+				Title:               "提交Canvas图片任务",
 				SkipRequestPayload:  true,
 				SkipResponsePayload: true,
 			},
@@ -195,8 +195,8 @@ func TestOperationLogCanSkipConfiguredPayloads(t *testing.T) {
 			got = input
 			return nil
 		},
-	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"})
-	router.POST("/api/admin/v1/ai-images", func(c *gin.Context) {
+	}, &AuthIdentity{UserID: 12, SessionID: 34, Platform: "canvas"})
+	router.POST("/api/canvas/v1/ai/images/generations", func(c *gin.Context) {
 		var payload map[string]any
 		if err := c.ShouldBindJSON(&payload); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 100, "msg": "bad"})
@@ -206,7 +206,7 @@ func TestOperationLogCanSkipConfiguredPayloads(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-images", strings.NewReader(`{"prompt":"secret prompt"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/images/generations", strings.NewReader(`{"prompt":"secret prompt"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 

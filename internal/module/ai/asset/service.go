@@ -27,6 +27,9 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+	if query.UserID == 0 {
+		return nil, apperror.BadRequestKey("ai.asset.user.required", nil, "素材归属用户不能为空")
+	}
 	if !isStatusFilter(query.Status) {
 		return nil, apperror.BadRequestKey("ai.asset.status.invalid", nil, "素材状态无效")
 	}
@@ -38,29 +41,18 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	return &ListResponse{List: items(rows), Page: page(query.CurrentPage, query.PageSize, total)}, nil
 }
 
-func (s *Service) PublicList(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (s *Service) UserList(ctx context.Context, userID uint64, query ListQuery) (*ListResponse, *apperror.Error) {
+	query.UserID = userID
 	query.Status = StatusEnabled
 	query.IsDel = IsDelActive
 	return s.List(ctx, query)
 }
 
-func (s *Service) Detail(ctx context.Context, id int64) (*Item, *apperror.Error) {
-	if id <= 0 {
-		return nil, apperror.BadRequestKey("ai.asset.id.invalid", nil, "素材ID无效")
-	}
-	row, err := s.repo().Detail(ctx, id)
-	if err != nil {
-		return nil, mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.query_failed", "查询AI素材失败")
-	}
-	if row == nil {
-		return nil, apperror.NotFoundKey("ai.asset.not_found", nil, "AI素材不存在")
-	}
-	item := item(*row)
-	return &item, nil
-}
-
 func (s *Service) Create(ctx context.Context, input Input) (int64, *apperror.Error) {
 	input = normalizeInput(input)
+	if input.UserID == 0 {
+		return 0, apperror.BadRequestKey("ai.asset.user.required", nil, "素材归属用户不能为空")
+	}
 	if !validInput(input) {
 		return 0, apperror.BadRequestKey("ai.asset.request.invalid", nil, "素材参数错误")
 	}
@@ -71,11 +63,19 @@ func (s *Service) Create(ctx context.Context, input Input) (int64, *apperror.Err
 	return id, nil
 }
 
+func (s *Service) UserCreate(ctx context.Context, userID uint64, input Input) (int64, *apperror.Error) {
+	input.UserID = userID
+	return s.Create(ctx, input)
+}
+
 func (s *Service) Update(ctx context.Context, id int64, input Input) *apperror.Error {
 	if id <= 0 {
 		return apperror.BadRequestKey("ai.asset.id.invalid", nil, "素材ID无效")
 	}
 	input = normalizeInput(input)
+	if input.UserID == 0 {
+		return apperror.BadRequestKey("ai.asset.user.required", nil, "素材归属用户不能为空")
+	}
 	if !validInput(input) {
 		return apperror.BadRequestKey("ai.asset.request.invalid", nil, "素材参数错误")
 	}
@@ -85,26 +85,20 @@ func (s *Service) Update(ctx context.Context, id int64, input Input) *apperror.E
 	return nil
 }
 
-func (s *Service) Delete(ctx context.Context, id int64) *apperror.Error {
-	return s.DeleteOne(ctx, id)
+func (s *Service) UserUpdate(ctx context.Context, userID uint64, id int64, input Input) *apperror.Error {
+	input.UserID = userID
+	return s.Update(ctx, id, input)
 }
 
-func (s *Service) DeleteOne(ctx context.Context, id int64) *apperror.Error {
+func (s *Service) UserDelete(ctx context.Context, userID uint64, id int64) *apperror.Error {
 	if id <= 0 {
 		return apperror.BadRequestKey("ai.asset.id.invalid", nil, "素材ID无效")
 	}
-	if err := s.repo().SoftDelete(ctx, id); err != nil {
+	if userID == 0 {
+		return apperror.BadRequestKey("ai.asset.user.required", nil, "素材归属用户不能为空")
+	}
+	if err := s.repo().SoftDelete(ctx, id, userID); err != nil {
 		return mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.delete_failed", "删除AI素材失败")
-	}
-	return nil
-}
-
-func (s *Service) DeleteBatch(ctx context.Context, ids []int64) *apperror.Error {
-	if !validIDs(ids) {
-		return apperror.BadRequestKey("ai.asset.ids.invalid", nil, "素材ID列表无效")
-	}
-	if err := s.repo().SoftDeleteBatch(ctx, ids); err != nil {
-		return mapRepositoryError(err, "ai.asset.not_found", "AI素材不存在", "ai.asset.delete_batch_failed", "批量删除AI素材失败")
 	}
 	return nil
 }
@@ -121,19 +115,13 @@ type failingRepository struct{}
 func (failingRepository) List(ctx context.Context, query ListQuery) ([]Asset, int64, error) {
 	return nil, 0, ErrRepositoryNotConfigured
 }
-func (failingRepository) Detail(ctx context.Context, id int64) (*Asset, error) {
-	return nil, ErrRepositoryNotConfigured
-}
 func (failingRepository) Create(ctx context.Context, row Asset) (int64, error) {
 	return 0, ErrRepositoryNotConfigured
 }
 func (failingRepository) Update(ctx context.Context, id int64, row Asset) error {
 	return ErrRepositoryNotConfigured
 }
-func (failingRepository) SoftDelete(ctx context.Context, id int64) error {
-	return ErrRepositoryNotConfigured
-}
-func (failingRepository) SoftDeleteBatch(ctx context.Context, ids []int64) error {
+func (failingRepository) SoftDelete(ctx context.Context, id int64, userID uint64) error {
 	return ErrRepositoryNotConfigured
 }
 
@@ -179,6 +167,7 @@ func isStatusFilter(status int) bool {
 
 func assetFromInput(input Input) Asset {
 	return Asset{
+		UserID:      input.UserID,
 		Slug:        input.Slug,
 		Type:        input.Type,
 		Category:    input.Category,
@@ -202,24 +191,7 @@ func items(rows []Asset) []Item {
 }
 
 func item(r Asset) Item {
-	return Item{ID: r.ID, Slug: r.Slug, Type: r.Type, Category: r.Category, Title: r.Title, CoverURL: r.CoverURL, Description: r.Description, Content: r.Content, URL: r.URL, TagsJSON: r.TagsJSON, Status: r.Status, CreatedAt: formatTime(r.CreatedAt), UpdatedAt: formatTime(r.UpdatedAt)}
-}
-
-func validIDs(ids []int64) bool {
-	if len(ids) == 0 {
-		return false
-	}
-	seen := make(map[int64]struct{}, len(ids))
-	for _, id := range ids {
-		if id <= 0 {
-			return false
-		}
-		if _, ok := seen[id]; ok {
-			return false
-		}
-		seen[id] = struct{}{}
-	}
-	return true
+	return Item{ID: r.ID, UserID: r.UserID, Slug: r.Slug, Type: r.Type, Category: r.Category, Title: r.Title, CoverURL: r.CoverURL, Description: r.Description, Content: r.Content, URL: r.URL, TagsJSON: r.TagsJSON, Status: r.Status, CreatedAt: formatTime(r.CreatedAt), UpdatedAt: formatTime(r.UpdatedAt)}
 }
 
 func mapRepositoryError(err error, notFoundKey, notFoundFallback, internalKey, internalFallback string) *apperror.Error {

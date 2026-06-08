@@ -3,6 +3,7 @@ ai.asset.request.invalid: Invalid AI asset request
 ai.asset.id.invalid: Invalid AI asset ID
 ai.asset.ids.invalid: Invalid AI asset ID list
 ai.asset.status.invalid: Invalid AI asset status
+ai.asset.user.required: AI asset owner is required
 ai.asset.not_found: AI asset does not exist
 ai.asset.query_failed: Failed to query AI assets
 ai.asset.create_failed: Failed to create AI asset

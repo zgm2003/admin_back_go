@@ -1171,7 +1171,7 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/image-playground', '/ai/prompts', '/ai/assets')
+  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/prompts')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -1183,22 +1183,12 @@ function Assert-UsersInitAIRoutes($Response) {
   Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users me AI menu order'
   $aiToolAddButton = $false
   $aiToolGenerateButton = $false
-  $aiImageTaskAddButton = $false
   foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
     if ([string]$code -eq 'ai_tool_add') { $aiToolAddButton = $true }
     if ([string]$code -eq 'ai_tool_generate') { $aiToolGenerateButton = $true }
-    if ([string]$code -eq 'ai_image_task_add') { $aiImageTaskAddButton = $true }
   }
   if ($aiToolAddButton -and -not $aiToolGenerateButton) {
     throw "users me has ai_tool_add but missing ai_tool_generate; run 20260510_ai_tool_generate_permission.sql"
-  }
-  if ($requiredPresent['/ai/image-playground'] -and -not $aiImageTaskAddButton) {
-    throw "users me has /ai/image-playground but missing image task button; run current AI image permission migration"
-  }
-
-  $imageRoute = Get-RouteByPath $Response.data.router '/ai/image-playground'
-  if ($null -eq $imageRoute -or [string]$imageRoute.view_key -ne 'ai/image-playground') {
-    throw "users/me AI image route view_key mismatch: expected=ai/image-playground actual=$([string]$imageRoute.view_key)"
   }
 
   return [pscustomobject]@{
@@ -1207,17 +1197,14 @@ function Assert-UsersInitAIRoutes($Response) {
     ModelsPresent = $retiredPresent[$retiredAINameRoutes['models']]
     RetiredAgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
     PromptsPresent = $requiredPresent['/ai/prompts']
-    AssetsPresent = $requiredPresent['/ai/assets']
     ProvidersPresent = $requiredPresent['/ai/providers']
     AgentsPresent = $requiredPresent['/ai/agents']
     ChatPresent = $requiredPresent['/ai/chat']
     KnowledgePresent = $requiredPresent['/ai/knowledge']
     RunsPresent = $requiredPresent['/ai/runs']
     ToolsPresent = $requiredPresent['/ai/tools']
-    ImagesPresent = $requiredPresent['/ai/image-playground']
     ToolAddButtonPresent = $aiToolAddButton
     ToolGenerateButtonPresent = $aiToolGenerateButton
-    ImageTaskAddButtonPresent = $aiImageTaskAddButton
   }
 }
 
@@ -1355,189 +1342,6 @@ function Assert-AIAgentOptions($Response) {
 
   return [pscustomobject]@{
     OptionCount = (Get-ObjectArray $Response.data.list).Count
-  }
-}
-
-function Assert-AIImageInit($Response) {
-  Assert-ApiOK $Response 'AI image init'
-  Assert-NoAISecretFields $Response 'AI image init'
-
-  if ($null -eq $Response.data.dict -or $null -eq $Response.data.agent_options) {
-    throw "AI image init missing dict/agent_options: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($field in @('size_arr', 'quality_arr', 'output_format_arr', 'moderation_arr', 'status_arr')) {
-    if (-not (Test-HasProperty $Response.data.dict $field)) {
-      throw "AI image init missing dict.${field}: $($Response | ConvertTo-Json -Depth 12)"
-    }
-  }
-
-  return [pscustomobject]@{
-    SizeCount = (Get-ObjectArray $Response.data.dict.size_arr).Count
-    QualityCount = (Get-ObjectArray $Response.data.dict.quality_arr).Count
-    FormatCount = (Get-ObjectArray $Response.data.dict.output_format_arr).Count
-    AgentOptionCount = (Get-ObjectArray $Response.data.agent_options).Count
-  }
-}
-
-function Assert-AIImageList($Response) {
-  Assert-ApiOK $Response 'AI image list'
-  Assert-NoAISecretFields $Response 'AI image list'
-
-  if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "AI image list missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    foreach ($field in @('id', 'agent_id', 'agent_name_snapshot', 'model_id_snapshot', 'prompt', 'size', 'quality', 'output_format', 'n', 'status', 'created_at')) {
-      if (-not (Test-HasProperty $item $field)) {
-        throw "AI image item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
-      }
-    }
-    foreach ($secretField in @('raw_response_json', 'api_key', 'api_key_enc')) {
-      if (Test-HasProperty $item $secretField) {
-        throw "AI image list leaked ${secretField}: $($item | ConvertTo-Json -Depth 12)"
-      }
-    }
-  }
-
-  return [pscustomobject]@{
-    ListCount = (Get-ObjectArray $Response.data.list).Count
-    Total = [int64]$Response.data.page.total
-  }
-}
-
-function Assert-AIImageDetail($Response) {
-  Assert-ApiOK $Response 'AI image detail'
-  Assert-NoAISecretFields $Response 'AI image detail'
-
-  foreach ($field in @('task', 'inputs', 'outputs')) {
-    if (-not (Test-HasProperty $Response.data $field)) {
-      throw "AI image detail missing ${field}: $($Response | ConvertTo-Json -Depth 12)"
-    }
-  }
-  if (Test-HasProperty $Response.data.task 'raw_response_json') {
-    throw "AI image detail leaked raw_response_json: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    InputCount = (Get-ObjectArray $Response.data.inputs).Count
-    OutputCount = (Get-ObjectArray $Response.data.outputs).Count
-  }
-}
-
-function Assert-AIImageCreate($Response) {
-  Assert-ApiOK $Response 'AI image create'
-  Assert-NoAISecretFields $Response 'AI image create'
-
-  if ($null -eq $Response.data.task) {
-    throw "AI image create missing task: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  foreach ($field in @('id', 'platform', 'agent_id', 'prompt', 'size', 'quality', 'output_format', 'n', 'status', 'created_at')) {
-    if (-not (Test-HasProperty $Response.data.task $field)) {
-      throw "AI image create task missing ${field}: $($Response | ConvertTo-Json -Depth 12)"
-    }
-  }
-  if ([int64]$Response.data.task.id -le 0) {
-    throw "AI image create returned invalid task id: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  if ([string]$Response.data.task.platform -ne 'admin') {
-    throw "AI image create must persist admin platform task: $($Response | ConvertTo-Json -Depth 12)"
-  }
-
-  return [pscustomobject]@{
-    TaskID = [int64]$Response.data.task.id
-    Status = [string]$Response.data.task.status
-  }
-}
-
-function Invoke-AIImageCreateProbe([string]$BaseURL, [hashtable]$Headers, $InitResponse) {
-  $agentOptions = Get-ObjectArray $InitResponse.data.agent_options
-  if ($agentOptions.Count -eq 0) {
-    return [pscustomobject]@{
-      Status = 'skipped_no_agent'
-      TaskID = 0
-      CreateCode = $null
-      DetailCode = $null
-      DeleteCode = $null
-      ListContainsTask = $false
-    }
-  }
-
-  $taskID = 0
-  $deleted = $false
-  try {
-    $promptSuffix = [guid]::NewGuid().ToString('N').Substring(0, 12)
-    $body = @{
-      agent_id = [int64]$agentOptions[0].id
-      prompt = "Codex full smoke admin image task $promptSuffix"
-      size = '1024x1024'
-      quality = 'low'
-      output_format = 'png'
-      moderation = 'auto'
-      n = 1
-      input_files = @()
-      mask_file = $null
-    } | ConvertTo-Json -Depth 8
-
-    $create = Invoke-RestMethod "$BaseURL/api/admin/v1/ai-images" `
-      -Method Post `
-      -Headers $Headers `
-      -ContentType 'application/json' `
-      -Body $body `
-      -TimeoutSec 20
-    $createSummary = Assert-AIImageCreate $create
-    $taskID = $createSummary.TaskID
-
-    $detail = Invoke-RestMethod "$BaseURL/api/admin/v1/ai-images/$taskID" `
-      -Headers $Headers `
-      -TimeoutSec 10
-    [void](Assert-AIImageDetail $detail)
-    if ([int64]$detail.data.task.id -ne $taskID) {
-      throw "AI image create probe detail returned wrong task id: expected=$taskID actual=$([int64]$detail.data.task.id)"
-    }
-
-    $list = Invoke-RestMethod "$BaseURL/api/admin/v1/ai-images?current_page=1&page_size=20" `
-      -Headers $Headers `
-      -TimeoutSec 10
-    [void](Assert-AIImageList $list)
-    $listContainsTask = $false
-    foreach ($item in (Get-ObjectArray $list.data.list)) {
-      if ([int64]$item.id -eq $taskID) {
-        $listContainsTask = $true
-        break
-      }
-    }
-    if (-not $listContainsTask) {
-      throw "AI image create probe task $taskID not found in first page after create"
-    }
-
-    $delete = Invoke-RestMethod "$BaseURL/api/admin/v1/ai-images/$taskID" `
-      -Method Delete `
-      -Headers $Headers `
-      -TimeoutSec 10
-    Assert-ApiOK $delete 'AI image create probe cleanup'
-    $deleted = $true
-
-    return [pscustomobject]@{
-      Status = 'passed'
-      TaskID = $taskID
-      CreateCode = $create.code
-      DetailCode = $detail.code
-      DeleteCode = $delete.code
-      ListContainsTask = $listContainsTask
-      CreatedStatus = $createSummary.Status
-    }
-  } finally {
-    if ($taskID -gt 0 -and -not $deleted) {
-      try {
-        $cleanup = Invoke-RestMethod "$BaseURL/api/admin/v1/ai-images/$taskID" `
-          -Method Delete `
-          -Headers $Headers `
-          -TimeoutSec 10
-        Assert-ApiOK $cleanup 'AI image create probe cleanup after failure'
-      } catch {
-        Write-Warning "AI image create probe cleanup failed for task ${taskID}: $($_.Exception.Message)"
-      }
-    }
   }
 }
 
@@ -3091,31 +2895,6 @@ func main() {
     -TimeoutSec 10
   $aiAgentOptionsSummary = Assert-AIAgentOptions $aiAgentOptions
 
-  $aiImageAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options?scene=image_generate" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $aiImageAgentOptionsSummary = Assert-AIAgentOptions $aiImageAgentOptions
-
-  $aiImageInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-images/page-init" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $aiImageInitSummary = Assert-AIImageInit $aiImageInit
-
-  $aiImageList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-images?current_page=1&page_size=5" `
-    -Headers $authHeaders `
-    -TimeoutSec 10
-  $aiImageListSummary = Assert-AIImageList $aiImageList
-
-  $aiImageDetailSummary = [pscustomobject]@{ InputCount = 0; OutputCount = 0 }
-  $aiImageRows = Get-ObjectArray $aiImageList.data.list
-  if ($aiImageRows.Count -gt 0) {
-    $aiImageTaskID = [int64]$aiImageRows[0].id
-    $aiImageDetail = Invoke-RestMethod "$baseURL/api/admin/v1/ai-images/$aiImageTaskID" `
-      -Headers $authHeaders `
-      -TimeoutSec 10
-    $aiImageDetailSummary = Assert-AIImageDetail $aiImageDetail
-  }
-  $aiImageCreateProbe = Invoke-AIImageCreateProbe $baseURL $authHeaders $aiImageInit
 
   $aiKnowledgeInit = Invoke-RestMethod "$baseURL/api/admin/v1/ai-knowledge-bases/page-init" `
     -Headers $authHeaders `
@@ -3468,24 +3247,6 @@ func main() {
     ai_agent_scene_filter_code = $aiAgentSceneList.code
     ai_agent_options_code = $aiAgentOptions.code
     ai_agent_options_count = $aiAgentOptionsSummary.OptionCount
-    ai_image_agent_options_count = $aiImageAgentOptionsSummary.OptionCount
-    ai_image_init_code = $aiImageInit.code
-    ai_image_size_dict_count = $aiImageInitSummary.SizeCount
-    ai_image_quality_dict_count = $aiImageInitSummary.QualityCount
-    ai_image_format_dict_count = $aiImageInitSummary.FormatCount
-    ai_image_init_agent_option_count = $aiImageInitSummary.AgentOptionCount
-    ai_image_list_code = $aiImageList.code
-    ai_image_list_count = $aiImageListSummary.ListCount
-    ai_image_total = $aiImageListSummary.Total
-    ai_image_detail_input_count = $aiImageDetailSummary.InputCount
-    ai_image_detail_output_count = $aiImageDetailSummary.OutputCount
-    ai_image_create_probe = $aiImageCreateProbe.Status
-    ai_image_create_task_id = $aiImageCreateProbe.TaskID
-    ai_image_create_code = $aiImageCreateProbe.CreateCode
-    ai_image_create_detail_code = $aiImageCreateProbe.DetailCode
-    ai_image_create_delete_code = $aiImageCreateProbe.DeleteCode
-    ai_image_create_list_contains_task = $aiImageCreateProbe.ListContainsTask
-    ai_image_create_initial_status = $aiImageCreateProbe.CreatedStatus
     ai_knowledge_init_code = $aiKnowledgeInit.code
     ai_knowledge_status_dict_count = $aiKnowledgeInitSummary.StatusCount
     ai_knowledge_source_type_count = $aiKnowledgeInitSummary.SourceTypeCount
@@ -3529,17 +3290,14 @@ func main() {
     ai_models_route_present = $usersInitAIRouteSummary.ModelsPresent
     retired_ai_agents_route_present = $usersInitAIRouteSummary.RetiredAgentsPresent
     ai_prompts_route_present = $usersInitAIRouteSummary.PromptsPresent
-    ai_assets_route_present = $usersInitAIRouteSummary.AssetsPresent
     ai_providers_route_present = $usersInitAIRouteSummary.ProvidersPresent
     ai_agents_route_present = $usersInitAIRouteSummary.AgentsPresent
     ai_chat_route_present = $usersInitAIRouteSummary.ChatPresent
     ai_knowledge_route_present = $usersInitAIRouteSummary.KnowledgePresent
     ai_runs_route_present = $usersInitAIRouteSummary.RunsPresent
     ai_tools_route_present = $usersInitAIRouteSummary.ToolsPresent
-    ai_images_route_present = $usersInitAIRouteSummary.ImagesPresent
     ai_tool_add_button_present = $usersInitAIRouteSummary.ToolAddButtonPresent
     ai_tool_generate_button_present = $usersInitAIRouteSummary.ToolGenerateButtonPresent
-    ai_image_task_add_button_present = $usersInitAIRouteSummary.ImageTaskAddButtonPresent
     payment_route_pay_present = $usersInitPaymentRouteSummary.PayPresent
     payment_route_wallet_root_route_present = $usersInitPaymentRouteSummary.WalletRootRoutePresent
     payment_route_old_pay_code_present = $usersInitPaymentRouteSummary.OldPayCodePresent

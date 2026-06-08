@@ -102,7 +102,6 @@ func TestAIAdminTransportShells(t *testing.T) {
 		"internal/module/ai/provider/",
 		"internal/module/ai/agent/",
 		"internal/module/ai/tool/",
-		"internal/module/ai/image/",
 		"internal/module/ai/knowledge/",
 		"internal/module/ai/conversation/",
 		"internal/module/ai/message/",
@@ -113,6 +112,9 @@ func TestAIAdminTransportShells(t *testing.T) {
 		mustNotExist(t, root, moduleRoot+"route.go")
 		mustNotExist(t, root, moduleRoot+"handler.go")
 	}
+
+	mustNotExist(t, root, "internal/module/ai/image/transport/admin/route.go")
+	mustExist(t, root, "internal/module/ai/image/transport/canvas/route.go")
 
 	moduleRoot := "internal/module/ai/knowledge/"
 	mustExist(t, root, moduleRoot+"transport/admin/route.go")

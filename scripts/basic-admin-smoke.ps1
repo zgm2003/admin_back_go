@@ -675,7 +675,6 @@ func main() {
     ai_models_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['models']
     retired_ai_agents_route_present = Test-RoutePath $init.data.router $retiredAINameRoutes['agents']
     ai_prompts_route_present = Test-RoutePath $init.data.router '/ai/prompts'
-    ai_assets_route_present = Test-RoutePath $init.data.router '/ai/assets'
     ai_providers_route_present = Test-RoutePath $init.data.router '/ai/providers'
     ai_agents_route_present = Test-RoutePath $init.data.router '/ai/agents'
     ai_chat_route_present = Test-RoutePath $init.data.router '/ai/chat'

@@ -17,6 +17,7 @@ type Page struct {
 type ListQuery struct {
 	CurrentPage int
 	PageSize    int
+	UserID      uint64
 	Keyword     string
 	Type        string
 	Status      int
@@ -24,6 +25,7 @@ type ListQuery struct {
 }
 
 type Input struct {
+	UserID      uint64
 	Slug        string
 	Type        string
 	Category    string
@@ -43,6 +45,7 @@ type ListResponse struct {
 
 type Item struct {
 	ID          int64  `json:"id"`
+	UserID      uint64 `json:"user_id"`
 	Slug        string `json:"slug"`
 	Type        string `json:"type"`
 	Category    string `json:"category"`

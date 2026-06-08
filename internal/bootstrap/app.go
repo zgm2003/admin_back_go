@@ -361,7 +361,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiChatService:           aiChatService,
 		AiConversationService:   aiConversationService,
 		AiImageService:          aiImageService,
-		AiAssetAdminService:     aiAssetService,
 		AiAssetService:          aiAssetService,
 		AiPromptAdminService:    aiPromptService,
 		AiPromptService:         aiPromptService,

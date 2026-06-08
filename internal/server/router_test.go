@@ -1521,6 +1521,7 @@ func (f *fakeRouterAiPromptService) PublicList(ctx context.Context, query aiprom
 }
 
 type fakeRouterAiAssetService struct {
+	userID      uint64
 	query       aiasset.ListQuery
 	created     aiasset.Input
 	updatedID   int64
@@ -1531,22 +1532,26 @@ type fakeRouterAiAssetService struct {
 	deleteCalls int
 }
 
-func (f *fakeRouterAiAssetService) PublicList(ctx context.Context, query aiasset.ListQuery) (*aiasset.ListResponse, *apperror.Error) {
+func (f *fakeRouterAiAssetService) UserList(ctx context.Context, userID uint64, query aiasset.ListQuery) (*aiasset.ListResponse, *apperror.Error) {
+	f.userID = userID
 	f.query = query
 	return &aiasset.ListResponse{List: []aiasset.Item{{ID: 2, Slug: "asset", Type: aiasset.AssetTypeImage, Title: "Asset"}}}, nil
 }
-func (f *fakeRouterAiAssetService) Create(ctx context.Context, input aiasset.Input) (int64, *apperror.Error) {
+func (f *fakeRouterAiAssetService) UserCreate(ctx context.Context, userID uint64, input aiasset.Input) (int64, *apperror.Error) {
+	f.userID = userID
 	f.created = input
 	f.createCalls++
 	return 22, nil
 }
-func (f *fakeRouterAiAssetService) Update(ctx context.Context, id int64, input aiasset.Input) *apperror.Error {
+func (f *fakeRouterAiAssetService) UserUpdate(ctx context.Context, userID uint64, id int64, input aiasset.Input) *apperror.Error {
+	f.userID = userID
 	f.updatedID = id
 	f.updated = input
 	f.updateCalls++
 	return nil
 }
-func (f *fakeRouterAiAssetService) Delete(ctx context.Context, id int64) *apperror.Error {
+func (f *fakeRouterAiAssetService) UserDelete(ctx context.Context, userID uint64, id int64) *apperror.Error {
+	f.userID = userID
 	f.deletedID = id
 	f.deleteCalls++
 	return nil
@@ -3694,8 +3699,8 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/canvas/v1/assets?keyword=sky&type=image", nil)
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || assetService.query.Keyword != "sky" || assetService.query.Type != aiasset.AssetTypeImage {
-		t.Fatalf("expected canvas asset route from AI asset service, code=%d body=%s query=%#v", recorder.Code, recorder.Body.String(), assetService.query)
+	if recorder.Code != http.StatusOK || assetService.userID != 9 || assetService.query.Keyword != "sky" || assetService.query.Type != aiasset.AssetTypeImage {
+		t.Fatalf("expected canvas asset route from AI asset service, code=%d body=%s user=%d query=%#v", recorder.Code, recorder.Body.String(), assetService.userID, assetService.query)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -3703,8 +3708,8 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer canvas-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || assetService.createCalls != 1 || assetService.created.Slug != "clip" || assetService.created.Type != aiasset.AssetTypeVideo {
-		t.Fatalf("expected canvas asset create from AI asset service, code=%d body=%s calls=%d input=%#v", recorder.Code, recorder.Body.String(), assetService.createCalls, assetService.created)
+	if recorder.Code != http.StatusOK || assetService.userID != 9 || assetService.createCalls != 1 || assetService.created.Slug != "clip" || assetService.created.Type != aiasset.AssetTypeVideo {
+		t.Fatalf("expected canvas asset create from AI asset service, code=%d body=%s user=%d calls=%d input=%#v", recorder.Code, recorder.Body.String(), assetService.userID, assetService.createCalls, assetService.created)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -3725,15 +3730,13 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsAdminAIPromptAssetRoutes(t *testing.T) {
+func TestRouterInstallsAdminAIPromptRoutes(t *testing.T) {
 	promptService := &fakeRouterAdminAIPromptService{}
-	assetService := &fakeRouterAdminAIAssetService{}
 	router := newTestRouter(t, Dependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
 		},
 		AiPromptAdminService: promptService,
-		AiAssetAdminService:  assetService,
 	})
 
 	requests := []struct {
@@ -3749,13 +3752,6 @@ func TestRouterInstallsAdminAIPromptAssetRoutes(t *testing.T) {
 		{http.MethodPatch, "/api/admin/v1/ai-prompts/7/status", `{"status":2}`},
 		{http.MethodDelete, "/api/admin/v1/ai-prompts/7", ""},
 		{http.MethodDelete, "/api/admin/v1/ai-prompts", `{"ids":[3,4]}`},
-		{http.MethodGet, "/api/admin/v1/ai-assets/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-assets?keyword=sky&type=image&status=2", ""},
-		{http.MethodGet, "/api/admin/v1/ai-assets/9", ""},
-		{http.MethodPost, "/api/admin/v1/ai-assets", `{"slug":"hero","type":"image","title":"Hero","status":2}`},
-		{http.MethodPut, "/api/admin/v1/ai-assets/7", `{"slug":"hero","type":"image","title":"Hero","url":"https://example.test/hero.png"}`},
-		{http.MethodDelete, "/api/admin/v1/ai-assets/7", ""},
-		{http.MethodDelete, "/api/admin/v1/ai-assets", `{"ids":[5,6]}`},
 	}
 	for _, tc := range requests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -3771,16 +3767,13 @@ func TestRouterInstallsAdminAIPromptAssetRoutes(t *testing.T) {
 			}
 			router.ServeHTTP(recorder, request)
 			if recorder.Code != http.StatusOK {
-				t.Fatalf("expected admin AI prompt/asset route, code=%d body=%s", recorder.Code, recorder.Body.String())
+				t.Fatalf("expected admin AI prompt route, code=%d body=%s", recorder.Code, recorder.Body.String())
 			}
 		})
 	}
 
 	if promptService.listQuery.Keyword != "cat" || promptService.detailID != 9 || promptService.created.Status != aiprompt.StatusDisabled || promptService.updatedID != 7 || promptService.statusID != 7 || promptService.status != aiprompt.StatusDisabled || promptService.deletedID != 7 || !reflect.DeepEqual(promptService.batchDeletedIDs, []int64{3, 4}) {
 		t.Fatalf("admin AI prompt routes not wired correctly: %#v", promptService)
-	}
-	if assetService.listQuery.Type != aiasset.AssetTypeImage || assetService.detailID != 9 || assetService.created.Status != aiasset.StatusDisabled || assetService.updatedID != 7 || assetService.deletedID != 7 || !reflect.DeepEqual(assetService.batchDeletedIDs, []int64{5, 6}) {
-		t.Fatalf("admin AI asset routes not wired correctly: %#v", assetService)
 	}
 }
 

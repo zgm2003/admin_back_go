@@ -3,6 +3,7 @@ ai.asset.request.invalid: 素材参数错误
 ai.asset.id.invalid: 素材ID无效
 ai.asset.ids.invalid: 素材ID列表无效
 ai.asset.status.invalid: 素材状态无效
+ai.asset.user.required: 素材归属用户不能为空
 ai.asset.not_found: AI素材不存在
 ai.asset.query_failed: 查询AI素材失败
 ai.asset.create_failed: 创建AI素材失败

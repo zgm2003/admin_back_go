@@ -14,6 +14,7 @@ const (
 
 type Asset struct {
 	ID          int64     `gorm:"column:id"`
+	UserID      uint64    `gorm:"column:user_id"`
 	Slug        string    `gorm:"column:slug"`
 	Type        string    `gorm:"column:type"`
 	Category    string    `gorm:"column:category"`

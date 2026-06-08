@@ -1,10 +1,7 @@
 CONNECT /api/admin/v1/queue-monitor-ui
 CONNECT /api/admin/v1/queue-monitor-ui/*path
 DELETE /api/admin/v1/ai-agents/:id
-DELETE /api/admin/v1/ai-assets
-DELETE /api/admin/v1/ai-assets/:id
 DELETE /api/admin/v1/ai-conversations/:id
-DELETE /api/admin/v1/ai-images/:id
 DELETE /api/admin/v1/ai-knowledge-bases/:id
 DELETE /api/admin/v1/ai-knowledge-documents/:id
 DELETE /api/admin/v1/ai-prompts
@@ -55,15 +52,9 @@ GET /api/admin/v1/ai-agents/:id/tools
 GET /api/admin/v1/ai-agents/options
 GET /api/admin/v1/ai-agents/page-init
 GET /api/admin/v1/ai-agents/provider-models/:id
-GET /api/admin/v1/ai-assets
-GET /api/admin/v1/ai-assets/:id
-GET /api/admin/v1/ai-assets/page-init
 GET /api/admin/v1/ai-conversations
 GET /api/admin/v1/ai-conversations/:id
 GET /api/admin/v1/ai-conversations/:id/messages
-GET /api/admin/v1/ai-images
-GET /api/admin/v1/ai-images/:id
-GET /api/admin/v1/ai-images/page-init
 GET /api/admin/v1/ai-knowledge-bases
 GET /api/admin/v1/ai-knowledge-bases/:id
 GET /api/admin/v1/ai-knowledge-bases/:id/documents
@@ -195,11 +186,9 @@ PATCH /api/admin/v1/users
 PATCH /api/admin/v1/users/:id/status
 POST /api/admin/v1/ai-agents
 POST /api/admin/v1/ai-agents/:id/test
-POST /api/admin/v1/ai-assets
 POST /api/admin/v1/ai-conversations
 POST /api/admin/v1/ai-conversations/:id/messages
 POST /api/admin/v1/ai-conversations/:id/messages/cancel
-POST /api/admin/v1/ai-images
 POST /api/admin/v1/ai-knowledge-bases
 POST /api/admin/v1/ai-knowledge-bases/:id/documents
 POST /api/admin/v1/ai-knowledge-bases/:id/retrieval-tests
@@ -244,7 +233,6 @@ POST /api/payment/callbacks/alipay
 PUT /api/admin/v1/ai-agents/:id
 PUT /api/admin/v1/ai-agents/:id/knowledge-bases
 PUT /api/admin/v1/ai-agents/:id/tools
-PUT /api/admin/v1/ai-assets/:id
 PUT /api/admin/v1/ai-conversations/:id
 PUT /api/admin/v1/ai-knowledge-bases/:id
 PUT /api/admin/v1/ai-knowledge-documents/:id

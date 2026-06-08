@@ -117,17 +117,11 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "ai_agent_test"},
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "ai_agent_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "ai_agent_del"},
-		{http.MethodPost, "/api/admin/v1/ai-images", "ai_image_task_add"},
-		{http.MethodDelete, "/api/admin/v1/ai-images/:id", "ai_image_task_del"},
 		{http.MethodPost, "/api/admin/v1/ai-prompts", "ai_prompt_add"},
 		{http.MethodPut, "/api/admin/v1/ai-prompts/:id", "ai_prompt_edit"},
 		{http.MethodPatch, "/api/admin/v1/ai-prompts/:id/status", "ai_prompt_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-prompts/:id", "ai_prompt_del"},
 		{http.MethodDelete, "/api/admin/v1/ai-prompts", "ai_prompt_del"},
-		{http.MethodPost, "/api/admin/v1/ai-assets", "ai_asset_add"},
-		{http.MethodPut, "/api/admin/v1/ai-assets/:id", "ai_asset_edit"},
-		{http.MethodDelete, "/api/admin/v1/ai-assets/:id", "ai_asset_del"},
-		{http.MethodDelete, "/api/admin/v1/ai-assets", "ai_asset_del"},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "ai_knowledge_add"},
 		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "ai_knowledge_edit"},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/:id/status", "ai_knowledge_status"},
@@ -314,9 +308,6 @@ func TestPermissionRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/:id"},
-		{http.MethodGet, "/api/admin/v1/ai-images/page-init"},
-		{http.MethodGet, "/api/admin/v1/ai-images"},
-		{http.MethodGet, "/api/admin/v1/ai-images/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id"},
@@ -457,8 +448,6 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodPost, "/api/admin/v1/ai-agents/:id/test", "test"},
 		{http.MethodPatch, "/api/admin/v1/ai-agents/:id/status", "change_status"},
 		{http.MethodDelete, "/api/admin/v1/ai-agents/:id", "delete"},
-		{http.MethodPost, "/api/admin/v1/ai-images", "create_task"},
-		{http.MethodDelete, "/api/admin/v1/ai-images/:id", "delete"},
 		{http.MethodPost, "/api/admin/v1/ai-knowledge-bases", "create"},
 		{http.MethodPut, "/api/admin/v1/ai-knowledge-bases/:id", "update"},
 		{http.MethodPatch, "/api/admin/v1/ai-knowledge-bases/:id/status", "change_status"},
@@ -507,19 +496,6 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 	rechargePayRule := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/payment/recharges/:id/pay")]
 	if rechargePayRule.Module != "payment_recharge" || rechargePayRule.Action != "pay" || !rechargePayRule.SkipResponsePayload {
 		t.Fatalf("payment recharge pay operation rule must skip pay_url response payload: %#v", rechargePayRule)
-	}
-
-	for _, tt := range []struct {
-		method string
-		path   string
-	}{
-		{http.MethodPost, "/api/admin/v1/ai-images"},
-		{http.MethodDelete, "/api/admin/v1/ai-images/:id"},
-	} {
-		rule := rules[middleware.NewRouteKey(tt.method, tt.path)]
-		if rule.Module != "ai_image" || !rule.SkipRequestPayload || !rule.SkipResponsePayload {
-			t.Fatalf("ai image operation rule must skip prompt/image payloads: %s %s %#v", tt.method, tt.path, rule)
-		}
 	}
 
 	if _, ok := rules[middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens")]; ok {
@@ -572,9 +548,6 @@ func TestOperationRouteRulesUseExplicitRESTPatterns(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-agents"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/options"},
 		{http.MethodGet, "/api/admin/v1/ai-agents/:id"},
-		{http.MethodGet, "/api/admin/v1/ai-images/page-init"},
-		{http.MethodGet, "/api/admin/v1/ai-images"},
-		{http.MethodGet, "/api/admin/v1/ai-images/:id"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/page-init"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases"},
 		{http.MethodGet, "/api/admin/v1/ai-knowledge-bases/:id"},

@@ -2,10 +2,8 @@ package server
 
 import (
 	aiagentadmin "admin_back_go/internal/module/ai/agent/transport/admin"
-	aiassetadmin "admin_back_go/internal/module/ai/asset/transport/admin"
 	aichatadmin "admin_back_go/internal/module/ai/chat/transport/admin"
 	aiconversationadmin "admin_back_go/internal/module/ai/conversation/transport/admin"
-	aiimageadmin "admin_back_go/internal/module/ai/image/transport/admin"
 	aiknowledgeadmin "admin_back_go/internal/module/ai/knowledge/transport/admin"
 	aimessageadmin "admin_back_go/internal/module/ai/message/transport/admin"
 	aipromptadmin "admin_back_go/internal/module/ai/prompt/transport/admin"
@@ -25,7 +23,5 @@ func registerAdminAIRoutes(router *gin.Engine, deps Dependencies) {
 	aimessageadmin.Register(router, deps.AiMessageService)
 	airunadmin.Register(router, deps.AiRunService)
 	aichatadmin.Register(router, deps.AiChatService)
-	aiimageadmin.Register(router, deps.AiImageService)
 	aipromptadmin.RegisterRoutes(router, deps.AiPromptAdminService)
-	aiassetadmin.RegisterRoutes(router, deps.AiAssetAdminService)
 }
