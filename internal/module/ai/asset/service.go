@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -135,7 +136,13 @@ func normalizeInput(input Input) Input {
 }
 
 func validInput(input Input) bool {
-	return input.Slug != "" && input.Title != "" && isAssetType(input.Type) && isAssetStatus(input.Status) && json.Valid([]byte(input.TagsJSON))
+	if input.Slug == "" || input.Title == "" || !isAssetType(input.Type) || !isAssetStatus(input.Status) || !json.Valid([]byte(input.TagsJSON)) {
+		return false
+	}
+	if input.Type == AssetTypeText {
+		return true
+	}
+	return validMediaMetadata(input)
 }
 
 func normalizeTagsJSON(value string) string {
@@ -163,6 +170,99 @@ func isAssetStatus(status int) bool {
 
 func isStatusFilter(status int) bool {
 	return status == 0 || status == StatusEnabled || status == StatusDisabled
+}
+
+type mediaMetadata struct {
+	StorageKey string   `json:"storageKey"`
+	Width      float64  `json:"width"`
+	Height     float64  `json:"height"`
+	Bytes      float64  `json:"bytes"`
+	MimeType   string   `json:"mimeType"`
+	Duration   *float64 `json:"duration"`
+}
+
+func validMediaMetadata(input Input) bool {
+	if strings.TrimSpace(input.URL) == "" {
+		return false
+	}
+	raw := strings.TrimSpace(input.Content)
+	if raw == "" {
+		return false
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil || len(fields) == 0 {
+		return false
+	}
+	for key := range fields {
+		if !isAllowedMediaMetadataKey(key) {
+			return false
+		}
+	}
+	if rawMetadata, ok := fields["metadata"]; ok {
+		var metadata map[string]any
+		if err := json.Unmarshal(rawMetadata, &metadata); err != nil || metadata == nil {
+			return false
+		}
+	}
+
+	var metadata mediaMetadata
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+		return false
+	}
+	if !validStorageKey(input.Type, metadata.StorageKey) {
+		return false
+	}
+	if !positiveNumber(metadata.Width) || !positiveNumber(metadata.Height) || !positiveNumber(metadata.Bytes) {
+		return false
+	}
+	if metadata.Duration != nil && !positiveNumber(*metadata.Duration) {
+		return false
+	}
+	mimeType := strings.TrimSpace(metadata.MimeType)
+	if input.Type == AssetTypeImage {
+		return strings.HasPrefix(mimeType, "image/")
+	}
+	return strings.HasPrefix(mimeType, "video/")
+}
+
+func isAllowedMediaMetadataKey(key string) bool {
+	switch key {
+	case "storageKey", "width", "height", "bytes", "mimeType", "duration", "metadata":
+		return true
+	default:
+		return false
+	}
+}
+
+func validStorageKey(assetType, value string) bool {
+	key := strings.TrimSpace(value)
+	if key == "" || strings.HasPrefix(key, "blob:") || strings.HasPrefix(key, "data:") {
+		return false
+	}
+	if isBrowserLocalStorageKey(key) {
+		return false
+	}
+	if !strings.Contains(key, ":") {
+		return strings.Contains(key, "/")
+	}
+	if assetType == AssetTypeImage {
+		return strings.HasPrefix(key, "image:")
+	}
+	return strings.HasPrefix(key, "video:") || strings.HasPrefix(key, "file:") || strings.HasPrefix(key, "media:")
+}
+
+func isBrowserLocalStorageKey(key string) bool {
+	colon := strings.Index(key, ":")
+	if colon <= 0 || strings.Contains(key[colon+1:], "/") {
+		return false
+	}
+	prefix := key[:colon]
+	return prefix == "image" || prefix == "video" || prefix == "file" || prefix == "media"
+}
+
+func positiveNumber(value float64) bool {
+	return value > 0 && !math.IsInf(value, 0) && !math.IsNaN(value)
 }
 
 func assetFromInput(input Input) Asset {

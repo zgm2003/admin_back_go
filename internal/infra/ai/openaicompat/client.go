@@ -191,6 +191,12 @@ func (c *Client) CreateVideo(ctx context.Context, input infraai.VideoInput) (*in
 	if resolution := strings.TrimSpace(input.ResolutionName); resolution != "" {
 		body["resolution_name"] = resolution
 	}
+	if input.GenerateAudio != nil {
+		body["generate_audio"] = *input.GenerateAudio
+	}
+	if input.Watermark != nil {
+		body["watermark"] = *input.Watermark
+	}
 	req, err := c.newRequest(ctx, http.MethodPost, "/videos", body)
 	if err != nil {
 		return nil, err
@@ -749,18 +755,7 @@ func contentText(value any) string {
 }
 
 func normalizeBaseURL(value string) (string, error) {
-	raw := strings.TrimRight(strings.TrimSpace(value), "/")
-	if raw == "" {
-		raw = defaultBaseURL
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url", infraai.ErrInvalidConfig)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url scheme", infraai.ErrInvalidConfig)
-	}
-	return raw, nil
+	return infraai.NormalizeOpenAIBaseURL(value, defaultBaseURL)
 }
 
 func sanitizeBody(body []byte, apiKey string) string {

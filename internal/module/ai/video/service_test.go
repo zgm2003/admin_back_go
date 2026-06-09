@@ -164,7 +164,9 @@ func TestCreateUsesAgentModelCreatesLocalTaskAndStoresProviderTask(t *testing.T)
 	repo := &fakeRepository{agent: validCanvasVideoAgent(t, box)}
 	recorder := &fakeRunRecorder{nextID: 99}
 
-	result, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: factory, RunRecorder: recorder}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, ModelID: "client-model", Prompt: " clip ", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
+	generateAudio := false
+	watermark := true
+	result, appErr := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: factory, RunRecorder: recorder}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, ModelID: "client-model", Prompt: " clip ", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p", GenerateAudio: &generateAudio, Watermark: &watermark})
 
 	if appErr != nil {
 		t.Fatalf("Create error=%#v", appErr)
@@ -183,6 +185,9 @@ func TestCreateUsesAgentModelCreatesLocalTaskAndStoresProviderTask(t *testing.T)
 	}
 	if engine.createInput.Model != "grok-imagine-video" || engine.createInput.Prompt != "clip" || engine.createInput.DurationSeconds != 4 || engine.createInput.Size != "1280x720" || engine.createInput.ResolutionName != "720p" {
 		t.Fatalf("provider input mismatch: %#v", engine.createInput)
+	}
+	if engine.createInput.GenerateAudio == nil || *engine.createInput.GenerateAudio || engine.createInput.Watermark == nil || !*engine.createInput.Watermark {
+		t.Fatalf("provider video switches mismatch: %#v", engine.createInput)
 	}
 	if len(repo.updates) != 2 || repo.updates[0].userID != 7 || repo.updates[0].id != 77 || repo.updates[0].fields["run_id"] != int64(99) || repo.updates[1].userID != 7 || repo.updates[1].id != 77 || repo.updates[1].fields["provider_task_id"] != "provider-task-1" || repo.updates[1].fields["status"] != StatusRunning {
 		t.Fatalf("provider task update mismatch: %#v", repo.updates)

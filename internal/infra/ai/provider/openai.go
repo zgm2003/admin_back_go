@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
+
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 const defaultOpenAIBaseURL = "https://api.openai.com/v1"
@@ -92,18 +93,7 @@ func (d *OpenAIDriver) TestConnection(ctx context.Context, cfg Config) (*TestRes
 }
 
 func normalizeBaseURL(value string, fallback string) (string, error) {
-	raw := strings.TrimRight(strings.TrimSpace(value), "/")
-	if raw == "" {
-		raw = fallback
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("invalid OpenAI base url")
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("invalid OpenAI base url scheme")
-	}
-	return raw, nil
+	return infraai.NormalizeOpenAIBaseURL(value, fallback)
 }
 
 func sanitizeBody(body []byte) string {

@@ -305,6 +305,32 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	}
 }
 
+func TestCreateAppendsOpenAIVersionPathForOriginOnlyBaseURL(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{Name: "Local OpenAI", EngineType: "openai", BaseURL: " http://host.docker.internal:8317/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-5.4"}, Status: 1})
+	if appErr != nil {
+		t.Fatalf("expected create to succeed, got %v", appErr)
+	}
+	if repo.created == nil || repo.created.BaseURL != "http://host.docker.internal:8317/v1" {
+		t.Fatalf("base url was not normalized to OpenAI v1 endpoint: %#v", repo.created)
+	}
+}
+
+func TestPreviewModelsAppendsOpenAIVersionPathForOriginOnlyBaseURL(t *testing.T) {
+	driver := &fakeModelDriver{}
+	service := NewServiceWithDriver(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil, driver)
+
+	_, appErr := service.PreviewModels(context.Background(), ModelOptionsInput{EngineType: "openai", BaseURL: "http://host.docker.internal:8317", APIKey: "plain-secret-key"})
+	if appErr != nil {
+		t.Fatalf("expected model preview to succeed, got %v", appErr)
+	}
+	if driver.config.BaseURL != "http://host.docker.internal:8317/v1" {
+		t.Fatalf("preview models used base url %q, want /v1 normalized", driver.config.BaseURL)
+	}
+}
+
 func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{
@@ -415,6 +441,25 @@ func TestTestConnectionDecryptsSecretAndUpdatesHealth(t *testing.T) {
 	}
 	if len(repo.updates) != 1 || repo.updates[0]["health_status"] != "ok" {
 		t.Fatalf("expected health update, got %#v", repo.updates)
+	}
+}
+
+func TestTestConnectionAppendsOpenAIVersionPathForStoredOriginOnlyBaseURL(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	cipher, err := box.Encrypt("plain-secret-key")
+	if err != nil {
+		t.Fatalf("encrypt fixture: %v", err)
+	}
+	repo := &fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "OpenAI", EngineType: "openai", BaseURL: "http://host.docker.internal:8317", APIKeyEnc: cipher, Status: 1}}}
+	driver := &fakeModelDriver{}
+	service := NewServiceWithDriver(repo, box, nil, driver)
+
+	_, appErr := service.TestConnection(context.Background(), 5)
+	if appErr != nil {
+		t.Fatalf("expected test connection to succeed, got %v", appErr)
+	}
+	if driver.config.BaseURL != "http://host.docker.internal:8317/v1" {
+		t.Fatalf("test connection used base url %q, want /v1 normalized", driver.config.BaseURL)
 	}
 }
 

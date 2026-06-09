@@ -30,14 +30,14 @@ func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
 			t.Fatalf("authorization = %q", got)
 		}
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/videos":
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/videos":
 			if err := json.NewDecoder(r.Body).Decode(&createBody); err != nil {
 				t.Fatalf("decode create body: %v", err)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "video-task-1", "status": "running"})
-		case r.Method == http.MethodGet && r.URL.Path == "/videos/video-task-1":
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/videos/video-task-1":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "video-task-1", "status": "completed"})
-		case r.Method == http.MethodGet && r.URL.Path == "/videos/video-task-1/content":
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/videos/video-task-1/content":
 			w.Header().Set("Content-Type", "video/mp4")
 			_, _ = w.Write([]byte("video"))
 		default:
@@ -47,7 +47,9 @@ func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
 	defer server.Close()
 
 	client := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second})
-	created, err := client.CreateVideo(context.Background(), infraai.VideoInput{Model: "grok-imagine-video", Prompt: "clip", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p"})
+	generateAudio := false
+	watermark := true
+	created, err := client.CreateVideo(context.Background(), infraai.VideoInput{Model: "grok-imagine-video", Prompt: "clip", DurationSeconds: 4, Size: "1280x720", ResolutionName: "720p", GenerateAudio: &generateAudio, Watermark: &watermark})
 	if err != nil {
 		t.Fatalf("CreateVideo returned error: %v", err)
 	}
@@ -57,6 +59,9 @@ func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
 	if createBody["model"] != "grok-imagine-video" || createBody["prompt"] != "clip" || createBody["seconds"] != float64(4) || createBody["size"] != "1280x720" || createBody["resolution_name"] != "720p" {
 		t.Fatalf("unexpected create body: %#v", createBody)
 	}
+	if createBody["generate_audio"] != false || createBody["watermark"] != true {
+		t.Fatalf("video switches not sent: %#v", createBody)
+	}
 	status, err := client.GetVideo(context.Background(), "video-task-1")
 	if err != nil || status.Status != "completed" {
 		t.Fatalf("GetVideo mismatch status=%#v err=%v", status, err)
@@ -64,6 +69,21 @@ func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
 	body, contentType, err := client.DownloadVideo(context.Background(), "video-task-1")
 	if err != nil || string(body) != "video" || contentType != "video/mp4" {
 		t.Fatalf("DownloadVideo mismatch body=%q contentType=%q err=%v", string(body), contentType, err)
+	}
+}
+
+func TestClientVideoLifecycleAppendsVersionPathForOriginOnlyBaseURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/videos" {
+			t.Fatalf("path = %s, want /v1/videos", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "video-task-1", "status": "running"})
+	}))
+	defer server.Close()
+
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).CreateVideo(context.Background(), infraai.VideoInput{Model: "grok-imagine-video", Prompt: "clip"})
+	if err != nil {
+		t.Fatalf("CreateVideo returned error: %v", err)
 	}
 }
 
@@ -110,8 +130,8 @@ func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 func TestClientStreamChatSendsOpenAIChatCompletionAndEmitsDelta(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
-			t.Fatalf("path = %s, want /chat/completions", r.URL.Path)
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %s, want /v1/chat/completions", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
 			t.Fatalf("authorization = %q", got)

@@ -16,8 +16,8 @@ import (
 func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images/generations" {
-			t.Fatalf("path = %s, want /images/generations", r.URL.Path)
+		if r.URL.Path != "/v1/images/generations" {
+			t.Fatalf("path = %s, want /v1/images/generations", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
 			t.Fatalf("authorization = %q", got)
@@ -61,6 +61,25 @@ func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	}
 }
 
+func TestClientGenerateImagesAppendsVersionPathForOriginOnlyBaseURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/images/generations" {
+			t.Fatalf("path = %s, want /v1/images/generations", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}]}`))
+	}))
+	defer server.Close()
+
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
+		Model:  "gpt-image-2",
+		Prompt: "draw a cat",
+	})
+	if err != nil {
+		t.Fatalf("GenerateImages returned error: %v", err)
+	}
+}
+
 func TestClientGenerateImagesParsesUsage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -84,8 +103,8 @@ func TestClientGenerateImagesParsesUsage(t *testing.T) {
 
 func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images/generations" {
-			t.Fatalf("path = %s, want /images/generations", r.URL.Path)
+		if r.URL.Path != "/v1/images/generations" {
+			t.Fatalf("path = %s, want /v1/images/generations", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}],"usage":{"total_tokens":1}}`))
@@ -117,8 +136,8 @@ func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.
 
 func TestClientGenerateImagesSendsEditMultipartRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images/edits" {
-			t.Fatalf("path = %s, want /images/edits", r.URL.Path)
+		if r.URL.Path != "/v1/images/edits" {
+			t.Fatalf("path = %s, want /v1/images/edits", r.URL.Path)
 		}
 		if got := r.Header.Get("Content-Type"); !strings.Contains(got, "multipart/form-data") {
 			t.Fatalf("content-type = %q, want multipart/form-data", got)

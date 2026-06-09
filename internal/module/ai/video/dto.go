@@ -33,6 +33,8 @@ type CreateInput struct {
 	DurationSeconds int
 	Size            string
 	ResolutionName  string
+	GenerateAudio   *bool
+	Watermark       *bool
 }
 
 type CreateResponse struct {

@@ -94,7 +94,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 		s.failRun(context.Background(), runID, "绑定Canvas视频运行记录失败", runStartedAt)
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
 	}
-	providerTask, err := engine.CreateVideo(ctx, infraai.VideoInput{Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds, Size: input.Size, ResolutionName: input.ResolutionName})
+	providerTask, err := engine.CreateVideo(ctx, infraai.VideoInput{Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds, Size: input.Size, ResolutionName: input.ResolutionName, GenerateAudio: input.GenerateAudio, Watermark: input.Watermark})
 	if err != nil {
 		s.failRun(context.Background(), runID, "Canvas视频生成失败", runStartedAt)
 		if markErr := s.markTaskFailed(input.UserID, taskID, "Canvas视频生成失败"); markErr != nil {

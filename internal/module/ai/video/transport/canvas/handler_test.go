@@ -57,13 +57,13 @@ func TestCanvasVideoRoutesUseCanvasIdentityAndService(t *testing.T) {
 	RegisterRoutes(router, service)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4,"size":"1280x720","resolution_name":"720p"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos", strings.NewReader(`{"agent_id":10,"prompt":"clip","duration_seconds":4,"size":"1280x720","resolution_name":"720p","generate_audio":false,"watermark":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.createInput.UserID != 9 || service.createInput.AgentID != 10 || service.createInput.Prompt != "clip" || service.createInput.DurationSeconds != 4 || service.createInput.Size != "1280x720" || service.createInput.ResolutionName != "720p" || service.createInput.ModelID != "" {
+	if service.createInput.UserID != 9 || service.createInput.AgentID != 10 || service.createInput.Prompt != "clip" || service.createInput.DurationSeconds != 4 || service.createInput.Size != "1280x720" || service.createInput.ResolutionName != "720p" || service.createInput.ModelID != "" || service.createInput.GenerateAudio == nil || *service.createInput.GenerateAudio || service.createInput.Watermark == nil || !*service.createInput.Watermark {
 		t.Fatalf("unexpected create input: %#v", service.createInput)
 	}
 	for _, want := range []string{`"id":99`, `"status":"pending"`} {
@@ -105,6 +105,8 @@ func TestCanvasVideoRoutesAcceptActiveClientMultipartRequest(t *testing.T) {
 		"duration_seconds": "4",
 		"size":             "1280x720",
 		"resolution_name":  "720p",
+		"generate_audio":  "true",
+		"watermark":       "false",
 	} {
 		if err := writer.WriteField(key, value); err != nil {
 			t.Fatalf("write multipart field %s: %v", key, err)
@@ -122,7 +124,7 @@ func TestCanvasVideoRoutesAcceptActiveClientMultipartRequest(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.createInput.UserID != 9 || service.createInput.AgentID != 10 || service.createInput.Prompt != "clip" || service.createInput.DurationSeconds != 4 || service.createInput.Size != "1280x720" || service.createInput.ResolutionName != "720p" || service.createInput.ModelID != "" {
+	if service.createInput.UserID != 9 || service.createInput.AgentID != 10 || service.createInput.Prompt != "clip" || service.createInput.DurationSeconds != 4 || service.createInput.Size != "1280x720" || service.createInput.ResolutionName != "720p" || service.createInput.ModelID != "" || service.createInput.GenerateAudio == nil || !*service.createInput.GenerateAudio || service.createInput.Watermark == nil || *service.createInput.Watermark {
 		t.Fatalf("unexpected create input: %#v", service.createInput)
 	}
 }

@@ -1488,6 +1488,7 @@ AI Core provider / agent config boundary（2026-05-09）：
 admin_go + internal/infra/ai 是当前 AI 架构边界。
 已落地“供应商配置”和“智能体配置 MVP”，第一版 provider driver 只有 openai。
 Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 import OpenAI SDK/client。
+OpenAI-compatible Base URL 的 `/v1` 规范化由 Go 后端 provider/infra 边界负责，前端不负责拼接 provider endpoint。
 供应商配置不引入流程编排概念，不嵌入第三方控制台。
 智能体配置负责选择 provider 下的启用模型，并保存场景、系统提示词和头像等本地运行元数据。
 ```
@@ -1503,6 +1504,7 @@ internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls run
 internal/module/ai/image         # ai_image_tasks / ai_image_files Canvas image generation runtime; Admin interactive transport retired
 internal/module/ai/video         # canvas_video_tasks Canvas video generation runtime
 internal/module/ai/text          # ai_text_tasks Canvas text generation source rows
+internal/module/ai/asset         # ai_assets Canvas current-user assets; image/video media metadata validated in service
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
 internal/module/ai/conversation   # current-user conversations; canonical agent_id -> ai_agents
 internal/module/ai/message        # conversation messages, feedback, branch cleanup

@@ -81,7 +81,7 @@ func TestCanvasAssetRouteSupportsUserOwnedCreateUpdateAndDelete(t *testing.T) {
 	router := newCanvasAssetTestRouter(service, &middleware.AuthIdentity{UserID: 9, Platform: enum.PlatformCanvas})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/assets", strings.NewReader(`{"slug":"clip","type":"video","title":"Clip","url":"https://example.test/clip.mp4","status":2}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/assets", strings.NewReader(`{"slug":"clip","type":"video","title":"Clip","url":"https://storage.example.test/clip.mp4","content":"{\"storageKey\":\"video:task/clip.mp4\",\"width\":1280,\"height\":720,\"bytes\":456789,\"mimeType\":\"video/mp4\",\"duration\":12.5}","status":2}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || service.userID != 9 || service.createCalls != 1 || service.created.Slug != "clip" || service.created.Type != assetmodule.AssetTypeVideo || service.created.Title != "Clip" || service.created.Status != assetmodule.StatusDisabled {
@@ -92,7 +92,7 @@ func TestCanvasAssetRouteSupportsUserOwnedCreateUpdateAndDelete(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPut, "/api/canvas/v1/assets/7", strings.NewReader(`{"slug":"hero","type":"image","title":"Hero"}`))
+	request = httptest.NewRequest(http.MethodPut, "/api/canvas/v1/assets/7", strings.NewReader(`{"slug":"hero","type":"image","title":"Hero","url":"https://storage.example.test/hero.png","content":"{\"storageKey\":\"image:task/hero.png\",\"width\":1024,\"height\":768,\"bytes\":123456,\"mimeType\":\"image/png\"}"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || service.userID != 9 || service.updateCalls != 1 || service.updatedID != 7 || service.updated.Type != assetmodule.AssetTypeImage {

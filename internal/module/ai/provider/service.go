@@ -210,7 +210,7 @@ func (s *Service) TestConnection(ctx context.Context, id uint64) (*infraai.TestC
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
-	result, testErr := s.testOpenAI(ctx, row.BaseURL, apiKey)
+	result, testErr := s.testOpenAI(ctx, normalizeProviderBaseURL(row.EngineType, row.BaseURL), apiKey)
 	now := time.Now()
 	health := provider.HealthOK
 	message := ""
@@ -237,7 +237,7 @@ func (s *Service) PreviewModels(ctx context.Context, input ModelOptionsInput) (*
 	if apiKey == "" {
 		return nil, apperror.BadRequest("API Key不能为空")
 	}
-	models, err := s.openAIDriver().ListModels(ctx, provider.Config{Driver: engineType, BaseURL: input.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
+	models, err := s.openAIDriver().ListModels(ctx, provider.Config{Driver: engineType, BaseURL: normalizeProviderBaseURL(engineType, input.BaseURL), APIKey: apiKey, TimeoutMs: 10000})
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", err)
 	}
@@ -266,7 +266,7 @@ func (s *Service) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOpt
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
-	models, listErr := s.openAIDriver().ListModels(ctx, provider.Config{Driver: row.EngineType, BaseURL: row.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
+	models, listErr := s.openAIDriver().ListModels(ctx, provider.Config{Driver: row.EngineType, BaseURL: normalizeProviderBaseURL(row.EngineType, row.BaseURL), APIKey: apiKey, TimeoutMs: 10000})
 	if listErr != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", listErr)
 	}
@@ -295,7 +295,7 @@ func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsRespo
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
-	models, listErr := s.openAIDriver().ListModels(ctx, provider.Config{Driver: row.EngineType, BaseURL: row.BaseURL, APIKey: apiKey, TimeoutMs: 10000})
+	models, listErr := s.openAIDriver().ListModels(ctx, provider.Config{Driver: row.EngineType, BaseURL: normalizeProviderBaseURL(row.EngineType, row.BaseURL), APIKey: apiKey, TimeoutMs: 10000})
 	now := time.Now()
 	fields := map[string]any{"last_model_sync_at": now}
 	if listErr != nil {
@@ -451,6 +451,7 @@ func normalizeMutationFields(name, engineType, baseURL string, status int) (norm
 		return normalizedFields{}, appErr
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = normalizeProviderBaseURL(engineType, baseURL)
 	if name == "" {
 		return normalizedFields{}, apperror.BadRequest("供应商名称不能为空")
 	}
@@ -594,7 +595,19 @@ func effectiveBaseURL(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return defaultOpenAIBaseURL
 	}
-	return strings.TrimRight(strings.TrimSpace(value), "/")
+	return normalizeProviderBaseURL(driverOpenAI, value)
+}
+
+func normalizeProviderBaseURL(engineType string, value string) string {
+	baseURL := strings.TrimRight(strings.TrimSpace(value), "/")
+	if engineType != driverOpenAI || baseURL == "" {
+		return baseURL
+	}
+	normalized, err := infraai.NormalizeOpenAIBaseURL(baseURL, "")
+	if err != nil {
+		return baseURL
+	}
+	return normalized
 }
 
 func errorMessage(err error, result *infraai.TestConnectionResult) string {

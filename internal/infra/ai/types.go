@@ -78,6 +78,8 @@ type VideoInput struct {
 	DurationSeconds int
 	Size            string
 	ResolutionName  string
+	GenerateAudio   *bool
+	Watermark       *bool
 }
 
 type VideoTask struct {

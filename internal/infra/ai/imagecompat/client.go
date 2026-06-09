@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -384,18 +383,7 @@ func normalizeInput(input infraai.ImageInput) infraai.ImageInput {
 }
 
 func normalizeBaseURL(value string) (string, error) {
-	raw := strings.TrimRight(strings.TrimSpace(value), "/")
-	if raw == "" {
-		raw = defaultBaseURL
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url", infraai.ErrInvalidConfig)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("%w: invalid OpenAI base url scheme", infraai.ErrInvalidConfig)
-	}
-	return raw, nil
+	return infraai.NormalizeOpenAIBaseURL(value, defaultBaseURL)
 }
 
 func sanitizeBody(body []byte, apiKey string) string {

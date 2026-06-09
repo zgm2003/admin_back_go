@@ -32,6 +32,7 @@ func (h *Handler) VideoGenerations(c *gin.Context) {
 	result, appErr := h.requireService().Create(c.Request.Context(), aivideomodule.CreateInput{
 		UserID: userID, AgentID: req.AgentID, Prompt: req.Prompt,
 		DurationSeconds: req.DurationSeconds, Size: req.Size, ResolutionName: req.ResolutionName,
+		GenerateAudio: req.GenerateAudio, Watermark: req.Watermark,
 	})
 	writeResult(c, result, appErr)
 }

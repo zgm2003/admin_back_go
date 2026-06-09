@@ -10,8 +10,8 @@ import (
 
 func TestOpenAIDriverListModels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" {
-			t.Fatalf("path = %s, want /models", r.URL.Path)
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("path = %s, want /v1/models", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
 			t.Fatalf("authorization = %q", got)
@@ -31,6 +31,26 @@ func TestOpenAIDriverListModels(t *testing.T) {
 	}
 	if models[0].ID != "gpt-a" || models[1].ID != "gpt-b" {
 		t.Fatalf("models not sorted by id: %+v", models)
+	}
+}
+
+func TestOpenAIDriverAppendsVersionPathForOriginOnlyBaseURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("path = %s, want /v1/models", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gpt-a","object":"model","created":1,"owned_by":"openai"}]}`))
+	}))
+	defer server.Close()
+
+	driver := NewOpenAIDriver(nil)
+	models, err := driver.ListModels(context.Background(), Config{BaseURL: server.URL, APIKey: "sk-test"})
+	if err != nil {
+		t.Fatalf("ListModels error = %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "gpt-a" {
+		t.Fatalf("models = %+v", models)
 	}
 }
 
