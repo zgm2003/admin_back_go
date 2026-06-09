@@ -1489,6 +1489,7 @@ admin_go + internal/infra/ai 是当前 AI 架构边界。
 已落地“供应商配置”和“智能体配置 MVP”，第一版 provider driver 只有 openai。
 Vue 不直连 AI provider，provider key 不进浏览器；module 不直接 import OpenAI SDK/client。
 OpenAI-compatible Base URL 的 `/v1` 规范化由 Go 后端 provider/infra 边界负责，前端不负责拼接 provider endpoint。
+OpenAI-compatible 上游非 2xx JSON 错误由 Go adapter 提取 `error.message` / `msg` / `error_message` 等可读详情并做 API key 脱敏；reference video privacy 类错误只做友好提示，不代表当前 Canvas 已支持参考视频上传。
 供应商配置不引入流程编排概念，不嵌入第三方控制台。
 智能体配置负责选择 provider 下的启用模型，并保存场景、系统提示词和头像等本地运行元数据。
 ```

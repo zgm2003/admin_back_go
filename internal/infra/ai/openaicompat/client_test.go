@@ -87,6 +87,25 @@ func TestClientVideoLifecycleAppendsVersionPathForOriginOnlyBaseURL(t *testing.T
 	}
 }
 
+func TestClientVideoCreateMapsUpstreamJSONErrorDetail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "InvalidParameter", "message": "reference video privacy violation"}})
+	}))
+	defer server.Close()
+
+	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).CreateVideo(context.Background(), infraai.VideoInput{Model: "seedance", Prompt: "clip"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "参考视频可能包含真人、隐私或受限内容") {
+		t.Fatalf("error did not include friendly privacy hint: %v", err)
+	}
+	if strings.Contains(err.Error(), `{"error"`) {
+		t.Fatalf("error should extract message instead of returning raw JSON: %v", err)
+	}
+}
+
 func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

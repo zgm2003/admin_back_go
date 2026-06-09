@@ -380,7 +380,7 @@ func (c *Client) requireSuccess(resp *http.Response) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", infraai.ErrUpstreamFailed, resp.Status)
 	}
-	message := sanitizeBody(body, c.apiKey)
+	message := upstreamHTTPErrorMessage(body, c.apiKey)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("%w: %s %s", infraai.ErrUnauthorized, resp.Status, message)
 	}
@@ -767,6 +767,50 @@ func sanitizeBody(body []byte, apiKey string) string {
 		compact = compact[:512]
 	}
 	return compact
+}
+
+func upstreamHTTPErrorMessage(body []byte, apiKey string) string {
+	detail := extractUpstreamErrorDetail(body)
+	if detail == "" {
+		return sanitizeBody(body, apiKey)
+	}
+	message := sanitizeBody([]byte(detail), apiKey)
+	if hint := friendlyUpstreamErrorHint(message); hint != "" {
+		return hint + "：" + message
+	}
+	return message
+}
+
+func extractUpstreamErrorDetail(body []byte) string {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	if errorValue, ok := payload["error"].(map[string]any); ok {
+		if message := stringFromAny(errorValue["message"]); strings.TrimSpace(message) != "" {
+			return message
+		}
+		if detail := stringFromAny(errorValue["detail"]); strings.TrimSpace(detail) != "" {
+			return detail
+		}
+	}
+	for _, key := range []string{"message", "msg", "error_message", "detail"} {
+		if message := stringFromAny(payload[key]); strings.TrimSpace(message) != "" {
+			return message
+		}
+	}
+	return ""
+}
+
+func friendlyUpstreamErrorHint(message string) string {
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "reference") && strings.Contains(lower, "video") && (strings.Contains(lower, "privacy") || strings.Contains(lower, "private")) {
+		return "参考视频可能包含真人、隐私或受限内容，请更换参考视频或改用参考图"
+	}
+	if strings.Contains(message, "参考视频") && (strings.Contains(message, "隐私") || strings.Contains(message, "真人")) {
+		return "参考视频可能包含真人、隐私或受限内容，请更换参考视频或改用参考图"
+	}
+	return ""
 }
 
 func nonEmpty(value string, fallback string) string {
