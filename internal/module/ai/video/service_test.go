@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -28,6 +31,7 @@ type fakeRepository struct {
 	getUserID     int64
 	getID         int64
 	updateErr     error
+	uploadConfig  *UploadConfig
 }
 
 type updateCall struct {
@@ -58,6 +62,10 @@ func (f *fakeRepository) GetTask(ctx context.Context, userID int64, id int64) (*
 	f.getUserID = userID
 	f.getID = id
 	return f.task, nil
+}
+
+func (f *fakeRepository) LoadUploadConfig(context.Context) (*UploadConfig, error) {
+	return f.uploadConfig, nil
 }
 
 type fakeEngineFactory struct {
@@ -142,6 +150,13 @@ func (f *fakeVideoEngine) DownloadVideo(ctx context.Context, taskID string) ([]b
 	return f.body, f.contentType, nil
 }
 
+type fakeReferenceObjectWriter struct{ input storagecos.PutInput }
+
+func (f *fakeReferenceObjectWriter) Put(_ context.Context, input storagecos.PutInput) error {
+	f.input = input
+	return nil
+}
+
 func validCanvasVideoAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 	t.Helper()
 	cipher, err := box.Encrypt("provider-key")
@@ -151,9 +166,96 @@ func validCanvasVideoAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 	return &AgentRuntime{AgentID: 8, ProviderID: 9, ModelID: "grok-imagine-video", ScenesJSON: `["canvas_video_generate"]`, EngineType: string(infraai.EngineTypeOpenAI), EngineBaseURL: "https://api.openai.test/v1", EngineAPIKeyEnc: cipher, AgentStatus: enum.CommonYes, EngineStatus: enum.CommonYes}
 }
 
+func testVideoUploadConfig(t *testing.T, box secretbox.Box) *UploadConfig {
+	t.Helper()
+	secretID, err := box.Encrypt("cos-secret-id")
+	if err != nil {
+		t.Fatalf("encrypt COS secret id: %v", err)
+	}
+	secretKey, err := box.Encrypt("cos-secret-key")
+	if err != nil {
+		t.Fatalf("encrypt COS secret key: %v", err)
+	}
+	return &UploadConfig{
+		SettingID:    1,
+		Driver:       StorageProviderCOS,
+		SecretIDEnc:  secretID,
+		SecretKeyEnc: secretKey,
+		Bucket:       "admin-test",
+		Region:       "ap-guangzhou",
+		BucketDomain: "https://cos.test",
+	}
+}
+
+func fixedVideoNow() func() time.Time {
+	return func() time.Time { return time.Date(2026, 6, 9, 10, 11, 12, 0, time.UTC) }
+}
+
+func fixedVideoRandom(buf []byte) (int, error) {
+	for i := range buf {
+		buf[i] = byte(i + 1)
+	}
+	return len(buf), nil
+}
+
 func TestVideoTaskTableNameKeepsCanvasTable(t *testing.T) {
 	if got := (VideoTask{}).TableName(); got != "canvas_video_tasks" {
 		t.Fatalf("expected canvas_video_tasks table, got %q", got)
+	}
+}
+
+func TestUploadReferenceMediaStoresCOSObjectAndReturnsProviderURL(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	writer := &fakeReferenceObjectWriter{}
+	repo := &fakeRepository{uploadConfig: testVideoUploadConfig(t, box)}
+	service := NewService(Dependencies{
+		Repository:   repo,
+		Secretbox:    box,
+		ObjectWriter: writer,
+		Now:          fixedVideoNow(),
+		Random:       fixedVideoRandom,
+	})
+
+	result, appErr := service.UploadReferenceMedia(context.Background(), ReferenceMediaUploadInput{
+		UserID: 7, MediaKind: "video", FileName: " reference.mp4 ", MimeType: "application/octet-stream", Body: []byte("video-bytes"),
+	})
+
+	if appErr != nil {
+		t.Fatalf("upload reference media error=%#v", appErr)
+	}
+	if result == nil || result.StorageProvider != StorageProviderCOS || result.MediaKind != "video" || result.MimeType != "video/mp4" || result.Bytes != 11 {
+		t.Fatalf("unexpected upload result: %#v", result)
+	}
+	if result.URL != "https://cos.test/"+result.StorageKey {
+		t.Fatalf("result URL must be public COS URL, result=%#v", result)
+	}
+	if !strings.HasPrefix(result.StorageKey, "ai-video-references/video/2026/06/09/7-") || !strings.HasSuffix(result.StorageKey, ".mp4") {
+		t.Fatalf("unexpected storage key: %q", result.StorageKey)
+	}
+	if writer.input.SecretID != "cos-secret-id" || writer.input.SecretKey != "cos-secret-key" || writer.input.Bucket != "admin-test" || writer.input.Region != "ap-guangzhou" {
+		t.Fatalf("COS credentials/config not passed to writer: %#v", writer.input)
+	}
+	if writer.input.Key != result.StorageKey || string(writer.input.Body) != "video-bytes" || writer.input.ContentType != "video/mp4" {
+		t.Fatalf("COS put input mismatch: %#v", writer.input)
+	}
+}
+
+func TestUploadReferenceMediaRejectsInvalidInput(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	service := NewService(Dependencies{Repository: &fakeRepository{uploadConfig: testVideoUploadConfig(t, box)}, Secretbox: box, ObjectWriter: &fakeReferenceObjectWriter{}, Random: fixedVideoRandom})
+
+	cases := []ReferenceMediaUploadInput{
+		{UserID: 0, MediaKind: "video", FileName: "reference.mp4", Body: []byte("video")},
+		{UserID: 7, MediaKind: "text", FileName: "reference.txt", Body: []byte("text")},
+		{UserID: 7, MediaKind: "video", FileName: "empty.mp4", Body: nil},
+		{UserID: 7, MediaKind: "audio", FileName: "reference.txt", MimeType: "text/plain", Body: []byte("audio")},
+	}
+
+	for _, input := range cases {
+		_, appErr := service.UploadReferenceMedia(context.Background(), input)
+		if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+			t.Fatalf("expected bad request for %#v, got %#v", input, appErr)
+		}
 	}
 }
 

@@ -18,13 +18,14 @@ import (
 )
 
 type fakeCanvasVideoService struct {
-	createInput   aivideomodule.CreateInput
-	statusUserID  int64
-	statusID      int64
-	contentUserID int64
-	contentID     int64
-	contentType   string
-	contentBody   []byte
+	createInput          aivideomodule.CreateInput
+	referenceUploadInput aivideomodule.ReferenceMediaUploadInput
+	statusUserID         int64
+	statusID             int64
+	contentUserID        int64
+	contentID            int64
+	contentType          string
+	contentBody          []byte
 }
 
 func (f *fakeCanvasVideoService) Create(ctx context.Context, input aivideomodule.CreateInput) (*aivideomodule.CreateResponse, *apperror.Error) {
@@ -45,6 +46,19 @@ func (f *fakeCanvasVideoService) Content(ctx context.Context, userID int64, id i
 		return f.contentBody, f.contentType, nil
 	}
 	return []byte("video"), "video/mp4", nil
+}
+
+func (f *fakeCanvasVideoService) UploadReferenceMedia(ctx context.Context, input aivideomodule.ReferenceMediaUploadInput) (*aivideomodule.ReferenceMediaUploadResponse, *apperror.Error) {
+	f.referenceUploadInput = input
+	return &aivideomodule.ReferenceMediaUploadResponse{
+		ID:              "ref-video-1",
+		URL:             "https://cos.test/ai-video-references/video/ref.mp4",
+		StorageProvider: "cos",
+		StorageKey:      "ai-video-references/video/ref.mp4",
+		MimeType:        "video/mp4",
+		MediaKind:       "video",
+		Bytes:           int64(len(input.Body)),
+	}, nil
 }
 
 func TestCanvasVideoRoutesUseCanvasIdentityAndService(t *testing.T) {
@@ -105,8 +119,8 @@ func TestCanvasVideoRoutesAcceptActiveClientMultipartRequest(t *testing.T) {
 		"duration_seconds": "4",
 		"size":             "1280x720",
 		"resolution_name":  "720p",
-		"generate_audio":  "true",
-		"watermark":       "false",
+		"generate_audio":   "true",
+		"watermark":        "false",
 	} {
 		if err := writer.WriteField(key, value); err != nil {
 			t.Fatalf("write multipart field %s: %v", key, err)
@@ -126,6 +140,96 @@ func TestCanvasVideoRoutesAcceptActiveClientMultipartRequest(t *testing.T) {
 	}
 	if service.createInput.UserID != 9 || service.createInput.AgentID != 10 || service.createInput.Prompt != "clip" || service.createInput.DurationSeconds != 4 || service.createInput.Size != "1280x720" || service.createInput.ResolutionName != "720p" || service.createInput.ModelID != "" || service.createInput.GenerateAudio == nil || !*service.createInput.GenerateAudio || service.createInput.Watermark == nil || *service.createInput.Watermark {
 		t.Fatalf("unexpected create input: %#v", service.createInput)
+	}
+}
+
+func TestCanvasVideoReferenceMediaUploadUsesCanvasIdentityAndService(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	service := &fakeCanvasVideoService{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: enum.PlatformCanvas})
+	})
+	RegisterRoutes(router, service)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("media_kind", "video"); err != nil {
+		t.Fatalf("write media_kind: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "reference.mp4")
+	if err != nil {
+		t.Fatalf("create file part: %v", err)
+	}
+	if _, err := part.Write([]byte("video-bytes")); err != nil {
+		t.Fatalf("write file part: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos/reference-media", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.referenceUploadInput.UserID != 9 || service.referenceUploadInput.MediaKind != "video" || service.referenceUploadInput.FileName != "reference.mp4" || service.referenceUploadInput.MimeType != "video/mp4" || string(service.referenceUploadInput.Body) != "video-bytes" {
+		t.Fatalf("unexpected reference upload input: %#v", service.referenceUploadInput)
+	}
+	for _, forbidden := range []string{`"provider":`, `"api_key":`, `"base_url":`, `"model":`} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("reference upload response leaked %s: %s", forbidden, recorder.Body.String())
+		}
+	}
+	for _, want := range []string{`"url":"https://cos.test/ai-video-references/video/ref.mp4"`, `"storage_provider":"cos"`, `"media_kind":"video"`, `"bytes":11`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("reference upload response missing %s: %s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestCanvasVideoReferenceMediaUploadRejectsClientModelConfigOverride(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	for _, field := range []string{"model", "provider", "api_key", "base_url"} {
+		t.Run(field, func(t *testing.T) {
+			service := &fakeCanvasVideoService{}
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 9, Platform: enum.PlatformCanvas})
+			})
+			RegisterRoutes(router, service)
+
+			body := &bytes.Buffer{}
+			writer := multipart.NewWriter(body)
+			_ = writer.WriteField("media_kind", "audio")
+			_ = writer.WriteField(field, "client-owned")
+			part, err := writer.CreateFormFile("file", "reference.mp3")
+			if err != nil {
+				t.Fatalf("create file part: %v", err)
+			}
+			_, _ = part.Write([]byte("audio-bytes"))
+			if err := writer.Close(); err != nil {
+				t.Fatalf("close multipart writer: %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos/reference-media", body)
+			request.Header.Set("Content-Type", writer.FormDataContentType())
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if service.referenceUploadInput.UserID != 0 {
+				t.Fatalf("service must not be called when client overrides provider config: %#v", service.referenceUploadInput)
+			}
+			if !strings.Contains(recorder.Body.String(), "客户端不能覆盖Canvas智能体模型") {
+				t.Fatalf("response missing model override message: %s", recorder.Body.String())
+			}
+		})
 	}
 }
 

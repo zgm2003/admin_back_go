@@ -57,3 +57,26 @@ func TestAIConversationRuntimeDoesNotReferenceOldActivePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestBackendArchitectureDocumentsCanvasAudioRuntime(t *testing.T) {
+	root := backendRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "docs", "architecture.md"))
+	if err != nil {
+		t.Fatalf("read docs/architecture.md: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"ai/audio",
+		"canvas_audio_generate",
+		"POST /api/canvas/v1/ai/audios",
+		"raw audio/*",
+		"ai_runs",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("backend architecture must document Canvas audio runtime fact %q", want)
+		}
+	}
+	if strings.Contains(text, "MVP scenes currently allow chat and agent_generate") {
+		t.Fatalf("backend architecture still documents stale AI agent scene limit")
+	}
+}

@@ -9,3 +9,7 @@ type videoGenerationRequest struct {
 	GenerateAudio   *bool  `json:"generate_audio" form:"generate_audio" binding:"omitempty"`
 	Watermark       *bool  `json:"watermark" form:"watermark" binding:"omitempty"`
 }
+
+type referenceMediaUploadRequest struct {
+	MediaKind string `form:"media_kind" binding:"required,oneof=image video audio"`
+}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -17,12 +18,15 @@ const (
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
 	StatusCancelled = "cancelled"
+
+	StorageProviderCOS = "cos"
 )
 
 type HTTPService interface {
 	Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error)
 	Status(ctx context.Context, userID int64, id int64) (*StatusResponse, *apperror.Error)
 	Content(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error)
+	UploadReferenceMedia(ctx context.Context, input ReferenceMediaUploadInput) (*ReferenceMediaUploadResponse, *apperror.Error)
 }
 
 type CreateInput struct {
@@ -47,6 +51,25 @@ type StatusResponse struct {
 	Status string `json:"status"`
 }
 
+type ReferenceMediaUploadInput struct {
+	UserID    int64
+	MediaKind string
+	FileName  string
+	MimeType  string
+	Body      []byte
+}
+
+type ReferenceMediaUploadResponse struct {
+	ID              string     `json:"id"`
+	URL             string     `json:"url"`
+	StorageProvider string     `json:"storage_provider"`
+	StorageKey      string     `json:"storage_key"`
+	MimeType        string     `json:"mime_type"`
+	MediaKind       string     `json:"media_kind"`
+	Bytes           int64      `json:"bytes"`
+	ExpiresAt       *time.Time `json:"expires_at"`
+}
+
 type AgentRuntime struct {
 	AgentID          int64
 	ProviderID       int64
@@ -66,6 +89,7 @@ type Repository interface {
 	CreateTask(ctx context.Context, task VideoTask) (int64, error)
 	UpdateTask(ctx context.Context, userID int64, id int64, fields map[string]any) error
 	GetTask(ctx context.Context, userID int64, id int64) (*VideoTask, error)
+	LoadUploadConfig(ctx context.Context) (*UploadConfig, error)
 }
 
 type EngineConfig struct {
@@ -91,5 +115,7 @@ type Dependencies struct {
 	Secretbox     Secretbox
 	EngineFactory EngineFactory
 	RunRecorder   RunRecorder
+	ObjectWriter  storagecos.ObjectWriter
 	Now           func() time.Time
+	Random        func([]byte) (int, error)
 }

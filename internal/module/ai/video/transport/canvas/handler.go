@@ -2,7 +2,10 @@ package canvas
 
 import (
 	"context"
+	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,6 +18,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const maxReferenceMediaUploadBytes = 100 << 20
 
 type Handler struct{ service aivideomodule.HTTPService }
 
@@ -33,6 +38,42 @@ func (h *Handler) VideoGenerations(c *gin.Context) {
 		UserID: userID, AgentID: req.AgentID, Prompt: req.Prompt,
 		DurationSeconds: req.DurationSeconds, Size: req.Size, ResolutionName: req.ResolutionName,
 		GenerateAudio: req.GenerateAudio, Watermark: req.Watermark,
+	})
+	writeResult(c, result, appErr)
+}
+
+func (h *Handler) ReferenceMediaUpload(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	var req referenceMediaUploadRequest
+	if !canvasrequest.BindAgentOwnedJSONOrForm(c, &req, "canvas.ai.video.reference_media.request.invalid", "参考媒体上传参数错误") {
+		return
+	}
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.video.reference_media.file.required", nil, "参考媒体文件不能为空"))
+		return
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.video.reference_media.file.invalid", nil, "参考媒体文件无效"))
+		return
+	}
+	defer file.Close()
+	body, err := io.ReadAll(io.LimitReader(file, maxReferenceMediaUploadBytes+1))
+	if err != nil {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.video.reference_media.file.invalid", nil, "参考媒体文件无效"))
+		return
+	}
+	if len(body) > maxReferenceMediaUploadBytes {
+		response.Error(c, apperror.BadRequestKey("canvas.ai.video.reference_media.too_large", nil, "参考媒体文件过大"))
+		return
+	}
+	mimeType := referenceUploadMimeType(fileHeader.Header.Get("Content-Type"), fileHeader.Filename)
+	result, appErr := h.requireService().UploadReferenceMedia(c.Request.Context(), aivideomodule.ReferenceMediaUploadInput{
+		UserID: userID, MediaKind: req.MediaKind, FileName: fileHeader.Filename, MimeType: mimeType, Body: body,
 	})
 	writeResult(c, result, appErr)
 }
@@ -103,6 +144,18 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 	response.OK(c, result)
 }
 
+func referenceUploadMimeType(raw string, fileName string) string {
+	mimeType := strings.TrimSpace(raw)
+	if mimeType == "" || strings.EqualFold(mimeType, "application/octet-stream") {
+		if ext := strings.ToLower(filepath.Ext(strings.TrimSpace(fileName))); ext != "" {
+			if byExt := mime.TypeByExtension(ext); strings.TrimSpace(byExt) != "" {
+				mimeType = strings.TrimSpace(byExt)
+			}
+		}
+	}
+	return strings.TrimSpace(mimeType)
+}
+
 type nilHTTPService struct{}
 
 func (nilHTTPService) Create(ctx context.Context, input aivideomodule.CreateInput) (*aivideomodule.CreateResponse, *apperror.Error) {
@@ -115,4 +168,8 @@ func (nilHTTPService) Status(ctx context.Context, userID int64, id int64) (*aivi
 
 func (nilHTTPService) Content(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
 	return nil, "", apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
+}
+
+func (nilHTTPService) UploadReferenceMedia(ctx context.Context, input aivideomodule.ReferenceMediaUploadInput) (*aivideomodule.ReferenceMediaUploadResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("canvas.ai.video.service_missing", nil, "Canvas视频生成服务未配置")
 }

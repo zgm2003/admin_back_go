@@ -232,6 +232,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Secretbox:     secretBox,
 		EngineFactory: aiVideoEngineFactory{},
 		RunRecorder:   aiRunRecorder,
+		ObjectWriter:  cosObjectWriter,
 	})
 	aiAudioService := aiaudio.NewService(aiaudio.Dependencies{
 		Repository:    aiaudio.NewGormRepository(resources.DB),

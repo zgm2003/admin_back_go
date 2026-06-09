@@ -2,15 +2,26 @@ package aivideo
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"mime"
+	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+)
+
+const (
+	maxReferenceMediaBytes = 100 << 20
 )
 
 type Service struct {
@@ -18,7 +29,9 @@ type Service struct {
 	secretbox     Secretbox
 	engineFactory EngineFactory
 	runRecorder   RunRecorder
+	objectWriter  storagecos.ObjectWriter
 	now           func() time.Time
+	random        func([]byte) (int, error)
 }
 
 func NewService(deps Dependencies) *Service {
@@ -26,7 +39,11 @@ func NewService(deps Dependencies) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repository: deps.Repository, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, runRecorder: deps.RunRecorder, now: now}
+	randomSource := deps.Random
+	if randomSource == nil {
+		randomSource = rand.Read
+	}
+	return &Service{repository: deps.Repository, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, runRecorder: deps.RunRecorder, objectWriter: deps.ObjectWriter, now: now, random: randomSource}
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
@@ -187,6 +204,55 @@ func (s *Service) Content(ctx context.Context, userID int64, id int64) ([]byte, 
 	return body, contentType, nil
 }
 
+func (s *Service) UploadReferenceMedia(ctx context.Context, input ReferenceMediaUploadInput) (*ReferenceMediaUploadResponse, *apperror.Error) {
+	input.FileName = strings.TrimSpace(input.FileName)
+	input.MediaKind = strings.ToLower(strings.TrimSpace(input.MediaKind))
+	input.MimeType = referenceMimeType(input.MimeType, input.FileName, input.Body)
+	if input.UserID <= 0 {
+		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.request.invalid", nil, "参考媒体上传参数错误")
+	}
+	if !isReferenceMediaKind(input.MediaKind) {
+		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.kind.invalid", nil, "参考媒体类型无效")
+	}
+	if len(input.Body) == 0 {
+		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.empty", nil, "参考媒体不能为空")
+	}
+	if len(input.Body) > maxReferenceMediaBytes {
+		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.too_large", nil, "参考媒体文件过大")
+	}
+	if !referenceMimeMatchesKind(input.MediaKind, input.MimeType) {
+		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.mime.invalid", nil, "参考媒体MIME类型不合法")
+	}
+	if s == nil || s.objectWriter == nil {
+		return nil, apperror.InternalKey("canvas.ai.video.reference_media.cos_writer_missing", nil, "参考媒体存储写入器未配置")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	cfg, appErr := s.loadCOSConfig(ctx, repo)
+	if appErr != nil {
+		return nil, appErr
+	}
+	randomID, err := s.referenceRandomID()
+	if err != nil {
+		return nil, apperror.InternalKey("canvas.ai.video.reference_media.key_failed", nil, "参考媒体存储路径失败")
+	}
+	key := referenceMediaKey(input.UserID, input.MediaKind, input.MimeType, s.now(), randomID)
+	if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: key, Body: input.Body, ContentType: input.MimeType}); err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.reference_media.upload_failed", nil, "上传参考媒体失败", err)
+	}
+	return &ReferenceMediaUploadResponse{
+		ID:              "ref_" + randomID,
+		URL:             publicCOSURL(*cfg, key),
+		StorageProvider: StorageProviderCOS,
+		StorageKey:      key,
+		MimeType:        input.MimeType,
+		MediaKind:       input.MediaKind,
+		Bytes:           int64(len(input.Body)),
+	}, nil
+}
+
 func (s *Service) ownedTask(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
 	if userID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
@@ -279,6 +345,49 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
+func (s *Service) loadCOSConfig(ctx context.Context, repo Repository) (*cosRuntimeConfig, *apperror.Error) {
+	if s == nil || s.secretbox == nil {
+		return nil, apperror.InternalKey("canvas.ai.video.secretbox_missing", nil, "AI密钥服务未配置")
+	}
+	cfg, err := repo.LoadUploadConfig(ctx)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.upload_config.read_failed", nil, "读取上传配置失败", err)
+	}
+	if cfg == nil || strings.TrimSpace(cfg.Driver) != StorageProviderCOS {
+		return nil, apperror.InternalKey("canvas.ai.video.cos_config.missing", nil, "未配置有效的 COS 上传配置")
+	}
+	secretID, err := s.secretbox.Decrypt(cfg.SecretIDEnc)
+	if err != nil || strings.TrimSpace(secretID) == "" {
+		return nil, apperror.InternalKey("canvas.ai.video.cos_secret_id.unavailable", nil, "COS SecretID 不可用")
+	}
+	secretKey, err := s.secretbox.Decrypt(cfg.SecretKeyEnc)
+	if err != nil || strings.TrimSpace(secretKey) == "" {
+		return nil, apperror.InternalKey("canvas.ai.video.cos_secret_key.unavailable", nil, "COS SecretKey 不可用")
+	}
+	return &cosRuntimeConfig{SecretID: strings.TrimSpace(secretID), SecretKey: strings.TrimSpace(secretKey), Bucket: strings.TrimSpace(cfg.Bucket), Region: strings.TrimSpace(cfg.Region), Endpoint: strings.TrimSpace(cfg.Endpoint), BucketDomain: strings.TrimSpace(cfg.BucketDomain)}, nil
+}
+
+type cosRuntimeConfig struct {
+	SecretID     string
+	SecretKey    string
+	Bucket       string
+	Region       string
+	Endpoint     string
+	BucketDomain string
+}
+
+func (s *Service) referenceRandomID() (string, error) {
+	randomSource := rand.Read
+	if s != nil && s.random != nil {
+		randomSource = s.random
+	}
+	buf := make([]byte, 6)
+	if _, err := randomSource(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 func (s *Service) markTaskFailed(userID int64, id int64, message string) error {
 	if s == nil || s.repository == nil || userID <= 0 || id <= 0 {
 		return ErrRepositoryNotConfigured
@@ -356,6 +465,92 @@ func isTerminalStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func isReferenceMediaKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "image", "video", "audio":
+		return true
+	default:
+		return false
+	}
+}
+
+func referenceMimeMatchesKind(kind string, mimeType string) bool {
+	prefix := strings.ToLower(strings.TrimSpace(kind)) + "/"
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), prefix)
+}
+
+func referenceMimeType(raw string, fileName string, body []byte) string {
+	mimeType := strings.TrimSpace(raw)
+	if mimeType == "" || strings.EqualFold(mimeType, "application/octet-stream") {
+		if ext := strings.ToLower(filepath.Ext(strings.TrimSpace(fileName))); ext != "" {
+			if byExt := mime.TypeByExtension(ext); strings.TrimSpace(byExt) != "" {
+				mimeType = strings.TrimSpace(byExt)
+			}
+		}
+	}
+	if (mimeType == "" || strings.EqualFold(mimeType, "application/octet-stream")) && len(body) > 0 {
+		mimeType = http.DetectContentType(body)
+	}
+	return strings.TrimSpace(mimeType)
+}
+
+func referenceMediaKey(userID int64, kind string, mimeType string, now time.Time, randomID string) string {
+	return fmt.Sprintf("ai-video-references/%s/%04d/%02d/%02d/%d-%s%s", strings.ToLower(strings.TrimSpace(kind)), now.Year(), int(now.Month()), now.Day(), userID, randomID, extensionForReferenceMime(mimeType))
+}
+
+func extensionForReferenceMime(mimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "video/mp4":
+		return ".mp4"
+	case "video/webm":
+		return ".webm"
+	case "audio/mpeg":
+		return ".mp3"
+	case "audio/mp4":
+		return ".m4a"
+	case "audio/wav", "audio/x-wav":
+		return ".wav"
+	case "audio/ogg":
+		return ".ogg"
+	default:
+		parts := strings.Split(strings.ToLower(strings.TrimSpace(mimeType)), "/")
+		if len(parts) == 2 && parts[1] != "" {
+			return "." + strings.ReplaceAll(parts[1], "x-", "")
+		}
+		return ".bin"
+	}
+}
+
+func publicCOSURL(cfg cosRuntimeConfig, key string) string {
+	key = strings.TrimLeft(strings.TrimSpace(key), "/")
+	if strings.TrimSpace(cfg.BucketDomain) != "" {
+		return publicURLJoin(cfg.BucketDomain, key)
+	}
+	if strings.TrimSpace(cfg.Endpoint) != "" {
+		return publicURLJoin(cfg.Endpoint, key)
+	}
+	return fmt.Sprintf("https://%s.cos.%s.myqcloud.com/%s", cfg.Bucket, cfg.Region, key)
+}
+
+func publicURLJoin(base string, key string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return strings.TrimLeft(strings.TrimSpace(key), "/")
+	}
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "https://" + strings.TrimLeft(base, "/")
+	}
+	return base + "/" + strings.TrimLeft(strings.TrimSpace(key), "/")
 }
 
 func supportsScene(raw string, want string) bool {

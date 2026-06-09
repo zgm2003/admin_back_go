@@ -66,7 +66,7 @@ core/system: system, systemsetting, systemlog, operationlog, crontask, queuemoni
 identity/RBAC: auth, auth_platform, profile, user, permission, role
 comms/upload: mail, sms, notification, notification/task, uploadconfig, uploadtoken, export, clientversion
 commerce: payment, payment/wallet
-ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image, ai/video
+ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image, ai/video, ai/audio
 ```
 
 App 用户端 API 是独立 HTTP 命名空间，当前挂在 `/api/app/v1`，但它仍复用同一套 capability service。平台不是 module。新增平台不得默认新增 `xxxauth` / `xxxuser` / `xxxupload` 这类平台命名业务模块。平台差异通过 route prefix、platform 字段、策略表和 presenter 表达；业务能力仍归属 `auth` / `user` / `profile` / `uploadtoken` 等模块。当前 `/api/app/v1/auth/*` 归属 `internal/module/auth/transport/app`，`/api/app/v1/users/me` 归属 `internal/module/user/transport/app`，`/api/app/v1/profile` 归属 `internal/module/profile/transport/app`，`/api/app/v1/upload-tokens` 归属 `internal/module/uploadtoken/transport/app`。
@@ -1504,6 +1504,7 @@ internal/module/ai/agent         # ai_agents local agent config MVP
 internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls runtime
 internal/module/ai/image         # ai_image_tasks / ai_image_files Canvas image generation runtime; Admin interactive transport retired
 internal/module/ai/video         # canvas_video_tasks Canvas video generation runtime
+internal/module/ai/audio         # Canvas audio generation runtime; POST /api/canvas/v1/ai/audios returns raw audio/*
 internal/module/ai/text          # ai_text_tasks Canvas text generation source rows
 internal/module/ai/asset         # ai_assets Canvas current-user assets; image/video media metadata validated in service
 internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
@@ -1562,8 +1563,8 @@ Agent config truth:
 route/menu/API name is agent: /ai/agents and /api/admin/v1/ai-agents
 table is ai_agents; old app naming must not be the active contract
 create/update require provider_id + model_id where model_id belongs to enabled ai_provider_models under that provider
-list search supports name/provider/status plus scene=chat or scene=agent_generate; there is no agent code or agent type in the MVP
-MVP scenes currently allow chat and agent_generate; stored as scenes_json and exposed as scenes/scene_names
+list search supports name/provider/status plus scene=chat, scene=agent_generate, or Canvas scenes; there is no agent code or agent type in the MVP
+active scenes currently allow chat, agent_generate, canvas_text_generate, canvas_image_generate, canvas_video_generate, and canvas_audio_generate; stored as scenes_json and exposed as scenes/scene_names
 system_prompt and avatar are optional local agent metadata
 ai_agents intentionally has no agent code, agent type, per-agent external app id/key, response mode, runtime config JSON, model snapshot JSON, created_by, or updated_by in the MVP slice
 tool usage is stored in ai_agent_tools; knowledge usage is stored in ai_agent_knowledge_bases; do not add duplicate JSON binding fields to ai_agents
@@ -1586,8 +1587,11 @@ POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no en
 Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
 OpenAI-compatible StreamChat does not use a 30s HTTP total timeout while reading response body; live max duration and upstream silence timeout are code-owned AI runtime guardrails, not Docker-first env knobs.
 ai_run_timeout is stale cleanup only: admin-worker marks running rows older than the code-owned AI run stale timeout default, not fresh online replies.
-ai_runs records one provider attempt across chat/text/image/video with platform, request_id, input_snapshot, status, token totals, duration, and nullable chat message links.
-Chat runs may link ai_conversations/ai_messages; text/image/video runs do not fake messages, and their task identity stays in their owning task tables instead of ai_runs polymorphic source fields.
+ai_runs records one provider attempt across chat/text/image/video/audio with platform, request_id, input_snapshot, status, token totals, duration, and nullable chat message links.
+Chat runs may link ai_conversations/ai_messages; text/image/video/audio runs do not fake messages, and their task identity stays in their owning task tables or local Canvas media state instead of ai_runs polymorphic source fields.
+Canvas video reference-media upload is owned by internal/module/ai/video/transport/canvas. POST /api/canvas/v1/ai/videos/reference-media accepts multipart file plus media_kind=image/video/audio, stores the file under COS ai-video-references/{kind}/..., returns provider-accessible storage metadata, and rejects model/provider/api_key/base_url at the Canvas HTTP boundary. This storage helper does not add legacy /api/v1/media/references, does not create ai_assets, and does not yet wire uploaded reference media into POST /api/canvas/v1/ai/videos generation payloads.
+Canvas audio generation is owned by internal/module/ai/audio/transport/canvas. POST /api/canvas/v1/ai/audios accepts only agent_id, prompt, voice, response_format, speed, and instructions; model/provider/api_key/base_url remain backend-owned through the canvas_audio_generate agent and are rejected at the Canvas HTTP boundary.
+Canvas audio calls OpenAI-compatible /audio/speech, records the provider attempt in ai_runs, and streams the generated raw audio/* response body back to the Canvas browser for local media storage. This first slice does not add ai_assets audio type, a dedicated audio task/history table, or provider reference-media upload.
 Provider usage is normalized only into token totals; token totals are never guessed from prompt length, image count, duration, or model name, and there is no usage_status column.
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.

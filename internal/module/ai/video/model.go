@@ -28,3 +28,15 @@ type VideoTask struct {
 }
 
 func (VideoTask) TableName() string { return "canvas_video_tasks" }
+
+type UploadConfig struct {
+	SettingID    int64  `gorm:"column:setting_id"`
+	Driver       string `gorm:"column:driver"`
+	SecretIDEnc  string `gorm:"column:secret_id_enc"`
+	SecretKeyEnc string `gorm:"column:secret_key_enc"`
+	Bucket       string `gorm:"column:bucket"`
+	Region       string `gorm:"column:region"`
+	AppID        string `gorm:"column:appid"`
+	Endpoint     string `gorm:"column:endpoint"`
+	BucketDomain string `gorm:"column:bucket_domain"`
+}

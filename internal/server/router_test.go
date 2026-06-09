@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -279,11 +280,12 @@ func (f *fakeRouterAIChatService) CanvasCompletion(ctx context.Context, input ai
 }
 
 type fakeRouterAIVideoService struct {
-	createInput   aivideo.CreateInput
-	statusUserID  int64
-	statusID      int64
-	contentUserID int64
-	contentID     int64
+	createInput          aivideo.CreateInput
+	referenceUploadInput aivideo.ReferenceMediaUploadInput
+	statusUserID         int64
+	statusID             int64
+	contentUserID        int64
+	contentID            int64
 }
 
 type fakeRouterAIAudioService struct {
@@ -310,6 +312,11 @@ func (f *fakeRouterAIVideoService) Content(ctx context.Context, userID int64, id
 	f.contentUserID = userID
 	f.contentID = id
 	return []byte("video"), "video/mp4", nil
+}
+
+func (f *fakeRouterAIVideoService) UploadReferenceMedia(ctx context.Context, input aivideo.ReferenceMediaUploadInput) (*aivideo.ReferenceMediaUploadResponse, *apperror.Error) {
+	f.referenceUploadInput = input
+	return &aivideo.ReferenceMediaUploadResponse{ID: "ref-1", URL: "https://cos.test/ref.mp4", StorageProvider: aivideo.StorageProviderCOS, StorageKey: "ai-video-references/video/ref.mp4", MimeType: input.MimeType, MediaKind: input.MediaKind, Bytes: int64(len(input.Body))}, nil
 }
 
 type fakeAppRouterAuthService struct {
@@ -3890,6 +3897,33 @@ func TestRouterInstallsCanvasAIVideoRoutesFromAIVideoService(t *testing.T) {
 	}
 	if aiVideoService.createInput.UserID != 9 || aiVideoService.createInput.AgentID != 8 || aiVideoService.createInput.Prompt != "clip" || aiVideoService.createInput.DurationSeconds != 4 || aiVideoService.createInput.Size != "1280x720" || aiVideoService.createInput.ResolutionName != "720p" || aiVideoService.createInput.ModelID != "" {
 		t.Fatalf("expected AI video service Create input from canvas route, got %#v", aiVideoService.createInput)
+	}
+
+	referenceBody := &bytes.Buffer{}
+	writer := multipart.NewWriter(referenceBody)
+	if err := writer.WriteField("media_kind", "video"); err != nil {
+		t.Fatalf("write reference media kind: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "reference.mp4")
+	if err != nil {
+		t.Fatalf("create reference media file: %v", err)
+	}
+	if _, err := part.Write([]byte("reference-video")); err != nil {
+		t.Fatalf("write reference media file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close reference media multipart: %v", err)
+	}
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/videos/reference-media", referenceBody)
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected AI video reference media upload status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if aiVideoService.referenceUploadInput.UserID != 9 || aiVideoService.referenceUploadInput.MediaKind != "video" || aiVideoService.referenceUploadInput.MimeType != "video/mp4" || string(aiVideoService.referenceUploadInput.Body) != "reference-video" {
+		t.Fatalf("expected AI video reference upload input from canvas route, got %#v", aiVideoService.referenceUploadInput)
 	}
 
 	recorder = httptest.NewRecorder()

@@ -12,6 +12,7 @@ func RegisterRoutes(router *gin.Engine, service aivideomodule.HTTPService) {
 	handler := NewHandler(service)
 	group := router.Group("/api/canvas/v1/ai/videos")
 	group.POST("", handler.VideoGenerations)
+	group.POST("/reference-media", handler.ReferenceMediaUpload)
 	group.GET("/:id", handler.VideoStatus)
 	group.GET("/:id/content", handler.VideoContent)
 }
