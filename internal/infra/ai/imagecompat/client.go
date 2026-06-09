@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"path/filepath"
 	"strings"
 	"time"
@@ -160,7 +161,14 @@ func writeFormFile(writer *multipart.Writer, field string, asset infraai.ImageAs
 	if name == "" {
 		name = "image" + extensionForMime(asset.MimeType)
 	}
-	file, err := writer.CreateFormFile(field, filepath.Base(name))
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeMultipartHeaderValue(field), escapeMultipartHeaderValue(filepath.Base(name))))
+	if mimeType := strings.TrimSpace(asset.MimeType); strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+		header.Set("Content-Type", mimeType)
+	} else {
+		header.Set("Content-Type", "application/octet-stream")
+	}
+	file, err := writer.CreatePart(header)
 	if err != nil {
 		return fmt.Errorf("build OpenAI image edit form file: %w", err)
 	}
@@ -168,6 +176,10 @@ func writeFormFile(writer *multipart.Writer, field string, asset infraai.ImageAs
 		return fmt.Errorf("build OpenAI image edit form file: %w", err)
 	}
 	return nil
+}
+
+func escapeMultipartHeaderValue(value string) string {
+	return strings.NewReplacer("\\", "\\\\", `"`, "\\\"").Replace(value)
 }
 
 func (c *Client) newJSONRequest(ctx context.Context, method string, endpoint string, body any) (*http.Request, error) {

@@ -160,6 +160,11 @@ func TestClientGenerateImagesSendsEditMultipartRequest(t *testing.T) {
 		if len(r.MultipartForm.File["mask"]) != 1 {
 			t.Fatalf("expected one mask file, got %#v", r.MultipartForm.File)
 		}
+		for _, file := range append(r.MultipartForm.File["image"], r.MultipartForm.File["mask"]...) {
+			if got := file.Header.Get("Content-Type"); got != "image/png" {
+				t.Fatalf("multipart file content-type = %q, want image/png", got)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"url":"https://cdn.example/out.jpg"}]}`))
 	}))
