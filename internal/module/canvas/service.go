@@ -11,12 +11,14 @@ var publicCanvasScenes = []string{
 	canvasTextAgentScene,
 	canvasImageAgentScene,
 	canvasVideoAgentScene,
+	canvasAudioAgentScene,
 }
 
 const (
 	canvasTextAgentScene  = "canvas_text_generate"
 	canvasImageAgentScene = "canvas_image_generate"
 	canvasVideoAgentScene = "canvas_video_generate"
+	canvasAudioAgentScene = "canvas_audio_generate"
 )
 
 type AuthPolicyService interface {
@@ -79,7 +81,11 @@ func (s *Service) canvasAgentGroups(ctx context.Context) (CanvasAgentGroups, *ap
 	if appErr != nil {
 		return CanvasAgentGroups{}, appErr
 	}
-	return CanvasAgentGroups{Text: text, Image: image, Video: video}, nil
+	audio, appErr := s.canvasAgentsByScene(ctx, canvasAudioAgentScene)
+	if appErr != nil {
+		return CanvasAgentGroups{}, appErr
+	}
+	return CanvasAgentGroups{Text: text, Image: image, Video: video, Audio: audio}, nil
 }
 
 func (s *Service) canvasAgentsByScene(ctx context.Context, scene string) ([]CanvasAgentOption, *apperror.Error) {

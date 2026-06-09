@@ -22,6 +22,7 @@ const (
 	sceneCanvasTextGenerate  = "canvas_text_generate"
 	sceneCanvasImageGenerate = "canvas_image_generate"
 	sceneCanvasVideoGenerate = "canvas_video_generate"
+	sceneCanvasAudioGenerate = "canvas_audio_generate"
 )
 
 var sceneLabels = map[string]string{
@@ -30,6 +31,7 @@ var sceneLabels = map[string]string{
 	sceneCanvasTextGenerate:  "无限画布-文本",
 	sceneCanvasImageGenerate: "无限画布-图片",
 	sceneCanvasVideoGenerate: "无限画布-视频",
+	sceneCanvasAudioGenerate: "无限画布-音频",
 }
 
 type Service struct {
@@ -456,7 +458,7 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 }
 
 func sceneOptions() []dict.Option[string] {
-	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneCanvasTextGenerate, sceneCanvasImageGenerate, sceneCanvasVideoGenerate}, sceneLabels)
+	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneCanvasTextGenerate, sceneCanvasImageGenerate, sceneCanvasVideoGenerate, sceneCanvasAudioGenerate}, sceneLabels)
 }
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))

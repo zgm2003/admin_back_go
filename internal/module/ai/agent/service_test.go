@@ -209,7 +209,7 @@ func TestCreateRejectsRetiredImageGenerateScene(t *testing.T) {
 		ProviderID: 1,
 		Name:       "图片智能体",
 		ModelID:    "gpt-image-2",
-		Scenes:     []string{"image_generate", "canvas_text_generate", "canvas_image_generate", "canvas_video_generate"},
+		Scenes:     []string{"image_generate", "canvas_text_generate", "canvas_image_generate", "canvas_video_generate", "canvas_audio_generate"},
 		Status:     enum.CommonYes,
 	})
 
@@ -233,6 +233,7 @@ func TestSceneOptionsIncludeAgentAndCanvasScenesOnly(t *testing.T) {
 		"canvas_text_generate":  "无限画布-文本",
 		"canvas_image_generate": "无限画布-图片",
 		"canvas_video_generate": "无限画布-视频",
+		"canvas_audio_generate": "无限画布-音频",
 	}
 	if len(options) != len(expected) {
 		t.Fatalf("unexpected scene option count: %#v", options)

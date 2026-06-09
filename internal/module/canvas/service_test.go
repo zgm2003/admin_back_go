@@ -25,6 +25,7 @@ func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing
 		canvasTextAgentScene:  {{ID: 7, Name: "文本助手", ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT 4.1 Mini", Scene: canvasTextAgentScene}},
 		canvasImageAgentScene: {{ID: 8, Name: "绘图助手", ModelID: "gpt-image-2", ModelDisplayName: "GPT Image", Scene: canvasImageAgentScene}},
 		canvasVideoAgentScene: {{ID: 9, Name: "视频助手", ModelID: "video-model", ModelDisplayName: "Video", Scene: canvasVideoAgentScene}},
+		canvasAudioAgentScene: {{ID: 10, Name: "音频助手", ModelID: "tts-1", ModelDisplayName: "TTS", Scene: canvasAudioAgentScene}},
 	}}
 	svc := NewServiceWithSettings(repo, SettingsDependencies{AuthPolicy: auth})
 
@@ -36,7 +37,7 @@ func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing
 	if !result.AllowRegister || auth.platform != "canvas" {
 		t.Fatalf("auth policy mismatch result=%#v platform=%q", result, auth.platform)
 	}
-	if len(result.Scenes) != 3 || result.Scenes[0] != canvasTextAgentScene || result.Scenes[2] != canvasVideoAgentScene {
+	if len(result.Scenes) != 4 || result.Scenes[0] != canvasTextAgentScene || result.Scenes[3] != canvasAudioAgentScene {
 		t.Fatalf("unexpected scenes: %#v", result.Scenes)
 	}
 	if len(result.Agents.Text) != 1 || result.Agents.Text[0].Scene != canvasTextAgentScene {
@@ -48,7 +49,10 @@ func TestServicePublicSettingsReturnsPublicPolicyAndCanvasAgentScenes(t *testing
 	if len(result.Agents.Video) != 1 || result.Agents.Video[0].Scene != canvasVideoAgentScene {
 		t.Fatalf("video agents must come from canvas video scene, got %#v", result.Agents.Video)
 	}
-	if len(repo.agentScenes) != 3 || repo.agentScenes[0] != canvasTextAgentScene || repo.agentScenes[1] != canvasImageAgentScene || repo.agentScenes[2] != canvasVideoAgentScene {
+	if len(result.Agents.Audio) != 1 || result.Agents.Audio[0].Scene != canvasAudioAgentScene {
+		t.Fatalf("audio agents must come from canvas audio scene, got %#v", result.Agents.Audio)
+	}
+	if len(repo.agentScenes) != 4 || repo.agentScenes[0] != canvasTextAgentScene || repo.agentScenes[1] != canvasImageAgentScene || repo.agentScenes[2] != canvasVideoAgentScene || repo.agentScenes[3] != canvasAudioAgentScene {
 		t.Fatalf("settings must query canvas agent scenes, got %#v", repo.agentScenes)
 	}
 }

@@ -14,6 +14,7 @@ type CanvasAgentGroups struct {
 	Text  []CanvasAgentOption `json:"text"`
 	Image []CanvasAgentOption `json:"image"`
 	Video []CanvasAgentOption `json:"video"`
+	Audio []CanvasAgentOption `json:"audio"`
 }
 
 type CanvasAgentOption struct {
