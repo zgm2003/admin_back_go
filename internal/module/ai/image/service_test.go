@@ -181,13 +181,22 @@ func TestPageInitListsCanvasImageGenerateAgentsOnly(t *testing.T) {
 	repo := &fakeImageRepository{}
 	service := NewService(Dependencies{Repository: repo})
 
-	_, appErr := service.PageInit(context.Background())
+	result, appErr := service.PageInit(context.Background())
 
 	if appErr != nil {
 		t.Fatalf("expected page init to pass, got %#v", appErr)
 	}
 	if repo.listAgentsScene != SceneCanvasImageGenerate {
 		t.Fatalf("image page-init must list canvas_image_generate agents only, got %q", repo.listAgentsScene)
+	}
+	gotSizes := make(map[string]bool)
+	for _, option := range result.Dict.SizeArr {
+		gotSizes[option.Value] = true
+	}
+	for _, want := range []string{"1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792"} {
+		if !gotSizes[want] {
+			t.Fatalf("image page-init must expose supported Canvas image size %q, got %#v", want, result.Dict.SizeArr)
+		}
 	}
 }
 
@@ -220,6 +229,27 @@ func TestCreateEnqueuesCanvasTaskWithTaskOwnedFiles(t *testing.T) {
 	}
 	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != TypeGenerateV1 {
 		t.Fatalf("expected one canvas image queue task, got %#v", enqueuer.tasks)
+	}
+}
+
+func TestCreateAcceptsCanvasWideAndPortraitImageSizes(t *testing.T) {
+	for _, size := range []string{"1792x1024", "1024x1792"} {
+		t.Run(size, func(t *testing.T) {
+			box := testImageSecretBox()
+			repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
+			service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, Now: fixedImageNow()})
+
+			_, appErr := service.Create(context.Background(), CreateInput{
+				UserID: 9, AgentID: 1, Platform: enum.PlatformCanvas, Prompt: "draw", Size: size,
+			})
+
+			if appErr != nil {
+				t.Fatalf("expected create to accept size %s, got %#v", size, appErr)
+			}
+			if repo.createdTask.Size != size {
+				t.Fatalf("expected task size %s, got %s", size, repo.createdTask.Size)
+			}
+		})
 	}
 }
 

@@ -59,7 +59,7 @@ const serviceTimeLayout = "2006-01-02 15:04:05"
 
 var (
 	statusLabels     = map[string]string{StatusPending: "等待中", StatusRunning: "生成中", StatusSuccess: "成功", StatusFailed: "失败"}
-	sizeLabels       = map[string]string{"auto": "自动", "1024x1024": "1024×1024", "1536x1024": "1536×1024", "1024x1536": "1024×1536"}
+	sizeLabels       = map[string]string{"auto": "自动", "1024x1024": "1024×1024", "1536x1024": "1536×1024", "1024x1536": "1024×1536", "1792x1024": "1792×1024", "1024x1792": "1024×1792"}
 	qualityLabels    = map[string]string{"auto": "自动", "low": "低", "medium": "中", "high": "高"}
 	formatLabels     = map[string]string{"png": "PNG", "jpeg": "JPEG", "webp": "WebP"}
 	moderationLabels = map[string]string{"auto": "自动", "low": "低限制"}
@@ -130,7 +130,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	if agents == nil {
 		agents = []AgentOption{}
 	}
-	return &PageInitResponse{Dict: PageInitDict{SizeArr: stringOptions([]string{"auto", "1024x1024", "1536x1024", "1024x1536"}, sizeLabels), QualityArr: stringOptions([]string{"auto", "low", "medium", "high"}, qualityLabels), OutputFormatArr: stringOptions([]string{"png", "jpeg", "webp"}, formatLabels), ModerationArr: stringOptions([]string{"auto", "low"}, moderationLabels), StatusArr: stringOptions([]string{StatusPending, StatusRunning, StatusSuccess, StatusFailed}, statusLabels)}, AgentOptions: agents}, nil
+	return &PageInitResponse{Dict: PageInitDict{SizeArr: stringOptions([]string{"auto", "1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792"}, sizeLabels), QualityArr: stringOptions([]string{"auto", "low", "medium", "high"}, qualityLabels), OutputFormatArr: stringOptions([]string{"png", "jpeg", "webp"}, formatLabels), ModerationArr: stringOptions([]string{"auto", "low"}, moderationLabels), StatusArr: stringOptions([]string{StatusPending, StatusRunning, StatusSuccess, StatusFailed}, statusLabels)}, AgentOptions: agents}, nil
 }
 
 func (s *Service) List(ctx context.Context, userID uint64, query ListQuery) (*ListResponse, *apperror.Error) {
