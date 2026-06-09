@@ -32,6 +32,24 @@ canvas.ai.image.request.invalid: Invalid image generation request
 canvas.ai.image.service_missing: Canvas image generation service is not configured
 canvas.ai.image.result_invalid: Invalid Canvas image generation result
 canvas.ai.image.id.invalid: Invalid image task ID
+canvas.ai.audio.request.invalid: Invalid audio generation request
+canvas.ai.audio.service_missing: Canvas audio generation service is not configured
+canvas.ai.audio.content_empty: Canvas audio content is empty
+canvas.ai.audio.content_type_invalid: Invalid Canvas audio content type
+canvas.ai.audio.provider_failed: Canvas audio generation failed
+canvas.ai.audio.repository_missing: Canvas audio generation repository is not configured
+canvas.ai.audio.agent_query_failed: Failed to query audio agent
+canvas.ai.audio.agent_not_found: Audio agent does not exist
+canvas.ai.audio.agent_unavailable: This agent does not support audio generation
+canvas.ai.audio.provider_key_missing: AI provider API key is not configured
+canvas.ai.audio.model_missing: Audio agent model is not configured
+canvas.ai.audio.secretbox_missing: AI secret service is not configured
+canvas.ai.audio.provider_key_decrypt_failed: Failed to decrypt AI provider API key
+canvas.ai.audio.engine_missing: AI audio engine is not configured
+canvas.ai.audio.engine_create_failed: Failed to create AI audio engine
+canvas.ai.audio.run_recorder_missing: Canvas audio run recorder is not configured
+canvas.ai.audio.run_start_failed: Failed to create Canvas audio run record
+canvas.ai.audio.run_complete_failed: Failed to update Canvas audio run record
 canvas.ai.video.request.invalid: Invalid video generation request
 canvas.ai.video.service_missing: Canvas video generation service is not configured
 canvas.ai.video.content_empty: Canvas video content is empty

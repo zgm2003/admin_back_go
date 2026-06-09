@@ -95,6 +95,24 @@ type VideoEngine interface {
 	DownloadVideo(ctx context.Context, taskID string) ([]byte, string, error)
 }
 
+type AudioInput struct {
+	Model          string
+	Prompt         string
+	Voice          string
+	ResponseFormat string
+	Speed          *float64
+	Instructions   string
+}
+
+type AudioResult struct {
+	Body        []byte
+	ContentType string
+}
+
+type AudioEngine interface {
+	GenerateAudio(ctx context.Context, input AudioInput) (*AudioResult, error)
+}
+
 type Event struct {
 	Type      string
 	DeltaText string

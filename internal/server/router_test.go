@@ -22,6 +22,7 @@ import (
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aiasset "admin_back_go/internal/module/ai/asset"
+	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -283,6 +284,15 @@ type fakeRouterAIVideoService struct {
 	statusID      int64
 	contentUserID int64
 	contentID     int64
+}
+
+type fakeRouterAIAudioService struct {
+	input aiaudio.GenerateInput
+}
+
+func (f *fakeRouterAIAudioService) Generate(ctx context.Context, input aiaudio.GenerateInput) (*aiaudio.GenerateResponse, *apperror.Error) {
+	f.input = input
+	return &aiaudio.GenerateResponse{Body: []byte("audio"), ContentType: "audio/mpeg"}, nil
 }
 
 func (f *fakeRouterAIVideoService) Create(ctx context.Context, input aivideo.CreateInput) (*aivideo.CreateResponse, *apperror.Error) {
@@ -3902,6 +3912,31 @@ func TestRouterInstallsCanvasAIVideoRoutesFromAIVideoService(t *testing.T) {
 	}
 	if aiVideoService.contentUserID != 9 || aiVideoService.contentID != 99 {
 		t.Fatalf("expected AI video service Content user=9 id=99, got user=%d id=%d", aiVideoService.contentUserID, aiVideoService.contentID)
+	}
+}
+
+func TestRouterInstallsCanvasAIAudioRouteFromAIAudioService(t *testing.T) {
+	canvasService := &fakeRouterCanvasService{}
+	aiAudioService := &fakeRouterAIAudioService{}
+	router := newTestRouter(t, Dependencies{
+		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
+		},
+		CanvasService:  canvasService,
+		AiAudioService: aiAudioService,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/canvas/v1/ai/audios", strings.NewReader(`{"agent_id":8,"prompt":"voice over","voice":"nova","response_format":"mp3","speed":1.1,"instructions":"warm"}`))
+	request.Header.Set("Authorization", "Bearer canvas-token")
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "audio" || recorder.Header().Get("Content-Type") != "audio/mpeg" {
+		t.Fatalf("expected AI audio route, got code=%d type=%s body=%s", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String())
+	}
+	if aiAudioService.input.UserID != 9 || aiAudioService.input.AgentID != 8 || aiAudioService.input.Prompt != "voice over" || aiAudioService.input.ModelID != "" || aiAudioService.input.Voice != "nova" || aiAudioService.input.ResponseFormat != "mp3" || aiAudioService.input.Speed == nil || *aiAudioService.input.Speed != 1.1 || aiAudioService.input.Instructions != "warm" {
+		t.Fatalf("expected AI audio service input from canvas route, got %#v", aiAudioService.input)
 	}
 }
 

@@ -72,6 +72,43 @@ func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
 	}
 }
 
+func TestClientGenerateAudioUsesOpenAICompatibleSpeechEndpoint(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/audio/speech" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
+			t.Fatalf("authorization = %q", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode speech body: %v", err)
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	speed := 1.25
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateAudio(context.Background(), infraai.AudioInput{
+		Model:          "tts-1",
+		Prompt:         "hello",
+		Voice:          "nova",
+		ResponseFormat: "wav",
+		Speed:          &speed,
+		Instructions:   "warm narration",
+	})
+	if err != nil {
+		t.Fatalf("GenerateAudio returned error: %v", err)
+	}
+	if string(result.Body) != "audio" || result.ContentType != "audio/wav" {
+		t.Fatalf("unexpected audio result: %#v", result)
+	}
+	if requestBody["model"] != "tts-1" || requestBody["input"] != "hello" || requestBody["voice"] != "nova" || requestBody["response_format"] != "wav" || requestBody["speed"] != 1.25 || requestBody["instructions"] != "warm narration" {
+		t.Fatalf("unexpected speech body: %#v", requestBody)
+	}
+}
+
 func TestClientVideoLifecycleAppendsVersionPathForOriginOnlyBaseURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/videos" {

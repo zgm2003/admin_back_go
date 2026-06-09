@@ -282,6 +282,54 @@ func (c *Client) DownloadVideo(ctx context.Context, taskID string) ([]byte, stri
 	return body, contentType, nil
 }
 
+func (c *Client) GenerateAudio(ctx context.Context, input infraai.AudioInput) (*infraai.AudioResult, error) {
+	if c == nil {
+		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
+	}
+	model := strings.TrimSpace(input.Model)
+	if model == "" {
+		return nil, fmt.Errorf("%w: missing audio model", infraai.ErrInvalidConfig)
+	}
+	prompt := strings.TrimSpace(input.Prompt)
+	if prompt == "" {
+		return nil, fmt.Errorf("%w: missing audio prompt", infraai.ErrInvalidConfig)
+	}
+	body := map[string]any{"model": model, "input": prompt}
+	if voice := strings.TrimSpace(input.Voice); voice != "" {
+		body["voice"] = voice
+	}
+	if format := strings.TrimSpace(input.ResponseFormat); format != "" {
+		body["response_format"] = format
+	}
+	if input.Speed != nil {
+		body["speed"] = *input.Speed
+	}
+	if instructions := strings.TrimSpace(input.Instructions); instructions != "" {
+		body["instructions"] = instructions
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, "/audio/speech", body)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
+	}
+	defer resp.Body.Close()
+	if err := c.requireSuccess(resp); err != nil {
+		return nil, err
+	}
+	audio, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read OpenAI audio speech response: %w", err)
+	}
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return &infraai.AudioResult{Body: audio, ContentType: contentType}, nil
+}
+
 func (c *Client) newRequest(ctx context.Context, method string, endpoint string, body any) (*http.Request, error) {
 	baseURL, err := normalizeBaseURL(c.baseURL)
 	if err != nil {

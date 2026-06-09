@@ -32,6 +32,24 @@ canvas.ai.image.request.invalid: 图片生成参数错误
 canvas.ai.image.service_missing: Canvas图片生成服务未配置
 canvas.ai.image.result_invalid: Canvas图片生成结果无效
 canvas.ai.image.id.invalid: 图片任务ID无效
+canvas.ai.audio.request.invalid: 音频生成参数错误
+canvas.ai.audio.service_missing: Canvas音频生成服务未配置
+canvas.ai.audio.content_empty: Canvas音频内容为空
+canvas.ai.audio.content_type_invalid: Canvas音频内容类型无效
+canvas.ai.audio.provider_failed: Canvas音频生成失败
+canvas.ai.audio.repository_missing: Canvas音频生成仓储未配置
+canvas.ai.audio.agent_query_failed: 查询音频智能体失败
+canvas.ai.audio.agent_not_found: 音频智能体不存在
+canvas.ai.audio.agent_unavailable: 该智能体不支持音频生成
+canvas.ai.audio.provider_key_missing: AI供应商API Key未配置
+canvas.ai.audio.model_missing: 音频智能体模型未配置
+canvas.ai.audio.secretbox_missing: AI密钥服务未配置
+canvas.ai.audio.provider_key_decrypt_failed: 解密AI供应商API Key失败
+canvas.ai.audio.engine_missing: AI音频引擎未配置
+canvas.ai.audio.engine_create_failed: 创建AI音频引擎失败
+canvas.ai.audio.run_recorder_missing: Canvas音频运行记录器未配置
+canvas.ai.audio.run_start_failed: 创建Canvas音频运行记录失败
+canvas.ai.audio.run_complete_failed: 更新Canvas音频运行记录失败
 canvas.ai.video.request.invalid: 视频生成参数错误
 canvas.ai.video.service_missing: Canvas视频生成服务未配置
 canvas.ai.video.content_empty: Canvas视频内容为空

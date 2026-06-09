@@ -24,6 +24,7 @@ import (
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aiasset "admin_back_go/internal/module/ai/asset"
+	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -232,6 +233,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		EngineFactory: aiVideoEngineFactory{},
 		RunRecorder:   aiRunRecorder,
 	})
+	aiAudioService := aiaudio.NewService(aiaudio.Dependencies{
+		Repository:    aiaudio.NewGormRepository(resources.DB),
+		Secretbox:     secretBox,
+		EngineFactory: aiAudioEngineFactory{},
+		RunRecorder:   aiRunRecorder,
+	})
 	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
 		AuthPolicy: authPlatformService,
 	})
@@ -365,6 +372,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		AiPromptAdminService:    aiPromptService,
 		AiPromptService:         aiPromptService,
 		AiVideoService:          aiVideoService,
+		AiAudioService:          aiAudioService,
 		AiAgentService:          aiAgentService,
 		AiProviderService:       aiProviderService,
 		AiKnowledgeService:      aiKnowledgeService,
@@ -497,6 +505,21 @@ func (aiVideoEngineFactory) NewVideoEngine(ctx context.Context, input aivideo.En
 			BaseURL: input.BaseURL,
 			APIKey:  input.APIKey,
 			Timeout: 10 * time.Minute,
+		}), nil
+	default:
+		return nil, infraai.ErrInvalidConfig
+	}
+}
+
+type aiAudioEngineFactory struct{}
+
+func (aiAudioEngineFactory) NewAudioEngine(ctx context.Context, input aiaudio.EngineConfig) (infraai.AudioEngine, error) {
+	switch input.EngineType {
+	case infraai.EngineTypeOpenAI:
+		return openaicompat.New(openaicompat.Config{
+			BaseURL: input.BaseURL,
+			APIKey:  input.APIKey,
+			Timeout: 2 * time.Minute,
 		}), nil
 	default:
 		return nil, infraai.ErrInvalidConfig
