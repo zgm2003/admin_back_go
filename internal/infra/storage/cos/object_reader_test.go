@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestObjectReaderRejectsDisabledAndInvalidConfig(t *testing.T) {
@@ -34,5 +35,12 @@ func TestNormalizeGetInputTrimsKey(t *testing.T) {
 	})
 	if got.SecretID != "sid" || got.SecretKey != "skey" || got.Bucket != "bucket-123" || got.Region != "ap-guangzhou" || got.Key != "folder/a.png" || got.Endpoint != "https://cos.example.test" {
 		t.Fatalf("unexpected normalized input: %#v", got)
+	}
+}
+
+func TestObjectReaderDefaultTimeoutAllowsReferenceImageDownloads(t *testing.T) {
+	reader := NewObjectReader(ObjectReaderConfig{Enabled: true})
+	if reader.timeout < 60*time.Second {
+		t.Fatalf("default reader timeout = %s, want at least 60s for Canvas reference image downloads", reader.timeout)
 	}
 }

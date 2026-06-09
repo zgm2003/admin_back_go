@@ -48,7 +48,7 @@ type COSObjectReader struct {
 
 func NewObjectReader(cfg ObjectReaderConfig) *COSObjectReader {
 	if cfg.Timeout <= 0 {
-		cfg.Timeout = 10 * time.Second
+		cfg.Timeout = 60 * time.Second
 	}
 	if cfg.MaxBytes <= 0 {
 		cfg.MaxBytes = defaultMaxObjectReadBytes
