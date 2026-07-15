@@ -117,8 +117,13 @@ git commit -m "fix(build): restore verified asynqmon checksum"
 **Files:**
 - Create: `internal/config/env.go`
 - Create: `internal/config/env_test.go`
+- Modify: `cmd/admin-api/main.go`
+- Modify: `cmd/admin-worker/main.go`
 - Modify: `internal/config/config.go`
 - Modify: `internal/config/config_test.go`
+- Modify: `internal/config/logging_process_test.go`
+- Modify: `internal/config/logging_test.go`
+- Modify: `internal/config/secretbox_config_test.go`
 
 - [ ] **Step 1: Write table-driven failures for malformed values**
 
@@ -128,6 +133,10 @@ func TestLoadRejectsMalformedEnvironment(t *testing.T) {
 		key, value, want string
 	}{
 		{"MYSQL_MAX_OPEN_CONNS", "many", "MYSQL_MAX_OPEN_CONNS: parse integer"},
+		{"MYSQL_MAX_IDLE_CONNS", "-1", "MYSQL_MAX_IDLE_CONNS: must not be negative"},
+		{"REDIS_DB", "-1", "REDIS_DB: must not be negative"},
+		{"TOKEN_REDIS_DB", "-1", "TOKEN_REDIS_DB: must not be negative"},
+		{"QUEUE_REDIS_DB", "-1", "QUEUE_REDIS_DB: must not be negative"},
 		{"MYSQL_CONN_MAX_LIFETIME", "tomorrow", "MYSQL_CONN_MAX_LIFETIME: parse duration"},
 		{"QUEUE_ENABLED", "sometimes", "QUEUE_ENABLED: parse boolean"},
 		{"QUEUE_CONCURRENCY", "0", "QUEUE_CONCURRENCY: must be greater than zero"},
@@ -138,7 +147,7 @@ func TestLoadRejectsMalformedEnvironment(t *testing.T) {
 			t.Setenv(tt.key, tt.value)
 			_, err := Load(ProcessAPI)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Load() error=%v, want substring %q", err, tt.want)
+				t.Fatalf("Load(%s) error=%v, want substring %q", ProcessAPI, err, tt.want)
 			}
 		})
 	}
@@ -153,7 +162,7 @@ Run:
 go test ./internal/config -run TestLoadRejectsMalformedEnvironment -count=1
 ```
 
-Expected: FAIL because `Load` returns only `Config` and invalid values currently fall back.
+Expected: FAIL to compile because the old `Load` accepts no process and returns only `Config`. This is the intended RED for the new error-returning API; the old implementation also silently falls back for these malformed values.
 
 - [ ] **Step 3: Implement strict parsers**
 
@@ -193,6 +202,9 @@ func envInteger(lookup lookupEnv, key string, fallback int, positive bool) (int,
 	}
 	if positive && value <= 0 {
 		return 0, fmt.Errorf("%s: must be greater than zero", key)
+	}
+	if !positive && value < 0 {
+		return 0, fmt.Errorf("%s: must not be negative", key)
 	}
 	return value, nil
 }
@@ -241,7 +253,7 @@ func envList(lookup lookupEnv, key string, fallback []string) []string {
 
 - [ ] **Step 4: Change the loader signature and propagate parser errors**
 
-Add a `Process` enum and change the signature to:
+Add a `Process` enum and change the signature to return parser errors while reserving the process argument for Task 3:
 
 ```go
 type Process string
@@ -251,17 +263,12 @@ const (
 	ProcessWorker Process = "admin-worker"
 )
 
-func Load(process Process) (Config, error) {
-	cfg, err := loadFrom(osLookup)
-	if err != nil {
-		return Config{}, err
-	}
-	if err := Validate(process, cfg); err != nil {
-		return Config{}, err
-	}
-	return cfg, nil
+func Load(_ Process) (Config, error) {
+	return loadFrom(osLookup)
 }
 ```
+
+Task 2 must not call `Validate`: process-specific validation is introduced in Task 3. The typed argument is added now so every repository caller is migrated once and Task 3 can activate validation without another public signature change.
 
 `loadFrom` calls `envInteger` for `MYSQL_MAX_OPEN_CONNS`, `MYSQL_MAX_IDLE_CONNS`, `REDIS_DB`, `TOKEN_REDIS_DB`, `QUEUE_REDIS_DB`, and `QUEUE_CONCURRENCY`; `envBoolean` for `QUEUE_ENABLED`, `REALTIME_ENABLED`, and `SCHEDULER_ENABLED`; and `envPeriod` for `HTTP_READ_HEADER_TIMEOUT` and `MYSQL_CONN_MAX_LIFETIME`. Open connections, queue concurrency, and both durations are positive; idle connections and Redis DB numbers allow zero but reject negatives. Keep only defaults already represented by constants. Do not retain `envInt`, `envBool`, or `envDuration` fallback-on-error behavior.
 
@@ -280,18 +287,44 @@ func loadForTest(t *testing.T, process Process) Config {
 }
 ```
 
-Replace direct `cfg := Load()` calls with `cfg := loadForTest(t, ProcessAPI)`.
+Replace every direct `cfg := Load()` call with `cfg := loadForTest(t, ProcessAPI)` in:
 
-- [ ] **Step 6: Run tests**
+- `internal/config/config_test.go`
+- `internal/config/logging_process_test.go`
+- `internal/config/logging_test.go`
+- `internal/config/secretbox_config_test.go`
 
-Run: `go test ./internal/config -count=1`
+- [ ] **Step 6: Update both binaries to handle parser errors before logger and resource construction**
 
-Expected: PASS, including malformed integer/duration/boolean cases.
+Use `ProcessAPI` in `cmd/admin-api/main.go` and `ProcessWorker` in `cmd/admin-worker/main.go`:
 
-- [ ] **Step 7: Commit**
+```go
+cfg, err := config.Load(config.ProcessAPI)
+if err != nil {
+	slog.Error("invalid environment configuration", "error", err)
+	os.Exit(1)
+}
+```
+
+Do not log `cfg` or any environment value. Keep logger construction after this guard; the worker uses the same code with `config.ProcessWorker`.
+
+- [ ] **Step 7: Run the focused and full repository tests**
+
+Run:
 
 ```powershell
-git add -- internal/config/config.go internal/config/config_test.go internal/config/env.go internal/config/env_test.go
+go test ./internal/config -count=1
+go test ./... -count=1
+go build -o $env:TEMP\admin-api-strict-env.exe ./cmd/admin-api
+go build -o $env:TEMP\admin-worker-strict-env.exe ./cmd/admin-worker
+```
+
+Expected: all commands exit 0, including malformed integer/duration/boolean and negative-integer cases. This commit must leave every package compiling; do not defer caller migration to Task 3.
+
+- [ ] **Step 8: Commit**
+
+```powershell
+git add -- cmd/admin-api/main.go cmd/admin-worker/main.go internal/config/config.go internal/config/config_test.go internal/config/env.go internal/config/env_test.go internal/config/logging_process_test.go internal/config/logging_test.go internal/config/secretbox_config_test.go
 git commit -m "refactor(config): reject malformed runtime settings"
 ```
 
@@ -300,8 +333,6 @@ git commit -m "refactor(config): reject malformed runtime settings"
 **Files:**
 - Create: `internal/config/runtime.go`
 - Create: `internal/config/runtime_test.go`
-- Modify: `cmd/admin-api/main.go`
-- Modify: `cmd/admin-worker/main.go`
 - Modify: `internal/config/config.go`
 
 - [ ] **Step 1: Write production and process validation tests**
@@ -389,19 +420,24 @@ Complete `Validate` with these explicit rules:
 - a non-empty `PAYMENT_CERT_BASE_DIR` is absolute, clean, and exists as a directory; an empty value remains allowed until an enabled payment configuration is assembled in P03;
 - `ValidateRuntimeSecrets` rejects the sentinel values and requires at least 64 bytes.
 
-- [ ] **Step 4: Fail both processes before resource construction**
+- [ ] **Step 4: Activate validation in the loader before resource construction**
 
-Use in both mains:
+Replace the staged Task 2 loader body with:
 
 ```go
-cfg, err := config.Load(config.ProcessAPI) // ProcessWorker in admin-worker
-if err != nil {
-	logger.Error("invalid runtime configuration", "error", err)
-	os.Exit(1)
+func Load(process Process) (Config, error) {
+	cfg, err := loadFrom(osLookup)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := Validate(process, cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 ```
 
-Do not log `cfg` or an environment value.
+Task 2 already migrated both mains to `Load(ProcessAPI)` / `Load(ProcessWorker)` and exits through `slog.Error` before logger or resource construction. Verify those guards remain intact. Do not log `cfg` or an environment value.
 
 - [ ] **Step 5: Verify**
 
@@ -418,7 +454,7 @@ Expected: tests pass and both binaries build.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add -- cmd/admin-api/main.go cmd/admin-worker/main.go internal/config/config.go internal/config/runtime.go internal/config/runtime_test.go
+git add -- internal/config/config.go internal/config/runtime.go internal/config/runtime_test.go
 git commit -m "feat(config): validate api and worker runtime requirements"
 ```
 
