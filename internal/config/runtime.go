@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -135,8 +136,8 @@ func validateMySQLConfig(cfg MySQLConfig, production bool) error {
 		return fmt.Errorf("MYSQL_DSN must contain a valid TCP host and port in production")
 	}
 	host, _, _ := net.SplitHostPort(parsed.Addr)
-	if isLocalOrPrivateHost(host) {
-		return fmt.Errorf("MYSQL_DSN must not use a local or private host in production")
+	if isLocalOrUnusableDependencyHost(host) {
+		return fmt.Errorf("MYSQL_DSN must not use a local or unusable host in production")
 	}
 	return nil
 }
@@ -154,8 +155,8 @@ func validateRedisConfig(cfg RedisConfig, production bool) error {
 	}
 	if production {
 		host, _, _ := net.SplitHostPort(addr)
-		if isLocalOrPrivateHost(host) {
-			return fmt.Errorf("REDIS_ADDR must not use a local or private host in production")
+		if isLocalOrUnusableDependencyHost(host) {
+			return fmt.Errorf("REDIS_ADDR must not use a local or unusable host in production")
 		}
 	}
 	return nil
@@ -257,21 +258,48 @@ func validatePaymentConfig(cfg PaymentConfig) error {
 	return nil
 }
 
-func isLocalOrPrivateHost(host string) bool {
+type hostClassification struct {
+	localName bool
+	zoned     bool
+	addr      netip.Addr
+}
+
+func classifyHost(host string) hostClassification {
 	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
 	lowerHost := strings.ToLower(host)
 	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
+		return hostClassification{localName: true}
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return hostClassification{}
+	}
+	classification := hostClassification{
+		zoned: addr.Zone() != "",
+		addr:  addr.WithZone("").Unmap(),
+	}
+	return classification
+}
+
+func (classification hostClassification) isLocalOrUnusableDependency() bool {
+	if classification.localName || classification.zoned {
 		return true
 	}
-	if zoneIndex := strings.LastIndexByte(host, '%'); zoneIndex > 0 {
-		address := host[:zoneIndex]
-		if strings.Contains(address, ":") && net.ParseIP(address) != nil {
-			host = address
-		}
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
+	if !classification.addr.IsValid() {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	return classification.addr.IsLoopback() ||
+		classification.addr.IsUnspecified() ||
+		classification.addr.IsLinkLocalUnicast() ||
+		classification.addr.IsMulticast()
+}
+
+func isLocalOrUnusableDependencyHost(host string) bool {
+	return classifyHost(host).isLocalOrUnusableDependency()
+}
+
+func isLocalOrPrivateHost(host string) bool {
+	classification := classifyHost(host)
+	return classification.isLocalOrUnusableDependency() ||
+		classification.addr.IsValid() && classification.addr.IsPrivate()
 }

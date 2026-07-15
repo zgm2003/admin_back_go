@@ -83,11 +83,19 @@ func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
 		{name: "token redis db", process: ProcessAPI, mutate: func(c *Config) { c.Token.RedisDB = -1 }, want: "TOKEN_REDIS_DB"},
 		{name: "queue redis db", process: ProcessAPI, mutate: func(c *Config) { c.Queue.RedisDB = -1 }, want: "QUEUE_REDIS_DB"},
 		{name: "production mysql localhost", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(localhost:3306)/admin" }, want: "MYSQL_DSN"},
-		{name: "production mysql private", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(10.0.0.8:3306)/admin" }, want: "MYSQL_DSN"},
+		{name: "production mysql IPv6 loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([::1]:3306)/admin" }, want: "MYSQL_DSN"},
+		{name: "production mysql mapped loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([::ffff:127.0.0.1]:3306)/admin" }, want: "MYSQL_DSN"},
+		{name: "production mysql unspecified IPv4", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(0.0.0.0:3306)/admin" }, want: "MYSQL_DSN"},
+		{name: "production mysql unspecified IPv6", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([::]:3306)/admin" }, want: "MYSQL_DSN"},
+		{name: "production mysql multicast", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(239.1.1.1:3306)/admin" }, want: "MYSQL_DSN"},
 		{name: "production mysql unix socket", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@unix(/var/run/mysqld/mysqld.sock)/admin" }, want: "MYSQL_DSN"},
 		{name: "production redis localhost", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "localhost:6379" }, want: "REDIS_ADDR"},
 		{name: "production redis loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "127.0.0.1:6379" }, want: "REDIS_ADDR"},
-		{name: "production redis private", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "192.168.1.8:6379" }, want: "REDIS_ADDR"},
+		{name: "production redis IPv6 loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "[::1]:6379" }, want: "REDIS_ADDR"},
+		{name: "production redis mapped link local", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "[::ffff:169.254.1.8]:6379" }, want: "REDIS_ADDR"},
+		{name: "production redis unspecified IPv4", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "0.0.0.0:6379" }, want: "REDIS_ADDR"},
+		{name: "production redis unspecified IPv6", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "[::]:6379" }, want: "REDIS_ADDR"},
+		{name: "production redis multicast", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Redis.Addr = "[ff0e::1]:6379" }, want: "REDIS_ADDR"},
 		{name: "queue concurrency zero", process: ProcessAPI, mutate: func(c *Config) { c.Queue.Concurrency = 0 }, want: "QUEUE_CONCURRENCY"},
 		{name: "queue concurrency negative", process: ProcessAPI, mutate: func(c *Config) { c.Queue.Concurrency = -1 }, want: "QUEUE_CONCURRENCY"},
 		{name: "scheduler queue", process: ProcessAPI, mutate: func(c *Config) { c.Queue.Enabled = false }, want: "SCHEDULER_ENABLED"},
@@ -109,6 +117,8 @@ func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
 		{name: "production origin loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.CORS.AllowOrigins = []string{"https://127.0.0.1"} }, want: "CORS_ALLOW_ORIGINS"},
 		{name: "production origin private", process: ProcessAPI, production: true, mutate: func(c *Config) { c.CORS.AllowOrigins = []string{"https://172.16.0.8"} }, want: "CORS_ALLOW_ORIGINS"},
 		{name: "production origin private IPv6", process: ProcessAPI, production: true, mutate: func(c *Config) { c.CORS.AllowOrigins = []string{"https://[fc00::1]"} }, want: "CORS_ALLOW_ORIGINS"},
+		{name: "production origin mapped private", process: ProcessAPI, production: true, mutate: func(c *Config) { c.CORS.AllowOrigins = []string{"https://[::ffff:172.16.0.8]"} }, want: "CORS_ALLOW_ORIGINS"},
+		{name: "production origin multicast", process: ProcessAPI, production: true, mutate: func(c *Config) { c.CORS.AllowOrigins = []string{"https://[ff0e::1]"} }, want: "CORS_ALLOW_ORIGINS"},
 		{name: "payment relative", process: ProcessAPI, mutate: func(c *Config) { c.Payment.CertBaseDir = "certs" }, want: "PAYMENT_CERT_BASE_DIR"},
 		{name: "payment unclean", process: ProcessAPI, mutate: func(c *Config) { c.Payment.CertBaseDir = uncleanCertRoot }, want: "PAYMENT_CERT_BASE_DIR"},
 		{name: "payment missing", process: ProcessAPI, mutate: func(c *Config) { c.Payment.CertBaseDir = missingCertRoot }, want: "PAYMENT_CERT_BASE_DIR"},
@@ -127,6 +137,79 @@ func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
 			err := Validate(tt.process, cfg)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Validate() error=%v, want key %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateProductionAcceptsPrivateStateNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		mysqlDSN  string
+		redisAddr string
+	}{
+		{
+			name:      "private IPv4",
+			mysqlDSN:  "user:pass@tcp(10.0.0.8:3306)/admin",
+			redisAddr: "192.168.1.8:6379",
+		},
+		{
+			name:      "IPv6 ULA",
+			mysqlDSN:  "user:pass@tcp([fd00::8]:3306)/admin",
+			redisAddr: "[fd00::9]:6379",
+		},
+		{
+			name:      "IPv4-mapped private",
+			mysqlDSN:  "user:pass@tcp([::ffff:10.0.0.8]:3306)/admin",
+			redisAddr: "[::ffff:192.168.1.8]:6379",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := productionConfigForTest()
+			cfg.MySQL.DSN = tt.mysqlDSN
+			cfg.Redis.Addr = tt.redisAddr
+
+			if err := Validate(ProcessAPI, cfg); err != nil {
+				t.Fatalf("Validate(production private state nodes) error=%v", err)
+			}
+		})
+	}
+}
+
+func TestValidateProductionDependencyErrorsDoNotClaimPrivateHosts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+		raw    string
+	}{
+		{
+			name:   "mysql localhost",
+			mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(localhost:3306)/admin" },
+			want:   "MYSQL_DSN",
+			raw:    "user:pass@tcp(localhost:3306)/admin",
+		},
+		{
+			name:   "redis localhost",
+			mutate: func(c *Config) { c.Redis.Addr = "localhost:6379" },
+			want:   "REDIS_ADDR",
+			raw:    "localhost:6379",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := productionConfigForTest()
+			tt.mutate(&cfg)
+
+			err := Validate(ProcessAPI, cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error=%v, want key %q", err, tt.want)
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "private") || strings.Contains(err.Error(), tt.raw) {
+				t.Fatalf("validation error exposed or misclassified dependency: %v", err)
 			}
 		})
 	}
@@ -201,7 +284,7 @@ func TestValidateProductionWorkerStillChecksRuntimeRequirements(t *testing.T) {
 		},
 		{
 			name:   "redis topology",
-			mutate: func(c *Config) { c.Redis.Addr = "10.0.0.8:6379" },
+			mutate: func(c *Config) { c.Redis.Addr = "127.0.0.1:6379" },
 			want:   "REDIS_ADDR",
 		},
 		{
@@ -342,6 +425,71 @@ func TestValidateProductionRejectsLocalhostSubdomainsAndZonedLinkLocalHosts(t *t
 	}
 }
 
+func TestValidateProductionRejectsAllZonedIPHosts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+		raw    string
+	}{
+		{
+			name:   "mysql zoned ULA",
+			mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([fd00::8%eth0]:3306)/admin" },
+			want:   "MYSQL_DSN",
+			raw:    "user:pass@tcp([fd00::8%eth0]:3306)/admin",
+		},
+		{
+			name:   "mysql zoned global",
+			mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([2001:4860:4860::8888%eth0]:3306)/admin" },
+			want:   "MYSQL_DSN",
+			raw:    "user:pass@tcp([2001:4860:4860::8888%eth0]:3306)/admin",
+		},
+		{
+			name:   "redis zoned ULA",
+			mutate: func(c *Config) { c.Redis.Addr = "[fd00::9%eth0]:6379" },
+			want:   "REDIS_ADDR",
+			raw:    "[fd00::9%eth0]:6379",
+		},
+		{
+			name:   "redis zoned global",
+			mutate: func(c *Config) { c.Redis.Addr = "[2001:4860:4860::8888%eth0]:6379" },
+			want:   "REDIS_ADDR",
+			raw:    "[2001:4860:4860::8888%eth0]:6379",
+		},
+		{
+			name: "cors zoned ULA",
+			mutate: func(c *Config) {
+				c.CORS.AllowOrigins = []string{"https://[fd00::8%25eth0]"}
+			},
+			want: "CORS_ALLOW_ORIGINS",
+			raw:  "https://[fd00::8%25eth0]",
+		},
+		{
+			name: "cors zoned global",
+			mutate: func(c *Config) {
+				c.CORS.AllowOrigins = []string{"https://[2001:4860:4860::8888%25eth0]"}
+			},
+			want: "CORS_ALLOW_ORIGINS",
+			raw:  "https://[2001:4860:4860::8888%25eth0]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := productionConfigForTest()
+			tt.mutate(&cfg)
+
+			err := Validate(ProcessAPI, cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error=%v, want key %q", err, tt.want)
+			}
+			if strings.Contains(err.Error(), tt.raw) {
+				t.Fatalf("validation error exposed configuration value: %v", err)
+			}
+		})
+	}
+}
+
 func TestIsLocalOrPrivateHostRecognizesLocalBoundaries(t *testing.T) {
 	tests := []struct {
 		host string
@@ -353,15 +501,62 @@ func TestIsLocalOrPrivateHostRecognizesLocalBoundaries(t *testing.T) {
 		{host: "API.LOCALHOST.", want: true},
 		{host: "fe80::1%eth0", want: true},
 		{host: "fd00::1%eth0", want: true},
+		{host: "2001:4860:4860::8888%eth0", want: true},
+		{host: "::ffff:10.0.0.8", want: true},
+		{host: "::ffff:127.0.0.1", want: true},
+		{host: "::ffff:0.0.0.0", want: true},
+		{host: "::ffff:169.254.1.8", want: true},
+		{host: "::ffff:239.1.1.1", want: true},
 		{host: "localhost.example.com", want: false},
 		{host: "example-localhost", want: false},
-		{host: "2001:4860:4860::8888%eth0", want: false},
+		{host: "2001:4860:4860::8888", want: false},
+		{host: "::ffff:8.8.8.8", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {
 			if got := isLocalOrPrivateHost(tt.host); got != tt.want {
 				t.Fatalf("isLocalOrPrivateHost()=%t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsLocalOrUnusableDependencyHostClassification(t *testing.T) {
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{host: "localhost", want: true},
+		{host: "db.localhost.", want: true},
+		{host: "127.0.0.1", want: true},
+		{host: "::1", want: true},
+		{host: "0.0.0.0", want: true},
+		{host: "::", want: true},
+		{host: "169.254.1.8", want: true},
+		{host: "fe80::1%eth0", want: true},
+		{host: "fd00::8%eth0", want: true},
+		{host: "2001:4860:4860::8888%eth0", want: true},
+		{host: "239.1.1.1", want: true},
+		{host: "ff0e::1", want: true},
+		{host: "::ffff:127.0.0.1", want: true},
+		{host: "::ffff:0.0.0.0", want: true},
+		{host: "::ffff:169.254.1.8", want: true},
+		{host: "::ffff:239.1.1.1", want: true},
+		{host: "10.0.0.8", want: false},
+		{host: "192.168.1.8", want: false},
+		{host: "fd00::8", want: false},
+		{host: "::ffff:10.0.0.8", want: false},
+		{host: "::ffff:192.168.1.8", want: false},
+		{host: "db.example.com", want: false},
+		{host: "2001:4860:4860::8888", want: false},
+		{host: "::ffff:8.8.8.8", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := isLocalOrUnusableDependencyHost(tt.host); got != tt.want {
+				t.Fatalf("isLocalOrUnusableDependencyHost()=%t, want %t", got, tt.want)
 			}
 		})
 	}
@@ -546,6 +741,20 @@ func TestLoadAcceptsValidAPIEnvironment(t *testing.T) {
 	}
 	if len(cfg.CORS.AllowOrigins) != 1 || cfg.CORS.AllowOrigins[0] != values["CORS_ALLOW_ORIGINS"] {
 		t.Fatalf("unexpected API CORS origins: %#v", cfg.CORS.AllowOrigins)
+	}
+}
+
+func TestLoadProductionAcceptsPrivateStateNodes(t *testing.T) {
+	values := validEnvironmentForTest()
+	values["APP_ENV"] = "production"
+	values["MYSQL_DSN"] = "user:pass@tcp(10.0.0.8:3306)/admin"
+	values["REDIS_ADDR"] = "192.168.1.8:6379"
+	values["REALTIME_PUBLISHER"] = RealtimePublisherRedis
+	values["CORS_ALLOW_ORIGINS"] = "https://admin.example.com"
+	setEnvironmentForTest(t, values)
+
+	if _, err := Load(ProcessAPI); err != nil {
+		t.Fatalf("Load(production private state nodes) error=%v", err)
 	}
 }
 
