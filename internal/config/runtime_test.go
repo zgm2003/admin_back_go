@@ -717,6 +717,41 @@ func TestLoadActivatesProcessValidation(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsExplicitlyBlankAppEnvironment(t *testing.T) {
+	for _, process := range []Process{ProcessAPI, ProcessWorker} {
+		for name, value := range map[string]string{
+			"empty":      "",
+			"whitespace": " \t\r\n ",
+		} {
+			t.Run(string(process)+"/"+name, func(t *testing.T) {
+				values := validEnvironmentForTest()
+				values["APP_ENV"] = value
+				setEnvironmentForTest(t, values)
+
+				_, err := Load(process)
+				if err == nil || !strings.Contains(err.Error(), "APP_ENV") {
+					t.Fatalf("Load(%s) error=%v, want APP_ENV error", process, err)
+				}
+			})
+		}
+	}
+}
+
+func TestLoadDefaultsUnsetAppEnvironmentToLocal(t *testing.T) {
+	values := validEnvironmentForTest()
+	delete(values, "APP_ENV")
+	setEnvironmentForTest(t, values)
+	unsetEnvForTest(t, "APP_ENV")
+
+	cfg, err := Load(ProcessAPI)
+	if err != nil {
+		t.Fatalf("Load(api) error=%v", err)
+	}
+	if cfg.App.Env != "local" {
+		t.Fatalf("Load(api) APP_ENV=%q, want local", cfg.App.Env)
+	}
+}
+
 func TestLoadAPIRejectsCommaOnlyCORSOrigins(t *testing.T) {
 	values := validEnvironmentForTest()
 	values["CORS_ALLOW_ORIGINS"] = ",,,"

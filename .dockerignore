@@ -6,6 +6,7 @@ dump.rdb
 
 .env
 .env.*.local
+deploy/docker-first/admin-go.env
 
 *.exe
 *.dll

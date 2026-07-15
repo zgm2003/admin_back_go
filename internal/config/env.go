@@ -13,12 +13,23 @@ type lookupEnv func(string) (string, bool)
 func osLookup(key string) (string, bool) { return os.LookupEnv(key) }
 
 func envText(lookup lookupEnv, key, fallback string) string {
+	if key == "APP_ENV" {
+		return envAppEnvironment(lookup, fallback)
+	}
 	value, ok := lookup(key)
 	value = strings.TrimSpace(value)
 	if !ok || value == "" {
 		return fallback
 	}
 	return value
+}
+
+func envAppEnvironment(lookup lookupEnv, fallback string) string {
+	value, ok := lookup("APP_ENV")
+	if !ok {
+		return fallback
+	}
+	return strings.TrimSpace(value)
 }
 
 func envOpaque(lookup lookupEnv, key, fallback string) string {

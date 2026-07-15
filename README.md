@@ -172,7 +172,10 @@ docs/architecture.md
 
 ```go
 _ = config.LoadDotEnv()
-cfg := config.Load()
+cfg, err := config.Load(config.ProcessAPI)
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 但这是兼容能力，不是当前项目默认入口。后端本地开发统一 Docker-first，正常不要创建仓库根 `.env`；本地容器运行配置用：
@@ -347,7 +350,7 @@ New-Item -ItemType Directory -Force -Path runtime/logs, exports
 ```env
 MYSQL_DSN=你的 MySQL DSN
 REDIS_ADDR=host.docker.internal:6380
-# 至少 32 位随机字符串；修改会让旧登录态和已加密业务密钥失效
+# 至少 64 个 ASCII 字符；修改会让旧登录态和已加密业务密钥失效
 APP_SECRET=本地长随机字符串
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
 ```
@@ -497,11 +500,11 @@ vim /www/docker/admin-go-backend/admin-go.env
 APP_ENV=production
 HTTP_ADDR=:8080
 
-MYSQL_DSN=admin_user:CHANGE_ME@tcp(127.0.0.1:3306)/admin?charset=utf8mb4&parseTime=True&loc=Local
-REDIS_ADDR=127.0.0.1:6379
+MYSQL_DSN=admin_user:CHANGE_ME@tcp(mysql.private-or-docker-host:3306)/admin?charset=utf8mb4&parseTime=True&loc=Local
+REDIS_ADDR=redis.private-or-docker-host:6379
 REDIS_PASSWORD=
 
-# 代码最低 32 位；生产建议 64+ 位随机字符串；所有 admin-api/admin-worker 节点必须一致
+# 至少 64 个 ASCII 字符；所有 admin-api/admin-worker 节点必须一致
 APP_SECRET=CHANGE_ME_TO_64_PLUS_RANDOM_CHARS
 
 QUEUE_ENABLED=true

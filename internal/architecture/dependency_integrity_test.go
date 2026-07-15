@@ -18,6 +18,8 @@ import (
 
 const asynqmonV072Sum = "github.com/hibiken/asynqmon v0.7.2 h1:YohWgTIPwtMyZ6khBDcVUz9BdSdQW2Dxn8SoxtbmjSg="
 
+const dockerFirstRuntimeSecretPath = "deploy/docker-first/admin-go.env"
+
 func requireWindowsPowerShell(t *testing.T) string {
 	t.Helper()
 	if runtime.GOOS != "windows" {
@@ -134,10 +136,8 @@ func goModTopLevelDirectiveValue(data []byte, key string) (string, bool) {
 	return "", false
 }
 
-func goModValue(data []byte, key string) (string, bool) {
-	if key == "go" {
-		return goModTopLevelDirectiveValue(data, key)
-	}
+func goModRequirementValues(data []byte, key string) []string {
+	var values []string
 	inRequireBlock := false
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := goModLineFields(line)
@@ -149,8 +149,12 @@ func goModValue(data []byte, key string) (string, bool) {
 				inRequireBlock = false
 				continue
 			}
-			if len(fields) >= 2 && fields[0] == key {
-				return fields[1], true
+			if len(fields) >= 2 {
+				modulePath, valid := goModTokenValue(fields[0])
+				if valid && modulePath == key {
+					version, _ := goModTokenValue(fields[1])
+					values = append(values, version)
+				}
 			}
 			continue
 		}
@@ -161,11 +165,15 @@ func goModValue(data []byte, key string) (string, bool) {
 			inRequireBlock = true
 			continue
 		}
-		if len(fields) >= 3 && fields[1] == key {
-			return fields[2], true
+		if len(fields) >= 3 {
+			modulePath, valid := goModTokenValue(fields[1])
+			if valid && modulePath == key {
+				version, _ := goModTokenValue(fields[2])
+				values = append(values, version)
+			}
 		}
 	}
-	return "", false
+	return values
 }
 
 func protectedGoModReplacements(data []byte) []string {
@@ -191,7 +199,7 @@ func protectedGoModReplacements(data []byte) []string {
 			original = fields[1]
 		}
 		original, valid := goModTokenValue(original)
-		for _, modulePath := range []string{"github.com/quic-go/quic-go", "golang.org/x/image"} {
+		for _, modulePath := range []string{"github.com/hibiken/asynqmon", "github.com/quic-go/quic-go", "golang.org/x/image"} {
 			if original == modulePath || (!valid && strings.HasPrefix(original, modulePath)) {
 				protected = append(protected, modulePath)
 				break
@@ -824,6 +832,72 @@ func readmeSecureFoundationProblems(data []byte) []string {
 	return problems
 }
 
+func dockerignoreRuntimeSecretProblems(data []byte) []string {
+	foundExactExclusion := false
+	var problems []string
+	for _, rawLine := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "!") {
+			problems = append(problems, ".dockerignore active negation patterns are forbidden")
+			continue
+		}
+		if line == dockerFirstRuntimeSecretPath {
+			foundExactExclusion = true
+		}
+	}
+	if !foundExactExclusion {
+		problems = append(problems, fmt.Sprintf(".dockerignore must contain exact exclusion %q", dockerFirstRuntimeSecretPath))
+	}
+	return problems
+}
+
+func readmeRuntimeSafetyProblems(data []byte) []string {
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	var problems []string
+	for _, required := range []string{
+		"cfg, err := config.Load(config.ProcessAPI)",
+		"if err != nil {\n    log.Fatal(err)\n}",
+		"# 至少 64 个 ASCII 字符；修改会让旧登录态和已加密业务密钥失效",
+	} {
+		if !strings.Contains(text, required) {
+			problems = append(problems, fmt.Sprintf("README.md must document %q", required))
+		}
+	}
+	if strings.Contains(text, "cfg := config.Load()") {
+		problems = append(problems, "README.md must not show the obsolete config.Load() signature")
+	}
+
+	const blockStart = "```env\nAPP_ENV=production\n"
+	start := strings.Index(text, blockStart)
+	if start < 0 {
+		return append(problems, "README.md must contain the production APP_ENV env block")
+	}
+	remainder := text[start+len(blockStart):]
+	end := strings.Index(remainder, "\n```")
+	if end < 0 {
+		return append(problems, "README.md production APP_ENV env block must be closed")
+	}
+	block := remainder[:end]
+	for _, forbidden := range []string{"127.0.0.1", "localhost", "最低 32"} {
+		if strings.Contains(block, forbidden) {
+			problems = append(problems, fmt.Sprintf("README.md production APP_ENV env block must not contain %q", forbidden))
+		}
+	}
+	for _, required := range []string{
+		"tcp(mysql.private-or-docker-host:3306)",
+		"REDIS_ADDR=redis.private-or-docker-host:6379",
+		"至少 64 个 ASCII 字符",
+	} {
+		if !strings.Contains(block, required) {
+			problems = append(problems, fmt.Sprintf("README.md production APP_ENV env block must contain %q", required))
+		}
+	}
+	return problems
+}
+
 func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		goMod string
@@ -849,6 +923,22 @@ func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
 			goMod: "replace (\r\n\t\"golang.org/x/image\" v0.43.0 => golang.org/x/image v0.42.0\r\n)\r\n",
 			want:  "golang.org/x/image",
 		},
+		"asynqmon single line with original version": {
+			goMod: "replace github.com/hibiken/asynqmon v0.7.2 => github.com/hibiken/asynqmon v0.7.1\r\n",
+			want:  "github.com/hibiken/asynqmon",
+		},
+		"asynqmon block without original version": {
+			goMod: "replace (\r\n\tgithub.com/hibiken/asynqmon => github.com/hibiken/asynqmon v0.7.1\r\n)\r\n",
+			want:  "github.com/hibiken/asynqmon",
+		},
+		"asynqmon no-space block": {
+			goMod: "replace(\r\n\tgithub.com/hibiken/asynqmon => github.com/hibiken/asynqmon v0.7.1\r\n)\r\n",
+			want:  "github.com/hibiken/asynqmon",
+		},
+		"asynqmon quoted single line": {
+			goMod: "replace \"github.com/hibiken/asynqmon\" => github.com/hibiken/asynqmon v0.7.1\r\n",
+			want:  "github.com/hibiken/asynqmon",
+		},
 		"quic malformed quoted token": {
 			goMod: "replace \"github.com/quic-go/quic-go\\q\" => github.com/quic-go/quic-go v0.59.0\r\n",
 			want:  "github.com/quic-go/quic-go",
@@ -860,6 +950,31 @@ func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
 				t.Fatalf("protected replacements = %v, want [%s]", got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestDockerignoreProtectsRuntimeSecret(t *testing.T) {
+	for _, problem := range dockerignoreRuntimeSecretProblems(readBackendArchitectureFile(t, ".dockerignore")) {
+		t.Error(problem)
+	}
+
+	for name, fixture := range map[string]string{
+		"missing exclusion":      ".git\nruntime\n",
+		"negated exclusion":      "!" + dockerFirstRuntimeSecretPath + "\n",
+		"later re-inclusion":     dockerFirstRuntimeSecretPath + "\n!" + dockerFirstRuntimeSecretPath + "\n",
+		"unrelated re-inclusion": dockerFirstRuntimeSecretPath + "\n!README.md\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if problems := dockerignoreRuntimeSecretProblems([]byte(fixture)); len(problems) == 0 {
+				t.Fatal(".dockerignore validator accepted an unsafe fixture")
+			}
+		})
+	}
+}
+
+func TestReadmeRuntimeSafetyContract(t *testing.T) {
+	for _, problem := range readmeRuntimeSafetyProblems(readBackendArchitectureFile(t, "README.md")) {
+		t.Error(problem)
 	}
 }
 
@@ -875,16 +990,21 @@ func secureGoFoundationProblems(root string) []string {
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("read go.mod: %v", err))
 	} else {
-		for key, want := range map[string]string{
-			"go":                         "1.26.5",
-			"github.com/quic-go/quic-go": "v0.59.1",
-			"golang.org/x/image":         "v0.43.0",
+		if got, ok := goModTopLevelDirectiveValue(goMod, "go"); !ok {
+			problems = append(problems, "go.mod value \"go\" not found")
+		} else if got != "1.26.5" {
+			problems = append(problems, fmt.Sprintf("go.mod go=%s, want 1.26.5", got))
+		}
+		for modulePath, want := range map[string]string{
+			"github.com/hibiken/asynqmon": "v0.7.2",
+			"github.com/quic-go/quic-go":  "v0.59.1",
+			"golang.org/x/image":          "v0.43.0",
 		} {
-			got, ok := goModValue(goMod, key)
-			if !ok {
-				problems = append(problems, fmt.Sprintf("go.mod value %q not found", key))
-			} else if got != want {
-				problems = append(problems, fmt.Sprintf("go.mod %s=%s, want %s", key, got, want))
+			versions := goModRequirementValues(goMod, modulePath)
+			if len(versions) != 1 {
+				problems = append(problems, fmt.Sprintf("go.mod require %s occurs %d times, want exactly once", modulePath, len(versions)))
+			} else if versions[0] != want {
+				problems = append(problems, fmt.Sprintf("go.mod %s=%s, want %s", modulePath, versions[0], want))
 			}
 		}
 		if toolchain, exists := goModTopLevelDirectiveValue(goMod, "toolchain"); exists {
@@ -906,6 +1026,7 @@ func secureGoFoundationProblems(root string) []string {
 		rel      string
 		validate func([]byte) []string
 	}{
+		{rel: ".dockerignore", validate: dockerignoreRuntimeSecretProblems},
 		{rel: "Dockerfile", validate: dockerfileSecureFoundationProblems},
 		{rel: "deploy/docker-first/docker-compose.yml", validate: composeSecureFoundationProblems},
 		{rel: "README.md", validate: readmeSecureFoundationProblems},
@@ -923,7 +1044,8 @@ func secureGoFoundationProblems(root string) []string {
 func writeSecureGoFoundationFixture(t *testing.T, overrides map[string]string) string {
 	t.Helper()
 	files := map[string]string{
-		"go.mod":                                 "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire (\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n",
+		"go.mod":                                 "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire (\n\tgithub.com/hibiken/asynqmon v0.7.2\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n",
+		".dockerignore":                          dockerFirstRuntimeSecretPath + "\n",
 		"Dockerfile":                             "# secure build fixture\n\nARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nFROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS task-6-build\n",
 		"deploy/docker-first/docker-compose.yml": "# secure compose fixture\nx-build-decoy:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\nservices:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n",
 		"README.md":                              "## Technology\n\n<!-- | Language | Go `1.26.1` | -->\n```markdown\n| Language | Go `1.26.1` |\n```\n| Type | Choice |\n| --- | --- |\n| Language | Go `1.26.5` |\n",
@@ -951,6 +1073,7 @@ func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing
 	testCases := []struct{ name, rel, content string }{
 		{"root vendor tree", "vendor/example/tampered.go", "package example\n"},
 		{"go.mod toolchain directive", "go.mod", "module example.com/secure-foundation-fixture\n\ngo 1.26.5\ntoolchain go1.27rc1\n\nrequire (\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n"},
+		{"go.mod duplicate asynqmon requirement", "go.mod", "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire (\n\tgithub.com/hibiken/asynqmon v0.7.2\n\tgithub.com/hibiken/asynqmon v0.7.3\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n"},
 		{"root go.work override", "go.work", "go 1.26.5\n\nuse .\n\nreplace github.com/quic-go/quic-go => ./local/quic-go\n"},
 		{"Dockerfile hard-coded old first build stage", "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nFROM golang:1.26.1-bookworm AS build\n"},
 		{"Compose extension decoys", compose,
@@ -1022,6 +1145,9 @@ func TestSecureGoFoundationValidatorAcceptsValidCRLFRoot(t *testing.T) {
 	const compose = "deploy/docker-first/docker-compose.yml"
 	for name, overrides := range map[string]map[string]string{
 		"default": nil,
+		"single-line requirements": {
+			"go.mod": "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire github.com/hibiken/asynqmon v0.7.2\nrequire github.com/quic-go/quic-go v0.59.1\nrequire golang.org/x/image v0.43.0\n",
+		},
 		"valid YAML indentation": {
 			compose: "services:\n   admin-api:\n      build:\n         args:\n            GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
 				"   admin-worker:\n      build:\n         args:\n            GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n",
@@ -1031,6 +1157,29 @@ func TestSecureGoFoundationValidatorAcceptsValidCRLFRoot(t *testing.T) {
 			root := writeSecureGoFoundationFixture(t, overrides)
 			if problems := secureGoFoundationProblems(root); len(problems) != 0 {
 				t.Fatalf("valid CRLF secure foundation fixture was rejected:\n%s", strings.Join(problems, "\n"))
+			}
+		})
+	}
+}
+
+func TestSecureGoFoundationValidatorRejectsDuplicateProtectedRequirements(t *testing.T) {
+	const validGoMod = "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire (\n\tgithub.com/hibiken/asynqmon v0.7.2\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n"
+	for modulePath, version := range map[string]string{
+		"github.com/hibiken/asynqmon": "v0.7.2",
+		"github.com/quic-go/quic-go":  "v0.59.1",
+		"golang.org/x/image":          "v0.43.0",
+	} {
+		t.Run(modulePath, func(t *testing.T) {
+			requirement := "\t" + modulePath + " " + version + "\n"
+			goMod := strings.Replace(validGoMod, requirement, requirement+requirement, 1)
+			root := writeSecureGoFoundationFixture(t, map[string]string{"go.mod": goMod})
+
+			problems := strings.Join(secureGoFoundationProblems(root), "\n")
+			if problems == "" {
+				t.Fatalf("secure foundation validator accepted duplicate protected requirement %s", modulePath)
+			}
+			if !strings.Contains(problems, modulePath) {
+				t.Fatalf("secure foundation validator failed without identifying %s:\n%s", modulePath, problems)
 			}
 		})
 	}
