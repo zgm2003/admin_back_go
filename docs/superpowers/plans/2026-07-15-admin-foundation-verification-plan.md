@@ -334,10 +334,33 @@ git commit -m "refactor(config): reject malformed runtime settings"
 - Create: `internal/config/runtime.go`
 - Create: `internal/config/runtime_test.go`
 - Modify: `internal/config/config.go`
+- Modify: `internal/config/config_test.go`
 
 - [ ] **Step 1: Write production and process validation tests**
 
 ```go
+func validConfigForTest() Config {
+	return Config{
+		App: AppConfig{Env: "local", Secret: strings.Repeat("s", 64)},
+		HTTP: HTTPConfig{
+			Addr:              ":8080",
+			ReadHeaderTimeout: 5 * time.Second,
+		},
+		MySQL: MySQLConfig{
+			DSN:             "user:pass@tcp(db.example.com:3306)/admin",
+			MaxOpenConns:    20,
+			MaxIdleConns:    10,
+			ConnMaxLifetime: time.Hour,
+		},
+		Redis: RedisConfig{Addr: "redis.example.com:6379", DB: 0},
+		Token: TokenConfig{RedisDB: DefaultTokenRedisDB},
+		Queue: QueueConfig{Enabled: true, RedisDB: 3, Concurrency: 10},
+		Realtime: RealtimeConfig{Enabled: true, Publisher: RealtimePublisherLocal},
+		Scheduler: SchedulerConfig{Enabled: true, Timezone: DefaultSchedulerTimezone},
+		CORS: DefaultCORSConfig(),
+	}
+}
+
 func TestValidateProductionRejectsUnsafeTopology(t *testing.T) {
 	cfg := validConfigForTest()
 	cfg.App.Env = "production"
@@ -354,6 +377,141 @@ func TestValidateWorkerRequiresQueue(t *testing.T) {
 	err := Validate(ProcessWorker, cfg)
 	if err == nil || !strings.Contains(err.Error(), "QUEUE_ENABLED must be true for admin-worker") {
 		t.Fatalf("error=%v", err)
+	}
+}
+```
+
+Use a production-safe fixture and table-driven coverage for every rule listed in Step 3:
+
+```go
+func productionConfigForTest() Config {
+	cfg := validConfigForTest()
+	cfg.App.Env = "production"
+	cfg.Realtime.Publisher = RealtimePublisherRedis
+	cfg.CORS.AllowOrigins = []string{"https://admin.example.com"}
+	return cfg
+}
+
+func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
+	certRoot := t.TempDir()
+	missingCertRoot := filepath.Join(t.TempDir(), "missing")
+	certFile := filepath.Join(t.TempDir(), "cert.pem")
+	if err := os.WriteFile(certFile, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	uncleanCertRoot := certRoot + string(os.PathSeparator) + "."
+
+	tests := []struct {
+		name       string
+		process    Process
+		production bool
+		mutate     func(*Config)
+		want       string
+	}{
+		{"unsupported process", Process("other"), false, nil, "process"},
+		{"app env", ProcessAPI, false, func(c *Config) { c.App.Env = "preview" }, "APP_ENV"},
+		{"short secret", ProcessAPI, false, func(c *Config) { c.App.Secret = strings.Repeat("s", 63) }, "APP_SECRET"},
+		{"api http required", ProcessAPI, false, func(c *Config) { c.HTTP.Addr = "" }, "HTTP_ADDR"},
+		{"http host port", ProcessAPI, false, func(c *Config) { c.HTTP.Addr = "localhost" }, "HTTP_ADDR"},
+		{"mysql required", ProcessAPI, false, func(c *Config) { c.MySQL.DSN = "" }, "MYSQL_DSN"},
+		{"mysql syntax", ProcessAPI, false, func(c *Config) { c.MySQL.DSN = "not-a-dsn" }, "MYSQL_DSN"},
+		{"mysql database", ProcessAPI, false, func(c *Config) { c.MySQL.DSN = "user:pass@tcp(db.example.com:3306)/" }, "MYSQL_DSN"},
+		{"mysql open", ProcessAPI, false, func(c *Config) { c.MySQL.MaxOpenConns = 0 }, "MYSQL_MAX_OPEN_CONNS"},
+		{"mysql idle negative", ProcessAPI, false, func(c *Config) { c.MySQL.MaxIdleConns = -1 }, "MYSQL_MAX_IDLE_CONNS"},
+		{"mysql idle above open", ProcessAPI, false, func(c *Config) { c.MySQL.MaxIdleConns = c.MySQL.MaxOpenConns + 1 }, "MYSQL_MAX_IDLE_CONNS"},
+		{"mysql lifetime", ProcessAPI, false, func(c *Config) { c.MySQL.ConnMaxLifetime = 0 }, "MYSQL_CONN_MAX_LIFETIME"},
+		{"redis required", ProcessAPI, false, func(c *Config) { c.Redis.Addr = "" }, "REDIS_ADDR"},
+		{"redis host port", ProcessAPI, false, func(c *Config) { c.Redis.Addr = "redis.example.com" }, "REDIS_ADDR"},
+		{"redis db", ProcessAPI, false, func(c *Config) { c.Redis.DB = -1 }, "REDIS_DB"},
+		{"token redis db", ProcessAPI, false, func(c *Config) { c.Token.RedisDB = -1 }, "TOKEN_REDIS_DB"},
+		{"queue redis db", ProcessAPI, false, func(c *Config) { c.Queue.RedisDB = -1 }, "QUEUE_REDIS_DB"},
+		{"worker queue", ProcessWorker, false, func(c *Config) { c.Queue.Enabled = false }, "QUEUE_ENABLED"},
+		{"queue concurrency", ProcessAPI, false, func(c *Config) { c.Queue.Concurrency = 0 }, "QUEUE_CONCURRENCY"},
+		{"scheduler queue", ProcessAPI, false, func(c *Config) { c.Queue.Enabled = false }, "SCHEDULER_ENABLED"},
+		{"scheduler timezone", ProcessAPI, false, func(c *Config) { c.Scheduler.Timezone = "Mars/Olympus" }, "SCHEDULER_TIMEZONE"},
+		{"realtime publisher", ProcessAPI, false, func(c *Config) { c.Realtime.Publisher = "kafka" }, "REALTIME_PUBLISHER"},
+		{"production realtime", ProcessAPI, true, func(c *Config) { c.Realtime.Publisher = RealtimePublisherLocal }, "REALTIME_PUBLISHER"},
+		{"cors scheme", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"ftp://admin.example.com"} }, "CORS_ALLOW_ORIGINS"},
+		{"cors user info", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"https://user@admin.example.com"} }, "CORS_ALLOW_ORIGINS"},
+		{"cors query", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"https://admin.example.com?x=1"} }, "CORS_ALLOW_ORIGINS"},
+		{"cors fragment", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"https://admin.example.com#x"} }, "CORS_ALLOW_ORIGINS"},
+		{"cors path", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"https://admin.example.com/app"} }, "CORS_ALLOW_ORIGINS"},
+		{"production mysql loopback", ProcessAPI, true, func(c *Config) { c.MySQL.DSN = "user:pass@tcp(127.0.0.1:3306)/admin" }, "MYSQL_DSN"},
+		{"production mysql private", ProcessAPI, true, func(c *Config) { c.MySQL.DSN = "user:pass@tcp(10.0.0.8:3306)/admin" }, "MYSQL_DSN"},
+		{"production redis private", ProcessAPI, true, func(c *Config) { c.Redis.Addr = "192.168.1.8:6379" }, "REDIS_ADDR"},
+		{"production origin http", ProcessAPI, true, func(c *Config) { c.CORS.AllowOrigins = []string{"http://admin.example.com"} }, "CORS_ALLOW_ORIGINS"},
+		{"production origin loopback", ProcessAPI, true, func(c *Config) { c.CORS.AllowOrigins = []string{"https://127.0.0.1"} }, "CORS_ALLOW_ORIGINS"},
+		{"production origin private", ProcessAPI, true, func(c *Config) { c.CORS.AllowOrigins = []string{"https://172.16.0.8"} }, "CORS_ALLOW_ORIGINS"},
+		{"payment relative", ProcessAPI, false, func(c *Config) { c.Payment.CertBaseDir = "certs" }, "PAYMENT_CERT_BASE_DIR"},
+		{"payment unclean", ProcessAPI, false, func(c *Config) { c.Payment.CertBaseDir = uncleanCertRoot }, "PAYMENT_CERT_BASE_DIR"},
+		{"payment missing", ProcessAPI, false, func(c *Config) { c.Payment.CertBaseDir = missingCertRoot }, "PAYMENT_CERT_BASE_DIR"},
+		{"payment file", ProcessAPI, false, func(c *Config) { c.Payment.CertBaseDir = certFile }, "PAYMENT_CERT_BASE_DIR"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfigForTest()
+			if tt.production {
+				cfg = productionConfigForTest()
+			}
+			if tt.mutate != nil {
+				tt.mutate(&cfg)
+			}
+			err := Validate(tt.process, cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error=%v, want key %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsProcessSpecificConfig(t *testing.T) {
+	api := validConfigForTest()
+	api.Payment.CertBaseDir = t.TempDir()
+	if err := Validate(ProcessAPI, api); err != nil {
+		t.Fatalf("Validate(api): %v", err)
+	}
+
+	worker := validConfigForTest()
+	worker.HTTP.Addr = ""
+	if err := Validate(ProcessWorker, worker); err != nil {
+		t.Fatalf("Validate(worker): %v", err)
+	}
+}
+```
+
+Error assertions check configuration keys and reasons, never a secret value. Prove the public loader activates `Validate` before resource construction with an isolated complete environment:
+
+```go
+func TestLoadActivatesProcessValidation(t *testing.T) {
+	values := map[string]string{
+		"APP_ENV":                   "local",
+		"APP_SECRET":                strings.Repeat("s", 64),
+		"HTTP_ADDR":                 ":8080",
+		"HTTP_READ_HEADER_TIMEOUT":  "5s",
+		"MYSQL_DSN":                 "user:pass@tcp(db.example.com:3306)/admin",
+		"MYSQL_MAX_OPEN_CONNS":      "20",
+		"MYSQL_MAX_IDLE_CONNS":      "10",
+		"MYSQL_CONN_MAX_LIFETIME":   "1h",
+		"REDIS_ADDR":                "redis.example.com:6379",
+		"REDIS_DB":                  "0",
+		"TOKEN_REDIS_DB":            "2",
+		"QUEUE_ENABLED":             "false",
+		"QUEUE_REDIS_DB":            "3",
+		"QUEUE_CONCURRENCY":         "10",
+		"REALTIME_ENABLED":          "true",
+		"REALTIME_PUBLISHER":        RealtimePublisherLocal,
+		"SCHEDULER_ENABLED":         "false",
+		"CORS_ALLOW_ORIGINS":        "http://localhost:5173",
+		"PAYMENT_CERT_BASE_DIR":     "",
+	}
+	for key, value := range values {
+		t.Setenv(key, value)
+	}
+
+	_, err := Load(ProcessWorker)
+	if err == nil || !strings.Contains(err.Error(), "QUEUE_ENABLED must be true for admin-worker") {
+		t.Fatalf("Load(worker) error=%v", err)
 	}
 }
 ```
@@ -420,6 +578,8 @@ Complete `Validate` with these explicit rules:
 - a non-empty `PAYMENT_CERT_BASE_DIR` is absolute, clean, and exists as a directory; an empty value remains allowed until an enabled payment configuration is assembled in P03;
 - `ValidateRuntimeSecrets` rejects the sentinel values and requires at least 64 bytes.
 
+Production loopback/private checks apply to MySQL and Redis dependency hosts as well as CORS origins. Use parsed hosts (`mysql.ParseDSN`, `net.SplitHostPort`, and `url.URL.Hostname`) rather than substring checks. Do not perform DNS lookups and do not include a DSN, password, secret, or raw environment value in validation errors.
+
 - [ ] **Step 4: Activate validation in the loader before resource construction**
 
 Replace the staged Task 2 loader body with:
@@ -439,22 +599,38 @@ func Load(process Process) (Config, error) {
 
 Task 2 already migrated both mains to `Load(ProcessAPI)` / `Load(ProcessWorker)` and exits through `slog.Error` before logger or resource construction. Verify those guards remain intact. Do not log `cfg` or an environment value.
 
+Keep parser/default tests independent from runtime requirements by changing the existing test helper in `internal/config/config_test.go` to:
+
+```go
+func loadForTest(t *testing.T, _ Process) Config {
+	t.Helper()
+	cfg, err := loadFrom(osLookup)
+	if err != nil {
+		t.Fatalf("loadFrom(): %v", err)
+	}
+	return cfg
+}
+```
+
+`runtime_test.go` owns all `Load`/`Validate` behavior tests. Do not make every parser test manufacture database, Redis, and secret requirements merely to exercise parsing.
+
 - [ ] **Step 5: Verify**
 
 Run:
 
 ```powershell
 go test ./internal/config ./cmd/admin-api ./cmd/admin-worker -count=1
+go test ./... -count=1
 go build -o $env:TEMP\admin-api-foundation.exe ./cmd/admin-api
 go build -o $env:TEMP\admin-worker-foundation.exe ./cmd/admin-worker
 ```
 
-Expected: tests pass and both binaries build.
+Expected: focused and full repository tests pass and both binaries build.
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add -- internal/config/config.go internal/config/runtime.go internal/config/runtime_test.go
+git add -- internal/config/config.go internal/config/config_test.go internal/config/runtime.go internal/config/runtime_test.go
 git commit -m "feat(config): validate api and worker runtime requirements"
 ```
 
