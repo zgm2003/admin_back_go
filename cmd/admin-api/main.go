@@ -11,7 +11,11 @@ import (
 
 func main() {
 	_ = config.LoadDotEnv()
-	cfg := config.Load()
+	cfg, err := config.Load(config.ProcessAPI)
+	if err != nil {
+		slog.Error("invalid environment configuration", "error", err)
+		os.Exit(1)
+	}
 	logger, logCloser, err := logging.NewLogger(cfg.Logging.ForProcess("admin-api"), os.Stdout)
 	if err != nil {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))

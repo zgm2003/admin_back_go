@@ -19,7 +19,7 @@ func TestLoadReadsOnlyLogDirFromEnvironment(t *testing.T) {
 	t.Setenv("LOG_FILE_MAX_AGE_DAYS", "1")
 	t.Setenv("LOG_FILE_COMPRESS", "false")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if !cfg.Logging.EnableFile {
 		t.Fatalf("LOG_ENABLE_FILE must be code-owned and default true")

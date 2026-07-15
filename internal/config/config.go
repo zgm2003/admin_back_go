@@ -2,11 +2,16 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+)
+
+type Process string
+
+const (
+	ProcessAPI    Process = "admin-api"
+	ProcessWorker Process = "admin-worker"
 )
 
 type Config struct {
@@ -225,58 +230,107 @@ type CORSConfig struct {
 	MaxAge           time.Duration
 }
 
-func Load() Config {
+func Load(_ Process) (Config, error) {
+	return loadFrom(osLookup)
+}
+
+func loadFrom(lookup lookupEnv) (Config, error) {
+	readHeaderTimeout, err := envPeriod(lookup, "HTTP_READ_HEADER_TIMEOUT", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	maxOpenConns, err := envInteger(lookup, "MYSQL_MAX_OPEN_CONNS", 20, true)
+	if err != nil {
+		return Config{}, err
+	}
+	maxIdleConns, err := envInteger(lookup, "MYSQL_MAX_IDLE_CONNS", 10, false)
+	if err != nil {
+		return Config{}, err
+	}
+	connMaxLifetime, err := envPeriod(lookup, "MYSQL_CONN_MAX_LIFETIME", time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	redisDB, err := envInteger(lookup, "REDIS_DB", 0, false)
+	if err != nil {
+		return Config{}, err
+	}
+	tokenRedisDB, err := envInteger(lookup, "TOKEN_REDIS_DB", DefaultTokenRedisDB, false)
+	if err != nil {
+		return Config{}, err
+	}
+	queueEnabled, err := envBoolean(lookup, "QUEUE_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	queueRedisDB, err := envInteger(lookup, "QUEUE_REDIS_DB", 3, false)
+	if err != nil {
+		return Config{}, err
+	}
+	queueConcurrency, err := envInteger(lookup, "QUEUE_CONCURRENCY", 10, true)
+	if err != nil {
+		return Config{}, err
+	}
+	realtimeEnabled, err := envBoolean(lookup, "REALTIME_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	schedulerEnabled, err := envBoolean(lookup, "SCHEDULER_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+
 	corsConfig := DefaultCORSConfig()
-	corsConfig.AllowOrigins = envCSV("CORS_ALLOW_ORIGINS", corsConfig.AllowOrigins)
+	corsConfig.AllowOrigins = envList(lookup, "CORS_ALLOW_ORIGINS", corsConfig.AllowOrigins)
 
 	loggingConfig := DefaultLoggingConfig()
-	loggingConfig.Dir = envString("LOG_DIR", loggingConfig.Dir)
+	loggingConfig.Dir = envText(lookup, "LOG_DIR", loggingConfig.Dir)
 
 	return Config{
 		App: AppConfig{
-			Env:    envString("APP_ENV", "local"),
-			Secret: envString("APP_SECRET", ""),
+			Env:    envText(lookup, "APP_ENV", "local"),
+			Secret: envOpaque(lookup, "APP_SECRET", ""),
 		},
 		HTTP: HTTPConfig{
-			Addr:              envString("HTTP_ADDR", ":8080"),
-			ReadHeaderTimeout: envDuration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
+			Addr:              envText(lookup, "HTTP_ADDR", ":8080"),
+			ReadHeaderTimeout: readHeaderTimeout,
 		},
 		Logging: loggingConfig,
 		MySQL: MySQLConfig{
-			DSN:             envString("MYSQL_DSN", legacyMySQLDSN()),
-			MaxOpenConns:    envInt("MYSQL_MAX_OPEN_CONNS", 20),
-			MaxIdleConns:    envInt("MYSQL_MAX_IDLE_CONNS", 10),
-			ConnMaxLifetime: envDuration("MYSQL_CONN_MAX_LIFETIME", time.Hour),
+			DSN:             envText(lookup, "MYSQL_DSN", legacyMySQLDSN(lookup)),
+			MaxOpenConns:    maxOpenConns,
+			MaxIdleConns:    maxIdleConns,
+			ConnMaxLifetime: connMaxLifetime,
 		},
 		Redis: RedisConfig{
-			Addr:     envString("REDIS_ADDR", legacyRedisAddr()),
-			Password: envString("REDIS_PASSWORD", ""),
-			DB:       envInt("REDIS_DB", 0),
+			Addr:     envText(lookup, "REDIS_ADDR", legacyRedisAddr(lookup)),
+			Password: envOpaque(lookup, "REDIS_PASSWORD", ""),
+			DB:       redisDB,
 		},
 		Token: NormalizeTokenConfig(TokenConfig{
-			RedisDB: envInt("TOKEN_REDIS_DB", DefaultTokenRedisDB),
+			RedisDB: tokenRedisDB,
 		}),
 		Queue: QueueConfig{
-			Enabled:     envBool("QUEUE_ENABLED", true),
-			RedisDB:     envInt("QUEUE_REDIS_DB", 3),
-			Concurrency: envInt("QUEUE_CONCURRENCY", 10),
+			Enabled:     queueEnabled,
+			RedisDB:     queueRedisDB,
+			Concurrency: queueConcurrency,
 		},
 		Realtime: RealtimeConfig{
-			Enabled:           envBool("REALTIME_ENABLED", true),
-			Publisher:         envString("REALTIME_PUBLISHER", RealtimePublisherLocal),
+			Enabled:           realtimeEnabled,
+			Publisher:         envText(lookup, "REALTIME_PUBLISHER", RealtimePublisherLocal),
 			HeartbeatInterval: DefaultRealtimeHeartbeatInterval,
 			SendBuffer:        DefaultRealtimeSendBuffer,
 			RedisChannel:      DefaultRealtimeRedisChannel,
 		},
 		Scheduler: NormalizeSchedulerConfig(SchedulerConfig{
-			Enabled: envBool("SCHEDULER_ENABLED", true),
+			Enabled: schedulerEnabled,
 		}),
 		Payment: PaymentConfig{
-			CertBaseDir: envString("PAYMENT_CERT_BASE_DIR", ""),
+			CertBaseDir: envText(lookup, "PAYMENT_CERT_BASE_DIR", ""),
 		},
 		AI:   NormalizeAIConfig(AIConfig{}),
 		CORS: corsConfig,
-	}
+	}, nil
 }
 
 var unsafeAppSecrets = map[string]struct{}{
@@ -320,89 +374,22 @@ func DefaultCORSConfig() CORSConfig {
 	}
 }
 
-func envString(key string, fallback string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	return value
-}
-
-func legacyMySQLDSN() string {
-	host := os.Getenv("DB_HOST")
-	database := os.Getenv("DB_DATABASE")
-	username := os.Getenv("DB_USERNAME")
+func legacyMySQLDSN(lookup lookupEnv) string {
+	host := envText(lookup, "DB_HOST", "")
+	database := envText(lookup, "DB_DATABASE", "")
+	username := envText(lookup, "DB_USERNAME", "")
 	if host == "" || database == "" || username == "" {
 		return ""
 	}
-	port := envString("DB_PORT", "3306")
-	password := os.Getenv("DB_PASSWORD")
+	port := envText(lookup, "DB_PORT", "3306")
+	password := envOpaque(lookup, "DB_PASSWORD", "")
 	return username + ":" + password + "@tcp(" + host + ":" + port + ")/" + database + "?charset=utf8mb4&parseTime=True&loc=Local"
 }
 
-func legacyRedisAddr() string {
-	host := os.Getenv("REDIS_HOST")
+func legacyRedisAddr(lookup lookupEnv) string {
+	host := envText(lookup, "REDIS_HOST", "")
 	if host == "" {
 		return ""
 	}
-	return host + ":" + envString("REDIS_PORT", "6379")
-}
-
-func envInt(key string, fallback int) int {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func envBool(key string, fallback bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func envCSV(key string, fallback []string) []string {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-
-	parts := strings.Split(value, ",")
-	values := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			values = append(values, part)
-		}
-	}
-	if len(values) == 0 {
-		return fallback
-	}
-	return values
-}
-
-func envDuration(key string, fallback time.Duration) time.Duration {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := time.ParseDuration(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
+	return host + ":" + envText(lookup, "REDIS_PORT", "6379")
 }

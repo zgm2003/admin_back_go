@@ -8,7 +8,7 @@ import (
 func TestLoadReadsAppSecretWithoutLegacyVaultConfig(t *testing.T) {
 	t.Setenv("APP_SECRET", strings.Repeat("a", 64))
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if cfg.App.Secret != strings.Repeat("a", 64) {
 		t.Fatalf("expected APP_SECRET to be loaded, got %q", cfg.App.Secret)

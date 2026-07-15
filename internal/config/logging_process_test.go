@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestLoggingConfigForProcessUsesDedicatedWorkerFile(t *testing.T) {
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 	workerLogging := cfg.Logging.ForProcess("admin-worker")
 
 	if workerLogging.FileName != "admin-worker.log" {
@@ -15,7 +15,7 @@ func TestLoggingConfigForProcessUsesDedicatedWorkerFile(t *testing.T) {
 }
 
 func TestLoggingConfigForProcessKeepsAPIFile(t *testing.T) {
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 	apiLogging := cfg.Logging.ForProcess("admin-api")
 
 	if apiLogging.FileName != "admin-api.log" {

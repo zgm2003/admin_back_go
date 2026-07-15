@@ -9,8 +9,17 @@ import (
 	"time"
 )
 
+func loadForTest(t *testing.T, process Process) Config {
+	t.Helper()
+	cfg, err := Load(process)
+	if err != nil {
+		t.Fatalf("Load(%s): %v", process, err)
+	}
+	return cfg
+}
+
 func TestLoadUsesSafeDefaults(t *testing.T) {
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if cfg.App.Env != "local" {
 		t.Fatalf("expected app env local, got %q", cfg.App.Env)
@@ -134,7 +143,7 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 func TestLoadPreservesLanDevCORSOrigin(t *testing.T) {
 	t.Setenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 	want := []string{"http://localhost:5173", "http://127.0.0.1:5173", "http://192.168.5.20:5173"}
 	if !reflect.DeepEqual(cfg.CORS.AllowOrigins, want) {
 		t.Fatalf("unexpected LAN dev CORS origins: %#v", cfg.CORS.AllowOrigins)
@@ -177,7 +186,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
 	t.Setenv("CORS_MAX_AGE", "30m")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if cfg.App.Env != "test" || cfg.App.Secret != strings.Repeat("s", 64) {
 		t.Fatalf("unexpected app config: %#v", cfg.App)
@@ -254,7 +263,7 @@ func TestConfigDoesNotExposeAppName(t *testing.T) {
 	unsetEnvForTest(t, "APP_ENV")
 	t.Setenv(deprecatedAppNameEnvKey(), "admin-api-test")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 	appType := reflect.TypeOf(cfg.App)
 	if _, ok := appType.FieldByName("Name"); ok {
 		t.Fatalf("AppConfig must not expose Name; process identity is owned by cmd entrypoints and Compose services")
@@ -409,7 +418,7 @@ func TestNormalizeAIConfigPreservesExplicitValues(t *testing.T) {
 func TestLoadReadsAppSecret(t *testing.T) {
 	t.Setenv("APP_SECRET", strings.Repeat("a", 64))
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if cfg.App.Secret != strings.Repeat("a", 64) {
 		t.Fatalf("expected APP_SECRET to be loaded")
@@ -447,7 +456,7 @@ func TestValidateRuntimeSecretsAcceptsLongAppSecret(t *testing.T) {
 func TestLoadReadsPaymentConfig(t *testing.T) {
 	t.Setenv("PAYMENT_CERT_BASE_DIR", "E:/admin_go/admin_back_go")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if cfg.Payment.CertBaseDir != "E:/admin_go/admin_back_go" {
 		t.Fatalf("expected payment cert base dir to point at Go backend, got %q", cfg.Payment.CertBaseDir)
@@ -790,20 +799,6 @@ func TestDefaultCORSConfigUsesCodeOwnedPolicy(t *testing.T) {
 	}
 }
 
-func TestLoadFallsBackOnInvalidNumericAndDurationValues(t *testing.T) {
-	t.Setenv("MYSQL_MAX_OPEN_CONNS", "garbage")
-	t.Setenv("REDIS_DB", "garbage")
-
-	cfg := Load()
-
-	if cfg.MySQL.MaxOpenConns != 20 {
-		t.Fatalf("expected fallback mysql max open conns 20, got %d", cfg.MySQL.MaxOpenConns)
-	}
-	if cfg.Redis.DB != 0 {
-		t.Fatalf("expected fallback redis db 0, got %d", cfg.Redis.DB)
-	}
-}
-
 func TestLoadBuildsMySQLDSNFromLegacyDBEnvironment(t *testing.T) {
 	t.Setenv("DB_HOST", "127.0.0.1")
 	t.Setenv("DB_PORT", "3307")
@@ -811,7 +806,7 @@ func TestLoadBuildsMySQLDSNFromLegacyDBEnvironment(t *testing.T) {
 	t.Setenv("DB_USERNAME", "admin_user")
 	t.Setenv("DB_PASSWORD", "secret")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	want := "admin_user:secret@tcp(127.0.0.1:3307)/admin?charset=utf8mb4&parseTime=True&loc=Local"
 	if cfg.MySQL.DSN != want {
@@ -823,7 +818,7 @@ func TestLoadBuildsRedisAddrFromLegacyRedisEnvironment(t *testing.T) {
 	t.Setenv("REDIS_HOST", "127.0.0.1")
 	t.Setenv("REDIS_PORT", "6380")
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 
 	if cfg.Redis.Addr != "127.0.0.1:6380" {
 		t.Fatalf("expected redis addr 127.0.0.1:6380, got %q", cfg.Redis.Addr)
@@ -873,7 +868,7 @@ func TestLoadDotEnvReadsLocalEnvFile(t *testing.T) {
 		t.Fatalf("LoadDotEnv returned error: %v", err)
 	}
 
-	cfg := Load()
+	cfg := loadForTest(t, ProcessAPI)
 	if cfg.App.Env != "dotenv" {
 		t.Fatalf("expected app env from .env, got %q", cfg.App.Env)
 	}
