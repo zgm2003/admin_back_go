@@ -1,4 +1,4 @@
-ARG GO_BUILD_IMAGE=golang:1.26.1-bookworm
+ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm
 ARG GO_RUNTIME_IMAGE=debian:bookworm-slim
 ARG GO_MODULE_PROXY=https://goproxy.io,https://proxy.golang.org,direct
 

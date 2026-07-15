@@ -45,7 +45,7 @@ API 前缀        /api/admin/v1
 
 | 类型 | 选型 |
 | --- | --- |
-| Language | Go `1.26.1` |
+| Language | Go `1.26.5` |
 | HTTP | Gin |
 | ORM | GORM + MySQL driver |
 | Redis | `redis/go-redis` |

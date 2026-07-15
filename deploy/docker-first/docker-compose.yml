@@ -7,7 +7,7 @@ services:
       context: ../..
       dockerfile: Dockerfile
       args:
-        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm
+        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm
         GO_RUNTIME_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
     command: ["/app/admin-api"]
     restart: unless-stopped
@@ -31,7 +31,7 @@ services:
       context: ../..
       dockerfile: Dockerfile
       args:
-        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm
+        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm
         GO_RUNTIME_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
     command: ["/app/admin-worker"]
     restart: unless-stopped

@@ -87,6 +87,51 @@ func containsExactLine(data []byte, expected string) bool {
 	return false
 }
 
+func goModValue(t *testing.T, data []byte, key string) string {
+	t.Helper()
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == key {
+			return fields[1]
+		}
+	}
+	t.Fatalf("go.mod value %q not found", key)
+	return ""
+}
+
+func requireFileContainsCount(t *testing.T, root, rel, value string, count int) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), value); got != count {
+		t.Fatalf("%s contains %q %d times, want %d", rel, value, got, count)
+	}
+}
+
+func TestSecureGoFoundationVersions(t *testing.T) {
+	root := backendRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for key, want := range map[string]string{
+		"go":                         "1.26.5",
+		"github.com/quic-go/quic-go": "v0.59.1",
+		"golang.org/x/image":         "v0.43.0",
+	} {
+		if got := goModValue(t, data, key); got != want {
+			t.Errorf("go.mod %s=%s, want %s", key, got, want)
+		}
+	}
+
+	requireFileContainsCount(t, root, "Dockerfile", "golang:1.26.5-bookworm", 1)
+	requireFileContainsCount(t, root, "deploy/docker-first/docker-compose.yml", "golang:1.26.5-bookworm", 2)
+	requireFileContainsCount(t, root, "README.md", "Go `1.26.5`", 1)
+}
+
 func TestAsynqmonChecksumMatchesTransparencyLog(t *testing.T) {
 	root := backendRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, "go.sum"))
