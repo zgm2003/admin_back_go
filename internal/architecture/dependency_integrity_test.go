@@ -1,6 +1,7 @@
 package architecture
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,41 +172,243 @@ func protectedGoModReplacements(data []byte) []string {
 	return protected
 }
 
-func exactTrimmedLineCount(data []byte, expected string) int {
-	count := 0
-	inHTMLComment := false
-	for _, line := range strings.Split(string(data), "\n") {
-		commented := inHTMLComment
-		remaining := line
-		for {
-			marker := "<!--"
-			if inHTMLComment {
-				marker = "-->"
-			}
-			index := strings.Index(remaining, marker)
-			if index < 0 {
-				break
-			}
-			commented = true
-			inHTMLComment = !inHTMLComment
-			remaining = remaining[index+len(marker):]
+func dockerfileSecureFoundationProblems(data []byte) []string {
+	const expectedArg = "GO_BUILD_IMAGE=golang:1.26.5-bookworm"
+
+	var problems []string
+	argCount := 0
+	validGlobalArg := false
+	firstFromFound := false
+	firstFromImage := ""
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(strings.TrimSuffix(rawLine, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
-		if !commented && strings.TrimSpace(line) == expected {
-			count++
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		switch strings.ToUpper(fields[0]) {
+		case "ARG":
+			argument := strings.TrimSpace(line[len(fields[0]):])
+			name, _, _ := strings.Cut(argument, "=")
+			if strings.TrimSpace(name) != "GO_BUILD_IMAGE" {
+				continue
+			}
+			argCount++
+			if !firstFromFound && argument == expectedArg {
+				validGlobalArg = true
+			}
+		case "FROM":
+			if firstFromFound {
+				continue
+			}
+			firstFromFound = true
+			for _, field := range fields[1:] {
+				if !strings.HasPrefix(field, "--") {
+					firstFromImage = field
+					break
+				}
+			}
 		}
 	}
-	return count
+	if argCount != 1 {
+		problems = append(problems, fmt.Sprintf("Dockerfile must declare exactly one GO_BUILD_IMAGE ARG, found %d", argCount))
+	} else if !validGlobalArg {
+		problems = append(problems, "Dockerfile GO_BUILD_IMAGE ARG must be the approved global ARG before the first FROM")
+	}
+	if !firstFromFound {
+		problems = append(problems, "Dockerfile must contain an active FROM")
+	} else if firstFromImage != "${GO_BUILD_IMAGE}" {
+		problems = append(problems, fmt.Sprintf("Dockerfile first FROM image is %q, want ${GO_BUILD_IMAGE}", firstFromImage))
+	}
+	return problems
 }
 
-func requireExactTrimmedLineCount(t *testing.T, root, rel, expected string, want int) {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-	if err != nil {
-		t.Fatal(err)
+var secureComposeGoBuildImagePaths = [...]string{
+	"services.admin-api.build.args.GO_BUILD_IMAGE",
+	"services.admin-worker.build.args.GO_BUILD_IMAGE",
+}
+
+func secureComposePathKind(path string) (relevant, target bool) {
+	for _, targetPath := range secureComposeGoBuildImagePaths {
+		if path == targetPath {
+			return true, true
+		}
+		if strings.HasPrefix(targetPath, path+".") {
+			relevant = true
+		}
 	}
-	if got := exactTrimmedLineCount(data, expected); got != want {
-		t.Errorf("%s contains exact trimmed line %q %d times, want %d", rel, expected, got, want)
+	return relevant, false
+}
+
+func composeSecureFoundationProblems(data []byte) []string {
+	const expected = "docker.m.daocloud.io/library/golang:1.26.5-bookworm"
+
+	var problems []string
+	path := []string{}
+	seen := map[string]int{}
+	values := map[string][]string{}
+	for lineNumber, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSuffix(rawLine, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if indent < len(line) && line[indent] == '\t' {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses tab indentation", lineNumber+1))
+			continue
+		}
+		if indent%2 != 0 {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses unsupported indentation", lineNumber+1))
+			continue
+		}
+		depth := indent / 2
+		if depth > len(path) {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d skips a mapping level", lineNumber+1))
+			continue
+		}
+		path = path[:depth]
+		content := strings.TrimSpace(line[indent:])
+		if strings.HasPrefix(content, "-") {
+			if relevant, _ := secureComposePathKind(strings.Join(path, ".")); relevant {
+				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses an unsupported sequence at %s", lineNumber+1, strings.Join(path, ".")))
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(content, ":")
+		if !ok || strings.TrimSpace(key) == "" {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d is not a simple mapping", lineNumber+1))
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		path = append(path, key)
+		fullPath := strings.Join(path, ".")
+		relevant, target := secureComposePathKind(fullPath)
+		if relevant {
+			seen[fullPath]++
+			if seen[fullPath] > 1 {
+				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml duplicates %s", fullPath))
+			}
+		}
+		if key == "<<" {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses an unsupported YAML merge", lineNumber+1))
+		}
+		if relevant && !target && value != "" {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s must use a simple nested mapping", fullPath))
+		}
+		if target {
+			values[fullPath] = append(values[fullPath], value)
+		}
 	}
+	for _, targetPath := range secureComposeGoBuildImagePaths {
+		if len(values[targetPath]) != 1 {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml must define %s exactly once, found %d", targetPath, len(values[targetPath])))
+		} else if values[targetPath][0] != expected {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s=%q, want %q", targetPath, values[targetPath][0], expected))
+		}
+	}
+	return problems
+}
+
+func stripHTMLComments(line string, inComment *bool) (string, bool) {
+	var active strings.Builder
+	hadComment := *inComment
+	remaining := line
+	for remaining != "" {
+		if *inComment {
+			end := strings.Index(remaining, "-->")
+			if end < 0 {
+				return active.String(), true
+			}
+			*inComment = false
+			hadComment = true
+			remaining = remaining[end+3:]
+			continue
+		}
+		start := strings.Index(remaining, "<!--")
+		if start < 0 {
+			active.WriteString(remaining)
+			break
+		}
+		active.WriteString(remaining[:start])
+		*inComment = true
+		hadComment = true
+		remaining = remaining[start+4:]
+	}
+	return active.String(), hadComment
+}
+
+func markdownFence(line string) (byte, int, string, bool) {
+	withoutIndent := strings.TrimLeft(line, " ")
+	if len(line)-len(withoutIndent) > 3 || withoutIndent == "" {
+		return 0, 0, "", false
+	}
+	marker := withoutIndent[0]
+	if marker != '`' && marker != '~' {
+		return 0, 0, "", false
+	}
+	length := 0
+	for length < len(withoutIndent) && withoutIndent[length] == marker {
+		length++
+	}
+	if length < 3 {
+		return 0, 0, "", false
+	}
+	return marker, length, withoutIndent[length:], true
+}
+
+func readmeSecureFoundationProblems(data []byte) []string {
+	const expected = "| Language | Go `1.26.5` |"
+
+	var rows []string
+	inHTMLComment := false
+	var fenceMarker byte
+	fenceLength := 0
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSuffix(rawLine, "\r")
+		if fenceMarker != 0 {
+			if marker, length, rest, ok := markdownFence(line); ok && marker == fenceMarker && length >= fenceLength && strings.TrimSpace(rest) == "" {
+				fenceMarker = 0
+				fenceLength = 0
+			}
+			continue
+		}
+		active, hadComment := stripHTMLComments(line, &inHTMLComment)
+		if marker, length, _, ok := markdownFence(active); ok {
+			fenceMarker = marker
+			fenceLength = length
+			continue
+		}
+		if hadComment {
+			continue
+		}
+		indent := len(active) - len(strings.TrimLeft(active, " "))
+		if indent >= 4 || strings.HasPrefix(active, "\t") {
+			continue
+		}
+		row := strings.TrimSpace(active)
+		if strings.HasPrefix(row, "| Language |") {
+			rows = append(rows, row)
+		}
+	}
+
+	var problems []string
+	if inHTMLComment {
+		problems = append(problems, "README.md has an unterminated HTML comment")
+	}
+	if fenceMarker != 0 {
+		problems = append(problems, "README.md has an unterminated fenced code block")
+	}
+	if len(rows) != 1 {
+		problems = append(problems, fmt.Sprintf("README.md must contain exactly one active Language table row, found %d", len(rows)))
+	} else if rows[0] != expected {
+		problems = append(problems, fmt.Sprintf("README.md active Language row is %q, want %q", rows[0], expected))
+	}
+	return problems
 }
 
 func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
@@ -247,74 +450,126 @@ func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
 	}
 }
 
-func TestSecureFoundationGuardRejectsBuildSurfaceCommentDecoys(t *testing.T) {
-	for name, testCase := range map[string]struct {
-		content  string
-		expected string
+func TestSecureGoFoundationVersions(t *testing.T) {
+	for _, problem := range secureGoFoundationProblems(backendRoot(t)) {
+		t.Error(problem)
+	}
+}
+
+func secureGoFoundationProblems(root string) []string {
+	var problems []string
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("read go.mod: %v", err))
+	} else {
+		for key, want := range map[string]string{
+			"go":                         "1.26.5",
+			"github.com/quic-go/quic-go": "v0.59.1",
+			"golang.org/x/image":         "v0.43.0",
+		} {
+			got, ok := goModValue(goMod, key)
+			if !ok {
+				problems = append(problems, fmt.Sprintf("go.mod value %q not found", key))
+			} else if got != want {
+				problems = append(problems, fmt.Sprintf("go.mod %s=%s, want %s", key, got, want))
+			}
+		}
+		for _, modulePath := range protectedGoModReplacements(goMod) {
+			problems = append(problems, fmt.Sprintf("go.mod replace directive for protected module %s is forbidden", modulePath))
+		}
+	}
+
+	for _, surface := range []struct {
+		rel      string
+		validate func([]byte) []string
 	}{
-		"Dockerfile": {
-			content:  "ARG GO_BUILD_IMAGE=golang:1.25.0-bookworm\r\n# ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\r\n",
-			expected: "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm",
-		},
-		"Compose": {
-			content:  strings.Repeat("GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.25.0-bookworm\r\n# GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\r\n", 2),
-			expected: "GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm",
-		},
-		"README multiline HTML comment": {
-			content:  "| Language | Go `1.25.0` |\r\n<!--\r\n| Language | Go `1.26.5` |\r\n-->\r\n",
-			expected: "| Language | Go `1.26.5` |",
-		},
+		{rel: "Dockerfile", validate: dockerfileSecureFoundationProblems},
+		{rel: "deploy/docker-first/docker-compose.yml", validate: composeSecureFoundationProblems},
+		{rel: "README.md", validate: readmeSecureFoundationProblems},
 	} {
-		t.Run(name, func(t *testing.T) {
-			if got := exactTrimmedLineCount([]byte(testCase.content), testCase.expected); got != 0 {
-				t.Fatalf("comment decoy count = %d, want 0", got)
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(surface.rel)))
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("read %s: %v", surface.rel, err))
+			continue
+		}
+		problems = append(problems, surface.validate(data)...)
+	}
+	return problems
+}
+
+func writeSecureGoFoundationFixture(t *testing.T, overrides map[string]string) string {
+	t.Helper()
+	files := map[string]string{
+		"go.mod":                                 "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire (\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n",
+		"Dockerfile":                             "# secure build fixture\n\nARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nFROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS task-6-build\n",
+		"deploy/docker-first/docker-compose.yml": "# secure compose fixture\nx-build-decoy:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\nservices:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n",
+		"README.md":                              "## Technology\n\n<!-- | Language | Go `1.26.1` | -->\n```markdown\n| Language | Go `1.26.1` |\n```\n| Type | Choice |\n| --- | --- |\n| Language | Go `1.26.5` |\n",
+	}
+	for rel, content := range overrides {
+		files[rel] = content
+	}
+
+	root := t.TempDir()
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content = strings.ReplaceAll(content, "\n", "\r\n")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing.T) {
+	const compose = "deploy/docker-first/docker-compose.yml"
+	testCases := []struct{ name, rel, content string }{
+		{"Dockerfile hard-coded old first build stage", "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nFROM golang:1.26.1-bookworm AS build\n"},
+		{"Compose extension decoys", compose,
+			"x-admin-api-build:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"x-admin-worker-build:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"services:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n"},
+		{"README fenced target decoy", "README.md", "## Technology\n\n| Type | Choice |\n| --- | --- |\n| Language | Go `1.26.1` |\n\n```markdown\n| Language | Go `1.26.5` |\n```\n"},
+		{"Dockerfile ARG after first FROM", "Dockerfile", "FROM ${GO_BUILD_IMAGE} AS build\nARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\n"},
+		{"Dockerfile duplicate alternate ARG", "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nARG GO_BUILD_IMAGE=golang:1.26.1-bookworm\nFROM ${GO_BUILD_IMAGE} AS build\n"},
+		{"Compose missing worker hidden by extension", compose,
+			"x-worker-build:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"services:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
+		{"Compose duplicate target key", compose,
+			"services:\n  admin-api:\n    build:\n      args:\n" +
+				"        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
+		{"Compose unsupported odd indentation", compose,
+			"services:\n   admin-api:\n     build:\n       args:\n         GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
+		{"README duplicate active Language rows", "README.md", "| Language | Go `1.26.5` |\n| Language | Go `1.26.1` |\n"},
+		{"README tilde fenced target decoy", "README.md", "| Language | Go `1.26.1` |\n\n~~~markdown\n| Language | Go `1.26.5` |\n~~~\n"},
+		{"README indented code target decoy", "README.md", "| Language | Go `1.26.1` |\n\n    | Language | Go `1.26.5` |\n"},
+		{"README multiline comment target decoy", "README.md", "| Language | Go `1.26.1` |\n<!--\n| Language | Go `1.26.5` |\n-->\n"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := writeSecureGoFoundationFixture(t, map[string]string{testCase.rel: testCase.content})
+			problems := strings.Join(secureGoFoundationProblems(root), "\n")
+			if problems == "" {
+				t.Fatal("secure foundation validator accepted the semantic decoy")
+			}
+			if !strings.Contains(problems, testCase.rel) {
+				t.Fatalf("secure foundation validator failed without identifying %s:\n%s", testCase.rel, problems)
 			}
 		})
 	}
 }
 
-func TestSecureFoundationGuardAcceptsCRLF(t *testing.T) {
-	const line = "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm"
-	if got := exactTrimmedLineCount([]byte("  "+line+"\r\n"), line); got != 1 {
-		t.Fatalf("CRLF exact line count = %d, want 1", got)
+func TestSecureGoFoundationValidatorAcceptsValidCRLFRoot(t *testing.T) {
+	root := writeSecureGoFoundationFixture(t, nil)
+	if problems := secureGoFoundationProblems(root); len(problems) != 0 {
+		t.Fatalf("valid CRLF secure foundation fixture was rejected:\n%s", strings.Join(problems, "\n"))
 	}
-	goMod := []byte("go 1.26.5\r\nrequire (\r\n\tgithub.com/quic-go/quic-go v0.59.1\r\n\tgolang.org/x/image v0.43.0\r\n)\r\n")
-	for key, want := range map[string]string{
-		"go":                         "1.26.5",
-		"github.com/quic-go/quic-go": "v0.59.1",
-		"golang.org/x/image":         "v0.43.0",
-	} {
-		if got, ok := goModValue(goMod, key); !ok || got != want {
-			t.Errorf("CRLF go.mod %s=%s, found=%v, want %s", key, got, ok, want)
-		}
-	}
-}
-
-func TestSecureGoFoundationVersions(t *testing.T) {
-	root := backendRoot(t)
-	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for key, want := range map[string]string{
-		"go":                         "1.26.5",
-		"github.com/quic-go/quic-go": "v0.59.1",
-		"golang.org/x/image":         "v0.43.0",
-	} {
-		got, ok := goModValue(goMod, key)
-		if !ok {
-			t.Errorf("go.mod value %q not found", key)
-		} else if got != want {
-			t.Errorf("go.mod %s=%s, want %s", key, got, want)
-		}
-	}
-	for _, modulePath := range protectedGoModReplacements(goMod) {
-		t.Errorf("go.mod replace directive for protected module %s is forbidden", modulePath)
-	}
-
-	requireExactTrimmedLineCount(t, root, "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm", 1)
-	requireExactTrimmedLineCount(t, root, "deploy/docker-first/docker-compose.yml", "GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm", 2)
-	requireExactTrimmedLineCount(t, root, "README.md", "| Language | Go `1.26.5` |", 1)
 }
 
 func TestAsynqmonChecksumMatchesTransparencyLog(t *testing.T) {
