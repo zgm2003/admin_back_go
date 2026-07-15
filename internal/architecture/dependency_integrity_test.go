@@ -552,42 +552,41 @@ func parseDockerfile(data []byte) (*parsedDockerfile, error) {
 	return model, nil
 }
 
-func dockerInstructionIndex(stage *dockerStage, keyword string, required ...string) int {
+func dockerInstructionIndex(stage *dockerStage, keyword, exactValue string) int {
 	if stage == nil {
 		return -1
 	}
+	exactValue = strings.Join(strings.Fields(exactValue), " ")
 	for index, instruction := range stage.instructions {
-		if instruction.keyword != keyword {
-			continue
-		}
-		matches := true
-		for _, token := range required {
-			matches = matches && strings.Contains(instruction.value, token)
-		}
-		if matches {
+		if instruction.keyword == keyword &&
+			strings.Join(strings.Fields(instruction.value), " ") == exactValue {
 			return index
 		}
 	}
 	return -1
 }
 
-func dockerVariable(instruction dockerInstruction, name string) (string, bool) {
+func dockerVariableValues(instruction dockerInstruction, name string) []string {
 	if instruction.keyword != "ARG" && instruction.keyword != "ENV" && instruction.keyword != "RUN" {
-		return "", false
+		return nil
 	}
 	normalized := strings.NewReplacer("&&", " ", "||", " ", ";", " ").Replace(instruction.value)
 	fields := strings.Fields(normalized)
+	var values []string
 	for index, token := range fields {
 		token = strings.Trim(token, "\"'")
 		variable, value, assigned := strings.Cut(token, "=")
-		if variable == name && (assigned || instruction.keyword == "ARG") {
-			return value, true
+		if variable == name && assigned {
+			values = append(values, value)
 		}
 		if token == name && instruction.keyword == "ENV" && index+1 < len(fields) {
-			return strings.Trim(fields[index+1], "\"'"), true
+			values = append(values, strings.Trim(fields[index+1], "\"'"))
+		}
+		if token == name && instruction.keyword == "ARG" {
+			values = append(values, "")
 		}
 	}
-	return "", false
+	return values
 }
 
 func dockerStageDescendsFrom(model *parsedDockerfile, child, ancestor string) bool {
@@ -613,7 +612,7 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 
 	revisionGlobals := 0
 	for _, instruction := range model.globals {
-		if value, exists := dockerVariable(instruction, "BUILD_REVISION"); exists {
+		for _, value := range dockerVariableValues(instruction, "BUILD_REVISION") {
 			revisionGlobals++
 			if value == "" || strings.Contains(value, "$") {
 				problems = append(problems, "Dockerfile global BUILD_REVISION must have a safe literal default")
@@ -630,14 +629,14 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 	gosumdbCount := 0
 	for _, instruction := range model.globals {
 		for _, variable := range []string{"GOSUMDB", "GONOSUMDB", "GOINSECURE"} {
-			if _, exists := dockerVariable(instruction, variable); exists {
+			if len(dockerVariableValues(instruction, variable)) != 0 {
 				problems = append(problems, fmt.Sprintf("Dockerfile global instruction defines forbidden %s", variable))
 			}
 		}
 	}
 	for _, stage := range model.stages {
 		for _, instruction := range stage.instructions {
-			if value, exists := dockerVariable(instruction, "GOSUMDB"); exists {
+			for _, value := range dockerVariableValues(instruction, "GOSUMDB") {
 				if instruction.keyword == "ENV" && value == "sum.golang.org" {
 					gosumdbCount++
 				} else {
@@ -645,7 +644,7 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 				}
 			}
 			for _, variable := range []string{"GONOSUMDB", "GOINSECURE"} {
-				if _, exists := dockerVariable(instruction, variable); exists {
+				if len(dockerVariableValues(instruction, variable)) != 0 {
 					problems = append(problems, fmt.Sprintf("Dockerfile defines forbidden %s", variable))
 				}
 			}
@@ -657,14 +656,13 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 
 	testStage := model.byName["test"]
 	sumdb := dockerInstructionIndex(testStage, "ENV", "GOSUMDB=sum.golang.org")
-	download := dockerInstructionIndex(testStage, "RUN", "--mount=type=cache,target=/go/pkg/mod", "go mod download")
+	download := dockerInstructionIndex(testStage, "RUN", "--mount=type=cache,target=/go/pkg/mod go mod download")
 	copySource := dockerInstructionIndex(testStage, "COPY", ". .")
-	runTests := dockerInstructionIndex(testStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build", "go test ./...")
+	runTests := dockerInstructionIndex(testStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build go test ./...")
 	if sumdb < 0 || download <= sumdb {
 		problems = append(problems, "Dockerfile test stage must run cached go mod download with GOSUMDB enabled")
 	}
-	if copySource < 0 || runTests <= copySource ||
-		(runTests >= 0 && (strings.Contains(testStage.instructions[runTests].value, "||") || strings.Contains(testStage.instructions[runTests].value, ";"))) {
+	if copySource < 0 || runTests <= copySource {
 		problems = append(problems, "Dockerfile test stage must run blocking cached go test ./... after COPY . .")
 	}
 
@@ -672,9 +670,8 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 		problems = append(problems, "Dockerfile build stage must descend from test")
 	}
 	buildStage := model.byName["build"]
-	apiBuild := dockerInstructionIndex(buildStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build", "go build", "-o /out/admin-api", "./cmd/admin-api")
-	workerBuild := dockerInstructionIndex(buildStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build", "go build", "-o /out/admin-worker", "./cmd/admin-worker")
-	if apiBuild < 0 || workerBuild < 0 {
+	buildRun := "--mount=type=cache,target=/root/.cache/go-build go build -ldflags=\"-s -w\" -o /out/admin-api ./cmd/admin-api && go build -ldflags=\"-s -w\" -o /out/admin-worker ./cmd/admin-worker"
+	if dockerInstructionIndex(buildStage, "RUN", buildRun) < 0 {
 		problems = append(problems, "Dockerfile build stage must use the Go cache and compile both binaries")
 	}
 
@@ -683,10 +680,30 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 		problems = append(problems, "Dockerfile must end with named runtime stage")
 		return problems
 	}
+	revision := "$" + "{BUILD_REVISION}"
 	revisionArg := dockerInstructionIndex(runtimeStage, "ARG", "BUILD_REVISION")
-	revisionLabel := dockerInstructionIndex(runtimeStage, "LABEL", "org.opencontainers.image.revision=", "$"+"{BUILD_REVISION}")
+	revisionLabel := dockerInstructionIndex(runtimeStage, "LABEL", "org.opencontainers.image.revision=\""+revision+"\"")
 	if revisionArg < 0 || revisionLabel <= revisionArg {
 		problems = append(problems, "Dockerfile runtime stage must label the accepted BUILD_REVISION")
+	}
+	expectedCopies := map[string]bool{
+		"--from=build /out/admin-api /app/admin-api":       false,
+		"--from=build /out/admin-worker /app/admin-worker": false,
+	}
+	copyCount := 0
+	for _, instruction := range runtimeStage.instructions {
+		if instruction.keyword != "COPY" {
+			continue
+		}
+		copyCount++
+		value := strings.Join(strings.Fields(instruction.value), " ")
+		if _, approved := expectedCopies[value]; approved {
+			expectedCopies[value] = true
+		}
+	}
+	if copyCount != len(expectedCopies) || !expectedCopies["--from=build /out/admin-api /app/admin-api"] ||
+		!expectedCopies["--from=build /out/admin-worker /app/admin-worker"] {
+		problems = append(problems, "Dockerfile runtime stage must contain exactly the two COPY --from=build binary instructions")
 	}
 	return problems
 }
@@ -1060,12 +1077,44 @@ func TestDependabotContract(t *testing.T) {
 
 func TestDockerBuildIntegrity(t *testing.T) {
 	valid := readBackendArchitectureFile(t, "Dockerfile")
+	valid = bytes.ReplaceAll(valid, []byte("\r\n"), []byte("\n"))
 	for _, problem := range dockerBuildIntegrityProblems(valid) {
 		t.Error(problem)
 	}
+	replace := func(old, replacement string) []byte {
+		t.Helper()
+		fixture := bytes.Replace(valid, []byte(old), []byte(replacement), 1)
+		if bytes.Equal(fixture, valid) {
+			t.Fatalf("Dockerfile fixture source not found: %q", old)
+		}
+		return fixture
+	}
+	untested := replace(
+		"FROM ${GO_RUNTIME_IMAGE} AS runtime",
+		"FROM ${GO_BUILD_IMAGE} AS untested\n\nWORKDIR /src\nCOPY . .\nRUN --mount=type=cache,target=/root/.cache/go-build \\\n    go build -o /out/admin-api ./cmd/admin-api && \\\n    go build -o /out/admin-worker ./cmd/admin-worker\n\nFROM ${GO_RUNTIME_IMAGE} AS runtime",
+	)
+	untested = bytes.Replace(
+		untested,
+		[]byte("COPY --from=build /out/admin-worker /app/admin-worker"),
+		[]byte("COPY --from=build /out/admin-worker /app/admin-worker\nCOPY --from=untested /out/admin-api /app/admin-api\nCOPY --from=untested /out/admin-worker /app/admin-worker"),
+		1,
+	)
 	for name, fixture := range map[string][]byte{
 		"build bypasses test": bytes.Replace(valid, []byte("FROM test AS build"), []byte("FROM $"+"{GO_BUILD_IMAGE} AS build"), 1),
 		"GOSUMDB disabled":    bytes.Replace(valid, []byte("ENV GOSUMDB=sum.golang.org"), []byte("ENV GOSUMDB=off"), 1),
+		"echo test decoy": replace(
+			"RUN --mount=type=cache,target=/root/.cache/go-build \\\n    go test ./...",
+			"RUN --mount=type=cache,target=/root/.cache/go-build echo \"go test ./...\"",
+		),
+		"runtime copies untested binaries": untested,
+		"fake runtime revision metadata": replace(
+			"ARG BUILD_REVISION\n\nLABEL org.opencontainers.image.revision=\"${BUILD_REVISION}\"",
+			"ARG NOT_BUILD_REVISION\n\nLABEL fake=\"org.opencontainers.image.revision=${BUILD_REVISION}\"",
+		),
+		"duplicate GOSUMDB override": replace(
+			"ENV GOSUMDB=sum.golang.org",
+			"ENV GOSUMDB=sum.golang.org GOSUMDB=off",
+		),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if problems := dockerBuildIntegrityProblems(fixture); len(problems) == 0 {
