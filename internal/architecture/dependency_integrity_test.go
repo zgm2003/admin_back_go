@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -91,7 +92,16 @@ func goModLineFields(line string) []string {
 	if comment := strings.Index(line, "//"); comment >= 0 {
 		line = line[:comment]
 	}
+	line = strings.ReplaceAll(line, "(", " ( ")
+	line = strings.ReplaceAll(line, ")", " ) ")
 	return strings.Fields(line)
+}
+
+func goModTokenValue(token string) (string, bool) {
+	if value, err := strconv.Unquote(token); err == nil {
+		return value, true
+	}
+	return strings.Trim(token, "\"`"), !strings.ContainsAny(token, "\"`")
 }
 
 func goModValue(data []byte, key string) (string, bool) {
@@ -150,8 +160,12 @@ func protectedGoModReplacements(data []byte) []string {
 			}
 			original = fields[1]
 		}
-		if original == "github.com/quic-go/quic-go" || original == "golang.org/x/image" {
-			protected = append(protected, original)
+		original, valid := goModTokenValue(original)
+		for _, modulePath := range []string{"github.com/quic-go/quic-go", "golang.org/x/image"} {
+			if original == modulePath || (!valid && strings.HasPrefix(original, modulePath)) {
+				protected = append(protected, modulePath)
+				break
+			}
 		}
 	}
 	return protected
@@ -159,8 +173,24 @@ func protectedGoModReplacements(data []byte) []string {
 
 func exactTrimmedLineCount(data []byte, expected string) int {
 	count := 0
+	inHTMLComment := false
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == expected {
+		commented := inHTMLComment
+		remaining := line
+		for {
+			marker := "<!--"
+			if inHTMLComment {
+				marker = "-->"
+			}
+			index := strings.Index(remaining, marker)
+			if index < 0 {
+				break
+			}
+			commented = true
+			inHTMLComment = !inHTMLComment
+			remaining = remaining[index+len(marker):]
+		}
+		if !commented && strings.TrimSpace(line) == expected {
 			count++
 		}
 	}
@@ -191,6 +221,22 @@ func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
 			goMod: "replace (\r\n\tgolang.org/x/image => golang.org/x/image v0.42.0\r\n)\r\n",
 			want:  "golang.org/x/image",
 		},
+		"quic no-space block": {
+			goMod: "replace(\r\n\tgithub.com/quic-go/quic-go => github.com/quic-go/quic-go v0.59.0\r\n)\r\n",
+			want:  "github.com/quic-go/quic-go",
+		},
+		"quic quoted single line": {
+			goMod: "replace \"github.com/quic-go/quic-go\" => github.com/quic-go/quic-go v0.59.0\r\n",
+			want:  "github.com/quic-go/quic-go",
+		},
+		"image quoted block": {
+			goMod: "replace (\r\n\t\"golang.org/x/image\" v0.43.0 => golang.org/x/image v0.42.0\r\n)\r\n",
+			want:  "golang.org/x/image",
+		},
+		"quic malformed quoted token": {
+			goMod: "replace \"github.com/quic-go/quic-go\\q\" => github.com/quic-go/quic-go v0.59.0\r\n",
+			want:  "github.com/quic-go/quic-go",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := protectedGoModReplacements([]byte(testCase.goMod))
@@ -214,8 +260,8 @@ func TestSecureFoundationGuardRejectsBuildSurfaceCommentDecoys(t *testing.T) {
 			content:  strings.Repeat("GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.25.0-bookworm\r\n# GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\r\n", 2),
 			expected: "GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm",
 		},
-		"README": {
-			content:  "| Language | Go `1.25.0` |\r\n<!-- | Language | Go `1.26.5` | -->\r\n",
+		"README multiline HTML comment": {
+			content:  "| Language | Go `1.25.0` |\r\n<!--\r\n| Language | Go `1.26.5` |\r\n-->\r\n",
 			expected: "| Language | Go `1.26.5` |",
 		},
 	} {
