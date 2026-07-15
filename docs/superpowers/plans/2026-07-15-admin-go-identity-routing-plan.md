@@ -6,7 +6,7 @@
 
 **Architecture:** MySQL remains session and authorization truth. Redis accelerates session revocation, owns short-lived browser grants, and implements a fail-closed versioned principal cache. The Session Lifecycle is split by behavior while one public interface serves login, middleware, and Admin session management.
 
-**Tech Stack:** Go 1.26.1, Gin, GORM/MySQL, Redis Lua, JWT access credentials, opaque rotating refresh credentials.
+**Tech Stack:** Go 1.26.5, Gin, GORM/MySQL, Redis Lua, JWT access credentials, opaque rotating refresh credentials.
 
 ---
 

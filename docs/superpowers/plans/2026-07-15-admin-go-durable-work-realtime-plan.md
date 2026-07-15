@@ -6,7 +6,7 @@
 
 **Architecture:** MySQL state machines are durability truth; Asynq is a wake-up/delivery adapter. Claims use leases, owners, and fencing tokens. Provider ambiguity is recorded before retry decisions. Redis handles cross-node signals and ephemeral fan-out, while durable terminal events resume from MySQL cursors.
 
-**Tech Stack:** Go 1.26.1, MySQL 8.4, Redis, Asynq, gocron, WebSocket.
+**Tech Stack:** Go 1.26.5, MySQL 8.4, Redis, Asynq, gocron, WebSocket.
 
 ---
 

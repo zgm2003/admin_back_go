@@ -6,7 +6,7 @@
 
 **Architecture:** Foundation and database work are serialized. Once the target schema, contract bundle, and runtime seams are stable, backend identity, backend durable work, frontend kernel, frontend realtime/resource, and desktop security can proceed in isolated lanes. The final plan is the only plan allowed to execute destructive contract DDL or declare App/Canvas retirement complete.
 
-**Tech Stack:** Go 1.26.1, Gin, GORM, MySQL 8.4, Redis, Asynq, Atlas 0.38.0, Vue 3.5, TypeScript 5.9, Vite 8, Vitest 4, Playwright, Tauri 2, Rust.
+**Tech Stack:** Go 1.26.5, Gin, GORM, MySQL 8.4, Redis, Asynq, Atlas 0.38.0, Vue 3.5, TypeScript 5.9, Vite 8, Vitest 4, Playwright, Tauri 2, Rust.
 
 ---
 

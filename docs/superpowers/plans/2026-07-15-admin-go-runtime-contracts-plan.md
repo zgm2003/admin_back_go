@@ -6,7 +6,7 @@
 
 **Architecture:** `internal/runtime` owns process lifecycle and cleanup; `internal/platform/admin` owns the Admin service graph; Capability Modules remain under `internal/module`. A route registry compiles access/audit metadata into runtime middleware and contract generation. The bundle is generated from the same registry and typed schema catalog, never from a second route list.
 
-**Tech Stack:** Go 1.26.1, Gin, GORM, MySQL, Redis, Asynq, Prometheus client 1.23.2, JSON Schema 2020-12, OpenAPI 3.1.
+**Tech Stack:** Go 1.26.5, Gin, GORM, MySQL, Redis, Asynq, Prometheus client 1.23.2, JSON Schema 2020-12, OpenAPI 3.1.
 
 ---
 

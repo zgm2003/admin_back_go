@@ -6,7 +6,7 @@
 
 **Architecture:** A repository-owned `admin-db` command captures deterministic schema fingerprints and runs zero-row invariants. PowerShell owns Windows-safe dump/restore and the pinned Atlas container. Reconciliation is serialized as expand, backfill, and verify; all destructive App/Canvas contract DDL remains in P09.
 
-**Tech Stack:** Go 1.26.1, MySQL 8.4, Atlas OSS 0.38.0 pinned at `sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a`, PowerShell 7, Docker.
+**Tech Stack:** Go 1.26.5, MySQL 8.4, Atlas OSS 0.38.0 pinned at `sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a`, PowerShell 7, Docker.
 
 ---
 

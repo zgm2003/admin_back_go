@@ -6,7 +6,7 @@
 
 **Architecture:** Keep configuration as explicit data parsed from the process environment and validated for either `admin-api` or `admin-worker`. Put developer/CI verification behind repository-owned PowerShell entrypoints, then make GitHub Actions call the same entrypoints from a clean module cache.
 
-**Tech Stack:** Go 1.26.1, PowerShell 7, GitHub Actions, Docker BuildKit, MySQL/Redis runtime configuration.
+**Tech Stack:** Go 1.26.5, PowerShell 7, GitHub Actions, Docker BuildKit, MySQL/Redis runtime configuration.
 
 ---
 
@@ -890,7 +890,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
-          go-version: 1.26.1
+          go-version: 1.26.5
           cache: false
       - name: Verify from clean module cache
         shell: pwsh
