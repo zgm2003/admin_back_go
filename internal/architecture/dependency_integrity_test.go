@@ -293,32 +293,22 @@ func composeSecureFoundationProblems(data []byte) []string {
 	return problems
 }
 
-func stripHTMLComments(line string, inComment *bool) (string, bool) {
-	var active strings.Builder
-	hadComment := *inComment
-	remaining := line
-	for remaining != "" {
-		if *inComment {
-			end := strings.Index(remaining, "-->")
-			if end < 0 {
-				return active.String(), true
-			}
-			*inComment = false
-			hadComment = true
-			remaining = remaining[end+3:]
-			continue
+func markdownHTMLCommentLine(line string, inBlockComment *bool) bool {
+	if *inBlockComment {
+		if strings.Contains(line, "-->") {
+			*inBlockComment = false
 		}
-		start := strings.Index(remaining, "<!--")
-		if start < 0 {
-			active.WriteString(remaining)
-			break
-		}
-		active.WriteString(remaining[:start])
-		*inComment = true
-		hadComment = true
-		remaining = remaining[start+4:]
+		return true
 	}
-	return active.String(), hadComment
+
+	withoutIndent := strings.TrimLeft(line, " ")
+	if len(line)-len(withoutIndent) > 3 || !strings.HasPrefix(withoutIndent, "<!--") {
+		return false
+	}
+	if !strings.Contains(withoutIndent[len("<!--"):], "-->") {
+		*inBlockComment = true
+	}
+	return true
 }
 
 func markdownFence(line string) (byte, int, string, bool) {
@@ -344,7 +334,7 @@ func readmeSecureFoundationProblems(data []byte) []string {
 	const expected = "| Language | Go `1.26.5` |"
 
 	var rows []string
-	inHTMLComment := false
+	inHTMLBlockComment := false
 	var fenceMarker byte
 	fenceLength := 0
 	for _, rawLine := range strings.Split(string(data), "\n") {
@@ -356,24 +346,21 @@ func readmeSecureFoundationProblems(data []byte) []string {
 			}
 			continue
 		}
-		active, hadComment := stripHTMLComments(line, &inHTMLComment)
-		if !hadComment {
-			if marker, length, _, ok := markdownFence(active); ok {
-				fenceMarker = marker
-				fenceLength = length
-				continue
-			}
-		}
-		if hadComment {
+		if markdownHTMLCommentLine(line, &inHTMLBlockComment) {
 			continue
 		}
-		if strings.HasPrefix(active, "| Language |") {
-			rows = append(rows, active)
+		if marker, length, _, ok := markdownFence(line); ok {
+			fenceMarker = marker
+			fenceLength = length
+			continue
+		}
+		if strings.HasPrefix(line, "| Language |") {
+			rows = append(rows, line)
 		}
 	}
 
 	var problems []string
-	if inHTMLComment {
+	if inHTMLBlockComment {
 		problems = append(problems, "README.md has an unterminated HTML comment")
 	}
 	if fenceMarker != 0 {
@@ -537,6 +524,8 @@ func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing
 		{"README duplicate active Language rows", "README.md", "| Language | Go `1.26.5` |\n| Language | Go `1.26.1` |\n"},
 		{"README tilde fenced target decoy", "README.md", "| Language | Go `1.26.1` |\n\n~~~markdown\n| Language | Go `1.26.5` |\n~~~\n"},
 		{"README indented code target decoy", "README.md", "| Language | Go `1.26.1` |\n\n    | Language | Go `1.26.5` |\n"},
+		{"README indented-code comment marker decoy", "README.md", "| Language | Go `1.26.5` |\n\n    <!--\n| Language | Go `1.26.1` |\n    -->\n"},
+		{"README inline-code comment marker decoy", "README.md", "| Language | Go `1.26.5` |\n\n`<!--`\n| Language | Go `1.26.1` |\n`-->`\n"},
 		{"README mixed indent target decoy", "README.md", " \t| Language | Go `1.26.5` |\n"},
 		{"README list fenced target decoy", "README.md", "- ```markdown\n  | Language | Go `1.26.5` |\n- ```\n"},
 		{"README indented top-level fence target decoy", "README.md", "   ```markdown\n| Language | Go `1.26.5` |\n   ```\n"},
