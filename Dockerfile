@@ -42,11 +42,11 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY --from=build /out/admin-api /app/admin-api
-COPY --from=build /out/admin-worker /app/admin-worker
-
 RUN mkdir -p /app/runtime/logs /app/runtime/cert/alipay /app/exports && \
     chown -R app:app /app
+
+COPY --chown=app:app --from=build /out/admin-api /app/admin-api
+COPY --chown=app:app --from=build /out/admin-worker /app/admin-worker
 
 ENV APP_ENV=production
 ENV HTTP_ADDR=:8080
