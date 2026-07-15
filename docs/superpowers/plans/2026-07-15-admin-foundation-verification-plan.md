@@ -437,8 +437,6 @@ func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
 		{"cors fragment", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"https://admin.example.com#x"} }, "CORS_ALLOW_ORIGINS"},
 		{"cors path", ProcessAPI, false, func(c *Config) { c.CORS.AllowOrigins = []string{"https://admin.example.com/app"} }, "CORS_ALLOW_ORIGINS"},
 		{"production mysql loopback", ProcessAPI, true, func(c *Config) { c.MySQL.DSN = "user:pass@tcp(127.0.0.1:3306)/admin" }, "MYSQL_DSN"},
-		{"production mysql private", ProcessAPI, true, func(c *Config) { c.MySQL.DSN = "user:pass@tcp(10.0.0.8:3306)/admin" }, "MYSQL_DSN"},
-		{"production redis private", ProcessAPI, true, func(c *Config) { c.Redis.Addr = "192.168.1.8:6379" }, "REDIS_ADDR"},
 		{"production origin http", ProcessAPI, true, func(c *Config) { c.CORS.AllowOrigins = []string{"http://admin.example.com"} }, "CORS_ALLOW_ORIGINS"},
 		{"production origin loopback", ProcessAPI, true, func(c *Config) { c.CORS.AllowOrigins = []string{"https://127.0.0.1"} }, "CORS_ALLOW_ORIGINS"},
 		{"production origin private", ProcessAPI, true, func(c *Config) { c.CORS.AllowOrigins = []string{"https://172.16.0.8"} }, "CORS_ALLOW_ORIGINS"},
@@ -476,6 +474,13 @@ func TestValidateAcceptsProcessSpecificConfig(t *testing.T) {
 	worker.HTTP.Addr = ""
 	if err := Validate(ProcessWorker, worker); err != nil {
 		t.Fatalf("Validate(worker): %v", err)
+	}
+
+	privateState := productionConfigForTest()
+	privateState.MySQL.DSN = "user:pass@tcp(10.0.0.8:3306)/admin"
+	privateState.Redis.Addr = "192.168.1.8:6379"
+	if err := Validate(ProcessAPI, privateState); err != nil {
+		t.Fatalf("Validate(production private state nodes): %v", err)
 	}
 }
 ```
@@ -578,7 +583,7 @@ Complete `Validate` with these explicit rules:
 - a non-empty `PAYMENT_CERT_BASE_DIR` is absolute, clean, and exists as a directory; an empty value remains allowed until an enabled payment configuration is assembled in P03;
 - `ValidateRuntimeSecrets` rejects the sentinel values and requires at least 64 bytes.
 
-Production loopback/private checks apply to MySQL and Redis dependency hosts as well as CORS origins. Use parsed hosts (`mysql.ParseDSN`, `net.SplitHostPort`, and `url.URL.Hostname`) rather than substring checks. Do not perform DNS lookups and do not include a DSN, password, secret, or raw environment value in validation errors.
+Production MySQL and Redis dependencies reject localhost, loopback, unspecified, and link-local hosts, but allow private-network state nodes as required by the Docker-first production template. Production CORS origins reject both local and private hosts. Use parsed hosts (`mysql.ParseDSN`, `net.SplitHostPort`, and `url.URL.Hostname`) rather than substring checks. Do not perform DNS lookups and do not include a DSN, password, secret, or raw environment value in validation errors.
 
 - [ ] **Step 4: Activate validation in the loader before resource construction**
 
@@ -653,8 +658,17 @@ try {
   $log = & $script -OutputPath $output -MySQLDSN $dsn -RedisAddress "127.0.0.1:6379" -CorsOrigin "http://127.0.0.1:5173" 6>&1 | Out-String
   $text = Get-Content -Raw -LiteralPath $output
   if ($text -match "CHANGE_ME|DB_PRIVATE_IP|REDIS_PRIVATE_IP|FRONTEND_DOMAIN_REQUIRED") { throw "placeholder remains" }
-  if ($text -notmatch "(?m)^APP_SECRET=.{64,}$") { throw "APP_SECRET is too short" }
+  if ($text -notmatch "(?m)^APP_ENV=local$") { throw "local initializer must set APP_ENV=local" }
+  $secretMatch = [regex]::Match($text, "(?m)^APP_SECRET=([^\r\n]{64,})$")
+  if (!$secretMatch.Success) { throw "APP_SECRET is too short" }
+  $firstSecret = $secretMatch.Groups[1].Value
   if ($log.Contains($dsn)) { throw "initializer leaked MYSQL_DSN" }
+
+  $secondLog = & $script -OutputPath $output -MySQLDSN $dsn -RedisAddress "127.0.0.1:6379" -CorsOrigin "http://127.0.0.1:5173" 6>&1 | Out-String
+  $secondText = Get-Content -Raw -LiteralPath $output
+  $secondSecret = [regex]::Match($secondText, "(?m)^APP_SECRET=([^\r\n]{64,})$").Groups[1].Value
+  if ($secondSecret -ne $firstSecret) { throw "initializer rotated APP_SECRET" }
+  if ($secondLog.Contains($dsn)) { throw "initializer leaked MYSQL_DSN on rerun" }
 } finally {
   Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
 }
@@ -685,10 +699,21 @@ if ($MySQLDSN -notmatch "/admin(?:\?|$)") { throw "MYSQL_DSN must select the adm
 if ($RedisAddress -notmatch "^[^:]+:\d+$") { throw "RedisAddress must be host:port" }
 $origin = [uri]$CorsOrigin
 if ($origin.Scheme -notin @("http", "https") -or !$origin.Host) { throw "CorsOrigin must be an HTTP(S) origin" }
-$secretBytes = New-Object byte[] 48
-[Security.Cryptography.RandomNumberGenerator]::Fill($secretBytes)
-$secret = [Convert]::ToBase64String($secretBytes)
+$secret = $null
+if (Test-Path -LiteralPath $OutputPath -PathType Leaf) {
+  $existing = Get-Content -Raw -LiteralPath $OutputPath
+  $existingSecret = [regex]::Match($existing, "(?m)^APP_SECRET=([^\r\n]{64,})$")
+  if ($existingSecret.Success -and !$existingSecret.Groups[1].Value.Contains("CHANGE_ME")) {
+    $secret = $existingSecret.Groups[1].Value
+  }
+}
+if ([string]::IsNullOrEmpty($secret)) {
+  $secretBytes = New-Object byte[] 48
+  [Security.Cryptography.RandomNumberGenerator]::Fill($secretBytes)
+  $secret = [Convert]::ToBase64String($secretBytes)
+}
 $text = Get-Content -Raw -LiteralPath $template
+$text = $text.Replace("APP_ENV=production", "APP_ENV=local")
 $text = $text.Replace("admin_user:CHANGE_ME@tcp(DB_PRIVATE_IP:3306)/admin?charset=utf8mb4&parseTime=True&loc=Local", $MySQLDSN)
 $text = $text.Replace("REDIS_PRIVATE_IP:6379", $RedisAddress)
 $text = $text.Replace("CHANGE_ME_TO_64_PLUS_RANDOM_CHARS", $secret)
@@ -696,6 +721,8 @@ $text = $text.Replace("https://FRONTEND_DOMAIN_REQUIRED", $CorsOrigin)
 [IO.File]::WriteAllText($OutputPath, $text, [Text.UTF8Encoding]::new($false))
 Write-Output "created ignored runtime env at $OutputPath"
 ```
+
+Keep `admin-go.env.example` production-oriented. The initializer changes only the generated local output to `APP_ENV=local`. On rerun, reuse an existing non-placeholder 64+ character `APP_SECRET`; generate a new 48-byte random Base64 secret only when no valid existing value is present. Never print either the existing or generated secret.
 
 - [ ] **Step 4: Test and create the real ignored env**
 
