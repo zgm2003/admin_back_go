@@ -169,9 +169,9 @@ Expected: FAIL reporting Go `1.26.1`, `quic-go v0.59.0`, `x/image v0.25.0`, and 
 Run:
 
 ```powershell
-go mod edit -go=1.26.5
+go mod edit '-go=1.26.5'
 go get github.com/quic-go/quic-go@v0.59.1 golang.org/x/image@v0.43.0
-go mod tidy -go=1.26.5
+go mod tidy '-go=1.26.5'
 ```
 
 Expected version facts:
