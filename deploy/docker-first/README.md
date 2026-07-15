@@ -13,7 +13,7 @@ Production/Baota Docker operation is documented in the root runbook: `E:/admin_g
 
 ## Current defaults
 
-`docker-compose.yml` is the local validation Compose asset and does not require a Compose `.env` file. `admin-go.env.example` is the shared backend runtime env template; copy it to `admin-go.env` locally, or to the production path described by the root Docker-first runbook.
+`docker-compose.yml` is the local validation Compose asset and does not require a Compose `.env` file. `admin-go.env.example` is the shared, production-oriented backend runtime env template. Generate the ignored `admin-go.env` locally with `init-local-env.ps1`; use the template and root Docker-first runbook for production.
 
 ```text
 build context: ../..
@@ -25,15 +25,22 @@ exports mount: ./exports -> /app/exports
 
 If `8080` is occupied, edit the `ports` line in `docker-compose.yml` directly.
 
-## Start
+## Start locally from PowerShell
 
-```bash
-mkdir -p runtime exports
-cp -n admin-go.env.example admin-go.env
-# Edit admin-go.env before starting. Inside containers, 127.0.0.1 is the container itself;
-# use private IP/DNS for state services, or host.docker.internal on Docker Desktop.
+Set the two credential-bearing process environment variables before running this command. Inside containers, `127.0.0.1` is the container itself; use private IP/DNS for state services, or `host.docker.internal` on Docker Desktop.
+
+`ADMIN_LOCAL_MYSQL_DSN` must use the Compose-safe canonical MySQL DSN form `SAFE_USER:SAFE_PASSWORD@tcp(HOST:PORT)/admin?charset=utf8mb4&parseTime=True&loc=Local`. `SAFE_USER` and `SAFE_PASSWORD` may contain only ASCII letters, digits, `.`, `_`, `~`, and `-`; the host must be a valid hostname, IPv4 address, or bracketed IPv6 address, and the port must be `1..65535`. The initializer rejects whitespace, `$`, `#`, quotes, backticks, backslashes, alternate query options, and other forms that a Compose `env_file` could reinterpret.
+
+```powershell
+New-Item -ItemType Directory -Force -Path runtime, exports | Out-Null
+.\init-local-env.ps1 `
+  -MySQLDSN $env:ADMIN_LOCAL_MYSQL_DSN `
+  -RedisAddress $env:ADMIN_LOCAL_REDIS_ADDR `
+  -CorsOrigin 'http://localhost:5173'
 docker compose up -d --build
 ```
+
+The initializer is for local development only. With its default path it replaces the repository-ignored `admin-go.env` and reports `created ignored runtime env`. Custom `-OutputPath` values are allowed only outside the repository and report `created runtime env`, because the initializer cannot claim those files are covered by this repository's ignore rule. Reusable `APP_SECRET` values must contain at least 64 ASCII characters and may use only letters, digits, `.`, `_`, `~`, `+`, `/`, `=`, and `-`; other existing values are replaced so Compose cannot trim, quote, or expand them. Production continues to use `admin-go.env.example` and the root production runbook; do not use the local initializer as a production provisioning workflow.
 
 ## Validate
 
