@@ -110,7 +110,34 @@ func goModTokenValue(token string) (string, bool) {
 	return strings.Trim(token, "\"`"), !strings.ContainsAny(token, "\"`")
 }
 
+func goModTopLevelDirectiveValue(data []byte, key string) (string, bool) {
+	inBlock := false
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := goModLineFields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if inBlock {
+			if fields[0] == ")" {
+				inBlock = false
+			}
+			continue
+		}
+		if len(fields) >= 2 && fields[1] == "(" {
+			inBlock = true
+			continue
+		}
+		if len(fields) >= 2 && fields[0] == key {
+			return fields[1], true
+		}
+	}
+	return "", false
+}
+
 func goModValue(data []byte, key string) (string, bool) {
+	if key == "go" {
+		return goModTopLevelDirectiveValue(data, key)
+	}
 	inRequireBlock := false
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := goModLineFields(line)
@@ -126,9 +153,6 @@ func goModValue(data []byte, key string) (string, bool) {
 				return fields[1], true
 			}
 			continue
-		}
-		if key == "go" && len(fields) >= 2 && fields[0] == "go" {
-			return fields[1], true
 		}
 		if fields[0] != "require" || len(fields) < 2 {
 			continue
@@ -335,9 +359,10 @@ func validateBackendWorkflow(data []byte) error {
 		path string
 		keys []string
 	}{
-		{"", []string{"name", "on", "permissions", "concurrency", "jobs"}},
+		{"", []string{"name", "on", "env", "permissions", "concurrency", "jobs"}},
 		{"on", []string{"pull_request", "push"}},
 		{"on.push", []string{"branches"}},
+		{"env", []string{"GOTOOLCHAIN", "GOWORK"}},
 		{"permissions", []string{"contents"}},
 		{"concurrency", []string{"group", "cancel-in-progress"}},
 		{"jobs", []string{"verify"}},
@@ -350,6 +375,8 @@ func validateBackendWorkflow(data []byte) error {
 	if err := requireYAMLValues(root,
 		yamlExpectation{"name", "!!str", "Verify backend"},
 		yamlExpectation{"on.pull_request", "!!null", ""},
+		yamlExpectation{"env.GOTOOLCHAIN", "!!str", "local"},
+		yamlExpectation{"env.GOWORK", "!!str", "off"},
 		yamlExpectation{"permissions.contents", "!!str", "read"},
 		yamlExpectation{"concurrency.group", "!!str", "backend-" + "$" + "{{ github.ref }}"},
 		yamlExpectation{"concurrency.cancel-in-progress", "!!bool", "true"},
@@ -496,7 +523,17 @@ func parseDockerfile(data []byte) (*parsedDockerfile, error) {
 	var pending strings.Builder
 	for _, raw := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			name, _, directive := strings.Cut(strings.TrimSpace(strings.TrimPrefix(line, "#")), "=")
+			switch strings.ToLower(strings.TrimSpace(name)) {
+			case "syntax", "escape", "check":
+				if directive {
+					return nil, fmt.Errorf("Dockerfile parser directive %q is forbidden", strings.TrimSpace(name))
+				}
+			}
 			continue
 		}
 		if pending.Len() != 0 {
@@ -607,6 +644,8 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 				"ENV GOFLAGS=-trimpath",
 				"ENV GOPROXY=${GO_MODULE_PROXY}",
 				"ENV GOSUMDB=sum.golang.org",
+				"ENV GOTOOLCHAIN=local",
+				"ENV GOWORK=off",
 				"COPY go.mod go.sum ./",
 				"RUN --mount=type=cache,target=/go/pkg/mod go mod download",
 				"COPY . .",
@@ -847,9 +886,17 @@ func secureGoFoundationProblems(root string) []string {
 				problems = append(problems, fmt.Sprintf("go.mod %s=%s, want %s", key, got, want))
 			}
 		}
+		if toolchain, exists := goModTopLevelDirectiveValue(goMod, "toolchain"); exists {
+			problems = append(problems, fmt.Sprintf("go.mod toolchain directive %q is forbidden", toolchain))
+		}
 		for _, modulePath := range protectedGoModReplacements(goMod) {
 			problems = append(problems, fmt.Sprintf("go.mod replace directive for protected module %s is forbidden", modulePath))
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(root, "go.work")); err == nil {
+		problems = append(problems, "root go.work is forbidden")
+	} else if !os.IsNotExist(err) {
+		problems = append(problems, fmt.Sprintf("inspect root go.work: %v", err))
 	}
 
 	for _, surface := range []struct {
@@ -899,6 +946,8 @@ func writeSecureGoFoundationFixture(t *testing.T, overrides map[string]string) s
 func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing.T) {
 	const compose = "deploy/docker-first/docker-compose.yml"
 	testCases := []struct{ name, rel, content string }{
+		{"go.mod toolchain directive", "go.mod", "module example.com/secure-foundation-fixture\n\ngo 1.26.5\ntoolchain go1.27rc1\n\nrequire (\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n"},
+		{"root go.work override", "go.work", "go 1.26.5\n\nuse .\n\nreplace github.com/quic-go/quic-go => ./local/quic-go\n"},
 		{"Dockerfile hard-coded old first build stage", "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nFROM golang:1.26.1-bookworm AS build\n"},
 		{"Compose extension decoys", compose,
 			"x-admin-api-build:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
@@ -1011,9 +1060,31 @@ func TestBackendCIContract(t *testing.T) {
 	if err := requireYAMLValues(checkoutWith, yamlExpectation{"persist-credentials", "!!bool", "false"}); err != nil {
 		t.Fatal(err)
 	}
+	workflowEnv, err := yamlPath(root, "env")
+	if err != nil {
+		t.Fatal("workflow must lock GOTOOLCHAIN=local and GOWORK=off")
+	}
+	if err := exactYAMLMapping(workflowEnv, "workflow.env", "GOTOOLCHAIN", "GOWORK"); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireYAMLValues(
+		workflowEnv,
+		yamlExpectation{"GOTOOLCHAIN", "!!str", "local"},
+		yamlExpectation{"GOWORK", "!!str", "off"},
+	); err != nil {
+		t.Fatal(err)
+	}
 	for name, fixture := range map[string][]byte{
-		"unpinned action":    bytes.Replace(valid, []byte("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"), []byte("actions/checkout@v4"), 1),
-		"image push enabled": bytes.Replace(valid, []byte("          push: false"), []byte("          push: true"), 1),
+		"unpinned action":     bytes.Replace(valid, []byte("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"), []byte("actions/checkout@v4"), 1),
+		"image push enabled":  bytes.Replace(valid, []byte("          push: false"), []byte("          push: true"), 1),
+		"automatic toolchain": bytes.Replace(valid, []byte("GOTOOLCHAIN: local"), []byte("GOTOOLCHAIN: auto"), 1),
+		"workspace enabled":   bytes.Replace(valid, []byte("GOWORK: \"off\""), []byte("GOWORK: ./go.work"), 1),
+		"workspace lock missing": bytes.Replace(
+			valid,
+			[]byte("  GOWORK: \"off\"\n"),
+			nil,
+			1,
+		),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := validateBackendWorkflow(fixture); err == nil {
@@ -1065,6 +1136,7 @@ func TestDockerBuildIntegrity(t *testing.T) {
 		[]byte("COPY --chown=app:app --from=build /out/admin-worker /app/admin-worker\nCOPY --chown=app:app --from=untested /out/admin-api /app/admin-api\nCOPY --chown=app:app --from=untested /out/admin-worker /app/admin-worker"),
 		1,
 	)
+	maliciousSyntax := append([]byte("# SyNtAx = attacker.example/custom-frontend:latest\n"), valid...)
 	for name, fixture := range map[string][]byte{
 		"build bypasses test": bytes.Replace(valid, []byte("FROM test AS build"), []byte("FROM $"+"{GO_BUILD_IMAGE} AS build"), 1),
 		"GOSUMDB disabled":    bytes.Replace(valid, []byte("ENV GOSUMDB=sum.golang.org"), []byte("ENV GOSUMDB=off"), 1),
@@ -1104,6 +1176,11 @@ func TestDockerBuildIntegrity(t *testing.T) {
 		"duplicate revision label": replace(
 			"LABEL org.opencontainers.image.revision=\"${BUILD_REVISION}\"",
 			"LABEL org.opencontainers.image.revision=\"${BUILD_REVISION}\"\nLABEL org.opencontainers.image.revision=\"override\"",
+		),
+		"malicious syntax directive": maliciousSyntax,
+		"automatic Go execution context": replace(
+			"ENV GOTOOLCHAIN=local\nENV GOWORK=off",
+			"ENV GOTOOLCHAIN=auto\nENV GOWORK=/tmp/go.work",
 		),
 	} {
 		t.Run(name, func(t *testing.T) {

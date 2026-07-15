@@ -13,6 +13,8 @@ ENV CGO_ENABLED=0
 ENV GOFLAGS=-trimpath
 ENV GOPROXY=${GO_MODULE_PROXY}
 ENV GOSUMDB=sum.golang.org
+ENV GOTOOLCHAIN=local
+ENV GOWORK=off
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
