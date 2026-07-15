@@ -3,6 +3,7 @@ name: Verify backend
 env:
   GOTOOLCHAIN: local
   GOWORK: "off"
+  GOFLAGS: -mod=readonly
 
 on:
   pull_request:
