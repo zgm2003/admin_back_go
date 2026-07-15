@@ -230,8 +230,15 @@ type CORSConfig struct {
 	MaxAge           time.Duration
 }
 
-func Load(_ Process) (Config, error) {
-	return loadFrom(osLookup)
+func Load(process Process) (Config, error) {
+	cfg, err := loadFrom(osLookup)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := Validate(process, cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 func loadFrom(lookup lookupEnv) (Config, error) {
@@ -340,12 +347,11 @@ var unsafeAppSecrets = map[string]struct{}{
 }
 
 func ValidateRuntimeSecrets(cfg Config) error {
-	secret := strings.TrimSpace(cfg.App.Secret)
-	if _, unsafe := unsafeAppSecrets[secret]; unsafe {
+	if _, unsafe := unsafeAppSecrets[strings.TrimSpace(cfg.App.Secret)]; unsafe {
 		return fmt.Errorf("APP_SECRET is missing or unsafe")
 	}
-	if len(secret) < 32 {
-		return fmt.Errorf("APP_SECRET is too short: got %d chars, need at least 32", len(secret))
+	if len(cfg.App.Secret) < 64 {
+		return fmt.Errorf("APP_SECRET is too short: got %d bytes, need at least 64", len(cfg.App.Secret))
 	}
 	return nil
 }

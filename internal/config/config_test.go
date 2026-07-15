@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-func loadForTest(t *testing.T, process Process) Config {
+func loadForTest(t *testing.T, _ Process) Config {
 	t.Helper()
-	cfg, err := Load(process)
+	cfg, err := loadFrom(osLookup)
 	if err != nil {
-		t.Fatalf("Load(%s): %v", process, err)
+		t.Fatalf("loadFrom(): %v", err)
 	}
 	return cfg
 }
