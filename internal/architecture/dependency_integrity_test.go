@@ -87,49 +87,188 @@ func containsExactLine(data []byte, expected string) bool {
 	return false
 }
 
-func goModValue(t *testing.T, data []byte, key string) string {
-	t.Helper()
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == key {
-			return fields[1]
-		}
+func goModLineFields(line string) []string {
+	if comment := strings.Index(line, "//"); comment >= 0 {
+		line = line[:comment]
 	}
-	t.Fatalf("go.mod value %q not found", key)
-	return ""
+	return strings.Fields(line)
 }
 
-func requireFileContainsCount(t *testing.T, root, rel, value string, count int) {
+func goModValue(data []byte, key string) (string, bool) {
+	inRequireBlock := false
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := goModLineFields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if inRequireBlock {
+			if fields[0] == ")" {
+				inRequireBlock = false
+				continue
+			}
+			if len(fields) >= 2 && fields[0] == key {
+				return fields[1], true
+			}
+			continue
+		}
+		if key == "go" && len(fields) >= 2 && fields[0] == "go" {
+			return fields[1], true
+		}
+		if fields[0] != "require" || len(fields) < 2 {
+			continue
+		}
+		if fields[1] == "(" {
+			inRequireBlock = true
+			continue
+		}
+		if len(fields) >= 3 && fields[1] == key {
+			return fields[2], true
+		}
+	}
+	return "", false
+}
+
+func protectedGoModReplacements(data []byte) []string {
+	var protected []string
+	inReplaceBlock := false
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := goModLineFields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		original := ""
+		if inReplaceBlock {
+			if fields[0] == ")" {
+				inReplaceBlock = false
+				continue
+			}
+			original = fields[0]
+		} else if fields[0] == "replace" && len(fields) >= 2 {
+			if fields[1] == "(" {
+				inReplaceBlock = true
+				continue
+			}
+			original = fields[1]
+		}
+		if original == "github.com/quic-go/quic-go" || original == "golang.org/x/image" {
+			protected = append(protected, original)
+		}
+	}
+	return protected
+}
+
+func exactTrimmedLineCount(data []byte, expected string) int {
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == expected {
+			count++
+		}
+	}
+	return count
+}
+
+func requireExactTrimmedLineCount(t *testing.T, root, rel, expected string, want int) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(string(data), value); got != count {
-		t.Fatalf("%s contains %q %d times, want %d", rel, value, got, count)
+	if got := exactTrimmedLineCount(data, expected); got != want {
+		t.Errorf("%s contains exact trimmed line %q %d times, want %d", rel, expected, got, want)
 	}
 }
 
-func TestSecureGoFoundationVersions(t *testing.T) {
-	root := backendRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		t.Fatal(err)
+func TestSecureFoundationGuardRejectsProtectedReplacements(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		goMod string
+		want  string
+	}{
+		"quic single line with original version": {
+			goMod: "replace github.com/quic-go/quic-go v0.59.1 => github.com/quic-go/quic-go v0.59.0\r\n",
+			want:  "github.com/quic-go/quic-go",
+		},
+		"image block without original version": {
+			goMod: "replace (\r\n\tgolang.org/x/image => golang.org/x/image v0.42.0\r\n)\r\n",
+			want:  "golang.org/x/image",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := protectedGoModReplacements([]byte(testCase.goMod))
+			if len(got) != 1 || got[0] != testCase.want {
+				t.Fatalf("protected replacements = %v, want [%s]", got, testCase.want)
+			}
+		})
 	}
+}
 
+func TestSecureFoundationGuardRejectsBuildSurfaceCommentDecoys(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		content  string
+		expected string
+	}{
+		"Dockerfile": {
+			content:  "ARG GO_BUILD_IMAGE=golang:1.25.0-bookworm\r\n# ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\r\n",
+			expected: "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm",
+		},
+		"Compose": {
+			content:  strings.Repeat("GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.25.0-bookworm\r\n# GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\r\n", 2),
+			expected: "GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm",
+		},
+		"README": {
+			content:  "| Language | Go `1.25.0` |\r\n<!-- | Language | Go `1.26.5` | -->\r\n",
+			expected: "| Language | Go `1.26.5` |",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := exactTrimmedLineCount([]byte(testCase.content), testCase.expected); got != 0 {
+				t.Fatalf("comment decoy count = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestSecureFoundationGuardAcceptsCRLF(t *testing.T) {
+	const line = "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm"
+	if got := exactTrimmedLineCount([]byte("  "+line+"\r\n"), line); got != 1 {
+		t.Fatalf("CRLF exact line count = %d, want 1", got)
+	}
+	goMod := []byte("go 1.26.5\r\nrequire (\r\n\tgithub.com/quic-go/quic-go v0.59.1\r\n\tgolang.org/x/image v0.43.0\r\n)\r\n")
 	for key, want := range map[string]string{
 		"go":                         "1.26.5",
 		"github.com/quic-go/quic-go": "v0.59.1",
 		"golang.org/x/image":         "v0.43.0",
 	} {
-		if got := goModValue(t, data, key); got != want {
+		if got, ok := goModValue(goMod, key); !ok || got != want {
+			t.Errorf("CRLF go.mod %s=%s, found=%v, want %s", key, got, ok, want)
+		}
+	}
+}
+
+func TestSecureGoFoundationVersions(t *testing.T) {
+	root := backendRoot(t)
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"go":                         "1.26.5",
+		"github.com/quic-go/quic-go": "v0.59.1",
+		"golang.org/x/image":         "v0.43.0",
+	} {
+		got, ok := goModValue(goMod, key)
+		if !ok {
+			t.Errorf("go.mod value %q not found", key)
+		} else if got != want {
 			t.Errorf("go.mod %s=%s, want %s", key, got, want)
 		}
 	}
+	for _, modulePath := range protectedGoModReplacements(goMod) {
+		t.Errorf("go.mod replace directive for protected module %s is forbidden", modulePath)
+	}
 
-	requireFileContainsCount(t, root, "Dockerfile", "golang:1.26.5-bookworm", 1)
-	requireFileContainsCount(t, root, "deploy/docker-first/docker-compose.yml", "golang:1.26.5-bookworm", 2)
-	requireFileContainsCount(t, root, "README.md", "Go `1.26.5`", 1)
+	requireExactTrimmedLineCount(t, root, "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm", 1)
+	requireExactTrimmedLineCount(t, root, "deploy/docker-first/docker-compose.yml", "GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm", 2)
+	requireExactTrimmedLineCount(t, root, "README.md", "| Language | Go `1.26.5` |", 1)
 }
 
 func TestAsynqmonChecksumMatchesTransparencyLog(t *testing.T) {
