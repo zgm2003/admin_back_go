@@ -1,7 +1,9 @@
 package architecture
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const asynqmonV072Sum = "github.com/hibiken/asynqmon v0.7.2 h1:YohWgTIPwtMyZ6khBDcVUz9BdSdQW2Dxn8SoxtbmjSg="
@@ -226,89 +230,64 @@ func dockerfileSecureFoundationProblems(data []byte) []string {
 	return problems
 }
 
-var secureComposeGoBuildImagePaths = [...]string{
-	"services.admin-api.build.args.GO_BUILD_IMAGE",
-	"services.admin-worker.build.args.GO_BUILD_IMAGE",
-}
-
-func secureComposePathKind(path string) (relevant, target bool) {
-	for _, targetPath := range secureComposeGoBuildImagePaths {
-		if path == targetPath {
-			return true, true
-		}
-		if strings.HasPrefix(targetPath, path+".") {
-			relevant = true
+func uniqueYAMLMappingValue(node *yaml.Node, key string) (*yaml.Node, error) {
+	if node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("parent is %v, want mapping", node.Kind)
+	}
+	var value *yaml.Node
+	matches := 0
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		keyNode := node.Content[index]
+		if keyNode.Kind == yaml.ScalarNode && keyNode.Value == key {
+			matches++
+			value = node.Content[index+1]
 		}
 	}
-	return relevant, false
+	if matches != 1 {
+		return nil, fmt.Errorf("key %q occurs %d times, want exactly one", key, matches)
+	}
+	return value, nil
 }
 
 func composeSecureFoundationProblems(data []byte) []string {
 	const expected = "docker.m.daocloud.io/library/golang:1.26.5-bookworm"
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return []string{fmt.Sprintf("deploy/docker-first/docker-compose.yml is invalid YAML: %v", err)}
+	}
+	var extraDocument yaml.Node
+	if err := decoder.Decode(&extraDocument); err != io.EOF {
+		if err != nil {
+			return []string{fmt.Sprintf("deploy/docker-first/docker-compose.yml is invalid YAML: %v", err)}
+		}
+		return []string{"deploy/docker-first/docker-compose.yml must contain one YAML document"}
+	}
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
+		return []string{"deploy/docker-first/docker-compose.yml must contain one YAML document"}
+	}
 
 	var problems []string
-	path := []string{}
-	seen := map[string]int{}
-	values := map[string][]string{}
-	for lineNumber, rawLine := range strings.Split(string(data), "\n") {
-		line := strings.TrimSuffix(rawLine, "\r")
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		indent := len(line) - len(strings.TrimLeft(line, " "))
-		if indent < len(line) && line[indent] == '\t' {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses tab indentation", lineNumber+1))
-			continue
-		}
-		if indent%2 != 0 {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses unsupported indentation", lineNumber+1))
-			continue
-		}
-		depth := indent / 2
-		if depth > len(path) {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d skips a mapping level", lineNumber+1))
-			continue
-		}
-		path = path[:depth]
-		content := strings.TrimSpace(line[indent:])
-		if strings.HasPrefix(content, "-") {
-			if relevant, _ := secureComposePathKind(strings.Join(path, ".")); relevant {
-				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses an unsupported sequence at %s", lineNumber+1, strings.Join(path, ".")))
+	for _, service := range []string{"admin-api", "admin-worker"} {
+		node := document.Content[0]
+		segments := []string{"services", service, "build", "args", "GO_BUILD_IMAGE"}
+		for index, segment := range segments {
+			next, err := uniqueYAMLMappingValue(node, segment)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s: %v", strings.Join(segments[:index+1], "."), err))
+				node = nil
+				break
 			}
+			node = next
+		}
+		if node == nil {
 			continue
 		}
-		key, value, ok := strings.Cut(content, ":")
-		if !ok || strings.TrimSpace(key) == "" {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d is not a simple mapping", lineNumber+1))
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		path = append(path, key)
-		fullPath := strings.Join(path, ".")
-		relevant, target := secureComposePathKind(fullPath)
-		if relevant {
-			seen[fullPath]++
-			if seen[fullPath] > 1 {
-				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml duplicates %s", fullPath))
-			}
-		}
-		if key == "<<" {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml:%d uses an unsupported YAML merge", lineNumber+1))
-		}
-		if relevant && !target && value != "" {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s must use a simple nested mapping", fullPath))
-		}
-		if target {
-			values[fullPath] = append(values[fullPath], value)
-		}
-	}
-	for _, targetPath := range secureComposeGoBuildImagePaths {
-		if len(values[targetPath]) != 1 {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml must define %s exactly once, found %d", targetPath, len(values[targetPath])))
-		} else if values[targetPath][0] != expected {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s=%q, want %q", targetPath, values[targetPath][0], expected))
+		path := strings.Join(segments, ".")
+		if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s must be a string scalar", path))
+		} else if node.Value != expected {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s=%q, want %q", path, node.Value, expected))
 		}
 	}
 	return problems
@@ -378,21 +357,18 @@ func readmeSecureFoundationProblems(data []byte) []string {
 			continue
 		}
 		active, hadComment := stripHTMLComments(line, &inHTMLComment)
-		if marker, length, _, ok := markdownFence(active); ok {
-			fenceMarker = marker
-			fenceLength = length
-			continue
+		if !hadComment {
+			if marker, length, _, ok := markdownFence(active); ok {
+				fenceMarker = marker
+				fenceLength = length
+				continue
+			}
 		}
 		if hadComment {
 			continue
 		}
-		indent := len(active) - len(strings.TrimLeft(active, " "))
-		if indent >= 4 || strings.HasPrefix(active, "\t") {
-			continue
-		}
-		row := strings.TrimSpace(active)
-		if strings.HasPrefix(row, "| Language |") {
-			rows = append(rows, row)
+		if strings.HasPrefix(active, "| Language |") {
+			rows = append(rows, active)
 		}
 	}
 
@@ -543,12 +519,27 @@ func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing
 				"        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
 				"        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
 				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
-		{"Compose unsupported odd indentation", compose,
-			"services:\n   admin-api:\n     build:\n       args:\n         GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+		{"Compose dotted top-level key decoys", compose,
+			"services.admin-api.build.args.GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"services.admin-worker.build.args.GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
+		{"Compose additional document decoy", compose,
+			"services:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"---\nservices:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n"},
+		{"Compose alias leaf", compose,
+			"x-go-image: &go_image docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"services:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: *go_image\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
+		{"Compose sequence leaf", compose,
+			"services:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: [docker.m.daocloud.io/library/golang:1.26.5-bookworm]\n" +
 				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
 		{"README duplicate active Language rows", "README.md", "| Language | Go `1.26.5` |\n| Language | Go `1.26.1` |\n"},
 		{"README tilde fenced target decoy", "README.md", "| Language | Go `1.26.1` |\n\n~~~markdown\n| Language | Go `1.26.5` |\n~~~\n"},
 		{"README indented code target decoy", "README.md", "| Language | Go `1.26.1` |\n\n    | Language | Go `1.26.5` |\n"},
+		{"README mixed indent target decoy", "README.md", " \t| Language | Go `1.26.5` |\n"},
+		{"README list fenced target decoy", "README.md", "- ```markdown\n  | Language | Go `1.26.5` |\n- ```\n"},
+		{"README indented top-level fence target decoy", "README.md", "   ```markdown\n| Language | Go `1.26.5` |\n   ```\n"},
 		{"README multiline comment target decoy", "README.md", "| Language | Go `1.26.1` |\n<!--\n| Language | Go `1.26.5` |\n-->\n"},
 	}
 	for _, testCase := range testCases {
@@ -566,9 +557,20 @@ func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing
 }
 
 func TestSecureGoFoundationValidatorAcceptsValidCRLFRoot(t *testing.T) {
-	root := writeSecureGoFoundationFixture(t, nil)
-	if problems := secureGoFoundationProblems(root); len(problems) != 0 {
-		t.Fatalf("valid CRLF secure foundation fixture was rejected:\n%s", strings.Join(problems, "\n"))
+	const compose = "deploy/docker-first/docker-compose.yml"
+	for name, overrides := range map[string]map[string]string{
+		"default": nil,
+		"valid YAML indentation": {
+			compose: "services:\n   admin-api:\n      build:\n         args:\n            GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"   admin-worker:\n      build:\n         args:\n            GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := writeSecureGoFoundationFixture(t, overrides)
+			if problems := secureGoFoundationProblems(root); len(problems) != 0 {
+				t.Fatalf("valid CRLF secure foundation fixture was rejected:\n%s", strings.Join(problems, "\n"))
+			}
+		})
 	}
 }
 
