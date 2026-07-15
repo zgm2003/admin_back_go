@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -252,6 +253,443 @@ func uniqueYAMLMappingValue(node *yaml.Node, key string) (*yaml.Node, error) {
 	return value, nil
 }
 
+func singleYAMLMapping(data []byte, label string) (*yaml.Node, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var document, extra yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return nil, fmt.Errorf("%s is invalid YAML: %w", label, err)
+	}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return nil, fmt.Errorf("%s is invalid YAML: %w", label, err)
+		}
+		return nil, fmt.Errorf("%s must contain one YAML document", label)
+	}
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s root must be one mapping", label)
+	}
+	return document.Content[0], nil
+}
+
+func exactYAMLMapping(node *yaml.Node, path string, keys ...string) error {
+	if node.Kind != yaml.MappingNode || len(node.Content) != len(keys)*2 {
+		return fmt.Errorf("%s must contain exactly keys %v", path, keys)
+	}
+	for _, key := range keys {
+		if _, err := uniqueYAMLMappingValue(node, key); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func yamlPath(node *yaml.Node, path ...string) (*yaml.Node, error) {
+	current := node
+	for index, key := range path {
+		next, err := uniqueYAMLMappingValue(current, key)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", strings.Join(path[:index+1], "."), err)
+		}
+		current = next
+	}
+	return current, nil
+}
+
+type yamlExpectation struct {
+	path, tag, value string
+}
+
+func requireYAMLValues(node *yaml.Node, checks ...yamlExpectation) error {
+	for _, check := range checks {
+		target, err := yamlPath(node, strings.Split(check.path, ".")...)
+		if err != nil {
+			return err
+		}
+		if target.Kind != yaml.ScalarNode || target.Tag != check.tag || target.Value != check.value {
+			return fmt.Errorf("%s must have tag=%s value=%q", check.path, check.tag, check.value)
+		}
+	}
+	return nil
+}
+
+func exactYAMLMappingAt(node *yaml.Node, path string, keys ...string) error {
+	target := node
+	var err error
+	if path != "" {
+		target, err = yamlPath(node, strings.Split(path, ".")...)
+		if err != nil {
+			return err
+		}
+	}
+	return exactYAMLMapping(target, path, keys...)
+}
+
+var fullActionSHAReference = regexp.MustCompile("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$")
+
+func validateBackendWorkflow(data []byte) error {
+	root, err := singleYAMLMapping(data, ".github/workflows/verify-backend.yml")
+	if err != nil {
+		return err
+	}
+	for _, mapping := range []struct {
+		path string
+		keys []string
+	}{
+		{"", []string{"name", "on", "permissions", "concurrency", "jobs"}},
+		{"on", []string{"pull_request", "push"}},
+		{"on.push", []string{"branches"}},
+		{"permissions", []string{"contents"}},
+		{"concurrency", []string{"group", "cancel-in-progress"}},
+		{"jobs", []string{"verify"}},
+		{"jobs.verify", []string{"runs-on", "timeout-minutes", "steps"}},
+	} {
+		if err := exactYAMLMappingAt(root, mapping.path, mapping.keys...); err != nil {
+			return err
+		}
+	}
+	if err := requireYAMLValues(root,
+		yamlExpectation{"name", "!!str", "Verify backend"},
+		yamlExpectation{"on.pull_request", "!!null", ""},
+		yamlExpectation{"permissions.contents", "!!str", "read"},
+		yamlExpectation{"concurrency.group", "!!str", "backend-" + "$" + "{{ github.ref }}"},
+		yamlExpectation{"concurrency.cancel-in-progress", "!!bool", "true"},
+		yamlExpectation{"jobs.verify.runs-on", "!!str", "ubuntu-latest"},
+		yamlExpectation{"jobs.verify.timeout-minutes", "!!int", "30"},
+	); err != nil {
+		return err
+	}
+	branches, _ := yamlPath(root, "on", "push", "branches")
+	if branches.Kind != yaml.SequenceNode || len(branches.Content) != 1 ||
+		branches.Content[0].Kind != yaml.ScalarNode || branches.Content[0].Tag != "!!str" || branches.Content[0].Value != "master" {
+		return fmt.Errorf("on.push.branches must contain exactly master")
+	}
+
+	steps, _ := yamlPath(root, "jobs", "verify", "steps")
+	if steps.Kind != yaml.SequenceNode || len(steps.Content) != 6 {
+		return fmt.Errorf("verify.steps must contain exactly six blocking steps")
+	}
+	stepSpecs := []struct {
+		keys   []string
+		action string
+	}{
+		{[]string{"uses"}, "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"},
+		{[]string{"uses", "with"}, "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"},
+		{[]string{"name", "shell", "run"}, ""},
+		{[]string{"uses"}, "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"},
+		{[]string{"name", "uses", "with"}, "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8"},
+		{[]string{"uses", "with"}, "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"},
+	}
+	for index, spec := range stepSpecs {
+		step := steps.Content[index]
+		if err := exactYAMLMapping(step, fmt.Sprintf("verify.steps[%d]", index), spec.keys...); err != nil {
+			return err
+		}
+		if spec.action == "" {
+			continue
+		}
+		uses, _ := yamlPath(step, "uses")
+		if uses.Kind != yaml.ScalarNode || uses.Tag != "!!str" || uses.Value != spec.action ||
+			!fullActionSHAReference.MatchString(uses.Value) {
+			return fmt.Errorf("verify.steps[%d].uses must equal its approved 40-hex action SHA", index)
+		}
+	}
+	for _, mapping := range []struct {
+		step int
+		keys []string
+	}{
+		{1, []string{"go-version", "cache"}},
+		{4, []string{"context", "push", "tags", "outputs", "build-args"}},
+		{5, []string{"name", "path", "if-no-files-found", "retention-days"}},
+	} {
+		with, _ := yamlPath(steps.Content[mapping.step], "with")
+		if err := exactYAMLMapping(with, fmt.Sprintf("verify.steps[%d].with", mapping.step), mapping.keys...); err != nil {
+			return err
+		}
+	}
+	sha := "$" + "{{ github.sha }}"
+	stepValues := map[int][]yamlExpectation{
+		1: {{"with.go-version", "!!str", "1.26.5"}, {"with.cache", "!!bool", "false"}},
+		2: {{"shell", "!!str", "pwsh"}, {"run", "!!str", "./scripts/verify-go-clean.ps1"}},
+		4: {
+			{"with.context", "!!str", "."},
+			{"with.push", "!!bool", "false"},
+			{"with.tags", "!!str", "admin-go-backend:" + sha},
+			{"with.outputs", "!!str", "type=docker,dest=/tmp/admin-go-backend.tar"},
+			{"with.build-args", "!!str", "BUILD_REVISION=" + sha},
+		},
+		5: {
+			{"with.name", "!!str", "admin-go-backend-" + sha},
+			{"with.path", "!!str", "/tmp/admin-go-backend.tar"},
+			{"with.if-no-files-found", "!!str", "error"},
+			{"with.retention-days", "!!int", "7"},
+		},
+	}
+	for step, checks := range stepValues {
+		if err := requireYAMLValues(steps.Content[step], checks...); err != nil {
+			return fmt.Errorf("verify.steps[%d]: %w", step, err)
+		}
+	}
+	return nil
+}
+
+func validateDependabotConfig(data []byte) error {
+	root, err := singleYAMLMapping(data, ".github/dependabot.yml")
+	if err != nil {
+		return err
+	}
+	if err := exactYAMLMapping(root, "dependabot", "version", "updates"); err != nil {
+		return err
+	}
+	if err := requireYAMLValues(root, yamlExpectation{"version", "!!int", "2"}); err != nil {
+		return err
+	}
+	updates, _ := yamlPath(root, "updates")
+	if updates.Kind != yaml.SequenceNode || len(updates.Content) != 3 {
+		return fmt.Errorf("dependabot.updates must contain exactly three entries")
+	}
+	seen := make(map[string]bool, 3)
+	for index, update := range updates.Content {
+		path := fmt.Sprintf("dependabot.updates[%d]", index)
+		if err := exactYAMLMapping(update, path, "package-ecosystem", "directory", "schedule", "open-pull-requests-limit"); err != nil {
+			return err
+		}
+		if err := exactYAMLMappingAt(update, "schedule", "interval"); err != nil {
+			return err
+		}
+		if err := requireYAMLValues(update,
+			yamlExpectation{"directory", "!!str", "/"},
+			yamlExpectation{"schedule.interval", "!!str", "weekly"},
+			yamlExpectation{"open-pull-requests-limit", "!!int", "5"},
+		); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		ecosystem, _ := yamlPath(update, "package-ecosystem")
+		if ecosystem.Kind != yaml.ScalarNode || ecosystem.Tag != "!!str" ||
+			(ecosystem.Value != "gomod" && ecosystem.Value != "docker" && ecosystem.Value != "github-actions") ||
+			seen[ecosystem.Value] {
+			return fmt.Errorf("%s has invalid or duplicate package ecosystem", path)
+		}
+		seen[ecosystem.Value] = true
+	}
+	return nil
+}
+
+type dockerInstruction struct {
+	keyword string
+	value   string
+}
+
+type dockerStage struct {
+	name, base   string
+	instructions []dockerInstruction
+}
+
+type parsedDockerfile struct {
+	globals []dockerInstruction
+	stages  []*dockerStage
+	byName  map[string]*dockerStage
+}
+
+func parseDockerfile(data []byte) (*parsedDockerfile, error) {
+	var instructions []dockerInstruction
+	var pending strings.Builder
+	for _, raw := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if pending.Len() != 0 {
+			pending.WriteByte(' ')
+		}
+		continued := strings.HasSuffix(line, "\\")
+		pending.WriteString(strings.TrimSpace(strings.TrimSuffix(line, "\\")))
+		if continued {
+			continue
+		}
+		logical := pending.String()
+		pending.Reset()
+		fields := strings.Fields(logical)
+		if len(fields) != 0 {
+			instructions = append(instructions, dockerInstruction{
+				keyword: strings.ToUpper(fields[0]),
+				value:   strings.TrimSpace(logical[len(fields[0]):]),
+			})
+		}
+	}
+	if pending.Len() != 0 {
+		return nil, fmt.Errorf("Dockerfile has an unterminated continuation")
+	}
+
+	model := &parsedDockerfile{byName: make(map[string]*dockerStage)}
+	var current *dockerStage
+	for _, instruction := range instructions {
+		if instruction.keyword != "FROM" {
+			if current == nil {
+				model.globals = append(model.globals, instruction)
+			} else {
+				current.instructions = append(current.instructions, instruction)
+			}
+			continue
+		}
+		fields := strings.Fields(instruction.value)
+		for len(fields) > 0 && strings.HasPrefix(fields[0], "--") {
+			fields = fields[1:]
+		}
+		if len(fields) != 3 || !strings.EqualFold(fields[1], "AS") {
+			return nil, fmt.Errorf("every Dockerfile FROM must name its stage")
+		}
+		stage := &dockerStage{name: strings.ToLower(fields[2]), base: fields[0]}
+		if _, exists := model.byName[stage.name]; exists {
+			return nil, fmt.Errorf("Dockerfile stage %q occurs more than once", stage.name)
+		}
+		model.byName[stage.name] = stage
+		model.stages = append(model.stages, stage)
+		current = stage
+	}
+	if len(model.stages) == 0 {
+		return nil, fmt.Errorf("Dockerfile has no FROM stage")
+	}
+	return model, nil
+}
+
+func dockerInstructionIndex(stage *dockerStage, keyword string, required ...string) int {
+	if stage == nil {
+		return -1
+	}
+	for index, instruction := range stage.instructions {
+		if instruction.keyword != keyword {
+			continue
+		}
+		matches := true
+		for _, token := range required {
+			matches = matches && strings.Contains(instruction.value, token)
+		}
+		if matches {
+			return index
+		}
+	}
+	return -1
+}
+
+func dockerVariable(instruction dockerInstruction, name string) (string, bool) {
+	if instruction.keyword != "ARG" && instruction.keyword != "ENV" && instruction.keyword != "RUN" {
+		return "", false
+	}
+	normalized := strings.NewReplacer("&&", " ", "||", " ", ";", " ").Replace(instruction.value)
+	fields := strings.Fields(normalized)
+	for index, token := range fields {
+		token = strings.Trim(token, "\"'")
+		variable, value, assigned := strings.Cut(token, "=")
+		if variable == name && (assigned || instruction.keyword == "ARG") {
+			return value, true
+		}
+		if token == name && instruction.keyword == "ENV" && index+1 < len(fields) {
+			return strings.Trim(fields[index+1], "\"'"), true
+		}
+	}
+	return "", false
+}
+
+func dockerStageDescendsFrom(model *parsedDockerfile, child, ancestor string) bool {
+	stage := model.byName[strings.ToLower(child)]
+	ancestor = strings.ToLower(ancestor)
+	visited := make(map[*dockerStage]bool)
+	for stage != nil && !visited[stage] {
+		visited[stage] = true
+		if strings.ToLower(stage.base) == ancestor {
+			return true
+		}
+		stage = model.byName[strings.ToLower(stage.base)]
+	}
+	return false
+}
+
+func dockerBuildIntegrityProblems(data []byte) []string {
+	problems := append([]string(nil), dockerfileSecureFoundationProblems(data)...)
+	model, err := parseDockerfile(data)
+	if err != nil {
+		return append(problems, err.Error())
+	}
+
+	revisionGlobals := 0
+	for _, instruction := range model.globals {
+		if value, exists := dockerVariable(instruction, "BUILD_REVISION"); exists {
+			revisionGlobals++
+			if value == "" || strings.Contains(value, "$") {
+				problems = append(problems, "Dockerfile global BUILD_REVISION must have a safe literal default")
+			}
+		}
+	}
+	if revisionGlobals != 1 {
+		problems = append(problems, fmt.Sprintf("Dockerfile must declare one global BUILD_REVISION ARG, found %d", revisionGlobals))
+	}
+	if model.stages[0].name != "test" {
+		problems = append(problems, "Dockerfile first source stage must be named test")
+	}
+
+	gosumdbCount := 0
+	for _, instruction := range model.globals {
+		for _, variable := range []string{"GOSUMDB", "GONOSUMDB", "GOINSECURE"} {
+			if _, exists := dockerVariable(instruction, variable); exists {
+				problems = append(problems, fmt.Sprintf("Dockerfile global instruction defines forbidden %s", variable))
+			}
+		}
+	}
+	for _, stage := range model.stages {
+		for _, instruction := range stage.instructions {
+			if value, exists := dockerVariable(instruction, "GOSUMDB"); exists {
+				if instruction.keyword == "ENV" && value == "sum.golang.org" {
+					gosumdbCount++
+				} else {
+					problems = append(problems, fmt.Sprintf("Dockerfile %s overrides GOSUMDB=%s", instruction.keyword, value))
+				}
+			}
+			for _, variable := range []string{"GONOSUMDB", "GOINSECURE"} {
+				if _, exists := dockerVariable(instruction, variable); exists {
+					problems = append(problems, fmt.Sprintf("Dockerfile defines forbidden %s", variable))
+				}
+			}
+		}
+	}
+	if gosumdbCount != 1 {
+		problems = append(problems, fmt.Sprintf("Dockerfile must set GOSUMDB=sum.golang.org exactly once, found %d", gosumdbCount))
+	}
+
+	testStage := model.byName["test"]
+	sumdb := dockerInstructionIndex(testStage, "ENV", "GOSUMDB=sum.golang.org")
+	download := dockerInstructionIndex(testStage, "RUN", "--mount=type=cache,target=/go/pkg/mod", "go mod download")
+	copySource := dockerInstructionIndex(testStage, "COPY", ". .")
+	runTests := dockerInstructionIndex(testStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build", "go test ./...")
+	if sumdb < 0 || download <= sumdb {
+		problems = append(problems, "Dockerfile test stage must run cached go mod download with GOSUMDB enabled")
+	}
+	if copySource < 0 || runTests <= copySource ||
+		(runTests >= 0 && (strings.Contains(testStage.instructions[runTests].value, "||") || strings.Contains(testStage.instructions[runTests].value, ";"))) {
+		problems = append(problems, "Dockerfile test stage must run blocking cached go test ./... after COPY . .")
+	}
+
+	if !dockerStageDescendsFrom(model, "build", "test") {
+		problems = append(problems, "Dockerfile build stage must descend from test")
+	}
+	buildStage := model.byName["build"]
+	apiBuild := dockerInstructionIndex(buildStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build", "go build", "-o /out/admin-api", "./cmd/admin-api")
+	workerBuild := dockerInstructionIndex(buildStage, "RUN", "--mount=type=cache,target=/root/.cache/go-build", "go build", "-o /out/admin-worker", "./cmd/admin-worker")
+	if apiBuild < 0 || workerBuild < 0 {
+		problems = append(problems, "Dockerfile build stage must use the Go cache and compile both binaries")
+	}
+
+	runtimeStage := model.byName["runtime"]
+	if runtimeStage == nil || model.stages[len(model.stages)-1] != runtimeStage {
+		problems = append(problems, "Dockerfile must end with named runtime stage")
+		return problems
+	}
+	revisionArg := dockerInstructionIndex(runtimeStage, "ARG", "BUILD_REVISION")
+	revisionLabel := dockerInstructionIndex(runtimeStage, "LABEL", "org.opencontainers.image.revision=", "$"+"{BUILD_REVISION}")
+	if revisionArg < 0 || revisionLabel <= revisionArg {
+		problems = append(problems, "Dockerfile runtime stage must label the accepted BUILD_REVISION")
+	}
+	return problems
+}
 func composeSecureFoundationProblems(data []byte) []string {
 	const expected = "docker.m.daocloud.io/library/golang:1.26.5-bookworm"
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
@@ -571,6 +1009,67 @@ func TestSecureGoFoundationValidatorAcceptsValidCRLFRoot(t *testing.T) {
 			root := writeSecureGoFoundationFixture(t, overrides)
 			if problems := secureGoFoundationProblems(root); len(problems) != 0 {
 				t.Fatalf("valid CRLF secure foundation fixture was rejected:\n%s", strings.Join(problems, "\n"))
+			}
+		})
+	}
+}
+
+func readBackendArchitectureFile(t *testing.T, rel string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(backendRoot(t), filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestBackendCIContract(t *testing.T) {
+	valid := readBackendArchitectureFile(t, ".github/workflows/verify-backend.yml")
+	if err := validateBackendWorkflow(valid); err != nil {
+		t.Fatal(err)
+	}
+	for name, fixture := range map[string][]byte{
+		"unpinned action":    bytes.Replace(valid, []byte("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"), []byte("actions/checkout@v4"), 1),
+		"image push enabled": bytes.Replace(valid, []byte("          push: false"), []byte("          push: true"), 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateBackendWorkflow(fixture); err == nil {
+				t.Fatal("workflow validator accepted an unsafe fixture")
+			}
+		})
+	}
+}
+
+func TestDependabotContract(t *testing.T) {
+	valid := readBackendArchitectureFile(t, ".github/dependabot.yml")
+	if err := validateDependabotConfig(valid); err != nil {
+		t.Fatal(err)
+	}
+	for name, fixture := range map[string][]byte{
+		"daily schedule": bytes.Replace(valid, []byte("interval: weekly"), []byte("interval: daily"), 1),
+		"wrong PR limit": bytes.Replace(valid, []byte("open-pull-requests-limit: 5"), []byte("open-pull-requests-limit: 6"), 1),
+		"auto merge key": bytes.Replace(valid, []byte("    open-pull-requests-limit: 5"), []byte("    open-pull-requests-limit: 5\n    auto-merge: true"), 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateDependabotConfig(fixture); err == nil {
+				t.Fatal("Dependabot validator accepted an unsafe fixture")
+			}
+		})
+	}
+}
+
+func TestDockerBuildIntegrity(t *testing.T) {
+	valid := readBackendArchitectureFile(t, "Dockerfile")
+	for _, problem := range dockerBuildIntegrityProblems(valid) {
+		t.Error(problem)
+	}
+	for name, fixture := range map[string][]byte{
+		"build bypasses test": bytes.Replace(valid, []byte("FROM test AS build"), []byte("FROM $"+"{GO_BUILD_IMAGE} AS build"), 1),
+		"GOSUMDB disabled":    bytes.Replace(valid, []byte("ENV GOSUMDB=sum.golang.org"), []byte("ENV GOSUMDB=off"), 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if problems := dockerBuildIntegrityProblems(fixture); len(problems) == 0 {
+				t.Fatal("Dockerfile validator accepted an unsafe fixture")
 			}
 		})
 	}

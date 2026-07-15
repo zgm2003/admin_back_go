@@ -1,8 +1,9 @@
 ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm
 ARG GO_RUNTIME_IMAGE=debian:bookworm-slim
 ARG GO_MODULE_PROXY=https://goproxy.io,https://proxy.golang.org,direct
+ARG BUILD_REVISION=unknown
 
-FROM ${GO_BUILD_IMAGE} AS build
+FROM ${GO_BUILD_IMAGE} AS test
 
 ARG GO_MODULE_PROXY
 
@@ -11,6 +12,7 @@ WORKDIR /src
 ENV CGO_ENABLED=0
 ENV GOFLAGS=-trimpath
 ENV GOPROXY=${GO_MODULE_PROXY}
+ENV GOSUMDB=sum.golang.org
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -18,10 +20,19 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    go test ./...
+
+FROM test AS build
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w" -o /out/admin-api ./cmd/admin-api && \
     go build -ldflags="-s -w" -o /out/admin-worker ./cmd/admin-worker
 
 FROM ${GO_RUNTIME_IMAGE} AS runtime
+
+ARG BUILD_REVISION
+
+LABEL org.opencontainers.image.revision="${BUILD_REVISION}"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata curl && \
