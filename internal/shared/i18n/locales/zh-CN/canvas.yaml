@@ -80,4 +80,18 @@ canvas.ai.video.run_start_failed: 创建Canvas视频运行记录失败
 canvas.ai.video.run_complete_failed: 更新Canvas视频运行记录失败
 canvas.ai.video.run_fail_failed: 更新Canvas视频运行记录失败
 canvas.ai.video.run_cancel_failed: 更新Canvas视频运行记录失败
+canvas.ai.video.reference_media.request.invalid: 参考媒体上传参数错误
+canvas.ai.video.reference_media.kind.invalid: 参考媒体类型无效
+canvas.ai.video.reference_media.empty: 参考媒体不能为空
+canvas.ai.video.reference_media.mime.invalid: 参考媒体MIME类型不合法
+canvas.ai.video.reference_media.cos_writer_missing: 参考媒体存储写入器未配置
+canvas.ai.video.reference_media.key_failed: 参考媒体存储路径失败
+canvas.ai.video.reference_media.upload_failed: 上传参考媒体失败
+canvas.ai.video.reference_media.file.required: 参考媒体文件不能为空
+canvas.ai.video.reference_media.file.invalid: 参考媒体文件无效
+canvas.ai.video.reference_media.too_large: 参考媒体文件过大
+canvas.ai.video.upload_config.read_failed: 读取上传配置失败
+canvas.ai.video.cos_config.missing: 未配置有效的 COS 上传配置
+canvas.ai.video.cos_secret_id.unavailable: COS SecretID 不可用
+canvas.ai.video.cos_secret_key.unavailable: COS SecretKey 不可用
 canvas.ai.image.list.request.invalid: 图片任务列表参数错误

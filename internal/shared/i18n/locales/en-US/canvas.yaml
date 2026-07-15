@@ -80,4 +80,18 @@ canvas.ai.video.run_start_failed: Failed to create Canvas video run record
 canvas.ai.video.run_complete_failed: Failed to update Canvas video run record
 canvas.ai.video.run_fail_failed: Failed to update Canvas video run record
 canvas.ai.video.run_cancel_failed: Failed to update Canvas video run record
+canvas.ai.video.reference_media.request.invalid: Invalid reference media upload request
+canvas.ai.video.reference_media.kind.invalid: Invalid reference media type
+canvas.ai.video.reference_media.empty: Reference media cannot be empty
+canvas.ai.video.reference_media.mime.invalid: Invalid reference media MIME type
+canvas.ai.video.reference_media.cos_writer_missing: Reference media storage writer is not configured
+canvas.ai.video.reference_media.key_failed: Failed to generate reference media storage path
+canvas.ai.video.reference_media.upload_failed: Failed to upload reference media
+canvas.ai.video.reference_media.file.required: Reference media file is required
+canvas.ai.video.reference_media.file.invalid: Invalid reference media file
+canvas.ai.video.reference_media.too_large: Reference media file is too large
+canvas.ai.video.upload_config.read_failed: Failed to read upload configuration
+canvas.ai.video.cos_config.missing: Valid COS upload configuration is not configured
+canvas.ai.video.cos_secret_id.unavailable: COS SecretID is unavailable
+canvas.ai.video.cos_secret_key.unavailable: COS SecretKey is unavailable
 canvas.ai.image.list.request.invalid: Invalid image task list request

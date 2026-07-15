@@ -4596,7 +4596,7 @@ func TestAdminRouteSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read route snapshot: %v", err)
 	}
-	want := strings.TrimSpace(string(wantBytes))
+	want := strings.TrimSpace(strings.ReplaceAll(string(wantBytes), "\r\n", "\n"))
 	got := strings.Join(routes, "\n")
 	if got != want {
 		t.Fatalf("admin route snapshot mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)

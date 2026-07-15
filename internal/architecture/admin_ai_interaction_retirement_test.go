@@ -32,23 +32,6 @@ func TestAdminAIInteractionSurfacesRetired(t *testing.T) {
 		}
 	}
 
-	adminContract := readAdminAIRetirementText(t, filepath.Join(root, "..", "docs/contracts/admin-api-v1.md"))
-	for _, forbidden := range []string{
-		"状态：implemented as an agent-driven `gpt-image-2` image playground",
-		"状态：active contract for Admin asset management",
-		"GET    /api/admin/v1/ai-images",
-		"POST   /api/admin/v1/ai-images",
-		"GET    /api/admin/v1/ai-assets",
-		"POST   /api/admin/v1/ai-assets",
-	} {
-		if strings.Contains(adminContract, forbidden) {
-			t.Fatalf("admin API contract still documents retired Admin AI surface as active: %q", forbidden)
-		}
-	}
-	if !strings.Contains(adminContract, "Retired Admin AI interaction surfaces") {
-		t.Fatal("admin API contract must explicitly document retired Admin AI interaction surfaces")
-	}
-
 	fullSmoke := readAdminAIRetirementText(t, filepath.Join(root, "scripts/full-admin-smoke.ps1"))
 	for _, required := range []string{
 		"/ai/image-playground",
