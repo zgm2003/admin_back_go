@@ -238,7 +238,10 @@ func uniqueYAMLMappingValue(node *yaml.Node, key string) (*yaml.Node, error) {
 	matches := 0
 	for index := 0; index+1 < len(node.Content); index += 2 {
 		keyNode := node.Content[index]
-		if keyNode.Kind == yaml.ScalarNode && keyNode.Value == key {
+		if keyNode.Kind != yaml.ScalarNode || keyNode.Tag != "!!str" {
+			return nil, fmt.Errorf("mapping key is kind %v with tag %q, want string scalar", keyNode.Kind, keyNode.Tag)
+		}
+		if keyNode.Value == key {
 			matches++
 			value = node.Content[index+1]
 		}
@@ -327,7 +330,11 @@ func markdownFence(line string) (byte, int, string, bool) {
 	if length < 3 {
 		return 0, 0, "", false
 	}
-	return marker, length, withoutIndent[length:], true
+	rest := withoutIndent[length:]
+	if marker == '`' && strings.Contains(rest, "`") {
+		return 0, 0, "", false
+	}
+	return marker, length, rest, true
 }
 
 func readmeSecureFoundationProblems(data []byte) []string {
@@ -496,6 +503,7 @@ func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing
 				"services:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n" +
 				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n"},
 		{"README fenced target decoy", "README.md", "## Technology\n\n| Type | Choice |\n| --- | --- |\n| Language | Go `1.26.1` |\n\n```markdown\n| Language | Go `1.26.5` |\n```\n"},
+		{"README invalid backtick fence info decoy", "README.md", "```markdown`invalid\n| Language | Go `1.26.1` |\n```\n| Language | Go `1.26.5` |\n"},
 		{"Dockerfile ARG after first FROM", "Dockerfile", "FROM ${GO_BUILD_IMAGE} AS build\nARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\n"},
 		{"Dockerfile duplicate alternate ARG", "Dockerfile", "ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nARG GO_BUILD_IMAGE=golang:1.26.1-bookworm\nFROM ${GO_BUILD_IMAGE} AS build\n"},
 		{"Compose missing worker hidden by extension", compose,
@@ -505,6 +513,11 @@ func TestSecureGoFoundationValidatorRejectsSemanticBuildSurfaceDecoys(t *testing
 			"services:\n  admin-api:\n    build:\n      args:\n" +
 				"        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
 				"        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
+		{"Compose aliased target key override", compose,
+			"services:\n  admin-api:\n    build:\n      args:\n" +
+				"        &imageKey GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
+				"        *imageKey: docker.m.daocloud.io/library/golang:1.26.1-bookworm\n" +
 				"  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n"},
 		{"Compose dotted top-level key decoys", compose,
 			"services.admin-api.build.args.GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
