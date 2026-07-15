@@ -27,3 +27,6 @@ deploy/docker-first/.env
 deploy/docker-first/admin-go.env
 deploy/docker-first/runtime/
 deploy/docker-first/exports/
+
+# Local Git worktrees
+.worktrees/
