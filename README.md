@@ -375,9 +375,21 @@ curl.exe http://127.0.0.1:8080/api/admin/v1/auth/login-config
 ### 4. 常用本地检查
 
 ```powershell
-# 单元测试
+# 推荐：完整后端验证（使用正常 Go module cache；PowerShell 7）
 cd E:/admin_go/admin_back_go
-go test ./...
+pwsh -NoProfile -File scripts/verify-backend.ps1
+# Windows PowerShell 5.1 等价命令
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backend.ps1
+
+# clean-cache 验证（使用系统临时目录中的全新 Go module cache；PowerShell 7）
+pwsh -NoProfile -File scripts/verify-go-clean.ps1
+# Windows PowerShell 5.1 等价命令
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-go-clean.ps1
+
+# 排障时保留并输出 clean-cache scratch 路径（PowerShell 7）
+pwsh -NoProfile -File scripts/verify-go-clean.ps1 -KeepScratch
+# Windows PowerShell 5.1 等价命令
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-go-clean.ps1 -KeepScratch
 
 # 合同检查
 powershell -ExecutionPolicy Bypass -File ./scripts/check-contract.ps1
@@ -390,6 +402,8 @@ powershell -ExecutionPolicy Bypass -File ./scripts/basic-admin-smoke.ps1 -Accoun
 # 完整 smoke，会自行构建并启动临时 API；需要 18080/18081 空闲
 powershell -ExecutionPolicy Bypass -File ./scripts/full-admin-smoke.ps1 -Account <account> -Password <password>
 ```
+
+两个验证入口都会运行全量测试、Auth/Payment/Task Queue/Realtime 的 race 测试、`go vet`、固定版本的 `staticcheck@v0.7.0` 和 `govulncheck@v1.6.0`，并分别构建 `admin-api` 与 `admin-worker`。推荐入口把二进制写入已忽略的 `.tmp/verify-bin`；clean-cache 入口把 module cache 和二进制放在系统临时目录的唯一 scratch 中，默认验证后删除，传入 `-KeepScratch` 时保留并输出路径。
 
 ## 数据库和迁移
 
