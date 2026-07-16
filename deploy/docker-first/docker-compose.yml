@@ -2,7 +2,7 @@ name: admin-go-backend
 
 services:
   redis:
-    image: docker.m.daocloud.io/library/redis:8.2.7-alpine
+    image: redis:8.2.7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:

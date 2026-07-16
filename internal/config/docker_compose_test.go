@@ -39,7 +39,7 @@ func TestDockerFirstComposeProvidesIsolatedRedis(t *testing.T) {
 	if !ok {
 		t.Fatal("docker-compose.yml must define redis")
 	}
-	if redis.Image != "docker.m.daocloud.io/library/redis:8.2.7-alpine" {
+	if redis.Image != "redis:8.2.7-alpine" {
 		t.Fatalf("unexpected Redis image %q", redis.Image)
 	}
 	if !reflect.DeepEqual(redis.Ports, []string{"127.0.0.1:36379:6379"}) {

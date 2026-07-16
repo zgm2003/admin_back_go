@@ -10,7 +10,7 @@ Run Redis in Docker for the local backend without using or occupying the FlyEnv 
 ## Chosen design
 
 - Add a `redis` service to `deploy/docker-first/docker-compose.yml`.
-- Use `docker.m.daocloud.io/library/redis:8.2.7-alpine` and persist data in a named Compose volume.
+- Use `redis:8.2.7-alpine` and persist data in a named Compose volume.
 - Bind Redis only to `127.0.0.1:36379`; the host's `6379` remains available to FlyEnv.
 - Backend containers connect over the Compose network with `REDIS_ADDR=redis:6379`. The container port remains Redis's standard `6379`; only the host-facing port is changed.
 - Add a Redis health check. `admin-api` and `admin-worker` wait for Redis to become healthy before starting.
