@@ -111,7 +111,12 @@ FROM (
   FROM `ai_image_tasks` t LEFT JOIN `ai_providers` p ON p.`id`=t.`provider_id_snapshot` WHERE p.`id` IS NULL
   UNION ALL
   SELECT CONCAT('image_file_task:',f.`id`)
-  FROM `ai_image_files` f LEFT JOIN `ai_image_tasks` t ON t.`id`=f.`task_id` WHERE t.`id` IS NULL
+  FROM `ai_image_files` f LEFT JOIN `ai_image_tasks` t ON t.`id`=f.`task_id`
+  WHERE t.`id` IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM `ai_runs` r
+      WHERE BINARY r.`request_id`=BINARY CONCAT('ai_image_task_',f.`task_id`)
+    )
   UNION ALL
   SELECT CONCAT('image_file_related:',f.`id`)
   FROM `ai_image_files` f LEFT JOIN `ai_image_files` related ON related.`id`=f.`related_file_id`

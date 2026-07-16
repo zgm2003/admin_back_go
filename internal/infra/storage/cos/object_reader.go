@@ -2,6 +2,7 @@ package cos
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,7 @@ type GetInput struct {
 	Region       string
 	Key          string
 	Endpoint     string
+	Range        string
 }
 
 type GetResult struct {
@@ -84,7 +86,11 @@ func (r *COSObjectReader) Get(ctx context.Context, input GetInput) (*GetResult, 
 		SecretKey:    input.SecretKey,
 		SessionToken: input.SessionToken,
 	}))
-	resp, err := client.Object.Get(reqCtx, input.Key, nil)
+	var options *tencentcos.ObjectGetOptions
+	if input.Range != "" {
+		options = &tencentcos.ObjectGetOptions{Range: input.Range}
+	}
+	resp, err := client.Object.Get(reqCtx, input.Key, options)
 	if err != nil {
 		return nil, fmt.Errorf("cos object get: %w", err)
 	}
@@ -111,5 +117,19 @@ func normalizeGetInput(input GetInput) GetInput {
 	input.Region = strings.TrimSpace(input.Region)
 	input.Key = strings.TrimLeft(strings.TrimSpace(input.Key), "/")
 	input.Endpoint = strings.TrimSpace(input.Endpoint)
+	input.Range = strings.TrimSpace(input.Range)
 	return input
+}
+
+func HTTPStatus(err error) (int, bool) {
+	var response *tencentcos.ErrorResponse
+	if !errors.As(err, &response) || response.Response == nil {
+		return 0, false
+	}
+	return response.Response.StatusCode, true
+}
+
+func IsNotFound(err error) bool {
+	status, ok := HTTPStatus(err)
+	return ok && status == http.StatusNotFound
 }

@@ -253,3 +253,61 @@ func TestRunInvariantsPrintsOnlyNamesAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunCOSReferencesPrintsOnlyManifestPathAndCounts(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectClose()
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	var output bytes.Buffer
+	var written []databaseevolution.COSReferenceResult
+	dependencies := commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return strings.Repeat("a", 64)
+			default:
+				t.Fatalf("unexpected environment key %q", key)
+				return ""
+			}
+		},
+		openDatabase: func(string) (*sql.DB, error) { return database, nil },
+		verifyCOSReferences: func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error) {
+			return []databaseevolution.COSReferenceResult{
+				{Key: "private/one.png", Status: databaseevolution.COSReferenceReachable},
+				{Key: "private/two.png", Status: databaseevolution.COSReferenceNotFound},
+			}, nil
+		},
+		writeCOSManifest: func(path string, results []databaseevolution.COSReferenceResult) error {
+			if path != "cos-evidence.json" {
+				t.Fatalf("path=%q", path)
+			}
+			written = append([]databaseevolution.COSReferenceResult(nil), results...)
+			return nil
+		},
+		stdout: &output,
+	}
+
+	err = run(context.Background(), []string{
+		"cos-references", "--schema", "admin", "--out", "cos-evidence.json",
+	}, dependencies)
+	if err == nil {
+		t.Fatal("expected non-reachable reference failure")
+	}
+	if len(written) != 2 {
+		t.Fatalf("written=%+v", written)
+	}
+	if output.String() != "cos-evidence.json\nreachable\t1\nnot_found\t1\ndependency\t0\n" {
+		t.Fatalf("stdout=%q", output.String())
+	}
+	if strings.Contains(output.String(), "private/") {
+		t.Fatalf("stdout leaked object keys: %q", output.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

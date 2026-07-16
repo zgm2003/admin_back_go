@@ -17,12 +17,14 @@ import (
 )
 
 type commandDependencies struct {
-	getenv        func(string) string
-	openDatabase  func(string) (*sql.DB, error)
-	capture       func(context.Context, *sql.DB, string) (databaseevolution.Fingerprint, error)
-	write         func(string, databaseevolution.FingerprintDocument) error
-	runInvariants func(context.Context, *sql.DB, string) (databaseevolution.InvariantResult, error)
-	stdout        io.Writer
+	getenv              func(string) string
+	openDatabase        func(string) (*sql.DB, error)
+	capture             func(context.Context, *sql.DB, string) (databaseevolution.Fingerprint, error)
+	write               func(string, databaseevolution.FingerprintDocument) error
+	runInvariants       func(context.Context, *sql.DB, string) (databaseevolution.InvariantResult, error)
+	verifyCOSReferences func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error)
+	writeCOSManifest    func(string, []databaseevolution.COSReferenceResult) error
+	stdout              io.Writer
 }
 
 type fingerprintOptions struct {
@@ -34,6 +36,11 @@ type fingerprintOptions struct {
 type invariantOptions struct {
 	schema string
 	file   string
+}
+
+type cosReferenceOptions struct {
+	schema string
+	output string
 }
 
 type commandError struct {
@@ -82,12 +89,14 @@ func (value *singleStringFlag) Set(input string) error {
 
 func main() {
 	dependencies := commandDependencies{
-		getenv:        os.Getenv,
-		openDatabase:  func(dsn string) (*sql.DB, error) { return sql.Open("mysql", dsn) },
-		capture:       databaseevolution.Capture,
-		write:         databaseevolution.WriteFingerprintDocument,
-		runInvariants: databaseevolution.RunInvariantFile,
-		stdout:        os.Stdout,
+		getenv:              os.Getenv,
+		openDatabase:        func(dsn string) (*sql.DB, error) { return sql.Open("mysql", dsn) },
+		capture:             databaseevolution.Capture,
+		write:               databaseevolution.WriteFingerprintDocument,
+		runInvariants:       databaseevolution.RunInvariantFile,
+		verifyCOSReferences: databaseevolution.VerifyStoredCOSReferences,
+		writeCOSManifest:    databaseevolution.WriteCOSReferenceManifest,
+		stdout:              os.Stdout,
 	}
 	if err := run(context.Background(), os.Args[1:], dependencies); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -97,7 +106,7 @@ func main() {
 
 func run(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: admin-db <fingerprint|invariants> [arguments]")
+		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references> [arguments]")
 	}
 	switch args[0] {
 	case "fingerprint":
@@ -112,6 +121,12 @@ func run(ctx context.Context, args []string, dependencies commandDependencies) e
 			return err
 		}
 		return runInvariants(ctx, options, dependencies)
+	case "cos-references":
+		options, err := parseCOSReferenceOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		return runCOSReferences(ctx, options, dependencies)
 	default:
 		return fmt.Errorf("unsupported subcommand")
 	}
@@ -186,6 +201,36 @@ func parseInvariantOptions(args []string) (invariantOptions, error) {
 	return options, nil
 }
 
+func parseCOSReferenceOptions(args []string) (cosReferenceOptions, error) {
+	flags := flag.NewFlagSet("cos-references", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options cosReferenceOptions
+	schemaFlag := &singleStringFlag{name: "schema", value: &options.schema}
+	outputFlag := &singleStringFlag{name: "out", value: &options.output}
+	flags.Var(schemaFlag, "schema", "schema containing COS references")
+	flags.Var(outputFlag, "out", "evidence manifest path")
+	if err := flags.Parse(args); err != nil {
+		for _, value := range []*singleStringFlag{schemaFlag, outputFlag} {
+			if value.duplicate {
+				return cosReferenceOptions{}, fmt.Errorf("--%s may be provided only once", value.name)
+			}
+		}
+		return cosReferenceOptions{}, fmt.Errorf("invalid COS reference arguments")
+	}
+	if flags.NArg() != 0 {
+		return cosReferenceOptions{}, fmt.Errorf("unexpected argument")
+	}
+	options.schema = strings.TrimSpace(options.schema)
+	options.output = strings.TrimSpace(options.output)
+	if options.schema == "" {
+		return cosReferenceOptions{}, fmt.Errorf("--schema is required")
+	}
+	if options.output == "" {
+		return cosReferenceOptions{}, fmt.Errorf("--out is required")
+	}
+	return options, nil
+}
+
 func isFullGitObjectID(value string) bool {
 	if len(value) != 40 && len(value) != 64 {
 		return false
@@ -250,6 +295,53 @@ func runInvariants(ctx context.Context, options invariantOptions, dependencies c
 	}
 	if runErr != nil {
 		return safeCommandError("run database invariants", runErr)
+	}
+	return nil
+}
+
+func runCOSReferences(ctx context.Context, options cosReferenceOptions, dependencies commandDependencies) error {
+	if dependencies.getenv == nil || dependencies.openDatabase == nil || dependencies.verifyCOSReferences == nil || dependencies.writeCOSManifest == nil || dependencies.stdout == nil {
+		return fmt.Errorf("COS reference command dependencies are incomplete")
+	}
+	dsn := dependencies.getenv("MYSQL_DSN")
+	if err := databaseevolution.ValidateSchemaDSN(dsn, options.schema); err != nil {
+		return err
+	}
+	rootSecret := dependencies.getenv("APP_SECRET")
+	if strings.TrimSpace(rootSecret) == "" {
+		return fmt.Errorf("APP_SECRET is required")
+	}
+	database, err := dependencies.openDatabase(dsn)
+	if err != nil {
+		return safeCommandError("open MySQL connection", err)
+	}
+	defer database.Close()
+
+	results, err := dependencies.verifyCOSReferences(ctx, database, rootSecret)
+	if err != nil {
+		return safeCommandError("verify COS references", err)
+	}
+	if err := dependencies.writeCOSManifest(options.output, results); err != nil {
+		return safeCommandError("write COS reference manifest", err)
+	}
+	counts := map[string]int{
+		databaseevolution.COSReferenceReachable:  0,
+		databaseevolution.COSReferenceNotFound:   0,
+		databaseevolution.COSReferenceDependency: 0,
+	}
+	for _, result := range results {
+		counts[result.Status]++
+	}
+	if _, err := fmt.Fprintln(dependencies.stdout, options.output); err != nil {
+		return fmt.Errorf("print COS reference manifest path: %w", err)
+	}
+	for _, status := range []string{databaseevolution.COSReferenceReachable, databaseevolution.COSReferenceNotFound, databaseevolution.COSReferenceDependency} {
+		if _, err := fmt.Fprintf(dependencies.stdout, "%s\t%d\n", status, counts[status]); err != nil {
+			return fmt.Errorf("print COS reference summary: %w", err)
+		}
+	}
+	if counts[databaseevolution.COSReferenceNotFound]+counts[databaseevolution.COSReferenceDependency] != 0 {
+		return safeCommandError("verify COS references", errors.New("one or more COS references are not reachable"))
 	}
 	return nil
 }
