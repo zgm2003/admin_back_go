@@ -58,7 +58,12 @@ function Move-FileWithOverwrite {
     return
   }
   if ([IO.File]::Exists($DestinationPath)) {
-    [IO.File]::Replace($SourcePath, $DestinationPath, $null)
+    $backupPath = $DestinationPath + '.' + [guid]::NewGuid().ToString('N') + '.bak'
+    try {
+      [IO.File]::Replace($SourcePath, $DestinationPath, $backupPath)
+    } finally {
+      Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+    }
     return
   }
   [IO.File]::Move($SourcePath, $DestinationPath)

@@ -10,8 +10,9 @@ import (
 )
 
 type composeService struct {
-	Image string `yaml:"image"`
-	Build struct {
+	Image   string   `yaml:"image"`
+	Command []string `yaml:"command"`
+	Build   struct {
 		Context string `yaml:"context"`
 	} `yaml:"build"`
 	Ports    []string `yaml:"ports"`
@@ -53,6 +54,7 @@ func TestDockerStateComposeOwnsStateServices(t *testing.T) {
 	mysql, mysqlOK := contract.Services["mysql"]
 	redis, redisOK := contract.Services["redis"]
 	if !mysqlOK || mysql.Image != "mysql:8.4.10" ||
+		!reflect.DeepEqual(mysql.Command, []string{"mysqld", "--sql-mode=NO_ENGINE_SUBSTITUTION"}) ||
 		!reflect.DeepEqual(mysql.Ports, []string{"127.0.0.1:${ADMIN_MYSQL_HOST_PORT:-33306}:3306"}) ||
 		!reflect.DeepEqual(mysql.Volumes, []string{"mysql-data:/var/lib/mysql"}) {
 		t.Fatal("invalid MySQL contract")

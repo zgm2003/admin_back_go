@@ -3,6 +3,7 @@ name: admin-state
 services:
   mysql:
     image: mysql:8.4.10
+    command: ["mysqld", "--sql-mode=NO_ENGINE_SUBSTITUTION"]
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: admin
