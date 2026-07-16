@@ -10,14 +10,14 @@ import (
 func TestAIPromptAssetConvergence(t *testing.T) {
 	root := backendRoot(t)
 
-	assertFileContains(t, filepath.Join(root, "database/migrations/20260607_ai_prompt_asset_convergence.sql"), []string{
+	assertFileContains(t, filepath.Join(root, "database/legacy-migrations/20260607_ai_prompt_asset_convergence.sql"), []string{
 		"CREATE TABLE IF NOT EXISTS `ai_prompts`",
 		"CREATE TABLE IF NOT EXISTS `ai_assets`",
 		"INSERT IGNORE INTO `ai_prompts`",
 		"INSERT IGNORE INTO `ai_assets`",
 	})
 
-	assertFileContains(t, filepath.Join(root, "database/migrations/20260608_ai_prompt_asset_drop_legacy.sql"), []string{
+	assertFileContains(t, filepath.Join(root, "database/legacy-migrations/20260608_ai_prompt_asset_drop_legacy.sql"), []string{
 		"DROP TABLE IF EXISTS `canvas_prompts`",
 		"DROP TABLE IF EXISTS `canvas_assets`",
 	})

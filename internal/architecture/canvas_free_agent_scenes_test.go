@@ -36,7 +36,7 @@ func TestAIBillingRuntimeRetired(t *testing.T) {
 		}
 	})
 
-	migrationPath := filepath.Join(root, "database/migrations/20260601_canvas_free_agent_scenes.sql")
+	migrationPath := filepath.Join(root, "database/legacy-migrations/20260601_canvas_free_agent_scenes.sql")
 	migration, err := os.ReadFile(migrationPath)
 	if err != nil {
 		t.Fatalf("read migration: %v", err)

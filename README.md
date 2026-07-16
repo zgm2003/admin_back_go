@@ -410,24 +410,21 @@ powershell -ExecutionPolicy Bypass -File ./scripts/full-admin-smoke.ps1 -Account
 
 ## 数据库和迁移
 
-这点别搞错：
+数据库目录已经按用途隔离：
 
 ```text
-database/migrations 现在是增量迁移，不是完整从 0 建库脚本。
+database/legacy-migrations  历史 SQL 审计证据，禁止自动执行
+database/reconciliation     导入库的分阶段协调与不变量验证
+database/schema             经验证的规范 schema
+database/migrations         Atlas 校验和基线及未来版本迁移
 ```
 
-首次部署需要有一份可用的 `admin` 数据库基线。来源可以是：
+历史 SQL 的文件名顺序不构成可执行迁移计划。导入的 `admin` 数据库必须先完成可恢复备份、指纹采集和 reconciliation；应用启动不会自动执行迁移。
 
-```text
-1. 当前已整理好的线上/演示库备份
-2. legacy admin 库迁移后的基线库
-3. 后续补齐的完整 schema dump
-```
+首次部署需要使用经验证的规范 schema，或使用已完成 reconciliation 的导入库。未来版本迁移统一通过固定 digest 的 Atlas 包装器验证和执行：
 
-然后再按顺序执行：
-
-```text
-database/migrations/*.sql
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
 ```
 
 生产执行迁移前必须：
@@ -895,7 +892,7 @@ deploy/docker-first/admin-go.env.example
 ```text
 不要提交仓库根 .env。
 不要让 8080 裸奔公网；如果为了局域网真机调试绑定 `0.0.0.0`，必须只在受控内网/防火墙白名单下使用。
-不要把 database/migrations 当完整建库脚本。
+不要执行 database/legacy-migrations；它只保存历史审计证据。
 不要在 README 里承诺未实现能力。
 不要为了“分布式”增加复杂度；能单机稳定演示，就先单机。
 ```

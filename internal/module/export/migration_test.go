@@ -8,7 +8,7 @@ import (
 )
 
 func TestExportRuntimeV2MigrationUsesGuardedDDL(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "..", "database", "migrations", "20260530_export_runtime_v2.sql"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "database", "legacy-migrations", "20260530_export_runtime_v2.sql"))
 	if err != nil {
 		t.Fatalf("read export migration: %v", err)
 	}

@@ -37,7 +37,7 @@ func TestPaymentConfigContractDoesNotCarryReturnURL(t *testing.T) {
 		"20260515_payment_config_rebuild_v1.sql",
 		"20260515_payment_config_naming_canonicalization.sql",
 	} {
-		content, err := os.ReadFile(filepath.Join("..", "..", "..", "database", "migrations", migration))
+		content, err := os.ReadFile(filepath.Join("..", "..", "..", "database", "legacy-migrations", migration))
 		if err != nil {
 			t.Fatalf("read migration %s: %v", migration, err)
 		}

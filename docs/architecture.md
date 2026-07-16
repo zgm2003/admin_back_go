@@ -1214,7 +1214,7 @@ notification.created.v1 通过 worker RedisPublisher -> admin-api RedisSubscribe
 RBAC 数据迁移：
 
 ```text
-database/migrations/20260505_add_notification_task_button_permissions.sql
+database/legacy-migrations/20260505_add_notification_task_button_permissions.sql
 为通知管理页面补齐 system_notificationTask_add / cancel / del 三个 BUTTON 权限。
 迁移只给已经拥有 /system/notificationTask PAGE 权限的角色补按钮授权，不创建隐藏超级管理员绕过。
 执行后如果用户已有旧 RBAC route access grant cache，需要等待 TTL 或删除 auth_perm_uid_{userId}_admin_rbac_route_access_grants 后重新计算。
@@ -1654,7 +1654,7 @@ DELETE /api/admin/v1/client-versions/:id
 规则：
 
 ```text
-业务名是 client version / 客户端版本；DB 表统一为 `client_versions`，mutation 权限统一为 `system_clientVersion_*`。项目未上线，不保留历史 Tauri 表名/按钮 code 特殊情况；旧 Tauri 名称只允许作为迁移 source condition 或 legacy source reference出现。前端 route folder、页面 i18n key、菜单 PAGE path/component/i18n_key 使用 `clientVersion`；旧菜单数据通过 `database/migrations/20260507_client_version_permission_route_cleanup.sql` 迁移。
+业务名是 client version / 客户端版本；DB 表统一为 `client_versions`，mutation 权限统一为 `system_clientVersion_*`。项目未上线，不保留历史 Tauri 表名/按钮 code 特殊情况；旧 Tauri 名称只允许作为迁移 source condition 或 legacy source reference出现。前端 route folder、页面 i18n key、菜单 PAGE path/component/i18n_key 使用 `clientVersion`；旧菜单数据曾通过 `database/legacy-migrations/20260507_client_version_permission_route_cleanup.sql` 迁移。
 read/page-init/update-json 只要求 AuthToken，不注册 OperationLog；current-check 是 public path，只返回 force_update boolean。
 mutation route 使用 `system_clientVersion_*` button codes，并显式注册 OperationLog module=client_version。
 create 默认 is_latest=2、force_update=2、is_del=2；delete 只软删除且拒绝删除当前最新版本。

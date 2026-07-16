@@ -9,7 +9,7 @@ import (
 
 func TestImageSchemaConvergesToSingleCapabilityTables(t *testing.T) {
 	root := imageSchemaRepoRoot(t)
-	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "migrations", "20260607_ai_image_single_capability_convergence.sql"))
+	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "legacy-migrations", "20260607_ai_image_single_capability_convergence.sql"))
 
 	for _, want := range []string{
 		"`ai_image_tasks`",
@@ -35,7 +35,7 @@ func TestImageSchemaConvergesToSingleCapabilityTables(t *testing.T) {
 
 func TestImageSchemaDropsRetiredSplitTables(t *testing.T) {
 	root := imageSchemaRepoRoot(t)
-	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "migrations", "20260607_ai_image_single_capability_convergence.sql"))
+	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "legacy-migrations", "20260607_ai_image_single_capability_convergence.sql"))
 
 	for _, table := range []string{
 		"`admin_ai_image_files`",
@@ -51,7 +51,7 @@ func TestImageSchemaDropsRetiredSplitTables(t *testing.T) {
 
 func TestImageSchemaDropsRetiredGlobalAssetTables(t *testing.T) {
 	root := imageSchemaRepoRoot(t)
-	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "migrations", "20260607_ai_image_single_capability_convergence.sql"))
+	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "legacy-migrations", "20260607_ai_image_single_capability_convergence.sql"))
 
 	for _, table := range []string{
 		"`ai_image_task_assets`",
@@ -65,7 +65,7 @@ func TestImageSchemaDropsRetiredGlobalAssetTables(t *testing.T) {
 
 func TestImageSchemaMigratesRetiredImageRowsBeforeDrop(t *testing.T) {
 	root := imageSchemaRepoRoot(t)
-	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "migrations", "20260607_ai_image_single_capability_convergence.sql"))
+	migration := imageSchemaReadFile(t, filepath.Join(root, "database", "legacy-migrations", "20260607_ai_image_single_capability_convergence.sql"))
 
 	for _, want := range []string{
 		"tmp_ai_image_task_map",

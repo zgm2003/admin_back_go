@@ -86,7 +86,7 @@ func TestVerifyCodeTTLDoesNotUseSystemSettingRuntime(t *testing.T) {
 
 func TestChannelVerifyCodeTTLMigrationOwnsColumnsAndRetiresGlobalKey(t *testing.T) {
 	root := backendRoot(t)
-	body, err := os.ReadFile(filepath.Join(root, "database", "migrations", "20260529_channel_verify_code_ttl.sql"))
+	body, err := os.ReadFile(filepath.Join(root, "database", "legacy-migrations", "20260529_channel_verify_code_ttl.sql"))
 	if err != nil {
 		t.Fatalf("read channel verify-code ttl migration: %v", err)
 	}

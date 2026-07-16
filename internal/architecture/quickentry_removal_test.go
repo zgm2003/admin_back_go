@@ -70,7 +70,7 @@ func TestQuickEntryRemovedFromActiveRuntime(t *testing.T) {
 
 func TestDropUsersQuickEntryMigrationExists(t *testing.T) {
 	root := backendRoot(t)
-	body, err := os.ReadFile(filepath.Join(root, "database", "migrations", "20260601_drop_users_quick_entry.sql"))
+	body, err := os.ReadFile(filepath.Join(root, "database", "legacy-migrations", "20260601_drop_users_quick_entry.sql"))
 	if err != nil {
 		t.Fatalf("drop users_quick_entry migration must exist: %v", err)
 	}

@@ -43,7 +43,7 @@ func TestAIConversationRuntimeDoesNotReferenceOldActivePaths(t *testing.T) {
 	}
 	for _, rel := range []string{
 		"docs/architecture.md",
-		"database/migrations/20260510_ai_knowledge_rag.sql",
+		"database/legacy-migrations/20260510_ai_knowledge_rag.sql",
 	} {
 		body, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {

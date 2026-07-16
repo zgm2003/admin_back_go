@@ -9,7 +9,7 @@ import (
 
 func TestCanvasFrontNextIntegration(t *testing.T) {
 	t.Run("Migration", func(t *testing.T) {
-		migration := readCanvasIntegrationFile(t, "database/migrations/20260531_canvas_front_next_integration.sql")
+		migration := readCanvasIntegrationFile(t, "database/legacy-migrations/20260531_canvas_front_next_integration.sql")
 		for _, want := range []string{
 			"auth_platforms", "'canvas'", "无限画布",
 			"canvas_prompts", "canvas_assets",
@@ -56,7 +56,7 @@ func TestCanvasFrontNextIntegration(t *testing.T) {
 }
 
 func TestCanvasRBACMigrationSeedsPageButtonRoleGrants(t *testing.T) {
-	migration := readCanvasIntegrationFile(t, "database/migrations/20260531_canvas_front_next_integration.sql")
+	migration := readCanvasIntegrationFile(t, "database/legacy-migrations/20260531_canvas_front_next_integration.sql")
 
 	for _, code := range []string{
 		"canvas_page",
@@ -94,7 +94,7 @@ func TestCanvasRBACMigrationSeedsPageButtonRoleGrants(t *testing.T) {
 }
 
 func TestCanvasRechargeMenuMigration(t *testing.T) {
-	migration := readCanvasIntegrationFile(t, "database/migrations/20260601_canvas_profile_wallet_recharge_menu.sql")
+	migration := readCanvasIntegrationFile(t, "database/legacy-migrations/20260601_canvas_profile_wallet_recharge_menu.sql")
 	for _, want := range []string{"SET NAMES utf8mb4", "canvas_recharge_page", "'/recharge'", "'recharge'", "'menu.canvas_recharge'", "canvas_wallet_read", "canvas_recharge_add", "canvas_recharge_pay", "INSERT INTO `role_permissions`"} {
 		assertCanvasContains(t, migration, want)
 	}

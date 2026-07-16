@@ -77,7 +77,7 @@ func TestAdminImageWorkspaceDoesNotExposeRetiredSurfaces(t *testing.T) {
 		"ai_image_task_favorite",
 		"/api/admin/v1/ai-images/:id/favorite",
 	})
-	assertRetiredPermissionCleanupMigration(t, filepath.Join(root, "..", "..", "..", "..", "database", "migrations", "20260607_ai_image_retire_favorite_permission.sql"))
+	assertRetiredPermissionCleanupMigration(t, filepath.Join(root, "..", "..", "..", "..", "database", "legacy-migrations", "20260607_ai_image_retire_favorite_permission.sql"))
 }
 
 func assertRetiredPermissionCleanupMigration(t *testing.T, file string) {

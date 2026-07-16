@@ -64,7 +64,7 @@ func TestAdminAIInteractionSurfacesRetired(t *testing.T) {
 		}
 	}
 
-	retireMigration := readAdminAIRetirementText(t, filepath.Join(root, "database/migrations/20260608_admin_ai_interaction_retirement.sql"))
+	retireMigration := readAdminAIRetirementText(t, filepath.Join(root, "database/legacy-migrations/20260608_admin_ai_interaction_retirement.sql"))
 	for _, required := range []string{
 		"ai_image_playground_page",
 		"ai_image_task_add",
@@ -89,7 +89,7 @@ func TestAdminAIInteractionSurfacesRetired(t *testing.T) {
 func TestCanvasAssetsAreUserOwned(t *testing.T) {
 	root := adminAIRetirementRepoRoot(t)
 
-	ownershipMigration := readAdminAIRetirementText(t, filepath.Join(root, "database/migrations/20260608_ai_asset_user_ownership.sql"))
+	ownershipMigration := readAdminAIRetirementText(t, filepath.Join(root, "database/legacy-migrations/20260608_ai_asset_user_ownership.sql"))
 	for _, required := range []string{
 		"ALTER TABLE `ai_assets` ADD COLUMN `user_id` BIGINT UNSIGNED NOT NULL DEFAULT 0",
 		"DROP INDEX `uk_ai_assets_slug` ON `ai_assets`",

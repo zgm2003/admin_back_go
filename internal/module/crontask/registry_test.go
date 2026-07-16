@@ -87,7 +87,7 @@ func TestDefaultRegistryDoesNotKeepOldPayCronNames(t *testing.T) {
 }
 
 func TestCleanupMigrationSoftDeletesContactRequestCron(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "database", "migrations", "20260521_cron_task_active_cleanup.sql")
+	path := filepath.Join("..", "..", "..", "database", "legacy-migrations", "20260521_cron_task_active_cleanup.sql")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("expected cleanup migration %s: %v", path, err)

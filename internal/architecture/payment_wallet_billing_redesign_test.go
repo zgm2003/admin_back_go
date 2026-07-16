@@ -11,7 +11,7 @@ import (
 func TestPaymentWalletBillingRedesignContract(t *testing.T) {
 	root := backendRoot(t)
 
-	migration := readArchitectureFile(t, root, "database/migrations/20260530_payment_wallet_billing_redesign.sql")
+	migration := readArchitectureFile(t, root, "database/legacy-migrations/20260530_payment_wallet_billing_redesign.sql")
 	paymentRoutes := readArchitectureFile(t, root, "internal/module/payment/transport/admin/route.go")
 	walletRoutes := readArchitectureFile(t, root, "internal/module/payment/wallet/transport/admin/route.go")
 	walletDTO := readArchitectureFile(t, root, "internal/module/payment/wallet/dto.go")

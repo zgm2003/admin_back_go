@@ -7,7 +7,7 @@ import (
 )
 
 func TestUnifiedAIRunMigrationShape(t *testing.T) {
-	body, err := os.ReadFile("../../database/migrations/20260607_unified_ai_run_records.sql")
+	body, err := os.ReadFile("../../database/legacy-migrations/20260607_unified_ai_run_records.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestUnifiedAIRunMigrationShape(t *testing.T) {
 }
 
 func TestAIRunSourceFieldCleanupMigrationShape(t *testing.T) {
-	body, err := os.ReadFile("../../database/migrations/20260608_ai_run_source_field_cleanup.sql")
+	body, err := os.ReadFile("../../database/legacy-migrations/20260608_ai_run_source_field_cleanup.sql")
 	if err != nil {
 		t.Fatalf("read cleanup migration: %v", err)
 	}
