@@ -216,3 +216,40 @@ func TestRunFingerprintDoesNotExposeWriteFailureAndPreservesCause(t *testing.T) 
 		t.Fatal(err)
 	}
 }
+
+func TestRunInvariantsPrintsOnlyNamesAndCounts(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectClose()
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	var output bytes.Buffer
+	dependencies := commandDependencies{
+		getenv:       func(string) string { return dsn },
+		openDatabase: func(string) (*sql.DB, error) { return database, nil },
+		runInvariants: func(_ context.Context, gotDatabase *sql.DB, path string) (databaseevolution.InvariantResult, error) {
+			if gotDatabase != database || path != "database/reconciliation/031_verify_relations.sql" {
+				t.Fatalf("database=%p path=%q", gotDatabase, path)
+			}
+			return databaseevolution.InvariantResult{Checks: []databaseevolution.InvariantCheck{
+				{Name: "rbac_orphans", Violations: 0},
+				{Name: "payment_orphans", Violations: 0},
+			}}, nil
+		},
+		stdout: &output,
+	}
+
+	err = run(context.Background(), []string{
+		"invariants", "--schema", "admin", "--file", "database/reconciliation/031_verify_relations.sql",
+	}, dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "rbac_orphans\t0\npayment_orphans\t0\n" {
+		t.Fatalf("stdout=%q", output.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

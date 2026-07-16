@@ -17,17 +17,23 @@ import (
 )
 
 type commandDependencies struct {
-	getenv       func(string) string
-	openDatabase func(string) (*sql.DB, error)
-	capture      func(context.Context, *sql.DB, string) (databaseevolution.Fingerprint, error)
-	write        func(string, databaseevolution.FingerprintDocument) error
-	stdout       io.Writer
+	getenv        func(string) string
+	openDatabase  func(string) (*sql.DB, error)
+	capture       func(context.Context, *sql.DB, string) (databaseevolution.Fingerprint, error)
+	write         func(string, databaseevolution.FingerprintDocument) error
+	runInvariants func(context.Context, *sql.DB, string) (databaseevolution.InvariantResult, error)
+	stdout        io.Writer
 }
 
 type fingerprintOptions struct {
 	schema    string
 	output    string
 	gitCommit string
+}
+
+type invariantOptions struct {
+	schema string
+	file   string
 }
 
 type commandError struct {
@@ -76,11 +82,12 @@ func (value *singleStringFlag) Set(input string) error {
 
 func main() {
 	dependencies := commandDependencies{
-		getenv:       os.Getenv,
-		openDatabase: func(dsn string) (*sql.DB, error) { return sql.Open("mysql", dsn) },
-		capture:      databaseevolution.Capture,
-		write:        databaseevolution.WriteFingerprintDocument,
-		stdout:       os.Stdout,
+		getenv:        os.Getenv,
+		openDatabase:  func(dsn string) (*sql.DB, error) { return sql.Open("mysql", dsn) },
+		capture:       databaseevolution.Capture,
+		write:         databaseevolution.WriteFingerprintDocument,
+		runInvariants: databaseevolution.RunInvariantFile,
+		stdout:        os.Stdout,
 	}
 	if err := run(context.Background(), os.Args[1:], dependencies); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -90,16 +97,24 @@ func main() {
 
 func run(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: admin-db fingerprint --schema <schema> --out <path> --commit <git-commit>")
+		return fmt.Errorf("usage: admin-db <fingerprint|invariants> [arguments]")
 	}
-	if args[0] != "fingerprint" {
+	switch args[0] {
+	case "fingerprint":
+		options, err := parseFingerprintOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		return runFingerprint(ctx, options, dependencies)
+	case "invariants":
+		options, err := parseInvariantOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		return runInvariants(ctx, options, dependencies)
+	default:
 		return fmt.Errorf("unsupported subcommand")
 	}
-	options, err := parseFingerprintOptions(args[1:])
-	if err != nil {
-		return err
-	}
-	return runFingerprint(ctx, options, dependencies)
 }
 
 func parseFingerprintOptions(args []string) (fingerprintOptions, error) {
@@ -137,6 +152,36 @@ func parseFingerprintOptions(args []string) (fingerprintOptions, error) {
 	}
 	if !isFullGitObjectID(options.gitCommit) {
 		return fingerprintOptions{}, fmt.Errorf("--commit must be a full Git object ID")
+	}
+	return options, nil
+}
+
+func parseInvariantOptions(args []string) (invariantOptions, error) {
+	flags := flag.NewFlagSet("invariants", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options invariantOptions
+	schemaFlag := &singleStringFlag{name: "schema", value: &options.schema}
+	fileFlag := &singleStringFlag{name: "file", value: &options.file}
+	flags.Var(schemaFlag, "schema", "schema to verify")
+	flags.Var(fileFlag, "file", "invariant SQL file")
+	if err := flags.Parse(args); err != nil {
+		for _, value := range []*singleStringFlag{schemaFlag, fileFlag} {
+			if value.duplicate {
+				return invariantOptions{}, fmt.Errorf("--%s may be provided only once", value.name)
+			}
+		}
+		return invariantOptions{}, fmt.Errorf("invalid invariants arguments")
+	}
+	if flags.NArg() != 0 {
+		return invariantOptions{}, fmt.Errorf("unexpected argument")
+	}
+	options.schema = strings.TrimSpace(options.schema)
+	options.file = strings.TrimSpace(options.file)
+	if options.schema == "" {
+		return invariantOptions{}, fmt.Errorf("--schema is required")
+	}
+	if options.file == "" {
+		return invariantOptions{}, fmt.Errorf("--file is required")
 	}
 	return options, nil
 }
@@ -179,6 +224,32 @@ func runFingerprint(ctx context.Context, options fingerprintOptions, dependencie
 	}
 	if _, err := fmt.Fprintln(dependencies.stdout, document.SchemaSHA256); err != nil {
 		return fmt.Errorf("print fingerprint schema SHA-256: %w", err)
+	}
+	return nil
+}
+
+func runInvariants(ctx context.Context, options invariantOptions, dependencies commandDependencies) error {
+	if dependencies.getenv == nil || dependencies.openDatabase == nil || dependencies.runInvariants == nil || dependencies.stdout == nil {
+		return fmt.Errorf("invariants command dependencies are incomplete")
+	}
+	dsn := dependencies.getenv("MYSQL_DSN")
+	if err := databaseevolution.ValidateSchemaDSN(dsn, options.schema); err != nil {
+		return err
+	}
+	database, err := dependencies.openDatabase(dsn)
+	if err != nil {
+		return safeCommandError("open MySQL connection", err)
+	}
+	defer database.Close()
+
+	result, runErr := dependencies.runInvariants(ctx, database, options.file)
+	for _, check := range result.Checks {
+		if _, err := fmt.Fprintf(dependencies.stdout, "%s\t%d\n", check.Name, check.Violations); err != nil {
+			return fmt.Errorf("print invariant result: %w", err)
+		}
+	}
+	if runErr != nil {
+		return safeCommandError("run database invariants", runErr)
 	}
 	return nil
 }
