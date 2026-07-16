@@ -275,7 +275,7 @@ Expected: both `6379` and `36379` listen independently, and Redis returns `PONG`
 Invoke-RestMethod http://127.0.0.1:8080/health
 Invoke-RestMethod http://127.0.0.1:8080/ready
 Invoke-WebRequest http://localhost:5173 -UseBasicParsing
-Invoke-RestMethod http://127.0.0.1:8080/api/admin/v1/auth/login-config
+Invoke-RestMethod http://127.0.0.1:8080/api/admin/v1/auth/login-config -Headers @{platform='admin'}
 ```
 
 Expected: health and readiness succeed, Vite returns HTTP `200`, and login configuration returns a successful API response.
