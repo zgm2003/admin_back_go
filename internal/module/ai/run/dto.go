@@ -16,10 +16,10 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	StatusArr      []dict.Option[string] `json:"status_arr"`
-	PlatformArr    []dict.Option[string] `json:"platform_arr"`
-	ProviderArr    []dict.Option[int]    `json:"providerArr"`
-	AgentArr       []dict.Option[int]    `json:"agentArr"`
+	StatusArr   []dict.Option[string] `json:"status_arr"`
+	PlatformArr []dict.Option[string] `json:"platform_arr"`
+	ProviderArr []dict.Option[int]    `json:"providerArr"`
+	AgentArr    []dict.Option[int]    `json:"agentArr"`
 }
 
 type ListQuery struct {
@@ -399,7 +399,7 @@ type Repository interface {
 	Events(ctx context.Context, runID int64) ([]EventRow, error)
 	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
 	KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error)
-	KnowledgeRetrievalHits(ctx context.Context, retrievalID int64) ([]KnowledgeHitRow, error)
+	KnowledgeRetrievalHits(ctx context.Context, retrievalIDs []int64) ([]KnowledgeHitRow, error)
 	StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error)
 	StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)

@@ -38,7 +38,7 @@ func TestExpandedSchemaVerifierReportsLegacyGroupsWithoutMutatingThem(t *testing
 	}
 	verifierBody := strings.ToLower(string(verifier))
 	for _, required := range []string{
-		"030_verify_schema.sql", "031_verify_relations.sql", "032_verify_money.sql", "033_verify_ai.sql", "034_verify_platform.sql",
+		"030_verify_schema.sql", "031_verify_relations.sql", "032_verify_money.sql", "033_verify_ai.sql", "034_verify_platform.sql", "035_verify_ai_image_soft_delete.sql", "036_verify_export_cleanup.sql",
 		"schema_sha256", "legacy_missing_permission_grants", "unresolved_export_object_keys",
 		"admin_smoke", "passed",
 	} {

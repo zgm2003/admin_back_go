@@ -10,6 +10,7 @@ import (
 
 type fakeRepository struct {
 	rows         []ListRow
+	hasMore      bool
 	row          *Conversation
 	activeAgents map[int64]bool
 	listQuery    ListQuery
@@ -23,7 +24,7 @@ type fakeRepository struct {
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, bool, error) {
 	f.listQuery = query
-	return f.rows, len(f.rows) > query.Limit, nil
+	return f.rows, f.hasMore, nil
 }
 func (f *fakeRepository) Get(ctx context.Context, id int64) (*Conversation, string, error) {
 	if f.row == nil {
@@ -54,15 +55,37 @@ func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) err
 func TestListUsesCursorLimitAndDoesNotExposeUserOrStatus(t *testing.T) {
 	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{rows: []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AgentID: 3, Title: "hello", LastMessageAt: &now, IsDel: enum.CommonNo, UpdatedAt: now}, AgentName: "客服助手"}}}
-	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{AgentID: ptrInt64(3), BeforeID: 20, Limit: 0})
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{AgentID: ptrInt64(3), BeforeTime: &now, BeforeID: 20, Limit: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.listQuery.UserID != 7 || repo.listQuery.BeforeID != 20 || repo.listQuery.Limit != 20 || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
+	if repo.listQuery.UserID != 7 || repo.listQuery.BeforeTime == nil || repo.listQuery.BeforeID != 20 || repo.listQuery.Limit != 20 || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
 		t.Fatalf("unexpected normalized query: %#v", repo.listQuery)
 	}
 	if len(res.List) != 1 || res.List[0].AgentName != "客服助手" || res.List[0].LastMessageAt == "" || res.NextID != 0 || res.HasMore {
 		t.Fatalf("unexpected list response: %#v", res)
+	}
+}
+
+func TestListUsesStableLastMessageTimeAndIDCursor(t *testing.T) {
+	cursorTime := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	nextTime := cursorTime.Add(-time.Minute)
+	repo := &fakeRepository{
+		hasMore: true,
+		rows: []ListRow{{
+			Conversation: Conversation{ID: 19, UserID: 7, AgentID: 3, LastMessageAt: &nextTime, UpdatedAt: nextTime},
+		}},
+	}
+
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{BeforeTime: &cursorTime, BeforeID: 20, Limit: 20})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	if repo.listQuery.BeforeTime == nil || !repo.listQuery.BeforeTime.Equal(cursorTime) || repo.listQuery.BeforeID != 20 {
+		t.Fatalf("repository did not receive tuple cursor: %#v", repo.listQuery)
+	}
+	if res.NextTime != "2026-05-09 09:59:00" || res.NextID != 19 || !res.HasMore {
+		t.Fatalf("unexpected next tuple cursor: %#v", res)
 	}
 }
 
@@ -80,7 +103,7 @@ func TestCreateValidatesChatAgentAndSetsCurrentUser(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("Create returned error: %v", appErr)
 	}
-	if id != 9 || repo.created.UserID != 7 || repo.created.AgentID != 5 || repo.created.Title != "New chat" || repo.created.IsDel != enum.CommonNo {
+	if id != 9 || repo.created.UserID != 7 || repo.created.AgentID != 5 || repo.created.Title != "New chat" || repo.created.IsDel != enum.CommonNo || repo.created.LastMessageAt == nil {
 		t.Fatalf("unexpected created row: id=%d row=%#v", id, repo.created)
 	}
 }

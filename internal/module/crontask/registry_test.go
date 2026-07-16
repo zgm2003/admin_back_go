@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	aichat "admin_back_go/internal/module/ai/chat"
+	exporttask "admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
 )
@@ -46,6 +47,15 @@ func TestDefaultRegistryContainsCoreSchedulers(t *testing.T) {
 	}
 	if aiTask.Type != aichat.TypeRunTimeoutV1 {
 		t.Fatalf("expected built ai task type %s, got %s", aichat.TypeRunTimeoutV1, aiTask.Type)
+	}
+
+	exportEntry, ok := registry.Lookup("export_cleanup_expired")
+	if !ok || exportEntry.TaskType != exporttask.TypeCleanupExpiredV1 || exportEntry.BuildTask == nil {
+		t.Fatalf("expected export cleanup registry entry, got %#v found=%v", exportEntry, ok)
+	}
+	exportTask, err := exportEntry.BuildTask()
+	if err != nil || exportTask.Type != exporttask.TypeCleanupExpiredV1 {
+		t.Fatalf("unexpected export cleanup task=%#v err=%v", exportTask, err)
 	}
 
 	paymentEntries := map[string]string{

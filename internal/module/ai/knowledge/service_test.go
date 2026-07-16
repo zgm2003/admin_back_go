@@ -10,21 +10,24 @@ import (
 )
 
 type fakeKnowledgeRepository struct {
-	createdBase       *KnowledgeBase
-	bases             map[uint64]KnowledgeBase
-	documents         map[uint64]KnowledgeDocument
-	replacedDocument  *KnowledgeDocument
-	replacedChunks    []TextChunk
-	replacedIndexedAt time.Time
-	candidates        []RetrievalCandidate
-	baseOptions       []KnowledgeBaseOptionRow
-	replacedAgentID   uint64
-	replacedBindings  []AgentKnowledgeBindingInput
-	runtimeBindings   []RuntimeBindingRow
-	listCandidatesIDs []uint64
-	createRetrievals  []CreateRetrievalInput
-	finishedRetrieval []FinishRetrievalInput
-	insertedHits      []ScoredHit
+	createdBase         *KnowledgeBase
+	bases               map[uint64]KnowledgeBase
+	documents           map[uint64]KnowledgeDocument
+	replacedDocument    *KnowledgeDocument
+	replacedChunks      []TextChunk
+	replacedIndexedAt   time.Time
+	candidates          []RetrievalCandidate
+	candidatePages      map[uint64][]RetrievalCandidate
+	baseOptions         []KnowledgeBaseOptionRow
+	replacedAgentID     uint64
+	replacedBindings    []AgentKnowledgeBindingInput
+	runtimeBindings     []RuntimeBindingRow
+	listCandidatesIDs   []uint64
+	listCandidateAfter  []uint64
+	listCandidateLimits []int
+	createRetrievals    []CreateRetrievalInput
+	finishedRetrieval   []FinishRetrievalInput
+	insertedHits        []ScoredHit
 }
 
 func (f *fakeKnowledgeRepository) ListBases(ctx context.Context, query BaseListQuery) ([]KnowledgeBase, int64, error) {
@@ -89,8 +92,13 @@ func (f *fakeKnowledgeRepository) ReplaceAgentKnowledgeBindings(ctx context.Cont
 func (f *fakeKnowledgeRepository) ListRuntimeBindings(ctx context.Context, agentID uint64) ([]RuntimeBindingRow, error) {
 	return f.runtimeBindings, nil
 }
-func (f *fakeKnowledgeRepository) ListCandidates(ctx context.Context, baseIDs []uint64, limit int) ([]RetrievalCandidate, error) {
+func (f *fakeKnowledgeRepository) ListCandidates(ctx context.Context, baseIDs []uint64, afterID uint64, limit int) ([]RetrievalCandidate, error) {
 	f.listCandidatesIDs = append([]uint64(nil), baseIDs...)
+	f.listCandidateAfter = append(f.listCandidateAfter, afterID)
+	f.listCandidateLimits = append(f.listCandidateLimits, limit)
+	if f.candidatePages != nil {
+		return f.candidatePages[afterID], nil
+	}
 	return f.candidates, nil
 }
 func (f *fakeKnowledgeRepository) CreateRetrieval(ctx context.Context, input CreateRetrievalInput) (uint64, error) {
@@ -184,6 +192,30 @@ func TestRetrievalTestReturnsSelectedHits(t *testing.T) {
 	}
 	if res.Selected[0].KnowledgeBaseID != 1 || res.Selected[0].ChunkID != 3 || res.Hits[0].Status != HitStatusSelected || res.Hits[1].Status != HitStatusSkipped {
 		t.Fatalf("selected hit mismatch: %#v", res)
+	}
+}
+
+func TestRetrievalTestScansPastFirstCandidatePage(t *testing.T) {
+	firstPage := make([]RetrievalCandidate, 500)
+	for i := range firstPage {
+		firstPage[i] = RetrievalCandidate{KnowledgeBaseID: 1, ChunkID: uint64(i + 1), Content: "unrelated"}
+	}
+	repo := &fakeKnowledgeRepository{
+		bases: map[uint64]KnowledgeBase{1: {ID: 1, Name: "架构库", DefaultTopK: 1, DefaultMinScore: 0.1, DefaultMaxContextChars: 1000, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		candidatePages: map[uint64][]RetrievalCandidate{
+			0:   firstPage,
+			500: {{KnowledgeBaseID: 1, ChunkID: 501, Content: "Gin route service repository"}},
+		},
+	}
+	res, appErr := NewService(repo).RetrievalTest(context.Background(), 1, RetrievalTestInput{Query: "Gin route"})
+	if appErr != nil {
+		t.Fatalf("RetrievalTest returned error: %v", appErr)
+	}
+	if !reflect.DeepEqual(repo.listCandidateAfter, []uint64{0, 500}) || !reflect.DeepEqual(repo.listCandidateLimits, []int{500, 500}) {
+		t.Fatalf("candidate scan did not use bounded keyset pages: after=%v limits=%v", repo.listCandidateAfter, repo.listCandidateLimits)
+	}
+	if len(res.Selected) != 1 || res.Selected[0].ChunkID != 501 || res.TotalHits != 501 {
+		t.Fatalf("candidate beyond first page was lost: %#v", res)
 	}
 }
 

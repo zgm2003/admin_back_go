@@ -106,13 +106,24 @@ func (s *Service) knowledgeRetrievalItems(ctx context.Context, repo Repository, 
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索记录失败", err)
 	}
+	if len(rows) == 0 {
+		return []KnowledgeRetrievalItem{}, nil
+	}
+	retrievalIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		retrievalIDs = append(retrievalIDs, row.ID)
+	}
+	hits, err := repo.KnowledgeRetrievalHits(ctx, retrievalIDs)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索命中失败", err)
+	}
+	hitsByRetrieval := make(map[int64][]KnowledgeHitRow, len(rows))
+	for _, hit := range hits {
+		hitsByRetrieval[hit.RetrievalID] = append(hitsByRetrieval[hit.RetrievalID], hit)
+	}
 	items := make([]KnowledgeRetrievalItem, 0, len(rows))
 	for _, row := range rows {
-		hits, err := repo.KnowledgeRetrievalHits(ctx, row.ID)
-		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索命中失败", err)
-		}
-		items = append(items, knowledgeRetrievalItem(row, hits))
+		items = append(items, knowledgeRetrievalItem(row, hitsByRetrieval[row.ID]))
 	}
 	return items, nil
 }

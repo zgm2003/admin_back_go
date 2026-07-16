@@ -324,7 +324,7 @@ type Repository interface {
 	ListAgentKnowledgeBindings(ctx context.Context, agentID uint64) ([]AgentKnowledgeBindingRow, error)
 	ReplaceAgentKnowledgeBindings(ctx context.Context, agentID uint64, rows []AgentKnowledgeBindingInput) error
 	ListRuntimeBindings(ctx context.Context, agentID uint64) ([]RuntimeBindingRow, error)
-	ListCandidates(ctx context.Context, baseIDs []uint64, limit int) ([]RetrievalCandidate, error)
+	ListCandidates(ctx context.Context, baseIDs []uint64, afterID uint64, limit int) ([]RetrievalCandidate, error)
 	CreateRetrieval(ctx context.Context, input CreateRetrievalInput) (uint64, error)
 	FinishRetrieval(ctx context.Context, input FinishRetrievalInput) error
 	InsertRetrievalHits(ctx context.Context, retrievalID uint64, hits []ScoredHit) error

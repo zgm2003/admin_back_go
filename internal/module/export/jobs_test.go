@@ -11,12 +11,18 @@ import (
 )
 
 type fakeJobService struct {
-	input RunInput
-	err   error
+	input          RunInput
+	cleanupInvoked bool
+	err            error
 }
 
 func (f *fakeJobService) Run(ctx context.Context, input RunInput) error {
 	f.input = input
+	return f.err
+}
+
+func (f *fakeJobService) CleanupExpired(ctx context.Context) error {
+	f.cleanupInvoked = true
 	return f.err
 }
 
@@ -69,6 +75,25 @@ func TestRegisterHandlersProcessesRunTaskThroughMux(t *testing.T) {
 	}
 	if service.input.TaskID != 7 || service.input.Kind != KindUserList || service.input.UserID != 9 || service.input.Scope != ScopeSelected || len(service.input.IDs) != 1 {
 		t.Fatalf("unexpected service input: %#v", service.input)
+	}
+}
+
+func TestCleanupExpiredTaskUsesVersionedWorkerCommand(t *testing.T) {
+	service := &fakeJobService{}
+	mux := taskqueue.NewMux()
+	RegisterHandlers(mux, service, nil)
+	task, err := NewCleanupExpiredTask()
+	if err != nil {
+		t.Fatalf("NewCleanupExpiredTask returned error: %v", err)
+	}
+	if task.Type != TypeCleanupExpiredV1 || task.Queue != taskqueue.QueueLow {
+		t.Fatalf("unexpected cleanup task metadata: %#v", task)
+	}
+	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
+		t.Fatalf("ProcessProjectTask returned error: %v", err)
+	}
+	if !service.cleanupInvoked {
+		t.Fatal("cleanup worker command did not invoke service")
 	}
 }
 

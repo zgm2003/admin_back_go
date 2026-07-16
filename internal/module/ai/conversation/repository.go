@@ -38,13 +38,12 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	if query.AgentID != nil {
 		db = db.Where("c.agent_id = ?", *query.AgentID)
 	}
-	if query.BeforeID > 0 {
-		db = db.Where("c.id < ?", query.BeforeID)
+	if query.BeforeTime != nil && query.BeforeID > 0 {
+		db = db.Where("(c.last_message_at < ? OR (c.last_message_at = ? AND c.id < ?))", *query.BeforeTime, *query.BeforeTime, query.BeforeID)
 	}
 	var flats []listRowFlat
 	err := db.Select("c.id, c.user_id, c.agent_id, c.title, c.last_message_at, c.is_del, c.created_at, c.updated_at, a.name as agent_name").
 		Joins("LEFT JOIN ai_agents a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
-		Order("c.last_message_at IS NULL ASC").
 		Order("c.last_message_at DESC").
 		Order("c.id DESC").
 		Limit(limit + 1).

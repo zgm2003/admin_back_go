@@ -30,7 +30,7 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI会话列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, aiconversationmodule.ListQuery{AgentID: req.AgentID, BeforeID: req.BeforeID, Limit: req.Limit})
+	res, appErr := h.requireService().List(c.Request.Context(), identity.UserID, aiconversationmodule.ListQuery{AgentID: req.AgentID, BeforeTime: req.BeforeTime, BeforeID: req.BeforeID, Limit: req.Limit})
 	writeResult(c, res, appErr)
 }
 

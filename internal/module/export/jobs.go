@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	TypeRunV1    = "export:run:v1"
-	KindUserList = "user_list"
+	TypeRunV1            = "export:run:v1"
+	TypeCleanupExpiredV1 = "export:cleanup-expired:v1"
+	KindUserList         = "user_list"
 )
 
 type RunPayload struct {
@@ -30,6 +31,15 @@ type RunInput = RunPayload
 
 type JobService interface {
 	Run(ctx context.Context, input RunInput) error
+	CleanupExpired(ctx context.Context) error
+}
+
+func NewCleanupExpiredTask() (taskqueue.Task, error) {
+	data, err := json.Marshal(struct{}{})
+	if err != nil {
+		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeCleanupExpiredV1, err)
+	}
+	return taskqueue.Task{Type: TypeCleanupExpiredV1, Payload: data, Queue: taskqueue.QueueLow, MaxRetry: 3, Timeout: time.Minute, UniqueTTL: 5 * time.Minute}, nil
 }
 
 func NewRunTask(payload RunPayload) (taskqueue.Task, error) {
@@ -70,6 +80,13 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 		}
 		if err := service.Run(ctx, payload); err != nil {
 			logger.WarnContext(ctx, "export run task failed", "task_id", payload.TaskID, "kind", payload.Kind, "error", err)
+			return err
+		}
+		return nil
+	})
+	mux.HandleFunc(TypeCleanupExpiredV1, func(ctx context.Context, task taskqueue.Task) error {
+		if err := service.CleanupExpired(ctx); err != nil {
+			logger.WarnContext(ctx, "export cleanup expired task failed", "error", err)
 			return err
 		}
 		return nil

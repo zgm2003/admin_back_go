@@ -85,8 +85,8 @@ func TestStatusCountReturnsFixedOrderAndScopesUser(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("StatusCount returned error: %v", appErr)
 	}
-	if repo.cleanedAt != now {
-		t.Fatalf("expected CleanExpired with fixed now, got %v", repo.cleanedAt)
+	if !repo.cleanedAt.IsZero() {
+		t.Fatalf("StatusCount must not mutate expired tasks, cleaned at %v", repo.cleanedAt)
 	}
 	if repo.gotCount.UserID != 9 || repo.gotCount.Title != "用户" {
 		t.Fatalf("expected scoped trimmed query, got %#v", repo.gotCount)
@@ -119,12 +119,26 @@ func TestListScopesUserPlatformKindAndFormatsFileSize(t *testing.T) {
 	if repo.gotList.UserID != 9 || repo.gotList.Platform != enum.PlatformAdmin || repo.gotList.Kind != KindUserList || repo.gotList.FileName != "u" {
 		t.Fatalf("expected scoped trimmed list query, got %#v", repo.gotList)
 	}
+	if !repo.cleanedAt.IsZero() {
+		t.Fatalf("List must not mutate expired tasks, cleaned at %v", repo.cleanedAt)
+	}
 	if got.Page.Total != 1 || got.Page.TotalPage != 1 || len(got.List) != 1 {
 		t.Fatalf("unexpected page/list: %#v", got)
 	}
 	item := got.List[0]
 	if item.Kind != KindUserList || item.KindText != "用户列表" || item.FileSizeText != "2 KB" || item.StatusText != "已完成" || item.ExpireAt == nil || *item.ExpireAt != "2026-05-14 12:30:00" {
 		t.Fatalf("unexpected list item: %#v", item)
+	}
+}
+
+func TestCleanupExpiredRunsAsExplicitWorkerOperation(t *testing.T) {
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{}
+	if err := NewService(repo, WithNow(func() time.Time { return now })).CleanupExpired(context.Background()); err != nil {
+		t.Fatalf("CleanupExpired returned error: %v", err)
+	}
+	if !repo.cleanedAt.Equal(now) {
+		t.Fatalf("expected explicit cleanup at %v, got %v", now, repo.cleanedAt)
 	}
 }
 

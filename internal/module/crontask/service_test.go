@@ -214,6 +214,7 @@ func TestServiceLogsMapsStatusAndDates(t *testing.T) {
 type fakeRepository struct {
 	tasks       []Task
 	logs        []TaskLog
+	logsQuery   LogsQuery
 	nameExists  bool
 	createID    int64
 	err         error
@@ -262,7 +263,26 @@ func (f *fakeRepository) Update(ctx context.Context, id int64, row Task) error {
 func (f *fakeRepository) UpdateStatus(ctx context.Context, id int64, status int) error { return f.err }
 func (f *fakeRepository) Delete(ctx context.Context, ids []int64) error                { return f.err }
 func (f *fakeRepository) Logs(ctx context.Context, query LogsQuery) ([]TaskLog, int64, error) {
+	f.logsQuery = query
 	return f.logs, int64(len(f.logs)), f.err
+}
+
+func TestServiceLogsCarriesStableCreatedAtAndIDCursor(t *testing.T) {
+	cursorTime := time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC)
+	nextTime := cursorTime.Add(-time.Minute)
+	repo := &fakeRepository{logs: []TaskLog{{ID: 19, TaskID: 1, Status: LogStatusSuccess, CreatedAt: nextTime}}}
+	service := NewService(repo, NewDefaultRegistry())
+
+	res, appErr := service.Logs(context.Background(), LogsQuery{TaskID: 1, CurrentPage: 1, PageSize: 20, BeforeTime: &cursorTime, BeforeID: 20})
+	if appErr != nil {
+		t.Fatalf("Logs returned appErr: %v", appErr)
+	}
+	if repo.logsQuery.BeforeTime == nil || !repo.logsQuery.BeforeTime.Equal(cursorTime) || repo.logsQuery.BeforeID != 20 {
+		t.Fatalf("repository did not receive tuple cursor: %#v", repo.logsQuery)
+	}
+	if res.NextTime != "2026-05-06 12:59:00" || res.NextID != 19 {
+		t.Fatalf("unexpected next cursor: %#v", res)
+	}
 }
 func (f *fakeRepository) ListEnabled(ctx context.Context) ([]Task, error) { return f.tasks, f.err }
 func (f *fakeRepository) LogStart(ctx context.Context, task Task, now time.Time) (int64, error) {

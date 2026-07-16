@@ -16,6 +16,8 @@ var ErrRepositoryNotConfigured = errors.New("aiknowledge repository not configur
 
 type GormRepository struct{ db *gorm.DB }
 
+const knowledgeWriteBatchSize = 500
+
 func NewGormRepository(client *database.Client) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
@@ -179,9 +181,12 @@ func (r *GormRepository) ReplaceChunks(ctx context.Context, document KnowledgeDo
 		if err := tx.Model(&KnowledgeChunk{}).Where("document_id = ? AND is_del = ?", document.ID, enum.CommonNo).Updates(map[string]any{"is_del": enum.CommonYes, "status": enum.CommonNo}).Error; err != nil {
 			return err
 		}
+		rows := make([]KnowledgeChunk, 0, len(chunks))
 		for _, chunk := range chunks {
-			row := KnowledgeChunk{KnowledgeBaseID: document.KnowledgeBaseID, DocumentID: document.ID, ChunkIndex: chunk.Index, Title: document.Title, Content: chunk.Content, ContentChars: chunk.Chars, Status: enum.CommonYes, IsDel: enum.CommonNo}
-			if err := tx.Create(&row).Error; err != nil {
+			rows = append(rows, KnowledgeChunk{KnowledgeBaseID: document.KnowledgeBaseID, DocumentID: document.ID, ChunkIndex: chunk.Index, Title: document.Title, Content: chunk.Content, ContentChars: chunk.Chars, Status: enum.CommonYes, IsDel: enum.CommonNo})
+		}
+		if len(rows) > 0 {
+			if err := tx.CreateInBatches(&rows, knowledgeWriteBatchSize).Error; err != nil {
 				return err
 			}
 		}
@@ -266,7 +271,7 @@ func (r *GormRepository) ListRuntimeBindings(ctx context.Context, agentID uint64
 	return rows, err
 }
 
-func (r *GormRepository) ListCandidates(ctx context.Context, baseIDs []uint64, limit int) ([]RetrievalCandidate, error) {
+func (r *GormRepository) ListCandidates(ctx context.Context, baseIDs []uint64, afterID uint64, limit int) ([]RetrievalCandidate, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
@@ -280,6 +285,9 @@ func (r *GormRepository) ListCandidates(ctx context.Context, baseIDs []uint64, l
 		Joins("JOIN ai_knowledge_documents d ON d.id = c.document_id AND d.is_del = ? AND d.status = ? AND d.index_status = ?", enum.CommonNo, enum.CommonYes, IndexStatusIndexed).
 		Where("c.knowledge_base_id IN ? AND c.is_del = ? AND c.status = ?", baseIDs, enum.CommonNo, enum.CommonYes).
 		Order("c.id ASC")
+	if afterID > 0 {
+		db = db.Where("c.id > ?", afterID)
+	}
 	if limit > 0 {
 		db = db.Limit(limit)
 	}
@@ -320,13 +328,16 @@ func (r *GormRepository) InsertRetrievalHits(ctx context.Context, retrievalID ui
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	for _, hit := range hits {
-		row := KnowledgeRetrievalHit{RetrievalID: retrievalID, KnowledgeBaseID: hit.KnowledgeBaseID, KnowledgeBaseName: hit.KnowledgeBaseName, DocumentID: hit.DocumentID, DocumentTitle: hit.DocumentTitle, ChunkID: hit.ChunkID, ChunkIndex: hit.ChunkIndex, Score: hit.Score, RankNo: hit.RankNo, ContentSnapshot: hit.Content, Status: hit.Status, SkipReason: hit.SkipReason, IsDel: enum.CommonNo}
-		if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-			return err
-		}
+	if len(hits) == 0 {
+		return nil
 	}
-	return nil
+	rows := make([]KnowledgeRetrievalHit, 0, len(hits))
+	for _, hit := range hits {
+		rows = append(rows, KnowledgeRetrievalHit{RetrievalID: retrievalID, KnowledgeBaseID: hit.KnowledgeBaseID, KnowledgeBaseName: hit.KnowledgeBaseName, DocumentID: hit.DocumentID, DocumentTitle: hit.DocumentTitle, ChunkID: hit.ChunkID, ChunkIndex: hit.ChunkIndex, Score: hit.Score, RankNo: hit.RankNo, ContentSnapshot: hit.Content, Status: hit.Status, SkipReason: hit.SkipReason, IsDel: enum.CommonNo})
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return tx.CreateInBatches(&rows, knowledgeWriteBatchSize).Error
+	})
 }
 
 func (r *GormRepository) activeBases(ctx context.Context) *gorm.DB {

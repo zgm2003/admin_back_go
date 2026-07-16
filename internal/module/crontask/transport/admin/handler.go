@@ -156,7 +156,7 @@ func (h *Handler) Logs(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("crontask.logs.request.invalid", nil, "日志参数错误"))
 		return
 	}
-	result, appErr := h.service.Logs(c.Request.Context(), crontaskmodule.LogsQuery{TaskID: id, CurrentPage: req.CurrentPage, PageSize: req.PageSize, Status: req.Status, StartDate: req.StartDate, EndDate: req.EndDate})
+	result, appErr := h.service.Logs(c.Request.Context(), crontaskmodule.LogsQuery{TaskID: id, CurrentPage: req.CurrentPage, PageSize: req.PageSize, BeforeTime: req.BeforeTime, BeforeID: req.BeforeID, Status: req.Status, StartDate: req.StartDate, EndDate: req.EndDate})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

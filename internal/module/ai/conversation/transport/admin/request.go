@@ -1,9 +1,12 @@
 package admin
 
+import "time"
+
 type listRequest struct {
-	AgentID  *int64 `form:"agent_id" binding:"omitempty,min=1"`
-	BeforeID int64  `form:"before_id" binding:"omitempty,min=1"`
-	Limit    int    `form:"limit" binding:"omitempty,min=1,max=100"`
+	AgentID    *int64     `form:"agent_id" binding:"omitempty,min=1"`
+	BeforeTime *time.Time `form:"before_time" time_format:"2006-01-02 15:04:05"`
+	BeforeID   int64      `form:"before_id" binding:"omitempty,min=1"`
+	Limit      int        `form:"limit" binding:"omitempty,min=1,max=100"`
 }
 
 type createRequest struct {

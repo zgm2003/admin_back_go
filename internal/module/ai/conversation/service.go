@@ -33,7 +33,10 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 		return nil, appErr
 	}
 	query.UserID = userID
-	query = normalizeListQuery(query)
+	query, appErr = normalizeListQuery(query)
+	if appErr != nil {
+		return nil, appErr
+	}
 	rows, hasMore, err := repo.List(ctx, query)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
@@ -43,10 +46,13 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 		list = append(list, conversationItem(row))
 	}
 	nextID := int64(0)
+	nextTime := ""
 	if hasMore && len(rows) > 0 {
-		nextID = rows[len(rows)-1].Conversation.ID
+		last := rows[len(rows)-1].Conversation
+		nextID = last.ID
+		nextTime = formatTimePtr(last.LastMessageAt)
 	}
-	return &ListResponse{List: list, NextID: nextID, HasMore: hasMore}, nil
+	return &ListResponse{List: list, NextTime: nextTime, NextID: nextID, HasMore: hasMore}, nil
 }
 
 func (s *Service) Detail(ctx context.Context, userID int64, id int64) (*ConversationDetail, *apperror.Error) {
@@ -75,7 +81,8 @@ func (s *Service) Create(ctx context.Context, userID int64, input CreateInput) (
 	if !ok {
 		return 0, apperror.BadRequest("该智能体不支持对话场景")
 	}
-	id, err := repo.Create(ctx, Conversation{UserID: userID, AgentID: input.AgentID, Title: trimTitle(input.Title), IsDel: enum.CommonNo})
+	now := time.Now()
+	id, err := repo.Create(ctx, Conversation{UserID: userID, AgentID: input.AgentID, Title: trimTitle(input.Title), LastMessageAt: &now, IsDel: enum.CommonNo})
 	if err != nil {
 		return 0, apperror.Wrap(apperror.CodeInternal, 500, "创建AI会话失败", err)
 	}
@@ -139,14 +146,19 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func normalizeListQuery(query ListQuery) ListQuery {
+func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	if query.Limit <= 0 {
 		query.Limit = defaultLimit
 	}
 	if query.Limit > maxLimit {
 		query.Limit = maxLimit
 	}
-	return query
+	hasTime := query.BeforeTime != nil && !query.BeforeTime.IsZero()
+	hasID := query.BeforeID > 0
+	if hasTime != hasID {
+		return query, apperror.BadRequest("AI会话游标必须同时包含before_time和before_id")
+	}
+	return query, nil
 }
 
 func conversationItem(row ListRow) ConversationItem {

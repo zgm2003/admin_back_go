@@ -24,6 +24,7 @@ type ImageTask struct {
 	ActualParamsJSON         *string    `gorm:"column:actual_params_json"`
 	RawResponseJSON          *string    `gorm:"column:raw_response_json"`
 	IsFavorite               int        `gorm:"column:is_favorite"`
+	IsDel                    int        `gorm:"column:is_del;default:2"`
 	FinishedAt               *time.Time `gorm:"column:finished_at"`
 	ElapsedMS                int        `gorm:"column:elapsed_ms"`
 	CreatedAt                time.Time  `gorm:"column:created_at"`
@@ -46,6 +47,7 @@ type ImageFile struct {
 	SizeBytes       int64     `gorm:"column:size_bytes"`
 	RelatedFileID   *uint64   `gorm:"column:related_file_id"`
 	RevisedPrompt   *string   `gorm:"column:revised_prompt"`
+	IsDel           int       `gorm:"column:is_del;default:2"`
 	CreatedAt       time.Time `gorm:"column:created_at"`
 }
 

@@ -347,3 +347,5 @@ func (f *fakeExportTaskJobService) Run(ctx context.Context, input exporttask.Run
 	f.input = input
 	return nil
 }
+
+func (f *fakeExportTaskJobService) CleanupExpired(ctx context.Context) error { return nil }

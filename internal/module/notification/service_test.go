@@ -73,6 +73,7 @@ func TestListNormalizesFiltersAndReturnsLabels(t *testing.T) {
 	got, appErr := service.List(context.Background(), ListQuery{
 		CurrentPage: 1,
 		PageSize:    20,
+		BeforeID:   8,
 		UserID:      12,
 		Platform:    " admin ",
 		Keyword:     " 导出 ",
@@ -83,11 +84,14 @@ func TestListNormalizesFiltersAndReturnsLabels(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected list to succeed, got %v", appErr)
 	}
-	if repo.gotList.Platform != "admin" || repo.gotList.Keyword != "导出" || repo.gotList.UserID != 12 {
+	if repo.gotList.Platform != "admin" || repo.gotList.Keyword != "导出" || repo.gotList.UserID != 12 || repo.gotList.BeforeID != 8 {
 		t.Fatalf("unexpected normalized query: %#v", repo.gotList)
 	}
 	if got.Page.Total != 1 || got.Page.TotalPage != 1 || len(got.List) != 1 {
 		t.Fatalf("unexpected list response: %#v", got)
+	}
+	if got.NextID != 7 {
+		t.Fatalf("unexpected next notification cursor: %#v", got)
 	}
 	item := got.List[0]
 	if item.TypeText != "成功" || item.LevelText != "紧急" || item.CreatedAt != "2026-05-05 12:00:00" {

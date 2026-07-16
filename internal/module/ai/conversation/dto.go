@@ -2,15 +2,17 @@ package aiconversation
 
 import (
 	"context"
+	"time"
 
 	"admin_back_go/internal/shared/apperror"
 )
 
 type ListQuery struct {
-	UserID   int64
-	AgentID  *int64
-	BeforeID int64
-	Limit    int
+	UserID     int64
+	AgentID    *int64
+	BeforeTime *time.Time
+	BeforeID   int64
+	Limit      int
 }
 
 type ListRow struct {
@@ -38,9 +40,10 @@ type ConversationDetail struct {
 }
 
 type ListResponse struct {
-	List    []ConversationItem `json:"list"`
-	NextID  int64              `json:"next_id"`
-	HasMore bool               `json:"has_more"`
+	List     []ConversationItem `json:"list"`
+	NextTime string             `json:"next_time"`
+	NextID   int64              `json:"next_id"`
+	HasMore  bool               `json:"has_more"`
 }
 
 type CreateInput struct {

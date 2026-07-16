@@ -3,6 +3,7 @@ package aiknowledge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"sort"
@@ -284,7 +285,7 @@ func (s *Service) RetrievalTest(ctx context.Context, baseID uint64, input Retrie
 		return nil, appErr
 	}
 	repo, _ := s.requireRepo()
-	candidates, err := repo.ListCandidates(ctx, []uint64{baseID}, candidateLimit(options.TopK))
+	candidates, err := loadAllCandidates(ctx, repo, []uint64{baseID})
 	if err != nil {
 		return nil, wrapInternal(err)
 	}
@@ -355,7 +356,7 @@ func (s *Service) RetrieveForRun(ctx context.Context, input KnowledgeRuntimeInpu
 	if err != nil {
 		return nil, wrapInternal(err)
 	}
-	candidates, err := repo.ListCandidates(ctx, baseIDs, candidateLimit(maxBindingTopK(bindings)))
+	candidates, err := loadAllCandidates(ctx, repo, baseIDs)
 	if err != nil {
 		_ = repo.FinishRetrieval(ctx, FinishRetrievalInput{ID: retrievalID, Status: RetrievalStatusFailed, ErrorMessage: err.Error()})
 		return nil, wrapInternal(err)
@@ -708,18 +709,30 @@ func formatTime(t time.Time) string {
 
 func nowUTC() time.Time { return time.Now().UTC() }
 
-func candidateLimit(topK uint) int {
-	if topK == 0 {
-		return 100
+const candidatePageSize = 500
+
+func loadAllCandidates(ctx context.Context, repo Repository, baseIDs []uint64) ([]RetrievalCandidate, error) {
+	rows := make([]RetrievalCandidate, 0, candidatePageSize)
+	var afterID uint64
+	for {
+		page, err := repo.ListCandidates(ctx, baseIDs, afterID, candidatePageSize)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		nextID := page[len(page)-1].ChunkID
+		if nextID <= afterID {
+			return nil, fmt.Errorf("knowledge candidate keyset did not advance after chunk %d", afterID)
+		}
+		rows = append(rows, page...)
+		afterID = nextID
+		if len(page) < candidatePageSize {
+			break
+		}
 	}
-	limit := int(topK) * 20
-	if limit < 100 {
-		return 100
-	}
-	if limit > 500 {
-		return 500
-	}
-	return limit
+	return rows, nil
 }
 
 func maxBindingTopK(bindings []RuntimeBindingRow) uint {

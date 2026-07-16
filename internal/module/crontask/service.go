@@ -198,7 +198,14 @@ func (s *Service) Logs(ctx context.Context, query LogsQuery) (*LogsResponse, *ap
 	for _, row := range rows {
 		list = append(list, logItemFromRow(row))
 	}
-	return &LogsResponse{List: list, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}}, nil
+	nextTime := ""
+	nextID := int64(0)
+	if len(rows) > 0 {
+		last := rows[len(rows)-1]
+		nextTime = formatTime(last.CreatedAt)
+		nextID = last.ID
+	}
+	return &LogsResponse{List: list, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}, NextTime: nextTime, NextID: nextID}, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -232,6 +239,11 @@ func normalizeLogsQuery(query LogsQuery) (LogsQuery, *apperror.Error) {
 	}
 	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
 		return query, apperror.BadRequestKey("crontask.page_size.invalid", nil, "每页数量无效")
+	}
+	hasTime := query.BeforeTime != nil && !query.BeforeTime.IsZero()
+	hasID := query.BeforeID > 0
+	if hasTime != hasID {
+		return query, apperror.BadRequestKey("crontask.logs_cursor.invalid", nil, "日志游标必须同时包含before_time和before_id")
 	}
 	if query.Status != nil && !isLogStatus(*query.Status) {
 		return query, apperror.BadRequestKey("crontask.log_status.invalid", nil, "无效的日志状态")

@@ -141,9 +141,6 @@ func (s *Service) StatusCount(ctx context.Context, query StatusCountQuery) ([]St
 	if query.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
-	if err := repo.CleanExpired(ctx, s.now()); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.cleanup_failed", nil, "清理过期导出任务失败", err)
-	}
 	counts, err := repo.CountByStatus(ctx, query)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.status_count_failed", nil, "查询导出任务状态统计失败", err)
@@ -160,9 +157,6 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if appErr != nil {
 		return nil, appErr
 	}
-	if err := repo.CleanExpired(ctx, s.now()); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.cleanup_failed", nil, "清理过期导出任务失败", err)
-	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.query_failed", nil, "查询导出任务失败", err)
@@ -172,6 +166,17 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 		items = append(items, listItemFromTask(row))
 	}
 	return &ListResponse{List: items, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}}, nil
+}
+
+func (s *Service) CleanupExpired(ctx context.Context) error {
+	repo, err := s.requireRepositoryError()
+	if err != nil {
+		return err
+	}
+	if err := repo.CleanExpired(ctx, s.now()); err != nil {
+		return fmt.Errorf("cleanup expired export tasks: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) CreatePending(ctx context.Context, input CreatePendingInput) (int64, error) {

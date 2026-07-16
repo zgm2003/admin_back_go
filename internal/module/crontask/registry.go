@@ -5,6 +5,7 @@ import (
 
 	"admin_back_go/internal/infra/taskqueue"
 	aichat "admin_back_go/internal/module/ai/chat"
+	exporttask "admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
 )
@@ -36,6 +37,14 @@ func NewDefaultRegistry() Registry {
 		Description: "扫描待发送通知任务并投递 notification send-task 队列任务",
 		BuildTask: func() (taskqueue.Task, error) {
 			return notificationtask.NewDispatchDueTask(notificationtask.DispatchDuePayload{})
+		},
+	})
+	registry.Register(RegistryEntry{
+		Name:        "export_cleanup_expired",
+		TaskType:    exporttask.TypeCleanupExpiredV1,
+		Description: "清理已过期的导出任务",
+		BuildTask: func() (taskqueue.Task, error) {
+			return exporttask.NewCleanupExpiredTask()
 		},
 	})
 	registry.Register(RegistryEntry{

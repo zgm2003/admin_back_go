@@ -114,7 +114,7 @@ func (r *GormRepository) LoadTaskFiles(ctx context.Context, taskID uint64) ([]Im
 		return nil, ErrRepositoryNotConfigured
 	}
 	var rows []ImageFile
-	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("role ASC, sort_order ASC, id ASC").Find(&rows).Error
+	err := r.db.WithContext(ctx).Where("task_id = ? AND is_del = ?", taskID, enum.CommonNo).Order("role ASC, sort_order ASC, id ASC").Find(&rows).Error
 	if rows == nil {
 		rows = []ImageFile{}
 	}
@@ -125,6 +125,7 @@ func (r *GormRepository) CreateTaskWithFiles(ctx context.Context, task ImageTask
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
 	}
+	task.IsDel = enum.CommonNo
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&task).Error; err != nil {
 			return err
@@ -132,6 +133,7 @@ func (r *GormRepository) CreateTaskWithFiles(ctx context.Context, task ImageTask
 		inputIDsBySort := make(map[int]uint64, len(files.Inputs))
 		for i := range files.Inputs {
 			files.Inputs[i].TaskID = task.ID
+			files.Inputs[i].IsDel = enum.CommonNo
 			if err := tx.Create(&files.Inputs[i]).Error; err != nil {
 				return err
 			}
@@ -140,6 +142,7 @@ func (r *GormRepository) CreateTaskWithFiles(ctx context.Context, task ImageTask
 		if files.Mask != nil {
 			mask := files.Mask.File
 			mask.TaskID = task.ID
+			mask.IsDel = enum.CommonNo
 			if relatedID, ok := inputIDsBySort[files.Mask.RelatedSortOrder]; ok {
 				mask.RelatedFileID = &relatedID
 			}
@@ -156,14 +159,25 @@ func (r *GormRepository) DeleteTask(ctx context.Context, userID uint64, taskID u
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	tx := r.userTask(ctx, userID, taskID, platform).Delete(&ImageTask{})
-	if tx.Error != nil {
-		return tx.Error
-	}
-	if tx.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+	now := time.Now()
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		tasks := tx.Model(&ImageTask{}).
+			Where("user_id = ? AND id = ?", userID, taskID)
+		if strings.TrimSpace(platform) != "" {
+			tasks = tasks.Where("platform = ?", strings.TrimSpace(platform))
+		}
+		result := tasks.Where("is_del = ?", enum.CommonNo).
+			Updates(map[string]any{"is_del": enum.CommonYes, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return tx.Model(&ImageFile{}).
+			Where("task_id = ? AND is_del = ?", taskID, enum.CommonNo).
+			Update("is_del", enum.CommonYes).Error
+	})
 }
 
 func (r *GormRepository) LoadAgentRuntime(ctx context.Context, agentID uint64) (*AgentRuntime, error) {
@@ -218,6 +232,9 @@ func (r *GormRepository) AppendTaskFiles(ctx context.Context, files []ImageFile)
 	if len(files) == 0 {
 		return nil
 	}
+	for i := range files {
+		files[i].IsDel = enum.CommonNo
+	}
 	return r.db.WithContext(ctx).Create(&files).Error
 }
 
@@ -269,7 +286,7 @@ func (r *GormRepository) LoadUploadConfig(ctx context.Context) (*UploadConfig, e
 }
 
 func (r *GormRepository) tasks(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Model(&ImageTask{})
+	return r.db.WithContext(ctx).Model(&ImageTask{}).Where("is_del = ?", enum.CommonNo)
 }
 
 func (r *GormRepository) userTask(ctx context.Context, userID uint64, taskID uint64, platform string) *gorm.DB {

@@ -1,5 +1,7 @@
 package admin
 
+import "time"
+
 type listRequest struct {
 	CurrentPage int    `form:"current_page" binding:"required,min=1"`
 	PageSize    int    `form:"page_size" binding:"required,min=1,max=50"`
@@ -27,9 +29,11 @@ type batchDeleteRequest struct {
 }
 
 type logsRequest struct {
-	CurrentPage int    `form:"current_page" binding:"required,min=1"`
-	PageSize    int    `form:"page_size" binding:"required,min=1,max=50"`
-	Status      *int   `form:"status" binding:"omitempty,oneof=1 2 3"`
-	StartDate   string `form:"start_date" binding:"max=20"`
-	EndDate     string `form:"end_date" binding:"max=20"`
+	CurrentPage int        `form:"current_page" binding:"required,min=1"`
+	PageSize    int        `form:"page_size" binding:"required,min=1,max=50"`
+	BeforeTime  *time.Time `form:"before_time" time_format:"2006-01-02 15:04:05"`
+	BeforeID    int64      `form:"before_id" binding:"omitempty,min=1"`
+	Status      *int       `form:"status" binding:"omitempty,oneof=1 2 3"`
+	StartDate   string     `form:"start_date" binding:"max=20"`
+	EndDate     string     `form:"end_date" binding:"max=20"`
 }

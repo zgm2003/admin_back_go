@@ -180,12 +180,20 @@ func (r *GormRepository) Logs(ctx context.Context, query LogsQuery) ([]TaskLog, 
 	if end := strings.TrimSpace(query.EndDate); end != "" {
 		q = q.Where("created_at <= ?", end)
 	}
+	pageQuery := q.Session(&gorm.Session{})
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
+	if query.BeforeTime != nil && query.BeforeID > 0 {
+		pageQuery = pageQuery.Where("(created_at < ? OR (created_at = ? AND id < ?))", *query.BeforeTime, *query.BeforeTime, query.BeforeID)
+	}
+	offset := (query.CurrentPage - 1) * query.PageSize
+	if query.BeforeTime != nil {
+		offset = 0
+	}
 	var rows []TaskLog
-	if err := q.Order("id desc").Limit(query.PageSize).Offset((query.CurrentPage - 1) * query.PageSize).Find(&rows).Error; err != nil {
+	if err := pageQuery.Order("created_at desc, id desc").Limit(query.PageSize).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	return rows, total, nil

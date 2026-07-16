@@ -20,6 +20,8 @@ type LogsQuery struct {
 	TaskID      int64
 	CurrentPage int
 	PageSize    int
+	BeforeTime  *time.Time
+	BeforeID    int64
 	Status      *int
 	StartDate   string
 	EndDate     string
@@ -73,8 +75,10 @@ type ListItem struct {
 }
 
 type LogsResponse struct {
-	List []LogItem `json:"list"`
-	Page Page      `json:"page"`
+	List     []LogItem `json:"list"`
+	Page     Page      `json:"page"`
+	NextTime string    `json:"next_time"`
+	NextID   int64     `json:"next_id"`
 }
 
 type LogItem struct {
