@@ -311,3 +311,25 @@ func TestRunCOSReferencesPrintsOnlyManifestPathAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunQueryManifestFilesPrintsNormalizedUniquePaths(t *testing.T) {
+	var output bytes.Buffer
+	dependencies := commandDependencies{
+		queryManifestFiles: func(path string) ([]string, error) {
+			if path != "database/reconciliation/040_query_candidates.json" {
+				t.Fatalf("path=%q", path)
+			}
+			return []string{"internal/module/ai/run/repository.go", "internal/module/auth/session.go"}, nil
+		},
+		stdout: &output,
+	}
+	err := run(context.Background(), []string{
+		"query-manifest", "files", "--manifest", "database/reconciliation/040_query_candidates.json",
+	}, dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "internal/module/ai/run/repository.go\ninternal/module/auth/session.go\n" {
+		t.Fatalf("stdout=%q", output.String())
+	}
+}

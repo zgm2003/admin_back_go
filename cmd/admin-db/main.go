@@ -24,6 +24,7 @@ type commandDependencies struct {
 	runInvariants       func(context.Context, *sql.DB, string) (databaseevolution.InvariantResult, error)
 	verifyCOSReferences func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error)
 	writeCOSManifest    func(string, []databaseevolution.COSReferenceResult) error
+	queryManifestFiles  func(string) ([]string, error)
 	stdout              io.Writer
 }
 
@@ -41,6 +42,10 @@ type invariantOptions struct {
 type cosReferenceOptions struct {
 	schema string
 	output string
+}
+
+type queryManifestOptions struct {
+	manifest string
 }
 
 type commandError struct {
@@ -96,6 +101,7 @@ func main() {
 		runInvariants:       databaseevolution.RunInvariantFile,
 		verifyCOSReferences: databaseevolution.VerifyStoredCOSReferences,
 		writeCOSManifest:    databaseevolution.WriteCOSReferenceManifest,
+		queryManifestFiles:  loadQueryManifestFiles,
 		stdout:              os.Stdout,
 	}
 	if err := run(context.Background(), os.Args[1:], dependencies); err != nil {
@@ -106,7 +112,7 @@ func main() {
 
 func run(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references> [arguments]")
+		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references|query-manifest> [arguments]")
 	}
 	switch args[0] {
 	case "fingerprint":
@@ -127,6 +133,15 @@ func run(ctx context.Context, args []string, dependencies commandDependencies) e
 			return err
 		}
 		return runCOSReferences(ctx, options, dependencies)
+	case "query-manifest":
+		if len(args) < 2 || args[1] != "files" {
+			return fmt.Errorf("usage: admin-db query-manifest files --manifest <path>")
+		}
+		options, err := parseQueryManifestOptions(args[2:])
+		if err != nil {
+			return err
+		}
+		return runQueryManifestFiles(options, dependencies)
 	default:
 		return fmt.Errorf("unsupported subcommand")
 	}
@@ -227,6 +242,28 @@ func parseCOSReferenceOptions(args []string) (cosReferenceOptions, error) {
 	}
 	if options.output == "" {
 		return cosReferenceOptions{}, fmt.Errorf("--out is required")
+	}
+	return options, nil
+}
+
+func parseQueryManifestOptions(args []string) (queryManifestOptions, error) {
+	flags := flag.NewFlagSet("query-manifest files", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options queryManifestOptions
+	manifestFlag := &singleStringFlag{name: "manifest", value: &options.manifest}
+	flags.Var(manifestFlag, "manifest", "query candidate manifest")
+	if err := flags.Parse(args); err != nil {
+		if manifestFlag.duplicate {
+			return queryManifestOptions{}, fmt.Errorf("--manifest may be provided only once")
+		}
+		return queryManifestOptions{}, fmt.Errorf("invalid query-manifest arguments")
+	}
+	if flags.NArg() != 0 {
+		return queryManifestOptions{}, fmt.Errorf("unexpected argument")
+	}
+	options.manifest = strings.TrimSpace(options.manifest)
+	if options.manifest == "" {
+		return queryManifestOptions{}, fmt.Errorf("--manifest is required")
 	}
 	return options, nil
 }
@@ -344,6 +381,37 @@ func runCOSReferences(ctx context.Context, options cosReferenceOptions, dependen
 		return safeCommandError("verify COS references", errors.New("one or more COS references are not reachable"))
 	}
 	return nil
+}
+
+func runQueryManifestFiles(options queryManifestOptions, dependencies commandDependencies) error {
+	if dependencies.queryManifestFiles == nil || dependencies.stdout == nil {
+		return fmt.Errorf("query-manifest command dependencies are incomplete")
+	}
+	files, err := dependencies.queryManifestFiles(options.manifest)
+	if err != nil {
+		return safeCommandError("validate query manifest", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("query manifest produced no repository files")
+	}
+	for _, file := range files {
+		if _, err := fmt.Fprintln(dependencies.stdout, file); err != nil {
+			return fmt.Errorf("print query manifest file: %w", err)
+		}
+	}
+	return nil
+}
+
+func loadQueryManifestFiles(path string) ([]string, error) {
+	root, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository root: %w", err)
+	}
+	candidates, err := databaseevolution.LoadQueryManifest(path, root)
+	if err != nil {
+		return nil, err
+	}
+	return databaseevolution.QueryManifestFiles(candidates), nil
 }
 
 func safeCommandError(operation string, err error) error {
