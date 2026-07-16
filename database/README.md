@@ -34,3 +34,24 @@ Restore verification runs in a fixed `mysql:8.4.10` temporary container with `--
 Only after all verification and cleanup succeed does the script atomically write `artifact.json`. It prints exactly the artifact path and lowercase dump SHA-256. `database/evidence/` is ignored defense-in-depth and must never contain a tracked dump or credential file.
 
 Every external database or Docker command has a bounded timeout. `CommandTimeoutSeconds` defaults to 1800 seconds for dump and restore work. `ReadinessTimeoutSeconds` defaults to 180 seconds for one in-container loop that waits for both the final PID 1 `mysqld` process and a successful socket ping, so the image's temporary initialization server is never mistaken for the restore server. On timeout the script attempts to terminate the process tree and reports any termination failure; operators may lower these values for controlled tests or raise them within the validated ranges for unusually large recoveries.
+
+## Canonical baseline and drift
+
+After the imported database has passed every reconciliation invariant, point the process-local `MYSQL_DSN` at that exact schema and establish the canonical Atlas baseline with its verified fingerprint:
+
+```powershell
+pwsh -NoProfile -File scripts/database/establish-baseline.ps1 `
+  -Database $env:ADMIN_RESTORE_DB `
+  -ExpectedFingerprint $env:ADMIN_VERIFIED_FINGERPRINT
+```
+
+The script initializes revision `202607150001` while `admin-db lock-run` holds `admin:atlas:migrate`, validates the checksummed migration directory, inspects the verified database through the pinned Atlas image, rejects volatile counters and definers, and atomically writes `schema/admin.hcl`. Application startup never performs these operations.
+
+Prove that the canonical HCL and the reconciled imported schema still converge with:
+
+```powershell
+pwsh -NoProfile -File scripts/database/check-drift.ps1 `
+  -Database $env:ADMIN_RESTORE_DB
+```
+
+The drift check creates a random `admin_empty_<12hex>` schema, applies a temporary schema-name-rebound copy of `admin.hcl`, compares deterministic structural fingerprints, and drops only the generated schema in `finally`. Success is a JSON summary with `drift=0` and identical imported/empty `schema_sha256` values.

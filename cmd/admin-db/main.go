@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"regexp"
 	"strings"
+	"time"
 
 	"admin_back_go/internal/databaseevolution"
 
@@ -25,6 +28,8 @@ type commandDependencies struct {
 	verifyCOSReferences func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error)
 	writeCOSManifest    func(string, []databaseevolution.COSReferenceResult) error
 	queryManifestFiles  func(string) ([]string, error)
+	withAdvisoryLock    func(context.Context, *sql.DB, string, time.Duration, func() error) error
+	runExternal         func(context.Context, []string) error
 	stdout              io.Writer
 }
 
@@ -46,6 +51,13 @@ type cosReferenceOptions struct {
 
 type queryManifestOptions struct {
 	manifest string
+}
+
+type lockRunOptions struct {
+	schema  string
+	name    string
+	timeout time.Duration
+	command []string
 }
 
 type commandError struct {
@@ -102,6 +114,8 @@ func main() {
 		verifyCOSReferences: databaseevolution.VerifyStoredCOSReferences,
 		writeCOSManifest:    databaseevolution.WriteCOSReferenceManifest,
 		queryManifestFiles:  loadQueryManifestFiles,
+		withAdvisoryLock:    databaseevolution.WithAdvisoryLock,
+		runExternal:         runExternalCommand,
 		stdout:              os.Stdout,
 	}
 	if err := run(context.Background(), os.Args[1:], dependencies); err != nil {
@@ -112,7 +126,7 @@ func main() {
 
 func run(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references|query-manifest> [arguments]")
+		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references|query-manifest|lock-run> [arguments]")
 	}
 	switch args[0] {
 	case "fingerprint":
@@ -142,9 +156,59 @@ func run(ctx context.Context, args []string, dependencies commandDependencies) e
 			return err
 		}
 		return runQueryManifestFiles(options, dependencies)
+	case "lock-run":
+		options, err := parseLockRunOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		return runLockRun(ctx, options, dependencies)
 	default:
 		return fmt.Errorf("unsupported subcommand")
 	}
+}
+
+var advisoryLockNamePattern = regexp.MustCompile(`^[A-Za-z0-9:_.-]{1,128}$`)
+
+func parseLockRunOptions(args []string) (lockRunOptions, error) {
+	flags := flag.NewFlagSet("lock-run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options lockRunOptions
+	var timeoutValue string
+	schemaFlag := &singleStringFlag{name: "schema", value: &options.schema}
+	nameFlag := &singleStringFlag{name: "name", value: &options.name}
+	timeoutFlag := &singleStringFlag{name: "timeout", value: &timeoutValue}
+	flags.Var(schemaFlag, "schema", "schema used for the lock connection")
+	flags.Var(nameFlag, "name", "MySQL advisory lock name")
+	flags.Var(timeoutFlag, "timeout", "lock acquisition timeout")
+	if err := flags.Parse(args); err != nil {
+		for _, value := range []*singleStringFlag{schemaFlag, nameFlag, timeoutFlag} {
+			if value.duplicate {
+				return lockRunOptions{}, fmt.Errorf("--%s may be provided only once", value.name)
+			}
+		}
+		return lockRunOptions{}, fmt.Errorf("invalid lock-run arguments")
+	}
+	options.schema = strings.TrimSpace(options.schema)
+	options.name = strings.TrimSpace(options.name)
+	if options.schema == "" {
+		return lockRunOptions{}, fmt.Errorf("--schema is required")
+	}
+	if !advisoryLockNamePattern.MatchString(options.name) {
+		return lockRunOptions{}, fmt.Errorf("--name is invalid")
+	}
+	if strings.TrimSpace(timeoutValue) == "" {
+		return lockRunOptions{}, fmt.Errorf("--timeout is required")
+	}
+	timeout, err := time.ParseDuration(timeoutValue)
+	if err != nil || timeout < time.Second || timeout > 5*time.Minute {
+		return lockRunOptions{}, fmt.Errorf("--timeout must be between 1s and 5m")
+	}
+	options.timeout = timeout
+	options.command = append([]string(nil), flags.Args()...)
+	if len(options.command) == 0 || strings.TrimSpace(options.command[0]) == "" {
+		return lockRunOptions{}, fmt.Errorf("external command is required after --")
+	}
+	return options, nil
 }
 
 func parseFingerprintOptions(args []string) (fingerprintOptions, error) {
@@ -400,6 +464,38 @@ func runQueryManifestFiles(options queryManifestOptions, dependencies commandDep
 		}
 	}
 	return nil
+}
+
+func runLockRun(ctx context.Context, options lockRunOptions, dependencies commandDependencies) error {
+	if dependencies.getenv == nil || dependencies.openDatabase == nil || dependencies.withAdvisoryLock == nil || dependencies.runExternal == nil {
+		return fmt.Errorf("lock-run command dependencies are incomplete")
+	}
+	dsn := dependencies.getenv("MYSQL_DSN")
+	if err := databaseevolution.ValidateSchemaDSN(dsn, options.schema); err != nil {
+		return err
+	}
+	database, err := dependencies.openDatabase(dsn)
+	if err != nil {
+		return safeCommandError("open MySQL connection", err)
+	}
+	defer database.Close()
+	if err := dependencies.withAdvisoryLock(ctx, database, options.name, options.timeout, func() error {
+		return dependencies.runExternal(ctx, options.command)
+	}); err != nil {
+		return safeCommandError("run command under database lock", err)
+	}
+	return nil
+}
+
+func runExternalCommand(ctx context.Context, command []string) error {
+	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return errors.New("external command is required")
+	}
+	process := exec.CommandContext(ctx, command[0], command[1:]...)
+	process.Stdin = nil
+	process.Stdout = io.Discard
+	process.Stderr = io.Discard
+	return process.Run()
 }
 
 func loadQueryManifestFiles(path string) ([]string, error) {

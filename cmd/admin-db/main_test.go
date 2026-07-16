@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/databaseevolution"
 
@@ -331,5 +333,45 @@ func TestRunQueryManifestFilesPrintsNormalizedUniquePaths(t *testing.T) {
 	}
 	if output.String() != "internal/module/ai/run/repository.go\ninternal/module/auth/session.go\n" {
 		t.Fatalf("stdout=%q", output.String())
+	}
+}
+
+func TestRunLockRunHoldsNamedLockWhileExecutingCommand(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectClose()
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	locked := false
+	executed := false
+	dependencies := commandDependencies{
+		getenv:       func(string) string { return dsn },
+		openDatabase: func(string) (*sql.DB, error) { return database, nil },
+		withAdvisoryLock: func(_ context.Context, got *sql.DB, name string, timeout time.Duration, callback func() error) error {
+			if got != database || name != "admin:atlas:migrate" || timeout != 30*time.Second {
+				t.Fatalf("unexpected lock request database=%p name=%q timeout=%s", got, name, timeout)
+			}
+			locked = true
+			defer func() { locked = false }()
+			return callback()
+		},
+		runExternal: func(_ context.Context, command []string) error {
+			if !locked || !reflect.DeepEqual(command, []string{"docker", "run", "atlas"}) {
+				t.Fatalf("external command executed without lock or changed: locked=%v command=%v", locked, command)
+			}
+			executed = true
+			return nil
+		},
+		stdout: io.Discard,
+	}
+	if err := run(context.Background(), []string{"lock-run", "--schema", "admin", "--name", "admin:atlas:migrate", "--timeout", "30s", "--", "docker", "run", "atlas"}, dependencies); err != nil {
+		t.Fatalf("lock-run returned error: %v", err)
+	}
+	if !executed || locked {
+		t.Fatalf("lock lifecycle was incomplete: executed=%v locked=%v", executed, locked)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
