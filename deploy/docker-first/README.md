@@ -7,8 +7,9 @@ Production/Baota Docker operation is documented in the root runbook: `E:/admin_g
 ## Scope
 
 - Runs one backend image as two containers: `admin-api` and `admin-worker`.
+- Creates a persistent Redis container for local Docker-first validation.
 - Does not deploy the Vue frontend.
-- Does not create MySQL or Redis by default.
+- Does not create MySQL; the P02 MySQL container remains a separate state service.
 - Uses `admin-go.env` as the only backend runtime env file.
 
 ## Current defaults
@@ -19,20 +20,24 @@ Production/Baota Docker operation is documented in the root runbook: `E:/admin_g
 build context: ../..
 env file:      ./admin-go.env
 api port:      127.0.0.1:8080 -> container 8080
+redis port:    127.0.0.1:36379 -> container 6379
+redis address: redis:6379 from backend containers
 runtime mount: ./runtime -> /app/runtime
 exports mount: ./exports -> /app/exports
+redis volume:  redis-data -> /data
 ```
 
 If `8080` is occupied, edit the `ports` line in `docker-compose.yml` directly.
 
 ## Start locally from PowerShell
 
-Set the two credential-bearing process environment variables before running this command. Inside containers, `127.0.0.1` is the container itself; use private IP/DNS for state services, or `host.docker.internal` on Docker Desktop.
+Set the credential-bearing MySQL DSN process environment variable before running this command. Inside containers, `127.0.0.1` is the container itself; the local backend reaches P02 MySQL at `host.docker.internal:33306` and reaches the Compose Redis service at `redis:6379`. Host-side Redis diagnostics use `127.0.0.1:36379`, leaving FlyEnv Redis isolated on `127.0.0.1:6379`.
 
 `ADMIN_LOCAL_MYSQL_DSN` must use the Compose-safe canonical MySQL DSN form `SAFE_USER:SAFE_PASSWORD@tcp(HOST:PORT)/admin?charset=utf8mb4&parseTime=True&loc=Local`. `SAFE_USER` and `SAFE_PASSWORD` may contain only ASCII letters, digits, `.`, `_`, `~`, and `-`; the host must be a valid hostname, IPv4 address, or bracketed IPv6 address, and the port must be `1..65535`. The initializer rejects whitespace, `$`, `#`, quotes, backticks, backslashes, alternate query options, and other forms that a Compose `env_file` could reinterpret.
 
 ```powershell
 New-Item -ItemType Directory -Force -Path runtime, exports | Out-Null
+$env:ADMIN_LOCAL_REDIS_ADDR = 'redis:6379'
 .\init-local-env.ps1 `
   -MySQLDSN $env:ADMIN_LOCAL_MYSQL_DSN `
   -RedisAddress $env:ADMIN_LOCAL_REDIS_ADDR `
@@ -46,6 +51,7 @@ The initializer is for local development only. With its default path it replaces
 
 ```bash
 docker compose ps
+docker compose exec -T redis redis-cli ping
 curl -fsS http://127.0.0.1:8080/health
 curl -fsS http://127.0.0.1:8080/ready
 ```
