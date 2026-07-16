@@ -9,58 +9,86 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestDockerFirstComposeProvidesIsolatedRedis(t *testing.T) {
-	type service struct {
-		Image       string   `yaml:"image"`
-		Command     []string `yaml:"command"`
-		Ports       []string `yaml:"ports"`
-		Volumes     []string `yaml:"volumes"`
-		Healthcheck struct {
-			Test []string `yaml:"test"`
-		} `yaml:"healthcheck"`
-		DependsOn map[string]struct {
-			Condition string `yaml:"condition"`
-		} `yaml:"depends_on"`
-	}
-	var compose struct {
-		Services map[string]service `yaml:"services"`
-		Volumes  map[string]any     `yaml:"volumes"`
-	}
+type composeService struct {
+	Image string `yaml:"image"`
+	Build struct {
+		Context string `yaml:"context"`
+	} `yaml:"build"`
+	Ports    []string `yaml:"ports"`
+	Volumes  []string `yaml:"volumes"`
+	Networks []string `yaml:"networks"`
+}
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker-first", "docker-compose.yml"))
+type composeContract struct {
+	Name     string                    `yaml:"name"`
+	Services map[string]composeService `yaml:"services"`
+	Networks map[string]struct {
+		Name     string `yaml:"name"`
+		External bool   `yaml:"external"`
+	} `yaml:"networks"`
+}
+
+func readComposeContract(t *testing.T, parts ...string) composeContract {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(parts...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := yaml.Unmarshal(content, &compose); err != nil {
-		t.Fatalf("parse docker-compose.yml: %v", err)
+	var contract composeContract
+	if err := yaml.Unmarshal(content, &contract); err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+func TestDockerStateComposeOwnsStateServices(t *testing.T) {
+	contract := readComposeContract(t, "..", "..", "deploy", "docker-state", "docker-compose.yml")
+	if contract.Name != "admin-state" {
+		t.Fatalf("name=%q", contract.Name)
+	}
+	if len(contract.Services) != 2 {
+		t.Fatalf("services=%v", contract.Services)
 	}
 
-	redis, ok := compose.Services["redis"]
-	if !ok {
-		t.Fatal("docker-compose.yml must define redis")
+	mysql, mysqlOK := contract.Services["mysql"]
+	redis, redisOK := contract.Services["redis"]
+	if !mysqlOK || mysql.Image != "mysql:8.4.10" ||
+		!reflect.DeepEqual(mysql.Ports, []string{"127.0.0.1:${ADMIN_MYSQL_HOST_PORT:-33306}:3306"}) ||
+		!reflect.DeepEqual(mysql.Volumes, []string{"mysql-data:/var/lib/mysql"}) {
+		t.Fatal("invalid MySQL contract")
 	}
-	if redis.Image != "redis:8.2.7-alpine" {
-		t.Fatalf("unexpected Redis image %q", redis.Image)
+	if !redisOK || redis.Image != "redis:8.2.7-alpine" ||
+		!reflect.DeepEqual(redis.Ports, []string{"127.0.0.1:${ADMIN_REDIS_HOST_PORT:-36379}:6379"}) ||
+		!reflect.DeepEqual(redis.Volumes, []string{"redis-data:/data"}) {
+		t.Fatal("invalid Redis contract")
 	}
-	if !reflect.DeepEqual(redis.Ports, []string{"127.0.0.1:36379:6379"}) {
-		t.Fatalf("Redis must bind only to isolated loopback port 36379, got %v", redis.Ports)
+	if contract.Networks["platform"].Name != "admin-platform" || contract.Networks["platform"].External {
+		t.Fatal("state must own admin-platform")
 	}
-	if !reflect.DeepEqual(redis.Command, []string{"redis-server", "--appendonly", "yes"}) {
-		t.Fatalf("Redis must enable AOF persistence, got %v", redis.Command)
+}
+
+func TestDockerAppComposeOwnsOnlyApplicationServices(t *testing.T) {
+	contract := readComposeContract(t, "..", "..", "deploy", "docker-first", "docker-compose.yml")
+	if contract.Name != "admin-app" {
+		t.Fatalf("name=%q", contract.Name)
 	}
-	if !reflect.DeepEqual(redis.Volumes, []string{"redis-data:/data"}) {
-		t.Fatalf("Redis must use the named data volume, got %v", redis.Volumes)
-	}
-	if !reflect.DeepEqual(redis.Healthcheck.Test, []string{"CMD", "redis-cli", "ping"}) {
-		t.Fatalf("Redis must expose a PING health check, got %v", redis.Healthcheck.Test)
-	}
-	if _, ok := compose.Volumes["redis-data"]; !ok {
-		t.Fatal("docker-compose.yml must declare redis-data")
-	}
-	for _, name := range []string{"admin-api", "admin-worker"} {
-		dependency, ok := compose.Services[name].DependsOn["redis"]
-		if !ok || dependency.Condition != "service_healthy" {
-			t.Fatalf("%s must wait for healthy Redis", name)
+	for _, name := range []string{"frontend", "admin-api", "admin-worker"} {
+		if _, ok := contract.Services[name]; !ok {
+			t.Fatalf("missing %s", name)
 		}
+	}
+	for _, name := range []string{"mysql", "redis"} {
+		if _, ok := contract.Services[name]; ok {
+			t.Fatalf("app owns %s", name)
+		}
+	}
+
+	frontend := contract.Services["frontend"]
+	if frontend.Build.Context != "../../../admin_front_ts" ||
+		!reflect.DeepEqual(frontend.Ports, []string{"127.0.0.1:5173:8080"}) {
+		t.Fatal("invalid frontend contract")
+	}
+	if !contract.Networks["platform"].External || contract.Networks["platform"].Name != "admin-platform" {
+		t.Fatal("app must consume external admin-platform")
 	}
 }
