@@ -1,2 +1,3 @@
 /database/migrations/*.sql text eol=lf
 /database/migrations/atlas.sum text eol=lf
+/database/reconciliation/*.sql text eol=lf
