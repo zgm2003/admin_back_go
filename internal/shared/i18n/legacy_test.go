@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -84,18 +83,18 @@ func catalogValues(lang string) (map[string]string, error) {
 
 func projectRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatalf("runtime caller unavailable")
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
 	}
-	dir := filepath.Dir(file)
+	start := dir
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("project root unavailable from %s", file)
+			t.Fatalf("project root unavailable from %s", start)
 		}
 		dir = parent
 	}
