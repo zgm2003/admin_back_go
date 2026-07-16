@@ -46,6 +46,24 @@ function Invoke-MySQLQuery {
   return @($output | ForEach-Object { $_.ToString() })
 }
 
+function Move-FileWithOverwrite {
+  param(
+    [Parameter(Mandatory = $true)][string]$SourcePath,
+    [Parameter(Mandatory = $true)][string]$DestinationPath
+  )
+
+  $overwriteMove = [IO.File].GetMethod('Move', [type[]]@([string], [string], [bool]))
+  if ($null -ne $overwriteMove) {
+    [void]$overwriteMove.Invoke($null, [object[]]@($SourcePath, $DestinationPath, $true))
+    return
+  }
+  if ([IO.File]::Exists($DestinationPath)) {
+    [IO.File]::Replace($SourcePath, $DestinationPath, $null)
+    return
+  }
+  [IO.File]::Move($SourcePath, $DestinationPath)
+}
+
 $backendRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $artifactPath = (Resolve-Path -LiteralPath $RecoveryArtifact).Path
 $artifact = Get-Content -Raw -LiteralPath $artifactPath -Encoding utf8 | ConvertFrom-Json
@@ -126,7 +144,7 @@ try {
   $temporaryPath = $OutputPath + '.tmp-' + [guid]::NewGuid().ToString('N')
   try {
     [System.IO.File]::WriteAllText($temporaryPath,(($baseline|ConvertTo-Json -Depth 100)+"`n"),[System.Text.UTF8Encoding]::new($false))
-    [System.IO.File]::Move($temporaryPath,[System.IO.Path]::GetFullPath($OutputPath),$true)
+    Move-FileWithOverwrite -SourcePath $temporaryPath -DestinationPath ([System.IO.Path]::GetFullPath($OutputPath))
   } finally { Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue }
   Write-Output ([System.IO.Path]::GetFullPath($OutputPath))
   Write-Output ([string]$fingerprint.schema_sha256)
