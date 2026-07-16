@@ -9,8 +9,8 @@ FROM (
   WHERE rp.`is_del`=2 AND r.`id` IS NULL
   UNION ALL
   SELECT CONCAT('role_permission_permission:',rp.`id`)
-  FROM `role_permissions` rp LEFT JOIN `permissions` p ON p.`id`=rp.`permission_id`
-  WHERE rp.`is_del`=2 AND p.`id` IS NULL
+  FROM `role_permissions` rp JOIN `permissions` p ON p.`id`=rp.`permission_id`
+  WHERE rp.`is_del`=2 AND p.`is_del`<>2
   UNION ALL
   SELECT CONCAT('permission_parent:',p.`id`)
   FROM `permissions` p LEFT JOIN `permissions` parent ON parent.`id`=p.`parent_id`
