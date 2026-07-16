@@ -635,7 +635,7 @@ func dockerBuildIntegrityProblems(data []byte) []string {
 	problems = append(problems, dockerInstructionSequenceProblems("global instructions", model.globals, dockerInstructions(
 		"ARG GO_BUILD_IMAGE=golang:1.26.5-bookworm",
 		"ARG GO_RUNTIME_IMAGE=debian:bookworm-slim",
-		"ARG GO_MODULE_PROXY=https://goproxy.io,https://proxy.golang.org,direct",
+		"ARG GO_MODULE_PROXY=https://proxy.golang.org,direct",
 		"ARG BUILD_REVISION=unknown",
 	))...)
 
