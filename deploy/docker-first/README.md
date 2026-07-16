@@ -33,6 +33,8 @@ REDIS_ADDR=redis:6379
 CORS_ALLOW_ORIGINS=http://localhost:5173
 ```
 
+The initializer accepts only the Compose-safe canonical MySQL DSN shown above. Reusable `APP_SECRET` values must contain at least 64 ASCII characters and must be safe for the Compose env file. Custom `-OutputPath` values are allowed only outside the repository; the default ignored path is `deploy/docker-first/admin-go.env`.
+
 ## Lifecycle
 
 Run from the backend repository root after the P02 database has been restored into the state volume:

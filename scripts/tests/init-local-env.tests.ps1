@@ -1019,8 +1019,11 @@ try {
 
   $readmeContent = [IO.File]::ReadAllText($readmePath)
   Assert-True $readmeContent.Contains('init-local-env.ps1') 'Docker-first README must document the local initializer'
-  Assert-True $readmeContent.Contains('$env:ADMIN_LOCAL_MYSQL_DSN') 'Docker-first README must source the local MySQL DSN from its environment variable'
-  Assert-True $readmeContent.Contains('$env:ADMIN_LOCAL_REDIS_ADDR') 'Docker-first README must source the local Redis address from its environment variable'
+  Assert-True $readmeContent.Contains('scripts/docker-platform.ps1 init') 'Docker-first README must document the platform initializer'
+  Assert-True $readmeContent.Contains('mysql:3306') 'Docker-first README must use Docker DNS for MySQL'
+  Assert-True $readmeContent.Contains('redis:6379') 'Docker-first README must use Docker DNS for Redis'
+  Assert-False $readmeContent.Contains('$env:ADMIN_LOCAL_MYSQL_DSN') 'Docker-first README must not retain the retired host MySQL variable flow'
+  Assert-False $readmeContent.Contains('$env:ADMIN_LOCAL_REDIS_ADDR') 'Docker-first README must not retain the retired host Redis variable flow'
   Assert-True $readmeContent.Contains('Compose-safe canonical MySQL DSN') 'Docker-first README must document the narrow local MySQL DSN contract'
   Assert-True $readmeContent.Contains('charset=utf8mb4&parseTime=True&loc=Local') 'Docker-first README must document the exact canonical MySQL DSN query'
   Assert-True $readmeContent.Contains('Reusable `APP_SECRET` values must contain at least 64 ASCII characters') 'Docker-first README must document the Compose-safe reusable APP_SECRET contract'
