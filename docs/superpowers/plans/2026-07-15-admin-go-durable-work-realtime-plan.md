@@ -86,7 +86,7 @@ git commit -m "refactor(queue): centralize versioned task policy"
 
 **Files:**
 - Create: `database/migrations/202607150101_ai_reply_durability.sql`
-- Modify: `atlas.sum`
+- Modify: `database/migrations/atlas.sum`
 - Modify: `database/schema/admin.hcl`
 - Create: `internal/module/ai/replycommand/model.go`
 - Create: `internal/module/ai/replycommand/repository.go`
@@ -134,7 +134,7 @@ Replace `WithReplyEnqueuer` with the durable repository. HTTP returns `202` data
 ```powershell
 pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
 go test ./internal/module/ai/message ./internal/module/ai/replycommand -race -count=1
-git add -- database/migrations/202607150101_ai_reply_durability.sql atlas.sum database/schema/admin.hcl internal/module/ai/replycommand/model.go internal/module/ai/replycommand/repository.go internal/module/ai/replycommand/repository_test.go internal/module/ai/message/repository.go internal/module/ai/message/service.go internal/module/ai/message/service_test.go internal/module/ai/message/dto.go
+git add -- database/migrations/202607150101_ai_reply_durability.sql database/migrations/atlas.sum database/schema/admin.hcl internal/module/ai/replycommand/model.go internal/module/ai/replycommand/repository.go internal/module/ai/replycommand/repository_test.go internal/module/ai/message/repository.go internal/module/ai/message/service.go internal/module/ai/message/service_test.go internal/module/ai/message/dto.go
 git diff --cached --check
 git commit -m "feat(ai): commit messages with durable reply commands"
 ```

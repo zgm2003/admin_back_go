@@ -16,7 +16,7 @@
 - Create `scripts/database/{atlas,new-recovery-artifact,capture-baseline,reconcile,verify-cos-references,capture-query-evidence,establish-baseline,check-drift}.ps1`.
 - Move `database/migrations/*.sql` to `database/legacy-migrations/`; historical SQL is never executable migration input.
 - Create `database/reconciliation/001_ledger.sql`, `010_expand_core.sql`, `020_backfill_core.sql`, `021_backfill_ai.sql`, `030_verify_schema.sql` through `034_verify_platform.sql`, `040_query_candidates.json`, and `041_apply_proven_indexes.sql`.
-- Create `database/schema/admin.hcl`, `database/migrations/202607150001_baseline.sql`, and `atlas.sum`.
+- Create `database/schema/admin.hcl`, `database/migrations/202607150001_baseline.sql`, and `database/migrations/atlas.sum`.
 - Create `scripts/verify-database.ps1` and `.github/workflows/verify-database.yml`.
 
 ## Hard boundary
@@ -27,7 +27,9 @@ This plan adds compatible columns/tables, backfills explicit facts, verifies inv
 
 **Files:**
 - Move: `database/migrations/*.sql` → `database/legacy-migrations/*.sql`
+- Create: `.gitattributes`
 - Create: `database/migrations/202607150001_baseline.sql`
+- Create: `database/migrations/atlas.sum`
 - Create: `scripts/database/atlas.ps1`
 - Create: `internal/architecture/database_layout_test.go`
 - Create: `database/README.md`
@@ -76,6 +78,8 @@ The baseline file contains only:
 -- atlas:baseline
 -- Imported data is reconciled before this revision; no statement is applied.
 ```
+
+Generate `database/migrations/atlas.sum` with the same digest-pinned Atlas image, `--network none`, and a writable mount limited to `database/migrations`. Atlas requires the checksum beside the migration SQL; do not create a second checksum at repository root. `.gitattributes` must force both migration SQL and `atlas.sum` to LF because Atlas hashes raw bytes and Windows checkout conversion would invalidate the directory. The normal wrapper remains repository-read-only for validation and inspection.
 
 - [ ] **Step 4: Implement the offline wrapper**
 
@@ -629,7 +633,7 @@ Expected: every accepted index has passing before/after evidence; the generated 
 
 **Files:**
 - Create: `database/schema/admin.hcl`
-- Create: `atlas.sum`
+- Modify: `database/migrations/atlas.sum`
 - Create: `scripts/database/establish-baseline.ps1`
 - Create: `scripts/database/check-drift.ps1`
 - Modify: `database/README.md`
@@ -644,7 +648,7 @@ Create disposable schemas whose names match `^admin_(empty|imported)_[0-9a-f]{12
 
 - [ ] **Step 3: Initialize history under a deployment lock**
 
-Acquire `GET_LOCK('admin:atlas:migrate',30)`, reject dirty revisions, baseline at `202607150001`, calculate `atlas.sum`, validate, and release in `finally`. Application startup never calls Atlas.
+Acquire `GET_LOCK('admin:atlas:migrate',30)`, reject dirty revisions, baseline at `202607150001`, calculate `database/migrations/atlas.sum`, validate, and release in `finally`. Application startup never calls Atlas.
 
 - [ ] **Step 4: Prove convergence and commit**
 
@@ -652,7 +656,7 @@ Acquire `GET_LOCK('admin:atlas:migrate',30)`, reject dirty revisions, baseline a
 pwsh -NoProfile -File scripts/database/establish-baseline.ps1 -Database $env:ADMIN_RESTORE_DB -ExpectedFingerprint $env:ADMIN_VERIFIED_FINGERPRINT
 pwsh -NoProfile -File scripts/database/check-drift.ps1 -Database $env:ADMIN_RESTORE_DB
 pwsh -NoProfile -File scripts/database/check-drift.ps1 -Database $env:ADMIN_EMPTY_DB
-git add -- atlas.sum database/schema/admin.hcl database/migrations/202607150001_baseline.sql database/README.md scripts/database/establish-baseline.ps1 scripts/database/check-drift.ps1
+git add -- database/migrations/atlas.sum database/schema/admin.hcl database/migrations/202607150001_baseline.sql database/README.md scripts/database/establish-baseline.ps1 scripts/database/check-drift.ps1
 git commit -m "feat(database): establish checksummed admin schema baseline"
 ```
 

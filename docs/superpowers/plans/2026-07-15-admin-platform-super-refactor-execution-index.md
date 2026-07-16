@@ -89,7 +89,7 @@ Only one active agent may own each row:
 | Shared state | Exclusive owner |
 | --- | --- |
 | live `admin` database, recovery dump, Atlas revision table | P02/P09 database task currently in progress |
-| `database/migrations` and `atlas.sum` | database migration owner |
+| `database/migrations` and `database/migrations/atlas.sum` | database migration owner |
 | `contracts/admin` and bundle manifest | P03 contract owner |
 | frontend `contracts/backend` lock/generated types | P06 contract consumer owner |
 | `internal/runtime` composition roots | P03, then integration owner |

@@ -442,7 +442,7 @@ Expected: `rg` has no matches and exits 1; all retained capability tests pass wi
 - Create: `database/migrations/202607150201_admin_only_rows.sql`
 - Create: `database/migrations/202607150202_admin_only_schema.sql`
 - Create: `database/migrations/202607150203_admin_only_constraints.sql`
-- Modify: `atlas.sum`
+- Modify: `database/migrations/atlas.sum`
 - Modify: `database/schema/admin.hcl`
 - Create: `database/reconciliation/051_verify_admin_rows.sql`
 - Create: `database/reconciliation/052_verify_ai_contract.sql`
@@ -557,7 +557,7 @@ Expected: both restores reach the same fingerprint, `053` returns zero rows, rep
 
 ```powershell
 pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
-git add -- database/migrations/202607150201_admin_only_rows.sql database/migrations/202607150202_admin_only_schema.sql database/migrations/202607150203_admin_only_constraints.sql atlas.sum database/schema/admin.hcl database/reconciliation/051_verify_admin_rows.sql database/reconciliation/052_verify_ai_contract.sql database/reconciliation/053_verify_admin_only.sql internal/databaseevolution/migration_lock.go internal/databaseevolution/migration_lock_test.go cmd/admin-db/main.go scripts/database/contract-admin-only.ps1 scripts/tests/admin-only-contract.tests.ps1 database/README.md
+git add -- database/migrations/202607150201_admin_only_rows.sql database/migrations/202607150202_admin_only_schema.sql database/migrations/202607150203_admin_only_constraints.sql database/migrations/atlas.sum database/schema/admin.hcl database/reconciliation/051_verify_admin_rows.sql database/reconciliation/052_verify_ai_contract.sql database/reconciliation/053_verify_admin_only.sql internal/databaseevolution/migration_lock.go internal/databaseevolution/migration_lock_test.go cmd/admin-db/main.go scripts/database/contract-admin-only.ps1 scripts/tests/admin-only-contract.tests.ps1 database/README.md
 git diff --cached --check
 git commit -m "feat(database): contract schema to admin only"
 ```

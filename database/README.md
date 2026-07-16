@@ -5,7 +5,7 @@ The database tree separates imported history, reconciliation, and future Atlas m
 - `legacy-migrations/` preserves historical SQL as audit evidence. Never execute this directory automatically or treat filename order as a valid migration plan.
 - `reconciliation/` contains staged, checksummed scripts for reconciling an imported Admin database. These scripts are introduced by the P02 database-evolution plan.
 - `schema/` contains the canonical Admin schema after reconciliation has been verified.
-- `migrations/` is the checksummed Atlas migration directory for the canonical baseline and future migrations.
+- `migrations/` is the checksummed Atlas migration directory for the canonical baseline and future migrations. Its single checksum source is `migrations/atlas.sum`, because Atlas resolves the checksum relative to the migration directory.
 
 Application startup never applies database migrations. Validation and deployment use the digest-pinned Atlas wrapper:
 
