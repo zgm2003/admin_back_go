@@ -74,14 +74,22 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Task, int
 	if query.Status != nil {
 		db = db.Where("status = ?", *query.Status)
 	}
+	pageQuery := db.Session(&gorm.Session{})
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
+	if query.BeforeID > 0 {
+		pageQuery = pageQuery.Where("id < ?", query.BeforeID)
+	}
+	offset := (query.CurrentPage - 1) * query.PageSize
+	if query.BeforeID > 0 {
+		offset = 0
+	}
 	var rows []Task
-	err := db.Order("id desc").
+	err := pageQuery.Order("id desc").
 		Limit(query.PageSize).
-		Offset((query.CurrentPage - 1) * query.PageSize).
+		Offset(offset).
 		Find(&rows).Error
 	if err != nil {
 		return nil, 0, err

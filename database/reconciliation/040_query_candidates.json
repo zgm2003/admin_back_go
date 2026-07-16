@@ -34,8 +34,8 @@
   },
   {
     "name": "ai_run_status_started",
-    "repository_file": "internal/module/ai/run/repository.go",
-    "sql": "SELECT id,status,started_at FROM ai_runs WHERE status=:status AND started_at<:before_time ORDER BY started_at ASC,id ASC LIMIT :limit",
+    "repository_file": "internal/module/ai/chat/repository.go",
+    "sql": "SELECT id,status,started_at FROM ai_runs WHERE status=:status AND started_at IS NOT NULL AND started_at<:before_time ORDER BY started_at ASC,id ASC LIMIT :limit",
     "bindings": {"status": "success", "before_time": "2099-12-31 23:59:59", "limit": 100},
     "expected_order": ["started_at ASC", "id ASC"],
     "row_distribution_sql": "SELECT status,COUNT(*) rows_count FROM ai_runs GROUP BY status ORDER BY rows_count DESC,status",

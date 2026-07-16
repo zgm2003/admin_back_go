@@ -19,7 +19,6 @@ func TestStaleRunningRunsDBFiltersOnlyOldRunningRows(t *testing.T) {
 
 	var rows []Run
 	stmt := staleRunningRunsDB(db.Model(&Run{}), staleBefore).
-		Order("id ASC").
 		Limit(10).
 		Find(&rows).Statement
 
@@ -29,7 +28,7 @@ func TestStaleRunningRunsDBFiltersOnlyOldRunningRows(t *testing.T) {
 		"status = ?",
 		"started_at IS NOT NULL",
 		"started_at < ?",
-		"ORDER BY id ASC",
+		"ORDER BY started_at ASC, id ASC",
 		"LIMIT ?",
 	} {
 		if !strings.Contains(sqlText, want) {

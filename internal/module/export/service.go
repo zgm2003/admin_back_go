@@ -165,7 +165,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	for _, row := range rows {
 		items = append(items, listItemFromTask(row))
 	}
-	return &ListResponse{List: items, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}}, nil
+	nextID := int64(0)
+	if len(rows) > 0 {
+		nextID = rows[len(rows)-1].ID
+	}
+	return &ListResponse{List: items, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}, NextID: nextID}, nil
 }
 
 func (s *Service) CleanupExpired(ctx context.Context) error {

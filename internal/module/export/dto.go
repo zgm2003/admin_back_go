@@ -26,6 +26,7 @@ type ListQuery struct {
 	Kind        string
 	CurrentPage int
 	PageSize    int
+	BeforeID    int64
 	Status      *int
 	Title       string
 	FileName    string
@@ -39,8 +40,9 @@ type Page struct {
 }
 
 type ListResponse struct {
-	List []ListItem `json:"list"`
-	Page Page       `json:"page"`
+	List   []ListItem `json:"list"`
+	Page   Page       `json:"page"`
+	NextID int64      `json:"next_id"`
 }
 
 type ListItem struct {

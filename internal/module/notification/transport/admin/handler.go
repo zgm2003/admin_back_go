@@ -49,6 +49,7 @@ func (h *Handler) List(c *gin.Context) {
 	result, appErr := h.service.List(c.Request.Context(), notificationmodule.ListQuery{
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
+		BeforeID:    req.BeforeID,
 		UserID:      identity.UserID,
 		Platform:    identity.Platform,
 		Keyword:     req.Keyword,

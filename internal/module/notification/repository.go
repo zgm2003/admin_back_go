@@ -49,17 +49,25 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Notificat
 	if keyword != "" {
 		db = db.Where("title LIKE ?", keyword+"%")
 	}
+	pageQuery := db.Session(&gorm.Session{})
 
 	var total int64
 	if err := db.Model(&Notification{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
+	if query.BeforeID > 0 {
+		pageQuery = pageQuery.Where("id < ?", query.BeforeID)
+	}
+	offset := (query.CurrentPage - 1) * query.PageSize
+	if query.BeforeID > 0 {
+		offset = 0
+	}
 
 	var rows []Notification
-	err := db.Select("id", "user_id", "title", "content", "type", "level", "link", "platform", "is_read", "created_at").
+	err := pageQuery.Select("id", "user_id", "title", "content", "type", "level", "link", "platform", "is_read", "created_at").
 		Order("id desc").
 		Limit(query.PageSize).
-		Offset((query.CurrentPage - 1) * query.PageSize).
+		Offset(offset).
 		Find(&rows).Error
 	if err != nil {
 		return nil, 0, err

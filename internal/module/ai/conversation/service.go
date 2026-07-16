@@ -156,7 +156,7 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	hasTime := query.BeforeTime != nil && !query.BeforeTime.IsZero()
 	hasID := query.BeforeID > 0
 	if hasTime != hasID {
-		return query, apperror.BadRequest("AI会话游标必须同时包含before_time和before_id")
+		return query, apperror.BadRequestKey("aiconversation.cursor.invalid", nil, "AI会话游标必须同时包含before_time和before_id")
 	}
 	return query, nil
 }

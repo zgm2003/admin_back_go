@@ -89,6 +89,13 @@ func TestListUsesStableLastMessageTimeAndIDCursor(t *testing.T) {
 	}
 }
 
+func TestListRejectsPartialCursorWithStableMessageID(t *testing.T) {
+	_, appErr := NewService(&fakeRepository{}).List(context.Background(), 7, ListQuery{BeforeID: 20})
+	if appErr == nil || appErr.MessageID != "aiconversation.cursor.invalid" {
+		t.Fatalf("expected stable cursor message ID, got %#v", appErr)
+	}
+}
+
 func TestDetailRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
 	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 8, AgentID: 1, Title: "other", IsDel: enum.CommonNo}}
 	_, appErr := NewService(repo).Detail(context.Background(), 7, 3)

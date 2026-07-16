@@ -211,7 +211,6 @@ func (r *GormRepository) TimeoutRuns(ctx context.Context, limit int, staleBefore
 	}
 	var runs []Run
 	if err := staleRunningRunsDB(r.db.WithContext(ctx), staleBefore).
-		Order("id ASC").
 		Limit(limit).
 		Find(&runs).Error; err != nil {
 		return 0, err
@@ -238,7 +237,8 @@ func runningRunUpdateDB(db *gorm.DB, runID int64) *gorm.DB {
 }
 
 func staleRunningRunsDB(db *gorm.DB, staleBefore time.Time) *gorm.DB {
-	return db.Where("status = ? AND started_at IS NOT NULL AND started_at < ?", enum.AIRunStatusRunning, staleBefore)
+	return db.Where("status = ? AND started_at IS NOT NULL AND started_at < ?", enum.AIRunStatusRunning, staleBefore).
+		Order("started_at ASC, id ASC")
 }
 
 func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {

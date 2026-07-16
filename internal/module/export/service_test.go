@@ -111,12 +111,12 @@ func TestListScopesUserPlatformKindAndFormatsFileSize(t *testing.T) {
 		FileSize: &fileSize, RowCount: &rowCount, Status: enum.ExportTaskStatusSuccess, ExpireAt: &expireAt, CreatedAt: createdAt,
 	}}, total: 1}
 	got, appErr := NewService(repo).List(context.Background(), ListQuery{
-		UserID: 9, Platform: enum.PlatformAdmin, Kind: KindUserList, CurrentPage: 1, PageSize: 20, Status: ptrInt(enum.ExportTaskStatusSuccess), FileName: " u ",
+		UserID: 9, Platform: enum.PlatformAdmin, Kind: KindUserList, CurrentPage: 1, PageSize: 20, BeforeID: 8, Status: ptrInt(enum.ExportTaskStatusSuccess), FileName: " u ",
 	})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
 	}
-	if repo.gotList.UserID != 9 || repo.gotList.Platform != enum.PlatformAdmin || repo.gotList.Kind != KindUserList || repo.gotList.FileName != "u" {
+	if repo.gotList.UserID != 9 || repo.gotList.Platform != enum.PlatformAdmin || repo.gotList.Kind != KindUserList || repo.gotList.FileName != "u" || repo.gotList.BeforeID != 8 {
 		t.Fatalf("expected scoped trimmed list query, got %#v", repo.gotList)
 	}
 	if !repo.cleanedAt.IsZero() {
@@ -124,6 +124,9 @@ func TestListScopesUserPlatformKindAndFormatsFileSize(t *testing.T) {
 	}
 	if got.Page.Total != 1 || got.Page.TotalPage != 1 || len(got.List) != 1 {
 		t.Fatalf("unexpected page/list: %#v", got)
+	}
+	if got.NextID != 7 {
+		t.Fatalf("unexpected next export cursor: %#v", got)
 	}
 	item := got.List[0]
 	if item.Kind != KindUserList || item.KindText != "用户列表" || item.FileSizeText != "2 KB" || item.StatusText != "已完成" || item.ExpireAt == nil || *item.ExpireAt != "2026-05-14 12:30:00" {

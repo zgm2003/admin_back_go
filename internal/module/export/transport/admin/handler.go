@@ -67,6 +67,7 @@ func (h *Handler) List(c *gin.Context) {
 		Kind:        req.Kind,
 		CurrentPage: req.CurrentPage,
 		PageSize:    req.PageSize,
+		BeforeID:    req.BeforeID,
 		Status:      req.Status,
 		Title:       req.Title,
 		FileName:    req.FileName,

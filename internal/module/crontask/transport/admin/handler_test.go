@@ -125,8 +125,8 @@ func TestCronTaskHandlerCreateUpdateStatusDeleteAndLogs(t *testing.T) {
 	}
 
 	logsRecorder := httptest.NewRecorder()
-	router.ServeHTTP(logsRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks/9/logs?current_page=1&page_size=20&status=1", nil))
-	if logsRecorder.Code != http.StatusOK || service.logsQuery.TaskID != 9 || service.logsQuery.Status == nil || *service.logsQuery.Status != crontaskmodule.LogStatusSuccess {
+	router.ServeHTTP(logsRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/cron-tasks/9/logs?current_page=1&page_size=20&status=1&before_time=2026-05-06%2013:00:00&before_id=20", nil))
+	if logsRecorder.Code != http.StatusOK || service.logsQuery.TaskID != 9 || service.logsQuery.Status == nil || *service.logsQuery.Status != crontaskmodule.LogStatusSuccess || service.logsQuery.BeforeTime == nil || service.logsQuery.BeforeID != 20 {
 		t.Fatalf("unexpected logs query: code=%d body=%s query=%#v", logsRecorder.Code, logsRecorder.Body.String(), service.logsQuery)
 	}
 }

@@ -73,7 +73,7 @@ func TestListNormalizesFiltersAndReturnsLabels(t *testing.T) {
 	got, appErr := service.List(context.Background(), ListQuery{
 		CurrentPage: 1,
 		PageSize:    20,
-		BeforeID:   8,
+		BeforeID:    8,
 		UserID:      12,
 		Platform:    " admin ",
 		Keyword:     " 导出 ",
