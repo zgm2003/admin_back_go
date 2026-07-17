@@ -40,3 +40,11 @@ A canonical Product Platform value may remain in persisted records as validated 
 5. README and historical migration comments.
 
 When these disagree, stop and reconcile the higher-priority truth instead of adding compatibility guesses.
+
+## Runtime contract gate
+
+- `internal/runtime` is the only API/Worker process composition and lifecycle owner.
+- Runtime constructors capture a deep `config.Snapshot`; caller-owned mutable slices never become live process configuration.
+- `contracts/admin/v1` is generated from the compiled route registry and is the checked-in Admin Contract Bundle truth for HTTP, permission/view, and realtime consumers.
+- `scripts/verify-runtime-contracts.ps1` is a blocking local/CI gate. It checks race-enabled runtime packages, contract drift, architecture rules, and both process builds.
+- `internal/bootstrap/route_meta.go` is the single temporary P03 policy-input bridge. P04 moves policy beside transport registration and deletes that file; no additional route-policy map is allowed.

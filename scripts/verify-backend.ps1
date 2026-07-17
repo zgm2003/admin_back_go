@@ -80,16 +80,9 @@ try {
   $locationPushed = $true
 
   Invoke-GoCommand -Arguments @("test", "./...")
-  Invoke-GoCommand -Arguments @(
-    "test",
-    "-race",
-    "./internal/module/auth",
-    "./internal/module/payment/...",
-    "./internal/infra/taskqueue",
-    "./internal/infra/realtime/..."
-  )
+  & (Join-Path $PSScriptRoot "verify-runtime-contracts.ps1")
   Invoke-GoCommand -Arguments @("vet", "./...")
-  Invoke-GoCommand -Arguments @("run", "honnef.co/go/tools/cmd/staticcheck@v0.7.0", "./...")
+  Invoke-GoCommand -Arguments @("run", "honnef.co/go/tools/cmd/staticcheck@v0.8.0-rc.1", "./...")
   Invoke-GoCommand -Arguments @("run", "golang.org/x/vuln/cmd/govulncheck@v1.6.0", "./...")
   Invoke-GoCommand -Arguments @(
     "build",

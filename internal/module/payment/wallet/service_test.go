@@ -197,7 +197,6 @@ func TestServiceListsNormalizeFilters(t *testing.T) {
 
 type fakeRepo struct {
 	wallet                   Wallet
-	transaction              Transaction
 	debitTransaction         Transaction
 	creditTransaction        Transaction
 	transactions             []TransactionWithUser

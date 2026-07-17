@@ -162,5 +162,3 @@ type JobService interface {
 	ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error)
 	TimeoutRuns(ctx context.Context, input RunTimeoutInput) (*RunTimeoutResult, error)
 }
-
-type appError = apperror.Error

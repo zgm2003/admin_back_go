@@ -1621,45 +1621,6 @@ func (f *fakeRouterAdminAIPromptService) DeleteBatch(ctx context.Context, ids []
 	return nil
 }
 
-type fakeRouterAdminAIAssetService struct {
-	listQuery       aiasset.ListQuery
-	detailID        int64
-	created         aiasset.Input
-	updatedID       int64
-	updated         aiasset.Input
-	deletedID       int64
-	batchDeletedIDs []int64
-}
-
-func (f *fakeRouterAdminAIAssetService) PageInit(ctx context.Context) (*aiasset.PageInitResponse, *apperror.Error) {
-	return &aiasset.PageInitResponse{}, nil
-}
-func (f *fakeRouterAdminAIAssetService) List(ctx context.Context, query aiasset.ListQuery) (*aiasset.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &aiasset.ListResponse{List: []aiasset.Item{{ID: 2, Slug: "asset", Type: aiasset.AssetTypeImage, Title: "Asset"}}}, nil
-}
-func (f *fakeRouterAdminAIAssetService) Detail(ctx context.Context, id int64) (*aiasset.Item, *apperror.Error) {
-	f.detailID = id
-	return &aiasset.Item{ID: id, Slug: "asset", Type: aiasset.AssetTypeImage, Title: "Asset"}, nil
-}
-func (f *fakeRouterAdminAIAssetService) Create(ctx context.Context, input aiasset.Input) (int64, *apperror.Error) {
-	f.created = input
-	return 32, nil
-}
-func (f *fakeRouterAdminAIAssetService) Update(ctx context.Context, id int64, input aiasset.Input) *apperror.Error {
-	f.updatedID = id
-	f.updated = input
-	return nil
-}
-func (f *fakeRouterAdminAIAssetService) DeleteOne(ctx context.Context, id int64) *apperror.Error {
-	f.deletedID = id
-	return nil
-}
-func (f *fakeRouterAdminAIAssetService) DeleteBatch(ctx context.Context, ids []int64) *apperror.Error {
-	f.batchDeletedIDs = append([]int64(nil), ids...)
-	return nil
-}
-
 type fakeRouterWalletService struct {
 	summaryUserID int64
 	query         walletmodule.TransactionListQuery

@@ -767,18 +767,6 @@ func formatOptionalTime(value *time.Time) *string {
 	return &formatted
 }
 
-func parseTime(value string) (*time.Time, *apperror.Error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-	parsed, err := time.ParseInLocation(timeLayout, value, time.Local)
-	if err != nil {
-		return nil, badRequest("sms.time.invalid", "时间格式必须为 YYYY-MM-DD HH:mm:ss")
-	}
-	return &parsed, nil
-}
-
 func totalPage(total int64, pageSize int) int {
 	if total <= 0 || pageSize <= 0 {
 		return 0

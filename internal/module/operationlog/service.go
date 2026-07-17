@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"math"
-	"sort"
 	"strings"
 	"time"
 
@@ -249,9 +248,4 @@ func formatTime(value time.Time) string {
 		return ""
 	}
 	return value.Format(timeLayout)
-}
-
-func sortStrings(values []string) []string {
-	sort.Strings(values)
-	return values
 }

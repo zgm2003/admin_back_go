@@ -110,7 +110,7 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 		if err != nil {
 			return err
 		}
-		result, err := service.SendTask(ctx, SendTaskInput{TaskID: payload.TaskID})
+		result, err := service.SendTask(ctx, SendTaskInput(payload))
 		if err != nil {
 			return err
 		}

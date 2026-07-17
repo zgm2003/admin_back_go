@@ -185,19 +185,7 @@ func normalizeStartInput(input StartInput, now time.Time) (StartRecord, error) {
 	if input.StartedAt.IsZero() {
 		input.StartedAt = now
 	}
-	return StartRecord{
-		Platform:         input.Platform,
-		ConversationID:   input.ConversationID,
-		UserMessageID:    input.UserMessageID,
-		RequestID:        input.RequestID,
-		UserID:           input.UserID,
-		AgentID:          input.AgentID,
-		ProviderID:       input.ProviderID,
-		ModelID:          input.ModelID,
-		ModelDisplayName: input.ModelDisplayName,
-		InputSnapshot:    input.InputSnapshot,
-		StartedAt:        input.StartedAt,
-	}, nil
+	return StartRecord(input), nil
 }
 
 func normalizeCompleteInput(input CompleteInput, now time.Time) (CompleteRecord, error) {

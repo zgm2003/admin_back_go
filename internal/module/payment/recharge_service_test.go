@@ -49,10 +49,14 @@ func TestRechargeNumbersKeepMillisecondDistinct(t *testing.T) {
 	if newWalletTransactionNo(base) == newWalletTransactionNo(base.Add(time.Millisecond)) {
 		t.Fatalf("wallet transaction numbers must differ across millisecond-separated timestamps: %s", newWalletTransactionNo(base))
 	}
-	if newPaymentRechargeNo(base) == newPaymentRechargeNo(base) {
+	firstRecharge := newPaymentRechargeNo(base)
+	secondRecharge := newPaymentRechargeNo(base)
+	if firstRecharge == secondRecharge {
 		t.Fatalf("recharge numbers must differ across repeated calls at the same timestamp")
 	}
-	if newWalletTransactionNo(base) == newWalletTransactionNo(base) {
+	firstTransaction := newWalletTransactionNo(base)
+	secondTransaction := newWalletTransactionNo(base)
+	if firstTransaction == secondTransaction {
 		t.Fatalf("wallet transaction numbers must differ across repeated calls at the same timestamp")
 	}
 }

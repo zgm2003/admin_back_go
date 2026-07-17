@@ -45,6 +45,7 @@ type WorkerRuntime struct {
 }
 
 func NewWorker(cfg config.Config, logger *slog.Logger, optionValues ...ProcessOption) (*WorkerRuntime, error) {
+	cfg = config.Snapshot(cfg)
 	if logger == nil {
 		logger = slog.Default()
 	}

@@ -288,14 +288,6 @@ type imageResponse struct {
 	} `json:"usage"`
 }
 
-func parseImageResponse(body []byte, fallbackMime string) (*infraai.ImageResult, error) {
-	var payload imageResponse
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("decode OpenAI image response: %w", err)
-	}
-	return imageResultFromPayload(payload, append([]byte(nil), body...), fallbackMime)
-}
-
 func decodeImageResponse(body io.Reader, fallbackMime string) (*infraai.ImageResult, error) {
 	var (
 		raw     bytes.Buffer

@@ -21,7 +21,6 @@ import (
 
 const defaultTimeoutLimit = 100
 const defaultRunStaleTimeout = 15 * time.Minute
-const historyLimit = 20
 const maxHistoryLimit = 50
 const canvasTextGenerateScene = "canvas_text_generate"
 

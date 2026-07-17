@@ -42,11 +42,11 @@ type Error struct {
 	Category     Category
 	HTTPStatus   int
 	Retry        RetryClass
-	MessageID    string
-	TemplateData map[string]any
+	MessageID    string         `json:"-"`
+	TemplateData map[string]any `json:"-"`
 	Message      string
-	Cause        error
-	Operation    string
+	Cause        error  `json:"-"`
+	Operation    string `json:"-"`
 }
 
 func New(

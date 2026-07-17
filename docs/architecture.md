@@ -1,5 +1,29 @@
 # admin_back_go Architecture
 
+## Runtime and Admin contract boundary
+
+`cmd/admin-api` and `cmd/admin-worker` are thin signal-owning entries. Process
+composition, resource ownership, startup order, health, and reverse shutdown
+belong to `internal/runtime`. Each constructor takes a process-owned
+`config.Snapshot` before hooks capture configuration, so later mutations of a
+caller's slices cannot change a running process.
+
+The backend publishes `contracts/admin/v1` from the compiled runtime route
+registry. The bundle contains OpenAPI 3.1, operation access/audit policy, the
+`users/me` menu/view contract, closed realtime schemas, and a SHA-256 manifest.
+App/Canvas operations are excluded. Regeneration is explicit and drift is
+blocking:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-admin-contract.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-runtime-contracts.ps1
+```
+
+On Windows, `verify-runtime-contracts.ps1` runs the race-enabled package gate
+inside the pinned Linux Go image; Linux CI runs the same `go test -race` gate
+directly. `verify-backend.ps1` and `verify-go-clean.ps1` both invoke this shared
+gate.
+
 本仓库采用 `Gin modular monolith`。
 
 完整架构规则见：
@@ -172,7 +196,9 @@ client_ip
 
 ## Operation log baseline
 
-`OperationLog` 只记录显式 route metadata 命中的路由，route metadata 由 `internal/bootstrap/route_meta.go` 维护。
+`OperationLog` 只记录编译后的 Route Policy Registry 命中的路由。P03 期间
+`internal/bootstrap/route_meta.go` 只是唯一的迁移输入桥；P04 会把定义移动到
+各 transport 注册点并删除该桥，运行时中间件始终只消费编译后的 registry。
 
 当前 recorder 输入包含：
 

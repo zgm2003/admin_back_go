@@ -1,10 +1,7 @@
 package aichat
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -109,43 +106,4 @@ func buildEvent(eventType string, payload any) (EnvelopeEvent, error) {
 		return EnvelopeEvent{}, err
 	}
 	return EnvelopeEvent{ID: id, Event: eventType, Envelope: envelope}, nil
-}
-
-func eventPayloadMap(event EnvelopeEvent) map[string]any {
-	payload := map[string]any{}
-	if len(event.Envelope.Data) > 0 {
-		_ = json.Unmarshal(event.Envelope.Data, &payload)
-	}
-	if event.ID != "" {
-		payload["event_id"] = event.ID
-	}
-	return payload
-}
-
-func isNewerStreamID(candidate string, current string) bool {
-	candidateMS, candidateSeq, ok := parseStreamID(candidate)
-	if !ok {
-		return false
-	}
-	currentMS, currentSeq, ok := parseStreamID(current)
-	if !ok {
-		return true
-	}
-	return candidateMS > currentMS || (candidateMS == currentMS && candidateSeq > currentSeq)
-}
-
-func parseStreamID(value string) (int64, int64, bool) {
-	parts := strings.Split(value, "-")
-	if len(parts) != 2 {
-		return 0, 0, false
-	}
-	ms, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	seq, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	return ms, seq, true
 }

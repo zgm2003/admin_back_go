@@ -57,6 +57,17 @@ func writeFakeGoCommand(t *testing.T, directory string) {
 	}
 }
 
+func writeFakeRuntimeContractScript(t *testing.T, directory string) {
+	t.Helper()
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "[CmdletBinding()]\r\nparam()\r\nWrite-Host 'fake runtime contract gate'\r\n"
+	if err := os.WriteFile(filepath.Join(directory, "verify-runtime-contracts.ps1"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runBackendVerificationWithFakeGo(t *testing.T, powerShell, sandbox, script, fakeBin string) ([]byte, error) {
 	t.Helper()
 	harness := filepath.Join(sandbox, "run-backend-verification.ps1")
@@ -1384,6 +1395,7 @@ func TestBackendVerificationEntrypointsExist(t *testing.T) {
 	for _, rel := range []string{
 		"scripts/verify-go-clean.ps1",
 		"scripts/verify-backend.ps1",
+		"scripts/verify-runtime-contracts.ps1",
 	} {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
@@ -1427,6 +1439,7 @@ func TestCleanVerificationRestoresGOMODCACHEState(t *testing.T) {
 	sandbox := t.TempDir()
 	cleanScript := filepath.Join(sandbox, "scripts", "verify-go-clean.ps1")
 	copyTestFile(t, filepath.Join(root, "scripts", "verify-go-clean.ps1"), cleanScript)
+	writeFakeRuntimeContractScript(t, filepath.Dir(cleanScript))
 	fakeBin := filepath.Join(sandbox, "fake-bin")
 	writeFakeGoCommand(t, fakeBin)
 

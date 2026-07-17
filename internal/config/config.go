@@ -29,6 +29,25 @@ type Config struct {
 	CORS      CORSConfig
 }
 
+// Snapshot returns a process-owned configuration value. Config is otherwise a
+// value type, but its slice fields would still alias the caller without this
+// boundary copy.
+func Snapshot(cfg Config) Config {
+	cfg.Logging.AllowedExtensions = cloneConfigStrings(cfg.Logging.AllowedExtensions)
+	cfg.CORS.AllowOrigins = cloneConfigStrings(cfg.CORS.AllowOrigins)
+	cfg.CORS.AllowMethods = cloneConfigStrings(cfg.CORS.AllowMethods)
+	cfg.CORS.AllowHeaders = cloneConfigStrings(cfg.CORS.AllowHeaders)
+	cfg.CORS.ExposeHeaders = cloneConfigStrings(cfg.CORS.ExposeHeaders)
+	return cfg
+}
+
+func cloneConfigStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return append(make([]string, 0, len(values)), values...)
+}
+
 type AppConfig struct {
 	Env    string
 	Secret string

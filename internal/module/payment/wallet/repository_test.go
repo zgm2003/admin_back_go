@@ -319,7 +319,9 @@ func TestTransactionNoKeepsMillisecondDistinct(t *testing.T) {
 	if newTransactionNo(base) == newTransactionNo(base.Add(time.Millisecond)) {
 		t.Fatalf("transaction numbers must differ across millisecond-separated timestamps: %s", newTransactionNo(base))
 	}
-	if newTransactionNo(base) == newTransactionNo(base) {
+	first := newTransactionNo(base)
+	second := newTransactionNo(base)
+	if first == second {
 		t.Fatalf("transaction numbers must differ across repeated calls at the same timestamp")
 	}
 }

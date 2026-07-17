@@ -565,17 +565,6 @@ type chatFunction struct {
 	Parameters  map[string]any `json:"parameters"`
 }
 
-type chatCompletionResponse struct {
-	Choices []struct {
-		Message chatMessage `json:"message"`
-	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
-}
-
 type chatCompletionStreamChunk struct {
 	Choices []struct {
 		Delta struct {
@@ -598,13 +587,6 @@ type chatStreamToolCall struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
-}
-
-func (r chatCompletionResponse) firstContent() string {
-	if len(r.Choices) == 0 {
-		return ""
-	}
-	return contentText(r.Choices[0].Message.Content)
 }
 
 func chatMessages(input infraai.ChatInput) []chatMessage {
@@ -774,32 +756,6 @@ func inputInt(inputs map[string]any, key string) (int, bool) {
 		return 0, false
 	}
 	return int(number), true
-}
-
-func contentText(value any) string {
-	switch content := value.(type) {
-	case string:
-		return content
-	case []any:
-		var builder strings.Builder
-		for _, item := range content {
-			row, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			if typ, _ := row["type"].(string); typ == "text" {
-				if text, _ := row["text"].(string); text != "" {
-					if builder.Len() > 0 {
-						builder.WriteString("\n")
-					}
-					builder.WriteString(text)
-				}
-			}
-		}
-		return builder.String()
-	default:
-		return ""
-	}
 }
 
 func normalizeBaseURL(value string) (string, error) {

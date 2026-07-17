@@ -812,10 +812,3 @@ func durationMS(startedAt time.Time, finishedAt time.Time) uint {
 }
 
 func nowUTC() time.Time { return time.Now() }
-
-func appErrError(appErr *apperror.Error) error {
-	if appErr == nil {
-		return nil
-	}
-	return errors.New(appErr.Message)
-}

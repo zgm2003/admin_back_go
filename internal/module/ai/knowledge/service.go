@@ -735,16 +735,6 @@ func loadAllCandidates(ctx context.Context, repo Repository, baseIDs []uint64) (
 	return rows, nil
 }
 
-func maxBindingTopK(bindings []RuntimeBindingRow) uint {
-	var max uint
-	for _, binding := range bindings {
-		if binding.TopK > max {
-			max = binding.TopK
-		}
-	}
-	return max
-}
-
 func strconvUint(v uint) string {
 	if v == 0 {
 		return "0"

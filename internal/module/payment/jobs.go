@@ -81,7 +81,7 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 		if err != nil {
 			return err
 		}
-		result, err := service.SyncPendingOrders(ctx, SyncPendingOrderInput{Limit: payload.Limit})
+		result, err := service.SyncPendingOrders(ctx, SyncPendingOrderInput(payload))
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logge
 		if err != nil {
 			return err
 		}
-		result, err := service.CloseExpiredOrders(ctx, CloseExpiredOrderInput{Limit: payload.Limit})
+		result, err := service.CloseExpiredOrders(ctx, CloseExpiredOrderInput(payload))
 		if err != nil {
 			return err
 		}

@@ -55,6 +55,7 @@ type APIRuntime struct {
 }
 
 func NewAPI(cfg config.Config, logger *slog.Logger, routes *adminroute.Registry, optionValues ...ProcessOption) (*APIRuntime, error) {
+	cfg = config.Snapshot(cfg)
 	if logger == nil {
 		logger = slog.Default()
 	}

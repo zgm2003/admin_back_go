@@ -2,7 +2,6 @@ package aiprovider
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -657,10 +656,4 @@ func formatPtrTime(value *time.Time) string {
 		return ""
 	}
 	return formatTime(*value)
-}
-
-type unsupportedTester struct{}
-
-func (unsupportedTester) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
-	return nil, fmt.Errorf("ai provider tester not configured")
 }

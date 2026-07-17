@@ -23,7 +23,6 @@ type fakeRepository struct {
 	agentID      uint64
 	history      []MessageHistory
 	assistant    AssistantMessageRecord
-	message      Message
 	createdRun   CreateRunRecord
 	completedRun CompleteRunRecord
 	finishedRun  FinishRunRecord
@@ -665,8 +664,7 @@ func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing
 }
 
 type toolCallEngine struct {
-	calls  []infraai.ChatInput
-	stages int
+	calls []infraai.ChatInput
 }
 
 func (e *toolCallEngine) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {

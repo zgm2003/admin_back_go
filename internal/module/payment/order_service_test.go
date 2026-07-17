@@ -45,7 +45,9 @@ func TestPaymentOrderNoKeepsMillisecondDistinct(t *testing.T) {
 	if newPaymentOrderNo(base) == newPaymentOrderNo(base.Add(time.Millisecond)) {
 		t.Fatalf("order numbers must differ across millisecond-separated timestamps: %s", newPaymentOrderNo(base))
 	}
-	if newPaymentOrderNo(base) == newPaymentOrderNo(base) {
+	first := newPaymentOrderNo(base)
+	second := newPaymentOrderNo(base)
+	if first == second {
 		t.Fatalf("order numbers must differ across repeated calls at the same timestamp")
 	}
 }

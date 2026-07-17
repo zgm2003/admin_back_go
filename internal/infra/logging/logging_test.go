@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -56,7 +57,7 @@ func TestNewLoggerStdoutOnly(t *testing.T) {
 	if closer != nil {
 		t.Fatalf("expected nil closer for stdout-only logger")
 	}
-	logger.LogAttrs(nil, slog.LevelInfo, "stdout only")
+	logger.LogAttrs(context.TODO(), slog.LevelInfo, "stdout only")
 	if !strings.Contains(stdout.String(), "stdout only") {
 		t.Fatalf("expected stdout-only log, got %s", stdout.String())
 	}
