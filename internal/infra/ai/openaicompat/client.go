@@ -139,6 +139,9 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	if key := strings.TrimSpace(input.IdempotencyKey); key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
 	streamClient := c.streamHTTPClient
 	if streamClient == nil {
 		streamClient = &http.Client{}
@@ -149,11 +152,12 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 	}
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeNotDispatched, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
 	}
 	defer resp.Body.Close()
+	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
 	if err := c.requireSuccess(resp); err != nil {
-		return nil, err
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeRejected, providerRequestID, err)
 	}
 	watcher := newStreamIdleWatcher(streamIdleTimeout, resp.Body.Close)
 	defer watcher.Stop()
@@ -162,10 +166,11 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 	})
 	if err != nil {
 		if watcher.TimedOut() {
-			return nil, fmt.Errorf("%w: OpenAI chat completion stream idle timeout after %s", context.DeadlineExceeded, streamIdleTimeout)
+			return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, fmt.Errorf("%w: OpenAI chat completion stream idle timeout after %s", context.DeadlineExceeded, streamIdleTimeout))
 		}
-		return nil, err
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, err)
 	}
+	result.ProviderRequestID = providerRequestID
 	return result, nil
 }
 

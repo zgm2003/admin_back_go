@@ -72,6 +72,9 @@ func TestClaimLeaseFencingAndIdempotentAssistantPublication(t *testing.T) {
 	if ok, err := repository.Transition(ctx, created.CommandID, "worker-a", claimA.FencingToken, StateClaimed, StateRunning, nil); err != nil || !ok {
 		t.Fatalf("worker A running transition ok=%v err=%v", ok, err)
 	}
+	if assistantID, published, err := repository.PublishAssistant(ctx, PublishAssistantInput{CommandID: created.CommandID, Owner: "worker-a", Token: claimA.FencingToken, Content: "expired answer", Now: now.Add(4 * time.Second)}); err != nil || published || assistantID != 0 {
+		t.Fatalf("expired publication id=%d published=%v err=%v", assistantID, published, err)
+	}
 
 	claimB, err := repository.ClaimNext(ctx, "worker-b", now.Add(4*time.Second), 3*time.Second)
 	if err != nil || claimB == nil {

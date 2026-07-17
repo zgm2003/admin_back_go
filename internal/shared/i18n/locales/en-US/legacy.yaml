@@ -436,6 +436,7 @@ legacy.bd49aebbbeba: Failed to query AI run user statistics
 legacy.bde64ddede82: Failed to query deleted roles
 legacy.be29002f8a98: Failed to query payment channel config
 legacy.bead6c013874: Payment repository is not configured
+legacy.bf0ba2dca210: AI reply task does not exist
 legacy.bf15ef686e97: AI knowledge base service is not configured
 legacy.bf3c6c6524ff: Contains roles that do not exist
 legacy.bf4c088f2e29: AI knowledge document source typeis invalid

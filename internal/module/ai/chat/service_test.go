@@ -132,6 +132,44 @@ type fakeAssistantPublisher struct {
 	input AssistantPublication
 }
 
+type fakeProviderAttemptRecorder struct {
+	events   []string
+	prepared ProviderAttemptPrepareInput
+	marked   ProviderAttemptMarkInput
+	finished ProviderAttemptFinishInput
+}
+
+func (f *fakeProviderAttemptRecorder) PrepareProviderAttempt(_ context.Context, input ProviderAttemptPrepareInput) (*ProviderAttemptRef, error) {
+	f.events = append(f.events, "prepared")
+	f.prepared = input
+	return &ProviderAttemptRef{ID: 91, IdempotencyKey: "provider-attempt-key"}, nil
+}
+
+func (f *fakeProviderAttemptRecorder) MarkProviderAttemptDispatched(_ context.Context, input ProviderAttemptMarkInput) error {
+	f.events = append(f.events, "dispatched")
+	f.marked = input
+	return nil
+}
+
+func (f *fakeProviderAttemptRecorder) FinishProviderAttempt(_ context.Context, input ProviderAttemptFinishInput) error {
+	f.events = append(f.events, "finished")
+	f.finished = input
+	return nil
+}
+
+type attemptCaptureEngine struct {
+	input infraai.ChatInput
+}
+
+func (e *attemptCaptureEngine) TestConnection(context.Context, infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
+}
+
+func (e *attemptCaptureEngine) StreamChat(_ context.Context, input infraai.ChatInput, _ infraai.EventSink) (*infraai.ChatResult, error) {
+	e.input = input
+	return &infraai.ChatResult{Answer: "ok", UsageStatus: infraai.UsageStatusUnavailable, ProviderRequestID: "provider-request-1"}, nil
+}
+
 func (f *fakeAssistantPublisher) PublishAssistant(_ context.Context, input AssistantPublication) (int64, bool, error) {
 	f.input = input
 	return 22, true, nil
@@ -406,6 +444,7 @@ func TestExecuteConversationReplyPublishesAssistantThroughFencedBoundary(t *test
 	res, err := NewService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: assistantPublisher,
+		AttemptRecorder:    &fakeProviderAttemptRecorder{},
 		Publisher:          &fakePublisher{},
 		RunRecorder:        &fakeRunRecorder{nextID: 100},
 		EngineFactory:      &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
@@ -419,6 +458,70 @@ func TestExecuteConversationReplyPublishesAssistantThroughFencedBoundary(t *test
 	}
 	if res.AssistantMessageID != 22 || assistantPublisher.input.CommandID != 41 || assistantPublisher.input.Owner != "worker-a" || assistantPublisher.input.Token != 7 || assistantPublisher.input.Content != "ok" {
 		t.Fatalf("result=%+v publication=%+v", res, assistantPublisher.input)
+	}
+}
+
+func TestExecuteConversationReplyPersistsProviderAttemptAroundNetworkCall(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	attempts := &fakeProviderAttemptRecorder{}
+	engine := &attemptCaptureEngine{}
+	_, err := NewService(Dependencies{
+		Repository:         repo,
+		AssistantPublisher: repo,
+		AttemptRecorder:    attempts,
+		Publisher:          &fakePublisher{},
+		RunRecorder:        &fakeRunRecorder{nextID: 100},
+		EngineFactory:      &fakeEngineFactory{engine: engine},
+		Secretbox:          box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 7,
+		ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "rid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(attempts.events, ",") != "prepared,dispatched,finished" {
+		t.Fatalf("attempt events=%v", attempts.events)
+	}
+	if attempts.prepared.CommandID != 41 || attempts.prepared.Owner != "worker-a" || attempts.prepared.Token != 7 || attempts.marked.AttemptID != 91 || attempts.finished.State != ProviderAttemptSucceeded || attempts.finished.ProviderRequestID != "provider-request-1" || len(attempts.finished.ResponseSHA256) != 64 {
+		t.Fatalf("prepared=%+v marked=%+v finished=%+v", attempts.prepared, attempts.marked, attempts.finished)
+	}
+	if engine.input.AttemptID != 91 || engine.input.IdempotencyKey != "provider-attempt-key" {
+		t.Fatalf("engine input=%+v", engine.input)
+	}
+}
+
+func TestExecuteConversationReplyRecordsAmbiguousProviderOutcome(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	attempts := &fakeProviderAttemptRecorder{}
+	providerErr := infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "provider-request-2", errors.New("stream disconnected"))
+	_, err := NewService(Dependencies{
+		Repository:         repo,
+		AssistantPublisher: repo,
+		AttemptRecorder:    attempts,
+		Publisher:          &fakePublisher{},
+		RunRecorder:        &fakeRunRecorder{nextID: 100},
+		EngineFactory:      &fakeEngineFactory{engine: &fakeEngine{err: providerErr}},
+		Secretbox:          box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 42, LeaseOwner: "worker-a", LeaseToken: 8,
+		ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "rid-2",
+	})
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("err=%v", err)
+	}
+	if attempts.finished.State != ProviderAttemptOutcomeUnknown || attempts.finished.ErrorCode != "ai.provider_outcome_unknown" || attempts.finished.ProviderRequestID != "provider-request-2" {
+		t.Fatalf("finished=%+v", attempts.finished)
 	}
 }
 

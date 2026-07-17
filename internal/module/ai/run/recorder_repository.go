@@ -2,12 +2,14 @@ package airun
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64, error) {
@@ -15,8 +17,13 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 		return 0, ErrRepositoryNotConfigured
 	}
 	startedAt := input.StartedAt
+	var idempotencyKey *string
+	if key := strings.TrimSpace(input.IdempotencyKey); key != "" {
+		idempotencyKey = &key
+	}
 	run := Run{
 		Platform:         input.Platform,
+		IdempotencyKey:   idempotencyKey,
 		ConversationID:   input.ConversationID,
 		RequestID:        input.RequestID,
 		UserMessageID:    input.UserMessageID,
@@ -30,6 +37,38 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 		StartedAt:        &startedAt,
 	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if idempotencyKey != nil {
+			var existing Run
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("idempotency_key = ?", *idempotencyKey).First(&existing).Error
+			if err == nil {
+				run.ID = existing.ID
+				if existing.Status == enum.AIRunStatusRunning || existing.Status == enum.AIRunStatusSuccess {
+					return nil
+				}
+				updates := map[string]any{
+					"status":               enum.AIRunStatusRunning,
+					"assistant_message_id": nil,
+					"prompt_tokens":        0,
+					"completion_tokens":    0,
+					"total_tokens":         0,
+					"duration_ms":          nil,
+					"error_message":        "",
+					"started_at":           startedAt,
+					"finished_at":          nil,
+				}
+				if err := tx.Model(&Run{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+					return err
+				}
+				var maxSeq uint
+				if err := tx.Model(&RunEvent{}).Where("run_id = ?", existing.ID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
+					return err
+				}
+				return tx.Create(&RunEvent{RunID: existing.ID, Seq: maxSeq + 1, EventType: enum.AIRunEventStart, Message: enum.AIRunEventLabels[enum.AIRunEventStart]}).Error
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
 		if err := tx.Create(&run).Error; err != nil {
 			return err
 		}

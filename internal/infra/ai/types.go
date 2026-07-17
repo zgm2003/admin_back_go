@@ -46,6 +46,8 @@ type ToolOutput struct {
 }
 
 type ChatInput struct {
+	AttemptID            uint64
+	IdempotencyKey       string
 	AgentID              uint64
 	RunID                uint64
 	UserID               uint64
@@ -59,6 +61,7 @@ type ChatInput struct {
 }
 
 type ChatResult struct {
+	ProviderRequestID    string
 	EngineConversationID string
 	EngineMessageID      string
 	EngineTaskID         string

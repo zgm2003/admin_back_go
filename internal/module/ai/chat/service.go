@@ -2,6 +2,8 @@ package aichat
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,11 +29,14 @@ const canvasTextGenerateScene = "canvas_text_generate"
 var (
 	ErrAssistantPublisherNotConfigured = errors.New("assistant publisher is not configured")
 	ErrAssistantPublicationRejected    = errors.New("assistant publication rejected by reply command lease")
+	ErrProviderAttemptRecorderMissing  = errors.New("provider attempt recorder is not configured")
+	ErrProviderAttemptInvalid          = errors.New("provider attempt identity is invalid")
 )
 
 type Dependencies struct {
 	Repository         Repository
 	AssistantPublisher AssistantPublisher
+	AttemptRecorder    ProviderAttemptRecorder
 	Publisher          infrarealtime.Publisher
 	EngineFactory      EngineFactory
 	Secretbox          secretbox.Box
@@ -46,6 +51,7 @@ type Dependencies struct {
 type Service struct {
 	repository         Repository
 	assistantPublisher AssistantPublisher
+	attemptRecorder    ProviderAttemptRecorder
 	publisher          infrarealtime.Publisher
 	engineFactory      EngineFactory
 	secretbox          secretbox.Box
@@ -66,7 +72,7 @@ func NewService(deps Dependencies) *Service {
 	if runStaleTimeout <= 0 {
 		runStaleTimeout = defaultRunStaleTimeout
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -137,6 +143,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	userMessageID := input.UserMessageID
 	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
 		Platform:         enum.PlatformAdmin,
+		IdempotencyKey:   replyRunIdempotencyKey(input.CommandID),
 		ConversationID:   &conversationID,
 		UserMessageID:    &userMessageID,
 		RequestID:        input.RequestID,
@@ -193,7 +200,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, appErr
 	}
 	chatInput.Tools = toolDefinitions(runtimeTools)
-	result, err := engine.StreamChat(ctx, chatInput, sink)
+	result, err := s.streamChatWithAttempt(ctx, input, engine, chatInput, sink)
 	if err != nil {
 		msg := err.Error()
 		_ = s.publishFailed(ctx, input, msg)
@@ -217,7 +224,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
-		result, err = engine.StreamChat(ctx, chatInput, sink)
+		result, err = s.streamChatWithAttempt(ctx, input, engine, chatInput, sink)
 		if err != nil {
 			msg := err.Error()
 			_ = s.publishFailed(ctx, input, msg)
@@ -285,6 +292,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, err
 	}
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
+}
+
+func replyRunIdempotencyKey(commandID uint64) string {
+	if commandID == 0 {
+		return ""
+	}
+	return "reply-command:" + strconv.FormatUint(commandID, 10)
 }
 
 func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionInput) (*CanvasCompletionResponse, *apperror.Error) {
@@ -391,6 +405,77 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.run_complete_failed", nil, "更新Canvas文本运行记录失败", err)
 	}
 	return &CanvasCompletionResponse{ID: fmt.Sprintf("canvas-chat-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
+}
+
+func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+	if input.CommandID == 0 {
+		return engine.StreamChat(ctx, chatInput, sink)
+	}
+	if s.attemptRecorder == nil {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	attempt, err := s.attemptRecorder.PrepareProviderAttempt(ctx, ProviderAttemptPrepareInput{
+		CommandID: input.CommandID,
+		Owner:     input.LeaseOwner,
+		Token:     input.LeaseToken,
+		Now:       s.now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if attempt == nil || attempt.ID == 0 || strings.TrimSpace(attempt.IdempotencyKey) == "" {
+		return nil, ErrProviderAttemptInvalid
+	}
+	if err := s.attemptRecorder.MarkProviderAttemptDispatched(ctx, ProviderAttemptMarkInput{
+		AttemptID: attempt.ID,
+		CommandID: input.CommandID,
+		Owner:     input.LeaseOwner,
+		Token:     input.LeaseToken,
+		Now:       s.now(),
+	}); err != nil {
+		return nil, err
+	}
+	chatInput.AttemptID = attempt.ID
+	chatInput.IdempotencyKey = attempt.IdempotencyKey
+	result, providerErr := engine.StreamChat(ctx, chatInput, sink)
+	finish := ProviderAttemptFinishInput{
+		AttemptID: attempt.ID,
+		CommandID: input.CommandID,
+		Owner:     input.LeaseOwner,
+		Token:     input.LeaseToken,
+		Now:       s.now(),
+	}
+	if providerErr == nil {
+		finish.State = ProviderAttemptSucceeded
+		finish.ResponseSHA256 = providerAttemptResponseHash(result)
+		if result != nil {
+			finish.ProviderRequestID = result.ProviderRequestID
+		}
+	} else {
+		finish.State = ProviderAttemptFailed
+		finish.ErrorCode = "ai.provider_failed"
+		finish.ProviderRequestID = infraai.ProviderRequestIDFromError(providerErr)
+		if errors.Is(context.Cause(ctx), infraai.ErrCanceled) {
+			finish.State = ProviderAttemptCanceled
+			finish.ErrorCode = "ai.provider_canceled"
+		} else if outcome, ok := infraai.ProviderOutcomeFromError(providerErr); ok && outcome == infraai.ProviderOutcomeUnknown {
+			finish.State = ProviderAttemptOutcomeUnknown
+			finish.ErrorCode = "ai.provider_outcome_unknown"
+		}
+	}
+	if finishErr := s.attemptRecorder.FinishProviderAttempt(context.WithoutCancel(ctx), finish); finishErr != nil {
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, finish.ProviderRequestID, errors.Join(providerErr, finishErr))
+	}
+	return result, providerErr
+}
+
+func providerAttemptResponseHash(result *infraai.ChatResult) string {
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
 }
 
 type tokenResult struct {

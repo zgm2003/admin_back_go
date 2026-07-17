@@ -436,6 +436,7 @@ legacy.bd49aebbbeba: 查询AI运行用户统计失败
 legacy.bde64ddede82: 查询已删除角色失败
 legacy.be29002f8a98: 查询支付渠道配置失败
 legacy.bead6c013874: 支付仓储未配置
+legacy.bf0ba2dca210: AI回复任务不存在
 legacy.bf15ef686e97: AI知识库服务未配置
 legacy.bf3c6c6524ff: 包含不存在的角色
 legacy.bf4c088f2e29: AI知识库文档来源类型错误

@@ -78,6 +78,53 @@ type AssistantPublisher interface {
 	PublishAssistant(context.Context, AssistantPublication) (int64, bool, error)
 }
 
+type ProviderAttemptState string
+
+const (
+	ProviderAttemptSucceeded      ProviderAttemptState = "succeeded"
+	ProviderAttemptFailed         ProviderAttemptState = "failed"
+	ProviderAttemptCanceled       ProviderAttemptState = "canceled"
+	ProviderAttemptOutcomeUnknown ProviderAttemptState = "outcome_unknown"
+)
+
+type ProviderAttemptPrepareInput struct {
+	CommandID uint64
+	Owner     string
+	Token     uint64
+	Now       time.Time
+}
+
+type ProviderAttemptRef struct {
+	ID             uint64
+	IdempotencyKey string
+}
+
+type ProviderAttemptMarkInput struct {
+	AttemptID uint64
+	CommandID uint64
+	Owner     string
+	Token     uint64
+	Now       time.Time
+}
+
+type ProviderAttemptFinishInput struct {
+	AttemptID         uint64
+	CommandID         uint64
+	Owner             string
+	Token             uint64
+	State             ProviderAttemptState
+	ProviderRequestID string
+	ResponseSHA256    string
+	ErrorCode         string
+	Now               time.Time
+}
+
+type ProviderAttemptRecorder interface {
+	PrepareProviderAttempt(context.Context, ProviderAttemptPrepareInput) (*ProviderAttemptRef, error)
+	MarkProviderAttemptDispatched(context.Context, ProviderAttemptMarkInput) error
+	FinishProviderAttempt(context.Context, ProviderAttemptFinishInput) error
+}
+
 type EngineConfig struct {
 	EngineType infraai.EngineType
 	BaseURL    string

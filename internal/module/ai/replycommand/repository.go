@@ -36,6 +36,9 @@ type Repository interface {
 	Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error)
 	Transition(context.Context, uint64, string, uint64, State, State, map[string]any) (bool, error)
 	PublishAssistant(context.Context, PublishAssistantInput) (int64, bool, error)
+	PrepareAttempt(context.Context, PrepareAttemptInput) (*Attempt, bool, error)
+	MarkAttemptDispatched(context.Context, uint64, uint64, string, uint64, time.Time) (bool, error)
+	FinishAttempt(context.Context, FinishAttemptInput) (bool, error)
 }
 
 func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*Command, error) {
@@ -282,6 +285,30 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 		if err != nil {
 			return err
 		}
+		if command.State == StateClaimed || command.State == StateRunning {
+			var latestAttempt Attempt
+			attemptErr := tx.Where("command_id = ?", command.ID).Order("attempt_no DESC").First(&latestAttempt).Error
+			if attemptErr != nil && !errors.Is(attemptErr, gorm.ErrRecordNotFound) {
+				return attemptErr
+			}
+			if attemptErr == nil && ambiguousAttemptState(latestAttempt.State) {
+				result := tx.Model(&Command{}).
+					Where("id = ? AND lease_token = ? AND state IN ?", command.ID, command.LeaseToken, []State{StateClaimed, StateRunning}).
+					Updates(map[string]any{
+						"state":              StateOutcomeUnknown,
+						"outcome_unknown_at": now,
+						"last_error_code":    "ai.provider_outcome_unknown",
+						"last_error_message": "expired worker left an acknowledged provider attempt",
+						"lease_owner":        nil,
+						"lease_expires_at":   nil,
+						"updated_at":         now,
+					})
+				if result.Error != nil {
+					return result.Error
+				}
+				return nil
+			}
+		}
 		nextToken := command.LeaseToken + 1
 		updates := map[string]any{
 			"state":            StateClaimed,
@@ -419,7 +446,7 @@ func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssi
 
 		var command Command
 		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL", input.CommandID, input.Owner, input.Token, StateRunning).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL AND lease_expires_at > ?", input.CommandID, input.Owner, input.Token, StateRunning, input.Now).
 			First(&command).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
@@ -447,7 +474,7 @@ func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssi
 			return err
 		}
 		result := tx.Model(&Command{}).
-			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL", input.CommandID, input.Owner, input.Token, StateRunning).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL AND lease_expires_at > ?", input.CommandID, input.Owner, input.Token, StateRunning, input.Now).
 			Updates(map[string]any{
 				"state":                StateSucceeded,
 				"assistant_message_id": message.ID,

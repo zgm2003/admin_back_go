@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -111,8 +112,8 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 		return ErrLeaseLost
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	runCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	var cancelSignal <-chan struct{}
 	if r.cancelSubscriber != nil {
 		subscription, subscribeErr := r.cancelSubscriber.SubscribeCancel(runCtx, command.ID)
@@ -157,12 +158,12 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 			}
 			if err != nil || !renewal.Alive {
 				leaseLost.Store(true)
-				cancel()
+				cancel(ErrLeaseLost)
 				return false
 			}
 			if renewal.CancelRequested {
 				cancelRequested.Store(true)
-				cancel()
+				cancel(infraai.ErrCanceled)
 				return false
 			}
 			return true
@@ -232,6 +233,20 @@ func (r *Runner) finishCancellation(ctx context.Context, claim *Claim) error {
 
 func (r *Runner) finishFailure(ctx context.Context, claim *Claim, cause error) error {
 	command := claim.Command
+	if outcome, ok := infraai.ProviderOutcomeFromError(cause); ok && outcome == infraai.ProviderOutcomeUnknown {
+		ok, err := r.repository.Transition(ctx, command.ID, claim.Owner, claim.FencingToken, StateRunning, StateOutcomeUnknown, map[string]any{
+			"outcome_unknown_at": r.now(),
+			"last_error_code":    "ai.provider_outcome_unknown",
+			"last_error_message": cause.Error(),
+		})
+		if err != nil {
+			return errors.Join(cause, err)
+		}
+		if !ok {
+			return errors.Join(cause, ErrLeaseLost)
+		}
+		return cause
+	}
 	code := "ai.reply_failed"
 	message := "AI reply execution failed"
 	retryable := true

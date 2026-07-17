@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,14 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("stream disconnected") }
 
 type captureSink struct {
 	events []infraai.Event
@@ -237,6 +246,50 @@ func TestClientStreamChatSendsOpenAIChatCompletionAndEmitsDelta(t *testing.T) {
 		if !ok || message["role"] != want {
 			t.Fatalf("message[%d] = %#v, want role %s", i, messages[i], want)
 		}
+	}
+}
+
+func TestClientStreamChatSendsProviderAttemptIdempotencyKey(t *testing.T) {
+	var key string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key = r.Header.Get("Idempotency-Key")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("X-Request-Id", "provider-request-7")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test"}).StreamChat(context.Background(), infraai.ChatInput{
+		Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}, AttemptID: 9, IdempotencyKey: "attempt-key-9",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "attempt-key-9" || result.ProviderRequestID != "provider-request-7" {
+		t.Fatalf("key=%q provider_request_id=%q", key, result.ProviderRequestID)
+	}
+}
+
+func TestClientStreamChatClassifiesPreHeaderAndPostHeaderFailures(t *testing.T) {
+	preHeader := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("dial refused")
+	})}
+	_, err := New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", StreamHTTPClient: preHeader}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeNotDispatched {
+		t.Fatalf("pre-header outcome=%q ok=%v err=%v", outcome, ok, err)
+	}
+
+	postHeader := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"X-Request-Id": []string{"provider-request-8"}},
+			Body:       io.NopCloser(failingReader{}),
+		}, nil
+	})}
+	_, err = New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", StreamHTTPClient: postHeader}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
+	outcome, ok := infraai.ProviderOutcomeFromError(err)
+	if !ok || outcome != infraai.ProviderOutcomeUnknown || infraai.ProviderRequestIDFromError(err) != "provider-request-8" {
+		t.Fatalf("post-header outcome=%q request_id=%q ok=%v err=%v", outcome, infraai.ProviderRequestIDFromError(err), ok, err)
 	}
 }
 

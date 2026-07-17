@@ -43,6 +43,7 @@ func NewRecorder(repository RecorderRepository, now func() time.Time) *RunRecord
 
 type StartInput struct {
 	Platform         string
+	IdempotencyKey   string
 	ConversationID   *int64
 	UserMessageID    *int64
 	RequestID        string
@@ -88,6 +89,7 @@ type TimeoutInput struct {
 
 type StartRecord struct {
 	Platform         string
+	IdempotencyKey   string
 	ConversationID   *int64
 	UserMessageID    *int64
 	RequestID        string
@@ -159,6 +161,7 @@ func (r *RunRecorder) finish(ctx context.Context, input FinishRecord) error {
 func normalizeStartInput(input StartInput, now time.Time) (StartRecord, error) {
 	input.Platform = strings.TrimSpace(input.Platform)
 	input.RequestID = strings.TrimSpace(input.RequestID)
+	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
 	input.ModelID = strings.TrimSpace(input.ModelID)
 	input.ModelDisplayName = strings.TrimSpace(input.ModelDisplayName)
 	if input.Platform == "" || !enum.IsPlatform(input.Platform) {

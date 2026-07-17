@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	aichat "admin_back_go/internal/module/ai/chat"
 )
 
@@ -84,9 +85,10 @@ func TestRunnerUsesCancelSignalWithoutWaitingForRenewInterval(t *testing.T) {
 	}, renewals: []Renewal{{Alive: true}, {Alive: true, CancelRequested: true}}}
 	signal := make(chan struct{}, 1)
 	signal <- struct{}{}
+	executor := &fakeReplyExecutor{blockUntilCanceled: true}
 	runner := NewRunner(RunnerOptions{
 		Repository:       repository,
-		Executor:         &fakeReplyExecutor{blockUntilCanceled: true},
+		Executor:         executor,
 		Owner:            "worker-a",
 		LeaseTTL:         time.Minute,
 		Now:              time.Now,
@@ -102,6 +104,27 @@ func TestRunnerUsesCancelSignalWithoutWaitingForRenewInterval(t *testing.T) {
 		t.Fatalf("cancel signal waited for lease renewal: %s", time.Since(started))
 	}
 	if len(repository.transitions) != 2 || repository.transitions[1].to != StateCanceled {
+		t.Fatalf("transitions=%+v", repository.transitions)
+	}
+	if !errors.Is(executor.cancelCause, infraai.ErrCanceled) {
+		t.Fatalf("cancel cause=%v", executor.cancelCause)
+	}
+}
+
+func TestRunnerMovesAmbiguousProviderFailureToOutcomeUnknownWithoutRetry(t *testing.T) {
+	now := time.Now()
+	repository := &fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 45, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "request-5", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
+		Owner:   "worker-a", FencingToken: 1, LeaseExpiresAt: now.Add(time.Minute),
+	}, renewal: Renewal{Alive: true}}
+	executor := &fakeReplyExecutor{err: infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "provider-request-5", errors.New("stream disconnected"))}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || err == nil {
+		t.Fatalf("RunOnce worked=%v err=%v", worked, err)
+	}
+	if len(repository.transitions) != 2 || repository.transitions[1].from != StateRunning || repository.transitions[1].to != StateOutcomeUnknown || repository.transitions[1].values["last_error_code"] != "ai.provider_outcome_unknown" {
 		t.Fatalf("transitions=%+v", repository.transitions)
 	}
 }
@@ -160,6 +183,7 @@ type fakeReplyExecutor struct {
 	err                error
 	blockUntilCanceled bool
 	calls              int
+	cancelCause        error
 }
 
 func (f *fakeReplyExecutor) ExecuteConversationReply(ctx context.Context, input aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error) {
@@ -167,6 +191,7 @@ func (f *fakeReplyExecutor) ExecuteConversationReply(ctx context.Context, input 
 	f.input = input
 	if f.blockUntilCanceled {
 		<-ctx.Done()
+		f.cancelCause = context.Cause(ctx)
 		return nil, ctx.Err()
 	}
 	return f.result, f.err

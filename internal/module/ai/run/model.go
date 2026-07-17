@@ -7,6 +7,7 @@ type Run struct {
 	Platform           string     `gorm:"column:platform"`
 	ConversationID     *int64     `gorm:"column:conversation_id"`
 	RequestID          string     `gorm:"column:request_id"`
+	IdempotencyKey     *string    `gorm:"column:idempotency_key"`
 	UserMessageID      *int64     `gorm:"column:user_message_id"`
 	AssistantMessageID *int64     `gorm:"column:assistant_message_id"`
 	UserID             int64      `gorm:"column:user_id"`

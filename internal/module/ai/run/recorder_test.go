@@ -21,6 +21,18 @@ func TestRecorderStartsImageRunWithoutPolymorphicSourceFields(t *testing.T) {
 	}
 }
 
+func TestRecorderPreservesExplicitIdempotencyKey(t *testing.T) {
+	repo := &fakeRecorderRepository{nextID: 10}
+	svc := NewRecorder(repo, time.Now)
+	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformAdmin, RequestID: "reply-1", IdempotencyKey: "reply-command:41", UserID: 5, AgentID: 8, ProviderID: 9, ModelID: "gpt-5.4", InputSnapshot: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.started.IdempotencyKey != "reply-command:41" {
+		t.Fatalf("start record=%+v", repo.started)
+	}
+}
+
 func TestRecorderRejectsMissingRequestID(t *testing.T) {
 	svc := NewRecorder(&fakeRecorderRepository{}, time.Now)
 	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformCanvas, UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})
@@ -42,11 +54,11 @@ func TestRecorderCompleteStoresTokenCountsOnly(t *testing.T) {
 }
 
 type fakeRecorderRepository struct {
-	nextID          int64
-	started         StartRecord
-	completed       CompleteRecord
-	finished        FinishRecord
-	startErr        error
+	nextID    int64
+	started   StartRecord
+	completed CompleteRecord
+	finished  FinishRecord
+	startErr  error
 }
 
 func (f *fakeRecorderRepository) StartRun(ctx context.Context, input StartRecord) (int64, error) {

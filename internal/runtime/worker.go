@@ -144,11 +144,22 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, errors.New("worker runtime queue graph is incomplete")
 			}
 			publisher := realtimePublisherForWorker(cfg, resources, recorder)
-			replyRunner, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
+			replyRunner, replyReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
 			if err != nil {
 				return nil, err
 			}
-			return startReplyCommandPoller(ctx, replyRunner, time.Second, max(1, cfg.Queue.Concurrency), logger)
+			runnerCleanup, err := startReplyCommandPoller(ctx, replyRunner, time.Second, max(1, cfg.Queue.Concurrency), logger)
+			if err != nil {
+				return nil, err
+			}
+			reconcilerCleanup, err := startReplyCommandPoller(ctx, replyReconciler, time.Second, 1, logger)
+			if err != nil {
+				_ = runnerCleanup(context.WithoutCancel(ctx))
+				return nil, err
+			}
+			return func(ctx context.Context) error {
+				return errors.Join(reconcilerCleanup(ctx), runnerCleanup(ctx))
+			}, nil
 		},
 		startQueue: func(ctx context.Context) (CleanupFunc, error) {
 			if !cfg.Queue.Enabled {
@@ -217,7 +228,7 @@ func registerWorkerHandlers(
 	realtimePublisher infrarealtime.Publisher,
 	queueClient *taskqueue.Client,
 	queueMux *taskqueue.Mux,
-) (*replycommand.Runner, error) {
+) (*replycommand.Runner, *replycommand.Reconciler, error) {
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
@@ -230,7 +241,7 @@ func registerWorkerHandlers(
 		Provider: user.NewExportDataProvider(user.NewGormRepository(resources.DB)),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	exportTaskService := exporttask.NewService(
 		exporttask.NewGormRepository(resources.DB),
@@ -251,6 +262,7 @@ func registerWorkerHandlers(
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:         aichat.NewGormRepository(resources.DB),
 		AssistantPublisher: replyAssistantPublisher{repository: replyRepository},
+		AttemptRecorder:    replyAttemptRecorder{repository: replyRepository},
 		Publisher:          realtimePublisher,
 		Secretbox:          providers.Secretbox,
 		EngineFactory:      providers.AIChatFactory,
@@ -290,12 +302,12 @@ func registerWorkerHandlers(
 		PaymentService:          paymentService,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := queueMux.RegisterRegistry(registry); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return replyRunner, nil
+	return replyRunner, replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository}), nil
 }
 
 func newWorkerRuntimeWithHooks(hooks workerHooks) *WorkerRuntime {
