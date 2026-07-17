@@ -3,10 +3,13 @@ package taskqueue
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/hibiken/asynq"
 )
@@ -129,6 +132,40 @@ func TestEnqueueRejectsNilClient(t *testing.T) {
 	_, err := client.Enqueue(context.Background(), Task{Type: "system:no-op:v1"})
 	if !errors.Is(err, ErrClientNotReady) {
 		t.Fatalf("expected ErrClientNotReady, got %v", err)
+	}
+}
+
+func TestEnqueueRecordsBoundedTelemetryWithoutPayload(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	client := &Client{
+		defaultQueue:    QueueDefault,
+		defaultMaxRetry: DefaultMaxRetry,
+		defaultTimeout:  DefaultTimeout,
+		recorder:        recorder,
+		enqueue: func(context.Context, *asynq.Task, ...asynq.Option) (*asynq.TaskInfo, error) {
+			return &asynq.TaskInfo{ID: "task-unique", Queue: QueueCritical, Type: "mail:send:v1"}, nil
+		},
+	}
+
+	result, err := client.Enqueue(context.Background(), Task{
+		Type:    "mail:send:v1",
+		Queue:   QueueCritical,
+		Payload: []byte(`{"authorization":"private"}`),
+	})
+	if err != nil || result.Queue != QueueCritical {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("expected enqueue count and duration, got %+v", events)
+	}
+	for _, event := range events {
+		if event.Attributes["queue.type"] != "mail:send:v1" || event.Attributes["queue.lane"] != QueueCritical || event.Attributes["queue.outcome"] != "enqueued" {
+			t.Fatalf("queue telemetry mismatch: %+v", event)
+		}
+	}
+	if strings.Contains(strings.ToLower(fmt.Sprint(events)), "private") {
+		t.Fatalf("queue payload leaked: %+v", events)
 	}
 }
 

@@ -12,19 +12,37 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/telemetry"
 )
 
 const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 
 type OpenAIDriver struct {
-	client *http.Client
+	client   *http.Client
+	recorder telemetry.Recorder
 }
 
-func NewOpenAIDriver(client *http.Client) *OpenAIDriver {
+type Option func(*OpenAIDriver)
+
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(driver *OpenAIDriver) {
+		if recorder != nil {
+			driver.recorder = recorder
+		}
+	}
+}
+
+func NewOpenAIDriver(client *http.Client, options ...Option) *OpenAIDriver {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	return &OpenAIDriver{client: client}
+	driver := &OpenAIDriver{client: client, recorder: telemetry.Noop()}
+	for _, option := range options {
+		if option != nil {
+			option(driver)
+		}
+	}
+	return driver
 }
 
 func (d *OpenAIDriver) Name() string { return DriverOpenAI }
@@ -32,6 +50,23 @@ func (d *OpenAIDriver) Name() string { return DriverOpenAI }
 func (d *OpenAIDriver) DefaultBaseURL() string { return defaultOpenAIBaseURL }
 
 func (d *OpenAIDriver) ListModels(ctx context.Context, cfg Config) ([]Model, error) {
+	startedAt := time.Now()
+	models, err := d.listModels(ctx, cfg)
+	status := "ok"
+	if err != nil {
+		status = "error"
+	}
+	attributes := telemetry.Attributes{
+		"provider.name":     DriverOpenAI,
+		"provider.modality": "discovery",
+		"provider.status":   status,
+	}
+	d.recorder.Count("provider.requests", 1, attributes)
+	d.recorder.Observe("provider.total_seconds", time.Since(startedAt).Seconds(), attributes)
+	return models, err
+}
+
+func (d *OpenAIDriver) listModels(ctx context.Context, cfg Config) ([]Model, error) {
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("missing OpenAI API key")

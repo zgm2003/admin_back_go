@@ -59,6 +59,7 @@ import (
 	"admin_back_go/internal/readiness"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/gorilla/websocket"
 )
@@ -4552,6 +4553,22 @@ func TestRouterLocalizesAuthTokenErrors(t *testing.T) {
 	}
 	if body["msg"] != "Missing token" {
 		t.Fatalf("expected localized missing token, got %#v body=%s", body["msg"], recorder.Body.String())
+	}
+}
+
+func TestRouterPassesTelemetryToAccessLogUsingRegisteredRoute(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	router := newTestRouter(t, testDependencies{Telemetry: recorder})
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/health?token=private", nil))
+
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("expected router HTTP telemetry, got %+v", events)
+	}
+	for _, event := range events {
+		if event.Attributes["http.route"] != "/health" || event.Attributes["http.method"] != http.MethodGet {
+			t.Fatalf("router telemetry mismatch: %+v", event)
+		}
 	}
 }
 

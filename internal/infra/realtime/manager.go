@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"admin_back_go/internal/telemetry"
 )
 
 // Manager owns local realtime sessions for this process. Multi-node fan-out is
@@ -12,11 +14,28 @@ import (
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
+	recorder telemetry.Recorder
+}
+
+type Option func(*Manager)
+
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(manager *Manager) {
+		if recorder != nil {
+			manager.recorder = recorder
+		}
+	}
 }
 
 // NewManager creates an in-process realtime session manager.
-func NewManager() *Manager {
-	return &Manager{sessions: make(map[string]*Session)}
+func NewManager(options ...Option) *Manager {
+	manager := &Manager{sessions: make(map[string]*Session), recorder: telemetry.Noop()}
+	for _, option := range options {
+		if option != nil {
+			option(manager)
+		}
+	}
+	return manager
 }
 
 // Register stores a session by key and closes any old session using that key.
@@ -33,6 +52,9 @@ func (m *Manager) Register(key string, session *Session) func() {
 
 	if old != nil && old != session {
 		_ = old.Close()
+		m.record("reconnect", "ok")
+	} else {
+		m.record("connect", "ok")
 	}
 
 	return func() {
@@ -45,6 +67,7 @@ func (m *Manager) Register(key string, session *Session) func() {
 
 		if current == session {
 			_ = session.Close()
+			m.record("drop", "closed")
 		}
 	}
 }
@@ -60,7 +83,11 @@ func (m *Manager) Send(key string, envelope Envelope) error {
 	if session == nil {
 		return ErrSessionNotFound
 	}
-	return session.Send(envelope)
+	err := session.Send(envelope)
+	if errors.Is(err, ErrSendQueueFull) {
+		m.record("send_pressure", "dropped")
+	}
+	return err
 }
 
 // SendToUser enqueues a message to every local session for one platform user.
@@ -89,10 +116,28 @@ func (m *Manager) SendToUser(platform string, userID int64, envelope Envelope) e
 	var err error
 	for _, session := range sessions {
 		if sendErr := session.Send(envelope); sendErr != nil {
+			if errors.Is(sendErr, ErrSendQueueFull) {
+				m.record("send_pressure", "dropped")
+			}
 			err = errors.Join(err, sendErr)
 		}
 	}
 	return err
+}
+
+func (m *Manager) record(operation string, outcome string) {
+	if m == nil {
+		return
+	}
+	recorder := m.recorder
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
+	recorder.Count("realtime.events", 1, telemetry.Attributes{
+		"realtime.operation": operation,
+		"realtime.transport": "websocket",
+		"realtime.outcome":   outcome,
+	})
 }
 
 // Count returns the current number of locally registered sessions.

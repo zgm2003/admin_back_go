@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/hibiken/asynq"
 )
@@ -28,6 +29,7 @@ type Task struct {
 	Type      string
 	Payload   []byte
 	Queue     string
+	Retry     int
 	MaxRetry  int
 	Timeout   time.Duration
 	UniqueTTL time.Duration
@@ -53,32 +55,50 @@ type Enqueuer interface {
 // Client owns the Asynq producer and hides Asynq options from business code.
 type Client struct {
 	client          *asynq.Client
+	enqueue         func(context.Context, *asynq.Task, ...asynq.Option) (*asynq.TaskInfo, error)
 	redisOpt        asynq.RedisClientOpt
 	defaultQueue    string
 	defaultMaxRetry int
 	defaultTimeout  time.Duration
+	recorder        telemetry.Recorder
+}
+
+type options struct {
+	recorder telemetry.Recorder
+}
+
+type Option func(*options)
+
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(options *options) {
+		options.recorder = recorder
+	}
 }
 
 // NewClient builds a queue producer without pinging Redis. Runtime connectivity
 // belongs to worker startup/readiness, not config loading.
-func NewClient(redisCfg config.RedisConfig, queueCfg config.QueueConfig) (*Client, error) {
+func NewClient(redisCfg config.RedisConfig, queueCfg config.QueueConfig, optionValues ...Option) (*Client, error) {
 	redisOpt, err := redisOpt(redisCfg, queueCfg.RedisDB)
 	if err != nil {
 		return nil, err
 	}
 
+	settings := queueOptions(optionValues)
+	client := asynq.NewClient(redisOpt)
 	return &Client{
-		client:          asynq.NewClient(redisOpt),
+		client:          client,
+		enqueue:         client.EnqueueContext,
 		redisOpt:        redisOpt,
 		defaultQueue:    QueueDefault,
 		defaultMaxRetry: DefaultMaxRetry,
 		defaultTimeout:  DefaultTimeout,
+		recorder:        settings.recorder,
 	}, nil
 }
 
 // Enqueue publishes a task to Redis-backed Asynq.
 func (c *Client) Enqueue(ctx context.Context, task Task) (EnqueueResult, error) {
-	if c == nil || c.client == nil {
+	if c == nil || c.enqueue == nil {
 		return EnqueueResult{}, ErrClientNotReady
 	}
 	if ctx == nil {
@@ -90,11 +110,32 @@ func (c *Client) Enqueue(ctx context.Context, task Task) (EnqueueResult, error) 
 		return EnqueueResult{}, err
 	}
 
-	info, err := c.client.EnqueueContext(ctx, asynqTask, opts...)
+	queue := strings.TrimSpace(task.Queue)
+	if queue == "" {
+		queue = c.defaultQueue
+	}
+	startedAt := time.Now()
+	info, err := c.enqueue(ctx, asynqTask, opts...)
 	if err != nil {
+		c.recordEnqueue(task.Type, queue, "error", time.Since(startedAt))
 		return EnqueueResult{}, err
 	}
+	c.recordEnqueue(info.Type, info.Queue, "enqueued", time.Since(startedAt))
 	return EnqueueResult{ID: info.ID, Queue: info.Queue, Type: info.Type}, nil
+}
+
+func (c *Client) recordEnqueue(taskType string, queue string, outcome string, duration time.Duration) {
+	recorder := c.recorder
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
+	attributes := telemetry.Attributes{
+		"queue.type":    taskType,
+		"queue.lane":    queue,
+		"queue.outcome": outcome,
+	}
+	recorder.Count("queue.enqueues", 1, attributes)
+	recorder.Observe("queue.enqueue.duration_seconds", duration.Seconds(), attributes)
 }
 
 // Close releases the producer resources.
@@ -159,4 +200,17 @@ func redisOpt(redisCfg config.RedisConfig, db int) (asynq.RedisClientOpt, error)
 // platform boundary; modules should not build Asynq options directly.
 func RedisConnOpt(redisCfg config.RedisConfig, queueCfg config.QueueConfig) (asynq.RedisClientOpt, error) {
 	return redisOpt(redisCfg, queueCfg.RedisDB)
+}
+
+func queueOptions(optionValues []Option) options {
+	settings := options{recorder: telemetry.Noop()}
+	for _, option := range optionValues {
+		if option != nil {
+			option(&settings)
+		}
+	}
+	if settings.recorder == nil {
+		settings.recorder = telemetry.Noop()
+	}
+	return settings
 }

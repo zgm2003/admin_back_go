@@ -11,6 +11,7 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/accesstoken"
+	aiproviderinfra "admin_back_go/internal/infra/ai/provider"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/logstore"
 	paymentcore "admin_back_go/internal/infra/payment"
@@ -58,6 +59,7 @@ import (
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/telemetry"
 )
 
 const defaultPermissionCacheTTL = 30 * time.Minute
@@ -105,6 +107,7 @@ type BuildInput struct {
 	Keys                   *secretkey.KeyRing
 	Providers              *ProviderSet
 	Logger                 *slog.Logger
+	Telemetry              telemetry.Recorder
 	Queue                  taskqueue.Enqueuer
 	QueueInspector         *taskqueue.Inspector
 	RealtimePublisher      infrarealtime.Publisher
@@ -130,6 +133,10 @@ func Build(input BuildInput) (*BuildResult, error) {
 	logger := input.Logger
 	if logger == nil {
 		logger = slog.Default()
+	}
+	recorder := input.Telemetry
+	if recorder == nil {
+		recorder = telemetry.Noop()
 	}
 	publisher := input.RealtimePublisher
 	if publisher == nil {
@@ -167,7 +174,12 @@ func Build(input BuildInput) (*BuildResult, error) {
 		),
 	)
 
-	aiProviderService := aiprovider.NewService(aiprovider.NewGormRepository(resources.DB), providers.Secretbox, providers.AIConnectionTester)
+	aiProviderService := aiprovider.NewServiceWithDriver(
+		aiprovider.NewGormRepository(resources.DB),
+		providers.Secretbox,
+		providers.AIConnectionTester,
+		aiproviderinfra.NewOpenAIDriver(nil, aiproviderinfra.WithTelemetry(recorder)),
+	)
 	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), providers.Secretbox, providers.AIConnectionTester)
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)

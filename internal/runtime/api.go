@@ -17,6 +17,7 @@ import (
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/server"
 	"admin_back_go/internal/server/adminroute"
+	"admin_back_go/internal/telemetry"
 )
 
 var ErrAlreadyStarted = errors.New("runtime.already_started")
@@ -53,7 +54,7 @@ type APIRuntime struct {
 	health   atomic.Pointer[Report]
 }
 
-func NewAPI(cfg config.Config, logger *slog.Logger, routes *adminroute.Registry) (*APIRuntime, error) {
+func NewAPI(cfg config.Config, logger *slog.Logger, routes *adminroute.Registry, optionValues ...ProcessOption) (*APIRuntime, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -69,10 +70,15 @@ func NewAPI(cfg config.Config, logger *slog.Logger, routes *adminroute.Registry)
 	if routes == nil {
 		return nil, errors.New("admin route registry is required")
 	}
-	return newAPIRuntimeWithHooks(productionAPIHooks(cfg, logger, keys, routes)), nil
+	settings := resolveProcessOptions(optionValues)
+	return newAPIRuntimeWithHooks(productionAPIHooks(cfg, logger, keys, routes, settings.recorder)), nil
 }
 
-func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.KeyRing, routes *adminroute.Registry) apiHooks {
+func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.KeyRing, routes *adminroute.Registry, recorders ...telemetry.Recorder) apiHooks {
+	recorder := telemetry.Noop()
+	if len(recorders) > 0 && recorders[0] != nil {
+		recorder = recorders[0]
+	}
 	var resources *Resources
 	var providers Providers
 	var queueClient *taskqueue.Client
@@ -84,7 +90,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 
 	return apiHooks{
 		openResources: func(ctx context.Context) (func(context.Context) Report, CleanupFunc, error) {
-			opened, err := OpenResources(ctx, config.ProcessAPI, cfg, Openers{})
+			opened, err := OpenResources(ctx, config.ProcessAPI, cfg, Openers{Telemetry: recorder})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -92,7 +98,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			return opened.Health, opened.Close, nil
 		},
 		buildProviders: func(context.Context) (CleanupFunc, error) {
-			built, err := BuildProviders(cfg, keys)
+			built, err := BuildProviders(cfg, keys, recorder)
 			if err != nil {
 				return nil, err
 			}
@@ -101,7 +107,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				return nil, nil
 			}
 
-			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue)
+			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder))
 			if err != nil {
 				return nil, err
 			}
@@ -127,7 +133,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			}, nil
 		},
 		buildAdmin: func(context.Context) (CleanupFunc, error) {
-			realtime = newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger)
+			realtime = newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger, recorder)
 			adminResources := &platformadmin.BuildResources{
 				DB:         resources.DB,
 				Redis:      resources.Redis,
@@ -157,6 +163,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				Keys:              keys,
 				Providers:         &adminProviders,
 				Logger:            logger,
+				Telemetry:         recorder,
 				Queue:             queueClient,
 				QueueInspector:    queueInspector,
 				RealtimePublisher: realtime.publisher,
@@ -181,6 +188,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				Core: server.CoreDependencies{
 					Readiness:         resources,
 					Logger:            logger,
+					Telemetry:         recorder,
 					CORS:              cfg.CORS,
 					Authenticator:     adminBuild.Authenticator,
 					PermissionChecker: adminBuild.PermissionChecker,

@@ -3,10 +3,14 @@ package realtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"admin_back_go/internal/telemetry"
 
 	"github.com/gorilla/websocket"
 )
@@ -70,6 +74,42 @@ func TestManagerRegistersReplacesSendsAndUnregistersSessions(t *testing.T) {
 
 	if err := manager.Send("admin:7:9", message); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound after unregister, got %v", err)
+	}
+}
+
+func TestManagerRecordsConnectionReconnectDropAndSendPressureWithoutSessionIdentity(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	manager := NewManager(WithTelemetry(recorder))
+	first := NewSession(nil, SessionOptions{SendBuffer: 1})
+	manager.Register("admin:7:secret-session", first)
+	replacement := NewSession(nil, SessionOptions{SendBuffer: 1})
+	unregister := manager.Register("admin:7:secret-session", replacement)
+
+	message := mustRealtimeEnvelope(t, "realtime.notice.v1", "private-request")
+	if err := manager.Send("admin:7:secret-session", message); err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	if err := manager.Send("admin:7:secret-session", message); !errors.Is(err, ErrSendQueueFull) {
+		t.Fatalf("expected send pressure, got %v", err)
+	}
+	unregister()
+
+	events := recorder.Events()
+	want := map[string]bool{"connect": false, "reconnect": false, "send_pressure": false, "drop": false}
+	for _, event := range events {
+		operation, _ := event.Attributes["realtime.operation"].(string)
+		if _, exists := want[operation]; exists {
+			want[operation] = true
+		}
+	}
+	for operation, seen := range want {
+		if !seen {
+			t.Fatalf("missing realtime %s event: %+v", operation, events)
+		}
+	}
+	text := strings.ToLower(fmt.Sprint(events))
+	if strings.Contains(text, "secret-session") || strings.Contains(text, "private-request") || strings.Contains(text, "admin:7") {
+		t.Fatalf("realtime identity leaked: %s", text)
 	}
 }
 

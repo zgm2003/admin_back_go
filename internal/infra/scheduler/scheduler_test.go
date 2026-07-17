@@ -3,11 +3,14 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/redislock"
+	"admin_back_go/internal/telemetry"
 )
 
 func TestNewRejectsInvalidTimezone(t *testing.T) {
@@ -135,6 +138,32 @@ func TestWrapTaskSkipsWhenDistributedLockNotAcquired(t *testing.T) {
 	}
 	if locker.unlockKey != "" {
 		t.Fatalf("unlock should not be called when lock is not acquired")
+	}
+}
+
+func TestWrapTaskRecordsExecutionOutcomeAndLeaseOwnership(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	locker := &fakeLocker{}
+	scheduler, err := New(config.SchedulerConfig{Timezone: "UTC"}, WithLocker(locker), WithTelemetry(recorder))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer scheduler.Shutdown(context.Background())
+
+	if err := scheduler.wrapTask("private-job-name", func(context.Context) error { return nil })(context.Background()); err != nil {
+		t.Fatalf("wrapped task: %v", err)
+	}
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("expected scheduler count and duration, got %+v", events)
+	}
+	for _, event := range events {
+		if event.Attributes["scheduler.operation"] != "run" || event.Attributes["scheduler.lease_owned"] != "true" || event.Attributes["scheduler.outcome"] != "ok" {
+			t.Fatalf("scheduler telemetry mismatch: %+v", event)
+		}
+	}
+	if strings.Contains(strings.ToLower(fmt.Sprint(events)), "private-job-name") {
+		t.Fatalf("scheduler job identity leaked: %+v", events)
 	}
 }
 

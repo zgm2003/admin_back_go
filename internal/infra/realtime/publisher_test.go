@@ -3,7 +3,11 @@ package realtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
+
+	"admin_back_go/internal/telemetry"
 )
 
 func TestLocalPublisherPublishesToLocalManager(t *testing.T) {
@@ -95,6 +99,38 @@ func TestNoopPublisherIgnoresPublicationWithoutSideEffects(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Noop Publish returned error: %v", err)
 	}
+}
+
+func TestInstrumentPublisherRecordsDropWithoutTargetOrEnvelope(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	publisher := InstrumentPublisher(PublisherFunc(func(context.Context, Publication) error {
+		return ErrSessionNotFound
+	}), "redis", recorder)
+	err := publisher.Publish(context.Background(), Publication{
+		SessionKey: "admin:7:private-session",
+		Envelope:   mustRealtimeEnvelope(t, "notification.created.v1", "private-request"),
+	})
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("expected session drop, got %v", err)
+	}
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("expected publish count and duration, got %+v", events)
+	}
+	for _, event := range events {
+		if event.Attributes["realtime.operation"] != "publish" || event.Attributes["realtime.transport"] != "redis" || event.Attributes["realtime.outcome"] != "dropped" {
+			t.Fatalf("publisher telemetry mismatch: %+v", event)
+		}
+	}
+	if text := strings.ToLower(fmt.Sprint(events)); strings.Contains(text, "private") || strings.Contains(text, "admin:7") || strings.Contains(text, "notification.created") {
+		t.Fatalf("publication target or envelope leaked: %s", text)
+	}
+}
+
+type PublisherFunc func(context.Context, Publication) error
+
+func (function PublisherFunc) Publish(ctx context.Context, publication Publication) error {
+	return function(ctx, publication)
 }
 
 func assertSessionQueued(t *testing.T, session *Session, envelope Envelope) {

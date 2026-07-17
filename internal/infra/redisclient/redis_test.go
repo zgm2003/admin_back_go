@@ -1,10 +1,16 @@
 package redisclient
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/telemetry"
+
+	redis "github.com/redis/go-redis/v9"
 )
 
 func TestOpenMapsConfigToOptions(t *testing.T) {
@@ -45,5 +51,31 @@ func TestCloseIsSafeOnNilClient(t *testing.T) {
 	var client *Client
 	if err := client.Close(); err != nil {
 		t.Fatalf("expected nil close to be safe, got %v", err)
+	}
+}
+
+func TestTelemetryHookRecordsCommandOutcomeWithoutKeyOrArguments(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	hook := newTelemetryHook(recorder)
+	wrapped := hook.ProcessHook(func(context.Context, redis.Cmder) error {
+		return errors.New("redis failure for private:key")
+	})
+	command := redis.NewStringCmd(context.Background(), "get", "private:key")
+
+	err := wrapped(context.Background(), command)
+	if err == nil {
+		t.Fatal("expected wrapped Redis error")
+	}
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("expected command count and duration, got %+v", events)
+	}
+	for _, event := range events {
+		if event.Attributes["redis.operation"] != "get" || event.Attributes["outcome"] != "error" {
+			t.Fatalf("Redis telemetry missing bounded outcome: %+v", event)
+		}
+	}
+	if text := strings.ToLower(fmt.Sprint(events)); strings.Contains(text, "private:key") || strings.Contains(text, "redis failure") {
+		t.Fatalf("Redis key or error text leaked: %s", text)
 	}
 }

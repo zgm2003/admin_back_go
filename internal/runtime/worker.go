@@ -24,6 +24,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
+	"admin_back_go/internal/telemetry"
 )
 
 type workerHooks struct {
@@ -43,7 +44,7 @@ type WorkerRuntime struct {
 	health   atomic.Pointer[Report]
 }
 
-func NewWorker(cfg config.Config, logger *slog.Logger) (*WorkerRuntime, error) {
+func NewWorker(cfg config.Config, logger *slog.Logger, optionValues ...ProcessOption) (*WorkerRuntime, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -56,10 +57,15 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*WorkerRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newWorkerRuntimeWithHooks(productionWorkerHooks(cfg, logger, keys)), nil
+	settings := resolveProcessOptions(optionValues)
+	return newWorkerRuntimeWithHooks(productionWorkerHooks(cfg, logger, keys, settings.recorder)), nil
 }
 
-func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.KeyRing) workerHooks {
+func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.KeyRing, recorders ...telemetry.Recorder) workerHooks {
+	recorder := telemetry.Noop()
+	if len(recorders) > 0 && recorders[0] != nil {
+		recorder = recorders[0]
+	}
 	var resources *Resources
 	var providers Providers
 	var queueClient *taskqueue.Client
@@ -91,7 +97,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 
 	return workerHooks{
 		openResources: func(ctx context.Context) (func(context.Context) Report, CleanupFunc, error) {
-			opened, err := OpenResources(ctx, config.ProcessWorker, cfg, Openers{})
+			opened, err := OpenResources(ctx, config.ProcessWorker, cfg, Openers{Telemetry: recorder})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -99,7 +105,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 			return opened.Health, opened.Close, nil
 		},
 		buildProviders: func(context.Context) (CleanupFunc, error) {
-			built, err := BuildProviders(cfg, keys)
+			built, err := BuildProviders(cfg, keys, recorder)
 			if err != nil {
 				return nil, err
 			}
@@ -108,17 +114,17 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, nil
 			}
 
-			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue)
+			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder))
 			if err != nil {
 				return nil, err
 			}
-			queueServer, err = taskqueue.NewServer(cfg.Redis, cfg.Queue)
+			queueServer, err = taskqueue.NewServer(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder))
 			if err != nil {
 				_ = queueClient.Close()
 				queueClient = nil
 				return nil, err
 			}
-			queueMux = taskqueue.NewMux()
+			queueMux = taskqueue.NewMux(taskqueue.WithTelemetry(recorder))
 			return func(ctx context.Context) error {
 				return errors.Join(stopQueue(ctx), queueClient.Close())
 			}, nil
@@ -130,7 +136,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 			if resources == nil || queueClient == nil || queueMux == nil {
 				return nil, errors.New("worker runtime queue graph is incomplete")
 			}
-			publisher := realtimePublisherForWorker(cfg, resources)
+			publisher := realtimePublisherForWorker(cfg, resources, recorder)
 			if err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux); err != nil {
 				return nil, err
 			}
@@ -161,7 +167,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 			if queueClient == nil || resources == nil {
 				return nil, errors.New("worker scheduler dependencies are required")
 			}
-			options := []scheduler.Option{scheduler.WithLogger(logger)}
+			options := []scheduler.Option{scheduler.WithLogger(logger), scheduler.WithTelemetry(recorder)}
 			if resources.Redis != nil && resources.Redis.Redis != nil {
 				options = append(options, scheduler.WithLocker(redislock.New(resources.Redis.Redis)))
 			}
@@ -176,11 +182,15 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				queueClient,
 				logger,
 			)
-			if err := cronScheduler.RegisterEnabled(ctx, built); err != nil {
+			if err := runSchedulerReconciliation(ctx, recorder, func(ctx context.Context) error {
+				return cronScheduler.RegisterEnabled(ctx, built)
+			}); err != nil {
 				_ = built.Shutdown(ctx)
 				return nil, err
 			}
-			if err := jobs.RegisterSchedules(built, queueClient, logger); err != nil {
+			if err := runSchedulerReconciliation(ctx, recorder, func(context.Context) error {
+				return jobs.RegisterSchedules(built, queueClient, logger)
+			}); err != nil {
 				_ = built.Shutdown(ctx)
 				return nil, err
 			}

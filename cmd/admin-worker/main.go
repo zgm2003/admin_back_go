@@ -11,6 +11,9 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/logging"
 	runtimepkg "admin_back_go/internal/runtime"
+	"admin_back_go/internal/telemetry"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const shutdownTimeout = 15 * time.Second
@@ -30,7 +33,12 @@ func main() {
 		defer logCloser.Close()
 	}
 
-	process, err := runtimepkg.NewWorker(cfg, logger)
+	metrics, err := telemetry.NewPrometheus(prometheus.DefaultRegisterer)
+	if err != nil {
+		logger.Error("failed to initialize telemetry", "error", err)
+		os.Exit(1)
+	}
+	process, err := runtimepkg.NewWorker(cfg, logger, runtimepkg.WithTelemetry(metrics))
 	if err != nil {
 		logger.Error("failed to initialize admin worker", "error", err)
 		os.Exit(1)

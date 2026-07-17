@@ -46,6 +46,7 @@ import (
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/server/adminroute"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,6 +56,7 @@ import (
 type testDependencies struct {
 	Readiness               system.ReadinessChecker
 	Logger                  *slog.Logger
+	Telemetry               telemetry.Recorder
 	CORS                    config.CORSConfig
 	Authenticator           middleware.TokenAuthenticator
 	PermissionChecker       middleware.PermissionChecker
@@ -123,6 +125,7 @@ func (deps testDependencies) grouped() Dependencies {
 		Core: CoreDependencies{
 			Readiness:         deps.Readiness,
 			Logger:            deps.Logger,
+			Telemetry:         deps.Telemetry,
 			CORS:              deps.CORS,
 			Authenticator:     deps.Authenticator,
 			PermissionChecker: deps.PermissionChecker,

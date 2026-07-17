@@ -2,10 +2,13 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"admin_back_go/internal/telemetry"
 )
 
 func TestOpenAIDriverListModels(t *testing.T) {
@@ -31,6 +34,33 @@ func TestOpenAIDriverListModels(t *testing.T) {
 	}
 	if models[0].ID != "gpt-a" || models[1].ID != "gpt-b" {
 		t.Fatalf("models not sorted by id: %+v", models)
+	}
+}
+
+func TestOpenAIDriverRecordsDiscoveryTelemetryWithoutCredentialsOrResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"private-model-id"}]}`))
+	}))
+	defer server.Close()
+
+	recorder := telemetry.NewMemoryRecorder()
+	driver := NewOpenAIDriver(server.Client(), WithTelemetry(recorder))
+	models, err := driver.ListModels(context.Background(), Config{BaseURL: server.URL, APIKey: "private-api-key"})
+	if err != nil || len(models) != 1 {
+		t.Fatalf("models=%+v err=%v", models, err)
+	}
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("expected discovery count and duration, got %+v", events)
+	}
+	for _, event := range events {
+		if event.Attributes["provider.name"] != DriverOpenAI || event.Attributes["provider.modality"] != "discovery" || event.Attributes["provider.status"] != "ok" {
+			t.Fatalf("provider discovery telemetry mismatch: %+v", event)
+		}
+	}
+	if text := strings.ToLower(fmt.Sprint(events)); strings.Contains(text, "private") || strings.Contains(text, "model-id") {
+		t.Fatalf("provider credential/response leaked: %s", text)
 	}
 }
 

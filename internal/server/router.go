@@ -17,6 +17,7 @@ import (
 	"admin_back_go/internal/shared/enum"
 	projecti18n "admin_back_go/internal/shared/i18n"
 	"admin_back_go/internal/shared/validate"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,7 @@ import (
 type CoreDependencies struct {
 	Readiness         system.ReadinessChecker
 	Logger            *slog.Logger
+	Telemetry         telemetry.Recorder
 	CORS              config.CORSConfig
 	Authenticator     middleware.TokenAuthenticator
 	PermissionChecker middleware.PermissionChecker
@@ -53,7 +55,7 @@ func NewRouter(deps Dependencies) (*gin.Engine, error) {
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
 	router.Use(middleware.ErrorReporter(core.Logger))
-	router.Use(middleware.AccessLog(core.Logger))
+	router.Use(middleware.AccessLog(core.Logger, core.Telemetry))
 	router.Use(middleware.CORS(core.CORS))
 	router.Use(projecti18n.Localize())
 	router.Use(middleware.AuthToken(middleware.AuthTokenConfig{

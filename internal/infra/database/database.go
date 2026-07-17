@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/telemetry"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -19,15 +20,37 @@ type Client struct {
 	SQL  *sql.DB
 }
 
-func Open(cfg config.MySQLConfig) (*Client, error) {
+type openOptions struct {
+	recorder telemetry.Recorder
+}
+
+type Option func(*openOptions)
+
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(options *openOptions) {
+		options.recorder = recorder
+	}
+}
+
+func Open(cfg config.MySQLConfig, options ...Option) (*Client, error) {
 	if strings.TrimSpace(cfg.DSN) == "" {
 		return nil, ErrEmptyDSN
+	}
+	settings := openOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&settings)
+		}
+	}
+	gormConfig := &gorm.Config{DisableAutomaticPing: true}
+	if settings.recorder != nil {
+		gormConfig.Logger = newTelemetryLogger(nil, settings.recorder, defaultSlowThreshold)
 	}
 
 	db, err := gorm.Open(mysql.New(mysql.Config{
 		DSN:                       cfg.DSN,
 		SkipInitializeWithVersion: true,
-	}), &gorm.Config{DisableAutomaticPing: true})
+	}), gormConfig)
 	if err != nil {
 		return nil, err
 	}

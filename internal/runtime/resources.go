@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/telemetry"
 )
 
 type OpenedResource[T any] struct {
@@ -27,6 +28,7 @@ type Openers struct {
 	Redis      RedisOpener
 	TokenRedis RedisOpener
 	QueueRedis RedisOpener
+	Telemetry  telemetry.Recorder
 }
 
 type resourceCapabilities struct {
@@ -247,23 +249,35 @@ func failResourceOpen(ctx context.Context, cleanup *Cleanup, name string, cause 
 }
 
 func (open Openers) withDefaults() Openers {
+	recorder := open.Telemetry
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
 	if open.Database == nil {
-		open.Database = defaultDatabaseOpener
+		open.Database = func(ctx context.Context, cfg config.MySQLConfig) (OpenedResource[*database.Client], error) {
+			return defaultDatabaseOpener(ctx, cfg, recorder)
+		}
 	}
 	if open.Redis == nil {
-		open.Redis = defaultRedisOpener
+		open.Redis = func(ctx context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+			return defaultRedisOpener(ctx, cfg, recorder)
+		}
 	}
 	if open.TokenRedis == nil {
-		open.TokenRedis = defaultRedisOpener
+		open.TokenRedis = func(ctx context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+			return defaultRedisOpener(ctx, cfg, recorder)
+		}
 	}
 	if open.QueueRedis == nil {
-		open.QueueRedis = defaultRedisOpener
+		open.QueueRedis = func(ctx context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+			return defaultRedisOpener(ctx, cfg, recorder)
+		}
 	}
 	return open
 }
 
-func defaultDatabaseOpener(_ context.Context, cfg config.MySQLConfig) (OpenedResource[*database.Client], error) {
-	client, err := database.Open(cfg)
+func defaultDatabaseOpener(_ context.Context, cfg config.MySQLConfig, recorder telemetry.Recorder) (OpenedResource[*database.Client], error) {
+	client, err := database.Open(cfg, database.WithTelemetry(recorder))
 	if err != nil {
 		return OpenedResource[*database.Client]{}, err
 	}
@@ -274,8 +288,8 @@ func defaultDatabaseOpener(_ context.Context, cfg config.MySQLConfig) (OpenedRes
 	}, nil
 }
 
-func defaultRedisOpener(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
-	client, err := redisclient.Open(cfg)
+func defaultRedisOpener(_ context.Context, cfg config.RedisConfig, recorder telemetry.Recorder) (OpenedResource[*redisclient.Client], error) {
+	client, err := redisclient.Open(cfg, redisclient.WithTelemetry(recorder))
 	if err != nil {
 		return OpenedResource[*redisclient.Client]{}, err
 	}

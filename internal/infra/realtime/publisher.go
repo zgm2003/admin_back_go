@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
+
+	"admin_back_go/internal/telemetry"
 )
 
 var ErrPublicationTargetRequired = errors.New("realtime publication target required")
@@ -22,6 +25,41 @@ type Publication struct {
 // be local-process, Redis Pub/Sub, Redis Streams, or a test/no-op publisher.
 type Publisher interface {
 	Publish(context.Context, Publication) error
+}
+
+type instrumentedPublisher struct {
+	delegate  Publisher
+	transport string
+	recorder  telemetry.Recorder
+}
+
+func InstrumentPublisher(delegate Publisher, transport string, recorder telemetry.Recorder) Publisher {
+	if delegate == nil {
+		return nil
+	}
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
+	return &instrumentedPublisher{delegate: delegate, transport: strings.TrimSpace(transport), recorder: recorder}
+}
+
+func (publisher *instrumentedPublisher) Publish(ctx context.Context, publication Publication) error {
+	startedAt := time.Now()
+	err := publisher.delegate.Publish(ctx, publication)
+	outcome := "ok"
+	if publisher.transport == "noop" || errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSendQueueFull) {
+		outcome = "dropped"
+	} else if err != nil {
+		outcome = "error"
+	}
+	attributes := telemetry.Attributes{
+		"realtime.operation": "publish",
+		"realtime.transport": publisher.transport,
+		"realtime.outcome":   outcome,
+	}
+	publisher.recorder.Count("realtime.publications", 1, attributes)
+	publisher.recorder.Observe("realtime.publish.duration_seconds", time.Since(startedAt).Seconds(), attributes)
+	return err
 }
 
 // LocalPublisher publishes to the in-process Manager only.
@@ -62,3 +100,5 @@ type NoopPublisher struct{}
 func (NoopPublisher) Publish(context.Context, Publication) error {
 	return nil
 }
+
+var _ Publisher = (*instrumentedPublisher)(nil)

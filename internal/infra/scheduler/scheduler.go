@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/redislock"
+	"admin_back_go/internal/telemetry"
 
 	gocron "github.com/go-co-op/gocron/v2"
 )
@@ -44,6 +45,14 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(s *Scheduler) {
+		if recorder != nil {
+			s.recorder = recorder
+		}
+	}
+}
+
 // Scheduler wraps gocron so jobs do not depend on gocron directly.
 type Scheduler struct {
 	scheduler  gocron.Scheduler
@@ -52,6 +61,7 @@ type Scheduler struct {
 	lockTTL    time.Duration
 	locker     Locker
 	logger     *slog.Logger
+	recorder   telemetry.Recorder
 }
 
 // New creates a scheduler using the configured timezone.
@@ -72,6 +82,7 @@ func New(cfg config.SchedulerConfig, opts ...Option) (*Scheduler, error) {
 		lockPrefix: cfg.LockPrefix,
 		lockTTL:    cfg.LockTTL,
 		logger:     slog.Default(),
+		recorder:   telemetry.Noop(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -131,18 +142,26 @@ func (s *Scheduler) Cron(name string, expression string, withSeconds bool, task 
 
 func (s *Scheduler) wrapTask(name string, task TaskFunc) TaskFunc {
 	return func(ctx context.Context) error {
+		startedAt := time.Now()
+		leaseOwned := true
 		if s == nil || s.locker == nil || strings.TrimSpace(s.lockPrefix) == "" {
-			return task(ctx)
+			err := task(ctx)
+			s.recordExecution(time.Since(startedAt), leaseOwned, schedulerOutcome(err))
+			return err
 		}
 		key := s.lockPrefix + strings.TrimSpace(name)
 		token, err := s.locker.Lock(ctx, key, s.lockTTL)
 		if errors.Is(err, redislock.ErrNotAcquired) {
+			leaseOwned = false
 			if s.logger != nil {
 				s.logger.InfoContext(ctx, "skip scheduler job because distributed lock is held", "name", name, "lock_key", key)
 			}
+			s.recordExecution(time.Since(startedAt), leaseOwned, "skipped")
 			return nil
 		}
 		if err != nil {
+			leaseOwned = false
+			s.recordExecution(time.Since(startedAt), leaseOwned, "error")
 			return fmt.Errorf("scheduler lock %s: %w", name, err)
 		}
 		defer func() {
@@ -150,8 +169,31 @@ func (s *Scheduler) wrapTask(name string, task TaskFunc) TaskFunc {
 				s.logger.ErrorContext(ctx, "unlock scheduler job failed", "name", name, "lock_key", key, "error", unlockErr)
 			}
 		}()
-		return task(ctx)
+		err = task(ctx)
+		s.recordExecution(time.Since(startedAt), leaseOwned, schedulerOutcome(err))
+		return err
 	}
+}
+
+func (s *Scheduler) recordExecution(duration time.Duration, leaseOwned bool, outcome string) {
+	recorder := s.recorder
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
+	attributes := telemetry.Attributes{
+		"scheduler.operation":   "run",
+		"scheduler.lease_owned": leaseOwned,
+		"scheduler.outcome":     outcome,
+	}
+	recorder.Count("scheduler.executions", 1, attributes)
+	recorder.Observe("scheduler.execution.duration_seconds", duration.Seconds(), attributes)
+}
+
+func schedulerOutcome(err error) string {
+	if err != nil {
+		return "error"
+	}
+	return "ok"
 }
 
 // Start begins scheduling. It is non-blocking.
