@@ -1,0 +1,246 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"admin_back_go/internal/infra/database"
+
+	"gorm.io/gorm"
+)
+
+var ErrSessionRepositoryNotConfigured = errors.New("session repository is not configured")
+
+// Session persistence model and cache serialization.
+type Session struct {
+	ID               int64      `gorm:"column:id"`
+	UserID           int64      `gorm:"column:user_id"`
+	AccessTokenHash  string     `gorm:"column:access_token_hash"`
+	RefreshTokenHash string     `gorm:"column:refresh_token_hash"`
+	Platform         string     `gorm:"column:platform"`
+	DeviceID         string     `gorm:"column:device_id"`
+	IP               string     `gorm:"column:ip"`
+	UserAgent        string     `gorm:"column:ua"`
+	LastSeenAt       time.Time  `gorm:"column:last_seen_at"`
+	ExpiresAt        time.Time  `gorm:"column:expires_at"`
+	RefreshExpiresAt time.Time  `gorm:"column:refresh_expires_at"`
+	RevokedAt        *time.Time `gorm:"column:revoked_at"`
+	IsDel            int        `gorm:"column:is_del"`
+}
+
+func (Session) TableName() string {
+	return "user_sessions"
+}
+
+// Session repository.
+type SessionRepository interface {
+	FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error)
+	FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error)
+	FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error)
+	Create(ctx context.Context, input SessionCreate) (int64, error)
+	ListActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) ([]Session, error)
+	RevokeByUserPlatform(ctx context.Context, userID int64, platform string, revokedAt time.Time) error
+	UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error
+	Rotate(ctx context.Context, sessionID int64, rotation SessionRotation) error
+	Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error
+}
+
+type SessionCreate struct {
+	UserID           int64
+	AccessTokenHash  string
+	RefreshTokenHash string
+	Platform         string
+	DeviceID         string
+	IP               string
+	UserAgent        string
+	LastSeenAt       time.Time
+	ExpiresAt        time.Time
+	RefreshExpiresAt time.Time
+}
+
+type SessionRotation struct {
+	AccessTokenHash  string
+	RefreshTokenHash string
+	ExpiresAt        time.Time
+	RefreshExpiresAt time.Time
+	LastSeenAt       time.Time
+	IP               string
+	UserAgent        string
+}
+
+func (r *SessionGormRepository) Create(ctx context.Context, input SessionCreate) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrSessionRepositoryNotConfigured
+	}
+
+	row := Session{
+		UserID:           input.UserID,
+		AccessTokenHash:  input.AccessTokenHash,
+		RefreshTokenHash: input.RefreshTokenHash,
+		Platform:         input.Platform,
+		DeviceID:         input.DeviceID,
+		IP:               input.IP,
+		UserAgent:        input.UserAgent,
+		LastSeenAt:       input.LastSeenAt,
+		ExpiresAt:        input.ExpiresAt,
+		RefreshExpiresAt: input.RefreshExpiresAt,
+		IsDel:            commonNo,
+	}
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return 0, err
+	}
+	return row.ID, nil
+}
+
+func (r *SessionGormRepository) ListActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) ([]Session, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrSessionRepositoryNotConfigured
+	}
+	var sessions []Session
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Where("platform = ?", platform).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", commonNo).
+		Where("refresh_expires_at > ?", now).
+		Order("id ASC").
+		Find(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+func (r *SessionGormRepository) RevokeByUserPlatform(ctx context.Context, userID int64, platform string, revokedAt time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrSessionRepositoryNotConfigured
+	}
+	return r.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("user_id = ?", userID).
+		Where("platform = ?", platform).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", commonNo).
+		Update("revoked_at", revokedAt).Error
+}
+
+type SessionGormRepository struct {
+	db *gorm.DB
+}
+
+func NewSessionGormRepository(client *database.Client) SessionRepository {
+	if client == nil || client.Gorm == nil {
+		return nil
+	}
+	return &SessionGormRepository{db: client.Gorm}
+}
+
+func (r *SessionGormRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrSessionRepositoryNotConfigured
+	}
+
+	var session Session
+	err := r.db.WithContext(ctx).
+		Where("id = ?", sessionID).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", commonNo).
+		Where("expires_at > ?", now).
+		First(&session).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *SessionGormRepository) FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrSessionRepositoryNotConfigured
+	}
+
+	var session Session
+	err := r.db.WithContext(ctx).
+		Where("refresh_token_hash = ?", refreshHash).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", commonNo).
+		Where("refresh_expires_at > ?", now).
+		First(&session).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *SessionGormRepository) FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrSessionRepositoryNotConfigured
+	}
+
+	var session Session
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Where("platform = ?", platform).
+		Where("revoked_at IS NULL").
+		Where("is_del = ?", commonNo).
+		Where("refresh_expires_at > ?", now).
+		Order("id DESC").
+		First(&session).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *SessionGormRepository) Rotate(ctx context.Context, sessionID int64, rotation SessionRotation) error {
+	if r == nil || r.db == nil {
+		return ErrSessionRepositoryNotConfigured
+	}
+
+	return r.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ?", sessionID).
+		Updates(map[string]any{
+			"access_token_hash":  rotation.AccessTokenHash,
+			"refresh_token_hash": rotation.RefreshTokenHash,
+			"expires_at":         rotation.ExpiresAt,
+			"refresh_expires_at": rotation.RefreshExpiresAt,
+			"last_seen_at":       rotation.LastSeenAt,
+			"ip":                 rotation.IP,
+			"ua":                 rotation.UserAgent,
+		}).Error
+}
+
+func (r *SessionGormRepository) UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrSessionRepositoryNotConfigured
+	}
+
+	return r.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ?", sessionID).
+		Updates(map[string]any{
+			"access_token_hash": accessHash,
+			"expires_at":        expiresAt,
+		}).Error
+}
+
+func (r *SessionGormRepository) Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrSessionRepositoryNotConfigured
+	}
+
+	return r.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ?", sessionID).
+		Update("revoked_at", revokedAt).Error
+}

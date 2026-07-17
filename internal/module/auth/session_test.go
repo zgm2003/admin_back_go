@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -11,6 +12,71 @@ import (
 	"admin_back_go/internal/infra/accesstoken"
 	"admin_back_go/internal/shared/apperror"
 )
+
+var _ Lifecycle = (*SessionLifecycle)(nil)
+
+func TestSessionLifecyclePublicContractIssuesCredentials(t *testing.T) {
+	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)
+	repository := &fakeSessionRepository{createdID: 42}
+	lifecycle := NewSessionLifecycle(LifecycleDeps{
+		Config:         config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
+		Repository:     repository,
+		PolicyProvider: allowPolicies(),
+		AccessCodec:    testJWTCodec(),
+		TokenPepper:    "0123456789abcdef0123456789abcdef",
+		TokenGenerator: (&sequenceTokenGenerator{values: []string{"refresh-token"}}).MakeToken,
+		Now:            func() time.Time { return now },
+	})
+
+	credentials, appErr := lifecycle.Issue(context.Background(), IssueCommand{
+		UserID:   7,
+		Platform: "admin",
+		DeviceID: "device-a",
+	})
+	if appErr != nil {
+		t.Fatalf("issue credentials: %v", appErr)
+	}
+	if credentials == nil || credentials.AccessToken == "" || credentials.RefreshToken != "refresh-token" {
+		t.Fatalf("unexpected credentials: %#v", credentials)
+	}
+}
+
+func TestCachedSessionUsesVersionedJSONPayload(t *testing.T) {
+	revokedAt := time.Date(2026, 5, 2, 12, 5, 0, 0, time.UTC)
+	session := &Session{
+		ID:               42,
+		UserID:           7,
+		Platform:         "admin",
+		DeviceID:         "device-a",
+		IP:               "127.0.0.1",
+		ExpiresAt:        time.Date(2026, 5, 2, 13, 0, 0, 0, time.UTC),
+		RefreshExpiresAt: time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC),
+		RevokedAt:        &revokedAt,
+	}
+
+	encoded := cacheValue(session)
+	var payload CachedSession
+	if err := json.Unmarshal([]byte(encoded), &payload); err != nil {
+		t.Fatalf("decode cache JSON: %v; payload=%q", err, encoded)
+	}
+	if payload.SchemaVersion != SessionCacheSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", payload.SchemaVersion, SessionCacheSchemaVersion)
+	}
+	decoded, err := parseCachedSession(encoded, time.UTC)
+	if err != nil {
+		t.Fatalf("parse cached session: %v", err)
+	}
+	if decoded.ID != session.ID || decoded.UserID != session.UserID || decoded.RefreshExpiresAt != session.RefreshExpiresAt || decoded.RevokedAt == nil || !decoded.RevokedAt.Equal(revokedAt) {
+		t.Fatalf("round-trip mismatch: %#v", decoded)
+	}
+}
+
+func TestCachedSessionRejectsUnknownSchemaVersion(t *testing.T) {
+	_, err := parseCachedSession(`{"session_id":42,"user_id":7,"schema_version":2}`, time.UTC)
+	if !errors.Is(err, ErrUnsupportedSessionCacheSchema) {
+		t.Fatalf("error = %v, want unsupported schema", err)
+	}
+}
 
 type fakeSessionCache struct {
 	values      map[string]string
@@ -283,7 +349,7 @@ func TestAuthenticatorResolvesCachedSessionAndRefreshesTTL(t *testing.T) {
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 	}}
 	repo := &fakeSessionRepository{}
 	auth := NewAuthenticator(AuthenticatorDeps{
@@ -353,7 +419,7 @@ func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 	if cache.setKey != "token:session:55" {
 		t.Fatalf("expected redis session key, got %q", cache.setKey)
 	}
-	if cache.setValue != "44|2026-05-02 12:10:00|10.0.0.8|app|device-2|55" {
+	if cache.setValue != cacheValue(repo.session) {
 		t.Fatalf("unexpected redis cache value: %q", cache.setValue)
 	}
 }
@@ -362,7 +428,7 @@ func TestAuthenticatorRejectsInvalidCurrentPlatform(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:session:34": "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -389,7 +455,7 @@ func TestAuthenticatorRejectsPlatformMismatchWhenPolicyBindsPlatform(t *testing.
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:session:34": "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -417,7 +483,7 @@ func TestAuthenticatorRejectsDeviceMismatchWhenPolicyBindsDevice(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:session:34": "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -450,7 +516,7 @@ func TestAuthenticatorRejectsIPMismatchWhenPolicyBindsIPAndDeletesRedis(t *testi
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -487,7 +553,7 @@ func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 	cacheKey := "token:session:34"
 	pointerKey := "token:cur_sess:admin:12"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey:   "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		cacheKey:   cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 		pointerKey: "99",
 	}}
 	repo := &fakeSessionRepository{latestSession: &Session{ID: 99, UserID: 12, Platform: "admin"}}
@@ -530,7 +596,7 @@ func TestAuthenticatorRebuildsSingleSessionPointerFromRepository(t *testing.T) {
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: "12|2026-05-02 12:30:00|127.0.0.1|admin|device-1|34",
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
 	}}
 	repo := &fakeSessionRepository{latestSession: &Session{ID: 34, UserID: 12, Platform: "admin"}}
 	auth := NewAuthenticator(AuthenticatorDeps{
@@ -572,7 +638,7 @@ func TestAuthenticatorRejectsExpiredCachedSessionAndDeletesRedis(t *testing.T) {
 	accessToken := issueTestAccessToken(t, now.Add(-time.Hour), 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: "12|2026-05-02 11:59:59|127.0.0.1|admin|device-1|34",
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(-time.Second)}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
