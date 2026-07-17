@@ -12,6 +12,7 @@ import (
 
 	"admin_back_go/internal/config"
 	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/module/crontask"
 )
 
 func TestNewWorkerValidatesSecretsWithoutOpeningResources(t *testing.T) {
@@ -272,5 +273,41 @@ func TestRealtimePublisherForWorkerDoesNotFakeLocalDelivery(t *testing.T) {
 	}, &Resources{})
 	if _, ok := publisher.(infrarealtime.NoopPublisher); !ok {
 		t.Fatalf("expected worker local mode to stay noop, got %T", publisher)
+	}
+}
+
+func TestWorkerSchedulerReconcilerHealthIsPartOfReadiness(t *testing.T) {
+	base := NewReport(map[string]Check{
+		"database":  {Status: StatusUp},
+		"scheduler": {Status: StatusUp},
+	})
+
+	unhealthy := mergeSchedulerReconcilerHealth(base, true, true, crontask.ReconcileHealth{
+		Healthy: false,
+		Err:     "cron task schedule is not registered: unknown_task",
+	})
+	if unhealthy.Status != StatusNotReady || unhealthy.Checks["scheduler"].Status != StatusDown {
+		t.Fatalf("unhealthy reconciler must fail worker readiness: %#v", unhealthy)
+	}
+	if unhealthy.Checks["scheduler"].Message == "" {
+		t.Fatalf("unhealthy scheduler must expose the reconciliation error: %#v", unhealthy)
+	}
+
+	healthy := mergeSchedulerReconcilerHealth(base, true, true, crontask.ReconcileHealth{
+		Healthy:     true,
+		LastSuccess: time.Now(),
+	})
+	if healthy.Status != StatusReady || healthy.Checks["scheduler"].Status != StatusUp {
+		t.Fatalf("healthy reconciler must preserve scheduler readiness: %#v", healthy)
+	}
+
+	notStarted := mergeSchedulerReconcilerHealth(base, true, false, crontask.ReconcileHealth{})
+	if notStarted.Status != StatusNotReady || notStarted.Checks["scheduler"].Status != StatusDown {
+		t.Fatalf("enabled scheduler without reconciler must be unready: %#v", notStarted)
+	}
+
+	disabled := mergeSchedulerReconcilerHealth(base, false, false, crontask.ReconcileHealth{})
+	if disabled.Status != base.Status || disabled.Checks["scheduler"] != base.Checks["scheduler"] {
+		t.Fatalf("disabled scheduler must not change readiness: %#v", disabled)
 	}
 }

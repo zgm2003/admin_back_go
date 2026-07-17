@@ -4,17 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
 )
-
-type ScheduleRegistrar interface {
-	Every(name string, interval time.Duration, task scheduler.TaskFunc) error
-	Cron(name string, expression string, withSeconds bool, task scheduler.TaskFunc) error
-}
 
 type SchedulerService struct {
 	repository Repository
@@ -31,39 +25,14 @@ func NewSchedulerService(repository Repository, registry Registry, enqueuer task
 	return &SchedulerService{repository: repository, registry: registry, enqueuer: enqueuer, logger: logger, now: time.Now}
 }
 
-func (s *SchedulerService) RegisterEnabled(ctx context.Context, registrar ScheduleRegistrar) error {
-	if registrar == nil {
-		return scheduler.ErrJobTaskRequired
-	}
-	if s == nil || s.repository == nil {
-		return ErrRepositoryNotConfigured
-	}
-	rows, err := s.repository.ListEnabled(ctx)
-	if err != nil {
-		return fmt.Errorf("list enabled cron tasks: %w", err)
-	}
-	for _, row := range rows {
-		entry, ok := s.registry.Lookup(row.Name)
-		if !ok {
-			s.logger.WarnContext(ctx, "skip unregistered cron task", "name", row.Name, "handler", row.Handler)
-			continue
-		}
-		if !isValidCronExpression(row.Cron) {
-			s.logger.WarnContext(ctx, "skip invalid cron task", "name", row.Name, "cron", row.Cron)
-			continue
-		}
-		withSeconds := len(strings.Fields(row.Cron)) == 6
-		if err := registrar.Cron(row.Name, row.Cron, withSeconds, s.taskFunc(row, entry)); err != nil {
-			s.logger.ErrorContext(ctx, "register cron task failed", "name", row.Name, "cron", row.Cron, "error", err)
-			continue
-		}
-		s.logger.InfoContext(ctx, "registered db-backed cron task", "name", row.Name, "cron", row.Cron, "task_type", entry.TaskType)
-	}
-	return nil
-}
-
 func (s *SchedulerService) taskFunc(row Task, entry RegistryEntry) scheduler.TaskFunc {
 	return func(ctx context.Context) error {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		now := s.now()
 		logID, err := s.repository.LogStart(ctx, row, now)
 		if err != nil {
@@ -73,6 +42,10 @@ func (s *SchedulerService) taskFunc(row Task, entry RegistryEntry) scheduler.Tas
 		if err != nil {
 			_ = s.repository.LogEnd(ctx, logID, false, "", err.Error(), s.now())
 			return fmt.Errorf("build cron task %s queue task: %w", row.Name, err)
+		}
+		if err := ctx.Err(); err != nil {
+			_ = s.repository.LogEnd(context.WithoutCancel(ctx), logID, false, "", err.Error(), s.now())
+			return err
 		}
 		if s.enqueuer == nil {
 			err := taskqueue.ErrClientNotReady

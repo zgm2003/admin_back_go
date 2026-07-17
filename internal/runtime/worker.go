@@ -75,6 +75,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 	var queueServer *taskqueue.Server
 	var queueMux *taskqueue.Mux
 	var workerScheduler *scheduler.Scheduler
+	var scheduleReconciler atomic.Pointer[crontask.Reconciler]
 	var queueStopOnce sync.Once
 	queueStopped := make(chan struct{})
 	stopQueue := func(ctx context.Context) error {
@@ -105,7 +106,14 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, nil, err
 			}
 			resources = opened
-			return opened.Health, opened.Close, nil
+			return func(ctx context.Context) Report {
+				base := opened.Health(ctx)
+				reconciler := scheduleReconciler.Load()
+				if reconciler == nil {
+					return mergeSchedulerReconcilerHealth(base, cfg.Scheduler.Enabled, false, crontask.ReconcileHealth{})
+				}
+				return mergeSchedulerReconcilerHealth(base, cfg.Scheduler.Enabled, true, reconciler.Health())
+			}, opened.Close, nil
 		},
 		buildProviders: func(context.Context) (CleanupFunc, error) {
 			built, err := BuildProviders(cfg, keys, recorder)
@@ -181,13 +189,11 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 			if !cfg.Scheduler.Enabled {
 				return nil, nil
 			}
-			if queueClient == nil || resources == nil {
+			if queueClient == nil || resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
 				return nil, errors.New("worker scheduler dependencies are required")
 			}
 			options := []scheduler.Option{scheduler.WithLogger(logger), scheduler.WithTelemetry(recorder)}
-			if resources.Redis != nil && resources.Redis.Redis != nil {
-				options = append(options, scheduler.WithLocker(redislock.New(resources.Redis.Redis)))
-			}
+			options = append(options, scheduler.WithLeaseStore(redislock.New(resources.Redis.Redis)))
 			built, err := scheduler.New(cfg.Scheduler, options...)
 			if err != nil {
 				return nil, err
@@ -199,12 +205,6 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				queueClient,
 				logger,
 			)
-			if err := runSchedulerReconciliation(ctx, recorder, func(ctx context.Context) error {
-				return cronScheduler.RegisterEnabled(ctx, built)
-			}); err != nil {
-				_ = built.Shutdown(ctx)
-				return nil, err
-			}
 			if err := runSchedulerReconciliation(ctx, recorder, func(context.Context) error {
 				return jobs.RegisterSchedules(built, queueClient, logger)
 			}); err != nil {
@@ -212,9 +212,15 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, err
 			}
 			built.Start()
+			reconciler := crontask.NewReconciler(cronScheduler, built)
+			if err := reconciler.Start(ctx); err != nil {
+				_ = built.Shutdown(context.WithoutCancel(ctx))
+				return nil, err
+			}
+			scheduleReconciler.Store(reconciler)
 			logger.Info("admin worker scheduler started", "timezone", cfg.Scheduler.Timezone)
 			return func(ctx context.Context) error {
-				return workerScheduler.Shutdown(ctx)
+				return errors.Join(reconciler.Shutdown(ctx), workerScheduler.Shutdown(ctx))
 			}, nil
 		},
 	}
@@ -456,6 +462,28 @@ func (runtime *WorkerRuntime) refreshHealth(ctx context.Context) {
 func (runtime *WorkerRuntime) storeHealth(report Report) {
 	copy := cloneReport(report)
 	runtime.health.Store(&copy)
+}
+
+func mergeSchedulerReconcilerHealth(base Report, enabled bool, started bool, health crontask.ReconcileHealth) Report {
+	if !enabled {
+		return cloneReport(base)
+	}
+	checks := make(map[string]Check, len(base.Checks)+1)
+	for name, check := range base.Checks {
+		checks[name] = check
+	}
+	if !started {
+		checks["scheduler"] = Check{Status: StatusDown, Message: "cron schedule reconciler has not started"}
+		return NewReport(checks)
+	}
+	if !health.Healthy {
+		message := health.Err
+		if message == "" {
+			message = "cron schedules have not reconciled successfully"
+		}
+		checks["scheduler"] = Check{Status: StatusDown, Message: message}
+	}
+	return NewReport(checks)
 }
 
 var _ Runtime = (*WorkerRuntime)(nil)

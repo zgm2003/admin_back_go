@@ -2,75 +2,141 @@ package redislock
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-var ErrNotAcquired = errors.New("redislock: lock not acquired")
+var (
+	ErrNotAcquired = errors.New("redislock: lease not acquired")
+	ErrLeaseLost   = errors.New("redislock: lease lost")
+)
 
-const unlockScript = `
-if redis.call("GET", KEYS[1]) == ARGV[1] then
+const acquireScript = `
+if redis.call("EXISTS", KEYS[1]) == 1 then
+  return 0
+end
+local token = redis.call("INCR", KEYS[2])
+redis.call("HSET", KEYS[1], "owner", ARGV[1], "token", tostring(token))
+redis.call("PEXPIRE", KEYS[1], ARGV[2])
+return token
+`
+
+const renewScript = `
+if redis.call("HGET", KEYS[1], "owner") == ARGV[1]
+  and redis.call("HGET", KEYS[1], "token") == ARGV[2] then
+  redis.call("PEXPIRE", KEYS[1], ARGV[3])
+  return 1
+end
+return 0
+`
+
+const releaseScript = `
+if redis.call("HGET", KEYS[1], "owner") == ARGV[1]
+  and redis.call("HGET", KEYS[1], "token") == ARGV[2] then
   return redis.call("DEL", KEYS[1])
 end
 return 0
 `
 
-type Locker interface {
-	Lock(ctx context.Context, key string, ttl time.Duration) (token string, err error)
-	Unlock(ctx context.Context, key string, token string) error
+type Lease struct {
+	Key       string
+	Owner     string
+	Token     uint64
+	ExpiresAt time.Time
 }
 
-type RedisLocker struct {
+type LeaseStore interface {
+	Acquire(context.Context, string, string, time.Duration) (Lease, error)
+	Renew(context.Context, Lease, time.Duration) (Lease, error)
+	Release(context.Context, Lease) error
+}
+
+type RedisLeaseStore struct {
 	client redis.Cmdable
 }
 
-func New(client redis.Cmdable) *RedisLocker {
-	return &RedisLocker{client: client}
+func New(client redis.Cmdable) *RedisLeaseStore {
+	return &RedisLeaseStore{client: client}
 }
 
-func (l *RedisLocker) Lock(ctx context.Context, key string, ttl time.Duration) (string, error) {
-	if l == nil || l.client == nil {
-		return "", errors.New("redislock: client not configured")
-	}
-	if key == "" || ttl <= 0 {
-		return "", errors.New("redislock: invalid lock input")
-	}
-	token, err := randomToken()
+func (s *RedisLeaseStore) Acquire(ctx context.Context, key string, owner string, ttl time.Duration) (Lease, error) {
+	key, owner, err := validateAcquireInput(s, key, owner, ttl)
 	if err != nil {
-		return "", err
+		return Lease{}, err
 	}
-	ok, err := l.client.SetNX(ctx, key, token, ttl).Result()
+	token, err := s.client.Eval(ctx, acquireScript, []string{key, fencingKey(key)}, owner, ttl.Milliseconds()).Int64()
 	if err != nil {
-		return "", fmt.Errorf("redislock: setnx: %w", err)
+		return Lease{}, fmt.Errorf("redislock: acquire: %w", err)
 	}
-	if !ok {
-		return "", ErrNotAcquired
+	if token == 0 {
+		return Lease{}, ErrNotAcquired
 	}
-	return token, nil
+	if token < 0 {
+		return Lease{}, errors.New("redislock: invalid fencing token")
+	}
+	return Lease{Key: key, Owner: owner, Token: uint64(token), ExpiresAt: time.Now().Add(ttl)}, nil
 }
 
-func (l *RedisLocker) Unlock(ctx context.Context, key string, token string) error {
-	if l == nil || l.client == nil {
-		return errors.New("redislock: client not configured")
+func (s *RedisLeaseStore) Renew(ctx context.Context, lease Lease, ttl time.Duration) (Lease, error) {
+	if err := validateLeaseInput(s, lease); err != nil {
+		return Lease{}, err
 	}
-	if key == "" || token == "" {
-		return errors.New("redislock: invalid unlock input")
+	if ttl < time.Millisecond {
+		return Lease{}, errors.New("redislock: invalid lease ttl")
 	}
-	if err := l.client.Eval(ctx, unlockScript, []string{key}, token).Err(); err != nil {
-		return fmt.Errorf("redislock: unlock: %w", err)
+	result, err := s.client.Eval(ctx, renewScript, []string{lease.Key}, lease.Owner, lease.Token, ttl.Milliseconds()).Int64()
+	if err != nil {
+		return Lease{}, fmt.Errorf("redislock: renew: %w", err)
+	}
+	if result != 1 {
+		return Lease{}, ErrLeaseLost
+	}
+	lease.ExpiresAt = time.Now().Add(ttl)
+	return lease, nil
+}
+
+func (s *RedisLeaseStore) Release(ctx context.Context, lease Lease) error {
+	if err := validateLeaseInput(s, lease); err != nil {
+		return err
+	}
+	result, err := s.client.Eval(ctx, releaseScript, []string{lease.Key}, lease.Owner, lease.Token).Int64()
+	if err != nil {
+		return fmt.Errorf("redislock: release: %w", err)
+	}
+	if result != 1 {
+		return ErrLeaseLost
 	}
 	return nil
 }
 
-func randomToken() (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("redislock: random token: %w", err)
+func validateAcquireInput(store *RedisLeaseStore, key string, owner string, ttl time.Duration) (string, string, error) {
+	if store == nil || store.client == nil {
+		return "", "", errors.New("redislock: client not configured")
 	}
-	return hex.EncodeToString(buf), nil
+	key = strings.TrimSpace(key)
+	owner = strings.TrimSpace(owner)
+	if key == "" || owner == "" || ttl < time.Millisecond {
+		return "", "", errors.New("redislock: invalid lease input")
+	}
+	return key, owner, nil
 }
+
+func validateLeaseInput(store *RedisLeaseStore, lease Lease) error {
+	if store == nil || store.client == nil {
+		return errors.New("redislock: client not configured")
+	}
+	if strings.TrimSpace(lease.Key) == "" || strings.TrimSpace(lease.Owner) == "" || lease.Token == 0 {
+		return errors.New("redislock: invalid lease input")
+	}
+	return nil
+}
+
+func fencingKey(key string) string {
+	return key + ":fencing-token"
+}
+
+var _ LeaseStore = (*RedisLeaseStore)(nil)

@@ -7,50 +7,25 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
 )
 
-func TestSchedulerServiceRegistersOnlyEnabledRegisteredTasks(t *testing.T) {
-	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
-	repo := &fakeRepository{tasks: []Task{
-		{ID: 1, Name: "notification_task_scheduler", Title: "通知任务调度器", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-		{ID: 2, Name: "payment_close_expired_order", Title: "支付超时关单", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-		{ID: 3, Name: "bad_cron", Title: "错误表达式", Cron: "bad", Status: CommonYes, IsDel: CommonNo, CreatedAt: now, UpdatedAt: now},
-	}}
-	registrar := &fakeScheduleRegistrar{}
-	enqueuer := &fakeEnqueuer{}
-	service := NewSchedulerService(repo, NewDefaultRegistry(), enqueuer, slog.Default())
-
-	if err := service.RegisterEnabled(context.Background(), registrar); err != nil {
-		t.Fatalf("RegisterEnabled returned error: %v", err)
-	}
-	if len(registrar.cronCalls) != 2 {
-		t.Fatalf("expected two cron registrations, got %#v", registrar.cronCalls)
-	}
-	registered := map[string]bool{}
-	for _, call := range registrar.cronCalls {
-		registered[call.name] = true
-	}
-	if !registered["notification_task_scheduler"] || !registered["payment_close_expired_order"] {
-		t.Fatalf("unexpected registered jobs: %#v", registrar.cronCalls)
-	}
-}
-
 func TestSchedulerTaskLogsAndEnqueues(t *testing.T) {
 	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.Local)
-	repo := &fakeRepository{tasks: []Task{{ID: 1, Name: "notification_task_scheduler", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo}}}
-	registrar := &fakeScheduleRegistrar{}
+	row := Task{ID: 1, Name: "notification_task_scheduler", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo}
+	repo := &fakeRepository{tasks: []Task{row}}
 	enqueuer := &fakeEnqueuer{}
-	service := NewSchedulerService(repo, NewDefaultRegistry(), enqueuer, slog.Default())
+	registry := NewDefaultRegistry()
+	service := NewSchedulerService(repo, registry, enqueuer, slog.Default())
 	service.now = func() time.Time { return now }
-
-	if err := service.RegisterEnabled(context.Background(), registrar); err != nil {
-		t.Fatalf("RegisterEnabled returned error: %v", err)
+	entry, ok := registry.Lookup(row.Name)
+	if !ok {
+		t.Fatal("notification task is not registered")
 	}
-	if err := registrar.cronCalls[0].task(context.Background()); err != nil {
+
+	if err := service.taskFunc(row, entry)(context.Background()); err != nil {
 		t.Fatalf("scheduled task returned error: %v", err)
 	}
 	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != notificationtask.TypeDispatchDueV1 {
@@ -63,7 +38,10 @@ func TestSchedulerTaskLogsAndEnqueues(t *testing.T) {
 
 func TestSchedulerDefaultRegistryIncludesPaymentOrderCronTasks(t *testing.T) {
 	registry := NewDefaultRegistry()
-	for name, taskType := range map[string]string{"payment_close_expired_order": payment.TypeCloseExpiredOrderV1, "payment_sync_pending_order": payment.TypeSyncPendingOrderV1} {
+	for name, taskType := range map[string]string{
+		"payment_close_expired_order": payment.TypeCloseExpiredOrderV1,
+		"payment_sync_pending_order":  payment.TypeSyncPendingOrderV1,
+	} {
 		entry, ok := registry.Lookup(name)
 		if !ok || entry.TaskType != taskType {
 			t.Fatalf("payment order cron must be registered now: %s %#v", name, entry)
@@ -83,40 +61,66 @@ func TestSchedulerDefaultRegistryIncludesPaymentOrderCronTasks(t *testing.T) {
 }
 
 func TestSchedulerTaskWritesFailedLogWhenEnqueueFails(t *testing.T) {
-	repo := &fakeRepository{tasks: []Task{{ID: 1, Name: "notification_task_scheduler", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo}}}
-	registrar := &fakeScheduleRegistrar{}
+	row := Task{ID: 1, Name: "notification_task_scheduler", Cron: "0 * * * * *", Status: CommonYes, IsDel: CommonNo}
+	repo := &fakeRepository{tasks: []Task{row}}
 	enqueuer := &fakeEnqueuer{err: errors.New("redis down")}
-	service := NewSchedulerService(repo, NewDefaultRegistry(), enqueuer, slog.Default())
-
-	if err := service.RegisterEnabled(context.Background(), registrar); err != nil {
-		t.Fatalf("RegisterEnabled returned error: %v", err)
+	registry := NewDefaultRegistry()
+	service := NewSchedulerService(repo, registry, enqueuer, slog.Default())
+	entry, ok := registry.Lookup(row.Name)
+	if !ok {
+		t.Fatal("notification task is not registered")
 	}
-	if err := registrar.cronCalls[0].task(context.Background()); err == nil {
-		t.Fatalf("expected enqueue error")
+
+	if err := service.taskFunc(row, entry)(context.Background()); err == nil {
+		t.Fatal("expected enqueue error")
 	}
 	if len(repo.endedLogs) != 1 || repo.endedLogs[0].success {
 		t.Fatalf("expected failed scheduler log, got %#v", repo.endedLogs)
 	}
 }
 
-type fakeScheduleRegistrar struct {
-	cronCalls []registeredCronCall
+func TestSchedulerTaskDoesNotEnqueueAfterContextCancellation(t *testing.T) {
+	repo := &fakeRepository{}
+	enqueuer := &fakeEnqueuer{}
+	registry := NewDefaultRegistry()
+	service := NewSchedulerService(repo, registry, enqueuer, slog.Default())
+	entry, ok := registry.Lookup("notification_task_scheduler")
+	if !ok {
+		t.Fatal("notification task is not registered")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := service.taskFunc(Task{ID: 1, Name: "notification_task_scheduler"}, entry)(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if len(enqueuer.tasks) != 0 || len(repo.startedLogs) != 0 {
+		t.Fatalf("canceled callback performed side effects: tasks=%#v logs=%#v", enqueuer.tasks, repo.startedLogs)
+	}
 }
 
-type registeredCronCall struct {
-	name        string
-	expression  string
-	withSeconds bool
-	task        scheduler.TaskFunc
-}
+func TestSchedulerTaskFencingCheckPreventsEnqueueWhenLeaseIsLostAfterLogStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	repo := &cancelAfterLogStartRepository{cancel: cancel}
+	enqueuer := &fakeEnqueuer{}
+	registry := NewDefaultRegistry()
+	service := NewSchedulerService(repo, registry, enqueuer, slog.Default())
+	entry, ok := registry.Lookup("notification_task_scheduler")
+	if !ok {
+		t.Fatal("notification task is not registered")
+	}
 
-func (f *fakeScheduleRegistrar) Every(name string, interval time.Duration, task scheduler.TaskFunc) error {
-	return nil
-}
-
-func (f *fakeScheduleRegistrar) Cron(name string, expression string, withSeconds bool, task scheduler.TaskFunc) error {
-	f.cronCalls = append(f.cronCalls, registeredCronCall{name: name, expression: expression, withSeconds: withSeconds, task: task})
-	return nil
+	err := service.taskFunc(Task{ID: 1, Name: "notification_task_scheduler"}, entry)(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected lease-loss cancellation, got %v", err)
+	}
+	if len(enqueuer.tasks) != 0 {
+		t.Fatalf("task enqueued after fencing context was canceled: %#v", enqueuer.tasks)
+	}
+	if !repo.ended {
+		t.Fatal("started cron log was not closed after lease loss")
+	}
 }
 
 type fakeEnqueuer struct {
@@ -124,7 +128,23 @@ type fakeEnqueuer struct {
 	err   error
 }
 
-func (f *fakeEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
+type cancelAfterLogStartRepository struct {
+	Repository
+	cancel context.CancelFunc
+	ended  bool
+}
+
+func (r *cancelAfterLogStartRepository) LogStart(context.Context, Task, time.Time) (int64, error) {
+	r.cancel()
+	return 1, nil
+}
+
+func (r *cancelAfterLogStartRepository) LogEnd(context.Context, int64, bool, string, string, time.Time) error {
+	r.ended = true
+	return nil
+}
+
+func (f *fakeEnqueuer) Enqueue(_ context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
 	if f.err != nil {
 		return taskqueue.EnqueueResult{}, f.err
 	}
