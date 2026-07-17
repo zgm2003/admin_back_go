@@ -158,7 +158,15 @@ func (h *Handler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("验证码参数错误"))
 		return
 	}
-	_, appErr := h.service.SendCode(c.Request.Context(), authmodule.SendCodeInput(req))
+	_, appErr := h.service.SendCode(c.Request.Context(), authmodule.SendCodeInput{
+		Account:       req.Account,
+		Scene:         req.Scene,
+		LoginType:     req.LoginType,
+		CaptchaID:     req.CaptchaID,
+		CaptchaAnswer: captchaAnswerFromRequest(req.CaptchaAnswer),
+		ClientIP:      c.ClientIP(),
+		UserAgent:     c.GetHeader("User-Agent"),
+	})
 	if appErr != nil {
 		response.Error(c, appErr)
 		return

@@ -22,6 +22,9 @@ auth.platform_login.result_invalid: Invalid login result
 auth.refresh_token.missing: Missing refresh token
 auth.refresh.result_invalid: Invalid refresh token result
 auth.send_code.request.invalid: Invalid verification code request
+auth.send_code.login_type.invalid: Select email or phone login
+auth.send_code.email.invalid: Enter a valid email address
+auth.send_code.phone.invalid: Enter a valid phone number
 auth.platform.invalid: Token platform mismatch
 auth.browser_grant_authenticator_missing: Browser grant authenticator is not configured
 auth.browser_grant_invalid: Browser grant is invalid or expired

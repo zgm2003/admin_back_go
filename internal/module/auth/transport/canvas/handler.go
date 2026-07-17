@@ -70,7 +70,15 @@ func (h *Handler) SendCode(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("auth.send_code.request.invalid", nil, "验证码参数错误"))
 		return
 	}
-	if _, appErr := h.authService.SendCode(c.Request.Context(), authmodule.SendCodeInput(req)); appErr != nil {
+	if _, appErr := h.authService.SendCode(c.Request.Context(), authmodule.SendCodeInput{
+		Account:       req.Account,
+		Scene:         req.Scene,
+		LoginType:     req.LoginType,
+		CaptchaID:     req.CaptchaID,
+		CaptchaAnswer: captchaAnswerFromRequest(req.CaptchaAnswer),
+		ClientIP:      c.ClientIP(),
+		UserAgent:     c.GetHeader("User-Agent"),
+	}); appErr != nil {
 		response.Error(c, appErr)
 		return
 	}

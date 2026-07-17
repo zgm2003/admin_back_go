@@ -189,6 +189,31 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if accountType == "" {
 		return "", apperror.BadRequest("请输入正确的邮箱或手机号")
 	}
+	if input.Scene == VerifyCodeSceneLogin {
+		if input.LoginType != LoginTypeEmail && input.LoginType != LoginTypePhone {
+			return "", apperror.BadRequestKey("auth.send_code.login_type.invalid", nil, "请选择邮箱或手机号登录方式")
+		}
+		if accountType != input.LoginType {
+			if input.LoginType == LoginTypeEmail {
+				return "", apperror.BadRequestKey("auth.send_code.email.invalid", nil, "请输入正确的邮箱格式")
+			}
+			return "", apperror.BadRequestKey("auth.send_code.phone.invalid", nil, "请输入正确的手机号格式")
+		}
+		if input.CaptchaID == "" || input.CaptchaAnswer == nil {
+			return "", apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
+		}
+		if s.captchaVerifier == nil {
+			return "", apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
+		}
+		if appErr := s.captchaVerifier.Verify(ctx, VerifyInput{
+			ID:        input.CaptchaID,
+			Answer:    input.CaptchaAnswer,
+			ClientIP:  input.ClientIP,
+			UserAgent: input.UserAgent,
+		}); appErr != nil {
+			return "", appErr
+		}
+	}
 	ttl, appErr := s.verifyCodeTTL(ctx, accountType)
 	if appErr != nil {
 		return "", appErr
@@ -634,6 +659,10 @@ func normalizeLoginInput(input LoginInput) LoginInput {
 func normalizeSendCodeInput(input SendCodeInput) SendCodeInput {
 	input.Account = strings.TrimSpace(input.Account)
 	input.Scene = strings.TrimSpace(input.Scene)
+	input.LoginType = strings.TrimSpace(input.LoginType)
+	input.CaptchaID = strings.TrimSpace(input.CaptchaID)
+	input.ClientIP = strings.TrimSpace(input.ClientIP)
+	input.UserAgent = strings.TrimSpace(input.UserAgent)
 	return input
 }
 

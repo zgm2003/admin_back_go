@@ -22,6 +22,9 @@ auth.platform_login.result_invalid: 登录结果无效
 auth.refresh_token.missing: 缺少刷新令牌
 auth.refresh.result_invalid: 刷新Token结果无效
 auth.send_code.request.invalid: 验证码参数错误
+auth.send_code.login_type.invalid: 请选择邮箱或手机号登录方式
+auth.send_code.email.invalid: 请输入正确的邮箱格式
+auth.send_code.phone.invalid: 请输入正确的手机号格式
 auth.platform.invalid: Token平台不匹配
 auth.browser_grant_authenticator_missing: 浏览器授权认证器未配置
 auth.browser_grant_invalid: 浏览器授权无效或已过期

@@ -26,8 +26,13 @@ type LoginInput struct {
 }
 
 type SendCodeInput struct {
-	Account string
-	Scene   string
+	Account       string
+	Scene         string
+	LoginType     string
+	CaptchaID     string
+	CaptchaAnswer *Answer
+	ClientIP      string
+	UserAgent     string
 }
 
 type ForgetPasswordInput struct {

@@ -158,13 +158,22 @@ func TestAuthRoutesExposeCaptchaSendCodeAndLogout(t *testing.T) {
 	}
 
 	sendCodeRecorder := httptest.NewRecorder()
-	sendCodeRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/send-code", strings.NewReader(`{"account":"15671628271","scene":"login"}`))
+	sendCodeRequest := httptest.NewRequest(http.MethodPost, "/api/app/v1/auth/send-code", strings.NewReader(`{"account":"15671628271","scene":"login","login_type":"phone","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
 	sendCodeRequest.Header.Set("Content-Type", "application/json")
+	sendCodeRequest.Header.Set("User-Agent", "app-agent")
 	router.ServeHTTP(sendCodeRecorder, sendCodeRequest)
 	if sendCodeRecorder.Code != http.StatusOK {
 		t.Fatalf("expected send-code status 200, got %d body=%s", sendCodeRecorder.Code, sendCodeRecorder.Body.String())
 	}
-	if authService.sendCodeInput.Account != "15671628271" || authService.sendCodeInput.Scene != authmodule.VerifyCodeSceneLogin {
+	if authService.sendCodeInput.Account != "15671628271" ||
+		authService.sendCodeInput.Scene != authmodule.VerifyCodeSceneLogin ||
+		authService.sendCodeInput.LoginType != authmodule.LoginTypePhone ||
+		authService.sendCodeInput.CaptchaID != "captcha-id" ||
+		authService.sendCodeInput.CaptchaAnswer == nil ||
+		authService.sendCodeInput.CaptchaAnswer.X != 120 ||
+		authService.sendCodeInput.CaptchaAnswer.Y != 80 ||
+		authService.sendCodeInput.ClientIP == "" ||
+		authService.sendCodeInput.UserAgent != "app-agent" {
 		t.Fatalf("unexpected send-code input: %#v", authService.sendCodeInput)
 	}
 

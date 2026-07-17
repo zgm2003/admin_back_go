@@ -10,8 +10,11 @@ type LoginRequest struct {
 }
 
 type SendCodeRequest struct {
-	Account string `json:"account" binding:"required,max=120"`
-	Scene   string `json:"scene" binding:"required,verify_code_scene"`
+	Account       string                `json:"account" binding:"required,max=120"`
+	Scene         string                `json:"scene" binding:"required,verify_code_scene"`
+	LoginType     string                `json:"login_type" binding:"omitempty,auth_platform_login_type"`
+	CaptchaID     string                `json:"captcha_id" binding:"omitempty,max=80"`
+	CaptchaAnswer *captchaAnswerRequest `json:"captcha_answer"`
 }
 
 type ForgetPasswordRequest struct {
