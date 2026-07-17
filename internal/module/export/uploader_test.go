@@ -38,14 +38,14 @@ func TestCOSUploaderUploadsXLSXToKindFolderAndReturnsObjectKey(t *testing.T) {
 	now := time.Date(2026, 5, 7, 12, 13, 14, 0, time.UTC)
 	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{
 		Driver: enum.UploadDriverCOS, SecretIDEnc: "sid", SecretKeyEnc: "skey", Bucket: "bucket", Region: "ap-guangzhou", BucketDomain: "https://cdn.example.com",
-	}}, plainSecretbox{}, writer, WithUploadNow(func() time.Time { return now }))
+	}}, plainSecretbox{}, writer)
 
-	got, err := uploader.Upload(context.Background(), UploadInput{TaskID: 88, Kind: KindUserList, Prefix: "用户列表导出", Body: []byte("xlsx"), RowCount: 3})
+	got, err := uploader.Upload(context.Background(), UploadInput{TaskID: 88, ArtifactVersion: "v1", CreatedAt: now, Body: []byte("xlsx"), RowCount: 3})
 	if err != nil {
 		t.Fatalf("Upload returned error: %v", err)
 	}
-	wantKey := "exports/user_list/20260507/用户列表导出_20260507_121314_88.xlsx"
-	if got.FileName != "用户列表导出_20260507_121314_88.xlsx" || got.ObjectKey != wantKey || got.FileURL != "https://cdn.example.com/"+wantKey || got.FileSize != 4 || got.RowCount != 3 {
+	wantKey := "exports/20260507/88-v1.xlsx"
+	if got.FileName != "88-v1.xlsx" || got.ObjectKey != wantKey || got.FileURL != "https://cdn.example.com/"+wantKey || got.FileSize != 4 || got.RowCount != 3 {
 		t.Fatalf("unexpected upload result: %#v", got)
 	}
 	if writer.input.Key != wantKey {
@@ -60,14 +60,43 @@ func TestCOSUploaderBuildsDefaultCOSURL(t *testing.T) {
 	writer := &fakeCOSWriter{}
 	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{
 		Driver: enum.UploadDriverCOS, SecretIDEnc: "sid", SecretKeyEnc: "skey", Bucket: "bucket", Region: "ap-guangzhou",
-	}}, plainSecretbox{}, writer, WithUploadNow(func() time.Time { return time.Date(2026, 5, 7, 1, 2, 3, 0, time.UTC) }))
-	got, err := uploader.Upload(context.Background(), UploadInput{TaskID: 5, Prefix: "export", Body: []byte("xlsx"), RowCount: 1})
+	}}, plainSecretbox{}, writer)
+	createdAt := time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)
+	got, err := uploader.Upload(context.Background(), UploadInput{TaskID: 5, ArtifactVersion: "v1", CreatedAt: createdAt, Body: []byte("xlsx"), RowCount: 1})
 	if err != nil {
 		t.Fatalf("Upload returned error: %v", err)
 	}
-	if got.FileURL != "https://bucket.cos.ap-guangzhou.myqcloud.com/exports/user_list/20260507/export_20260507_010203_5.xlsx" {
+	if got.FileURL != "https://bucket.cos.ap-guangzhou.myqcloud.com/exports/20260507/5-v1.xlsx" {
 		t.Fatalf("unexpected default url: %q", got.FileURL)
 	}
+}
+
+func TestDuplicateExportUploadOverwritesOneDeterministicObjectKey(t *testing.T) {
+	writer := &recordingCOSWriter{}
+	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{
+		Driver: enum.UploadDriverCOS, SecretIDEnc: "sid", SecretKeyEnc: "skey", Bucket: "bucket", Region: "ap-guangzhou",
+	}}, plainSecretbox{}, writer)
+	input := UploadInput{
+		TaskID: 42, ArtifactVersion: "v1",
+		CreatedAt: time.Date(2026, 7, 17, 23, 59, 0, 0, time.UTC), Body: []byte("xlsx"), RowCount: 1,
+	}
+	for range 2 {
+		if _, err := uploader.Upload(context.Background(), input); err != nil {
+			t.Fatalf("duplicate upload: %v", err)
+		}
+	}
+	if len(writer.keys) != 2 || writer.keys[0] != "exports/20260717/42-v1.xlsx" || writer.keys[1] != writer.keys[0] {
+		t.Fatalf("duplicate upload used different object keys: %#v", writer.keys)
+	}
+}
+
+type recordingCOSWriter struct {
+	keys []string
+}
+
+func (w *recordingCOSWriter) Put(_ context.Context, input storagecos.PutInput) error {
+	w.keys = append(w.keys, input.Key)
+	return nil
 }
 
 func TestObjectURLNormalizesSchemeLessPublicDomain(t *testing.T) {
@@ -79,7 +108,7 @@ func TestObjectURLNormalizesSchemeLessPublicDomain(t *testing.T) {
 
 func TestCOSUploaderFailsWithoutEnabledConfig(t *testing.T) {
 	uploader := NewCOSUploader(fakeUploadConfigRepository{}, plainSecretbox{}, &fakeCOSWriter{})
-	_, err := uploader.Upload(context.Background(), UploadInput{TaskID: 1, Prefix: "export", Body: []byte("xlsx"), RowCount: 1})
+	_, err := uploader.Upload(context.Background(), UploadInput{TaskID: 1, ArtifactVersion: "v1", CreatedAt: time.Now(), Body: []byte("xlsx"), RowCount: 1})
 	if err == nil || !strings.Contains(err.Error(), "upload config") {
 		t.Fatalf("expected missing config error, got %v", err)
 	}
@@ -87,7 +116,7 @@ func TestCOSUploaderFailsWithoutEnabledConfig(t *testing.T) {
 
 func TestCOSUploaderRejectsNonCOSDriver(t *testing.T) {
 	uploader := NewCOSUploader(fakeUploadConfigRepository{config: &UploadConfig{Driver: "oss"}}, plainSecretbox{}, &fakeCOSWriter{})
-	_, err := uploader.Upload(context.Background(), UploadInput{TaskID: 1, Prefix: "export", Body: []byte("xlsx"), RowCount: 1})
+	_, err := uploader.Upload(context.Background(), UploadInput{TaskID: 1, ArtifactVersion: "v1", CreatedAt: time.Now(), Body: []byte("xlsx"), RowCount: 1})
 	if err == nil || !strings.Contains(err.Error(), "only supports cos") {
 		t.Fatalf("expected non-cos error, got %v", err)
 	}

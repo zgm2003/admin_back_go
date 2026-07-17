@@ -3,10 +3,19 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"os"
+	"sync"
 	"testing"
+	"time"
 
+	"admin_back_go/internal/config"
+	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/enum"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 func TestTaskBuildersUseVersionedTypesWithoutDuplicatingRegistryPolicy(t *testing.T) {
@@ -82,4 +91,167 @@ func (f *fakeJobService) DispatchDue(ctx context.Context, input DispatchDueInput
 func (f *fakeJobService) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskResult, error) {
 	f.sendTaskID = input.TaskID
 	return &SendTaskResult{TaskID: input.TaskID, Sent: 1}, nil
+}
+
+func TestClaimNotificationWorkIsExclusiveReclaimableAndFenced(t *testing.T) {
+	first, second := notificationLeaseRepositories(t)
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	row := Task{
+		Title: "lease test", Content: "content", Type: enum.NotificationTypeInfo,
+		Level: enum.NotificationLevelNormal, Platform: enum.PlatformAdmin,
+		TargetType: enum.NotificationTargetUsers, TargetIDs: "[1]",
+		Status: enum.NotificationTaskStatusPending, SendAt: &now,
+		CreatedBy: 1, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now,
+	}
+	id, err := first.Create(context.Background(), row)
+	if err != nil {
+		t.Fatalf("create notification task: %v", err)
+	}
+
+	start := make(chan struct{})
+	claims := make(chan *Claim, 2)
+	errs := make(chan error, 2)
+	var workers sync.WaitGroup
+	for _, worker := range []struct {
+		repository *GormRepository
+		owner      string
+	}{{first, "worker-a"}, {second, "worker-b"}} {
+		workers.Add(1)
+		go func(repository *GormRepository, owner string) {
+			defer workers.Done()
+			<-start
+			claim, claimErr := repository.ClaimNext(context.Background(), owner, now, time.Minute)
+			claims <- claim
+			errs <- claimErr
+		}(worker.repository, worker.owner)
+	}
+	close(start)
+	workers.Wait()
+	close(claims)
+	close(errs)
+	for claimErr := range errs {
+		if claimErr != nil {
+			t.Fatalf("concurrent claim: %v", claimErr)
+		}
+	}
+	var winner *Claim
+	claimCount := 0
+	for claim := range claims {
+		if claim != nil {
+			winner = claim
+			claimCount++
+		}
+	}
+	if claimCount != 1 || winner == nil || winner.Task.ID != id || winner.Token == 0 {
+		t.Fatalf("expected exactly one claim, count=%d winner=%#v", claimCount, winner)
+	}
+
+	if ok, err := first.MarkSuccess(context.Background(), id, "stale-owner", winner.Token, now.Add(time.Second), 1, 1); err != nil || ok {
+		t.Fatalf("stale owner terminalized work: ok=%v err=%v", ok, err)
+	}
+	renewedUntil := winner.LeaseExpiresAt.Add(time.Minute)
+	if ok, err := first.Renew(context.Background(), id, winner.Owner, winner.Token, now.Add(time.Second), renewedUntil); err != nil || !ok {
+		t.Fatalf("current notification owner could not renew: ok=%v err=%v", ok, err)
+	}
+	if ok, err := second.Renew(context.Background(), id, "stale-owner", winner.Token, now.Add(time.Second), renewedUntil); err != nil || ok {
+		t.Fatalf("stale notification owner renewed lease: ok=%v err=%v", ok, err)
+	}
+	reclaimed, err := second.ClaimNext(context.Background(), "worker-c", renewedUntil.Add(time.Microsecond), time.Minute)
+	if err != nil {
+		t.Fatalf("reclaim expired notification task: %v", err)
+	}
+	if reclaimed == nil || reclaimed.Token <= winner.Token {
+		t.Fatalf("expected higher fencing token after expiry: first=%#v second=%#v", winner, reclaimed)
+	}
+	if ok, err := first.MarkSuccess(context.Background(), id, winner.Owner, winner.Token, reclaimed.LeaseExpiresAt.Add(-time.Second), 1, 1); err != nil || ok {
+		t.Fatalf("stale token terminalized reclaimed work: ok=%v err=%v", ok, err)
+	}
+	if ok, err := second.MarkSuccess(context.Background(), id, reclaimed.Owner, reclaimed.Token, reclaimed.LeaseExpiresAt.Add(-time.Second), 1, 1); err != nil || !ok {
+		t.Fatalf("current owner could not terminalize work: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestDuplicateNotificationDeliveryUsesSourceTaskUserKey(t *testing.T) {
+	repository, _ := notificationLeaseRepositories(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	rows := []Notification{{
+		SourceTaskID: 77, UserID: 9, Title: "once", Content: "content",
+		Type: enum.NotificationTypeInfo, Level: enum.NotificationLevelNormal,
+		Platform: enum.PlatformAdmin, IsRead: enum.CommonNo, IsDel: enum.CommonNo,
+		CreatedAt: now, UpdatedAt: now,
+	}}
+	if err := repository.InsertNotifications(ctx, rows); err != nil {
+		t.Fatalf("first notification insert: %v", err)
+	}
+	duplicate := append([]Notification(nil), rows...)
+	duplicate[0].ID = 0
+	if err := repository.InsertNotifications(ctx, duplicate); err != nil {
+		t.Fatalf("duplicate notification insert: %v", err)
+	}
+	var count int64
+	if err := repository.db.WithContext(ctx).Model(&Notification{}).
+		Where("source_task_id = ? AND user_id = ?", 77, 9).Count(&count).Error; err != nil {
+		t.Fatalf("count duplicate notifications: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one notification row, got %d", count)
+	}
+}
+
+func notificationLeaseRepositories(t *testing.T) (*GormRepository, *GormRepository) {
+	t.Helper()
+	dsn := os.Getenv("TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("TEST_MYSQL_DSN is required for notification lease integration tests")
+	}
+	base, err := database.Open(config.MySQLConfig{DSN: dsn, MaxOpenConns: 4, MaxIdleConns: 2, ConnMaxLifetime: time.Minute})
+	if err != nil {
+		t.Fatalf("open base MySQL: %v", err)
+	}
+	databaseName := fmt.Sprintf("p05_notification_%d", time.Now().UnixNano())
+	if err := base.Gorm.Exec("CREATE DATABASE `" + databaseName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci").Error; err != nil {
+		_ = base.Close()
+		t.Fatalf("create notification test database: %v", err)
+	}
+	parsed, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		_ = base.Gorm.Exec("DROP DATABASE `" + databaseName + "`").Error
+		_ = base.Close()
+		t.Fatalf("parse MySQL DSN: %v", err)
+	}
+	parsed.DBName = databaseName
+	testConfig := config.MySQLConfig{DSN: parsed.FormatDSN(), MaxOpenConns: 4, MaxIdleConns: 2, ConnMaxLifetime: time.Minute}
+	clientA, err := database.Open(testConfig)
+	if err != nil {
+		_ = base.Gorm.Exec("DROP DATABASE `" + databaseName + "`").Error
+		_ = base.Close()
+		t.Fatalf("open first notification test client: %v", err)
+	}
+	clientB, err := database.Open(testConfig)
+	if err != nil {
+		_ = clientA.Close()
+		_ = base.Gorm.Exec("DROP DATABASE `" + databaseName + "`").Error
+		_ = base.Close()
+		t.Fatalf("open second notification test client: %v", err)
+	}
+	for _, statement := range []string{
+		"CREATE TABLE notification_task LIKE admin.notification_task",
+		"CREATE TABLE notifications LIKE admin.notifications",
+	} {
+		if err := clientA.Gorm.Exec(statement).Error; err != nil {
+			_ = clientB.Close()
+			_ = clientA.Close()
+			_ = base.Gorm.Exec("DROP DATABASE `" + databaseName + "`").Error
+			_ = base.Close()
+			t.Fatalf("create notification test table: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_ = clientB.Close()
+		_ = clientA.Close()
+		_ = base.Gorm.Exec("DROP DATABASE `" + databaseName + "`").Error
+		_ = base.Close()
+	})
+	return &GormRepository{db: clientA.Gorm}, &GormRepository{db: clientB.Gorm}
 }

@@ -2,6 +2,9 @@ package exporttask
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -19,7 +22,11 @@ const (
 	maxPageSize           = 50
 	exportTaskTimeLayout  = "2006-01-02 15:04:05"
 	defaultExpireDuration = 7 * 24 * time.Hour
+	defaultWorkLeaseTTL   = 30 * time.Second
+	artifactVersionV1     = "v1"
 )
+
+var ErrLeaseLost = errors.New("export task lease lost")
 
 type Service struct {
 	repository Repository
@@ -29,6 +36,8 @@ type Service struct {
 	notifier   Notifier
 	logger     *slog.Logger
 	now        func() time.Time
+	owner      string
+	leaseTTL   time.Duration
 }
 
 type Option func(*Service)
@@ -37,6 +46,17 @@ func WithNow(now func() time.Time) Option {
 	return func(s *Service) {
 		if now != nil {
 			s.now = now
+		}
+	}
+}
+
+func WithWorkLease(owner string, ttl time.Duration) Option {
+	return func(s *Service) {
+		if strings.TrimSpace(owner) != "" {
+			s.owner = strings.TrimSpace(owner)
+		}
+		if ttl > 0 {
+			s.leaseTTL = ttl
 		}
 	}
 }
@@ -89,7 +109,13 @@ func WithLogger(logger *slog.Logger) Option {
 }
 
 func NewService(repository Repository, opts ...Option) *Service {
-	service := &Service{repository: repository, now: time.Now, logger: slog.Default()}
+	service := &Service{
+		repository: repository,
+		now:        time.Now,
+		logger:     slog.Default(),
+		owner:      newWorkOwner("export"),
+		leaseTTL:   defaultWorkLeaseTTL,
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(service)
@@ -209,17 +235,6 @@ func (s *Service) CreatePending(ctx context.Context, input CreatePendingInput) (
 	})
 }
 
-func (s *Service) MarkSuccess(ctx context.Context, id int64, result SuccessResult) error {
-	repo, err := s.requireRepositoryError()
-	if err != nil {
-		return err
-	}
-	if id <= 0 {
-		return apperror.BadRequestKey("exporttask.id.invalid", nil, "无效的导出任务ID")
-	}
-	return repo.MarkSuccess(ctx, id, result)
-}
-
 func (s *Service) MarkFailed(ctx context.Context, id int64, message string) error {
 	repo, err := s.requireRepositoryError()
 	if err != nil {
@@ -228,7 +243,8 @@ func (s *Service) MarkFailed(ctx context.Context, id int64, message string) erro
 	if id <= 0 {
 		return apperror.BadRequestKey("exporttask.id.invalid", nil, "无效的导出任务ID")
 	}
-	return repo.MarkFailed(ctx, id, capRunes(message, 500))
+	_, err = repo.MarkPendingFailed(ctx, id, s.now(), capRunes(message, 500))
+	return err
 }
 
 func (s *Service) Delete(ctx context.Context, input DeleteInput) *apperror.Error {
@@ -259,71 +275,160 @@ func (s *Service) Run(ctx context.Context, input RunInput) error {
 	if err != nil {
 		return err
 	}
-	task, err := repo.Get(ctx, input.TaskID)
+	claim, err := repo.ClaimByID(ctx, input.TaskID, s.owner, s.now(), s.leaseTTL)
 	if err != nil {
-		return fmt.Errorf("load export task %d: %w", input.TaskID, err)
+		return fmt.Errorf("claim export task %d: %w", input.TaskID, err)
 	}
-	if task == nil || task.IsDel == enum.CommonYes || task.Status == enum.ExportTaskStatusSuccess {
+	if claim == nil {
 		return nil
 	}
-	definition, ok := s.registry.Resolve(input.Kind)
-	if !ok || definition.Provider == nil || s.writer == nil || s.uploader == nil {
-		return s.failRun(ctx, *task, input, fmt.Errorf("export task runtime is not configured"))
-	}
 
+	runCtx, stopRenewal := s.startLeaseRenewal(ctx, repo, claim)
+	result, runErr := s.buildAndUpload(runCtx, claim.Task, input)
+	leaseLost, renewErr := stopRenewal()
+	if leaseLost {
+		return errors.Join(ErrLeaseLost, renewErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if runErr != nil {
+		return s.failRun(context.WithoutCancel(ctx), claim, input, runErr)
+	}
+	now := s.now()
+	marked, err := repo.MarkSuccess(ctx, claim.Task.ID, claim.Owner, claim.Token, now, *result)
+	if err != nil {
+		return fmt.Errorf("mark export task success: %w", err)
+	}
+	if !marked {
+		return ErrLeaseLost
+	}
+	s.notifySuccess(ctx, claim.Task, input)
+	return nil
+}
+
+func (s *Service) buildAndUpload(ctx context.Context, task Task, input RunInput) (*SuccessResult, error) {
+	if task.ID != input.TaskID || task.UserID != input.UserID || normalizeKind(task.Kind) != input.Kind || normalizePlatform(task.Platform) != input.Platform {
+		return nil, fmt.Errorf("export task payload does not match persisted task")
+	}
+	definition, ok := s.registry.Resolve(task.Kind)
+	if !ok || definition.Provider == nil || s.writer == nil || s.uploader == nil {
+		return nil, fmt.Errorf("export task runtime is not configured")
+	}
 	data, err := definition.Provider.BuildExportData(ctx, BuildInput{
-		TaskID:   input.TaskID,
-		UserID:   input.UserID,
-		Platform: input.Platform,
-		Kind:     input.Kind,
+		TaskID:   task.ID,
+		UserID:   task.UserID,
+		Platform: task.Platform,
+		Kind:     task.Kind,
 		Scope:    input.Scope,
 		IDs:      append([]int64{}, input.IDs...),
 		Params:   input.Params,
 	})
 	if err != nil {
-		return s.failRun(ctx, *task, input, fmt.Errorf("build export data: %w", err))
+		return nil, fmt.Errorf("build export data: %w", err)
 	}
 	if data == nil {
-		return s.failRun(ctx, *task, input, fmt.Errorf("build export data: empty result"))
+		return nil, fmt.Errorf("build export data: empty result")
 	}
 	body, err := s.writer.Write(*data)
 	if err != nil {
-		return s.failRun(ctx, *task, input, fmt.Errorf("write xlsx: %w", err))
+		return nil, fmt.Errorf("write xlsx: %w", err)
 	}
-	result, err := s.uploader.Upload(ctx, UploadInput{TaskID: input.TaskID, Kind: input.Kind, Prefix: data.Prefix, Body: body, RowCount: int64(len(data.Rows))})
+	result, err := s.uploader.Upload(ctx, UploadInput{
+		TaskID:          task.ID,
+		ArtifactVersion: artifactVersionV1, CreatedAt: task.CreatedAt,
+		Body: body, RowCount: int64(len(data.Rows)),
+	})
 	if err != nil {
-		return s.failRun(ctx, *task, input, fmt.Errorf("upload xlsx: %w", err))
+		return nil, fmt.Errorf("upload xlsx: %w", err)
 	}
 	if result == nil {
-		return s.failRun(ctx, *task, input, fmt.Errorf("upload xlsx: empty result"))
+		return nil, fmt.Errorf("upload xlsx: empty result")
 	}
-	if err := repo.MarkSuccess(ctx, input.TaskID, SuccessResult{
-		FileName:  result.FileName,
-		FileURL:   result.FileURL,
-		ObjectKey: result.ObjectKey,
-		FileSize:  result.FileSize,
-		RowCount:  result.RowCount,
-	}); err != nil {
-		return fmt.Errorf("mark export task success: %w", err)
-	}
-	s.notifySuccess(ctx, *task, input)
-	return nil
+	return &SuccessResult{
+		FileName: result.FileName, FileURL: result.FileURL, ObjectKey: result.ObjectKey,
+		FileSize: result.FileSize, RowCount: result.RowCount,
+	}, nil
 }
 
-func (s *Service) failRun(ctx context.Context, task Task, input RunInput, runErr error) error {
+func (s *Service) failRun(ctx context.Context, claim *Claim, input RunInput, runErr error) error {
 	message := ""
 	if runErr != nil {
 		message = runErr.Error()
 	}
-	if repo, err := s.requireRepositoryError(); err == nil {
-		if markErr := repo.MarkFailed(ctx, input.TaskID, capRunes(message, 500)); markErr != nil && s.logger != nil {
-			s.logger.WarnContext(ctx, "failed to mark export task failed", "task_id", input.TaskID, "error", markErr)
-		}
+	repo, err := s.requireRepositoryError()
+	if err != nil {
+		return errors.Join(runErr, err)
 	}
-	s.notifyFailed(ctx, task, input, message)
+	now := s.now()
+	marked, markErr := repo.MarkFailed(ctx, claim.Task.ID, claim.Owner, claim.Token, now, capRunes(message, 500))
+	if markErr != nil {
+		return errors.Join(runErr, markErr)
+	}
+	if !marked {
+		return errors.Join(runErr, ErrLeaseLost)
+	}
+	s.notifyFailed(ctx, claim.Task, input, message)
 	return runErr
 }
 
+func (s *Service) startLeaseRenewal(ctx context.Context, repo Repository, claim *Claim) (context.Context, func() (bool, error)) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancelRun := context.WithCancelCause(ctx)
+	renewCtx, cancelRenew := context.WithCancel(ctx)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	lost := false
+	var renewErr error
+	go func() {
+		defer close(done)
+		interval := s.leaseTTL / 3
+		if interval < time.Millisecond {
+			interval = time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				now := s.now()
+				alive, err := repo.Renew(renewCtx, claim.Task.ID, claim.Owner, claim.Token, now, now.Add(s.leaseTTL))
+				if err != nil || !alive {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					lost = true
+					renewErr = err
+					cancelRun(ErrLeaseLost)
+					return
+				}
+			}
+		}
+	}()
+	return runCtx, func() (bool, error) {
+		close(stop)
+		cancelRenew()
+		<-done
+		cancelRun(nil)
+		return lost, renewErr
+	}
+}
+
+func newWorkOwner(prefix string) string {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err == nil {
+		return prefix + "-" + hex.EncodeToString(random[:])
+	}
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
 func (s *Service) notifySuccess(ctx context.Context, task Task, input RunInput) {
 	if s == nil || s.notifier == nil {
 		return

@@ -39,6 +39,9 @@ type fakeRepository struct {
 	successSent    int
 	successTotal   int
 	failedMsg      string
+	terminalCalls  int
+	renewLost      bool
+	blockTargets   bool
 	err            error
 }
 
@@ -78,16 +81,32 @@ func (f *fakeRepository) CountTargetUsers(ctx context.Context, targetType int, t
 	return f.targetCount, f.err
 }
 
-func (f *fakeRepository) ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]int64, error) {
+func (f *fakeRepository) ListDueTaskIDs(ctx context.Context, now time.Time, limit int) ([]int64, error) {
 	f.gotDueLimit = limit
 	return f.dueIDs, f.err
 }
 
-func (f *fakeRepository) ClaimSendTask(ctx context.Context, id int64) (*Task, bool, error) {
-	return f.sendTask, f.sendClaimed, f.err
+func (f *fakeRepository) ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	return f.ClaimByID(ctx, 0, owner, now, ttl)
+}
+
+func (f *fakeRepository) ClaimByID(_ context.Context, _ int64, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	if f.err != nil || f.sendTask == nil || !f.sendClaimed {
+		return nil, f.err
+	}
+	task := *f.sendTask
+	return &Claim{Task: task, Owner: owner, Token: 1, LeaseExpiresAt: now.Add(ttl)}, nil
+}
+
+func (f *fakeRepository) Renew(context.Context, int64, string, uint64, time.Time, time.Time) (bool, error) {
+	return !f.renewLost, f.err
 }
 
 func (f *fakeRepository) TargetUserIDs(ctx context.Context, task Task) ([]int64, error) {
+	if f.blockTargets {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return f.targetUserIDs, f.err
 }
 
@@ -96,21 +115,23 @@ func (f *fakeRepository) InsertNotifications(ctx context.Context, rows []Notific
 	return f.err
 }
 
-func (f *fakeRepository) UpdateProgress(ctx context.Context, id int64, sentCount int, totalCount int) error {
+func (f *fakeRepository) UpdateProgress(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {
 	f.progressSent = append(f.progressSent, sentCount)
 	f.progressTotal = append(f.progressTotal, totalCount)
-	return f.err
+	return f.err == nil, f.err
 }
 
-func (f *fakeRepository) MarkSuccess(ctx context.Context, id int64, sentCount int, totalCount int) error {
+func (f *fakeRepository) MarkSuccess(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {
+	f.terminalCalls++
 	f.successSent = sentCount
 	f.successTotal = totalCount
-	return f.err
+	return f.err == nil, f.err
 }
 
-func (f *fakeRepository) MarkFailed(ctx context.Context, id int64, errMsg string) error {
+func (f *fakeRepository) MarkFailed(ctx context.Context, id int64, owner string, token uint64, now time.Time, errMsg string) (bool, error) {
+	f.terminalCalls++
 	f.failedMsg = errMsg
-	return nil
+	return true, nil
 }
 
 type fakeEnqueuer struct {
@@ -339,7 +360,7 @@ func TestSendTaskWritesNotificationsAndMarksSuccess(t *testing.T) {
 	if got.Sent != 2 || len(repo.inserted) != 2 || repo.successSent != 2 || repo.successTotal != 2 {
 		t.Fatalf("unexpected send result=%#v repo=%#v", got, repo)
 	}
-	if repo.inserted[0].IsRead != enum.CommonNo || repo.inserted[0].IsDel != enum.CommonNo {
+	if repo.inserted[0].SourceTaskID != 7 || repo.inserted[0].IsRead != enum.CommonNo || repo.inserted[0].IsDel != enum.CommonNo {
 		t.Fatalf("unexpected notification row: %#v", repo.inserted[0])
 	}
 }
@@ -410,6 +431,27 @@ func TestSendTaskNoopsWhenAlreadyDone(t *testing.T) {
 	}
 	if !got.Noop {
 		t.Fatalf("expected noop result, got %#v", got)
+	}
+}
+
+func TestLeaseLossCancelsNotificationWorkAndPreventsTerminalWrite(t *testing.T) {
+	repo := &fakeRepository{
+		sendTask: &Task{
+			ID: 10, Title: "lease", Status: enum.NotificationTaskStatusSending,
+			TargetType: enum.NotificationTargetUsers, TargetIDs: `[1]`,
+		},
+		sendClaimed:  true,
+		renewLost:    true,
+		blockTargets: true,
+	}
+	service := NewService(repo, WithWorkLease("worker-a", 15*time.Millisecond))
+
+	_, err := service.SendTask(context.Background(), SendTaskInput{TaskID: 10})
+	if !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("expected notification lease loss, got %v", err)
+	}
+	if repo.terminalCalls != 0 || len(repo.inserted) != 0 {
+		t.Fatalf("lease-lost worker published or terminalized: terminals=%d rows=%#v", repo.terminalCalls, repo.inserted)
 	}
 }
 

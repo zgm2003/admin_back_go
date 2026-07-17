@@ -28,6 +28,8 @@ type fakeRepository struct {
 	successResult   SuccessResult
 	markFailedID    int64
 	failedMessage   string
+	terminalCalls   int
+	renewLost       bool
 	err             error
 }
 
@@ -54,16 +56,40 @@ func (f *fakeRepository) Create(ctx context.Context, row Task) (int64, error) {
 	return f.createdID, f.err
 }
 
-func (f *fakeRepository) MarkSuccess(ctx context.Context, id int64, result SuccessResult) error {
-	f.successID = id
-	f.successResult = result
-	return f.err
+func (f *fakeRepository) ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	return f.ClaimByID(ctx, 0, owner, now, ttl)
 }
 
-func (f *fakeRepository) MarkFailed(ctx context.Context, id int64, message string) error {
+func (f *fakeRepository) ClaimByID(_ context.Context, _ int64, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	if f.err != nil || f.getRow == nil || f.getRow.Status != enum.ExportTaskStatusPending {
+		return nil, f.err
+	}
+	task := *f.getRow
+	return &Claim{Task: task, Owner: owner, Token: 1, LeaseExpiresAt: now.Add(ttl)}, nil
+}
+
+func (f *fakeRepository) Renew(context.Context, int64, string, uint64, time.Time, time.Time) (bool, error) {
+	return !f.renewLost, f.err
+}
+
+func (f *fakeRepository) MarkSuccess(ctx context.Context, id int64, owner string, token uint64, now time.Time, result SuccessResult) (bool, error) {
+	f.terminalCalls++
+	f.successID = id
+	f.successResult = result
+	return f.err == nil, f.err
+}
+
+func (f *fakeRepository) MarkFailed(ctx context.Context, id int64, owner string, token uint64, now time.Time, message string) (bool, error) {
+	f.terminalCalls++
 	f.markFailedID = id
 	f.failedMessage = message
-	return f.err
+	return f.err == nil, f.err
+}
+
+func (f *fakeRepository) MarkPendingFailed(ctx context.Context, id int64, now time.Time, message string) (bool, error) {
+	f.markFailedID = id
+	f.failedMessage = message
+	return f.err == nil, f.err
 }
 
 func (f *fakeRepository) DeleteByUser(ctx context.Context, userID int64, platform string, ids []int64) error {

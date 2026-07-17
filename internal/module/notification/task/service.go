@@ -2,7 +2,10 @@ package task
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -20,9 +23,12 @@ import (
 const (
 	defaultDispatchLimit = 100
 	sendBatchSize        = 100
+	defaultWorkLeaseTTL  = 30 * time.Second
 
 	EventNotificationCreatedV1 = "notification.created.v1"
 )
+
+var ErrLeaseLost = errors.New("notification task lease lost")
 
 type Service struct {
 	repository        Repository
@@ -30,6 +36,8 @@ type Service struct {
 	realtimePublisher infrarealtime.Publisher
 	logger            *slog.Logger
 	now               func() time.Time
+	owner             string
+	leaseTTL          time.Duration
 }
 
 type Option func(*Service)
@@ -62,11 +70,24 @@ func WithNow(now func() time.Time) Option {
 	}
 }
 
+func WithWorkLease(owner string, ttl time.Duration) Option {
+	return func(s *Service) {
+		if strings.TrimSpace(owner) != "" {
+			s.owner = strings.TrimSpace(owner)
+		}
+		if ttl > 0 {
+			s.leaseTTL = ttl
+		}
+	}
+}
+
 func NewService(repository Repository, options ...Option) *Service {
 	service := &Service{
 		repository: repository,
 		logger:     slog.Default(),
 		now:        time.Now,
+		owner:      newWorkOwner("notification"),
+		leaseTTL:   defaultWorkLeaseTTL,
 	}
 	for _, option := range options {
 		if option != nil {
@@ -239,9 +260,9 @@ func (s *Service) DispatchDue(ctx context.Context, input DispatchDueInput) (*Dis
 	if input.Limit <= 0 {
 		input.Limit = defaultDispatchLimit
 	}
-	ids, err := repo.ClaimDueTasks(ctx, input.Now, input.Limit)
+	ids, err := repo.ListDueTaskIDs(ctx, input.Now, input.Limit)
 	if err != nil {
-		return nil, fmt.Errorf("claim due notification tasks: %w", err)
+		return nil, fmt.Errorf("list due notification tasks: %w", err)
 	}
 	result := &DispatchDueResult{Claimed: len(ids)}
 	for _, id := range ids {
@@ -265,19 +286,54 @@ func (s *Service) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskR
 	if appErr != nil {
 		return nil, appErr
 	}
-	task, claimed, err := repo.ClaimSendTask(ctx, input.TaskID)
+	claim, err := repo.ClaimByID(ctx, input.TaskID, s.owner, s.now(), s.leaseTTL)
 	if err != nil {
-		_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
 		return nil, fmt.Errorf("claim notification task %d: %w", input.TaskID, err)
 	}
-	if task == nil || !claimed {
+	if claim == nil {
 		return &SendTaskResult{TaskID: input.TaskID, Noop: true}, nil
 	}
 
-	userIDs, err := repo.TargetUserIDs(ctx, *task)
+	runCtx, stopRenewal := s.startLeaseRenewal(ctx, repo, claim)
+	result, workErr := s.deliverClaim(runCtx, repo, claim)
+	leaseLost, renewErr := stopRenewal()
+	if leaseLost {
+		return nil, errors.Join(ErrLeaseLost, renewErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if errors.Is(workErr, ErrLeaseLost) {
+		return nil, workErr
+	}
+	if workErr != nil {
+		now := s.now()
+		marked, markErr := repo.MarkFailed(context.WithoutCancel(ctx), claim.Task.ID, claim.Owner, claim.Token, now, workErr.Error())
+		if markErr != nil {
+			return nil, errors.Join(workErr, markErr)
+		}
+		if !marked {
+			return nil, errors.Join(workErr, ErrLeaseLost)
+		}
+		return nil, workErr
+	}
+	now := s.now()
+	marked, err := repo.MarkSuccess(ctx, claim.Task.ID, claim.Owner, claim.Token, now, result.Sent, result.Sent)
 	if err != nil {
-		_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
-		return nil, fmt.Errorf("resolve notification task %d target users: %w", input.TaskID, err)
+		return nil, fmt.Errorf("mark notification task %d success: %w", input.TaskID, err)
+	}
+	if !marked {
+		return nil, ErrLeaseLost
+	}
+	return result, nil
+}
+
+func (s *Service) deliverClaim(ctx context.Context, repo Repository, claim *Claim) (*SendTaskResult, error) {
+	task := claim.Task
+
+	userIDs, err := repo.TargetUserIDs(ctx, task)
+	if err != nil {
+		return nil, fmt.Errorf("resolve notification task %d target users: %w", task.ID, err)
 	}
 	totalCount := len(userIDs)
 	sentCount := 0
@@ -289,33 +345,91 @@ func (s *Service) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskR
 		rows := make([]Notification, 0, end-start)
 		for _, userID := range userIDs[start:end] {
 			rows = append(rows, Notification{
-				UserID:   userID,
-				Title:    task.Title,
-				Content:  task.Content,
-				Type:     task.Type,
-				Level:    task.Level,
-				Link:     task.Link,
-				Platform: task.Platform,
-				IsRead:   enum.CommonNo,
-				IsDel:    enum.CommonNo,
+				SourceTaskID: task.ID,
+				UserID:       userID,
+				Title:        task.Title,
+				Content:      task.Content,
+				Type:         task.Type,
+				Level:        task.Level,
+				Link:         task.Link,
+				Platform:     task.Platform,
+				IsRead:       enum.CommonNo,
+				IsDel:        enum.CommonNo,
 			})
 		}
 		if err := repo.InsertNotifications(ctx, rows); err != nil {
-			_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
-			return nil, fmt.Errorf("insert notification task %d batch: %w", input.TaskID, err)
+			return nil, fmt.Errorf("insert notification task %d batch: %w", task.ID, err)
 		}
-		s.publishRealtimeNotifications(ctx, *task, rows)
+		s.publishRealtimeNotifications(ctx, task, rows)
 		sentCount += len(rows)
-		if err := repo.UpdateProgress(ctx, input.TaskID, sentCount, totalCount); err != nil {
-			_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
-			return nil, fmt.Errorf("update notification task %d progress: %w", input.TaskID, err)
+		now := s.now()
+		updated, err := repo.UpdateProgress(ctx, task.ID, claim.Owner, claim.Token, now, sentCount, totalCount)
+		if err != nil {
+			return nil, fmt.Errorf("update notification task %d progress: %w", task.ID, err)
+		}
+		if !updated {
+			return nil, ErrLeaseLost
 		}
 	}
-	if err := repo.MarkSuccess(ctx, input.TaskID, sentCount, totalCount); err != nil {
-		_ = repo.MarkFailed(ctx, input.TaskID, err.Error())
-		return nil, fmt.Errorf("mark notification task %d success: %w", input.TaskID, err)
+	return &SendTaskResult{TaskID: task.ID, Sent: sentCount}, nil
+}
+
+func (s *Service) startLeaseRenewal(ctx context.Context, repo Repository, claim *Claim) (context.Context, func() (bool, error)) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return &SendTaskResult{TaskID: input.TaskID, Sent: sentCount}, nil
+	runCtx, cancelRun := context.WithCancelCause(ctx)
+	renewCtx, cancelRenew := context.WithCancel(ctx)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	lost := false
+	var renewErr error
+	go func() {
+		defer close(done)
+		interval := s.leaseTTL / 3
+		if interval < time.Millisecond {
+			interval = time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				now := s.now()
+				alive, err := repo.Renew(renewCtx, claim.Task.ID, claim.Owner, claim.Token, now, now.Add(s.leaseTTL))
+				if err != nil || !alive {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					lost = true
+					renewErr = err
+					cancelRun(ErrLeaseLost)
+					return
+				}
+			}
+		}
+	}()
+	return runCtx, func() (bool, error) {
+		close(stop)
+		cancelRenew()
+		<-done
+		cancelRun(nil)
+		return lost, renewErr
+	}
+}
+
+func newWorkOwner(prefix string) string {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err == nil {
+		return prefix + "-" + hex.EncodeToString(random[:])
+	}
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {

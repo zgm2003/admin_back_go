@@ -1120,12 +1120,20 @@ func (fakeRepositoryForNotificationTaskRouter) CountTargetUsers(ctx context.Cont
 	return 0, nil
 }
 
-func (fakeRepositoryForNotificationTaskRouter) ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]int64, error) {
+func (fakeRepositoryForNotificationTaskRouter) ListDueTaskIDs(ctx context.Context, now time.Time, limit int) ([]int64, error) {
 	return nil, nil
 }
 
-func (fakeRepositoryForNotificationTaskRouter) ClaimSendTask(ctx context.Context, id int64) (*notificationtask.Task, bool, error) {
-	return nil, false, nil
+func (fakeRepositoryForNotificationTaskRouter) ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*notificationtask.Claim, error) {
+	return nil, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) ClaimByID(ctx context.Context, id int64, owner string, now time.Time, ttl time.Duration) (*notificationtask.Claim, error) {
+	return nil, nil
+}
+
+func (fakeRepositoryForNotificationTaskRouter) Renew(ctx context.Context, id int64, owner string, token uint64, now time.Time, leaseExpiresAt time.Time) (bool, error) {
+	return false, nil
 }
 
 func (fakeRepositoryForNotificationTaskRouter) TargetUserIDs(ctx context.Context, task notificationtask.Task) ([]int64, error) {
@@ -1136,16 +1144,16 @@ func (fakeRepositoryForNotificationTaskRouter) InsertNotifications(ctx context.C
 	return nil
 }
 
-func (fakeRepositoryForNotificationTaskRouter) UpdateProgress(ctx context.Context, id int64, sentCount int, totalCount int) error {
-	return nil
+func (fakeRepositoryForNotificationTaskRouter) UpdateProgress(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {
+	return false, nil
 }
 
-func (fakeRepositoryForNotificationTaskRouter) MarkSuccess(ctx context.Context, id int64, sentCount int, totalCount int) error {
-	return nil
+func (fakeRepositoryForNotificationTaskRouter) MarkSuccess(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {
+	return false, nil
 }
 
-func (fakeRepositoryForNotificationTaskRouter) MarkFailed(ctx context.Context, id int64, errMsg string) error {
-	return nil
+func (fakeRepositoryForNotificationTaskRouter) MarkFailed(ctx context.Context, id int64, owner string, token uint64, now time.Time, errMsg string) (bool, error) {
+	return false, nil
 }
 
 type fakeRepositoryForNotificationRouter struct{}

@@ -13,7 +13,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var ErrRepositoryNotConfigured = errors.New("notification task repository is not configured")
+var (
+	ErrRepositoryNotConfigured = errors.New("notification task repository is not configured")
+	ErrClaimInputInvalid       = errors.New("notification task claim input is invalid")
+)
 
 const (
 	pendingDispatchSendAtCondition = "(send_at IS NULL OR send_at <= ?)"
@@ -28,13 +31,22 @@ type Repository interface {
 	CancelPending(ctx context.Context, id int64) (int64, error)
 	Delete(ctx context.Context, id int64) (int64, error)
 	CountTargetUsers(ctx context.Context, targetType int, targetIDs []int64) (int, error)
-	ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]int64, error)
-	ClaimSendTask(ctx context.Context, id int64) (*Task, bool, error)
+	ListDueTaskIDs(ctx context.Context, now time.Time, limit int) ([]int64, error)
+	ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*Claim, error)
+	ClaimByID(ctx context.Context, id int64, owner string, now time.Time, ttl time.Duration) (*Claim, error)
+	Renew(ctx context.Context, id int64, owner string, token uint64, now time.Time, leaseExpiresAt time.Time) (bool, error)
 	TargetUserIDs(ctx context.Context, task Task) ([]int64, error)
 	InsertNotifications(ctx context.Context, rows []Notification) error
-	UpdateProgress(ctx context.Context, id int64, sentCount int, totalCount int) error
-	MarkSuccess(ctx context.Context, id int64, sentCount int, totalCount int) error
-	MarkFailed(ctx context.Context, id int64, errMsg string) error
+	UpdateProgress(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error)
+	MarkSuccess(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error)
+	MarkFailed(ctx context.Context, id int64, owner string, token uint64, now time.Time, errMsg string) (bool, error)
+}
+
+type Claim struct {
+	Task           Task
+	Owner          string
+	Token          uint64
+	LeaseExpiresAt time.Time
 }
 
 type GormRepository struct {
@@ -186,94 +198,111 @@ func (r *GormRepository) CountTargetUsers(ctx context.Context, targetType int, t
 	return int(count), nil
 }
 
-func (r *GormRepository) ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]int64, error) {
+func (r *GormRepository) ListDueTaskIDs(ctx context.Context, now time.Time, limit int) ([]int64, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
+	}
+	if now.IsZero() {
+		return nil, ErrClaimInputInvalid
 	}
 	if limit <= 0 {
 		limit = 100
 	}
-
 	var ids []int64
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []Task
-		if err := pendingDispatchQuery(tx, now, limit).Find(&rows).Error; err != nil {
-			return err
-		}
-		ids = make([]int64, 0, len(rows))
-		for _, row := range rows {
-			ids = append(ids, row.ID)
-		}
-		if len(ids) == 0 {
-			return nil
-		}
-		return tx.Model(&Task{}).
-			Where("id IN ?", ids).
-			Where("status = ?", enum.NotificationTaskStatusPending).
-			Where("is_del = ?", enum.CommonNo).
-			Update("status", enum.NotificationTaskStatusSending).Error
-	})
+	err := dueTaskQuery(r.db.WithContext(ctx), now, limit).Pluck("id", &ids).Error
 	if err != nil {
 		return nil, err
 	}
 	return ids, nil
 }
 
-func pendingDispatchQuery(db *gorm.DB, now time.Time, limit int) *gorm.DB {
-	return db.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-		Select("id").
-		Where("status = ?", enum.NotificationTaskStatusPending).
+func dueTaskQuery(db *gorm.DB, now time.Time, limit int) *gorm.DB {
+	return db.Model(&Task{}).
 		Where("is_del = ?", enum.CommonNo).
-		Where(pendingDispatchSendAtCondition, now).
+		Where("((status = ? AND "+pendingDispatchSendAtCondition+") OR (status = ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))", enum.NotificationTaskStatusPending, now, enum.NotificationTaskStatusSending, now).
 		Order(gorm.Expr(pendingDispatchOrder)).
 		Limit(limit)
 }
 
-func (r *GormRepository) ClaimSendTask(ctx context.Context, id int64) (*Task, bool, error) {
-	if r == nil || r.db == nil {
-		return nil, false, ErrRepositoryNotConfigured
-	}
+func (r *GormRepository) ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	return r.claim(ctx, 0, owner, now, ttl)
+}
+
+func (r *GormRepository) ClaimByID(ctx context.Context, id int64, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
 	if id <= 0 {
-		return nil, false, nil
+		return nil, ErrClaimInputInvalid
 	}
-	var task Task
-	claimed := false
+	return r.claim(ctx, id, owner, now, ttl)
+}
+
+func (r *GormRepository) claim(ctx context.Context, id int64, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	owner = strings.TrimSpace(owner)
+	if owner == "" || now.IsZero() || ttl <= 0 {
+		return nil, ErrClaimInputInvalid
+	}
+	leaseExpiresAt := now.Add(ttl)
+	var claim *Claim
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ?", id).
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("is_del = ?", enum.CommonNo).
-			First(&task).Error
+			Where("((status = ? AND "+pendingDispatchSendAtCondition+") OR (status = ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))", enum.NotificationTaskStatusPending, now, enum.NotificationTaskStatusSending, now)
+		if id > 0 {
+			query = query.Where("id = ?", id)
+		}
+		var task Task
+		err := query.Order(gorm.Expr(pendingDispatchOrder)).First(&task).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		switch task.Status {
-		case enum.NotificationTaskStatusSuccess, enum.NotificationTaskStatusFailed:
-			return nil
-		case enum.NotificationTaskStatusPending, enum.NotificationTaskStatusSending:
-			if task.Status == enum.NotificationTaskStatusPending {
-				if err := tx.Model(&Task{}).
-					Where("id = ?", id).
-					Update("status", enum.NotificationTaskStatusSending).Error; err != nil {
-					return err
-				}
-				task.Status = enum.NotificationTaskStatusSending
-			}
-			claimed = true
-			return nil
-		default:
+		nextToken := task.ClaimToken + 1
+		if nextToken == 0 {
+			return ErrClaimInputInvalid
+		}
+		result := tx.Model(&Task{}).
+			Where("id = ? AND claim_token = ?", task.ID, task.ClaimToken).
+			Updates(map[string]any{
+				"status": enum.NotificationTaskStatusSending, "claim_owner": owner,
+				"claim_token": nextToken, "claim_expires_at": leaseExpiresAt, "updated_at": now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
 			return nil
 		}
+		task.Status = enum.NotificationTaskStatusSending
+		task.ClaimOwner = &owner
+		task.ClaimToken = nextToken
+		task.ClaimExpiresAt = &leaseExpiresAt
+		task.UpdatedAt = now
+		claim = &Claim{Task: task, Owner: owner, Token: nextToken, LeaseExpiresAt: leaseExpiresAt}
+		return nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	if task.ID == 0 {
-		return nil, false, nil
+	return claim, nil
+}
+
+func (r *GormRepository) Renew(ctx context.Context, id int64, owner string, token uint64, now time.Time, leaseExpiresAt time.Time) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrRepositoryNotConfigured
 	}
-	return &task, claimed, nil
+	owner = strings.TrimSpace(owner)
+	if id <= 0 || owner == "" || token == 0 || now.IsZero() || !leaseExpiresAt.After(now) {
+		return false, ErrClaimInputInvalid
+	}
+	result := r.db.WithContext(ctx).Model(&Task{}).
+		Where("id = ? AND status = ? AND is_del = ?", id, enum.NotificationTaskStatusSending, enum.CommonNo).
+		Where("claim_owner = ? AND claim_token = ? AND claim_expires_at > ?", owner, token, now).
+		Updates(map[string]any{"claim_expires_at": leaseExpiresAt, "updated_at": now})
+	return result.RowsAffected == 1, result.Error
 }
 
 func (r *GormRepository) TargetUserIDs(ctx context.Context, task Task) ([]int64, error) {
@@ -313,41 +342,71 @@ func (r *GormRepository) InsertNotifications(ctx context.Context, rows []Notific
 	if len(rows) == 0 {
 		return nil
 	}
-	return r.db.WithContext(ctx).CreateInBatches(rows, 100).Error
+	for _, row := range rows {
+		if row.SourceTaskID <= 0 || row.UserID <= 0 {
+			return ErrClaimInputInvalid
+		}
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "source_task_id"}, {Name: "user_id"}},
+		DoNothing: true,
+	}).CreateInBatches(rows, 100).Error
 }
 
-func (r *GormRepository) UpdateProgress(ctx context.Context, id int64, sentCount int, totalCount int) error {
+func (r *GormRepository) UpdateProgress(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {
 	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
+		return false, ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).
+	if !validFenceInput(id, owner, token, now) || sentCount < 0 || totalCount < 0 || sentCount > totalCount {
+		return false, ErrClaimInputInvalid
+	}
+	result := r.db.WithContext(ctx).
 		Model(&Task{}).
-		Where("id = ?", id).
-		Updates(map[string]any{"sent_count": sentCount, "total_count": totalCount}).Error
+		Where("id = ? AND status = ? AND is_del = ?", id, enum.NotificationTaskStatusSending, enum.CommonNo).
+		Where("claim_owner = ? AND claim_token = ? AND claim_expires_at > ?", strings.TrimSpace(owner), token, now).
+		Updates(map[string]any{"sent_count": sentCount, "total_count": totalCount, "updated_at": now})
+	return result.RowsAffected == 1, result.Error
 }
 
-func (r *GormRepository) MarkSuccess(ctx context.Context, id int64, sentCount int, totalCount int) error {
+func (r *GormRepository) MarkSuccess(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {
 	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
+		return false, ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).
+	if !validFenceInput(id, owner, token, now) || sentCount < 0 || totalCount < 0 || sentCount > totalCount {
+		return false, ErrClaimInputInvalid
+	}
+	result := r.db.WithContext(ctx).
 		Model(&Task{}).
-		Where("id = ?", id).
+		Where("id = ? AND status = ? AND is_del = ?", id, enum.NotificationTaskStatusSending, enum.CommonNo).
+		Where("claim_owner = ? AND claim_token = ? AND claim_expires_at > ?", strings.TrimSpace(owner), token, now).
 		Updates(map[string]any{
 			"status":      enum.NotificationTaskStatusSuccess,
 			"sent_count":  sentCount,
 			"total_count": totalCount,
 			"error_msg":   "",
-		}).Error
+			"claim_owner": nil, "claim_expires_at": nil, "updated_at": now,
+		})
+	return result.RowsAffected == 1, result.Error
 }
 
-func (r *GormRepository) MarkFailed(ctx context.Context, id int64, errMsg string) error {
+func (r *GormRepository) MarkFailed(ctx context.Context, id int64, owner string, token uint64, now time.Time, errMsg string) (bool, error) {
 	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
+		return false, ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).
+	if !validFenceInput(id, owner, token, now) {
+		return false, ErrClaimInputInvalid
+	}
+	result := r.db.WithContext(ctx).
 		Model(&Task{}).
-		Where("id = ?", id).
-		Update("status", enum.NotificationTaskStatusFailed).
-		Update("error_msg", truncateRunes(errMsg, 500)).Error
+		Where("id = ? AND status = ? AND is_del = ?", id, enum.NotificationTaskStatusSending, enum.CommonNo).
+		Where("claim_owner = ? AND claim_token = ? AND claim_expires_at > ?", strings.TrimSpace(owner), token, now).
+		Updates(map[string]any{
+			"status": enum.NotificationTaskStatusFailed, "error_msg": truncateRunes(errMsg, 500),
+			"claim_owner": nil, "claim_expires_at": nil, "updated_at": now,
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
+func validFenceInput(id int64, owner string, token uint64, now time.Time) bool {
+	return id > 0 && strings.TrimSpace(owner) != "" && token > 0 && !now.IsZero()
 }

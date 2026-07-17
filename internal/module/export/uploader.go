@@ -18,11 +18,11 @@ type SecretDecrypter interface {
 }
 
 type UploadInput struct {
-	TaskID   int64
-	Kind     string
-	Prefix   string
-	Body     []byte
-	RowCount int64
+	TaskID          int64
+	ArtifactVersion string
+	CreatedAt       time.Time
+	Body            []byte
+	RowCount        int64
 }
 
 type UploadResult struct {
@@ -37,34 +37,18 @@ type COSUploader struct {
 	repository UploadConfigRepository
 	box        SecretDecrypter
 	writer     storagecos.ObjectWriter
-	now        func() time.Time
 }
 
-type UploadOption func(*COSUploader)
-
-func WithUploadNow(now func() time.Time) UploadOption {
-	return func(u *COSUploader) {
-		if now != nil {
-			u.now = now
-		}
-	}
-}
-
-func NewCOSUploader(repository UploadConfigRepository, box SecretDecrypter, writer storagecos.ObjectWriter, opts ...UploadOption) *COSUploader {
-	uploader := &COSUploader{repository: repository, box: box, writer: writer, now: time.Now}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(uploader)
-		}
-	}
-	return uploader
+func NewCOSUploader(repository UploadConfigRepository, box SecretDecrypter, writer storagecos.ObjectWriter) *COSUploader {
+	return &COSUploader{repository: repository, box: box, writer: writer}
 }
 
 func (u *COSUploader) Upload(ctx context.Context, input UploadInput) (*UploadResult, error) {
 	if u == nil || u.repository == nil || u.box == nil || u.writer == nil {
 		return nil, fmt.Errorf("export upload: uploader is not configured")
 	}
-	if input.TaskID <= 0 || len(input.Body) == 0 {
+	version := strings.TrimSpace(input.ArtifactVersion)
+	if input.TaskID <= 0 || len(input.Body) == 0 || input.CreatedAt.IsZero() || version == "" || safePathSegment(version) != version {
 		return nil, fmt.Errorf("export upload: invalid upload input")
 	}
 	cfg, err := u.repository.GetEnabledConfig(ctx)
@@ -85,13 +69,8 @@ func (u *COSUploader) Upload(ctx context.Context, input UploadInput) (*UploadRes
 	if err != nil || strings.TrimSpace(secretKey) == "" {
 		return nil, fmt.Errorf("export upload: decrypt cos secret key: %w", err)
 	}
-	now := u.now()
-	prefix := strings.TrimSpace(input.Prefix)
-	if prefix == "" {
-		prefix = "export"
-	}
-	fileName := fmt.Sprintf("%s_%s_%d.xlsx", prefix, now.Format("20060102_150405"), input.TaskID)
-	key := path.Join("exports", safePathSegment(normalizeKind(input.Kind)), now.Format("20060102"), safePathSegment(fileName))
+	fileName := fmt.Sprintf("%d-%s.xlsx", input.TaskID, version)
+	key := path.Join("exports", input.CreatedAt.Format("20060102"), fileName)
 	if err := u.writer.Put(ctx, storagecos.PutInput{
 		SecretID:    secretID,
 		SecretKey:   secretKey,
