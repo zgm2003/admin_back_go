@@ -27,8 +27,20 @@ func TestJWTCodecIssueParseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}
-	if claims.SessionID != 42 || claims.UserID != 7 || claims.Platform != "admin" || claims.DeviceID != "device-a" {
+	if claims.SessionID != 42 || claims.UserID != 7 || claims.Issuer != "admin_go" || claims.Platform != "admin" || claims.DeviceID != "device-a" || !claims.NotBefore.Equal(now) {
 		t.Fatalf("unexpected claims: %#v", claims)
+	}
+}
+
+func TestJWTCodecRejectsFutureIssuedAt(t *testing.T) {
+	codec := NewJWTCodec([]byte("12345678901234567890123456789012"), Options{Issuer: "admin_go"})
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	token, err := codec.Issue(Claims{SessionID: 42, UserID: 7, Platform: "admin", IssuedAt: now.Add(time.Minute), NotBefore: now, ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("Issue returned error: %v", err)
+	}
+	if _, err = codec.Parse(token, now); err == nil {
+		t.Fatalf("expected future issued-at to fail")
 	}
 }
 

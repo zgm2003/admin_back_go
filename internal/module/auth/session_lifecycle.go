@@ -35,6 +35,10 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
+	legacyNonce, nonceErr := makeToken(32)
+	if nonceErr != nil {
+		return nil, apperror.Internal("创建登录会话失败")
+	}
 
 	var (
 		sessionID       int64
@@ -55,7 +59,7 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 
 		createdID, insertErr := repository.Insert(ctx, SessionCreate{
 			UserID:           input.UserID,
-			AccessTokenHash:  temporaryAccessTokenHash(sessionIDPlaceholder(input.UserID, input.Platform, now)),
+			LegacyNonce:      legacyNonce,
 			RefreshTokenHash: refreshHash,
 			Platform:         input.Platform,
 			DeviceID:         input.DeviceID,
@@ -69,13 +73,10 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 			return insertErr
 		}
 		sessionID = createdID
-		issuedAccess, accessHash, expiresAt, accessErr := a.issueAccessToken(sessionID, input.UserID, input.Platform, input.DeviceID, policy, now)
+		issuedAccess, expiresAt, accessErr := a.issueAccessToken(sessionID, input.UserID, input.Platform, input.DeviceID, policy, now)
 		if accessErr != nil {
 			lifecycleErr = accessErr
 			return accessErr
-		}
-		if updateErr := repository.UpdateAccessToken(ctx, sessionID, accessHash, expiresAt); updateErr != nil {
-			return updateErr
 		}
 		accessToken = issuedAccess
 		accessExpiresAt = expiresAt
@@ -139,7 +140,7 @@ func (a *SessionLifecycle) Authenticate(ctx context.Context, input AccessCredent
 		if session, cacheErr := a.sessionFromCache(ctx, cacheKey); cacheErr != nil {
 			return nil, cacheErr
 		} else if session != nil {
-			if err := matchClaims(session, claims); err != nil {
+			if err := matchClaims(session, claims, now); err != nil {
 				a.deleteCache(ctx, cacheKey)
 				return nil, err
 			}
@@ -164,7 +165,7 @@ func (a *SessionLifecycle) Authenticate(ctx context.Context, input AccessCredent
 	if !session.ExpiresAt.After(now) {
 		return nil, apperror.Unauthorized("Token已过期")
 	}
-	if err := matchClaims(session, claims); err != nil {
+	if err := matchClaims(session, claims, now); err != nil {
 		return nil, err
 	}
 
@@ -202,7 +203,7 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 	if session == nil {
 		return nil, refreshReusedError()
 	}
-	if !session.RefreshExpiresAt.After(now) {
+	if session.RevokedAt != nil || session.IsDel != commonNo || session.UserStatus != commonYes || session.UserIsDel != commonNo || !session.RefreshExpiresAt.After(now) {
 		return nil, apperror.Unauthorized("刷新令牌已过期，请重新登录")
 	}
 
@@ -216,7 +217,7 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 		}
 	}
 
-	accessToken, accessHash, accessExpiresAt, accessErr := a.issueAccessToken(session.ID, session.UserID, session.Platform, session.DeviceID, policy, now)
+	accessToken, accessExpiresAt, accessErr := a.issueAccessToken(session.ID, session.UserID, session.Platform, session.DeviceID, policy, now)
 	if accessErr != nil {
 		return nil, accessErr
 	}
@@ -226,7 +227,6 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 	}
 
 	rotation := SessionRotation{
-		AccessTokenHash:  accessHash,
 		RefreshTokenHash: nextRefreshHash,
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: session.RefreshExpiresAt,

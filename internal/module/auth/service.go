@@ -59,12 +59,6 @@ type SessionService interface {
 	Logout(ctx context.Context, accessToken string) *apperror.Error
 }
 
-type SessionManager interface {
-	Create(ctx context.Context, input CreateInput) (*TokenResult, *apperror.Error)
-	Refresh(ctx context.Context, input RefreshInput) (*TokenResult, *apperror.Error)
-	Logout(ctx context.Context, accessToken string) *apperror.Error
-}
-
 type CaptchaVerifier interface {
 	Verify(ctx context.Context, input VerifyInput) *apperror.Error
 }
@@ -84,7 +78,7 @@ type Option func(*Service)
 type Service struct {
 	repository           Repository
 	platformConfig       PlatformConfigProvider
-	sessionManager       SessionManager
+	sessionManager       Lifecycle
 	captchaVerifier      CaptchaVerifier
 	codeStore            CodeStore
 	loginLogEnqueuer     taskqueue.Enqueuer
@@ -94,7 +88,7 @@ type Service struct {
 	verifyCodeOptions    VerifyCodeOptions
 }
 
-func NewService(repository Repository, platformConfig PlatformConfigProvider, sessionManager SessionManager, captchaVerifier CaptchaVerifier, opts ...Option) *Service {
+func NewService(repository Repository, platformConfig PlatformConfigProvider, sessionManager Lifecycle, captchaVerifier CaptchaVerifier, opts ...Option) *Service {
 	service := &Service{
 		repository:      repository,
 		platformConfig:  platformConfig,
@@ -294,7 +288,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (*LoginResponse, 
 		return nil, appErr
 	}
 
-	result, createErr := s.sessionManager.Create(ctx, CreateInput{
+	result, createErr := s.sessionManager.Issue(ctx, IssueCommand{
 		UserID:    user.ID,
 		Platform:  input.Platform,
 		DeviceID:  input.DeviceID,
@@ -312,14 +306,14 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (*TokenResult
 	if s == nil || s.sessionManager == nil {
 		return nil, apperror.Unauthorized("Token认证未配置")
 	}
-	return s.sessionManager.Refresh(ctx, input)
+	return s.sessionManager.Rotate(ctx, input)
 }
 
 func (s *Service) Logout(ctx context.Context, accessToken string) *apperror.Error {
 	if s == nil || s.sessionManager == nil {
 		return apperror.Unauthorized("Token认证未配置")
 	}
-	return s.sessionManager.Logout(ctx, accessToken)
+	return s.sessionManager.Revoke(ctx, RevokeCommand{AccessToken: accessToken})
 }
 
 func (s *Service) loginByPassword(ctx context.Context, input LoginInput) (*UserCredential, *apperror.Error) {

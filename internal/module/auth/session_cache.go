@@ -18,7 +18,7 @@ var ErrSessionCacheNotConfigured = errors.New("session cache is not configured")
 
 var ErrUnsupportedSessionCacheSchema = errors.New("unsupported session cache schema")
 
-const SessionCacheSchemaVersion = 1
+const SessionCacheSchemaVersion = 2
 
 type CachedSession struct {
 	SessionID        int64      `json:"session_id"`
@@ -26,9 +26,13 @@ type CachedSession struct {
 	Platform         string     `json:"platform"`
 	DeviceID         string     `json:"device_id"`
 	IP               string     `json:"ip"`
+	LastSeenAt       time.Time  `json:"last_seen_at"`
 	AccessExpiresAt  time.Time  `json:"access_expires_at"`
 	RefreshExpiresAt time.Time  `json:"refresh_expires_at"`
 	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	IsDel            int        `json:"is_del"`
+	UserStatus       int        `json:"user_status"`
+	UserIsDel        int        `json:"user_is_del"`
 	SchemaVersion    int        `json:"schema_version"`
 }
 
@@ -50,10 +54,13 @@ func parseCachedSession(value string, loc *time.Location) (*Session, error) {
 		Platform:         payload.Platform,
 		DeviceID:         payload.DeviceID,
 		IP:               payload.IP,
+		LastSeenAt:       payload.LastSeenAt,
 		ExpiresAt:        payload.AccessExpiresAt,
 		RefreshExpiresAt: payload.RefreshExpiresAt,
 		RevokedAt:        payload.RevokedAt,
-		IsDel:            commonNo,
+		IsDel:            payload.IsDel,
+		UserStatus:       payload.UserStatus,
+		UserIsDel:        payload.UserIsDel,
 	}, nil
 }
 
@@ -67,9 +74,13 @@ func cacheValue(session *Session) string {
 		Platform:         session.Platform,
 		DeviceID:         session.DeviceID,
 		IP:               session.IP,
+		LastSeenAt:       session.LastSeenAt,
 		AccessExpiresAt:  session.ExpiresAt,
 		RefreshExpiresAt: session.RefreshExpiresAt,
 		RevokedAt:        session.RevokedAt,
+		IsDel:            session.IsDel,
+		UserStatus:       session.UserStatus,
+		UserIsDel:        session.UserIsDel,
 		SchemaVersion:    SessionCacheSchemaVersion,
 	}
 	encoded, err := json.Marshal(payload)

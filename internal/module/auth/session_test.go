@@ -72,9 +72,65 @@ func TestCachedSessionUsesVersionedJSONPayload(t *testing.T) {
 }
 
 func TestCachedSessionRejectsUnknownSchemaVersion(t *testing.T) {
-	_, err := parseCachedSession(`{"session_id":42,"user_id":7,"schema_version":2}`, time.UTC)
+	_, err := parseCachedSession(`{"session_id":42,"user_id":7,"schema_version":999}`, time.UTC)
 	if !errors.Is(err, ErrUnsupportedSessionCacheSchema) {
 		t.Fatalf("error = %v, want unsupported schema", err)
+	}
+}
+
+func TestAuthenticateRejectsPersistedClaimMismatches(t *testing.T) {
+	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)
+	baseSession := Session{
+		ID:               42,
+		UserID:           7,
+		Platform:         "admin",
+		DeviceID:         "device-a",
+		LastSeenAt:       now,
+		ExpiresAt:        now.Add(time.Hour),
+		RefreshExpiresAt: now.Add(24 * time.Hour),
+		IsDel:            commonNo,
+		UserStatus:       commonYes,
+		UserIsDel:        commonNo,
+	}
+	baseClaims := accesstoken.Claims{
+		SessionID: 42,
+		UserID:    7,
+		Issuer:    accessTokenIssuer,
+		Platform:  "admin",
+		DeviceID:  "device-a",
+		IssuedAt:  now,
+		NotBefore: now,
+		ExpiresAt: now.Add(time.Hour),
+	}
+	revokedAt := now.Add(-time.Minute)
+	tests := []struct {
+		name   string
+		mutate func(*Session, *accesstoken.Claims)
+	}{
+		{name: "session id", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.SessionID++ }},
+		{name: "subject", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.UserID++ }},
+		{name: "issuer", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.Issuer = "other" }},
+		{name: "platform", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.Platform = "app" }},
+		{name: "device id", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.DeviceID = "other-device" }},
+		{name: "issued at", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.IssuedAt = claims.IssuedAt.Add(-time.Second) }},
+		{name: "not before", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.NotBefore = claims.NotBefore.Add(time.Second) }},
+		{name: "access expiry", mutate: func(_ *Session, claims *accesstoken.Claims) { claims.ExpiresAt = claims.ExpiresAt.Add(time.Second) }},
+		{name: "revoked", mutate: func(session *Session, _ *accesstoken.Claims) { session.RevokedAt = &revokedAt }},
+		{name: "deleted", mutate: func(session *Session, _ *accesstoken.Claims) { session.IsDel = commonYes }},
+		{name: "user disabled", mutate: func(session *Session, _ *accesstoken.Claims) { session.UserStatus = commonNo }},
+		{name: "user deleted", mutate: func(session *Session, _ *accesstoken.Claims) { session.UserIsDel = commonYes }},
+		{name: "refresh expired", mutate: func(session *Session, _ *accesstoken.Claims) { session.RefreshExpiresAt = now }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			session := baseSession
+			claims := baseClaims
+			test.mutate(&session, &claims)
+			appErr := matchClaims(&session, claims, now)
+			if appErr == nil || appErr.Category != apperror.CategoryAuthentication {
+				t.Fatalf("error = %#v, want authentication rejection", appErr)
+			}
+		})
 	}
 }
 
@@ -165,7 +221,30 @@ func (f *fakeSessionRepository) RevokeIDs(ctx context.Context, sessionIDs []int6
 
 func (f *fakeSessionRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {
 	f.findSessionID = sessionID
-	return f.session, f.err
+	return normalizeFakePersistedSession(f.session, now), f.err
+}
+
+func normalizeFakePersistedSession(session *Session, now time.Time) *Session {
+	if session == nil {
+		return nil
+	}
+	clone := *session
+	if clone.LastSeenAt.IsZero() {
+		clone.LastSeenAt = now
+	}
+	if clone.RefreshExpiresAt.IsZero() {
+		clone.RefreshExpiresAt = now.Add(24 * time.Hour)
+	}
+	if clone.IsDel == 0 {
+		clone.IsDel = commonNo
+	}
+	if clone.UserStatus == 0 {
+		clone.UserStatus = commonYes
+	}
+	if clone.UserIsDel == 0 {
+		clone.UserIsDel = commonNo
+	}
+	return &clone
 }
 
 func (f *fakeSessionRepository) UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error {
@@ -182,7 +261,7 @@ func (f *fakeSessionRepository) FindLatestActiveByUserPlatform(ctx context.Conte
 
 func (f *fakeSessionRepository) FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error) {
 	f.findRefreshHash = refreshHash
-	return f.refreshSession, f.err
+	return normalizeFakePersistedSession(f.refreshSession, now), f.err
 }
 
 func (f *fakeSessionRepository) RotateIfRefreshHash(ctx context.Context, sessionID int64, previousHash string, rotation SessionRotation) (bool, error) {
@@ -310,7 +389,7 @@ func TestNewAuthenticatorNormalizesTokenConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestAuthenticatorCreateReturnsJWTAccessAndOpaqueRefresh(t *testing.T) {
+func TestAccessHashIsNotPersistedDuringIssue(t *testing.T) {
 	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	generator := &sequenceTokenGenerator{values: []string{"refresh-token"}}
 	repo := &fakeSessionRepository{createdID: 42}
@@ -335,8 +414,8 @@ func TestAuthenticatorCreateReturnsJWTAccessAndOpaqueRefresh(t *testing.T) {
 	if strings.Count(result.RefreshToken, ".") != 0 {
 		t.Fatalf("expected opaque refresh token, got %q", result.RefreshToken)
 	}
-	if repo.created.AccessTokenHash == "" || repo.updatedHash == "" || repo.updatedAccessID != 42 {
-		t.Fatalf("expected session create then access-token update, created=%#v updated_id=%d hash=%q", repo.created, repo.updatedAccessID, repo.updatedHash)
+	if repo.created.LegacyNonce == "" || repo.updatedAccessID != 0 || repo.updatedHash != "" {
+		t.Fatalf("access credential must not be hashed into persistence: created=%#v updated_id=%d hash=%q", repo.created, repo.updatedAccessID, repo.updatedHash)
 	}
 }
 
@@ -376,7 +455,7 @@ func TestAuthenticatorResolvesCachedSessionAndRefreshesTTL(t *testing.T) {
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	repo := &fakeSessionRepository{}
 	auth := NewAuthenticator(AuthenticatorDeps{
@@ -446,7 +525,7 @@ func TestAuthenticatorFallsBackToMySQLAndWritesRedis(t *testing.T) {
 	if cache.setKey != "token:session:55" {
 		t.Fatalf("expected redis session key, got %q", cache.setKey)
 	}
-	if cache.setValue != cacheValue(repo.session) {
+	if cache.setValue != cacheValue(normalizeFakePersistedSession(repo.session, now)) {
 		t.Fatalf("unexpected redis cache value: %q", cache.setValue)
 	}
 }
@@ -455,7 +534,7 @@ func TestAuthenticatorRejectsInvalidCurrentPlatform(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -482,7 +561,7 @@ func TestAuthenticatorRejectsPlatformMismatchWhenPolicyBindsPlatform(t *testing.
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -510,7 +589,7 @@ func TestAuthenticatorRejectsDeviceMismatchWhenPolicyBindsDevice(t *testing.T) {
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cache := &fakeSessionCache{values: map[string]string{
-		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		"token:session:34": cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -543,7 +622,7 @@ func TestAuthenticatorRejectsIPMismatchWhenPolicyBindsIPAndDeletesRedis(t *testi
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -580,7 +659,7 @@ func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 	cacheKey := "token:session:34"
 	pointerKey := "token:cur_sess:admin:12"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey:   cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		cacheKey:   cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 		pointerKey: "99",
 	}}
 	repo := &fakeSessionRepository{latestSession: &Session{ID: 99, UserID: 12, Platform: "admin"}}
@@ -623,7 +702,7 @@ func TestAuthenticatorRebuildsSingleSessionPointerFromRepository(t *testing.T) {
 	accessToken := issueTestAccessToken(t, now, 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(30 * time.Minute)}),
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now, ExpiresAt: now.Add(30 * time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	repo := &fakeSessionRepository{latestSession: &Session{ID: 34, UserID: 12, Platform: "admin"}}
 	auth := NewAuthenticator(AuthenticatorDeps{
@@ -665,7 +744,7 @@ func TestAuthenticatorRejectsExpiredCachedSessionAndDeletesRedis(t *testing.T) {
 	accessToken := issueTestAccessToken(t, now.Add(-time.Hour), 34, 12, "admin", "device-1", 30*time.Minute)
 	cacheKey := "token:session:34"
 	cache := &fakeSessionCache{values: map[string]string{
-		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", ExpiresAt: now.Add(-time.Second)}),
+		cacheKey: cacheValue(&Session{ID: 34, UserID: 12, Platform: "admin", DeviceID: "device-1", IP: "127.0.0.1", LastSeenAt: now.Add(-time.Hour), ExpiresAt: now.Add(-time.Second), RefreshExpiresAt: now.Add(24 * time.Hour), IsDel: commonNo, UserStatus: commonYes, UserIsDel: commonNo}),
 	}}
 	auth := NewAuthenticator(AuthenticatorDeps{
 		Config:      config.TokenConfig{RedisPrefix: "token:", SessionCacheTTL: 30 * time.Minute},
@@ -734,16 +813,11 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 	if err != nil {
 		t.Fatalf("hash refresh token: %v", err)
 	}
-	oldAccessHash, err := HashToken("old-access-token", "pepper-value")
-	if err != nil {
-		t.Fatalf("hash access token: %v", err)
-	}
 	generator := &sequenceTokenGenerator{values: []string{"new-refresh-token"}}
 	cache := &fakeSessionCache{values: map[string]string{}}
 	repo := &fakeSessionRepository{refreshSession: &Session{
 		ID:               55,
 		UserID:           44,
-		AccessTokenHash:  oldAccessHash,
 		RefreshTokenHash: refreshHash,
 		Platform:         "admin",
 		RefreshExpiresAt: now.Add(2 * time.Hour),
@@ -780,9 +854,6 @@ func TestAuthenticatorRefreshRotatesTokensAndDeletesOldAccessCache(t *testing.T)
 	if repo.rotatedID != 55 {
 		t.Fatalf("expected rotated session 55, got %d", repo.rotatedID)
 	}
-	if repo.rotation.AccessTokenHash == oldAccessHash || repo.rotation.AccessTokenHash == "" {
-		t.Fatalf("expected new access token hash, got %q", repo.rotation.AccessTokenHash)
-	}
 	if repo.rotation.RefreshTokenHash == refreshHash || repo.rotation.RefreshTokenHash == "" {
 		t.Fatalf("expected new refresh token hash, got %q", repo.rotation.RefreshTokenHash)
 	}
@@ -807,7 +878,7 @@ func TestAuthenticatorCreateStoresSessionAndSingleSessionPointer(t *testing.T) {
 	repo := &fakeSessionRepository{
 		createdID: 88,
 		activeSessions: []Session{
-			{ID: 55, UserID: 44, Platform: "admin", AccessTokenHash: "old-access-hash"},
+			{ID: 55, UserID: 44, Platform: "admin"},
 		},
 	}
 	auth := NewAuthenticator(AuthenticatorDeps{
@@ -1076,7 +1147,7 @@ func TestSessionRevocationServiceDeletesSessionCacheAndMatchingPointer(t *testin
 	cache := &fakeRevocationCache{values: map[string]string{"token:cur_sess:admin:44": "99"}}
 	service := NewSessionRevocationService(cache, SessionRevocationConfig{RedisPrefix: "token:"})
 
-	err := service.RevokeCache(context.Background(), Session{ID: 99, UserID: 44, Platform: "admin", AccessTokenHash: "access-hash"})
+	err := service.RevokeCache(context.Background(), Session{ID: 99, UserID: 44, Platform: "admin"})
 	if err != nil {
 		t.Fatalf("RevokeCache returned error: %v", err)
 	}
@@ -1093,7 +1164,7 @@ func TestSessionRevocationServiceKeepsNonMatchingPointer(t *testing.T) {
 	cache := &fakeRevocationCache{values: map[string]string{"token:cur_sess:admin:44": "100"}}
 	service := NewSessionRevocationService(cache, SessionRevocationConfig{RedisPrefix: "token:"})
 
-	err := service.RevokeCache(context.Background(), Session{ID: 99, UserID: 44, Platform: "admin", AccessTokenHash: "access-hash"})
+	err := service.RevokeCache(context.Background(), Session{ID: 99, UserID: 44, Platform: "admin"})
 	if err != nil {
 		t.Fatalf("RevokeCache returned error: %v", err)
 	}
@@ -1317,7 +1388,7 @@ func TestSessionAdmin_RevokeReturnsFalseForAlreadyRevokedSession(t *testing.T) {
 	now := time.Date(2026, 5, 8, 10, 0, 0, 0, time.Local)
 	revokedAt := now.Add(-time.Hour)
 	repo := &fakeSessionAdminRepository{recordsByID: map[int64]SessionAdminRecord{
-		77: {ID: 77, UserID: 44, Platform: "admin", AccessTokenHash: "hash-77", RevokedAt: &revokedAt},
+		77: {ID: 77, UserID: 44, Platform: "admin", RevokedAt: &revokedAt},
 	}}
 	revoker := &fakeSessionAdminCacheRevoker{}
 	service := NewSessionAdminService(repo, WithSessionAdminNow(func() time.Time { return now }), WithSessionAdminCacheRevoker(revoker))
@@ -1337,7 +1408,7 @@ func TestSessionAdmin_RevokeReturnsFalseForAlreadyRevokedSession(t *testing.T) {
 func TestSessionAdmin_RevokeMarksSessionAndRevokesCache(t *testing.T) {
 	now := time.Date(2026, 5, 8, 10, 0, 0, 0, time.Local)
 	repo := &fakeSessionAdminRepository{recordsByID: map[int64]SessionAdminRecord{
-		77: {ID: 77, UserID: 44, Platform: "admin", AccessTokenHash: "hash-77"},
+		77: {ID: 77, UserID: 44, Platform: "admin"},
 	}}
 	revoker := &fakeSessionAdminCacheRevoker{}
 	service := NewSessionAdminService(repo, WithSessionAdminNow(func() time.Time { return now }), WithSessionAdminCacheRevoker(revoker))
@@ -1361,9 +1432,9 @@ func TestSessionAdmin_BatchRevokeDeduplicatesAndSkipsCurrentAndAlreadyRevoked(t 
 	now := time.Date(2026, 5, 8, 10, 0, 0, 0, time.Local)
 	revokedAt := now.Add(-time.Hour)
 	repo := &fakeSessionAdminRepository{recordsByID: map[int64]SessionAdminRecord{
-		1: {ID: 1, UserID: 11, Platform: "admin", AccessTokenHash: "hash-1"},
-		2: {ID: 2, UserID: 12, Platform: "admin", AccessTokenHash: "hash-2", RevokedAt: &revokedAt},
-		3: {ID: 3, UserID: 13, Platform: "app", AccessTokenHash: "hash-3"},
+		1: {ID: 1, UserID: 11, Platform: "admin"},
+		2: {ID: 2, UserID: 12, Platform: "admin", RevokedAt: &revokedAt},
+		3: {ID: 3, UserID: 13, Platform: "app"},
 	}}
 	revoker := &fakeSessionAdminCacheRevoker{}
 	service := NewSessionAdminService(repo, WithSessionAdminNow(func() time.Time { return now }), WithSessionAdminCacheRevoker(revoker))

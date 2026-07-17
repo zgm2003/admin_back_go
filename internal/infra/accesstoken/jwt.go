@@ -13,9 +13,11 @@ import (
 type Claims struct {
 	SessionID int64
 	UserID    int64
+	Issuer    string
 	Platform  string
 	DeviceID  string
 	IssuedAt  time.Time
+	NotBefore time.Time
 	ExpiresAt time.Time
 }
 
@@ -53,11 +55,15 @@ func (c *JWTCodec) Issue(claims Claims) (string, error) {
 	if !claims.ExpiresAt.After(claims.IssuedAt) {
 		return "", errors.New("access token expiry must be after issued_at")
 	}
+	notBefore := claims.NotBefore
+	if notBefore.IsZero() {
+		notBefore = claims.IssuedAt
+	}
 	payload := jwt.MapClaims{
 		"iss":       c.issuer,
 		"sub":       strconv.FormatInt(claims.UserID, 10),
 		"iat":       claims.IssuedAt.Unix(),
-		"nbf":       claims.IssuedAt.Unix(),
+		"nbf":       notBefore.Unix(),
 		"exp":       claims.ExpiresAt.Unix(),
 		"sid":       claims.SessionID,
 		"platform":  claims.Platform,
@@ -76,7 +82,7 @@ func (c *JWTCodec) Parse(tokenString string, now time.Time) (Claims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return c.signingKey, nil
-	}, jwt.WithIssuer(c.issuer), jwt.WithTimeFunc(func() time.Time { return now }))
+	}, jwt.WithIssuer(c.issuer), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
 	if err != nil {
 		return Claims{}, err
 	}
@@ -99,7 +105,20 @@ func (c *JWTCodec) Parse(tokenString string, now time.Time) (Claims, error) {
 	if err != nil {
 		return Claims{}, errors.New("invalid access token exp")
 	}
-	return Claims{SessionID: sessionID, UserID: userID, Platform: fmt.Sprint(claims["platform"]), DeviceID: fmt.Sprint(claims["device_id"]), IssuedAt: time.Unix(iat, 0), ExpiresAt: time.Unix(exp, 0)}, nil
+	nbf, err := claimInt64(claims["nbf"])
+	if err != nil {
+		return Claims{}, errors.New("invalid access token nbf")
+	}
+	return Claims{
+		SessionID: sessionID,
+		UserID:    userID,
+		Issuer:    fmt.Sprint(claims["iss"]),
+		Platform:  fmt.Sprint(claims["platform"]),
+		DeviceID:  fmt.Sprint(claims["device_id"]),
+		IssuedAt:  time.Unix(iat, 0),
+		NotBefore: time.Unix(nbf, 0),
+		ExpiresAt: time.Unix(exp, 0),
+	}, nil
 }
 
 func claimInt64(value any) (int64, error) {

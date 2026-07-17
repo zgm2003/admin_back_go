@@ -96,6 +96,22 @@ type fakeSessionCreator struct {
 	err    *apperror.Error
 }
 
+func (f *fakeSessionCreator) Issue(ctx context.Context, input IssueCommand) (*CredentialSet, *apperror.Error) {
+	return f.Create(ctx, input)
+}
+
+func (f *fakeSessionCreator) Authenticate(context.Context, AccessCredential) (*Identity, *apperror.Error) {
+	return nil, nil
+}
+
+func (f *fakeSessionCreator) Rotate(ctx context.Context, input RotateCommand) (*CredentialSet, *apperror.Error) {
+	return f.Refresh(ctx, input)
+}
+
+func (f *fakeSessionCreator) Revoke(ctx context.Context, command RevokeCommand) *apperror.Error {
+	return f.Logout(ctx, command.AccessToken)
+}
+
 func (f *fakeSessionCreator) Create(ctx context.Context, input CreateInput) (*TokenResult, *apperror.Error) {
 	f.input = input
 	return f.result, f.err

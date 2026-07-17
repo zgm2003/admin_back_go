@@ -15,9 +15,11 @@ var ErrSessionRepositoryNotConfigured = errors.New("session repository is not co
 
 // Session persistence model and cache serialization.
 type Session struct {
-	ID               int64      `gorm:"column:id"`
-	UserID           int64      `gorm:"column:user_id"`
-	AccessTokenHash  string     `gorm:"column:access_token_hash"`
+	ID     int64 `gorm:"column:id"`
+	UserID int64 `gorm:"column:user_id"`
+	// LegacyNonce satisfies the pre-P09 unique physical column without deriving
+	// or retaining any value from the signed access credential.
+	LegacyNonce      string     `gorm:"column:access_token_hash"`
 	RefreshTokenHash string     `gorm:"column:refresh_token_hash"`
 	Platform         string     `gorm:"column:platform"`
 	DeviceID         string     `gorm:"column:device_id"`
@@ -28,6 +30,8 @@ type Session struct {
 	RefreshExpiresAt time.Time  `gorm:"column:refresh_expires_at"`
 	RevokedAt        *time.Time `gorm:"column:revoked_at"`
 	IsDel            int        `gorm:"column:is_del"`
+	UserStatus       int        `gorm:"column:user_status;->"`
+	UserIsDel        int        `gorm:"column:user_is_del;->"`
 }
 
 func (Session) TableName() string {
@@ -43,14 +47,13 @@ type SessionRepository interface {
 	FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error)
 	FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error)
 	FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error)
-	UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error
 	RotateIfRefreshHash(ctx context.Context, sessionID int64, previousHash string, rotation SessionRotation) (bool, error)
 	Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error
 }
 
 type SessionCreate struct {
 	UserID           int64
-	AccessTokenHash  string
+	LegacyNonce      string
 	RefreshTokenHash string
 	Platform         string
 	DeviceID         string
@@ -62,7 +65,6 @@ type SessionCreate struct {
 }
 
 type SessionRotation struct {
-	AccessTokenHash  string
 	RefreshTokenHash string
 	ExpiresAt        time.Time
 	RefreshExpiresAt time.Time
@@ -101,7 +103,7 @@ func (r *SessionGormRepository) Insert(ctx context.Context, input SessionCreate)
 
 	row := Session{
 		UserID:           input.UserID,
-		AccessTokenHash:  input.AccessTokenHash,
+		LegacyNonce:      input.LegacyNonce,
 		RefreshTokenHash: input.RefreshTokenHash,
 		Platform:         input.Platform,
 		DeviceID:         input.DeviceID,
@@ -206,10 +208,10 @@ func (r *SessionGormRepository) FindValidByID(ctx context.Context, sessionID int
 
 	var session Session
 	err := r.db.WithContext(ctx).
-		Where("id = ?", sessionID).
-		Where("revoked_at IS NULL").
-		Where("is_del = ?", commonNo).
-		Where("expires_at > ?", now).
+		Table("user_sessions").
+		Select("user_sessions.*, users.status AS user_status, users.is_del AS user_is_del").
+		Joins("JOIN users ON users.id = user_sessions.user_id").
+		Where("user_sessions.id = ?", sessionID).
 		First(&session).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -227,10 +229,13 @@ func (r *SessionGormRepository) FindValidByRefreshHash(ctx context.Context, refr
 
 	var session Session
 	err := r.db.WithContext(ctx).
-		Where("refresh_token_hash = ?", refreshHash).
-		Where("revoked_at IS NULL").
-		Where("is_del = ?", commonNo).
-		Where("refresh_expires_at > ?", now).
+		Table("user_sessions").
+		Select("user_sessions.*, users.status AS user_status, users.is_del AS user_is_del").
+		Joins("JOIN users ON users.id = user_sessions.user_id").
+		Where("user_sessions.refresh_token_hash = ?", refreshHash).
+		Where("user_sessions.revoked_at IS NULL").
+		Where("user_sessions.is_del = ?", commonNo).
+		Where("user_sessions.refresh_expires_at > ?", now).
 		First(&session).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -274,7 +279,6 @@ func (r *SessionGormRepository) RotateIfRefreshHash(ctx context.Context, session
 		Where("id = ? AND refresh_token_hash = ?", sessionID, previousHash).
 		Where("revoked_at IS NULL AND is_del = ? AND refresh_expires_at > ?", commonNo, rotation.LastSeenAt).
 		Updates(map[string]any{
-			"access_token_hash":  rotation.AccessTokenHash,
 			"refresh_token_hash": rotation.RefreshTokenHash,
 			"expires_at":         rotation.ExpiresAt,
 			"last_seen_at":       rotation.LastSeenAt,
@@ -292,26 +296,11 @@ func (r *SessionGormRepository) Rotate(ctx context.Context, sessionID int64, rot
 		Model(&Session{}).
 		Where("id = ?", sessionID).
 		Updates(map[string]any{
-			"access_token_hash":  rotation.AccessTokenHash,
 			"refresh_token_hash": rotation.RefreshTokenHash,
 			"expires_at":         rotation.ExpiresAt,
 			"last_seen_at":       rotation.LastSeenAt,
 			"ip":                 rotation.IP,
 			"ua":                 rotation.UserAgent,
-		}).Error
-}
-
-func (r *SessionGormRepository) UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error {
-	if r == nil || r.db == nil {
-		return ErrSessionRepositoryNotConfigured
-	}
-
-	return r.db.WithContext(ctx).
-		Model(&Session{}).
-		Where("id = ?", sessionID).
-		Updates(map[string]any{
-			"access_token_hash": accessHash,
-			"expires_at":        expiresAt,
 		}).Error
 }
 

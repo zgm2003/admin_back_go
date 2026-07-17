@@ -116,11 +116,10 @@ type SessionBatchRevokeResponse struct {
 }
 
 type SessionAdminRecord struct {
-	ID              int64
-	UserID          int64
-	Platform        string
-	AccessTokenHash string
-	RevokedAt       *time.Time
+	ID        int64
+	UserID    int64
+	Platform  string
+	RevokedAt *time.Time
 }
 
 // Session admin management merged from usersession repository.go
@@ -218,7 +217,7 @@ func (r *SessionAdminGormRepository) GetByID(ctx context.Context, id int64) (*Se
 	var row SessionAdminRecord
 	err := r.db.WithContext(ctx).
 		Table("user_sessions").
-		Select("id, user_id, platform, access_token_hash, revoked_at").
+		Select("id, user_id, platform, revoked_at").
 		Where("id = ?", id).
 		Where("is_del = ?", enum.CommonNo).
 		First(&row).Error
@@ -241,7 +240,7 @@ func (r *SessionAdminGormRepository) GetByIDs(ctx context.Context, ids []int64) 
 	var rows []SessionAdminRecord
 	err := r.db.WithContext(ctx).
 		Table("user_sessions").
-		Select("id, user_id, platform, access_token_hash, revoked_at").
+		Select("id, user_id, platform, revoked_at").
 		Where("id IN ?", ids).
 		Where("is_del = ?", enum.CommonNo).
 		Order("id ASC").
@@ -548,7 +547,7 @@ func (s *SessionAdminService) revokeCaches(ctx context.Context, rows []SessionAd
 }
 
 func sessionFromAdminRecord(row SessionAdminRecord) Session {
-	return Session{ID: row.ID, UserID: row.UserID, Platform: row.Platform, AccessTokenHash: row.AccessTokenHash}
+	return Session{ID: row.ID, UserID: row.UserID, Platform: row.Platform}
 }
 
 func normalizeIDs(ids []int64) []int64 {

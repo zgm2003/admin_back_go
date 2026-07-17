@@ -146,7 +146,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	resources := input.Resources
 
 	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
-	sessionAuthenticator := auth.NewAuthenticator(auth.AuthenticatorDeps{
+	sessionAuthenticator := auth.NewSessionLifecycle(auth.LifecycleDeps{
 		Config:         cfg.Token,
 		Cache:          auth.NewSessionRedisCache(resources.TokenRedis),
 		Repository:     auth.NewSessionGormRepository(resources.DB),
@@ -438,9 +438,9 @@ func (adapter knowledgeRuntimeAdapter) RetrieveForRun(ctx context.Context, input
 	return &aichat.KnowledgeContextResult{RetrievalID: result.RetrievalID, Status: result.Status, Context: result.Context}, nil
 }
 
-func tokenAuthenticatorFor(authenticator *auth.Authenticator) middleware.TokenAuthenticator {
+func tokenAuthenticatorFor(authenticator *auth.SessionLifecycle) middleware.TokenAuthenticator {
 	return func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-		identity, appErr := authenticator.Authenticate(ctx, auth.TokenInput{
+		identity, appErr := authenticator.Authenticate(ctx, auth.AccessCredential{
 			AccessToken: input.AccessToken,
 			Platform:    input.Platform,
 			DeviceID:    input.DeviceID,
