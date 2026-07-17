@@ -12,11 +12,11 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/secretkey"
 	"admin_back_go/internal/infra/taskqueue"
-	"admin_back_go/internal/middleware"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/queuemonitor"
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/server"
+	"admin_back_go/internal/server/adminroute"
 )
 
 var ErrAlreadyStarted = errors.New("runtime.already_started")
@@ -24,11 +24,6 @@ var ErrAlreadyStarted = errors.New("runtime.already_started")
 type HTTPServer interface {
 	ListenAndServe() error
 	Shutdown(context.Context) error
-}
-
-type APIRoutePolicies struct {
-	PermissionRules map[middleware.RouteKey]string
-	OperationRules  map[middleware.RouteKey]middleware.OperationRule
 }
 
 type runtimeState uint8
@@ -58,7 +53,7 @@ type APIRuntime struct {
 	health   atomic.Pointer[Report]
 }
 
-func NewAPI(cfg config.Config, logger *slog.Logger, policies APIRoutePolicies) (*APIRuntime, error) {
+func NewAPI(cfg config.Config, logger *slog.Logger, routes *adminroute.Registry) (*APIRuntime, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -71,10 +66,13 @@ func NewAPI(cfg config.Config, logger *slog.Logger, policies APIRoutePolicies) (
 	if err != nil {
 		return nil, err
 	}
-	return newAPIRuntimeWithHooks(productionAPIHooks(cfg, logger, keys, policies)), nil
+	if routes == nil {
+		return nil, errors.New("admin route registry is required")
+	}
+	return newAPIRuntimeWithHooks(productionAPIHooks(cfg, logger, keys, routes)), nil
 }
 
-func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.KeyRing, policies APIRoutePolicies) apiHooks {
+func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.KeyRing, routes *adminroute.Registry) apiHooks {
 	var resources *Resources
 	var providers Providers
 	var queueClient *taskqueue.Client
@@ -179,22 +177,25 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			if adminBuild == nil || resources == nil {
 				return nil, errors.New("api runtime graph is incomplete")
 			}
-			handler = server.NewRouter(server.Dependencies{
+			builtRouter, err := server.NewRouter(server.Dependencies{
 				Core: server.CoreDependencies{
 					Readiness:         resources,
 					Logger:            logger,
 					CORS:              cfg.CORS,
 					Authenticator:     adminBuild.Authenticator,
 					PermissionChecker: adminBuild.PermissionChecker,
-					PermissionRules:   policies.PermissionRules,
 					OperationRecorder: adminBuild.OperationRecorder,
-					OperationRules:    policies.OperationRules,
+					RouteRegistry:     routes,
 					QueueMonitorUI:    queueMonitorUI,
 					RealtimeHandler:   realtime.handler,
 				},
 				Admin:   adminBuild.Graph,
 				Retired: adminBuild.Retired,
 			})
+			if err != nil {
+				return nil, err
+			}
+			handler = builtRouter
 			return nil, nil
 		},
 		startRealtime: func(ctx context.Context) (CleanupFunc, error) {

@@ -31,10 +31,12 @@ func main() {
 		defer logCloser.Close()
 	}
 
-	process, err := runtimepkg.NewAPI(cfg, logger, runtimepkg.APIRoutePolicies{
-		PermissionRules: bootstrap.PermissionRouteRules(),
-		OperationRules:  bootstrap.OperationRouteRules(),
-	})
+	routes, err := bootstrap.AdminRouteRegistry()
+	if err != nil {
+		logger.Error("failed to build admin route registry", "error", err)
+		os.Exit(1)
+	}
+	process, err := runtimepkg.NewAPI(cfg, logger, routes)
 	if err != nil {
 		logger.Error("failed to initialize admin api", "error", err)
 		os.Exit(1)

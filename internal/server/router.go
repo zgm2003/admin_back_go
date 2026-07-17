@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -11,6 +13,7 @@ import (
 	"admin_back_go/internal/module/system"
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/platform/retired"
+	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/enum"
 	projecti18n "admin_back_go/internal/shared/i18n"
 	"admin_back_go/internal/shared/validate"
@@ -24,12 +27,10 @@ type CoreDependencies struct {
 	CORS              config.CORSConfig
 	Authenticator     middleware.TokenAuthenticator
 	PermissionChecker middleware.PermissionChecker
-	PermissionRules   map[middleware.RouteKey]string
 	OperationRecorder middleware.OperationRecorder
-	OperationRules    map[middleware.RouteKey]middleware.OperationRule
+	RouteRegistry     *adminroute.Registry
 	QueueMonitorUI    http.Handler
 	RealtimeHandler   *realtimeadmin.Handler
-	AuthSkipPaths     map[string]struct{}
 }
 
 type Dependencies struct {
@@ -38,11 +39,14 @@ type Dependencies struct {
 	Retired retired.Graph
 }
 
-func NewRouter(deps Dependencies) *gin.Engine {
+func NewRouter(deps Dependencies) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	validate.MustRegister()
 
 	core := deps.Core
+	if core.RouteRegistry == nil {
+		return nil, errors.New("admin route registry is required")
+	}
 	router := gin.New()
 	router.UseRawPath = true
 	router.UnescapePathValues = false
@@ -54,7 +58,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	router.Use(projecti18n.Localize())
 	router.Use(middleware.AuthToken(middleware.AuthTokenConfig{
 		Authenticator: core.Authenticator,
-		SkipPaths:     authSkipPaths(core.AuthSkipPaths),
+		SkipPaths:     core.RouteRegistry.PublicPaths(),
 		CookieTokenPath: middleware.CookieTokenPathConfig{
 			PathPrefixes: []string{queuemonitoradmin.UIPath, realtimeadmin.WSPath},
 			Platform:     enum.PlatformAdmin,
@@ -62,11 +66,11 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	}))
 	router.Use(middleware.PermissionCheck(middleware.PermissionCheckConfig{
 		Checker: core.PermissionChecker,
-		Rules:   core.PermissionRules,
+		Rules:   core.RouteRegistry.PermissionRules(),
 	}))
 	router.Use(middleware.OperationLog(middleware.OperationLogConfig{
 		Recorder: core.OperationRecorder,
-		Rules:    core.OperationRules,
+		Rules:    core.RouteRegistry.OperationRules(),
 		Logger:   core.Logger,
 	}))
 
@@ -78,12 +82,13 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	registerAdminCommerceRBACRoutes(router, deps)
 	registerCanvasRoutes(router, deps)
 
-	return router
-}
-
-func authSkipPaths(paths map[string]struct{}) map[string]struct{} {
-	if paths != nil {
-		return paths
+	routes := router.Routes()
+	actual := make([]adminroute.Route, 0, len(routes))
+	for _, route := range routes {
+		actual = append(actual, adminroute.Route{Method: route.Method, Path: route.Path})
 	}
-	return middleware.DefaultAuthSkipPaths()
+	if err := core.RouteRegistry.CompileRoutes(actual); err != nil {
+		return nil, fmt.Errorf("compile admin route registry: %w", err)
+	}
+	return router, nil
 }

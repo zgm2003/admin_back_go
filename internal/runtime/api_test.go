@@ -12,17 +12,18 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/server/adminroute"
 )
 
 func TestNewAPIValidatesSecretsWithoutOpeningResources(t *testing.T) {
-	runtime, err := NewAPI(config.Config{}, slog.Default(), APIRoutePolicies{})
+	runtime, err := NewAPI(config.Config{}, slog.Default(), adminroute.NewRegistry())
 	if runtime != nil || err == nil || !strings.Contains(err.Error(), "APP_SECRET") {
 		t.Fatalf("runtime=%+v err=%v", runtime, err)
 	}
 
 	runtime, err = NewAPI(config.Config{
 		App: config.AppConfig{Secret: strings.Repeat("a", 64)},
-	}, slog.Default(), APIRoutePolicies{})
+	}, slog.Default(), adminroute.NewRegistry())
 	if err != nil || runtime == nil {
 		t.Fatalf("constructor should not open external resources: runtime=%+v err=%v", runtime, err)
 	}

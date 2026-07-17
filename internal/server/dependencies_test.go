@@ -45,6 +45,7 @@ import (
 	"admin_back_go/internal/module/user"
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/platform/retired"
+	"admin_back_go/internal/server/adminroute"
 
 	"github.com/gin-gonic/gin"
 )
@@ -104,6 +105,20 @@ type testDependencies struct {
 }
 
 func (deps testDependencies) grouped() Dependencies {
+	publicPaths := deps.AuthSkipPaths
+	if publicPaths == nil {
+		publicPaths = middleware.DefaultAuthSkipPaths()
+	}
+	routes, err := adminroute.NewLegacyRegistry(
+		deps.PermissionRules,
+		deps.OperationRules,
+		publicPaths,
+		nil,
+		adminroute.WithMutationFallback("test fixture legacy mutation"),
+	)
+	if err != nil {
+		panic(err)
+	}
 	return Dependencies{
 		Core: CoreDependencies{
 			Readiness:         deps.Readiness,
@@ -111,12 +126,10 @@ func (deps testDependencies) grouped() Dependencies {
 			CORS:              deps.CORS,
 			Authenticator:     deps.Authenticator,
 			PermissionChecker: deps.PermissionChecker,
-			PermissionRules:   deps.PermissionRules,
 			OperationRecorder: deps.OperationRecorder,
-			OperationRules:    deps.OperationRules,
+			RouteRegistry:     routes,
 			QueueMonitorUI:    deps.QueueMonitorUI,
 			RealtimeHandler:   deps.RealtimeHandler,
-			AuthSkipPaths:     deps.AuthSkipPaths,
 		},
 		Admin: platformadmin.Graph{
 			Identity: platformadmin.IdentityGraph{
@@ -175,5 +188,9 @@ func (deps testDependencies) grouped() Dependencies {
 }
 
 func newRouterFromTestDependencies(deps testDependencies) *gin.Engine {
-	return NewRouter(deps.grouped())
+	router, err := NewRouter(deps.grouped())
+	if err != nil {
+		panic(err)
+	}
+	return router
 }

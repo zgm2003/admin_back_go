@@ -4,7 +4,38 @@ import (
 	"net/http"
 
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/server/adminroute"
 )
+
+func AdminRouteRegistry() (*adminroute.Registry, error) {
+	return adminroute.NewLegacyRegistry(
+		permissionRouteRules(),
+		operationRouteRules(),
+		middleware.DefaultAuthSkipPaths(),
+		noAuditRouteReasons(),
+		adminroute.WithNoAuditPrefix("/api/app/", "temporary retired App route"),
+		adminroute.WithNoAuditPrefix("/api/canvas/", "temporary retired Canvas route"),
+		adminroute.WithNoAuditPrefix("/api/admin/v1/queue-monitor-ui", "read-only queue monitor proxy"),
+	)
+}
+
+func noAuditRouteReasons() map[middleware.RouteKey]string {
+	return map[middleware.RouteKey]string{
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/send-code"):                       "public authentication bootstrap",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/forgot-password"):                 "public account recovery state",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/login"):                           "public authentication state",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/refresh"):                         "session rotation has domain audit",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/logout"):                          "self-service session state",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/notifications/:id/read"):              "self-service notification state",
+		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/notifications/read"):                  "self-service notification state",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/notifications/:id"):                  "self-service notification state",
+		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/notifications"):                      "self-service notification state",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages/cancel"): "self-service AI run cancellation",
+		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-conversations/:id"):                  "self-service AI conversation state",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/upload-tokens"):                        "self-service upload credential issuance",
+		middleware.NewRouteKey(http.MethodPost, "/api/payment/callbacks/alipay"):                      "public provider callback; domain verification retained",
+	}
+}
 
 func permissionRouteRules() map[middleware.RouteKey]string {
 	return map[middleware.RouteKey]string{
@@ -98,6 +129,7 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/client-versions/:id/force-update"):      "system_clientVersion_forceUpdate",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/client-versions/:id"):                  "system_clientVersion_del",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/model-options"):             "ai_provider_test",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/model-options"):         "ai_provider_test",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers"):                           "ai_provider_add",
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-providers/:id"):                        "ai_provider_edit",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/test"):                  "ai_provider_test",
@@ -133,12 +165,6 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-tools/:id"):                         "ai_tool_del",
 		middleware.NewRouteKey(http.MethodPut, "/api/admin/v1/ai-agents/:id/tools"):                     "ai_agent_edit",
 	}
-}
-
-// PermissionRouteRules exposes the transitional route metadata to the P03
-// runtime. Task 6 replaces this map with the compiled admin route registry.
-func PermissionRouteRules() map[middleware.RouteKey]string {
-	return permissionRouteRules()
 }
 
 func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
@@ -592,6 +618,11 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 			Action: "preview_models",
 			Title:  "拉取AI供应商模型",
 		},
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers/:id/model-options"): {
+			Module: "ai_provider",
+			Action: "preview_models",
+			Title:  "拉取AI供应商模型",
+		},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-providers"): {
 			Module: "ai_provider",
 			Action: "create",
@@ -678,10 +709,4 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id"):                 {Module: "ai_conversation", Action: "delete", Title: "删除AI会话"},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages"):          {Module: "ai_message", Action: "send", Title: "发送AI消息"},
 	}
-}
-
-// OperationRouteRules exposes the transitional route metadata to the P03
-// runtime. Task 6 replaces this map with the compiled admin route registry.
-func OperationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
-	return operationRouteRules()
 }
