@@ -39,7 +39,7 @@ Pure source/unit checks may run on the host. Any test that opens MySQL/Redis, ex
 - Move tests from: `internal/module/auth/session_test.go`
 - Delete: `internal/module/auth/session.go`
 
-- [ ] **Step 1: Add a compile-time public contract test**
+- [x] **Step 1: Add a compile-time public contract test**
 
 ```go
 type Lifecycle interface {
@@ -53,13 +53,13 @@ var _ Lifecycle = (*SessionLifecycle)(nil)
 
 Add golden behavior tests for cache hit/miss, policy binding, JWT claims, refresh expiry, logout, single session, max sessions, and Admin revoke before moving code.
 
-- [ ] **Step 2: Prove the characterization suite**
+- [x] **Step 2: Prove the characterization suite**
 
 Run: `go test ./internal/module/auth -run 'TestSession|TestAuthenticator|TestHashToken' -count=1`
 
 Expected: PASS against the old file; this records behavior before the mechanical split.
 
-- [ ] **Step 3: Move responsibilities**
+- [x] **Step 3: Move responsibilities**
 
 `session_contract.go` owns commands/results/identity/policy; `session_token.go` owns random tokens, hashes, and JWT verification; `session_cache.go` owns versioned JSON cache payloads and revocation; `session_repository.go` owns GORM and transactions; `session_lifecycle.go` owns Issue/Authenticate/Rotate/Revoke; `session_admin.go` owns list/stats/Admin revoke.
 
@@ -81,7 +81,7 @@ type CachedSession struct {
 
 Reject unknown cache schema versions and fall back to MySQL.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/auth -count=1
@@ -97,11 +97,11 @@ git commit -m "refactor(auth): split session lifecycle by behavior"
 - Modify: `internal/module/auth/session_lifecycle.go`
 - Create: `internal/module/auth/session_issue_integration_test.go`
 
-- [ ] **Step 1: Write concurrent issue tests**
+- [x] **Step 1: Write concurrent issue tests**
 
 Start 20 goroutines for one user/platform with `single_session=true` and assert exactly one active row. Repeat with `max_sessions=3` and assert three newest rows active, all older rows revoked, and no stale single-session pointer survives.
 
-- [ ] **Step 2: Add a transaction-scoped repository contract**
+- [x] **Step 2: Add a transaction-scoped repository contract**
 
 ```go
 type SessionRepository interface {
@@ -117,7 +117,7 @@ type SessionRepository interface {
 
 `WithUserLock` locks the stable `users` row with `FOR UPDATE` before reading sessions, so an empty session set is still serialized. Issue selects active sessions for update, applies policy, inserts the new row, and commits before publishing cache state.
 
-- [ ] **Step 3: Run MySQL integration and race tests**
+- [x] **Step 3: Run MySQL integration and race tests**
 
 ```powershell
 go test ./internal/module/auth -run TestConcurrentIssue -race -count=20
@@ -125,7 +125,7 @@ go test ./internal/module/auth -run TestConcurrentIssue -race -count=20
 
 Expected: one winner for single-session; max-session invariant holds every run.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add -- internal/module/auth/session_repository.go internal/module/auth/session_lifecycle.go internal/module/auth/session_issue_integration_test.go
@@ -139,11 +139,11 @@ git commit -m "fix(auth): enforce session limits transactionally"
 - Modify: `internal/module/auth/session_lifecycle.go`
 - Create: `internal/module/auth/session_rotate_integration_test.go`
 
-- [ ] **Step 1: Write the 20-way refresh race**
+- [x] **Step 1: Write the 20-way refresh race**
 
 Issue one refresh credential, release 20 goroutines simultaneously, and assert one succeeds, 19 return stable code `auth.refresh_reused`, one new refresh hash is stored, and the original hash cannot rotate again.
 
-- [ ] **Step 2: Implement the CAS**
+- [x] **Step 2: Implement the CAS**
 
 ```go
 result := db.WithContext(ctx).Model(&Session{}).
@@ -161,7 +161,7 @@ return result.RowsAffected == 1, result.Error
 
 Do not extend `refresh_expires_at`. Delete the old cache after commit; a reused or lost credential is permanent, not retryable.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```powershell
 go test ./internal/module/auth -run TestConcurrentRotate -race -count=20
@@ -178,15 +178,15 @@ git commit -m "fix(auth): rotate refresh credentials with one winner"
 - Modify: `internal/module/auth/session_repository.go`
 - Modify: `internal/module/auth/session_test.go`
 
-- [ ] **Step 1: Add mismatch cases**
+- [x] **Step 1: Add mismatch cases**
 
 Table-test session ID, subject/user ID, issuer, platform, device ID, issued-at/not-before, access expiry, revoked state, deleted state, user status, and refresh expiry. Every mismatch must reject with authentication category.
 
-- [ ] **Step 2: Remove unused hash behavior**
+- [x] **Step 2: Remove unused hash behavior**
 
 Stop generating, storing, selecting, or updating `access_token_hash`. Authenticate verifies the signed access credential claims against the MySQL/cache session properties above. The column remains physically present until P09 contract DDL.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```powershell
 go test ./internal/module/auth -run 'TestAuthenticate|TestAccessHash' -count=1
@@ -211,11 +211,11 @@ Expected: tests pass and the search returns no active session code reference.
 - Modify: `internal/middleware/auth_token.go`
 - Modify: `internal/middleware/auth_token_test.go`
 
-- [ ] **Step 1: Write browser/desktop contract tests**
+- [x] **Step 1: Write browser/desktop contract tests**
 
 Browser login must set `__Secure-admin_refresh` with `HttpOnly`, `Secure`, `SameSite=Strict`, path `/api/admin/v1/auth`, and return no refresh credential. Desktop login must return the rotating refresh credential in its one-time response and set no cookie. Browser refresh reads only the cookie and requires an allowed exact Origin; desktop refresh reads only the JSON credential and requires native variant.
 
-- [ ] **Step 2: Define the explicit variant contract**
+- [x] **Step 2: Define the explicit variant contract**
 
 ```go
 type ClientVariant string
@@ -239,13 +239,13 @@ type LoginResponse struct {
 
 Only the desktop presenter populates refresh fields. Browser state-changing cookie operations compare normalized `Origin` against configured exact origins before service invocation.
 
-- [ ] **Step 3: Replace browser-only access-cookie workarounds**
+- [x] **Step 3: Replace browser-only access-cookie workarounds**
 
 Add `POST /api/admin/v1/auth/realtime-tickets`. It requires bearer authentication and returns an opaque, single-use, 30-second Redis ticket bound to session/user/platform. WebSocket upgrade consumes `?ticket=` and redacts it from access logs.
 
 Add `POST /api/admin/v1/auth/queue-monitor-grants`. It sets a random, HttpOnly/Secure/SameSite-Strict cookie scoped to `/api/admin/v1/queue-monitor-ui` with 60-second expiry. The Redis value binds the current session; the UI middleware accepts only this grant. Remove `access_token` cookie fallback and query-token support.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/auth/transport/admin ./internal/module/auth ./internal/middleware -run 'TestBrowser|TestDesktop|TestOrigin|TestGrant|TestTicket' -count=1
@@ -270,11 +270,11 @@ git commit -m "feat(auth): secure browser and desktop credential transport"
 - Modify: `internal/module/permission/service.go`
 - Modify: `internal/module/permission/repository.go`
 
-- [ ] **Step 1: Test cache hits and mutation races**
+- [x] **Step 1: Test cache hits and mutation races**
 
 Assert a populated snapshot authorizes with zero SQL, cache miss builds from MySQL, Redis failure denies Permission routes, user disable/role change/role permission change makes the old snapshot unusable, and a request concurrent with mutation linearizes either before the invalidation gate or after the new version.
 
-- [ ] **Step 2: Define the snapshot key and result**
+- [x] **Step 2: Define the snapshot key and result**
 
 ```go
 type PrincipalSnapshot struct {
@@ -294,13 +294,13 @@ func PrincipalKey(userID, roleID int64, platform string, version uint64) string 
 
 `VersionRepository` locks/bump rows in `authz_principal_versions` inside the same business mutation transaction.
 
-- [ ] **Step 3: Implement an atomic fail-closed cache protocol**
+- [x] **Step 3: Implement an atomic fail-closed cache protocol**
 
 Before the DB mutation, a Redis Lua script places an `invalidating` gate for every affected Admin user and returns the previous version. Permission checks atomically read gate/version/snapshot; `invalidating` or Redis errors deny. After DB commit, a second Lua script publishes the new versions, removes old snapshot keys, and clears gates. If the process dies after DB commit, gates remain fail-closed and the next mutation/startup reconciler repairs versions from MySQL.
 
 User status/role updates, role grant changes, permission status/tree changes, and user deletion call the same protocol. A Redis failure before DB mutation aborts the mutation; it never commits a permission change with an uninvalidated cache.
 
-- [ ] **Step 4: Verify with MySQL and Redis**
+- [x] **Step 4: Verify with MySQL and Redis**
 
 ```powershell
 go test ./internal/module/permission ./internal/module/role ./internal/module/user -run 'TestPrincipal|TestInvalidation' -race -count=10
@@ -308,7 +308,7 @@ go test ./internal/module/permission ./internal/module/role ./internal/module/us
 
 Expected: cache hits issue zero SQL and all cache/invalidation failures deny.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add -- internal/module/permission/principal_model.go internal/module/permission/principal_repository.go internal/module/permission/principal_cache.go internal/module/permission/principal_service.go internal/module/permission/principal_integration_test.go internal/module/permission/service.go internal/module/permission/repository.go internal/module/role/service.go internal/module/role/repository.go internal/module/user/service.go internal/module/user/repository.go internal/bootstrap/permission_checker.go
@@ -397,11 +397,11 @@ internal/module/user/transport/app/route.go
 internal/module/user/transport/canvas/route.go
 ```
 
-- [ ] **Step 1: Add a failing no-legacy-map guard**
+- [x] **Step 1: Add a failing no-legacy-map guard**
 
 Reject `permissionRouteRules`, `operationRouteRules`, middleware rule maps, or any active route registered directly with `GET/POST/PUT/PATCH/DELETE` instead of the registry. Temporary App/Canvas routes receive explicit policies and audit decisions but remain excluded from the Admin Contract Bundle until P09 deletes them.
 
-- [ ] **Step 2: Register definition and handler together**
+- [x] **Step 2: Register definition and handler together**
 
 Representative form:
 
@@ -419,11 +419,11 @@ routes.Handle(adminroute.Definition{
 
 Reads use `NoAudit("read-only")`. Current-user notification mutations use `NoAudit("self-service notification state")`. Public health/auth bootstrap and payment callback routes are explicitly Public. Every permission code must exist in the generated permission catalog.
 
-- [ ] **Step 3: Delete duplicates and regenerate contracts**
+- [x] **Step 3: Delete duplicates and regenerate contracts**
 
 Compile the router, compare it with the approved Admin route golden, delete both old maps, regenerate the bundle, and verify every mutation has one audit decision.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/server/... ./internal/module/... -run 'TestRoute|TestPolicy|TestPermission|TestOperation' -count=1
@@ -446,11 +446,11 @@ git commit -m "refactor(routing): colocate admin access and audit policy"
 - Create: `docs/runbooks/session-secret-rotation.md`
 - Modify: `internal/runtime/api.go`
 
-- [ ] **Step 1: Test two API nodes**
+- [x] **Step 1: Test two API nodes**
 
 Start two runtime instances against one MySQL/Redis pair. Authenticate on node A, warm node B cache, revoke on A, then poll B. Require denial within two seconds. Repeat for user disable, role change, and refresh reuse.
 
-- [ ] **Step 2: Define explicit rotation procedure**
+- [x] **Step 2: Define explicit rotation procedure**
 
 The runbook uses a dual-key deployment window:
 
@@ -461,11 +461,11 @@ The runbook uses a dual-key deployment window:
 
 The key ring carries an explicit `kid`. Config rejects identical current/previous values and more than one previous key. Refresh credentials remain database hashes and are revoked as part of the cutover; no silent config-only rotation is permitted.
 
-- [ ] **Step 3: Automate the rehearsal**
+- [x] **Step 3: Automate the rehearsal**
 
 `session-secret-rotation.tests.ps1` starts old, dual, and new-key-only API instances, executes issue/authenticate/rotate/revoke, and scans logs for both secret values. It uses ephemeral generated secrets and deletes logs/binaries from a verified TEMP path.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/auth -run TestMultiNode -race -count=5
@@ -482,11 +482,11 @@ git commit -m "test(auth): prove revocation and secret rotation across nodes"
 - Modify: `.github/workflows/verify-backend.yml`
 - Create: `internal/architecture/identity_routing_test.go`
 
-- [ ] **Step 1: Add architecture guards**
+- [x] **Step 1: Add architecture guards**
 
 Reject JS-readable refresh cookie fields in OpenAPI, `access_token` cookie fallback, refresh rotation without expected-hash condition, permission cache allow-on-error, route metadata maps, unknown permission codes, and unclassified mutations.
 
-- [ ] **Step 2: Implement the shared gate**
+- [x] **Step 2: Implement the shared gate**
 
 ```powershell
 go test ./internal/module/auth ./internal/module/permission ./internal/module/role ./internal/module/user ./internal/middleware ./internal/server/... -race -count=1
@@ -494,7 +494,7 @@ go test ./internal/architecture -run 'TestIdentity|TestRoutePolicy|TestCredentia
 pwsh -NoProfile -File scripts/check-admin-contract.ps1
 ```
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/verify-identity-routing.ps1
@@ -502,6 +502,16 @@ pwsh -NoProfile -File scripts/verify-backend.ps1
 git add -- scripts/verify-identity-routing.ps1 scripts/verify-backend.ps1 .github/workflows/verify-backend.yml internal/architecture/identity_routing_test.go
 git commit -m "ci: enforce atomic identity and complete route policy"
 ```
+
+## Completion evidence (2026-07-17)
+
+- Execution stayed directly on `E:\admin\admin_back_go` branch `master`; no P04 worktree was created or used.
+- Task commits: `c77dd8c`, `deec013`, `6841302`, `88f59bc`, `8c322b7`, `9594d86`, `a3af4a8`, `0438c54`, `ce636cf`, and `352badc`.
+- Docker MySQL/Redis race suites proved transactional session limits, one-winner refresh CAS, fail-closed principal invalidation, and cross-node revoke/user-disable/role-change/refresh-reuse propagation. `TestMultiNode` passed with `-race -count=5`; the measured denial path remained inside the two-second SLA.
+- `scripts/tests/session-secret-rotation.tests.ps1` passed the Docker old/dual/new-only rehearsal and its generated-secret log scan.
+- `scripts/verify-identity-routing.ps1` passed host source checks plus the pinned Linux Docker race gate, architecture guards, and Admin Contract Bundle drift check.
+- `scripts/verify-backend.ps1` passed all Go tests, runtime and identity Linux race gates, `go vet`, pinned `staticcheck`, `govulncheck` with zero called vulnerabilities, and both process builds.
+- Browser responses expose no refresh credential; desktop refresh remains one-time response data; all active routes have access policy and every mutation has an explicit audit/no-audit decision.
 
 ## Plan completion gate
 

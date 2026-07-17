@@ -124,7 +124,7 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, or an unreviewed 
 - [x] **Gate B:** P02 restores a verified recovery artifact, and imported/empty schemas converge to the same fingerprint.
 - [x] **Gate C:** P03 publishes a deterministic Admin Contract Bundle and both processes pass lifecycle tests.
 - [x] **Gate C.5:** P03.5 proves dynamic API discovery, bounded state-late startup with zero restart loops, correct image revisions, and zero-exit Docker SIGTERM; final restoration preserves all state volumes.
-- [ ] **Gate D:** P04 proves one-winner refresh, route-policy completeness, and secure browser/desktop auth transport.
+- [x] **Gate D:** P04 proves one-winner refresh, route-policy completeness, and secure browser/desktop auth transport.
 - [ ] **Gate E:** P05 proves AI reply survival across process termination, scheduler lease safety, and realtime recovery.
 - [ ] **Gate F:** P06–P08 pass frontend unit/component/integration/browser/Rust gates and produce immutable artifacts.
 - [ ] **Gate G:** P09 removes retired platform code/schema and passes the complete cross-repository release proof.
@@ -137,3 +137,12 @@ No later gate waives an earlier one. P09 must stop before destructive DDL if any
 - **Gate B:** `scripts/verify-database.ps1 -Mode all` exited `0`; empty/imported SHA-256 both equal `76d7d64d8151e8122369fcd07ce18ae194d779037816b8496ed78e62c655ccbf`, reconciliation applied/skipped `7/7`, and invariants/smoke passed. The retained `61,618,047`-byte recovery artifact is verified with SHA-256 `78390456ed511f9507233e41df170223b365dd1b056e804f6e55052259e04a85` and equal source/restore counts.
 - **Gate C:** the runtime gate passed ordinary and Linux race suites, the Admin Contract Bundle reported no drift, manifest SHA-256 is `25f1bab4c875541311628263e23766e358ca3f65c81b14c804fe3cb5bf34e4d7`, and both binaries built.
 - **Gate C.5:** `scripts/tests/docker-stability.tests.ps1` passed API-address replacement without frontend recreation, state-late recovery with API/worker restart counts `0/0`, Docker SIGTERM exit `0`, and final five-container restoration. Backend/frontend image revision labels were inspected against their owning Git revisions; no volume-delete command was used.
+
+## Gate D evidence (2026-07-17)
+
+- P04 executed directly on backend `master` by explicit operator instruction; no P04 worktree was created or used.
+- Session issue/refresh contention tests proved max/single-session invariants and exactly one CAS refresh winner. Docker `TestMultiNode -race -count=5` proved revoke, user-disable, role-change, and refresh-reuse denial within two seconds across shared MySQL/Redis nodes.
+- Browser/desktop credential tests proved HttpOnly/Secure/SameSite-Strict browser refresh transport, desktop-only refresh response data, exact-Origin validation, one-use realtime tickets, and scoped queue-monitor grants with no access-token cookie/query fallback.
+- Versioned principal tests proved zero-SQL cache hits, mutation version bumps, fail-closed Redis behavior, and stale-snapshot denial.
+- The compiled route-policy golden and Admin Contract Bundle passed with every active route classified, every mutation carrying an audit decision, and every permission code present in the catalog.
+- `scripts/tests/session-secret-rotation.tests.ps1`, `scripts/verify-identity-routing.ps1`, and `scripts/verify-backend.ps1` exited `0`; `go vet`, pinned `staticcheck`, `govulncheck` (zero called vulnerabilities), and both process builds passed.
