@@ -186,7 +186,7 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 		return nil, apperror.Unauthorized("缺少刷新令牌")
 	}
 
-	refreshHash, err := HashToken(input.RefreshToken, a.tokenPepper)
+	previousRefreshHash, err := HashToken(input.RefreshToken, a.tokenPepper)
 	if err != nil {
 		return nil, apperror.Unauthorized("令牌格式错误")
 	}
@@ -195,12 +195,12 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 	}
 
 	now := a.now()
-	session, repoErr := a.repository.FindValidByRefreshHash(ctx, refreshHash, now)
+	session, repoErr := a.repository.FindValidByRefreshHash(ctx, previousRefreshHash, now)
 	if repoErr != nil {
 		return nil, apperror.Internal("刷新令牌查询失败")
 	}
 	if session == nil {
-		return nil, apperror.Unauthorized("刷新令牌无效或已过期")
+		return nil, refreshReusedError()
 	}
 	if !session.RefreshExpiresAt.After(now) {
 		return nil, apperror.Unauthorized("刷新令牌已过期，请重新登录")
@@ -220,22 +220,26 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 	if accessErr != nil {
 		return nil, accessErr
 	}
-	refreshToken, refreshHash, _, tokenErr := a.issueRefreshToken(policy, now)
+	refreshToken, nextRefreshHash, _, tokenErr := a.issueRefreshToken(policy, now)
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
 
 	rotation := SessionRotation{
 		AccessTokenHash:  accessHash,
-		RefreshTokenHash: refreshHash,
+		RefreshTokenHash: nextRefreshHash,
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: session.RefreshExpiresAt,
 		LastSeenAt:       now,
 		IP:               input.ClientIP,
 		UserAgent:        input.UserAgent,
 	}
-	if err := a.repository.Rotate(ctx, session.ID, rotation); err != nil {
+	won, err := a.repository.RotateIfRefreshHash(ctx, session.ID, previousRefreshHash, rotation)
+	if err != nil {
 		return nil, apperror.Internal("刷新令牌更新失败")
+	}
+	if !won {
+		return nil, refreshReusedError()
 	}
 
 	a.deleteCache(ctx, a.sessionCacheKey(session.ID))
@@ -247,6 +251,18 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 		ExpiresIn:        int(policy.AccessTTL.Seconds()),
 		RefreshExpiresIn: int(policy.RefreshTTL.Seconds()),
 	}, nil
+}
+
+func refreshReusedError() *apperror.Error {
+	return apperror.New(
+		"auth.refresh_reused",
+		apperror.CategoryAuthentication,
+		0,
+		apperror.Permanent,
+		"auth.refresh_reused",
+		nil,
+		"刷新令牌已使用，请重新登录",
+	)
 }
 
 func (a *SessionLifecycle) Revoke(ctx context.Context, command RevokeCommand) *apperror.Error {

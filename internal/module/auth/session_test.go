@@ -129,6 +129,7 @@ type fakeSessionRepository struct {
 	createdID       int64
 	rotatedID       int64
 	rotation        SessionRotation
+	rotateLost      bool
 	revokedID       int64
 	revokedAt       time.Time
 	revokedPlatform string
@@ -184,10 +185,10 @@ func (f *fakeSessionRepository) FindValidByRefreshHash(ctx context.Context, refr
 	return f.refreshSession, f.err
 }
 
-func (f *fakeSessionRepository) Rotate(ctx context.Context, sessionID int64, rotation SessionRotation) error {
+func (f *fakeSessionRepository) RotateIfRefreshHash(ctx context.Context, sessionID int64, previousHash string, rotation SessionRotation) (bool, error) {
 	f.rotatedID = sessionID
 	f.rotation = rotation
-	return f.err
+	return !f.rotateLost, f.err
 }
 
 func (f *fakeSessionRepository) Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error {

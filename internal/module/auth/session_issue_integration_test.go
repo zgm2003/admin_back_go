@@ -18,6 +18,8 @@ import (
 
 const identityIntegrationEnv = "ADMIN_IDENTITY_INTEGRATION"
 
+const integrationTokenPepper = "p04-session-integration-token-pepper"
+
 type sessionIntegrationResources struct {
 	db    *database.Client
 	redis *redisclient.Client
@@ -104,7 +106,7 @@ func newIntegrationSessionLifecycle(resources sessionIntegrationResources, prefi
 			[]byte("p04-session-integration-signing-key"),
 			accesstoken.Options{Issuer: "admin_go"},
 		),
-		TokenPepper: "p04-session-integration-token-pepper",
+		TokenPepper: integrationTokenPepper,
 	})
 }
 

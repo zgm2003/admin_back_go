@@ -44,7 +44,7 @@ type SessionRepository interface {
 	FindValidByRefreshHash(ctx context.Context, refreshHash string, now time.Time) (*Session, error)
 	FindLatestActiveByUserPlatform(ctx context.Context, userID int64, platform string, now time.Time) (*Session, error)
 	UpdateAccessToken(ctx context.Context, sessionID int64, accessHash string, expiresAt time.Time) error
-	Rotate(ctx context.Context, sessionID int64, rotation SessionRotation) error
+	RotateIfRefreshHash(ctx context.Context, sessionID int64, previousHash string, rotation SessionRotation) (bool, error)
 	Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error
 }
 
@@ -264,11 +264,30 @@ func (r *SessionGormRepository) FindLatestActiveByUserPlatform(ctx context.Conte
 	return &session, nil
 }
 
+func (r *SessionGormRepository) RotateIfRefreshHash(ctx context.Context, sessionID int64, previousHash string, rotation SessionRotation) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrSessionRepositoryNotConfigured
+	}
+
+	result := r.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ? AND refresh_token_hash = ?", sessionID, previousHash).
+		Where("revoked_at IS NULL AND is_del = ? AND refresh_expires_at > ?", commonNo, rotation.LastSeenAt).
+		Updates(map[string]any{
+			"access_token_hash":  rotation.AccessTokenHash,
+			"refresh_token_hash": rotation.RefreshTokenHash,
+			"expires_at":         rotation.ExpiresAt,
+			"last_seen_at":       rotation.LastSeenAt,
+			"ip":                 rotation.IP,
+			"ua":                 rotation.UserAgent,
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
 func (r *SessionGormRepository) Rotate(ctx context.Context, sessionID int64, rotation SessionRotation) error {
 	if r == nil || r.db == nil {
 		return ErrSessionRepositoryNotConfigured
 	}
-
 	return r.db.WithContext(ctx).
 		Model(&Session{}).
 		Where("id = ?", sessionID).
@@ -276,7 +295,6 @@ func (r *SessionGormRepository) Rotate(ctx context.Context, sessionID int64, rot
 			"access_token_hash":  rotation.AccessTokenHash,
 			"refresh_token_hash": rotation.RefreshTokenHash,
 			"expires_at":         rotation.ExpiresAt,
-			"refresh_expires_at": rotation.RefreshExpiresAt,
 			"last_seen_at":       rotation.LastSeenAt,
 			"ip":                 rotation.IP,
 			"ua":                 rotation.UserAgent,
