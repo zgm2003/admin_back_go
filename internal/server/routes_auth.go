@@ -9,7 +9,8 @@ import (
 )
 
 func registerAuthRoutes(router *gin.Engine, deps Dependencies) {
-	authadmin.Register(router, deps.AuthService, deps.CaptchaService, deps.SessionAdminService, deps.LoginLogService)
-	authapp.Register(router, authapp.Dependencies{AuthService: deps.AuthService, CaptchaService: deps.CaptchaService, UserService: deps.UserService})
-	authcanvas.Register(router, authcanvas.Dependencies{AuthService: deps.AuthService, CaptchaService: deps.CaptchaService, UserService: deps.UserService})
+	identity := deps.Admin.Identity
+	authadmin.Register(router, identity.Auth, identity.Captcha, identity.Sessions, identity.LoginLogs)
+	authapp.Register(router, authapp.Dependencies{AuthService: identity.Auth, CaptchaService: identity.Captcha, UserService: identity.Users})
+	authcanvas.Register(router, authcanvas.Dependencies{AuthService: identity.Auth, CaptchaService: identity.Captcha, UserService: identity.Users})
 }

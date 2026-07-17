@@ -12,6 +12,9 @@ func TestMultiPlatformPhase2ClosureRuntimeShape(t *testing.T) {
 
 	required := []string{
 		"internal/infra",
+		"internal/platform/admin/graph.go",
+		"internal/platform/admin/build.go",
+		"internal/platform/retired/graph.go",
 		"internal/shared/apperror",
 		"internal/shared/response",
 		"internal/shared/i18n",
@@ -46,7 +49,6 @@ func TestMultiPlatformPhase2ClosureRuntimeShape(t *testing.T) {
 	}
 
 	removed := []string{
-		"internal/platform",
 		"internal/apperror",
 		"internal/response",
 		"internal/i18n",
@@ -81,7 +83,6 @@ func TestMultiPlatformPhase2ClosureRuntimeShape(t *testing.T) {
 func TestMultiPlatformPhase2ClosureNoLegacyProductionImports(t *testing.T) {
 	root := backendRoot(t)
 	bannedImports := prefixedImportPaths("admin_back_go/internal/", []string{
-		"platform",
 		"apperror",
 		"response",
 		"i18n",

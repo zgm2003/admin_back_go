@@ -15,13 +15,14 @@ import (
 )
 
 func registerAdminFoundationRoutes(router *gin.Engine, deps Dependencies) {
-	systemadmin.RegisterRoutes(router, deps.Readiness)
-	clientversionadmin.RegisterRoutes(router, deps.ClientVersionService)
-	exporttaskadmin.RegisterRoutes(router, deps.ExportTaskService)
-	crontaskadmin.RegisterRoutes(router, deps.CronTaskService)
-	operationlogadmin.RegisterRoutes(router, deps.OperationLogService)
-	queuemonitoradmin.RegisterRoutes(router, deps.QueueMonitorService, deps.QueueMonitorUI)
-	systemsettingadmin.RegisterRoutes(router, deps.SystemSettingService)
-	systemlogadmin.RegisterRoutes(router, deps.SystemLogService)
-	realtimeadmin.RegisterRoutes(router, deps.RealtimeHandler)
+	system := deps.Admin.System
+	systemadmin.RegisterRoutes(router, deps.Core.Readiness)
+	clientversionadmin.RegisterRoutes(router, system.ClientVersions)
+	exporttaskadmin.RegisterRoutes(router, system.Exports)
+	crontaskadmin.RegisterRoutes(router, system.CronTasks)
+	operationlogadmin.RegisterRoutes(router, system.OperationLogs)
+	queuemonitoradmin.RegisterRoutes(router, system.QueueMonitor, deps.Core.QueueMonitorUI)
+	systemsettingadmin.RegisterRoutes(router, system.Settings)
+	systemlogadmin.RegisterRoutes(router, system.Logs)
+	realtimeadmin.RegisterRoutes(router, deps.Core.RealtimeHandler)
 }

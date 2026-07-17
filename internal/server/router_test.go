@@ -1718,7 +1718,7 @@ func (f *fakeRouterQueueMonitorService) FailedList(ctx context.Context, query qu
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {
-	router := newTestRouter(t, Dependencies{})
+	router := newTestRouter(t, testDependencies{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -1745,7 +1745,7 @@ func TestHealthEndpointReturnsOK(t *testing.T) {
 }
 
 func TestPingEndpointReturnsPong(t *testing.T) {
-	router := newTestRouter(t, Dependencies{})
+	router := newTestRouter(t, testDependencies{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/ping", nil)
@@ -1765,7 +1765,7 @@ func TestPingEndpointReturnsPong(t *testing.T) {
 }
 
 func TestReadyEndpointReturnsReadyWhenResourcesAreDisabled(t *testing.T) {
-	router := newTestRouter(t, Dependencies{})
+	router := newTestRouter(t, testDependencies{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
@@ -1805,7 +1805,7 @@ func TestReadyEndpointReturnsReadyWhenResourcesAreDisabled(t *testing.T) {
 }
 
 func TestReadyEndpointReturnsErrorWithDetailsWhenResourceIsDown(t *testing.T) {
-	router := newTestRouter(t, Dependencies{Readiness: fakeReadinessChecker{report: readiness.NewReport(map[string]readiness.Check{
+	router := newTestRouter(t, testDependencies{Readiness: fakeReadinessChecker{report: readiness.NewReport(map[string]readiness.Check{
 		"database": {Status: readiness.StatusDown, Message: "connection refused"},
 		"redis":    {Status: readiness.StatusDisabled},
 	})}})
@@ -1837,7 +1837,7 @@ func TestReadyEndpointReturnsErrorWithDetailsWhenResourceIsDown(t *testing.T) {
 func TestRouterReportsReadyFailureOnce(t *testing.T) {
 	var buffer bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buffer, nil))
-	router := NewRouter(Dependencies{
+	router := newRouterFromTestDependencies(testDependencies{
 		Logger: logger,
 		Readiness: fakeReadinessChecker{report: readiness.NewReport(map[string]readiness.Check{
 			"database": {Status: readiness.StatusDown, Message: "connection refused"},
@@ -1874,7 +1874,7 @@ func TestRouterReportsReadyFailureOnce(t *testing.T) {
 func TestRouterInstallsAccessLogAfterRequestID(t *testing.T) {
 	var buffer bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buffer, nil))
-	router := NewRouter(Dependencies{Logger: logger})
+	router := newRouterFromTestDependencies(testDependencies{Logger: logger})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -1906,7 +1906,7 @@ func TestRouterInstallsAccessLogAfterRequestID(t *testing.T) {
 func TestRouterInstallsCORSAfterAccessLog(t *testing.T) {
 	var buffer bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buffer, nil))
-	router := NewRouter(Dependencies{
+	router := newRouterFromTestDependencies(testDependencies{
 		Logger: logger,
 		CORS: config.CORSConfig{
 			AllowOrigins:  []string{"http://localhost:5173"},
@@ -1940,7 +1940,7 @@ func TestRouterInstallsCORSAfterAccessLog(t *testing.T) {
 }
 
 func TestRouterInstallsAuthTokenForNonPublicPaths(t *testing.T) {
-	router := newTestRouter(t, Dependencies{})
+	router := newTestRouter(t, testDependencies{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/private", nil)
@@ -1959,7 +1959,7 @@ func TestRouterInstallsAuthTokenForNonPublicPaths(t *testing.T) {
 }
 
 func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
-	router := newTestRouter(t, Dependencies{AuthService: fakeAuthService{}})
+	router := newTestRouter(t, testDependencies{AuthService: fakeAuthService{}})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
@@ -1977,7 +1977,7 @@ func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
 }
 
 func TestRouterRefreshEndpointIncludesCORSHeaders(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		CORS:        config.DefaultCORSConfig(),
 		AuthService: fakeAuthService{},
 	})
@@ -2000,7 +2000,7 @@ func TestRouterRefreshEndpointIncludesCORSHeaders(t *testing.T) {
 }
 
 func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
-	router := newTestRouter(t, Dependencies{AuthService: fakeAuthService{}})
+	router := newTestRouter(t, testDependencies{AuthService: fakeAuthService{}})
 
 	configRecorder := httptest.NewRecorder()
 	configRequest := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth/login-config", nil)
@@ -2029,7 +2029,7 @@ func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 }
 
 func TestRouterInstallsCaptchaEndpointAsPublicPath(t *testing.T) {
-	router := newTestRouter(t, Dependencies{CaptchaService: fakeCaptchaService{}})
+	router := newTestRouter(t, testDependencies{CaptchaService: fakeCaptchaService{}})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth/captcha", nil)
@@ -2056,7 +2056,7 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 		Router:      []permission.RouteItem{{Name: "menu_2", Path: "/system/user", ViewKey: "system/user/index"}},
 		ButtonCodes: []string{"user_add"},
 	}}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			authInput = input
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: input.Platform}, nil
@@ -2127,7 +2127,7 @@ func TestRouterInstallsAppAuthRoutes(t *testing.T) {
 			return nil
 		},
 	}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		AuthService:    authService,
 		CaptchaService: fakeCaptchaService{},
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
@@ -2297,7 +2297,7 @@ func TestRouterInstallsCanvasAuthAndCurrentUserRoutes(t *testing.T) {
 			return nil
 		},
 	}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		AuthService:    authService,
 		CaptchaService: fakeCaptchaService{},
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
@@ -2426,7 +2426,7 @@ func TestRouterInstallsAppProfileAndUploadRoutes(t *testing.T) {
 		},
 	}
 	uploadTokenService := &fakeRouterUploadTokenService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			tokenInput = input
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 20, Platform: input.Platform}, nil
@@ -2506,7 +2506,7 @@ func TestRouterInstallsAppProfileAndUploadRoutes(t *testing.T) {
 }
 
 func TestRouterDoesNotInstallUsersInitBootstrapRoute(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: input.Platform}, nil
 		},
@@ -2526,7 +2526,7 @@ func TestRouterDoesNotInstallUsersInitBootstrapRoute(t *testing.T) {
 }
 
 func TestLegacyUsersRoutesAreNotRegistered(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2559,7 +2559,7 @@ func TestLegacyUsersRoutesAreNotRegistered(t *testing.T) {
 
 func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 	userService := &fakeRouterUserService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2614,7 +2614,7 @@ func TestRouterInstallsUserManagementRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 	sessionAdminService := &fakeRouterSessionAdminService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2653,7 +2653,7 @@ func TestRouterInstallsUserSessionReadOnlyRESTRoutes(t *testing.T) {
 func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 	loginLogService := &fakeRouterLoginLogService{}
 	sessionAdminService := &fakeRouterSessionAdminService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 44, SessionID: 55, Platform: "admin"}, nil
 		},
@@ -2706,7 +2706,7 @@ func TestRouterInstallsUserLegacyClosureRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsExportTaskRESTRoutes(t *testing.T) {
 	exportTaskService := &fakeRouterExportTaskService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2741,7 +2741,7 @@ func TestRouterInstallsExportTaskRESTRoutes(t *testing.T) {
 func TestRouterInstallsNotificationListAsCurrentUserRESTPath(t *testing.T) {
 	notificationService := &fakeRouterNotificationService{}
 	var authInput middleware.TokenInput
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			authInput = input
 			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: input.Platform}, nil
@@ -2791,7 +2791,7 @@ func TestRouterInstallsNotificationListAsCurrentUserRESTPath(t *testing.T) {
 
 func TestRouterInstallsNotificationReadAndDeleteRoutes(t *testing.T) {
 	notificationService := &fakeRouterNotificationService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2863,7 +2863,7 @@ func TestRouterInstallsNotificationReadAndDeleteRoutes(t *testing.T) {
 
 func TestRouterInstallsNotificationTaskRESTRoutes(t *testing.T) {
 	notificationTaskService := &fakeRouterNotificationTaskService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 12, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2934,7 +2934,7 @@ func TestRouterInstallsNotificationTaskRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsPermissionRESTRoutes(t *testing.T) {
 	permissionService := &fakeRouterPermissionService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2956,7 +2956,7 @@ func TestRouterInstallsPermissionRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsRoleRESTRoutes(t *testing.T) {
 	roleService := &fakeRouterRoleService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -2978,7 +2978,7 @@ func TestRouterInstallsRoleRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsAuthPlatformRESTRoutes(t *testing.T) {
 	authPlatformService := &fakeRouterAuthPlatformService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3007,7 +3007,7 @@ func TestRouterInstallsClientVersionRESTRoutes(t *testing.T) {
 	clientVersionService := &fakeRouterClientVersionService{}
 	var permissionInputs []middleware.PermissionInput
 	var authCalls int
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			authCalls++
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
@@ -3130,7 +3130,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	providerService := &fakeRouterAIProviderService{}
 	agentService := &fakeRouterAIAgentService{}
 	toolService := &fakeRouterAIToolService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3358,7 +3358,7 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
 	operationLogService := &fakeRouterOperationLogService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3398,7 +3398,7 @@ func TestRouterInstallsOperationLogRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsCronTaskRESTRoutes(t *testing.T) {
 	cronTaskService := &fakeRouterCronTaskService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3442,7 +3442,7 @@ func TestRouterInstallsCronTaskRESTRoutes(t *testing.T) {
 
 func TestRouterInstallsSystemSettingRESTRoutes(t *testing.T) {
 	systemSettingService := &fakeRouterSystemSettingService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3482,7 +3482,7 @@ func TestRouterInstallsSystemSettingRESTRoutes(t *testing.T) {
 }
 
 func TestRouterDoesNotInstallLegacyPayWalletRoutes(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3512,7 +3512,7 @@ func TestRouterDoesNotInstallLegacyPayWalletRoutes(t *testing.T) {
 
 func TestRouterInstallsPublicPaymentCallbackRoute(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		PaymentService: paymentService,
 	})
 
@@ -3537,7 +3537,7 @@ func TestRouterInstallsPublicPaymentCallbackRoute(t *testing.T) {
 
 func TestRouterInstallsMailRoutes(t *testing.T) {
 	mailService := &fakeRouterMailService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3581,7 +3581,7 @@ func TestRouterInstallsMailRoutes(t *testing.T) {
 
 func TestRouterInstallsSmsRoutes(t *testing.T) {
 	smsService := &fakeRouterSmsService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3625,7 +3625,7 @@ func TestRouterInstallsSmsRoutes(t *testing.T) {
 }
 func TestRouterInstallsPaymentConfigAndRechargeRoutes(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3724,7 +3724,7 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	promptService := &fakeRouterAiPromptService{}
 	assetService := &fakeRouterAiAssetService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
@@ -3786,7 +3786,7 @@ func TestRouterInstallsCanvasPromptAndAssetRoutes(t *testing.T) {
 
 func TestRouterInstallsAdminAIPromptRoutes(t *testing.T) {
 	promptService := &fakeRouterAdminAIPromptService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -3834,7 +3834,7 @@ func TestRouterInstallsAdminAIPromptRoutes(t *testing.T) {
 func TestRouterInstallsCanvasAIImageRoutesFromAiImageService(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	canvasImageService := &fakeRouterAiImageService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
@@ -3891,7 +3891,7 @@ func TestRouterInstallsCanvasAIImageRoutesFromAiImageService(t *testing.T) {
 func TestRouterInstallsCanvasAIChatRouteFromAIChatService(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	aiChatService := &fakeRouterAIChatService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
@@ -3916,7 +3916,7 @@ func TestRouterInstallsCanvasAIChatRouteFromAIChatService(t *testing.T) {
 func TestRouterInstallsCanvasAIVideoRoutesFromAIVideoService(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	aiVideoService := &fakeRouterAIVideoService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
@@ -3989,7 +3989,7 @@ func TestRouterInstallsCanvasAIVideoRoutesFromAIVideoService(t *testing.T) {
 func TestRouterInstallsCanvasAIAudioRouteFromAIAudioService(t *testing.T) {
 	canvasService := &fakeRouterCanvasService{}
 	aiAudioService := &fakeRouterAIAudioService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
 		},
@@ -4014,7 +4014,7 @@ func TestRouterInstallsCanvasAIAudioRouteFromAIAudioService(t *testing.T) {
 func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
 	paymentService := &fakeRouterPaymentService{}
 	walletService := &fakeRouterWalletService{}
-	router := NewRouter(Dependencies{
+	router := newRouterFromTestDependencies(testDependencies{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 9, SessionID: 10, Platform: input.Platform}, nil
@@ -4129,7 +4129,7 @@ func TestRouterInstallsCanvasWalletAndRechargeRoutes(t *testing.T) {
 }
 func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {
 	systemLogService := &fakeRouterSystemLogService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -4164,7 +4164,7 @@ func TestRouterInstallsSystemLogReadOnlyRESTRoutes(t *testing.T) {
 func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
 	uploadTokenService := &fakeRouterUploadTokenService{}
 	permissionChecked := false
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -4203,7 +4203,7 @@ func TestRouterInstallsQueueMonitorReadOnlyRESTRoutes(t *testing.T) {
 	queueMonitorUI := &fakeQueueMonitorUI{}
 	var uiAuthToken string
 	var uiAuthPlatform string
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			if strings.HasPrefix(input.AccessToken, "cookie-") {
 				uiAuthToken = input.AccessToken
@@ -4268,7 +4268,7 @@ func TestRouterInstallsQueueMonitorReadOnlyRESTRoutes(t *testing.T) {
 }
 
 func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -4300,7 +4300,7 @@ func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
 
 func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 	var got middleware.OperationInput
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
@@ -4328,7 +4328,7 @@ func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 }
 
 func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
@@ -4363,7 +4363,7 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 
 func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing.T) {
 	var gotInput middleware.TokenInput
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			gotInput = input
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
@@ -4402,7 +4402,7 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 }
 
 func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		CORS: config.CORSConfig{
 			AllowOrigins:     []string{"http://127.0.0.1:5173"},
 			AllowMethods:     []string{"GET", "OPTIONS"},
@@ -4442,7 +4442,7 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 
 func TestRouterInstallsAIKnowledgeRESTRoutes(t *testing.T) {
 	knowledgeService := &fakeRouterAIKnowledgeService{}
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
@@ -4496,7 +4496,7 @@ func TestRouterInstallsAIKnowledgeRESTRoutes(t *testing.T) {
 }
 
 func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
@@ -4539,7 +4539,7 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 }
 
 func TestRouterLocalizesAuthTokenErrors(t *testing.T) {
-	router := NewRouter(Dependencies{})
+	router := newRouterFromTestDependencies(testDependencies{})
 
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	request.Header.Set("Accept-Language", "en-US")
@@ -4556,7 +4556,7 @@ func TestRouterLocalizesAuthTokenErrors(t *testing.T) {
 }
 
 func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
-	router := newTestRouter(t, Dependencies{
+	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
@@ -4604,7 +4604,7 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 }
 
 func TestAdminRouteSnapshot(t *testing.T) {
-	router := NewRouter(Dependencies{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	router := newRouterFromTestDependencies(testDependencies{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 
 	var routes []string
 	for _, route := range router.Routes() {
@@ -4640,12 +4640,12 @@ func TestAdminRouteSnapshot(t *testing.T) {
 	}
 }
 
-func newTestRouter(t *testing.T, deps Dependencies) http.Handler {
+func newTestRouter(t *testing.T, deps testDependencies) http.Handler {
 	t.Helper()
 	if deps.Logger == nil {
 		deps.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return NewRouter(deps)
+	return newRouterFromTestDependencies(deps)
 }
 
 func decodeRouterBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {

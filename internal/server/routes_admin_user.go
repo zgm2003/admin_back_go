@@ -12,10 +12,11 @@ import (
 )
 
 func registerAdminUserRoutes(router *gin.Engine, deps Dependencies) {
-	useradmin.RegisterRoutes(router, deps.UserService)
-	userapp.RegisterRoutes(router, deps.UserService)
-	usercanvas.RegisterRoutes(router, deps.UserService)
-	profileadmin.RegisterRoutes(router, deps.UserService)
-	profileapp.RegisterRoutes(router, deps.UserService)
-	profilecanvas.RegisterRoutes(router, deps.UserService)
+	users := deps.Admin.Identity.Users
+	useradmin.RegisterRoutes(router, users)
+	userapp.RegisterRoutes(router, users)
+	usercanvas.RegisterRoutes(router, users)
+	profileadmin.RegisterRoutes(router, users)
+	profileapp.RegisterRoutes(router, users)
+	profilecanvas.RegisterRoutes(router, users)
 }

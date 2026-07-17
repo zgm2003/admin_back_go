@@ -1,4 +1,4 @@
-package bootstrap
+package runtime
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func TestAIProviderTesterSupportsOpenAI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := (aiProviderTester{}).TestConnection(context.Background(), infraai.TestConnectionInput{
+	result, err := (aiConnectionTester{}).TestConnection(context.Background(), infraai.TestConnectionInput{
 		EngineType: infraai.EngineTypeOpenAI,
 		BaseURL:    server.URL,
 		APIKey:     "sk-test",

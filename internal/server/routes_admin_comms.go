@@ -12,11 +12,12 @@ import (
 )
 
 func registerAdminCommsRoutes(router *gin.Engine, deps Dependencies) {
-	notificationadmin.RegisterRoutes(router, deps.NotificationService)
-	notificationadmin.RegisterTaskRoutes(router, deps.NotificationTaskService)
-	mailadmin.RegisterRoutes(router, deps.MailService)
-	smsadmin.RegisterRoutes(router, deps.SmsService)
-	uploadconfigadmin.RegisterRoutes(router, deps.UploadConfigService)
-	uploadtokenadmin.RegisterRoutes(router, deps.UploadTokenService)
-	uploadtokenapp.RegisterRoutes(router, deps.UploadTokenService)
+	communications := deps.Admin.Communications
+	notificationadmin.RegisterRoutes(router, communications.Notifications)
+	notificationadmin.RegisterTaskRoutes(router, communications.NotificationTasks)
+	mailadmin.RegisterRoutes(router, communications.Mail)
+	smsadmin.RegisterRoutes(router, communications.SMS)
+	uploadconfigadmin.RegisterRoutes(router, communications.UploadConfig)
+	uploadtokenadmin.RegisterRoutes(router, communications.UploadTokens)
+	uploadtokenapp.RegisterRoutes(router, communications.UploadTokens)
 }

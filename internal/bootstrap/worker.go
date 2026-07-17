@@ -6,14 +6,10 @@ import (
 	"log/slog"
 
 	"admin_back_go/internal/config"
-	paymentcore "admin_back_go/internal/infra/payment"
-	payalipay "admin_back_go/internal/infra/payment/alipay"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/redislock"
 	"admin_back_go/internal/infra/scheduler"
-	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/infra/secretkey"
-	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
@@ -67,6 +63,11 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		return nil, err
 	}
 	worker.resources = resources
+	providers, err := runtimepkg.BuildProviders(cfg, keys)
+	if err != nil {
+		_ = resources.Close(context.Background())
+		return nil, err
+	}
 
 	queueClient, err := taskqueue.NewClient(cfg.Redis, cfg.Queue)
 	if err != nil {
@@ -90,7 +91,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		notificationtask.WithRealtimePublisher(realtimePublisher),
 		notificationtask.WithLogger(logger),
 	)
-	secretBox := secretbox.New(keys.SecretboxKey())
+	secretBox := providers.Secretbox
 	exportTaskRepository := exporttask.NewGormRepository(resources.DB)
 	userExportProvider := user.NewExportDataProvider(user.NewGormRepository(resources.DB))
 	exportRegistry, err := exporttask.NewRegistry(exporttask.Definition{
@@ -111,7 +112,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		exporttask.WithFileUploader(exporttask.NewCOSUploader(
 			exporttask.NewGormUploadConfigRepository(resources.DB),
 			secretBox,
-			storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
+			providers.ObjectWriter,
 		)),
 		exporttask.WithNotifier(exporttask.NewNotificationTaskNotifier(notificationTaskService)),
 		exporttask.WithLogger(logger),
@@ -123,7 +124,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		Repository:      aichat.NewGormRepository(resources.DB),
 		Publisher:       realtimePublisher,
 		Secretbox:       secretBox,
-		EngineFactory:   aiChatEngineFactory{streamIdleTimeout: positiveDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout)},
+		EngineFactory:   providers.AIChatFactory,
 		RunRecorder:     aiRunRecorder,
 		TextTasks:       aiTextTasks,
 		RunStaleTimeout: positiveDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
@@ -131,16 +132,17 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
 		Repository:    aiimage.NewGormRepository(resources.DB),
 		Secretbox:     secretBox,
-		EngineFactory: aiImageEngineFactory{},
-		ObjectReader:  storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true}),
-		ObjectWriter:  storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
+		EngineFactory: providers.AIImageFactory,
+		ObjectReader:  providers.ObjectReader,
+		ObjectWriter:  providers.ObjectWriter,
 		RunRecorder:   aiRunRecorder,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),
-		Gateway:      payalipay.NewPlatformGateway(payalipay.NewGopayGateway()),
+		Gateway:      providers.PaymentGateway,
 		Secretbox:    secretBox,
-		CertResolver: paymentcore.CertPathResolver{CertBaseDir: cfg.Payment.CertBaseDir, WorkingDir: "."},
+		CertResolver: providers.PaymentCertResolver,
+		CertStore:    providers.PaymentCertStore,
 	})
 	jobs.Register(worker.mux, jobs.Dependencies{
 		Logger:                  logger,

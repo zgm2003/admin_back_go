@@ -14,12 +14,14 @@ import (
 )
 
 func registerAdminCommerceRBACRoutes(router *gin.Engine, deps Dependencies) {
-	paymentcallback.RegisterRoutes(router, deps.PaymentService)
-	paymentadmin.RegisterRoutes(router, deps.PaymentService)
-	walletadmin.RegisterRoutes(router, deps.WalletService)
-	permissionadmin.RegisterRoutes(router, deps.PermissionService)
-	roleadmin.RegisterRoutes(router, deps.RoleService)
-	authplatformadmin.RegisterRoutes(router, deps.AuthPlatformService)
-	walletcanvas.RegisterRoutes(router, deps.WalletService)
-	paymentcanvas.RegisterRechargeRoutes(router, deps.PaymentService)
+	commerce := deps.Admin.Commerce
+	identity := deps.Admin.Identity
+	paymentcallback.RegisterRoutes(router, commerce.Payment)
+	paymentadmin.RegisterRoutes(router, commerce.Payment)
+	walletadmin.RegisterRoutes(router, commerce.Wallet)
+	permissionadmin.RegisterRoutes(router, identity.Permissions)
+	roleadmin.RegisterRoutes(router, identity.Roles)
+	authplatformadmin.RegisterRoutes(router, identity.AuthPlatforms)
+	walletcanvas.RegisterRoutes(router, commerce.Wallet)
+	paymentcanvas.RegisterRechargeRoutes(router, commerce.Payment)
 }

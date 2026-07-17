@@ -59,7 +59,7 @@ func TestAIRunSourceFieldCleanupMigrationShape(t *testing.T) {
 }
 
 func TestAIChatBootstrapWiresUnifiedRunRecorder(t *testing.T) {
-	for _, path := range []string{"../../internal/bootstrap/app.go", "../../internal/bootstrap/worker.go"} {
+	for _, path := range []string{"../../internal/platform/admin/build.go", "../../internal/bootstrap/worker.go"} {
 		body, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
