@@ -201,7 +201,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		}
 	}
 	if input.CaptchaID == "" || input.CaptchaAnswer == nil {
-		return "", apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
+		return "", requiredCaptchaError()
 	}
 	if s.captchaVerifier == nil {
 		return "", apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
@@ -347,7 +347,7 @@ func (s *Service) loginByPassword(ctx context.Context, input LoginInput) (*UserC
 	}
 	if passwordLoginRequiresCaptcha(input.Platform) {
 		if input.CaptchaID == "" || input.CaptchaAnswer == nil {
-			return nil, apperror.BadRequest("请完成验证码")
+			return nil, requiredCaptchaError()
 		}
 		if s.captchaVerifier == nil {
 			return nil, apperror.Internal("验证码服务未配置")

@@ -382,7 +382,7 @@ func (s *CaptchaService) Verify(ctx context.Context, input VerifyInput) *apperro
 	}
 	id := strings.TrimSpace(input.ID)
 	if id == "" || input.Answer == nil {
-		return apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
+		return requiredCaptchaError()
 	}
 
 	padding, appErr := s.policy.SlidePadding(ctx)
@@ -394,12 +394,22 @@ func (s *CaptchaService) Verify(ctx context.Context, input VerifyInput) *apperro
 		return apperror.InternalKey("captcha.verify_failed", nil, "验证码校验失败")
 	}
 	if secret == nil {
-		return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")
+		return invalidOrExpiredCaptchaError()
 	}
 	if !slide.Validate(input.Answer.X, input.Answer.Y, secret.Answer.X, secret.Answer.Y, padding) {
-		return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")
+		return invalidOrExpiredCaptchaError()
 	}
 	return nil
+}
+
+func invalidOrExpiredCaptchaError() *apperror.Error {
+	return apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期").
+		WithCode("captcha.invalid_or_expired")
+}
+
+func requiredCaptchaError() *apperror.Error {
+	return apperror.BadRequestKey("captcha.required", nil, "请完成验证码").
+		WithCode("captcha.required")
 }
 
 func makeCaptchaID() (string, error) {

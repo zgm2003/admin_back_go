@@ -817,6 +817,9 @@ mail_logs 只记录场景、收件人、主题、腾讯 RequestId/MessageId、�
 
 ```text
 auth.Service 只依赖 VerifyCodeMailSender 小接口，不 import module/mail 或 Tencent SDK
+所有 scene 都必须携带 captcha_id + captcha_answer；CaptchaService 在生成、缓存或发送验证码之前一次性消费并校验 challenge
+captcha 缺失返回 HTTP 400、code=100、error.code=captcha.required；错误、过期或重复使用返回 error.code=captcha.invalid_or_expired
+captcha 校验失败绝不写验证码缓存、绝不发送邮件；challenge 已消费，客户端必须重新 GET /api/admin/v1/auth/captcha
 email：生成随机验证码，先写 Redis，再发 Tencent SES，TTL 来自 mail_configs.verify_code_ttl_minutes；发信失败 best-effort 删除 Redis key 并返回错误
 phone：固定验证码 123456，写 Redis 后返回成功，不接短信，不受 env 控制；Redis TTL 仍来自 sms_configs.verify_code_ttl_minutes
 Tencent SMS 模块当前只拥有配置、模板、日志和 test-send；不声明登录短信发送已接入
@@ -1019,14 +1022,20 @@ POST /api/admin/v1/auth/logout
 ```text
 login-config 是公开接口，按 `auth_platforms.login_types` 返回当前平台配置的登录方式，并按 enum 稳定顺序 `email -> phone -> password` 输出；password 必须排最后，验证码登录才是主路径，密码登录是备用路径
 captcha 是公开接口，使用 go-captcha/v2 slide 生成 master/tile 图片，Redis 短 TTL 保存答案
-send-code 是公开接口，只接受 account + scene；scene 必须来自 enum，验证码 key = VERIFY_CODE_REDIS_PREFIX + account_type + scene + md5(account)
+send-code 是公开接口，准确请求字段为 account + scene + captcha_id + captcha_answer；scene 必须来自 enum，验证码 key = VERIFY_CODE_REDIS_PREFIX + account_type + scene + md5(account)
+scene=login 额外必须携带 login_type=email|phone，且 account 格式必须与 login_type 一致；forget 与 change_password 接受邮箱或手机号，bind_email 只接受邮箱，bind_phone 只接受手机号
+change_password 可使用当前绑定邮箱或当前绑定手机号接收验证码；前端当前明确采用“有邮箱优先邮箱，否则手机号”的产品规则
+send-code 的 captcha 校验与验证码发送是一次原子请求：客户端确认滑块后提交 proof，只有服务端返回成功才算通过；错误 proof 返回 error.code=captcha.invalid_or_expired，且不得生成验证码
 login 是公开接口；password login 必须带 captcha_id + captcha_answer，go-captcha fail-closed 且一次性消费
 password login 只支持邮箱/手机号账号 + bcrypt $2y$ 密码校验
 email/phone code login 使用 Redis 短 TTL 验证码；email 随机码经 `VerifyCodeMailSender` 调 `internal/module/mail.SendVerifyCode` 真实发送腾讯云 SES 邮件，TTL 来自 mail_configs.verify_code_ttl_minutes；phone 固定验证码 123456，不接短信、不受 env 控制，但 Redis TTL 仍来自 sms_configs.verify_code_ttl_minutes
 验证码登录支持自动注册：先校验 code 不消费，再检查 auth_platforms.allow_register；允许注册后消费 code，并在同一事务创建 users + user_profiles + 默认角色
 登录成功通过 session.Create 生成 JWT access_token + opaque refresh_token，并按 auth_platforms 执行单端/最大会话策略
 登录成功/密码错误/验证码错误写 users_login_log；有 queue producer 时投递 `auth:login-log:v1` 到 critical lane，由 `cmd/admin-worker` 消费；producer 未配置或投递失败时同步写库兜底，写日志失败不影响主登录结果
-refresh 是公开接口，只接收 refresh_token，不走 AuthToken
+Admin login / refresh / logout 必须携带 X-Admin-Client-Variant: browser|desktop，缺失或未知值返回 auth.client_variant_invalid
+browser login/refresh/logout 要求精确允许的 Origin；refresh credential 只存在于 HttpOnly + Secure + SameSite=Strict Cookie，login/refresh JSON 不返回 refresh_token，browser refresh 不提交 JSON refresh_token
+desktop login/refresh 不设置浏览器 Cookie；login/refresh JSON 返回 refresh_token + refresh_expires_in，desktop refresh 只从 JSON 读取 refresh_token
+refresh 是公开接口，不走 AuthToken；browser 从专用 Cookie 读取 refresh credential，desktop 从请求体读取 refresh_token
 logout 是认证接口，先走 AuthToken，再撤销 JWT sid 对应 session
 refresh 通过 user_sessions.refresh_token_hash 查会话
 refresh 重新签发 JWT access_token，rotate access_token_hash / refresh_token_hash / expires_at / last_seen_at / ip / ua

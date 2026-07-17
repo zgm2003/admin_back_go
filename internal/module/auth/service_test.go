@@ -757,7 +757,7 @@ func TestServiceSendCodeRequiresCaptchaForEveryScene(t *testing.T) {
 				LoginType: tt.loginType,
 			})
 
-			if message != "" || appErr == nil || appErr.MessageID != "captcha.required" {
+			if message != "" || appErr == nil || appErr.MessageID != "captcha.required" || appErr.Code != "captcha.required" {
 				t.Fatalf("scene=%s expected captcha.required, message=%q err=%#v", tt.scene, message, appErr)
 			}
 			if store.setKey != "" {

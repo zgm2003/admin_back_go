@@ -354,7 +354,7 @@ func TestServiceVerifyRejectsMissingOrReusedChallenge(t *testing.T) {
 		Answer: &Answer{X: 120, Y: 80},
 	})
 
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Code != "captcha.invalid_or_expired" || appErr.Message != "验证码错误或已过期" {
 		t.Fatalf("expected missing captcha rejection, got %#v", appErr)
 	}
 	if store.takeID != "captcha-id" {
@@ -371,7 +371,7 @@ func TestServiceVerifyRejectsWrongAnswer(t *testing.T) {
 		Answer: &Answer{X: 40, Y: 80},
 	})
 
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Code != "captcha.invalid_or_expired" || appErr.Message != "验证码错误或已过期" {
 		t.Fatalf("expected wrong captcha rejection, got %#v", appErr)
 	}
 }
@@ -386,6 +386,9 @@ func TestServiceVerifyErrorsCarryMessageIDs(t *testing.T) {
 	}
 	if appErr.MessageID != "captcha.required" {
 		t.Fatalf("expected captcha.required message id, got %#v", appErr)
+	}
+	if appErr.Code != "captcha.required" {
+		t.Fatalf("expected captcha.required machine code, got %#v", appErr)
 	}
 	if appErr.Message != "请完成验证码" {
 		t.Fatalf("fallback message changed: %#v", appErr)
