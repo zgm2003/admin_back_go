@@ -23,7 +23,7 @@ require (
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.96
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ses v1.3.86
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms v1.3.93
-	github.com/tencentyun/cos-go-sdk-v5 v0.7.73
+	github.com/tencentyun/cos-go-sdk-v5 v0.7.74
 	github.com/tencentyun/qcloud-cos-sts-sdk v0.0.0-20251226100129-1701383cae15
 	github.com/wenlng/go-captcha-assets v1.0.7
 	github.com/wenlng/go-captcha/v2 v2.0.5
