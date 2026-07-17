@@ -10,6 +10,12 @@
 
 ---
 
+## Execution prerequisite and Docker-only runtime policy
+
+P05 starts only after P02, P03.5, and Gate C.5 are complete. The standard state/app stack must be started with `pwsh -NoProfile -File scripts/docker-platform.ps1 up`; API, worker, Vite, MySQL, and Redis must never be started as host processes.
+
+Pure source/unit checks may run on the host. Any test that opens MySQL/Redis, terminates/restarts API or worker, or performs realtime/integration/smoke/E2E behavior runs in Docker on `admin-platform`. Use the pinned Go image with the repository bind-mounted at `/src`, `--env-file deploy/docker-first/admin-go.env`, and named Go caches. PowerShell may orchestrate Docker and signals but may not substitute a host runtime.
+
 ## Target file map
 
 - Deepen `internal/infra/taskqueue` with a typed TaskRegistry and Error Module retry mapping.

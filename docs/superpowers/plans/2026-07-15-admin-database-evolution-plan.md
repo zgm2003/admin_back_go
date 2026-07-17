@@ -1,6 +1,6 @@
 # Admin Database Evolution Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Reconcile the imported MySQL database to a checksummed Admin target without losing recoverability, while proving data invariants, object reachability, query plans, repeatability, and empty/imported-schema convergence.
 
@@ -34,7 +34,7 @@ This plan adds compatible columns/tables, backfills explicit facts, verifies inv
 - Create: `internal/architecture/database_layout_test.go`
 - Create: `database/README.md`
 
-- [ ] **Step 1: Write the failing guard**
+- [x] **Step 1: Write the failing guard**
 
 ```go
 func TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations(t *testing.T) {
@@ -57,13 +57,13 @@ func TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Prove failure**
+- [x] **Step 2: Prove failure**
 
 Run: `go test ./internal/architecture -run TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations -count=1`
 
 Expected: FAIL because the legacy directory and wrapper do not exist.
 
-- [ ] **Step 3: Move SQL and create the inert baseline**
+- [x] **Step 3: Move SQL and create the inert baseline**
 
 Run:
 
@@ -81,7 +81,7 @@ The baseline file contains only:
 
 Generate `database/migrations/atlas.sum` with the same digest-pinned Atlas image, `--network none`, and a writable mount limited to `database/migrations`. Atlas requires the checksum beside the migration SQL; do not create a second checksum at repository root. `.gitattributes` must force both migration SQL and `atlas.sum` to LF because Atlas hashes raw bytes and Windows checkout conversion would invalidate the directory. The normal wrapper remains repository-read-only for validation and inspection.
 
-- [ ] **Step 4: Implement the offline wrapper**
+- [x] **Step 4: Implement the offline wrapper**
 
 ```powershell
 [CmdletBinding()]
@@ -96,7 +96,7 @@ $image = "arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f
 if ($LASTEXITCODE -ne 0) { throw "Atlas exited with code $LASTEXITCODE" }
 ```
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```powershell
 go test ./internal/architecture -run TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations -count=1
@@ -114,7 +114,7 @@ Expected: test and Atlas validation pass.
 - Create: `internal/databaseevolution/fingerprint.go`
 - Create: `internal/databaseevolution/fingerprint_test.go`
 
-- [ ] **Step 1: Write canonicalization tests**
+- [x] **Step 1: Write canonicalization tests**
 
 ```go
 func TestCanonicalJSONSortsAndExcludesVolatileValues(t *testing.T) {
@@ -136,13 +136,13 @@ func TestCanonicalJSONSortsAndExcludesVolatileValues(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Prove failure**
+- [x] **Step 2: Prove failure**
 
 Run: `go test ./internal/databaseevolution -run TestCanonicalJSON -count=1`
 
 Expected: FAIL because the package does not exist.
 
-- [ ] **Step 3: Implement stable capture**
+- [x] **Step 3: Implement stable capture**
 
 Define:
 
@@ -183,7 +183,7 @@ type Column struct {
 
 `admin-db fingerprint --schema admin --out $OutPath --commit $Commit` reads `MYSQL_DSN` only from the environment, rejects a DSN for another schema, writes through temporary-file rename, and prints only the output path and SHA-256.
 
-- [ ] **Step 4: Verify the live schema is read-only and deterministic**
+- [x] **Step 4: Verify the live schema is read-only and deterministic**
 
 ```powershell
 $env:MYSQL_DSN = $env:ADMIN_LOCAL_MYSQL_DSN
@@ -194,7 +194,7 @@ $b = (Get-Content -Raw $env:TEMP\admin-b.json | ConvertFrom-Json).schema_sha256
 if ($a -ne $b) { throw "fingerprint is not deterministic" }
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add -- cmd/admin-db internal/databaseevolution
@@ -209,17 +209,17 @@ git commit -m "feat(database): add deterministic schema fingerprinting"
 - Create: `database/evidence/.gitignore`
 - Modify: `database/README.md`
 
-- [ ] **Step 1: Write a fake-client test**
+- [x] **Step 1: Write a fake-client test**
 
 Fake `mysqldump` and `mysql` programs write a minimal dump and restore counts. Assert the dump is non-empty, SHA is 64 lowercase hex characters, the temporary MySQL option file is removed, the password is absent from output, and the disposable name matches `^admin_restore_[0-9a-f]{12}$`.
 
-- [ ] **Step 2: Prove failure**
+- [x] **Step 2: Prove failure**
 
 Run: `pwsh -NoProfile -File scripts/tests/database-recovery.tests.ps1`
 
 Expected: FAIL because the recovery script is absent.
 
-- [ ] **Step 3: Implement the recovery workflow**
+- [x] **Step 3: Implement the recovery workflow**
 
 The script reads `ADMIN_DB_HOST`, `ADMIN_DB_PORT`, `ADMIN_DB_USER`, and `ADMIN_DB_PASSWORD` from environment; writes a current-user-only temporary `.cnf`; invokes:
 
@@ -229,7 +229,7 @@ mysqldump --defaults-extra-file=$secretFile --single-transaction --quick --routi
 
 It requires the `users` and `wallet_transactions` table definitions, records SHA-256, restores into `admin_restore_<12hex>`, and compares exact counts for `users`, `wallet_transactions`, `user_sessions`, `export_tasks`, `ai_runs`, and `notifications`. `finally` drops only the generated restore database and removes the secret file. It writes an ignored `artifact.json` and emits no credential or DSN.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/database-recovery.tests.ps1
@@ -251,7 +251,7 @@ Expected: fake and live restore checks pass; no dump, option file, or artifact i
 - Create: `internal/databaseevolution/sqlfiles.go`
 - Create: `internal/databaseevolution/sqlfiles_test.go`
 
-- [ ] **Step 1: Test ordered, checksummed SQL discovery**
+- [x] **Step 1: Test ordered, checksummed SQL discovery**
 
 ```go
 func TestLoadStageFilesRejectsChecksumDrift(t *testing.T) {
@@ -271,7 +271,7 @@ func TestLoadStageFilesRejectsChecksumDrift(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Create the ledger**
+- [x] **Step 2: Create the ledger**
 
 ```sql
 CREATE TABLE IF NOT EXISTS `schema_reconciliation_runs` (
@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS `schema_reconciliation_runs` (
 
 `reconcile.ps1` inserts `running` before each file, updates the same row afterward, rejects same-name/different-SHA history, and skips same-name/same-SHA success. It accepts an expected source fingerprint and aborts on mismatch.
 
-- [ ] **Step 3: Capture the imported starting point**
+- [x] **Step 3: Capture the imported starting point**
 
 `capture-baseline.ps1` performs only `SELECT`/`SHOW` and records commit, version, SQL mode, fingerprint, table/column/index inventory, distinct platform values, object references, recovery SHA, and exact migration-sensitive counts.
 
@@ -306,7 +306,7 @@ pwsh -NoProfile -File scripts/database/capture-baseline.ps1 -Database admin -Rec
 
 Expected: MySQL `8.4.10` with `NO_ENGINE_SUBSTITUTION`; `cron_task_log=50689`, `notifications=3078`, `export_tasks=116`, `ai_runs=16`, `ai_image_tasks=5`, `user_sessions=38`, and `users_quick_entry=107` with 3 active. A mismatch requires a fresh recovery artifact and fingerprint.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add -- scripts/database/capture-baseline.ps1 scripts/database/reconcile.ps1 database/reconciliation/001_ledger.sql database/reconciliation/README.md internal/databaseevolution/sqlfiles.go internal/databaseevolution/sqlfiles_test.go
@@ -320,17 +320,17 @@ git commit -m "feat(database): record reconciliation inputs and audit ledger"
 - Create: `database/reconciliation/030_verify_schema.sql`
 - Create: `internal/architecture/reconciliation_schema_test.go`
 
-- [ ] **Step 1: Guard approved identifiers and reject destructive SQL**
+- [x] **Step 1: Guard approved identifiers and reject destructive SQL**
 
 The test requires `export_tasks.platform/kind/object_key`, `ai_runs.platform/input_snapshot/idempotency_key`, `ai_image_tasks.platform`, `ai_image_files`, `ai_text_tasks`, `ai_video_tasks`, `ai_assets`, `payment_callback_events`, `user_wallets.total_consume_cents`, both `verify_code_ttl_minutes` fields, `authz_principal_versions`, `ai_reply_commands`, `ai_provider_attempts`, `realtime_events`, notification source identity, and notification/export claim fields. It rejects `DROP TABLE`, `DROP COLUMN`, `DELETE FROM`, and `tenant`.
 
-- [ ] **Step 2: Prove failure**
+- [x] **Step 2: Prove failure**
 
 Run: `go test ./internal/architecture -run TestReconciliationExpand -count=1`
 
 Expected: FAIL because the expand file is missing.
 
-- [ ] **Step 3: Create durable command and delivery tables**
+- [x] **Step 3: Create durable command and delivery tables**
 
 ```sql
 CREATE TABLE IF NOT EXISTS `authz_principal_versions` (
@@ -380,13 +380,13 @@ CREATE TABLE IF NOT EXISTS `realtime_events` (
 );
 ```
 
-- [ ] **Step 4: Add missing active schema**
+- [x] **Step 4: Add missing active schema**
 
 Conditionally add the approved columns plus `claim_owner VARCHAR(128) NULL`, `claim_token BIGINT UNSIGNED NOT NULL DEFAULT 0`, and `claim_expires_at DATETIME(6) NULL` to notification/export work. Add `notifications.source_task_id BIGINT NULL` and unique `(source_task_id,user_id)`. Create missing tables from the exact active Go model fields. The generic video table is `ai_video_tasks`; do not create a new `canvas_video_tasks`.
 
 `030_verify_schema.sql` returns `invariant, violations` and checks exact types, nullability, defaults, constraints, and index order.
 
-- [ ] **Step 5: Verify on a disposable restore**
+- [x] **Step 5: Verify on a disposable restore**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/reconcile.ps1 -Database $env:ADMIN_RESTORE_DB -Stage expand -ExpectedSourceFingerprint $env:ADMIN_BASELINE_FINGERPRINT
@@ -395,7 +395,7 @@ go run ./cmd/admin-db invariants --schema $env:ADMIN_RESTORE_DB --file database/
 
 Expected: zero schema violations; repeat execution applies no SQL.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add -- database/reconciliation/010_expand_core.sql database/reconciliation/030_verify_schema.sql internal/architecture/reconciliation_schema_test.go
@@ -411,7 +411,7 @@ git commit -m "feat(database): add non-destructive admin expand schema"
 - Create: `internal/databaseevolution/invariants.go`
 - Create: `internal/databaseevolution/invariants_test.go`
 
-- [ ] **Step 1: Test zero-row invariant execution**
+- [x] **Step 1: Test zero-row invariant execution**
 
 ```go
 func TestRunInvariantFileFailsOnViolation(t *testing.T) {
@@ -425,7 +425,7 @@ func TestRunInvariantFileFailsOnViolation(t *testing.T) {
 
 The command prints invariant names and counts, never the violating rows.
 
-- [ ] **Step 2: Implement deterministic core backfills**
+- [x] **Step 2: Implement deterministic core backfills**
 
 `020_backfill_core.sql` performs only these evidence-backed updates:
 
@@ -438,7 +438,7 @@ The command prints invariant names and counts, never the violating rows.
 
 Before wallet update, a temporary table calculates balance, recharge, and consume totals. `SIGNAL SQLSTATE '45000'` aborts if stored balance or recharge differs. Never rewrite unexplained money.
 
-- [ ] **Step 3: Add relationship and money invariants**
+- [x] **Step 3: Add relationship and money invariants**
 
 `031_verify_relations.sql` covers RBAC, payment, wallet, AI message/run/file, notification, and export orphans. `032_verify_money.sql` contains:
 
@@ -464,7 +464,7 @@ FROM (
 
 Also assert unique wallet source identity and unique non-empty payment callback identity.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/reconcile.ps1 -Database $env:ADMIN_RESTORE_DB -Stage backfill-core -ExpectedSourceFingerprint $env:ADMIN_EXPANDED_FINGERPRINT
@@ -484,11 +484,11 @@ Expected: both invariant files report zero. Ambiguous object/notification mappin
 - Create: `scripts/database/verify-cos-references.ps1`
 - Create: `internal/databaseevolution/cos_reference_test.go`
 
-- [ ] **Step 1: Encode source/target invariants**
+- [x] **Step 1: Encode source/target invariants**
 
 `033_verify_ai.sql` requires each run to have exactly one evidence source, chat rows to be Admin, image provenance to follow its source table, each source task/file to map once, related files to stay in one task, non-NULL idempotency keys to be unique, and source/target count plus deterministic hash equality.
 
-- [ ] **Step 2: Backfill explicit AI provenance**
+- [x] **Step 2: Backfill explicit AI provenance**
 
 ```sql
 UPDATE ai_runs r
@@ -501,11 +501,11 @@ WHERE r.platform IS NULL;
 
 Non-chat rows use a temporary source-table/ID map. Any run covered by zero or multiple branches raises `SQLSTATE 45000` before commit. Build `ai_image_files` from legacy relation/asset tables while preserving object key, URL, MIME, dimensions, size, role, order, and related-file identity. Create generic text/video/asset rows only from an explicit owner; no user or platform is invented.
 
-- [ ] **Step 3: Verify retained objects through the COS read adapter**
+- [x] **Step 3: Verify retained objects through the COS read adapter**
 
 `verify-cos-references.ps1` selects distinct retained storage keys into an ignored manifest, loads the enabled COS configuration, and uses `storage/cos.ObjectReader` for a HEAD/ranged read. It records `reachable`, `not_found`, or a sanitized dependency class. The test uses `httptest.Server` to prove 200/206 success, exact-key 404 reporting, and credential/query redaction.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/reconcile.ps1 -Database $env:ADMIN_RESTORE_DB -Stage backfill-ai -ExpectedSourceFingerprint $env:ADMIN_CORE_BACKFILL_FINGERPRINT
@@ -524,11 +524,11 @@ Expected: AI violations = 0 and every retained object, including the known legac
 - Create: `scripts/database/verify-expanded-schema.ps1`
 - Modify: `database/reconciliation/README.md`
 
-- [ ] **Step 1: Encode platform and identity checks**
+- [x] **Step 1: Encode platform and identity checks**
 
 `034_verify_platform.sql` rejects unknown platform values, duplicate notification/export/AI/payment/wallet identities, and active rows with missing ownership. It reports legacy App/Canvas groups with their P09 disposition. It lists the three active `users_quick_entry` rows as retirement source evidence and does not alter them.
 
-- [ ] **Step 2: Implement the aggregate verifier**
+- [x] **Step 2: Implement the aggregate verifier**
 
 The script runs `030` through `034`, captures before/after fingerprints, runs focused Admin smoke against the expanded schema, and emits:
 
@@ -536,7 +536,7 @@ The script runs `030` through `034`, captures before/after fingerprints, runs fo
 {"schema_violations":0,"relationship_violations":0,"money_violations":0,"ai_violations":0,"platform_violations":0,"admin_smoke":"passed"}
 ```
 
-- [ ] **Step 3: Prove repeated execution**
+- [x] **Step 3: Prove repeated execution**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/verify-expanded-schema.ps1 -Database $env:ADMIN_RESTORE_DB
@@ -546,7 +546,7 @@ pwsh -NoProfile -File scripts/database/verify-expanded-schema.ps1 -Database $env
 
 Expected: both summaries are zero/passed; second reconciliation applies no SQL and preserves the fingerprint.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add -- database/reconciliation/034_verify_platform.sql database/reconciliation/README.md scripts/database/verify-expanded-schema.ps1
@@ -563,7 +563,7 @@ git commit -m "test(database): enforce expanded admin data invariants"
 - Create: `internal/databaseevolution/query_manifest_test.go`
 - Modify: the repository files named by accepted candidates
 
-- [ ] **Step 1: Define and validate an executable manifest**
+- [x] **Step 1: Define and validate an executable manifest**
 
 ```go
 type QueryCandidate struct {
@@ -583,7 +583,7 @@ Validation rejects `SELECT *`, missing ID tie-breakers, empty representative bin
 
 `admin-db query-manifest files --manifest database/reconciliation/040_query_candidates.json` validates the same manifest and prints one normalized repository-relative file per accepted candidate. It rejects absolute paths, `..`, duplicates, non-Go files, and paths outside `internal/module`.
 
-- [ ] **Step 2: Populate every approved candidate**
+- [x] **Step 2: Populate every approved candidate**
 
 Include session user/platform/active/expiry, conversation user/active/time/id and agent variant, AI run status/start and platform/created, payment order status/update and status/expiry, recharge credited, notification unread, notification task due/claim, export user/platform/active/id, and cron log task/active/created/id queries.
 
@@ -596,11 +596,11 @@ ORDER BY last_message_at DESC, id DESC
 LIMIT :limit
 ```
 
-- [ ] **Step 3: Capture and enforce evidence**
+- [x] **Step 3: Capture and enforce evidence**
 
 For each candidate, record distribution, `EXPLAIN ANALYZE FORMAT=TREE` before, index DDL/storage cost, after plan, five warm runs with p50/p95, and performance-schema digest delta. Drop the temporary index when it misses either budget or fails to reduce rows examined. Copy only accepted DDL to `041_apply_proven_indexes.sql`.
 
-- [ ] **Step 4: Fix coupled query behavior under tests**
+- [x] **Step 4: Fix coupled query behavior under tests**
 
 - load AI knowledge hits with one `IN` query and assert query count;
 - batch chunk/hit writes at at most 500 rows per transaction;
@@ -610,7 +610,7 @@ For each candidate, record distribution, `EXPLAIN ANALYZE FORMAT=TREE` before, i
 
 Each repository test first demonstrates the old count/order failure.
 
-- [ ] **Step 5: Run and commit**
+- [x] **Step 5: Run and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/capture-query-evidence.ps1 -Database $env:ADMIN_RESTORE_DB -Manifest database/reconciliation/040_query_candidates.json -OutputRoot $env:TEMP\admin-query-evidence
@@ -638,19 +638,19 @@ Expected: every accepted index has passing before/after evidence; the generated 
 - Create: `scripts/database/check-drift.ps1`
 - Modify: `database/README.md`
 
-- [ ] **Step 1: Write imported/empty convergence automation**
+- [x] **Step 1: Write imported/empty convergence automation**
 
 Create disposable schemas whose names match `^admin_(empty|imported)_[0-9a-f]{12}$`. Build empty from canonical HCL, restore/reconcile imported, fingerprint both, require equal SHA, and drop only names matching that regex.
 
-- [ ] **Step 2: Inspect and normalize the verified target**
+- [x] **Step 2: Inspect and normalize the verified target**
 
 `establish-baseline.ps1` runs pinned `atlas schema inspect` using a read-only environment file, rejects auto-increment counters/definers/destructive contract differences, validates HCL, and atomically replaces `database/schema/admin.hcl` only when the live SHA equals `-ExpectedFingerprint`.
 
-- [ ] **Step 3: Initialize history under a deployment lock**
+- [x] **Step 3: Initialize history under a deployment lock**
 
 Acquire `GET_LOCK('admin:atlas:migrate',30)`, reject dirty revisions, baseline at `202607150001`, calculate `database/migrations/atlas.sum`, validate, and release in `finally`. Application startup never calls Atlas.
 
-- [ ] **Step 4: Prove convergence and commit**
+- [x] **Step 4: Prove convergence and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/establish-baseline.ps1 -Database $env:ADMIN_RESTORE_DB -ExpectedFingerprint $env:ADMIN_VERIFIED_FINGERPRINT
@@ -669,15 +669,15 @@ Expected: imported and empty fingerprints are identical; repeat execution has no
 - Create: `.github/workflows/verify-database.yml`
 - Modify: `internal/architecture/database_layout_test.go`
 
-- [ ] **Step 1: Guard immutable workflow inputs**
+- [x] **Step 1: Guard immutable workflow inputs**
 
 Require `mysql:8.4.10`, the exact Atlas digest, `scripts/verify-database.ps1`, empty/imported jobs, and `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`. Reject any action `@v` reference.
 
-- [ ] **Step 2: Implement the shared verifier**
+- [x] **Step 2: Implement the shared verifier**
 
 Run Atlas validation/hash, canonical empty-schema apply, sanitized synthetic imported fixture restore, non-destructive reconciliation, `030`–`034` invariants, repeated reconciliation, fingerprint equality, query-manifest validation, and a tracked dump/`.cnf`/`admin-go.env` scan. The fixture contains no live person, payment, prompt, credential, or object data.
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/verify-database.ps1
@@ -687,6 +687,15 @@ git commit -m "ci: block database drift and invariant violations"
 ```
 
 Expected: local verifier exits 0. If Docker is unavailable locally, the protected workflow must pass before acceptance.
+
+## Completion evidence (2026-07-17)
+
+- `pwsh -NoProfile -File scripts/verify-database.ps1 -Mode all` exited `0` against `mysql:8.4.10` and the pinned Atlas `0.38.0` digest.
+- Empty and imported schemas converged to `76d7d64d8151e8122369fcd07ce18ae194d779037816b8496ed78e62c655ccbf`.
+- The first imported reconciliation applied `7` checksummed stages; the repeat run skipped all `7`. Migration checksum validation, invariants, and Admin smoke all passed.
+- The query manifest resolved `10` repository files. The verifier scanned `1001` tracked files and found `0` sensitive paths.
+- The retained recovery artifact is verified: dump SHA-256 `78390456ed511f9507233e41df170223b365dd1b056e804f6e55052259e04a85`, size `61,618,047` bytes. Source/restore counts match exactly for `users=7`, `wallet_transactions=3`, `user_sessions=374`, `export_tasks=120`, `ai_runs=425`, and `notifications=3085`.
+- The state handoff records the pre-reconciliation fingerprint `32635a12da31c6ae62e7b34c15aff38251049edaf40800b9ead63b4b90b8c52b` and current target fingerprint above; the recovery artifact and rollback container/volume remain retained.
 
 ## Plan completion gate
 

@@ -1,6 +1,6 @@
 # Admin Foundation Verification Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make backend configuration, dependency verification, local environment initialization, builds, and CI deterministic before database or architecture changes begin.
 
@@ -31,7 +31,7 @@
 - Create: `internal/architecture/dependency_integrity_test.go`
 - Modify: `go.sum:148`
 
-- [ ] **Step 1: Write the failing checksum guard**
+- [x] **Step 1: Write the failing checksum guard**
 
 ```go
 package architecture
@@ -57,7 +57,7 @@ func TestAsynqmonChecksumMatchesTransparencyLog(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the guard and confirm the repository is wrong**
+- [x] **Step 2: Run the guard and confirm the repository is wrong**
 
 Run:
 
@@ -67,7 +67,7 @@ go test ./internal/architecture -run TestAsynqmonChecksumMatchesTransparencyLog 
 
 Expected: FAIL with `go.sum must contain verified sum` or Go's checksum mismatch showing the repository value `EfLR...`.
 
-- [ ] **Step 3: Verify the public sum and change one line**
+- [x] **Step 3: Verify the public sum and change one line**
 
 Run:
 
@@ -90,7 +90,7 @@ with:
 github.com/hibiken/asynqmon v0.7.2 h1:YohWgTIPwtMyZ6khBDcVUz9BdSdQW2Dxn8SoxtbmjSg=
 ```
 
-- [ ] **Step 4: Verify from a unique empty module cache**
+- [x] **Step 4: Verify from a unique empty module cache**
 
 Run:
 
@@ -105,7 +105,7 @@ go test ./internal/architecture -run TestAsynqmonChecksumMatchesTransparencyLog 
 
 Expected: all three commands exit 0; `go mod verify` prints `all modules verified`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add -- go.sum internal/architecture/dependency_integrity_test.go
@@ -125,7 +125,7 @@ git commit -m "fix(build): restore verified asynqmon checksum"
 - Modify: `internal/config/logging_test.go`
 - Modify: `internal/config/secretbox_config_test.go`
 
-- [ ] **Step 1: Write table-driven failures for malformed values**
+- [x] **Step 1: Write table-driven failures for malformed values**
 
 ```go
 func TestLoadRejectsMalformedEnvironment(t *testing.T) {
@@ -154,7 +154,7 @@ func TestLoadRejectsMalformedEnvironment(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify the old loader silently falls back**
+- [x] **Step 2: Run the test and verify the old loader silently falls back**
 
 Run:
 
@@ -164,7 +164,7 @@ go test ./internal/config -run TestLoadRejectsMalformedEnvironment -count=1
 
 Expected: FAIL to compile because the old `Load` accepts no process and returns only `Config`. This is the intended RED for the new error-returning API; the old implementation also silently falls back for these malformed values.
 
-- [ ] **Step 3: Implement strict parsers**
+- [x] **Step 3: Implement strict parsers**
 
 Create `internal/config/env.go`:
 
@@ -251,7 +251,7 @@ func envList(lookup lookupEnv, key string, fallback []string) []string {
 }
 ```
 
-- [ ] **Step 4: Change the loader signature and propagate parser errors**
+- [x] **Step 4: Change the loader signature and propagate parser errors**
 
 Add a `Process` enum and change the signature to return parser errors while reserving the process argument for Task 3:
 
@@ -272,7 +272,7 @@ Task 2 must not call `Validate`: process-specific validation is introduced in Ta
 
 `loadFrom` calls `envInteger` for `MYSQL_MAX_OPEN_CONNS`, `MYSQL_MAX_IDLE_CONNS`, `REDIS_DB`, `TOKEN_REDIS_DB`, `QUEUE_REDIS_DB`, and `QUEUE_CONCURRENCY`; `envBoolean` for `QUEUE_ENABLED`, `REALTIME_ENABLED`, and `SCHEDULER_ENABLED`; and `envPeriod` for `HTTP_READ_HEADER_TIMEOUT` and `MYSQL_CONN_MAX_LIFETIME`. Open connections, queue concurrency, and both durations are positive; idle connections and Redis DB numbers allow zero but reject negatives. Keep only defaults already represented by constants. Do not retain `envInt`, `envBool`, or `envDuration` fallback-on-error behavior.
 
-- [ ] **Step 5: Update existing tests to handle `(Config, error)`**
+- [x] **Step 5: Update existing tests to handle `(Config, error)`**
 
 Use this helper in config tests:
 
@@ -294,7 +294,7 @@ Replace every direct `cfg := Load()` call with `cfg := loadForTest(t, ProcessAPI
 - `internal/config/logging_test.go`
 - `internal/config/secretbox_config_test.go`
 
-- [ ] **Step 6: Update both binaries to handle parser errors before logger and resource construction**
+- [x] **Step 6: Update both binaries to handle parser errors before logger and resource construction**
 
 Use `ProcessAPI` in `cmd/admin-api/main.go` and `ProcessWorker` in `cmd/admin-worker/main.go`:
 
@@ -308,7 +308,7 @@ if err != nil {
 
 Do not log `cfg` or any environment value. Keep logger construction after this guard; the worker uses the same code with `config.ProcessWorker`.
 
-- [ ] **Step 7: Run the focused and full repository tests**
+- [x] **Step 7: Run the focused and full repository tests**
 
 Run:
 
@@ -321,7 +321,7 @@ go build -o $env:TEMP\admin-worker-strict-env.exe ./cmd/admin-worker
 
 Expected: all commands exit 0, including malformed integer/duration/boolean and negative-integer cases. This commit must leave every package compiling; do not defer caller migration to Task 3.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add -- cmd/admin-api/main.go cmd/admin-worker/main.go internal/config/config.go internal/config/config_test.go internal/config/env.go internal/config/env_test.go internal/config/logging_process_test.go internal/config/logging_test.go internal/config/secretbox_config_test.go
@@ -336,7 +336,7 @@ git commit -m "refactor(config): reject malformed runtime settings"
 - Modify: `internal/config/config.go`
 - Modify: `internal/config/config_test.go`
 
-- [ ] **Step 1: Write production and process validation tests**
+- [x] **Step 1: Write production and process validation tests**
 
 ```go
 func validConfigForTest() Config {
@@ -521,13 +521,13 @@ func TestLoadActivatesProcessValidation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `go test ./internal/config -run 'TestValidate' -count=1`
 
 Expected: FAIL because `Validate` does not exist.
 
-- [ ] **Step 3: Implement process validation**
+- [x] **Step 3: Implement process validation**
 
 ```go
 func Validate(process Process, cfg Config) error {
@@ -585,7 +585,7 @@ Complete `Validate` with these explicit rules:
 
 Production MySQL and Redis dependencies reject localhost, loopback, unspecified, and link-local hosts, but allow private-network state nodes as required by the Docker-first production template. Production CORS origins reject both local and private hosts. Use parsed hosts (`mysql.ParseDSN`, `net.SplitHostPort`, and `url.URL.Hostname`) rather than substring checks. Do not perform DNS lookups and do not include a DSN, password, secret, or raw environment value in validation errors.
 
-- [ ] **Step 4: Activate validation in the loader before resource construction**
+- [x] **Step 4: Activate validation in the loader before resource construction**
 
 Replace the staged Task 2 loader body with:
 
@@ -619,7 +619,7 @@ func loadForTest(t *testing.T, _ Process) Config {
 
 `runtime_test.go` owns all `Load`/`Validate` behavior tests. Do not make every parser test manufacture database, Redis, and secret requirements merely to exercise parsing.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -632,7 +632,7 @@ go build -o $env:TEMP\admin-worker-foundation.exe ./cmd/admin-worker
 
 Expected: focused and full repository tests pass and both binaries build.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add -- internal/config/config.go internal/config/config_test.go internal/config/runtime.go internal/config/runtime_test.go
@@ -647,7 +647,7 @@ git commit -m "feat(config): validate api and worker runtime requirements"
 - Modify: `deploy/docker-first/admin-go.env.example`
 - Modify: `deploy/docker-first/README.md`
 
-- [ ] **Step 1: Write the script behavior test**
+- [x] **Step 1: Write the script behavior test**
 
 ```powershell
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -674,13 +674,13 @@ try {
 }
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run: `pwsh -NoProfile -File scripts/tests/init-local-env.tests.ps1`
 
 Expected: FAIL because the initializer does not exist.
 
-- [ ] **Step 3: Implement the initializer**
+- [x] **Step 3: Implement the initializer**
 
 Change the template CORS line to `CORS_ALLOW_ORIGINS=https://FRONTEND_DOMAIN_REQUIRED`, then implement:
 
@@ -724,7 +724,7 @@ Write-Output "created ignored runtime env at $OutputPath"
 
 Keep `admin-go.env.example` production-oriented. The initializer changes only the generated local output to `APP_ENV=local`. On rerun, reuse an existing non-placeholder 64+ character `APP_SECRET`; generate a new 48-byte random Base64 secret only when no valid existing value is present. Never print either the existing or generated secret.
 
-- [ ] **Step 4: Test and create the real ignored env**
+- [x] **Step 4: Test and create the real ignored env**
 
 Run:
 
@@ -739,7 +739,7 @@ git check-ignore deploy/docker-first/admin-go.env
 
 Expected: test exits 0; initializer prints only the output path; `git check-ignore` prints `deploy/docker-first/admin-go.env`. The root agent supplies the already-authorized local credentials through process environment without logging them.
 
-- [ ] **Step 5: Commit only scripts/docs**
+- [x] **Step 5: Commit only scripts/docs**
 
 ```powershell
 git add -- deploy/docker-first/init-local-env.ps1 deploy/docker-first/admin-go.env.example deploy/docker-first/README.md scripts/tests/init-local-env.tests.ps1
@@ -757,7 +757,7 @@ Do not stage `deploy/docker-first/admin-go.env`.
 - Modify: `README.md`
 - Modify: `internal/architecture/dependency_integrity_test.go`
 
-- [ ] **Step 1: Add a failing existence guard**
+- [x] **Step 1: Add a failing existence guard**
 
 ```go
 func TestBackendVerificationEntrypointsExist(t *testing.T) {
@@ -770,13 +770,13 @@ func TestBackendVerificationEntrypointsExist(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `go test ./internal/architecture -run TestBackendVerificationEntrypointsExist -count=1`
 
 Expected: FAIL naming `scripts/verify-go-clean.ps1`.
 
-- [ ] **Step 3: Implement clean-cache verification**
+- [x] **Step 3: Implement clean-cache verification**
 
 ```powershell
 [CmdletBinding()]
@@ -816,7 +816,7 @@ try {
 
 `scripts/verify-backend.ps1` runs the same test/vet/staticcheck/vulnerability/build commands with the normal module cache and outputs binaries under ignored `.tmp/verify-bin`.
 
-- [ ] **Step 4: Run both entrypoints**
+- [x] **Step 4: Run both entrypoints**
 
 Run:
 
@@ -827,7 +827,7 @@ pwsh -NoProfile -File scripts/verify-go-clean.ps1
 
 Expected: all tests/static checks/builds exit 0 and no binary is written into the repository root.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add -- README.md internal/architecture/dependency_integrity_test.go scripts/verify-go-clean.ps1 scripts/verify-backend.ps1
@@ -842,7 +842,7 @@ git commit -m "build: add reproducible backend verification"
 - Modify: `Dockerfile`
 - Modify: `internal/architecture/dependency_integrity_test.go`
 
-- [ ] **Step 1: Write the workflow guard**
+- [x] **Step 1: Write the workflow guard**
 
 ```go
 func TestBackendCIUsesRepositoryVerification(t *testing.T) {
@@ -863,13 +863,13 @@ func TestBackendCIUsesRepositoryVerification(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `go test ./internal/architecture -run TestBackendCIUsesRepositoryVerification -count=1`
 
 Expected: FAIL because the workflow does not exist.
 
-- [ ] **Step 3: Create the SHA-pinned workflow**
+- [x] **Step 3: Create the SHA-pinned workflow**
 
 ```yaml
 name: Verify backend
@@ -913,15 +913,15 @@ jobs:
 
 The action SHAs are the resolved `v4`/`v5`/`v6`/`v3` tag commits captured during planning; Dependabot proposes reviewed updates.
 
-- [ ] **Step 4: Harden the Docker build**
+- [x] **Step 4: Harden the Docker build**
 
 Add a test stage that runs `go test ./...` before binary compilation, preserve `GOSUMDB=sum.golang.org`, and add OCI labels for `org.opencontainers.image.revision` supplied through `BUILD_REVISION`. Do not add `GONOSUMDB`, `GOINSECURE`, or `GOSUMDB=off`.
 
-- [ ] **Step 5: Add dependency update policy**
+- [x] **Step 5: Add dependency update policy**
 
 Configure weekly updates for `gomod`, `docker`, and `github-actions`, each with a limit of five open PRs and no automatic merge.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run:
 
@@ -932,12 +932,20 @@ docker build --build-arg BUILD_REVISION=$(git rev-parse HEAD) -t admin-go-backen
 
 Expected: architecture tests pass. If Docker is unavailable locally, the protected GitHub workflow must pass before this task is complete.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add -- .github/workflows/verify-backend.yml .github/dependabot.yml Dockerfile internal/architecture/dependency_integrity_test.go
 git commit -m "ci: make backend verification blocking"
 ```
+
+## Completion evidence (2026-07-17)
+
+- Completion was re-audited at backend revision `d1843368f1f4921064c74e42a9cd5210239fd7ed`.
+- `pwsh -NoProfile -File scripts/verify-go-clean.ps1` exited `0` from a unique empty `GOMODCACHE`: `go mod verify` reported `all modules verified`, the full repository test suite passed, and the shared runtime gate passed both ordinary and Linux `-race` execution.
+- The same clean-cache run completed `go vet ./...`, `staticcheck@v0.8.0-rc.1 ./...`, and `govulncheck@v1.6.0 ./...`; govulncheck reported `0` called vulnerabilities.
+- Clean-cache builds of both `./cmd/admin-api` and `./cmd/admin-worker` exited `0`. The Dockerfile test stage also ran `go test ./...` successfully while building `admin-go-backend:local`.
+- Strict config, ignored local-env creation, Docker secret exclusion, pinned workflow/action inputs, immutable build metadata, and checksum replacement remain covered by the passing `internal/config` and `internal/architecture` suites. No runtime env or database credential is tracked.
 
 ## Plan completion gate
 

@@ -1,6 +1,6 @@
 # Admin Docker Stability Closure Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task in the current session. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task in the current session. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make the five-container Admin platform recover from Docker Engine and service restarts without stale proxy addresses or application restart loops, while producing traceable images and P01-P03 gate evidence.
 
@@ -39,7 +39,7 @@
 - Modify: `internal/config/docker_compose_test.go`
 - Modify: `scripts/tests/docker-platform.tests.ps1`
 
-- [ ] **Step 1: Make the frontend contract require runtime DNS and provenance**
+- [x] **Step 1: Make the frontend contract require runtime DNS and provenance**
 
 Replace the literal proxy assertion with:
 
@@ -51,7 +51,7 @@ expect(dockerfile).toContain('ARG BUILD_REVISION=unknown')
 expect(dockerfile).toContain('LABEL org.opencontainers.image.revision="${BUILD_REVISION}"')
 ```
 
-- [ ] **Step 2: Make the backend Compose contract require one build and worker health**
+- [x] **Step 2: Make the backend Compose contract require one build and worker health**
 
 Extend the YAML test model with build args and healthcheck, then assert:
 
@@ -72,11 +72,11 @@ if contract.Services["frontend"].Build.Args["BUILD_REVISION"] != "${ADMIN_FRONTE
 }
 ```
 
-- [ ] **Step 3: Strengthen lifecycle source assertions**
+- [x] **Step 3: Strengthen lifecycle source assertions**
 
 Require the script to contain `Resolve-GitRevision`, both revision environment names, a single Compose `build` invocation naming `admin-api` and `frontend`, state `up --wait`, and app `up --no-build --wait`. Reject app `up` with `--build`, `down -v`, and `--volumes`.
 
-- [ ] **Step 4: Run Docker-contained RED checks**
+- [x] **Step 4: Run Docker-contained RED checks**
 
 ```powershell
 docker run --rm -v "${PWD}:/src" -w /src docker.m.daocloud.io/library/golang:1.26.5-bookworm `
@@ -96,7 +96,7 @@ Expected: all three fail for the newly required behavior, not for syntax or miss
 - Modify: `internal/runtime/api.go`
 - Modify: `internal/runtime/worker.go`
 
-- [ ] **Step 1: Write retry tests before implementation**
+- [x] **Step 1: Write retry tests before implementation**
 
 Add tests using an injected policy:
 
@@ -130,7 +130,7 @@ func TestOpenResourcesWithStartupRetryClosesPartialAttemptsBeforePublishing(t *t
 
 Add separate tests that the last retryable error is returned after the exact attempt bound, a permanent error is not retried, and cancellation during the wait returns `context.Canceled`.
 
-- [ ] **Step 2: Verify runtime RED inside Docker**
+- [x] **Step 2: Verify runtime RED inside Docker**
 
 ```powershell
 docker run --rm -v "${PWD}:/src" -w /src docker.m.daocloud.io/library/golang:1.26.5-bookworm `
@@ -139,7 +139,7 @@ docker run --rm -v "${PWD}:/src" -w /src docker.m.daocloud.io/library/golang:1.2
 
 Expected: compile failure because the retry policy/helper does not exist.
 
-- [ ] **Step 3: Implement the minimal retry wrapper**
+- [x] **Step 3: Implement the minimal retry wrapper**
 
 Keep `OpenResources` unchanged as the single-attempt primitive and add:
 
@@ -166,7 +166,7 @@ func OpenResourcesWithStartupRetry(ctx context.Context, process config.Process, 
 
 The helper normalizes nil context, attempts at least once, returns immediately for a non-retryable error, waits with the context between retryable failures, and returns the last failure after exhaustion. Retryability is determined with `errors.As(err, *apperror.Error)` plus `Retryable()`; `OpenResources` already closes the failed partial graph.
 
-- [ ] **Step 4: Activate retry in both production hooks**
+- [x] **Step 4: Activate retry in both production hooks**
 
 Replace only the production resource calls in `api.go` and `worker.go`:
 
@@ -175,7 +175,7 @@ opened, err := OpenResourcesWithStartupRetry(ctx, config.ProcessAPI, cfg, Opener
 opened, err := OpenResourcesWithStartupRetry(ctx, config.ProcessWorker, cfg, Openers{Telemetry: recorder})
 ```
 
-- [ ] **Step 5: Verify GREEN and the surrounding runtime**
+- [x] **Step 5: Verify GREEN and the surrounding runtime**
 
 ```powershell
 docker run --rm -v "${PWD}:/src" -w /src docker.m.daocloud.io/library/golang:1.26.5-bookworm `
@@ -193,11 +193,11 @@ Expected: runtime tests pass with no real-time retry delay.
 - Modify: `scripts/docker-platform.ps1`
 - Modify: `docs/architecture.md`
 
-- [ ] **Step 1: Implement frontend DNS and label changes**
+- [x] **Step 1: Implement frontend DNS and label changes**
 
 Add the resolver at `server` scope and use the variable in the API location. Add global `ARG BUILD_REVISION=unknown`, redeclare it in the runtime stage, and add the OCI revision label.
 
-- [ ] **Step 2: Make Compose build the backend once**
+- [x] **Step 2: Make Compose build the backend once**
 
 Keep `admin-api.build`, add its backend revision arg, remove `admin-worker.build`, add frontend revision arg, and add:
 
@@ -210,7 +210,7 @@ Keep `admin-api.build`, add its backend revision arg, remove `admin-worker.build
       start_period: 5s
 ```
 
-- [ ] **Step 3: Make lifecycle phases explicit**
+- [x] **Step 3: Make lifecycle phases explicit**
 
 Add a strict `Resolve-GitRevision` helper. In `up`, temporarily set `ADMIN_BACKEND_BUILD_REVISION` and `ADMIN_FRONTEND_BUILD_REVISION`, then run exactly:
 
@@ -222,15 +222,15 @@ Invoke-Docker @('compose', '-f', $appCompose, 'up', '-d', '--no-build', '--wait'
 
 Restore both process environment variables in `finally`, including the distinction between absent and empty values.
 
-- [ ] **Step 4: Document the boundary**
+- [x] **Step 4: Document the boundary**
 
 Record dynamic Docker DNS, the 180-second whole-resource-graph retry, one-image API/worker ownership, PID health semantics, and Docker-only runtime verification in `docs/architecture.md`.
 
-- [ ] **Step 5: Verify contract GREEN**
+- [x] **Step 5: Verify contract GREEN**
 
 Run the three Task 1 commands again. Expected: all exit `0`.
 
-- [ ] **Step 6: Commit focused repository changes**
+- [x] **Step 6: Commit focused repository changes**
 
 Frontend:
 
@@ -253,23 +253,23 @@ git commit -m "fix(deploy): stabilize Docker process recovery"
 **Files:**
 - Create: `scripts/tests/docker-stability.tests.ps1`
 
-- [ ] **Step 1: Implement safe Docker helpers**
+- [x] **Step 1: Implement safe Docker helpers**
 
 The script resolves Docker, captures Compose service container IDs, waits on inspect conditions, reads logs without treating application stderr as a PowerShell failure, asserts restart counts/exit codes, and wraps all disruption in `try/finally`.
 
-- [ ] **Step 2: Implement the API-address replacement scenario**
+- [x] **Step 2: Implement the API-address replacement scenario**
 
 Capture frontend ID and API address, stop/remove API only, reserve that exact address using `admin-go-backend:local`, recreate API with `--no-deps --no-build`, require the new address to differ, wait for API health, and execute the proxied ping from inside frontend. Assert the frontend ID is unchanged.
 
-- [ ] **Step 3: Implement state-late recovery**
+- [x] **Step 3: Implement state-late recovery**
 
 Stop state without removing it, force-recreate API/worker from existing images, wait five seconds, require both containers running with restart count zero, start/wait state, then require API health, worker startup log, and unchanged zero restart counts.
 
-- [ ] **Step 4: Implement SIGTERM and final restoration**
+- [x] **Step 4: Implement SIGTERM and final restoration**
 
 Stop worker then API using Docker `SIGTERM --time 20`; each must exit zero and log one `process stopped`. Restore each via Compose `--no-build`. In `finally`, remove only the temporary reservation, run state `up --wait`, then app `up --no-build --wait`.
 
-- [ ] **Step 5: Build the standard stack and run the regression**
+- [x] **Step 5: Build the standard stack and run the regression**
 
 ```powershell
 pwsh -NoProfile -File scripts/docker-platform.ps1 up
@@ -278,7 +278,7 @@ pwsh -NoProfile -File scripts/tests/docker-stability.tests.ps1
 
 Expected: proxy recovery, state-late recovery, image labels, restart counts, and SIGTERM assertions pass; final Compose status shows five services running and four health checks healthy.
 
-- [ ] **Step 6: Commit the regression**
+- [x] **Step 6: Commit the regression**
 
 ```powershell
 git add -- scripts/tests/docker-stability.tests.ps1
@@ -297,15 +297,15 @@ git commit -m "test(deploy): prove Docker restart recovery"
 - Modify: `docs/superpowers/plans/2026-07-15-admin-platform-super-refactor-execution-index.md`
 - Modify: `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md`
 
-- [ ] **Step 1: Record fresh gate commands**
+- [x] **Step 1: Record fresh gate commands**
 
 Run P01 clean-cache/build, P02 recovery/convergence/invariant, P03 contract/runtime/SIGTERM, and P03.5 Docker stability commands. Capture exact revisions, fingerprint, reconciliation applied/skipped counts, artifact hash/counts, contract drift result, test counts, exit codes, restart counts, image labels, and final container health.
 
-- [ ] **Step 2: Mark only implemented P01-P03 steps complete**
+- [x] **Step 2: Mark only implemented P01-P03 steps complete**
 
 Change their task step checkboxes to `[x]`, add a dated `Completion evidence (2026-07-17)` section to each plan, and leave no claim unsupported by the captured commands.
 
-- [ ] **Step 3: Add P03.5 and Gate C.5 to the execution index**
+- [x] **Step 3: Add P03.5 and Gate C.5 to the execution index**
 
 Insert P03.5 between P03 and P04/P05, make P04/P05 depend on it, update the dependency graph, mark index setup/protocol steps that have evidence, mark Gates A-C complete, and add:
 
@@ -313,11 +313,11 @@ Insert P03.5 between P03 and P04/P05, make P04/P05 depend on it, update the depe
 - [x] **Gate C.5:** P03.5 proves dynamic API discovery, bounded state-late startup with zero restart loops, correct image revisions, and zero-exit Docker SIGTERM; final restoration preserves all state volumes.
 ```
 
-- [ ] **Step 4: Make later runtime execution Docker-only**
+- [x] **Step 4: Make later runtime execution Docker-only**
 
 Add an execution note to P04, P05, and P07: runtime services and runtime/E2E tests are launched only as containers; host PowerShell may orchestrate Docker and perform static source checks but may not start API, worker, Vite, MySQL, or Redis directly.
 
-- [ ] **Step 5: Verify documentation consistency and commit**
+- [x] **Step 5: Verify documentation consistency and commit**
 
 ```powershell
 rg -n 'P03\.5|Gate C\.5|Docker-only|Completion evidence \(2026-07-17\)' docs/superpowers/plans E:/admin/admin_front_ts/docs/superpowers/plans
@@ -330,10 +330,19 @@ Commit the P07 note in the frontend repository with its deployment changes or a 
 
 ## Final verification gate
 
-- [ ] Run backend static/unit/race/contract verification through the repository Docker-backed entrypoints.
-- [ ] Run the frontend deployment contract and production build inside the frontend image build.
-- [ ] Run `scripts/tests/docker-stability.tests.ps1` from a freshly built standard stack.
-- [ ] Inspect backend/frontend image revision labels against repository `HEAD`.
-- [ ] Require frontend proxy, API `/health`, API `/ready`, MySQL health, Redis health, and worker PID health.
-- [ ] Require three repositories to have no uncommitted changes and the five standard containers to be restored.
-- [ ] Create the P04 goal only after every preceding item succeeds.
+- [x] Run backend static/unit/race/contract verification through the repository Docker-backed entrypoints.
+- [x] Run the frontend deployment contract and production build inside the frontend image build.
+- [x] Run `scripts/tests/docker-stability.tests.ps1` from a freshly built standard stack.
+- [x] Inspect backend/frontend image revision labels against repository `HEAD`.
+- [x] Require frontend proxy, API `/health`, API `/ready`, MySQL health, Redis health, and worker PID health.
+- [x] Require three repositories to have no uncommitted changes and the five standard containers to be restored.
+- [x] Leave a clean, verified P04-ready handoff; the user will create and start the P04 goal separately.
+
+## Completion evidence (2026-07-17)
+
+- TDD RED was observed for frontend Docker DNS/revision assertions, backend Compose build/health assertions, lifecycle source assertions, and the new runtime retry API. Focused GREEN runs passed inside pinned Node/Go containers.
+- Runtime retry tests prove partial-attempt cleanup, exact attempt exhaustion, permanent-error short circuiting, and context cancellation. The full runtime/config suites passed after implementation.
+- `docker-platform.ps1 up` built `admin-api` and `frontend` once, waited for state, and started app with `--no-build`; its Dockerfile test stage passed `go test ./...`.
+- `docker-stability.tests.ps1` passed API address replacement without frontend recreation, state-late API/worker startup, restart counts `0/0`, Docker SIGTERM exit `0`, correct image revision labels, and final five-container restoration.
+- Gate A clean-cache verification and Gate B full database verification exited `0`; Gate C contract/runtime/race verification passed with no bundle drift. The execution index now records Gates A, B, C, and C.5.
+- P04, P05, and P07 explicitly require Docker-only runtime/integration/E2E execution. The user retained ownership of creating and starting the P04 goal.

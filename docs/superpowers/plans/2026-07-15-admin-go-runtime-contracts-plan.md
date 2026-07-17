@@ -1,6 +1,6 @@
 # Admin Go Runtime and Contracts Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace the oversized bootstrap with fail-fast API/Worker runtimes, deepen the Error and telemetry modules, establish one route-policy registry, and publish a deterministic Admin Contract Bundle.
 
@@ -32,7 +32,7 @@
 - Create: `internal/middleware/error_reporter.go`
 - Create: `internal/middleware/error_reporter_test.go`
 
-- [ ] **Step 1: Write classification, cause, and response-safety tests**
+- [x] **Step 1: Write classification, cause, and response-safety tests**
 
 ```go
 func TestErrorPreservesCauseAndExposesSafeMetadata(t *testing.T) {
@@ -53,13 +53,13 @@ func TestErrorPreservesCauseAndExposesSafeMetadata(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Prove failure**
+- [x] **Step 2: Prove failure**
 
 Run: `go test ./internal/shared/apperror ./internal/shared/response ./internal/middleware -run 'TestError|TestResponse' -count=1`
 
 Expected: FAIL because categories, retryability, and safe metadata do not exist.
 
-- [ ] **Step 3: Implement the stable interface**
+- [x] **Step 3: Implement the stable interface**
 
 ```go
 type Category string
@@ -113,7 +113,7 @@ type Body struct {
 
 `response.Error` adds the internal error to Gin context. `ErrorReporter` logs a 5xx cause once after `c.Next()` with request/task/run/trace identifiers and redacts values for token, authorization, cookie, password, secret, certificate, prompt, and payload keys.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/shared/apperror ./internal/shared/response ./internal/middleware -count=1
@@ -128,7 +128,7 @@ git commit -m "feat(error): add classified safe application failures"
 - Create: `internal/runtime/cleanup.go`
 - Create: `internal/runtime/runtime_test.go`
 
-- [ ] **Step 1: Test reverse cleanup and joined failures**
+- [x] **Step 1: Test reverse cleanup and joined failures**
 
 ```go
 func TestCleanupRunsOnceInReverseOrder(t *testing.T) {
@@ -144,7 +144,7 @@ func TestCleanupRunsOnceInReverseOrder(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Implement the narrow runtime contract**
+- [x] **Step 2: Implement the narrow runtime contract**
 
 ```go
 type Report struct {
@@ -165,7 +165,7 @@ type Cleanup struct {
 
 `Cleanup.Add` rejects an empty name or nil function. `Close` snapshots once, runs reverse order under the caller context, annotates each error with its resource name, and returns `errors.Join`.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```powershell
 go test ./internal/runtime -run 'TestCleanup|TestRuntime' -count=1
@@ -183,11 +183,11 @@ git commit -m "feat(runtime): add deterministic process lifecycle"
 - Delete: `internal/bootstrap/resources.go`
 - Delete: `internal/bootstrap/resources_test.go`
 
-- [ ] **Step 1: Test partial-open cleanup**
+- [x] **Step 1: Test partial-open cleanup**
 
 Use injected DB/Redis/queue open functions. Make DB open succeed, Redis open fail, then assert DB closes exactly once and the returned `Resources` is nil. Add API/Worker capability tables that prove each enabled resource is required and each disabled resource is reported as disabled.
 
-- [ ] **Step 2: Implement process-owned resources**
+- [x] **Step 2: Implement process-owned resources**
 
 ```go
 type Resources struct {
@@ -204,7 +204,7 @@ func (r *Resources) Health(ctx context.Context) Report
 
 Open required dependencies in order, ping them before publishing the resource graph, and register cleanup immediately after each successful open. An enabled queue/realtime/scheduler capability with no Redis is a startup error. Do not return a partially populated resource value on failure.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```powershell
 go test ./internal/runtime ./internal/infra/database ./internal/infra/redisclient -count=1
@@ -231,7 +231,7 @@ git commit -m "refactor(runtime): fail atomically when resources cannot open"
 - Modify: `internal/server/routes_admin_user.go`
 - Modify: `internal/server/routes_canvas.go`
 
-- [ ] **Step 1: Test required graph completeness**
+- [x] **Step 1: Test required graph completeness**
 
 ```go
 func TestGraphValidateRejectsMissingRequiredCapability(t *testing.T) {
@@ -244,7 +244,7 @@ func TestGraphValidateRejectsMissingRequiredCapability(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Define responsibility groups**
+- [x] **Step 2: Define responsibility groups**
 
 ```go
 type Graph struct {
@@ -270,7 +270,7 @@ Define the remaining groups with the existing active Admin HTTP service interfac
 
 `Build` receives validated config, resources, key ring, logger, telemetry, queue producer, and realtime publisher. Extract OpenAI-compatible, COS, mail/SMS, Alipay, and secretbox construction into focused functions in `internal/runtime/providers.go`. API and Worker call those same functions.
 
-- [ ] **Step 3: Replace the 50-field router dependency**
+- [x] **Step 3: Replace the 50-field router dependency**
 
 `server.Dependencies` becomes:
 
@@ -284,7 +284,7 @@ type Dependencies struct {
 
 `CoreDependencies` contains readiness, logger, CORS, authenticator, permission checker, compiled route registry, operation recorder, queue monitor UI, and realtime handler. `retired.Graph` is a temporary typed holder for the existing App/Canvas transport dependencies so P03 compiles without deepening them; Admin contract generation never reads it, and P09 deletes it together with the retired route registrations. Route aggregation reads the grouped graphs; it does not rebuild capabilities.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/platform/admin ./internal/server ./internal/runtime -count=1
@@ -310,7 +310,7 @@ git commit -m "refactor(runtime): group admin capability composition"
 - Delete: `internal/bootstrap/worker.go`
 - Delete: `internal/bootstrap/worker_test.go`
 
-- [ ] **Step 1: Write lifecycle-order tests**
+- [x] **Step 1: Write lifecycle-order tests**
 
 API expected order:
 
@@ -328,7 +328,7 @@ scheduler stop → queue drain → publisher close → resources close
 
 Tests inject fakes, cancel context, and assert reverse shutdown plus cleanup after a failure at every boundary.
 
-- [ ] **Step 2: Implement process runtimes**
+- [x] **Step 2: Implement process runtimes**
 
 ```go
 type APIRuntime struct {
@@ -350,7 +350,7 @@ type WorkerRuntime struct {
 
 `Start` is idempotent only before shutdown; a second concurrent start returns `runtime.already_started`. `Shutdown` accepts the caller deadline, stops admission first, waits for in-flight work, closes resources once, and joins errors.
 
-- [ ] **Step 3: Make both mains own signal cancellation**
+- [x] **Step 3: Make both mains own signal cancellation**
 
 ```go
 ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -369,7 +369,7 @@ if err := process.Shutdown(shutdownCtx); err != nil {
 
 The API `Start` blocks on HTTP termination; Worker `Start` blocks on context cancellation or a queue/scheduler fatal error.
 
-- [ ] **Step 4: Verify shutdown under real signals**
+- [x] **Step 4: Verify shutdown under real signals**
 
 ```powershell
 go test ./internal/runtime -run 'TestAPI|TestWorker' -race -count=1
@@ -382,7 +382,7 @@ The PowerShell test allocates loopback ports, starts each temporary binary with 
 
 Expected: both processes become ready, receive termination, exit 0 within 15 seconds, and log one shutdown sequence.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add -- cmd/admin-api/main.go cmd/admin-worker/main.go internal/runtime/api.go internal/runtime/api_test.go internal/runtime/worker.go internal/runtime/worker_test.go internal/platform/admin/build.go internal/platform/retired/graph.go internal/server/router.go scripts/tests/process-sigterm.tests.ps1
@@ -401,7 +401,7 @@ git commit -m "refactor(runtime): replace bootstrap with api and worker runtimes
 - Modify: `internal/bootstrap/route_meta.go` during migration
 - Create: `internal/server/testdata/admin_route_policy_golden.json`
 
-- [ ] **Step 1: Test duplicate and incomplete definitions**
+- [x] **Step 1: Test duplicate and incomplete definitions**
 
 ```go
 func TestRegistryRejectsUnclassifiedMutation(t *testing.T) {
@@ -420,7 +420,7 @@ func TestRegistryRejectsUnknownPermissionAndDuplicateRoute(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Implement closed policies**
+- [x] **Step 2: Implement closed policies**
 
 ```go
 type AccessKind string
@@ -441,13 +441,13 @@ type Definition struct {
 
 `Registry.Add` normalizes method/path, rejects duplicates, requires a permission code for `Permission`, requires `Audit` or a non-empty `NoAudit` reason for POST/PUT/PATCH/DELETE, and rejects audit on public provider callbacks.
 
-- [ ] **Step 3: Compile current metadata through the registry**
+- [x] **Step 3: Compile current metadata through the registry**
 
 Convert `permissionRouteRules` and `operationRouteRules` into definitions keyed by actual Gin routes. Public paths are explicit definitions. Authenticated read routes get `NoAudit("read-only")`; authenticated current-user mutations get a domain reason such as `NoAudit("self-service state; domain audit retained")`. Compilation fails on any Gin route without exactly one policy.
 
 P04 moves policy calls next to each transport registration and deletes the old maps; this task supplies the single compiled runtime format and a complete golden snapshot first.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/server/adminroute ./internal/server ./internal/bootstrap -run 'TestRegistry|TestRoute|TestPermission|TestOperation' -count=1
@@ -469,7 +469,7 @@ git commit -m "feat(routing): compile access and audit policy in one registry"
 - Modify: `internal/infra/taskqueue/server.go`
 - Modify: `go.mod` and `go.sum`
 
-- [ ] **Step 1: Test secret redaction and bounded labels**
+- [x] **Step 1: Test secret redaction and bounded labels**
 
 ```go
 func TestSanitizeAttributesDropsSensitiveAndHighCardinalityValues(t *testing.T) {
@@ -489,7 +489,7 @@ func TestSanitizeAttributesDropsSensitiveAndHighCardinalityValues(t *testing.T) 
 }
 ```
 
-- [ ] **Step 2: Define the seam**
+- [x] **Step 2: Define the seam**
 
 ```go
 type Attributes map[string]any
@@ -502,7 +502,7 @@ type Recorder interface {
 
 Provide `Noop`, deterministic in-memory tests, and Prometheus counters/histograms. Pin `github.com/prometheus/client_golang v1.23.2`. Capability code depends only on `Recorder` where it owns a lifecycle; transport/infra adapters own protocol timings.
 
-- [ ] **Step 3: Instrument required boundaries**
+- [x] **Step 3: Instrument required boundaries**
 
 Use bounded attributes for:
 
@@ -516,7 +516,7 @@ Use bounded attributes for:
 
 Never record URL query, bodies, token/session/user IDs, credentials, certificates, prompts, provider payloads, or full SQL binds.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/telemetry ./internal/middleware ./internal/infra/database ./internal/infra/redisclient ./internal/infra/taskqueue -count=1
@@ -549,7 +549,7 @@ git commit -m "feat(observability): instrument runtime boundaries safely"
 - Create: `scripts/generate-admin-contract.ps1`
 - Create: `scripts/check-admin-contract.ps1`
 
-- [ ] **Step 1: Write determinism and scope tests**
+- [x] **Step 1: Write determinism and scope tests**
 
 ```go
 func TestBundleIsDeterministicAndAdminOnly(t *testing.T) {
@@ -575,7 +575,7 @@ func TestManifestHashesEveryArtifact(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Define the manifest**
+- [x] **Step 2: Define the manifest**
 
 ```go
 type Manifest struct {
@@ -594,13 +594,13 @@ type Artifact struct {
 
 Bundle version is `admin-2026-07-15.1`. The commit is provided by `-commit` and never discovered differently in tests.
 
-- [ ] **Step 3: Generate contracts from runtime truth**
+- [x] **Step 3: Generate contracts from runtime truth**
 
 `openapi.json` is OpenAPI 3.1 and contains every Admin route plus `/health`, `/ready`, and required payment callback routes. It uses the Error Module envelope and names every operation ID. `permissions.json` contains the permission-code catalog and policy per operation. `views.json` contains route/view/menu metadata returned by `users/me`. Realtime schemas close event names and payload shapes; there is no free-form string event escape.
 
 `admin-contract generate --out contracts/admin/v1 --commit $BackendCommit` writes a temporary directory, sorts all paths/codes/events, hashes each artifact, writes manifest last, and atomically replaces output. `--check` generates elsewhere and byte-compares every file. `scripts/generate-admin-contract.ps1` sets `$BackendCommit` from a clean committed checkout and passes it explicitly.
 
-- [ ] **Step 4: Generate, check, and commit**
+- [x] **Step 4: Generate, check, and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/generate-admin-contract.ps1
@@ -624,7 +624,7 @@ Expected: check reports no diff; manifest hashes match; no App/Canvas operation 
 - Modify: `docs/architecture.md`
 - Modify: `CONTEXT.md`
 
-- [ ] **Step 1: Guard the target shape**
+- [x] **Step 1: Guard the target shape**
 
 The architecture test rejects:
 
@@ -636,7 +636,7 @@ The architecture test rejects:
 - route-policy maps outside `adminroute`;
 - a mutable config value after runtime construction.
 
-- [ ] **Step 2: Implement the shared gate**
+- [x] **Step 2: Implement the shared gate**
 
 `verify-runtime-contracts.ps1` runs:
 
@@ -648,7 +648,7 @@ go build -trimpath -o $env:TEMP\admin-api-contract.exe ./cmd/admin-api
 go build -trimpath -o $env:TEMP\admin-worker-contract.exe ./cmd/admin-worker
 ```
 
-- [ ] **Step 3: Make it blocking and commit**
+- [x] **Step 3: Make it blocking and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/verify-runtime-contracts.ps1
@@ -658,6 +658,14 @@ git commit -m "ci: enforce runtime and admin contract architecture"
 ```
 
 Expected: both process binaries build, contract drift is empty, architecture gates pass, and CI runs the same script.
+
+## Completion evidence (2026-07-17)
+
+- `scripts/verify-go-clean.ps1` invoked `scripts/verify-runtime-contracts.ps1`; ordinary and Linux `-race` tests passed for Runtime, Admin platform graph, routers, Admin Contract Bundle, telemetry, auth/payment, task queue, and realtime packages.
+- `scripts/check-admin-contract.ps1` reported `Admin contract bundle is current.` Architecture tests for Runtime, Admin Contract, and Route Policy passed, and both process binaries built with `-trimpath`.
+- Bundle `admin-2026-07-15.1` remains byte-current with manifest SHA-256 `25f1bab4c875541311628263e23766e358ca3f65c81b14c804fe3cb5bf34e4d7`; all five artifact hashes in the manifest validate and no App/Canvas operation is published.
+- Runtime resource tests prove reverse cleanup and all-or-nothing publication. The P03.5 Docker regression additionally sent real Docker `SIGTERM` to API and worker and required exit code `0` plus exactly one shutdown record for each.
+- `admin-go-backend:local` was built through its Dockerfile test stage and contains both process binaries from the passing build stage.
 
 ## Plan completion gate
 
