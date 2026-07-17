@@ -74,29 +74,6 @@ func (r *GormRepository) LatestMessages(ctx context.Context, conversationID int6
 	return rows, err
 }
 
-func (r *GormRepository) InsertAssistantMessage(ctx context.Context, input AssistantMessageRecord) (int64, error) {
-	if r == nil || r.db == nil {
-		return 0, ErrRepositoryNotConfigured
-	}
-	now := input.Now
-	if now.IsZero() {
-		now = time.Now()
-	}
-	message := Message{ConversationID: input.ConversationID, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: input.Content, IsDel: enum.CommonNo}
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&message).Error; err != nil {
-			return err
-		}
-		return tx.Table("ai_conversations").
-			Where("id = ? AND is_del = ?", input.ConversationID, enum.CommonNo).
-			Updates(map[string]any{"last_message_at": now, "updated_at": now}).Error
-	})
-	if err != nil {
-		return 0, err
-	}
-	return message.ID, nil
-}
-
 func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured

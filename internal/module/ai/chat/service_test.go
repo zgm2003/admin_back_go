@@ -22,7 +22,7 @@ type fakeRepository struct {
 	agent        *AgentEngineConfig
 	agentID      uint64
 	history      []MessageHistory
-	assistant    AssistantMessageRecord
+	assistant    AssistantPublication
 	createdRun   CreateRunRecord
 	completedRun CompleteRunRecord
 	finishedRun  FinishRunRecord
@@ -102,9 +102,9 @@ func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*
 func (f *fakeRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
 	return f.history, nil
 }
-func (f *fakeRepository) InsertAssistantMessage(ctx context.Context, input AssistantMessageRecord) (int64, error) {
+func (f *fakeRepository) PublishAssistant(_ context.Context, input AssistantPublication) (int64, bool, error) {
 	f.assistant = input
-	return 22, nil
+	return 22, true, nil
 }
 func (f *fakeRepository) CreateRun(ctx context.Context, input CreateRunRecord) (int64, error) {
 	f.createdRun = input
@@ -126,6 +126,15 @@ func (f *fakeRepository) TimeoutRuns(ctx context.Context, limit int, staleBefore
 
 type fakePublisher struct {
 	pubs []infrarealtime.Publication
+}
+
+type fakeAssistantPublisher struct {
+	input AssistantPublication
+}
+
+func (f *fakeAssistantPublisher) PublishAssistant(_ context.Context, input AssistantPublication) (int64, bool, error) {
+	f.input = input
+	return 22, true, nil
 }
 
 func (f *fakePublisher) Publish(ctx context.Context, p infrarealtime.Publication) error {
@@ -263,13 +272,14 @@ func TestCanvasCompletionUsesCanvasTextAgentAndDoesNotPersistConversation(t *tes
 	now := time.Date(2026, 6, 4, 12, 0, 0, 123, time.UTC)
 
 	res, appErr := NewService(Dependencies{
-		Repository:    repo,
-		Publisher:     pub,
-		TextTasks:     &fakeTextTaskStore{},
-		RunRecorder:   &fakeRunRecorder{},
-		EngineFactory: factory,
-		Secretbox:     box,
-		Now:           func() time.Time { return now },
+		Repository:         repo,
+		AssistantPublisher: repo,
+		Publisher:          pub,
+		TextTasks:          &fakeTextTaskStore{},
+		RunRecorder:        &fakeRunRecorder{},
+		EngineFactory:      factory,
+		Secretbox:          box,
+		Now:                func() time.Time { return now },
 	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello canvas "})
 
 	if appErr != nil {
@@ -301,7 +311,7 @@ func TestCanvasCompletionRecordsRun(t *testing.T) {
 	textTasks := &fakeTextTaskStore{nextID: 77}
 	recorder := &fakeRunRecorder{nextID: 99}
 	engine := &fakeEngine{result: &infraai.ChatResult{Answer: "ok", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5, UsageStatus: infraai.UsageStatusReported}}
-	service := NewService(Dependencies{Repository: repo, TextTasks: textTasks, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, Now: func() time.Time {
+	service := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, TextTasks: textTasks, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, Now: func() time.Time {
 		return time.Date(2026, 6, 7, 3, 4, 5, 0, time.UTC)
 	}})
 
@@ -359,7 +369,7 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	pub := &fakePublisher{}
 	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -385,6 +395,56 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	}
 }
 
+func TestExecuteConversationReplyPublishesAssistantThroughFencedBoundary(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	assistantPublisher := &fakeAssistantPublisher{}
+	res, err := NewService(Dependencies{
+		Repository:         repo,
+		AssistantPublisher: assistantPublisher,
+		Publisher:          &fakePublisher{},
+		RunRecorder:        &fakeRunRecorder{nextID: 100},
+		EngineFactory:      &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
+		Secretbox:          box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 7,
+		ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "rid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AssistantMessageID != 22 || assistantPublisher.input.CommandID != 41 || assistantPublisher.input.Owner != "worker-a" || assistantPublisher.input.Token != 7 || assistantPublisher.input.Content != "ok" {
+		t.Fatalf("result=%+v publication=%+v", res, assistantPublisher.input)
+	}
+}
+
+func TestExecuteConversationReplyDerivesAgentFromOwnedConversation(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	_, err := NewService(Dependencies{
+		Repository:         repo,
+		AssistantPublisher: repo,
+		Publisher:          &fakePublisher{},
+		RunRecorder:        &fakeRunRecorder{nextID: 100},
+		EngineFactory:      &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
+		Secretbox:          box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "rid"})
+	if err != nil {
+		t.Fatalf("ExecuteConversationReply returned error: %v", err)
+	}
+	if repo.agentID != 5 {
+		t.Fatalf("runtime agent id=%d, want conversation agent 5", repo.agentID)
+	}
+}
+
 func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{
@@ -394,7 +454,7 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 	}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -431,7 +491,7 @@ func TestExecuteConversationReplyAllowsImageOnlyUserMessage(t *testing.T) {
 	}
 	recorder := &fakeRunRecorder{nextID: 100}
 
-	res, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 
 	if err != nil {
 		t.Fatalf("image-only user message must not be treated as missing: %v", err)
@@ -463,7 +523,7 @@ func TestExecuteConversationReplyPublishesFailedForEngineError(t *testing.T) {
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	_, err := NewService(Dependencies{Repository: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected engine error")
 	}
@@ -480,7 +540,7 @@ func TestExecuteConversationReplyMarksRunCanceledForCanceledContext(t *testing.T
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	_, err := NewService(Dependencies{Repository: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: canceledEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: canceledEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected canceled error")
 	}
@@ -497,11 +557,12 @@ func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t 
 	}
 	pub := &fakePublisher{}
 	res, err := NewService(Dependencies{
-		Repository:    repo,
-		Publisher:     pub,
-		RunRecorder:   &fakeRunRecorder{nextID: 100},
-		EngineFactory: &fakeEngineFactory{engine: &blankEngine{}},
-		Secretbox:     box,
+		Repository:         repo,
+		AssistantPublisher: repo,
+		Publisher:          pub,
+		RunRecorder:        &fakeRunRecorder{nextID: 100},
+		EngineFactory:      &fakeEngineFactory{engine: &blankEngine{}},
+		Secretbox:          box,
 	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
@@ -517,7 +578,7 @@ func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t 
 func TestTimeoutRunsMarksOldRunsFailed(t *testing.T) {
 	repo := &fakeRepository{}
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	res, err := NewService(Dependencies{Repository: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5})
 	if err != nil {
 		t.Fatalf("TimeoutRuns returned error: %v", err)
 	}
@@ -532,7 +593,7 @@ func TestTimeoutRunsMarksOldRunsFailed(t *testing.T) {
 func TestTimeoutRunsAllowsInputStaleTimeoutOverride(t *testing.T) {
 	repo := &fakeRepository{}
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	_, err := NewService(Dependencies{Repository: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).
+	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).
 		TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5, StaleTimeout: 7 * time.Minute})
 	if err != nil {
 		t.Fatalf("TimeoutRuns returned error: %v", err)
@@ -633,7 +694,7 @@ func TestExecuteConversationReplyInjectsKnowledgeContext(t *testing.T) {
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "这个项目后端架构是什么？"}},
 	}
 	knowledge := &fakeKnowledgeRuntime{result: &KnowledgeContextResult{RetrievalID: 88, Context: "[K1] 知识库：架构库；文档：Go 后端架构\nGin modular monolith"}}
-	_, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -654,7 +715,7 @@ func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}},
 	}
 	knowledge := &fakeKnowledgeRuntime{err: apperror.Internal("知识库检索失败")}
-	res, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("knowledge failure must not block chat: %v", err)
 	}
@@ -706,7 +767,7 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
 	engine := &toolCallEngine{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -743,7 +804,7 @@ func TestExecuteConversationReplyRejectsMissingToolRoundUsageStatus(t *testing.T
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
 	recorder := &fakeRunRecorder{nextID: 100}
 
-	_, err := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &missingFirstToolUsageEngine{}}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &missingFirstToolUsageEngine{}}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 
 	if err == nil || !strings.Contains(err.Error(), "用量状态缺失") {
 		t.Fatalf("expected missing usage status error, got %v", err)
@@ -760,7 +821,7 @@ func TestExecuteConversationReplyRejectsSecondToolRound(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}}}
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
-	service := NewService(Dependencies{Repository: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: &doubleToolRoundEngine{}}, Secretbox: box, ToolRuntime: runtime})
+	service := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: &doubleToolRoundEngine{}}, Secretbox: box, ToolRuntime: runtime})
 	_, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected second round error")

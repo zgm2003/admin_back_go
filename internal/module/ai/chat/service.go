@@ -24,30 +24,37 @@ const defaultRunStaleTimeout = 15 * time.Minute
 const maxHistoryLimit = 50
 const canvasTextGenerateScene = "canvas_text_generate"
 
+var (
+	ErrAssistantPublisherNotConfigured = errors.New("assistant publisher is not configured")
+	ErrAssistantPublicationRejected    = errors.New("assistant publication rejected by reply command lease")
+)
+
 type Dependencies struct {
-	Repository       Repository
-	Publisher        infrarealtime.Publisher
-	EngineFactory    EngineFactory
-	Secretbox        secretbox.Box
-	ToolRuntime      ToolRuntime
-	KnowledgeRuntime KnowledgeRuntime
-	RunRecorder      RunRecorder
-	TextTasks        TextTaskStore
-	RunStaleTimeout  time.Duration
-	Now              func() time.Time
+	Repository         Repository
+	AssistantPublisher AssistantPublisher
+	Publisher          infrarealtime.Publisher
+	EngineFactory      EngineFactory
+	Secretbox          secretbox.Box
+	ToolRuntime        ToolRuntime
+	KnowledgeRuntime   KnowledgeRuntime
+	RunRecorder        RunRecorder
+	TextTasks          TextTaskStore
+	RunStaleTimeout    time.Duration
+	Now                func() time.Time
 }
 
 type Service struct {
-	repository       Repository
-	publisher        infrarealtime.Publisher
-	engineFactory    EngineFactory
-	secretbox        secretbox.Box
-	toolRuntime      ToolRuntime
-	knowledgeRuntime KnowledgeRuntime
-	runRecorder      RunRecorder
-	textTasks        TextTaskStore
-	runStaleTimeout  time.Duration
-	now              func() time.Time
+	repository         Repository
+	assistantPublisher AssistantPublisher
+	publisher          infrarealtime.Publisher
+	engineFactory      EngineFactory
+	secretbox          secretbox.Box
+	toolRuntime        ToolRuntime
+	knowledgeRuntime   KnowledgeRuntime
+	runRecorder        RunRecorder
+	textTasks          TextTaskStore
+	runStaleTimeout    time.Duration
+	now                func() time.Time
 }
 
 func NewService(deps Dependencies) *Service {
@@ -59,11 +66,11 @@ func NewService(deps Dependencies) *Service {
 	if runStaleTimeout <= 0 {
 		runStaleTimeout = defaultRunStaleTimeout
 	}
-	return &Service{repository: deps.Repository, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
-	if input.ConversationID <= 0 || input.UserID <= 0 || input.AgentID <= 0 || input.UserMessageID <= 0 || strings.TrimSpace(input.RequestID) == "" {
+	if input.ConversationID <= 0 || input.UserID <= 0 || input.UserMessageID <= 0 || strings.TrimSpace(input.RequestID) == "" {
 		return nil, apperror.BadRequest("AI对话回复任务参数错误")
 	}
 	repo, appErr := s.requireRepository()
@@ -76,6 +83,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	if conversation == nil {
 		return nil, apperror.NotFound("AI会话不存在")
+	}
+	if input.AgentID == 0 {
+		input.AgentID = int64(conversation.AgentID)
 	}
 	if int64(conversation.AgentID) != input.AgentID {
 		return nil, apperror.BadRequest("会话智能体不匹配")
@@ -246,12 +256,22 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		finishRun(enum.AIRunStatusFailed, msg, appErr)
 		return nil, appErr
 	}
-	assistantID, err := repo.InsertAssistantMessage(ctx, AssistantMessageRecord{ConversationID: input.ConversationID, Content: answer, Now: s.now()})
+	if s.assistantPublisher == nil {
+		msg := "AI助手消息发布器未配置"
+		finishRun(enum.AIRunStatusFailed, msg, ErrAssistantPublisherNotConfigured)
+		return nil, ErrAssistantPublisherNotConfigured
+	}
+	assistantID, published, err := s.assistantPublisher.PublishAssistant(ctx, AssistantPublication{CommandID: input.CommandID, ConversationID: input.ConversationID, Owner: input.LeaseOwner, Token: input.LeaseToken, Content: answer, Now: s.now()})
 	if err != nil {
 		msg := "保存AI助手消息失败"
 		_ = s.publishFailed(ctx, input, msg)
 		finishRun(enum.AIRunStatusFailed, msg, err)
 		return nil, err
+	}
+	if !published || assistantID <= 0 {
+		msg := "AI助手消息发布租约已失效"
+		finishRun(enum.AIRunStatusCanceled, msg, ErrAssistantPublicationRejected)
+		return nil, ErrAssistantPublicationRejected
 	}
 	finishedAt := s.now()
 	assistantMessageID := assistantID

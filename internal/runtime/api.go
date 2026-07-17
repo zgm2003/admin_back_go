@@ -7,13 +7,11 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/secretkey"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/jobs"
-	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/queuemonitor"
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/server"
@@ -173,9 +171,6 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				Queue:             queueClient,
 				QueueInspector:    queueInspector,
 				RealtimePublisher: realtime.publisher,
-				ReplyDispatcherFactory: func(service aichat.JobService) platformadmin.ReplyDispatcher {
-					return newAIConversationReplyDispatcher(service, logger, aiReplyTimeout(cfg.AI.ChatStreamMaxDuration))
-				},
 			})
 			if err != nil {
 				if realtime.manager != nil {
@@ -184,7 +179,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				return nil, err
 			}
 			adminBuild = built
-			return built.ReplyDispatcher.Shutdown, nil
+			return nil, nil
 		},
 		buildRouter: func(context.Context) (CleanupFunc, error) {
 			if adminBuild == nil || resources == nil {
@@ -244,10 +239,6 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			}, nil
 		},
 	}
-}
-
-func aiReplyTimeout(maxDuration time.Duration) time.Duration {
-	return positiveProviderDuration(maxDuration, config.DefaultAIChatStreamMaxDuration) + 30*time.Second
 }
 
 func newAPIRuntimeWithHooks(hooks apiHooks) *APIRuntime {

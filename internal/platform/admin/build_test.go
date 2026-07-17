@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +11,6 @@ import (
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/infra/secretkey"
-	aichat "admin_back_go/internal/module/ai/chat"
-	aimessage "admin_back_go/internal/module/ai/message"
 )
 
 func TestAccessTokenCodecForKeysSupportsDualKeyWindow(t *testing.T) {
@@ -70,12 +67,6 @@ func TestBuildProducesCompleteAdminAndRetiredGraphs(t *testing.T) {
 		Keys:              keys,
 		Providers:         &ProviderSet{},
 		RealtimePublisher: infrarealtime.NoopPublisher{},
-		ReplyDispatcherFactory: func(service aichat.JobService) ReplyDispatcher {
-			if service == nil {
-				t.Fatal("chat service is required before reply dispatcher")
-			}
-			return fakeReplyDispatcher{}
-		},
 	})
 	if err != nil {
 		t.Fatalf("build: %v", err)
@@ -89,7 +80,7 @@ func TestBuildProducesCompleteAdminAndRetiredGraphs(t *testing.T) {
 	if result.Retired.Canvas == nil || result.Retired.AIImages == nil || result.Retired.AIChat == nil {
 		t.Fatalf("retired graph incomplete: %+v", result.Retired)
 	}
-	if result.Authenticator == nil || result.PermissionChecker == nil || result.ReplyDispatcher == nil {
+	if result.Authenticator == nil || result.PermissionChecker == nil {
 		t.Fatalf("runtime seams incomplete: %+v", result)
 	}
 }
@@ -103,9 +94,6 @@ func TestBuildRejectsMissingEnabledRuntimeAdapters(t *testing.T) {
 		Resources: buildTestResources(),
 		Keys:      keys,
 		Providers: &ProviderSet{},
-		ReplyDispatcherFactory: func(aichat.JobService) ReplyDispatcher {
-			return fakeReplyDispatcher{}
-		},
 	}
 
 	queueInput := base
@@ -129,15 +117,3 @@ func buildTestResources() *BuildResources {
 		QueueRedis: &redisclient.Client{},
 	}
 }
-
-type fakeReplyDispatcher struct{}
-
-func (fakeReplyDispatcher) EnqueueConversationReply(context.Context, aimessage.ReplyPayload) error {
-	return nil
-}
-
-func (fakeReplyDispatcher) CancelConversationReply(context.Context, aimessage.ReplyPayload) error {
-	return nil
-}
-
-func (fakeReplyDispatcher) Shutdown(context.Context) error { return nil }

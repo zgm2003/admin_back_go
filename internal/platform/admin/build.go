@@ -30,6 +30,7 @@ import (
 	aimessage "admin_back_go/internal/module/ai/message"
 	aiprompt "admin_back_go/internal/module/ai/prompt"
 	aiprovider "admin_back_go/internal/module/ai/provider"
+	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	aitool "admin_back_go/internal/module/ai/tool"
@@ -59,14 +60,6 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 )
-
-type ReplyDispatcher interface {
-	aimessage.ReplyEnqueuer
-	aimessage.ReplyCanceler
-	Shutdown(context.Context) error
-}
-
-type ReplyDispatcherFactory func(aichat.JobService) ReplyDispatcher
 
 type BuildResources struct {
 	DB         *database.Client
@@ -98,16 +91,15 @@ type ProviderSet struct {
 }
 
 type BuildInput struct {
-	Config                 config.Config
-	Resources              *BuildResources
-	Keys                   *secretkey.KeyRing
-	Providers              *ProviderSet
-	Logger                 *slog.Logger
-	Telemetry              telemetry.Recorder
-	Queue                  taskqueue.Enqueuer
-	QueueInspector         *taskqueue.Inspector
-	RealtimePublisher      infrarealtime.Publisher
-	ReplyDispatcherFactory ReplyDispatcherFactory
+	Config            config.Config
+	Resources         *BuildResources
+	Keys              *secretkey.KeyRing
+	Providers         *ProviderSet
+	Logger            *slog.Logger
+	Telemetry         telemetry.Recorder
+	Queue             taskqueue.Enqueuer
+	QueueInspector    *taskqueue.Inspector
+	RealtimePublisher infrarealtime.Publisher
 }
 
 type BuildResult struct {
@@ -116,7 +108,6 @@ type BuildResult struct {
 	Authenticator     middleware.TokenAuthenticator
 	PermissionChecker middleware.PermissionChecker
 	OperationRecorder middleware.OperationRecorder
-	ReplyDispatcher   ReplyDispatcher
 }
 
 func Build(input BuildInput) (*BuildResult, error) {
@@ -299,13 +290,10 @@ func Build(input BuildInput) (*BuildResult, error) {
 		TextTasks:        aiTextTasks,
 		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
 	})
-	replyDispatcher := input.ReplyDispatcherFactory(aiChatService)
-	if isNilCapability(replyDispatcher) {
-		return nil, errors.New("admin reply dispatcher is required")
-	}
 	aiMessageService := aimessage.NewService(
 		aimessage.NewGormRepository(resources.DB),
-		aimessage.WithReplyEnqueuer(replyDispatcher),
+		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
+		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
 	)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
@@ -400,7 +388,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 		Authenticator:     tokenAuthenticatorFor(sessionAuthenticator),
 		PermissionChecker: permissionCheckerFor(principalService),
 		OperationRecorder: operationRecorder,
-		ReplyDispatcher:   replyDispatcher,
 	}, nil
 }
 
@@ -436,9 +423,6 @@ func validateBuildInput(input BuildInput) error {
 	}
 	if input.Providers == nil {
 		return errors.New("admin build provider set is required")
-	}
-	if input.ReplyDispatcherFactory == nil {
-		return errors.New("admin build reply dispatcher factory is required")
 	}
 	return nil
 }

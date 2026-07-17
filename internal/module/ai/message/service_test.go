@@ -2,6 +2,7 @@ package aimessage
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,13 +12,28 @@ import (
 )
 
 type fakeRepository struct {
-	conversation *Conversation
-	agent        *AgentRuntime
-	rows         []Message
-	listQuery    ListQuery
-	replyInput   replycommand.CreateReplyInput
-	replyResult  replycommand.CreateReplyResult
-	replyErr     error
+	conversation         *Conversation
+	agent                *AgentRuntime
+	rows                 []Message
+	listQuery            ListQuery
+	replyInput           replycommand.CreateReplyInput
+	replyResult          replycommand.CreateReplyResult
+	replyErr             error
+	cancelConversationID int64
+	cancelUserID         int64
+	cancelRequestID      string
+	cancelResult         *replycommand.Command
+	cancelErr            error
+}
+
+func (f *fakeRepository) RequestCancel(_ context.Context, conversationID int64, userID int64, requestID string, _ time.Time) (*replycommand.Command, error) {
+	f.cancelConversationID = conversationID
+	f.cancelUserID = userID
+	f.cancelRequestID = requestID
+	if f.cancelResult == nil {
+		f.cancelResult = &replycommand.Command{ID: 99, ConversationID: conversationID, UserID: userID, RequestID: requestID, State: replycommand.StateCanceled}
+	}
+	return f.cancelResult, f.cancelErr
 }
 
 func (f *fakeRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {
@@ -38,19 +54,24 @@ func (f *fakeRepository) CreateReply(ctx context.Context, input replycommand.Cre
 	return f.replyResult, f.replyErr
 }
 
-type fakeReplyEnqueuer struct {
-	payload       ReplyPayload
-	cancelPayload ReplyPayload
+type fakeCancelPublisher struct {
+	commandID uint64
+	err       error
 }
 
-func (f *fakeReplyEnqueuer) EnqueueConversationReply(ctx context.Context, payload ReplyPayload) error {
-	f.payload = payload
-	return nil
+type fakeReplyWaker struct {
+	commandID uint64
+	err       error
 }
 
-func (f *fakeReplyEnqueuer) CancelConversationReply(ctx context.Context, payload ReplyPayload) error {
-	f.cancelPayload = payload
-	return nil
+func (f *fakeReplyWaker) WakeReply(_ context.Context, commandID uint64) error {
+	f.commandID = commandID
+	return f.err
+}
+
+func (f *fakeCancelPublisher) PublishCancel(_ context.Context, commandID uint64) error {
+	f.commandID = commandID
+	return f.err
 }
 
 func TestListUsesMessageCursorAndReturnsChronologicalOrder(t *testing.T) {
@@ -99,6 +120,21 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	}
 }
 
+func TestSendWakesCommittedCommandAndDoesNotFailWhenWakeupFails(t *testing.T) {
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
+		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+	}
+	waker := &fakeReplyWaker{err: errors.New("redis unavailable")}
+	res, appErr := NewService(repo, WithReplyWaker(waker)).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
+	if appErr != nil {
+		t.Fatalf("durable send must survive best-effort wake failure: %v", appErr)
+	}
+	if res.CommandID != 99 || waker.commandID != 99 {
+		t.Fatalf("response=%+v wake command=%d", res, waker.commandID)
+	}
+}
+
 func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
@@ -115,16 +151,16 @@ func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 
 func TestCancelRequiresOwnedConversation(t *testing.T) {
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}}
-	enq := &fakeReplyEnqueuer{}
-	res, appErr := NewService(repo, WithReplyEnqueuer(enq)).Cancel(context.Background(), 7, CancelInput{ConversationID: 3, RequestID: "rid"})
+	publisher := &fakeCancelPublisher{err: errors.New("redis unavailable")}
+	res, appErr := NewService(repo, WithCancelPublisher(publisher)).Cancel(context.Background(), 7, CancelInput{ConversationID: 3, RequestID: "rid"})
 	if appErr != nil {
 		t.Fatalf("Cancel returned error: %v", appErr)
 	}
 	if res.ConversationID != 3 || res.RequestID != "rid" || res.Status != "canceled" {
 		t.Fatalf("unexpected cancel response: %#v", res)
 	}
-	if enq.cancelPayload.ConversationID != 3 || enq.cancelPayload.UserID != 7 || enq.cancelPayload.RequestID != "rid" {
-		t.Fatalf("unexpected cancel payload: %#v", enq.cancelPayload)
+	if repo.cancelConversationID != 3 || repo.cancelUserID != 7 || repo.cancelRequestID != "rid" || publisher.commandID != 99 {
+		t.Fatalf("durable cancel repo=(%d,%d,%q) signal=%d", repo.cancelConversationID, repo.cancelUserID, repo.cancelRequestID, publisher.commandID)
 	}
 }
 

@@ -11,7 +11,16 @@ import (
 	"admin_back_go/internal/shared/apperror"
 )
 
-type ConversationReplyInput = ConversationReplyPayload
+type ConversationReplyInput struct {
+	CommandID      uint64
+	LeaseOwner     string
+	LeaseToken     uint64
+	ConversationID int64
+	UserID         int64
+	AgentID        int64
+	UserMessageID  int64
+	RequestID      string
+}
 
 type ConversationReplyResult struct {
 	ConversationID     int64
@@ -56,10 +65,17 @@ type FinishRunRecord struct {
 	FinishedAt time.Time
 	DurationMS uint
 }
-type AssistantMessageRecord struct {
+type AssistantPublication struct {
+	CommandID      uint64
 	ConversationID int64
+	Owner          string
+	Token          uint64
 	Content        string
 	Now            time.Time
+}
+
+type AssistantPublisher interface {
+	PublishAssistant(context.Context, AssistantPublication) (int64, bool, error)
 }
 
 type EngineConfig struct {
@@ -130,7 +146,6 @@ type Repository interface {
 	ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error)
 	AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error)
 	LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error)
-	InsertAssistantMessage(ctx context.Context, input AssistantMessageRecord) (int64, error)
 	CreateRun(ctx context.Context, input CreateRunRecord) (int64, error)
 	CompleteRun(ctx context.Context, input CompleteRunRecord) error
 	FinishRun(ctx context.Context, input FinishRunRecord) error

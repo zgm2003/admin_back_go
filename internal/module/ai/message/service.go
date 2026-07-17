@@ -20,14 +20,19 @@ const (
 )
 
 type Service struct {
-	repository    Repository
-	replyEnqueuer ReplyEnqueuer
+	repository      Repository
+	replyWaker      ReplyWaker
+	cancelPublisher CancelPublisher
 }
 
 type Option func(*Service)
 
-func WithReplyEnqueuer(enqueuer ReplyEnqueuer) Option {
-	return func(s *Service) { s.replyEnqueuer = enqueuer }
+func WithReplyWaker(waker ReplyWaker) Option {
+	return func(s *Service) { s.replyWaker = waker }
+}
+
+func WithCancelPublisher(publisher CancelPublisher) Option {
+	return func(s *Service) { s.cancelPublisher = publisher }
 }
 
 func NewService(repository Repository, options ...Option) *Service {
@@ -102,6 +107,9 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "提交AI回复任务失败", err)
 	}
+	if s.replyWaker != nil {
+		_ = s.replyWaker.WakeReply(ctx, created.CommandID)
+	}
 	return &SendResponse{
 		ConversationID: input.ConversationID,
 		UserMessageID:  created.UserMessageID,
@@ -119,12 +127,16 @@ func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (
 	if requestID == "" {
 		return nil, apperror.BadRequest("request_id不能为空")
 	}
-	canceler, ok := s.replyEnqueuer.(ReplyCanceler)
-	if !ok || canceler == nil {
-		return nil, apperror.Internal("AI对话取消器未配置")
-	}
-	if err := canceler.CancelConversationReply(ctx, ReplyPayload{ConversationID: input.ConversationID, UserID: userID, RequestID: requestID}); err != nil {
+	repo, _ := s.requireRepository()
+	command, err := repo.RequestCancel(ctx, input.ConversationID, userID, requestID, time.Now())
+	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "取消AI回复失败", err)
+	}
+	if command == nil || command.ID == 0 {
+		return nil, apperror.NotFound("AI回复任务不存在")
+	}
+	if s.cancelPublisher != nil {
+		_ = s.cancelPublisher.PublishCancel(ctx, command.ID)
 	}
 	return &CancelResponse{ConversationID: input.ConversationID, RequestID: requestID, Status: "canceled"}, nil
 }

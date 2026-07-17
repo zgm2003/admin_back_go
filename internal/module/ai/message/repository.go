@@ -3,6 +3,7 @@ package aimessage
 import (
 	"context"
 	"errors"
+	"time"
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/replycommand"
@@ -30,6 +31,13 @@ func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.Cre
 		return replycommand.CreateReplyResult{}, ErrRepositoryNotConfigured
 	}
 	return r.replies.CreateReply(ctx, input)
+}
+
+func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*replycommand.Command, error) {
+	if r == nil || r.replies == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	return r.replies.RequestCancel(ctx, conversationID, userID, requestID, now)
 }
 
 func (r *GormRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {

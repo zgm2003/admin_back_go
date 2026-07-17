@@ -2,6 +2,7 @@ package aimessage
 
 import (
 	"context"
+	"time"
 
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
@@ -34,20 +35,12 @@ type Attachment struct {
 	Size int64  `json:"size"`
 }
 
-type ReplyPayload struct {
-	ConversationID int64
-	UserID         int64
-	AgentID        int64
-	UserMessageID  int64
-	RequestID      string
+type ReplyWaker interface {
+	WakeReply(ctx context.Context, commandID uint64) error
 }
 
-type ReplyEnqueuer interface {
-	EnqueueConversationReply(ctx context.Context, payload ReplyPayload) error
-}
-
-type ReplyCanceler interface {
-	CancelConversationReply(ctx context.Context, payload ReplyPayload) error
+type CancelPublisher interface {
+	PublishCancel(ctx context.Context, commandID uint64) error
 }
 
 type MessageItem struct {
@@ -91,6 +84,7 @@ type Repository interface {
 	AgentForConversation(ctx context.Context, conversationID int64, userID int64) (*AgentRuntime, error)
 	List(ctx context.Context, query ListQuery) ([]Message, bool, error)
 	CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error)
+	RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*replycommand.Command, error)
 }
 
 type HTTPService interface {

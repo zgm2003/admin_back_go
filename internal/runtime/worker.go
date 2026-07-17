@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"admin_back_go/internal/config"
 	infrarealtime "admin_back_go/internal/infra/realtime"
@@ -16,6 +17,7 @@ import (
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
+	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/module/auth"
@@ -134,7 +136,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return errors.Join(stopQueue(ctx), queueClient.Close())
 			}, nil
 		},
-		buildHandlers: func(context.Context) (CleanupFunc, error) {
+		buildHandlers: func(ctx context.Context) (CleanupFunc, error) {
 			if !cfg.Queue.Enabled {
 				return nil, nil
 			}
@@ -142,12 +144,11 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, errors.New("worker runtime queue graph is incomplete")
 			}
 			publisher := realtimePublisherForWorker(cfg, resources, recorder)
-			if err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux); err != nil {
+			replyRunner, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
+			if err != nil {
 				return nil, err
 			}
-			// Current publishers share process-owned Redis or are no-op values. Keep
-			// the lifecycle seam explicit so a future owned publisher can close here.
-			return func(context.Context) error { return nil }, nil
+			return startReplyCommandPoller(ctx, replyRunner, time.Second, max(1, cfg.Queue.Concurrency), logger)
 		},
 		startQueue: func(ctx context.Context) (CleanupFunc, error) {
 			if !cfg.Queue.Enabled {
@@ -216,7 +217,7 @@ func registerWorkerHandlers(
 	realtimePublisher infrarealtime.Publisher,
 	queueClient *taskqueue.Client,
 	queueMux *taskqueue.Mux,
-) error {
+) (*replycommand.Runner, error) {
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB),
 		notificationtask.WithEnqueuer(queueClient),
@@ -229,7 +230,7 @@ func registerWorkerHandlers(
 		Provider: user.NewExportDataProvider(user.NewGormRepository(resources.DB)),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	exportTaskService := exporttask.NewService(
 		exporttask.NewGormRepository(resources.DB),
@@ -246,14 +247,22 @@ func registerWorkerHandlers(
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
+	replyRepository := replycommand.NewGormRepository(resources.DB)
 	aiChatService := aichat.NewService(aichat.Dependencies{
-		Repository:      aichat.NewGormRepository(resources.DB),
-		Publisher:       realtimePublisher,
-		Secretbox:       providers.Secretbox,
-		EngineFactory:   providers.AIChatFactory,
-		RunRecorder:     aiRunRecorder,
-		TextTasks:       aiTextTasks,
-		RunStaleTimeout: positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
+		Repository:         aichat.NewGormRepository(resources.DB),
+		AssistantPublisher: replyAssistantPublisher{repository: replyRepository},
+		Publisher:          realtimePublisher,
+		Secretbox:          providers.Secretbox,
+		EngineFactory:      providers.AIChatFactory,
+		RunRecorder:        aiRunRecorder,
+		TextTasks:          aiTextTasks,
+		RunStaleTimeout:    positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
+	})
+	replyRunner := replycommand.NewRunner(replycommand.RunnerOptions{
+		Repository:       replyRepository,
+		Executor:         aiChatService,
+		CancelSubscriber: replycommand.NewRedisCancelSubscriber(resources.Redis),
+		Logger:           logger,
 	})
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
 		Repository:    aiimage.NewGormRepository(resources.DB),
@@ -273,6 +282,7 @@ func registerWorkerHandlers(
 	registry, err := jobs.NewRegistry(jobs.Dependencies{
 		Logger:                  logger,
 		AIChatService:           aiChatService,
+		AIReplyRunner:           replyRunner,
 		AiImageService:          aiImageService,
 		AuthRepository:          auth.NewGormRepository(resources.DB),
 		ExportTaskService:       exportTaskService,
@@ -280,9 +290,12 @@ func registerWorkerHandlers(
 		PaymentService:          paymentService,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return queueMux.RegisterRegistry(registry)
+	if err := queueMux.RegisterRegistry(registry); err != nil {
+		return nil, err
+	}
+	return replyRunner, nil
 }
 
 func newWorkerRuntimeWithHooks(hooks workerHooks) *WorkerRuntime {

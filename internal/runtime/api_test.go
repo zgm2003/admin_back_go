@@ -50,7 +50,7 @@ func TestAPIRuntimeStartsAndStopsInLifecycleOrder(t *testing.T) {
 				}, nil
 		},
 		buildProviders: lifecycleHook(record, "providers", "queue_producer"),
-		buildAdmin:     lifecycleHook(record, "admin_graph", "reply_dispatcher"),
+		buildAdmin:     lifecycleHook(record, "admin_graph", ""),
 		buildRouter:    lifecycleHook(record, "router", ""),
 		startRealtime:  lifecycleHook(record, "realtime", "realtime"),
 		openHTTP: func(context.Context) (HTTPServer, error) {
@@ -85,7 +85,6 @@ func TestAPIRuntimeStartsAndStopsInLifecycleOrder(t *testing.T) {
 		"listen:http",
 		"stop:http",
 		"stop:realtime",
-		"stop:reply_dispatcher",
 		"stop:queue_producer",
 		"stop:resources",
 	}

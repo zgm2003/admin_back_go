@@ -12,28 +12,11 @@ import (
 )
 
 const (
-	ConversationReplyTaskName = "ai:conversation-reply:v1"
-	TypeRunTimeoutV1          = "ai:run-timeout:v1"
+	TypeRunTimeoutV1 = "ai:run-timeout:v1"
 )
-
-type ConversationReplyPayload struct {
-	ConversationID int64  `json:"conversation_id"`
-	UserID         int64  `json:"user_id"`
-	AgentID        int64  `json:"agent_id"`
-	UserMessageID  int64  `json:"user_message_id"`
-	RequestID      string `json:"request_id"`
-}
 
 type RunTimeoutPayload struct {
 	Limit int `json:"limit,omitempty"`
-}
-
-func NewConversationReplyTask(payload ConversationReplyPayload) (taskqueue.Task, error) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", ConversationReplyTaskName, err)
-	}
-	return taskqueue.Task{Type: ConversationReplyTaskName, Payload: data}, nil
 }
 
 func NewRunTimeoutTask(payload RunTimeoutPayload) (taskqueue.Task, error) {
@@ -42,17 +25,6 @@ func NewRunTimeoutTask(payload RunTimeoutPayload) (taskqueue.Task, error) {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeRunTimeoutV1, err)
 	}
 	return taskqueue.Task{Type: TypeRunTimeoutV1, Payload: data}, nil
-}
-
-func DecodeConversationReplyPayload(payload []byte) (ConversationReplyPayload, error) {
-	var row ConversationReplyPayload
-	if err := json.Unmarshal(payload, &row); err != nil {
-		return ConversationReplyPayload{}, fmt.Errorf("decode %s payload: %w", ConversationReplyTaskName, err)
-	}
-	if row.ConversationID <= 0 || row.UserID <= 0 || row.AgentID <= 0 || row.UserMessageID <= 0 || row.RequestID == "" {
-		return ConversationReplyPayload{}, fmt.Errorf("decode %s payload: conversation_id, user_id, agent_id, user_message_id and request_id are required", ConversationReplyTaskName)
-	}
-	return row, nil
 }
 
 func DecodeRunTimeoutPayload(payload []byte) (RunTimeoutPayload, error) {
@@ -72,39 +44,6 @@ func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, l
 	}
 	if logger == nil {
 		logger = slog.Default()
-	}
-	if err := registry.Register(taskqueue.Definition{
-		Type:     ConversationReplyTaskName,
-		Queue:    taskqueue.QueueDefault,
-		Timeout:  5 * time.Minute,
-		MaxRetry: 2,
-		Decode: func(data []byte) (any, *apperror.Error) {
-			payload, err := DecodeConversationReplyPayload(data)
-			if err != nil {
-				return nil, taskqueue.PayloadError(ConversationReplyTaskName, err)
-			}
-			return payload, nil
-		},
-		Handle: func(ctx context.Context, decoded any) *apperror.Error {
-			if service == nil {
-				return taskqueue.InvariantError(ConversationReplyTaskName, ErrRepositoryNotConfigured)
-			}
-			payload, ok := decoded.(ConversationReplyPayload)
-			if !ok {
-				return taskqueue.InvariantError(ConversationReplyTaskName, fmt.Errorf("decoded payload type %T", decoded))
-			}
-			result, err := service.ExecuteConversationReply(ctx, payload)
-			if err != nil {
-				return taskqueue.HandlerError(ConversationReplyTaskName, err)
-			}
-			if result == nil {
-				return taskqueue.InvariantError(ConversationReplyTaskName, fmt.Errorf("nil reply result"))
-			}
-			logger.InfoContext(ctx, "processed ai conversation reply task", "conversation_id", result.ConversationID, "assistant_message_id", result.AssistantMessageID)
-			return nil
-		},
-	}); err != nil {
-		return err
 	}
 	return registry.Register(taskqueue.Definition{
 		Type:      TypeRunTimeoutV1,

@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
@@ -24,7 +25,7 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		aichat.ConversationReplyTaskName,
+		replycommand.TypeReplyCommandV1,
 		aiimage.TypeGenerateV1,
 		aichat.TypeRunTimeoutV1,
 		auth.TypeAuthLoginLogV1,
@@ -50,7 +51,7 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 	}{
 		{TypeSystemNoopV1, taskqueue.QueueDefault, 3, 30 * time.Second, 0},
 		{auth.TypeAuthLoginLogV1, taskqueue.QueueCritical, 3, 30 * time.Second, 0},
-		{aichat.ConversationReplyTaskName, taskqueue.QueueDefault, 2, 5 * time.Minute, 0},
+		{replycommand.TypeReplyCommandV1, taskqueue.QueueDefault, 0, 15 * time.Minute, time.Second},
 		{aichat.TypeRunTimeoutV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
 		{aiimage.TypeGenerateV1, taskqueue.QueueLow, 2, 10 * time.Minute, 0},
 		{exporttask.TypeRunV1, taskqueue.QueueLow, 3, 5 * time.Minute, 0},
@@ -130,23 +131,23 @@ func TestRegisterHandlesAuthLoginLogTask(t *testing.T) {
 	}
 }
 
-func TestRegisterHandlesAIConversationReplyTask(t *testing.T) {
-	service := &fakeAIChatJobService{}
+func TestRegisterHandlesAIReplyCommandWakeTask(t *testing.T) {
+	runner := &fakeAIReplyRunner{}
 	mux := taskqueue.NewMux()
 	Register(mux, Dependencies{
 		Logger:        slog.Default(),
-		AIChatService: service,
+		AIReplyRunner: runner,
 	})
 
-	task, err := aichat.NewConversationReplyTask(aichat.ConversationReplyPayload{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 8, RequestID: "rid"})
+	task, err := replycommand.NewWakeTask(77)
 	if err != nil {
-		t.Fatalf("NewConversationReplyTask returned error: %v", err)
+		t.Fatalf("NewWakeTask returned error: %v", err)
 	}
 	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
-		t.Fatalf("ProcessProjectTask conversation reply returned error: %v", err)
+		t.Fatalf("ProcessProjectTask reply wake returned error: %v", err)
 	}
-	if service.reply.ConversationID != 3 || service.reply.UserMessageID != 8 || service.reply.RequestID != "rid" {
-		t.Fatalf("expected conversation reply payload, got %#v", service.reply)
+	if runner.commandID != 77 {
+		t.Fatalf("expected reply command 77, got %d", runner.commandID)
 	}
 }
 
@@ -259,18 +260,25 @@ type fakeAuthRepository struct {
 	attempts []auth.LoginAttempt
 }
 type fakeAIChatJobService struct {
-	reply        aichat.ConversationReplyInput
 	timeoutLimit int
 }
 
 func (f *fakeAIChatJobService) ExecuteConversationReply(ctx context.Context, input aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error) {
-	f.reply = input
 	return &aichat.ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: 22}, nil
 }
 
 func (f *fakeAIChatJobService) TimeoutRuns(ctx context.Context, input aichat.RunTimeoutInput) (*aichat.RunTimeoutResult, error) {
 	f.timeoutLimit = input.Limit
 	return &aichat.RunTimeoutResult{}, nil
+}
+
+type fakeAIReplyRunner struct {
+	commandID uint64
+}
+
+func (f *fakeAIReplyRunner) RunCommand(_ context.Context, commandID uint64) (bool, error) {
+	f.commandID = commandID
+	return true, nil
 }
 
 type fakeNotificationTaskJobService struct {

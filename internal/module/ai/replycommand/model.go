@@ -41,6 +41,11 @@ type Command struct {
 	UpdatedAt          time.Time  `gorm:"column:updated_at"`
 }
 
+type Renewal struct {
+	Alive           bool
+	CancelRequested bool
+}
+
 func (Command) TableName() string { return "ai_reply_commands" }
 
 type CreateReplyInput struct {
