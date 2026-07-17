@@ -225,7 +225,7 @@ func TestCreateImmediateNormalizesAndEnqueuesSendTask(t *testing.T) {
 	if len(targetIDs) != 2 || targetIDs[0] != 2 || targetIDs[1] != 3 {
 		t.Fatalf("target ids not normalized: %#v", targetIDs)
 	}
-	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != TypeSendTaskV1 || enqueuer.tasks[0].Queue != taskqueue.QueueDefault {
+	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != TypeSendTaskV1 || enqueuer.tasks[0].Queue != "" {
 		t.Fatalf("expected send task enqueue, got %#v", enqueuer.tasks)
 	}
 }

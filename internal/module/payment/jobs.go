@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const (
@@ -33,7 +34,7 @@ func NewSyncPendingOrderTask(payload SyncPendingOrderPayload) (taskqueue.Task, e
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeSyncPendingOrderV1, err)
 	}
-	return taskqueue.Task{Type: TypeSyncPendingOrderV1, Payload: data, Queue: taskqueue.QueueDefault, UniqueTTL: 55 * time.Second}, nil
+	return taskqueue.Task{Type: TypeSyncPendingOrderV1, Payload: data}, nil
 }
 
 func NewCloseExpiredOrderTask(payload CloseExpiredOrderPayload) (taskqueue.Task, error) {
@@ -41,7 +42,7 @@ func NewCloseExpiredOrderTask(payload CloseExpiredOrderPayload) (taskqueue.Task,
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeCloseExpiredOrderV1, err)
 	}
-	return taskqueue.Task{Type: TypeCloseExpiredOrderV1, Payload: data, Queue: taskqueue.QueueDefault, UniqueTTL: 55 * time.Second}, nil
+	return taskqueue.Task{Type: TypeCloseExpiredOrderV1, Payload: data}, nil
 }
 
 func DecodeSyncPendingOrderPayload(payload []byte) (SyncPendingOrderPayload, error) {
@@ -66,41 +67,87 @@ func DecodeCloseExpiredOrderPayload(payload []byte) (CloseExpiredOrderPayload, e
 	return row, nil
 }
 
-func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
-	if mux == nil {
-		return
+func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, logger *slog.Logger) error {
+	if registry == nil {
+		return taskqueue.ErrRegistryRequired
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	mux.HandleFunc(TypeSyncPendingOrderV1, func(ctx context.Context, task taskqueue.Task) error {
-		if service == nil {
-			return ErrRepositoryNotConfigured
-		}
-		payload, err := DecodeSyncPendingOrderPayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		result, err := service.SyncPendingOrders(ctx, SyncPendingOrderInput(payload))
-		if err != nil {
-			return err
-		}
-		logger.InfoContext(ctx, "processed payment sync pending orders task", "scanned", result.Scanned, "paid", result.Paid, "closed", result.Closed, "waiting", result.Waiting, "failed", result.Failed)
-		return nil
-	})
-	mux.HandleFunc(TypeCloseExpiredOrderV1, func(ctx context.Context, task taskqueue.Task) error {
-		if service == nil {
-			return ErrRepositoryNotConfigured
-		}
-		payload, err := DecodeCloseExpiredOrderPayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		result, err := service.CloseExpiredOrders(ctx, CloseExpiredOrderInput(payload))
-		if err != nil {
-			return err
-		}
-		logger.InfoContext(ctx, "processed payment close expired orders task", "scanned", result.Scanned, "paid", result.Paid, "closed", result.Closed, "waiting", result.Waiting, "failed", result.Failed)
-		return nil
-	})
+	if err := registry.Register(paymentDefinition(
+		TypeSyncPendingOrderV1,
+		func(data []byte) (any, error) { return DecodeSyncPendingOrderPayload(data) },
+		func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TypeSyncPendingOrderV1, ErrRepositoryNotConfigured)
+			}
+			payload, ok := decoded.(SyncPendingOrderPayload)
+			if !ok {
+				return taskqueue.InvariantError(TypeSyncPendingOrderV1, fmt.Errorf("decoded payload type %T", decoded))
+			}
+			result, err := service.SyncPendingOrders(ctx, SyncPendingOrderInput(payload))
+			if err != nil {
+				return taskqueue.HandlerError(TypeSyncPendingOrderV1, err)
+			}
+			if result == nil {
+				return taskqueue.InvariantError(TypeSyncPendingOrderV1, fmt.Errorf("nil sync result"))
+			}
+			logger.InfoContext(ctx, "processed payment sync pending orders task", "scanned", result.Scanned, "paid", result.Paid, "closed", result.Closed, "waiting", result.Waiting, "failed", result.Failed)
+			return nil
+		},
+	)); err != nil {
+		return err
+	}
+	return registry.Register(paymentDefinition(
+		TypeCloseExpiredOrderV1,
+		func(data []byte) (any, error) { return DecodeCloseExpiredOrderPayload(data) },
+		func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TypeCloseExpiredOrderV1, ErrRepositoryNotConfigured)
+			}
+			payload, ok := decoded.(CloseExpiredOrderPayload)
+			if !ok {
+				return taskqueue.InvariantError(TypeCloseExpiredOrderV1, fmt.Errorf("decoded payload type %T", decoded))
+			}
+			result, err := service.CloseExpiredOrders(ctx, CloseExpiredOrderInput(payload))
+			if err != nil {
+				return taskqueue.HandlerError(TypeCloseExpiredOrderV1, err)
+			}
+			if result == nil {
+				return taskqueue.InvariantError(TypeCloseExpiredOrderV1, fmt.Errorf("nil close result"))
+			}
+			logger.InfoContext(ctx, "processed payment close expired orders task", "scanned", result.Scanned, "paid", result.Paid, "closed", result.Closed, "waiting", result.Waiting, "failed", result.Failed)
+			return nil
+		},
+	))
+}
+
+func paymentDefinition(taskType string, decode func([]byte) (any, error), handle func(context.Context, any) *apperror.Error) taskqueue.Definition {
+	return taskqueue.Definition{
+		Type:      taskType,
+		Queue:     taskqueue.QueueDefault,
+		Timeout:   taskqueue.DefaultTimeout,
+		MaxRetry:  taskqueue.DefaultMaxRetry,
+		UniqueTTL: 55 * time.Second,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			payload, err := decode(data)
+			if err != nil {
+				return nil, taskqueue.PayloadError(taskType, err)
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, payload any) *apperror.Error {
+			return handle(ctx, payload)
+		},
+	}
+}
+
+func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
+	registry := taskqueue.NewRegistry()
+	if err := RegisterTaskDefinitions(registry, service, logger); err != nil {
+		panic(err)
+	}
+	if err := mux.RegisterRegistry(registry); err != nil {
+		panic(err)
+	}
 }

@@ -853,7 +853,7 @@ func TestServiceExportRejectsEmptyIDs(t *testing.T) {
 	}
 }
 
-func TestServiceExportNormalizesCreatesPendingAndEnqueuesLowTask(t *testing.T) {
+func TestServiceExportNormalizesCreatesPendingAndEnqueuesRegisteredTask(t *testing.T) {
 	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "u2"}, {ID: 3, Username: "u3"}}}
 	creator := &fakeExportTaskCreator{createdID: 88}
 	enqueuer := &fakeExportEnqueuer{}
@@ -870,7 +870,7 @@ func TestServiceExportNormalizesCreatesPendingAndEnqueuesLowTask(t *testing.T) {
 	if creator.createdInput.UserID != 9 || creator.createdInput.Title != "用户列表导出" || creator.createdInput.Kind != exporttask.KindUserList || creator.createdInput.Platform != enum.PlatformAdmin {
 		t.Fatalf("unexpected created task input: %#v", creator.createdInput)
 	}
-	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != exporttask.TypeRunV1 || enqueuer.tasks[0].Queue != taskqueue.QueueLow {
+	if len(enqueuer.tasks) != 1 || enqueuer.tasks[0].Type != exporttask.TypeRunV1 || enqueuer.tasks[0].Queue != "" {
 		t.Fatalf("unexpected enqueued task: %#v", enqueuer.tasks)
 	}
 	payload, err := exporttask.DecodeRunPayload(enqueuer.tasks[0].Payload)

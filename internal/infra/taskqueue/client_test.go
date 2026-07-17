@@ -9,10 +9,58 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 
 	"github.com/hibiken/asynq"
 )
+
+func TestNormalizeUsesRegisteredTaskPolicy(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(Definition{
+		Type:      "widget:run:v1",
+		Queue:     QueueLow,
+		Timeout:   15 * time.Second,
+		MaxRetry:  7,
+		UniqueTTL: time.Minute,
+		Decode:    func([]byte) (any, *apperror.Error) { return nil, nil },
+		Handle:    func(context.Context, any) *apperror.Error { return nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{registry: registry}
+
+	_, opts, err := client.normalize(Task{Type: "widget:run:v1", Payload: []byte(`{"id":7}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOption(t, opts, asynq.Queue(QueueLow))
+	assertOption(t, opts, asynq.MaxRetry(7))
+	assertOption(t, opts, asynq.Timeout(15*time.Second))
+	assertOption(t, opts, asynq.Unique(time.Minute))
+}
+
+func TestNormalizeRejectsUnregisteredTaskAndProducerPolicyOverrides(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(Definition{
+		Type:     "widget:run:v1",
+		Queue:    QueueDefault,
+		Timeout:  time.Minute,
+		MaxRetry: 3,
+		Decode:   func([]byte) (any, *apperror.Error) { return nil, nil },
+		Handle:   func(context.Context, any) *apperror.Error { return nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{registry: registry}
+
+	if _, _, err := client.normalize(Task{Type: "widget:missing:v1"}); !errors.Is(err, ErrTaskTypeNotRegistered) {
+		t.Fatalf("expected unregistered type error, got %v", err)
+	}
+	if _, _, err := client.normalize(Task{Type: "widget:run:v1", Queue: QueueCritical}); !errors.Is(err, ErrTaskPolicyOverride) {
+		t.Fatalf("expected policy override rejection, got %v", err)
+	}
+}
 
 func TestNewClientRejectsEmptyRedisAddr(t *testing.T) {
 	client, err := NewClient(config.RedisConfig{}, config.QueueConfig{})
@@ -27,12 +75,27 @@ func TestNewClientRejectsEmptyRedisAddr(t *testing.T) {
 	}
 }
 
-func TestNewClientMapsRedisAndQueueDefaults(t *testing.T) {
+func TestNewClientRequiresTaskRegistry(t *testing.T) {
+	client, err := NewClient(
+		config.RedisConfig{Addr: "127.0.0.1:6379"},
+		config.QueueConfig{RedisDB: 3},
+	)
+	if client != nil {
+		_ = client.Close()
+		t.Fatal("expected nil client without registry")
+	}
+	if !errors.Is(err, ErrRegistryRequired) {
+		t.Fatalf("expected ErrRegistryRequired, got %v", err)
+	}
+}
+
+func TestNewClientMapsRedisAndUsesRegistry(t *testing.T) {
+	registry := registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0)
 	client, err := NewClient(config.RedisConfig{
 		Addr:     "127.0.0.1:6379",
 		Password: "secret",
 		DB:       0,
-	}, config.QueueConfig{RedisDB: 3})
+	}, config.QueueConfig{RedisDB: 3}, WithRegistry(registry))
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -47,8 +110,8 @@ func TestNewClientMapsRedisAndQueueDefaults(t *testing.T) {
 	if client.redisOpt.DB != 3 {
 		t.Fatalf("expected queue redis db 3, got %d", client.redisOpt.DB)
 	}
-	if client.defaultQueue != QueueDefault || client.defaultMaxRetry != DefaultMaxRetry || client.defaultTimeout != DefaultTimeout {
-		t.Fatalf("unexpected queue defaults: %#v", client)
+	if client.registry != registry {
+		t.Fatalf("expected client to retain the supplied registry")
 	}
 }
 
@@ -68,9 +131,7 @@ func TestRedisConnOptUsesQueueRedisDB(t *testing.T) {
 
 func TestNormalizeTaskUsesCodeOwnedDefaults(t *testing.T) {
 	client := &Client{
-		defaultQueue:    QueueDefault,
-		defaultMaxRetry: DefaultMaxRetry,
-		defaultTimeout:  DefaultTimeout,
+		registry: registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0),
 	}
 
 	task, opts, err := client.normalize(Task{
@@ -92,14 +153,12 @@ func TestNormalizeTaskUsesCodeOwnedDefaults(t *testing.T) {
 	assertOption(t, opts, asynq.Timeout(DefaultTimeout))
 }
 
-func TestNormalizeTaskAllowsExplicitQueueRetryTimeoutAndUniqueTTL(t *testing.T) {
+func TestNormalizeTaskRejectsExplicitQueueRetryTimeoutAndUniqueTTL(t *testing.T) {
 	client := &Client{
-		defaultQueue:    QueueDefault,
-		defaultMaxRetry: DefaultMaxRetry,
-		defaultTimeout:  DefaultTimeout,
+		registry: registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0),
 	}
 
-	_, opts, err := client.normalize(Task{
+	_, _, err := client.normalize(Task{
 		Type:      "system:no-op:v1",
 		Payload:   []byte(`{}`),
 		Queue:     "critical",
@@ -107,18 +166,13 @@ func TestNormalizeTaskAllowsExplicitQueueRetryTimeoutAndUniqueTTL(t *testing.T) 
 		Timeout:   15 * time.Second,
 		UniqueTTL: time.Minute,
 	})
-	if err != nil {
-		t.Fatalf("normalize returned error: %v", err)
+	if !errors.Is(err, ErrTaskPolicyOverride) {
+		t.Fatalf("expected ErrTaskPolicyOverride, got %v", err)
 	}
-
-	assertOption(t, opts, asynq.Queue("critical"))
-	assertOption(t, opts, asynq.MaxRetry(7))
-	assertOption(t, opts, asynq.Timeout(15*time.Second))
-	assertOption(t, opts, asynq.Unique(time.Minute))
 }
 
 func TestNormalizeTaskRejectsMissingType(t *testing.T) {
-	client := &Client{defaultQueue: "default"}
+	client := &Client{registry: registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0)}
 
 	_, _, err := client.normalize(Task{Payload: []byte(`{}`)})
 	if !errors.Is(err, ErrTaskTypeRequired) {
@@ -138,10 +192,8 @@ func TestEnqueueRejectsNilClient(t *testing.T) {
 func TestEnqueueRecordsBoundedTelemetryWithoutPayload(t *testing.T) {
 	recorder := telemetry.NewMemoryRecorder()
 	client := &Client{
-		defaultQueue:    QueueDefault,
-		defaultMaxRetry: DefaultMaxRetry,
-		defaultTimeout:  DefaultTimeout,
-		recorder:        recorder,
+		registry: registeredTestTask(t, "mail:send:v1", QueueCritical, DefaultMaxRetry, DefaultTimeout, 0),
+		recorder: recorder,
 		enqueue: func(context.Context, *asynq.Task, ...asynq.Option) (*asynq.TaskInfo, error) {
 			return &asynq.TaskInfo{ID: "task-unique", Queue: QueueCritical, Type: "mail:send:v1"}, nil
 		},
@@ -149,7 +201,6 @@ func TestEnqueueRecordsBoundedTelemetryWithoutPayload(t *testing.T) {
 
 	result, err := client.Enqueue(context.Background(), Task{
 		Type:    "mail:send:v1",
-		Queue:   QueueCritical,
 		Payload: []byte(`{"authorization":"private"}`),
 	})
 	if err != nil || result.Queue != QueueCritical {
@@ -167,6 +218,23 @@ func TestEnqueueRecordsBoundedTelemetryWithoutPayload(t *testing.T) {
 	if strings.Contains(strings.ToLower(fmt.Sprint(events)), "private") {
 		t.Fatalf("queue payload leaked: %+v", events)
 	}
+}
+
+func registeredTestTask(t *testing.T, taskType string, queue string, maxRetry int, timeout time.Duration, uniqueTTL time.Duration) *Registry {
+	t.Helper()
+	registry := NewRegistry()
+	if err := registry.Register(Definition{
+		Type:      taskType,
+		Queue:     queue,
+		Timeout:   timeout,
+		MaxRetry:  maxRetry,
+		UniqueTTL: uniqueTTL,
+		Decode:    func([]byte) (any, *apperror.Error) { return nil, nil },
+		Handle:    func(context.Context, any) *apperror.Error { return nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return registry
 }
 
 func assertOption(t *testing.T, opts []asynq.Option, want asynq.Option) {

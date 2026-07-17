@@ -115,7 +115,11 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, nil
 			}
 
-			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder))
+			registry, err := jobs.NewRegistry(jobs.Dependencies{Logger: logger})
+			if err != nil {
+				return nil, err
+			}
+			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder), taskqueue.WithRegistry(registry))
 			if err != nil {
 				return nil, err
 			}
@@ -266,7 +270,7 @@ func registerWorkerHandlers(
 		CertResolver: providers.PaymentCertResolver,
 		CertStore:    providers.PaymentCertStore,
 	})
-	jobs.Register(queueMux, jobs.Dependencies{
+	registry, err := jobs.NewRegistry(jobs.Dependencies{
 		Logger:                  logger,
 		AIChatService:           aiChatService,
 		AiImageService:          aiImageService,
@@ -275,7 +279,10 @@ func registerWorkerHandlers(
 		NotificationTaskService: notificationTaskService,
 		PaymentService:          paymentService,
 	})
-	return nil
+	if err != nil {
+		return err
+	}
+	return queueMux.RegisterRegistry(registry)
 }
 
 func newWorkerRuntimeWithHooks(hooks workerHooks) *WorkerRuntime {

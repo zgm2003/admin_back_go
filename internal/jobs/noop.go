@@ -17,6 +17,7 @@ import (
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const TypeSystemNoopV1 = "system:no-op:v1"
@@ -61,29 +62,62 @@ type NoopPayload struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Register wires task handlers into the queue mux.
-func Register(mux *taskqueue.Mux, deps Dependencies) {
+// NewRegistry builds the one complete executable task registry used by both
+// producers (policy lookup) and the Worker (decode/handle execution).
+func NewRegistry(deps Dependencies) (*taskqueue.Registry, error) {
 	logger := deps.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-
-	mux.HandleFunc(TypeSystemNoopV1, func(ctx context.Context, task taskqueue.Task) error {
-		var payload NoopPayload
-		if len(task.Payload) > 0 {
-			if err := json.Unmarshal(task.Payload, &payload); err != nil {
-				return fmt.Errorf("decode %s payload: %w", TypeSystemNoopV1, err)
+	registry := taskqueue.NewRegistry()
+	if err := registry.Register(taskqueue.Definition{
+		Type:     TypeSystemNoopV1,
+		Queue:    taskqueue.QueueDefault,
+		Timeout:  taskqueue.DefaultTimeout,
+		MaxRetry: taskqueue.DefaultMaxRetry,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			var payload NoopPayload
+			if len(data) > 0 {
+				if err := json.Unmarshal(data, &payload); err != nil {
+					return nil, taskqueue.PayloadError(TypeSystemNoopV1, err)
+				}
 			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, _ any) *apperror.Error {
+			logger.InfoContext(ctx, "processed noop task", "type", TypeSystemNoopV1)
+			return nil
+		},
+	}); err != nil {
+		return nil, err
+	}
+	for _, register := range []func() error{
+		func() error { return auth.RegisterLoginLogTask(registry, deps.AuthRepository, logger) },
+		func() error { return aichat.RegisterTaskDefinitions(registry, deps.AIChatService, logger) },
+		func() error { return aiimage.RegisterTaskDefinitions(registry, deps.AiImageService, logger) },
+		func() error { return exporttask.RegisterTaskDefinitions(registry, deps.ExportTaskService, logger) },
+		func() error {
+			return notificationtask.RegisterTaskDefinitions(registry, deps.NotificationTaskService, logger)
+		},
+		func() error { return payment.RegisterTaskDefinitions(registry, deps.PaymentService, logger) },
+	} {
+		if err := register(); err != nil {
+			return nil, err
 		}
-		logger.InfoContext(ctx, "processed noop task", "type", task.Type, "message", payload.Message)
-		return nil
-	})
-	auth.RegisterLoginLogHandler(mux, deps.AuthRepository, logger)
-	aichat.RegisterHandlers(mux, deps.AIChatService, logger)
-	aiimage.RegisterHandlers(mux, deps.AiImageService, logger)
-	exporttask.RegisterHandlers(mux, deps.ExportTaskService, logger)
-	notificationtask.RegisterHandlers(mux, deps.NotificationTaskService, logger)
-	payment.RegisterHandlers(mux, deps.PaymentService, logger)
+	}
+	return registry, nil
+}
+
+// Register is a test-compatible mux adapter; task ownership remains in the
+// registry returned by NewRegistry.
+func Register(mux *taskqueue.Mux, deps Dependencies) {
+	registry, err := NewRegistry(deps)
+	if err != nil {
+		panic(err)
+	}
+	if err := mux.RegisterRegistry(registry); err != nil {
+		panic(err)
+	}
 }
 
 // NewNoopTask builds a versioned queue probe task.

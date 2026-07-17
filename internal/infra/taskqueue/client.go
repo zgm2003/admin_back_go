@@ -15,12 +15,13 @@ import (
 var (
 	ErrRedisAddrRequired    = errors.New("queue redis addr is required")
 	ErrTaskTypeRequired     = errors.New("task type is required")
-	ErrQueueRequired        = errors.New("task queue is required")
 	ErrClientNotReady       = errors.New("task queue client is not ready")
 	ErrQueueWeightRequired  = errors.New("at least one queue weight is required")
 	ErrHandlerRequired      = errors.New("task handler is required")
 	ErrHandlerNotRegistered = errors.New("task handler is not registered")
 	ErrQueueNotFound        = errors.New("queue not found")
+	ErrTaskPolicyOverride   = errors.New("task delivery policy must come from the registry")
+	ErrRegistryRequired     = errors.New("task registry is required")
 )
 
 // Task is the project-owned queue contract. Business code should build this
@@ -54,17 +55,16 @@ type Enqueuer interface {
 
 // Client owns the Asynq producer and hides Asynq options from business code.
 type Client struct {
-	client          *asynq.Client
-	enqueue         func(context.Context, *asynq.Task, ...asynq.Option) (*asynq.TaskInfo, error)
-	redisOpt        asynq.RedisClientOpt
-	defaultQueue    string
-	defaultMaxRetry int
-	defaultTimeout  time.Duration
-	recorder        telemetry.Recorder
+	client   *asynq.Client
+	enqueue  func(context.Context, *asynq.Task, ...asynq.Option) (*asynq.TaskInfo, error)
+	redisOpt asynq.RedisClientOpt
+	registry *Registry
+	recorder telemetry.Recorder
 }
 
 type options struct {
 	recorder telemetry.Recorder
+	registry *Registry
 }
 
 type Option func(*options)
@@ -72,6 +72,14 @@ type Option func(*options)
 func WithTelemetry(recorder telemetry.Recorder) Option {
 	return func(options *options) {
 		options.recorder = recorder
+	}
+}
+
+// WithRegistry makes the client accept only registered task types and apply
+// their centrally owned delivery policy.
+func WithRegistry(registry *Registry) Option {
+	return func(options *options) {
+		options.registry = registry
 	}
 }
 
@@ -84,15 +92,16 @@ func NewClient(redisCfg config.RedisConfig, queueCfg config.QueueConfig, optionV
 	}
 
 	settings := queueOptions(optionValues)
+	if settings.registry == nil {
+		return nil, ErrRegistryRequired
+	}
 	client := asynq.NewClient(redisOpt)
 	return &Client{
-		client:          client,
-		enqueue:         client.EnqueueContext,
-		redisOpt:        redisOpt,
-		defaultQueue:    QueueDefault,
-		defaultMaxRetry: DefaultMaxRetry,
-		defaultTimeout:  DefaultTimeout,
-		recorder:        settings.recorder,
+		client:   client,
+		enqueue:  client.EnqueueContext,
+		redisOpt: redisOpt,
+		registry: settings.registry,
+		recorder: settings.recorder,
 	}, nil
 }
 
@@ -110,9 +119,9 @@ func (c *Client) Enqueue(ctx context.Context, task Task) (EnqueueResult, error) 
 		return EnqueueResult{}, err
 	}
 
-	queue := strings.TrimSpace(task.Queue)
-	if queue == "" {
-		queue = c.defaultQueue
+	queue := ""
+	if definition, ok := c.registry.definition(task.Type); ok {
+		queue = definition.Queue
 	}
 	startedAt := time.Now()
 	info, err := c.enqueue(ctx, asynqTask, opts...)
@@ -151,36 +160,25 @@ func (c *Client) normalize(task Task) (*asynq.Task, []asynq.Option, error) {
 	if task.Type == "" {
 		return nil, nil, ErrTaskTypeRequired
 	}
-
-	queue := strings.TrimSpace(task.Queue)
-	if queue == "" {
-		queue = c.defaultQueue
+	if c.registry == nil {
+		return nil, nil, ErrRegistryRequired
 	}
-	if queue == "" {
-		return nil, nil, ErrQueueRequired
+	if strings.TrimSpace(task.Queue) != "" || task.Retry != 0 || task.MaxRetry != 0 || task.Timeout != 0 || task.UniqueTTL != 0 {
+		return nil, nil, ErrTaskPolicyOverride
 	}
-
-	maxRetry := task.MaxRetry
-	if maxRetry == 0 {
-		maxRetry = c.defaultMaxRetry
+	registeredTask, policy, err := c.registry.Task(task.Type, task.Payload)
+	if err != nil {
+		return nil, nil, err
 	}
-	timeout := task.Timeout
-	if timeout == 0 {
-		timeout = c.defaultTimeout
+	opts := []asynq.Option{
+		asynq.Queue(policy.Queue),
+		asynq.MaxRetry(policy.MaxRetry),
+		asynq.Timeout(policy.Timeout),
 	}
-
-	opts := []asynq.Option{asynq.Queue(queue)}
-	if maxRetry >= 0 {
-		opts = append(opts, asynq.MaxRetry(maxRetry))
+	if policy.UniqueTTL > 0 {
+		opts = append(opts, asynq.Unique(policy.UniqueTTL))
 	}
-	if timeout > 0 {
-		opts = append(opts, asynq.Timeout(timeout))
-	}
-	if task.UniqueTTL > 0 {
-		opts = append(opts, asynq.Unique(task.UniqueTTL))
-	}
-
-	return asynq.NewTask(task.Type, task.Payload), opts, nil
+	return asynq.NewTask(registeredTask.Type, registeredTask.Payload), opts, nil
 }
 
 func redisOpt(redisCfg config.RedisConfig, db int) (asynq.RedisClientOpt, error) {

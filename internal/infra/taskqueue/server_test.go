@@ -6,12 +6,45 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 
 	"github.com/hibiken/asynq"
 )
+
+func TestMuxRegistersExecutableTaskRegistry(t *testing.T) {
+	registry := NewRegistry()
+	var handled string
+	if err := registry.Register(Definition{
+		Type:     "widget:run:v1",
+		Queue:    QueueDefault,
+		Timeout:  time.Minute,
+		MaxRetry: 3,
+		Decode: func(payload []byte) (any, *apperror.Error) {
+			return string(payload), nil
+		},
+		Handle: func(_ context.Context, payload any) *apperror.Error {
+			handled = payload.(string)
+			return nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux()
+	if err := mux.RegisterRegistry(registry); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mux.ProcessProjectTask(context.Background(), Task{Type: "widget:run:v1", Payload: []byte("ok")}); err != nil {
+		t.Fatal(err)
+	}
+	if handled != "ok" {
+		t.Fatalf("expected registry handler to receive decoded payload, got %q", handled)
+	}
+}
 
 func TestQueueWeightsUseCodeOwnedDefaults(t *testing.T) {
 	queues := queueWeights()

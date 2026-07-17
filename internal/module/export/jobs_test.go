@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"admin_back_go/internal/infra/taskqueue"
 )
@@ -31,7 +30,7 @@ func TestNewRunTaskUsesVersionedTypeLowQueueAndLeanPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunTask returned error: %v", err)
 	}
-	if task.Type != TypeRunV1 || task.Queue != taskqueue.QueueLow || task.MaxRetry != 3 || task.Timeout != 5*time.Minute {
+	if task.Type != TypeRunV1 || task.Queue != "" || task.MaxRetry != 0 || task.Timeout != 0 {
 		t.Fatalf("unexpected task metadata: %#v", task)
 	}
 	payload, err := DecodeRunPayload(task.Payload)
@@ -86,7 +85,7 @@ func TestCleanupExpiredTaskUsesVersionedWorkerCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCleanupExpiredTask returned error: %v", err)
 	}
-	if task.Type != TypeCleanupExpiredV1 || task.Queue != taskqueue.QueueLow {
+	if task.Type != TypeCleanupExpiredV1 || task.Queue != "" {
 		t.Fatalf("unexpected cleanup task metadata: %#v", task)
 	}
 	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {

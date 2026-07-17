@@ -22,7 +22,7 @@ func TestNewGenerateTaskBuildsStablePayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGenerateTask returned error: %v", err)
 	}
-	if task.Type != TypeGenerateV1 || task.Queue != taskqueue.QueueLow || task.MaxRetry != 2 {
+	if task.Type != TypeGenerateV1 || task.Queue != "" || task.MaxRetry != 0 {
 		t.Fatalf("unexpected task metadata: %#v", task)
 	}
 	payload, err := DecodeGeneratePayload(task.Payload)

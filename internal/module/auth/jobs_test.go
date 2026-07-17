@@ -26,8 +26,8 @@ func TestNewLoginLogTaskUsesVersionedCriticalQueue(t *testing.T) {
 	if task.Type != TypeAuthLoginLogV1 {
 		t.Fatalf("expected task type %s, got %s", TypeAuthLoginLogV1, task.Type)
 	}
-	if task.Queue != taskqueue.QueueCritical {
-		t.Fatalf("expected critical queue, got %q", task.Queue)
+	if task.Queue != "" {
+		t.Fatalf("expected delivery policy to live in registry, got queue %q", task.Queue)
 	}
 
 	attempt, err := DecodeLoginLogPayload(task.Payload)

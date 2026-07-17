@@ -44,6 +44,25 @@ func NewMux(optionValues ...Option) *Mux {
 	}
 }
 
+// RegisterRegistry binds every centrally registered executable definition to
+// the Asynq mux. Business modules must register definitions on Registry rather
+// than attaching handlers directly to Mux.
+func (m *Mux) RegisterRegistry(registry *Registry) error {
+	if m == nil || m.mux == nil {
+		return ErrHandlerRequired
+	}
+	if registry == nil {
+		return ErrRegistryRequired
+	}
+	for _, taskType := range registry.Types() {
+		taskType := taskType
+		m.HandleFunc(taskType, func(ctx context.Context, task Task) error {
+			return registry.Handle(ctx, task)
+		})
+	}
+	return nil
+}
+
 // HandleFunc registers a handler for one task type or type prefix.
 func (m *Mux) HandleFunc(pattern string, handler HandlerFunc) {
 	if m == nil || m.mux == nil {

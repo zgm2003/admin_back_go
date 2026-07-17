@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const (
@@ -39,7 +40,7 @@ func NewCleanupExpiredTask() (taskqueue.Task, error) {
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeCleanupExpiredV1, err)
 	}
-	return taskqueue.Task{Type: TypeCleanupExpiredV1, Payload: data, Queue: taskqueue.QueueLow, MaxRetry: 3, Timeout: time.Minute, UniqueTTL: 5 * time.Minute}, nil
+	return taskqueue.Task{Type: TypeCleanupExpiredV1, Payload: data}, nil
 }
 
 func NewRunTask(payload RunPayload) (taskqueue.Task, error) {
@@ -51,7 +52,7 @@ func NewRunTask(payload RunPayload) (taskqueue.Task, error) {
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeRunV1, err)
 	}
-	return taskqueue.Task{Type: TypeRunV1, Payload: data, Queue: taskqueue.QueueLow, MaxRetry: 3, Timeout: 5 * time.Minute}, nil
+	return taskqueue.Task{Type: TypeRunV1, Payload: data}, nil
 }
 
 func DecodeRunPayload(data []byte) (RunPayload, error) {
@@ -66,31 +67,76 @@ func DecodeRunPayload(data []byte) (RunPayload, error) {
 	return payload, nil
 }
 
-func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
-	if mux == nil || service == nil {
-		return
+func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, logger *slog.Logger) error {
+	if registry == nil {
+		return taskqueue.ErrRegistryRequired
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	mux.HandleFunc(TypeRunV1, func(ctx context.Context, task taskqueue.Task) error {
-		payload, err := DecodeRunPayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		if err := service.Run(ctx, payload); err != nil {
-			logger.WarnContext(ctx, "export run task failed", "task_id", payload.TaskID, "kind", payload.Kind, "error", err)
-			return err
-		}
-		return nil
+	if err := registry.Register(taskqueue.Definition{
+		Type:     TypeRunV1,
+		Queue:    taskqueue.QueueLow,
+		Timeout:  5 * time.Minute,
+		MaxRetry: 3,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			payload, err := DecodeRunPayload(data)
+			if err != nil {
+				return nil, taskqueue.PayloadError(TypeRunV1, err)
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TypeRunV1, ErrRepositoryNotConfigured)
+			}
+			payload, ok := decoded.(RunPayload)
+			if !ok {
+				return taskqueue.InvariantError(TypeRunV1, fmt.Errorf("decoded payload type %T", decoded))
+			}
+			if err := service.Run(ctx, payload); err != nil {
+				logger.WarnContext(ctx, "export run task failed", "task_id", payload.TaskID, "kind", payload.Kind)
+				return taskqueue.HandlerError(TypeRunV1, err)
+			}
+			return nil
+		},
+	}); err != nil {
+		return err
+	}
+	return registry.Register(taskqueue.Definition{
+		Type:      TypeCleanupExpiredV1,
+		Queue:     taskqueue.QueueLow,
+		Timeout:   time.Minute,
+		MaxRetry:  3,
+		UniqueTTL: 5 * time.Minute,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			var payload struct{}
+			if err := json.Unmarshal(data, &payload); err != nil {
+				return nil, taskqueue.PayloadError(TypeCleanupExpiredV1, err)
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, _ any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TypeCleanupExpiredV1, ErrRepositoryNotConfigured)
+			}
+			if err := service.CleanupExpired(ctx); err != nil {
+				logger.WarnContext(ctx, "export cleanup expired task failed")
+				return taskqueue.HandlerError(TypeCleanupExpiredV1, err)
+			}
+			return nil
+		},
 	})
-	mux.HandleFunc(TypeCleanupExpiredV1, func(ctx context.Context, task taskqueue.Task) error {
-		if err := service.CleanupExpired(ctx); err != nil {
-			logger.WarnContext(ctx, "export cleanup expired task failed", "error", err)
-			return err
-		}
-		return nil
-	})
+}
+
+func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
+	registry := taskqueue.NewRegistry()
+	if err := RegisterTaskDefinitions(registry, service, logger); err != nil {
+		panic(err)
+	}
+	if err := mux.RegisterRegistry(registry); err != nil {
+		panic(err)
+	}
 }
 
 func normalizeRunPayload(payload RunPayload) RunPayload {

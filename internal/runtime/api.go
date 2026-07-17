@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/secretkey"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/queuemonitor"
 	platformadmin "admin_back_go/internal/platform/admin"
@@ -108,7 +109,11 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				return nil, nil
 			}
 
-			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder))
+			registry, err := jobs.NewRegistry(jobs.Dependencies{Logger: logger})
+			if err != nil {
+				return nil, err
+			}
+			queueClient, err = taskqueue.NewClient(cfg.Redis, cfg.Queue, taskqueue.WithTelemetry(recorder), taskqueue.WithRegistry(registry))
 			if err != nil {
 				return nil, err
 			}

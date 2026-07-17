@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const TypeGenerateV1 = "ai:image-generate:v1"
@@ -32,7 +33,7 @@ func NewGenerateTask(payload GeneratePayload) (taskqueue.Task, error) {
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeGenerateV1, err)
 	}
-	return taskqueue.Task{Type: TypeGenerateV1, Payload: data, Queue: taskqueue.QueueLow, MaxRetry: 2, Timeout: 10 * time.Minute}, nil
+	return taskqueue.Task{Type: TypeGenerateV1, Payload: data}, nil
 }
 
 func DecodeGeneratePayload(payload []byte) (GeneratePayload, error) {
@@ -46,26 +47,52 @@ func DecodeGeneratePayload(payload []byte) (GeneratePayload, error) {
 	return row, nil
 }
 
-func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
-	if mux == nil {
-		return
+func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, logger *slog.Logger) error {
+	if registry == nil {
+		return taskqueue.ErrRegistryRequired
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	mux.HandleFunc(TypeGenerateV1, func(ctx context.Context, task taskqueue.Task) error {
-		if service == nil {
-			return ErrRepositoryNotConfigured
-		}
-		payload, err := DecodeGeneratePayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		result, err := service.ExecuteGenerate(ctx, payload)
-		if err != nil {
-			return err
-		}
-		logger.InfoContext(ctx, "processed ai image generate task", "task_id", result.TaskID, "status", result.Status)
-		return nil
+	return registry.Register(taskqueue.Definition{
+		Type:     TypeGenerateV1,
+		Queue:    taskqueue.QueueLow,
+		Timeout:  10 * time.Minute,
+		MaxRetry: 2,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			payload, err := DecodeGeneratePayload(data)
+			if err != nil {
+				return nil, taskqueue.PayloadError(TypeGenerateV1, err)
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TypeGenerateV1, ErrRepositoryNotConfigured)
+			}
+			payload, ok := decoded.(GeneratePayload)
+			if !ok {
+				return taskqueue.InvariantError(TypeGenerateV1, fmt.Errorf("decoded payload type %T", decoded))
+			}
+			result, err := service.ExecuteGenerate(ctx, payload)
+			if err != nil {
+				return taskqueue.HandlerError(TypeGenerateV1, err)
+			}
+			if result == nil {
+				return taskqueue.InvariantError(TypeGenerateV1, fmt.Errorf("nil generate result"))
+			}
+			logger.InfoContext(ctx, "processed ai image generate task", "task_id", result.TaskID, "status", result.Status)
+			return nil
+		},
 	})
+}
+
+func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
+	registry := taskqueue.NewRegistry()
+	if err := RegisterTaskDefinitions(registry, service, logger); err != nil {
+		panic(err)
+	}
+	if err := mux.RegisterRegistry(registry); err != nil {
+		panic(err)
+	}
 }

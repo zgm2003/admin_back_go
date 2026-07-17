@@ -9,12 +9,12 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 )
 
-func TestTaskBuildersUseVersionedTypesAndDefaultQueue(t *testing.T) {
+func TestTaskBuildersUseVersionedTypesWithoutDuplicatingRegistryPolicy(t *testing.T) {
 	dispatchTask, err := NewDispatchDueTask(DispatchDuePayload{Limit: 25})
 	if err != nil {
 		t.Fatalf("NewDispatchDueTask returned error: %v", err)
 	}
-	if dispatchTask.Type != TypeDispatchDueV1 || dispatchTask.Queue != taskqueue.QueueDefault || dispatchTask.UniqueTTL <= 0 {
+	if dispatchTask.Type != TypeDispatchDueV1 || dispatchTask.Queue != "" || dispatchTask.UniqueTTL != 0 {
 		t.Fatalf("unexpected dispatch task: %#v", dispatchTask)
 	}
 	var dispatchPayload DispatchDuePayload
@@ -29,7 +29,7 @@ func TestTaskBuildersUseVersionedTypesAndDefaultQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSendTask returned error: %v", err)
 	}
-	if sendTask.Type != TypeSendTaskV1 || sendTask.Queue != taskqueue.QueueDefault {
+	if sendTask.Type != TypeSendTaskV1 || sendTask.Queue != "" {
 		t.Fatalf("unexpected send task: %#v", sendTask)
 	}
 	payload, err := DecodeSendTaskPayload(sendTask.Payload)

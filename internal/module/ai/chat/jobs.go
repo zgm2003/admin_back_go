@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const (
@@ -32,7 +33,7 @@ func NewConversationReplyTask(payload ConversationReplyPayload) (taskqueue.Task,
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", ConversationReplyTaskName, err)
 	}
-	return taskqueue.Task{Type: ConversationReplyTaskName, Payload: data, Queue: taskqueue.QueueDefault, MaxRetry: 2, Timeout: 5 * time.Minute}, nil
+	return taskqueue.Task{Type: ConversationReplyTaskName, Payload: data}, nil
 }
 
 func NewRunTimeoutTask(payload RunTimeoutPayload) (taskqueue.Task, error) {
@@ -40,7 +41,7 @@ func NewRunTimeoutTask(payload RunTimeoutPayload) (taskqueue.Task, error) {
 	if err != nil {
 		return taskqueue.Task{}, fmt.Errorf("encode %s payload: %w", TypeRunTimeoutV1, err)
 	}
-	return taskqueue.Task{Type: TypeRunTimeoutV1, Payload: data, Queue: taskqueue.QueueDefault, UniqueTTL: 55 * time.Second}, nil
+	return taskqueue.Task{Type: TypeRunTimeoutV1, Payload: data}, nil
 }
 
 func DecodeConversationReplyPayload(payload []byte) (ConversationReplyPayload, error) {
@@ -65,41 +66,86 @@ func DecodeRunTimeoutPayload(payload []byte) (RunTimeoutPayload, error) {
 	return row, nil
 }
 
-func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
-	if mux == nil {
-		return
+func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, logger *slog.Logger) error {
+	if registry == nil {
+		return taskqueue.ErrRegistryRequired
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	mux.HandleFunc(ConversationReplyTaskName, func(ctx context.Context, task taskqueue.Task) error {
-		if service == nil {
-			return ErrRepositoryNotConfigured
-		}
-		payload, err := DecodeConversationReplyPayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		result, err := service.ExecuteConversationReply(ctx, payload)
-		if err != nil {
-			return err
-		}
-		logger.InfoContext(ctx, "processed ai conversation reply task", "conversation_id", result.ConversationID, "assistant_message_id", result.AssistantMessageID)
-		return nil
+	if err := registry.Register(taskqueue.Definition{
+		Type:     ConversationReplyTaskName,
+		Queue:    taskqueue.QueueDefault,
+		Timeout:  5 * time.Minute,
+		MaxRetry: 2,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			payload, err := DecodeConversationReplyPayload(data)
+			if err != nil {
+				return nil, taskqueue.PayloadError(ConversationReplyTaskName, err)
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(ConversationReplyTaskName, ErrRepositoryNotConfigured)
+			}
+			payload, ok := decoded.(ConversationReplyPayload)
+			if !ok {
+				return taskqueue.InvariantError(ConversationReplyTaskName, fmt.Errorf("decoded payload type %T", decoded))
+			}
+			result, err := service.ExecuteConversationReply(ctx, payload)
+			if err != nil {
+				return taskqueue.HandlerError(ConversationReplyTaskName, err)
+			}
+			if result == nil {
+				return taskqueue.InvariantError(ConversationReplyTaskName, fmt.Errorf("nil reply result"))
+			}
+			logger.InfoContext(ctx, "processed ai conversation reply task", "conversation_id", result.ConversationID, "assistant_message_id", result.AssistantMessageID)
+			return nil
+		},
+	}); err != nil {
+		return err
+	}
+	return registry.Register(taskqueue.Definition{
+		Type:      TypeRunTimeoutV1,
+		Queue:     taskqueue.QueueDefault,
+		Timeout:   taskqueue.DefaultTimeout,
+		MaxRetry:  taskqueue.DefaultMaxRetry,
+		UniqueTTL: 55 * time.Second,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			payload, err := DecodeRunTimeoutPayload(data)
+			if err != nil {
+				return nil, taskqueue.PayloadError(TypeRunTimeoutV1, err)
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TypeRunTimeoutV1, ErrRepositoryNotConfigured)
+			}
+			payload, ok := decoded.(RunTimeoutPayload)
+			if !ok {
+				return taskqueue.InvariantError(TypeRunTimeoutV1, fmt.Errorf("decoded payload type %T", decoded))
+			}
+			result, err := service.TimeoutRuns(ctx, RunTimeoutInput{Limit: payload.Limit})
+			if err != nil {
+				return taskqueue.HandlerError(TypeRunTimeoutV1, err)
+			}
+			if result == nil {
+				return taskqueue.InvariantError(TypeRunTimeoutV1, fmt.Errorf("nil timeout result"))
+			}
+			logger.InfoContext(ctx, "processed ai run timeout task", "failed", result.Failed)
+			return nil
+		},
 	})
-	mux.HandleFunc(TypeRunTimeoutV1, func(ctx context.Context, task taskqueue.Task) error {
-		if service == nil {
-			return ErrRepositoryNotConfigured
-		}
-		payload, err := DecodeRunTimeoutPayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		result, err := service.TimeoutRuns(ctx, RunTimeoutInput{Limit: payload.Limit})
-		if err != nil {
-			return err
-		}
-		logger.InfoContext(ctx, "processed ai run timeout task", "failed", result.Failed)
-		return nil
-	})
+}
+
+func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {
+	registry := taskqueue.NewRegistry()
+	if err := RegisterTaskDefinitions(registry, service, logger); err != nil {
+		panic(err)
+	}
+	if err := mux.RegisterRegistry(registry); err != nil {
+		panic(err)
+	}
 }

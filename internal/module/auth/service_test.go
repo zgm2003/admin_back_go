@@ -438,7 +438,7 @@ func TestServiceLoginEnqueuesSuccessfulLoginLogWhenProducerConfigured(t *testing
 		t.Fatalf("expected one login log task, got %#v", enqueuer.tasks)
 	}
 	task := enqueuer.tasks[0]
-	if task.Type != TypeAuthLoginLogV1 || task.Queue != taskqueue.QueueCritical {
+	if task.Type != TypeAuthLoginLogV1 || task.Queue != "" {
 		t.Fatalf("unexpected login log task metadata: %#v", task)
 	}
 	attempt, err := DecodeLoginLogPayload(task.Payload)

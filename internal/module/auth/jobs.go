@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const TypeAuthLoginLogV1 = "auth:login-log:v1"
@@ -32,7 +33,6 @@ func NewLoginLogTask(attempt LoginAttempt) (taskqueue.Task, error) {
 	return taskqueue.Task{
 		Type:    TypeAuthLoginLogV1,
 		Payload: data,
-		Queue:   taskqueue.QueueCritical,
 	}, nil
 }
 
@@ -45,27 +45,52 @@ func DecodeLoginLogPayload(payload []byte) (LoginAttempt, error) {
 	return LoginAttempt(row), nil
 }
 
-// RegisterLoginLogHandler wires auth login-log consumption into the queue mux.
-func RegisterLoginLogHandler(mux *taskqueue.Mux, repo Repository, logger *slog.Logger) {
-	if mux == nil {
-		return
+// RegisterLoginLogTask registers the complete login-log task contract.
+func RegisterLoginLogTask(registry *taskqueue.Registry, repo Repository, logger *slog.Logger) error {
+	if registry == nil {
+		return taskqueue.ErrRegistryRequired
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	mux.HandleFunc(TypeAuthLoginLogV1, func(ctx context.Context, task taskqueue.Task) error {
-		if repo == nil {
-			return ErrRepositoryNotConfigured
-		}
-		attempt, err := DecodeLoginLogPayload(task.Payload)
-		if err != nil {
-			return err
-		}
-		if err := repo.RecordLoginAttempt(ctx, attempt); err != nil {
-			return fmt.Errorf("record login log: %w", err)
-		}
-		logger.InfoContext(ctx, "processed login log task", "type", task.Type, "login_type", attempt.LoginType, "is_success", attempt.IsSuccess)
-		return nil
+	return registry.Register(taskqueue.Definition{
+		Type:     TypeAuthLoginLogV1,
+		Queue:    taskqueue.QueueCritical,
+		Timeout:  taskqueue.DefaultTimeout,
+		MaxRetry: taskqueue.DefaultMaxRetry,
+		Decode: func(payload []byte) (any, *apperror.Error) {
+			attempt, err := DecodeLoginLogPayload(payload)
+			if err != nil {
+				return nil, taskqueue.PayloadError(TypeAuthLoginLogV1, err)
+			}
+			return attempt, nil
+		},
+		Handle: func(ctx context.Context, payload any) *apperror.Error {
+			if repo == nil {
+				return taskqueue.InvariantError(TypeAuthLoginLogV1, ErrRepositoryNotConfigured)
+			}
+			attempt, ok := payload.(LoginAttempt)
+			if !ok {
+				return taskqueue.InvariantError(TypeAuthLoginLogV1, fmt.Errorf("decoded payload type %T", payload))
+			}
+			if err := repo.RecordLoginAttempt(ctx, attempt); err != nil {
+				return taskqueue.HandlerError(TypeAuthLoginLogV1, fmt.Errorf("record login log: %w", err))
+			}
+			logger.InfoContext(ctx, "processed login log task", "type", TypeAuthLoginLogV1, "login_type", attempt.LoginType, "is_success", attempt.IsSuccess)
+			return nil
+		},
 	})
+}
+
+// RegisterLoginLogHandler remains as a test adapter while all executable
+// ownership lives in Registry.
+func RegisterLoginLogHandler(mux *taskqueue.Mux, repo Repository, logger *slog.Logger) {
+	registry := taskqueue.NewRegistry()
+	if err := RegisterLoginLogTask(registry, repo, logger); err != nil {
+		panic(err)
+	}
+	if err := mux.RegisterRegistry(registry); err != nil {
+		panic(err)
+	}
 }

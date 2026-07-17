@@ -4,16 +4,72 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
 	aichat "admin_back_go/internal/module/ai/chat"
+	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
+	"admin_back_go/internal/module/payment"
 )
+
+func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
+	registry, err := NewRegistry(Dependencies{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		aichat.ConversationReplyTaskName,
+		aiimage.TypeGenerateV1,
+		aichat.TypeRunTimeoutV1,
+		auth.TypeAuthLoginLogV1,
+		exporttask.TypeCleanupExpiredV1,
+		exporttask.TypeRunV1,
+		notificationtask.TypeDispatchDueV1,
+		notificationtask.TypeSendTaskV1,
+		payment.TypeCloseExpiredOrderV1,
+		payment.TypeSyncPendingOrderV1,
+		TypeSystemNoopV1,
+	}
+	slices.Sort(want)
+	if got := registry.Types(); !slices.Equal(got, want) {
+		t.Fatalf("registered types mismatch\n got: %v\nwant: %v", got, want)
+	}
+
+	policies := []struct {
+		taskType  string
+		queue     string
+		maxRetry  int
+		timeout   time.Duration
+		uniqueTTL time.Duration
+	}{
+		{TypeSystemNoopV1, taskqueue.QueueDefault, 3, 30 * time.Second, 0},
+		{auth.TypeAuthLoginLogV1, taskqueue.QueueCritical, 3, 30 * time.Second, 0},
+		{aichat.ConversationReplyTaskName, taskqueue.QueueDefault, 2, 5 * time.Minute, 0},
+		{aichat.TypeRunTimeoutV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
+		{aiimage.TypeGenerateV1, taskqueue.QueueLow, 2, 10 * time.Minute, 0},
+		{exporttask.TypeRunV1, taskqueue.QueueLow, 3, 5 * time.Minute, 0},
+		{exporttask.TypeCleanupExpiredV1, taskqueue.QueueLow, 3, time.Minute, 5 * time.Minute},
+		{notificationtask.TypeDispatchDueV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
+		{notificationtask.TypeSendTaskV1, taskqueue.QueueDefault, 3, 30 * time.Second, 0},
+		{payment.TypeSyncPendingOrderV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
+		{payment.TypeCloseExpiredOrderV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
+	}
+	for _, wantPolicy := range policies {
+		_, policy, err := registry.Task(wantPolicy.taskType, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if policy.Queue != wantPolicy.queue || policy.MaxRetry != wantPolicy.maxRetry || policy.Timeout != wantPolicy.timeout || policy.UniqueTTL != wantPolicy.uniqueTTL {
+			t.Fatalf("%s policy mismatch: got %+v want %+v", wantPolicy.taskType, policy, wantPolicy)
+		}
+	}
+}
 
 func TestNewNoopTaskUsesVersionedType(t *testing.T) {
 	task, err := NewNoopTask(NoopPayload{Message: "hello"})

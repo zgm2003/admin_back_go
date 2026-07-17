@@ -7,7 +7,6 @@ import (
 	"time"
 
 	gateway "admin_back_go/internal/infra/payment"
-	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/enum"
 )
 
@@ -16,7 +15,7 @@ func TestNewPaymentSyncPendingOrderTaskUsesVersionedType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSyncPendingOrderTask error=%v", err)
 	}
-	if task.Type != TypeSyncPendingOrderV1 || task.Queue != taskqueue.QueueDefault || task.UniqueTTL != 55*time.Second {
+	if task.Type != TypeSyncPendingOrderV1 || task.Queue != "" || task.UniqueTTL != 0 {
 		t.Fatalf("unexpected task=%#v", task)
 	}
 	payload, err := DecodeSyncPendingOrderPayload(task.Payload)
