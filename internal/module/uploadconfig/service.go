@@ -48,11 +48,11 @@ func (s *Service) SettingPageInit(ctx context.Context) (*SettingPageInitResponse
 	}
 	drivers, err := repo.DriverDict(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传驱动字典失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传驱动字典失败", err)
 	}
 	rules, err := repo.RuleDict(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传规则字典失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传规则字典失败", err)
 	}
 	driverOptions, appErr := settingDriverOptions(drivers)
 	if appErr != nil {
@@ -73,7 +73,7 @@ func (s *Service) DriverList(ctx context.Context, query DriverListQuery) (*Drive
 	query.Driver = strings.TrimSpace(query.Driver)
 	rows, total, err := repo.ListDrivers(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传驱动失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传驱动失败", err)
 	}
 	list := make([]DriverItem, 0, len(rows))
 	for _, row := range rows {
@@ -100,18 +100,18 @@ func (s *Service) CreateDriver(ctx context.Context, input DriverCreateInput) (in
 	}
 	exists, err := repo.ExistsDriverBucket(ctx, input.Driver, input.Bucket, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验上传驱动失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传驱动失败", err)
 	}
 	if exists {
 		return 0, apperror.BadRequest("同一驱动下该桶已存在")
 	}
 	secretIDEnc, err := s.secretbox.Encrypt(input.SecretID)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "加密上传驱动 secret_id 失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "加密上传驱动 secret_id 失败", err)
 	}
 	secretKeyEnc, err := s.secretbox.Encrypt(input.SecretKey)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "加密上传驱动 secret_key 失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "加密上传驱动 secret_key 失败", err)
 	}
 	id, err := repo.CreateDriver(ctx, Driver{
 		Driver: input.Driver, SecretIDEnc: secretIDEnc, SecretIDHint: secretbox.Hint(input.SecretID),
@@ -120,7 +120,7 @@ func (s *Service) CreateDriver(ctx context.Context, input DriverCreateInput) (in
 		Endpoint: input.Endpoint, BucketDomain: input.BucketDomain, IsDel: enum.CommonNo,
 	})
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增上传驱动失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增上传驱动失败", err)
 	}
 	return id, nil
 }
@@ -135,7 +135,7 @@ func (s *Service) UpdateDriver(ctx context.Context, id int64, input DriverUpdate
 	}
 	row, err := repo.GetDriver(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询上传驱动失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传驱动失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("上传驱动不存在")
@@ -146,7 +146,7 @@ func (s *Service) UpdateDriver(ctx context.Context, id int64, input DriverUpdate
 	}
 	exists, err := repo.ExistsDriverBucket(ctx, input.Driver, input.Bucket, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传驱动失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传驱动失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("同一驱动下该桶已存在")
@@ -163,7 +163,7 @@ func (s *Service) UpdateDriver(ctx context.Context, id int64, input DriverUpdate
 	if input.SecretID != "" {
 		ciphertext, err := s.secretbox.Encrypt(input.SecretID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "加密上传驱动 secret_id 失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "加密上传驱动 secret_id 失败", err)
 		}
 		fields["secret_id_enc"] = ciphertext
 		fields["secret_id_hint"] = secretbox.Hint(input.SecretID)
@@ -171,13 +171,13 @@ func (s *Service) UpdateDriver(ctx context.Context, id int64, input DriverUpdate
 	if input.SecretKey != "" {
 		ciphertext, err := s.secretbox.Encrypt(input.SecretKey)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "加密上传驱动 secret_key 失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "加密上传驱动 secret_key 失败", err)
 		}
 		fields["secret_key_enc"] = ciphertext
 		fields["secret_key_hint"] = secretbox.Hint(input.SecretKey)
 	}
 	if err := repo.UpdateDriver(ctx, id, fields); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新上传驱动失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新上传驱动失败", err)
 	}
 	_ = row
 	return nil
@@ -194,13 +194,13 @@ func (s *Service) DeleteDrivers(ctx context.Context, ids []int64) *apperror.Erro
 	}
 	referenced, err := repo.DriverReferenced(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传驱动引用失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传驱动引用失败", err)
 	}
 	if referenced {
 		return apperror.BadRequest("上传驱动已被上传设置引用，无法删除")
 	}
 	if err := repo.DeleteDrivers(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除上传驱动失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除上传驱动失败", err)
 	}
 	return nil
 }
@@ -213,13 +213,13 @@ func (s *Service) RuleList(ctx context.Context, query RuleListQuery) (*RuleListR
 	query.Title = strings.TrimSpace(query.Title)
 	rows, total, err := repo.ListRules(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传规则失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传规则失败", err)
 	}
 	list := make([]RuleItem, 0, len(rows))
 	for _, row := range rows {
 		item, err := ruleItemFromRow(row)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "解析上传规则失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解析上传规则失败", err)
 		}
 		list = append(list, item)
 	}
@@ -240,14 +240,14 @@ func (s *Service) CreateRule(ctx context.Context, input RuleMutationInput) (int6
 	}
 	exists, err := repo.ExistsRuleTitle(ctx, row.Title, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验上传规则失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传规则失败", err)
 	}
 	if exists {
 		return 0, apperror.BadRequest("规则标题已存在")
 	}
 	id, err := repo.CreateRule(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增上传规则失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增上传规则失败", err)
 	}
 	return id, nil
 }
@@ -262,7 +262,7 @@ func (s *Service) UpdateRule(ctx context.Context, id int64, input RuleMutationIn
 	}
 	row, err := repo.GetRule(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询上传规则失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传规则失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("上传规则不存在")
@@ -273,7 +273,7 @@ func (s *Service) UpdateRule(ctx context.Context, id int64, input RuleMutationIn
 	}
 	exists, err := repo.ExistsRuleTitle(ctx, normalized.Title, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传规则失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传规则失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("规则标题已存在")
@@ -284,7 +284,7 @@ func (s *Service) UpdateRule(ctx context.Context, id int64, input RuleMutationIn
 		"image_exts":  normalized.ImageExts,
 		"file_exts":   normalized.FileExts,
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新上传规则失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新上传规则失败", err)
 	}
 	return nil
 }
@@ -300,13 +300,13 @@ func (s *Service) DeleteRules(ctx context.Context, ids []int64) *apperror.Error 
 	}
 	referenced, err := repo.RuleReferenced(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传规则引用失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传规则引用失败", err)
 	}
 	if referenced {
 		return apperror.BadRequest("上传规则已被上传设置引用，无法删除")
 	}
 	if err := repo.DeleteRules(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除上传规则失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除上传规则失败", err)
 	}
 	return nil
 }
@@ -319,7 +319,7 @@ func (s *Service) SettingList(ctx context.Context, query SettingListQuery) (*Set
 	query.Remark = strings.TrimSpace(query.Remark)
 	rows, total, err := repo.ListSettings(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询上传设置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传设置失败", err)
 	}
 	list := make([]SettingItem, 0, len(rows))
 	for _, row := range rows {
@@ -351,13 +351,13 @@ func (s *Service) CreateSetting(ctx context.Context, input SettingMutationInput)
 	if input.Status == enum.CommonYes {
 		id, err := repo.EnableSettingExclusive(ctx, 0, row, false)
 		if err != nil {
-			return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增上传设置失败", err)
+			return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增上传设置失败", err)
 		}
 		return id, nil
 	}
 	id, err := repo.CreateSetting(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增上传设置失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增上传设置失败", err)
 	}
 	return id, nil
 }
@@ -372,7 +372,7 @@ func (s *Service) UpdateSetting(ctx context.Context, id int64, input SettingMuta
 	}
 	row, err := repo.GetSetting(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询上传设置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传设置失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("上传设置不存在")
@@ -393,7 +393,7 @@ func (s *Service) UpdateSetting(ctx context.Context, id int64, input SettingMuta
 	if input.Status == enum.CommonYes {
 		updatedID, err := repo.EnableSettingExclusive(ctx, id, Setting{DriverID: input.DriverID, RuleID: input.RuleID, Status: input.Status, Remark: input.Remark}, true)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "更新上传设置失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新上传设置失败", err)
 		}
 		if updatedID == 0 {
 			return apperror.NotFound("上传设置不存在")
@@ -401,7 +401,7 @@ func (s *Service) UpdateSetting(ctx context.Context, id int64, input SettingMuta
 		return nil
 	}
 	if err := repo.UpdateSetting(ctx, id, fields); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新上传设置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新上传设置失败", err)
 	}
 	return nil
 }
@@ -420,7 +420,7 @@ func (s *Service) ChangeSettingStatus(ctx context.Context, id int64, status int)
 	if status == enum.CommonYes {
 		updatedID, err := repo.EnableSettingExclusive(ctx, id, Setting{Status: enum.CommonYes}, true)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "更新上传设置状态失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新上传设置状态失败", err)
 		}
 		if updatedID == 0 {
 			return apperror.NotFound("上传设置不存在")
@@ -429,13 +429,13 @@ func (s *Service) ChangeSettingStatus(ctx context.Context, id int64, status int)
 	}
 	row, err := repo.GetSetting(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询上传设置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询上传设置失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("上传设置不存在")
 	}
 	if err := repo.UpdateSetting(ctx, id, map[string]any{"status": enum.CommonNo}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新上传设置状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新上传设置状态失败", err)
 	}
 	return nil
 }
@@ -451,13 +451,13 @@ func (s *Service) DeleteSettings(ctx context.Context, ids []int64) *apperror.Err
 	}
 	enabled, err := repo.SettingEnabledIn(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传设置状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传设置状态失败", err)
 	}
 	if enabled {
 		return apperror.BadRequest("包含启用的上传设置，无法删除")
 	}
 	if err := repo.DeleteSettings(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除上传设置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除上传设置失败", err)
 	}
 	return nil
 }
@@ -465,21 +465,21 @@ func (s *Service) DeleteSettings(ctx context.Context, ids []int64) *apperror.Err
 func (s *Service) validateSettingReferences(ctx context.Context, repo Repository, input SettingMutationInput, excludeID int64) *apperror.Error {
 	driverOK, err := repo.DriverExists(ctx, input.DriverID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传驱动失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传驱动失败", err)
 	}
 	if !driverOK {
 		return apperror.BadRequest("上传驱动不存在")
 	}
 	ruleOK, err := repo.RuleExists(ctx, input.RuleID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传规则失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传规则失败", err)
 	}
 	if !ruleOK {
 		return apperror.BadRequest("上传规则不存在")
 	}
 	exists, err := repo.ExistsSettingDriverRule(ctx, input.DriverID, input.RuleID, excludeID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验上传设置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验上传设置失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("该驱动与规则组合已存在")

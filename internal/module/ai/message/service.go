@@ -48,7 +48,7 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 	query = normalizeListQuery(query)
 	rows, hasMore, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI消息失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI消息失败", err)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	list := make([]MessageItem, 0, len(rows))
@@ -86,21 +86,21 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	repo, _ := s.requireRepository()
 	agent, err := repo.AgentForConversation(ctx, input.ConversationID, userID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
 	if agent == nil || agent.Status != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
 		return nil, apperror.BadRequest("该智能体不支持对话场景")
 	}
 	userMessageID, err := repo.InsertUserMessage(ctx, SendRecord{ConversationID: input.ConversationID, Role: enum.AIMessageRoleUser, ContentType: "text", Content: content, MetaJSON: metaJSONForSend(attachments, runtimeParams)})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "保存AI消息失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI消息失败", err)
 	}
 	if s.replyEnqueuer == nil {
 		return nil, apperror.Internal("AI对话回复队列未配置")
 	}
 	payload := ReplyPayload{ConversationID: conversation.ID, UserID: userID, AgentID: conversation.AgentID, UserMessageID: userMessageID, RequestID: requestID}
 	if err := s.replyEnqueuer.EnqueueConversationReply(ctx, payload); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "AI对话回复任务入队失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI对话回复任务入队失败", err)
 	}
 	return &SendResponse{ConversationID: input.ConversationID, UserMessageID: userMessageID, RequestID: requestID}, nil
 }
@@ -118,7 +118,7 @@ func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (
 		return nil, apperror.Internal("AI对话取消器未配置")
 	}
 	if err := canceler.CancelConversationReply(ctx, ReplyPayload{ConversationID: input.ConversationID, UserID: userID, RequestID: requestID}); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "取消AI回复失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "取消AI回复失败", err)
 	}
 	return &CancelResponse{ConversationID: input.ConversationID, RequestID: requestID, Status: "canceled"}, nil
 }
@@ -228,7 +228,7 @@ func (s *Service) requireOwnedConversation(ctx context.Context, userID int64, id
 	}
 	row, err := repo.Conversation(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("AI会话不存在")

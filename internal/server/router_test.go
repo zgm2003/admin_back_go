@@ -1834,6 +1834,43 @@ func TestReadyEndpointReturnsErrorWithDetailsWhenResourceIsDown(t *testing.T) {
 	}
 }
 
+func TestRouterReportsReadyFailureOnce(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buffer, nil))
+	router := NewRouter(Dependencies{
+		Logger: logger,
+		Readiness: fakeReadinessChecker{report: readiness.NewReport(map[string]readiness.Check{
+			"database": {Status: readiness.StatusDown, Message: "connection refused"},
+		})},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	request.Header.Set(middleware.HeaderRequestID, "rid-ready")
+	request.Header.Set("X-Trace-Id", "trace-ready")
+	router.ServeHTTP(httptest.NewRecorder(), request)
+
+	reported := 0
+	for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("invalid router log: %v\n%s", err, line)
+		}
+		if entry["msg"] != "application request failed" {
+			continue
+		}
+		reported++
+		if entry["request_id"] != "rid-ready" || entry["trace_id"] != "trace-ready" {
+			t.Fatalf("missing failure correlation: %#v", entry)
+		}
+		if entry["error_code"] != "internal.unknown" || entry["category"] != "internal" {
+			t.Fatalf("missing failure classification: %#v", entry)
+		}
+	}
+	if reported != 1 {
+		t.Fatalf("expected one reported server failure, got %d logs=%s", reported, buffer.String())
+	}
+}
+
 func TestRouterInstallsAccessLogAfterRequestID(t *testing.T) {
 	var buffer bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buffer, nil))

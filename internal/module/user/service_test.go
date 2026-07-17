@@ -287,7 +287,7 @@ func TestServiceInitReturnsNotFoundWhenUserMissing(t *testing.T) {
 
 	_, appErr := svc.Init(context.Background(), InitInput{UserID: 404, Platform: "admin"})
 
-	if appErr == nil || appErr.Code != 404 {
+	if appErr == nil || appErr.LegacyCode != 404 {
 		t.Fatalf("expected not found, got %#v", appErr)
 	}
 }
@@ -322,7 +322,7 @@ func TestServiceInitWrapsRepositoryError(t *testing.T) {
 
 	_, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "admin"})
 
-	if appErr == nil || appErr.Code != 500 {
+	if appErr == nil || appErr.LegacyCode != 500 {
 		t.Fatalf("expected internal error, got %#v", appErr)
 	}
 }
@@ -336,7 +336,7 @@ func TestServiceInitPropagatesPermissionError(t *testing.T) {
 
 	_, appErr := svc.Init(context.Background(), InitInput{UserID: 1, Platform: "unknown"})
 
-	if appErr == nil || appErr.Code != 100 {
+	if appErr == nil || appErr.LegacyCode != 100 {
 		t.Fatalf("expected permission app error, got %#v", appErr)
 	}
 }
@@ -587,7 +587,7 @@ func TestServiceUpdateProfileRejectsInvalidBirthday(t *testing.T) {
 		Birthday: &birthday,
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "生日格式错误" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "生日格式错误" {
 		t.Fatalf("expected invalid birthday error, got %#v", appErr)
 	}
 }
@@ -690,7 +690,7 @@ func TestServiceUpdateRejectsMissingRole(t *testing.T) {
 
 	appErr := svc.Update(context.Background(), 9, UpdateInput{Username: "new", RoleID: 404, Sex: enum.SexUnknown, AddressID: 1})
 
-	if appErr == nil || appErr.Code != 404 {
+	if appErr == nil || appErr.LegacyCode != 404 {
 		t.Fatalf("expected missing role not found, got %#v", appErr)
 	}
 }
@@ -775,7 +775,7 @@ func (f *fakeExportEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (
 
 func TestServiceExportRejectsEmptyIDs(t *testing.T) {
 	_, appErr := NewService(&fakeUserRepository{}, nil, nil, time.Minute).Export(context.Background(), ExportInput{UserID: 9})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request for empty ids, got %#v", appErr)
 	}
 }
@@ -814,7 +814,7 @@ func TestServiceExportMarksTaskFailedWhenEnqueueFails(t *testing.T) {
 	creator := &fakeExportTaskCreator{createdID: 88}
 	enqueuer := &fakeExportEnqueuer{err: errors.New("redis down")}
 	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, Platform: enum.PlatformAdmin, IDs: []int64{2}})
-	if appErr == nil || appErr.Code != apperror.CodeInternal {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected internal error, got %#v", appErr)
 	}
 	if creator.failedID != 88 || creator.failedMsg == "" {
@@ -827,7 +827,7 @@ func TestServiceExportReturnsNotFoundWhenNoSelectedUsersExist(t *testing.T) {
 	creator := &fakeExportTaskCreator{}
 	enqueuer := &fakeExportEnqueuer{}
 	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, IDs: []int64{99}})
-	if appErr == nil || appErr.Code != apperror.CodeNotFound {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeNotFound {
 		t.Fatalf("expected not found, got %#v", appErr)
 	}
 }

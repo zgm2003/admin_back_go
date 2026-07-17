@@ -144,7 +144,7 @@ func TestManagementCreateRejectsUnsupportedCaptchaType(t *testing.T) {
 		AccessTTL: 3600, RefreshTTL: 86400, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
 		BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
 	})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的验证码类型" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的验证码类型" {
 		t.Fatalf("expected captcha type validation error, got %#v", appErr)
 	}
 }
@@ -159,7 +159,7 @@ func TestManagementUpdateRejectsUnsupportedCaptchaType(t *testing.T) {
 	input.CaptchaType = "click"
 
 	appErr := service.Update(context.Background(), 2, input)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的验证码类型" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的验证码类型" {
 		t.Fatalf("expected captcha type validation error, got %#v", appErr)
 	}
 	if len(repo.updates) != 0 {

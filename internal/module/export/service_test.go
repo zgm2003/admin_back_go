@@ -187,7 +187,7 @@ func TestMarkFailedCapsMessageAtFiveHundredRunes(t *testing.T) {
 
 func TestListRejectsInvalidStatus(t *testing.T) {
 	_, appErr := NewService(&fakeRepository{}).List(context.Background(), ListQuery{UserID: 9, CurrentPage: 1, PageSize: 20, Status: ptrInt(99)})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "exporttask.status.invalid" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "exporttask.status.invalid" {
 		t.Fatalf("expected bad request for invalid status, got %#v", appErr)
 	}
 }

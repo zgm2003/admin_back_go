@@ -194,7 +194,7 @@ func TestListNormalizesAndMapsLabels(t *testing.T) {
 
 func TestListRejectsInvalidStatus(t *testing.T) {
 	_, appErr := NewService(&fakeRepository{}).List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Status: ptrInt(99)})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected invalid status bad request, got %#v", appErr)
 	}
 }
@@ -263,7 +263,7 @@ func TestCreateRejectsMissingTargets(t *testing.T) {
 func TestCreateReturnsExplicitQueueErrorAfterDBCreate(t *testing.T) {
 	service := NewService(&fakeRepository{targetCount: 1, createdID: 101}, WithEnqueuer(&fakeEnqueuer{err: errors.New("redis down")}))
 	got, appErr := service.Create(context.Background(), CreateInput{Title: "通知", TargetType: enum.NotificationTargetAll, CreatedBy: 1})
-	if got != nil || appErr == nil || appErr.Code != apperror.CodeInternal {
+	if got != nil || appErr == nil || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected enqueue failure, got result=%#v err=%#v", got, appErr)
 	}
 }

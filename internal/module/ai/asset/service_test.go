@@ -75,7 +75,7 @@ func TestServiceUserCreateRejectsMissingOwnerAndInvalidFields(t *testing.T) {
 		{UserID: 9, Slug: "slug", Type: AssetTypeImage, Title: "Title", Status: 999},
 	} {
 		_, appErr := svc.Create(context.Background(), input)
-		if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 			t.Fatalf("expected CodeBadRequest for %#v, got %#v", input, appErr)
 		}
 	}
@@ -99,7 +99,7 @@ func TestServiceUserCreateRejectsMediaAssetsWithoutStrictMetadata(t *testing.T) 
 	} {
 		repo := &fakeAssetRepository{}
 		svc := NewService(repo)
-		if _, appErr := svc.Create(context.Background(), input); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		if _, appErr := svc.Create(context.Background(), input); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 			t.Fatalf("%s: expected CodeBadRequest, got %#v", name, appErr)
 		}
 		if repo.createCalled {
@@ -127,22 +127,22 @@ func TestServiceUserUpdateAndDeleteSurfaceRepositoryErrorsAsInternal(t *testing.
 	svc := NewService(&fakeAssetRepository{err: repoErr})
 
 	_, appErr := svc.UserList(context.Background(), 9, ListQuery{})
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped CodeInternal list error, got %#v", appErr)
 	}
 
 	_, appErr = svc.UserCreate(context.Background(), 9, validImageInput())
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped CodeInternal create error, got %#v", appErr)
 	}
 
 	appErr = svc.UserUpdate(context.Background(), 9, 5, validImageInput())
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped CodeInternal update error, got %#v", appErr)
 	}
 
 	appErr = svc.UserDelete(context.Background(), 9, 5)
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped CodeInternal delete error, got %#v", appErr)
 	}
 }
@@ -151,21 +151,21 @@ func TestServiceUserUpdateAndDeleteRejectInvalidIDOrOwner(t *testing.T) {
 	repo := &fakeAssetRepository{}
 	svc := NewService(repo)
 
-	if _, appErr := svc.UserList(context.Background(), 0, ListQuery{}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if _, appErr := svc.UserList(context.Background(), 0, ListQuery{}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request list owner, got %#v", appErr)
 	}
-	if appErr := svc.UserUpdate(context.Background(), 9, 0, validImageInput()); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.UserUpdate(context.Background(), 9, 0, validImageInput()); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request update id, got %#v", appErr)
 	}
 	invalidStatusInput := validImageInput()
 	invalidStatusInput.Status = -1
-	if appErr := svc.UserUpdate(context.Background(), 9, 5, invalidStatusInput); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.UserUpdate(context.Background(), 9, 5, invalidStatusInput); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request update status, got %#v", appErr)
 	}
-	if appErr := svc.UserDelete(context.Background(), 0, 5); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.UserDelete(context.Background(), 0, 5); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request delete owner, got %#v", appErr)
 	}
-	if appErr := svc.UserDelete(context.Background(), 9, 0); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.UserDelete(context.Background(), 9, 0); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request delete id, got %#v", appErr)
 	}
 	if repo.updateCalled || repo.deleteCalled {
@@ -185,7 +185,7 @@ func TestServicePageInitKeepsAssetTypeDictionary(t *testing.T) {
 func TestServiceRejectsInvalidAssetListStatus(t *testing.T) {
 	svc := NewService(&fakeAssetRepository{})
 
-	if _, appErr := svc.List(context.Background(), ListQuery{UserID: 9, Status: 999}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if _, appErr := svc.List(context.Background(), ListQuery{UserID: 9, Status: 999}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request list status, got %#v", appErr)
 	}
 }

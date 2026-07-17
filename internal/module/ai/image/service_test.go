@@ -260,7 +260,7 @@ func TestCreateRejectsRetiredAdminImagePlatform(t *testing.T) {
 
 	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
 		t.Fatalf("expected retired admin image platform to be rejected, got %#v", appErr)
 	}
 	if repo.createdTask.ID != 0 {
@@ -276,7 +276,7 @@ func TestDetailRejectsRetiredAdminImagePlatform(t *testing.T) {
 
 	_, appErr := service.Detail(context.Background(), task.UserID, task.ID, enum.PlatformAdmin)
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
 		t.Fatalf("expected retired admin image platform to be rejected, got %#v", appErr)
 	}
 }

@@ -74,7 +74,7 @@ func (s *Service) Config(ctx context.Context) (*ConfigResponse, *apperror.Error)
 	}
 	row, err := repo.DefaultConfig(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
 	}
 	if row == nil {
 		return defaultConfigResponse(defaultVerifyCodeTTLMinutes), nil
@@ -102,14 +102,14 @@ func (s *Service) SaveConfig(ctx context.Context, input SaveConfigInput) *apperr
 	input.VerifyCodeTTLMinutes = ttl
 	existing, err := repo.DefaultConfig(ctx)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
 	}
 	row, appErr := s.configRowFromInput(existing, input)
 	if appErr != nil {
 		return appErr
 	}
 	if err := repo.SaveDefaultConfig(ctx, row); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存邮件配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "保存邮件配置失败", err)
 	}
 	return nil
 }
@@ -120,7 +120,7 @@ func (s *Service) DeleteConfig(ctx context.Context) *apperror.Error {
 		return appErr
 	}
 	if err := repo.SoftDeleteDefaultConfig(ctx); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "删除邮件配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "删除邮件配置失败", err)
 	}
 	return nil
 }
@@ -149,7 +149,7 @@ func (s *Service) TestSend(ctx context.Context, input TestInput) *apperror.Error
 		message = appErr.Message
 	}
 	if err := repo.UpdateConfigTestResult(ctx, &sentAt, message); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件测试结果失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件测试结果失败", err)
 	}
 	return appErr
 }
@@ -161,13 +161,13 @@ func (s *Service) Templates(ctx context.Context) ([]TemplateDTO, *apperror.Error
 	}
 	rows, err := repo.ListTemplates(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
 	}
 	items := make([]TemplateDTO, 0, len(rows))
 	for _, row := range rows {
 		item, err := templateDTOFromRow(row)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件模板失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件模板失败", err)
 		}
 		items = append(items, item)
 	}
@@ -185,7 +185,7 @@ func (s *Service) CreateTemplate(ctx context.Context, input SaveTemplateInput) (
 	}
 	id, err := repo.SaveTemplate(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存邮件模板失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "保存邮件模板失败", err)
 	}
 	return id, nil
 }
@@ -210,7 +210,7 @@ func (s *Service) UpdateTemplate(ctx context.Context, id uint64, input SaveTempl
 		VariablesJSON: row.VariablesJSON, SampleVariablesJSON: row.SampleVariablesJSON, Status: row.Status,
 	}
 	if err := repo.UpdateTemplate(ctx, id, update); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件模板失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件模板失败", err)
 	}
 	return nil
 }
@@ -228,7 +228,7 @@ func (s *Service) ChangeTemplateStatus(ctx context.Context, id uint64, status in
 	}
 	row, err := repo.TemplateByID(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("邮件模板不存在")
@@ -237,7 +237,7 @@ func (s *Service) ChangeTemplateStatus(ctx context.Context, id uint64, status in
 		Scene: row.Scene, Name: row.Name, Subject: row.Subject, TencentTemplateID: row.TencentTemplateID,
 		VariablesJSON: row.VariablesJSON, SampleVariablesJSON: row.SampleVariablesJSON, Status: status,
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "修改邮件模板状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "修改邮件模板状态失败", err)
 	}
 	return nil
 }
@@ -254,7 +254,7 @@ func (s *Service) DeleteTemplate(ctx context.Context, id uint64) *apperror.Error
 		return appErr
 	}
 	if err := repo.SoftDeleteTemplate(ctx, id); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "删除邮件模板失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "删除邮件模板失败", err)
 	}
 	return nil
 }
@@ -270,7 +270,7 @@ func (s *Service) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *
 	}
 	rows, total, err := repo.ListLogs(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
 	}
 	list := make([]LogDTO, 0, len(rows))
 	for _, row := range rows {
@@ -289,7 +289,7 @@ func (s *Service) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
 	}
 	row, err := repo.LogByID(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("邮件日志不存在")
@@ -298,7 +298,7 @@ func (s *Service) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
 	if row.TemplateID != nil {
 		tmpl, err := repo.TemplateByID(ctx, *row.TemplateID)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志模板失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志模板失败", err)
 		}
 		if tmpl != nil {
 			template, appErr := logTemplateDTOFromRow(*tmpl)
@@ -321,7 +321,7 @@ func (s *Service) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error 
 		return appErr
 	}
 	if err := repo.SoftDeleteLogs(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "删除邮件日志失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "删除邮件日志失败", err)
 	}
 	return nil
 }
@@ -353,7 +353,7 @@ func (s *Service) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.E
 	}
 	row, err := repo.DefaultConfig(ctx)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
 	}
 	minutes, appErr := verifyCodeTTLMinutesFromConfig(row)
 	if appErr != nil {
@@ -381,7 +381,7 @@ func (s *Service) send(ctx context.Context, templateScene string, logScene strin
 	}
 	variables, err := decodeVariables(tmpl.VariablesJSON)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件模板变量失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件模板变量失败", err)
 	}
 	if appErr := ensureTemplateDataCoversVariables(variables, data); appErr != nil {
 		return appErr
@@ -395,7 +395,7 @@ func (s *Service) send(ctx context.Context, templateScene string, logScene strin
 		Scene: logScene, TemplateID: &templateID, ToEmail: toEmail, Subject: tmpl.Subject, Status: enum.MailLogStatusPending,
 	})
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "写入邮件日志失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "写入邮件日志失败", err)
 	}
 	started := time.Now()
 	result, err := sender.Send(ctx, SendInput{
@@ -407,12 +407,12 @@ func (s *Service) send(ctx context.Context, templateScene string, logScene strin
 	if err != nil {
 		finish := LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: senderErrorCode(err), ErrorMessage: err.Error(), DurationMS: duration}
 		_ = repo.FinishLog(ctx, logID, finish)
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送失败", err)
 	}
 	sentAt := time.Now()
 	finish := LogFinish{Status: enum.MailLogStatusSuccess, RequestID: result.RequestID, MessageID: result.MessageID, DurationMS: duration, SentAt: &sentAt}
 	if err := repo.FinishLog(ctx, logID, finish); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件日志失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件日志失败", err)
 	}
 	return nil
 }
@@ -428,7 +428,7 @@ func (s *Service) sampleTemplateData(ctx context.Context, scene string) (map[str
 	}
 	sample, err := decodeSampleVariables(tmpl.SampleVariablesJSON)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件测试变量失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件测试变量失败", err)
 	}
 	return sample, nil
 }
@@ -436,7 +436,7 @@ func (s *Service) sampleTemplateData(ctx context.Context, scene string) (map[str
 func (s *Service) enabledConfig(ctx context.Context, repo Repository) (*Config, *apperror.Error) {
 	cfg, err := repo.DefaultConfig(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件配置失败", err)
 	}
 	if cfg == nil {
 		return nil, apperror.Internal("邮件服务未配置")
@@ -450,7 +450,7 @@ func (s *Service) enabledConfig(ctx context.Context, repo Repository) (*Config, 
 func enabledTemplate(ctx context.Context, repo Repository, scene string) (*Template, *apperror.Error) {
 	tmpl, err := repo.TemplateByScene(ctx, scene)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
 	}
 	if tmpl == nil {
 		return nil, apperror.BadRequest("邮件模板未配置")
@@ -464,11 +464,11 @@ func enabledTemplate(ctx context.Context, repo Repository, scene string) (*Templ
 func (s *Service) decryptCredentials(cfg Config) (string, string, *apperror.Error) {
 	secretID, err := s.secretBox.Decrypt(cfg.SecretIDEnc)
 	if err != nil {
-		return "", "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解密 Tencent SecretId 失败", err)
+		return "", "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解密 Tencent SecretId 失败", err)
 	}
 	secretKey, err := s.secretBox.Decrypt(cfg.SecretKeyEnc)
 	if err != nil {
-		return "", "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解密 Tencent SecretKey 失败", err)
+		return "", "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解密 Tencent SecretKey 失败", err)
 	}
 	if secretID == "" || secretKey == "" {
 		return "", "", apperror.Internal("腾讯云邮件密钥未配置")
@@ -498,7 +498,7 @@ func (s *Service) secretValue(existing *Config, plain string, secretID bool) (st
 	if plain != "" {
 		enc, err := s.secretBox.Encrypt(plain)
 		if err != nil {
-			return "", "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "加密邮件密钥失败", err)
+			return "", "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "加密邮件密钥失败", err)
 		}
 		return enc, secretbox.Hint(plain), nil
 	}
@@ -513,14 +513,14 @@ func (s *Service) secretValue(existing *Config, plain string, secretID bool) (st
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件仓储未配置", ErrRepositoryNotConfigured)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件仓储未配置", ErrRepositoryNotConfigured)
 	}
 	return s.repository, nil
 }
 
 func (s *Service) requireSender() (Sender, *apperror.Error) {
 	if s == nil || s.sender == nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送器未配置", ErrSenderNotConfigured)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送器未配置", ErrSenderNotConfigured)
 	}
 	return s.sender, nil
 }
@@ -756,7 +756,7 @@ func normalizeLogQuery(query LogQuery) (LogQuery, *apperror.Error) {
 func ensureTemplateExists(ctx context.Context, repo Repository, id uint64) *apperror.Error {
 	row, err := repo.TemplateByID(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件模板失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("邮件模板不存在")
@@ -801,7 +801,7 @@ func configResponseFromRow(row Config, ttlMinutes int) *ConfigResponse {
 func logTemplateDTOFromRow(row Template) (*LogTemplateDTO, *apperror.Error) {
 	variables, err := decodeVariables(row.VariablesJSON)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件日志模板变量失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件日志模板变量失败", err)
 	}
 	return &LogTemplateDTO{
 		ID: row.ID, Scene: row.Scene, Name: row.Name, TencentTemplateID: row.TencentTemplateID,

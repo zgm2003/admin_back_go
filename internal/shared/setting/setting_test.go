@@ -62,7 +62,7 @@ func TestAuthCaptchaTTLMinutesPreservesRequiredPositiveNumberPolicy(t *testing.T
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, appErr := AuthCaptchaTTLMinutes(ctx, &fakeRepository{rows: map[string]*systemsetting.Setting{AuthCaptchaTTLKey: tt.row}})
-			if appErr == nil || appErr.Code != tt.code {
+			if appErr == nil || appErr.LegacyCode != tt.code {
 				t.Fatalf("expected code %d, got %#v", tt.code, appErr)
 			}
 		})
@@ -102,7 +102,7 @@ func TestUploadTokenTTLMinutesPreservesFallbackPolicy(t *testing.T) {
 
 func TestSettingReaderWrapsRepositoryErrors(t *testing.T) {
 	_, appErr := AuthCaptchaTTLMinutes(context.Background(), &fakeRepository{err: errors.New("db down")})
-	if appErr == nil || appErr.Code != apperror.CodeInternal {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected repository error to be wrapped, got %#v", appErr)
 	}
 }

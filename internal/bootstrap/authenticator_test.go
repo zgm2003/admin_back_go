@@ -42,7 +42,7 @@ func TestNewTokenAuthenticatorFailsClosedWithoutResources(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "Token认证未配置" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "Token认证未配置" {
 		t.Fatalf("expected token auth not configured, got %#v", appErr)
 	}
 }

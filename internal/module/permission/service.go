@@ -72,7 +72,7 @@ func (s *Service) BuildContextByRole(ctx context.Context, roleID int64, platform
 
 	grantedIDs, err := s.repository.PermissionIDsByRoleID(ctx, roleID)
 	if err != nil {
-		return Context{}, apperror.Wrap(apperror.CodeInternal, 500, "查询角色权限失败", err)
+		return Context{}, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色权限失败", err)
 	}
 	grantedIDs = normalizeIDs(grantedIDs)
 	if len(grantedIDs) == 0 {
@@ -81,7 +81,7 @@ func (s *Service) BuildContextByRole(ctx context.Context, roleID int64, platform
 
 	allPermissions, err := s.repository.AllActivePermissions(ctx)
 	if err != nil {
-		return Context{}, apperror.Wrap(apperror.CodeInternal, 500, "查询权限失败", err)
+		return Context{}, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
 
 	permMap := permissionMapByPlatform(allPermissions, platform)
@@ -96,7 +96,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 
 	allPermissions, err := s.repository.AllActivePermissions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询权限字典失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限字典失败", err)
 	}
 
 	return &InitResponse{
@@ -120,7 +120,7 @@ func (s *Service) List(ctx context.Context, query PermissionListQuery) ([]Permis
 
 	rows, err := s.repository.ListPermissions(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询权限失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
 	matchedRows := filterPermissions(rows, query)
 	treeRows := matchedRows
@@ -128,7 +128,7 @@ func (s *Service) List(ctx context.Context, query PermissionListQuery) ([]Permis
 	if hasPermissionListFilter(query) {
 		allRows, err := s.repository.ListPermissions(ctx, PermissionListQuery{Platform: query.Platform})
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询权限失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 		}
 		treeRows = includeMatchedAncestors(filterPermissions(allRows, PermissionListQuery{Platform: query.Platform}), matchedRows)
 	}
@@ -165,7 +165,7 @@ func (s *Service) Create(ctx context.Context, input PermissionMutationInput) (in
 
 	id, err := s.repository.CreatePermission(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增权限失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增权限失败", err)
 	}
 	return id, nil
 }
@@ -180,7 +180,7 @@ func (s *Service) Update(ctx context.Context, id int64, input PermissionMutation
 
 	existing, err := s.repository.GetPermission(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询权限失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
 	if existing == nil {
 		return apperror.NotFound("权限不存在")
@@ -201,7 +201,7 @@ func (s *Service) Update(ctx context.Context, id int64, input PermissionMutation
 	}
 
 	if err := s.repository.UpdatePermission(ctx, id, permissionUpdateMap(input)); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新权限失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新权限失败", err)
 	}
 	if appErr := s.invalidatePermissionUsers(ctx, []int64{id}, true); appErr != nil {
 		return appErr
@@ -221,7 +221,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 
 	hasChildren, err := s.repository.HasChildrenOutsideIDs(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询子权限失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询子权限失败", err)
 	}
 	if hasChildren {
 		return apperror.BadRequest("存在子节点未被勾选，不能删除")
@@ -232,7 +232,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 		return appErr
 	}
 	if err := s.repository.DeletePermissions(ctx, ids); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除权限失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除权限失败", err)
 	}
 	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
 		return appErr
@@ -251,7 +251,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 		return apperror.Internal("权限仓储未配置")
 	}
 	if err := s.repository.UpdatePermission(ctx, id, map[string]any{"status": status}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新权限状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新权限状态失败", err)
 	}
 	if appErr := s.invalidatePermissionUsers(ctx, []int64{id}, true); appErr != nil {
 		return appErr
@@ -275,13 +275,13 @@ func (s *Service) roleIDsByPermissionIDs(ctx context.Context, permissionIDs []in
 	if includeCascade {
 		cascadeIDs, err := s.repository.CascadeIDs(ctx, permissionIDs)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询子权限失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询子权限失败", err)
 		}
 		permissionIDs = normalizeIDsForMutation(cascadeIDs)
 	}
 	roleIDs, err := s.repository.RoleIDsByPermissionIDs(ctx, permissionIDs)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询权限角色失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限角色失败", err)
 	}
 	return normalizeIDs(roleIDs), nil
 }
@@ -296,12 +296,12 @@ func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *app
 	}
 	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, roleIDs)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
 	}
 	for _, userID := range normalizeIDs(userIDs) {
 		for _, platform := range s.platforms {
 			if err := s.cacheInvalidator.Delete(ctx, RouteAccessCacheKey(userID, platform)); err != nil {
-				return apperror.Wrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
+				return apperror.LegacyWrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
 			}
 		}
 	}
@@ -403,7 +403,7 @@ func (s *Service) assertUniqueMutationFields(ctx context.Context, input Permissi
 	case TypeDir:
 		exists, err = s.repository.ExistsByPlatformI18nKey(ctx, input.Platform, input.I18nKey, excludeID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "校验 i18n_key 失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验 i18n_key 失败", err)
 		}
 		if exists {
 			return apperror.BadRequest("该平台下 i18n_key 已存在")
@@ -411,14 +411,14 @@ func (s *Service) assertUniqueMutationFields(ctx context.Context, input Permissi
 	case TypePage:
 		exists, err = s.repository.ExistsByPlatformPath(ctx, input.Platform, input.Path, excludeID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "校验路由 path 失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验路由 path 失败", err)
 		}
 		if exists {
 			return apperror.BadRequest("该平台下路由 path 已存在")
 		}
 		exists, err = s.repository.ExistsByPlatformI18nKey(ctx, input.Platform, input.I18nKey, excludeID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "校验 i18n_key 失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验 i18n_key 失败", err)
 		}
 		if exists {
 			return apperror.BadRequest("该平台下 i18n_key 已存在")
@@ -426,7 +426,7 @@ func (s *Service) assertUniqueMutationFields(ctx context.Context, input Permissi
 	case TypeButton:
 		exists, err = s.repository.ExistsByPlatformCode(ctx, input.Platform, input.Code, excludeID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "校验权限标识失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验权限标识失败", err)
 		}
 		if exists {
 			return apperror.BadRequest("该平台下权限标识已存在")
@@ -438,13 +438,13 @@ func (s *Service) assertUniqueMutationFields(ctx context.Context, input Permissi
 func (s *Service) restoreSoftDeletedButtonIfPresent(ctx context.Context, input PermissionMutationInput, row Permission) (int64, *apperror.Error) {
 	deleted, err := s.repository.FindDeletedByPlatformCode(ctx, input.Platform, input.Code)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "查询已删除权限失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询已删除权限失败", err)
 	}
 	if deleted == nil {
 		return 0, nil
 	}
 	if err := s.repository.RestoreDeletedPermission(ctx, deleted.ID, row); err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "恢复权限失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "恢复权限失败", err)
 	}
 	return deleted.ID, nil
 }
@@ -456,7 +456,7 @@ func (s *Service) assertValidParentAssignment(ctx context.Context, permissionTyp
 		}
 		descendantIDs, err := s.repository.CascadeIDs(ctx, []int64{currentID})
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "查询子权限失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询子权限失败", err)
 		}
 		for _, descendantID := range descendantIDs {
 			if descendantID != currentID && descendantID == parentID {
@@ -474,7 +474,7 @@ func (s *Service) assertValidParentAssignment(ctx context.Context, permissionTyp
 
 	parent, err := s.repository.GetPermission(ctx, parentID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询父权限失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询父权限失败", err)
 	}
 	if parent == nil {
 		return apperror.NotFound("父节点不存在")
@@ -504,7 +504,7 @@ func (s *Service) assertValidParentAssignment(ctx context.Context, permissionTyp
 func (s *Service) assertExistingChildrenCompatible(ctx context.Context, permissionType int, id int64) *apperror.Error {
 	children, err := s.repository.ActiveChildren(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询子权限失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询子权限失败", err)
 	}
 	if len(children) == 0 {
 		return nil

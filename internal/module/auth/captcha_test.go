@@ -130,7 +130,7 @@ func TestSystemSettingCaptchaPolicyProviderWrapsRepositoryErrors(t *testing.T) {
 
 	_, appErr := provider.TTL(context.Background())
 
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped repository error, got %#v", appErr)
 	}
 	if appErr.MessageID != "captcha.policy.query_failed" {
@@ -334,7 +334,7 @@ func TestServiceVerifyReadsPaddingFromPolicyEveryCall(t *testing.T) {
 		Answer: &Answer{X: 130, Y: 80},
 	})
 
-	if firstErr == nil || firstErr.Code != apperror.CodeBadRequest {
+	if firstErr == nil || firstErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected first verify to reject with small padding, got %#v", firstErr)
 	}
 	if secondErr != nil {
@@ -354,7 +354,7 @@ func TestServiceVerifyRejectsMissingOrReusedChallenge(t *testing.T) {
 		Answer: &Answer{X: 120, Y: 80},
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
 		t.Fatalf("expected missing captcha rejection, got %#v", appErr)
 	}
 	if store.takeID != "captcha-id" {
@@ -371,7 +371,7 @@ func TestServiceVerifyRejectsWrongAnswer(t *testing.T) {
 		Answer: &Answer{X: 40, Y: 80},
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
 		t.Fatalf("expected wrong captcha rejection, got %#v", appErr)
 	}
 }
@@ -400,7 +400,7 @@ func TestServiceVerifyFailsClosedWhenStoreErrors(t *testing.T) {
 		Answer: &Answer{X: 120, Y: 80},
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "验证码校验失败" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || appErr.Message != "验证码校验失败" {
 		t.Fatalf("expected internal captcha error, got %#v", appErr)
 	}
 }

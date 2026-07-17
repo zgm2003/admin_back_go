@@ -111,6 +111,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	router.UnescapePathValues = false
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
+	router.Use(middleware.ErrorReporter(deps.Logger))
 	router.Use(middleware.AccessLog(deps.Logger))
 	router.Use(middleware.CORS(deps.CORS))
 	router.Use(projecti18n.Localize())

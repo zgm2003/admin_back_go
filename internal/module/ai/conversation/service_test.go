@@ -99,7 +99,7 @@ func TestListRejectsPartialCursorWithStableMessageID(t *testing.T) {
 func TestDetailRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
 	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 8, AgentID: 1, Title: "other", IsDel: enum.CommonNo}}
 	_, appErr := NewService(repo).Detail(context.Background(), 7, 3)
-	if appErr == nil || appErr.Code != 403 {
+	if appErr == nil || appErr.LegacyCode != 403 {
 		t.Fatalf("expected forbidden, got %#v", appErr)
 	}
 }
@@ -118,7 +118,7 @@ func TestCreateValidatesChatAgentAndSetsCurrentUser(t *testing.T) {
 func TestCreateRejectsNonChatAgent(t *testing.T) {
 	repo := &fakeRepository{activeAgents: map[int64]bool{5: false}}
 	_, appErr := NewService(repo).Create(context.Background(), 7, CreateInput{AgentID: 5})
-	if appErr == nil || appErr.Code != 100 || appErr.Message != "该智能体不支持对话场景" {
+	if appErr == nil || appErr.LegacyCode != 100 || appErr.Message != "该智能体不支持对话场景" {
 		t.Fatalf("expected non-chat bad request, got %#v", appErr)
 	}
 }

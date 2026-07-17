@@ -285,7 +285,7 @@ func assertMessageID(t *testing.T, appErr *apperror.Error, want string) {
 	if appErr == nil {
 		t.Fatalf("expected error %q, got nil", want)
 	}
-	if appErr.Code != apperror.CodeBadRequest && appErr.Code != apperror.CodeNotFound && appErr.Code != apperror.CodeInternal {
+	if appErr.LegacyCode != apperror.CodeBadRequest && appErr.LegacyCode != apperror.CodeNotFound && appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("unexpected code for %q: %#v", want, appErr)
 	}
 	if appErr.MessageID != want {

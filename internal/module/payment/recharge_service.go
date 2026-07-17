@@ -23,19 +23,19 @@ func (s *Service) RechargePageInit(ctx context.Context, userID int64) (*Recharge
 	}
 	wallet, err := repo.GetOrCreateWallet(ctx, userID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
 	}
 	packages, err := repo.ListRechargePackages(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值套餐失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值套餐失败", err)
 	}
 	recent, err := repo.ListRecentRecharges(ctx, userID, defaultRechargeRecentLimit)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询最近充值记录失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询最近充值记录失败", err)
 	}
 	payConfig, err := firstAvailableRechargeConfig(ctx, repo)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
 	}
 	return &RechargePageInitResponse{
 		Wallet:        walletSummary(wallet),
@@ -58,7 +58,7 @@ func (s *Service) ListRecharges(ctx context.Context, query RechargeListQuery) (*
 	query.Status = strings.TrimSpace(query.Status)
 	rows, total, err := repo.ListRecharges(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值记录失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值记录失败", err)
 	}
 	_, size, _ := normalizePage(query.CurrentPage, query.PageSize)
 	return &RechargeListResponse{List: rechargeListItems(rows), Page: Page{PageSize: size, CurrentPage: currentPage(query.CurrentPage), TotalPage: totalPage(total, size), Total: total}}, nil
@@ -91,20 +91,20 @@ func (s *Service) CreateRecharge(ctx context.Context, input RechargeCreateInput)
 	}
 	pkg, err := repo.GetRechargePackageByCode(ctx, strings.TrimSpace(input.PackageCode))
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值套餐失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值套餐失败", err)
 	}
 	if pkg == nil {
 		return nil, apperror.NotFound("充值套餐不存在或已停用")
 	}
 	cfg, err := repo.FirstEnabledConfigForPay(ctx, providerAlipay, method)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
 	}
 	if cfg == nil {
 		return nil, apperror.BadRequest("暂无可用支付宝支付配置")
 	}
 	if _, err := repo.GetOrCreateWallet(ctx, input.UserID); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "初始化用户钱包失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "初始化用户钱包失败", err)
 	}
 	now := s.now()
 	order := Order{
@@ -132,7 +132,7 @@ func (s *Service) CreateRecharge(ctx context.Context, input RechargeCreateInput)
 	order.ReturnURL = rechargeReturnURL(returnURL, recharge.RechargeNo)
 	row, err := repo.CreateRechargeWithOrder(ctx, recharge, order)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "创建充值单失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "创建充值单失败", err)
 	}
 	return s.payRechargeRow(ctx, row)
 }
@@ -170,7 +170,7 @@ func (s *Service) CloseRecharge(ctx context.Context, userID int64, id int64) (*R
 			return nil, appErr
 		}
 		if err := repo.UpdateRechargeClosed(ctx, row.ID); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭充值单失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭充值单失败", err)
 		}
 	}
 	latest, appErr := s.rechargeByID(ctx, userID, id)
@@ -179,7 +179,7 @@ func (s *Service) CloseRecharge(ctx context.Context, userID int64, id int64) (*R
 	}
 	wallet, walletErr := repo.GetOrCreateWallet(ctx, userID)
 	if walletErr != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", walletErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", walletErr)
 	}
 	return rechargeStatusResponse(*latest, wallet), nil
 }
@@ -207,7 +207,7 @@ func (s *Service) payRechargeRow(ctx context.Context, row RechargeWithOrder) (*R
 		return rechargePayResponse(row), nil
 	}
 	if err := repo.UpdateRechargePaying(ctx, row.ID); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "更新充值支付状态失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新充值支付状态失败", err)
 	}
 	row.Status = rechargeStatusPaying
 	row.OrderStatus = result.Status
@@ -222,7 +222,7 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 	}
 	wallet, err := repo.GetOrCreateWallet(ctx, row.UserID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
 	}
 	if row.Status == rechargeStatusCredited {
 		return rechargeStatusResponse(row, wallet), nil
@@ -242,7 +242,7 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 	}
 	if row.OrderStatus == orderStatusClosed {
 		if err := repo.UpdateRechargeClosed(ctx, row.ID); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭充值单失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭充值单失败", err)
 		}
 		row.Status = rechargeStatusClosed
 		return rechargeStatusResponse(row, wallet), nil
@@ -264,7 +264,7 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 	row = *latest
 	wallet, err = repo.GetOrCreateWallet(ctx, row.UserID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
 	}
 	return rechargeStatusResponse(row, wallet), nil
 }
@@ -282,7 +282,7 @@ func (s *Service) rechargeByID(ctx context.Context, userID int64, id int64) (*Re
 	}
 	row, err := repo.GetRecharge(ctx, userID, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值单失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值单失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("充值单不存在")

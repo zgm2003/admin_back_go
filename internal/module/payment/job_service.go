@@ -257,11 +257,11 @@ func closeOrderAndLinkedRecharge(ctx context.Context, repo Repository, orderID i
 		if errors.Is(err, ErrPaymentStateChanged) {
 			return nil
 		}
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单关闭状态失败", err)
 	}
 	order, err := repo.GetOrder(ctx, orderID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
 	}
 	if order == nil || order.Status != orderStatusClosed {
 		return nil

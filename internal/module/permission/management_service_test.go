@@ -416,7 +416,7 @@ func TestServiceWrapsManagementRepositoryError(t *testing.T) {
 
 	_, appErr := svc.List(context.Background(), PermissionListQuery{Platform: "admin"})
 
-	if appErr == nil || appErr.Code != 500 {
+	if appErr == nil || appErr.LegacyCode != 500 {
 		t.Fatalf("expected internal app error, got %#v", appErr)
 	}
 }

@@ -329,7 +329,7 @@ func TestCanvasCompletionRejectsNonCanvasTextScene(t *testing.T) {
 		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
 		Secretbox:     box,
 	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 5, Message: "hi"})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.chat.agent_unavailable" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.chat.agent_unavailable" {
 		t.Fatalf("expected canvas text scene rejection, got %#v", appErr)
 	}
 }
@@ -601,7 +601,7 @@ func (f *fakeToolRuntime) ListRuntimeTools(ctx context.Context, agentID uint64) 
 func (f *fakeToolRuntime) Execute(ctx context.Context, input ToolExecuteInput) (*ToolExecuteResult, *apperror.Error) {
 	f.executeInput = append(f.executeInput, input)
 	if f.executeErr != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, f.executeErr.Error(), f.executeErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, f.executeErr.Error(), f.executeErr)
 	}
 	output := f.executeReply
 	if output == nil {

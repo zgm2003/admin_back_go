@@ -39,7 +39,7 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 	}
 	rows, hasMore, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
 	}
 	list := make([]ConversationItem, 0, len(rows))
 	for _, row := range rows {
@@ -76,7 +76,7 @@ func (s *Service) Create(ctx context.Context, userID int64, input CreateInput) (
 	}
 	ok, err := repo.ActiveChatAgentExists(ctx, input.AgentID)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
 	if !ok {
 		return 0, apperror.BadRequest("该智能体不支持对话场景")
@@ -84,7 +84,7 @@ func (s *Service) Create(ctx context.Context, userID int64, input CreateInput) (
 	now := time.Now()
 	id, err := repo.Create(ctx, Conversation{UserID: userID, AgentID: input.AgentID, Title: trimTitle(input.Title), LastMessageAt: &now, IsDel: enum.CommonNo})
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "创建AI会话失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI会话失败", err)
 	}
 	return id, nil
 }
@@ -99,7 +99,7 @@ func (s *Service) Update(ctx context.Context, userID int64, id int64, input Upda
 	}
 	repo, _ := s.requireRepository()
 	if err := repo.UpdateTitle(ctx, id, userID, title); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新AI会话失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI会话失败", err)
 	}
 	return nil
 }
@@ -110,7 +110,7 @@ func (s *Service) Delete(ctx context.Context, userID int64, id int64) *apperror.
 	}
 	repo, _ := s.requireRepository()
 	if err := repo.Delete(ctx, id, userID); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除AI会话失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除AI会话失败", err)
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func (s *Service) requireOwnedConversation(ctx context.Context, userID int64, id
 	}
 	row, agentName, err := repo.Get(ctx, id)
 	if err != nil {
-		return nil, "", apperror.Wrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
+		return nil, "", apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
 	}
 	if row == nil {
 		return nil, "", apperror.NotFound("AI会话不存在")

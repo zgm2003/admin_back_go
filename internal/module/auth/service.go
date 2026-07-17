@@ -210,7 +210,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	}
 	cacheKey := s.verifyCodeCacheKey(accountType, input.Scene, input.Account)
 	if err := s.codeStore.Set(ctx, cacheKey, code, ttl); err != nil {
-		return "", apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
+		return "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
 	if accountType == LoginTypePhone {
 		return "验证码发送成功", nil
@@ -251,10 +251,10 @@ func (s *Service) ForgetPassword(ctx context.Context, input ForgetPasswordInput)
 
 	hash, err := hashPassword(normalized.NewPassword)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "密码加密失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "密码加密失败", err)
 	}
 	if err := s.repository.UpdatePassword(ctx, user.ID, hash); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "重置密码失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "重置密码失败", err)
 	}
 	return nil
 }
@@ -537,7 +537,7 @@ func (s *Service) autoRegister(ctx context.Context, account string, loginType st
 		return s.findCredentialByLoginType(ctx, account, loginType)
 	}
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "自动注册失败，请稍后重试", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "自动注册失败，请稍后重试", err)
 	}
 	return nil, apperror.Internal("自动注册失败，请稍后重试")
 }
@@ -552,14 +552,14 @@ func (s *Service) verifyCode(ctx context.Context, account string, code string, s
 	}
 	cached, err := s.codeStore.Get(ctx, s.verifyCodeCacheKey(accountType, scene, account))
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存读取失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存读取失败", err)
 	}
 	if cached == "" || cached != strings.TrimSpace(code) {
 		return apperror.BadRequest("验证码错误或已失效")
 	}
 	if consume {
 		if err := s.codeStore.Delete(ctx, s.verifyCodeCacheKey(accountType, scene, account)); err != nil {
-			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码消费失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码消费失败", err)
 		}
 	}
 	return nil

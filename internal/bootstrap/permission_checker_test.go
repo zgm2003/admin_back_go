@@ -122,7 +122,7 @@ func TestPermissionCheckerDeniesMissingRouteAccessCode(t *testing.T) {
 
 	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 1, Platform: "admin", Code: "permission_permission_add"})
 
-	if appErr == nil || appErr.Code != apperror.CodeForbidden {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeForbidden {
 		t.Fatalf("expected forbidden, got %#v", appErr)
 	}
 }
@@ -137,7 +137,7 @@ func TestPermissionCheckerDoesNotFallbackWhenUserLookupFails(t *testing.T) {
 
 	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 1, Platform: "admin", Code: "permission_permission_add"})
 
-	if appErr == nil || appErr.Code != apperror.CodeInternal {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected internal error, got %#v", appErr)
 	}
 }
@@ -153,7 +153,7 @@ func TestPermissionCheckerRejectsMissingUserWithoutBuildingContext(t *testing.T)
 
 	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 1, Platform: "admin", Code: "permission_permission_add"})
 
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized {
 		t.Fatalf("expected unauthorized, got %#v", appErr)
 	}
 	if builder.called {
@@ -168,7 +168,7 @@ func TestPermissionCheckerRejectsMissingRoleWithoutBuildingContext(t *testing.T)
 
 	appErr := checker(context.Background(), middleware.PermissionInput{UserID: 1, Platform: "admin", Code: "permission_permission_add"})
 
-	if appErr == nil || appErr.Code != apperror.CodeForbidden {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeForbidden {
 		t.Fatalf("expected forbidden, got %#v", appErr)
 	}
 	if !repo.findRoleCalled {

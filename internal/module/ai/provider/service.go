@@ -65,13 +65,13 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	query = normalizeListQuery(query)
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	list := make([]ProviderDTO, 0, len(rows))
 	for _, row := range rows {
 		models, err := repo.ListModels(ctx, row.ID)
 		if err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 		}
 		dto, appErr := providerDTO(row, models)
 		if appErr != nil {
@@ -97,23 +97,23 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	}
 	exists, err := repo.ExistsByTypeName(ctx, row.EngineType, row.Name, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
 	}
 	if exists {
 		return 0, apperror.BadRequest("该驱动下已存在同名供应商")
 	}
 	ciphertext, err := s.secretbox.Encrypt(apiKey)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "加密AI供应商API Key失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "加密AI供应商API Key失败", err)
 	}
 	row.APIKeyEnc = ciphertext
 	row.APIKeyHint = secretbox.Hint(apiKey)
 	id, err := repo.Create(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增AI供应商失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI供应商失败", err)
 	}
 	if err := repo.ReplaceModels(ctx, id, models); err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return id, nil
 }
@@ -128,7 +128,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
@@ -139,7 +139,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	}
 	exists, err := repo.ExistsByTypeName(ctx, strings.TrimSpace(input.EngineType), strings.TrimSpace(input.Name), id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("该驱动下已存在同名供应商")
@@ -147,16 +147,16 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if strings.TrimSpace(input.APIKey) != "" {
 		ciphertext, err := s.secretbox.Encrypt(strings.TrimSpace(input.APIKey))
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "加密AI供应商API Key失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "加密AI供应商API Key失败", err)
 		}
 		fields["api_key_enc"] = ciphertext
 		fields["api_key_hint"] = secretbox.Hint(strings.TrimSpace(input.APIKey))
 	}
 	if err := repo.Update(ctx, id, fields); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "编辑AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "编辑AI供应商失败", err)
 	}
 	if err := repo.ReplaceModels(ctx, id, models); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return nil
 }
@@ -174,13 +174,13 @@ func (s *Service) ChangeStatus(ctx context.Context, id uint64, status int) *appe
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
 	if err := repo.ChangeStatus(ctx, id, status); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "切换AI供应商状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "切换AI供应商状态失败", err)
 	}
 	return nil
 }
@@ -195,7 +195,7 @@ func (s *Service) TestConnection(ctx context.Context, id uint64) (*infraai.TestC
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("AI供应商不存在")
@@ -205,7 +205,7 @@ func (s *Service) TestConnection(ctx context.Context, id uint64) (*infraai.TestC
 	}
 	apiKey, err := s.secretbox.Decrypt(row.APIKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
@@ -220,10 +220,10 @@ func (s *Service) TestConnection(ctx context.Context, id uint64) (*infraai.TestC
 	}
 	fields := map[string]any{"health_status": health, "last_checked_at": now, "last_check_error": message}
 	if err := repo.Update(ctx, id, fields); err != nil {
-		return result, apperror.Wrap(apperror.CodeInternal, 500, "更新AI供应商健康状态失败", err)
+		return result, apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI供应商健康状态失败", err)
 	}
 	if testErr != nil {
-		return result, apperror.Wrap(apperror.CodeInternal, 500, "测试AI供应商连接失败", testErr)
+		return result, apperror.LegacyWrap(apperror.CodeInternal, 500, "测试AI供应商连接失败", testErr)
 	}
 	return result, nil
 }
@@ -239,7 +239,7 @@ func (s *Service) PreviewModels(ctx context.Context, input ModelOptionsInput) (*
 	}
 	models, err := s.openAIDriver().ListModels(ctx, provider.Config{Driver: engineType, BaseURL: normalizeProviderBaseURL(engineType, input.BaseURL), APIKey: apiKey, TimeoutMs: 10000})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", err)
 	}
 	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
 }
@@ -254,21 +254,21 @@ func (s *Service) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOpt
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("AI供应商不存在")
 	}
 	apiKey, err := s.secretbox.Decrypt(row.APIKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
 	}
 	models, listErr := s.openAIDriver().ListModels(ctx, provider.Config{Driver: row.EngineType, BaseURL: normalizeProviderBaseURL(row.EngineType, row.BaseURL), APIKey: apiKey, TimeoutMs: 10000})
 	if listErr != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", listErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", listErr)
 	}
 	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
 }
@@ -283,14 +283,14 @@ func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsRespo
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("AI供应商不存在")
 	}
 	apiKey, err := s.secretbox.Decrypt(row.APIKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
@@ -302,12 +302,12 @@ func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsRespo
 		fields["last_model_sync_status"] = provider.HealthFailed
 		fields["last_model_sync_error"] = truncateErrorString(listErr.Error())
 		_ = repo.Update(ctx, id, fields)
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "同步OpenAI模型失败", listErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "同步OpenAI模型失败", listErr)
 	}
 	fields["last_model_sync_status"] = provider.HealthOK
 	fields["last_model_sync_error"] = ""
 	if err := repo.Update(ctx, id, fields); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "更新AI供应商模型同步状态失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI供应商模型同步状态失败", err)
 	}
 	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
 }
@@ -322,7 +322,7 @@ func (s *Service) ListProviderModels(ctx context.Context, id uint64) (*ProviderM
 	}
 	models, err := repo.ListModels(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 	}
 	list, appErr := providerModelDTOs(models)
 	if appErr != nil {
@@ -341,7 +341,7 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
@@ -351,7 +351,7 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 		return appErr
 	}
 	if err := repo.ReplaceModels(ctx, id, models); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return nil
 }
@@ -366,13 +366,13 @@ func (s *Service) Delete(ctx context.Context, id uint64) *apperror.Error {
 	}
 	row, err := repo.Get(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商失败", err)
 	}
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
 	if err := repo.Delete(ctx, id); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除AI供应商失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除AI供应商失败", err)
 	}
 	return nil
 }

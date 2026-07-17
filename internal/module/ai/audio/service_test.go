@@ -162,7 +162,7 @@ func TestGenerateRejectsNonCanvasAudioScene(t *testing.T) {
 		RunRecorder:   &fakeRunRecorder{},
 	}).Generate(context.Background(), GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello"})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.audio.agent_unavailable" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.audio.agent_unavailable" {
 		t.Fatalf("expected agent_unavailable, got %#v", appErr)
 	}
 }

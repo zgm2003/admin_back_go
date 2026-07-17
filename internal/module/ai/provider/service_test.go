@@ -391,7 +391,7 @@ func TestCreateRejectsDuplicateTypeName(t *testing.T) {
 	service := NewService(&fakeRepository{exists: true}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "该驱动下已存在同名供应商" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "该驱动下已存在同名供应商" {
 		t.Fatalf("expected duplicate error, got %#v", appErr)
 	}
 }

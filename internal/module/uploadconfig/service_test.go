@@ -203,7 +203,7 @@ func TestServiceRequiresRepositoryForDriverList(t *testing.T) {
 	service := NewService(nil, nil)
 
 	_, appErr := service.DriverList(context.Background(), DriverListQuery{CurrentPage: 1, PageSize: 20})
-	if appErr == nil || appErr.Code != apperror.CodeInternal {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected repository not configured error, got %#v", appErr)
 	}
 }
@@ -239,7 +239,7 @@ func TestDriverCreateRejectsDuplicateDriverBucket(t *testing.T) {
 	service := NewService(&fakeRepository{driverExists: true}, &box)
 
 	_, appErr := service.CreateDriver(context.Background(), DriverCreateInput{Driver: enum.UploadDriverCOS, SecretID: "sid", SecretKey: "skey", Bucket: "bucket-a", Region: "ap-nanjing", AppID: "1314"})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || !strings.Contains(appErr.Message, "同一驱动下该桶已存在") {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || !strings.Contains(appErr.Message, "同一驱动下该桶已存在") {
 		t.Fatalf("expected duplicate bucket error, got %#v", appErr)
 	}
 }
@@ -390,7 +390,7 @@ func TestDriverDeleteRejectsReferencedDriver(t *testing.T) {
 	service := NewService(&fakeRepository{driverReferenced: true}, nil)
 
 	appErr := service.DeleteDrivers(context.Background(), []int64{1})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "上传驱动已被上传设置引用，无法删除" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "上传驱动已被上传设置引用，无法删除" {
 		t.Fatalf("expected referenced delete rejection, got %#v", appErr)
 	}
 }

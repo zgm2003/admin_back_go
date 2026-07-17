@@ -38,11 +38,11 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	}
 	agents, err := repo.AgentOptions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体选项失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体选项失败", err)
 	}
 	engines, err := repo.ProviderOptions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
 	agentOptions := optionItems(agents)
 	return &InitResponse{Dict: InitDict{
@@ -61,7 +61,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	query = normalizeListQuery(query)
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行记录失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行记录失败", err)
 	}
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -80,18 +80,18 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	}
 	row, err := repo.Detail(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行详情失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行详情失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("AI运行记录不存在")
 	}
 	events, err := repo.Events(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行事件失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行事件失败", err)
 	}
 	toolCalls, err := repo.ToolCalls(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具调用失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI工具调用失败", err)
 	}
 	knowledgeRetrievals, appErr := s.knowledgeRetrievalItems(ctx, repo, id)
 	if appErr != nil {
@@ -104,7 +104,7 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 func (s *Service) knowledgeRetrievalItems(ctx context.Context, repo Repository, runID int64) ([]KnowledgeRetrievalItem, *apperror.Error) {
 	rows, err := repo.KnowledgeRetrievals(ctx, runID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索记录失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI知识库检索记录失败", err)
 	}
 	if len(rows) == 0 {
 		return []KnowledgeRetrievalItem{}, nil
@@ -115,7 +115,7 @@ func (s *Service) knowledgeRetrievalItems(ctx context.Context, repo Repository, 
 	}
 	hits, err := repo.KnowledgeRetrievalHits(ctx, retrievalIDs)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI知识库检索命中失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI知识库检索命中失败", err)
 	}
 	hitsByRetrieval := make(map[int64][]KnowledgeHitRow, len(rows))
 	for _, hit := range hits {
@@ -136,7 +136,7 @@ func (s *Service) Stats(ctx context.Context, query StatsFilter) (*StatsResponse,
 	query = normalizeStatsFilter(query)
 	row, err := repo.StatsSummary(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行统计失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行统计失败", err)
 	}
 	rate := float64(0)
 	if row.TotalRuns > 0 {
@@ -157,7 +157,7 @@ func (s *Service) StatsByDate(ctx context.Context, query StatsListQuery) (*Stats
 	query = normalizeStatsListQuery(query)
 	rows, total, err := repo.StatsByDate(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行日期统计失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行日期统计失败", err)
 	}
 	list := make([]StatsByDateItem, 0, len(rows))
 	for _, row := range rows {
@@ -174,7 +174,7 @@ func (s *Service) StatsByAgent(ctx context.Context, query StatsListQuery) (*Stat
 	query = normalizeStatsListQuery(query)
 	rows, total, err := repo.StatsByAgent(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行智能体统计失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行智能体统计失败", err)
 	}
 	list := make([]StatsByAgentItem, 0, len(rows))
 	for _, row := range rows {
@@ -191,7 +191,7 @@ func (s *Service) StatsByUser(ctx context.Context, query StatsListQuery) (*Stats
 	query = normalizeStatsListQuery(query)
 	rows, total, err := repo.StatsByUser(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI运行用户统计失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行用户统计失败", err)
 	}
 	list := make([]StatsByUserItem, 0, len(rows))
 	for _, row := range rows {

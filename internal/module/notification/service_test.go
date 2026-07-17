@@ -103,7 +103,7 @@ func TestListRejectsInvalidEnumFilters(t *testing.T) {
 	service := NewService(&fakeRepository{})
 
 	_, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, UserID: 1, Platform: "admin", Type: ptrInt(99)})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "notification.type.invalid" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "notification.type.invalid" {
 		t.Fatalf("expected invalid type error, got %#v", appErr)
 	}
 
@@ -165,7 +165,7 @@ func TestDeleteRequiresAtLeastOneIDAndNormalizes(t *testing.T) {
 	}
 
 	appErr = service.Delete(context.Background(), Identity{UserID: 12, Platform: "admin"}, nil)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "notification.delete.empty" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "notification.delete.empty" {
 		t.Fatalf("expected empty delete error, got %#v", appErr)
 	}
 }

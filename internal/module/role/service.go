@@ -76,7 +76,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	query.Name = strings.TrimSpace(query.Name)
 	rows, total, err := s.repository.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 
 	roleIDs := make([]int64, 0, len(rows))
@@ -85,11 +85,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	permissionMap, err := s.repository.PermissionIDsByRoleIDs(ctx, roleIDs)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色权限失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色权限失败", err)
 	}
 	activePermissions, err := s.repository.AllActivePermissions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询权限失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
 
 	list := make([]ListItem, 0, len(rows))
@@ -126,11 +126,11 @@ func (s *Service) Create(ctx context.Context, input MutationInput) (int64, *appe
 
 	deletedRole, err := s.repository.FindDeletedByName(ctx, input.Name)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "查询已删除角色失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询已删除角色失败", err)
 	}
 	exists, err := s.repository.ExistsByName(ctx, input.Name, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验角色名失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验角色名失败", err)
 	}
 	if exists {
 		return 0, apperror.BadRequest("角色名已存在")
@@ -150,7 +150,7 @@ func (s *Service) Create(ctx context.Context, input MutationInput) (int64, *appe
 			return tx.SyncPermissions(ctx, deletedRole.ID, input.PermissionIDs)
 		})
 		if err != nil {
-			return 0, apperror.Wrap(apperror.CodeInternal, 500, "恢复角色失败", err)
+			return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "恢复角色失败", err)
 		}
 		return roleID, nil
 	}
@@ -168,7 +168,7 @@ func (s *Service) Create(ctx context.Context, input MutationInput) (int64, *appe
 		return tx.SyncPermissions(ctx, id, input.PermissionIDs)
 	})
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增角色失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增角色失败", err)
 	}
 	return roleID, nil
 }
@@ -183,7 +183,7 @@ func (s *Service) Update(ctx context.Context, id int64, input MutationInput) *ap
 
 	role, err := s.repository.RoleByID(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 	if role == nil {
 		return apperror.NotFound("角色不存在")
@@ -195,7 +195,7 @@ func (s *Service) Update(ctx context.Context, id int64, input MutationInput) *ap
 	}
 	exists, err := s.repository.ExistsByName(ctx, input.Name, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验角色名失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验角色名失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("角色名已存在")
@@ -207,7 +207,7 @@ func (s *Service) Update(ctx context.Context, id int64, input MutationInput) *ap
 		}
 		return tx.SyncPermissions(ctx, id, input.PermissionIDs)
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新角色失败", err)
 	}
 
 	if appErr := s.invalidateRoleUsers(ctx, []int64{id}); appErr != nil {
@@ -227,7 +227,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 
 	roles, err := s.repository.RolesByIDs(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 	if len(roles) == 0 {
 		return apperror.NotFound("角色不存在")
@@ -237,14 +237,14 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	}
 	hasDefault, err := s.repository.HasDefaultIn(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验默认角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验默认角色失败", err)
 	}
 	if hasDefault {
 		return apperror.BadRequest("默认角色不能删除")
 	}
 	userCount, err := s.repository.CountUsersByRoleIDs(ctx, ids)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验角色用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验角色用户失败", err)
 	}
 	if userCount > 0 {
 		return apperror.BadRequest("角色已绑定用户，不能删除")
@@ -256,7 +256,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 		}
 		return tx.DeleteRolePermissionsByRoleIDs(ctx, ids)
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除角色失败", err)
 	}
 	return nil
 }
@@ -271,7 +271,7 @@ func (s *Service) SetDefault(ctx context.Context, id int64) *apperror.Error {
 
 	role, err := s.repository.RoleByID(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 	if role == nil {
 		return apperror.NotFound("角色不存在")
@@ -283,7 +283,7 @@ func (s *Service) SetDefault(ctx context.Context, id int64) *apperror.Error {
 		}
 		return tx.SetDefault(ctx, id)
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "设置默认角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "设置默认角色失败", err)
 	}
 	return nil
 }
@@ -299,7 +299,7 @@ func (s *Service) normalizeMutation(ctx context.Context, input MutationInput) (M
 
 	activePermissions, err := s.repository.AllActivePermissions(ctx)
 	if err != nil {
-		return input, apperror.Wrap(apperror.CodeInternal, 500, "查询权限失败", err)
+		return input, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
 	input.PermissionIDs = normalizeAssignablePermissionIDs(input.PermissionIDs, activePermissions)
 	return input, nil
@@ -311,12 +311,12 @@ func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *app
 	}
 	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, roleIDs)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
 	}
 	for _, userID := range normalizeIDs(userIDs) {
 		for _, platform := range s.platforms {
 			if err := s.cacheInvalidator.Delete(ctx, permission.RouteAccessCacheKey(userID, platform)); err != nil {
-				return apperror.Wrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
+				return apperror.LegacyWrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
 			}
 		}
 	}

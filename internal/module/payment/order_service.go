@@ -33,7 +33,7 @@ func (s *Service) OrderPageInit(ctx context.Context) (*OrderPageInitResponse, *a
 	}
 	rows, err := repo.ListEnabledOrderConfigOptions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置选项失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置选项失败", err)
 	}
 	options := make([]OrderConfigOption, 0, len(rows))
 	for _, row := range rows {
@@ -70,7 +70,7 @@ func (s *Service) ListOrders(ctx context.Context, query OrderListQuery) (*OrderL
 	query.Status = strings.TrimSpace(query.Status)
 	rows, total, err := repo.ListOrders(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
 	}
 	list := make([]OrderListItem, 0, len(rows))
 	for _, row := range rows {
@@ -134,7 +134,7 @@ func (s *Service) CreateOrder(ctx context.Context, input OrderCreateInput) (*Ord
 	}
 	id, err := repo.CreateOrder(ctx, row)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "新增支付订单失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "新增支付订单失败", err)
 	}
 	return &OrderCreateResponse{ID: id, OrderNo: row.OrderNo, Status: row.Status}, nil
 }
@@ -157,7 +157,7 @@ func (s *Service) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *a
 	now := s.now()
 	if !row.ExpiredAt.IsZero() && !now.Before(row.ExpiredAt) {
 		if err := repo.UpdateOrderClosed(ctx, row.ID, now); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭过期支付订单失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭过期支付订单失败", err)
 		}
 		return &OrderPayResponse{ID: row.ID, OrderNo: row.OrderNo, Status: orderStatusClosed, PayURL: row.PayURL}, nil
 	}
@@ -183,7 +183,7 @@ func (s *Service) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *a
 	})
 	if err != nil {
 		_ = repo.UpdateOrderFailed(ctx, row.ID, err.Error())
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
 	}
 	payURL := ""
 	if result != nil {
@@ -192,13 +192,13 @@ func (s *Service) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *a
 	if payURL == "" {
 		err := fmt.Errorf("alipay: empty pay url")
 		_ = repo.UpdateOrderFailed(ctx, row.ID, err.Error())
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
 	}
 	if err := repo.UpdateOrderPaying(ctx, row.ID, payURL); err != nil {
 		if errors.Is(err, ErrPaymentStateChanged) {
 			return s.payOrderChangedResponse(ctx, row.ID)
 		}
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付链接失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付链接失败", err)
 	}
 	latest, appErr := s.orderByID(ctx, row.ID)
 	if appErr != nil {
@@ -248,7 +248,7 @@ func (s *Service) SyncOrder(ctx context.Context, id int64) (*OrderStatusResponse
 			resp := orderStatusResponse(*latest)
 			return &resp, nil
 		}
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "同步支付宝订单状态失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "同步支付宝订单状态失败", err)
 	}
 	switch strings.TrimSpace(resultStatus(result)) {
 	case "TRADE_SUCCESS", "TRADE_FINISHED":
@@ -293,7 +293,7 @@ func (s *Service) CloseOrder(ctx context.Context, id int64) (*OrderStatusRespons
 		return nil, apperror.BadRequest("已支付订单不能关闭")
 	case orderStatusPending, orderStatusFailed:
 		if err := repo.UpdateOrderClosed(ctx, row.ID, now); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭支付订单失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭支付订单失败", err)
 		}
 	case orderStatusPaying:
 		cfg, appErr := s.configByOrder(ctx, row)
@@ -309,10 +309,10 @@ func (s *Service) CloseOrder(ctx context.Context, id int64) (*OrderStatusRespons
 			return nil, appErr
 		}
 		if err := gw.Close(ctx, platformCfg, row.OrderNo); err != nil && !isAlipayTradeNotExistError(err) {
-			return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "关闭支付宝订单失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "关闭支付宝订单失败", err)
 		}
 		if err := repo.UpdateOrderClosed(ctx, row.ID, now); err != nil {
-			return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭支付订单失败", err)
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭支付订单失败", err)
 		}
 	default:
 		return nil, apperror.BadRequest("当前支付订单状态不能关闭")
@@ -335,7 +335,7 @@ func (s *Service) orderByID(ctx context.Context, id int64) (*Order, *apperror.Er
 	}
 	row, err := repo.GetOrder(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("支付订单不存在")
@@ -361,7 +361,7 @@ func (s *Service) enabledConfigByCode(ctx context.Context, code string) (*Config
 	}
 	cfg, err := repo.GetConfigByCode(ctx, strings.TrimSpace(code))
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 	}
 	if cfg == nil {
 		return nil, apperror.NotFound("支付配置不存在")
@@ -385,7 +385,7 @@ func (s *Service) configByOrder(ctx context.Context, row *Order) (*Config, *appe
 	}
 	cfg, err := repo.GetConfigByIDForSettlement(ctx, row.ConfigID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 	}
 	if cfg == nil {
 		return nil, apperror.NotFound("支付配置不存在")
@@ -411,22 +411,22 @@ func (s *Service) gatewayConfigFromConfig(cfg Config) (gateway.ChannelConfig, *a
 	}
 	privateKey, err := s.secretbox.Decrypt(cfg.PrivateKeyEnc)
 	if err != nil {
-		return gateway.ChannelConfig{}, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解密支付宝应用私钥失败", err)
+		return gateway.ChannelConfig{}, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解密支付宝应用私钥失败", err)
 	}
 	if strings.TrimSpace(privateKey) == "" {
 		return gateway.ChannelConfig{}, apperror.BadRequest("支付宝应用私钥未配置")
 	}
 	appCertPath, err := s.certResolver.Resolve(cfg.AppCertPath)
 	if err != nil {
-		return gateway.ChannelConfig{}, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "应用公钥证书不可用", err)
+		return gateway.ChannelConfig{}, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "应用公钥证书不可用", err)
 	}
 	alipayCertPath, err := s.certResolver.Resolve(cfg.PlatformCertPath)
 	if err != nil {
-		return gateway.ChannelConfig{}, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝公钥证书不可用", err)
+		return gateway.ChannelConfig{}, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝公钥证书不可用", err)
 	}
 	rootCertPath, err := s.certResolver.Resolve(cfg.RootCertPath)
 	if err != nil {
-		return gateway.ChannelConfig{}, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝根证书不可用", err)
+		return gateway.ChannelConfig{}, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝根证书不可用", err)
 	}
 	return gateway.ChannelConfig{
 		Provider:         cfg.Provider,

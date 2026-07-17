@@ -253,7 +253,7 @@ func TestUploadReferenceMediaRejectsInvalidInput(t *testing.T) {
 
 	for _, input := range cases {
 		_, appErr := service.UploadReferenceMedia(context.Background(), input)
-		if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 			t.Fatalf("expected bad request for %#v, got %#v", input, appErr)
 		}
 	}
@@ -475,7 +475,7 @@ func TestContentRejectsMissingProviderTaskID(t *testing.T) {
 	if appErr == nil || appErr.MessageID != "canvas.ai.video.provider_task_missing" {
 		t.Fatalf("expected missing provider task error, got %#v", appErr)
 	}
-	if appErr.Code != apperror.CodeInternal {
+	if appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("provider task missing is stored-state inconsistency, expected code=500, got %#v", appErr)
 	}
 }
@@ -498,7 +498,7 @@ func TestCreateRejectsNonCanvasVideoScene(t *testing.T) {
 
 	_, appErr := NewService(Dependencies{Repository: &fakeRepository{agent: agent}, Secretbox: box, EngineFactory: &fakeEngineFactory{engine: &fakeVideoEngine{}}}).Create(context.Background(), CreateInput{UserID: 7, AgentID: 8, Prompt: "clip"})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.video.agent_unavailable" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.video.agent_unavailable" {
 		t.Fatalf("expected canvas video scene rejection, got %#v", appErr)
 	}
 }

@@ -110,7 +110,7 @@ func (s *Service) ListConfigs(ctx context.Context, query ConfigListQuery) (*Conf
 	query.Environment = strings.TrimSpace(query.Environment)
 	rows, total, err := repo.ListConfigs(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 	}
 	list := make([]ConfigListItem, 0, len(rows))
 	for _, row := range rows {
@@ -140,7 +140,7 @@ func (s *Service) CreateConfig(ctx context.Context, input ConfigMutationInput) (
 	}
 	id, err := repo.CreateConfig(ctx, cfg)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "新增支付配置失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "新增支付配置失败", err)
 	}
 	return id, nil
 }
@@ -155,7 +155,7 @@ func (s *Service) UpdateConfig(ctx context.Context, id int64, input ConfigMutati
 	}
 	existing, err := repo.GetConfig(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 	}
 	if existing == nil {
 		return apperror.NotFound("支付配置不存在")
@@ -174,7 +174,7 @@ func (s *Service) UpdateConfig(ctx context.Context, id int64, input ConfigMutati
 		}
 	}
 	if err := repo.UpdateConfig(ctx, cfg, keepPrivateKey); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "编辑支付配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "编辑支付配置失败", err)
 	}
 	return nil
 }
@@ -192,7 +192,7 @@ func (s *Service) ChangeConfigStatus(ctx context.Context, id int64, status int) 
 		var err error
 		cfg, err = repo.GetConfig(ctx, id)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 		}
 		if cfg == nil {
 			return apperror.NotFound("支付配置不存在")
@@ -204,7 +204,7 @@ func (s *Service) ChangeConfigStatus(ctx context.Context, id int64, status int) 
 		var err error
 		cfg, err = repo.GetConfig(ctx, id)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 		}
 		if cfg == nil {
 			return apperror.NotFound("支付配置不存在")
@@ -214,7 +214,7 @@ func (s *Service) ChangeConfigStatus(ctx context.Context, id int64, status int) 
 		}
 	}
 	if err := repo.ChangeConfigStatus(ctx, id, status); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "切换支付配置状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "切换支付配置状态失败", err)
 	}
 	return nil
 }
@@ -229,7 +229,7 @@ func (s *Service) DeleteConfig(ctx context.Context, id int64) *apperror.Error {
 	}
 	cfg, err := repo.GetConfig(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 	}
 	if cfg == nil {
 		return apperror.NotFound("支付配置不存在")
@@ -238,7 +238,7 @@ func (s *Service) DeleteConfig(ctx context.Context, id int64) *apperror.Error {
 		return appErr
 	}
 	if err := repo.DeleteConfig(ctx, id); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "删除支付配置失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "删除支付配置失败", err)
 	}
 	return nil
 }
@@ -255,7 +255,7 @@ func (s *Service) UploadCertificate(ctx context.Context, input CertificateUpload
 		Reader:     input.Reader,
 	})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "上传支付宝证书失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "上传支付宝证书失败", err)
 	}
 	return &CertificateUploadResponse{Path: result.Path, FileName: result.FileName, SHA256: result.SHA256, Size: result.Size}, nil
 }
@@ -270,7 +270,7 @@ func (s *Service) TestConfig(ctx context.Context, id int64) (*ConfigTestResponse
 	}
 	cfg, err := repo.GetConfig(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付配置失败", err)
 	}
 	if cfg == nil {
 		return nil, apperror.NotFound("支付配置不存在")
@@ -286,7 +286,7 @@ func (s *Service) ensureNoOpenOrdersForConfig(ctx context.Context, repo Reposito
 	for _, status := range orderOpenStatuses {
 		rows, total, err := repo.ListOrders(ctx, OrderListQuery{ConfigCode: code, Status: status, CurrentPage: 1, PageSize: 1})
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
 		}
 		if total > 0 || len(rows) > 0 {
 			return apperror.BadRequest("支付配置存在未完成支付订单，不能修改、禁用或删除")
@@ -350,14 +350,14 @@ func (s *Service) normalizeMutation(input ConfigMutationInput, existing *Config,
 		}
 		enc, err := s.secretbox.Encrypt(key)
 		if err != nil {
-			return Config{}, false, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "加密支付宝应用私钥失败", err)
+			return Config{}, false, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "加密支付宝应用私钥失败", err)
 		}
 		keyEnc = enc
 		keyHint = secretbox.Hint(key)
 	}
 	methodsJSON, err := json.Marshal(methods)
 	if err != nil {
-		return Config{}, false, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "编码支付方式失败", err)
+		return Config{}, false, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "编码支付方式失败", err)
 	}
 	return Config{
 		Provider:           provider,
@@ -388,7 +388,7 @@ func (s *Service) testConfigRow(ctx context.Context, cfg Config) (*ConfigTestRes
 		return nil, appErr
 	}
 	if err := s.gateway.TestConfig(ctx, platformCfg); err != nil {
-		return nil, apperror.Wrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝配置测试失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "支付宝配置测试失败", err)
 	}
 	return &ConfigTestResponse{OK: true, Checks: []string{"private_key_decrypted", "cert_paths_resolved", "alipay_client_built"}, Message: "支付宝配置本地校验通过"}, nil
 }
@@ -456,7 +456,7 @@ func normalizeEnabledMethods(values []string) ([]string, *apperror.Error) {
 func decodeEnabledMethods(raw string) ([]string, *apperror.Error) {
 	var methods []string
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &methods); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "解析支付方式失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "解析支付方式失败", err)
 	}
 	return normalizeEnabledMethods(methods)
 }

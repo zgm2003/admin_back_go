@@ -8,10 +8,21 @@ import (
 )
 
 type Body struct {
-	Code int    `json:"code"`
-	Data any    `json:"data"`
-	Msg  string `json:"msg"`
+	Code  int        `json:"code"`
+	Data  any        `json:"data"`
+	Msg   string     `json:"msg"`
+	Error *ErrorMeta `json:"error,omitempty"`
 }
+
+type ErrorMeta struct {
+	Code      string            `json:"code"`
+	Category  apperror.Category `json:"category"`
+	Retryable bool              `json:"retryable"`
+	RequestID string            `json:"request_id,omitempty"`
+	TraceID   string            `json:"trace_id,omitempty"`
+}
+
+const contextApplicationError = "response.application_error"
 
 func OK(c *gin.Context, data any) {
 	OKWithMessage(c, data, "ok")
@@ -55,6 +66,7 @@ func ErrorWithData(c *gin.Context, err *apperror.Error, data any) {
 	if data == nil {
 		data = gin.H{}
 	}
+	c.Set(contextApplicationError, err)
 
 	message := err.Message
 	if localized, localizeErr := projecti18n.Message(c, err.MessageID, err.TemplateData, err.Message); localizeErr == nil && localized != "" {
@@ -62,10 +74,44 @@ func ErrorWithData(c *gin.Context, err *apperror.Error, data any) {
 	}
 
 	c.JSON(err.HTTPStatus, Body{
-		Code: err.Code,
+		Code: err.LegacyCode,
 		Data: data,
 		Msg:  message,
+		Error: &ErrorMeta{
+			Code:      err.Code,
+			Category:  err.Category,
+			Retryable: err.Retryable(),
+			RequestID: correlationValue(c, "request_id", "X-Request-Id"),
+			TraceID:   correlationValue(c, "trace_id", "X-Trace-Id"),
+		},
 	})
+}
+
+func GetError(c *gin.Context) *apperror.Error {
+	if c == nil {
+		return nil
+	}
+	value, exists := c.Get(contextApplicationError)
+	if !exists {
+		return nil
+	}
+	err, _ := value.(*apperror.Error)
+	return err
+}
+
+func correlationValue(c *gin.Context, contextKey string, header string) string {
+	if c == nil {
+		return ""
+	}
+	if value, exists := c.Get(contextKey); exists {
+		if text, ok := value.(string); ok && text != "" {
+			return text
+		}
+	}
+	if c.Request == nil {
+		return ""
+	}
+	return c.GetHeader(header)
 }
 
 func Abort(c *gin.Context, err *apperror.Error) {

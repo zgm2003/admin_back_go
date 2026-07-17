@@ -469,7 +469,7 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	}
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
@@ -479,7 +479,7 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	}
 	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
 	}
 	return engine, nil
 }

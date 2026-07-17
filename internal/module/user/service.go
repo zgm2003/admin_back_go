@@ -126,7 +126,7 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 
 	currentUser, err := s.repository.FindUser(ctx, input.UserID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return nil, apperror.NotFound("用户不存在")
@@ -134,12 +134,12 @@ func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *ap
 
 	profile, err := s.repository.FindProfile(ctx, currentUser.ID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户资料失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户资料失败", err)
 	}
 
 	role, err := s.repository.FindRole(ctx, currentUser.RoleID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 
 	roleName := ""
@@ -180,11 +180,11 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 
 	roles, err := s.repository.RoleOptions(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色字典失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色字典失败", err)
 	}
 	addressDict, err := s.loadAddressDict(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询地址字典失败", err)
 	}
 
 	roleOptions := make([]RoleOption, 0, len(roles))
@@ -215,7 +215,7 @@ func (s *Service) Profile(ctx context.Context, userID int64, currentUserID int64
 
 	currentUser, err := s.repository.FindUser(ctx, userID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return nil, apperror.NotFound("用户不存在")
@@ -223,7 +223,7 @@ func (s *Service) Profile(ctx context.Context, userID int64, currentUserID int64
 
 	profile, err := s.repository.FindProfile(ctx, userID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户资料失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户资料失败", err)
 	}
 	if profile == nil {
 		profile = &Profile{UserID: userID, Sex: enum.SexUnknown}
@@ -231,12 +231,12 @@ func (s *Service) Profile(ctx context.Context, userID int64, currentUserID int64
 
 	role, findRoleErr := s.repository.FindRole(ctx, currentUser.RoleID)
 	if findRoleErr != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", findRoleErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", findRoleErr)
 	}
 
 	addressDict, findAddressErr := s.loadAddressDict(ctx)
 	if findAddressErr != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", findAddressErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询地址字典失败", findAddressErr)
 	}
 
 	return &ProfileResponse{
@@ -261,11 +261,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	rows, total, err := s.repository.List(ctx, normalized)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询用户列表失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户列表失败", err)
 	}
 	addressDict, err := s.loadAddressDict(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询地址字典失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询地址字典失败", err)
 	}
 
 	list := make([]ListItem, 0, len(rows))
@@ -303,7 +303,7 @@ func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportRespons
 	}
 	rows, err := s.repository.ExportUsersByIDs(ctx, ids)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询导出用户失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询导出用户失败", err)
 	}
 	if len(rows) == 0 {
 		return nil, apperror.NotFound("导出用户不存在")
@@ -315,7 +315,7 @@ func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportRespons
 		Title:    "用户列表导出",
 	})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建导出任务失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建导出任务失败", err)
 	}
 	task, err := exporttask.NewRunTask(exporttask.RunPayload{
 		TaskID:   taskID,
@@ -327,11 +327,11 @@ func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportRespons
 	})
 	if err != nil {
 		_ = s.exportTaskCreator.MarkFailed(ctx, taskID, err.Error())
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "构建导出任务失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "构建导出任务失败", err)
 	}
 	if _, err := s.exportEnqueuer.Enqueue(ctx, task); err != nil {
 		_ = s.exportTaskCreator.MarkFailed(ctx, taskID, err.Error())
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "提交导出任务失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "提交导出任务失败", err)
 	}
 	return &ExportResponse{ID: taskID, Message: "导出任务已提交，完成后将通知您"}, nil
 }
@@ -346,7 +346,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 
 	currentUser, err := s.repository.FindUser(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
@@ -358,7 +358,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	}
 	role, err := s.repository.RoleByID(ctx, normalized.RoleID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询角色失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色失败", err)
 	}
 	if role == nil {
 		return apperror.NotFound("角色不存在")
@@ -380,7 +380,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 			"bio":            normalized.Bio,
 		})
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新用户失败", err)
 	}
 
 	if roleChanged {
@@ -399,7 +399,7 @@ func (s *Service) UpdateProfile(ctx context.Context, input UpdateProfileInput) *
 
 	currentUser, err := s.repository.FindUser(ctx, input.UserID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
@@ -427,7 +427,7 @@ func (s *Service) UpdateProfile(ctx context.Context, input UpdateProfileInput) *
 			"bio":            normalized.Bio,
 		})
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新个人资料失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新个人资料失败", err)
 	}
 	return nil
 }
@@ -446,7 +446,7 @@ func (s *Service) UpdatePassword(ctx context.Context, input UpdatePasswordInput)
 
 	currentUser, err := s.repository.FindUser(ctx, input.UserID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
@@ -470,13 +470,13 @@ func (s *Service) UpdatePassword(ctx context.Context, input UpdatePasswordInput)
 
 	hash, err := hashUserPassword(normalized.NewPassword)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "密码加密失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "密码加密失败", err)
 	}
 	if err := s.repository.UpdateUser(ctx, input.UserID, map[string]any{
 		"password":   hash,
 		"updated_at": time.Now(),
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新密码失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新密码失败", err)
 	}
 	return nil
 }
@@ -494,14 +494,14 @@ func (s *Service) UpdateEmail(ctx context.Context, input UpdateEmailInput) *appe
 	}
 	currentUser, err := s.repository.FindUser(ctx, input.UserID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
 	}
 	exists, err := s.repository.ExistsEmailForOtherUser(ctx, input.UserID, normalized.Email)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验邮箱失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验邮箱失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("邮箱已被绑定")
@@ -513,7 +513,7 @@ func (s *Service) UpdateEmail(ctx context.Context, input UpdateEmailInput) *appe
 		"email":      normalized.Email,
 		"updated_at": time.Now(),
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新邮箱失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新邮箱失败", err)
 	}
 	return nil
 }
@@ -531,14 +531,14 @@ func (s *Service) UpdatePhone(ctx context.Context, input UpdatePhoneInput) *appe
 	}
 	currentUser, err := s.repository.FindUser(ctx, input.UserID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
 	}
 	exists, err := s.repository.ExistsPhoneForOtherUser(ctx, input.UserID, normalized.Phone)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验手机号失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验手机号失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("手机号已被绑定")
@@ -550,7 +550,7 @@ func (s *Service) UpdatePhone(ctx context.Context, input UpdatePhoneInput) *appe
 		"phone":      normalized.Phone,
 		"updated_at": time.Now(),
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新手机号失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新手机号失败", err)
 	}
 	return nil
 }
@@ -568,13 +568,13 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 
 	currentUser, err := s.repository.FindUser(ctx, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询用户失败", err)
 	}
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
 	}
 	if err := s.repository.UpdateStatus(ctx, id, status); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "修改用户状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "修改用户状态失败", err)
 	}
 	return nil
 }
@@ -590,7 +590,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	if err := s.repository.WithTx(ctx, func(tx Repository) error {
 		return tx.SoftDelete(ctx, ids)
 	}); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除用户失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除用户失败", err)
 	}
 	return nil
 }
@@ -604,7 +604,7 @@ func (s *Service) BatchUpdateProfile(ctx context.Context, input BatchProfileUpda
 		return appErr
 	}
 	if err := s.repository.BatchUpdateProfile(ctx, normalized); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "批量修改用户资料失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "批量修改用户资料失败", err)
 	}
 	return nil
 }
@@ -636,7 +636,7 @@ func (s *Service) invalidateUserRouteAccessGrantCache(ctx context.Context, userI
 	}
 	for _, platform := range s.platforms {
 		if err := s.routeAccessCache.Delete(ctx, permission.RouteAccessCacheKey(userID, platform)); err != nil {
-			return apperror.Wrap(apperror.CodeInternal, 500, "清理用户权限缓存失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "清理用户权限缓存失败", err)
 		}
 	}
 	return nil
@@ -815,13 +815,13 @@ func (s *Service) verifyCode(ctx context.Context, accountType string, scene stri
 	key := verifycode.CacheKey(accountType, scene, account)
 	cached, err := s.verifyCodeStore.Get(ctx, key)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "验证码缓存读取失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "验证码缓存读取失败", err)
 	}
 	if cached == "" || cached != strings.TrimSpace(code) {
 		return apperror.BadRequest("验证码错误或已失效")
 	}
 	if err := s.verifyCodeStore.Delete(ctx, key); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "验证码消费失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "验证码消费失败", err)
 	}
 	return nil
 }

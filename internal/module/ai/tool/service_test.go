@@ -144,7 +144,7 @@ func TestCreateRejectsArrayStringOrNullSchemas(t *testing.T) {
 			Name: "查询当前用户量", Code: "admin_user_count", Description: "desc",
 			ParametersJSON: schema, ResultSchemaJSON: json.RawMessage(`{"type":"object"}`), RiskLevel: RiskLow, TimeoutMS: 3000, Status: enum.CommonYes,
 		})
-		if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 			t.Fatalf("schema %s should be rejected, got %#v", string(schema), appErr)
 		}
 	}
@@ -177,7 +177,7 @@ func TestCreateRejectsEnabledToolWhenCodeHasNoServerImplementation(t *testing.T)
 		Name: "未知工具", Code: "unknown_tool", Description: "desc",
 		ParametersJSON: json.RawMessage(`{"type":"object"}`), ResultSchemaJSON: json.RawMessage(`{"type":"object"}`), RiskLevel: RiskLow, TimeoutMS: 3000, Status: enum.CommonYes,
 	})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("enabled tool with unknown code should be rejected, got %#v", appErr)
 	}
 }
@@ -211,7 +211,7 @@ func TestGeneratePageInitListsAgentGenerateOptions(t *testing.T) {
 func TestGenerateDraftRejectsMissingAgentGenerateAgent(t *testing.T) {
 	repo := &fakeRepository{}
 	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 99, UserID: 7, Requirement: "生成查询用户数工具"})
-	if appErr == nil || appErr.Code != apperror.CodeNotFound {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeNotFound {
 		t.Fatalf("missing generate agent should be rejected, got %#v", appErr)
 	}
 }
@@ -219,7 +219,7 @@ func TestGenerateDraftRejectsMissingAgentGenerateAgent(t *testing.T) {
 func TestGenerateDraftRejectsBlankRequirement(t *testing.T) {
 	repo := &fakeRepository{}
 	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "   "})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("blank requirement should be rejected, got %#v", appErr)
 	}
 }
@@ -312,7 +312,7 @@ func TestChangeStatusRejectsEnableWhenCodeHasNoServerImplementation(t *testing.T
 	}}
 	service := NewService(repo, DefaultExecutors(repo))
 	appErr := service.ChangeStatus(context.Background(), 7, enum.CommonYes)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("enable should be rejected when code has no server implementation, got %#v", appErr)
 	}
 	if repo.statusID != 0 {

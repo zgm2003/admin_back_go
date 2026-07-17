@@ -117,7 +117,7 @@ func TestCreateRejectsDuplicateVersionPlatform(t *testing.T) {
 	_, appErr := service.Create(context.Background(), CreateInput{
 		Version: "1.0.8", Platform: enum.ClientPlatformWindowsX8664, FileURL: "https://example.com/app.exe", Signature: "sig",
 	})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "clientversion.version.duplicate" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "clientversion.version.duplicate" {
 		t.Fatalf("expected duplicate version error, got %#v", appErr)
 	}
 }
@@ -168,7 +168,7 @@ func TestSetLatestPublishFailureReturnsError(t *testing.T) {
 	service := NewService(repo, &fakePublisher{fail: errors.New("cos down")})
 
 	appErr := service.SetLatest(context.Background(), 8)
-	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.MessageID != "clientversion.manifest_publish_failed" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || appErr.MessageID != "clientversion.manifest_publish_failed" {
 		t.Fatalf("expected publish failure, got %#v", appErr)
 	}
 }
@@ -181,7 +181,7 @@ func TestDeleteRejectsLatestAndSoftDeletesNonLatest(t *testing.T) {
 	service := NewService(repo, nil)
 
 	appErr := service.Delete(context.Background(), 1)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "clientversion.latest_delete_forbidden" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "clientversion.latest_delete_forbidden" {
 		t.Fatalf("expected latest delete rejection, got %#v", appErr)
 	}
 	appErr = service.Delete(context.Background(), 2)
@@ -198,7 +198,7 @@ func TestForceUpdateValidatesValueAndUpdates(t *testing.T) {
 	service := NewService(repo, nil)
 
 	appErr := service.ForceUpdate(context.Background(), 3, 9)
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.MessageID != "clientversion.force_update.invalid" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "clientversion.force_update.invalid" {
 		t.Fatalf("expected invalid force_update rejection, got %#v", appErr)
 	}
 	appErr = service.ForceUpdate(context.Background(), 3, enum.CommonYes)

@@ -1,7 +1,9 @@
 package response
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,6 +34,58 @@ func TestErrorWritesUnifiedBody(t *testing.T) {
 	}
 	if data, ok := body["data"].(map[string]any); !ok || len(data) != 0 {
 		t.Fatalf("expected empty data object, got %#v", body["data"])
+	}
+}
+
+func TestResponseErrorAddsSafeClassifiedMetadataAndInternalCause(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cause := errors.New("dial mysql user:secret@tcp(private:3306)")
+	appErr := apperror.Wrap(
+		"dependency.mysql",
+		apperror.CategoryDependency,
+		http.StatusServiceUnavailable,
+		apperror.Retryable,
+		"common.dependency_unavailable",
+		nil,
+		"服务暂不可用",
+		cause,
+	)
+
+	var contextErr *apperror.Error
+	router := gin.New()
+	router.GET("/probe", func(c *gin.Context) {
+		c.Set("request_id", "req-1")
+		c.Set("trace_id", "trace-1")
+		Error(c, appErr)
+		contextErr = GetError(c)
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/probe", nil))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, recorder.Code)
+	}
+	if !errors.Is(contextErr, cause) {
+		t.Fatalf("internal cause was not attached to Gin context: %+v", contextErr)
+	}
+	if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) || bytes.Contains(recorder.Body.Bytes(), []byte("private")) {
+		t.Fatalf("cause leaked in response: %s", recorder.Body.String())
+	}
+
+	body := decodeBody(t, recorder)
+	if body["code"] != float64(apperror.CodeInternal) {
+		t.Fatalf("expected legacy top-level code %d, got %#v", apperror.CodeInternal, body["code"])
+	}
+	meta, ok := body["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected classified error metadata, got %#v", body["error"])
+	}
+	if meta["code"] != "dependency.mysql" || meta["category"] != "dependency" || meta["retryable"] != true {
+		t.Fatalf("unexpected error metadata: %#v", meta)
+	}
+	if meta["request_id"] != "req-1" || meta["trace_id"] != "trace-1" {
+		t.Fatalf("missing correlation metadata: %#v", meta)
 	}
 }
 

@@ -131,7 +131,7 @@ func TestCreateRejectsMissingActiveProvider(t *testing.T) {
 		Status:     enum.CommonYes,
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "AI供应商不存在或已禁用" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "AI供应商不存在或已禁用" {
 		t.Fatalf("expected missing active connection error, got %#v", appErr)
 	}
 }
@@ -213,7 +213,7 @@ func TestCreateRejectsRetiredImageGenerateScene(t *testing.T) {
 		Status:     enum.CommonYes,
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
 		t.Fatalf("expected retired image_generate scene to be rejected, got %#v", appErr)
 	}
 	if repo.created != nil {
@@ -260,7 +260,7 @@ func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 		Status:     enum.CommonYes,
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "关联模型不存在或已禁用" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "关联模型不存在或已禁用" {
 		t.Fatalf("expected invalid model error, got %#v", appErr)
 	}
 }
@@ -280,7 +280,7 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 		Status:     enum.CommonYes,
 	})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
 		t.Fatalf("expected invalid scene error, got %#v", appErr)
 	}
 }
@@ -291,7 +291,7 @@ func TestListRejectsRetiredImageGenerateSceneFilter(t *testing.T) {
 
 	_, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Scene: "image_generate"})
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
 		t.Fatalf("expected retired image_generate list scene filter to be rejected, got %#v", appErr)
 	}
 	if repo.listQuery.Scene != "" {
@@ -371,7 +371,7 @@ func TestOptionsRejectsRetiredImageGenerateSceneFilter(t *testing.T) {
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "image_generate"})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
 		t.Fatalf("expected retired image_generate scene filter to be rejected, got %#v", appErr)
 	}
 	if repo.optionQuery.Scene != "" {
@@ -383,7 +383,7 @@ func TestOptionsRejectsInvalidSceneFilter(t *testing.T) {
 	service := NewService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "rag"})
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
 		t.Fatalf("expected invalid scene error, got %#v", appErr)
 	}
 }
@@ -450,7 +450,7 @@ func TestTestReturnsUpstreamError(t *testing.T) {
 	service := NewService(repo, box, &fakeAIAgentTester{err: errors.New("upstream failed")})
 
 	_, appErr := service.Test(context.Background(), 5)
-	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "测试AI智能体失败" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || appErr.Message != "测试AI智能体失败" {
 		t.Fatalf("expected wrapped upstream error, got %#v", appErr)
 	}
 }

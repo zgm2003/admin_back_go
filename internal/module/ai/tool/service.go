@@ -67,7 +67,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	query = normalizeListQuery(query)
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI工具失败", err)
 	}
 	list := make([]ToolDTO, 0, len(rows))
 	for _, row := range rows {
@@ -83,7 +83,7 @@ func (s *Service) GeneratePageInit(ctx context.Context) (*GeneratePageInitRespon
 	}
 	options, err := repo.ListGenerateAgents(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI生成智能体失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI生成智能体失败", err)
 	}
 	if options == nil {
 		options = []GenerateAgentOption{}
@@ -118,7 +118,7 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 	}
 	agent, err := repo.GetGenerateAgentConfig(ctx, input.AgentID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI生成智能体失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI生成智能体失败", err)
 	}
 	if agent == nil {
 		return nil, apperror.NotFound("AI生成智能体不存在或未启用")
@@ -141,7 +141,7 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 		},
 	}, discardEventSink{})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "AI生成工具草稿失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI生成工具草稿失败", err)
 	}
 	if result == nil || strings.TrimSpace(result.Answer) == "" {
 		return nil, apperror.Internal("AI生成工具草稿为空")
@@ -187,14 +187,14 @@ func (s *Service) Create(ctx context.Context, input MutationInput) (uint64, *app
 	}
 	exists, err := repo.ExistsByCode(ctx, row.Code, 0)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "校验AI工具编码失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI工具编码失败", err)
 	}
 	if exists {
 		return 0, apperror.BadRequest("AI工具编码已存在")
 	}
 	id, err := repo.Create(ctx, row)
 	if err != nil {
-		return 0, apperror.Wrap(apperror.CodeInternal, 500, "新增AI工具失败", err)
+		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI工具失败", err)
 	}
 	return id, nil
 }
@@ -219,13 +219,13 @@ func (s *Service) Update(ctx context.Context, id uint64, input MutationInput) *a
 	}
 	exists, err := repo.ExistsByCode(ctx, row.Code, id)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "校验AI工具编码失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI工具编码失败", err)
 	}
 	if exists {
 		return apperror.BadRequest("AI工具编码已存在")
 	}
 	if err := repo.Update(ctx, id, toolUpdateFields(row)); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "编辑AI工具失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "编辑AI工具失败", err)
 	}
 	return nil
 }
@@ -249,7 +249,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id uint64, status int) *appe
 		return apperror.BadRequest("AI工具编码未注册服务端实现")
 	}
 	if err := repo.ChangeStatus(ctx, id, status); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "切换AI工具状态失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "切换AI工具状态失败", err)
 	}
 	return nil
 }
@@ -266,7 +266,7 @@ func (s *Service) Delete(ctx context.Context, id uint64) *apperror.Error {
 		return appErr
 	}
 	if err := repo.Delete(ctx, id); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "删除AI工具失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除AI工具失败", err)
 	}
 	return nil
 }
@@ -281,18 +281,18 @@ func (s *Service) AgentTools(ctx context.Context, agentID uint64) (*AgentToolsRe
 	}
 	exists, err := repo.AgentExists(ctx, agentID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
 	if !exists {
 		return nil, apperror.NotFound("AI智能体不存在")
 	}
 	bound, err := repo.ListBoundToolIDs(ctx, agentID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询智能体工具绑定失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询智能体工具绑定失败", err)
 	}
 	active, err := repo.ListAllActiveToolIDs(ctx)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询可绑定AI工具失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询可绑定AI工具失败", err)
 	}
 	return &AgentToolsResponse{AgentID: agentID, ToolIDs: uniqueSorted(bound), ActiveToolIDs: uniqueSorted(active)}, nil
 }
@@ -307,7 +307,7 @@ func (s *Service) UpdateAgentTools(ctx context.Context, agentID uint64, input Up
 	}
 	exists, err := repo.AgentExists(ctx, agentID)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
 	if !exists {
 		return apperror.NotFound("AI智能体不存在")
@@ -315,7 +315,7 @@ func (s *Service) UpdateAgentTools(ctx context.Context, agentID uint64, input Up
 	toolIDs := uniqueSorted(input.ToolIDs)
 	activeIDs, err := repo.ListAllActiveToolIDs(ctx)
 	if err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "查询可绑定AI工具失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询可绑定AI工具失败", err)
 	}
 	activeSet := make(map[uint64]bool, len(activeIDs))
 	for _, id := range activeIDs {
@@ -327,7 +327,7 @@ func (s *Service) UpdateAgentTools(ctx context.Context, agentID uint64, input Up
 		}
 	}
 	if err := repo.ReplaceAgentTools(ctx, agentID, toolIDs); err != nil {
-		return apperror.Wrap(apperror.CodeInternal, 500, "更新智能体工具绑定失败", err)
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新智能体工具绑定失败", err)
 	}
 	return nil
 }
@@ -342,7 +342,7 @@ func (s *Service) ListRuntimeTools(ctx context.Context, agentID uint64) ([]Runti
 	}
 	rows, err := repo.ListRuntimeTools(ctx, agentID)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询智能体运行工具失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询智能体运行工具失败", err)
 	}
 	out := make([]RuntimeTool, 0, len(rows))
 	for _, row := range rows {
@@ -369,7 +369,7 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (*ExecuteResu
 	startedAt := s.nowTime()
 	callID, err := repo.StartToolCall(ctx, StartToolCallInput{RunID: input.RunID, ToolID: input.Tool.ID, ToolCode: input.Tool.Code, ToolName: input.Tool.Name, CallID: input.CallID, ArgumentsJSON: input.Arguments, StartedAt: startedAt})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI工具调用记录失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI工具调用记录失败", err)
 	}
 	executor := s.executors[strings.TrimSpace(input.Tool.Code)]
 	if executor == nil {
@@ -391,17 +391,17 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (*ExecuteResu
 			status = ToolCallTimeout
 		}
 		_ = repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: status, ErrorMessage: execErr.Error(), DurationMS: durationMS(startedAt, finishedAt), FinishedAt: finishedAt})
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "执行AI工具失败", execErr)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "执行AI工具失败", execErr)
 	}
 	output, err := json.Marshal(result)
 	if err != nil {
 		msg := "AI工具结果不是合法JSON"
 		_ = repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: ToolCallFailed, ErrorMessage: msg, DurationMS: durationMS(startedAt, finishedAt), FinishedAt: finishedAt})
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, msg, err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, msg, err)
 	}
 	raw := json.RawMessage(output)
 	if err := repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: ToolCallSuccess, ResultJSON: &raw, DurationMS: durationMS(startedAt, finishedAt), FinishedAt: finishedAt}); err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "更新AI工具调用记录失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI工具调用记录失败", err)
 	}
 	return &ExecuteResult{CallID: input.CallID, Name: input.Tool.Code, Output: raw}, nil
 }
@@ -423,7 +423,7 @@ func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgen
 	}
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, apperror.BadRequest("AI供应商API Key未配置")
@@ -433,7 +433,7 @@ func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgen
 	}
 	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "创建AI工具生成引擎失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI工具生成引擎失败", err)
 	}
 	return engine, nil
 }
@@ -603,7 +603,7 @@ func schemaMap(raw string, msg string) (map[string]any, *apperror.Error) {
 func getToolOrNotFound(ctx context.Context, repo Repository, id uint64) (*Tool, *apperror.Error) {
 	row, err := repo.GetRaw(ctx, id)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, 500, "查询AI工具失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI工具失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("AI工具不存在")

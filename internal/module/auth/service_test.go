@@ -482,7 +482,7 @@ func TestServiceLoginRejectsWrongPasswordAndLogsFailure(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "账号或密码错误" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "账号或密码错误" {
 		t.Fatalf("expected wrong password error, got %#v", appErr)
 	}
 	if len(repo.attempts) != 1 || repo.attempts[0].IsSuccess != commonNo || repo.attempts[0].Reason != "wrong_password" {
@@ -522,7 +522,7 @@ func TestServiceLoginRejectsWrongPasswordAndEnqueuesFailure(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected wrong password error, got %#v", appErr)
 	}
 	if len(repo.attempts) != 0 {
@@ -559,7 +559,7 @@ func TestServiceLoginRejectsMissingCaptchaBeforeCredentialLookup(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "请完成验证码" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "请完成验证码" {
 		t.Fatalf("expected missing captcha error, got %#v", appErr)
 	}
 	if repo.phoneQuery != "" {
@@ -593,7 +593,7 @@ func TestServiceLoginRejectsInvalidCaptchaBeforeCredentialLookup(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
 		t.Fatalf("expected invalid captcha error, got %#v", appErr)
 	}
 	if repo.phoneQuery != "" {
@@ -712,7 +712,7 @@ func TestServiceCodeLoginRejectsRegisterWhenPlatformDisallowsIt(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "暂未开放注册" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "暂未开放注册" {
 		t.Fatalf("expected register disabled error, got %#v", appErr)
 	}
 	if store.deleted != "" {
@@ -749,7 +749,7 @@ func TestServiceCodeLoginRejectsInvalidCodeAndEnqueuesFailure(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected invalid code error, got %#v", appErr)
 	}
 	if len(repo.attempts) != 0 {

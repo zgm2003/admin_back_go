@@ -360,7 +360,7 @@ func TestServiceBuildContextRejectsInvalidPlatform(t *testing.T) {
 
 	_, appErr := svc.BuildContextByRole(context.Background(), 1, "unknown")
 
-	if appErr == nil || appErr.Code != 100 {
+	if appErr == nil || appErr.LegacyCode != 100 {
 		t.Fatalf("expected bad request app error, got %#v", appErr)
 	}
 }
@@ -370,7 +370,7 @@ func TestServiceBuildContextWrapsRepositoryError(t *testing.T) {
 
 	_, appErr := svc.BuildContextByRole(context.Background(), 1, "admin")
 
-	if appErr == nil || appErr.Code != 500 {
+	if appErr == nil || appErr.LegacyCode != 500 {
 		t.Fatalf("expected internal app error, got %#v", appErr)
 	}
 }

@@ -380,7 +380,7 @@ func TestAuthenticatorRejectsInvalidCurrentPlatform(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || appErr.Message != "无效的平台标识" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的平台标识" {
 		t.Fatalf("expected invalid platform app error, got %#v", appErr)
 	}
 }
@@ -408,7 +408,7 @@ func TestAuthenticatorRejectsPlatformMismatchWhenPolicyBindsPlatform(t *testing.
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "平台不匹配" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "平台不匹配" {
 		t.Fatalf("expected platform mismatch app error, got %#v", appErr)
 	}
 }
@@ -440,7 +440,7 @@ func TestAuthenticatorRejectsDeviceMismatchWhenPolicyBindsDevice(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "设备变更，请重新登录" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "设备变更，请重新登录" {
 		t.Fatalf("expected device mismatch app error, got %#v", appErr)
 	}
 }
@@ -473,7 +473,7 @@ func TestAuthenticatorRejectsIPMismatchWhenPolicyBindsIPAndDeletesRedis(t *testi
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "IP地址变动" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "IP地址变动" {
 		t.Fatalf("expected ip mismatch app error, got %#v", appErr)
 	}
 	if cache.deletedKey != cacheKey {
@@ -517,7 +517,7 @@ func TestAuthenticatorRejectsStaleSingleSessionAndDeletesRedis(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "账号已在其他设备登录" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "账号已在其他设备登录" {
 		t.Fatalf("expected stale single session app error, got %#v", appErr)
 	}
 	if cache.deletedKey != cacheKey {
@@ -587,7 +587,7 @@ func TestAuthenticatorRejectsExpiredCachedSessionAndDeletesRedis(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized {
 		t.Fatalf("expected token expired app error, got %#v", appErr)
 	}
 }
@@ -608,7 +608,7 @@ func TestAuthenticatorFailsClosedWithoutRepositoryOnCacheMiss(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "Token认证未配置" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "Token认证未配置" {
 		t.Fatalf("expected token auth not configured, got %#v", appErr)
 	}
 }
@@ -630,7 +630,7 @@ func TestAuthenticatorReturnsServerErrorOnRepositoryFailure(t *testing.T) {
 	if identity != nil {
 		t.Fatalf("expected nil identity, got %#v", identity)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeInternal {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected internal error, got %#v", appErr)
 	}
 }
@@ -781,7 +781,7 @@ func TestAuthenticatorCreateRejectsPolicyWithoutTokenTTL(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil token result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "认证平台Token有效期未配置" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || appErr.Message != "认证平台Token有效期未配置" {
 		t.Fatalf("expected missing platform ttl error, got %#v", appErr)
 	}
 }
@@ -816,7 +816,7 @@ func TestAuthenticatorRefreshRejectsPolicyWithoutAccessTTL(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil token result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeInternal || appErr.Message != "认证平台Token有效期未配置" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || appErr.Message != "认证平台Token有效期未配置" {
 		t.Fatalf("expected missing platform ttl error, got %#v", appErr)
 	}
 }
@@ -833,7 +833,7 @@ func TestAuthenticatorRefreshRejectsInvalidRefreshToken(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "缺少刷新令牌" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "缺少刷新令牌" {
 		t.Fatalf("expected missing refresh token error, got %#v", appErr)
 	}
 }
@@ -864,7 +864,7 @@ func TestAuthenticatorRefreshRejectsExpiredRefreshSession(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "刷新令牌已过期，请重新登录" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "刷新令牌已过期，请重新登录" {
 		t.Fatalf("expected expired refresh token error, got %#v", appErr)
 	}
 }
@@ -902,7 +902,7 @@ func TestAuthenticatorRefreshRejectsStaleSingleSession(t *testing.T) {
 	if result != nil {
 		t.Fatalf("expected nil result, got %#v", result)
 	}
-	if appErr == nil || appErr.Code != apperror.CodeUnauthorized || appErr.Message != "账号已在其他设备登录，请重新登录" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeUnauthorized || appErr.Message != "账号已在其他设备登录，请重新登录" {
 		t.Fatalf("expected stale session error, got %#v", appErr)
 	}
 }

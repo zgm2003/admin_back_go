@@ -97,7 +97,7 @@ func TestServiceCreateRejectsMissingRequiredFields(t *testing.T) {
 		{Slug: "slug", Title: "Title", Prompt: ""},
 	} {
 		_, appErr := svc.Create(context.Background(), input)
-		if appErr == nil || appErr.Code != apperror.CodeBadRequest {
+		if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 			t.Fatalf("expected CodeBadRequest for %#v, got %#v", input, appErr)
 		}
 	}
@@ -108,12 +108,12 @@ func TestServiceRepositoryErrorsReturnInternal(t *testing.T) {
 	svc := NewService(&fakePromptRepository{err: repoErr})
 
 	_, appErr := svc.PublicList(context.Background(), ListQuery{})
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped CodeInternal list error, got %#v", appErr)
 	}
 
 	_, appErr = svc.Create(context.Background(), Input{Slug: "cat", Title: "Cat", Prompt: "draw cat"})
-	if appErr == nil || appErr.Code != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, repoErr) {
 		t.Fatalf("expected wrapped CodeInternal create error, got %#v", appErr)
 	}
 }
@@ -157,25 +157,25 @@ func TestServiceRejectsInvalidPromptStatusAndIDs(t *testing.T) {
 	repo := &fakePromptRepository{}
 	svc := NewService(repo)
 
-	if _, appErr := svc.List(context.Background(), ListQuery{Status: 999}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if _, appErr := svc.List(context.Background(), ListQuery{Status: 999}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request list status, got %#v", appErr)
 	}
-	if _, appErr := svc.Create(context.Background(), Input{Slug: "cat", Title: "Cat", Prompt: "draw cat", Status: 999}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if _, appErr := svc.Create(context.Background(), Input{Slug: "cat", Title: "Cat", Prompt: "draw cat", Status: 999}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request create status, got %#v", appErr)
 	}
-	if appErr := svc.Update(context.Background(), 0, Input{Slug: "cat", Title: "Cat", Prompt: "draw cat"}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.Update(context.Background(), 0, Input{Slug: "cat", Title: "Cat", Prompt: "draw cat"}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request update id, got %#v", appErr)
 	}
-	if appErr := svc.ChangeStatus(context.Background(), 7, 999); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.ChangeStatus(context.Background(), 7, 999); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request change status, got %#v", appErr)
 	}
-	if appErr := svc.DeleteOne(context.Background(), 0); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.DeleteOne(context.Background(), 0); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request delete id, got %#v", appErr)
 	}
-	if appErr := svc.DeleteBatch(context.Background(), []int64{3, 0}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.DeleteBatch(context.Background(), []int64{3, 0}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request batch ids, got %#v", appErr)
 	}
-	if appErr := svc.DeleteBatch(context.Background(), []int64{3, 3}); appErr == nil || appErr.Code != apperror.CodeBadRequest {
+	if appErr := svc.DeleteBatch(context.Background(), []int64{3, 3}); appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("expected bad request duplicate batch ids, got %#v", appErr)
 	}
 }
@@ -184,7 +184,7 @@ func TestServiceDetailFailsClosedWhenRepositoryReturnsNilRow(t *testing.T) {
 	svc := NewService(&fakePromptRepository{detailNil: true})
 
 	_, appErr := svc.Detail(context.Background(), 7)
-	if appErr == nil || appErr.Code != apperror.CodeNotFound {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeNotFound {
 		t.Fatalf("expected not found for nil detail row, got %#v", appErr)
 	}
 }

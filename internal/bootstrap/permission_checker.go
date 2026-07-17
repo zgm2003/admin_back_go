@@ -51,7 +51,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 
 		currentUser, err := repository.FindUser(ctx, input.UserID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户失败", err)
 		}
 		if currentUser == nil {
 			return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
@@ -62,7 +62,7 @@ func PermissionCheckerFor(repository permissionUserRepository, builder permissio
 
 		role, err := repository.FindRole(ctx, currentUser.RoleID)
 		if err != nil {
-			return apperror.Wrap(apperror.CodeInternal, http.StatusInternalServerError, "查询角色失败", err)
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询角色失败", err)
 		}
 		if role == nil {
 			return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")

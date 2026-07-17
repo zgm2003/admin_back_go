@@ -57,7 +57,7 @@ func TestChannelVerifyCodePolicyProviderRejectsUnknownAccountType(t *testing.T) 
 
 	got, appErr := provider.VerifyCodeTTL(context.Background(), "password")
 
-	if appErr == nil || appErr.Code != apperror.CodeBadRequest || got != 0 {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || got != 0 {
 		t.Fatalf("ttl=%s err=%#v", got, appErr)
 	}
 }
@@ -86,7 +86,7 @@ func TestChannelVerifyCodePolicyProviderRequiresConfiguredProviders(t *testing.T
 		t.Run(tt.name, func(t *testing.T) {
 			provider := NewChannelVerifyCodePolicyProvider(tt.email, tt.phone)
 			got, appErr := provider.VerifyCodeTTL(context.Background(), tt.accountType)
-			if appErr == nil || appErr.Code != apperror.CodeInternal || got != 0 {
+			if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || got != 0 {
 				t.Fatalf("ttl=%s err=%#v", got, appErr)
 			}
 		})
