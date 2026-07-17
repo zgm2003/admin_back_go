@@ -3,9 +3,13 @@ Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $scriptPath = Join-Path $repoRoot 'scripts\docker-platform.ps1'
+$stabilityScriptPath = Join-Path $repoRoot 'scripts\tests\docker-stability.tests.ps1'
 
 if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
   throw 'docker-platform.ps1 is missing'
+}
+if (-not (Test-Path -LiteralPath $stabilityScriptPath -PathType Leaf)) {
+  throw 'docker-stability.tests.ps1 is missing'
 }
 
 $content = [IO.File]::ReadAllText($scriptPath)
@@ -29,6 +33,24 @@ foreach ($required in @(
 
 if ($content -match '(?i)down\s+-v|--volumes') {
   throw 'lifecycle script must not delete volumes'
+}
+
+$stabilityContent = [IO.File]::ReadAllText($stabilityScriptPath)
+foreach ($required in @(
+  "'--ip', `$oldAPIAddress",
+  "'--no-deps', '--no-build', 'admin-api'",
+  "'--force-recreate', 'admin-api', 'admin-worker'",
+  "'stop', '--signal', 'SIGTERM'",
+  'RestartCount',
+  'org.opencontainers.image.revision',
+  'finally'
+)) {
+  if (-not $stabilityContent.Contains($required)) {
+    throw "missing Docker stability contract: $required"
+  }
+}
+if ($stabilityContent -match '(?i)down\s+-v|--volumes|volume\s+rm') {
+  throw 'Docker stability regression must not delete volumes'
 }
 
 $buildNeedle = "Invoke-Docker @('compose', '-f', `$appCompose, 'build', 'admin-api', 'frontend')"
