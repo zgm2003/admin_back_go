@@ -11,6 +11,7 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $stateCompose = Join-Path $repoRoot 'deploy\docker-state\docker-compose.yml'
 $appCompose = Join-Path $repoRoot 'deploy\docker-first\docker-compose.yml'
+$frontendRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '..\admin_front_ts'))
 $stateRuntime = Join-Path $repoRoot 'deploy\docker-state\runtime'
 $mysqlSecret = Join-Path $stateRuntime 'mysql-root-password.txt'
 $backendEnv = Join-Path $repoRoot 'deploy\docker-first\admin-go.env'
@@ -33,6 +34,27 @@ function Invoke-Docker {
   if ($LASTEXITCODE -ne 0) {
     throw "docker exited with code $LASTEXITCODE"
   }
+}
+
+function Resolve-GitRevision {
+  param([Parameter(Mandatory = $true)][string]$Repository)
+
+  if (-not (Test-Path -LiteralPath $Repository -PathType Container)) {
+    throw "repository is missing: $Repository"
+  }
+  $git = Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $git) {
+    $git = Get-Command git -ErrorAction Stop | Select-Object -First 1
+  }
+  $output = & $git.Source -C $Repository rev-parse --verify HEAD 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "could not resolve Git revision for $Repository"
+  }
+  $revision = (($output | Select-Object -Last 1).ToString()).Trim().ToLowerInvariant()
+  if ($revision -notmatch '^[0-9a-f]{40}$') {
+    throw "invalid Git revision for $Repository"
+  }
+  return $revision
 }
 
 function Write-OwnerOnlySecret {
@@ -120,8 +142,19 @@ switch ($Action) {
     if (-not (Test-Path -LiteralPath $backendEnv -PathType Leaf)) {
       throw 'backend runtime env is missing; run init first'
     }
-    Invoke-Docker @('compose', '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
-    Invoke-Docker @('compose', '-f', $appCompose, 'up', '-d', '--build', '--wait', '--wait-timeout', '300')
+    $previousBackendRevision = [Environment]::GetEnvironmentVariable('ADMIN_BACKEND_BUILD_REVISION', 'Process')
+    $previousFrontendRevision = [Environment]::GetEnvironmentVariable('ADMIN_FRONTEND_BUILD_REVISION', 'Process')
+    try {
+      $env:ADMIN_BACKEND_BUILD_REVISION = Resolve-GitRevision -Repository $repoRoot
+      $env:ADMIN_FRONTEND_BUILD_REVISION = Resolve-GitRevision -Repository $frontendRoot
+      Invoke-Docker @('compose', '-f', $appCompose, 'build', 'admin-api', 'frontend')
+      Invoke-Docker @('compose', '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
+      Invoke-Docker @('compose', '-f', $appCompose, 'up', '-d', '--no-build', '--wait', '--wait-timeout', '300')
+    }
+    finally {
+      [Environment]::SetEnvironmentVariable('ADMIN_BACKEND_BUILD_REVISION', $previousBackendRevision, 'Process')
+      [Environment]::SetEnvironmentVariable('ADMIN_FRONTEND_BUILD_REVISION', $previousFrontendRevision, 'Process')
+    }
   }
 
   'stop' {

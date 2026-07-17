@@ -98,7 +98,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 
 	return workerHooks{
 		openResources: func(ctx context.Context) (func(context.Context) Report, CleanupFunc, error) {
-			opened, err := OpenResources(ctx, config.ProcessWorker, cfg, Openers{Telemetry: recorder})
+			opened, err := OpenResourcesWithStartupRetry(ctx, config.ProcessWorker, cfg, Openers{Telemetry: recorder})
 			if err != nil {
 				return nil, nil, err
 			}

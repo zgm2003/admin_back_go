@@ -15,7 +15,12 @@ foreach ($required in @(
   'mysql:3306',
   'redis:6379',
   "'--wait'",
-  'mysql-root-password.txt'
+  'mysql-root-password.txt',
+  'function Resolve-GitRevision',
+  'ADMIN_BACKEND_BUILD_REVISION',
+  'ADMIN_FRONTEND_BUILD_REVISION',
+  "Invoke-Docker @('compose', '-f', `$appCompose, 'build', 'admin-api', 'frontend')",
+  "Invoke-Docker @('compose', '-f', `$appCompose, 'up', '-d', '--no-build', '--wait', '--wait-timeout', '300')"
 )) {
   if (-not $content.Contains($required)) {
     throw "missing lifecycle contract: $required"
@@ -26,12 +31,22 @@ if ($content -match '(?i)down\s+-v|--volumes') {
   throw 'lifecycle script must not delete volumes'
 }
 
+$buildNeedle = "Invoke-Docker @('compose', '-f', `$appCompose, 'build', 'admin-api', 'frontend')"
 $stateNeedle = "Invoke-Docker @('compose', '-f', `$stateCompose, 'up'"
 $appNeedle = "Invoke-Docker @('compose', '-f', `$appCompose, 'up'"
+$buildUp = $content.IndexOf($buildNeedle, [StringComparison]::Ordinal)
 $stateUp = $content.IndexOf($stateNeedle, [StringComparison]::Ordinal)
 $appUp = $content.IndexOf($appNeedle, [StringComparison]::Ordinal)
-if ($stateUp -lt 0 -or $appUp -le $stateUp) {
-  throw 'state must start before app'
+if ($buildUp -lt 0 -or $stateUp -le $buildUp -or $appUp -le $stateUp) {
+  throw 'lifecycle must build once, wait for state, then start app without building'
+}
+
+if ([regex]::Matches($content, [regex]::Escape($buildNeedle)).Count -ne 1) {
+  throw 'lifecycle must contain exactly one application image build phase'
+}
+$forbiddenAppBuild = "Invoke-Docker @('compose', '-f', `$appCompose, 'up', '-d', '--build'"
+if ($content.Contains($forbiddenAppBuild)) {
+  throw 'application up must not build images'
 }
 
 Write-Output 'docker-platform assertions passed'

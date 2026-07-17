@@ -12,6 +12,7 @@ services:
         VITE_GO_API_BASE_URL: http://localhost:5173
         VITE_WEB_SOCKET_URL: ws://localhost:5173/api/admin/v1/realtime/ws
         VITE_PLATFORM: admin
+        BUILD_REVISION: ${ADMIN_FRONTEND_BUILD_REVISION:-unknown}
     restart: unless-stopped
     ports:
       - "127.0.0.1:5173:8080"
@@ -29,6 +30,7 @@ services:
       args:
         GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm
         GO_RUNTIME_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
+        BUILD_REVISION: ${ADMIN_BACKEND_BUILD_REVISION:-unknown}
     command: ["/app/admin-api"]
     restart: unless-stopped
     env_file:
@@ -49,12 +51,6 @@ services:
 
   admin-worker:
     image: admin-go-backend:local
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      args:
-        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm
-        GO_RUNTIME_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
     command: ["/app/admin-worker"]
     restart: unless-stopped
     env_file:
@@ -67,6 +63,12 @@ services:
     depends_on:
       admin-api:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
 networks:
   platform:

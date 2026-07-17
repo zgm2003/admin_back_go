@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/database"
@@ -13,6 +14,17 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 )
+
+const (
+	resourceStartupAttempts = 181
+	resourceStartupDelay    = time.Second
+)
+
+type resourceRetryPolicy struct {
+	Attempts int
+	Delay    time.Duration
+	Wait     func(context.Context, time.Duration) error
+}
 
 type OpenedResource[T any] struct {
 	Client T
@@ -49,6 +61,79 @@ type Resources struct {
 	cleanup      *Cleanup
 	capabilities resourceCapabilities
 	pings        map[string]func(context.Context) error
+}
+
+func OpenResourcesWithStartupRetry(ctx context.Context, process config.Process, cfg config.Config, open Openers) (*Resources, error) {
+	return openResourcesWithStartupRetry(ctx, process, cfg, open, resourceRetryPolicy{
+		Attempts: resourceStartupAttempts,
+		Delay:    resourceStartupDelay,
+		Wait:     waitForResourceRetry,
+	})
+}
+
+func openResourcesWithStartupRetry(
+	ctx context.Context,
+	process config.Process,
+	cfg config.Config,
+	open Openers,
+	policy resourceRetryPolicy,
+) (*Resources, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if policy.Attempts < 1 {
+		policy.Attempts = 1
+	}
+	if policy.Delay < 0 {
+		policy.Delay = 0
+	}
+	if policy.Wait == nil {
+		policy.Wait = waitForResourceRetry
+	}
+
+	for attempt := 1; attempt <= policy.Attempts; attempt++ {
+		resources, err := OpenResources(ctx, process, cfg, open)
+		if err == nil {
+			return resources, nil
+		}
+		if !isRetryableResourceFailure(err) || attempt == policy.Attempts {
+			return nil, err
+		}
+		if err := policy.Wait(ctx, policy.Delay); err != nil {
+			return nil, err
+		}
+	}
+	return nil, errors.New("resource startup retry exhausted without an error")
+}
+
+func isRetryableResourceFailure(err error) bool {
+	var appErr *apperror.Error
+	return errors.As(err, &appErr) && appErr.Category == apperror.CategoryDependency && appErr.Retryable()
+}
+
+func waitForResourceRetry(ctx context.Context, delay time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if delay <= 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func OpenResources(ctx context.Context, process config.Process, cfg config.Config, open Openers) (*Resources, error) {

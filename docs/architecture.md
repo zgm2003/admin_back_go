@@ -24,6 +24,27 @@ inside the pinned Linux Go image; Linux CI runs the same `go test -race` gate
 directly. `verify-backend.ps1` and `verify-go-clean.ps1` both invoke this shared
 gate.
 
+## Docker startup recovery boundary
+
+The local platform runs only through the `admin-state` and `admin-app` Docker
+Compose projects. `scripts/docker-platform.ps1 up` builds the backend image once
+for both API and worker, labels backend/frontend images with their owning Git
+revision, waits for state health, and starts the already-built application with
+`--no-build`. Lifecycle commands never delete state volumes.
+
+Docker Engine may restore both Compose projects concurrently and bypass that
+ordering. API and worker therefore retry the complete, all-or-nothing resource
+graph for a code-owned maximum of 181 attempts (the first attempt plus at most
+180 one-second waits). Every failed attempt closes its partial resources;
+permanent configuration errors still fail immediately. The worker Compose
+health check proves only PID 1 liveness with `kill -0 1`; API `/ready` remains
+the dependency-readiness truth.
+
+The frontend Nginx runtime resolves `admin-api` through Docker's embedded DNS
+resolver instead of retaining its startup address. Runtime and E2E recovery
+tests manipulate and probe only containers; no host API, worker, Vite, MySQL, or
+Redis process is an accepted verification path.
+
 本仓库采用 `Gin modular monolith`。
 
 完整架构规则见：

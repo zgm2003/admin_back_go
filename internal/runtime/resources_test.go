@@ -6,11 +6,149 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/redisclient"
 )
+
+func TestOpenResourcesWithStartupRetryClosesPartialAttemptsBeforePublishing(t *testing.T) {
+	var events []string
+	openers := successfulOpeners(&events)
+	redisAttempts := 0
+	databaseCloses := 0
+
+	openers.Database = func(context.Context, config.MySQLConfig) (OpenedResource[*database.Client], error) {
+		opened := openedDatabase(&events, "database")
+		closeResource := opened.Close
+		opened.Close = func(ctx context.Context) error {
+			databaseCloses++
+			return closeResource(ctx)
+		}
+		return opened, nil
+	}
+	openers.Redis = func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+		redisAttempts++
+		if redisAttempts < 3 {
+			return OpenedResource[*redisclient.Client]{}, errors.New("redis unavailable")
+		}
+		return openedRedis(&events, "redis"), nil
+	}
+
+	waits := 0
+	resources, err := openResourcesWithStartupRetry(
+		t.Context(),
+		config.ProcessAPI,
+		configuredResources(),
+		openers,
+		resourceRetryPolicy{
+			Attempts: 3,
+			Wait: func(context.Context, time.Duration) error {
+				waits++
+				return nil
+			},
+		},
+	)
+	if err != nil || resources == nil {
+		t.Fatalf("resources=%+v err=%v", resources, err)
+	}
+	defer resources.Close(t.Context())
+	if redisAttempts != 3 || waits != 2 || databaseCloses != 2 {
+		t.Fatalf("redis attempts=%d waits=%d database closes=%d", redisAttempts, waits, databaseCloses)
+	}
+}
+
+func TestOpenResourcesWithStartupRetryReturnsLastErrorAtAttemptBound(t *testing.T) {
+	dependencyErr := errors.New("database unavailable")
+	attempts := 0
+	waits := 0
+	openers := Openers{
+		Database: func(context.Context, config.MySQLConfig) (OpenedResource[*database.Client], error) {
+			attempts++
+			return OpenedResource[*database.Client]{}, dependencyErr
+		},
+	}
+
+	resources, err := openResourcesWithStartupRetry(
+		t.Context(),
+		config.ProcessAPI,
+		configuredResources(),
+		openers,
+		resourceRetryPolicy{
+			Attempts: 3,
+			Wait: func(context.Context, time.Duration) error {
+				waits++
+				return nil
+			},
+		},
+	)
+	if resources != nil || !errors.Is(err, dependencyErr) {
+		t.Fatalf("resources=%+v err=%v", resources, err)
+	}
+	if attempts != 3 || waits != 2 {
+		t.Fatalf("attempts=%d waits=%d", attempts, waits)
+	}
+}
+
+func TestOpenResourcesWithStartupRetryDoesNotRetryPermanentFailure(t *testing.T) {
+	cfg := configuredResources()
+	cfg.MySQL.DSN = ""
+	waits := 0
+
+	resources, err := openResourcesWithStartupRetry(
+		t.Context(),
+		config.ProcessAPI,
+		cfg,
+		Openers{},
+		resourceRetryPolicy{
+			Attempts: 3,
+			Wait: func(context.Context, time.Duration) error {
+				waits++
+				return nil
+			},
+		},
+	)
+	if resources != nil || err == nil || !strings.Contains(err.Error(), "database configuration") {
+		t.Fatalf("resources=%+v err=%v", resources, err)
+	}
+	if waits != 0 {
+		t.Fatalf("permanent failure waits=%d", waits)
+	}
+}
+
+func TestOpenResourcesWithStartupRetryStopsWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	openers := Openers{
+		Database: func(context.Context, config.MySQLConfig) (OpenedResource[*database.Client], error) {
+			return OpenedResource[*database.Client]{}, errors.New("database unavailable")
+		},
+	}
+	waits := 0
+
+	resources, err := openResourcesWithStartupRetry(
+		ctx,
+		config.ProcessAPI,
+		configuredResources(),
+		openers,
+		resourceRetryPolicy{
+			Attempts: 3,
+			Delay:    time.Hour,
+			Wait: func(ctx context.Context, delay time.Duration) error {
+				waits++
+				cancel()
+				return waitForResourceRetry(ctx, delay)
+			},
+		},
+	)
+	if resources != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("resources=%+v err=%v", resources, err)
+	}
+	if waits != 1 {
+		t.Fatalf("waits=%d", waits)
+	}
+}
 
 func TestOpenResourcesClosesDatabaseWhenRedisOpenFails(t *testing.T) {
 	redisErr := errors.New("redis open failed")

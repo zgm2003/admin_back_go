@@ -13,11 +13,15 @@ type composeService struct {
 	Image   string   `yaml:"image"`
 	Command []string `yaml:"command"`
 	Build   struct {
-		Context string `yaml:"context"`
+		Context string            `yaml:"context"`
+		Args    map[string]string `yaml:"args"`
 	} `yaml:"build"`
-	Ports    []string `yaml:"ports"`
-	Volumes  []string `yaml:"volumes"`
-	Networks []string `yaml:"networks"`
+	Ports       []string `yaml:"ports"`
+	Volumes     []string `yaml:"volumes"`
+	Networks    []string `yaml:"networks"`
+	Healthcheck struct {
+		Test []string `yaml:"test"`
+	} `yaml:"healthcheck"`
 }
 
 type composeContract struct {
@@ -89,6 +93,21 @@ func TestDockerAppComposeOwnsOnlyApplicationServices(t *testing.T) {
 	if frontend.Build.Context != "../../../admin_front_ts" ||
 		!reflect.DeepEqual(frontend.Ports, []string{"127.0.0.1:5173:8080"}) {
 		t.Fatal("invalid frontend contract")
+	}
+	if frontend.Build.Args["BUILD_REVISION"] != "${ADMIN_FRONTEND_BUILD_REVISION:-unknown}" {
+		t.Fatal("frontend revision build arg is not wired")
+	}
+
+	api := contract.Services["admin-api"]
+	worker := contract.Services["admin-worker"]
+	if api.Build.Context != "../.." || worker.Build.Context != "" {
+		t.Fatal("backend image must be built once by admin-api")
+	}
+	if api.Build.Args["BUILD_REVISION"] != "${ADMIN_BACKEND_BUILD_REVISION:-unknown}" {
+		t.Fatal("backend revision build arg is not wired")
+	}
+	if !reflect.DeepEqual(worker.Healthcheck.Test, []string{"CMD-SHELL", "kill -0 1"}) {
+		t.Fatal("worker must expose PID 1 health")
 	}
 	if !contract.Networks["platform"].External || contract.Networks["platform"].Name != "admin-platform" {
 		t.Fatal("app must consume external admin-platform")
