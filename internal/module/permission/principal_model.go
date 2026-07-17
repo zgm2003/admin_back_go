@@ -70,11 +70,3 @@ func normalizePrincipalSubjects(subjects []PrincipalSubject) []PrincipalSubject 
 	})
 	return result
 }
-
-func principalSubjectsFromVersions(versions []PrincipalVersion) []PrincipalSubject {
-	subjects := make([]PrincipalSubject, 0, len(versions))
-	for _, version := range versions {
-		subjects = append(subjects, PrincipalSubject{UserID: version.UserID, Platform: version.Platform})
-	}
-	return normalizePrincipalSubjects(subjects)
-}

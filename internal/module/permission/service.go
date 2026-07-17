@@ -293,14 +293,6 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	return nil
 }
 
-func (s *Service) invalidatePermissionUsers(ctx context.Context, permissionIDs []int64, includeCascade bool) *apperror.Error {
-	roleIDs, appErr := s.roleIDsByPermissionIDs(ctx, permissionIDs, includeCascade)
-	if appErr != nil {
-		return appErr
-	}
-	return s.invalidateRoleUsers(ctx, roleIDs)
-}
-
 func (s *Service) roleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64, includeCascade bool) ([]int64, *apperror.Error) {
 	permissionIDs = normalizeIDsForMutation(permissionIDs)
 	if len(permissionIDs) == 0 || (s.cacheInvalidator == nil && s.principalMutations == nil) {

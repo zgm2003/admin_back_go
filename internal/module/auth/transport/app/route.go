@@ -10,8 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const routePrefix = "/api/app/v1/auth"
-
 type Dependencies struct {
 	AuthService    authmodule.SessionService
 	CaptchaService authmodule.CaptchaHTTPService

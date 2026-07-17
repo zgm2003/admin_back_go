@@ -288,22 +288,6 @@ func (r *SessionGormRepository) RotateIfRefreshHash(ctx context.Context, session
 	return result.RowsAffected == 1, result.Error
 }
 
-func (r *SessionGormRepository) Rotate(ctx context.Context, sessionID int64, rotation SessionRotation) error {
-	if r == nil || r.db == nil {
-		return ErrSessionRepositoryNotConfigured
-	}
-	return r.db.WithContext(ctx).
-		Model(&Session{}).
-		Where("id = ?", sessionID).
-		Updates(map[string]any{
-			"refresh_token_hash": rotation.RefreshTokenHash,
-			"expires_at":         rotation.ExpiresAt,
-			"last_seen_at":       rotation.LastSeenAt,
-			"ip":                 rotation.IP,
-			"ua":                 rotation.UserAgent,
-		}).Error
-}
-
 func (r *SessionGormRepository) Revoke(ctx context.Context, sessionID int64, revokedAt time.Time) error {
 	if r == nil || r.db == nil {
 		return ErrSessionRepositoryNotConfigured

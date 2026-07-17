@@ -29,6 +29,9 @@ jobs:
         with:
           go-version: 1.26.5
           cache: false
+      - name: Verify identity and route policy
+        shell: pwsh
+        run: ./scripts/verify-identity-routing.ps1
       - name: Verify runtime contracts from clean module cache
         shell: pwsh
         run: ./scripts/verify-go-clean.ps1

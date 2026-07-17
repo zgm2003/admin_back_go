@@ -412,8 +412,8 @@ func validateBackendWorkflow(data []byte) error {
 	}
 
 	steps, _ := yamlPath(root, "jobs", "verify", "steps")
-	if steps.Kind != yaml.SequenceNode || len(steps.Content) != 6 {
-		return fmt.Errorf("verify.steps must contain exactly six blocking steps")
+	if steps.Kind != yaml.SequenceNode || len(steps.Content) != 7 {
+		return fmt.Errorf("verify.steps must contain exactly seven blocking steps")
 	}
 	stepSpecs := []struct {
 		keys   []string
@@ -421,6 +421,7 @@ func validateBackendWorkflow(data []byte) error {
 	}{
 		{[]string{"uses", "with"}, "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"},
 		{[]string{"uses", "with"}, "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"},
+		{[]string{"name", "shell", "run"}, ""},
 		{[]string{"name", "shell", "run"}, ""},
 		{[]string{"uses"}, "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"},
 		{[]string{"name", "uses", "with"}, "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8"},
@@ -446,8 +447,8 @@ func validateBackendWorkflow(data []byte) error {
 	}{
 		{0, []string{"persist-credentials"}},
 		{1, []string{"go-version", "cache"}},
-		{4, []string{"context", "push", "tags", "outputs", "build-args"}},
-		{5, []string{"name", "path", "if-no-files-found", "retention-days"}},
+		{5, []string{"context", "push", "tags", "outputs", "build-args"}},
+		{6, []string{"name", "path", "if-no-files-found", "retention-days"}},
 	} {
 		with, _ := yamlPath(steps.Content[mapping.step], "with")
 		if err := exactYAMLMapping(with, fmt.Sprintf("verify.steps[%d].with", mapping.step), mapping.keys...); err != nil {
@@ -458,15 +459,24 @@ func validateBackendWorkflow(data []byte) error {
 	stepValues := map[int][]yamlExpectation{
 		0: {{"with.persist-credentials", "!!bool", "false"}},
 		1: {{"with.go-version", "!!str", "1.26.5"}, {"with.cache", "!!bool", "false"}},
-		2: {{"shell", "!!str", "pwsh"}, {"run", "!!str", "./scripts/verify-go-clean.ps1"}},
-		4: {
+		2: {
+			{"name", "!!str", "Verify identity and route policy"},
+			{"shell", "!!str", "pwsh"},
+			{"run", "!!str", "./scripts/verify-identity-routing.ps1"},
+		},
+		3: {
+			{"name", "!!str", "Verify runtime contracts from clean module cache"},
+			{"shell", "!!str", "pwsh"},
+			{"run", "!!str", "./scripts/verify-go-clean.ps1"},
+		},
+		5: {
 			{"with.context", "!!str", "."},
 			{"with.push", "!!bool", "false"},
 			{"with.tags", "!!str", "admin-go-backend:" + sha},
 			{"with.outputs", "!!str", "type=docker,dest=/tmp/admin-go-backend.tar"},
 			{"with.build-args", "!!str", "BUILD_REVISION=" + sha},
 		},
-		5: {
+		6: {
 			{"with.name", "!!str", "admin-go-backend-" + sha},
 			{"with.path", "!!str", "/tmp/admin-go-backend.tar"},
 			{"with.if-no-files-found", "!!str", "error"},
