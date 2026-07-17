@@ -22,6 +22,7 @@ var (
 	ErrDuplicateRoute         = errors.New("duplicate route definition")
 	ErrUnknownPermission      = errors.New("unknown permission code")
 	ErrPublicCallbackAudit    = errors.New("public provider callback must not be audited")
+	ErrSuccessStatusInvalid   = errors.New("route success status must be a 2xx status")
 )
 
 type routeKey struct {
@@ -170,6 +171,9 @@ func normalizeDefinition(definition Definition) (Definition, error) {
 	definition.Audit.Title = strings.TrimSpace(definition.Audit.Title)
 	definition.Audit.Reason = strings.TrimSpace(definition.Audit.Reason)
 	definition.Tags = normalizeTags(definition.Tags)
+	if definition.SuccessStatus != 0 && (definition.SuccessStatus < http.StatusOK || definition.SuccessStatus >= http.StatusMultipleChoices) {
+		return Definition{}, fmt.Errorf("%w: %d (%s %s)", ErrSuccessStatusInvalid, definition.SuccessStatus, definition.Method, definition.Path)
+	}
 
 	switch definition.Access.Kind {
 	case AccessPublic, AccessAuthenticated:

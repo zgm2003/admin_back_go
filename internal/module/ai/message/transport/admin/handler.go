@@ -53,7 +53,7 @@ func (h *Handler) Send(c *gin.Context) {
 		return
 	}
 	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, aimessagemodule.SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, Attachments: req.Attachments, RuntimeParams: req.RuntimeParams})
-	writeResult(c, res, appErr)
+	writeAcceptedResult(c, res, appErr)
 }
 
 func (h *Handler) Cancel(c *gin.Context) {
@@ -105,6 +105,14 @@ func writeResult(c *gin.Context, res any, appErr *apperror.Error) {
 		return
 	}
 	response.OK(c, res)
+}
+
+func writeAcceptedResult(c *gin.Context, res any, appErr *apperror.Error) {
+	if appErr != nil {
+		response.Error(c, appErr)
+		return
+	}
+	response.Accepted(c, res)
 }
 
 type nilHTTPService struct{}

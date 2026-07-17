@@ -9,11 +9,11 @@ type listRequest struct {
 
 type sendRequest struct {
 	Content       string                       `json:"content" binding:"max=20000"`
-	RequestID     string                       `json:"request_id" binding:"required,max=80"`
+	RequestID     string                       `json:"request_id" binding:"required,max=64"`
 	Attachments   []aimessagemodule.Attachment `json:"attachments" binding:"omitempty,max=5,dive"`
 	RuntimeParams map[string]float64           `json:"runtime_params" binding:"omitempty"`
 }
 
 type cancelRequest struct {
-	RequestID string `json:"request_id" binding:"required,max=80"`
+	RequestID string `json:"request_id" binding:"required,max=64"`
 }

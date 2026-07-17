@@ -2459,7 +2459,8 @@
         "module": "ai_message",
         "action": "send",
         "title": "发送AI消息"
-      }
+      },
+      "success_status": 202
     },
     {
       "method": "POST",

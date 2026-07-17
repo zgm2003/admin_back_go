@@ -2,8 +2,11 @@ package admincontract
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
+
+	"admin_back_go/internal/server/adminroute"
 )
 
 func TestOpenAPIContainsEveryRuntimeAdminOperation(t *testing.T) {
@@ -80,5 +83,24 @@ func TestOpenAPIUsesStableSafeErrorEnvelope(t *testing.T) {
 		if strings.Contains(string(raw), forbidden) {
 			t.Fatalf("ErrorEnvelope leaks internal field %q", forbidden)
 		}
+	}
+}
+
+func TestOpenAPIUsesDeclaredAcceptedStatus(t *testing.T) {
+	document, err := buildOpenAPI([]adminroute.Definition{{
+		Method:        http.MethodPost,
+		Path:          "/api/admin/v1/ai-conversations/:id/messages",
+		SuccessStatus: http.StatusAccepted,
+		Access:        adminroute.Authenticated(),
+		Audit:         adminroute.Audit("ai_message", "send", "发送AI消息"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := document["paths"].(map[string]any)
+	operation := paths["/api/admin/v1/ai-conversations/{id}/messages"].(map[string]any)["post"].(map[string]any)
+	responses := operation["responses"].(map[string]any)
+	if responses["202"] == nil || responses["200"] != nil {
+		t.Fatalf("unexpected responses: %#v", responses)
 	}
 }

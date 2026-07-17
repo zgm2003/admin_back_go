@@ -60,4 +60,5 @@ type Definition struct {
 	Tags           []string      `json:"tags,omitempty"`
 	RequestSchema  string        `json:"request_schema,omitempty"`
 	ResponseSchema string        `json:"response_schema,omitempty"`
+	SuccessStatus  int           `json:"success_status,omitempty"`
 }

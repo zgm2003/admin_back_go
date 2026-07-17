@@ -22,8 +22,18 @@ func TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("glob active migrations: %v", err)
 	}
-	if len(active) != 1 || filepath.Base(active[0]) != "202607150001_baseline.sql" {
+	if len(active) < 1 || filepath.Base(active[0]) != "202607150001_baseline.sql" {
 		t.Fatalf("active migrations=%v", active)
+	}
+	versionedMigration := regexp.MustCompile(`^[0-9]{12}_[a-z0-9_]+\.sql$`)
+	for index, path := range active {
+		name := filepath.Base(path)
+		if !versionedMigration.MatchString(name) {
+			t.Fatalf("active migration has invalid name %q", name)
+		}
+		if index > 0 && name <= filepath.Base(active[index-1]) {
+			t.Fatalf("active migrations are not strictly ordered: %v", active)
+		}
 	}
 
 	data, err := os.ReadFile(filepath.Join(root, "scripts", "database", "atlas.ps1"))
@@ -40,6 +50,11 @@ func TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(atlasSum), "h1:") || !strings.Contains(string(atlasSum), "202607150001_baseline.sql h1:") {
 		t.Fatalf("Atlas checksum does not cover the baseline migration: %s", atlasSum)
+	}
+	for _, migration := range active {
+		if !strings.Contains(string(atlasSum), filepath.Base(migration)+" h1:") {
+			t.Fatalf("Atlas checksum does not cover %s", filepath.Base(migration))
+		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "atlas.sum")); !os.IsNotExist(err) {
 		t.Fatal("Atlas checksum must have a single source in database/migrations")

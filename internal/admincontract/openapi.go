@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"admin_back_go/internal/server/adminroute"
@@ -132,8 +133,12 @@ func operationResponses(definition adminroute.Definition) map[string]any {
 			"default": errorResponse(),
 		}
 	}
+	status := definition.SuccessStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
 	return map[string]any{
-		"200": map[string]any{
+		strconv.Itoa(status): map[string]any{
 			"description": "Successful response",
 			"content": map[string]any{
 				"application/json": map[string]any{

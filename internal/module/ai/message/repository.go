@@ -3,10 +3,9 @@ package aimessage
 import (
 	"context"
 	"errors"
-	"strings"
-	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -15,14 +14,22 @@ import (
 var ErrRepositoryNotConfigured = errors.New("aimessage repository not configured")
 
 type GormRepository struct {
-	db *gorm.DB
+	db      *gorm.DB
+	replies replycommand.Repository
 }
 
 func NewGormRepository(client *database.Client) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm}
+	return &GormRepository{db: client.Gorm, replies: replycommand.NewGormRepository(client)}
+}
+
+func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {
+	if r == nil || r.replies == nil {
+		return replycommand.CreateReplyResult{}, ErrRepositoryNotConfigured
+	}
+	return r.replies.CreateReply(ctx, input)
 }
 
 func (r *GormRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {
@@ -83,52 +90,4 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Message, 
 		rows = rows[:limit]
 	}
 	return rows, hasMore, nil
-}
-
-func (r *GormRepository) InsertUserMessage(ctx context.Context, input SendRecord) (int64, error) {
-	if r == nil || r.db == nil {
-		return 0, ErrRepositoryNotConfigured
-	}
-	now := time.Now()
-	message := Message{
-		ConversationID: input.ConversationID,
-		Role:           input.Role,
-		ContentType:    input.ContentType,
-		Content:        input.Content,
-		MetaJSON:       input.MetaJSON,
-		IsDel:          enum.CommonNo,
-	}
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&message).Error; err != nil {
-			return err
-		}
-		if err := tx.Table("ai_conversations").
-			Where("id = ? AND is_del = ?", input.ConversationID, enum.CommonNo).
-			Updates(map[string]any{"last_message_at": now, "updated_at": now}).Error; err != nil {
-			return err
-		}
-		title := titleFromContent(input.Content)
-		if title != "" {
-			if err := tx.Table("ai_conversations").Where("id = ? AND is_del = ? AND title = ''", input.ConversationID, enum.CommonNo).Update("title", title).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return message.ID, nil
-}
-
-func titleFromContent(content string) string {
-	content = strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
-	if content == "" {
-		return ""
-	}
-	runes := []rune(content)
-	if len(runes) > 30 {
-		return string(runes[:30])
-	}
-	return content
 }

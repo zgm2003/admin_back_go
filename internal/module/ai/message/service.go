@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -63,7 +64,7 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 }
 
 func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*SendResponse, *apperror.Error) {
-	conversation, appErr := s.requireOwnedConversation(ctx, userID, input.ConversationID)
+	_, appErr := s.requireOwnedConversation(ctx, userID, input.ConversationID)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -91,18 +92,23 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if agent == nil || agent.Status != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
 		return nil, apperror.BadRequest("该智能体不支持对话场景")
 	}
-	userMessageID, err := repo.InsertUserMessage(ctx, SendRecord{ConversationID: input.ConversationID, Role: enum.AIMessageRoleUser, ContentType: "text", Content: content, MetaJSON: metaJSONForSend(attachments, runtimeParams)})
+	created, err := repo.CreateReply(ctx, replycommand.CreateReplyInput{
+		ConversationID: input.ConversationID,
+		UserID:         userID,
+		RequestID:      requestID,
+		Content:        content,
+		MetaJSON:       metaJSONForSend(attachments, runtimeParams),
+	})
 	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI消息失败", err)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "提交AI回复任务失败", err)
 	}
-	if s.replyEnqueuer == nil {
-		return nil, apperror.Internal("AI对话回复队列未配置")
-	}
-	payload := ReplyPayload{ConversationID: conversation.ID, UserID: userID, AgentID: conversation.AgentID, UserMessageID: userMessageID, RequestID: requestID}
-	if err := s.replyEnqueuer.EnqueueConversationReply(ctx, payload); err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI对话回复任务入队失败", err)
-	}
-	return &SendResponse{ConversationID: input.ConversationID, UserMessageID: userMessageID, RequestID: requestID}, nil
+	return &SendResponse{
+		ConversationID: input.ConversationID,
+		UserMessageID:  created.UserMessageID,
+		CommandID:      created.CommandID,
+		RequestID:      created.RequestID,
+		State:          created.State,
+	}, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 )
 
@@ -14,7 +15,9 @@ type fakeRepository struct {
 	agent        *AgentRuntime
 	rows         []Message
 	listQuery    ListQuery
-	sendInput    SendRecord
+	replyInput   replycommand.CreateReplyInput
+	replyResult  replycommand.CreateReplyResult
+	replyErr     error
 }
 
 func (f *fakeRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {
@@ -27,9 +30,12 @@ func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Message, 
 	f.listQuery = query
 	return f.rows, len(f.rows) > query.Limit, nil
 }
-func (f *fakeRepository) InsertUserMessage(ctx context.Context, input SendRecord) (int64, error) {
-	f.sendInput = input
-	return 12, nil
+func (f *fakeRepository) CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {
+	f.replyInput = input
+	if f.replyResult.CommandID == 0 {
+		f.replyResult = replycommand.CreateReplyResult{UserMessageID: 12, CommandID: 99, RequestID: input.RequestID, State: replycommand.StatePending}
+	}
+	return f.replyResult, f.replyErr
 }
 
 type fakeReplyEnqueuer struct {
@@ -73,27 +79,23 @@ func TestListRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
 	}
 }
 
-func TestSendCreatesTextUserMessageAndEnqueuesConversationReply(t *testing.T) {
+func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
 		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
 	}
-	enq := &fakeReplyEnqueuer{}
-	res, appErr := NewService(repo, WithReplyEnqueuer(enq)).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid"})
+	res, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid"})
 	if appErr != nil {
 		t.Fatalf("Send returned error: %v", appErr)
 	}
-	if res.UserMessageID != 12 || res.ConversationID != 3 || res.RequestID != "rid" {
+	if res.UserMessageID != 12 || res.CommandID != 99 || res.ConversationID != 3 || res.RequestID != "rid" || res.State != replycommand.StatePending {
 		t.Fatalf("unexpected response: %#v", res)
 	}
-	if repo.sendInput.Content != "hello" || repo.sendInput.ContentType != "text" || repo.sendInput.Role != enum.AIMessageRoleUser {
-		t.Fatalf("unexpected send input: %#v", repo.sendInput)
+	if repo.replyInput.Content != "hello" || repo.replyInput.ConversationID != 3 || repo.replyInput.UserID != 7 || repo.replyInput.RequestID != "rid" {
+		t.Fatalf("unexpected durable reply input: %#v", repo.replyInput)
 	}
-	if repo.sendInput.MetaJSON != nil {
-		t.Fatalf("empty metadata must be stored as nil, got %#v", repo.sendInput.MetaJSON)
-	}
-	if enq.payload.ConversationID != 3 || enq.payload.UserID != 7 || enq.payload.AgentID != 5 || enq.payload.UserMessageID != 12 || enq.payload.RequestID != "rid" {
-		t.Fatalf("unexpected reply payload: %#v", enq.payload)
+	if repo.replyInput.MetaJSON != nil {
+		t.Fatalf("empty metadata must be stored as nil, got %#v", repo.replyInput.MetaJSON)
 	}
 }
 
@@ -102,12 +104,12 @@ func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
 		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
 	}
-	_, appErr := NewService(repo, WithReplyEnqueuer(&fakeReplyEnqueuer{})).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: []Attachment{{Type: "image", URL: "https://example.test/a.png", Name: "a.png", Size: 10}}})
+	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: []Attachment{{Type: "image", URL: "https://example.test/a.png", Name: "a.png", Size: 10}}})
 	if appErr != nil {
 		t.Fatalf("Send returned error: %v", appErr)
 	}
-	if repo.sendInput.MetaJSON == nil || !strings.Contains(*repo.sendInput.MetaJSON, "attachments") || !strings.Contains(*repo.sendInput.MetaJSON, "https://example.test/a.png") {
-		t.Fatalf("missing attachment meta json: %#v", repo.sendInput.MetaJSON)
+	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "attachments") || !strings.Contains(*repo.replyInput.MetaJSON, "https://example.test/a.png") {
+		t.Fatalf("missing attachment meta json: %#v", repo.replyInput.MetaJSON)
 	}
 }
 
@@ -128,7 +130,7 @@ func TestCancelRequiresOwnedConversation(t *testing.T) {
 
 func TestSendRejectsNonChatAgent(t *testing.T) {
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["image"]`}}
-	_, appErr := NewService(repo, WithReplyEnqueuer(&fakeReplyEnqueuer{})).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
+	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
 	if appErr == nil || appErr.LegacyCode != 100 || appErr.Message != "该智能体不支持对话场景" {
 		t.Fatalf("expected non-chat bad request, got %#v", appErr)
 	}

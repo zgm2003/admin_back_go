@@ -4584,8 +4584,12 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 				request.Header.Set("Content-Type", "application/json")
 			}
 			router.ServeHTTP(recorder, request)
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+			wantStatus := http.StatusOK
+			if tc.method == http.MethodPost && tc.path == "/api/admin/v1/ai-conversations/1/messages" {
+				wantStatus = http.StatusAccepted
+			}
+			if recorder.Code != wantStatus {
+				t.Fatalf("expected status %d, got %d body=%s", wantStatus, recorder.Code, recorder.Body.String())
 			}
 		})
 	}

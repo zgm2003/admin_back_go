@@ -3,6 +3,7 @@ package aimessage
 import (
 	"context"
 
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -31,14 +32,6 @@ type Attachment struct {
 	URL  string `json:"url"`
 	Name string `json:"name"`
 	Size int64  `json:"size"`
-}
-
-type SendRecord struct {
-	ConversationID int64
-	Role           int
-	ContentType    string
-	Content        string
-	MetaJSON       *string
 }
 
 type ReplyPayload struct {
@@ -74,9 +67,11 @@ type ListResponse struct {
 }
 
 type SendResponse struct {
-	ConversationID int64  `json:"conversation_id"`
-	UserMessageID  int64  `json:"user_message_id"`
-	RequestID      string `json:"request_id"`
+	ConversationID int64              `json:"conversation_id"`
+	UserMessageID  int64              `json:"user_message_id"`
+	CommandID      uint64             `json:"command_id"`
+	RequestID      string             `json:"request_id"`
+	State          replycommand.State `json:"state"`
 }
 
 type CancelResponse struct {
@@ -95,7 +90,7 @@ type Repository interface {
 	Conversation(ctx context.Context, id int64) (*Conversation, error)
 	AgentForConversation(ctx context.Context, conversationID int64, userID int64) (*AgentRuntime, error)
 	List(ctx context.Context, query ListQuery) ([]Message, bool, error)
-	InsertUserMessage(ctx context.Context, input SendRecord) (int64, error)
+	CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error)
 }
 
 type HTTPService interface {

@@ -21,9 +21,10 @@ func Register(router *gin.Engine, service aimessagemodule.HTTPService, routeRegi
 		Audit:  adminroute.NoAudit("read-only"),
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
-		Method: http.MethodPost,
-		Path:   "/api/admin/v1/ai-conversations/:id/messages",
-		Access: adminroute.Authenticated(),
+		Method:        http.MethodPost,
+		Path:          "/api/admin/v1/ai-conversations/:id/messages",
+		SuccessStatus: http.StatusAccepted,
+		Access:        adminroute.Authenticated(),
 		Audit: adminroute.AuditDecision{
 			Enabled: true,
 			Module:  "ai_message",

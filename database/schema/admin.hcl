@@ -1183,6 +1183,12 @@ table "ai_messages" {
     type    = json
     comment = "消息扩展元数据：attachments/runtime_params/blocks/feedback"
   }
+  column "reply_command_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+    comment  = "durable reply command publication identity"
+  }
   column "is_del" {
     null     = false
     type     = tinyint
@@ -1214,6 +1220,10 @@ table "ai_messages" {
   }
   index "idx_ai_messages_conversation_del_id" {
     columns = [column.conversation_id, column.is_del, column.id]
+  }
+  index "uk_ai_messages_reply_command" {
+    unique  = true
+    columns = [column.reply_command_id]
   }
 }
 table "ai_prompts" {

@@ -18,6 +18,7 @@ type Message struct {
 	ContentType    string    `gorm:"column:content_type"`
 	Content        string    `gorm:"column:content"`
 	MetaJSON       *string   `gorm:"column:meta_json"`
+	ReplyCommandID *uint64   `gorm:"column:reply_command_id"`
 	IsDel          int       `gorm:"column:is_del"`
 	CreatedAt      time.Time `gorm:"column:created_at"`
 	UpdatedAt      time.Time `gorm:"column:updated_at"`

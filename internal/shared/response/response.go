@@ -1,6 +1,8 @@
 package response
 
 import (
+	"net/http"
+
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
@@ -28,6 +30,13 @@ func OK(c *gin.Context, data any) {
 	OKWithMessage(c, data, "ok")
 }
 
+func Accepted(c *gin.Context, data any) {
+	if data == nil {
+		data = gin.H{}
+	}
+	writeOKStatus(c, http.StatusAccepted, data, "", nil, "ok")
+}
+
 func OKNull(c *gin.Context) {
 	writeOK(c, nil, "", nil, "ok")
 }
@@ -44,11 +53,15 @@ func OKWithMessageKey(c *gin.Context, data any, messageID string, templateData m
 }
 
 func writeOK(c *gin.Context, data any, messageID string, templateData map[string]any, fallback string) {
+	writeOKStatus(c, http.StatusOK, data, messageID, templateData, fallback)
+}
+
+func writeOKStatus(c *gin.Context, status int, data any, messageID string, templateData map[string]any, fallback string) {
 	message := fallback
 	if localized, localizeErr := projecti18n.Message(c, messageID, templateData, fallback); localizeErr == nil && localized != "" {
 		message = localized
 	}
-	c.JSON(200, Body{
+	c.JSON(status, Body{
 		Code: apperror.CodeOK,
 		Data: data,
 		Msg:  message,
