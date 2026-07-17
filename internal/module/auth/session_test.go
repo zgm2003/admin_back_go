@@ -136,6 +136,32 @@ type fakeSessionRepository struct {
 	err             error
 }
 
+func (f *fakeSessionRepository) WithUserLock(ctx context.Context, userID int64, platform string, operation func(SessionRepository) error) error {
+	f.revokedUserID = userID
+	f.revokedPlatform = platform
+	if f.err != nil {
+		return f.err
+	}
+	return operation(f)
+}
+
+func (f *fakeSessionRepository) ListActiveForUpdate(ctx context.Context, userID int64, platform string, now time.Time) ([]Session, error) {
+	f.findLatestKey = platform
+	return f.activeSessions, f.err
+}
+
+func (f *fakeSessionRepository) Insert(ctx context.Context, input SessionCreate) (int64, error) {
+	return f.Create(ctx, input)
+}
+
+func (f *fakeSessionRepository) RevokeIDs(ctx context.Context, sessionIDs []int64, revokedAt time.Time) error {
+	if len(sessionIDs) > 0 {
+		f.revokedID = sessionIDs[len(sessionIDs)-1]
+	}
+	f.revokedAt = revokedAt
+	return f.err
+}
+
 func (f *fakeSessionRepository) FindValidByID(ctx context.Context, sessionID int64, now time.Time) (*Session, error) {
 	f.findSessionID = sessionID
 	return f.session, f.err

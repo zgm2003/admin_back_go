@@ -36,39 +36,64 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 		return nil, tokenErr
 	}
 
-	if evictErr := a.evictSessions(ctx, input.UserID, input.Platform, policy, now); evictErr != nil {
-		return nil, evictErr
-	}
+	var (
+		sessionID       int64
+		accessToken     string
+		accessExpiresAt time.Time
+		revokedSessions []Session
+		lifecycleErr    *apperror.Error
+	)
+	err := a.repository.WithUserLock(ctx, input.UserID, input.Platform, func(repository SessionRepository) error {
+		activeSessions, listErr := repository.ListActiveForUpdate(ctx, input.UserID, input.Platform, now)
+		if listErr != nil {
+			return listErr
+		}
+		revokedSessions = sessionsToRevoke(activeSessions, policy)
+		if revokeErr := repository.RevokeIDs(ctx, sessionIDs(revokedSessions), now); revokeErr != nil {
+			return revokeErr
+		}
 
-	sessionID, err := a.repository.Create(ctx, SessionCreate{
-		UserID:           input.UserID,
-		AccessTokenHash:  temporaryAccessTokenHash(sessionIDPlaceholder(input.UserID, input.Platform, now)),
-		RefreshTokenHash: refreshHash,
-		Platform:         input.Platform,
-		DeviceID:         input.DeviceID,
-		IP:               input.ClientIP,
-		UserAgent:        input.UserAgent,
-		LastSeenAt:       now,
-		ExpiresAt:        now.Add(policy.AccessTTL),
-		RefreshExpiresAt: refreshExpiresAt,
+		createdID, insertErr := repository.Insert(ctx, SessionCreate{
+			UserID:           input.UserID,
+			AccessTokenHash:  temporaryAccessTokenHash(sessionIDPlaceholder(input.UserID, input.Platform, now)),
+			RefreshTokenHash: refreshHash,
+			Platform:         input.Platform,
+			DeviceID:         input.DeviceID,
+			IP:               input.ClientIP,
+			UserAgent:        input.UserAgent,
+			LastSeenAt:       now,
+			ExpiresAt:        now.Add(policy.AccessTTL),
+			RefreshExpiresAt: refreshExpiresAt,
+		})
+		if insertErr != nil {
+			return insertErr
+		}
+		sessionID = createdID
+		issuedAccess, accessHash, expiresAt, accessErr := a.issueAccessToken(sessionID, input.UserID, input.Platform, input.DeviceID, policy, now)
+		if accessErr != nil {
+			lifecycleErr = accessErr
+			return accessErr
+		}
+		if updateErr := repository.UpdateAccessToken(ctx, sessionID, accessHash, expiresAt); updateErr != nil {
+			return updateErr
+		}
+		accessToken = issuedAccess
+		accessExpiresAt = expiresAt
+		return nil
 	})
 	if err != nil {
+		if lifecycleErr != nil {
+			return nil, lifecycleErr
+		}
 		return nil, apperror.Internal("创建登录会话失败")
 	}
 
-	accessToken, accessHash, accessExpiresAt, accessErr := a.issueAccessToken(sessionID, input.UserID, input.Platform, input.DeviceID, policy, now)
-	if accessErr != nil {
-		return nil, accessErr
-	}
-	if err := a.repository.UpdateAccessToken(ctx, sessionID, accessHash, accessExpiresAt); err != nil {
-		return nil, apperror.Internal("更新登录会话失败")
-	}
-
+	a.deleteSessionCaches(ctx, revokedSessions)
 	a.updateSingleSessionPointer(ctx, &Session{ID: sessionID, UserID: input.UserID, Platform: input.Platform})
 	return &CredentialSet{
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
-		ExpiresIn:        int(policy.AccessTTL.Seconds()),
+		ExpiresIn:        int(accessExpiresAt.Sub(now).Seconds()),
 		RefreshExpiresIn: int(policy.RefreshTTL.Seconds()),
 	}, nil
 }
@@ -253,40 +278,31 @@ func (a *SessionLifecycle) Revoke(ctx context.Context, command RevokeCommand) *a
 	return nil
 }
 
-func (a *SessionLifecycle) evictSessions(ctx context.Context, userID int64, platform string, policy *AuthPolicy, now time.Time) *apperror.Error {
-	if policy == nil {
+func sessionsToRevoke(activeSessions []Session, policy *AuthPolicy) []Session {
+	if policy == nil || len(activeSessions) == 0 {
 		return nil
 	}
 	if policy.SingleSessionPerPlatform {
-		oldSessions, err := a.repository.ListActiveByUserPlatform(ctx, userID, platform, now)
-		if err != nil {
-			return apperror.Internal("查询旧会话失败")
-		}
-		if err := a.repository.RevokeByUserPlatform(ctx, userID, platform, now); err != nil {
-			return apperror.Internal("撤销旧会话失败")
-		}
-		a.deleteSessionCaches(ctx, oldSessions)
-		return nil
+		return append([]Session(nil), activeSessions...)
 	}
 	if policy.MaxSessions <= 0 {
 		return nil
-	}
-
-	activeSessions, err := a.repository.ListActiveByUserPlatform(ctx, userID, platform, now)
-	if err != nil {
-		return apperror.Internal("查询旧会话失败")
 	}
 	overCount := len(activeSessions) - policy.MaxSessions + 1
 	if overCount <= 0 {
 		return nil
 	}
-	for _, oldSession := range activeSessions[:overCount] {
-		if err := a.repository.Revoke(ctx, oldSession.ID, now); err != nil {
-			return apperror.Internal("撤销旧会话失败")
+	return append([]Session(nil), activeSessions[:overCount]...)
+}
+
+func sessionIDs(sessions []Session) []int64 {
+	ids := make([]int64, 0, len(sessions))
+	for _, session := range sessions {
+		if session.ID > 0 {
+			ids = append(ids, session.ID)
 		}
-		a.deleteCache(ctx, a.sessionCacheKey(oldSession.ID))
 	}
-	return nil
+	return ids
 }
 
 func (a *SessionLifecycle) deleteSessionCaches(ctx context.Context, sessions []Session) {
@@ -471,10 +487,15 @@ func (a *SessionLifecycle) deleteCache(ctx context.Context, key string) {
 }
 
 func (a *SessionLifecycle) updateSingleSessionPointer(ctx context.Context, session *Session) {
-	if a.cache == nil || session == nil {
+	if a.cache == nil || session == nil || session.ID <= 0 {
 		return
 	}
-	_ = a.cache.Set(ctx, a.singleSessionPointerKey(session.Platform, session.UserID), strconv.FormatInt(session.ID, 10), a.cfg.SingleSessionPointerTTL)
+	key := a.singleSessionPointerKey(session.Platform, session.UserID)
+	if cache, ok := a.cache.(monotonicSessionPointerCache); ok {
+		_ = cache.SetIfGreater(ctx, key, session.ID, a.cfg.SingleSessionPointerTTL)
+		return
+	}
+	_ = a.cache.Set(ctx, key, strconv.FormatInt(session.ID, 10), a.cfg.SingleSessionPointerTTL)
 }
 
 func (a *SessionLifecycle) clearPointerIfMatches(ctx context.Context, session *Session) {

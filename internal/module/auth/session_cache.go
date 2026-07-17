@@ -87,6 +87,10 @@ type SessionCache interface {
 	Del(ctx context.Context, key string) error
 }
 
+type monotonicSessionPointerCache interface {
+	SetIfGreater(ctx context.Context, key string, sessionID int64, ttl time.Duration) error
+}
+
 type SessionRedisCache struct {
 	client *redis.Client
 }
@@ -128,6 +132,29 @@ func (c *SessionRedisCache) Del(ctx context.Context, key string) error {
 		return ErrSessionCacheNotConfigured
 	}
 	return c.client.Del(ctx, key).Err()
+}
+
+var setSessionPointerIfGreaterScript = redis.NewScript(`
+local current = redis.call('GET', KEYS[1])
+if (not current) or (tonumber(ARGV[1]) > tonumber(current)) then
+  redis.call('PSETEX', KEYS[1], ARGV[2], ARGV[1])
+  return 1
+end
+return 0
+`)
+
+func (c *SessionRedisCache) SetIfGreater(ctx context.Context, key string, sessionID int64, ttl time.Duration) error {
+	if c == nil || c.client == nil {
+		return ErrSessionCacheNotConfigured
+	}
+	if sessionID <= 0 {
+		return errors.New("session pointer id must be positive")
+	}
+	ttlMillis := ttl.Milliseconds()
+	if ttlMillis <= 0 {
+		ttlMillis = 1
+	}
+	return setSessionPointerIfGreaterScript.Run(ctx, c.client, []string{key}, sessionID, ttlMillis).Err()
 }
 
 // Session cache revocation helpers.
