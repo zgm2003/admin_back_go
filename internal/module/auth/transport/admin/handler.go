@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
+	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
 
@@ -24,6 +25,7 @@ type Handler struct {
 	allowedOrigins      map[string]struct{}
 	now                 func() time.Time
 	browserGrants       BrowserGrantIssuer
+	routeRegistry       *adminroute.Registry
 }
 
 type BrowserGrantIssuer interface {
@@ -54,6 +56,12 @@ func WithNow(now func() time.Time) Option {
 func WithBrowserGrantIssuer(issuer BrowserGrantIssuer) Option {
 	return func(handler *Handler) {
 		handler.browserGrants = issuer
+	}
+}
+
+func WithRouteRegistry(registry *adminroute.Registry) Option {
+	return func(handler *Handler) {
+		handler.routeRegistry = registry
 	}
 }
 

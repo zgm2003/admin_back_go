@@ -39,9 +39,9 @@ func TestPlatformRouteLineOwnership(t *testing.T) {
 	mustContainRouteLine(t, routesUser, `usercanvas "admin_back_go/internal/module/user/transport/canvas"`)
 	mustContainRouteLine(t, routesUser, `profilecanvas "admin_back_go/internal/module/profile/transport/canvas"`)
 	mustContainRouteLine(t, routesUser, `users := deps.Admin.Identity.Users`)
-	mustContainRouteLine(t, routesUser, `userapp.RegisterRoutes(router, users)`)
-	mustContainRouteLine(t, routesUser, `usercanvas.RegisterRoutes(router, users)`)
-	mustContainRouteLine(t, routesUser, `profilecanvas.RegisterRoutes(router, users)`)
+	mustContainRouteLine(t, routesUser, `userapp.RegisterRoutes(router, users, deps.Core.RouteRegistry)`)
+	mustContainRouteLine(t, routesUser, `usercanvas.RegisterRoutes(router, users, deps.Core.RouteRegistry)`)
+	mustContainRouteLine(t, routesUser, `profilecanvas.RegisterRoutes(router, users, deps.Core.RouteRegistry)`)
 	mustNotContainRouteLine(t, routesUser, `RegisterRoutesWithOptions`)
 	mustNotContainRouteLine(t, routesUser, `UsersPrefix: "/api/canvas/v1/users"`)
 
@@ -49,8 +49,8 @@ func TestPlatformRouteLineOwnership(t *testing.T) {
 	mustContainRouteLine(t, routesCommerce, `paymentcanvas "admin_back_go/internal/module/payment/transport/canvas"`)
 	mustContainRouteLine(t, routesCommerce, `walletcanvas "admin_back_go/internal/module/payment/wallet/transport/canvas"`)
 	mustContainRouteLine(t, routesCommerce, `commerce := deps.Admin.Commerce`)
-	mustContainRouteLine(t, routesCommerce, `walletcanvas.RegisterRoutes(router, commerce.Wallet)`)
-	mustContainRouteLine(t, routesCommerce, `paymentcanvas.RegisterRechargeRoutes(router, commerce.Payment)`)
+	mustContainRouteLine(t, routesCommerce, `walletcanvas.RegisterRoutes(router, commerce.Wallet, deps.Core.RouteRegistry)`)
+	mustContainRouteLine(t, routesCommerce, `paymentcanvas.RegisterRechargeRoutes(router, commerce.Payment, deps.Core.RouteRegistry)`)
 	mustNotContainRouteLine(t, routesCommerce, `walletadmin.RegisterCurrentUserRoutes(router, "/api/canvas/v1/wallet"`)
 	mustNotContainRouteLine(t, routesCommerce, `paymentadmin.RegisterRechargeRoutes(router, "/api/canvas/v1/payment/recharges"`)
 }
@@ -110,7 +110,7 @@ func TestCanvasAIImageRoutesOwnedByAIImageTransport(t *testing.T) {
 	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
 	mustContainRouteLine(t, routesCanvas, `aiimagecanvas "admin_back_go/internal/module/ai/image/transport/canvas"`)
 	mustContainRouteLine(t, routesCanvas, `retired := deps.Retired`)
-	mustContainRouteLine(t, routesCanvas, `aiimagecanvas.RegisterRoutes(router, retired.AIImages)`)
+	mustContainRouteLine(t, routesCanvas, `aiimagecanvas.RegisterRoutes(router, retired.AIImages, deps.Core.RouteRegistry)`)
 	mustNotContainRouteLine(t, routesCanvas, `canvasimagecanvas`)
 }
 
@@ -161,7 +161,7 @@ func TestCanvasAIChatRoutesOwnedByAIChatTransport(t *testing.T) {
 	}
 	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
 	mustContainRouteLine(t, routesCanvas, `aichatcanvas "admin_back_go/internal/module/ai/chat/transport/canvas"`)
-	mustContainRouteLine(t, routesCanvas, `aichatcanvas.RegisterRoutes(router, retired.AIChat)`)
+	mustContainRouteLine(t, routesCanvas, `aichatcanvas.RegisterRoutes(router, retired.AIChat, deps.Core.RouteRegistry)`)
 }
 
 func TestAIChatCanvasTransportDoesNotImportCanvasModule(t *testing.T) {
@@ -237,7 +237,7 @@ func TestCanvasAIVideoRoutesOwnedByAIVideoTransport(t *testing.T) {
 	}
 	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
 	mustContainRouteLine(t, routesCanvas, `aivideocanvas "admin_back_go/internal/module/ai/video/transport/canvas"`)
-	mustContainRouteLine(t, routesCanvas, `aivideocanvas.RegisterRoutes(router, retired.AIVideo)`)
+	mustContainRouteLine(t, routesCanvas, `aivideocanvas.RegisterRoutes(router, retired.AIVideo, deps.Core.RouteRegistry)`)
 }
 
 func TestCanvasAIAudioRoutesOwnedByAIAudioTransport(t *testing.T) {
@@ -251,7 +251,7 @@ func TestCanvasAIAudioRoutesOwnedByAIAudioTransport(t *testing.T) {
 	}
 	routesCanvas := readRouteLineSource(t, root, "internal/server/routes_canvas.go")
 	mustContainRouteLine(t, routesCanvas, `aiaudiocanvas "admin_back_go/internal/module/ai/audio/transport/canvas"`)
-	mustContainRouteLine(t, routesCanvas, `aiaudiocanvas.RegisterRoutes(router, retired.AIAudio)`)
+	mustContainRouteLine(t, routesCanvas, `aiaudiocanvas.RegisterRoutes(router, retired.AIAudio, deps.Core.RouteRegistry)`)
 }
 
 func TestAIAudioCanvasTransportDoesNotImportCanvasModule(t *testing.T) {

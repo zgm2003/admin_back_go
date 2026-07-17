@@ -16,13 +16,13 @@ import (
 
 func registerAdminAIRoutes(router *gin.Engine, deps Dependencies) {
 	ai := deps.Admin.AI
-	aiprovideradmin.Register(router, ai.Providers)
-	aiagentadmin.Register(router, ai.Agents)
-	aitooladmin.Register(router, ai.Tools)
-	aiknowledgeadmin.Register(router, ai.Knowledge)
-	aiconversationadmin.Register(router, ai.Conversations)
-	aimessageadmin.Register(router, ai.Messages)
-	airunadmin.Register(router, ai.Runs)
+	aiprovideradmin.Register(router, ai.Providers, deps.Core.RouteRegistry)
+	aiagentadmin.Register(router, ai.Agents, deps.Core.RouteRegistry)
+	aitooladmin.Register(router, ai.Tools, deps.Core.RouteRegistry)
+	aiknowledgeadmin.Register(router, ai.Knowledge, deps.Core.RouteRegistry)
+	aiconversationadmin.Register(router, ai.Conversations, deps.Core.RouteRegistry)
+	aimessageadmin.Register(router, ai.Messages, deps.Core.RouteRegistry)
+	airunadmin.Register(router, ai.Runs, deps.Core.RouteRegistry)
 	aichatadmin.Register(router, ai.Chat)
-	aipromptadmin.RegisterRoutes(router, ai.Prompts)
+	aipromptadmin.RegisterRoutes(router, ai.Prompts, deps.Core.RouteRegistry)
 }

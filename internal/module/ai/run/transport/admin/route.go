@@ -1,21 +1,59 @@
 package admin
 
 import (
+	"net/http"
+
 	airunmodule "admin_back_go/internal/module/ai/run"
+	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func Register(router *gin.Engine, service airunmodule.HTTPService) {
+func Register(router *gin.Engine, service airunmodule.HTTPService, routeRegistries ...*adminroute.Registry) {
 	validate.MustRegister()
 	handler := NewHandler(service)
-	group := router.Group("/api/admin/v1/ai-runs")
-	group.GET("/page-init", handler.PageInit)
-	group.GET("", handler.List)
-	group.GET("/stats", handler.Stats)
-	group.GET("/stats/by-date", handler.StatsByDate)
-	group.GET("/stats/by-agent", handler.StatsByAgent)
-	group.GET("/stats/by-user", handler.StatsByUser)
-	group.GET("/:id", handler.Detail)
+	routes := adminroute.NewRegistrar(router, routeRegistries...)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/page-init",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.PageInit)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.List)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/stats",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.Stats)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/stats/by-date",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.StatsByDate)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/stats/by-agent",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.StatsByAgent)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/stats/by-user",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.StatsByUser)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/:id",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.Detail)
 }

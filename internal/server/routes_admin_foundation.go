@@ -16,13 +16,13 @@ import (
 
 func registerAdminFoundationRoutes(router *gin.Engine, deps Dependencies) {
 	system := deps.Admin.System
-	systemadmin.RegisterRoutes(router, deps.Core.Readiness)
-	clientversionadmin.RegisterRoutes(router, system.ClientVersions)
-	exporttaskadmin.RegisterRoutes(router, system.Exports)
-	crontaskadmin.RegisterRoutes(router, system.CronTasks)
-	operationlogadmin.RegisterRoutes(router, system.OperationLogs)
-	queuemonitoradmin.RegisterRoutes(router, system.QueueMonitor, deps.Core.QueueMonitorUI)
-	systemsettingadmin.RegisterRoutes(router, system.Settings)
-	systemlogadmin.RegisterRoutes(router, system.Logs)
-	realtimeadmin.RegisterRoutes(router, deps.Core.RealtimeHandler)
+	systemadmin.RegisterRoutes(router, deps.Core.Readiness, deps.Core.RouteRegistry)
+	clientversionadmin.RegisterRoutes(router, system.ClientVersions, deps.Core.RouteRegistry)
+	exporttaskadmin.RegisterRoutes(router, system.Exports, deps.Core.RouteRegistry)
+	crontaskadmin.RegisterRoutes(router, system.CronTasks, deps.Core.RouteRegistry)
+	operationlogadmin.RegisterRoutes(router, system.OperationLogs, deps.Core.RouteRegistry)
+	queuemonitoradmin.RegisterRoutes(router, system.QueueMonitor, deps.Core.QueueMonitorUI, deps.Core.RouteRegistry)
+	systemsettingadmin.RegisterRoutes(router, system.Settings, deps.Core.RouteRegistry)
+	systemlogadmin.RegisterRoutes(router, system.Logs, deps.Core.RouteRegistry)
+	realtimeadmin.RegisterRoutes(router, deps.Core.RealtimeHandler, deps.Core.RouteRegistry)
 }

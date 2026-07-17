@@ -4915,6 +4915,114 @@
         "x-runtime-path": "/api/admin/v1/auth/logout"
       }
     },
+    "/api/admin/v1/auth/queue-monitor-grants": {
+      "post": {
+        "operationId": "post_api_admin_v1_auth_queue_monitor_grants",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/auth/queue-monitor-grants",
+        "tags": [
+          "auth"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "short-lived queue monitor browser grant issuance"
+        },
+        "x-runtime-path": "/api/admin/v1/auth/queue-monitor-grants"
+      }
+    },
+    "/api/admin/v1/auth/realtime-tickets": {
+      "post": {
+        "operationId": "post_api_admin_v1_auth_realtime_tickets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/auth/realtime-tickets",
+        "tags": [
+          "auth"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "short-lived browser realtime credential issuance"
+        },
+        "x-runtime-path": "/api/admin/v1/auth/realtime-tickets"
+      }
+    },
     "/api/admin/v1/auth/refresh": {
       "post": {
         "operationId": "post_api_admin_v1_auth_refresh",

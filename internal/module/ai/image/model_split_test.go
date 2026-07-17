@@ -73,7 +73,7 @@ func TestAdminImageWorkspaceDoesNotExposeRetiredSurfaces(t *testing.T) {
 		"is_favorite",
 		"/favorite",
 	})
-	assertSourceTokensAbsent(t, filepath.Join(root, "..", "..", "..", "..", "internal", "bootstrap", "route_meta.go"), []string{
+	assertSourceTokensAbsent(t, filepath.Join(root, "..", "..", "..", "..", "internal", "server", "testdata", "admin_route_policy_golden.json"), []string{
 		"ai_image_task_favorite",
 		"/api/admin/v1/ai-images/:id/favorite",
 	})

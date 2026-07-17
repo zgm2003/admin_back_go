@@ -14,11 +14,11 @@ import (
 
 func registerCanvasRoutes(router *gin.Engine, deps Dependencies) {
 	retired := deps.Retired
-	canvastransport.RegisterRoutes(router, retired.Canvas)
-	aiassetcanvas.RegisterRoutes(router, retired.AIAssets)
-	aipromptcanvas.RegisterRoutes(router, retired.AIPrompt)
-	aiimagecanvas.RegisterRoutes(router, retired.AIImages)
-	aichatcanvas.RegisterRoutes(router, retired.AIChat)
-	aivideocanvas.RegisterRoutes(router, retired.AIVideo)
-	aiaudiocanvas.RegisterRoutes(router, retired.AIAudio)
+	canvastransport.RegisterRoutes(router, retired.Canvas, deps.Core.RouteRegistry)
+	aiassetcanvas.RegisterRoutes(router, retired.AIAssets, deps.Core.RouteRegistry)
+	aipromptcanvas.RegisterRoutes(router, retired.AIPrompt, deps.Core.RouteRegistry)
+	aiimagecanvas.RegisterRoutes(router, retired.AIImages, deps.Core.RouteRegistry)
+	aichatcanvas.RegisterRoutes(router, retired.AIChat, deps.Core.RouteRegistry)
+	aivideocanvas.RegisterRoutes(router, retired.AIVideo, deps.Core.RouteRegistry)
+	aiaudiocanvas.RegisterRoutes(router, retired.AIAudio, deps.Core.RouteRegistry)
 }

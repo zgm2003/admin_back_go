@@ -18,7 +18,8 @@ func registerAuthRoutes(router *gin.Engine, deps Dependencies) {
 		identity.LoginLogs,
 		authadmin.WithAllowedOrigins(deps.Core.CORS.AllowOrigins),
 		authadmin.WithBrowserGrantIssuer(identity.BrowserGrants),
+		authadmin.WithRouteRegistry(deps.Core.RouteRegistry),
 	)
-	authapp.Register(router, authapp.Dependencies{AuthService: identity.Auth, CaptchaService: identity.Captcha, UserService: identity.Users})
-	authcanvas.Register(router, authcanvas.Dependencies{AuthService: identity.Auth, CaptchaService: identity.Captcha, UserService: identity.Users})
+	authapp.Register(router, authapp.Dependencies{AuthService: identity.Auth, CaptchaService: identity.Captcha, UserService: identity.Users}, deps.Core.RouteRegistry)
+	authcanvas.Register(router, authcanvas.Dependencies{AuthService: identity.Auth, CaptchaService: identity.Captcha, UserService: identity.Users}, deps.Core.RouteRegistry)
 }

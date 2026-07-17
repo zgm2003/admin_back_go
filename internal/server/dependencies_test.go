@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -46,6 +47,7 @@ import (
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/server/adminroute"
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
@@ -108,19 +110,10 @@ type testDependencies struct {
 }
 
 func (deps testDependencies) grouped() Dependencies {
-	publicPaths := deps.AuthSkipPaths
-	if publicPaths == nil {
-		publicPaths = middleware.DefaultAuthSkipPaths()
-	}
-	routes, err := adminroute.NewLegacyRegistry(
-		deps.PermissionRules,
-		deps.OperationRules,
-		publicPaths,
-		nil,
-		adminroute.WithMutationFallback("test fixture legacy mutation"),
-	)
-	if err != nil {
-		panic(err)
+	routes := adminroute.NewRegistry()
+	permissionChecker := deps.PermissionChecker
+	if permissionChecker == nil {
+		permissionChecker = func(context.Context, middleware.PermissionInput) *apperror.Error { return nil }
 	}
 	return Dependencies{
 		Core: CoreDependencies{
@@ -129,7 +122,7 @@ func (deps testDependencies) grouped() Dependencies {
 			Telemetry:         deps.Telemetry,
 			CORS:              deps.CORS,
 			Authenticator:     deps.Authenticator,
-			PermissionChecker: deps.PermissionChecker,
+			PermissionChecker: permissionChecker,
 			OperationRecorder: deps.OperationRecorder,
 			RouteRegistry:     routes,
 			QueueMonitorUI:    deps.QueueMonitorUI,

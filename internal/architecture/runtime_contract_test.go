@@ -212,7 +212,6 @@ func TestAdminContractExcludesRetiredProductOperations(t *testing.T) {
 func TestRoutePolicyRegistryHasNoNewLegacyMaps(t *testing.T) {
 	root := backendRoot(t)
 	allowed := map[string]struct{}{
-		"internal/bootstrap/route_meta.go":       {}, // P04 deletes the one migration bridge.
 		"internal/middleware/operation_log.go":   {}, // Compiled runtime lookup consumer.
 		"internal/server/adminroute/compile.go":  {},
 		"internal/server/adminroute/registry.go": {},

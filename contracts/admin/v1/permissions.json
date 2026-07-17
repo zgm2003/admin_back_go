@@ -1264,6 +1264,30 @@
       }
     },
     {
+      "operation_id": "post_api_admin_v1_auth_queue_monitor_grants",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/queue-monitor-grants",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "short-lived queue monitor browser grant issuance"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_realtime_tickets",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/realtime-tickets",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "short-lived browser realtime credential issuance"
+      }
+    },
+    {
       "operation_id": "post_api_admin_v1_auth_refresh",
       "method": "POST",
       "path": "/api/admin/v1/auth/refresh",

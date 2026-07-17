@@ -13,10 +13,10 @@ import (
 
 func registerAdminUserRoutes(router *gin.Engine, deps Dependencies) {
 	users := deps.Admin.Identity.Users
-	useradmin.RegisterRoutes(router, users)
-	userapp.RegisterRoutes(router, users)
-	usercanvas.RegisterRoutes(router, users)
-	profileadmin.RegisterRoutes(router, users)
-	profileapp.RegisterRoutes(router, users)
-	profilecanvas.RegisterRoutes(router, users)
+	useradmin.RegisterRoutes(router, users, deps.Core.RouteRegistry)
+	userapp.RegisterRoutes(router, users, deps.Core.RouteRegistry)
+	usercanvas.RegisterRoutes(router, users, deps.Core.RouteRegistry)
+	profileadmin.RegisterRoutes(router, users, deps.Core.RouteRegistry)
+	profileapp.RegisterRoutes(router, users, deps.Core.RouteRegistry)
+	profilecanvas.RegisterRoutes(router, users, deps.Core.RouteRegistry)
 }

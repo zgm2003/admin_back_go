@@ -4266,11 +4266,8 @@ func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
-		PermissionRules: map[middleware.RouteKey]string{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/users/me"): "user:me",
-		},
 		PermissionChecker: func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-			if input.UserID != 1 || input.Code != "user:me" {
+			if input.UserID != 1 || input.Code != "user_userManager_export" {
 				t.Fatalf("unexpected permission input: %#v", input)
 			}
 			return apperror.Forbidden("无接口权限")
@@ -4279,8 +4276,9 @@ func TestRouterInstallsPermissionCheckAfterAuthToken(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/users/export", strings.NewReader(`{"ids":[1]}`))
 	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusForbidden {
@@ -4298,25 +4296,23 @@ func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
-		OperationRules: map[middleware.RouteKey]middleware.OperationRule{
-			middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/users/me"): {Module: "user", Action: "me", Title: "查看当前用户"},
-		},
 		OperationRecorder: func(ctx context.Context, input middleware.OperationInput) error {
 			got = input
 			return nil
 		},
-		UserService: &fakeRouterUserService{result: &user.InitResponse{UserID: 1, Username: "admin"}},
+		UserService: &fakeRouterUserService{},
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/users/export", strings.NewReader(`{"ids":[1]}`))
 	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if got.UserID != 1 || got.Module != "user" || got.Action != "me" || got.Status != http.StatusOK || !got.Success {
+	if got.UserID != 1 || got.Module != "user" || got.Action != "export" || got.Status != http.StatusOK || !got.Success {
 		t.Fatalf("unexpected operation input: %#v", got)
 	}
 }
