@@ -733,26 +733,52 @@ func composeSecureFoundationProblems(data []byte) []string {
 	}
 
 	var problems []string
-	for _, service := range []string{"admin-api", "admin-worker"} {
-		node := document.Content[0]
-		segments := []string{"services", service, "build", "args", "GO_BUILD_IMAGE"}
+	root := document.Content[0]
+	services, err := uniqueYAMLMappingValue(root, "services")
+	if err != nil {
+		return []string{fmt.Sprintf("deploy/docker-first/docker-compose.yml services: %v", err)}
+	}
+	api, err := uniqueYAMLMappingValue(services, "admin-api")
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml services.admin-api: %v", err))
+	} else {
+		node := api
+		segments := []string{"build", "args", "GO_BUILD_IMAGE"}
 		for index, segment := range segments {
-			next, err := uniqueYAMLMappingValue(node, segment)
-			if err != nil {
-				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s: %v", strings.Join(segments[:index+1], "."), err))
+			next, pathErr := uniqueYAMLMappingValue(node, segment)
+			if pathErr != nil {
+				path := "services.admin-api." + strings.Join(segments[:index+1], ".")
+				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s: %v", path, pathErr))
 				node = nil
 				break
 			}
 			node = next
 		}
-		if node == nil {
-			continue
+		if node != nil {
+			path := "services.admin-api." + strings.Join(segments, ".")
+			if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
+				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s must be a string scalar", path))
+			} else if node.Value != expected {
+				problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s=%q, want %q", path, node.Value, expected))
+			}
 		}
-		path := strings.Join(segments, ".")
-		if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s must be a string scalar", path))
-		} else if node.Value != expected {
-			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml %s=%q, want %q", path, node.Value, expected))
+	}
+
+	worker, err := uniqueYAMLMappingValue(services, "admin-worker")
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml services.admin-worker: %v", err))
+	} else if worker.Kind != yaml.MappingNode {
+		problems = append(problems, "deploy/docker-first/docker-compose.yml services.admin-worker must be a mapping")
+	} else {
+		buildKeys := 0
+		for index := 0; index+1 < len(worker.Content); index += 2 {
+			key := worker.Content[index]
+			if key.Kind == yaml.ScalarNode && key.Tag == "!!str" && key.Value == "build" {
+				buildKeys++
+			}
+		}
+		if buildKeys != 0 {
+			problems = append(problems, fmt.Sprintf("deploy/docker-first/docker-compose.yml services.admin-worker.build occurs %d times, want zero so the backend image is built once", buildKeys))
 		}
 	}
 	return problems
@@ -1058,7 +1084,7 @@ func writeSecureGoFoundationFixture(t *testing.T, overrides map[string]string) s
 		"go.mod":                                 "module example.com/secure-foundation-fixture\n\ngo 1.26.5\n\nrequire (\n\tgithub.com/hibiken/asynqmon v0.7.2\n\tgithub.com/quic-go/quic-go v0.59.1\n\tgolang.org/x/image v0.43.0\n)\n",
 		".dockerignore":                          dockerFirstRuntimeSecretPath + "\n",
 		"Dockerfile":                             "# secure build fixture\n\nARG GO_BUILD_IMAGE=golang:1.26.5-bookworm\nFROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS task-6-build\n",
-		"deploy/docker-first/docker-compose.yml": "# secure compose fixture\nx-build-decoy:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\nservices:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n  admin-worker:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n",
+		"deploy/docker-first/docker-compose.yml": "# secure compose fixture\nx-build-decoy:\n  GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.1-bookworm\nservices:\n  admin-api:\n    build:\n      args:\n        GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n  admin-worker:\n    image: admin-go-backend:local\n",
 		"README.md":                              "## Technology\n\n<!-- | Language | Go `1.26.1` | -->\n```markdown\n| Language | Go `1.26.1` |\n```\n| Type | Choice |\n| --- | --- |\n| Language | Go `1.26.5` |\n",
 	}
 	for rel, content := range overrides {
@@ -1161,7 +1187,7 @@ func TestSecureGoFoundationValidatorAcceptsValidCRLFRoot(t *testing.T) {
 		},
 		"valid YAML indentation": {
 			compose: "services:\n   admin-api:\n      build:\n         args:\n            GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n" +
-				"   admin-worker:\n      build:\n         args:\n            GO_BUILD_IMAGE: docker.m.daocloud.io/library/golang:1.26.5-bookworm\n",
+				"   admin-worker:\n      image: admin-go-backend:local\n",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
