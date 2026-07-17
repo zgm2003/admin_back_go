@@ -2,6 +2,7 @@ package role
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sort"
 	"strings"
@@ -31,18 +32,33 @@ type Service struct {
 	permissionDictionary PermissionDictionary
 	cacheInvalidator     CacheInvalidator
 	platforms            []string
+	principalMutations   permission.PrincipalMutationCoordinator
 }
 
-func NewService(repository Repository, permissionDictionary PermissionDictionary, cacheInvalidator CacheInvalidator, platforms []string) *Service {
+type Option func(*Service)
+
+func WithPrincipalMutations(coordinator permission.PrincipalMutationCoordinator) Option {
+	return func(service *Service) {
+		service.principalMutations = coordinator
+	}
+}
+
+func NewService(repository Repository, permissionDictionary PermissionDictionary, cacheInvalidator CacheInvalidator, platforms []string, options ...Option) *Service {
 	if len(platforms) == 0 {
 		platforms = []string{"admin", "app"}
 	}
-	return &Service{
+	service := &Service{
 		repository:           repository,
 		permissionDictionary: permissionDictionary,
 		cacheInvalidator:     cacheInvalidator,
 		platforms:            normalizePlatforms(platforms),
 	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
@@ -138,7 +154,7 @@ func (s *Service) Create(ctx context.Context, input MutationInput) (int64, *appe
 
 	var roleID int64
 	if deletedRole != nil {
-		err = s.repository.WithTx(ctx, func(tx Repository) error {
+		err = s.mutateRoleUsers(ctx, []int64{deletedRole.ID}, func(tx Repository) error {
 			if err := tx.RestoreDeleted(ctx, deletedRole.ID, Role{
 				Name:      input.Name,
 				IsDefault: permission.CommonNo,
@@ -201,7 +217,7 @@ func (s *Service) Update(ctx context.Context, id int64, input MutationInput) *ap
 		return apperror.BadRequest("角色名已存在")
 	}
 
-	if err := s.repository.WithTx(ctx, func(tx Repository) error {
+	if err := s.mutateRoleUsers(ctx, []int64{id}, func(tx Repository) error {
 		if err := tx.Update(ctx, id, map[string]any{"name": input.Name}); err != nil {
 			return err
 		}
@@ -214,6 +230,35 @@ func (s *Service) Update(ctx context.Context, id int64, input MutationInput) *ap
 		return appErr
 	}
 	return nil
+}
+
+func (s *Service) mutateRoleUsers(ctx context.Context, roleIDs []int64, mutation func(Repository) error) error {
+	if mutation == nil {
+		return errors.New("role mutation callback is required")
+	}
+	if s.principalMutations == nil {
+		return s.repository.WithTx(ctx, mutation)
+	}
+	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, normalizeIDs(roleIDs))
+	if err != nil {
+		return err
+	}
+	subjects := permission.PrincipalSubjects(normalizeIDs(userIDs), "admin")
+	if len(subjects) == 0 {
+		return s.repository.WithTx(ctx, mutation)
+	}
+	return s.principalMutations.Mutate(ctx, subjects, func() ([]permission.PrincipalVersion, error) {
+		var versions []permission.PrincipalVersion
+		err := s.repository.WithTx(ctx, func(tx Repository) error {
+			if err := mutation(tx); err != nil {
+				return err
+			}
+			var err error
+			versions, err = permission.BumpWith(tx, ctx, subjects)
+			return err
+		})
+		return versions, err
+	})
 }
 
 func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {

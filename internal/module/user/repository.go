@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -39,6 +40,13 @@ type Repository interface {
 
 type GormRepository struct {
 	db *gorm.DB
+}
+
+func (r *GormRepository) BumpPrincipalVersions(ctx context.Context, subjects []permission.PrincipalSubject) ([]permission.PrincipalVersion, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	return permission.BumpPrincipalVersions(ctx, r.db, subjects)
 }
 
 func NewGormRepository(client *database.Client) Repository {

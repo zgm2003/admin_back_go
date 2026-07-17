@@ -33,6 +33,25 @@ type fakeManagementRepository struct {
 	userIDsByRoleIDs       []int64
 	rolePermissionQueryIDs []int64
 	userRoleQueryIDs       []int64
+	txCalled               bool
+	principalSubjects      []PrincipalSubject
+}
+
+func (f *fakeManagementRepository) WithPrincipalTx(_ context.Context, fn func(Repository) error) error {
+	f.txCalled = true
+	return fn(f)
+}
+
+func (f *fakeManagementRepository) BumpPrincipalVersions(_ context.Context, subjects []PrincipalSubject) ([]PrincipalVersion, error) {
+	f.principalSubjects = append([]PrincipalSubject(nil), subjects...)
+	if f.err != nil {
+		return nil, f.err
+	}
+	versions := make([]PrincipalVersion, 0, len(subjects))
+	for _, subject := range subjects {
+		versions = append(versions, PrincipalVersion{UserID: subject.UserID, RoleID: 9, Platform: subject.Platform, Version: 2})
+	}
+	return versions, nil
 }
 
 func (f *fakeManagementRepository) PermissionIDsByRoleID(ctx context.Context, roleID int64) ([]int64, error) {
@@ -128,6 +147,24 @@ func (f *fakeManagementRepository) UserIDsByRoleIDs(ctx context.Context, roleIDs
 type fakePermissionCacheInvalidator struct {
 	keys []string
 	err  error
+}
+
+type fakePermissionPrincipalCoordinator struct {
+	subjects       []PrincipalSubject
+	mutationCalled bool
+	next           []PrincipalVersion
+	err            error
+}
+
+func (f *fakePermissionPrincipalCoordinator) Mutate(_ context.Context, subjects []PrincipalSubject, mutation PrincipalMutation) error {
+	f.subjects = append([]PrincipalSubject(nil), subjects...)
+	if f.err != nil {
+		return f.err
+	}
+	f.mutationCalled = true
+	next, err := mutation()
+	f.next = append([]PrincipalVersion(nil), next...)
+	return err
 }
 
 func (f *fakePermissionCacheInvalidator) Delete(ctx context.Context, key string) error {
@@ -351,6 +388,60 @@ func TestServiceUpdateInvalidatesUsersGrantedChangedPermissionSubtree(t *testing
 	}
 	if !reflect.DeepEqual(cache.keys, wantKeys) {
 		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)
+	}
+}
+
+func TestPrincipalPermissionUpdateBumpsAffectedUsersInTransaction(t *testing.T) {
+	repo := &fakeManagementRepository{
+		perms: []Permission{
+			{ID: 1, Name: "system", ParentID: RootParentID, Platform: "admin", Type: TypeDir},
+			{ID: 2, Name: "users", ParentID: 1, Platform: "admin", Type: TypePage},
+		},
+		cascadeIDs:             []int64{2, 3},
+		roleIDsByPermissionIDs: []int64{9},
+		userIDsByRoleIDs:       []int64{101, 102},
+	}
+	coordinator := &fakePermissionPrincipalCoordinator{}
+	svc := NewService(repo, []string{"admin"}, WithPrincipalMutations(coordinator))
+
+	appErr := svc.Update(context.Background(), 2, PermissionMutationInput{
+		Platform: "admin", Type: TypePage, Name: "user management", ParentID: 1,
+		Path: "/system/user", Component: "system/user/index", I18nKey: "menu.system_user", Sort: 10, ShowMenu: CommonYes,
+	})
+	if appErr != nil {
+		t.Fatalf("Update() error = %v", appErr)
+	}
+	want := []PrincipalSubject{{UserID: 101, Platform: "admin"}, {UserID: 102, Platform: "admin"}}
+	if !reflect.DeepEqual(coordinator.subjects, want) || !coordinator.mutationCalled {
+		t.Fatalf("principal mutation = subjects:%#v called:%v", coordinator.subjects, coordinator.mutationCalled)
+	}
+	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, want) || len(coordinator.next) != 2 {
+		t.Fatalf("principal versions were not bumped in permission transaction: repo=%#v next=%#v", repo.principalSubjects, coordinator.next)
+	}
+}
+
+func TestPrincipalPermissionUpdateStopsBeforeSQLWhenGateFails(t *testing.T) {
+	repo := &fakeManagementRepository{
+		perms: []Permission{
+			{ID: 1, Name: "system", ParentID: RootParentID, Platform: "admin", Type: TypeDir},
+			{ID: 2, Name: "users", ParentID: 1, Platform: "admin", Type: TypePage},
+		},
+		cascadeIDs:             []int64{2},
+		roleIDsByPermissionIDs: []int64{9},
+		userIDsByRoleIDs:       []int64{101},
+	}
+	coordinator := &fakePermissionPrincipalCoordinator{err: errors.New("redis down")}
+	svc := NewService(repo, []string{"admin"}, WithPrincipalMutations(coordinator))
+
+	appErr := svc.Update(context.Background(), 2, PermissionMutationInput{
+		Platform: "admin", Type: TypePage, Name: "user management", ParentID: 1,
+		Path: "/system/user", Component: "system/user/index", I18nKey: "menu.system_user", Sort: 10, ShowMenu: CommonYes,
+	})
+	if appErr == nil {
+		t.Fatal("Update() allowed permission mutation while Redis gate failed")
+	}
+	if repo.txCalled || repo.updateID != 0 || coordinator.mutationCalled {
+		t.Fatalf("permission SQL ran before invalidation gate: repo=%#v coordinator=%#v", repo, coordinator)
 	}
 }
 

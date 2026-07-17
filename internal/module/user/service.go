@@ -60,6 +60,7 @@ type Service struct {
 	exportTaskCreator   ExportTaskCreator
 	exportEnqueuer      taskqueue.Enqueuer
 	addressCache        AddressDictCache
+	principalMutations  permission.PrincipalMutationCoordinator
 }
 
 type addressTreeMutableNode struct {
@@ -110,6 +111,12 @@ func WithExportEnqueuer(enqueuer taskqueue.Enqueuer) Option {
 func WithAddressDictCache(cache AddressDictCache) Option {
 	return func(s *Service) {
 		s.addressCache = cache
+	}
+}
+
+func WithPrincipalMutations(coordinator permission.PrincipalMutationCoordinator) Option {
+	return func(s *Service) {
+		s.principalMutations = coordinator
 	}
 }
 
@@ -365,7 +372,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 	}
 
 	roleChanged := currentUser.RoleID != normalized.RoleID
-	if err := s.repository.WithTx(ctx, func(tx Repository) error {
+	update := func(tx Repository) error {
 		if err := tx.UpdateUser(ctx, id, map[string]any{
 			"username": normalized.Username,
 			"role_id":  normalized.RoleID,
@@ -379,8 +386,15 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 			"detail_address": normalized.DetailAddress,
 			"bio":            normalized.Bio,
 		})
-	}); err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新用户失败", err)
+	}
+	var mutationErr error
+	if roleChanged {
+		mutationErr = s.mutatePrincipalUsers(ctx, []int64{id}, update)
+	} else {
+		mutationErr = s.repository.WithTx(ctx, update)
+	}
+	if mutationErr != nil {
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新用户失败", mutationErr)
 	}
 
 	if roleChanged {
@@ -573,7 +587,9 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	if currentUser == nil {
 		return apperror.NotFound("用户不存在")
 	}
-	if err := s.repository.UpdateStatus(ctx, id, status); err != nil {
+	if err := s.mutatePrincipalUsers(ctx, []int64{id}, func(tx Repository) error {
+		return tx.UpdateStatus(ctx, id, status)
+	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "修改用户状态失败", err)
 	}
 	return nil
@@ -587,12 +603,34 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	if len(ids) == 0 {
 		return apperror.BadRequest("请选择要删除的用户")
 	}
-	if err := s.repository.WithTx(ctx, func(tx Repository) error {
+	if err := s.mutatePrincipalUsers(ctx, ids, func(tx Repository) error {
 		return tx.SoftDelete(ctx, ids)
 	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除用户失败", err)
 	}
 	return nil
+}
+
+func (s *Service) mutatePrincipalUsers(ctx context.Context, userIDs []int64, mutation func(Repository) error) error {
+	if mutation == nil {
+		return errors.New("user mutation callback is required")
+	}
+	subjects := permission.PrincipalSubjects(normalizeIDs(userIDs), enum.PlatformAdmin)
+	if s.principalMutations == nil || len(subjects) == 0 {
+		return s.repository.WithTx(ctx, mutation)
+	}
+	return s.principalMutations.Mutate(ctx, subjects, func() ([]permission.PrincipalVersion, error) {
+		var versions []permission.PrincipalVersion
+		err := s.repository.WithTx(ctx, func(tx Repository) error {
+			if err := mutation(tx); err != nil {
+				return err
+			}
+			var err error
+			versions, err = permission.BumpWith(tx, ctx, subjects)
+			return err
+		})
+		return versions, err
+	})
 }
 
 func (s *Service) BatchUpdateProfile(ctx context.Context, input BatchProfileUpdate) *apperror.Error {

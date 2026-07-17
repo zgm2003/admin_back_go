@@ -39,6 +39,13 @@ type GormRepository struct {
 	db *gorm.DB
 }
 
+func (r *GormRepository) BumpPrincipalVersions(ctx context.Context, subjects []permission.PrincipalSubject) ([]permission.PrincipalVersion, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	return permission.BumpPrincipalVersions(ctx, r.db, subjects)
+}
+
 func NewGormRepository(client *database.Client) Repository {
 	if client == nil || client.Gorm == nil {
 		return nil

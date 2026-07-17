@@ -3,7 +3,11 @@ package role
 import (
 	"reflect"
 	"testing"
+
+	"admin_back_go/internal/module/permission"
 )
+
+var _ permission.PrincipalVersionBumper = (*GormRepository)(nil)
 
 func TestDiffRolePermissionIDs(t *testing.T) {
 	cases := []struct {

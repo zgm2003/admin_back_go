@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"strings"
 	"time"
 
 	"admin_back_go/internal/config"
@@ -61,8 +59,6 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 )
-
-const defaultPermissionCacheTTL = 30 * time.Minute
 
 type ReplyDispatcher interface {
 	aimessage.ReplyEnqueuer
@@ -265,13 +261,23 @@ func Build(input BuildInput) (*BuildResult, error) {
 		auth.WithLogger(logger),
 	)
 
-	routeAccessCache := permission.NewRedisRouteAccessGrantCache(resources.Redis)
+	principalRepository := permission.NewGormPrincipalRepository(resources.DB)
+	principalCache := permission.NewRedisPrincipalCache(resources.Redis, permission.PrincipalCacheConfig{RedisPrefix: cfg.Token.RedisPrefix})
+	principalService := permission.NewPrincipalService(principalRepository, principalCache, permission.PrincipalServiceOptions{})
+	if principalRepository != nil && principalCache != nil {
+		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := principalService.Reconcile(reconcileCtx); err != nil {
+			cancelReconcile()
+			return nil, fmt.Errorf("reconcile admin principal cache: %w", err)
+		}
+		cancelReconcile()
+	}
 	permissionService := permission.NewService(
 		permission.NewGormRepository(resources.DB),
 		nil,
-		permission.WithCacheInvalidator(routeAccessCache),
+		permission.WithPrincipalMutations(principalService),
 	)
-	roleService := role.NewService(role.NewGormRepository(resources.DB), permissionService, routeAccessCache, nil)
+	roleService := role.NewService(role.NewGormRepository(resources.DB), permissionService, nil, nil, role.WithPrincipalMutations(principalService))
 	userRepository := user.NewGormRepository(resources.DB)
 	addressCache := user.NewRedisAddressDictCache(resources.Redis)
 	operationRepository := operationlog.NewGormRepository(resources.DB)
@@ -308,8 +314,9 @@ func Build(input BuildInput) (*BuildResult, error) {
 	userService := user.NewService(
 		userRepository,
 		permissionService,
-		routeAccessCache,
+		nil,
 		0,
+		user.WithPrincipalMutations(principalService),
 		user.WithVerifyCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		user.WithExportTaskCreator(exportTaskService),
 		user.WithExportEnqueuer(input.Queue),
@@ -387,7 +394,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			AIVideo:  aiVideoService,
 		},
 		Authenticator:     tokenAuthenticatorFor(sessionAuthenticator),
-		PermissionChecker: permissionCheckerFor(userRepository, permissionService, routeAccessCache),
+		PermissionChecker: permissionCheckerFor(principalService),
 		OperationRecorder: operationRecorder,
 		ReplyDispatcher:   replyDispatcher,
 	}, nil
@@ -458,60 +465,11 @@ func tokenAuthenticatorFor(authenticator *auth.SessionLifecycle) middleware.Toke
 	}
 }
 
-func permissionCheckerFor(repository user.Repository, builder *permission.Service, cache *permission.RedisRouteAccessGrantCache) middleware.PermissionChecker {
+func permissionCheckerFor(service *permission.PrincipalService) middleware.PermissionChecker {
 	return func(ctx context.Context, input middleware.PermissionInput) *apperror.Error {
-		if input.UserID <= 0 {
-			return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+		if service == nil {
+			return apperror.InternalKey("permission.principal_service_missing", nil, "权限主体服务未配置")
 		}
-		code := strings.TrimSpace(input.Code)
-		if code == "" {
-			return apperror.ForbiddenKey("permission.code_missing", nil, "权限标识未配置")
-		}
-		currentUser, err := repository.FindUser(ctx, input.UserID)
-		if err != nil {
-			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户失败", err)
-		}
-		if currentUser == nil {
-			return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-		}
-		if currentUser.RoleID <= 0 {
-			return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
-		}
-		roleRow, err := repository.FindRole(ctx, currentUser.RoleID)
-		if err != nil {
-			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询角色失败", err)
-		}
-		if roleRow == nil {
-			return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
-		}
-		cacheKey := permission.RouteAccessCacheKey(currentUser.ID, input.Platform)
-		codes, hit := cachedPermissionCodes(ctx, cache, cacheKey)
-		if !hit {
-			permissionContext, appErr := builder.BuildContextByRole(ctx, currentUser.RoleID, input.Platform)
-			if appErr != nil {
-				return appErr
-			}
-			codes = permissionContext.RouteAccessCodes
-			if cache != nil {
-				_ = cache.Set(ctx, cacheKey, codes, defaultPermissionCacheTTL)
-			}
-		}
-		for _, ownedCode := range codes {
-			if ownedCode == code {
-				return nil
-			}
-		}
-		return apperror.ForbiddenKey("permission.api.denied", nil, "无接口权限")
+		return service.Authorize(ctx, input.UserID, input.Platform, input.Code)
 	}
-}
-
-func cachedPermissionCodes(ctx context.Context, cache *permission.RedisRouteAccessGrantCache, key string) ([]string, bool) {
-	if cache == nil {
-		return nil, false
-	}
-	values, hit, err := cache.Get(ctx, key)
-	if err != nil {
-		return nil, false
-	}
-	return values, hit
 }

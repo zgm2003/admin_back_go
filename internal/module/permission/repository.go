@@ -35,6 +35,25 @@ type GormRepository struct {
 	db *gorm.DB
 }
 
+func (r *GormRepository) WithPrincipalTx(ctx context.Context, fn func(Repository) error) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	if fn == nil {
+		return errors.New("permission transaction callback is required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(&GormRepository{db: tx})
+	})
+}
+
+func (r *GormRepository) BumpPrincipalVersions(ctx context.Context, subjects []PrincipalSubject) ([]PrincipalVersion, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	return BumpPrincipalVersions(ctx, r.db, subjects)
+}
+
 func NewGormRepository(client *database.Client) Repository {
 	if client == nil || client.Gorm == nil {
 		return nil

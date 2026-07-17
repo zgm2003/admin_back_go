@@ -2,6 +2,7 @@ package permission
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -13,10 +14,11 @@ import (
 )
 
 type Service struct {
-	repository       Repository
-	allowedPlatforms map[string]struct{}
-	cacheInvalidator CacheInvalidator
-	platforms        []string
+	repository         Repository
+	allowedPlatforms   map[string]struct{}
+	cacheInvalidator   CacheInvalidator
+	platforms          []string
+	principalMutations PrincipalMutationCoordinator
 }
 
 type CacheInvalidator interface {
@@ -28,6 +30,12 @@ type ServiceOption func(*Service)
 func WithCacheInvalidator(cacheInvalidator CacheInvalidator) ServiceOption {
 	return func(s *Service) {
 		s.cacheInvalidator = cacheInvalidator
+	}
+}
+
+func WithPrincipalMutations(coordinator PrincipalMutationCoordinator) ServiceOption {
+	return func(s *Service) {
+		s.principalMutations = coordinator
 	}
 }
 
@@ -200,10 +208,20 @@ func (s *Service) Update(ctx context.Context, id int64, input PermissionMutation
 		return appErr
 	}
 
-	if err := s.repository.UpdatePermission(ctx, id, permissionUpdateMap(input)); err != nil {
+	roleIDs, appErr := s.roleIDsByPermissionIDs(ctx, []int64{id}, true)
+	if appErr != nil {
+		return appErr
+	}
+	userIDs, appErr := s.principalUserIDsByRoleIDs(ctx, roleIDs)
+	if appErr != nil {
+		return appErr
+	}
+	if err := s.mutatePrincipalUsers(ctx, userIDs, func(repository Repository) error {
+		return repository.UpdatePermission(ctx, id, permissionUpdateMap(input))
+	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新权限失败", err)
 	}
-	if appErr := s.invalidatePermissionUsers(ctx, []int64{id}, true); appErr != nil {
+	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
 		return appErr
 	}
 	return nil
@@ -231,7 +249,13 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	if appErr != nil {
 		return appErr
 	}
-	if err := s.repository.DeletePermissions(ctx, ids); err != nil {
+	userIDs, appErr := s.principalUserIDsByRoleIDs(ctx, roleIDs)
+	if appErr != nil {
+		return appErr
+	}
+	if err := s.mutatePrincipalUsers(ctx, userIDs, func(repository Repository) error {
+		return repository.DeletePermissions(ctx, ids)
+	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除权限失败", err)
 	}
 	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
@@ -250,10 +274,20 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	if s == nil || s.repository == nil {
 		return apperror.Internal("权限仓储未配置")
 	}
-	if err := s.repository.UpdatePermission(ctx, id, map[string]any{"status": status}); err != nil {
+	roleIDs, appErr := s.roleIDsByPermissionIDs(ctx, []int64{id}, true)
+	if appErr != nil {
+		return appErr
+	}
+	userIDs, appErr := s.principalUserIDsByRoleIDs(ctx, roleIDs)
+	if appErr != nil {
+		return appErr
+	}
+	if err := s.mutatePrincipalUsers(ctx, userIDs, func(repository Repository) error {
+		return repository.UpdatePermission(ctx, id, map[string]any{"status": status})
+	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新权限状态失败", err)
 	}
-	if appErr := s.invalidatePermissionUsers(ctx, []int64{id}, true); appErr != nil {
+	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
 		return appErr
 	}
 	return nil
@@ -269,7 +303,7 @@ func (s *Service) invalidatePermissionUsers(ctx context.Context, permissionIDs [
 
 func (s *Service) roleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64, includeCascade bool) ([]int64, *apperror.Error) {
 	permissionIDs = normalizeIDsForMutation(permissionIDs)
-	if len(permissionIDs) == 0 || s.cacheInvalidator == nil {
+	if len(permissionIDs) == 0 || (s.cacheInvalidator == nil && s.principalMutations == nil) {
 		return []int64{}, nil
 	}
 	if includeCascade {
@@ -284,6 +318,54 @@ func (s *Service) roleIDsByPermissionIDs(ctx context.Context, permissionIDs []in
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限角色失败", err)
 	}
 	return normalizeIDs(roleIDs), nil
+}
+
+func (s *Service) principalUserIDsByRoleIDs(ctx context.Context, roleIDs []int64) ([]int64, *apperror.Error) {
+	if s.principalMutations == nil {
+		return []int64{}, nil
+	}
+	roleIDs = normalizeIDs(roleIDs)
+	if len(roleIDs) == 0 {
+		return []int64{}, nil
+	}
+	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, roleIDs)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
+	}
+	return normalizeIDs(userIDs), nil
+}
+
+type principalTransactionalRepository interface {
+	WithPrincipalTx(context.Context, func(Repository) error) error
+}
+
+func (s *Service) mutatePrincipalUsers(ctx context.Context, userIDs []int64, mutation func(Repository) error) error {
+	if mutation == nil {
+		return errors.New("permission mutation callback is required")
+	}
+	if s.principalMutations == nil {
+		return mutation(s.repository)
+	}
+	subjects := PrincipalSubjects(normalizeIDs(userIDs), "admin")
+	if len(subjects) == 0 {
+		return mutation(s.repository)
+	}
+	transactional, ok := s.repository.(principalTransactionalRepository)
+	if !ok || transactional == nil {
+		return errors.New("permission repository does not support principal transactions")
+	}
+	return s.principalMutations.Mutate(ctx, subjects, func() ([]PrincipalVersion, error) {
+		var versions []PrincipalVersion
+		err := transactional.WithPrincipalTx(ctx, func(tx Repository) error {
+			if err := mutation(tx); err != nil {
+				return err
+			}
+			var err error
+			versions, err = BumpWith(tx, ctx, subjects)
+			return err
+		})
+		return versions, err
+	})
 }
 
 func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *apperror.Error {
@@ -443,8 +525,21 @@ func (s *Service) restoreSoftDeletedButtonIfPresent(ctx context.Context, input P
 	if deleted == nil {
 		return 0, nil
 	}
-	if err := s.repository.RestoreDeletedPermission(ctx, deleted.ID, row); err != nil {
+	roleIDs, appErr := s.roleIDsByPermissionIDs(ctx, []int64{deleted.ID}, false)
+	if appErr != nil {
+		return 0, appErr
+	}
+	userIDs, appErr := s.principalUserIDsByRoleIDs(ctx, roleIDs)
+	if appErr != nil {
+		return 0, appErr
+	}
+	if err := s.mutatePrincipalUsers(ctx, userIDs, func(repository Repository) error {
+		return repository.RestoreDeletedPermission(ctx, deleted.ID, row)
+	}); err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "恢复权限失败", err)
+	}
+	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
+		return 0, appErr
 	}
 	return deleted.ID, nil
 }

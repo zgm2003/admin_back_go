@@ -44,6 +44,7 @@ type fakeUserRepository struct {
 	statusValue          int
 	deletedIDs           []int64
 	batchUpdate          BatchProfileUpdate
+	principalSubjects    []permission.PrincipalSubject
 	err                  error
 }
 
@@ -139,6 +140,43 @@ func (f *fakeUserRepository) SoftDelete(ctx context.Context, ids []int64) error 
 func (f *fakeUserRepository) BatchUpdateProfile(ctx context.Context, input BatchProfileUpdate) error {
 	f.batchUpdate = input
 	return f.err
+}
+
+func (f *fakeUserRepository) BumpPrincipalVersions(_ context.Context, subjects []permission.PrincipalSubject) ([]permission.PrincipalVersion, error) {
+	f.principalSubjects = append([]permission.PrincipalSubject(nil), subjects...)
+	if f.err != nil {
+		return nil, f.err
+	}
+	versions := make([]permission.PrincipalVersion, 0, len(subjects))
+	for _, subject := range subjects {
+		roleID := int64(0)
+		if f.updatedUserFields != nil {
+			roleID, _ = f.updatedUserFields["role_id"].(int64)
+		}
+		if roleID == 0 && f.user != nil {
+			roleID = f.user.RoleID
+		}
+		versions = append(versions, permission.PrincipalVersion{UserID: subject.UserID, RoleID: roleID, Platform: subject.Platform, Version: 2})
+	}
+	return versions, nil
+}
+
+type fakePrincipalMutationCoordinator struct {
+	subjects       []permission.PrincipalSubject
+	mutationCalled bool
+	next           []permission.PrincipalVersion
+	err            error
+}
+
+func (f *fakePrincipalMutationCoordinator) Mutate(_ context.Context, subjects []permission.PrincipalSubject, mutation permission.PrincipalMutation) error {
+	f.subjects = append([]permission.PrincipalSubject(nil), subjects...)
+	if f.err != nil {
+		return f.err
+	}
+	f.mutationCalled = true
+	next, err := mutation()
+	f.next = append([]permission.PrincipalVersion(nil), next...)
+	return err
 }
 
 type fakeAddressDictCache struct {
@@ -682,6 +720,41 @@ func TestServiceUpdateUserProfileAndInvalidatesRoleCacheWhenRoleChanges(t *testi
 	}
 	if cache.key != "auth_perm_uid_9_canvas_rbac_route_access_grants" {
 		t.Fatalf("expected cache invalidation to visit sorted admin/app/canvas keys, last key=%q", cache.key)
+	}
+}
+
+func TestPrincipalRoleChangeBumpsVersionInsideFailClosedMutation(t *testing.T) {
+	repo := &fakeUserRepository{
+		user:      &User{ID: 9, Username: "old", RoleID: 1},
+		rolesByID: map[int64]*Role{2: {ID: 2, Name: "operator"}},
+	}
+	coordinator := &fakePrincipalMutationCoordinator{}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithPrincipalMutations(coordinator))
+
+	appErr := svc.Update(context.Background(), 9, UpdateInput{Username: "new", RoleID: 2, Sex: enum.SexUnknown, AddressID: 1})
+	if appErr != nil {
+		t.Fatalf("Update() error = %v", appErr)
+	}
+	wantSubjects := []permission.PrincipalSubject{{UserID: 9, Platform: "admin"}}
+	if !reflect.DeepEqual(coordinator.subjects, wantSubjects) || !coordinator.mutationCalled {
+		t.Fatalf("principal mutation = subjects:%#v called:%v", coordinator.subjects, coordinator.mutationCalled)
+	}
+	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, wantSubjects) || len(coordinator.next) != 1 || coordinator.next[0].Version != 2 {
+		t.Fatalf("version bump did not share user transaction: repo=%#v next=%#v", repo.principalSubjects, coordinator.next)
+	}
+}
+
+func TestPrincipalStatusMutationAbortsBeforeSQLWhenPrincipalGateFails(t *testing.T) {
+	repo := &fakeUserRepository{user: &User{ID: 9, RoleID: 1}}
+	coordinator := &fakePrincipalMutationCoordinator{err: errors.New("redis down")}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithPrincipalMutations(coordinator))
+
+	appErr := svc.ChangeStatus(context.Background(), 9, enum.CommonNo)
+	if appErr == nil {
+		t.Fatal("ChangeStatus() allowed mutation while principal gate failed")
+	}
+	if repo.statusUserID != 0 || repo.txCalled || coordinator.mutationCalled {
+		t.Fatalf("database mutation ran before gate: repo=%#v coordinator=%#v", repo, coordinator)
 	}
 }
 

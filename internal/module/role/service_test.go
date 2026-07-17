@@ -2,6 +2,7 @@ package role
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -57,6 +58,7 @@ type fakeRepository struct {
 	restoredRole             Role
 	txCalled                 bool
 	createdRole              Role
+	principalSubjects        []permission.PrincipalSubject
 }
 
 func (f *fakeRepository) WithTx(ctx context.Context, fn func(Repository) error) error {
@@ -184,6 +186,36 @@ func (f *fakeRepository) DeleteRolePermissionsByRoleIDs(ctx context.Context, rol
 
 func (f *fakeRepository) UserIDsByRoleIDs(ctx context.Context, roleIDs []int64) ([]int64, error) {
 	return f.userIDsByRoleIDs, f.err
+}
+
+func (f *fakeRepository) BumpPrincipalVersions(_ context.Context, subjects []permission.PrincipalSubject) ([]permission.PrincipalVersion, error) {
+	f.principalSubjects = append([]permission.PrincipalSubject(nil), subjects...)
+	if f.err != nil {
+		return nil, f.err
+	}
+	versions := make([]permission.PrincipalVersion, 0, len(subjects))
+	for _, subject := range subjects {
+		versions = append(versions, permission.PrincipalVersion{UserID: subject.UserID, RoleID: f.syncedRoleID, Platform: subject.Platform, Version: 2})
+	}
+	return versions, nil
+}
+
+type fakePrincipalMutationCoordinator struct {
+	subjects       []permission.PrincipalSubject
+	mutationCalled bool
+	next           []permission.PrincipalVersion
+	err            error
+}
+
+func (f *fakePrincipalMutationCoordinator) Mutate(_ context.Context, subjects []permission.PrincipalSubject, mutation permission.PrincipalMutation) error {
+	f.subjects = append([]permission.PrincipalSubject(nil), subjects...)
+	if f.err != nil {
+		return f.err
+	}
+	f.mutationCalled = true
+	next, err := mutation()
+	f.next = append([]permission.PrincipalVersion(nil), next...)
+	return err
 }
 
 func TestServiceInitUsesPermissionDictionary(t *testing.T) {
@@ -341,6 +373,44 @@ func TestServiceUpdateInvalidatesBoundUserRouteAccessGrantCaches(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cache.keys, wantKeys) {
 		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)
+	}
+}
+
+func TestPrincipalRoleUpdateBumpsEveryBoundUserInTransaction(t *testing.T) {
+	repo := &fakeRepository{
+		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "support", IsDefault: permission.CommonNo}},
+		permissions:      []permission.Permission{{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
+		userIDsByRoleIDs: []int64{101, 102},
+	}
+	coordinator := &fakePrincipalMutationCoordinator{}
+	svc := NewService(repo, &fakePermissionDict{}, nil, []string{"admin"}, WithPrincipalMutations(coordinator))
+
+	if appErr := svc.Update(context.Background(), 9, MutationInput{Name: "support lead", PermissionIDs: []int64{2}}); appErr != nil {
+		t.Fatalf("Update() error = %v", appErr)
+	}
+	want := []permission.PrincipalSubject{{UserID: 101, Platform: "admin"}, {UserID: 102, Platform: "admin"}}
+	if !reflect.DeepEqual(coordinator.subjects, want) || !coordinator.mutationCalled {
+		t.Fatalf("principal mutation = subjects:%#v called:%v", coordinator.subjects, coordinator.mutationCalled)
+	}
+	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, want) || len(coordinator.next) != 2 {
+		t.Fatalf("principal versions were not bumped in role transaction: repo=%#v next=%#v", repo.principalSubjects, coordinator.next)
+	}
+}
+
+func TestPrincipalRoleUpdateDoesNotTouchSQLWhenGateFails(t *testing.T) {
+	repo := &fakeRepository{
+		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "support"}},
+		permissions:      []permission.Permission{{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
+		userIDsByRoleIDs: []int64{101},
+	}
+	coordinator := &fakePrincipalMutationCoordinator{err: errors.New("redis down")}
+	svc := NewService(repo, &fakePermissionDict{}, nil, []string{"admin"}, WithPrincipalMutations(coordinator))
+
+	if appErr := svc.Update(context.Background(), 9, MutationInput{Name: "support lead", PermissionIDs: []int64{2}}); appErr == nil {
+		t.Fatal("Update() allowed role grant mutation while Redis gate failed")
+	}
+	if repo.txCalled || repo.updatedRoleID != 0 || repo.syncedRoleID != 0 || coordinator.mutationCalled {
+		t.Fatalf("role SQL ran before invalidation gate: repo=%#v coordinator=%#v", repo, coordinator)
 	}
 }
 
