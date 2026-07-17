@@ -725,6 +725,48 @@ func TestServiceSendCodeLoginRequiresCaptchaForEmailAndPhone(t *testing.T) {
 	}
 }
 
+func TestServiceSendCodeRequiresCaptchaForEveryScene(t *testing.T) {
+	tests := []struct {
+		name      string
+		account   string
+		scene     string
+		loginType string
+	}{
+		{name: "login", account: "15671628271", scene: VerifyCodeSceneLogin, loginType: LoginTypePhone},
+		{name: "forget", account: "15671628271", scene: VerifyCodeSceneForget},
+		{name: "bind phone", account: "15671628271", scene: VerifyCodeSceneBindPhone},
+		{name: "bind email", account: "user@example.com", scene: VerifyCodeSceneBindEmail},
+		{name: "change password", account: "15671628271", scene: VerifyCodeSceneChangePassword},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeCodeStore{}
+			service := NewService(
+				&fakeAuthRepository{},
+				fakeLoginTypeProvider{},
+				&fakeSessionCreator{},
+				&fakeCaptchaVerifier{},
+				WithCodeStore(store),
+				WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
+			)
+
+			message, appErr := service.SendCode(context.Background(), SendCodeInput{
+				Account:   tt.account,
+				Scene:     tt.scene,
+				LoginType: tt.loginType,
+			})
+
+			if message != "" || appErr == nil || appErr.MessageID != "captcha.required" {
+				t.Fatalf("scene=%s expected captcha.required, message=%q err=%#v", tt.scene, message, appErr)
+			}
+			if store.setKey != "" {
+				t.Fatalf("scene=%s must not cache a code before captcha passes: %#v", tt.scene, store)
+			}
+		})
+	}
+}
+
 func TestServiceSendCodeLoginStopsWhenCaptchaIsRejected(t *testing.T) {
 	store := &fakeCodeStore{}
 	verifier := &fakeCaptchaVerifier{err: apperror.BadRequestKey("captcha.invalid_or_expired", nil, "验证码错误或已过期")}

@@ -199,20 +199,20 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 			}
 			return "", apperror.BadRequestKey("auth.send_code.phone.invalid", nil, "请输入正确的手机号格式")
 		}
-		if input.CaptchaID == "" || input.CaptchaAnswer == nil {
-			return "", apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
-		}
-		if s.captchaVerifier == nil {
-			return "", apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
-		}
-		if appErr := s.captchaVerifier.Verify(ctx, VerifyInput{
-			ID:        input.CaptchaID,
-			Answer:    input.CaptchaAnswer,
-			ClientIP:  input.ClientIP,
-			UserAgent: input.UserAgent,
-		}); appErr != nil {
-			return "", appErr
-		}
+	}
+	if input.CaptchaID == "" || input.CaptchaAnswer == nil {
+		return "", apperror.BadRequestKey("captcha.required", nil, "请完成验证码")
+	}
+	if s.captchaVerifier == nil {
+		return "", apperror.InternalKey("captcha.service_missing", nil, "验证码服务未配置")
+	}
+	if appErr := s.captchaVerifier.Verify(ctx, VerifyInput{
+		ID:        input.CaptchaID,
+		Answer:    input.CaptchaAnswer,
+		ClientIP:  input.ClientIP,
+		UserAgent: input.UserAgent,
+	}); appErr != nil {
+		return "", appErr
 	}
 	ttl, appErr := s.verifyCodeTTL(ctx, accountType)
 	if appErr != nil {
