@@ -1,7 +1,7 @@
 [
   {
     "name": "session_user_platform_active_refresh",
-    "repository_file": "internal/module/auth/session.go",
+    "repository_file": "internal/module/auth/session_repository.go",
     "sql": "SELECT id,user_id,platform,refresh_expires_at FROM user_sessions WHERE user_id=:user_id AND platform=:platform AND is_del=2 AND revoked_at IS NULL AND refresh_expires_at>:now ORDER BY id DESC LIMIT :limit",
     "bindings": {"user_id": 2, "platform": "canvas", "now": "2026-01-01 00:00:00", "limit": 20},
     "expected_order": ["id DESC"],

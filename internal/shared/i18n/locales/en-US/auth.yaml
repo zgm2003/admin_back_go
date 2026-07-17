@@ -23,3 +23,14 @@ auth.refresh_token.missing: Missing refresh token
 auth.refresh.result_invalid: Invalid refresh token result
 auth.send_code.request.invalid: Invalid verification code request
 auth.platform.invalid: Token platform mismatch
+auth.browser_grant_authenticator_missing: Browser grant authenticator is not configured
+auth.browser_grant_invalid: Browser grant is invalid or expired
+auth.browser_grant_unavailable: Browser grant service is unavailable
+auth.browser_variant_required: This operation requires the browser client variant
+auth.client_variant_invalid: Admin client variant is missing or invalid
+auth.origin_forbidden: Request origin is not allowed
+auth.queue_monitor_grant_missing: Missing queue monitor grant
+auth.realtime_ticket_missing: Missing realtime authorization ticket
+auth.user_inactive: User is disabled or deleted
+auth.refresh_reused: Refresh credential has already been used
+auth.credential_mismatch: Credential claims do not match the request

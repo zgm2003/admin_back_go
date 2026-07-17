@@ -1,3 +1,8 @@
 permission.checker_missing: Permission checker is not configured
 permission.api.denied: API permission denied
 permission.code_missing: Permission code is not configured
+permission.principal_cache_unavailable: Authorization principal cache is unavailable
+permission.principal_invalidating: Authorization is being updated
+permission.principal_repository_failed: Failed to load authorization principal
+permission.principal_role_inactive: Role is invalid or deleted
+permission.principal_service_missing: Authorization principal service is not configured

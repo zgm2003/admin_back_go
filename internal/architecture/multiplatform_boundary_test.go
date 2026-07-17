@@ -389,7 +389,12 @@ func TestAuthAdjacentModulesAreMerged(t *testing.T) {
 	}
 	for _, rel := range []string{
 		"internal/module/auth/captcha.go",
-		"internal/module/auth/session.go",
+		"internal/module/auth/session_contract.go",
+		"internal/module/auth/session_lifecycle.go",
+		"internal/module/auth/session_repository.go",
+		"internal/module/auth/session_cache.go",
+		"internal/module/auth/session_token.go",
+		"internal/module/auth/session_admin.go",
 		"internal/module/auth/loginlog.go",
 	} {
 		mustExist(t, root, rel)
