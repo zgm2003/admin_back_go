@@ -1,19 +1,31 @@
 package readiness
 
-import runtimepkg "admin_back_go/internal/runtime"
-
 const (
-	StatusReady    = runtimepkg.StatusReady
-	StatusNotReady = runtimepkg.StatusNotReady
+	StatusReady    = "ready"
+	StatusNotReady = "not_ready"
 
-	StatusUp       = runtimepkg.StatusUp
-	StatusDown     = runtimepkg.StatusDown
-	StatusDisabled = runtimepkg.StatusDisabled
+	StatusUp       = "up"
+	StatusDown     = "down"
+	StatusDisabled = "disabled"
 )
 
-type Check = runtimepkg.Check
-type Report = runtimepkg.Report
+type Check struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+type Report struct {
+	Status string           `json:"status"`
+	Checks map[string]Check `json:"checks"`
+}
 
 func NewReport(checks map[string]Check) Report {
-	return runtimepkg.NewReport(checks)
+	status := StatusReady
+	for _, check := range checks {
+		if check.Status == StatusDown {
+			status = StatusNotReady
+			break
+		}
+	}
+	return Report{Status: status, Checks: checks}
 }

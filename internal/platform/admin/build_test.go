@@ -12,7 +12,6 @@ import (
 	"admin_back_go/internal/infra/secretkey"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aimessage "admin_back_go/internal/module/ai/message"
-	runtimepkg "admin_back_go/internal/runtime"
 )
 
 func TestBuildRejectsMissingRequiredResources(t *testing.T) {
@@ -40,6 +39,7 @@ func TestBuildProducesCompleteAdminAndRetiredGraphs(t *testing.T) {
 		},
 		Resources:         resources,
 		Keys:              keys,
+		Providers:         &ProviderSet{},
 		RealtimePublisher: infrarealtime.NoopPublisher{},
 		ReplyDispatcherFactory: func(service aichat.JobService) ReplyDispatcher {
 			if service == nil {
@@ -73,6 +73,7 @@ func TestBuildRejectsMissingEnabledRuntimeAdapters(t *testing.T) {
 	base := BuildInput{
 		Resources: buildTestResources(),
 		Keys:      keys,
+		Providers: &ProviderSet{},
 		ReplyDispatcherFactory: func(aichat.JobService) ReplyDispatcher {
 			return fakeReplyDispatcher{}
 		},
@@ -91,8 +92,8 @@ func TestBuildRejectsMissingEnabledRuntimeAdapters(t *testing.T) {
 	}
 }
 
-func buildTestResources() *runtimepkg.Resources {
-	return &runtimepkg.Resources{
+func buildTestResources() *BuildResources {
+	return &BuildResources{
 		DB:         &database.Client{},
 		Redis:      &redisclient.Client{},
 		TokenRedis: &redisclient.Client{},

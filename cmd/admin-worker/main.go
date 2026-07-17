@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"admin_back_go/internal/bootstrap"
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/logging"
-	"admin_back_go/internal/infra/taskqueue"
+	runtimepkg "admin_back_go/internal/runtime"
 )
+
+const shutdownTimeout = 15 * time.Second
 
 func main() {
 	_ = config.LoadDotEnv()
@@ -28,7 +30,7 @@ func main() {
 		defer logCloser.Close()
 	}
 
-	worker, err := bootstrap.NewWorker(cfg, logger)
+	process, err := runtimepkg.NewWorker(cfg, logger)
 	if err != nil {
 		logger.Error("failed to initialize admin worker", "error", err)
 		os.Exit(1)
@@ -37,19 +39,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := worker.Start(ctx); err != nil {
-		logger.Error("admin worker start failed", "error", err)
-		_ = worker.Shutdown(context.Background())
+	if err := process.Start(ctx); err != nil {
+		logger.Error("process failed", "process", string(config.ProcessWorker), "error", err)
 		os.Exit(1)
 	}
 
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), taskqueue.DefaultShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-
-	if err := worker.Shutdown(shutdownCtx); err != nil {
-		logger.Error("admin worker shutdown failed", "error", err)
+	if err := process.Shutdown(shutdownCtx); err != nil {
+		logger.Error("process shutdown failed", "process", string(config.ProcessWorker), "error", err)
 		os.Exit(1)
 	}
-	logger.Info("admin worker stopped")
+	logger.Info("process stopped", "process", string(config.ProcessWorker))
 }

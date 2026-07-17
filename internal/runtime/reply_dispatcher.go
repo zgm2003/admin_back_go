@@ -1,4 +1,4 @@
-package bootstrap
+package runtime
 
 import (
 	"context"
@@ -32,7 +32,7 @@ type replyRun struct {
 }
 
 type conversationReplyExecutor interface {
-	ExecuteConversationReply(ctx context.Context, input aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error)
+	ExecuteConversationReply(context.Context, aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error)
 }
 
 func newAIConversationReplyDispatcher(service conversationReplyExecutor, logger *slog.Logger, timeout time.Duration) *aiConversationReplyDispatcher {
@@ -43,30 +43,37 @@ func newAIConversationReplyDispatcher(service conversationReplyExecutor, logger 
 		logger = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &aiConversationReplyDispatcher{service: service, logger: logger, timeout: timeout, ctx: ctx, cancel: cancel, runs: map[string]*replyRun{}}
+	return &aiConversationReplyDispatcher{
+		service: service,
+		logger:  logger,
+		timeout: timeout,
+		ctx:     ctx,
+		cancel:  cancel,
+		runs:    map[string]*replyRun{},
+	}
 }
 
-func (d *aiConversationReplyDispatcher) EnqueueConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
-	if d == nil || d.service == nil {
+func (dispatcher *aiConversationReplyDispatcher) EnqueueConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
+	if dispatcher == nil || dispatcher.service == nil {
 		return errors.New("ai conversation reply service is not configured")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
+	dispatcher.mu.Lock()
+	if dispatcher.closed {
+		dispatcher.mu.Unlock()
 		return errors.New("ai conversation reply dispatcher is closed")
 	}
 	key := replyKey(payload.ConversationID, payload.RequestID)
-	if oldRun := d.runs[key]; oldRun != nil {
+	if oldRun := dispatcher.runs[key]; oldRun != nil {
 		oldRun.cancel()
 	}
-	runCtx, runCancel := context.WithTimeout(d.ctx, d.timeout)
+	runCtx, runCancel := context.WithTimeout(dispatcher.ctx, dispatcher.timeout)
 	run := &replyRun{cancel: runCancel}
-	d.runs[key] = run
-	d.wg.Add(1)
-	d.mu.Unlock()
+	dispatcher.runs[key] = run
+	dispatcher.wg.Add(1)
+	dispatcher.mu.Unlock()
 
 	input := aichat.ConversationReplyInput{
 		ConversationID: payload.ConversationID,
@@ -78,22 +85,22 @@ func (d *aiConversationReplyDispatcher) EnqueueConversationReply(ctx context.Con
 	go func() {
 		defer func() {
 			runCancel()
-			d.mu.Lock()
-			if d.runs[key] == run {
-				delete(d.runs, key)
+			dispatcher.mu.Lock()
+			if dispatcher.runs[key] == run {
+				delete(dispatcher.runs, key)
 			}
-			d.mu.Unlock()
-			d.wg.Done()
+			dispatcher.mu.Unlock()
+			dispatcher.wg.Done()
 		}()
-		if _, err := d.service.ExecuteConversationReply(runCtx, input); err != nil {
-			d.logger.ErrorContext(runCtx, "ai conversation reply failed", "conversation_id", input.ConversationID, "request_id", input.RequestID, "error", err)
+		if _, err := dispatcher.service.ExecuteConversationReply(runCtx, input); err != nil {
+			dispatcher.logger.ErrorContext(runCtx, "ai conversation reply failed", "conversation_id", input.ConversationID, "request_id", input.RequestID, "error", err)
 		}
 	}()
 	return nil
 }
 
-func (d *aiConversationReplyDispatcher) CancelConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
-	if d == nil {
+func (dispatcher *aiConversationReplyDispatcher) CancelConversationReply(ctx context.Context, payload aimessage.ReplyPayload) error {
+	if dispatcher == nil {
 		return errors.New("ai conversation reply dispatcher is not configured")
 	}
 	if err := ctx.Err(); err != nil {
@@ -103,35 +110,38 @@ func (d *aiConversationReplyDispatcher) CancelConversationReply(ctx context.Cont
 	if key == "" {
 		return errors.New("ai conversation reply cancel key is invalid")
 	}
-	d.mu.Lock()
-	run := d.runs[key]
-	d.mu.Unlock()
+	dispatcher.mu.Lock()
+	run := dispatcher.runs[key]
+	dispatcher.mu.Unlock()
 	if run != nil {
 		run.cancel()
 	}
 	return nil
 }
 
-func (d *aiConversationReplyDispatcher) Shutdown(ctx context.Context) error {
-	if d == nil {
+func (dispatcher *aiConversationReplyDispatcher) Shutdown(ctx context.Context) error {
+	if dispatcher == nil {
 		return nil
 	}
-	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	dispatcher.mu.Lock()
+	if dispatcher.closed {
+		dispatcher.mu.Unlock()
 		return nil
 	}
-	d.closed = true
-	for _, run := range d.runs {
+	dispatcher.closed = true
+	for _, run := range dispatcher.runs {
 		run.cancel()
 	}
-	d.runs = map[string]*replyRun{}
-	d.cancel()
-	d.mu.Unlock()
+	dispatcher.runs = map[string]*replyRun{}
+	dispatcher.cancel()
+	dispatcher.mu.Unlock()
 
 	done := make(chan struct{})
 	go func() {
-		d.wg.Wait()
+		dispatcher.wg.Wait()
 		close(done)
 	}()
 	select {

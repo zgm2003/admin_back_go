@@ -135,6 +135,12 @@ func permissionRouteRules() map[middleware.RouteKey]string {
 	}
 }
 
+// PermissionRouteRules exposes the transitional route metadata to the P03
+// runtime. Task 6 replaces this map with the compiled admin route registry.
+func PermissionRouteRules() map[middleware.RouteKey]string {
+	return permissionRouteRules()
+}
+
 func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 	return map[middleware.RouteKey]middleware.OperationRule{
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/permissions"): {
@@ -672,4 +678,10 @@ func operationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id"):                 {Module: "ai_conversation", Action: "delete", Title: "删除AI会话"},
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages"):          {Module: "ai_message", Action: "send", Title: "发送AI消息"},
 	}
+}
+
+// OperationRouteRules exposes the transitional route metadata to the P03
+// runtime. Task 6 replaces this map with the compiled admin route registry.
+func OperationRouteRules() map[middleware.RouteKey]middleware.OperationRule {
+	return operationRouteRules()
 }

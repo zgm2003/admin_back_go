@@ -11,9 +11,14 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/accesstoken"
+	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/logstore"
+	paymentcore "admin_back_go/internal/infra/payment"
 	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/infra/redisclient"
+	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/infra/secretkey"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
@@ -52,7 +57,6 @@ import (
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/platform/retired"
-	runtimepkg "admin_back_go/internal/runtime"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -66,10 +70,40 @@ type ReplyDispatcher interface {
 
 type ReplyDispatcherFactory func(aichat.JobService) ReplyDispatcher
 
+type BuildResources struct {
+	DB         *database.Client
+	Redis      *redisclient.Client
+	TokenRedis *redisclient.Client
+	QueueRedis *redisclient.Client
+}
+
+type ProviderSet struct {
+	Secretbox secretbox.Box
+
+	MailSender mail.Sender
+	SMSSender  sms.Sender
+
+	AIConnectionTester aiprovider.ProviderTester
+	AIChatFactory      aichat.EngineFactory
+	AIImageFactory     aiimage.ImageEngineFactory
+	AIToolFactory      aitool.EngineFactory
+	AIVideoFactory     aivideo.EngineFactory
+	AIAudioFactory     aiaudio.EngineFactory
+
+	ObjectReader     storagecos.ObjectReader
+	ObjectWriter     storagecos.ObjectWriter
+	CredentialSigner storagecos.CredentialSigner
+
+	PaymentGateway      paymentcore.Gateway
+	PaymentCertResolver paymentcore.CertPathResolver
+	PaymentCertStore    paymentcore.LocalCertStore
+}
+
 type BuildInput struct {
 	Config                 config.Config
-	Resources              *runtimepkg.Resources
+	Resources              *BuildResources
 	Keys                   *secretkey.KeyRing
+	Providers              *ProviderSet
 	Logger                 *slog.Logger
 	Queue                  taskqueue.Enqueuer
 	QueueInspector         *taskqueue.Inspector
@@ -101,10 +135,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	if publisher == nil {
 		publisher = infrarealtime.NoopPublisher{}
 	}
-	providers, err := runtimepkg.BuildProviders(cfg, input.Keys)
-	if err != nil {
-		return nil, err
-	}
+	providers := *input.Providers
 	resources := input.Resources
 
 	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
@@ -363,6 +394,9 @@ func validateBuildInput(input BuildInput) error {
 	}
 	if input.Keys == nil {
 		return errors.New("admin build key ring is required")
+	}
+	if input.Providers == nil {
+		return errors.New("admin build provider set is required")
 	}
 	if input.ReplyDispatcherFactory == nil {
 		return errors.New("admin build reply dispatcher factory is required")

@@ -1,4 +1,4 @@
-package bootstrap
+package runtime
 
 import (
 	"log/slog"
@@ -18,6 +18,14 @@ type realtimeStack struct {
 	handler    *realtimeadmin.Handler
 }
 
+func newRealtimeStack(cfg config.RealtimeConfig, loggers ...*slog.Logger) realtimeStack {
+	var logger *slog.Logger
+	if len(loggers) > 0 {
+		logger = loggers[0]
+	}
+	return newRealtimeStackWithRedis(cfg, nil, nil, logger)
+}
+
 func withRealtimePolicyDefaults(cfg config.RealtimeConfig) config.RealtimeConfig {
 	if cfg.HeartbeatInterval <= 0 {
 		cfg.HeartbeatInterval = config.DefaultRealtimeHeartbeatInterval
@@ -31,14 +39,9 @@ func withRealtimePolicyDefaults(cfg config.RealtimeConfig) config.RealtimeConfig
 	return cfg
 }
 
-func newRealtimeStack(cfg config.RealtimeConfig, loggers ...*slog.Logger) realtimeStack {
-	return newRealtimeStackWithRedis(cfg, nil, nil, loggers...)
-}
-
-func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []string, redis *redisclient.Client, loggers ...*slog.Logger) realtimeStack {
-	logger := slog.Default()
-	if len(loggers) > 0 && loggers[0] != nil {
-		logger = loggers[0]
+func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []string, redis *redisclient.Client, logger *slog.Logger) realtimeStack {
+	if logger == nil {
+		logger = slog.Default()
 	}
 	cfg = withRealtimePolicyDefaults(cfg)
 
@@ -74,7 +77,7 @@ func realtimeEnabledFor(cfg config.RealtimeConfig, logger *slog.Logger) bool {
 		publisherName = config.RealtimePublisherLocal
 	}
 	switch publisherName {
-	case "", config.RealtimePublisherLocal, config.RealtimePublisherNoop, config.RealtimePublisherRedis:
+	case config.RealtimePublisherLocal, config.RealtimePublisherNoop, config.RealtimePublisherRedis:
 		return true
 	default:
 		if logger != nil {
@@ -84,7 +87,13 @@ func realtimeEnabledFor(cfg config.RealtimeConfig, logger *slog.Logger) bool {
 	}
 }
 
-func realtimePublisherFor(cfg config.RealtimeConfig, enabled bool, redis *redisclient.Client, localPublisher *infrarealtime.LocalPublisher, logger *slog.Logger) (infrarealtime.Publisher, *infrarealtime.RedisSubscriber) {
+func realtimePublisherFor(
+	cfg config.RealtimeConfig,
+	enabled bool,
+	redis *redisclient.Client,
+	localPublisher *infrarealtime.LocalPublisher,
+	logger *slog.Logger,
+) (infrarealtime.Publisher, *infrarealtime.RedisSubscriber) {
 	if !enabled {
 		return infrarealtime.NoopPublisher{}, nil
 	}
@@ -94,7 +103,7 @@ func realtimePublisherFor(cfg config.RealtimeConfig, enabled bool, redis *redisc
 		publisherName = config.RealtimePublisherLocal
 	}
 	switch publisherName {
-	case "", config.RealtimePublisherLocal:
+	case config.RealtimePublisherLocal:
 		return localPublisher, nil
 	case config.RealtimePublisherNoop:
 		return infrarealtime.NoopPublisher{}, nil
@@ -111,5 +120,27 @@ func realtimePublisherFor(cfg config.RealtimeConfig, enabled bool, redis *redisc
 			logger.Error("unknown realtime publisher; realtime publication disabled", "publisher", cfg.Publisher)
 		}
 		return infrarealtime.NoopPublisher{}, nil
+	}
+}
+
+func realtimePublisherForWorker(cfg config.Config, resources *Resources) infrarealtime.Publisher {
+	realtimeConfig := withRealtimePolicyDefaults(cfg.Realtime)
+	if !realtimeConfig.Enabled {
+		return infrarealtime.NoopPublisher{}
+	}
+	publisherName := realtimeConfig.Publisher
+	if publisherName == "" {
+		publisherName = config.RealtimePublisherLocal
+	}
+	switch publisherName {
+	case config.RealtimePublisherRedis:
+		if resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
+			return infrarealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel)
+		}
+		return infrarealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel)
+	case config.RealtimePublisherNoop, config.RealtimePublisherLocal:
+		return infrarealtime.NoopPublisher{}
+	default:
+		return infrarealtime.NoopPublisher{}
 	}
 }

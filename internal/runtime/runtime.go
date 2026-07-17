@@ -1,35 +1,25 @@
 package runtime
 
-import "context"
+import (
+	"context"
 
-const (
-	StatusReady    = "ready"
-	StatusNotReady = "not_ready"
-
-	StatusUp       = "up"
-	StatusDown     = "down"
-	StatusDisabled = "disabled"
+	"admin_back_go/internal/readiness"
 )
 
-type Check struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
-}
+const (
+	StatusReady    = readiness.StatusReady
+	StatusNotReady = readiness.StatusNotReady
 
-type Report struct {
-	Status string           `json:"status"`
-	Checks map[string]Check `json:"checks"`
-}
+	StatusUp       = readiness.StatusUp
+	StatusDown     = readiness.StatusDown
+	StatusDisabled = readiness.StatusDisabled
+)
+
+type Check = readiness.Check
+type Report = readiness.Report
 
 func NewReport(checks map[string]Check) Report {
-	status := StatusReady
-	for _, check := range checks {
-		if check.Status == StatusDown {
-			status = StatusNotReady
-			break
-		}
-	}
-	return Report{Status: status, Checks: checks}
+	return readiness.NewReport(checks)
 }
 
 type Runtime interface {
