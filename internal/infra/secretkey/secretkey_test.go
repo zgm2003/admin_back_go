@@ -39,3 +39,53 @@ func TestNewKeyRingRejectsUnsafeSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestNewKeyRingWithPreviousCarriesDistinctJWTKeyIDs(t *testing.T) {
+	current := strings.Repeat("c", 64)
+	previous := strings.Repeat("p", 64)
+
+	ring, err := NewKeyRingWithPrevious(current, []string{previous})
+	if err != nil {
+		t.Fatalf("NewKeyRingWithPrevious returned error: %v", err)
+	}
+	if ring.JWTSigningKeyID() == "" {
+		t.Fatal("current JWT key ID is empty")
+	}
+	keys := ring.JWTVerificationKeys()
+	if len(keys) != 2 {
+		t.Fatalf("JWT verification key count = %d, want 2", len(keys))
+	}
+	if _, ok := keys[ring.JWTSigningKeyID()]; !ok {
+		t.Fatalf("current JWT key ID %q is absent from verification keys", ring.JWTSigningKeyID())
+	}
+
+	oldRing, err := NewKeyRing(previous)
+	if err != nil {
+		t.Fatalf("NewKeyRing(previous) returned error: %v", err)
+	}
+	if _, ok := keys[oldRing.JWTSigningKeyID()]; !ok {
+		t.Fatalf("previous JWT key ID %q is absent from verification keys", oldRing.JWTSigningKeyID())
+	}
+	if oldRing.JWTSigningKeyID() == ring.JWTSigningKeyID() {
+		t.Fatal("current and previous JWT key IDs are equal")
+	}
+}
+
+func TestNewKeyRingWithPreviousRejectsInvalidRotation(t *testing.T) {
+	current := strings.Repeat("c", 64)
+	tests := []struct {
+		name     string
+		previous []string
+	}{
+		{name: "same key", previous: []string{current}},
+		{name: "more than one previous", previous: []string{strings.Repeat("a", 64), strings.Repeat("b", 64)}},
+		{name: "unsafe previous", previous: []string{"short"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewKeyRingWithPrevious(current, test.previous); err == nil {
+				t.Fatal("expected rotation configuration to be rejected")
+			}
+		})
+	}
+}

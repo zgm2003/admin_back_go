@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/infra/accesstoken"
 	"admin_back_go/internal/infra/database"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/redisclient"
@@ -13,6 +15,33 @@ import (
 	aichat "admin_back_go/internal/module/ai/chat"
 	aimessage "admin_back_go/internal/module/ai/message"
 )
+
+func TestAccessTokenCodecForKeysSupportsDualKeyWindow(t *testing.T) {
+	oldRing, err := secretkey.NewKeyRing(strings.Repeat("o", 64))
+	if err != nil {
+		t.Fatalf("old key ring: %v", err)
+	}
+	dualRing, err := secretkey.NewKeyRingWithPrevious(strings.Repeat("n", 64), []string{strings.Repeat("o", 64)})
+	if err != nil {
+		t.Fatalf("dual key ring: %v", err)
+	}
+	oldCodec, err := accessTokenCodecForKeys(oldRing)
+	if err != nil {
+		t.Fatalf("old access codec: %v", err)
+	}
+	dualCodec, err := accessTokenCodecForKeys(dualRing)
+	if err != nil {
+		t.Fatalf("dual access codec: %v", err)
+	}
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	token, err := oldCodec.Issue(accesstoken.Claims{SessionID: 1, UserID: 2, Platform: "admin", IssuedAt: now, ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("issue old token: %v", err)
+	}
+	if _, err := dualCodec.Parse(token, now.Add(time.Minute)); err != nil {
+		t.Fatalf("dual codec rejected old token: %v", err)
+	}
+}
 
 func TestBuildRejectsMissingRequiredResources(t *testing.T) {
 	keys, err := secretkey.NewKeyRing(strings.Repeat("k", 64))

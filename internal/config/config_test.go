@@ -425,6 +425,39 @@ func TestLoadReadsAppSecret(t *testing.T) {
 	}
 }
 
+func TestLoadReadsOnePreviousAppSecret(t *testing.T) {
+	current := strings.Repeat("c", 64)
+	previous := strings.Repeat("p", 64)
+	t.Setenv("APP_SECRET", current)
+	t.Setenv("APP_SECRET_PREVIOUS", previous)
+
+	cfg := loadForTest(t, ProcessAPI)
+
+	if len(cfg.App.PreviousSecrets) != 1 || cfg.App.PreviousSecrets[0] != previous {
+		t.Fatalf("APP_SECRET_PREVIOUS = %#v, want one byte-preserved value", cfg.App.PreviousSecrets)
+	}
+}
+
+func TestValidateRuntimeSecretsRejectsInvalidPreviousSet(t *testing.T) {
+	current := strings.Repeat("c", 64)
+	tests := []struct {
+		name     string
+		previous []string
+	}{
+		{name: "same as current", previous: []string{current}},
+		{name: "unsafe", previous: []string{"short"}},
+		{name: "more than one", previous: []string{strings.Repeat("a", 64), strings.Repeat("b", 64)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := Config{App: AppConfig{Secret: current, PreviousSecrets: test.previous}}
+			if err := ValidateRuntimeSecrets(cfg); err == nil {
+				t.Fatal("expected previous secret configuration to be rejected")
+			}
+		})
+	}
+}
+
 func TestValidateRuntimeSecretsRejectsMissingAppSecret(t *testing.T) {
 	cfg := Config{App: AppConfig{Env: "local"}}
 

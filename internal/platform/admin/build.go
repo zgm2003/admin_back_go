@@ -140,6 +140,10 @@ func Build(input BuildInput) (*BuildResult, error) {
 	}
 	providers := *input.Providers
 	resources := input.Resources
+	accessCodec, err := accessTokenCodecForKeys(input.Keys)
+	if err != nil {
+		return nil, fmt.Errorf("build access token codec: %w", err)
+	}
 
 	authPlatformService := authplatform.NewService(authplatform.NewGormRepository(resources.DB))
 	sessionAuthenticator := auth.NewSessionLifecycle(auth.LifecycleDeps{
@@ -147,7 +151,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		Cache:          auth.NewSessionRedisCache(resources.TokenRedis),
 		Repository:     auth.NewSessionGormRepository(resources.DB),
 		PolicyProvider: authPlatformService,
-		AccessCodec:    accesstoken.NewJWTCodec(input.Keys.JWTSigningKey(), accesstoken.Options{Issuer: "admin_go"}),
+		AccessCodec:    accessCodec,
 		TokenPepper:    input.Keys.TokenPepper(),
 	})
 	browserGrantService := auth.NewBrowserGrantService(
@@ -398,6 +402,17 @@ func Build(input BuildInput) (*BuildResult, error) {
 		OperationRecorder: operationRecorder,
 		ReplyDispatcher:   replyDispatcher,
 	}, nil
+}
+
+func accessTokenCodecForKeys(keys *secretkey.KeyRing) (accesstoken.Codec, error) {
+	if keys == nil {
+		return nil, errors.New("access token key ring is required")
+	}
+	return accesstoken.NewRotatingJWTCodec(
+		keys.JWTSigningKeyID(),
+		keys.JWTVerificationKeys(),
+		accesstoken.Options{Issuer: "admin_go"},
+	)
 }
 
 func validateBuildInput(input BuildInput) error {

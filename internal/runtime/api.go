@@ -64,7 +64,7 @@ func NewAPI(cfg config.Config, logger *slog.Logger, routes *adminroute.Registry,
 	if err := config.ValidateRuntimeSecrets(cfg); err != nil {
 		return nil, err
 	}
-	keys, err := secretkey.NewKeyRing(cfg.App.Secret)
+	keys, err := secretkey.NewKeyRingWithPrevious(cfg.App.Secret, cfg.App.PreviousSecrets)
 	if err != nil {
 		return nil, err
 	}

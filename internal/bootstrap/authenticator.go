@@ -21,7 +21,11 @@ func NewSessionAuthenticator(resources *Resources, cfg config.Config, keys *secr
 	var accessCodec accesstoken.Codec
 	tokenPepper := ""
 	if keys != nil {
-		accessCodec = accesstoken.NewJWTCodec(keys.JWTSigningKey(), accesstoken.Options{Issuer: "admin_go"})
+		accessCodec, _ = accesstoken.NewRotatingJWTCodec(
+			keys.JWTSigningKeyID(),
+			keys.JWTVerificationKeys(),
+			accesstoken.Options{Issuer: "admin_go"},
+		)
 		tokenPepper = keys.TokenPepper()
 	}
 	return authmodule.NewAuthenticator(authmodule.AuthenticatorDeps{
@@ -35,7 +39,7 @@ func NewSessionAuthenticator(resources *Resources, cfg config.Config, keys *secr
 }
 
 func NewTokenAuthenticator(resources *Resources, cfg config.Config) middleware.TokenAuthenticator {
-	keys, _ := secretkey.NewKeyRing(cfg.App.Secret)
+	keys, _ := secretkey.NewKeyRingWithPrevious(cfg.App.Secret, cfg.App.PreviousSecrets)
 	return TokenAuthenticatorFor(NewSessionAuthenticator(resources, cfg, keys))
 }
 

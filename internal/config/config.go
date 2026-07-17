@@ -33,6 +33,7 @@ type Config struct {
 // value type, but its slice fields would still alias the caller without this
 // boundary copy.
 func Snapshot(cfg Config) Config {
+	cfg.App.PreviousSecrets = cloneConfigStrings(cfg.App.PreviousSecrets)
 	cfg.Logging.AllowedExtensions = cloneConfigStrings(cfg.Logging.AllowedExtensions)
 	cfg.CORS.AllowOrigins = cloneConfigStrings(cfg.CORS.AllowOrigins)
 	cfg.CORS.AllowMethods = cloneConfigStrings(cfg.CORS.AllowMethods)
@@ -49,8 +50,9 @@ func cloneConfigStrings(values []string) []string {
 }
 
 type AppConfig struct {
-	Env    string
-	Secret string
+	Env             string
+	Secret          string
+	PreviousSecrets []string
 }
 
 type HTTPConfig struct {
@@ -314,8 +316,9 @@ func loadFrom(lookup lookupEnv) (Config, error) {
 
 	return Config{
 		App: AppConfig{
-			Env:    envText(lookup, "APP_ENV", "local"),
-			Secret: envOpaque(lookup, "APP_SECRET", ""),
+			Env:             envText(lookup, "APP_ENV", "local"),
+			Secret:          envOpaque(lookup, "APP_SECRET", ""),
+			PreviousSecrets: optionalSecret(envOpaque(lookup, "APP_SECRET_PREVIOUS", "")),
 		},
 		HTTP: HTTPConfig{
 			Addr:              envText(lookup, "HTTP_ADDR", ":8080"),
@@ -366,11 +369,36 @@ var unsafeAppSecrets = map[string]struct{}{
 }
 
 func ValidateRuntimeSecrets(cfg Config) error {
-	if _, unsafe := unsafeAppSecrets[strings.TrimSpace(cfg.App.Secret)]; unsafe {
-		return fmt.Errorf("APP_SECRET is missing or unsafe")
+	if err := validateAppSecret("APP_SECRET", cfg.App.Secret); err != nil {
+		return err
 	}
-	if len(cfg.App.Secret) < 64 {
-		return fmt.Errorf("APP_SECRET is too short: got %d bytes, need at least 64", len(cfg.App.Secret))
+	if len(cfg.App.PreviousSecrets) > 1 {
+		return fmt.Errorf("APP_SECRET_PREVIOUS supports at most one key")
+	}
+	for _, previous := range cfg.App.PreviousSecrets {
+		if err := validateAppSecret("APP_SECRET_PREVIOUS", previous); err != nil {
+			return err
+		}
+		if strings.TrimSpace(previous) == strings.TrimSpace(cfg.App.Secret) {
+			return fmt.Errorf("APP_SECRET_PREVIOUS must differ from APP_SECRET")
+		}
+	}
+	return nil
+}
+
+func optionalSecret(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return []string{value}
+}
+
+func validateAppSecret(name string, value string) error {
+	if _, unsafe := unsafeAppSecrets[strings.TrimSpace(value)]; unsafe {
+		return fmt.Errorf("%s is missing or unsafe", name)
+	}
+	if len(value) < 64 {
+		return fmt.Errorf("%s is too short: got %d bytes, need at least 64", name, len(value))
 	}
 	return nil
 }

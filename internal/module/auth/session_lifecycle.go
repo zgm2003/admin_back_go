@@ -30,7 +30,7 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 		return nil, policyErr
 	}
 
-	now := a.now()
+	now := canonicalSessionTime(a.now())
 	refreshToken, refreshHash, refreshExpiresAt, tokenErr := a.issueRefreshToken(policy, now)
 	if tokenErr != nil {
 		return nil, tokenErr
@@ -195,7 +195,7 @@ func (a *SessionLifecycle) Rotate(ctx context.Context, input RotateCommand) (*Cr
 		return nil, apperror.Unauthorized("Token认证未配置")
 	}
 
-	now := a.now()
+	now := canonicalSessionTime(a.now())
 	session, repoErr := a.repository.FindValidByRefreshHash(ctx, previousRefreshHash, now)
 	if repoErr != nil {
 		return nil, apperror.Internal("刷新令牌查询失败")
@@ -263,6 +263,10 @@ func refreshReusedError() *apperror.Error {
 		nil,
 		"刷新令牌已使用，请重新登录",
 	)
+}
+
+func canonicalSessionTime(value time.Time) time.Time {
+	return value.Truncate(time.Second)
 }
 
 func (a *SessionLifecycle) Revoke(ctx context.Context, command RevokeCommand) *apperror.Error {
