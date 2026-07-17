@@ -26,6 +26,8 @@ func noAuditRouteReasons() map[middleware.RouteKey]string {
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/login"):                           "public authentication state",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/refresh"):                         "session rotation has domain audit",
 		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/logout"):                          "self-service session state",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/realtime-tickets"):                "short-lived browser realtime credential issuance",
+		middleware.NewRouteKey(http.MethodPost, "/api/admin/v1/auth/queue-monitor-grants"):            "short-lived queue monitor browser grant issuance",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/notifications/:id/read"):              "self-service notification state",
 		middleware.NewRouteKey(http.MethodPatch, "/api/admin/v1/notifications/read"):                  "self-service notification state",
 		middleware.NewRouteKey(http.MethodDelete, "/api/admin/v1/notifications/:id"):                  "self-service notification state",

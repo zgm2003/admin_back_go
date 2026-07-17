@@ -205,6 +205,8 @@ POST /api/admin/v1/auth-platforms
 POST /api/admin/v1/auth/forgot-password
 POST /api/admin/v1/auth/login
 POST /api/admin/v1/auth/logout
+POST /api/admin/v1/auth/queue-monitor-grants
+POST /api/admin/v1/auth/realtime-tickets
 POST /api/admin/v1/auth/refresh
 POST /api/admin/v1/auth/send-code
 POST /api/admin/v1/client-versions

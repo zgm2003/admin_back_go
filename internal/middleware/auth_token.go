@@ -14,8 +14,6 @@ import (
 
 const (
 	ContextAuthIdentity = "auth_identity"
-
-	DefaultAccessTokenCookie = "access_token"
 )
 
 type TokenAuthenticator func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error)
@@ -34,24 +32,23 @@ type AuthIdentity struct {
 }
 
 type AuthTokenConfig struct {
-	Authenticator   TokenAuthenticator
-	SkipPaths       map[string]struct{}
-	CookieTokenPath CookieTokenPathConfig
+	Authenticator TokenAuthenticator
+	SkipPaths     map[string]struct{}
+	BrowserGrants BrowserGrantAuthConfig
 }
 
-// CookieTokenPathConfig allows browser document requests to authenticate with
-// the existing access_token cookie for explicitly configured read-only path
-// prefixes. This is intentionally narrow: normal API calls still use the
-// Authorization header so cookie auth does not become a hidden global fallback.
-type CookieTokenPathConfig struct {
-	CookieName   string
-	PathPrefixes []string
-	Platform     string
+type BrowserGrantAuthenticator func(context.Context, string) (*AuthIdentity, *apperror.Error)
+
+type BrowserGrantAuthConfig struct {
+	RealtimePath              string
+	ConsumeRealtimeTicket     BrowserGrantAuthenticator
+	QueueMonitorPathPrefixes  []string
+	QueueMonitorCookieName    string
+	ValidateQueueMonitorGrant BrowserGrantAuthenticator
 }
 
 type requestToken struct {
-	value      string
-	fromCookie bool
+	value string
 }
 
 func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
@@ -61,7 +58,11 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 
-		token, tokenErr := tokenFromRequest(c.Request, cfg.CookieTokenPath)
+		if handled := authenticateBrowserGrant(c, cfg.BrowserGrants); handled {
+			return
+		}
+
+		token, tokenErr := tokenFromRequest(c.Request)
 		if tokenErr != nil {
 			response.Abort(c, tokenErr)
 			return
@@ -72,9 +73,6 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 		}
 
 		platform := c.GetHeader("platform")
-		if token.fromCookie && strings.TrimSpace(platform) == "" {
-			platform = strings.TrimSpace(cfg.CookieTokenPath.Platform)
-		}
 		if strings.TrimSpace(platform) == "" {
 			platform = defaultPlatformForPath(c.Request.URL.Path)
 		}
@@ -99,15 +97,15 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 	}
 }
 
-func TokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (string, *apperror.Error) {
-	token, err := tokenFromRequest(request, cookieCfg)
+func TokenFromRequest(request *http.Request) (string, *apperror.Error) {
+	token, err := tokenFromRequest(request)
 	if err != nil {
 		return "", err
 	}
 	return token.value, nil
 }
 
-func tokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (requestToken, *apperror.Error) {
+func tokenFromRequest(request *http.Request) (requestToken, *apperror.Error) {
 	if request == nil {
 		return requestToken{}, apperror.UnauthorizedKey("auth.token.missing", nil, "缺少Token")
 	}
@@ -118,9 +116,6 @@ func tokenFromRequest(request *http.Request, cookieCfg CookieTokenPathConfig) (r
 			return requestToken{}, err
 		}
 		return requestToken{value: token}, nil
-	}
-	if token, ok := cookieTokenForPath(request, cookieCfg); ok {
-		return requestToken{value: token, fromCookie: true}, nil
 	}
 	return requestToken{}, apperror.UnauthorizedKey("auth.token.missing", nil, "缺少Token")
 }
@@ -191,30 +186,7 @@ func ParseBearerToken(value string) (string, *apperror.Error) {
 	return token, nil
 }
 
-func cookieTokenForPath(request *http.Request, cfg CookieTokenPathConfig) (string, bool) {
-	if request == nil || request.URL == nil {
-		return "", false
-	}
-	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		return "", false
-	}
-	if !matchesCookieTokenPath(request.URL.Path, cfg.PathPrefixes) {
-		return "", false
-	}
-
-	cookieName := strings.TrimSpace(cfg.CookieName)
-	if cookieName == "" {
-		cookieName = DefaultAccessTokenCookie
-	}
-	cookie, err := request.Cookie(cookieName)
-	if err != nil {
-		return "", false
-	}
-	token := strings.TrimSpace(cookie.Value)
-	return token, token != ""
-}
-
-func matchesCookieTokenPath(path string, prefixes []string) bool {
+func matchesPathPrefix(path string, prefixes []string) bool {
 	for _, prefix := range prefixes {
 		prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
 		if prefix == "" {
@@ -225,6 +197,51 @@ func matchesCookieTokenPath(path string, prefixes []string) bool {
 		}
 	}
 	return false
+}
+
+func authenticateBrowserGrant(c *gin.Context, cfg BrowserGrantAuthConfig) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	path := c.Request.URL.Path
+	if realtimePath := strings.TrimSpace(cfg.RealtimePath); realtimePath != "" && path == realtimePath {
+		credential := strings.TrimSpace(c.Query("ticket"))
+		if credential == "" {
+			response.Abort(c, apperror.UnauthorizedKey("auth.realtime_ticket_missing", nil, "缺少实时授权票据"))
+			return true
+		}
+		authenticateGrant(c, credential, cfg.ConsumeRealtimeTicket)
+		return true
+	}
+	if matchesPathPrefix(path, cfg.QueueMonitorPathPrefixes) {
+		cookieName := strings.TrimSpace(cfg.QueueMonitorCookieName)
+		cookie, err := c.Request.Cookie(cookieName)
+		if err != nil || strings.TrimSpace(cookie.Value) == "" {
+			response.Abort(c, apperror.UnauthorizedKey("auth.queue_monitor_grant_missing", nil, "缺少队列监控授权"))
+			return true
+		}
+		authenticateGrant(c, strings.TrimSpace(cookie.Value), cfg.ValidateQueueMonitorGrant)
+		return true
+	}
+	return false
+}
+
+func authenticateGrant(c *gin.Context, credential string, authenticator BrowserGrantAuthenticator) {
+	if authenticator == nil {
+		response.Abort(c, apperror.UnauthorizedKey("auth.browser_grant_authenticator_missing", nil, "浏览器授权服务未配置"))
+		return
+	}
+	identity, appErr := authenticator(c.Request.Context(), credential)
+	if appErr != nil {
+		response.Abort(c, appErr)
+		return
+	}
+	if identity == nil {
+		response.Abort(c, apperror.UnauthorizedKey("auth.browser_grant_invalid", nil, "浏览器授权已失效"))
+		return
+	}
+	c.Set(ContextAuthIdentity, identity)
+	c.Next()
 }
 
 func defaultPlatformForPath(path string) string {

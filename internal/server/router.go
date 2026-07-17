@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -8,13 +9,15 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
+	"admin_back_go/internal/module/auth"
+	authadmin "admin_back_go/internal/module/auth/transport/admin"
 	queuemonitoradmin "admin_back_go/internal/module/queuemonitor/transport/admin"
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
 	"admin_back_go/internal/module/system"
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/server/adminroute"
-	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
 	"admin_back_go/internal/shared/validate"
 	"admin_back_go/internal/telemetry"
@@ -61,9 +64,12 @@ func NewRouter(deps Dependencies) (*gin.Engine, error) {
 	router.Use(middleware.AuthToken(middleware.AuthTokenConfig{
 		Authenticator: core.Authenticator,
 		SkipPaths:     core.RouteRegistry.PublicPaths(),
-		CookieTokenPath: middleware.CookieTokenPathConfig{
-			PathPrefixes: []string{queuemonitoradmin.UIPath, realtimeadmin.WSPath},
-			Platform:     enum.PlatformAdmin,
+		BrowserGrants: middleware.BrowserGrantAuthConfig{
+			RealtimePath:              realtimeadmin.WSPath,
+			ConsumeRealtimeTicket:     realtimeGrantAuthenticator(deps.Admin.Identity.BrowserGrants),
+			QueueMonitorPathPrefixes:  []string{queuemonitoradmin.UIPath},
+			QueueMonitorCookieName:    authadmin.QueueMonitorGrantCookieName,
+			ValidateQueueMonitorGrant: queueGrantAuthenticator(deps.Admin.Identity.BrowserGrants),
 		},
 	}))
 	router.Use(middleware.PermissionCheck(middleware.PermissionCheckConfig{
@@ -93,4 +99,31 @@ func NewRouter(deps Dependencies) (*gin.Engine, error) {
 		return nil, fmt.Errorf("compile admin route registry: %w", err)
 	}
 	return router, nil
+}
+
+func realtimeGrantAuthenticator(service *auth.BrowserGrantService) middleware.BrowserGrantAuthenticator {
+	return func(ctx context.Context, credential string) (*middleware.AuthIdentity, *apperror.Error) {
+		if service == nil {
+			return nil, apperror.UnauthorizedKey("auth.browser_grant_authenticator_missing", nil, "浏览器授权服务未配置")
+		}
+		subject, appErr := service.ConsumeRealtimeTicket(ctx, credential)
+		return grantIdentity(subject, appErr)
+	}
+}
+
+func queueGrantAuthenticator(service *auth.BrowserGrantService) middleware.BrowserGrantAuthenticator {
+	return func(ctx context.Context, credential string) (*middleware.AuthIdentity, *apperror.Error) {
+		if service == nil {
+			return nil, apperror.UnauthorizedKey("auth.browser_grant_authenticator_missing", nil, "浏览器授权服务未配置")
+		}
+		subject, appErr := service.ValidateQueueMonitorGrant(ctx, credential)
+		return grantIdentity(subject, appErr)
+	}
+}
+
+func grantIdentity(subject auth.GrantSubject, appErr *apperror.Error) (*middleware.AuthIdentity, *apperror.Error) {
+	if appErr != nil {
+		return nil, appErr
+	}
+	return &middleware.AuthIdentity{UserID: subject.UserID, SessionID: subject.SessionID, Platform: subject.Platform}, nil
 }

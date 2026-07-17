@@ -85,6 +85,7 @@ type testDependencies struct {
 	UserService             user.HTTPService
 	LoginLogService         auth.LoginLogHTTPService
 	SessionAdminService     auth.SessionAdminHTTPService
+	BrowserGrants           *auth.BrowserGrantService
 	NotificationService     notification.HTTPService
 	NotificationTaskService notificationtask.HTTPService
 	OperationLogService     operationlogadmin.HTTPService
@@ -144,6 +145,7 @@ func (deps testDependencies) grouped() Dependencies {
 				AuthPlatforms: deps.AuthPlatformService,
 				Sessions:      deps.SessionAdminService,
 				LoginLogs:     deps.LoginLogService,
+				BrowserGrants: deps.BrowserGrants,
 			},
 			System: platformadmin.SystemGraph{
 				ClientVersions: deps.ClientVersionService,

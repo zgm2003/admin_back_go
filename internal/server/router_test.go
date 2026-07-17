@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	aitool "admin_back_go/internal/module/ai/tool"
 	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
+	authadmin "admin_back_go/internal/module/auth/transport/admin"
 	"admin_back_go/internal/module/auth_platform"
 	canvasmodule "admin_back_go/internal/module/canvas"
 	"admin_back_go/internal/module/clientversion"
@@ -63,6 +65,39 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+type routerBrowserGrantStore struct {
+	mu     sync.Mutex
+	values map[string]string
+}
+
+func (s *routerBrowserGrantStore) Put(_ context.Context, key string, value string, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.values == nil {
+		s.values = make(map[string]string)
+	}
+	s.values[key] = value
+	return nil
+}
+
+func (s *routerBrowserGrantStore) Consume(_ context.Context, key string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value := s.values[key]
+	delete(s.values, key)
+	return value, nil
+}
+
+func (s *routerBrowserGrantStore) Get(_ context.Context, key string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.values[key], nil
+}
+
+func newRouterBrowserGrants() *auth.BrowserGrantService {
+	return auth.NewBrowserGrantService(&routerBrowserGrantStore{}, auth.BrowserGrantConfig{RedisPrefix: "router-test:"})
+}
 
 type fakeReadinessChecker struct {
 	report readiness.Report
@@ -1926,6 +1961,7 @@ func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -1948,6 +1984,7 @@ func TestRouterRefreshEndpointIncludesCORSHeaders(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://127.0.0.1:5173")
+	request.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -1976,6 +2013,7 @@ func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("platform", "admin")
+	loginRequest.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))
 	router.ServeHTTP(loginRecorder, loginRequest)
 	if loginRecorder.Code != http.StatusOK {
 		t.Fatalf("expected login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())
@@ -4163,18 +4201,18 @@ func TestRouterInstallsUploadTokenCreateRoute(t *testing.T) {
 func TestRouterInstallsQueueMonitorReadOnlyRESTRoutes(t *testing.T) {
 	queueMonitorService := &fakeRouterQueueMonitorService{}
 	queueMonitorUI := &fakeQueueMonitorUI{}
-	var uiAuthToken string
-	var uiAuthPlatform string
+	browserGrants := newRouterBrowserGrants()
+	queueGrant, grantErr := browserGrants.IssueQueueMonitorGrant(context.Background(), auth.GrantSubject{UserID: 1, SessionID: 10, Platform: "admin"})
+	if grantErr != nil {
+		t.Fatalf("issue queue monitor grant: %v", grantErr)
+	}
 	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			if strings.HasPrefix(input.AccessToken, "cookie-") {
-				uiAuthToken = input.AccessToken
-				uiAuthPlatform = input.Platform
-			}
 			return &middleware.AuthIdentity{UserID: 1, SessionID: 10, Platform: "admin"}, nil
 		},
 		QueueMonitorService: queueMonitorService,
 		QueueMonitorUI:      queueMonitorUI,
+		BrowserGrants:       browserGrants,
 	})
 
 	recorder := httptest.NewRecorder()
@@ -4203,7 +4241,7 @@ func TestRouterInstallsQueueMonitorReadOnlyRESTRoutes(t *testing.T) {
 
 	recorder = httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodGet, queuemonitor.UIPath+"/api/queues", nil)
-	request.Header.Set("Authorization", "Bearer access-token")
+	request.AddCookie(&http.Cookie{Name: authadmin.QueueMonitorGrantCookieName, Value: queueGrant.Credential})
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -4215,17 +4253,11 @@ func TestRouterInstallsQueueMonitorReadOnlyRESTRoutes(t *testing.T) {
 
 	recorder = httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodGet, queuemonitor.UIPath, nil)
-	request.AddCookie(&http.Cookie{Name: middleware.DefaultAccessTokenCookie, Value: "cookie-access-token"})
+	request.AddCookie(&http.Cookie{Name: authadmin.QueueMonitorGrantCookieName, Value: queueGrant.Credential})
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected queue monitor UI cookie status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if uiAuthToken != "cookie-access-token" {
-		t.Fatalf("expected queue monitor UI to authenticate with cookie token, got %q", uiAuthToken)
-	}
-	if uiAuthPlatform != "admin" {
-		t.Fatalf("expected queue monitor UI cookie auth to use admin platform, got %q", uiAuthPlatform)
 	}
 }
 
@@ -4290,10 +4322,13 @@ func TestRouterInstallsOperationLogAfterPermissionCheck(t *testing.T) {
 }
 
 func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
+	browserGrants := newRouterBrowserGrants()
+	ticket, ticketErr := browserGrants.IssueRealtimeTicket(context.Background(), auth.GrantSubject{UserID: 7, SessionID: 9, Platform: "admin"})
+	if ticketErr != nil {
+		t.Fatalf("issue realtime ticket: %v", ticketErr)
+	}
 	router := newTestRouter(t, testDependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
-		},
+		BrowserGrants: browserGrants,
 		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
 			infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
@@ -4304,11 +4339,7 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+"/api/admin/v1/realtime/ws", http.Header{
-		"Authorization": []string{"Bearer access-token"},
-		"platform":      []string{"admin"},
-		"device-id":     []string{"codex-test"},
-	})
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimeadmin.WSPath+"?ticket="+ticket.Credential, nil)
 	if err != nil {
 		t.Fatalf("dial realtime: %v", err)
 	}
@@ -4323,13 +4354,8 @@ func TestRealtimeRouteRequiresAuthAndUpgradesWebSocket(t *testing.T) {
 	}
 }
 
-func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing.T) {
-	var gotInput middleware.TokenInput
+func TestRealtimeRouteRejectsLegacyCookieTokenForBrowserWebSocket(t *testing.T) {
 	router := newTestRouter(t, testDependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			gotInput = input
-			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
-		},
 		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
 			infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
@@ -4341,29 +4367,20 @@ func TestRealtimeRouteAcceptsPathScopedCookieTokenForBrowserWebSocket(t *testing
 	defer server.Close()
 
 	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimeadmin.WSPath, http.Header{
-		"Cookie": []string{middleware.DefaultAccessTokenCookie + "=cookie-access-token"},
+		"Cookie": []string{"access_token=cookie-access-token"},
 	})
-	if err != nil {
-		t.Fatalf("dial realtime with cookie token: %v", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	var connected map[string]any
-	if err := client.ReadJSON(&connected); err != nil {
-		t.Fatalf("read connected: %v", err)
-	}
-	if connected["type"] != realtimemodule.TypeConnectedV1 {
-		t.Fatalf("expected connected event, got %#v", connected)
-	}
-	if gotInput.AccessToken != "cookie-access-token" {
-		t.Fatalf("expected cookie access token, got %q", gotInput.AccessToken)
-	}
-	if gotInput.Platform != "admin" {
-		t.Fatalf("expected cookie websocket auth to default platform admin, got %q", gotInput.Platform)
+	if err == nil {
+		_ = client.Close()
+		t.Fatal("legacy access cookie unexpectedly authenticated websocket")
 	}
 }
 
 func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
+	browserGrants := newRouterBrowserGrants()
+	ticket, ticketErr := browserGrants.IssueRealtimeTicket(context.Background(), auth.GrantSubject{UserID: 7, SessionID: 9, Platform: "admin"})
+	if ticketErr != nil {
+		t.Fatalf("issue realtime ticket: %v", ticketErr)
+	}
 	router := newTestRouter(t, testDependencies{
 		CORS: config.CORSConfig{
 			AllowOrigins:     []string{"http://127.0.0.1:5173"},
@@ -4371,9 +4388,7 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 			AllowHeaders:     []string{"Authorization", "platform", "device-id"},
 			AllowCredentials: true,
 		},
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: input.Platform}, nil
-		},
+		BrowserGrants: browserGrants,
 		RealtimeHandler: realtimeadmin.NewHandler(
 			realtimemodule.NewService(25*time.Second),
 			infrarealtime.NewUpgrader(infrarealtime.NewAllowedOriginChecker([]string{"http://127.0.0.1:5173"})),
@@ -4384,8 +4399,7 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimeadmin.WSPath, http.Header{
-		"Cookie": []string{middleware.DefaultAccessTokenCookie + "=cookie-access-token"},
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+realtimeadmin.WSPath+"?ticket="+ticket.Credential, http.Header{
 		"Origin": []string{"http://127.0.0.1:5173"},
 	})
 	if err != nil {

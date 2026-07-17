@@ -52,6 +52,7 @@ type IdentityGraph struct {
 	AuthPlatforms authplatformadmin.HTTPService
 	Sessions      auth.SessionAdminHTTPService
 	LoginLogs     auth.LoginLogHTTPService
+	BrowserGrants *auth.BrowserGrantService
 }
 
 type SystemGraph struct {
@@ -103,6 +104,7 @@ func (g Graph) Validate() error {
 		{name: "identity.auth_platforms", value: g.Identity.AuthPlatforms},
 		{name: "identity.sessions", value: g.Identity.Sessions},
 		{name: "identity.login_logs", value: g.Identity.LoginLogs},
+		{name: "identity.browser_grants", value: g.Identity.BrowserGrants},
 		{name: "system.client_versions", value: g.System.ClientVersions},
 		{name: "system.cron_tasks", value: g.System.CronTasks},
 		{name: "system.exports", value: g.System.Exports},

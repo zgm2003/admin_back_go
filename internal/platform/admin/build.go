@@ -154,6 +154,10 @@ func Build(input BuildInput) (*BuildResult, error) {
 		AccessCodec:    accesstoken.NewJWTCodec(input.Keys.JWTSigningKey(), accesstoken.Options{Issuer: "admin_go"}),
 		TokenPepper:    input.Keys.TokenPepper(),
 	})
+	browserGrantService := auth.NewBrowserGrantService(
+		auth.NewRedisBrowserGrantStore(resources.TokenRedis),
+		auth.BrowserGrantConfig{RedisPrefix: cfg.Token.RedisPrefix},
+	)
 
 	systemLogService := systemlog.NewService(logstore.New(cfg.Logging.Dir, logstore.Options{
 		AllowedExtensions: cfg.Logging.AllowedExtensions,
@@ -331,6 +335,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			AuthPlatforms: authPlatformService,
 			Sessions:      sessionAdminService,
 			LoginLogs:     loginLogService,
+			BrowserGrants: browserGrantService,
 		},
 		System: SystemGraph{
 			ClientVersions: clientVersionService,
