@@ -57,6 +57,7 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
+	runtimepkg "admin_back_go/internal/runtime"
 	"admin_back_go/internal/server"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -101,12 +102,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	resources, err := NewResources(cfg)
+	resources, err := runtimepkg.OpenResources(context.Background(), config.ProcessAPI, cfg, runtimepkg.Openers{})
 	if err != nil {
-		logger.Error("failed to initialize resources", "error", err)
-		if resources == nil {
-			resources = &Resources{}
-		}
+		return nil, err
 	}
 
 	sessionAuthenticator := NewSessionAuthenticator(resources, cfg, keys)
@@ -574,6 +572,6 @@ func (a *App) Shutdown(ctx context.Context) error {
 	queueErr := a.queueClient.Close()
 	inspectorErr := a.queueInspector.Close()
 	monitorErr := a.queueMonitorUI.Close()
-	resourceErr := a.resources.Close()
+	resourceErr := a.resources.Close(ctx)
 	return errors.Join(shutdownErr, realtimeErr, dispatchErr, queueErr, inspectorErr, monitorErr, resourceErr)
 }

@@ -1,17 +1,21 @@
 package redisclient
 
 import (
+	"errors"
 	"testing"
 
 	"admin_back_go/internal/config"
 )
 
 func TestOpenMapsConfigToOptions(t *testing.T) {
-	client := Open(config.RedisConfig{
+	client, err := Open(config.RedisConfig{
 		Addr:     "127.0.0.1:6380",
 		Password: "secret",
 		DB:       2,
 	})
+	if err != nil {
+		t.Fatalf("open redis: %v", err)
+	}
 	defer client.Close()
 
 	if client.Redis == nil {
@@ -27,6 +31,13 @@ func TestOpenMapsConfigToOptions(t *testing.T) {
 	}
 	if options.DB != 2 {
 		t.Fatalf("expected db 2, got %d", options.DB)
+	}
+}
+
+func TestOpenRejectsEmptyAddress(t *testing.T) {
+	client, err := Open(config.RedisConfig{})
+	if !errors.Is(err, ErrEmptyAddress) || client != nil {
+		t.Fatalf("client=%+v err=%v", client, err)
 	}
 }
 

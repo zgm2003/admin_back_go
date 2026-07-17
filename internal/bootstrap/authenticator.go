@@ -11,8 +11,11 @@ import (
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/auth_platform"
+	runtimepkg "admin_back_go/internal/runtime"
 	"admin_back_go/internal/shared/apperror"
 )
+
+type Resources = runtimepkg.Resources
 
 func NewSessionAuthenticator(resources *Resources, cfg config.Config, keys *secretkey.KeyRing) *authmodule.Authenticator {
 	var accessCodec accesstoken.Codec

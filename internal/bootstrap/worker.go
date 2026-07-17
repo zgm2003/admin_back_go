@@ -26,6 +26,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	paymentmodule "admin_back_go/internal/module/payment"
 	"admin_back_go/internal/module/user"
+	runtimepkg "admin_back_go/internal/runtime"
 )
 
 type Worker struct {
@@ -61,18 +62,15 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		return worker, nil
 	}
 
-	resources, err := NewResources(cfg)
+	resources, err := runtimepkg.OpenResources(context.Background(), config.ProcessWorker, cfg, runtimepkg.Openers{})
 	if err != nil {
-		if resources != nil {
-			_ = resources.Close()
-		}
 		return nil, err
 	}
 	worker.resources = resources
 
 	queueClient, err := taskqueue.NewClient(cfg.Redis, cfg.Queue)
 	if err != nil {
-		_ = resources.Close()
+		_ = resources.Close(context.Background())
 		return nil, err
 	}
 	worker.queueClient = queueClient
@@ -80,7 +78,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	queueServer, err := taskqueue.NewServer(cfg.Redis, cfg.Queue)
 	if err != nil {
 		_ = queueClient.Close()
-		_ = resources.Close()
+		_ = resources.Close(context.Background())
 		return nil, err
 	}
 	worker.queueServer = queueServer
@@ -103,7 +101,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 	if err != nil {
 		queueServer.Shutdown()
 		_ = queueClient.Close()
-		_ = resources.Close()
+		_ = resources.Close(context.Background())
 		return nil, err
 	}
 	exportTaskService := exporttask.NewService(
@@ -163,7 +161,7 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 		if err != nil {
 			worker.queueServer.Shutdown()
 			_ = queueClient.Close()
-			_ = resources.Close()
+			_ = resources.Close(context.Background())
 			return nil, err
 		}
 		worker.scheduler = s
@@ -177,14 +175,14 @@ func NewWorker(cfg config.Config, logger *slog.Logger) (*Worker, error) {
 			_ = s.Shutdown(context.Background())
 			worker.queueServer.Shutdown()
 			_ = queueClient.Close()
-			_ = resources.Close()
+			_ = resources.Close(context.Background())
 			return nil, err
 		}
 		if err := jobs.RegisterSchedules(s, queueClient, logger); err != nil {
 			_ = s.Shutdown(context.Background())
 			worker.queueServer.Shutdown()
 			_ = queueClient.Close()
-			_ = resources.Close()
+			_ = resources.Close(context.Background())
 			return nil, err
 		}
 	}
@@ -238,7 +236,7 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 		}
 	}
 	if w.resources != nil {
-		if err := w.resources.Close(); err != nil {
+		if err := w.resources.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}

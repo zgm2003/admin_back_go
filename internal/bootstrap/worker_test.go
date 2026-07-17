@@ -65,7 +65,7 @@ func TestNewWorkerRejectsQueueEnabledWithoutRedis(t *testing.T) {
 	}
 }
 
-func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
+func TestNewWorkerRejectsQueueWhenRequiredDatabaseIsMissing(t *testing.T) {
 	worker, err := NewWorker(config.Config{
 		App: config.AppConfig{Secret: strings.Repeat("a", 64)},
 		Redis: config.RedisConfig{
@@ -80,19 +80,11 @@ func TestNewWorkerBuildsQueueWithoutSchedulerOrRedisPing(t *testing.T) {
 		},
 		Scheduler: config.SchedulerConfig{Enabled: false},
 	}, slog.Default())
-	if err != nil {
-		t.Fatalf("expected worker queue to build without pinging redis, got %v", err)
+	if err == nil {
+		t.Fatal("expected worker resource validation to fail")
 	}
-	defer shutdownWorkerForTest(t, worker)
-
-	if worker.queueServer == nil {
-		t.Fatalf("expected queue server")
-	}
-	if worker.queueClient == nil {
-		t.Fatalf("expected queue client")
-	}
-	if worker.scheduler != nil {
-		t.Fatalf("expected nil scheduler when scheduler disabled")
+	if worker != nil {
+		t.Fatalf("partial worker published: %+v", worker)
 	}
 }
 

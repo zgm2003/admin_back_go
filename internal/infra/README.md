@@ -101,22 +101,23 @@ Close
 
 缓存 key 规则属于对应模块/service，例如 session/auth/permission。
 
-当前有两条 Redis 资源线：
+当前 API 有三条 Redis 资源线，Worker 只打开实际需要的通用与队列资源：
 
 ```text
 Resources.Redis      # 通用 Redis，使用 REDIS_DB，默认 0
 Resources.TokenRedis # token/session Redis，使用 TOKEN_REDIS_DB，默认 2
+Resources.QueueRedis # queue Redis，使用 QUEUE_REDIS_DB，默认 3
 ```
 
 它们共用 `REDIS_ADDR` / `REDIS_PASSWORD`，但 DB 分开。这个不是花活，是为了对齐旧 PHP 的 token 连接，避免把登录态和未来通用缓存/RBAC 缓存搅在一个 DB 里。
 
 ## Lifecycle ownership
 
-资源生命周期属于 `internal/bootstrap.Resources`。
+资源生命周期属于 `internal/runtime.Resources`。
 
 ```text
-bootstrap.NewResources 创建 infra client
-bootstrap.App.Shutdown 关闭 infra client
+runtime.OpenResources 按进程能力创建、Ping 并原子发布 infra client
+runtime.Resources.Close 按创建顺序反向关闭 infra client
 module/repository 只使用注入进来的资源
 ```
 
