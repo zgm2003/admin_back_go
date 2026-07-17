@@ -1,0 +1,29 @@
+{
+  "bundle_version": "admin-2026-07-15.1",
+  "openapi_version": "3.1.0",
+  "permission_version": "admin-permissions-2026-07-15.1",
+  "realtime_version": "admin-realtime-2026-07-15.1",
+  "backend_commit": "8248b7181a230364ef748d1a9532cdef5cf51def",
+  "artifacts": {
+    "openapi.json": {
+      "sha256": "1e089b50a0a4faac11262cbaf26f7ffd6d79f742e58d0d445379056df12ee4a1",
+      "schema_version": "3.1.0"
+    },
+    "permissions.json": {
+      "sha256": "f90c7143d2d3cc004cd9be48deb97ae0b084470ffbe7c596e7739f4ba1394e2c",
+      "schema_version": "admin-permissions-2026-07-15.1"
+    },
+    "realtime/envelope.schema.json": {
+      "sha256": "5d298a8a5ee5fd40cfa03cd95adf3c4bb668567ba55c0a0ea4be46f2ed55fc7b",
+      "schema_version": "admin-realtime-2026-07-15.1"
+    },
+    "realtime/events.schema.json": {
+      "sha256": "86eb7e3dbcaab5617ddc80118c229492561ff1c961063856168346284646bd54",
+      "schema_version": "admin-realtime-2026-07-15.1"
+    },
+    "views.json": {
+      "sha256": "c47f6aa73dc1f5a67b11c7c9ee65c08916561613aafcd419bca2a5a5b5f36644",
+      "schema_version": "admin-views-2026-07-15.1"
+    }
+  }
+}

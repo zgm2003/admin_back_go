@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	defaultDispatchLimit          = 100
-	sendBatchSize                 = 100
-	realtimeNotificationCreatedV1 = "notification.created.v1"
+	defaultDispatchLimit = 100
+	sendBatchSize        = 100
+
+	EventNotificationCreatedV1 = "notification.created.v1"
 )
 
 type Service struct {
@@ -504,7 +505,7 @@ func (s *Service) publishRealtimeNotifications(ctx context.Context, task Task, r
 		return
 	}
 	for _, row := range rows {
-		envelope, err := infrarealtime.NewEnvelope(realtimeNotificationCreatedV1, fmt.Sprintf("notification-task-%d-%d", task.ID, row.UserID), map[string]any{
+		envelope, err := infrarealtime.NewEnvelope(EventNotificationCreatedV1, fmt.Sprintf("notification-task-%d-%d", task.ID, row.UserID), map[string]any{
 			"task_id":           task.ID,
 			"title":             row.Title,
 			"content":           row.Content,

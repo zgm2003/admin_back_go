@@ -1,0 +1,36 @@
+{
+  "$id": "https://contracts.admin.local/v1/realtime/envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "type": "object"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "ai.response.completed.v1",
+        "ai.response.delta.v1",
+        "ai.response.failed.v1",
+        "ai.response.start.v1",
+        "notification.created.v1",
+        "realtime.connected.v1",
+        "realtime.error.v1",
+        "realtime.ping.v1",
+        "realtime.pong.v1",
+        "realtime.subscribe.v1",
+        "realtime.subscribed.v1"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "data"
+  ],
+  "title": "Admin realtime envelope",
+  "type": "object"
+}

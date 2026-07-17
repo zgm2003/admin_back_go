@@ -1,0 +1,3657 @@
+{
+  "schema_version": "admin-permissions-2026-07-15.1",
+  "permission_codes": [
+    "ai_agent_add",
+    "ai_agent_binding_add",
+    "ai_agent_del",
+    "ai_agent_edit",
+    "ai_agent_status",
+    "ai_agent_test",
+    "ai_knowledge_add",
+    "ai_knowledge_del",
+    "ai_knowledge_document_add",
+    "ai_knowledge_document_del",
+    "ai_knowledge_document_edit",
+    "ai_knowledge_document_status",
+    "ai_knowledge_edit",
+    "ai_knowledge_reindex",
+    "ai_knowledge_retrieval_test",
+    "ai_knowledge_status",
+    "ai_prompt_add",
+    "ai_prompt_del",
+    "ai_prompt_edit",
+    "ai_prompt_page",
+    "ai_prompt_status",
+    "ai_provider_add",
+    "ai_provider_del",
+    "ai_provider_edit",
+    "ai_provider_status",
+    "ai_provider_test",
+    "ai_tool_add",
+    "ai_tool_del",
+    "ai_tool_edit",
+    "ai_tool_generate",
+    "ai_tool_status",
+    "devTools_cronTask_add",
+    "devTools_cronTask_del",
+    "devTools_cronTask_edit",
+    "devTools_cronTask_logs",
+    "devTools_cronTask_status",
+    "devTools_operationLog_del",
+    "devTools_queueMonitor_list",
+    "payment",
+    "payment_config_add",
+    "payment_config_del",
+    "payment_config_edit",
+    "payment_config_list",
+    "payment_config_status",
+    "payment_config_test",
+    "payment_config_upload_cert",
+    "payment_ledger_list",
+    "payment_recharge_add",
+    "payment_recharge_list",
+    "payment_recharge_pay",
+    "payment_wallet_list",
+    "permission_authPlatform_add",
+    "permission_authPlatform_del",
+    "permission_authPlatform_edit",
+    "permission_authPlatform_status",
+    "permission_permission_add",
+    "permission_permission_del",
+    "permission_permission_edit",
+    "permission_permission_status",
+    "permission_role_add",
+    "permission_role_del",
+    "permission_role_edit",
+    "permission_role_setDefault",
+    "profile_wallet",
+    "system_clientVersion_add",
+    "system_clientVersion_del",
+    "system_clientVersion_edit",
+    "system_clientVersion_forceUpdate",
+    "system_clientVersion_setLatest",
+    "system_log_content",
+    "system_log_files",
+    "system_mail",
+    "system_mail_configDel",
+    "system_mail_configEdit",
+    "system_mail_logDel",
+    "system_mail_templateAdd",
+    "system_mail_templateDel",
+    "system_mail_templateEdit",
+    "system_mail_templateStatus",
+    "system_mail_test",
+    "system_notificationTask_add",
+    "system_notificationTask_cancel",
+    "system_notificationTask_del",
+    "system_setting_add",
+    "system_setting_del",
+    "system_setting_edit",
+    "system_setting_status",
+    "system_sms",
+    "system_sms_configDel",
+    "system_sms_configEdit",
+    "system_sms_logDel",
+    "system_sms_templateAdd",
+    "system_sms_templateDel",
+    "system_sms_templateEdit",
+    "system_sms_templateStatus",
+    "system_sms_test",
+    "system_uploadConfig_driverAdd",
+    "system_uploadConfig_driverDel",
+    "system_uploadConfig_driverEdit",
+    "system_uploadConfig_ruleAdd",
+    "system_uploadConfig_ruleDel",
+    "system_uploadConfig_ruleEdit",
+    "system_uploadConfig_settingAdd",
+    "system_uploadConfig_settingDel",
+    "system_uploadConfig_settingEdit",
+    "system_uploadConfig_settingStatus",
+    "user_userManager_batchEdit",
+    "user_userManager_del",
+    "user_userManager_edit",
+    "user_userManager_export",
+    "user_userManager_kick"
+  ],
+  "operations": [
+    {
+      "operation_id": "get_api_admin_v1_ai_agents",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_agents",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-agents",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent",
+        "action": "create",
+        "title": "新增AI智能体"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_agents_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-agents/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent",
+        "action": "delete",
+        "title": "删除AI智能体"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_agents_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_agents_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-agents/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent",
+        "action": "update",
+        "title": "编辑AI智能体"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_agents_id_knowledge_bases",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents/:id/knowledge-bases",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_agents_id_knowledge_bases",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-agents/:id/knowledge-bases",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_binding_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent_knowledge",
+        "action": "update_binding",
+        "title": "更新智能体知识库绑定"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_ai_agents_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai-agents/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent",
+        "action": "change_status",
+        "title": "修改AI智能体状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_agents_id_test",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-agents/:id/test",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent",
+        "action": "test",
+        "title": "测试AI智能体"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_agents_id_tools",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents/:id/tools",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_agents_id_tools",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-agents/:id/tools",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_agent_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent_tool",
+        "action": "update_binding",
+        "title": "更新智能体工具绑定"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_agents_options",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents/options",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_agents_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_agents_provider_models_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-agents/provider-models/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_conversations",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-conversations",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_conversations",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-conversations",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_conversation",
+        "action": "create",
+        "title": "新增AI会话"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_conversations_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-conversations/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_conversation",
+        "action": "delete",
+        "title": "删除AI会话"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_conversations_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-conversations/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_conversations_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-conversations/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service AI conversation state"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_conversations_id_messages",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-conversations/:id/messages",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_conversations_id_messages",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-conversations/:id/messages",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "send",
+        "title": "发送AI消息"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_conversations_id_messages_cancel",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-conversations/:id/messages/cancel",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service AI run cancellation"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_knowledge_bases",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-knowledge-bases",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_knowledge_bases",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-knowledge-bases",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge",
+        "action": "create",
+        "title": "新增AI知识库"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_knowledge_bases_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge",
+        "action": "delete",
+        "title": "删除AI知识库"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_knowledge_bases_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_knowledge_bases_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge",
+        "action": "update",
+        "title": "编辑AI知识库"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_knowledge_bases_id_documents",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id/documents",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_knowledge_bases_id_documents",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id/documents",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_document_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge_document",
+        "action": "create",
+        "title": "新增AI知识库文档"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_knowledge_bases_id_retrieval_tests",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id/retrieval-tests",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_retrieval_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge",
+        "action": "retrieval_test",
+        "title": "AI知识库检索测试"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_ai_knowledge_bases_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai-knowledge-bases/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge",
+        "action": "change_status",
+        "title": "修改AI知识库状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_knowledge_bases_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-knowledge-bases/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_knowledge_documents_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-knowledge-documents/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_document_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge_document",
+        "action": "delete",
+        "title": "删除AI知识库文档"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_knowledge_documents_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-knowledge-documents/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_knowledge_documents_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-knowledge-documents/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_document_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge_document",
+        "action": "update",
+        "title": "编辑AI知识库文档"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_knowledge_documents_id_chunks",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-knowledge-documents/:id/chunks",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_knowledge_documents_id_reindex",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-knowledge-documents/:id/reindex",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_reindex"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge",
+        "action": "reindex",
+        "title": "重建AI知识库文档索引"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_ai_knowledge_documents_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai-knowledge-documents/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_knowledge_document_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_knowledge_document",
+        "action": "change_status",
+        "title": "修改AI知识库文档状态"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_prompts",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-prompts",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_prompt_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_prompt",
+        "action": "delete_batch",
+        "title": "批量删除AI提示词"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_prompts",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-prompts",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_prompts",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-prompts",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_prompt_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_prompt",
+        "action": "create",
+        "title": "新增AI提示词"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_prompts_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-prompts/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_prompt_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_prompt",
+        "action": "delete",
+        "title": "删除AI提示词"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_prompts_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-prompts/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_prompts_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-prompts/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_prompt_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_prompt",
+        "action": "update",
+        "title": "编辑AI提示词"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_ai_prompts_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai-prompts/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_prompt_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_prompt",
+        "action": "change_status",
+        "title": "修改AI提示词状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_prompts_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-prompts/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_providers",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-providers",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_providers",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-providers",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "create",
+        "title": "新增AI供应商"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_providers_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-providers/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "delete",
+        "title": "删除AI供应商"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_providers_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-providers/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "update",
+        "title": "编辑AI供应商"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_providers_id_model_options",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-providers/:id/model-options",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "preview_models",
+        "title": "拉取AI供应商模型"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_providers_id_models",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-providers/:id/models",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_providers_id_models",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-providers/:id/models",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "update_models",
+        "title": "编辑AI供应商模型"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_ai_providers_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai-providers/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "change_status",
+        "title": "修改AI供应商状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_providers_id_sync_models",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-providers/:id/sync-models",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "sync_models",
+        "title": "同步AI供应商模型"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_providers_id_test",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-providers/:id/test",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "test",
+        "title": "测试AI供应商连接"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_providers_model_options",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-providers/model-options",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_provider_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_provider",
+        "action": "preview_models",
+        "title": "拉取AI供应商模型"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_providers_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-providers/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs_stats",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs/stats",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs_stats_by_agent",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs/stats/by-agent",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs_stats_by_date",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs/stats/by-date",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_runs_stats_by_user",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-runs/stats/by-user",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_tools",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-tools",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_tools",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-tools",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_tool_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_tool",
+        "action": "create",
+        "title": "新增AI工具"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_tools_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-tools/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_tool_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_tool",
+        "action": "delete",
+        "title": "删除AI工具"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_tools_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-tools/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_tool_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_tool",
+        "action": "update",
+        "title": "编辑AI工具"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_ai_tools_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai-tools/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_tool_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_tool",
+        "action": "change_status",
+        "title": "修改AI工具状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_tools_generate_draft",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-tools/generate-draft",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_tool_generate"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_tool",
+        "action": "generate_draft",
+        "title": "AI生成工具草稿"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_tools_generate_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-tools/generate/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_tools_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-tools/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_auth_platforms",
+      "method": "DELETE",
+      "path": "/api/admin/v1/auth-platforms",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_authPlatform_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "auth_platform",
+        "action": "delete_batch",
+        "title": "批量删除认证平台"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_auth_platforms",
+      "method": "GET",
+      "path": "/api/admin/v1/auth-platforms",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_platforms",
+      "method": "POST",
+      "path": "/api/admin/v1/auth-platforms",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_authPlatform_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "auth_platform",
+        "action": "create",
+        "title": "新增认证平台"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_auth_platforms_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/auth-platforms/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_authPlatform_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "auth_platform",
+        "action": "delete",
+        "title": "删除认证平台"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_auth_platforms_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/auth-platforms/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_authPlatform_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "auth_platform",
+        "action": "update",
+        "title": "编辑认证平台"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_auth_platforms_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/auth-platforms/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_authPlatform_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "auth_platform",
+        "action": "change_status",
+        "title": "修改认证平台状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_auth_platforms_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/auth-platforms/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_auth_captcha",
+      "method": "GET",
+      "path": "/api/admin/v1/auth/captcha",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_forgot_password",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/forgot-password",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "public account recovery state"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_login",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/login",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "public authentication state"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_auth_login_config",
+      "method": "GET",
+      "path": "/api/admin/v1/auth/login-config",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_logout",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/logout",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service session state"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_refresh",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/refresh",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "session rotation has domain audit"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_auth_send_code",
+      "method": "POST",
+      "path": "/api/admin/v1/auth/send-code",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "public authentication bootstrap"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_client_versions",
+      "method": "GET",
+      "path": "/api/admin/v1/client-versions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_client_versions",
+      "method": "POST",
+      "path": "/api/admin/v1/client-versions",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_clientVersion_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "client_version",
+        "action": "create",
+        "title": "发布客户端版本"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_client_versions_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/client-versions/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_clientVersion_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "client_version",
+        "action": "delete",
+        "title": "删除客户端版本"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_client_versions_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/client-versions/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_clientVersion_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "client_version",
+        "action": "update",
+        "title": "编辑客户端版本"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_client_versions_id_force_update",
+      "method": "PATCH",
+      "path": "/api/admin/v1/client-versions/:id/force-update",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_clientVersion_forceUpdate"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "client_version",
+        "action": "force_update",
+        "title": "切换强制更新"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_client_versions_id_latest",
+      "method": "PATCH",
+      "path": "/api/admin/v1/client-versions/:id/latest",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_clientVersion_setLatest"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "client_version",
+        "action": "set_latest",
+        "title": "设为最新版本"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_client_versions_current_check",
+      "method": "GET",
+      "path": "/api/admin/v1/client-versions/current-check",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_client_versions_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/client-versions/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_client_versions_update_json",
+      "method": "GET",
+      "path": "/api/admin/v1/client-versions/update-json",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_cron_tasks",
+      "method": "DELETE",
+      "path": "/api/admin/v1/cron-tasks",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_cronTask_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "cron_task",
+        "action": "delete_batch",
+        "title": "批量删除定时任务"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_cron_tasks",
+      "method": "GET",
+      "path": "/api/admin/v1/cron-tasks",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_cron_tasks",
+      "method": "POST",
+      "path": "/api/admin/v1/cron-tasks",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_cronTask_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "cron_task",
+        "action": "create",
+        "title": "新增定时任务"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_cron_tasks_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/cron-tasks/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_cronTask_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "cron_task",
+        "action": "delete",
+        "title": "删除定时任务"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_cron_tasks_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/cron-tasks/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_cronTask_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "cron_task",
+        "action": "update",
+        "title": "编辑定时任务"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_cron_tasks_id_logs",
+      "method": "GET",
+      "path": "/api/admin/v1/cron-tasks/:id/logs",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_cronTask_logs"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_cron_tasks_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/cron-tasks/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_cronTask_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "cron_task",
+        "action": "change_status",
+        "title": "修改定时任务状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_cron_tasks_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/cron-tasks/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_export_tasks",
+      "method": "DELETE",
+      "path": "/api/admin/v1/export-tasks",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "export_task",
+        "action": "delete_batch",
+        "title": "批量删除导出任务"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_export_tasks",
+      "method": "GET",
+      "path": "/api/admin/v1/export-tasks",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_export_tasks_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/export-tasks/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "export_task",
+        "action": "delete",
+        "title": "删除导出任务"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_export_tasks_status_count",
+      "method": "GET",
+      "path": "/api/admin/v1/export-tasks/status-count",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_mail_config",
+      "method": "DELETE",
+      "path": "/api/admin/v1/mail/config",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_configDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "delete_config",
+        "title": "删除邮件配置"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_mail_config",
+      "method": "GET",
+      "path": "/api/admin/v1/mail/config",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_mail_config",
+      "method": "PUT",
+      "path": "/api/admin/v1/mail/config",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_configEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "update_config",
+        "title": "编辑邮件配置"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_mail_logs",
+      "method": "DELETE",
+      "path": "/api/admin/v1/mail/logs",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_logDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "delete_logs",
+        "title": "批量删除邮件日志"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_mail_logs",
+      "method": "GET",
+      "path": "/api/admin/v1/mail/logs",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_mail_logs_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/mail/logs/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_logDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "delete_log",
+        "title": "删除邮件日志"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_mail_logs_id",
+      "method": "GET",
+      "path": "/api/admin/v1/mail/logs/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_mail_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/mail/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_mail_templates",
+      "method": "GET",
+      "path": "/api/admin/v1/mail/templates",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_mail_templates",
+      "method": "POST",
+      "path": "/api/admin/v1/mail/templates",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_templateAdd"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "create_template",
+        "title": "新增邮件模板"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_mail_templates_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/mail/templates/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_templateDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "delete_template",
+        "title": "删除邮件模板"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_mail_templates_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/mail/templates/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_templateEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "update_template",
+        "title": "编辑邮件模板"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_mail_templates_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/mail/templates/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_templateStatus"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "change_template_status",
+        "title": "修改邮件模板状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_mail_test",
+      "method": "POST",
+      "path": "/api/admin/v1/mail/test",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_mail_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "mail",
+        "action": "test_send",
+        "title": "发送测试邮件"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_notification_tasks",
+      "method": "GET",
+      "path": "/api/admin/v1/notification-tasks",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_notification_tasks",
+      "method": "POST",
+      "path": "/api/admin/v1/notification-tasks",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_notificationTask_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "notification_task",
+        "action": "create",
+        "title": "发布通知任务"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_notification_tasks_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/notification-tasks/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_notificationTask_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "notification_task",
+        "action": "delete",
+        "title": "删除通知任务"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_notification_tasks_id_cancel",
+      "method": "PATCH",
+      "path": "/api/admin/v1/notification-tasks/:id/cancel",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_notificationTask_cancel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "notification_task",
+        "action": "cancel",
+        "title": "取消通知任务"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_notification_tasks_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/notification-tasks/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_notification_tasks_status_count",
+      "method": "GET",
+      "path": "/api/admin/v1/notification-tasks/status-count",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_notifications",
+      "method": "DELETE",
+      "path": "/api/admin/v1/notifications",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service notification state"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_notifications",
+      "method": "GET",
+      "path": "/api/admin/v1/notifications",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_notifications_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/notifications/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service notification state"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_notifications_id_read",
+      "method": "PATCH",
+      "path": "/api/admin/v1/notifications/:id/read",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service notification state"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_notifications_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/notifications/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_notifications_read",
+      "method": "PATCH",
+      "path": "/api/admin/v1/notifications/read",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service notification state"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_notifications_unread_count",
+      "method": "GET",
+      "path": "/api/admin/v1/notifications/unread-count",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_operation_logs",
+      "method": "DELETE",
+      "path": "/api/admin/v1/operation-logs",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_operationLog_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "operation_log",
+        "action": "delete_batch",
+        "title": "批量删除操作日志"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_operation_logs",
+      "method": "GET",
+      "path": "/api/admin/v1/operation-logs",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_operation_logs_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/operation-logs/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "devTools_operationLog_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "operation_log",
+        "action": "delete",
+        "title": "删除操作日志"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_operation_logs_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/operation-logs/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_certificates",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/certificates",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_upload_cert"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_config",
+        "action": "upload_cert",
+        "title": "上传支付宝证书",
+        "skip_request_payload": true
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_configs",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/configs",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_configs",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/configs",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_config",
+        "action": "create",
+        "title": "新增支付配置",
+        "skip_request_payload": true
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_payment_configs_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/payment/configs/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_config",
+        "action": "delete",
+        "title": "删除支付配置"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_payment_configs_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/payment/configs/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_config",
+        "action": "update",
+        "title": "编辑支付配置",
+        "skip_request_payload": true
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_payment_configs_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/payment/configs/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_config",
+        "action": "change_status",
+        "title": "切换支付配置状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_configs_id_test",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/configs/:id/test",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_config",
+        "action": "test",
+        "title": "测试支付配置"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_configs_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/configs/page-init",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_config_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_ledger",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/ledger",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_ledger_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_ledger_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/ledger/page-init",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_ledger_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_recharges",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/recharges",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_recharges",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/recharges",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_recharge",
+        "action": "add",
+        "title": "创建充值"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_recharges_id",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/recharges/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_recharges_id_pay",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/recharges/:id/pay",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_recharge",
+        "action": "pay",
+        "title": "继续支付",
+        "skip_response_payload": true
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_recharges_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/recharges/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_wallets",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/wallets",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_wallet_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_wallets_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/wallets/page-init",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_wallet_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_permissions",
+      "method": "DELETE",
+      "path": "/api/admin/v1/permissions",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_permission_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "permission",
+        "action": "delete_batch",
+        "title": "批量删除权限"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_permissions",
+      "method": "GET",
+      "path": "/api/admin/v1/permissions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_permissions",
+      "method": "POST",
+      "path": "/api/admin/v1/permissions",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_permission_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "permission",
+        "action": "create",
+        "title": "新增权限"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_permissions_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/permissions/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_permission_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "permission",
+        "action": "delete",
+        "title": "删除权限"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_permissions_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/permissions/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_permission_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "permission",
+        "action": "update",
+        "title": "编辑权限"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_permissions_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/permissions/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_permission_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "permission",
+        "action": "change_status",
+        "title": "修改权限状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_permissions_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/permissions/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ping",
+      "method": "GET",
+      "path": "/api/admin/v1/ping",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_profile",
+      "method": "GET",
+      "path": "/api/admin/v1/profile",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_profile",
+      "method": "PUT",
+      "path": "/api/admin/v1/profile",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "profile",
+        "action": "update_profile",
+        "title": "编辑个人资料"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_profile_security_email",
+      "method": "PUT",
+      "path": "/api/admin/v1/profile/security/email",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "profile_security",
+        "action": "update_email",
+        "title": "绑定或换绑邮箱"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_profile_security_password",
+      "method": "PUT",
+      "path": "/api/admin/v1/profile/security/password",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "profile_security",
+        "action": "update_password",
+        "title": "修改登录密码"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_profile_security_phone",
+      "method": "PUT",
+      "path": "/api/admin/v1/profile/security/phone",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "profile_security",
+        "action": "update_phone",
+        "title": "绑定或换绑手机号"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_queue_monitor",
+      "method": "GET",
+      "path": "/api/admin/v1/queue-monitor",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "connect_api_admin_v1_queue_monitor_ui",
+      "method": "CONNECT",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_queue_monitor_ui",
+      "method": "DELETE",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_queue_monitor_ui",
+      "method": "GET",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "head_api_admin_v1_queue_monitor_ui",
+      "method": "HEAD",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "options_api_admin_v1_queue_monitor_ui",
+      "method": "OPTIONS",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_queue_monitor_ui",
+      "method": "PATCH",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_queue_monitor_ui",
+      "method": "POST",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_queue_monitor_ui",
+      "method": "PUT",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "trace_api_admin_v1_queue_monitor_ui",
+      "method": "TRACE",
+      "path": "/api/admin/v1/queue-monitor-ui",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "connect_api_admin_v1_queue_monitor_ui_path",
+      "method": "CONNECT",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_queue_monitor_ui_path",
+      "method": "DELETE",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_queue_monitor_ui_path",
+      "method": "GET",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "head_api_admin_v1_queue_monitor_ui_path",
+      "method": "HEAD",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "options_api_admin_v1_queue_monitor_ui_path",
+      "method": "OPTIONS",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_queue_monitor_ui_path",
+      "method": "PATCH",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_queue_monitor_ui_path",
+      "method": "POST",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_queue_monitor_ui_path",
+      "method": "PUT",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only queue monitor proxy"
+      }
+    },
+    {
+      "operation_id": "trace_api_admin_v1_queue_monitor_ui_path",
+      "method": "TRACE",
+      "path": "/api/admin/v1/queue-monitor-ui/*path",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_queue_monitor_failed",
+      "method": "GET",
+      "path": "/api/admin/v1/queue-monitor/failed",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_realtime_ws",
+      "method": "GET",
+      "path": "/api/admin/v1/realtime/ws",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_roles",
+      "method": "DELETE",
+      "path": "/api/admin/v1/roles",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_role_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "role",
+        "action": "delete_batch",
+        "title": "批量删除角色"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_roles",
+      "method": "GET",
+      "path": "/api/admin/v1/roles",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_roles",
+      "method": "POST",
+      "path": "/api/admin/v1/roles",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_role_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "role",
+        "action": "create",
+        "title": "新增角色"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_roles_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/roles/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_role_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "role",
+        "action": "delete",
+        "title": "删除角色"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_roles_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/roles/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_role_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "role",
+        "action": "update",
+        "title": "编辑角色"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_roles_id_default",
+      "method": "PATCH",
+      "path": "/api/admin/v1/roles/:id/default",
+      "access": {
+        "kind": "permission",
+        "permission_code": "permission_role_setDefault"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "role",
+        "action": "set_default",
+        "title": "设置默认角色"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_roles_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/roles/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_sms_config",
+      "method": "DELETE",
+      "path": "/api/admin/v1/sms/config",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_configDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "delete_config",
+        "title": "删除短信配置"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_sms_config",
+      "method": "GET",
+      "path": "/api/admin/v1/sms/config",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_sms_config",
+      "method": "PUT",
+      "path": "/api/admin/v1/sms/config",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_configEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "update_config",
+        "title": "编辑短信配置"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_sms_logs",
+      "method": "DELETE",
+      "path": "/api/admin/v1/sms/logs",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_logDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "delete_logs",
+        "title": "批量删除短信日志"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_sms_logs",
+      "method": "GET",
+      "path": "/api/admin/v1/sms/logs",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_sms_logs_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/sms/logs/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_logDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "delete_log",
+        "title": "删除短信日志"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_sms_logs_id",
+      "method": "GET",
+      "path": "/api/admin/v1/sms/logs/:id",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_sms_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/sms/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_sms_templates",
+      "method": "GET",
+      "path": "/api/admin/v1/sms/templates",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_sms_templates",
+      "method": "POST",
+      "path": "/api/admin/v1/sms/templates",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_templateAdd"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "create_template",
+        "title": "新增短信模板"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_sms_templates_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/sms/templates/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_templateDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "delete_template",
+        "title": "删除短信模板"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_sms_templates_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/sms/templates/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_templateEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "update_template",
+        "title": "编辑短信模板"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_sms_templates_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/sms/templates/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_templateStatus"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "change_template_status",
+        "title": "修改短信模板状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_sms_test",
+      "method": "POST",
+      "path": "/api/admin/v1/sms/test",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_sms_test"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "sms",
+        "action": "test_send",
+        "title": "发送测试短信"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_system_logs_files",
+      "method": "GET",
+      "path": "/api/admin/v1/system-logs/files",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_log_files"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_system_logs_files_name_lines",
+      "method": "GET",
+      "path": "/api/admin/v1/system-logs/files/:name/lines",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_log_content"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_system_logs_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/system-logs/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_system_settings",
+      "method": "DELETE",
+      "path": "/api/admin/v1/system-settings",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_setting_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "system_setting",
+        "action": "delete_batch",
+        "title": "批量删除系统设置"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_system_settings",
+      "method": "GET",
+      "path": "/api/admin/v1/system-settings",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_system_settings",
+      "method": "POST",
+      "path": "/api/admin/v1/system-settings",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_setting_add"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "system_setting",
+        "action": "create",
+        "title": "新增系统设置"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_system_settings_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/system-settings/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_setting_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "system_setting",
+        "action": "delete",
+        "title": "删除系统设置"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_system_settings_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/system-settings/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_setting_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "system_setting",
+        "action": "update",
+        "title": "编辑系统设置"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_system_settings_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/system-settings/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_setting_status"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "system_setting",
+        "action": "change_status",
+        "title": "修改系统设置状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_system_settings_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/system-settings/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_upload_drivers",
+      "method": "DELETE",
+      "path": "/api/admin/v1/upload-drivers",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_driverDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_driver",
+        "action": "delete_batch",
+        "title": "批量删除上传驱动"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_upload_drivers",
+      "method": "GET",
+      "path": "/api/admin/v1/upload-drivers",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_upload_drivers",
+      "method": "POST",
+      "path": "/api/admin/v1/upload-drivers",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_driverAdd"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_driver",
+        "action": "create",
+        "title": "新增上传驱动"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_upload_drivers_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/upload-drivers/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_driverDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_driver",
+        "action": "delete",
+        "title": "删除上传驱动"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_upload_drivers_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/upload-drivers/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_driverEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_driver",
+        "action": "update",
+        "title": "编辑上传驱动"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_upload_drivers_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/upload-drivers/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_upload_rules",
+      "method": "DELETE",
+      "path": "/api/admin/v1/upload-rules",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_ruleDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_rule",
+        "action": "delete_batch",
+        "title": "批量删除上传规则"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_upload_rules",
+      "method": "GET",
+      "path": "/api/admin/v1/upload-rules",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_upload_rules",
+      "method": "POST",
+      "path": "/api/admin/v1/upload-rules",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_ruleAdd"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_rule",
+        "action": "create",
+        "title": "新增上传规则"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_upload_rules_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/upload-rules/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_ruleDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_rule",
+        "action": "delete",
+        "title": "删除上传规则"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_upload_rules_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/upload-rules/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_ruleEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_rule",
+        "action": "update",
+        "title": "编辑上传规则"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_upload_rules_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/upload-rules/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_upload_settings",
+      "method": "DELETE",
+      "path": "/api/admin/v1/upload-settings",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_settingDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_setting",
+        "action": "delete_batch",
+        "title": "批量删除上传设置"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_upload_settings",
+      "method": "GET",
+      "path": "/api/admin/v1/upload-settings",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_upload_settings",
+      "method": "POST",
+      "path": "/api/admin/v1/upload-settings",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_settingAdd"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_setting",
+        "action": "create",
+        "title": "新增上传设置"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_upload_settings_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/upload-settings/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_settingDel"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_setting",
+        "action": "delete",
+        "title": "删除上传设置"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_upload_settings_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/upload-settings/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_settingEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_setting",
+        "action": "update",
+        "title": "编辑上传设置"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_upload_settings_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/upload-settings/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "system_uploadConfig_settingStatus"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "upload_setting",
+        "action": "change_status",
+        "title": "修改上传设置状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_upload_settings_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/upload-settings/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_upload_tokens",
+      "method": "POST",
+      "path": "/api/admin/v1/upload-tokens",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service upload credential issuance"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_user_sessions",
+      "method": "GET",
+      "path": "/api/admin/v1/user-sessions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_user_sessions_id_revoke",
+      "method": "PATCH",
+      "path": "/api/admin/v1/user-sessions/:id/revoke",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_kick"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user_session",
+        "action": "revoke",
+        "title": "踢下线用户会话"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_user_sessions_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/user-sessions/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_user_sessions_revoke",
+      "method": "PATCH",
+      "path": "/api/admin/v1/user-sessions/revoke",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_kick"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user_session",
+        "action": "revoke_batch",
+        "title": "批量踢下线用户会话"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_user_sessions_stats",
+      "method": "GET",
+      "path": "/api/admin/v1/user-sessions/stats",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_users",
+      "method": "DELETE",
+      "path": "/api/admin/v1/users",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user",
+        "action": "delete_batch",
+        "title": "批量删除用户"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_users",
+      "method": "GET",
+      "path": "/api/admin/v1/users",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_users",
+      "method": "PATCH",
+      "path": "/api/admin/v1/users",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_batchEdit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user",
+        "action": "batch_update_profile",
+        "title": "批量修改用户资料"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_users_id",
+      "method": "DELETE",
+      "path": "/api/admin/v1/users/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_del"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user",
+        "action": "delete",
+        "title": "删除用户"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_users_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/users/:id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user",
+        "action": "update",
+        "title": "编辑用户"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_users_id_profile",
+      "method": "GET",
+      "path": "/api/admin/v1/users/:id/profile",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_users_id_status",
+      "method": "PATCH",
+      "path": "/api/admin/v1/users/:id/status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user",
+        "action": "change_status",
+        "title": "修改用户状态"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_users_export",
+      "method": "POST",
+      "path": "/api/admin/v1/users/export",
+      "access": {
+        "kind": "permission",
+        "permission_code": "user_userManager_export"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "user",
+        "action": "export",
+        "title": "用户导出"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_users_login_logs",
+      "method": "GET",
+      "path": "/api/admin/v1/users/login-logs",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_users_login_logs_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/users/login-logs/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_users_me",
+      "method": "GET",
+      "path": "/api/admin/v1/users/me",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_users_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/users/page-init",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_wallet_summary",
+      "method": "GET",
+      "path": "/api/admin/v1/wallet/summary",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_wallet_transactions",
+      "method": "GET",
+      "path": "/api/admin/v1/wallet/transactions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_payment_callbacks_alipay",
+      "method": "POST",
+      "path": "/api/payment/callbacks/alipay",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "public provider callback; domain verification retained"
+      }
+    },
+    {
+      "operation_id": "get_health",
+      "method": "GET",
+      "path": "/health",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_ready",
+      "method": "GET",
+      "path": "/ready",
+      "access": {
+        "kind": "public"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    }
+  ]
+}

@@ -1,0 +1,520 @@
+{
+  "schema_version": "admin-views-2026-07-15.1",
+  "users_me": {
+    "method": "GET",
+    "path": "/api/admin/v1/users/me",
+    "operation_id": "get_api_admin_v1_users_me",
+    "response_schema": {
+      "$defs": {
+        "menu_item": {
+          "additionalProperties": false,
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/menu_item"
+              },
+              "type": "array"
+            },
+            "i18n_key": {
+              "type": "string"
+            },
+            "icon": {
+              "type": "string"
+            },
+            "index": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "parent_id": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "show_menu": {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            "sort": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "index",
+            "label",
+            "path",
+            "icon",
+            "children",
+            "i18n_key",
+            "sort",
+            "show_menu",
+            "parent_id"
+          ],
+          "type": "object"
+        },
+        "route_item": {
+          "additionalProperties": false,
+          "properties": {
+            "meta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "view_key": {
+              "enum": [
+                "ai/agents",
+                "ai/chat",
+                "ai/knowledge",
+                "ai/prompts",
+                "ai/providers",
+                "ai/runs",
+                "ai/tools",
+                "notification",
+                "payment/config",
+                "payment/ledger",
+                "payment/recharge",
+                "payment/wallets",
+                "permission/authPlatform",
+                "permission/permission",
+                "permission/role",
+                "personal",
+                "profile/wallet",
+                "system/clientVersion",
+                "system/cronTask",
+                "system/exportTask",
+                "system/log",
+                "system/mail",
+                "system/notificationTask",
+                "system/operationLog",
+                "system/queueMonitor",
+                "system/setting",
+                "system/sms",
+                "system/uploadConfig",
+                "user/userManager",
+                "user/usersLoginLog"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "view_key",
+            "meta"
+          ],
+          "type": "object"
+        }
+      },
+      "$id": "https://contracts.admin.local/v1/users-me-response.schema.json",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "avatar": {
+          "type": "string"
+        },
+        "buttonCodes": {
+          "items": {
+            "enum": [
+              "ai_agent_add",
+              "ai_agent_binding_add",
+              "ai_agent_del",
+              "ai_agent_edit",
+              "ai_agent_status",
+              "ai_agent_test",
+              "ai_knowledge_add",
+              "ai_knowledge_del",
+              "ai_knowledge_document_add",
+              "ai_knowledge_document_del",
+              "ai_knowledge_document_edit",
+              "ai_knowledge_document_status",
+              "ai_knowledge_edit",
+              "ai_knowledge_reindex",
+              "ai_knowledge_retrieval_test",
+              "ai_knowledge_status",
+              "ai_prompt_add",
+              "ai_prompt_del",
+              "ai_prompt_edit",
+              "ai_prompt_page",
+              "ai_prompt_status",
+              "ai_provider_add",
+              "ai_provider_del",
+              "ai_provider_edit",
+              "ai_provider_status",
+              "ai_provider_test",
+              "ai_tool_add",
+              "ai_tool_del",
+              "ai_tool_edit",
+              "ai_tool_generate",
+              "ai_tool_status",
+              "devTools_cronTask_add",
+              "devTools_cronTask_del",
+              "devTools_cronTask_edit",
+              "devTools_cronTask_logs",
+              "devTools_cronTask_status",
+              "devTools_operationLog_del",
+              "devTools_queueMonitor_list",
+              "payment",
+              "payment_config_add",
+              "payment_config_del",
+              "payment_config_edit",
+              "payment_config_list",
+              "payment_config_status",
+              "payment_config_test",
+              "payment_config_upload_cert",
+              "payment_ledger_list",
+              "payment_recharge_add",
+              "payment_recharge_list",
+              "payment_recharge_pay",
+              "payment_wallet_list",
+              "permission_authPlatform_add",
+              "permission_authPlatform_del",
+              "permission_authPlatform_edit",
+              "permission_authPlatform_status",
+              "permission_permission_add",
+              "permission_permission_del",
+              "permission_permission_edit",
+              "permission_permission_status",
+              "permission_role_add",
+              "permission_role_del",
+              "permission_role_edit",
+              "permission_role_setDefault",
+              "profile_wallet",
+              "system_clientVersion_add",
+              "system_clientVersion_del",
+              "system_clientVersion_edit",
+              "system_clientVersion_forceUpdate",
+              "system_clientVersion_setLatest",
+              "system_log_content",
+              "system_log_files",
+              "system_mail",
+              "system_mail_configDel",
+              "system_mail_configEdit",
+              "system_mail_logDel",
+              "system_mail_templateAdd",
+              "system_mail_templateDel",
+              "system_mail_templateEdit",
+              "system_mail_templateStatus",
+              "system_mail_test",
+              "system_notificationTask_add",
+              "system_notificationTask_cancel",
+              "system_notificationTask_del",
+              "system_setting_add",
+              "system_setting_del",
+              "system_setting_edit",
+              "system_setting_status",
+              "system_sms",
+              "system_sms_configDel",
+              "system_sms_configEdit",
+              "system_sms_logDel",
+              "system_sms_templateAdd",
+              "system_sms_templateDel",
+              "system_sms_templateEdit",
+              "system_sms_templateStatus",
+              "system_sms_test",
+              "system_uploadConfig_driverAdd",
+              "system_uploadConfig_driverDel",
+              "system_uploadConfig_driverEdit",
+              "system_uploadConfig_ruleAdd",
+              "system_uploadConfig_ruleDel",
+              "system_uploadConfig_ruleEdit",
+              "system_uploadConfig_settingAdd",
+              "system_uploadConfig_settingDel",
+              "system_uploadConfig_settingEdit",
+              "system_uploadConfig_settingStatus",
+              "user_userManager_batchEdit",
+              "user_userManager_del",
+              "user_userManager_edit",
+              "user_userManager_export",
+              "user_userManager_kick"
+            ],
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/menu_item"
+          },
+          "type": "array"
+        },
+        "role_name": {
+          "type": "string"
+        },
+        "router": {
+          "items": {
+            "$ref": "#/$defs/route_item"
+          },
+          "type": "array"
+        },
+        "user_id": {
+          "format": "int64",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "username",
+        "avatar",
+        "role_name",
+        "permissions",
+        "router",
+        "buttonCodes"
+      ],
+      "type": "object"
+    }
+  },
+  "menu_codes": [
+    "payment"
+  ],
+  "views": [
+    {
+      "path": "/ai/agents",
+      "view_key": "ai/agents",
+      "i18n_key": "menu.ai_agents",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/ai/chat",
+      "view_key": "ai/chat",
+      "i18n_key": "menu.ai_chat",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/ai/knowledge",
+      "view_key": "ai/knowledge",
+      "i18n_key": "menu.ai_knowledge",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/ai/prompts",
+      "view_key": "ai/prompts",
+      "i18n_key": "menu.ai_prompts",
+      "show_menu": 1,
+      "permission_codes": [
+        "ai_prompt_page"
+      ]
+    },
+    {
+      "path": "/ai/providers",
+      "view_key": "ai/providers",
+      "i18n_key": "menu.ai_providers",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/ai/runs",
+      "view_key": "ai/runs",
+      "i18n_key": "menu.ai_runs",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/ai/tools",
+      "view_key": "ai/tools",
+      "i18n_key": "menu.ai_tools",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/notification",
+      "view_key": "notification",
+      "i18n_key": "menu.notification",
+      "show_menu": 2,
+      "permission_codes": []
+    },
+    {
+      "path": "/payment/config",
+      "view_key": "payment/config",
+      "i18n_key": "menu.payment_config",
+      "show_menu": 1,
+      "permission_codes": [
+        "payment_config_list"
+      ]
+    },
+    {
+      "path": "/payment/ledger",
+      "view_key": "payment/ledger",
+      "i18n_key": "menu.payment_ledger",
+      "show_menu": 1,
+      "permission_codes": [
+        "payment_ledger_list"
+      ]
+    },
+    {
+      "path": "/payment/recharge",
+      "view_key": "payment/recharge",
+      "i18n_key": "menu.payment_recharge",
+      "show_menu": 2,
+      "permission_codes": [
+        "payment_recharge_add",
+        "payment_recharge_list",
+        "payment_recharge_pay"
+      ]
+    },
+    {
+      "path": "/payment/wallets",
+      "view_key": "payment/wallets",
+      "i18n_key": "menu.payment_wallets",
+      "show_menu": 1,
+      "permission_codes": [
+        "payment_wallet_list"
+      ]
+    },
+    {
+      "path": "/permission/authPlatform",
+      "view_key": "permission/authPlatform",
+      "i18n_key": "menu.permission_authPlatform",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/permission/permission",
+      "view_key": "permission/permission",
+      "i18n_key": "menu.permission_permission",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/permission/role",
+      "view_key": "permission/role",
+      "i18n_key": "menu.permission_role",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/personal",
+      "view_key": "personal",
+      "i18n_key": "menu.personal",
+      "show_menu": 2,
+      "permission_codes": []
+    },
+    {
+      "path": "/profile/wallet",
+      "view_key": "profile/wallet",
+      "i18n_key": "menu.profile_wallet",
+      "show_menu": 2,
+      "permission_codes": [
+        "profile_wallet"
+      ]
+    },
+    {
+      "path": "/system/clientVersion",
+      "view_key": "system/clientVersion",
+      "i18n_key": "menu.system_clientVersion",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/cronTask",
+      "view_key": "system/cronTask",
+      "i18n_key": "menu.system_cronTask",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/exportTask",
+      "view_key": "system/exportTask",
+      "i18n_key": "menu.system_exportTask",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/log",
+      "view_key": "system/log",
+      "i18n_key": "menu.system_log",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/mail",
+      "view_key": "system/mail",
+      "i18n_key": "menu.system_mail",
+      "show_menu": 1,
+      "permission_codes": [
+        "system_mail"
+      ]
+    },
+    {
+      "path": "/system/notificationTask",
+      "view_key": "system/notificationTask",
+      "i18n_key": "menu.system_notificationTask",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/operationLog",
+      "view_key": "system/operationLog",
+      "i18n_key": "menu.system_operationLog",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/queueMonitor",
+      "view_key": "system/queueMonitor",
+      "i18n_key": "menu.system_queueMonitor",
+      "show_menu": 1,
+      "permission_codes": [
+        "devTools_queueMonitor_list"
+      ]
+    },
+    {
+      "path": "/system/setting",
+      "view_key": "system/setting",
+      "i18n_key": "menu.system_setting",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/system/sms",
+      "view_key": "system/sms",
+      "i18n_key": "menu.system_sms",
+      "show_menu": 1,
+      "permission_codes": [
+        "system_sms"
+      ]
+    },
+    {
+      "path": "/system/uploadConfig",
+      "view_key": "system/uploadConfig",
+      "i18n_key": "menu.system_uploadConfig",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/user/userManager",
+      "view_key": "user/userManager",
+      "i18n_key": "menu.user_userManager",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/user/usersLoginLog",
+      "view_key": "user/usersLoginLog",
+      "i18n_key": "menu.user_usersLoginLog",
+      "show_menu": 1,
+      "permission_codes": []
+    }
+  ]
+}

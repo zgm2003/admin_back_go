@@ -1,0 +1,453 @@
+{
+  "$id": "https://contracts.admin.local/v1/realtime/events.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "assistant_message_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "conversation_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          "required": [
+            "conversation_id",
+            "request_id",
+            "assistant_message_id"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "ai.response.completed.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "conversation_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "delta": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          "required": [
+            "conversation_id",
+            "request_id",
+            "delta"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "ai.response.delta.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "conversation_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "msg": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          "required": [
+            "conversation_id",
+            "request_id",
+            "msg"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "ai.response.failed.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "conversation_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "user_message_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "conversation_id",
+            "request_id",
+            "user_message_id",
+            "agent_id"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "ai.response.start.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "level": {
+              "enum": [
+                "normal",
+                "urgent"
+              ],
+              "type": "string"
+            },
+            "link": {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            "notification_type": {
+              "enum": [
+                "error",
+                "info",
+                "success",
+                "warning"
+              ],
+              "type": "string"
+            },
+            "task_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "title": {
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "title",
+            "content",
+            "link",
+            "level",
+            "notification_type"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "notification.created.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "heartbeat_interval_ms": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "platform": {
+              "const": "admin"
+            },
+            "user_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "user_id",
+            "platform",
+            "heartbeat_interval_ms"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "realtime.connected.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "integer"
+            },
+            "msg": {
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "msg"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "realtime.error.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "realtime.ping.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "bidirectional"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "server_time": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "required": [
+            "server_time"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "realtime.pong.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "topics": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "topics"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "realtime.subscribe.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "client"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "topics": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "topics"
+          ],
+          "type": "object"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "realtime.subscribed.v1"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object",
+      "x-direction": "server"
+    }
+  ],
+  "title": "Admin realtime events"
+}
