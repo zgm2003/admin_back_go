@@ -2,6 +2,8 @@
 
 This directory contains the `admin-app` Compose project. It runs the Nginx frontend, Go API, and Go worker. Stateful services live in the separate `../docker-state/docker-compose.yml` project so application releases cannot accidentally recreate MySQL or Redis.
 
+This Compose stack is the sole application runtime entry. Both repositories intentionally use their existing `master` checkout only and contain no `.worktrees` or `.github` directory. Do not restore host Vite/Go startup, GitHub workflow deployment, or SCP extraction of frontend `dist` files.
+
 ## Topology
 
 ```text
@@ -40,9 +42,9 @@ The initializer accepts only the Compose-safe canonical MySQL DSN shown above. R
 Run from the backend repository root after the P02 database has been restored into the state volume:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/docker-platform.ps1 init
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/docker-platform.ps1 up
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/docker-platform.ps1 status
+pwsh -NoProfile -File scripts/docker-platform.ps1 init
+pwsh -NoProfile -File scripts/docker-platform.ps1 up
+pwsh -NoProfile -File scripts/docker-platform.ps1 status
 ```
 
 `up` starts and waits for `admin-state` before building and starting `admin-app`. `stop` stops the application project before state services and never deletes volumes.

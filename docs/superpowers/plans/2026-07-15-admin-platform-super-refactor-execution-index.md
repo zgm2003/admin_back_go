@@ -4,7 +4,7 @@
 
 **Goal:** Coordinate the ten independently testable implementation plans that turn the imported system into one deployable Admin platform and leave a clean seam for the next SaaS design.
 
-**Architecture:** Foundation and database work are serialized. Once the target schema, contract bundle, and runtime seams are stable, backend identity, backend durable work, frontend kernel, frontend realtime/resource, and desktop security can proceed in isolated lanes. The final plan is the only plan allowed to execute destructive contract DDL or declare App/Canvas retirement complete.
+**Architecture:** Foundation and database work are serialized. All later backend and frontend plans also execute serially in the two existing `master` checkouts; worktrees and GitHub workflow deployment are retired. The final plan is the only plan allowed to execute destructive contract DDL or declare App/Canvas retirement complete.
 
 **Tech Stack:** Go 1.26.5, Gin, GORM, MySQL 8.4, Redis, Asynq, Atlas 0.38.0, Vue 3.5, TypeScript 5.9, Vite 8, Vitest 4, Playwright, Tauri 2, Rust.
 
@@ -25,7 +25,7 @@ The implementation plans may refine mechanics, but they may not change the appro
 
 | ID | Plan | Repository | Depends on | Produces |
 | --- | --- | --- | --- | --- |
-| P01 | `2026-07-15-admin-foundation-verification-plan.md` | backend | approved specs | trusted Go build, strict config, ignored local env, blocking backend CI |
+| P01 | `2026-07-15-admin-foundation-verification-plan.md` | backend | approved specs | trusted Go build, strict config, ignored local env, blocking local verification |
 | P02 | `2026-07-15-admin-database-evolution-plan.md` | backend | P01 | fingerprint/backup tooling, expand/backfill/verify SQL, Atlas baseline, query evidence |
 | P03 | `2026-07-15-admin-go-runtime-contracts-plan.md` | backend | P01, P02 expand schema | process Runtime, Error Module, route registry foundation, Admin Contract Bundle, telemetry seams |
 | P03.5 | `2026-07-17-admin-docker-stability-closure-plan.md` | backend + frontend | P03 | dynamic API discovery, bounded state-late startup, one backend build, image provenance, Docker-only recovery proof |
@@ -54,17 +54,17 @@ P02 verified + P03.5 + P04 + P05 + P06 + P07 + P08
                            └─→ P09 Admin-only contract/release
 ```
 
-P04 and P05 may run concurrently after P03.5 only in separate worktrees and only if they do not edit `internal/runtime`, `internal/server/adminroute`, `contracts/admin`, or the same database migration. In the frontend lane, execute P07 Tasks 1–5, then all of P08, then P07 Tasks 6–10. This barrier prevents the page decomposition/lazy-import tasks from racing the NativeBridge, DownloadManager, Tauri adapter, package, and workflow changes.
+P04 and P05 were completed serially on backend `master`. All remaining plans continue serially: in the frontend lane, execute P07 Tasks 1–5, then all of P08, then P07 Tasks 6–10. This barrier prevents page decomposition/lazy-import tasks from racing NativeBridge, DownloadManager, Tauri adapter, or Docker packaging changes.
 
 ## Global execution protocol
 
-- [ ] **Step 1: Create isolated worktrees at execution time**
+- [x] **Step 1: Use only the existing master checkouts**
 
-Use `superpowers:using-git-worktrees` before the first implementation task. Create one backend worktree and one frontend worktree from the commits containing this plan suite. Never let two implementation agents edit the same worktree concurrently.
+Use only `E:/admin/admin_back_go` and `E:/admin/admin_front_ts`, both on `master`. Do not create or retain `.worktrees` directories. Never let two implementation agents edit the same repository concurrently.
 
 - [ ] **Step 2: Record the baseline**
 
-Run in each worktree:
+Run in each checkout:
 
 ```powershell
 git rev-parse HEAD
@@ -99,7 +99,7 @@ Only one active agent may own each row:
 | backend route registry | P03/P04 integration owner |
 | `src/app` and `src/modules/auth` | P06 |
 | `package.json` / lockfile | one frontend dependency task at a time |
-| GitHub workflow files | current plan's CI task only |
+| Docker verification and Compose delivery files | current Docker delivery task only |
 
 Database tasks are never parallelized against the same schema. Read-only `SELECT`/`SHOW`/`EXPLAIN` checks may run concurrently only after the database owner records the current fingerprint.
 
@@ -126,7 +126,7 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, or an unreviewed 
 - [x] **Gate C.5:** P03.5 proves dynamic API discovery, bounded state-late startup with zero restart loops, correct image revisions, and zero-exit Docker SIGTERM; final restoration preserves all state volumes.
 - [x] **Gate D:** P04 proves one-winner refresh, route-policy completeness, and secure browser/desktop auth transport.
 - [x] **Gate E:** P05 proves AI reply survival across process termination, scheduler lease safety, and realtime recovery.
-- [ ] **Gate F:** P06–P08 pass frontend unit/component/integration/browser/Rust gates and produce immutable artifacts.
+- [ ] **Gate F:** P06–P08 pass frontend unit/component/integration/browser/Rust gates and produce verified revision-labelled Docker images.
 - [ ] **Gate G:** P09 removes retired platform code/schema and passes the complete cross-repository release proof.
 
 No later gate waives an earlier one. P09 must stop before destructive DDL if any invariant, COS reachability check, recovery restore, or rollback rehearsal fails.
