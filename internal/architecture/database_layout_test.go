@@ -114,6 +114,7 @@ func TestDatabaseVerificationWorkflowPinsImmutableInputs(t *testing.T) {
 		"all-nondestructive",
 		"030_verify_schema.sql",
 		"036_verify_export_cleanup.sql",
+		"037_verify_cron_task_metadata.sql",
 		"query-manifest",
 		"git ls-files",
 		"admin-go.env",

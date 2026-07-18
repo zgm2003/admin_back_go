@@ -5,7 +5,7 @@ param(
   [string]$Database,
 
   [Parameter(Mandatory = $true)]
-  [ValidateSet('ledger', 'expand', 'backfill-core', 'backfill-ai', 'proven-indexes', 'ai-image-soft-delete', 'export-cleanup-schedule', 'realtime-retention', 'all-nondestructive')]
+  [ValidateSet('ledger', 'expand', 'backfill-core', 'backfill-ai', 'proven-indexes', 'ai-image-soft-delete', 'export-cleanup-schedule', 'realtime-retention', 'cron-task-utf8-metadata', 'all-nondestructive')]
   [string]$Stage,
 
   [Parameter(Mandatory = $true)]
@@ -118,7 +118,8 @@ $stageFiles = [ordered]@{
   'ai-image-soft-delete' = @('042_add_ai_image_soft_delete.sql')
   'export-cleanup-schedule' = @('043_register_export_cleanup.sql')
   'realtime-retention' = @('044_realtime_retention.sql')
-  'all-nondestructive' = @('001_ledger.sql', '010_expand_core.sql', '020_backfill_core.sql', '021_backfill_ai.sql', '041_apply_proven_indexes.sql', '042_add_ai_image_soft_delete.sql', '043_register_export_cleanup.sql', '044_realtime_retention.sql')
+  'cron-task-utf8-metadata' = @('045_repair_cron_task_utf8_metadata.sql')
+  'all-nondestructive' = @('001_ledger.sql', '010_expand_core.sql', '020_backfill_core.sql', '021_backfill_ai.sql', '041_apply_proven_indexes.sql', '042_add_ai_image_soft_delete.sql', '043_register_export_cleanup.sql', '044_realtime_retention.sql', '045_repair_cron_task_utf8_metadata.sql')
 }
 $files = @($stageFiles[$Stage] | Where-Object { Test-Path -LiteralPath (Join-Path $ReconciliationRoot $_) -PathType Leaf })
 if ($files.Count -eq 0) {
@@ -135,6 +136,7 @@ try {
     "--host=$($client.Host)",
     "--port=$($client.Port)",
     "--user=$($client.User)",
+    '--default-character-set=utf8mb4',
     '--batch',
     '--skip-column-names',
     '--raw',

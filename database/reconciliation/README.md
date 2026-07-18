@@ -10,12 +10,13 @@ Reconciliation runs only against a verified disposable restore. It is serialized
 6. `ai-image-soft-delete`
 7. `export-cleanup-schedule`
 8. `realtime-retention`
+9. `cron-task-utf8-metadata`
 
 Every SQL file is hashed from its exact bytes before execution. `schema_reconciliation_runs` records the stage, script name, SHA-256, source fingerprint, target fingerprint, executor, timestamps, status, and sanitized details. A successful name/SHA pair is idempotently skipped; a previously recorded name with different bytes is rejected.
 
 The scripts in this directory are non-destructive P02 inputs. App/Canvas contract deletion remains reserved for P09.
 
-`030_verify_schema.sql` through `036_verify_export_cleanup.sql` are blocking zero-row/count invariants for the active target. AI image deletion uses the approved retained-object policy: task and file rows are soft-deleted in one transaction, while COS objects remain available for an explicit P09 retention/cleanup decision. Export expiration is owned by the hourly `export:cleanup-expired:v1` Worker command; list and count reads do not mutate tasks. P05 realtime retention is owned by the daily `realtime:cleanup-expired:v1` Worker command and atomically advances per-target watermarks. `scripts/database/verify-expanded-schema.ps1` also emits a separate `legacy_evidence` summary for data that is deliberately preserved rather than treated as active target state:
+`030_verify_schema.sql` through `037_verify_cron_task_metadata.sql` are blocking zero-row/count invariants for the active target. AI image deletion uses the approved retained-object policy: task and file rows are soft-deleted in one transaction, while COS objects remain available for an explicit P09 retention/cleanup decision. Export expiration is owned by the hourly `export:cleanup-expired:v1` Worker command; list and count reads do not mutate tasks. P05 realtime retention is owned by the daily `realtime:cleanup-expired:v1` Worker command and atomically advances per-target watermarks. Cron task metadata is byte-for-byte verified after every reconciliation so client-encoding drift cannot pass the database gate. `scripts/database/verify-expanded-schema.ps1` also emits a separate `legacy_evidence` summary for data that is deliberately preserved rather than treated as active target state:
 
 - App/Canvas/all-platform rows awaiting P09 disposition; the historical quick-entry table is already absent from the current restore and active runtime;
 - grants whose permission record is already absent, which cannot grant runtime access and are retained for audit;
