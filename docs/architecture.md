@@ -353,17 +353,24 @@ platform/device-id 作为请求输入传入认证服务
 最终可信 platform 来自 session identity，不盲信 header
 ```
 
-浏览器不能给部分特殊入口稳定附加 `Authorization` header，所以 `AuthToken` 允许**路径限定 cookie token**，但这不是全局 cookie 登录：
+浏览器不能给 iframe 和 WebSocket upgrade 稳定附加 `Authorization` header，因此这两个入口使用短期、路径限定的专用凭证；`access_token` cookie fallback 已删除：
 
 ```text
-允许：GET/HEAD /api/admin/v1/queue-monitor-ui/* 从 access_token cookie 取 token
-允许：GET/HEAD /api/admin/v1/realtime/ws 从 access_token cookie 取 token
-禁止：普通 JSON API 从 cookie token 静默兜底
-禁止：POST/PUT/PATCH/DELETE 从 cookie token 静默兜底
-禁止：/api/admin/v1/realtime/ws?access_token=... query-string token
+POST /api/admin/v1/auth/realtime-tickets
+  Bearer 认证；成功 data 精确为 {"ticket":"...","expires_in":30}
+  ticket 是 Redis 中绑定 session/user/platform 的一次性凭证
+GET /api/admin/v1/realtime/ws?ticket=...
+  只消费 realtime ticket；不接受 Bearer、access_token cookie 或 access_token query
+
+POST /api/admin/v1/auth/queue-monitor-grants
+  Bearer 认证；仅 browser variant，并校验精确 Origin
+  成功 data 精确为 {"expires_in":60}
+  设置 HttpOnly + Secure + SameSite=Strict 的 __Secure-admin_queue_monitor Cookie
+GET/HEAD /api/admin/v1/queue-monitor-ui/*
+  只接受上述路径限定 Cookie；不接受 Bearer 或 access_token cookie
 ```
 
-这条边界很重要：cookie fallback 只服务浏览器 UI/upgrade 限制，不改变 REST API 的认证契约。
+这条边界不改变普通 REST API 的 Bearer 认证契约，也不允许客户端猜测或回退到旧凭证传输。
 
 这里没有直接套通用 JWT Gin middleware。原因很简单：当前系统不是纯 stateless auth，而是 JWT access token + opaque refresh token + Redis session cache + MySQL user_sessions 真相源 + 平台/设备/IP/单端策略。成熟中间件能用就用，但不能用错地方。
 
@@ -991,8 +998,9 @@ GET/ANY /api/admin/v1/queue-monitor-ui/*
 ```text
 asynqmon 以 ReadOnly=true 运行，POST/DELETE 等破坏性操作由 asynqmon 自身拒绝
 AuthToken middleware 仍然保护 /api/admin/v1/queue-monitor-ui/*
-由于 iframe/new window 不能主动附加 Authorization header，AuthToken 只对 /api/admin/v1/queue-monitor-ui 的 GET/HEAD 文档请求允许读取现有 access_token cookie；普通 JSON API 不启用 cookie token fallback，POST/DELETE 也不启用
-cookie token 认证只在该 UI 路径显式使用后台平台 admin 补齐 session policy 入参；不要把这个扩展成全局默认平台
+iframe/new window 加载前，前端必须先以 Bearer 调用 POST /api/admin/v1/auth/queue-monitor-grants，并等待成功响应
+UI middleware 只读取 __Secure-admin_queue_monitor 专用 Cookie；不读取 Authorization、access_token cookie 或 query token
+专用 Cookie 只绑定当前 session/user/platform，有效期 60 秒，Path=/api/admin/v1/queue-monitor-ui
 前端 iframe 必须使用 Go API origin 的绝对 URL，不能写成相对路径；否则浏览器会请求前端 SPA 自己的 /api/admin/v1/queue-monitor-ui 并落到前端 404
 asynqmon@v0.7.2 内置静态 UI handler 在 Windows 下会把 URL path 经 filepath.Abs 转成盘符路径，导致首页返回 400 unexpected path prefix；因此本项目仅复制官方 ui/build 静态文件并用薄 handler 渲染，/api 子路径仍交给官方 asynqmon handler
 保留 GET /api/admin/v1/queue-monitor 与 GET /api/admin/v1/queue-monitor/failed 作为轻量 JSON 摘要接口，服务 dashboard card/smoke，不复制 asynqmon 的完整任务管理能力

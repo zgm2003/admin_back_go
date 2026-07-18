@@ -2715,7 +2715,9 @@
       "audit": {
         "enabled": false,
         "reason": "short-lived queue monitor browser grant issuance"
-      }
+      },
+      "request_schema": "EmptyObject",
+      "response_schema": "QueueMonitorGrantSuccessEnvelope"
     },
     {
       "method": "POST",
@@ -2727,7 +2729,9 @@
       "audit": {
         "enabled": false,
         "reason": "short-lived browser realtime credential issuance"
-      }
+      },
+      "request_schema": "EmptyObject",
+      "response_schema": "RealtimeTicketSuccessEnvelope"
     },
     {
       "method": "POST",

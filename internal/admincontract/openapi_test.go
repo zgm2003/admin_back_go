@@ -3,11 +3,65 @@ package admincontract
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
 	"admin_back_go/internal/server/adminroute"
 )
+
+func TestOpenAPIDocumentsScopedBrowserGrantCredentials(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			SecuritySchemes map[string]map[string]any `json:"securitySchemes"`
+			Schemas         map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatalf("decode openapi: %v", err)
+	}
+
+	for name, want := range map[string]map[string]any{
+		"queueMonitorGrantCookie": {"type": "apiKey", "in": "cookie", "name": "__Secure-admin_queue_monitor"},
+		"realtimeTicket":          {"type": "apiKey", "in": "query", "name": "ticket"},
+	} {
+		if got := document.Components.SecuritySchemes[name]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("security scheme %s=%#v, want %#v", name, got, want)
+		}
+	}
+
+	assertOperationSecurity := func(path, method, scheme string) {
+		t.Helper()
+		got := document.Paths[path][method]["security"]
+		want := []any{map[string]any{scheme: []any{}}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s %s security=%#v, want %#v", method, path, got, want)
+		}
+	}
+	assertOperationSecurity("/api/admin/v1/queue-monitor-ui", "get", "queueMonitorGrantCookie")
+	assertOperationSecurity("/api/admin/v1/queue-monitor-ui", "head", "queueMonitorGrantCookie")
+	assertOperationSecurity("/api/admin/v1/realtime/ws", "get", "realtimeTicket")
+
+	assertResponseSchema := func(path, want string) {
+		t.Helper()
+		operation := document.Paths[path]["post"]
+		responses := operation["responses"].(map[string]any)
+		ok := responses["200"].(map[string]any)
+		content := ok["content"].(map[string]any)
+		media := content["application/json"].(map[string]any)
+		schema := media["schema"].(map[string]any)
+		if got := schema["$ref"]; got != "#/components/schemas/"+want {
+			t.Fatalf("POST %s response schema=%#v", path, got)
+		}
+		if document.Components.Schemas[want] == nil {
+			t.Fatalf("missing response schema %s", want)
+		}
+	}
+	assertResponseSchema("/api/admin/v1/auth/realtime-tickets", "RealtimeTicketSuccessEnvelope")
+	assertResponseSchema("/api/admin/v1/auth/queue-monitor-grants", "QueueMonitorGrantSuccessEnvelope")
+}
 
 func TestOpenAPIContainsEveryRuntimeAdminOperation(t *testing.T) {
 	bundle := mustBuildBundle(t)

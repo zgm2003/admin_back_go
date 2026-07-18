@@ -58,16 +58,20 @@ func Register(router *gin.Engine, service auth.SessionService, captchaService au
 		Audit:  adminroute.NoAudit("self-service session state"),
 	}, handler.Logout)
 	routes.Handle(adminroute.Definition{
-		Method: http.MethodPost,
-		Path:   "/api/admin/v1/auth/realtime-tickets",
-		Access: adminroute.Authenticated(),
-		Audit:  adminroute.NoAudit("short-lived browser realtime credential issuance"),
+		Method:         http.MethodPost,
+		Path:           "/api/admin/v1/auth/realtime-tickets",
+		Access:         adminroute.Authenticated(),
+		Audit:          adminroute.NoAudit("short-lived browser realtime credential issuance"),
+		RequestSchema:  "EmptyObject",
+		ResponseSchema: "RealtimeTicketSuccessEnvelope",
 	}, handler.RealtimeTicket)
 	routes.Handle(adminroute.Definition{
-		Method: http.MethodPost,
-		Path:   "/api/admin/v1/auth/queue-monitor-grants",
-		Access: adminroute.Authenticated(),
-		Audit:  adminroute.NoAudit("short-lived queue monitor browser grant issuance"),
+		Method:         http.MethodPost,
+		Path:           "/api/admin/v1/auth/queue-monitor-grants",
+		Access:         adminroute.Authenticated(),
+		Audit:          adminroute.NoAudit("short-lived queue monitor browser grant issuance"),
+		RequestSchema:  "EmptyObject",
+		ResponseSchema: "QueueMonitorGrantSuccessEnvelope",
 	}, handler.QueueMonitorGrant)
 
 	routes.Handle(adminroute.Definition{

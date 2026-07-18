@@ -43,11 +43,7 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 		if len(parameters) > 0 {
 			operation["parameters"] = parameters
 		}
-		if definition.Access.Kind == adminroute.AccessPublic {
-			operation["security"] = []any{}
-		} else {
-			operation["security"] = []any{map[string]any{"bearerAuth": []string{}}}
-		}
+		operation["security"] = operationSecurity(definition)
 		if requestBody := operationRequestBody(definition); requestBody != nil {
 			operation["requestBody"] = requestBody
 		}
@@ -69,10 +65,33 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 					"scheme":       "bearer",
 					"bearerFormat": "JWT",
 				},
+				"queueMonitorGrantCookie": map[string]any{
+					"type": "apiKey",
+					"in":   "cookie",
+					"name": "__Secure-admin_queue_monitor",
+				},
+				"realtimeTicket": map[string]any{
+					"type": "apiKey",
+					"in":   "query",
+					"name": "ticket",
+				},
 			},
 			"schemas": openAPISchemas(),
 		},
 	}, nil
+}
+
+func operationSecurity(definition adminroute.Definition) []any {
+	if definition.Access.Kind == adminroute.AccessPublic {
+		return []any{}
+	}
+	if definition.Path == "/api/admin/v1/realtime/ws" {
+		return []any{map[string]any{"realtimeTicket": []string{}}}
+	}
+	if strings.HasPrefix(definition.Path, "/api/admin/v1/queue-monitor-ui") {
+		return []any{map[string]any{"queueMonitorGrantCookie": []string{}}}
+	}
+	return []any{map[string]any{"bearerAuth": []string{}}}
 }
 
 func openAPIPath(runtimePath string) (string, []map[string]any, error) {
@@ -217,6 +236,10 @@ func openAPISchemas() map[string]any {
 		},
 	}
 	return map[string]any{
+		"EmptyObject": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+		},
 		"GenericObject": map[string]any{
 			"type":                 "object",
 			"additionalProperties": true,
@@ -231,6 +254,23 @@ func openAPISchemas() map[string]any {
 				"msg":  map[string]any{"type": "string"},
 			},
 		},
+		"RealtimeTicketSuccessEnvelope": successEnvelopeWithData(map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"ticket", "expires_in"},
+			"properties": map[string]any{
+				"ticket":     map[string]any{"type": "string", "minLength": 1},
+				"expires_in": map[string]any{"type": "integer", "const": 30},
+			},
+		}),
+		"QueueMonitorGrantSuccessEnvelope": successEnvelopeWithData(map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"expires_in"},
+			"properties": map[string]any{
+				"expires_in": map[string]any{"type": "integer", "const": 60},
+			},
+		}),
 		"ErrorEnvelope": map[string]any{
 			"type":                 "object",
 			"additionalProperties": false,
@@ -241,6 +281,19 @@ func openAPISchemas() map[string]any {
 				"msg":   map[string]any{"type": "string"},
 				"error": errorMetadata,
 			},
+		},
+	}
+}
+
+func successEnvelopeWithData(data map[string]any) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"code", "data", "msg"},
+		"properties": map[string]any{
+			"code": map[string]any{"type": "integer", "const": 0},
+			"data": data,
+			"msg":  map[string]any{"type": "string"},
 		},
 	}
 }
