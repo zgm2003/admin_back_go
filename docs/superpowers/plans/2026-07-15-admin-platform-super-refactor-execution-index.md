@@ -155,3 +155,11 @@ No later gate waives an earlier one. P09 must stop before destructive DDL if any
 - `scripts/verify-backend.ps1` exited `0` with all repository/race/architecture/contract tests, vet, pinned staticcheck, govulncheck (`0` called vulnerabilities), Atlas validation, and API/Worker builds passing.
 - `scripts/verify-database.ps1 -Mode all` exited `0`; empty/imported schemas converged at `50e7642abe6f615167ab0fc64e3bd4aa765c0dc8695d2d4a2fc515365bc713cb`, all 8 reconciliations were idempotent, and database invariants/Admin smoke passed.
 - The Admin realtime bundle has no drift and records backend commit `8458ecfc671f558af65a6f89c590891253179cdc`; live Docker MySQL has the seven-day retention schema, watermark, and enabled cleanup cron.
+
+## Gate F P06 evidence (2026-07-18)
+
+- P06 executed directly on frontend `master` by explicit operator instruction. Frontend and backend have one registered primary checkout each; `.worktrees` and `.github` are absent from both repositories.
+- Frontend AppKernel/AuthSession/ApiClient/routes/persistence integration is committed through `c4247cd`; Docker-only frontend delivery is implemented by `84868a6`, and backend Compose-only deployment is implemented by `a4089d4`.
+- The clean-checkout frontend verifier passed contract generation, route generation, lint baseline, typecheck, and 450 tests. Coverage was 87.94% statements and 81.72% branches.
+- The revision-labelled frontend image passed non-root, healthcheck, and exposed-port inspection. The Compose lifecycle rebuilt both application images and restored five healthy containers; `/healthz`, `/health`, and `/ready` all passed.
+- Gate F remains unchecked until P07 browser/performance gates and P08 Rust/Tauri gates also pass.
