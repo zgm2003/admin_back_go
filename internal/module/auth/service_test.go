@@ -128,9 +128,11 @@ func (f *fakeSessionCreator) Logout(ctx context.Context, accessToken string) *ap
 type fakeCaptchaVerifier struct {
 	input VerifyInput
 	err   *apperror.Error
+	calls int
 }
 
 func (f *fakeCaptchaVerifier) Verify(ctx context.Context, input VerifyInput) *apperror.Error {
+	f.calls++
 	f.input = input
 	return f.err
 }
@@ -289,7 +291,7 @@ func TestServiceForgetPasswordRejectsMismatchedPasswordBeforeConsumingCode(t *te
 	}
 }
 
-func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
+func TestServiceLoginVerifiesPHPBcryptPasswordWithoutCaptchaAndCreatesSession(t *testing.T) {
 	hash := phpBcryptHash(t, "123456")
 	repo := &fakeAuthRepository{credential: &UserCredential{
 		ID:           1,
@@ -310,15 +312,10 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 		LoginAccount: "15671628271",
 		LoginType:    LoginTypePassword,
 		Password:     "123456",
-		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &Answer{
-			X: 120,
-			Y: 80,
-		},
-		Platform:  "admin",
-		DeviceID:  "device-1",
-		ClientIP:  "127.0.0.1",
-		UserAgent: "test-agent",
+		Platform:     "admin",
+		DeviceID:     "device-1",
+		ClientIP:     "127.0.0.1",
+		UserAgent:    "test-agent",
 	})
 
 	if appErr != nil {
@@ -330,9 +327,8 @@ func TestServiceLoginVerifiesPHPBcryptPasswordAndCreatesSession(t *testing.T) {
 	if repo.phoneQuery != "15671628271" {
 		t.Fatalf("expected phone lookup, got %q", repo.phoneQuery)
 	}
-	if captchaVerifier.input.ID != "captcha-id" || captchaVerifier.input.Answer == nil ||
-		captchaVerifier.input.Answer.X != 120 || captchaVerifier.input.Answer.Y != 80 {
-		t.Fatalf("expected captcha verification, got %#v", captchaVerifier.input)
+	if captchaVerifier.calls != 0 {
+		t.Fatalf("password login must not invoke captcha verification, got %d calls", captchaVerifier.calls)
 	}
 	if sessions.input.UserID != 1 || sessions.input.Platform != "admin" || sessions.input.DeviceID != "device-1" {
 		t.Fatalf("unexpected session create input: %#v", sessions.input)
@@ -418,14 +414,12 @@ func TestServiceLoginEnqueuesSuccessfulLoginLogWhenProducerConfigured(t *testing
 	)
 
 	_, appErr := service.Login(context.Background(), LoginInput{
-		LoginAccount:  "15671628271",
-		LoginType:     LoginTypePassword,
-		Password:      "123456",
-		CaptchaID:     "captcha-id",
-		CaptchaAnswer: &Answer{X: 120, Y: 80},
-		Platform:      "admin",
-		ClientIP:      "127.0.0.1",
-		UserAgent:     "test-agent",
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePassword,
+		Password:     "123456",
+		Platform:     "admin",
+		ClientIP:     "127.0.0.1",
+		UserAgent:    "test-agent",
 	})
 
 	if appErr != nil {
@@ -468,12 +462,10 @@ func TestServiceLoginFallsBackToSyncLoginLogWhenEnqueueFails(t *testing.T) {
 	)
 
 	_, appErr := service.Login(context.Background(), LoginInput{
-		LoginAccount:  "15671628271",
-		LoginType:     LoginTypePassword,
-		Password:      "123456",
-		CaptchaID:     "captcha-id",
-		CaptchaAnswer: &Answer{X: 120, Y: 80},
-		Platform:      "admin",
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePassword,
+		Password:     "123456",
+		Platform:     "admin",
 	})
 
 	if appErr != nil {
@@ -499,12 +491,7 @@ func TestServiceLoginRejectsWrongPasswordAndLogsFailure(t *testing.T) {
 		LoginAccount: "15671628271",
 		LoginType:    LoginTypePassword,
 		Password:     "bad-password",
-		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &Answer{
-			X: 120,
-			Y: 80,
-		},
-		Platform: "admin",
+		Platform:     "admin",
 	})
 
 	if result != nil {
@@ -516,8 +503,8 @@ func TestServiceLoginRejectsWrongPasswordAndLogsFailure(t *testing.T) {
 	if len(repo.attempts) != 1 || repo.attempts[0].IsSuccess != commonNo || repo.attempts[0].Reason != "wrong_password" {
 		t.Fatalf("expected failed login attempt log, got %#v", repo.attempts)
 	}
-	if captchaVerifier.input.ID != "captcha-id" {
-		t.Fatalf("expected captcha to be verified before password check, got %#v", captchaVerifier.input)
+	if captchaVerifier.calls != 0 {
+		t.Fatalf("admin password login must not invoke captcha verification, got %d calls", captchaVerifier.calls)
 	}
 }
 
@@ -539,12 +526,10 @@ func TestServiceLoginRejectsWrongPasswordAndEnqueuesFailure(t *testing.T) {
 	)
 
 	result, appErr := service.Login(context.Background(), LoginInput{
-		LoginAccount:  "15671628271",
-		LoginType:     LoginTypePassword,
-		Password:      "bad-password",
-		CaptchaID:     "captcha-id",
-		CaptchaAnswer: &Answer{X: 120, Y: 80},
-		Platform:      "admin",
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePassword,
+		Password:     "bad-password",
+		Platform:     "admin",
 	})
 
 	if result != nil {
@@ -565,67 +550,6 @@ func TestServiceLoginRejectsWrongPasswordAndEnqueuesFailure(t *testing.T) {
 	}
 	if attempt.UserID == nil || *attempt.UserID != 1 || attempt.IsSuccess != commonNo || attempt.Reason != "wrong_password" {
 		t.Fatalf("unexpected wrong password payload: %#v", attempt)
-	}
-}
-
-func TestServiceLoginRejectsMissingCaptchaBeforeCredentialLookup(t *testing.T) {
-	repo := &fakeAuthRepository{credential: &UserCredential{
-		ID:           1,
-		PasswordHash: phpBcryptHash(t, "123456"),
-		Status:       commonYes,
-		IsDel:        commonNo,
-	}}
-	service := NewService(repo, fakeLoginTypeProvider{types: []string{"password"}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
-
-	result, appErr := service.Login(context.Background(), LoginInput{
-		LoginAccount: "15671628271",
-		LoginType:    LoginTypePassword,
-		Password:     "123456",
-		Platform:     "admin",
-	})
-
-	if result != nil {
-		t.Fatalf("expected nil result, got %#v", result)
-	}
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "请完成验证码" {
-		t.Fatalf("expected missing captcha error, got %#v", appErr)
-	}
-	if repo.phoneQuery != "" {
-		t.Fatalf("expected credential lookup to be skipped, got %q", repo.phoneQuery)
-	}
-}
-
-func TestServiceLoginRejectsInvalidCaptchaBeforeCredentialLookup(t *testing.T) {
-	repo := &fakeAuthRepository{credential: &UserCredential{
-		ID:           1,
-		PasswordHash: phpBcryptHash(t, "123456"),
-		Status:       commonYes,
-		IsDel:        commonNo,
-	}}
-	service := NewService(repo, fakeLoginTypeProvider{types: []string{"password"}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{
-		err: apperror.BadRequest("验证码错误或已过期"),
-	})
-
-	result, appErr := service.Login(context.Background(), LoginInput{
-		LoginAccount: "15671628271",
-		LoginType:    LoginTypePassword,
-		Password:     "123456",
-		CaptchaID:    "captcha-id",
-		CaptchaAnswer: &Answer{
-			X: 40,
-			Y: 80,
-		},
-		Platform: "admin",
-	})
-
-	if result != nil {
-		t.Fatalf("expected nil result, got %#v", result)
-	}
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "验证码错误或已过期" {
-		t.Fatalf("expected invalid captcha error, got %#v", appErr)
-	}
-	if repo.phoneQuery != "" {
-		t.Fatalf("expected credential lookup to be skipped, got %q", repo.phoneQuery)
 	}
 }
 

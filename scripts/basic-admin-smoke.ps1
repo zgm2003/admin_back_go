@@ -223,43 +223,7 @@ try {
     -Headers @{ platform = $Platform } `
     -TimeoutSec 5
 
-  $verifyCode = '123456'
-  $sendCodeBody = @{
-    account = $Account
-    scene = 'login'
-  } | ConvertTo-Json -Depth 4
-  $sendCode = Invoke-RestMethod "$baseURL/api/admin/v1/auth/send-code" `
-    -Method Post `
-    -ContentType 'application/json' `
-    -Body $sendCodeBody `
-    -TimeoutSec 10
-
-  if ($sendCode.code -ne 0) {
-    throw "send-code failed: $($sendCode | ConvertTo-Json -Depth 8)"
-  }
-
   $codeLoginType = if ($Account -match '^[^@\s]+@[^@\s]+\.[^@\s]+$') { 'email' } else { 'phone' }
-  $codeLoginBody = @{
-    login_account = $Account
-    login_type = $codeLoginType
-    code = $verifyCode
-  } | ConvertTo-Json -Depth 4
-  $codeLogin = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
-    -Method Post `
-    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code" } `
-    -ContentType 'application/json' `
-    -Body $codeLoginBody `
-    -TimeoutSec 10
-
-  if ($codeLogin.code -ne 0 -or [string]::IsNullOrWhiteSpace($codeLogin.data.access_token)) {
-    throw "code login failed: $($codeLogin | ConvertTo-Json -Depth 8)"
-  }
-
-  Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" `
-    -Method Post `
-    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code"; Authorization = "Bearer $($codeLogin.data.access_token)" } `
-    -TimeoutSec 10 | Out-Null
-
   $captcha = Invoke-RestMethod "$baseURL/api/admin/v1/auth/captcha" -TimeoutSec 10
 
   if ($captcha.code -ne 0 -or [string]::IsNullOrWhiteSpace($captcha.data.captcha_id)) {
@@ -297,9 +261,7 @@ func main() {
   })
   defer client.Close()
 
-  prefix := "captcha:slide:"
-
-  value, err := client.Get(context.Background(), prefix+os.Args[1]).Result()
+  value, err := client.Get(context.Background(), "captcha:slide:"+os.Args[1]).Result()
   if err != nil {
     fmt.Fprintln(os.Stderr, err)
     os.Exit(1)
@@ -311,24 +273,62 @@ func main() {
 
   $env:REDIS_ADDR = Get-RedisAddr
   $env:REDIS_DB = Get-RedisDB
-
   $secretJson = go run $secretReader $captcha.data.captcha_id
   $secret = $secretJson | ConvertFrom-Json
+  $captchaAnswer = @{
+    x = [int]$secret.answer.x
+    y = [int]$secret.answer.y
+  }
+
+  $verifyCode = '123456'
+  $sendCodeBody = @{
+    account = $Account
+    scene = 'login'
+    login_type = $codeLoginType
+    captcha_id = $captcha.data.captcha_id
+    captcha_answer = $captchaAnswer
+  } | ConvertTo-Json -Depth 4
+  $sendCode = Invoke-RestMethod "$baseURL/api/admin/v1/auth/send-code" `
+    -Method Post `
+    -ContentType 'application/json' `
+    -Body $sendCodeBody `
+    -TimeoutSec 10
+
+  if ($sendCode.code -ne 0) {
+    throw "send-code failed: $($sendCode | ConvertTo-Json -Depth 8)"
+  }
+
+  $codeLoginBody = @{
+    login_account = $Account
+    login_type = $codeLoginType
+    code = $verifyCode
+  } | ConvertTo-Json -Depth 4
+  $codeLogin = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
+    -Method Post `
+    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code"; 'X-Admin-Client-Variant' = 'desktop' } `
+    -ContentType 'application/json' `
+    -Body $codeLoginBody `
+    -TimeoutSec 10
+
+  if ($codeLogin.code -ne 0 -or [string]::IsNullOrWhiteSpace($codeLogin.data.access_token)) {
+    throw "code login failed: $($codeLogin | ConvertTo-Json -Depth 8)"
+  }
+
+  Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" `
+    -Method Post `
+    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code"; 'X-Admin-Client-Variant' = 'desktop'; Authorization = "Bearer $($codeLogin.data.access_token)" } `
+    -TimeoutSec 10 | Out-Null
 
   $loginBody = @{
     login_account = $Account
     login_type = 'password'
     password = $Password
-    captcha_id = $captcha.data.captcha_id
-    captcha_answer = @{
-      x = [int]$secret.answer.x
-      y = [int]$secret.answer.y
-    }
-  } | ConvertTo-Json -Depth 8
+  } | ConvertTo-Json -Depth 4
 
   $loginHeaders = @{
     platform = $Platform
     'device-id' = $DeviceID
+    'X-Admin-Client-Variant' = 'desktop'
   }
 
   $login = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
@@ -345,6 +345,7 @@ func main() {
   $authHeaders = @{
     platform = $Platform
     'device-id' = $DeviceID
+    'X-Admin-Client-Variant' = 'desktop'
     Authorization = "Bearer $($login.data.access_token)"
   }
 

@@ -399,10 +399,10 @@ access/refresh token 有效期只来自 auth_platforms.access_ttl / auth_platfor
 当前已实现：
 
 ```text
-password login 通过 session.Create 签发 JWT access token + opaque refresh token
+Admin password login 不使用图形验证码，通过 session.Create 签发 JWT access token + opaque refresh token
 refresh 通过 refresh_token_hash 查 user_sessions，并重新签发 JWT access token
 single_session / max_sessions 登录时撤销旧会话并删除 token:session:<session_id> 缓存
-登录前必须通过 go-captcha slide 验证
+Admin contract 中 go-captcha slide 仅用于所有 send-code 场景；Admin 密码登录不生成也不消费 challenge
 ```
 
 这些仍然不塞回 middleware。
@@ -1130,7 +1130,7 @@ send-code 是公开接口，准确请求字段为 account + scene + captcha_id +
 scene=login 额外必须携带 login_type=email|phone，且 account 格式必须与 login_type 一致；forget 与 change_password 接受邮箱或手机号，bind_email 只接受邮箱，bind_phone 只接受手机号
 change_password 可使用当前绑定邮箱或当前绑定手机号接收验证码；前端当前明确采用“有邮箱优先邮箱，否则手机号”的产品规则
 send-code 的 captcha 校验与验证码发送是一次原子请求：客户端确认滑块后提交 proof，只有服务端返回成功才算通过；错误 proof 返回 error.code=captcha.invalid_or_expired，且不得生成验证码
-login 是公开接口；password login 必须带 captcha_id + captcha_answer，go-captcha fail-closed 且一次性消费
+login 是公开接口；Admin password login 的精确请求字段为 login_account + login_type=password + password，不包含 captcha_id 或 captcha_answer
 password login 只支持邮箱/手机号账号 + bcrypt $2y$ 密码校验
 email/phone code login 使用 Redis 短 TTL 验证码；email 随机码经 `VerifyCodeMailSender` 调 `internal/module/mail.SendVerifyCode` 真实发送腾讯云 SES 邮件，TTL 来自 mail_configs.verify_code_ttl_minutes；phone 固定验证码 123456，不接短信、不受 env 控制，但 Redis TTL 仍来自 sms_configs.verify_code_ttl_minutes
 验证码登录支持自动注册：先校验 code 不消费，再检查 auth_platforms.allow_register；允许注册后消费 code，并在同一事务创建 users + user_profiles + 默认角色
@@ -1448,7 +1448,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\full-admin-smoke.ps1 `
 ```text
 不在仓库硬编码测试账号或密码
 自己编译并启动临时 admin-api/admin-worker smoke binary
-使用 go-captcha 真实 challenge，不绕过验证码
+send-code 使用 go-captcha 真实 challenge；password login 不生成也不提交 challenge
 只用 Redis 读取本次 challenge 的服务端答案做自动化 smoke
 登录后必须访问 users/me，证明 session/RBAC bootstrap 能跑
 必须访问 users/page-init 和 users list，证明用户管理页已经走 Go REST 基础链路

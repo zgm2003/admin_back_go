@@ -8,19 +8,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Get-RedisAddr() {
-  if (-not [string]::IsNullOrWhiteSpace($env:REDIS_ADDR)) { return $env:REDIS_ADDR }
-
-  $hostName = if ([string]::IsNullOrWhiteSpace($env:REDIS_HOST)) { '127.0.0.1' } else { $env:REDIS_HOST }
-  $port = if ([string]::IsNullOrWhiteSpace($env:REDIS_PORT)) { '6380' } else { $env:REDIS_PORT }
-  return "$hostName`:$port"
-}
-
-function Get-RedisDB() {
-  if ([string]::IsNullOrWhiteSpace($env:REDIS_DB)) { return '0' }
-  return $env:REDIS_DB
-}
-
 function Invoke-Api {
   param(
     [string]$Url,
@@ -53,78 +40,14 @@ if ([string]::IsNullOrWhiteSpace($Account) -or [string]::IsNullOrWhiteSpace($Pas
   throw 'Account and Password are required when -RunRealExport is set.'
 }
 
-$backendRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$secretReader = Join-Path $backendRoot '.tmp/read-captcha-secret.go'
-New-Item -ItemType Directory -Force (Join-Path $backendRoot '.tmp') | Out-Null
-
-@"
-package main
-
-import (
-  "context"
-  "fmt"
-  "os"
-  "strconv"
-
-  "github.com/redis/go-redis/v9"
-)
-
-func main() {
-  if len(os.Args) != 2 {
-    fmt.Fprintln(os.Stderr, "usage: read-captcha-secret <captcha-id>")
-    os.Exit(2)
-  }
-
-  db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-
-  client := redis.NewClient(&redis.Options{
-    Addr:     os.Getenv("REDIS_ADDR"),
-    Password: os.Getenv("REDIS_PASSWORD"),
-    DB:       db,
-  })
-  defer client.Close()
-
-  value, err := client.Get(context.Background(), "captcha:slide:"+os.Args[1]).Result()
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(1)
-  }
-
-  fmt.Print(value)
-}
-"@ | Set-Content -LiteralPath $secretReader -Encoding UTF8
-
-$captcha = Invoke-RestMethod -Uri "$BaseURL/api/admin/v1/auth/captcha" -Method Get
-if ($captcha.code -ne 0 -or $null -eq $captcha.data) {
-  throw "Captcha request failed: $($captcha | ConvertTo-Json -Depth 8)"
-}
-
-$captchaID = [string]$captcha.data.captcha_id
-$env:REDIS_ADDR = Get-RedisAddr
-$env:REDIS_DB = Get-RedisDB
-$secretJson = go run $secretReader $captchaID
-if ($LASTEXITCODE -ne 0) {
-  throw "Failed to read captcha secret for $captchaID"
-}
-$secret = $secretJson | ConvertFrom-Json
-$captchaAnswer = @{
-  x = [int]$secret.answer.x
-  y = [int]$secret.answer.y
-}
-
 $login = Invoke-RestMethod -Uri "$BaseURL/api/admin/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{
   login_type = 'password'
   login_account = $Account
   password = $Password
-  captcha_id = $captchaID
-  captcha_answer = $captchaAnswer
-} | ConvertTo-Json -Depth 6) -Headers @{
+} | ConvertTo-Json -Depth 4) -Headers @{
   platform = 'admin'
   'device-id' = 'codex-export-smoke'
+  'X-Admin-Client-Variant' = 'desktop'
 }
 
 $token = $login.data.access_token
@@ -134,6 +57,7 @@ if ([string]::IsNullOrWhiteSpace($token)) {
 $headers = @{
   platform = 'admin'
   'device-id' = 'codex-export-smoke'
+  'X-Admin-Client-Variant' = 'desktop'
   Authorization = "Bearer $token"
 }
 

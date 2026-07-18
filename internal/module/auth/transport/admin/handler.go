@@ -127,16 +127,14 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	result, appErr := h.service.Login(c.Request.Context(), authmodule.LoginInput{
-		LoginAccount:  req.LoginAccount,
-		LoginType:     req.LoginType,
-		Password:      req.Password,
-		Code:          req.Code,
-		CaptchaID:     req.CaptchaID,
-		CaptchaAnswer: captchaAnswerFromRequest(req.CaptchaAnswer),
-		Platform:      c.GetHeader("platform"),
-		DeviceID:      c.GetHeader("device-id"),
-		ClientIP:      c.ClientIP(),
-		UserAgent:     c.GetHeader("User-Agent"),
+		LoginAccount: req.LoginAccount,
+		LoginType:    req.LoginType,
+		Password:     req.Password,
+		Code:         req.Code,
+		Platform:     c.GetHeader("platform"),
+		DeviceID:     c.GetHeader("device-id"),
+		ClientIP:     c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
 	})
 	if appErr != nil {
 		response.Error(c, appErr)

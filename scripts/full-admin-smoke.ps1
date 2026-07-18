@@ -2546,7 +2546,6 @@ Assert-PortFree $HTTPAddr
 New-Item -ItemType Directory -Force .tmp | Out-Null
 
 $serverExe = '.tmp/admin-api-full-smoke.exe'
-$secretReader = '.tmp/read-full-smoke-captcha-secret.go'
 $outLog = '.tmp/full-admin-smoke-out.log'
 $errLog = '.tmp/full-admin-smoke-err.log'
 $completed = $false
@@ -2556,7 +2555,7 @@ $authHeaders = $null
 $createdPermissionID = 0
 $operationLogRowID = 0
 
-Remove-Item -Force $serverExe, $secretReader, $outLog, $errLog -ErrorAction SilentlyContinue
+Remove-Item -Force $serverExe, $outLog, $errLog -ErrorAction SilentlyContinue
 
 try {
   $basicSummary = Invoke-BasicSmoke
@@ -2573,72 +2572,15 @@ try {
   $baseURL = "http://$HTTPAddr"
   Wait-Health $baseURL
 
-  $captcha = Invoke-RestMethod "$baseURL/api/admin/v1/auth/captcha" -TimeoutSec 10
-  Assert-ApiOK $captcha 'full smoke captcha'
-
-  @"
-package main
-
-import (
-  "context"
-  "fmt"
-  "os"
-  "strconv"
-
-  "github.com/redis/go-redis/v9"
-)
-
-func main() {
-  if len(os.Args) != 2 {
-    fmt.Fprintln(os.Stderr, "usage: read-full-smoke-captcha-secret <captcha-id>")
-    os.Exit(2)
-  }
-
-  db, err := strconv.Atoi(os.Getenv("REDIS_DB"))
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(2)
-  }
-
-  client := redis.NewClient(&redis.Options{
-    Addr:     os.Getenv("REDIS_ADDR"),
-    Password: os.Getenv("REDIS_PASSWORD"),
-    DB:       db,
-  })
-  defer client.Close()
-
-  prefix := "captcha:slide:"
-
-  value, err := client.Get(context.Background(), prefix+os.Args[1]).Result()
-  if err != nil {
-    fmt.Fprintln(os.Stderr, err)
-    os.Exit(1)
-  }
-
-  fmt.Print(value)
-}
-"@ | Set-Content -LiteralPath $secretReader -Encoding UTF8
-
-  $env:REDIS_ADDR = Get-RedisAddr
-  $env:REDIS_DB = Get-RedisDB
-
-  $secretJson = go run $secretReader $captcha.data.captcha_id
-  $secret = $secretJson | ConvertFrom-Json
-
   $loginBody = @{
     login_account = $Account
     login_type = 'password'
     password = $Password
-    captcha_id = $captcha.data.captcha_id
-    captcha_answer = @{
-      x = [int]$secret.answer.x
-      y = [int]$secret.answer.y
-    }
-  } | ConvertTo-Json -Depth 8
+  } | ConvertTo-Json -Depth 4
 
   $login = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
     -Method Post `
-    -Headers @{ platform = $Platform; 'device-id' = $DeviceID } `
+    -Headers @{ platform = $Platform; 'device-id' = $DeviceID; 'X-Admin-Client-Variant' = 'desktop' } `
     -ContentType 'application/json' `
     -Body $loginBody `
     -TimeoutSec 10
@@ -2651,6 +2593,7 @@ func main() {
   $authHeaders = @{
     platform = $Platform
     'device-id' = $DeviceID
+    'X-Admin-Client-Variant' = 'desktop'
     Authorization = "Bearer $($login.data.access_token)"
   }
 
@@ -3495,7 +3438,7 @@ func main() {
   }
 
   Start-Sleep -Milliseconds 300
-  Remove-Item -Force $serverExe, $secretReader -ErrorAction SilentlyContinue
+  Remove-Item -Force $serverExe -ErrorAction SilentlyContinue
 
   if ($completed) {
     Remove-Item -Force $outLog, $errLog -ErrorAction SilentlyContinue

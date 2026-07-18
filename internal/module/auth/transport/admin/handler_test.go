@@ -246,7 +246,7 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	router := newAuthTestRouter(service)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
 	request.Header.Set("platform", "admin")
@@ -260,10 +260,8 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	if service.loginInput.LoginAccount != "15671628271" ||
 		service.loginInput.LoginType != "password" ||
 		service.loginInput.Password != "123456" ||
-		service.loginInput.CaptchaID != "captcha-id" ||
-		service.loginInput.CaptchaAnswer == nil ||
-		service.loginInput.CaptchaAnswer.X != 120 ||
-		service.loginInput.CaptchaAnswer.Y != 80 ||
+		service.loginInput.CaptchaID != "" ||
+		service.loginInput.CaptchaAnswer != nil ||
 		service.loginInput.Platform != "admin" ||
 		service.loginInput.DeviceID != "device-1" ||
 		service.loginInput.UserAgent != "test-agent" {
@@ -307,7 +305,7 @@ func TestHandlerLoginRejectsInvalidEnumInputBeforeService(t *testing.T) {
 	router := newAuthTestRouter(service)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"wechat","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"wechat","password":"123456"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
 	router.ServeHTTP(recorder, request)

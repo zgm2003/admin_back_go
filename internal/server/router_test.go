@@ -2018,7 +2018,7 @@ func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 	}
 
 	loginRecorder := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456","captcha_id":"captcha-id","captcha_answer":{"x":120,"y":80}}`))
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("platform", "admin")
 	loginRequest.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))

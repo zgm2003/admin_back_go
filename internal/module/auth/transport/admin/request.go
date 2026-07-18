@@ -1,12 +1,10 @@
 package admin
 
 type LoginRequest struct {
-	LoginAccount  string                `json:"login_account" binding:"required,max=100"`
-	LoginType     string                `json:"login_type" binding:"required,auth_platform_login_type"`
-	Password      string                `json:"password" binding:"omitempty,max=128"`
-	Code          string                `json:"code" binding:"omitempty,len=6,numeric"`
-	CaptchaID     string                `json:"captcha_id" binding:"omitempty,max=80"`
-	CaptchaAnswer *captchaAnswerRequest `json:"captcha_answer"`
+	LoginAccount string `json:"login_account" binding:"required,max=100"`
+	LoginType    string `json:"login_type" binding:"required,auth_platform_login_type"`
+	Password     string `json:"password" binding:"omitempty,max=128"`
+	Code         string `json:"code" binding:"omitempty,len=6,numeric"`
 }
 
 type SendCodeRequest struct {

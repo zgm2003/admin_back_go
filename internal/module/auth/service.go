@@ -383,7 +383,7 @@ func (s *Service) loginByPassword(ctx context.Context, input LoginInput) (*UserC
 }
 
 func passwordLoginRequiresCaptcha(platform string) bool {
-	return strings.TrimSpace(platform) != ""
+	return strings.TrimSpace(platform) != enum.PlatformAdmin
 }
 
 func (s *Service) loginByCode(ctx context.Context, input LoginInput) (*UserCredential, bool, *apperror.Error) {
