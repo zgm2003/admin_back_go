@@ -4,17 +4,17 @@
 
 **Goal:** Remove App/Canvas product-platform code and schema, retain independently tested generic capabilities, execute guarded destructive DDL, and produce one synchronized, immutable, rollback-ready Admin release.
 
-**Architecture:** Product transports and workflow terminology are deleted before database contract DDL. Generic AI/provider/storage capabilities survive only behind transport-neutral interfaces and direct tests. A final cross-repository proof locks the backend image, frontend web/Tauri artifacts, Admin Contract Bundle, database fingerprint, query evidence, and runbooks to one generated release manifest.
+**Architecture:** Product transports and workflow terminology are deleted before database contract DDL. Generic AI/provider/storage capabilities survive only behind transport-neutral interfaces and direct tests. A final two-repository proof locks backend/frontend Docker image digests, the user-promoted P08.5 Windows candidate, Admin Contract Bundle, database fingerprint, query evidence, and runbooks to one generated release manifest.
 
-**Tech Stack:** Go, MySQL 8.4, Atlas 0.38.0, Vue/TypeScript, Playwright, Tauri/Rust, Docker, GitHub Actions, PowerShell 7.
+**Tech Stack:** Go, MySQL 8.4, Atlas 0.38.0, Vue/TypeScript, Tauri/Rust, Docker Compose, PowerShell 7.
 
 ---
 
 ## Destructive-stage prerequisites
 
-P09 stops before DDL unless P01–P08 are committed, both worktrees are clean, every program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, and the frontend contract lock matches the backend bundle manifest.
+P09 stops before DDL unless P01-P08.5 are committed, both primary checkout working directories are clean, no Git worktree registration/directory exists, every program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, and the frontend contract lock matches the backend bundle manifest.
 
-The separate `E:/admin/canvas_front_next` repository remains untouched. Task 1 records its commit and status digest; Task 9 proves both are unchanged.
+P09 reads and writes only `E:/admin/admin_back_go` and `E:/admin/admin_front_ts`. It does not inspect, lock, or modify any third repository. Immediately before destructive DDL it must stop for fresh explicit user approval.
 
 ## File map
 
@@ -44,13 +44,12 @@ The separate `E:/admin/canvas_front_next` repository remains untouched. Task 1 r
 ```text
 backend_commit
 frontend_commit
-canvas_front_next_commit
-canvas_front_next_status_sha256
 contract_manifest_sha256
 database_fingerprint_sha256
 recovery_artifact_sha256
 cos_evidence_sha256
 query_evidence_sha256
+tauri_candidate_manifest_sha256
 ```
 
 `lock-inputs.ps1` uses an ordered object populated only from verified commands and artifacts:
@@ -60,17 +59,16 @@ $lock = [ordered]@{
   schema_version = 1
   backend_commit = Assert-GitSha (git -C $BackendRoot rev-parse HEAD)
   frontend_commit = Assert-GitSha (git -C $FrontendRoot rev-parse HEAD)
-  canvas_front_next_commit = Assert-GitSha (git -C $CanvasRoot rev-parse HEAD)
-  canvas_front_next_status_sha256 = Get-TextSha256 (git -C $CanvasRoot status --porcelain=v1 -z)
   contract_manifest_sha256 = Get-FileSha256 "$BackendRoot/contracts/admin/v1/manifest.json"
   database_fingerprint_sha256 = Get-EvidenceDigest $DatabaseFingerprint
   recovery_artifact_sha256 = Get-EvidenceDigest $RecoveryArtifact
   cos_evidence_sha256 = Get-EvidenceDigest $CosEvidence
   query_evidence_sha256 = Get-EvidenceDigest $QueryEvidence
+  tauri_candidate_manifest_sha256 = Get-EvidenceDigest $TauriCandidateManifest
 }
 ```
 
-It requires a clean frontend worktree. In the backend it permits only the exact Task 1 untracked/modified paths declared above, so the lock can be generated before their single commit; any runtime, contract, migration, or unrelated change fails. It also rejects paths outside the three declared repositories, missing evidence, a recovery artifact that has not passed restore verification, or any command that would print a DSN/token. It writes JSON through a temporary file and atomic rename. `check-inputs.ps1` validates the schema and recomputes every evidence digest without printing artifact content. Its final `-CheckOnly` mode treats backend/frontend commits as the intentionally frozen pre-contract inputs and checks only ancestry plus evidence and untouched-Canvas equality, not equality with the later P09 HEAD commits.
+It requires a clean frontend primary checkout. In the backend it permits only the exact Task 1 untracked/modified paths declared above, so the lock can be generated before their single commit; any runtime, contract, migration, or unrelated change fails. It rejects any registered secondary Git worktree, any path outside the two declared repositories, missing evidence, an unpromoted/mismatched Tauri candidate, a recovery artifact that has not passed restore verification, or any command that would print a DSN/token. It writes JSON through a temporary file and atomic rename. `check-inputs.ps1` validates the schema and recomputes every evidence digest without printing artifact content. Its final `-CheckOnly` mode treats backend/frontend commits as the intentionally frozen pre-contract inputs and checks ancestry plus evidence, not equality with later P09 HEAD commits.
 
 - [ ] **Step 2: Encode every legacy disposition**
 
@@ -632,20 +630,30 @@ Expected: frontend lock commit/digest equals backend manifest, all generated fil
 - Create: `release/admin-only/release-manifest.schema.json`
 - Create: `scripts/release/new-release-manifest.ps1`
 - Create: `scripts/release/check-release-manifest.ps1`
+- Create: `scripts/release/export-docker-images.ps1`
 - Create: `scripts/release/deploy-admin-only.ps1`
 - Create: `scripts/release/rollback-admin-only.ps1`
 - Create: `deploy/admin-only/docker-compose.yml`
-- Create: `.github/workflows/release-admin.yml`
 - Create: `internal/architecture/admin_release_test.go`
 
 **Frontend files:**
-- Modify: `.github/workflows/deploy-admin-front.yml`
-- Modify: `.github/workflows/release-tauri.yml`
-- Create: `scripts/deploy/switch-versioned-web.sh`
-- Create: `scripts/deploy/rollback-versioned-web.sh`
 - Create: `tests/shared/deployment/admin-release.test.ts`
 
-- [ ] **Step 1: Define one non-circular release manifest**
+- [ ] **Step 1: Write failing Docker-release boundary tests**
+
+Backend tests require a strict release schema, revision-labelled frontend/backend image digests, image-archive SHA-256 values, the exact Admin Contract Bundle digest, database/recovery evidence, and the already user-promoted P08.5 Windows candidate digest. Frontend tests reject every Web/backend deployment Workflow or versioned-web shell switch and allow only `.github/workflows/release-tauri.yml` from P08.5.
+
+```powershell
+cd E:/admin/admin_back_go
+go test ./internal/architecture -run TestAdminRelease -count=1
+
+cd E:/admin/admin_front_ts
+npm test -- tests/shared/deployment/admin-release.test.ts
+```
+
+Expected: FAIL because release schema/scripts/tests do not exist.
+
+- [ ] **Step 2: Define one non-circular release manifest**
 
 The generated manifest is never committed. Its tracked schema contains concrete validation rules rather than a value template:
 
@@ -663,16 +671,16 @@ The generated manifest is never committed. Its tracked schema contains concrete 
     "schema_version": {"const": 1},
     "release_id": {"type": "string", "pattern": "^admin-v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[1-9][0-9]*$"},
     "backend": {
-      "type": "object", "additionalProperties": false, "required": ["commit", "image"],
-      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "image": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"}}
+      "type": "object", "additionalProperties": false, "required": ["commit", "image", "archive_sha256"],
+      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "image": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"}, "archive_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "frontend": {
-      "type": "object", "additionalProperties": false, "required": ["commit", "web_sha256"],
-      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "web_sha256": {"$ref": "#/$defs/sha256"}}
+      "type": "object", "additionalProperties": false, "required": ["commit", "image", "archive_sha256"],
+      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "image": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"}, "archive_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "tauri": {
-      "type": "object", "additionalProperties": false, "required": ["commit", "updater_manifest_sha256"],
-      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "updater_manifest_sha256": {"$ref": "#/$defs/sha256"}}
+      "type": "object", "additionalProperties": false, "required": ["commit", "version", "tag", "candidate_manifest_sha256", "updater_manifest_sha256"],
+      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "tag": {"type": "string", "pattern": "^tauri-v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "candidate_manifest_sha256": {"$ref": "#/$defs/sha256"}, "updater_manifest_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "contract": {
       "type": "object", "additionalProperties": false, "required": ["bundle_version", "manifest_sha256"],
@@ -692,37 +700,37 @@ The generated manifest is never committed. Its tracked schema contains concrete 
 
 `new-release-manifest.ps1` reads artifact metadata and input lock, verifies clean tagged commits, and writes `release/admin-only/out/release-manifest.json` atomically.
 
-- [ ] **Step 2: Make workflows consume verified artifacts only**
+- [ ] **Step 3: Export verified Docker images without a deployment Workflow**
 
-`release-admin.yml` runs only for protected `admin-v*` tags. It downloads the backend OCI archive from the passing backend verification run for the same commit, verifies its SHA, loads/pushes without rebuilding, and records the registry digest. It downloads the web artifact and signed Tauri metadata produced by passing frontend workflows for the exact frontend commit and contract lock. Action references remain SHA-pinned. No deploy job checks out/builds source or runs `npm run build`, `go build`, `cargo build`, or `tauri build`.
+`export-docker-images.ps1` first verifies both primary checkout directories are clean and at the input-lock commits. It delegates builds only to the repository Docker tooling, verifies each image revision label equals its owning commit, records immutable image digests, exports the two images to ignored `release/admin-only/out/images/`, computes archive SHA-256 values, and reruns `docker image inspect` after a clean load test. It never builds or deploys through GitHub Actions.
 
-The frontend workflows expose immutable artifact metadata and accept a release ID/manifest digest; deployment cannot default to the head of `master`.
+The P08.5 Tauri Workflow remains separate. Task 8 only reads the promoted updater manifest and candidate metadata from COS and verifies their version/tag/commit/digests; it cannot rebuild, upload, or promote Tauri.
 
-- [ ] **Step 3: Implement versioned deployment and rollback**
+- [ ] **Step 4: Implement Compose deployment and rollback**
 
-`deploy-admin-only.ps1` validates the manifest, remote host key, configured release roots, current database fingerprint, and recovery proof. It stages the web tarball in a release-ID directory, pulls the backend by digest, runs Task 6 migration groups under the database lock, starts a candidate backend, waits for readiness, runs Admin smoke, then atomically switches the backend service and web `current` symlink. It records the previous manifest and never deletes the previous release.
+`deploy-admin-only.ps1` validates the manifest, image archives/digests/revision labels, current database fingerprint, recovery proof, and explicit maintenance inputs. It loads the verified images, runs Task 6 migration groups under the database lock, starts a candidate Compose project by immutable digest, waits for health/readiness, runs Admin HTTP/realtime smoke, then promotes the Compose project. It records the previous manifest/project and never deletes the previous image archives or state volumes.
 
-`rollback-admin-only.ps1` verifies the previous manifest/digests, switches web/backend back, and runs smoke. If the operator selects full database rollback, it requires the locked recovery artifact, a maintenance window flag, and successful restore rehearsal evidence; it never invents reverse DDL for deleted rows.
+`rollback-admin-only.ps1` verifies the previous manifest/archive digests, loads the previous frontend/backend images, restores the previous Compose project, and reruns health/readiness/Admin smoke. If the operator selects full database rollback, it requires the locked recovery artifact, a maintenance-window flag, and successful restore rehearsal evidence; it never invents reverse DDL for deleted rows. Tauri clients are not downgraded; a bad desktop release is repaired by a higher signed SemVer through P08.5.
 
-- [ ] **Step 4: Test and commit backend release machinery**
+- [ ] **Step 5: Test and commit backend release machinery**
 
 ```powershell
 cd E:/admin/admin_back_go
 go test ./internal/architecture -run TestAdminRelease -count=1
 pwsh -NoProfile -File scripts/release/check-release-manifest.ps1 -SchemaOnly
-git add -- release/admin-only/release-manifest.schema.json scripts/release/new-release-manifest.ps1 scripts/release/check-release-manifest.ps1 scripts/release/deploy-admin-only.ps1 scripts/release/rollback-admin-only.ps1 deploy/admin-only/docker-compose.yml .github/workflows/release-admin.yml internal/architecture/admin_release_test.go
+git add -- release/admin-only/release-manifest.schema.json scripts/release/new-release-manifest.ps1 scripts/release/check-release-manifest.ps1 scripts/release/export-docker-images.ps1 scripts/release/deploy-admin-only.ps1 scripts/release/rollback-admin-only.ps1 deploy/admin-only/docker-compose.yml internal/architecture/admin_release_test.go
 git diff --cached --check
-git commit -m "ci(release): deploy synchronized immutable admin artifacts"
+git commit -m "build(release): deploy immutable Docker artifacts"
 ```
 
-- [ ] **Step 5: Test and commit frontend release machinery**
+- [ ] **Step 6: Test and commit the frontend deployment boundary**
 
 ```powershell
 cd E:/admin/admin_front_ts
 npm test -- tests/shared/deployment/admin-release.test.ts
-git add -- .github/workflows/deploy-admin-front.yml .github/workflows/release-tauri.yml scripts/deploy/switch-versioned-web.sh scripts/deploy/rollback-versioned-web.sh tests/shared/deployment/admin-release.test.ts
+git add -- tests/shared/deployment/admin-release.test.ts
 git diff --cached --check
-git commit -m "ci(release): expose immutable admin frontend artifacts"
+git commit -m "test(release): enforce Docker-only frontend delivery"
 ```
 
 ### Task 9: Rehearse rollback and produce the cross-repository release proof
@@ -752,14 +760,14 @@ database restore/reconciliation/contract/repeat/drift/invariants/query-plan gate
 runtime/identity/durable-work/realtime multi-node and termination gates
 Admin Contract Bundle generation/check and frontend lock check
 frontend lint/typecheck/unit/component/integration/build/budget gates
-Playwright desktop/mobile/accessibility/performance smoke
-Rust fmt/Clippy/test/audit/Tauri signed-artifact gate from protected CI
+P07 Docker health/revision/authenticated HTTP/realtime smoke and user acceptance evidence
+Rust fmt/Clippy/test/audit plus P08.5 signed Windows candidate/import evidence
 secret/dump/sensitive-log scan
 Admin-only source/generated/schema scan
-canvas_front_next commit and status-digest equality check
+primary-checkout/no-worktree/no-Web-deployment-Workflow checks
 ```
 
-It writes only hashes, counts, timings, workflow URLs/IDs, and pass/fail status to `release/admin-only/out/proof.json`; it never copies live rows, prompts, credentials, dumps, certificates, or object content.
+It writes only hashes, counts, timings, Docker image identifiers, the Tauri candidate job URL/ID, and pass/fail status to `release/admin-only/out/proof.json`; it never copies live rows, prompts, credentials, dumps, certificates, or object content.
 
 - [ ] **Step 3: Rehearse deploy and both rollback modes**
 
@@ -767,8 +775,8 @@ On an isolated environment restored from the locked recovery artifact:
 
 1. deploy the release manifest through all three migration groups;
 2. kill API and Worker during durable AI work and prove recovery/cancel;
-3. run full Admin browser/API/realtime smoke;
-4. switch to the previous web/backend artifacts and prove application rollback;
+3. run full Admin Docker HTTP/realtime smoke and present the manual UI checklist for user confirmation;
+4. switch to the previous frontend/backend Docker images and prove application rollback;
 5. enter maintenance mode, restore the recovery artifact, verify the original fingerprint, and prove full database rollback;
 6. redeploy the candidate and prove repeatability.
 
@@ -795,4 +803,4 @@ git -C E:/admin/admin_back_go status --short
 git -C E:/admin/admin_front_ts status --short
 ```
 
-Expected: both status commands produce no output; all nine plan gates pass; imported, empty, and post-contract databases share the committed fingerprint; immutable artifacts match the manifest; rollback rehearsal passes; `E:/admin/canvas_front_next` is unchanged. Only then may the protected production release workflow apply the live contract migration and promote the artifacts.
+Expected: both status commands produce no output; all nine plan gates pass; imported, empty, and post-contract databases share the committed fingerprint; immutable Docker/Tauri artifacts match the manifest; rollback rehearsal passes; no secondary worktree or Web/backend deployment Workflow exists. Only after a fresh explicit user approval may the operator run the live contract migration and Compose promotion commands.

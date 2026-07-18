@@ -1,5 +1,7 @@
 # Admin Go Runtime and Contracts Implementation Plan
 
+> **Superseded delivery note (2026-07-18):** This completed plan's backend Workflow edits are historical evidence and must not be replayed. Web/backend verification and delivery now use repository scripts plus Docker Compose. The only allowed future Workflow is the P08.5 Windows Tauri candidate release defined by the execution index.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace the oversized bootstrap with fail-fast API/Worker runtimes, deepen the Error and telemetry modules, establish one route-policy registry, and publish a deterministic Admin Contract Bundle.

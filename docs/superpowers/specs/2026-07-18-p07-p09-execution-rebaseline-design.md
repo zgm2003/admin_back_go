@@ -1,8 +1,8 @@
 # P07-P09 执行重基线设计
 
-**日期：** 2026-07-18  
-**状态：** 待用户书面审阅  
-**范围：** P07、P08、新增 P08.5、P09 的计划边界和执行规则  
+**日期：** 2026-07-18
+**状态：** 用户已于 2026-07-18 确认
+**范围：** P07、P08、新增 P08.5、P09 的计划边界和执行规则
 
 ## 1. 背景
 
@@ -167,13 +167,13 @@ P06 人工验收发现的问题优先作为 P06 缺陷修复，不得混入 P07�
 
 Workflow 按以下顺序发布：
 
-1. 构建并签名 NSIS/updater artifact；
-2. 计算 SHA-256、文件大小和 immutable object key；
+1. 构建 NSIS `.exe` 安装器以及签名后的 `.nsis.zip` updater bundle；
+2. 分别计算 SHA-256、文件大小和 immutable object key；
 3. 上传到版本化候选目录；
 4. 下载回读并核对大小和 SHA-256；
 5. 最后上传候选 manifest。
 
-候选 manifest 至少包含 schema version、SemVer、platform、Git commit、tag、artifact object key、public URL、Tauri signature、SHA-256、file size 和创建时间。失败时不得写正式 updater JSON。
+候选 manifest 至少包含 schema version、SemVer、platform、Git commit、tag、安装器 object key/URL/SHA-256/file size、updater object key/URL/signature/SHA-256/file size 和创建时间。后端版本记录使用 updater bundle，不得把原始 `.exe` 冒充 updater artifact。失败时不得写正式 updater JSON。
 
 ### 7.4 后台导入与人工晋级
 

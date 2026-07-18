@@ -1,5 +1,7 @@
 # Admin Database Evolution Implementation Plan
 
+> **Superseded delivery note (2026-07-18):** This completed plan's `.github` and GitHub Actions steps are historical evidence and must not be replayed. Database verification remains repository-owned and Docker-orchestrated. The only allowed future Workflow is the P08.5 Windows Tauri candidate release defined by the execution index.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Reconcile the imported MySQL database to a checksummed Admin target without losing recoverability, while proving data invariants, object reachability, query plans, repeatability, and empty/imported-schema convergence.

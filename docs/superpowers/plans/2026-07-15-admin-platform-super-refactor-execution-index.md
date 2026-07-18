@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Coordinate the ten independently testable implementation plans that turn the imported system into one deployable Admin platform and leave a clean seam for the next SaaS design.
+**Goal:** Coordinate the independently testable P01-P09 phases, including P03.5 and P08.5, that turn the imported system into one deployable Admin platform and leave a clean seam for the next SaaS design.
 
-**Architecture:** Foundation and database work are serialized. All later backend and frontend plans also execute serially in the two existing `master` checkouts; worktrees and GitHub workflow deployment are retired. The final plan is the only plan allowed to execute destructive contract DDL or declare App/Canvas retirement complete.
+**Architecture:** Foundation and database work are serialized. All later backend and frontend plans execute serially in the two existing `master` checkouts; Git worktrees and Web/backend GitHub deployment are retired. The sole allowed GitHub Workflow builds, signs, and uploads a Windows Tauri candidate; it never deploys Web/backend or promotes latest. P09 is the only plan allowed to execute destructive contract DDL or declare App/Canvas retirement complete.
 
-**Tech Stack:** Go 1.26.5, Gin, GORM, MySQL 8.4, Redis, Asynq, Atlas 0.38.0, Vue 3.5, TypeScript 5.9, Vite 8, Vitest 4, Playwright, Tauri 2, Rust.
+**Tech Stack:** Go 1.26.5, Gin, GORM, MySQL 8.4, Redis, Asynq, Atlas 0.38.0, Vue 3.5, TypeScript 5.9, Vite 8, Vitest 4, Tauri 2, Rust, Windows NSIS, Docker Compose, PowerShell 7.
 
 ---
 
@@ -16,6 +16,7 @@
 - `../specs/2026-07-15-admin-foundation-database-design.md`
 - `../specs/2026-07-15-admin-go-architecture-design.md`
 - `../specs/2026-07-17-admin-docker-stability-closure-design.md`
+- `../specs/2026-07-18-p07-p09-execution-rebaseline-design.md`
 - `E:/admin/admin_front_ts/docs/superpowers/specs/2026-07-15-admin-frontend-super-refactor-design.md`
 - `../../../CONTEXT.md`
 
@@ -32,9 +33,10 @@ The implementation plans may refine mechanics, but they may not change the appro
 | P04 | `2026-07-15-admin-go-identity-routing-plan.md` | backend | P03.5 | atomic Session Lifecycle, secure browser/desktop auth transport, RBAC principal versions, complete route policy |
 | P05 | `2026-07-15-admin-go-durable-work-realtime-plan.md` | backend | P02, P03.5 | durable AI reply command, TaskRegistry, scheduler reconciliation, realtime cursor/recovery |
 | P06 | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-kernel-plan.md` | frontend | P03 contract bundle, P04 auth contract | AppKernel, AuthSession, ApiClient, route registry, typed persistence |
-| P07 | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P05 realtime contract, P06; Tasks 6–10 wait for P08 | RealtimeClient, ResourceQuery, table/page migration, executable behavior tests, budgets |
-| P08 | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-tauri-security-plan.md` | frontend | P04 desktop auth contract, P06, P07 Tasks 1–5 | local packaged UI, narrow NativeBridge, safe downloads/credentials/updater, Rust gates |
-| P09 | `2026-07-15-admin-only-release-plan.md` | both | P02 verify, P03.5, P04–P08 | App/Canvas code/schema contract, synchronized release proof, runbooks and rollback |
+| P07 | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P05 realtime contract, P06; Tasks 6-10 wait for P08 | RealtimeClient, ResourceQuery, table/page migration, behavior tests, Docker smoke, user acceptance checklist, budgets |
+| P08 | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-tauri-security-plan.md` | frontend | P04 desktop auth contract, P06, P07 Tasks 1-5 | Windows local packaged UI, narrow NativeBridge, safe downloads/credentials/updater, Rust gates |
+| P08.5 | `2026-07-18-admin-tauri-windows-release-plan.md` | backend + frontend | P07, P08 | tag-triggered signed Windows candidate, immutable COS upload, Admin import, user-controlled promotion |
+| P09 | `2026-07-15-admin-only-release-plan.md` | backend + frontend | P02 verify, P03.5, P04-P08.5 | App/Canvas code/schema contract, Docker release proof, runbooks and rollback |
 
 ## Dependency graph
 
@@ -49,12 +51,13 @@ P01 Foundation
                     └─→ P07 Tasks 1–5 realtime/resource ← P05
                            └─→ P08 Tauri security ← P04
                                   └─→ P07 Tasks 6–10 quality/budgets
+                                         └─→ P08.5 Windows Tauri candidate release
 
-P02 verified + P03.5 + P04 + P05 + P06 + P07 + P08
+P02 verified + P03.5 + P04 + P05 + P06 + P07 + P08 + P08.5
                            └─→ P09 Admin-only contract/release
 ```
 
-P04 and P05 were completed serially on backend `master`. All remaining plans continue serially: in the frontend lane, execute P07 Tasks 1–5, then all of P08, then P07 Tasks 6–10. This barrier prevents page decomposition/lazy-import tasks from racing NativeBridge, DownloadManager, Tauri adapter, or Docker packaging changes.
+P04 and P05 were completed serially on backend `master`. All remaining plans continue serially: accept P06 manually, execute P07 Tasks 1–5, execute all of P08, finish P07 Tasks 6–10, then execute cross-repository P08.5 before P09. This barrier prevents page decomposition/lazy-import work from racing NativeBridge, DownloadManager, Tauri packaging, candidate import, or COS publication changes.
 
 ## Global execution protocol
 
@@ -73,13 +76,13 @@ git status --short
 
 Expected: one commit ID per repository and no status output.
 
-- [ ] **Step 3: Execute one plan task with a fresh implementation subagent**
+- [ ] **Step 3: Execute one plan task inline unless the user requests delegation**
 
-Give the subagent the exact plan task, approved spec links, repository path, allowed files, and verification command. The subagent must use TDD, stage only declared files, and create the task's named commit.
+Give the active executor the exact plan task, approved spec links, repository path, allowed files, and verification command. Use TDD, stage only declared files, and create the task's named commit. Do not create a subagent or parallel edit unless the user explicitly requests delegation.
 
 - [ ] **Step 4: Run two reviews before accepting the task**
 
-The first fresh reviewer checks only spec/plan compliance. The second fresh reviewer checks code quality, test quality, concurrency, failure behavior, and secret handling. The root agent resolves all findings and reruns the task verification.
+Perform two explicit review passes. The first checks only spec/plan compliance. The second checks code quality, test quality, concurrency, failure behavior, and secret handling. Resolve all findings and rerun task verification. A separate reviewer is used only when the user explicitly requests delegation.
 
 - [ ] **Step 5: Update plan checkboxes only after verification**
 
@@ -100,6 +103,8 @@ Only one active agent may own each row:
 | `src/app` and `src/modules/auth` | P06 |
 | `package.json` / lockfile | one frontend dependency task at a time |
 | Docker verification and Compose delivery files | current Docker delivery task only |
+| `.github/workflows/release-tauri.yml`, Tauri version files, signing inputs | P08.5 frontend release task only |
+| COS `tauri_candidates/` and live `tauri_updater/` keys | P08.5 candidate owner; live pointer changes only after user promotion |
 
 Database tasks are never parallelized against the same schema. Read-only `SELECT`/`SHOW`/`EXPLAIN` checks may run concurrently only after the database owner records the current fingerprint.
 
@@ -126,7 +131,7 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, or an unreviewed 
 - [x] **Gate C.5:** P03.5 proves dynamic API discovery, bounded state-late startup with zero restart loops, correct image revisions, and zero-exit Docker SIGTERM; final restoration preserves all state volumes.
 - [x] **Gate D:** P04 proves one-winner refresh, route-policy completeness, and secure browser/desktop auth transport.
 - [x] **Gate E:** P05 proves AI reply survival across process termination, scheduler lease safety, and realtime recovery.
-- [ ] **Gate F:** P06–P08 pass frontend unit/component/integration/browser/Rust gates and produce verified revision-labelled Docker images.
+- [ ] **Gate F:** P06-P08 pass frontend unit/component/integration, Docker runtime, manual acceptance, and Rust/Tauri gates; P08.5 produces a verified signed Windows candidate without automatic promotion.
 - [ ] **Gate G:** P09 removes retired platform code/schema and passes the complete cross-repository release proof.
 
 No later gate waives an earlier one. P09 must stop before destructive DDL if any invariant, COS reachability check, recovery restore, or rollback rehearsal fails.
@@ -159,7 +164,7 @@ No later gate waives an earlier one. P09 must stop before destructive DDL if any
 ## Gate F P06 evidence (2026-07-18)
 
 - P06 executed directly on frontend `master` by explicit operator instruction. Frontend and backend have one registered primary checkout each; `.worktrees` and `.github` are absent from both repositories.
-- Frontend AppKernel/AuthSession/ApiClient/routes/persistence integration is committed through `c4247cd`; Docker-only frontend delivery is implemented by `84868a6`, and backend Compose-only deployment is implemented by `a4089d4`.
-- The clean-checkout frontend verifier passed contract generation, route generation, lint baseline, typecheck, and 450 tests. Coverage was 87.94% statements and 81.72% branches.
-- The revision-labelled frontend image passed non-root, healthcheck, and exposed-port inspection. The Compose lifecycle rebuilt both application images and restored five healthy containers; `/healthz`, `/health`, and `/ready` all passed.
-- Gate F remains unchecked until P07 browser/performance gates and P08 Rust/Tauri gates also pass.
+- Frontend AppKernel/AuthSession/ApiClient/routes/persistence integration and the route-install/menu-persistence login regression fix are committed through `ca8e500`; Docker-only frontend delivery is implemented by `84868a6`. Backend Compose-only deployment plus the Admin password-login contract fix are committed through `fed96e8`.
+- The frontend verifier passed contract generation, route generation, lint baseline with 0 errors/81 warnings, typecheck/production build, and 460 tests across 134 files. P07 still owns removal of the warning baseline.
+- The revision-labelled frontend/backend images matched `ca8e500`/`fed96e8`. The Compose lifecycle rebuilt both application images and restored five healthy containers; `/healthz`, `/health`, and `/ready` all passed.
+- Gate F remains unchecked until the user accepts P06, P07 Docker/manual gates pass, P08 Windows Rust/Tauri gates pass, and P08.5 proves tag-to-COS candidate import with no automatic latest/force-update mutation.
