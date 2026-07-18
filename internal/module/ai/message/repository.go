@@ -19,11 +19,11 @@ type GormRepository struct {
 	replies replycommand.Repository
 }
 
-func NewGormRepository(client *database.Client) *GormRepository {
+func NewGormRepository(client *database.Client, replyOptions ...replycommand.RepositoryOption) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm, replies: replycommand.NewGormRepository(client)}
+	return &GormRepository{db: client.Gorm, replies: replycommand.NewGormRepository(client, replyOptions...)}
 }
 
 func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {

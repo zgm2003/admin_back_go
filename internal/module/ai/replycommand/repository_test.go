@@ -43,7 +43,18 @@ func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 	}
 	assertReplyRows(t, db, fixture.conversationID, "message-insert-failure", "message must roll back", 0, 0)
 
-	tooLongRequestID := strings.Repeat("r", 65)
+	maxRequestID := strings.Repeat("界", 128)
+	if _, err := repository.CreateReply(ctx, CreateReplyInput{
+		ConversationID: fixture.conversationID,
+		UserID:         fixture.userID,
+		RequestID:      maxRequestID,
+		Content:        "128 character request ID",
+	}); err != nil {
+		t.Fatalf("128-character request_id was rejected: %v", err)
+	}
+	assertReplyRows(t, db, fixture.conversationID, maxRequestID, "128 character request ID", 1, 1)
+
+	tooLongRequestID := strings.Repeat("界", 129)
 	_, err = repository.CreateReply(ctx, CreateReplyInput{
 		ConversationID: fixture.conversationID,
 		UserID:         fixture.userID,
@@ -142,6 +153,7 @@ func createReplyFixture(t *testing.T, db *database.Client) replyFixture {
 	agentID := insert("INSERT INTO ai_agents (provider_id, name, scenes_json, status, is_del) VALUES (0, ?, JSON_ARRAY('chat'), 1, 2)", "p05-reply-"+suffix)
 	conversationID := insert("INSERT INTO ai_conversations (user_id, agent_id, title, is_del) VALUES (?, ?, '', 2)", userID, agentID)
 	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, "DELETE FROM realtime_events WHERE target_type = 'user' AND target_id = ?", fmt.Sprint(userID))
 		_, _ = db.SQL.ExecContext(ctx, "DELETE FROM ai_provider_attempts WHERE command_id IN (SELECT id FROM ai_reply_commands WHERE conversation_id = ?)", conversationID)
 		_, _ = db.SQL.ExecContext(ctx, "DELETE FROM ai_reply_commands WHERE conversation_id = ?", conversationID)
 		_, _ = db.SQL.ExecContext(ctx, "DELETE FROM ai_messages WHERE conversation_id = ?", conversationID)

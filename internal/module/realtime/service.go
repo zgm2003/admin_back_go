@@ -1,7 +1,8 @@
 package realtime
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,31 +11,45 @@ import (
 	"admin_back_go/internal/middleware"
 )
 
-const (
-	TypeConnectedV1  = "realtime.connected.v1"
-	TypePingV1       = "realtime.ping.v1"
-	TypePongV1       = "realtime.pong.v1"
-	TypeSubscribeV1  = "realtime.subscribe.v1"
-	TypeSubscribedV1 = "realtime.subscribed.v1"
-	TypeErrorV1      = "realtime.error.v1"
-)
-
-// Service owns the minimal realtime envelope policy. It does not know Gin or
-// the concrete WebSocket library.
+// Service owns the realtime event registry and authenticated client-control
+// policy. It does not know Gin or the concrete WebSocket library.
 type Service struct {
 	heartbeatInterval time.Duration
 	now               func() time.Time
+	registry          *EventRegistry
+	events            EventReader
+}
+
+var ErrEventReaderNotConfigured = errors.New("realtime event reader is not configured")
+
+type EventReader interface {
+	ResumeUser(context.Context, ResumeQuery) (*ResumeResult, error)
+}
+
+type ServiceOption func(*Service)
+
+func WithEventReader(reader EventReader) ServiceOption {
+	return func(service *Service) {
+		service.events = reader
+	}
 }
 
 // NewService creates the realtime service.
-func NewService(heartbeatInterval time.Duration) *Service {
+func NewService(heartbeatInterval time.Duration, options ...ServiceOption) *Service {
 	if heartbeatInterval <= 0 {
 		heartbeatInterval = 25 * time.Second
 	}
-	return &Service{
+	service := &Service{
 		heartbeatInterval: heartbeatInterval,
 		now:               time.Now,
+		registry:          DefaultRegistry(),
 	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 // HeartbeatInterval returns the server heartbeat interval advertised to clients.
@@ -46,7 +61,7 @@ func (s *Service) HeartbeatInterval() time.Duration {
 }
 
 // SessionKey builds the in-process connection key for one authenticated admin
-// session. It is local state only; distributed fan-out will use Redis later.
+// session.
 func (s *Service) SessionKey(identity *middleware.AuthIdentity) string {
 	if identity == nil {
 		return ""
@@ -56,79 +71,111 @@ func (s *Service) SessionKey(identity *middleware.AuthIdentity) string {
 
 // ConnectedEnvelope builds the initial authenticated connection event.
 func (s *Service) ConnectedEnvelope(identity *middleware.AuthIdentity, requestID string) (infrarealtime.Envelope, error) {
-	data := map[string]any{
-		"user_id":               identity.UserID,
-		"platform":              identity.Platform,
-		"heartbeat_interval_ms": s.HeartbeatInterval().Milliseconds(),
+	if !validIdentity(identity) {
+		return infrarealtime.Envelope{}, fmt.Errorf("invalid realtime identity")
 	}
-	return infrarealtime.NewEnvelope(TypeConnectedV1, requestID, data)
+	return s.eventRegistry().NewEphemeral(TypeConnectedV1, requestID, ConnectedPayload{
+		UserID: identity.UserID, Platform: identity.Platform, HeartbeatIntervalMS: s.HeartbeatInterval().Milliseconds(),
+	}, s.currentTime())
 }
 
-// HandleClientEnvelope handles one client envelope and returns an optional
-// server reply.
-func (s *Service) HandleClientEnvelope(identity *middleware.AuthIdentity, envelope infrarealtime.Envelope) (*infrarealtime.Envelope, error) {
+// HandleClientEnvelope validates one closed client event and returns zero or
+// more ordered replies. Subscription controls mutate only this session.
+func (s *Service) HandleClientEnvelope(ctx context.Context, identity *middleware.AuthIdentity, session *infrarealtime.Session, envelope infrarealtime.Envelope) ([]infrarealtime.Envelope, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	definition, ok := s.eventRegistry().Definition(envelope.Type)
+	if !ok || (definition.Direction != DirectionClient && definition.Direction != DirectionBidirectional) {
+		return s.errorReplies(envelope.RequestID, 400, "unsupported realtime message type")
+	}
+	payload, err := s.eventRegistry().DecodePayload(envelope.Type, envelope.Data)
+	if err != nil {
+		return s.errorReplies(envelope.RequestID, 400, "invalid realtime payload")
+	}
+
 	switch envelope.Type {
 	case TypePingV1:
-		return s.pongEnvelope(envelope.RequestID)
+		reply, err := s.eventRegistry().NewEphemeral(TypePongV1, envelope.RequestID, PongPayload{
+			ServerTime: s.currentTime().Format(time.RFC3339Nano),
+		}, s.currentTime())
+		return singleReply(reply, err)
 	case TypeSubscribeV1:
-		return s.subscribeEnvelope(identity, envelope)
+		subscribe, ok := payload.(*SubscribePayload)
+		if !ok {
+			return s.errorReplies(envelope.RequestID, 400, "invalid subscribe payload")
+		}
+		return s.subscribeReplies(identity, session, envelope.RequestID, *subscribe)
+	case TypeResumeV1:
+		resume, ok := payload.(*ResumePayload)
+		if !ok || resume.AfterSequence == nil {
+			return s.errorReplies(envelope.RequestID, 400, "invalid resume payload")
+		}
+		return s.resumeReplies(ctx, identity, envelope.RequestID, *resume.AfterSequence)
 	default:
-		return errorEnvelope(envelope.RequestID, 400, "unsupported realtime message type")
+		return s.errorReplies(envelope.RequestID, 400, "unsupported realtime message type")
 	}
 }
 
-func (s *Service) pongEnvelope(requestID string) (*infrarealtime.Envelope, error) {
-	reply, err := infrarealtime.NewEnvelope(TypePongV1, requestID, map[string]any{
-		"server_time": s.now().Format(time.RFC3339),
-	})
+func (s *Service) resumeReplies(ctx context.Context, identity *middleware.AuthIdentity, requestID string, afterSequence uint64) ([]infrarealtime.Envelope, error) {
+	if !validIdentity(identity) {
+		return s.errorReplies(requestID, 401, "unauthenticated realtime session")
+	}
+	if s == nil || s.events == nil {
+		return nil, ErrEventReaderNotConfigured
+	}
+	result, err := s.events.ResumeUser(ctx, ResumeQuery{UserID: identity.UserID, AfterSequence: afterSequence, Limit: MaxResumeLimit, Now: s.currentTime()})
 	if err != nil {
 		return nil, err
 	}
-	return &reply, nil
+	if result == nil {
+		return nil, errors.New("realtime resume returned nil result")
+	}
+	if result.ResyncRequired {
+		reply, err := s.eventRegistry().NewEphemeral(TypeResyncRequiredV1, requestID, ResyncRequiredPayload{
+			LatestSequence: result.LatestSequence,
+		}, s.currentTime())
+		return singleReply(reply, err)
+	}
+	replies := make([]infrarealtime.Envelope, 0, len(result.Events))
+	previous := afterSequence
+	for _, event := range result.Events {
+		if event.Sequence <= previous {
+			return nil, fmt.Errorf("realtime resume sequence is not strictly increasing")
+		}
+		reply, err := event.Envelope(s.eventRegistry())
+		if err != nil {
+			return nil, err
+		}
+		replies = append(replies, reply)
+		previous = event.Sequence
+	}
+	return replies, nil
 }
 
-type subscribePayload struct {
-	Topics []string `json:"topics"`
-}
-
-func (s *Service) subscribeEnvelope(identity *middleware.AuthIdentity, envelope infrarealtime.Envelope) (*infrarealtime.Envelope, error) {
-	if identity == nil || identity.UserID <= 0 || identity.SessionID <= 0 || strings.TrimSpace(identity.Platform) == "" {
-		return errorEnvelope(envelope.RequestID, 401, "unauthenticated realtime session")
+func (s *Service) subscribeReplies(identity *middleware.AuthIdentity, session *infrarealtime.Session, requestID string, payload SubscribePayload) ([]infrarealtime.Envelope, error) {
+	if !validIdentity(identity) {
+		return s.errorReplies(requestID, 401, "unauthenticated realtime session")
 	}
-
-	var payload subscribePayload
-	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
-		return errorEnvelope(envelope.RequestID, 400, "invalid subscribe payload")
-	}
-	if len(payload.Topics) == 0 {
-		return errorEnvelope(envelope.RequestID, 400, "topics is required")
+	if session == nil {
+		return nil, fmt.Errorf("realtime session is required")
 	}
 
 	allowed := allowedTopics(identity)
 	accepted := make([]string, 0, len(payload.Topics))
-	seen := make(map[string]struct{}, len(payload.Topics))
 	for _, rawTopic := range payload.Topics {
 		topic := strings.TrimSpace(rawTopic)
-		if topic == "" {
-			return errorEnvelope(envelope.RequestID, 400, "topic is required")
-		}
 		if _, ok := allowed[topic]; !ok {
-			return errorEnvelope(envelope.RequestID, 403, "无订阅权限")
+			return s.errorReplies(requestID, 403, "无订阅权限")
 		}
-		if _, ok := seen[topic]; ok {
-			continue
-		}
-		seen[topic] = struct{}{}
 		accepted = append(accepted, topic)
 	}
-
-	reply, err := infrarealtime.NewEnvelope(TypeSubscribedV1, envelope.RequestID, map[string]any{
-		"topics": accepted,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &reply, nil
+	session.ReplaceTopics(accepted)
+	reply, err := s.eventRegistry().NewEphemeral(TypeSubscribedV1, requestID, SubscribedPayload{Topics: accepted}, s.currentTime())
+	return singleReply(reply, err)
 }
 
 func allowedTopics(identity *middleware.AuthIdentity) map[string]struct{} {
@@ -139,13 +186,32 @@ func allowedTopics(identity *middleware.AuthIdentity) map[string]struct{} {
 	}
 }
 
-func errorEnvelope(requestID string, code int, message string) (*infrarealtime.Envelope, error) {
-	reply, err := infrarealtime.NewEnvelope(TypeErrorV1, requestID, map[string]any{
-		"code": code,
-		"msg":  message,
-	})
+func (s *Service) errorReplies(requestID string, code int, message string) ([]infrarealtime.Envelope, error) {
+	reply, err := s.eventRegistry().NewEphemeral(TypeErrorV1, requestID, ErrorPayload{Code: code, Msg: message}, s.currentTime())
+	return singleReply(reply, err)
+}
+
+func singleReply(reply infrarealtime.Envelope, err error) ([]infrarealtime.Envelope, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &reply, nil
+	return []infrarealtime.Envelope{reply}, nil
+}
+
+func (s *Service) eventRegistry() *EventRegistry {
+	if s == nil || s.registry == nil {
+		return DefaultRegistry()
+	}
+	return s.registry
+}
+
+func (s *Service) currentTime() time.Time {
+	if s == nil || s.now == nil {
+		return time.Now().UTC()
+	}
+	return s.now()
+}
+
+func validIdentity(identity *middleware.AuthIdentity) bool {
+	return identity != nil && identity.UserID > 0 && identity.SessionID > 0 && strings.TrimSpace(identity.Platform) == "admin"
 }

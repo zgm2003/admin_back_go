@@ -83,6 +83,11 @@ func (m *Manager) Send(key string, envelope Envelope) error {
 	if session == nil {
 		return ErrSessionNotFound
 	}
+	topic := sessionTopic(key)
+	if topic == "" || !session.Subscribed(topic) {
+		m.record("subscription_filter", "dropped")
+		return ErrTopicNotSubscribed
+	}
 	err := session.Send(envelope)
 	if errors.Is(err, ErrSendQueueFull) {
 		m.record("send_pressure", "dropped")
@@ -113,8 +118,14 @@ func (m *Manager) SendToUser(platform string, userID int64, envelope Envelope) e
 	if len(sessions) == 0 {
 		return ErrSessionNotFound
 	}
+	topic := fmt.Sprintf("user:%d", userID)
+	delivered := 0
 	var err error
 	for _, session := range sessions {
+		if !session.Subscribed(topic) {
+			continue
+		}
+		delivered++
 		if sendErr := session.Send(envelope); sendErr != nil {
 			if errors.Is(sendErr, ErrSendQueueFull) {
 				m.record("send_pressure", "dropped")
@@ -122,7 +133,23 @@ func (m *Manager) SendToUser(platform string, userID int64, envelope Envelope) e
 			err = errors.Join(err, sendErr)
 		}
 	}
+	if delivered == 0 {
+		m.record("subscription_filter", "dropped")
+		return ErrTopicNotSubscribed
+	}
 	return err
+}
+
+func sessionTopic(key string) string {
+	parts := strings.Split(strings.TrimSpace(key), ":")
+	if len(parts) < 3 {
+		return ""
+	}
+	sessionID := strings.TrimSpace(parts[len(parts)-1])
+	if sessionID == "" {
+		return ""
+	}
+	return "session:" + sessionID
 }
 
 func (m *Manager) record(operation string, outcome string) {

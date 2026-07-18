@@ -13,6 +13,7 @@ import (
 func TestLocalPublisherPublishesToLocalManager(t *testing.T) {
 	manager := NewManager()
 	session := NewSession(nil, SessionOptions{SendBuffer: 1})
+	session.ReplaceTopics([]string{"session:9"})
 	defer session.Close()
 	manager.Register("admin:7:9", session)
 
@@ -49,6 +50,8 @@ func TestManagerSendToUserPublishesToEveryMatchingSession(t *testing.T) {
 	manager.Register("admin:7:2", second)
 	manager.Register("admin:8:1", otherUser)
 	manager.Register("app:7:1", otherPlatform)
+	first.ReplaceTopics([]string{"user:7"})
+	second.ReplaceTopics([]string{"user:7"})
 
 	envelope := mustRealtimeEnvelope(t, "notification.created.v1", "rid-user")
 	if err := manager.SendToUser("admin", 7, envelope); err != nil {
@@ -64,6 +67,7 @@ func TestManagerSendToUserPublishesToEveryMatchingSession(t *testing.T) {
 func TestLocalPublisherPublishesToUserTarget(t *testing.T) {
 	manager := NewManager()
 	session := NewSession(nil, SessionOptions{SendBuffer: 1})
+	session.ReplaceTopics([]string{"user:7"})
 	defer session.Close()
 	manager.Register("admin:7:9", session)
 

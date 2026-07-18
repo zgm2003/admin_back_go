@@ -2,16 +2,172 @@
   "$id": "https://contracts.admin.local/v1/realtime/envelope.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "object"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "realtime.ping.v1",
+                "realtime.resume.v1",
+                "realtime.subscribe.v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object",
+          "x-envelope-role": "client"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "object"
+            },
+            "durability": {
+              "const": "ephemeral"
+            },
+            "event_id": {
+              "maxLength": 26,
+              "minLength": 26,
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "occurred_at": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "sequence": {
+              "const": 0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "ai.response.delta.v1",
+                "ai.response.start.v1",
+                "realtime.connected.v1",
+                "realtime.error.v1",
+                "realtime.ping.v1",
+                "realtime.pong.v1",
+                "realtime.resync_required.v1",
+                "realtime.subscribed.v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id",
+            "type",
+            "sequence",
+            "occurred_at",
+            "durability",
+            "data"
+          ],
+          "type": "object",
+          "x-durability": "ephemeral",
+          "x-envelope-role": "server"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "object"
+            },
+            "durability": {
+              "const": "durable"
+            },
+            "event_id": {
+              "maxLength": 26,
+              "minLength": 26,
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "occurred_at": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "request_id": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "sequence": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "ai.response.canceled.v1",
+                "ai.response.completed.v1",
+                "ai.response.failed.v1",
+                "notification.created.v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id",
+            "type",
+            "sequence",
+            "occurred_at",
+            "durability",
+            "data"
+          ],
+          "type": "object",
+          "x-durability": "durable",
+          "x-envelope-role": "server"
+        }
+      ]
+    }
+  ],
   "properties": {
     "data": {
       "type": "object"
+    },
+    "durability": {
+      "enum": [
+        "durable",
+        "ephemeral"
+      ],
+      "type": "string"
+    },
+    "event_id": {
+      "maxLength": 26,
+      "minLength": 26,
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "type": "string"
     },
     "request_id": {
       "maxLength": 128,
       "type": "string"
     },
+    "sequence": {
+      "minimum": 0,
+      "type": "integer"
+    },
     "type": {
       "enum": [
+        "ai.response.canceled.v1",
         "ai.response.completed.v1",
         "ai.response.delta.v1",
         "ai.response.failed.v1",
@@ -21,6 +177,8 @@
         "realtime.error.v1",
         "realtime.ping.v1",
         "realtime.pong.v1",
+        "realtime.resume.v1",
+        "realtime.resync_required.v1",
         "realtime.subscribe.v1",
         "realtime.subscribed.v1"
       ],

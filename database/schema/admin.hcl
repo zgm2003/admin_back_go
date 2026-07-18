@@ -1536,7 +1536,7 @@ table "ai_reply_commands" {
   }
   column "request_id" {
     null = false
-    type = varchar(64)
+    type = varchar(128)
   }
   column "idempotency_key" {
     null = false
@@ -1744,8 +1744,8 @@ table "ai_runs" {
   }
   column "request_id" {
     null    = false
-    type    = varchar(64)
-    comment = "客户端本轮请求ID"
+    type    = varchar(128)
+    comment = "client request identifier"
   }
   column "user_message_id" {
     null     = true
@@ -4433,6 +4433,32 @@ table "permissions" {
     columns = [column.platform, column.code]
   }
 }
+table "realtime_event_retention_watermarks" {
+  schema = schema.admin
+  column "target_type" {
+    null = false
+    type = varchar(16)
+  }
+  column "target_id" {
+    null = false
+    type = varchar(64)
+  }
+  column "deleted_through_sequence" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    default  = 0
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.target_type, column.target_id]
+  }
+}
 table "realtime_events" {
   schema = schema.admin
   column "sequence" {
@@ -4451,7 +4477,7 @@ table "realtime_events" {
   }
   column "request_id" {
     null = true
-    type = varchar(64)
+    type = varchar(128)
   }
   column "target_type" {
     null = false
@@ -4474,7 +4500,7 @@ table "realtime_events" {
     type = datetime(6)
   }
   column "expires_at" {
-    null = true
+    null = false
     type = datetime(6)
   }
   primary_key {
@@ -4482,6 +4508,9 @@ table "realtime_events" {
   }
   index "idx_realtime_resume" {
     columns = [column.target_type, column.target_id, column.sequence]
+  }
+  index "idx_realtime_expiry" {
+    columns = [column.expires_at, column.sequence]
   }
   index "uk_realtime_event_id" {
     unique  = true

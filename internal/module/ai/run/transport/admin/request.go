@@ -6,7 +6,7 @@ type listRequest struct {
 	Platform    string `form:"platform" binding:"omitempty,oneof=admin app canvas"`
 	Status      string `form:"status" binding:"omitempty,oneof=running success failed canceled timeout"`
 	UserID      *int64 `form:"user_id" binding:"omitempty,min=1"`
-	RequestID   string `form:"request_id" binding:"max=64"`
+	RequestID   string `form:"request_id" binding:"max=128"`
 	AgentID     *int64 `form:"agent_id" binding:"omitempty,min=1"`
 	ProviderID  *int64 `form:"provider_id" binding:"omitempty,min=1"`
 	DateStart   string `form:"date_start" binding:"omitempty,max=20"`

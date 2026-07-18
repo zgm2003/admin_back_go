@@ -10,7 +10,7 @@ const (
 	OpenAPIVersion          = "3.1.0"
 	PermissionSchemaVersion = "admin-permissions-2026-07-15.1"
 	ViewSchemaVersion       = "admin-views-2026-07-15.1"
-	RealtimeSchemaVersion   = "admin-realtime-2026-07-15.1"
+	RealtimeSchemaVersion   = "admin-realtime-2026-07-18.1"
 )
 
 type Manifest struct {

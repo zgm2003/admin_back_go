@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
@@ -86,7 +87,7 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		return nil, appErr
 	}
 	requestID := strings.TrimSpace(input.RequestID)
-	if requestID == "" {
+	if requestID == "" || utf8.RuneCountInString(requestID) > 128 {
 		return nil, apperror.BadRequest("request_id不能为空")
 	}
 	repo, _ := s.requireRepository()
@@ -124,7 +125,7 @@ func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (
 		return nil, appErr
 	}
 	requestID := strings.TrimSpace(input.RequestID)
-	if requestID == "" {
+	if requestID == "" || utf8.RuneCountInString(requestID) > 128 {
 		return nil, apperror.BadRequest("request_id不能为空")
 	}
 	repo, _ := s.requireRepository()

@@ -8,6 +8,7 @@ import (
 
 	"admin_back_go/internal/config"
 	infrarealtime "admin_back_go/internal/infra/realtime"
+	modulerealtime "admin_back_go/internal/module/realtime"
 )
 
 func TestNewRealtimeStackUsesNoopPublisherWhenDisabled(t *testing.T) {
@@ -46,6 +47,29 @@ func TestNewRealtimeStackUsesLocalPublisherWhenEnabled(t *testing.T) {
 	}
 	if err := publisher.Publish(t.Context(), infrarealtime.Publication{}); !errors.Is(err, infrarealtime.ErrPublicationTargetRequired) {
 		t.Fatalf("expected local publisher to be wired, got %v", err)
+	}
+}
+
+func TestRealtimeStackPublisherRejectsUnregisteredAndClientOnlyServerEvents(t *testing.T) {
+	stack := newRealtimeStack(config.RealtimeConfig{
+		Enabled:   true,
+		Publisher: config.RealtimePublisherLocal,
+	})
+
+	unknown, err := infrarealtime.NewEnvelope("server.guessed.v1", "rid", map[string]any{})
+	if err != nil {
+		t.Fatalf("build structurally valid unknown envelope: %v", err)
+	}
+	if err := stack.publisher.Publish(t.Context(), infrarealtime.Publication{Platform: "admin", UserID: 7, Envelope: unknown}); !errors.Is(err, modulerealtime.ErrUnknownEventType) {
+		t.Fatalf("unknown server event reached local delivery: %v", err)
+	}
+
+	clientOnly, err := infrarealtime.NewEnvelope(modulerealtime.TypeSubscribeV1, "rid", modulerealtime.SubscribePayload{Topics: []string{"user:7"}})
+	if err != nil {
+		t.Fatalf("build structurally valid client event: %v", err)
+	}
+	if err := stack.publisher.Publish(t.Context(), infrarealtime.Publication{Platform: "admin", UserID: 7, Envelope: clientOnly}); err == nil || errors.Is(err, infrarealtime.ErrSessionNotFound) {
+		t.Fatalf("client-only event reached server delivery: %v", err)
 	}
 }
 

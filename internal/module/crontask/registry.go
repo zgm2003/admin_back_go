@@ -8,6 +8,7 @@ import (
 	exporttask "admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
+	modulerealtime "admin_back_go/internal/module/realtime"
 )
 
 type RegistryEntry struct {
@@ -45,6 +46,14 @@ func NewDefaultRegistry() Registry {
 		Description: "清理已过期的导出任务",
 		BuildTask: func() (taskqueue.Task, error) {
 			return exporttask.NewCleanupExpiredTask()
+		},
+	})
+	registry.Register(RegistryEntry{
+		Name:        "realtime_event_retention_cleanup",
+		TaskType:    modulerealtime.TypeCleanupExpiredV1,
+		Description: "清理超过七天的 durable realtime events 并推进 per-user watermark",
+		BuildTask: func() (taskqueue.Task, error) {
+			return modulerealtime.NewCleanupExpiredTask()
 		},
 	})
 	registry.Register(RegistryEntry{

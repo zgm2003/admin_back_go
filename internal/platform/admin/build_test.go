@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,18 @@ import (
 	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/infra/secretkey"
 )
+
+func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
+	body, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatalf("read admin composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	want := "aimessage.NewGormRepository( resources.DB, replycommand.WithDurableEventSink(realtimeEventSink), )"
+	if !strings.Contains(compact, want) {
+		t.Fatal("Admin API cancellation must commit through the shared durable realtime sink")
+	}
+}
 
 func TestAccessTokenCodecForKeysSupportsDualKeyWindow(t *testing.T) {
 	oldRing, err := secretkey.NewKeyRing(strings.Repeat("o", 64))

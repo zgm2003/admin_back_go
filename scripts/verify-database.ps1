@@ -387,6 +387,8 @@ DROP INDEX `idx_user_sessions_user_platform_active_refresh` ON `user_sessions`;
 DROP INDEX `idx_ai_runs_status_started` ON `ai_runs`;
 DROP INDEX `uk_ai_runs_idempotency` ON `ai_runs`;
 ALTER TABLE `ai_runs` DROP COLUMN `idempotency_key`;
+ALTER TABLE `ai_runs` MODIFY COLUMN `request_id` VARCHAR(64) NOT NULL;
+ALTER TABLE `ai_reply_commands` MODIFY COLUMN `request_id` VARCHAR(64) NOT NULL;
 DROP INDEX `idx_notifications_user_active_unread_platform` ON `notifications`;
 DROP INDEX `uk_notifications_source_user` ON `notifications`;
 ALTER TABLE `notifications` DROP COLUMN `source_task_id`;
@@ -407,6 +409,7 @@ ALTER TABLE `ai_image_tasks` DROP COLUMN `is_del`;
 SET FOREIGN_KEY_CHECKS=0;
 DROP TABLE `ai_provider_attempts`;
 DROP TABLE `realtime_events`;
+DROP TABLE `realtime_event_retention_watermarks`;
 SET FOREIGN_KEY_CHECKS=1;
 INSERT INTO `users` (`id`,`role_id`,`username`,`status`,`is_del`,`created_at`,`updated_at`)
 VALUES (900001,0,'synthetic_admin',1,2,UTC_TIMESTAMP(),UTC_TIMESTAMP());
@@ -518,7 +521,7 @@ try {
 
     $firstRun = Invoke-Reconciliation -Database $importedDatabase -Port $port -ExpectedFingerprint $fixtureFingerprint
     $reconciliationApplied = @($firstRun | Where-Object { $_ -match '^APPLY ' }).Count
-    if ($reconciliationApplied -ne 7) { throw 'initial reconciliation did not apply every non-destructive script' }
+    if ($reconciliationApplied -ne 8) { throw 'initial reconciliation did not apply every non-destructive script' }
     $importedFingerprint = Get-Fingerprint -Database $importedDatabase -Port $port
     if ($importedFingerprint -cne $emptyFingerprint) {
       $emptyDocument = Get-FingerprintDocument -Database $emptyDatabase -Port $port
@@ -529,7 +532,7 @@ try {
 
     $secondRun = Invoke-Reconciliation -Database $importedDatabase -Port $port -ExpectedFingerprint $importedFingerprint
     $reconciliationSkipped = @($secondRun | Where-Object { $_ -match '^SKIP ' }).Count
-    if ($reconciliationSkipped -ne 7 -or @($secondRun | Where-Object { $_ -match '^APPLY ' }).Count -ne 0) {
+    if ($reconciliationSkipped -ne 8 -or @($secondRun | Where-Object { $_ -match '^APPLY ' }).Count -ne 0) {
       throw 'repeated reconciliation was not a complete no-op'
     }
     $repeatedFingerprint = Get-Fingerprint -Database $importedDatabase -Port $port

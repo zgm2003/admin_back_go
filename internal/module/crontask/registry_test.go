@@ -10,6 +10,7 @@ import (
 	exporttask "admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
+	modulerealtime "admin_back_go/internal/module/realtime"
 )
 
 func TestDefaultRegistryContainsCoreSchedulers(t *testing.T) {
@@ -56,6 +57,15 @@ func TestDefaultRegistryContainsCoreSchedulers(t *testing.T) {
 	exportTask, err := exportEntry.BuildTask()
 	if err != nil || exportTask.Type != exporttask.TypeCleanupExpiredV1 {
 		t.Fatalf("unexpected export cleanup task=%#v err=%v", exportTask, err)
+	}
+
+	realtimeEntry, ok := registry.Lookup("realtime_event_retention_cleanup")
+	if !ok || realtimeEntry.TaskType != modulerealtime.TypeCleanupExpiredV1 || realtimeEntry.BuildTask == nil {
+		t.Fatalf("expected realtime retention registry entry, got %#v found=%v", realtimeEntry, ok)
+	}
+	realtimeTask, err := realtimeEntry.BuildTask()
+	if err != nil || realtimeTask.Type != modulerealtime.TypeCleanupExpiredV1 {
+		t.Fatalf("unexpected realtime cleanup task=%#v err=%v", realtimeTask, err)
 	}
 
 	paymentEntries := map[string]string{

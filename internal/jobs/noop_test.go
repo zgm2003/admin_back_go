@@ -17,6 +17,7 @@ import (
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
+	modulerealtime "admin_back_go/internal/module/realtime"
 )
 
 func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
@@ -35,6 +36,7 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		notificationtask.TypeSendTaskV1,
 		payment.TypeCloseExpiredOrderV1,
 		payment.TypeSyncPendingOrderV1,
+		modulerealtime.TypeCleanupExpiredV1,
 		TypeSystemNoopV1,
 	}
 	slices.Sort(want)
@@ -60,6 +62,7 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		{notificationtask.TypeSendTaskV1, taskqueue.QueueDefault, 3, 30 * time.Second, 0},
 		{payment.TypeSyncPendingOrderV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
 		{payment.TypeCloseExpiredOrderV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
+		{modulerealtime.TypeCleanupExpiredV1, taskqueue.QueueLow, 3, time.Minute, 23 * time.Hour},
 	}
 	for _, wantPolicy := range policies {
 		_, policy, err := registry.Task(wantPolicy.taskType, nil)

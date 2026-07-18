@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"admin_back_go/internal/shared/enum"
 )
@@ -167,7 +168,7 @@ func normalizeStartInput(input StartInput, now time.Time) (StartRecord, error) {
 	if input.Platform == "" || !enum.IsPlatform(input.Platform) {
 		return StartRecord{}, fmt.Errorf("%w: platform", ErrRecorderInvalidInput)
 	}
-	if input.RequestID == "" {
+	if input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {
 		return StartRecord{}, fmt.Errorf("%w: request_id", ErrRecorderInvalidInput)
 	}
 	if input.UserID <= 0 {

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/infra/database"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/redisclient"
 	modulerealtime "admin_back_go/internal/module/realtime"
@@ -24,7 +25,7 @@ func newRealtimeStack(cfg config.RealtimeConfig, loggers ...*slog.Logger) realti
 	if len(loggers) > 0 {
 		logger = loggers[0]
 	}
-	return newRealtimeStackWithRedis(cfg, nil, nil, logger)
+	return newRealtimeStackWithRedis(cfg, nil, nil, nil, logger)
 }
 
 func withRealtimePolicyDefaults(cfg config.RealtimeConfig) config.RealtimeConfig {
@@ -40,7 +41,7 @@ func withRealtimePolicyDefaults(cfg config.RealtimeConfig) config.RealtimeConfig
 	return cfg
 }
 
-func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []string, redis *redisclient.Client, logger *slog.Logger, recorders ...telemetry.Recorder) realtimeStack {
+func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []string, db *database.Client, redis *redisclient.Client, logger *slog.Logger, recorders ...telemetry.Recorder) realtimeStack {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -52,9 +53,14 @@ func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []strin
 
 	enabled := realtimeEnabledFor(cfg, logger)
 	manager := infrarealtime.NewManager(infrarealtime.WithTelemetry(recorder))
-	localPublisher := infrarealtime.NewLocalPublisher(manager)
+	registry := modulerealtime.DefaultRegistry()
+	localPublisher := infrarealtime.NewLocalPublisher(manager, registry.ValidateServerEnvelope)
 	publisher, subscriber := realtimePublisherFor(cfg, enabled, redis, localPublisher, logger, recorders...)
-	service := modulerealtime.NewService(cfg.HeartbeatInterval)
+	serviceOptions := []modulerealtime.ServiceOption{}
+	if eventRepository := modulerealtime.NewGormRepository(db, modulerealtime.DefaultRegistry()); eventRepository != nil {
+		serviceOptions = append(serviceOptions, modulerealtime.WithEventReader(eventRepository))
+	}
+	service := modulerealtime.NewService(cfg.HeartbeatInterval, serviceOptions...)
 	handler := realtimeadmin.NewHandler(
 		service,
 		infrarealtime.NewUpgrader(infrarealtime.NewAllowedOriginChecker(allowedOrigins)),
@@ -62,6 +68,7 @@ func newRealtimeStackWithRedis(cfg config.RealtimeConfig, allowedOrigins []strin
 		logger,
 		realtimeadmin.WithEnabled(enabled),
 		realtimeadmin.WithSendBuffer(cfg.SendBuffer),
+		realtimeadmin.WithTelemetry(recorder),
 	)
 
 	return realtimeStack{
@@ -130,10 +137,10 @@ func realtimePublisherFor(
 			if logger != nil {
 				logger.Error("realtime redis publisher selected but redis client is not ready")
 			}
-			publisher := wrap(infrarealtime.NewRedisPublisher(nil, cfg.RedisChannel), "redis")
+			publisher := wrap(infrarealtime.NewRedisPublisher(nil, cfg.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 			return publisher, infrarealtime.NewRedisSubscriber(nil, cfg.RedisChannel, local, logger)
 		}
-		publisher := wrap(infrarealtime.NewRedisPublisher(redis.Redis, cfg.RedisChannel), "redis")
+		publisher := wrap(infrarealtime.NewRedisPublisher(redis.Redis, cfg.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 		return publisher, infrarealtime.NewRedisSubscriber(redis.Redis, cfg.RedisChannel, local, logger)
 	default:
 		if logger != nil {
@@ -166,9 +173,9 @@ func realtimePublisherForWorker(cfg config.Config, resources *Resources, recorde
 	switch publisherName {
 	case config.RealtimePublisherRedis:
 		if resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
-			return wrap(infrarealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel), "redis")
+			return wrap(infrarealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 		}
-		return wrap(infrarealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel), "redis")
+		return wrap(infrarealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 	case config.RealtimePublisherNoop, config.RealtimePublisherLocal:
 		return wrap(infrarealtime.NoopPublisher{}, "noop")
 	default:

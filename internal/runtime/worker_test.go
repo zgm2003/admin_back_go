@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -250,6 +251,18 @@ func TestRealtimePublisherForWorkerUsesRedisOnlyForCrossProcessFanout(t *testing
 	}, &Resources{})
 	if _, ok := publisher.(*infrarealtime.RedisPublisher); !ok {
 		t.Fatalf("expected worker redis publisher, got %T", publisher)
+	}
+}
+
+func TestWorkerReplyRepositoryUsesDurableRealtimeSink(t *testing.T) {
+	body, err := os.ReadFile("worker.go")
+	if err != nil {
+		t.Fatalf("read worker composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	want := "replyRepository := replycommand.NewGormRepository( resources.DB, replycommand.WithDurableEventSink(realtimeEventSink), )"
+	if !strings.Contains(compact, want) {
+		t.Fatalf("worker reply repository must persist terminal realtime events with the shared durable sink")
 	}
 }
 

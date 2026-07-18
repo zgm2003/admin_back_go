@@ -5,7 +5,7 @@ param(
   [string]$Database,
 
   [Parameter(Mandatory = $true)]
-  [ValidateSet('ledger', 'expand', 'backfill-core', 'backfill-ai', 'proven-indexes', 'ai-image-soft-delete', 'export-cleanup-schedule', 'all-nondestructive')]
+  [ValidateSet('ledger', 'expand', 'backfill-core', 'backfill-ai', 'proven-indexes', 'ai-image-soft-delete', 'export-cleanup-schedule', 'realtime-retention', 'all-nondestructive')]
   [string]$Stage,
 
   [Parameter(Mandatory = $true)]
@@ -117,7 +117,8 @@ $stageFiles = [ordered]@{
   'proven-indexes' = @('041_apply_proven_indexes.sql')
   'ai-image-soft-delete' = @('042_add_ai_image_soft_delete.sql')
   'export-cleanup-schedule' = @('043_register_export_cleanup.sql')
-  'all-nondestructive' = @('001_ledger.sql', '010_expand_core.sql', '020_backfill_core.sql', '021_backfill_ai.sql', '041_apply_proven_indexes.sql', '042_add_ai_image_soft_delete.sql', '043_register_export_cleanup.sql')
+  'realtime-retention' = @('044_realtime_retention.sql')
+  'all-nondestructive' = @('001_ledger.sql', '010_expand_core.sql', '020_backfill_core.sql', '021_backfill_ai.sql', '041_apply_proven_indexes.sql', '042_add_ai_image_soft_delete.sql', '043_register_export_cleanup.sql', '044_realtime_retention.sql')
 }
 $files = @($stageFiles[$Stage] | Where-Object { Test-Path -LiteralPath (Join-Path $ReconciliationRoot $_) -PathType Leaf })
 if ($files.Count -eq 0) {

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/taskqueue"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -25,19 +25,18 @@ const (
 	sendBatchSize        = 100
 	defaultWorkLeaseTTL  = 30 * time.Second
 
-	EventNotificationCreatedV1 = "notification.created.v1"
+	EventNotificationCreatedV1 = modulerealtime.TypeNotificationCreatedV1
 )
 
 var ErrLeaseLost = errors.New("notification task lease lost")
 
 type Service struct {
-	repository        Repository
-	enqueuer          taskqueue.Enqueuer
-	realtimePublisher infrarealtime.Publisher
-	logger            *slog.Logger
-	now               func() time.Time
-	owner             string
-	leaseTTL          time.Duration
+	repository Repository
+	enqueuer   taskqueue.Enqueuer
+	logger     *slog.Logger
+	now        func() time.Time
+	owner      string
+	leaseTTL   time.Duration
 }
 
 type Option func(*Service)
@@ -45,12 +44,6 @@ type Option func(*Service)
 func WithEnqueuer(enqueuer taskqueue.Enqueuer) Option {
 	return func(s *Service) {
 		s.enqueuer = enqueuer
-	}
-}
-
-func WithRealtimePublisher(publisher infrarealtime.Publisher) Option {
-	return func(s *Service) {
-		s.realtimePublisher = publisher
 	}
 }
 
@@ -360,7 +353,6 @@ func (s *Service) deliverClaim(ctx context.Context, repo Repository, claim *Clai
 		if err := repo.InsertNotifications(ctx, rows); err != nil {
 			return nil, fmt.Errorf("insert notification task %d batch: %w", task.ID, err)
 		}
-		s.publishRealtimeNotifications(ctx, task, rows)
 		sentCount += len(rows)
 		now := s.now()
 		updated, err := repo.UpdateProgress(ctx, task.ID, claim.Owner, claim.Token, now, sentCount, totalCount)
@@ -610,36 +602,6 @@ func truncateRunes(value string, max int) string {
 	return string(runes[:max])
 }
 
-func (s *Service) publishRealtimeNotifications(ctx context.Context, task Task, rows []Notification) {
-	if s == nil || s.realtimePublisher == nil || len(rows) == 0 {
-		return
-	}
-	platform := realtimePlatform(task.Platform)
-	if platform == "" {
-		return
-	}
-	for _, row := range rows {
-		envelope, err := infrarealtime.NewEnvelope(EventNotificationCreatedV1, fmt.Sprintf("notification-task-%d-%d", task.ID, row.UserID), map[string]any{
-			"task_id":           task.ID,
-			"title":             row.Title,
-			"content":           row.Content,
-			"link":              row.Link,
-			"level":             notificationLevelKey(row.Level),
-			"notification_type": notificationTypeKey(row.Type),
-		})
-		if err != nil {
-			continue
-		}
-		if err := s.realtimePublisher.Publish(ctx, infrarealtime.Publication{
-			Platform: platform,
-			UserID:   row.UserID,
-			Envelope: envelope,
-		}); err != nil && s.logger != nil {
-			s.logger.WarnContext(ctx, "failed to publish notification realtime event", "task_id", task.ID, "user_id", row.UserID, "platform", platform, "error", err)
-		}
-	}
-}
-
 func realtimePlatform(platform string) string {
 	switch strings.TrimSpace(platform) {
 	case enum.PlatformAdmin, enum.PlatformAll:
@@ -649,24 +611,28 @@ func realtimePlatform(platform string) string {
 	}
 }
 
-func notificationLevelKey(level int) string {
+func notificationLevelKey(level int) (string, bool) {
 	switch level {
+	case enum.NotificationLevelNormal:
+		return "normal", true
 	case enum.NotificationLevelUrgent:
-		return "urgent"
+		return "urgent", true
 	default:
-		return "normal"
+		return "", false
 	}
 }
 
-func notificationTypeKey(value int) string {
+func notificationTypeKey(value int) (string, bool) {
 	switch value {
+	case enum.NotificationTypeInfo:
+		return "info", true
 	case enum.NotificationTypeSuccess:
-		return "success"
+		return "success", true
 	case enum.NotificationTypeWarning:
-		return "warning"
+		return "warning", true
 	case enum.NotificationTypeError:
-		return "error"
+		return "error", true
 	default:
-		return "info"
+		return "", false
 	}
 }

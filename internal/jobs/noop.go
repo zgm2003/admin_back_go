@@ -18,6 +18,7 @@ import (
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/payment"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -31,14 +32,15 @@ var (
 
 // Dependencies are shared job handler dependencies.
 type Dependencies struct {
-	Logger                  *slog.Logger
-	AuthRepository          auth.Repository
-	AIChatService           aichat.JobService
-	AIReplyRunner           replycommand.JobRunner
-	AiImageService          aiimage.JobService
-	ExportTaskService       exporttask.JobService
-	NotificationTaskService notificationtask.JobService
-	PaymentService          payment.JobService
+	Logger                   *slog.Logger
+	AuthRepository           auth.Repository
+	AIChatService            aichat.JobService
+	AIReplyRunner            replycommand.JobRunner
+	AiImageService           aiimage.JobService
+	ExportTaskService        exporttask.JobService
+	NotificationTaskService  notificationtask.JobService
+	PaymentService           payment.JobService
+	RealtimeRetentionService modulerealtime.JobService
 }
 
 // ScheduleRegistrar is the worker-owned boundary used by job schedule
@@ -103,6 +105,9 @@ func NewRegistry(deps Dependencies) (*taskqueue.Registry, error) {
 			return notificationtask.RegisterTaskDefinitions(registry, deps.NotificationTaskService, logger)
 		},
 		func() error { return payment.RegisterTaskDefinitions(registry, deps.PaymentService, logger) },
+		func() error {
+			return modulerealtime.RegisterTaskDefinitions(registry, deps.RealtimeRetentionService, logger)
+		},
 	} {
 		if err := register(); err != nil {
 			return nil, err

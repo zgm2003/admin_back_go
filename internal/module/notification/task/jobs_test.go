@@ -12,7 +12,9 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/database"
+	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/taskqueue"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -197,6 +199,38 @@ func TestDuplicateNotificationDeliveryUsesSourceTaskUserKey(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("expected one notification row, got %d", count)
 	}
+	if err := repository.db.WithContext(ctx).Table("realtime_events").Count(&count).Error; err != nil {
+		t.Fatalf("count durable notification events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one durable notification event, got %d", count)
+	}
+}
+
+func TestNotificationDeliveryRejectsUnknownEnumInsteadOfGuessingRealtimePayload(t *testing.T) {
+	repository, _ := notificationLeaseRepositories(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	err := repository.InsertNotifications(ctx, []Notification{{
+		SourceTaskID: 88, UserID: 9, Title: "invalid", Content: "content",
+		Type: enum.NotificationTypeInfo, Level: 999,
+		Platform: enum.PlatformAdmin, IsRead: enum.CommonNo, IsDel: enum.CommonNo,
+		CreatedAt: now, UpdatedAt: now,
+	}})
+	if err == nil {
+		t.Fatal("unknown notification level was guessed into a realtime payload")
+	}
+	var notifications int64
+	if queryErr := repository.db.WithContext(ctx).Model(&Notification{}).Count(&notifications).Error; queryErr != nil {
+		t.Fatalf("count notifications: %v", queryErr)
+	}
+	var events int64
+	if queryErr := repository.db.WithContext(ctx).Table("realtime_events").Count(&events).Error; queryErr != nil {
+		t.Fatalf("count realtime events: %v", queryErr)
+	}
+	if notifications != 0 || events != 0 {
+		t.Fatalf("invalid notification escaped atomic rollback: notifications=%d events=%d", notifications, events)
+	}
 }
 
 func notificationLeaseRepositories(t *testing.T) (*GormRepository, *GormRepository) {
@@ -238,6 +272,7 @@ func notificationLeaseRepositories(t *testing.T) (*GormRepository, *GormReposito
 	for _, statement := range []string{
 		"CREATE TABLE notification_task LIKE admin.notification_task",
 		"CREATE TABLE notifications LIKE admin.notifications",
+		"CREATE TABLE realtime_events LIKE admin.realtime_events",
 	} {
 		if err := clientA.Gorm.Exec(statement).Error; err != nil {
 			_ = clientB.Close()
@@ -253,5 +288,8 @@ func notificationLeaseRepositories(t *testing.T) (*GormRepository, *GormReposito
 		_ = base.Gorm.Exec("DROP DATABASE `" + databaseName + "`").Error
 		_ = base.Close()
 	})
-	return &GormRepository{db: clientA.Gorm}, &GormRepository{db: clientB.Gorm}
+	eventRepositoryA := modulerealtime.NewGormRepository(clientA, modulerealtime.DefaultRegistry())
+	eventRepositoryB := modulerealtime.NewGormRepository(clientB, modulerealtime.DefaultRegistry())
+	return &GormRepository{db: clientA.Gorm, eventSink: modulerealtime.NewDurableEventSink(eventRepositoryA, infrarealtime.NoopPublisher{}, slog.Default())},
+		&GormRepository{db: clientB.Gorm, eventSink: modulerealtime.NewDurableEventSink(eventRepositoryB, infrarealtime.NoopPublisher{}, slog.Default())}
 }

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"admin_back_go/internal/middleware"
 	realtimemodule "admin_back_go/internal/module/realtime"
 	projecti18n "admin_back_go/internal/shared/i18n"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -295,6 +297,139 @@ func TestWebSocketRejectsUnauthorizedSubscribeTopic(t *testing.T) {
 	}
 	if reply.Type != realtimemodule.TypeErrorV1 || reply.RequestID != "rid-subscribe" {
 		t.Fatalf("unexpected subscribe error reply: %#v", reply)
+	}
+}
+
+func TestWebSocketRecordsIsolatedClientHandlerErrors(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	recorder := telemetry.NewMemoryRecorder()
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{
+			UserID:    7,
+			SessionID: 9,
+			Platform:  "admin",
+		})
+		c.Next()
+	})
+	RegisterRoutes(router, NewHandler(
+		realtimemodule.NewService(25*time.Second),
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithTelemetry(recorder),
+	))
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	client := dialRealtime(t, server.URL)
+	defer client.Close()
+	var connected infrarealtime.Envelope
+	if err := client.ReadJSON(&connected); err != nil {
+		t.Fatalf("read connected: %v", err)
+	}
+	if err := client.WriteJSON(map[string]any{
+		"type":       realtimemodule.TypeResumeV1,
+		"request_id": "rid-resume-without-reader",
+		"data": map[string]any{
+			"after_sequence": 0,
+		},
+	}); err != nil {
+		t.Fatalf("write resume without event reader: %v", err)
+	}
+	if err := client.WriteJSON(map[string]any{
+		"type":       realtimemodule.TypePingV1,
+		"request_id": "rid-after-error",
+		"data":       map[string]any{},
+	}); err != nil {
+		t.Fatalf("write ping after error: %v", err)
+	}
+	var pong infrarealtime.Envelope
+	if err := client.ReadJSON(&pong); err != nil {
+		t.Fatalf("read pong after isolated handler error: %v", err)
+	}
+	if pong.Type != realtimemodule.TypePongV1 || pong.RequestID != "rid-after-error" {
+		t.Fatalf("unexpected pong after isolated handler error: %#v", pong)
+	}
+
+	for _, event := range recorder.Events() {
+		if event.Name == "realtime.handlers" && event.Attributes["realtime.operation"] == "handler" && event.Attributes["realtime.outcome"] == "error" {
+			return
+		}
+	}
+	t.Fatalf("production websocket session did not record isolated handler error: %+v", recorder.Events())
+}
+
+type staticEventReader struct {
+	result *realtimemodule.ResumeResult
+}
+
+func (reader staticEventReader) ResumeUser(context.Context, realtimemodule.ResumeQuery) (*realtimemodule.ResumeResult, error) {
+	return reader.result, nil
+}
+
+func TestWebSocketReplaysMoreEventsThanTheLiveSendBuffer(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	now := time.Date(2026, 7, 17, 20, 0, 0, 0, time.UTC)
+	events := make([]realtimemodule.Event, 32)
+	for index := range events {
+		eventID, err := infrarealtime.NewEventID(now.Add(time.Duration(index) * time.Millisecond))
+		if err != nil {
+			t.Fatalf("generate event ID: %v", err)
+		}
+		requestID := "rid-replay"
+		events[index] = realtimemodule.Event{
+			Sequence:    uint64(index + 1),
+			EventID:     eventID,
+			EventType:   realtimemodule.TypeNotificationCreatedV1,
+			RequestID:   &requestID,
+			TargetType:  realtimemodule.TargetTypeUser,
+			TargetID:    "7",
+			Durability:  string(infrarealtime.Durable),
+			PayloadJSON: `{"task_id":1,"title":"title","content":"body","link":"/","level":"normal","notification_type":"info"}`,
+			OccurredAt:  now.Add(time.Duration(index) * time.Millisecond),
+		}
+	}
+	service := realtimemodule.NewService(25*time.Second, realtimemodule.WithEventReader(staticEventReader{result: &realtimemodule.ResumeResult{
+		Events: events, LatestSequence: uint64(len(events)), OldestAvailableSequence: 1,
+	}}))
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"})
+		c.Next()
+	})
+	RegisterRoutes(router, NewHandler(
+		service,
+		infrarealtime.NewUpgrader(func(*http.Request) bool { return true }),
+		infrarealtime.NewManager(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithSendBuffer(1),
+	))
+	server := httptest.NewServer(router)
+	defer server.Close()
+	client := dialRealtime(t, server.URL)
+	defer client.Close()
+	var connected infrarealtime.Envelope
+	if err := client.ReadJSON(&connected); err != nil {
+		t.Fatalf("read connected: %v", err)
+	}
+	if err := client.WriteJSON(map[string]any{
+		"type": realtimemodule.TypeResumeV1, "request_id": "rid-resume", "data": map[string]any{"after_sequence": 0},
+	}); err != nil {
+		t.Fatalf("write resume: %v", err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	for index := range events {
+		var replay infrarealtime.Envelope
+		if err := client.ReadJSON(&replay); err != nil {
+			t.Fatalf("read replay %d/%d: %v", index+1, len(events), err)
+		}
+		if replay.Sequence != uint64(index+1) {
+			t.Fatalf("replay sequence=%d want=%d", replay.Sequence, index+1)
+		}
 	}
 }
 

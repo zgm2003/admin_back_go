@@ -27,6 +27,10 @@ type Publisher interface {
 	Publish(context.Context, Publication) error
 }
 
+// EnvelopeValidator lets the runtime inject its closed business event
+// registry without making the transport package depend on business modules.
+type EnvelopeValidator func(Envelope) error
+
 type instrumentedPublisher struct {
 	delegate  Publisher
 	transport string
@@ -47,7 +51,7 @@ func (publisher *instrumentedPublisher) Publish(ctx context.Context, publication
 	startedAt := time.Now()
 	err := publisher.delegate.Publish(ctx, publication)
 	outcome := "ok"
-	if publisher.transport == "noop" || errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSendQueueFull) {
+	if publisher.transport == "noop" || errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrTopicNotSubscribed) || errors.Is(err, ErrSendQueueFull) {
 		outcome = "dropped"
 	} else if err != nil {
 		outcome = "error"
@@ -64,12 +68,13 @@ func (publisher *instrumentedPublisher) Publish(ctx context.Context, publication
 
 // LocalPublisher publishes to the in-process Manager only.
 type LocalPublisher struct {
-	manager *Manager
+	manager   *Manager
+	validator EnvelopeValidator
 }
 
 // NewLocalPublisher creates a local-process realtime publisher.
-func NewLocalPublisher(manager *Manager) *LocalPublisher {
-	return &LocalPublisher{manager: manager}
+func NewLocalPublisher(manager *Manager, validators ...EnvelopeValidator) *LocalPublisher {
+	return &LocalPublisher{manager: manager, validator: firstEnvelopeValidator(validators)}
 }
 
 // Publish sends one envelope to a local session key or all local sessions for
@@ -82,14 +87,31 @@ func (p *LocalPublisher) Publish(ctx context.Context, publication Publication) e
 		return ErrSessionNotFound
 	}
 	key := strings.TrimSpace(publication.SessionKey)
+	platform := strings.TrimSpace(publication.Platform)
+	if key == "" && (platform == "" || publication.UserID <= 0) {
+		return ErrPublicationTargetRequired
+	}
+	if err := ValidateServerEnvelope(publication.Envelope); err != nil {
+		return err
+	}
+	if p.validator != nil {
+		if err := p.validator(publication.Envelope); err != nil {
+			return err
+		}
+	}
 	if key != "" {
 		return p.manager.Send(key, publication.Envelope)
 	}
-	platform := strings.TrimSpace(publication.Platform)
-	if platform == "" || publication.UserID <= 0 {
-		return ErrPublicationTargetRequired
-	}
 	return p.manager.SendToUser(platform, publication.UserID, publication.Envelope)
+}
+
+func firstEnvelopeValidator(validators []EnvelopeValidator) EnvelopeValidator {
+	for _, validator := range validators {
+		if validator != nil {
+			return validator
+		}
+	}
+	return nil
 }
 
 // NoopPublisher intentionally drops publications. Use it only when realtime

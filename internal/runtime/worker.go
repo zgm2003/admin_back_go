@@ -25,6 +25,7 @@ import (
 	exporttask "admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	paymentmodule "admin_back_go/internal/module/payment"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/telemetry"
 )
@@ -235,10 +236,12 @@ func registerWorkerHandlers(
 	queueClient *taskqueue.Client,
 	queueMux *taskqueue.Mux,
 ) (*replycommand.Runner, *replycommand.Reconciler, error) {
+	realtimeEventRepository := modulerealtime.NewGormRepository(resources.DB, modulerealtime.DefaultRegistry())
+	realtimeEventSink := modulerealtime.NewDurableEventSink(realtimeEventRepository, realtimePublisher, logger)
+	realtimeRetentionService := modulerealtime.NewRetentionService(realtimeEventRepository)
 	notificationTaskService := notificationtask.NewService(
-		notificationtask.NewGormRepository(resources.DB),
+		notificationtask.NewGormRepository(resources.DB, notificationtask.WithDurableEventSink(realtimeEventSink)),
 		notificationtask.WithEnqueuer(queueClient),
-		notificationtask.WithRealtimePublisher(realtimePublisher),
 		notificationtask.WithLogger(logger),
 	)
 	exportRegistry, err := exporttask.NewRegistry(exporttask.Definition{
@@ -264,7 +267,10 @@ func registerWorkerHandlers(
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
-	replyRepository := replycommand.NewGormRepository(resources.DB)
+	replyRepository := replycommand.NewGormRepository(
+		resources.DB,
+		replycommand.WithDurableEventSink(realtimeEventSink),
+	)
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:         aichat.NewGormRepository(resources.DB),
 		AssistantPublisher: replyAssistantPublisher{repository: replyRepository},
@@ -275,6 +281,7 @@ func registerWorkerHandlers(
 		RunRecorder:        aiRunRecorder,
 		TextTasks:          aiTextTasks,
 		RunStaleTimeout:    positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
+		Logger:             logger,
 	})
 	replyRunner := replycommand.NewRunner(replycommand.RunnerOptions{
 		Repository:       replyRepository,
@@ -298,14 +305,15 @@ func registerWorkerHandlers(
 		CertStore:    providers.PaymentCertStore,
 	})
 	registry, err := jobs.NewRegistry(jobs.Dependencies{
-		Logger:                  logger,
-		AIChatService:           aiChatService,
-		AIReplyRunner:           replyRunner,
-		AiImageService:          aiImageService,
-		AuthRepository:          auth.NewGormRepository(resources.DB),
-		ExportTaskService:       exportTaskService,
-		NotificationTaskService: notificationTaskService,
-		PaymentService:          paymentService,
+		Logger:                   logger,
+		AIChatService:            aiChatService,
+		AIReplyRunner:            replyRunner,
+		AiImageService:           aiImageService,
+		AuthRepository:           auth.NewGormRepository(resources.DB),
+		ExportTaskService:        exportTaskService,
+		NotificationTaskService:  notificationTaskService,
+		PaymentService:           paymentService,
+		RealtimeRetentionService: realtimeRetentionService,
 	})
 	if err != nil {
 		return nil, nil, err

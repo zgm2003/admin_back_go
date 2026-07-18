@@ -12,6 +12,7 @@ import (
 	realtimemodule "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
+	"admin_back_go/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,7 @@ type Handler struct {
 	upgrader   *infrarealtime.Upgrader
 	manager    *infrarealtime.Manager
 	logger     *slog.Logger
+	recorder   telemetry.Recorder
 	enabled    bool
 	sendBuffer int
 }
@@ -47,6 +49,15 @@ func WithSendBuffer(size int) Option {
 	}
 }
 
+// WithTelemetry records bounded realtime session outcomes.
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(h *Handler) {
+		if recorder != nil {
+			h.recorder = recorder
+		}
+	}
+}
+
 // NewHandler creates a realtime handler.
 func NewHandler(service *realtimemodule.Service, upgrader *infrarealtime.Upgrader, manager *infrarealtime.Manager, logger *slog.Logger, options ...Option) *Handler {
 	if logger == nil {
@@ -63,6 +74,7 @@ func NewHandler(service *realtimemodule.Service, upgrader *infrarealtime.Upgrade
 		upgrader:   upgrader,
 		manager:    manager,
 		logger:     logger,
+		recorder:   telemetry.Noop(),
 		enabled:    true,
 		sendBuffer: defaultSendBuffer,
 	}
@@ -102,6 +114,7 @@ func (h *Handler) WebSocket(c *gin.Context) {
 		WriteWait:    5 * time.Second,
 		PongWait:     2 * h.service.HeartbeatInterval(),
 		PingInterval: h.service.HeartbeatInterval(),
+		Recorder:     h.recorder,
 	})
 	unregister := h.manager.Register(h.service.SessionKey(identity), session)
 	defer unregister()
@@ -117,7 +130,16 @@ func (h *Handler) WebSocket(c *gin.Context) {
 	}
 
 	err = session.Serve(c.Request.Context(), func(ctx context.Context, envelope infrarealtime.Envelope) (*infrarealtime.Envelope, error) {
-		return h.service.HandleClientEnvelope(identity, envelope)
+		replies, err := h.service.HandleClientEnvelope(ctx, identity, session, envelope)
+		if err != nil {
+			return nil, err
+		}
+		for _, reply := range replies {
+			if err := session.SendReplay(ctx, reply); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
 	})
 	if err != nil && !errors.Is(err, infrarealtime.ErrConnectionClosed) {
 		h.logger.DebugContext(c.Request.Context(), "websocket session ended", "error", err)

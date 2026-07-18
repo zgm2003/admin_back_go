@@ -3,10 +3,12 @@ package task
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -16,6 +18,7 @@ import (
 var (
 	ErrRepositoryNotConfigured = errors.New("notification task repository is not configured")
 	ErrClaimInputInvalid       = errors.New("notification task claim input is invalid")
+	ErrEventSinkNotConfigured  = errors.New("notification durable event sink is not configured")
 )
 
 const (
@@ -50,14 +53,29 @@ type Claim struct {
 }
 
 type GormRepository struct {
-	db *gorm.DB
+	db        *gorm.DB
+	eventSink modulerealtime.TransactionalEventSink
 }
 
-func NewGormRepository(client *database.Client) *GormRepository {
+type RepositoryOption func(*GormRepository)
+
+func WithDurableEventSink(sink modulerealtime.TransactionalEventSink) RepositoryOption {
+	return func(repository *GormRepository) {
+		repository.eventSink = sink
+	}
+}
+
+func NewGormRepository(client *database.Client, options ...RepositoryOption) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm}
+	repository := &GormRepository{db: client.Gorm}
+	for _, option := range options {
+		if option != nil {
+			option(repository)
+		}
+	}
+	return repository
 }
 
 func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Task, int64, error) {
@@ -342,15 +360,61 @@ func (r *GormRepository) InsertNotifications(ctx context.Context, rows []Notific
 	if len(rows) == 0 {
 		return nil
 	}
+	if r.eventSink == nil {
+		return ErrEventSinkNotConfigured
+	}
 	for _, row := range rows {
 		if row.SourceTaskID <= 0 || row.UserID <= 0 {
 			return ErrClaimInputInvalid
 		}
 	}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "source_task_id"}, {Name: "user_id"}},
-		DoNothing: true,
-	}).CreateInBatches(rows, 100).Error
+	events := make([]*modulerealtime.Event, 0, len(rows))
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for index := range rows {
+			row := rows[index]
+			level, levelOK := notificationLevelKey(row.Level)
+			notificationType, typeOK := notificationTypeKey(row.Type)
+			if !levelOK || !typeOK {
+				return fmt.Errorf("%w: notification type=%d level=%d", ErrClaimInputInvalid, row.Type, row.Level)
+			}
+			result := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "source_task_id"}, {Name: "user_id"}},
+				DoNothing: true,
+			}).Create(&row)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 || realtimePlatform(row.Platform) == "" {
+				continue
+			}
+			occurredAt := row.CreatedAt
+			if occurredAt.IsZero() {
+				return fmt.Errorf("notification %d created_at was not populated", row.ID)
+			}
+			event, err := r.eventSink.AppendTx(ctx, tx, modulerealtime.AppendInput{
+				Type:      modulerealtime.TypeNotificationCreatedV1,
+				RequestID: fmt.Sprintf("notification-task-%d-%d", row.SourceTaskID, row.UserID),
+				UserID:    row.UserID,
+				Payload: modulerealtime.NotificationCreatedPayload{
+					TaskID: row.SourceTaskID, Title: row.Title, Content: row.Content, Link: row.Link,
+					Level: level, NotificationType: notificationType,
+				},
+				OccurredAt: occurredAt,
+			})
+			if err != nil {
+				return err
+			}
+			events = append(events, event)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		r.eventSink.PublishBestEffort(ctx, event)
+	}
+	return nil
 }
 
 func (r *GormRepository) UpdateProgress(ctx context.Context, id int64, owner string, token uint64, now time.Time, sentCount int, totalCount int) (bool, error) {

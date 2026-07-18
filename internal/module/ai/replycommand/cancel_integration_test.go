@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,5 +85,8 @@ func TestRequestCancelIsDurableAndIdempotentForPendingAndRunningCommands(t *test
 
 	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID+1, "cancel-running", now); !errors.Is(err, ErrConversationUnavailable) {
 		t.Fatalf("unauthorized cancel err=%v", err)
+	}
+	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, strings.Repeat("界", 129), now); !errors.Is(err, ErrCreateInputInvalid) {
+		t.Fatalf("oversized cancel request_id err=%v", err)
 	}
 }

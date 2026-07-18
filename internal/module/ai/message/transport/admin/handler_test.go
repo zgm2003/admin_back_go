@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +20,43 @@ type acceptedMessageService struct{}
 
 func (acceptedMessageService) List(context.Context, int64, aimessage.ListQuery) (*aimessage.ListResponse, *apperror.Error) {
 	return &aimessage.ListResponse{}, nil
+}
+
+func TestSendAndCancelRequestIDContractIs128Characters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewHandler(acceptedMessageService{})
+	identity := func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+	}
+	router.POST("/api/admin/v1/ai-conversations/:id/messages", func(c *gin.Context) { identity(c); handler.Send(c) })
+	router.POST("/api/admin/v1/ai-conversations/:id/messages/cancel", func(c *gin.Context) { identity(c); handler.Cancel(c) })
+
+	for _, test := range []struct {
+		name       string
+		path       string
+		body       func(string) string
+		wantStatus int
+	}{
+		{name: "send 128", path: "/api/admin/v1/ai-conversations/3/messages", body: func(id string) string { return fmt.Sprintf(`{"content":"hello","request_id":"%s"}`, id) }, wantStatus: http.StatusAccepted},
+		{name: "cancel 128", path: "/api/admin/v1/ai-conversations/3/messages/cancel", body: func(id string) string { return fmt.Sprintf(`{"request_id":"%s"}`, id) }, wantStatus: http.StatusOK},
+		{name: "send 129", path: "/api/admin/v1/ai-conversations/3/messages", body: func(id string) string { return fmt.Sprintf(`{"content":"hello","request_id":"%s"}`, id) }, wantStatus: http.StatusBadRequest},
+		{name: "cancel 129", path: "/api/admin/v1/ai-conversations/3/messages/cancel", body: func(id string) string { return fmt.Sprintf(`{"request_id":"%s"}`, id) }, wantStatus: http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			length := 128
+			if strings.Contains(test.name, "129") {
+				length = 129
+			}
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body(strings.Repeat("界", length))))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status=%d want=%d body=%s", recorder.Code, test.wantStatus, recorder.Body.String())
+			}
+		})
+	}
 }
 
 func (acceptedMessageService) Send(_ context.Context, _ int64, input aimessage.SendInput) (*aimessage.SendResponse, *apperror.Error) {

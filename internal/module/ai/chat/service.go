@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +47,7 @@ type Dependencies struct {
 	TextTasks          TextTaskStore
 	RunStaleTimeout    time.Duration
 	Now                func() time.Time
+	Logger             *slog.Logger
 }
 
 type Service struct {
@@ -61,6 +63,7 @@ type Service struct {
 	textTasks          TextTaskStore
 	runStaleTimeout    time.Duration
 	now                func() time.Time
+	logger             *slog.Logger
 }
 
 func NewService(deps Dependencies) *Service {
@@ -72,7 +75,11 @@ func NewService(deps Dependencies) *Service {
 	if runStaleTimeout <= 0 {
 		runStaleTimeout = defaultRunStaleTimeout
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now}
+	logger := deps.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -102,7 +109,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	if agent == nil || agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
 		msg := "该智能体不支持对话场景"
-		_ = s.publishFailed(ctx, input, msg)
 		return nil, apperror.BadRequest(msg)
 	}
 	if err := s.publishStart(ctx, input); err != nil {
@@ -110,32 +116,25 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	engine, appErr := s.engineForAgent(ctx, *agent)
 	if appErr != nil {
-		_ = s.publishFailed(ctx, input, appErr.Message)
 		return nil, appErr
 	}
 	history, err := repo.LatestMessages(ctx, input.ConversationID, maxHistoryLimit+1)
 	if err != nil {
-		msg := "读取AI消息历史失败"
-		_ = s.publishFailed(ctx, input, msg)
 		return nil, err
 	}
 	userMessage, ok := userMessageForID(history, input.UserMessageID)
 	if !ok {
 		msg := "用户消息不存在"
-		_ = s.publishFailed(ctx, input, msg)
 		appErr := apperror.BadRequest(msg)
 		return nil, appErr
 	}
 	userContent := userMessage.Content
 	inputSnapshot, appErr := chatRunInputSnapshot(userMessage)
 	if appErr != nil {
-		msg := appErr.Message
-		_ = s.publishFailed(ctx, input, msg)
 		return nil, appErr
 	}
 	if s.runRecorder == nil {
 		msg := "AI运行记录服务未配置"
-		_ = s.publishFailed(ctx, input, msg)
 		return nil, apperror.Internal(msg)
 	}
 	startedAt := s.now()
@@ -156,7 +155,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		StartedAt:        startedAt,
 	})
 	if err != nil {
-		_ = s.publishFailed(ctx, input, "创建AI运行记录失败")
 		return nil, err
 	}
 	finishRun := func(status string, msg string, cause error) {
@@ -195,7 +193,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
 	if appErr != nil {
-		_ = s.publishFailed(ctx, input, appErr.Message)
 		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
 		return nil, appErr
 	}
@@ -203,14 +200,12 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	result, err := s.streamChatWithAttempt(ctx, input, engine, chatInput, sink)
 	if err != nil {
 		msg := err.Error()
-		_ = s.publishFailed(ctx, input, msg)
 		finishRun(statusFromError(ctx, err), msg, err)
 		return nil, err
 	}
 	if toolCalls := resultToolCalls(result); len(toolCalls) > 0 {
 		if appErr := validateRunUsageStatus(result); appErr != nil {
 			msg := appErr.Message
-			_ = s.publishFailed(ctx, input, msg)
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
 			return nil, appErr
 		}
@@ -218,7 +213,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		outputs, toolErr := s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
 		if toolErr != nil {
 			msg := toolErr.Error()
-			_ = s.publishFailed(ctx, input, msg)
 			finishRun(enum.AIRunStatusFailed, msg, toolErr)
 			return nil, toolErr
 		}
@@ -227,13 +221,11 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		result, err = s.streamChatWithAttempt(ctx, input, engine, chatInput, sink)
 		if err != nil {
 			msg := err.Error()
-			_ = s.publishFailed(ctx, input, msg)
 			finishRun(statusFromError(ctx, err), msg, err)
 			return nil, err
 		}
 		if appErr := validateRunUsageStatus(result); appErr != nil {
 			msg := appErr.Message
-			_ = s.publishFailed(ctx, input, msg)
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
 			return nil, appErr
 		}
@@ -241,7 +233,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		if len(resultToolCalls(result)) > 0 {
 			msg := "工具调用轮次超过MVP限制"
 			appErr := apperror.BadRequest(msg)
-			_ = s.publishFailed(ctx, input, msg)
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
 			return nil, appErr
 		}
@@ -259,7 +250,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	if appErr := validateRunUsageStatus(result); appErr != nil {
 		msg := appErr.Message
-		_ = s.publishFailed(ctx, input, msg)
 		finishRun(enum.AIRunStatusFailed, msg, appErr)
 		return nil, appErr
 	}
@@ -271,7 +261,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	assistantID, published, err := s.assistantPublisher.PublishAssistant(ctx, AssistantPublication{CommandID: input.CommandID, ConversationID: input.ConversationID, Owner: input.LeaseOwner, Token: input.LeaseToken, Content: answer, Now: s.now()})
 	if err != nil {
 		msg := "保存AI助手消息失败"
-		_ = s.publishFailed(ctx, input, msg)
 		finishRun(enum.AIRunStatusFailed, msg, err)
 		return nil, err
 	}
@@ -284,12 +273,8 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	assistantMessageID := assistantID
 	tokens := resultTokens(result)
 	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
-		msg := "更新AI运行记录失败"
-		_ = s.publishFailed(ctx, input, msg)
-		return nil, err
-	}
-	if err := s.publishCompleted(ctx, input, assistantID); err != nil {
-		return nil, err
+		s.logger.WarnContext(context.WithoutCancel(ctx), "AI run completion recording failed after durable reply commit",
+			"command_id", input.CommandID, "run_id", runID, "assistant_message_id", assistantID, "error", err)
 	}
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
 }
@@ -635,27 +620,11 @@ func (s *Service) publishDelta(ctx context.Context, input ConversationReplyInput
 	return s.publish(ctx, input.UserID, event)
 }
 
-func (s *Service) publishCompleted(ctx context.Context, input ConversationReplyInput, assistantMessageID int64) error {
-	event, err := BuildCompletedEvent(CompletedPayload{ConversationID: input.ConversationID, RequestID: input.RequestID, AssistantMessageID: assistantMessageID})
-	if err != nil {
-		return err
-	}
-	return s.publish(ctx, input.UserID, event)
-}
-
-func (s *Service) publishFailed(ctx context.Context, input ConversationReplyInput, msg string) error {
-	event, err := BuildFailedEvent(FailedPayload{ConversationID: input.ConversationID, RequestID: input.RequestID, Msg: msg})
-	if err != nil {
-		return err
-	}
-	return s.publish(ctx, input.UserID, event)
-}
-
-func (s *Service) publish(ctx context.Context, userID int64, event EnvelopeEvent) error {
+func (s *Service) publish(ctx context.Context, userID int64, event infrarealtime.Envelope) error {
 	if s.publisher == nil {
 		return nil
 	}
-	return s.publisher.Publish(ctx, infrarealtime.Publication{Platform: enum.PlatformAdmin, UserID: userID, Envelope: event.Envelope})
+	return s.publisher.Publish(ctx, infrarealtime.Publication{Platform: enum.PlatformAdmin, UserID: userID, Envelope: event})
 }
 
 type conversationEventSink struct {
@@ -668,23 +637,10 @@ func (s *conversationEventSink) Emit(ctx context.Context, event infraai.Event) e
 		return nil
 	}
 	if event.Type == "delta" {
-		delta := event.DeltaText
-		if delta == "" && event.Payload != nil {
-			if value, ok := event.Payload["delta"].(string); ok {
-				delta = value
-			}
-		}
-		return s.service.publishDelta(ctx, s.input, delta)
+		return s.service.publishDelta(ctx, s.input, event.DeltaText)
 	}
-	if event.Type == "failed" {
-		msg := "AI回复失败"
-		if event.Payload != nil {
-			if value, ok := event.Payload["message"].(string); ok && strings.TrimSpace(value) != "" {
-				msg = value
-			}
-		}
-		return s.service.publishFailed(ctx, s.input, msg)
-	}
+	// Terminal state belongs exclusively to the fenced replycommand
+	// transition, which persists the event in the same transaction.
 	return nil
 }
 

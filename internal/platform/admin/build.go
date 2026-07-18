@@ -49,6 +49,7 @@ import (
 	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/role"
 	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/module/systemlog"
@@ -131,6 +132,8 @@ func Build(input BuildInput) (*BuildResult, error) {
 	}
 	providers := *input.Providers
 	resources := input.Resources
+	realtimeEventRepository := modulerealtime.NewGormRepository(resources.DB, modulerealtime.DefaultRegistry())
+	realtimeEventSink := modulerealtime.NewDurableEventSink(realtimeEventRepository, publisher, logger)
 	accessCodec, err := accessTokenCodecForKeys(input.Keys)
 	if err != nil {
 		return nil, fmt.Errorf("build access token codec: %w", err)
@@ -289,16 +292,19 @@ func Build(input BuildInput) (*BuildResult, error) {
 		RunRecorder:      aiRunRecorder,
 		TextTasks:        aiTextTasks,
 		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
+		Logger:           logger,
 	})
 	aiMessageService := aimessage.NewService(
-		aimessage.NewGormRepository(resources.DB),
+		aimessage.NewGormRepository(
+			resources.DB,
+			replycommand.WithDurableEventSink(realtimeEventSink),
+		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
 		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
 	)
 	notificationTaskService := notificationtask.NewService(
-		notificationtask.NewGormRepository(resources.DB),
+		notificationtask.NewGormRepository(resources.DB, notificationtask.WithDurableEventSink(realtimeEventSink)),
 		notificationtask.WithEnqueuer(input.Queue),
-		notificationtask.WithRealtimePublisher(publisher),
 		notificationtask.WithLogger(logger),
 	)
 	exportTaskService := exporttask.NewService(exporttask.NewGormRepository(resources.DB), exporttask.WithLogger(logger))

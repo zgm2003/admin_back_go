@@ -46,7 +46,10 @@ func Build(options BuildOptions) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("build OpenAPI: %w", err)
 	}
-	envelopeSchema, eventsSchema := buildRealtimeSchemas()
+	envelopeSchema, eventsSchema, err := buildRealtimeSchemas()
+	if err != nil {
+		return Bundle{}, fmt.Errorf("build realtime schemas: %w", err)
+	}
 
 	artifacts := make(map[string][]byte, 5)
 	for name, value := range map[string]any{

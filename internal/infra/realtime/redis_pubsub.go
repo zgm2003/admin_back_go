@@ -1,9 +1,11 @@
 package realtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -20,13 +22,14 @@ type redisClient interface {
 
 // RedisPublisher publishes realtime publications to a Redis Pub/Sub channel.
 type RedisPublisher struct {
-	client  redisClient
-	channel string
+	client    redisClient
+	channel   string
+	validator EnvelopeValidator
 }
 
 // NewRedisPublisher creates a Redis-backed realtime publisher.
-func NewRedisPublisher(client redisClient, channel string) *RedisPublisher {
-	return &RedisPublisher{client: client, channel: strings.TrimSpace(channel)}
+func NewRedisPublisher(client redisClient, channel string, validators ...EnvelopeValidator) *RedisPublisher {
+	return &RedisPublisher{client: client, channel: strings.TrimSpace(channel), validator: firstEnvelopeValidator(validators)}
 }
 
 // Publish serializes one publication and sends it to Redis Pub/Sub.
@@ -34,8 +37,13 @@ func (p *RedisPublisher) Publish(ctx context.Context, publication Publication) e
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := validatePublicationTarget(publication); err != nil {
+	if err := validateRedisPublication(publication); err != nil {
 		return err
+	}
+	if p != nil && p.validator != nil {
+		if err := p.validator(publication.Envelope); err != nil {
+			return err
+		}
 	}
 	if p == nil || p.client == nil || strings.TrimSpace(p.channel) == "" {
 		return ErrRealtimeRedisNotReady
@@ -103,7 +111,7 @@ func (s *RedisSubscriber) Start(ctx context.Context) error {
 				if !ok {
 					return
 				}
-				if err := s.handlePayload(runCtx, []byte(msg.Payload)); err != nil && !errors.Is(err, ErrSessionNotFound) && s.logger != nil {
+				if err := s.handlePayload(runCtx, []byte(msg.Payload)); err != nil && !errors.Is(err, ErrSessionNotFound) && !errors.Is(err, ErrTopicNotSubscribed) && s.logger != nil {
 					s.logger.WarnContext(runCtx, "failed to handle realtime redis publication", "channel", s.channel, "error", err)
 				}
 			}
@@ -151,7 +159,7 @@ func (s *RedisSubscriber) handlePayload(ctx context.Context, payload []byte) err
 }
 
 func encodeRedisPublication(publication Publication) ([]byte, error) {
-	if err := validatePublicationTarget(publication); err != nil {
+	if err := validateRedisPublication(publication); err != nil {
 		return nil, err
 	}
 	return json.Marshal(publication)
@@ -159,16 +167,25 @@ func encodeRedisPublication(publication Publication) ([]byte, error) {
 
 func decodeRedisPublication(payload []byte) (Publication, error) {
 	var publication Publication
-	if err := json.Unmarshal(payload, &publication); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&publication); err != nil {
 		return Publication{}, err
 	}
-	if len(publication.Envelope.Data) == 0 {
-		publication.Envelope.Data = json.RawMessage(`{}`)
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return Publication{}, errors.New("realtime Redis publication has trailing JSON content")
 	}
-	if err := validatePublicationTarget(publication); err != nil {
+	if err := validateRedisPublication(publication); err != nil {
 		return Publication{}, err
 	}
 	return publication, nil
+}
+
+func validateRedisPublication(publication Publication) error {
+	if err := validatePublicationTarget(publication); err != nil {
+		return err
+	}
+	return ValidateServerEnvelope(publication.Envelope)
 }
 
 func validatePublicationTarget(publication Publication) error {

@@ -56,12 +56,13 @@ func (f *fakeTextTaskStore) Fail(ctx context.Context, input aitext.FailInput) er
 }
 
 type fakeRunRecorder struct {
-	nextID    int64
-	started   airun.StartInput
-	completed airun.CompleteInput
-	failed    airun.FailInput
-	canceled  airun.CancelInput
-	timeout   airun.TimeoutInput
+	nextID      int64
+	completeErr error
+	started     airun.StartInput
+	completed   airun.CompleteInput
+	failed      airun.FailInput
+	canceled    airun.CancelInput
+	timeout     airun.TimeoutInput
 }
 
 func (f *fakeRunRecorder) Start(ctx context.Context, input airun.StartInput) (int64, error) {
@@ -74,7 +75,7 @@ func (f *fakeRunRecorder) Start(ctx context.Context, input airun.StartInput) (in
 
 func (f *fakeRunRecorder) Complete(ctx context.Context, input airun.CompleteInput) error {
 	f.completed = input
-	return nil
+	return f.completeErr
 }
 
 func (f *fakeRunRecorder) Fail(ctx context.Context, input airun.FailInput) error {
@@ -178,6 +179,23 @@ func (f *fakeAssistantPublisher) PublishAssistant(_ context.Context, input Assis
 func (f *fakePublisher) Publish(ctx context.Context, p infrarealtime.Publication) error {
 	f.pubs = append(f.pubs, p)
 	return nil
+}
+
+func TestConversationEventSinkDoesNotGuessDeltaFromPayload(t *testing.T) {
+	publisher := &fakePublisher{}
+	sink := &conversationEventSink{
+		service: &Service{publisher: publisher},
+		input:   ConversationReplyInput{ConversationID: 3, UserID: 7, RequestID: "rid"},
+	}
+	if err := sink.Emit(t.Context(), infraai.Event{
+		Type:    "delta",
+		Payload: map[string]any{"delta": "payload-only must not become a realtime delta"},
+	}); err != nil {
+		t.Fatalf("emit payload-only provider event: %v", err)
+	}
+	if len(publisher.pubs) != 0 {
+		t.Fatalf("payload-only provider event was guessed into realtime: %#v", publisher.pubs)
+	}
 }
 
 type fakeEngineFactory struct {
@@ -395,7 +413,7 @@ func TestCanvasCompletionRejectsEmptyProviderAnswer(t *testing.T) {
 	}
 }
 
-func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAssistant(t *testing.T) {
+func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsAssistant(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
@@ -407,7 +425,7 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	pub := &fakePublisher{}
 	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{}, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -423,13 +441,34 @@ func TestExecuteConversationReplyPublishesConversationScopedEventsAndPersistsAss
 	if recorder.completed.RunID != 100 || recorder.completed.AssistantMessageID == nil || *recorder.completed.AssistantMessageID != 22 {
 		t.Fatalf("run was not completed correctly: %#v", recorder.completed)
 	}
-	if len(pub.pubs) < 3 || pub.pubs[0].Envelope.Type != EventAIResponseStart || pub.pubs[1].Envelope.Type != EventAIResponseDelta || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseCompleted {
+	if len(pub.pubs) != 2 || pub.pubs[0].Envelope.Type != EventAIResponseStart || pub.pubs[1].Envelope.Type != EventAIResponseDelta {
 		t.Fatalf("unexpected publications: %#v", pub.pubs)
 	}
 	for _, pub := range pub.pubs {
 		if pub.UserID != 7 || pub.Platform != enum.PlatformAdmin {
 			t.Fatalf("publication not scoped to current admin user: %#v", pub)
 		}
+	}
+}
+
+func TestExecuteDurableConversationReplyDoesNotReportFailureAfterTerminalCommit(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	recorder := &fakeRunRecorder{nextID: 100, completeErr: errors.New("run recorder unavailable after commit")}
+	res, err := NewService(Dependencies{
+		Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{},
+		Publisher: &fakePublisher{}, RunRecorder: recorder,
+		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}, Secretbox: box,
+	}).ExecuteConversationReply(t.Context(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2,
+		ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid",
+	})
+	if err != nil || res == nil || res.AssistantMessageID != 22 {
+		t.Fatalf("committed assistant result was reported as failed: result=%#v err=%v", res, err)
 	}
 }
 
@@ -621,17 +660,19 @@ func TestAssistantMessageZeroValueMetaJSONIsNil(t *testing.T) {
 	}
 }
 
-func TestExecuteConversationReplyPublishesFailedForEngineError(t *testing.T) {
+func TestExecuteDurableConversationReplyDoesNotPublishUncommittedFailure(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{}, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected engine error")
 	}
-	if len(pub.pubs) == 0 || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseFailed {
-		t.Fatalf("expected failed publication, got %#v", pub.pubs)
+	for _, publication := range pub.pubs {
+		if publication.Envelope.Type == EventAIResponseFailed || publication.Envelope.Type == EventAIResponseCompleted {
+			t.Fatalf("durable terminal event was published outside command transaction: %#v", pub.pubs)
+		}
 	}
 	if recorder.failed.RunID != 100 || recorder.failed.Message == "" {
 		t.Fatalf("run failure not persisted: %#v", recorder.failed)
@@ -673,8 +714,13 @@ func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t 
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "AI没有返回内容" {
 		t.Fatalf("unexpected fallback result: res=%#v assistant=%#v", res, repo.assistant)
 	}
-	if len(pub.pubs) < 3 || pub.pubs[len(pub.pubs)-2].Envelope.Type != EventAIResponseDelta || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseCompleted {
-		t.Fatalf("expected fallback delta before completed, got %#v", pub.pubs)
+	if len(pub.pubs) < 2 || pub.pubs[len(pub.pubs)-1].Envelope.Type != EventAIResponseDelta {
+		t.Fatalf("expected fallback delta, got %#v", pub.pubs)
+	}
+	for _, publication := range pub.pubs {
+		if publication.Envelope.Type == EventAIResponseCompleted || publication.Envelope.Type == EventAIResponseFailed {
+			t.Fatalf("terminal events must only be emitted by the durable command transaction: %#v", pub.pubs)
+		}
 	}
 }
 

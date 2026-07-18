@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"admin_back_go/internal/infra/database"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -46,7 +47,7 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		return nil, ErrRepositoryNotConfigured
 	}
 	requestID = strings.TrimSpace(requestID)
-	if conversationID <= 0 || userID <= 0 || requestID == "" {
+	if conversationID <= 0 || userID <= 0 || requestID == "" || utf8.RuneCountInString(requestID) > 128 {
 		return nil, ErrCreateInputInvalid
 	}
 	if ctx == nil {
@@ -56,6 +57,7 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		now = time.Now()
 	}
 	var command Command
+	var durableEvent *modulerealtime.Event
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var conversation replyConversation
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -95,11 +97,30 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		if err := tx.Model(&Command{}).Where("id = ?", command.ID).Updates(updates).Error; err != nil {
 			return err
 		}
+		if command.State == StateCanceled && r.eventSink != nil {
+			var err error
+			durableEvent, err = r.eventSink.AppendTx(ctx, tx, modulerealtime.AppendInput{
+				Type:      modulerealtime.TypeAIResponseCanceledV1,
+				RequestID: command.RequestID,
+				UserID:    command.UserID,
+				Payload: modulerealtime.AIResponseCanceledPayload{
+					ConversationID: command.ConversationID,
+					RequestID:      command.RequestID,
+				},
+				OccurredAt: now,
+			})
+			if err != nil {
+				return err
+			}
+		}
 		command.UpdatedAt = now
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	if durableEvent != nil {
+		r.eventSink.PublishBestEffort(ctx, durableEvent)
 	}
 	return &command, nil
 }
@@ -123,13 +144,28 @@ type GormRepository struct {
 	db             *gorm.DB
 	now            func() time.Time
 	idempotencyKey func(int64, string) string
+	eventSink      modulerealtime.TransactionalEventSink
 }
 
-func NewGormRepository(client *database.Client) *GormRepository {
+type RepositoryOption func(*GormRepository)
+
+func WithDurableEventSink(sink modulerealtime.TransactionalEventSink) RepositoryOption {
+	return func(repository *GormRepository) {
+		repository.eventSink = sink
+	}
+}
+
+func NewGormRepository(client *database.Client, options ...RepositoryOption) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return newGormRepository(client.Gorm)
+	repository := newGormRepository(client.Gorm)
+	for _, option := range options {
+		if option != nil {
+			option(repository)
+		}
+	}
+	return repository
 }
 
 func newGormRepository(db *gorm.DB) *GormRepository {
@@ -144,8 +180,8 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		return CreateReplyResult{}, ErrRepositoryNotConfigured
 	}
 	input.RequestID = strings.TrimSpace(input.RequestID)
-	if input.ConversationID <= 0 || input.UserID <= 0 || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 64 {
-		return CreateReplyResult{}, fmt.Errorf("%w: conversation_id, user_id and request_id are required and request_id is at most 64 characters", ErrCreateInputInvalid)
+	if input.ConversationID <= 0 || input.UserID <= 0 || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {
+		return CreateReplyResult{}, fmt.Errorf("%w: conversation_id, user_id and request_id are required and request_id is at most 128 characters", ErrCreateInputInvalid)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -403,10 +439,85 @@ func (r *GormRepository) Transition(ctx context.Context, commandID uint64, owner
 		updates["lease_owner"] = nil
 		updates["lease_expires_at"] = nil
 	}
+	if terminalState(to) {
+		finishedAt, ok := updates["finished_at"].(time.Time)
+		if !ok || finishedAt.IsZero() {
+			return false, ErrCreateInputInvalid
+		}
+	}
+	if to == StateFailed || to == StateTimedOut {
+		message, ok := updates["last_error_message"].(string)
+		if !ok || strings.TrimSpace(message) == "" {
+			return false, ErrCreateInputInvalid
+		}
+	}
+	if r.eventSink != nil && (to == StateFailed || to == StateTimedOut || to == StateCanceled) {
+		return r.transitionWithTerminalEvent(ctx, commandID, strings.TrimSpace(owner), token, from, to, updates)
+	}
 	result := r.db.WithContext(ctx).Model(&Command{}).
 		Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, from).
 		Updates(updates)
 	return result.RowsAffected == 1, result.Error
+}
+
+func (r *GormRepository) transitionWithTerminalEvent(ctx context.Context, commandID uint64, owner string, token uint64, from State, to State, updates map[string]any) (bool, error) {
+	var applied bool
+	var durableEvent *modulerealtime.Event
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var command Command
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, from).
+			First(&command).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&Command{}).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, from).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return nil
+		}
+		occurredAt := updates["finished_at"].(time.Time)
+		eventInput := modulerealtime.AppendInput{
+			RequestID:  command.RequestID,
+			UserID:     command.UserID,
+			OccurredAt: occurredAt,
+		}
+		if to == StateCanceled {
+			eventInput.Type = modulerealtime.TypeAIResponseCanceledV1
+			eventInput.Payload = modulerealtime.AIResponseCanceledPayload{
+				ConversationID: command.ConversationID,
+				RequestID:      command.RequestID,
+			}
+		} else {
+			message, _ := updates["last_error_message"].(string)
+			eventInput.Type = modulerealtime.TypeAIResponseFailedV1
+			eventInput.Payload = modulerealtime.AIResponseFailedPayload{
+				ConversationID: command.ConversationID,
+				RequestID:      command.RequestID,
+				Msg:            strings.TrimSpace(message),
+			}
+		}
+		durableEvent, err = r.eventSink.AppendTx(ctx, tx, eventInput)
+		if err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if durableEvent != nil {
+		r.eventSink.PublishBestEffort(ctx, durableEvent)
+	}
+	return applied, nil
 }
 
 func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssistantInput) (int64, bool, error) {
@@ -422,6 +533,7 @@ func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssi
 	}
 	var assistantID int64
 	var published bool
+	var durableEvent *modulerealtime.Event
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing replyMessage
 		err := tx.Where("reply_command_id = ?", input.CommandID).First(&existing).Error
@@ -489,6 +601,20 @@ func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssi
 		if result.RowsAffected != 1 {
 			return errPublishLeaseLost
 		}
+		if r.eventSink != nil {
+			durableEvent, err = r.eventSink.AppendTx(ctx, tx, modulerealtime.AppendInput{
+				Type:      modulerealtime.TypeAIResponseCompletedV1,
+				RequestID: command.RequestID,
+				UserID:    command.UserID,
+				Payload: modulerealtime.AIResponseCompletedPayload{
+					ConversationID: command.ConversationID, RequestID: command.RequestID, AssistantMessageID: message.ID,
+				},
+				OccurredAt: input.Now,
+			})
+			if err != nil {
+				return err
+			}
+		}
 		assistantID = message.ID
 		published = true
 		return nil
@@ -498,6 +624,9 @@ func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssi
 	}
 	if err != nil {
 		return 0, false, err
+	}
+	if durableEvent != nil {
+		r.eventSink.PublishBestEffort(ctx, durableEvent)
 	}
 	return assistantID, published, nil
 }

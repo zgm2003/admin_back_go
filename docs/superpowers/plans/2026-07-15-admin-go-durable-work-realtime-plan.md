@@ -347,6 +347,19 @@ git commit -m "fix(work): lease notification and export execution"
 
 ### Task 8: Deepen typed realtime delivery and recovery
 
+#### Confirmed supplemental contract (2026-07-18)
+
+The following decisions are part of the formal P05 contract and are not implementation fallbacks:
+
+- Durable realtime events are retained for exactly **7 days**. Every durable row stores `expires_at = occurred_at + 7 days`.
+- `realtime.resync_required.v1` is a server-only Ephemeral event (`sequence = 0`) with the exact payload `{"latest_sequence": 123}`.
+- `ai.response.canceled.v1` is a server-only Durable event with the exact payload `{"conversation_id": 1, "request_id": "..."}`.
+- `request_id` is non-empty where the event/domain contract requires it and is at most **128 Unicode characters** end to end: HTTP validation, WebSocket envelope/payload, repositories, MySQL columns, reconciliation schema, and generated contract.
+- Retention progress is stored per target in `realtime_event_retention_watermarks(target_type,target_id,deleted_through_sequence,updated_at)` with a unique `(target_type,target_id)` key.
+- Resume requires resync exactly when `after_sequence < deleted_through_sequence`. The returned `latest_sequence` is `max(current target event maximum sequence, deleted_through_sequence)`.
+- Expired-event deletion and advancement of `deleted_through_sequence` happen in the same MySQL transaction. A cleanup rollback changes neither events nor watermark.
+- Redis remains best-effort live fan-out only. MySQL events plus the watermark are the durable recovery truth.
+
 **Files:**
 - Modify: `internal/infra/realtime/envelope.go`
 - Modify: `internal/infra/realtime/envelope_test.go`

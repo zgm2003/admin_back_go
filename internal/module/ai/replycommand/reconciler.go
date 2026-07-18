@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -171,6 +172,9 @@ func (r *GormRepository) ResolveOutcomeUnknown(ctx context.Context, input Reconc
 	if input.CommandID == 0 || (input.State != StateSucceeded && input.State != StateFailed) {
 		return false, ErrCreateInputInvalid
 	}
+	if input.State == StateFailed && strings.TrimSpace(input.ErrorMessage) == "" {
+		return false, ErrCreateInputInvalid
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -178,6 +182,7 @@ func (r *GormRepository) ResolveOutcomeUnknown(ctx context.Context, input Reconc
 		input.Now = time.Now()
 	}
 	resolved := false
+	var durableEvent *modulerealtime.Event
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var command Command
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND state = ?", input.CommandID, StateOutcomeUnknown).First(&command).Error
@@ -237,8 +242,34 @@ func (r *GormRepository) ResolveOutcomeUnknown(ctx context.Context, input Reconc
 		if result.Error != nil {
 			return result.Error
 		}
-		resolved = result.RowsAffected == 1
+		if result.RowsAffected != 1 {
+			return nil
+		}
+		if r.eventSink != nil {
+			eventInput := modulerealtime.AppendInput{RequestID: command.RequestID, UserID: command.UserID, OccurredAt: input.Now}
+			if input.State == StateSucceeded {
+				eventInput.Type = modulerealtime.TypeAIResponseCompletedV1
+				eventInput.Payload = modulerealtime.AIResponseCompletedPayload{
+					ConversationID: command.ConversationID, RequestID: command.RequestID, AssistantMessageID: assistant.ID,
+				}
+			} else {
+				message := strings.TrimSpace(input.ErrorMessage)
+				eventInput.Type = modulerealtime.TypeAIResponseFailedV1
+				eventInput.Payload = modulerealtime.AIResponseFailedPayload{
+					ConversationID: command.ConversationID, RequestID: command.RequestID, Msg: message,
+				}
+			}
+			var err error
+			durableEvent, err = r.eventSink.AppendTx(ctx, tx, eventInput)
+			if err != nil {
+				return err
+			}
+		}
+		resolved = true
 		return nil
 	})
+	if err == nil && durableEvent != nil {
+		r.eventSink.PublishBestEffort(ctx, durableEvent)
+	}
 	return resolved, err
 }

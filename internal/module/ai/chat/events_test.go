@@ -4,25 +4,21 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	infrarealtime "admin_back_go/internal/infra/realtime"
 )
 
 func TestEnvelopeBuildersUseConversationScopedPayloads(t *testing.T) {
 	cases := []struct {
 		name         string
 		envelopeType string
-		build        func() (EnvelopeEvent, error)
+		build        func() (infrarealtime.Envelope, error)
 	}{
-		{"start", EventAIResponseStart, func() (EnvelopeEvent, error) {
+		{"start", EventAIResponseStart, func() (infrarealtime.Envelope, error) {
 			return BuildStartEvent(StartPayload{ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: 2})
 		}},
-		{"delta", EventAIResponseDelta, func() (EnvelopeEvent, error) {
+		{"delta", EventAIResponseDelta, func() (infrarealtime.Envelope, error) {
 			return BuildDeltaEvent(DeltaPayload{ConversationID: 3, RequestID: "rid", Delta: "hello"})
-		}},
-		{"completed", EventAIResponseCompleted, func() (EnvelopeEvent, error) {
-			return BuildCompletedEvent(CompletedPayload{ConversationID: 3, RequestID: "rid", AssistantMessageID: 10})
-		}},
-		{"failed", EventAIResponseFailed, func() (EnvelopeEvent, error) {
-			return BuildFailedEvent(FailedPayload{ConversationID: 3, RequestID: "rid", Msg: "bad"})
 		}},
 	}
 	for _, tc := range cases {
@@ -31,15 +27,18 @@ func TestEnvelopeBuildersUseConversationScopedPayloads(t *testing.T) {
 			if err != nil {
 				t.Fatalf("builder returned error: %v", err)
 			}
-			if event.Envelope.Type != tc.envelopeType {
-				t.Fatalf("expected type %s, got %#v", tc.envelopeType, event.Envelope)
+			if event.Type != tc.envelopeType {
+				t.Fatalf("expected type %s, got %#v", tc.envelopeType, event)
+			}
+			if event.RequestID != "rid" {
+				t.Fatalf("envelope request_id must preserve the documented correlation ID: %#v", event)
 			}
 			var data map[string]any
-			if err := json.Unmarshal(event.Envelope.Data, &data); err != nil {
+			if err := json.Unmarshal(event.Data, &data); err != nil {
 				t.Fatalf("invalid data: %v", err)
 			}
-			if _, ok := data["run_id"]; ok || strings.Contains(string(event.Envelope.Data), "run_id") {
-				t.Fatalf("conversation event must not contain run_id: %s", string(event.Envelope.Data))
+			if _, ok := data["run_id"]; ok || strings.Contains(string(event.Data), "run_id") {
+				t.Fatalf("conversation event must not contain run_id: %s", string(event.Data))
 			}
 			if data["conversation_id"] != float64(3) || data["request_id"] != "rid" {
 				t.Fatalf("unexpected payload: %#v", data)

@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func TestSessionSendDropsConnectionWhenQueueIsFull(t *testing.T) {
+func TestSlowClientSendQueueDisconnects(t *testing.T) {
 	session := NewSession(nil, SessionOptions{SendBuffer: 1})
 
 	first := mustRealtimeEnvelope(t, "realtime.notice.v1", "rid-1")
@@ -36,6 +36,60 @@ func TestSessionSendDropsConnectionWhenQueueIsFull(t *testing.T) {
 	}
 }
 
+func TestResumeReplayWaitsForQueueDrain(t *testing.T) {
+	session := NewSession(nil, SessionOptions{SendBuffer: 1})
+	defer session.Close()
+	first := mustRealtimeEnvelope(t, "notification.created.v1", "rid-first")
+	second := mustRealtimeEnvelope(t, "notification.created.v1", "rid-second")
+	if err := session.Send(first); err != nil {
+		t.Fatalf("prime replay queue: %v", err)
+	}
+	drained := make(chan struct{})
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		<-session.send
+		close(drained)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := session.SendReplay(ctx, second); err != nil {
+		t.Fatalf("SendReplay returned error: %v", err)
+	}
+	<-drained
+	assertSessionQueued(t, session, second)
+}
+
+func TestSubscriptionFiltersDeliveryAndReplaceRemovesOldTopics(t *testing.T) {
+	manager := NewManager()
+	session := NewSession(nil, SessionOptions{SendBuffer: 2})
+	defer session.Close()
+	manager.Register("admin:7:9", session)
+	message := mustRealtimeEnvelope(t, "notification.created.v1", "rid-subscription")
+
+	if err := manager.SendToUser("admin", 7, message); !errors.Is(err, ErrTopicNotSubscribed) {
+		t.Fatalf("unsubscribed session received delivery: %v", err)
+	}
+	select {
+	case got := <-session.send:
+		t.Fatalf("unsubscribed session queued envelope: %#v", got)
+	default:
+	}
+
+	session.ReplaceTopics([]string{"user:7", "platform:admin"})
+	if err := manager.SendToUser("admin", 7, message); err != nil {
+		t.Fatalf("subscribed delivery failed: %v", err)
+	}
+	assertSessionQueued(t, session, message)
+
+	session.ReplaceTopics([]string{"platform:admin"})
+	if session.Subscribed("user:7") {
+		t.Fatal("replace retained a removed user topic")
+	}
+	if err := manager.SendToUser("admin", 7, message); !errors.Is(err, ErrTopicNotSubscribed) {
+		t.Fatalf("removed topic still received delivery: %v", err)
+	}
+}
+
 func TestManagerRegistersReplacesSendsAndUnregistersSessions(t *testing.T) {
 	manager := NewManager()
 	first := NewSession(nil, SessionOptions{SendBuffer: 1})
@@ -46,6 +100,7 @@ func TestManagerRegistersReplacesSendsAndUnregistersSessions(t *testing.T) {
 	}
 
 	replacement := NewSession(nil, SessionOptions{SendBuffer: 1})
+	replacement.ReplaceTopics([]string{"session:9"})
 	unregisterReplacement := manager.Register("admin:7:9", replacement)
 
 	select {
@@ -83,6 +138,7 @@ func TestManagerRecordsConnectionReconnectDropAndSendPressureWithoutSessionIdent
 	first := NewSession(nil, SessionOptions{SendBuffer: 1})
 	manager.Register("admin:7:secret-session", first)
 	replacement := NewSession(nil, SessionOptions{SendBuffer: 1})
+	replacement.ReplaceTopics([]string{"session:secret-session"})
 	unregister := manager.Register("admin:7:secret-session", replacement)
 
 	message := mustRealtimeEnvelope(t, "realtime.notice.v1", "private-request")
@@ -184,6 +240,65 @@ func TestSessionServeUsesWritePumpAndRepliesToPing(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("server did not finish after client close")
+	}
+}
+
+func TestEnvelopeHandlerIsolationRecoversPanicAndContinuesReadPump(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	serverDone := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := NewUpgrader(func(*http.Request) bool { return true }).Upgrade(w, r)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		session := NewSession(conn, SessionOptions{SendBuffer: 4, WriteWait: time.Second, PongWait: 5 * time.Second, PingInterval: time.Hour, Recorder: recorder})
+		serverDone <- session.Serve(context.Background(),
+			func(context.Context, Envelope) (*Envelope, error) { panic("broken handler") },
+			func(context.Context, Envelope) (*Envelope, error) { return nil, errors.New("isolated handler error") },
+			func(_ context.Context, envelope Envelope) (*Envelope, error) {
+				pong := mustRealtimeEnvelope(t, "realtime.pong.v1", envelope.RequestID)
+				return &pong, nil
+			},
+		)
+	}))
+	defer server.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], nil)
+	if err != nil {
+		t.Fatalf("Dial returned error: %v", err)
+	}
+	defer client.Close()
+	for _, requestID := range []string{"rid-one", "rid-two"} {
+		if err := client.WriteJSON(map[string]any{"type": "realtime.ping.v1", "request_id": requestID, "data": map[string]any{}}); err != nil {
+			t.Fatalf("write ping: %v", err)
+		}
+		var pong Envelope
+		if err := client.ReadJSON(&pong); err != nil {
+			t.Fatalf("read pong after isolated handler failure: %v", err)
+		}
+		if pong.RequestID != requestID {
+			t.Fatalf("unexpected pong: %#v", pong)
+		}
+	}
+
+	events := recorder.Events()
+	var panics, failures int
+	for _, event := range events {
+		operation, _ := event.Attributes["realtime.operation"].(string)
+		outcome, _ := event.Attributes["realtime.outcome"].(string)
+		if operation != "handler" {
+			continue
+		}
+		switch outcome {
+		case "panic":
+			panics++
+		case "error":
+			failures++
+		}
+	}
+	if panics != 2 || failures != 2 {
+		t.Fatalf("handler isolation metrics panic=%d error=%d events=%+v", panics, failures, events)
 	}
 }
 

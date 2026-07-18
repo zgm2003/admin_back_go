@@ -5,6 +5,7 @@ FROM (
   UNION ALL SELECT 'ai_assets' UNION ALL SELECT 'payment_callback_events' UNION ALL SELECT 'user_wallets'
   UNION ALL SELECT 'mail_configs' UNION ALL SELECT 'sms_configs' UNION ALL SELECT 'authz_principal_versions'
   UNION ALL SELECT 'ai_reply_commands' UNION ALL SELECT 'ai_provider_attempts' UNION ALL SELECT 'realtime_events'
+  UNION ALL SELECT 'realtime_event_retention_watermarks'
 ) required
 LEFT JOIN information_schema.tables t ON t.table_schema=DATABASE() AND t.table_name=required.name
 WHERE t.table_name IS NULL;
@@ -18,6 +19,10 @@ FROM (
   UNION ALL SELECT 'mail_configs','verify_code_ttl_minutes' UNION ALL SELECT 'sms_configs','verify_code_ttl_minutes'
   UNION ALL SELECT 'notifications','source_task_id' UNION ALL SELECT 'notification_task','claim_owner'
   UNION ALL SELECT 'notification_task','claim_token' UNION ALL SELECT 'notification_task','claim_expires_at'
+  UNION ALL SELECT 'realtime_event_retention_watermarks','target_type'
+  UNION ALL SELECT 'realtime_event_retention_watermarks','target_id'
+  UNION ALL SELECT 'realtime_event_retention_watermarks','deleted_through_sequence'
+  UNION ALL SELECT 'realtime_event_retention_watermarks','updated_at'
 ) required
 LEFT JOIN information_schema.columns c ON c.table_schema=DATABASE() AND c.table_name=required.t AND c.column_name=required.c
 WHERE c.column_name IS NULL;
@@ -27,6 +32,14 @@ FROM information_schema.columns
 WHERE table_schema=DATABASE() AND (
   (table_name='ai_runs' AND column_name='idempotency_key' AND
     (column_type<>'varchar(128)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+  (table_name IN ('ai_runs','ai_reply_commands') AND column_name='request_id' AND
+    (column_type<>'varchar(128)' OR is_nullable<>'NO')) OR
+  (table_name='realtime_events' AND column_name='request_id' AND
+    (column_type<>'varchar(128)' OR is_nullable<>'YES')) OR
+  (table_name='realtime_events' AND column_name='expires_at' AND
+    (column_type<>'datetime(6)' OR is_nullable<>'NO')) OR
+  (table_name='realtime_event_retention_watermarks' AND column_name='deleted_through_sequence' AND
+    (column_type<>'bigint unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> '0'))) OR
   (table_name='notifications' AND column_name='source_task_id' AND
     (column_type<>'bigint' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
   (table_name IN ('notification_task','export_tasks') AND column_name='claim_owner' AND
@@ -50,7 +63,9 @@ FROM (
   SELECT 'ai_provider_attempts','uk_ai_attempt_command_no',0,'command_id,attempt_no' UNION ALL
   SELECT 'ai_provider_attempts','uk_ai_attempt_key',0,'idempotency_key' UNION ALL
   SELECT 'realtime_events','uk_realtime_event_id',0,'event_id' UNION ALL
-  SELECT 'realtime_events','idx_realtime_resume',1,'target_type,target_id,sequence'
+  SELECT 'realtime_events','idx_realtime_resume',1,'target_type,target_id,sequence' UNION ALL
+  SELECT 'realtime_events','idx_realtime_expiry',1,'expires_at,sequence' UNION ALL
+  SELECT 'realtime_event_retention_watermarks','PRIMARY',0,'target_type,target_id'
 ) required
 LEFT JOIN (
   SELECT table_name, index_name, MIN(non_unique) non_unique,

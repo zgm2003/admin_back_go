@@ -3,6 +3,7 @@ package airun
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,20 @@ func TestRecorderRejectsMissingRequestID(t *testing.T) {
 	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformCanvas, UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})
 	if err == nil {
 		t.Fatalf("expected missing request id error")
+	}
+}
+
+func TestRecorderRequestIDContractIs128Characters(t *testing.T) {
+	repo := &fakeRecorderRepository{}
+	svc := NewRecorder(repo, time.Now)
+	base := StartInput{Platform: enum.PlatformAdmin, UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "input"}
+	base.RequestID = strings.Repeat("界", 128)
+	if _, err := svc.Start(context.Background(), base); err != nil {
+		t.Fatalf("128-character request_id rejected: %v", err)
+	}
+	base.RequestID = strings.Repeat("界", 129)
+	if _, err := svc.Start(context.Background(), base); !errors.Is(err, ErrRecorderInvalidInput) {
+		t.Fatalf("129-character request_id error=%v", err)
 	}
 }
 

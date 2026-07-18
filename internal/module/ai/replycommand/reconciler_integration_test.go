@@ -2,17 +2,21 @@ package replycommand
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	infrarealtime "admin_back_go/internal/infra/realtime"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 )
 
 func TestOutcomeUnknownReconciliationUsesLocalTruthOrFailsWithoutResend(t *testing.T) {
 	db := openReplyIntegrationDB(t)
 	fixture := createReplyFixture(t, db)
-	repository := NewGormRepository(db)
+	eventRepository := modulerealtime.NewGormRepository(db, modulerealtime.DefaultRegistry())
+	repository := NewGormRepository(db, WithDurableEventSink(modulerealtime.NewDurableEventSink(eventRepository, infrarealtime.NoopPublisher{}, slog.Default())))
 	ctx := context.Background()
 	now := time.Date(2026, 7, 17, 13, 0, 0, 0, time.UTC)
 	repository.now = func() time.Time { return now }
@@ -52,6 +56,13 @@ func TestOutcomeUnknownReconciliationUsesLocalTruthOrFailsWithoutResend(t *testi
 		t.Fatalf("unknown reconcile worked=%v err=%v", worked, err)
 	}
 	assertReconciledCommand(t, db, withoutLookup.CommandID, StateFailed, 0)
+	resumed, err := eventRepository.ResumeUser(ctx, modulerealtime.ResumeQuery{UserID: fixture.userID, AfterSequence: 0, Now: now.Add(time.Second)})
+	if err != nil || len(resumed.Events) != 2 {
+		t.Fatalf("reconciled durable events=%#v err=%v", resumed, err)
+	}
+	if resumed.Events[0].EventType != modulerealtime.TypeAIResponseCompletedV1 || resumed.Events[1].EventType != modulerealtime.TypeAIResponseFailedV1 {
+		t.Fatalf("unexpected reconciled event types: %#v", resumed.Events)
+	}
 }
 
 func assertReconciledCommand(t *testing.T, db *database.Client, commandID uint64, wantState State, wantAssistantID int64) {

@@ -137,7 +137,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			}, nil
 		},
 		buildAdmin: func(context.Context) (CleanupFunc, error) {
-			realtime = newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.Redis, logger, recorder)
+			realtime = newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.DB, resources.Redis, logger, recorder)
 			adminResources := &platformadmin.BuildResources{
 				DB:         resources.DB,
 				Redis:      resources.Redis,

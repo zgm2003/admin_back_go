@@ -46,6 +46,7 @@ func TestRedisPublisherRejectsMissingTargetBeforePublish(t *testing.T) {
 func TestRedisSubscriberHandlePayloadDeliversLocally(t *testing.T) {
 	manager := NewManager()
 	session := NewSession(nil, SessionOptions{SendBuffer: 1})
+	session.ReplaceTopics([]string{"user:7"})
 	defer session.Close()
 	manager.Register("admin:7:1", session)
 	local := NewLocalPublisher(manager)
@@ -67,5 +68,40 @@ func TestRedisSubscriberHandlePayloadRejectsInvalidJSON(t *testing.T) {
 
 	if err := subscriber.handlePayload(context.Background(), []byte(`not-json`)); err == nil {
 		t.Fatal("expected invalid redis publication json to fail")
+	}
+}
+
+func TestRedisPublicationRejectsMalformedEnvelopeAndUnknownFields(t *testing.T) {
+	if _, err := encodeRedisPublication(Publication{Platform: "admin", UserID: 7, Envelope: Envelope{}}); !errors.Is(err, ErrEnvelopeInvalid) {
+		t.Fatalf("malformed server envelope must be rejected before Redis publish, got %v", err)
+	}
+
+	envelope := mustRealtimeEnvelope(t, "notification.created.v1", "rid")
+	payload, err := json.Marshal(map[string]any{
+		"platform": "admin",
+		"user_id":  7,
+		"envelope": envelope,
+		"guess":    true,
+	})
+	if err != nil {
+		t.Fatalf("marshal malformed Redis publication: %v", err)
+	}
+	if _, err := decodeRedisPublication(payload); err == nil {
+		t.Fatal("unknown Redis publication field must be rejected")
+	}
+
+	missingData, err := json.Marshal(map[string]any{
+		"platform": "admin",
+		"user_id":  7,
+		"envelope": map[string]any{
+			"event_id": envelope.EventID, "type": envelope.Type, "request_id": envelope.RequestID,
+			"sequence": envelope.Sequence, "occurred_at": envelope.OccurredAt, "durability": envelope.Durability,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal Redis publication without data: %v", err)
+	}
+	if _, err := decodeRedisPublication(missingData); err == nil {
+		t.Fatal("Redis publication must not replace missing envelope data")
 	}
 }
