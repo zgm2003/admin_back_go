@@ -202,7 +202,7 @@ func TestRoutePolicyHasNoLegacyMetadataMaps(t *testing.T) {
 	}
 }
 
-func TestIdentityRoutingGateIsBlockingLocallyAndInCI(t *testing.T) {
+func TestIdentityRoutingGateIsBlockingInRepositoryVerification(t *testing.T) {
 	root := backendRoot(t)
 	gate := identityReadFile(t, root, "scripts/verify-identity-routing.ps1")
 	for _, required := range []string{
@@ -217,12 +217,6 @@ func TestIdentityRoutingGateIsBlockingLocallyAndInCI(t *testing.T) {
 	backend := identityReadFile(t, root, "scripts/verify-backend.ps1")
 	if !strings.Contains(string(backend), "verify-identity-routing.ps1") {
 		t.Error("verify-backend.ps1 does not invoke the blocking identity routing gate")
-	}
-	workflow := identityReadFile(t, root, ".github/workflows/verify-backend.yml")
-	for _, required := range []string{"Verify identity and route policy", "./scripts/verify-identity-routing.ps1"} {
-		if !strings.Contains(string(workflow), required) {
-			t.Errorf("backend workflow is missing %q", required)
-		}
 	}
 }
 

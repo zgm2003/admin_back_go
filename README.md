@@ -709,11 +709,10 @@ VITE_PLATFORM=admin
 WebSocket 也走 `<api-domain>` 后端域名；不要写成 `<frontend-domain>` 静态站域名。
 ```
 
-前端 GitHub Actions 通过 `DEPLOY_PATH` 上传 `dist`。宝塔静态站点常见路径：
-
-```text
-/www/wwwroot/<frontend-domain>
-```
+前端和后端都只通过 Docker 镜像交付。统一从后端仓库执行
+`scripts/docker-platform.ps1 up`，由 Compose 构建并启动前端、`admin-api` 和
+`admin-worker`；不上传或解压 `dist`，也不使用 GitHub Actions、宿主机 Vite 或
+宿主机 Go 进程作为部署路径。
 
 ## 验证和运维
 

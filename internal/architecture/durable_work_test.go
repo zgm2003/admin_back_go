@@ -108,7 +108,6 @@ func TestDurableWorkRestartGateIsDockerOnlyAndBlocking(t *testing.T) {
 	restart := durableRead(t, root, "scripts", "tests", "durable-work-restart.tests.ps1")
 	verify := durableRead(t, root, "scripts", "verify-durable-work.ps1")
 	backend := durableRead(t, root, "scripts", "verify-backend.ps1")
-	workflow := durableRead(t, root, ".github", "workflows", "verify-backend.yml")
 	for _, required := range []string{
 		"admin-api", "admin-worker", "ai_provider_attempts", "P05_PAUSE",
 		"docker", "kill", "realtime_events", "lease_expires_at",
@@ -124,8 +123,8 @@ func TestDurableWorkRestartGateIsDockerOnlyAndBlocking(t *testing.T) {
 			t.Fatalf("%s script executes host Go instead of Docker", source.name)
 		}
 	}
-	if !strings.Contains(verify, "durable-work-restart.tests.ps1") || !strings.Contains(backend, "verify-durable-work.ps1") || !strings.Contains(workflow, "verify-durable-work.ps1") {
-		t.Fatal("durable restart gate is not blocking local and CI verification")
+	if !strings.Contains(verify, "durable-work-restart.tests.ps1") || !strings.Contains(backend, "verify-durable-work.ps1") {
+		t.Fatal("durable restart gate is not blocking repository verification")
 	}
 }
 

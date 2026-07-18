@@ -74,13 +74,8 @@ func TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations(t *testing.T) {
 	}
 }
 
-func TestDatabaseVerificationWorkflowPinsImmutableInputs(t *testing.T) {
+func TestDatabaseVerificationPinsImmutableDockerInputs(t *testing.T) {
 	root := backendRoot(t)
-	workflowPath := filepath.Join(root, ".github", "workflows", "verify-database.yml")
-	workflow, err := os.ReadFile(workflowPath)
-	if err != nil {
-		t.Fatalf("read database verification workflow: %v", err)
-	}
 	scriptPath := filepath.Join(root, "scripts", "verify-database.ps1")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
@@ -91,23 +86,18 @@ func TestDatabaseVerificationWorkflowPinsImmutableInputs(t *testing.T) {
 		t.Fatalf("read expanded-schema verifier: %v", err)
 	}
 
-	workflowText := string(workflow)
-	combined := workflowText + "\n" + string(script)
+	combined := string(script) + "\n" + string(expandedVerifier)
 	verificationText := string(script) + "\n" + string(expandedVerifier)
 	for _, required := range []string{
 		"mysql:8.4.10",
 		"arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a",
-		"scripts/verify-database.ps1",
-		"empty:",
-		"imported:",
-		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+		"[ValidateSet('all', 'empty', 'imported')]",
+		"$Mode -in @('all', 'imported')",
+		"'run', '--detach'",
 	} {
 		if !strings.Contains(combined, required) {
 			t.Fatalf("database verification is missing immutable input %q", required)
 		}
-	}
-	if regexp.MustCompile(`(?m)^\s*-?\s*uses:\s*\S+@v[0-9]`).Match(workflow) {
-		t.Fatal("database workflow contains a mutable action tag")
 	}
 
 	for _, required := range []string{

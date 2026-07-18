@@ -283,10 +283,6 @@ func TestRuntimeContractVerificationIsBlockingAndDocumented(t *testing.T) {
 			t.Errorf("%s must pin the Go 1.26-compatible staticcheck release", relative)
 		}
 	}
-	workflow := runtimeContractReadFile(t, root, ".github/workflows/verify-backend.yml")
-	if !bytes.Contains(workflow, []byte("Verify runtime contracts from clean module cache")) {
-		t.Error("backend workflow must expose the runtime contract gate as a blocking verification step")
-	}
 	architecture := runtimeContractReadFile(t, root, "docs/architecture.md")
 	context := runtimeContractReadFile(t, root, "CONTEXT.md")
 	for name, body := range map[string][]byte{"docs/architecture.md": architecture, "CONTEXT.md": context} {

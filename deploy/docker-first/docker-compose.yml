@@ -12,6 +12,7 @@ services:
         VITE_GO_API_BASE_URL: http://localhost:5173
         VITE_WEB_SOCKET_URL: ws://localhost:5173/api/admin/v1/realtime/ws
         VITE_PLATFORM: admin
+        VITE_ADMIN_RUNTIME_MODE: development
         BUILD_REVISION: ${ADMIN_FRONTEND_BUILD_REVISION:-unknown}
     restart: unless-stopped
     ports:
