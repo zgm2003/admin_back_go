@@ -3,7 +3,7 @@
   "openapi_version": "3.1.0",
   "permission_version": "admin-permissions-2026-07-15.1",
   "realtime_version": "admin-realtime-2026-07-18.1",
-  "backend_commit": "8a73dc838e17a51c49eac67ae24974db88dc391a",
+  "backend_commit": "8458ecfc671f558af65a6f89c590891253179cdc",
   "artifacts": {
     "openapi.json": {
       "sha256": "6ed6b8680d33a07c196a5b402a26f04cb7483125c03ce58b9f373d81eff58cf7",

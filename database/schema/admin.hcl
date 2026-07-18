@@ -1654,10 +1654,10 @@ table "ai_reply_commands" {
     columns = [column.conversation_id, column.request_id]
   }
   check "chk_ai_reply_platform" {
-    expr = "(`platform` = _gbk'admin')"
+    expr = "(`platform` = _utf8mb4'admin')"
   }
   check "chk_ai_reply_state" {
-    expr = "(`state` in (_gbk'pending',_gbk'claimed',_gbk'running',_gbk'succeeded',_gbk'failed',_gbk'canceled',_gbk'outcome_unknown',_gbk'timed_out'))"
+    expr = "(`state` in (_utf8mb4'pending',_utf8mb4'claimed',_utf8mb4'running',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown',_utf8mb4'timed_out'))"
   }
 }
 table "ai_run_events" {

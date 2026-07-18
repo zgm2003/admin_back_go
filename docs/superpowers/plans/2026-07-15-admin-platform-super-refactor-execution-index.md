@@ -125,7 +125,7 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, or an unreviewed 
 - [x] **Gate C:** P03 publishes a deterministic Admin Contract Bundle and both processes pass lifecycle tests.
 - [x] **Gate C.5:** P03.5 proves dynamic API discovery, bounded state-late startup with zero restart loops, correct image revisions, and zero-exit Docker SIGTERM; final restoration preserves all state volumes.
 - [x] **Gate D:** P04 proves one-winner refresh, route-policy completeness, and secure browser/desktop auth transport.
-- [ ] **Gate E:** P05 proves AI reply survival across process termination, scheduler lease safety, and realtime recovery.
+- [x] **Gate E:** P05 proves AI reply survival across process termination, scheduler lease safety, and realtime recovery.
 - [ ] **Gate F:** P06–P08 pass frontend unit/component/integration/browser/Rust gates and produce immutable artifacts.
 - [ ] **Gate G:** P09 removes retired platform code/schema and passes the complete cross-repository release proof.
 
@@ -146,3 +146,12 @@ No later gate waives an earlier one. P09 must stop before destructive DDL if any
 - Versioned principal tests proved zero-SQL cache hits, mutation version bumps, fail-closed Redis behavior, and stale-snapshot denial.
 - The compiled route-policy golden and Admin Contract Bundle passed with every active route classified, every mutation carrying an audit decision, and every permission code present in the catalog.
 - `scripts/tests/session-secret-rotation.tests.ps1`, `scripts/verify-identity-routing.ps1`, and `scripts/verify-backend.ps1` exited `0`; `go vet`, pinned `staticcheck`, `govulncheck` (zero called vulnerabilities), and both process builds passed.
+
+## Gate E evidence (2026-07-18)
+
+- P05 executed directly on backend `master` by explicit operator instruction; no P05 worktree was created or used.
+- Typed TaskRegistry ownership, MySQL reply commands/provider attempts, renewable fenced leases, scheduler reconciliation, and notification/export claims are committed through `8a73dc8`; durable typed realtime recovery is committed as `8458ecf`.
+- The Docker kill/restart scenario passed API-after-commit termination, Worker-after-claim termination and lease recovery, cross-node cancellation, Redis-backed multi-node fan-out, disconnected cursor replay, and duplicate-result assertions.
+- `scripts/verify-backend.ps1` exited `0` with all repository/race/architecture/contract tests, vet, pinned staticcheck, govulncheck (`0` called vulnerabilities), Atlas validation, and API/Worker builds passing.
+- `scripts/verify-database.ps1 -Mode all` exited `0`; empty/imported schemas converged at `50e7642abe6f615167ab0fc64e3bd4aa765c0dc8695d2d4a2fc515365bc713cb`, all 8 reconciliations were idempotent, and database invariants/Admin smoke passed.
+- The Admin realtime bundle has no drift and records backend commit `8458ecfc671f558af65a6f89c590891253179cdc`; live Docker MySQL has the seven-day retention schema, watermark, and enabled cleanup cron.

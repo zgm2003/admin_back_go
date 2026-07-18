@@ -412,8 +412,8 @@ func validateBackendWorkflow(data []byte) error {
 	}
 
 	steps, _ := yamlPath(root, "jobs", "verify", "steps")
-	if steps.Kind != yaml.SequenceNode || len(steps.Content) != 7 {
-		return fmt.Errorf("verify.steps must contain exactly seven blocking steps")
+	if steps.Kind != yaml.SequenceNode || len(steps.Content) != 8 {
+		return fmt.Errorf("verify.steps must contain exactly eight blocking steps")
 	}
 	stepSpecs := []struct {
 		keys   []string
@@ -421,6 +421,7 @@ func validateBackendWorkflow(data []byte) error {
 	}{
 		{[]string{"uses", "with"}, "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"},
 		{[]string{"uses", "with"}, "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"},
+		{[]string{"name", "shell", "run"}, ""},
 		{[]string{"name", "shell", "run"}, ""},
 		{[]string{"name", "shell", "run"}, ""},
 		{[]string{"uses"}, "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"},
@@ -447,8 +448,8 @@ func validateBackendWorkflow(data []byte) error {
 	}{
 		{0, []string{"persist-credentials"}},
 		{1, []string{"go-version", "cache"}},
-		{5, []string{"context", "push", "tags", "outputs", "build-args"}},
-		{6, []string{"name", "path", "if-no-files-found", "retention-days"}},
+		{6, []string{"context", "push", "tags", "outputs", "build-args"}},
+		{7, []string{"name", "path", "if-no-files-found", "retention-days"}},
 	} {
 		with, _ := yamlPath(steps.Content[mapping.step], "with")
 		if err := exactYAMLMapping(with, fmt.Sprintf("verify.steps[%d].with", mapping.step), mapping.keys...); err != nil {
@@ -469,14 +470,19 @@ func validateBackendWorkflow(data []byte) error {
 			{"shell", "!!str", "pwsh"},
 			{"run", "!!str", "./scripts/verify-go-clean.ps1"},
 		},
-		5: {
+		4: {
+			{"name", "!!str", "Verify durable work recovery"},
+			{"shell", "!!str", "pwsh"},
+			{"run", "!!str", "./scripts/verify-durable-work.ps1"},
+		},
+		6: {
 			{"with.context", "!!str", "."},
 			{"with.push", "!!bool", "false"},
 			{"with.tags", "!!str", "admin-go-backend:" + sha},
 			{"with.outputs", "!!str", "type=docker,dest=/tmp/admin-go-backend.tar"},
 			{"with.build-args", "!!str", "BUILD_REVISION=" + sha},
 		},
-		6: {
+		7: {
 			{"with.name", "!!str", "admin-go-backend-" + sha},
 			{"with.path", "!!str", "/tmp/admin-go-backend.tar"},
 			{"with.if-no-files-found", "!!str", "error"},

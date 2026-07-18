@@ -1,6 +1,6 @@
 # Admin Go Durable Work and Realtime Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make AI replies, notification/export work, schedules, cancellation, and terminal realtime delivery durable and safe across API/Worker termination and multiple nodes.
 
@@ -43,7 +43,7 @@ Pure source/unit checks may run on the host. Any test that opens MySQL/Redis, te
 - Modify: `internal/module/ai/chat/jobs.go`
 - Modify: `internal/module/ai/image/jobs.go`
 
-- [ ] **Step 1: Test duplicate types, payload failure, and retry mapping**
+- [x] **Step 1: Test duplicate types, payload failure, and retry mapping**
 
 ```go
 func TestRegistryMapsPermanentFailureToSkipRetry(t *testing.T) {
@@ -59,7 +59,7 @@ func TestRegistryMapsPermanentFailureToSkipRetry(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Define complete task ownership**
+- [x] **Step 2: Define complete task ownership**
 
 ```go
 type Definition struct {
@@ -76,11 +76,11 @@ type Registry struct { definitions map[string]Definition }
 
 Registration rejects empty/duplicate/unversioned types, unknown lanes, non-positive timeouts, and nil decode/handle. Enqueue accepts a registered type and applies its definition; producers no longer repeat retry/queue/timeout policy.
 
-- [ ] **Step 3: Migrate every current task definition**
+- [x] **Step 3: Migrate every current task definition**
 
 Register `system:no-op:v1`, `auth:login-log:v1`, notification dispatch/send, payment sync/close, export run, AI run timeout, and AI image generation through one Worker registry. Invalid payload/invariant errors are Permanent; dependency/timeout errors are Retryable; unknown errors become bounded Retryable internal errors.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/infra/taskqueue ./internal/jobs ./internal/module/auth ./internal/module/notification/task ./internal/module/payment ./internal/module/export ./internal/module/ai/chat ./internal/module/ai/image -run 'TestRegistry|TestTask|TestPayload' -count=1
@@ -102,15 +102,15 @@ git commit -m "refactor(queue): centralize versioned task policy"
 - Modify: `internal/module/ai/message/service_test.go`
 - Modify: `internal/module/ai/message/dto.go`
 
-- [ ] **Step 1: Write rollback/idempotency integration tests**
+- [x] **Step 1: Write rollback/idempotency integration tests**
 
 Test message insert failure, command insert failure, duplicate `(conversation_id,request_id)`, and duplicate delivery. A failure leaves neither row; a duplicate returns the original message/command IDs.
 
-- [ ] **Step 2: Add assistant publication identity**
+- [x] **Step 2: Add assistant publication identity**
 
 The Atlas migration adds nullable `ai_messages.reply_command_id BIGINT UNSIGNED` and unique `uk_ai_messages_reply_command`. It does not alter historical messages. Validate/hash Atlas before applying to a disposable schema.
 
-- [ ] **Step 3: Implement one transaction**
+- [x] **Step 3: Implement one transaction**
 
 ```go
 type CreateReplyInput struct {
@@ -131,11 +131,11 @@ func (r *GormRepository) CreateReply(ctx context.Context, in CreateReplyInput) (
 
 Lock the owned active conversation, return the existing command on duplicate request, insert the user message, insert `ai_reply_commands` with idempotency key `sha256("admin-reply:"+conversationID+":"+requestID)`, update conversation last-message time, and commit. Enqueue `ai:reply-command:v1` after commit as best effort; the Worker poller is the recovery path.
 
-- [ ] **Step 4: Remove process-local dispatch**
+- [x] **Step 4: Remove process-local dispatch**
 
 Replace `WithReplyEnqueuer` with the durable repository. HTTP returns `202` data containing command ID, request ID, and `pending`. Delete goroutine dispatch construction from API runtime only after tests pass.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
@@ -156,11 +156,11 @@ git commit -m "feat(ai): commit messages with durable reply commands"
 - Delete: `internal/bootstrap/ai_reply_dispatcher.go`
 - Delete: `internal/bootstrap/ai_reply_dispatcher_test.go`
 
-- [ ] **Step 1: Write stale-owner and restart tests**
+- [x] **Step 1: Write stale-owner and restart tests**
 
 Worker A claims token 1 and stops. After expiry Worker B claims token 2. Assert A cannot mark running, publish an assistant message, terminalize, or renew; B can. Stop API immediately after HTTP commit, start Worker, and assert completion.
 
-- [ ] **Step 2: Implement the state machine**
+- [x] **Step 2: Implement the state machine**
 
 ```go
 type Claim struct {
@@ -179,11 +179,11 @@ type Repository interface {
 
 Claim uses `SELECT ... FOR UPDATE SKIP LOCKED` over pending or expired claimed/running rows ordered by `next_attempt_at,id`, increments `lease_token`, and commits. Renew every one-third lease duration. Every state write includes owner and token. Lease loss cancels provider context and prevents publication.
 
-- [ ] **Step 3: Add wake-up plus polling**
+- [x] **Step 3: Add wake-up plus polling**
 
 `ai:reply-command:v1` payload contains only `command_id`. The Worker also polls every second so DB-committed work survives failed Redis enqueue. Duplicate wake-ups call the same claim/transition code.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/ai/replycommand ./internal/runtime -run 'TestClaim|TestLease|TestRestart|TestDuplicate' -race -count=10
@@ -203,11 +203,11 @@ git commit -m "feat(ai): execute reply commands with fenced leases"
 - Modify: `internal/infra/ai/openaicompat/client.go`
 - Modify: `internal/infra/ai/openaicompat/client_test.go`
 
-- [ ] **Step 1: Test pre-dispatch, ambiguous, and known failures**
+- [x] **Step 1: Test pre-dispatch, ambiguous, and known failures**
 
 Assert the attempt row exists before the HTTP request; connection failure before headers returns to retryable pending; timeout/disconnect after headers becomes `outcome_unknown`; a persisted assistant result reconciles to succeeded; an OpenAI-compatible ambiguous attempt with no lookup/result reconciles to terminal failed and is never blindly sent again.
 
-- [ ] **Step 2: Persist attempt identity**
+- [x] **Step 2: Persist attempt identity**
 
 ```go
 type Attempt struct {
@@ -225,7 +225,7 @@ type Attempt struct {
 
 Before dispatch, insert `prepared` with key `sha256("ai-provider:"+commandID+":"+attemptNo)`. Send `Idempotency-Key` when the compatible provider supports it. Mark `dispatched` immediately before network I/O. Preserve run recorder cause/category and link run context to command/attempt.
 
-- [ ] **Step 3: Implement explicit reconciliation**
+- [x] **Step 3: Implement explicit reconciliation**
 
 Rules:
 
@@ -235,7 +235,7 @@ Rules:
 - provider lookup proves rejection: fail;
 - provider cannot query an acknowledged/stream-started attempt: fail with `ai.provider_outcome_unknown`, retain evidence, and require explicit operator retry as a new request.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/ai/replycommand ./internal/module/ai/chat ./internal/module/ai/run ./internal/infra/ai/openaicompat -run 'TestAttempt|TestOutcome|TestIdempotency' -count=1
@@ -253,19 +253,19 @@ git commit -m "feat(ai): reconcile ambiguous provider attempts safely"
 - Create: `internal/module/ai/replycommand/cancel.go`
 - Create: `internal/module/ai/replycommand/cancel_integration_test.go`
 
-- [ ] **Step 1: Write cross-node cancel and duplicate-result tests**
+- [x] **Step 1: Write cross-node cancel and duplicate-result tests**
 
 Worker A runs a command; API node B requests cancel. Assert durable `cancel_requested_at` is set, Redis signal cancels A promptly, terminal state is canceled, and a second cancel is idempotent. Deliver the same provider result twice and assert one assistant message linked by `reply_command_id`.
 
-- [ ] **Step 2: Implement durable-first cancellation**
+- [x] **Step 2: Implement durable-first cancellation**
 
 Verify conversation ownership, update the matching non-terminal command in MySQL, commit, then publish `ai:reply:cancel:{commandID}`. Worker subscribes for latency but also checks the DB flag on each lease renewal. Redis loss cannot lose cancellation intent.
 
-- [ ] **Step 3: Publish assistant result under fencing**
+- [x] **Step 3: Publish assistant result under fencing**
 
 In one transaction, verify current owner/token and running state, insert assistant message with unique `reply_command_id`, update conversation, link command `assistant_message_id`, and transition to succeeded. Unique-key conflict reloads and returns the existing result. A stale owner affects zero rows and publishes no terminal event.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/ai/message ./internal/module/ai/replycommand -run 'TestCancel|TestDuplicateResult|TestStaleOwner' -race -count=10
@@ -285,11 +285,11 @@ git commit -m "fix(ai): make cancellation and reply publication idempotent"
 - Modify: `internal/module/crontask/scheduler_service.go`
 - Modify: `internal/runtime/worker.go`
 
-- [ ] **Step 1: Test lease loss and five-second convergence**
+- [x] **Step 1: Test lease loss and five-second convergence**
 
 Run two schedulers against one Redis. A long callback renews beyond three TTLs and executes once. Force renewal failure and assert its fencing check prevents enqueue. Create/update/disable/delete a DB schedule and require running jobs to match within five seconds. An unknown enabled task makes health unhealthy.
 
-- [ ] **Step 2: Deepen the lease contract**
+- [x] **Step 2: Deepen the lease contract**
 
 ```go
 type Lease struct { Key string; Owner string; Token uint64; ExpiresAt time.Time }
@@ -302,11 +302,11 @@ type LeaseStore interface {
 
 Redis Lua uses an incrementing fencing counter and a hash containing owner/token. Renew/release compare both. Scheduler wraps callbacks with a renewal goroutine and cancels callback context on lease loss.
 
-- [ ] **Step 3: Reconcile database schedules**
+- [x] **Step 3: Reconcile database schedules**
 
 `Reconciler` polls at two seconds, validates every enabled row against TaskRegistry and cron syntax, diffs by name+expression+status+updated time, and add/update/remove jobs through an explicit scheduler API. It records last success/error and exposes unhealthy state for unknown tasks, invalid cron, or repository failure.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/infra/redislock ./internal/infra/scheduler ./internal/module/crontask ./internal/runtime -run 'TestLease|TestReconcile|TestMultiWorker' -race -count=10
@@ -325,19 +325,19 @@ git commit -m "feat(scheduler): renew fenced leases and reconcile live schedules
 - Modify: `internal/module/export/run_test.go`
 - Modify: `internal/module/export/service.go`
 
-- [ ] **Step 1: Write duplicate and lease-expiry tests**
+- [x] **Step 1: Write duplicate and lease-expiry tests**
 
 Two Workers claim the same due notification/export task; only one wins. Expired work is reclaimed with a higher token. A stale owner cannot mark success. Duplicate notification delivery creates one `(source_task_id,user_id)` row. Duplicate export publication uses one deterministic object key and one terminal update.
 
-- [ ] **Step 2: Implement claims**
+- [x] **Step 2: Implement claims**
 
 Notification and export repositories expose `ClaimNext(owner,now,ttl)`, `Renew(id,owner,token)`, and fenced terminal transitions. Notification bulk insert includes `source_task_id` and uses the unique key. Export object key is `exports/{yyyyMMdd}/{taskID}-{artifactVersion}.xlsx`; upload retry overwrites the same key and success update is fenced.
 
-- [ ] **Step 3: Move expiration cleanup to Worker**
+- [x] **Step 3: Move expiration cleanup to Worker**
 
 Register `export:cleanup-expired:v1` in TaskRegistry and the cron registry. Remove `CleanExpired` from list/count service methods; reading an export page performs no cleanup write.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/module/notification/task ./internal/module/export -run 'TestClaim|TestLease|TestDuplicate|TestCleanup' -race -count=10
@@ -376,11 +376,11 @@ The following decisions are part of the formal P05 contract and are not implemen
 - Modify: `contracts/admin/v1/realtime/events.schema.json`
 - Modify: `contracts/admin/v1/manifest.json`
 
-- [ ] **Step 1: Write protocol and recovery tests**
+- [x] **Step 1: Write protocol and recovery tests**
 
 Cover handshake, real subscription filtering, monotonic cursors, duplicate IDs, ordered durable replay, expired cursor resync, malformed/unknown event rejection, handler isolation, slow-client disconnect, Redis outage, and two API instances.
 
-- [ ] **Step 2: Close the envelope**
+- [x] **Step 2: Close the envelope**
 
 ```go
 type Durability string
@@ -398,17 +398,17 @@ type Envelope struct {
 
 Generate ULID-compatible 26-character IDs without external state. All event types are registered with a payload encoder/decoder; unknown names fail.
 
-- [ ] **Step 3: Make subscription state effective**
+- [x] **Step 3: Make subscription state effective**
 
 `Session` owns a synchronized topic set. `realtime.subscribe.v1` replaces or increments allowed topics according to the request schema, and `Manager.Send` filters by actual subscription. A handler panic/error is recovered, counted, and does not stop other handlers or the read pump.
 
-- [ ] **Step 4: Persist and resume terminal events**
+- [x] **Step 4: Persist and resume terminal events**
 
 Notification creation and AI completed/failed/canceled transitions insert a `realtime_events` durable row in the same domain transaction. After commit, publish to Redis best effort. On `realtime.resume.v1 {after_sequence}`, query authorized user events in sequence order with limit 500. If the cursor predates retained truth, return `realtime.resync_required.v1`; the client then calls the authoritative domain query.
 
 Typing/progress/delta are Ephemeral with sequence 0 and are never persisted. A daily Worker task deletes expired durable events only after the documented retention window.
 
-- [ ] **Step 5: Verify and regenerate contracts**
+- [x] **Step 5: Verify and regenerate contracts**
 
 ```powershell
 go test ./internal/infra/realtime ./internal/module/realtime ./internal/module/notification/task ./internal/module/ai/replycommand -run 'TestEnvelope|TestSubscription|TestResume|TestSlow|TestMultiNode' -race -count=10
@@ -428,11 +428,11 @@ git commit -m "feat(realtime): resume durable terminal events by cursor"
 - Modify: `.github/workflows/verify-backend.yml`
 - Modify: `docs/architecture.md`
 
-- [ ] **Step 1: Add architecture guards**
+- [x] **Step 1: Add architecture guards**
 
 Reject process-local AI reply goroutines/maps, fixed non-renewing scheduler locks, task handlers outside TaskRegistry, unfenced terminal updates, Redis as durable terminal truth, and free-form realtime event types.
 
-- [ ] **Step 2: Automate kill/restart scenarios**
+- [x] **Step 2: Automate kill/restart scenarios**
 
 The PowerShell test:
 
@@ -446,7 +446,7 @@ The PowerShell test:
 
 Use fake provider endpoints with deterministic pause points; never call a paid provider.
 
-- [ ] **Step 3: Run the complete gate**
+- [x] **Step 3: Run the complete gate**
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/durable-work-restart.tests.ps1
@@ -454,7 +454,7 @@ pwsh -NoProfile -File scripts/verify-durable-work.ps1
 pwsh -NoProfile -File scripts/verify-backend.ps1
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add -- scripts/tests/durable-work-restart.tests.ps1 scripts/verify-durable-work.ps1 internal/architecture/durable_work_test.go scripts/verify-backend.ps1 .github/workflows/verify-backend.yml docs/architecture.md
@@ -471,3 +471,14 @@ git status --short
 ```
 
 Expected: API/Worker termination loses no committed reply; stale owners cannot publish; ambiguous provider attempts never retry blindly; schedule changes converge within five seconds; duplicate notification/export/assistant results are prevented; durable terminal events resume once by cursor; status is clean.
+
+## Completion evidence (2026-07-18)
+
+- P05 was executed directly on backend `master` by explicit operator instruction; no P05 worktree was created or used.
+- Tasks 1–7 landed as `ca84c81`, `58f34be`, `41dbc45`, `a7f350b`, `e690aed`, and `8a73dc8`; Task 8 landed as `8458ecf`.
+- `scripts/tests/durable-work-restart.tests.ps1` exited `0` and proved API termination after commit, Worker lease-expiry recovery, cross-node cancellation, cursor resume, and absence of duplicate assistant/notification/export/provider-attempt results against disposable Docker MySQL/Redis nodes.
+- `scripts/verify-durable-work.ps1 -SkipRestartScenario` exited `0`; the race suites, durable-work architecture guard, realtime contract tests, Atlas validation, contract drift check, and API/Worker builds passed. The restart scenario was run separately immediately before it.
+- `scripts/verify-backend.ps1` exited `0`; full repository tests, Linux race gates, identity/runtime contracts, the complete durable restart scenario, vet, pinned staticcheck, govulncheck, and both process builds passed. Govulncheck found `0` called vulnerabilities.
+- `scripts/verify-database.ps1 -Mode all` exited `0`; empty and reconciled imported schemas converged to SHA-256 `50e7642abe6f615167ab0fc64e3bd4aa765c0dc8695d2d4a2fc515365bc713cb`, all 8 reconciliation scripts applied once and skipped on repeat, and invariants/Admin smoke passed.
+- The generated Admin contract manifest is locked to Task 8 commit `8458ecfc671f558af65a6f89c590891253179cdc`; Docker contract generation/check reported no drift.
+- Live Docker MySQL received `044_realtime_retention.sql`; `realtime_events.expires_at` is non-null `datetime(6)`, request IDs are bounded to `varchar(128)`, the retention watermark table exists, and the enabled `realtime:cleanup-expired:v1` daily cron row is present.

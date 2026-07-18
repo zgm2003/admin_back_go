@@ -541,61 +541,157 @@ storage = base64(iv + tag + ciphertext)
 
 `secretbox` 只接收 32-byte derived key；它不读 env，也不知道 APP_SECRET。APP_SECRET 缺失、默认值或长度不足时 API/worker 启动失败；不能假加密，不能明文落库。
 
-## Realtime / WebSocket baseline
+## Realtime / WebSocket durable contract (P05)
 
-Realtime 当前已完成 admin WebSocket 基建、通知任务最小 Redis Pub/Sub fan-out、以及 AI chat runtime 的 `ai.response.*.v1` first-version envelope。它不做 SSE，也不把 AI 事件伪装成旧 unversioned AI run event。
+This section is the authoritative Admin realtime contract. Redis provides only
+best-effort live fan-out; MySQL domain state, realtime_events, and the
+retention watermark are the recovery truth.
 
-当前路由：
+### Transport and authentication
 
-```text
+```
 GET /api/admin/v1/realtime/ws
 ```
 
-认证规则：
+The upgrade accepts Authorization Bearer access tokens or the Admin access
+token cookie scoped to this WebSocket path. Query-string access tokens are
+forbidden. REALTIME_ENABLED=false rejects the upgrade with HTTP 503.
+REALTIME_PUBLISHER accepts only local, noop, or redis; redis uses the
+project-owned channel admin_go:realtime:publish.
 
-```text
-优先 Authorization: Bearer <access_token>
-浏览器 Vue runtime 使用 GET /api/admin/v1/realtime/ws + access_token cookie 完成 upgrade
-cookie token 只对该 WebSocket path 生效；普通 JSON API 不继承这个能力
-从 cookie 取 token 时 platform 固定为 admin，用于 session policy 校验
-ticket auth 只作为跨域、网关隔离、多端部署后的 planned 方案
+A client frame contains exactly:
+
+```
+{"type":"realtime.resume.v1","request_id":"optional","data":{"after_sequence":0}}
 ```
 
-当前配置：
+Only type, optional request_id, and required object data are accepted. Clients
+cannot provide server-owned metadata. A server frame contains exactly the
+closed envelope:
 
-```text
-REALTIME_ENABLED=true              # false 时明确拒绝 WebSocket upgrade，返回 503
-REALTIME_PUBLISHER=local|noop|redis
+```
+{
+  "event_id":"01J00000000000000000000000",
+  "type":"notification.created.v1",
+  "request_id":"optional",
+  "sequence":123,
+  "occurred_at":"2026-07-18T00:00:00Z",
+  "durability":"durable",
+  "data":{}
+}
 ```
 
-Docker-first realtime env 只保留启用开关和 publisher 拓扑。
+event_id is a ULID-compatible 26-character identifier. request_id is at most
+128 Unicode characters end to end. Unknown envelope fields, unknown event
+types, wrong direction, wrong durability, missing data, non-object payloads,
+and payload fields not declared by the typed registry are protocol errors.
 
-代码内置：Redis Pub/Sub channel `admin_go:realtime:publish`、heartbeat interval `25s`、send buffer `16`。
+### Typed event registry
 
-装配边界：
+The central registry is the only event-type and payload authority.
 
-```text
-bootstrap.newRealtimeStack
-  -> infra/realtime.Manager
-  -> infra/realtime.Publisher
-      local = LocalPublisher -> Manager.Send
-      noop  = NoopPublisher  -> 显式丢弃 publication
-      redis = RedisPublisher + RedisSubscriber -> LocalPublisher -> Manager.Send
-  -> module/realtime.Handler
+```
+server / ephemeral / sequence 0:
+  realtime.connected.v1
+  realtime.pong.v1
+  realtime.subscribed.v1
+  realtime.error.v1
+  realtime.resync_required.v1
+  ai.response.start.v1
+  ai.response.delta.v1
+
+client:
+  realtime.subscribe.v1
+  realtime.resume.v1
+
+bidirectional control:
+  realtime.ping.v1
+
+server / durable / sequence > 0:
+  notification.created.v1
+  ai.response.completed.v1
+  ai.response.failed.v1
+  ai.response.canceled.v1
 ```
 
-规则：
+The confirmed recovery and cancellation payloads are exact:
 
-```text
-REALTIME_ENABLED=false 是功能关闭，不是静默兜底；upgrade 直接 503。
-REALTIME_PUBLISHER=noop 只允许用于未接业务推送或测试场景；WebSocket connect/ping/pong 仍可运行。
-REALTIME_PUBLISHER=redis 用 Redis Pub/Sub 做跨进程 best-effort fan-out；DB notifications 仍是真相源。
-WebSocket Origin 不走普通 CORS 预检，gorilla/websocket 需要单独 CheckOrigin；当前复用 CORS_ALLOW_ORIGINS 白名单并允许非浏览器空 Origin / 同 host upgrade。
-admin-api 当前可以承载第一期 WebSocket I/O goroutine，但不能在 handler 里跑 CPU-heavy AI 或报表任务。
-App.Shutdown 会关闭本机 realtime Manager 下的连接，避免进程停机时遗留连接状态。
-Vue runtime 已从旧 ws://127.0.0.1:7272 和 /api/admin/WebSocket/bind 切到 Go baseline：/api/admin/v1/realtime/ws + versioned type/request_id/data envelope。
+```
+{"latest_sequence":123}
+{"conversation_id":1,"request_id":"..."}
 ```
 
+realtime.resync_required.v1 is server-only Ephemeral. Its envelope sequence is
+always zero. ai.response.canceled.v1 is server-only Durable. Completed,
+failed, and canceled AI events are inserted in the same MySQL transaction as
+their terminal command transition. Notification events are inserted in the
+same transaction as notification rows. Start/delta/progress events are
+Ephemeral and are never persisted.
+
+### Subscription, fan-out, and isolation
+
+Each authenticated session owns a synchronized topic set.
+realtime.subscribe.v1 replaces that set with authorized topics. Local and Redis
+fan-out both apply the same subscription filter. Every session has a bounded
+send queue; a slow client is disconnected rather than growing memory without
+bound. One handler error or panic is counted and isolated and cannot stop later
+handlers or the read pump.
+
+Redis messages are strictly decoded and validated by the same registry before
+local delivery. Redis outage may delay live delivery but cannot lose committed
+terminal truth. Durable rows are committed before best-effort Redis publish.
+
+### Durable resume and retention watermark
+
+realtime.resume.v1 has the exact payload:
+
+```
+{"after_sequence":123}
+```
+
+For the authenticated user, resume reads at most 500 authorized durable events
+strictly ordered by sequence, returning only rows with
+sequence > after_sequence.
+
+Durable events are retained for exactly 7 days:
+
+```
+expires_at = occurred_at + 7 days
+```
+
+Retention progress is stored per target:
+
+```
+realtime_event_retention_watermarks
+  target_type
+  target_id
+  deleted_through_sequence
+  updated_at
+  UNIQUE(target_type, target_id)
+```
+
+For a target:
+
+```
+latest_sequence = max(max(sequence of currently retained events),
+                      deleted_through_sequence)
+```
+
+If after_sequence < deleted_through_sequence, no partial replay is returned.
+The server returns realtime.resync_required.v1 with
+{"latest_sequence":latest_sequence}; the client must reload the authoritative
+domain query before establishing a new cursor. Equality does not require
+resync.
+
+The daily Worker cleanup selects expired durable events, advances the matching
+deleted_through_sequence through the greatest deleted sequence, and deletes
+those rows in one MySQL transaction. A rollback changes neither rows nor
+watermark. Cleanup is a versioned TaskRegistry task and is never performed by a
+read/list endpoint.
+
+The application shutdown path closes local realtime sessions. API/Worker,
+MySQL, Redis, realtime integration, and kill/restart verification are launched
+only through the Docker-first scripts.
 ## Database infra baseline
 
 数据库连接属于 `internal/infra/database`，业务查询属于各模块 repository。

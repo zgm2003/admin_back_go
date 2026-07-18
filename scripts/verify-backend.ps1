@@ -82,6 +82,7 @@ try {
   Invoke-GoCommand -Arguments @("test", "./...")
   & (Join-Path $PSScriptRoot "verify-runtime-contracts.ps1")
   & (Join-Path $PSScriptRoot "verify-identity-routing.ps1")
+  & (Join-Path $PSScriptRoot "verify-durable-work.ps1")
   Invoke-GoCommand -Arguments @("vet", "./...")
   Invoke-GoCommand -Arguments @("run", "honnef.co/go/tools/cmd/staticcheck@v0.8.0-rc.1", "./...")
   Invoke-GoCommand -Arguments @("run", "golang.org/x/vuln/cmd/govulncheck@v1.6.0", "./...")
