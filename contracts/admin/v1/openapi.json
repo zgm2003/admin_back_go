@@ -1,6 +1,10 @@
 {
   "components": {
     "schemas": {
+      "EmptyObject": {
+        "additionalProperties": false,
+        "type": "object"
+      },
       "ErrorEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -63,6 +67,73 @@
         "additionalProperties": true,
         "type": "object"
       },
+      "QueueMonitorGrantSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "expires_in": {
+                "const": 60,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "expires_in"
+            ],
+            "type": "object"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "RealtimeTicketSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "expires_in": {
+                "const": 30,
+                "type": "integer"
+              },
+              "ticket": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "ticket",
+              "expires_in"
+            ],
+            "type": "object"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "SuccessEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -88,6 +159,16 @@
         "bearerFormat": "JWT",
         "scheme": "bearer",
         "type": "http"
+      },
+      "queueMonitorGrantCookie": {
+        "in": "cookie",
+        "name": "__Secure-admin_queue_monitor",
+        "type": "apiKey"
+      },
+      "realtimeTicket": {
+        "in": "query",
+        "name": "ticket",
+        "type": "apiKey"
       }
     }
   },
@@ -4922,7 +5003,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenericObject"
+                "$ref": "#/components/schemas/EmptyObject"
               }
             }
           },
@@ -4933,7 +5014,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessEnvelope"
+                  "$ref": "#/components/schemas/QueueMonitorGrantSuccessEnvelope"
                 }
               }
             },
@@ -4976,7 +5057,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenericObject"
+                "$ref": "#/components/schemas/EmptyObject"
               }
             }
           },
@@ -4987,7 +5068,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessEnvelope"
+                  "$ref": "#/components/schemas/RealtimeTicketSuccessEnvelope"
                 }
               }
             },
@@ -9660,7 +9741,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "CONNECT /api/admin/v1/queue-monitor-ui",
@@ -9712,7 +9793,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "DELETE /api/admin/v1/queue-monitor-ui",
@@ -9754,7 +9835,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "GET /api/admin/v1/queue-monitor-ui",
@@ -9796,7 +9877,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "HEAD /api/admin/v1/queue-monitor-ui",
@@ -9886,7 +9967,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "PATCH /api/admin/v1/queue-monitor-ui",
@@ -9938,7 +10019,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "POST /api/admin/v1/queue-monitor-ui",
@@ -9990,7 +10071,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "PUT /api/admin/v1/queue-monitor-ui",
@@ -10032,7 +10113,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "TRACE /api/admin/v1/queue-monitor-ui",
@@ -10088,7 +10169,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "CONNECT /api/admin/v1/queue-monitor-ui/*path",
@@ -10152,7 +10233,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "DELETE /api/admin/v1/queue-monitor-ui/*path",
@@ -10206,7 +10287,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "GET /api/admin/v1/queue-monitor-ui/*path",
@@ -10260,7 +10341,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "HEAD /api/admin/v1/queue-monitor-ui/*path",
@@ -10374,7 +10455,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "PATCH /api/admin/v1/queue-monitor-ui/*path",
@@ -10438,7 +10519,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "POST /api/admin/v1/queue-monitor-ui/*path",
@@ -10502,7 +10583,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "PUT /api/admin/v1/queue-monitor-ui/*path",
@@ -10556,7 +10637,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "queueMonitorGrantCookie": []
           }
         ],
         "summary": "TRACE /api/admin/v1/queue-monitor-ui/*path",
@@ -10637,7 +10718,7 @@
         },
         "security": [
           {
-            "bearerAuth": []
+            "realtimeTicket": []
           }
         ],
         "summary": "GET /api/admin/v1/realtime/ws",
