@@ -161,15 +161,7 @@ func aiMessageSendRequestSchema() map[string]any {
 		"attachments":    schemaWith(arraySchema(schemaReference("AIAttachmentRequest")), "maxItems", 5),
 		"runtime_params": schemaReference("AIRuntimeParams"),
 	})
-	schema["anyOf"] = []any{
-		map[string]any{"required": []string{"content"}},
-		map[string]any{
-			"required": []string{"attachments"},
-			"properties": map[string]any{
-				"attachments": map[string]any{"minItems": 1},
-			},
-		},
-	}
+	schema["description"] = "request_id is required; additionally, trimmed content must be non-empty or attachments must contain at least one image. The cross-field rule is also published on the operation."
 	return schema
 }
 

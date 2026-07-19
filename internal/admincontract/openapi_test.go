@@ -283,6 +283,12 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	if got := sortedMapKeys(properties); !reflect.DeepEqual(got, []string{"max_history", "max_tokens", "temperature"}) {
 		t.Fatalf("AIRuntimeParams properties=%v", got)
 	}
+
+	sendRequest := document.Components.Schemas["AIMessageSendRequest"]
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageSendRequest", "request_id")
+	if _, expandsToUnknown := sendRequest["anyOf"]; expandsToUnknown {
+		t.Fatal("AIMessageSendRequest must keep its generated TypeScript shape closed; the cross-field rule belongs to the operation extension")
+	}
 }
 
 func assertOperationResponseRef(t *testing.T, operation map[string]any, status string, schema string) {
