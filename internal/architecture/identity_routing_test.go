@@ -16,7 +16,7 @@ import (
 	"admin_back_go/internal/module/permission"
 )
 
-func TestCredentialContractHasNoBrowserRefreshFieldOrAccessCookieFallback(t *testing.T) {
+func TestCredentialContractScopesRefreshFieldsToDesktopShapesAndHasNoAccessCookieFallback(t *testing.T) {
 	root := backendRoot(t)
 	openAPI := identityReadFile(t, root, "contracts/admin/v1/openapi.json")
 	var document any
@@ -25,8 +25,18 @@ func TestCredentialContractHasNoBrowserRefreshFieldOrAccessCookieFallback(t *tes
 	}
 	var exposed []string
 	findJSONProperty(document, "$", "refresh_token", &exposed)
-	if len(exposed) > 0 {
-		t.Fatalf("Admin OpenAPI exposes a JS-readable refresh credential field:\n  %s", strings.Join(exposed, "\n  "))
+	sort.Strings(exposed)
+	expectedDesktopShapes := []string{
+		"$.components.schemas.Go_internal_module_auth_transport_admin_LoginResponse_Output.properties.refresh_token",
+		"$.components.schemas.post_api_admin_v1_auth_refresh_Request.properties.refresh_token",
+	}
+	sort.Strings(expectedDesktopShapes)
+	if strings.Join(exposed, "\n") != strings.Join(expectedDesktopShapes, "\n") {
+		t.Fatalf(
+			"Admin OpenAPI refresh credential fields differ from the exact desktop-variant shapes:\nwant:\n  %s\ngot:\n  %s",
+			strings.Join(expectedDesktopShapes, "\n  "),
+			strings.Join(exposed, "\n  "),
+		)
 	}
 
 	cookieFallback := regexp.MustCompile(`(?m)(?:Cookie|GetCookie)\s*\(\s*["` + "`" + `]access_token["` + "`" + `]`)
