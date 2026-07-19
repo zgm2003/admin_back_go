@@ -29,3 +29,12 @@ type configMutationRequest struct {
 type changeConfigStatusRequest struct {
 	Status int `json:"status" binding:"required,common_status"`
 }
+
+// certificateUploadRequest documents the multipart fields consumed directly
+// by UploadCertificate. The handler streams file contents and therefore does
+// not bind this struct at runtime.
+type certificateUploadRequest struct {
+	ConfigCode string `json:"config_code" binding:"required,max=64"`
+	CertType   string `json:"cert_type" binding:"required,oneof=app_cert platform_cert root_cert"`
+	File       []byte `json:"file" binding:"required"`
+}

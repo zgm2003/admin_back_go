@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 
+	permissionmodule "admin_back_go/internal/module/permission"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/validate"
 
@@ -19,12 +20,19 @@ func RegisterRoutes(router *gin.Engine, service ManagementService, routeRegistri
 		Path:   "/api/admin/v1/permissions/page-init",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: permissionmodule.InitResponse{},
+		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/permissions",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    permissionListRequest{},
+			Response: []permissionmodule.PermissionListItem{},
+		},
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -35,6 +43,10 @@ func RegisterRoutes(router *gin.Engine, service ManagementService, routeRegistri
 			Module:  "permission",
 			Action:  "create",
 			Title:   "新增权限",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  permissionMutationRequest{},
+			Response: adminroute.IDData{},
 		},
 	}, handler.Create)
 	routes.Handle(adminroute.Definition{
@@ -47,6 +59,10 @@ func RegisterRoutes(router *gin.Engine, service ManagementService, routeRegistri
 			Action:  "update",
 			Title:   "编辑权限",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  permissionMutationRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPatch,
@@ -57,6 +73,10 @@ func RegisterRoutes(router *gin.Engine, service ManagementService, routeRegistri
 			Module:  "permission",
 			Action:  "change_status",
 			Title:   "修改权限状态",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  statusRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.ChangeStatus)
 	routes.Handle(adminroute.Definition{
@@ -69,6 +89,9 @@ func RegisterRoutes(router *gin.Engine, service ManagementService, routeRegistri
 			Action:  "delete",
 			Title:   "删除权限",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteOne)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -79,6 +102,10 @@ func RegisterRoutes(router *gin.Engine, service ManagementService, routeRegistri
 			Module:  "permission",
 			Action:  "delete_batch",
 			Title:   "批量删除权限",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  deleteBatchRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.DeleteBatch)
 }

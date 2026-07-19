@@ -21,10 +21,10 @@ type TestConnectionInput struct {
 }
 
 type TestConnectionResult struct {
-	OK        bool
-	Status    string
-	LatencyMs int
-	Message   string
+	OK        bool   `json:"ok"`
+	Status    string `json:"status"`
+	LatencyMs int    `json:"latency_ms"`
+	Message   string `json:"message"`
 }
 
 type ToolDefinition struct {

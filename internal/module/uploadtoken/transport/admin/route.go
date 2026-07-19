@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 
+	uploadtokenmodule "admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/validate"
 
@@ -19,5 +20,9 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 		Path:   "/api/admin/v1/upload-tokens",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("self-service upload credential issuance"),
+		Contract: &adminroute.HTTPContract{
+			Request:  createRequest{},
+			Response: uploadtokenmodule.CreateResponse{},
+		},
 	}, handler.Create)
 }

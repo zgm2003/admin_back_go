@@ -15,8 +15,9 @@ type workflowOperationKey struct {
 }
 
 type workflowRequestBody struct {
-	Schema   string
-	Required bool
+	Schema    string
+	Required  bool
+	MediaType string
 }
 
 type workflowOperationContract struct {
@@ -231,10 +232,11 @@ func workflowOperationRequestBody(contract workflowOperationContract) map[string
 	if contract.RequestBody == nil {
 		return nil
 	}
+	mediaType := normalizedContractMediaType(contract.RequestBody.MediaType)
 	return map[string]any{
 		"required": contract.RequestBody.Required,
 		"content": map[string]any{
-			"application/json": map[string]any{
+			mediaType: map[string]any{
 				"schema": schemaReference(contract.RequestBody.Schema),
 			},
 		},

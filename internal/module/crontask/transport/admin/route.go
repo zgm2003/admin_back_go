@@ -20,12 +20,19 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService, rout
 		Path:   "/api/admin/v1/cron-tasks/page-init",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: crontaskmodule.InitResponse{},
+		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/cron-tasks",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    listRequest{},
+			Response: crontaskmodule.ListResponse{},
+		},
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -36,6 +43,10 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService, rout
 			Module:  "cron_task",
 			Action:  "create",
 			Title:   "新增定时任务",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  saveRequest{},
+			Response: crontaskmodule.ListItem{},
 		},
 	}, handler.Create)
 	routes.Handle(adminroute.Definition{
@@ -48,6 +59,10 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService, rout
 			Action:  "update",
 			Title:   "编辑定时任务",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  saveRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPatch,
@@ -58,6 +73,10 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService, rout
 			Module:  "cron_task",
 			Action:  "change_status",
 			Title:   "修改定时任务状态",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  statusRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.ChangeStatus)
 	routes.Handle(adminroute.Definition{
@@ -70,6 +89,9 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService, rout
 			Action:  "delete",
 			Title:   "删除定时任务",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteOne)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -81,11 +103,19 @@ func RegisterRoutes(router *gin.Engine, service crontaskmodule.HTTPService, rout
 			Action:  "delete_batch",
 			Title:   "批量删除定时任务",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  batchDeleteRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteBatch)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/cron-tasks/:id/logs",
 		Access: adminroute.Permission("devTools_cronTask_logs"),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    logsRequest{},
+			Response: crontaskmodule.LogsResponse{},
+		},
 	}, handler.Logs)
 }

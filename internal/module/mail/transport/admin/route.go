@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 
+	mailmodule "admin_back_go/internal/module/mail"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/validate"
 
@@ -18,12 +19,18 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 		Path:   "/api/admin/v1/mail/page-init",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: mailmodule.PageInitResponse{},
+		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/mail/config",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: mailmodule.ConfigResponse{},
+		},
 	}, handler.Config)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPut,
@@ -34,6 +41,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Module:  "mail",
 			Action:  "update_config",
 			Title:   "编辑邮件配置",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  saveConfigRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.SaveConfig)
 	routes.Handle(adminroute.Definition{
@@ -46,6 +57,9 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "delete_config",
 			Title:   "删除邮件配置",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteConfig)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -57,12 +71,19 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "test_send",
 			Title:   "发送测试邮件",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  testRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.TestSend)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/mail/templates",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: []mailmodule.TemplateDTO{},
+		},
 	}, handler.Templates)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -73,6 +94,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Module:  "mail",
 			Action:  "create_template",
 			Title:   "新增邮件模板",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  templateRequest{},
+			Response: adminroute.IDData{},
 		},
 	}, handler.CreateTemplate)
 	routes.Handle(adminroute.Definition{
@@ -85,6 +110,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "update_template",
 			Title:   "编辑邮件模板",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  templateRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.UpdateTemplate)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPatch,
@@ -95,6 +124,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Module:  "mail",
 			Action:  "change_template_status",
 			Title:   "修改邮件模板状态",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  statusRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.ChangeTemplateStatus)
 	routes.Handle(adminroute.Definition{
@@ -107,18 +140,28 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "delete_template",
 			Title:   "删除邮件模板",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteTemplate)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/mail/logs",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    logListRequest{},
+			Response: mailmodule.LogListResponse{},
+		},
 	}, handler.Logs)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/mail/logs/:id",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: mailmodule.LogDTO{},
+		},
 	}, handler.Log)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -130,6 +173,9 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "delete_log",
 			Title:   "删除邮件日志",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteLog)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -140,6 +186,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Module:  "mail",
 			Action:  "delete_logs",
 			Title:   "批量删除邮件日志",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  deleteLogsRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.DeleteLogs)
 }

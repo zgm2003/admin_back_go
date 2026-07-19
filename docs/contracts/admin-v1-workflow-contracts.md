@@ -4,7 +4,11 @@ Status: active formal contract
 
 Machine-readable source: `contracts/admin/v1/openapi.json`
 
-Scope: the first field-complete P07 workflow slice
+Scope: the manually curated field-complete P07 workflow slice
+
+Additional P07 Admin operation families are bound directly to compiled runtime
+Go models and documented by `admin-v1-runtime-model-contracts.md`. Both sources
+are emitted into the same machine-readable `contracts/admin/v1/openapi.json`.
 
 This document records the semantics behind the generated OpenAPI components.
 JSON names are exact. A field without `?` is always present. `?` means the

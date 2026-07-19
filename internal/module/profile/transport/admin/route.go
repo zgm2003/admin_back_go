@@ -20,6 +20,9 @@ func RegisterRoutes(router *gin.Engine, service profile.HTTPService, routeRegist
 		Path:   "/api/admin/v1/profile",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: profile.ProfileResponse{},
+		},
 	}, handler.CurrentProfile)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPut,
@@ -30,6 +33,10 @@ func RegisterRoutes(router *gin.Engine, service profile.HTTPService, routeRegist
 			Module:  "profile",
 			Action:  "update_profile",
 			Title:   "编辑个人资料",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  updateProfileRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.UpdateCurrentProfile)
 	routes.Handle(adminroute.Definition{
@@ -42,6 +49,10 @@ func RegisterRoutes(router *gin.Engine, service profile.HTTPService, routeRegist
 			Action:  "update_password",
 			Title:   "修改登录密码",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  updatePasswordRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.UpdatePassword)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPut,
@@ -53,6 +64,10 @@ func RegisterRoutes(router *gin.Engine, service profile.HTTPService, routeRegist
 			Action:  "update_email",
 			Title:   "绑定或换绑邮箱",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  updateEmailRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.UpdateEmail)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPut,
@@ -63,6 +78,10 @@ func RegisterRoutes(router *gin.Engine, service profile.HTTPService, routeRegist
 			Module:  "profile_security",
 			Action:  "update_phone",
 			Title:   "绑定或换绑手机号",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  updatePhoneRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.UpdatePhone)
 }

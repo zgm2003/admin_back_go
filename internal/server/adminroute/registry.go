@@ -140,6 +140,12 @@ func (registry *Registry) Definitions() []Definition {
 	definitions := make([]Definition, 0, len(registry.definitions))
 	for _, definition := range registry.definitions {
 		definition.Tags = append([]string(nil), definition.Tags...)
+		if definition.Contract != nil {
+			contract := *definition.Contract
+			contract.ParameterRules = append([]string(nil), definition.Contract.ParameterRules...)
+			contract.ResponseAlternatives = append([]any(nil), definition.Contract.ResponseAlternatives...)
+			definition.Contract = &contract
+		}
 		definitions = append(definitions, definition)
 	}
 	registry.mu.RUnlock()
@@ -165,6 +171,13 @@ func normalizeDefinition(definition Definition) (Definition, error) {
 	definition.OperationID = strings.TrimSpace(definition.OperationID)
 	definition.RequestSchema = strings.TrimSpace(definition.RequestSchema)
 	definition.ResponseSchema = strings.TrimSpace(definition.ResponseSchema)
+	if definition.Contract != nil {
+		contract := *definition.Contract
+		contract.RequestContentType = strings.TrimSpace(contract.RequestContentType)
+		contract.ParameterRules = normalizeTags(contract.ParameterRules)
+		contract.ResponseAlternatives = append([]any(nil), contract.ResponseAlternatives...)
+		definition.Contract = &contract
+	}
 	definition.Access.PermissionCode = strings.TrimSpace(definition.Access.PermissionCode)
 	definition.Audit.Module = strings.TrimSpace(definition.Audit.Module)
 	definition.Audit.Action = strings.TrimSpace(definition.Audit.Action)

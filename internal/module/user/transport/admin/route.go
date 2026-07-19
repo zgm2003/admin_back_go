@@ -32,6 +32,9 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 		Path:   "/api/admin/v1/users/:id/profile",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: usermodule.ProfileResponse{},
+		},
 	}, handler.UserProfile)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,

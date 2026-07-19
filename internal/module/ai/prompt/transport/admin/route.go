@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 
+	promptmodule "admin_back_go/internal/module/ai/prompt"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/validate"
 
@@ -18,12 +19,19 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 		Path:   "/api/admin/v1/ai-prompts/page-init",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: promptmodule.PageInitResponse{},
+		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/ai-prompts",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    listRequest{},
+			Response: promptmodule.ListResponse{},
+		},
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -35,12 +43,19 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "create",
 			Title:   "新增AI提示词",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  promptRequest{},
+			Response: adminroute.IDData{},
+		},
 	}, handler.Create)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/ai-prompts/:id",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: promptmodule.Item{},
+		},
 	}, handler.Detail)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPut,
@@ -51,6 +66,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Module:  "ai_prompt",
 			Action:  "update",
 			Title:   "编辑AI提示词",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  promptRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
@@ -63,6 +82,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "change_status",
 			Title:   "修改AI提示词状态",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  statusRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.ChangeStatus)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -74,6 +97,9 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Action:  "delete",
 			Title:   "删除AI提示词",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteOne)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -84,6 +110,10 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Module:  "ai_prompt",
 			Action:  "delete_batch",
 			Title:   "批量删除AI提示词",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  deleteBatchRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.DeleteBatch)
 }

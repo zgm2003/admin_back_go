@@ -20,18 +20,29 @@ func RegisterTaskRoutes(router *gin.Engine, service notificationtaskmodule.HTTPS
 		Path:   "/api/admin/v1/notification-tasks/page-init",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: notificationtaskmodule.InitResponse{},
+		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/notification-tasks/status-count",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    taskStatusCountRequest{},
+			Response: []notificationtaskmodule.StatusCountItem{},
+		},
 	}, handler.StatusCount)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/notification-tasks",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    taskListRequest{},
+			Response: notificationtaskmodule.ListResponse{},
+		},
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -42,6 +53,10 @@ func RegisterTaskRoutes(router *gin.Engine, service notificationtaskmodule.HTTPS
 			Module:  "notification_task",
 			Action:  "create",
 			Title:   "发布通知任务",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  taskCreateRequest{},
+			Response: notificationtaskmodule.CreateResponse{},
 		},
 	}, handler.Create)
 	routes.Handle(adminroute.Definition{
@@ -54,6 +69,9 @@ func RegisterTaskRoutes(router *gin.Engine, service notificationtaskmodule.HTTPS
 			Action:  "cancel",
 			Title:   "取消通知任务",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.Cancel)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -64,6 +82,9 @@ func RegisterTaskRoutes(router *gin.Engine, service notificationtaskmodule.HTTPS
 			Module:  "notification_task",
 			Action:  "delete",
 			Title:   "删除通知任务",
+		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.Delete)
 }

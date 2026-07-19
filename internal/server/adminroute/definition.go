@@ -61,4 +61,34 @@ type Definition struct {
 	RequestSchema  string        `json:"request_schema,omitempty"`
 	ResponseSchema string        `json:"response_schema,omitempty"`
 	SuccessStatus  int           `json:"success_status,omitempty"`
+	Contract       *HTTPContract `json:"-"`
+}
+
+// HTTPContract binds the formal HTTP data contract to the same runtime route
+// definition that owns access and audit policy. Models are inspected only by
+// the Admin contract generator; they never participate in request handling.
+//
+// Query must be a struct whose public fields use `form` tags. Request and
+// Response must be JSON-marshallable model values. A non-nil Request is a
+// required request body unless RequestOptional is explicitly true.
+type HTTPContract struct {
+	Query                any
+	Request              any
+	Response             any
+	ResponseAlternatives []any
+	RequestOptional      bool
+	RequestContentType   string
+	ParameterRules       []string
+}
+
+// EmptyData is the exact success data for a mutation that returns {}.
+type EmptyData struct{}
+
+// EmptyListData is a contract-only marker for an empty JSON array (`[]`).
+// It is useful when a legacy endpoint explicitly returns [] as its empty state.
+type EmptyListData struct{}
+
+// IDData is the exact success data for create operations returning an ID.
+type IDData struct {
+	ID int64 `json:"id"`
 }

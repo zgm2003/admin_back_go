@@ -15,14 +15,21 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	modeledContracts, err := buildModeledOperationContracts(definitions, schemas)
+	if err != nil {
+		return nil, err
+	}
 	paths := make(map[string]any)
 	for _, definition := range definitions {
 		path, parameters, err := openAPIPath(definition.Path)
 		if err != nil {
 			return nil, fmt.Errorf("%s %s: %w", definition.Method, definition.Path, err)
 		}
-		contract, hasWorkflowContract := workflowOperationContractFor(definition.Method, definition.Path)
-		if hasWorkflowContract {
+		contract, hasFieldContract := workflowOperationContractFor(definition.Method, definition.Path)
+		if !hasFieldContract {
+			contract, hasFieldContract = modeledContracts[workflowKey(definition.Method, definition.Path)]
+		}
+		if hasFieldContract {
 			parameters, err = workflowOperationParameters(parameters, contract)
 			if err != nil {
 				return nil, fmt.Errorf("%s %s: %w", definition.Method, definition.Path, err)
@@ -46,7 +53,7 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 			tags = []string{operationTag(definition.Path)}
 		}
 		responseSchemaName := definition.ResponseSchema
-		if hasWorkflowContract {
+		if hasFieldContract {
 			responseSchemaName = contract.ResponseSchema
 		}
 		operation := map[string]any{
@@ -58,7 +65,7 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 			"x-admin-audit":  definition.Audit,
 			"responses":      operationResponses(definition, responseSchemaName),
 		}
-		if hasWorkflowContract && len(contract.ParameterRules) > 0 {
+		if hasFieldContract && len(contract.ParameterRules) > 0 {
 			operation["x-admin-parameter-rules"] = append([]string(nil), contract.ParameterRules...)
 		}
 		if len(parameters) > 0 {
@@ -66,7 +73,7 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 		}
 		operation["security"] = operationSecurity(definition)
 		requestBody := operationRequestBody(definition)
-		if hasWorkflowContract {
+		if hasFieldContract {
 			requestBody = workflowOperationRequestBody(contract)
 		}
 		if requestBody != nil {
