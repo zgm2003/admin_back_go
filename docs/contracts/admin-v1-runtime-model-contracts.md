@@ -4,6 +4,12 @@ Status: active formal contract
 
 Machine-readable source: `contracts/admin/v1/openapi.json`
 
+P08R transition: the currently published bundle is the historical
+browser/desktop-variant contract. The approved Browser-only authentication
+target is `admin-browser-auth-contract.md`; frontend implementation remains
+blocked until Task 5 publishes the matching generated bundle. This target is
+not yet deployed.
+
 This document defines how field-complete Admin operations outside the original
 workflow slice are published. Runtime route definitions bind their exact query,
 request, and response Go models through `adminroute.HTTPContract`. The Admin
@@ -16,7 +22,8 @@ The runtime-model catalog covers these Admin v1 families:
 
 - authentication helpers, profile/security, sessions, and login logs;
 - authentication platforms, permissions, and roles;
-- client versions, cron tasks, system logs/settings, and operation logs;
+- cron tasks, system logs/settings, and operation logs; the current bundle still
+  exposes the client-version family only as a pre-P08R historical surface;
 - mail, SMS, notification tasks, upload drivers/rules/settings/tokens;
 - payment configuration/certificates/recharges and wallet/ledger queries;
 - AI agents, knowledge bases/documents, prompts, providers, and tools.
@@ -46,14 +53,16 @@ grant responses remain the exact schemas defined by the Admin Contract Bundle.
 
 ## Explicit exceptional shapes
 
-- `GET /api/admin/v1/client-versions/update-json` returns either the complete
-  updater manifest or the exact empty-state value `[]` when no latest version
-  exists for the requested platform.
+- The pre-P08R bundle still describes the client-version updater endpoints.
+  The approved target removes that route family, its view, and its permissions;
+  the `client_versions` table remains frozen until P09's separately approved
+  destructive gate.
 - `POST /api/admin/v1/payment/certificates` consumes
   `multipart/form-data` with `config_code`, `cert_type`, and binary `file`.
-- Admin login/refresh responses always contain `access_token` and `expires_in`.
-  Desktop client variants may additionally contain `refresh_token` and
-  `refresh_expires_in`; browser refresh credentials remain HttpOnly cookies.
+- The pre-P08R bundle still exposes browser/desktop credential variants. The
+  approved target in `admin-browser-auth-contract.md` has one closed response
+  containing only `access_token` and `expires_in`; its refresh credential exists
+  only in the scoped HttpOnly Cookie.
 - AI tool JSON-schema fields are explicitly arbitrary JSON because the backend
   request/response DTO uses `json.RawMessage`; clients may not substitute other
   business fields for them.

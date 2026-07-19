@@ -30,6 +30,12 @@ and `docs/contracts/admin-v1-runtime-model-contracts.md`; generated schemas unde
 the frontend. Contract tests reject covered operations that fall back to
 `GenericObject` or `SuccessEnvelope`.
 
+The currently published bundle is the historical browser/desktop-variant
+contract. The approved P08R target is
+`docs/contracts/admin-browser-auth-contract.md`; the frontend is blocked from
+implementing that target until Task 5 publishes the matching generated bundle.
+This paragraph records a transition target, not deployed runtime behavior.
+
 On Windows, `verify-runtime-contracts.ps1` runs the race-enabled package gate
 inside the pinned Linux Go image; Linux CI runs the same `go test -race` gate
 directly. `verify-backend.ps1` and `verify-go-clean.ps1` both invoke this shared
@@ -115,12 +121,13 @@ route -> handler -> service -> repository -> model
 
 `internal/module` 是业务边界，不是技术分层垃圾桶。当前模块家族以根仓库 `E:/admin_go/docs/status/current-status.md` 为准，包含 auth/RBAC/user/log/notification/mail/sms/upload/payment/ai/realtime/queue-monitor 等已落地切片。
 
-当前模块拓扑索引：
+P08R 批准目标的模块拓扑索引如下；当前 pre-P08R runtime 在 Task 3 前仍含历史
+`clientversion` module，不能把下表误读为已完成部署：
 
 ```text
 core/system: system, systemsetting, systemlog, operationlog, crontask, queuemonitor, realtime
 identity/RBAC: auth, auth_platform, profile, user, permission, role
-comms/upload: mail, sms, notification, notification/task, uploadconfig, uploadtoken, export, clientversion
+comms/upload: mail, sms, notification, notification/task, uploadconfig, uploadtoken, export
 commerce: payment, payment/wallet
 ai: ai/provider, ai/agent, ai/chat, ai/conversation, ai/message, ai/run, ai/tool, ai/knowledge, ai/image, ai/video, ai/audio
 ```
@@ -374,7 +381,7 @@ GET /api/admin/v1/realtime/ws?ticket=...
   只消费 realtime ticket；不接受 Bearer、access_token cookie 或 access_token query
 
 POST /api/admin/v1/auth/queue-monitor-grants
-  Bearer 认证；仅 browser variant，并校验精确 Origin
+  Bearer 认证；批准的 Browser-only 目标校验精确 Origin，不读取客户端 variant
   成功 data 精确为 {"expires_in":60}
   设置 HttpOnly + Secure + SameSite=Strict 的 __Secure-admin_queue_monitor Cookie
 GET/HEAD /api/admin/v1/queue-monitor-ui/*
@@ -415,6 +422,10 @@ refresh 通过 refresh_token_hash 查 user_sessions，并重新签发 JWT access
 single_session / max_sessions 登录时撤销旧会话并删除 token:session:<session_id> 缓存
 Admin contract 中 go-captcha slide 仅用于所有 send-code 场景；Admin 密码登录不生成也不消费 challenge
 ```
+
+P08R 批准目标把 refresh credential 的 HTTP 表达收敛为
+`__Secure-admin_refresh` HttpOnly Cookie；服务内部仍只保存 hash，并继续执行现有
+single-session / max-sessions 策略。目标在 Task 5 bundle 发布前不视为 active。
 
 这些仍然不塞回 middleware。
 
@@ -1147,10 +1158,11 @@ email/phone code login 使用 Redis 短 TTL 验证码；email 随机码经 `Veri
 验证码登录支持自动注册：先校验 code 不消费，再检查 auth_platforms.allow_register；允许注册后消费 code，并在同一事务创建 users + user_profiles + 默认角色
 登录成功通过 session.Create 生成 JWT access_token + opaque refresh_token，并按 auth_platforms 执行单端/最大会话策略
 登录成功/密码错误/验证码错误写 users_login_log；有 queue producer 时投递 `auth:login-log:v1` 到 critical lane，由 `cmd/admin-worker` 消费；producer 未配置或投递失败时同步写库兜底，写日志失败不影响主登录结果
-Admin login / refresh / logout 必须携带 X-Admin-Client-Variant: browser|desktop，缺失或未知值返回 auth.client_variant_invalid
-browser login/refresh/logout 要求精确允许的 Origin；refresh credential 只存在于 HttpOnly + Secure + SameSite=Strict Cookie，login/refresh JSON 不返回 refresh_token，browser refresh 不提交 JSON refresh_token
-desktop login/refresh 不设置浏览器 Cookie；login/refresh JSON 返回 refresh_token + refresh_expires_in，desktop refresh 只从 JSON 读取 refresh_token
-refresh 是公开接口，不走 AuthToken；browser 从专用 Cookie 读取 refresh credential，desktop 从请求体读取 refresh_token
+当前发布 bundle 仍是历史 browser/desktop variant 合同；这不是前进架构
+批准的 P08R 目标见 docs/contracts/admin-browser-auth-contract.md，Task 5 发布前不得称为 active
+目标 login/refresh/logout 都要求精确允许的 Origin，不再存在 X-Admin-Client-Variant 或 desktop transport
+目标 refresh 是公开接口且只从专用 HttpOnly Cookie 读取 credential；请求体全部禁止
+目标 login/refresh 成功 data 只含 access_token + expires_in；logout 成功 data 精确为 {}
 logout 是认证接口，先走 AuthToken，再撤销 JWT sid 对应 session
 refresh 通过 user_sessions.refresh_token_hash 查会话
 refresh 重新签发 JWT access_token，rotate access_token_hash / refresh_token_hash / expires_at / last_seen_at / ip / ua
@@ -1785,7 +1797,7 @@ STS policy 只授权当前生成 key 的 PutObject/PostObject，不给 bucket �
 
 ```text
 qcloud-cos-sts-sdk/go 是本阶段合适的轻量依赖，因为这里只签临时凭证，不做服务端 object 操作
-uploadtoken 仍不依赖 cos-go-sdk-v5；clientversion 的 Tauri manifest 服务端发布是独立小边界，允许使用 cos-go-sdk-v5 PutObject 写很小的 update JSON，不把它扩散成通用服务端上传能力
+storage/cos.ObjectWriter 只服务于已有明确业务所有者（例如 export/AI），不能扩散成无归属的通用服务端上传能力
 阿里云 OSS Go/JS SDK 不进入默认依赖；当前上传配置和运行时只支持腾讯云 COS，历史/非 COS 配置必须显式报错并重新配置 COS
 ```
 
@@ -1798,52 +1810,7 @@ src/lib/upload/uploadClient.ts 只保留 cos-js-sdk-v5 动态加载
 上传客户端只支持腾讯云 COS；历史/非 COS 配置必须显式错误，不能静默 fallback 到 COS
 ```
 
-客户端版本管理当前新增：
-
-```text
-internal/shared/enum/client_version.go          # windows-x86_64 / darwin-x86_64 平台枚举
-internal/shared/dict.ClientVersionPlatformOptions
-internal/shared/validate/client_version.go      # client_platform validator
-internal/module/clientversion            # 客户端版本 REST + manifest 发布
-internal/infra/storage/cos.ObjectWriter # 仅服务端 PutObject 小边界
-```
-
-`internal/module/clientversion` 管理系统管理 / 版本管理：
-
-```text
-GET    /api/admin/v1/client-versions/page-init
-GET    /api/admin/v1/client-versions
-GET    /api/admin/v1/client-versions/update-json
-GET    /api/admin/v1/client-versions/current-check
-POST   /api/admin/v1/client-versions
-PUT    /api/admin/v1/client-versions/:id
-PATCH  /api/admin/v1/client-versions/:id/latest
-PATCH  /api/admin/v1/client-versions/:id/force-update
-DELETE /api/admin/v1/client-versions/:id
-```
-
-规则：
-
-```text
-业务名是 client version / 客户端版本；DB 表统一为 `client_versions`，mutation 权限统一为 `system_clientVersion_*`。项目未上线，不保留历史 Tauri 表名/按钮 code 特殊情况；旧 Tauri 名称只允许作为迁移 source condition 或 legacy source reference出现。前端 route folder、页面 i18n key、菜单 PAGE path/component/i18n_key 使用 `clientVersion`；旧菜单数据曾通过 `database/legacy-migrations/20260507_client_version_permission_route_cleanup.sql` 迁移。
-read/page-init/update-json 只要求 AuthToken，不注册 OperationLog；current-check 是 public path，只返回 force_update boolean。
-mutation route 使用 `system_clientVersion_*` button codes，并显式注册 OperationLog module=client_version。
-create 默认 is_latest=2、force_update=2、is_del=2；delete 只软删除且拒绝删除当前最新版本。
-set latest 在 repository transaction 内清同平台旧 latest、设新 latest，并发布 Tauri static updater manifest。
-update/force-update 如果影响最新版本，会重新发布 manifest；发布失败必须返回显式错误，不允许 DB 成功但 update.json 静默旧值。
-```
-
-manifest 发布边界：
-
-```text
-Service -> ManifestPublisher -> ManifestCOSPublisher -> storage/cos.ObjectWriter -> github.com/tencentyun/cos-go-sdk-v5
-```
-
-规则：
-
-```text
-只支持 COS server-side PutObject 写 `tauri_updater/{platform}.json`，Content-Type 固定 application/json; charset=utf-8。
-COS credential 仍来自 enabled upload_setting + upload_driver，secretbox 只在 publisher 内解密，响应和日志不输出 secret。
-OSS 不做静默 fallback；启用配置不是 COS 时明确报错。
-这个 cos-go-sdk-v5 依赖不能被滥用成“后端通用上传服务”；真实文件仍按业务模块先定义事实，再走 upload token / 客户端直传。
-```
+历史迁移说明：pre-P08R runtime/bundle 曾提供 client-version 路由、权限、菜单、
+页面和 Tauri updater manifest 发布。它们不是 Browser-only 前进架构。P08R 会删除
+全部 active runtime surface，但保持 `client_versions` 行和历史 COS 对象原样冻结；
+只有 P09 在 restore 证据通过并再次取得用户对破坏性 DDL 的明确批准后才能物理删表。

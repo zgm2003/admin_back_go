@@ -41,6 +41,11 @@ API 前缀        /api/admin/v1
 健康检查        /health, /ready
 ```
 
+P08R 合同切换状态：当前已发布的 Admin Contract Bundle 仍是历史
+browser/desktop variant 合同；批准目标是
+`docs/contracts/admin-browser-auth-contract.md`。在 Task 5 发布匹配的新 bundle
+前，目标合同尚未部署，前端不得提前猜字段接入。
+
 ## 技术栈
 
 | 类型 | 选型 |
@@ -149,7 +154,7 @@ RBAC 权限定义 / 角色 / 菜单按钮权限
 通知中心 / 通知任务
 cron task 管理
 支付基础任务和回调入口
-客户端版本管理
+客户端版本管理（仅当前 pre-P08R 历史运行时；批准目标将退役）
 AI provider / agent / chat / conversation / messages / runs / tools / knowledge
 WebSocket realtime
 Queue monitor
@@ -693,6 +698,11 @@ location = /api/admin/v1/realtime/ws {
 ```text
 ../admin_front_ts
 ```
+
+Admin 的批准目标只有 Browser 客户端：access token 仅保存在内存，refresh
+credential 仅存在于 `__Secure-admin_refresh` HttpOnly Cookie；登录、刷新、退出
+都要求精确允许的 `Origin`。正式字段以 Task 5 生成的 Admin Contract Bundle
+为唯一来源，不读取桌面 variant，也不接受 JSON refresh token。
 
 生产环境建议：
 

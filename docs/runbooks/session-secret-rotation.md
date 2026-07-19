@@ -29,7 +29,7 @@ The rehearsal runs its old, dual-key, and new-only session nodes in Docker again
 4. Verify every node is healthy and that:
    - an access credential issued before the dual-key deployment still authenticates;
    - newly issued JWT headers contain the new current `kid`;
-   - a newly issued desktop/browser session can rotate its refresh credential;
+   - a newly issued Browser session can rotate its Cookie-held refresh credential;
    - the old refresh credential cannot rotate after the root-secret cutover.
 5. Sign in again under the new current key. Revoke every session created before the cutover through the Admin session-management surface. The refresh-token pepper intentionally has no previous-key fallback.
 6. `APP_SECRET` also derives the secretbox key. Re-enter every encrypted business credential from the deployment secret store so it is encrypted under the new current key; validate each affected provider before continuing. This release does not silently migrate or log plaintext credentials.

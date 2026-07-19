@@ -1,6 +1,13 @@
 # Admin Platform Domain Context
 
-This repository currently delivers one product platform: **Admin**. `app` and `canvas` are retired product-platform lines during the 2026-07 super refactor. The next product phase is SaaS, but tenant behavior is deliberately outside the current implementation scope.
+This repository currently delivers one product platform: **Admin**. Its approved
+P08R product shape is one Browser-only client; the currently published bundle is
+still the historical browser/desktop variant contract until P08R Task 5 activates
+the replacement. `app` and `canvas` are retired product-platform lines during the
+2026-07 super refactor. The next product direction prioritizes integrating a
+concrete additional platform supplied by the user; SaaS/tenant behavior remains
+lower priority and outside the current implementation scope. No generic future
+platform framework is built before that concrete project and contract exist.
 
 ## Domain language
 
@@ -15,9 +22,14 @@ This repository currently delivers one product platform: **Admin**. `app` and `c
 - **Conversation Reply Command** — a durable, idempotent request to produce an AI reply after the user message and command are committed atomically.
 - **Realtime Delivery Module** — event publication, subscription state, delivery semantics, sequence/resume behavior, and client backpressure policy.
 - **Admin Contract Bundle** — the versioned OpenAPI document, permission catalog, runtime-view contract, realtime schemas, bundle manifest, and SHA-256 consumed by the Admin frontend.
-- **Admin Client Variant** — the browser or packaged-desktop adapter used to access the same Admin Product Platform. A client variant may change credential/native transport, but it does not create a Product Platform or duplicate Capability behavior.
+- **Admin Browser Client** — the approved P08R-only Admin client. Once the new
+  bundle is active it uses in-memory access credentials and a scoped HttpOnly
+  refresh Cookie; it is not a separate Product Platform.
 - **Tenant** — a future SaaS ownership and isolation concept. Tenant is not a synonym for product platform and is not implemented during this refactor.
-- **Product Platform** — a product entry with its own transport and workflow differences. Admin is the only current Product Platform. Future SaaS platforms reuse Capability Modules through their own workflow and transport adapters.
+- **Product Platform** — a product entry with its own transport and workflow
+  differences. Admin is the only current Product Platform. A future platform is
+  designed from its supplied project and formal contract, then reuses Capability
+  Modules without speculative aliases or catch-all compatibility layers.
 
 ## Non-negotiable distinctions
 
