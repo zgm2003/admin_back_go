@@ -1,26 +1,26 @@
 # Admin-Only Contract and Release Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task directly on `master`. Do not use subagents or worktrees unless the user explicitly changes that rule. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove App/Canvas product-platform code and schema, retain independently tested generic capabilities, execute guarded destructive DDL, and produce one synchronized, immutable, rollback-ready Admin release.
+**Goal:** Remove App/Canvas product-platform code and schema, physically retire the P08R-frozen `client_versions` history after explicit approval, retain independently tested generic capabilities, and produce one synchronized, immutable, rollback-ready Browser-only Admin release.
 
-**Architecture:** Product transports and workflow terminology are deleted before database contract DDL. Generic AI/provider/storage capabilities survive only behind transport-neutral interfaces and direct tests. A final two-repository proof locks backend/frontend Docker image digests, the user-promoted P08.5 Windows candidate, Admin Contract Bundle, database fingerprint, query evidence, and runbooks to one generated release manifest.
+**Architecture:** Product transports and workflow terminology are deleted before database contract DDL. Generic AI/provider/storage capabilities survive only behind transport-neutral interfaces and direct tests. A final two-repository proof locks backend/frontend Docker image digests, the Browser-only Admin Contract Bundle, database fingerprint, recovery/query/COS-disposition evidence, and runbooks to one generated release manifest. No desktop artifact or GitHub Workflow belongs to the release.
 
-**Tech Stack:** Go, MySQL 8.4, Atlas 0.38.0, Vue/TypeScript, Tauri/Rust, Docker Compose, PowerShell 7.
+**Tech Stack:** Go, MySQL 8.4, Atlas 0.38.0, Vue/TypeScript, Docker Compose, PowerShell 7.
 
 ---
 
 ## Destructive-stage prerequisites
 
-P09 stops before DDL unless P01-P08.5 are committed, both primary checkout working directories are clean, no Git worktree registration/directory exists, every program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, and the frontend contract lock matches the backend bundle manifest.
+P09 stops before DDL unless P01-P08R and all P07 tasks are committed and accepted, both primary checkout working directories are clean, no Git worktree registration/directory exists, every active program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, P08R proves `client_versions` has had no runtime reader/writer since cutover, and the frontend contract lock matches the backend bundle manifest.
 
-P09 reads and writes only `E:/admin/admin_back_go` and `E:/admin/admin_front_ts`. It does not inspect, lock, or modify any third repository. Immediately before destructive DDL it must stop for fresh explicit user approval.
+P09 reads and writes only `E:/admin/admin_back_go` and `E:/admin/admin_front_ts`. It does not inspect, lock, or modify any third repository. Immediately before destructive DDL—including `DROP TABLE client_versions`—it must stop for fresh explicit user approval.
 
 ## File map
 
 - `release/admin-only/` owns tracked schemas and the immutable pre-contract input lock. Generated release output lives below ignored `release/admin-only/out/`.
 - `scripts/release/` owns input locking, release-manifest validation, deployment, rollback, and full proof orchestration.
-- `database/reconciliation/050`–`053` own pre/post destructive invariants; `database/migrations/202607150201`–`203` own the serialized Atlas contract groups.
+- `database/reconciliation/050`–`053` own pre/post destructive invariants; `database/migrations/202607150201`–`203` own the serialized Atlas contract groups, including the approved physical removal of frozen `client_versions`.
 - `internal/module/ai/capability/` owns transport-neutral generation scene names. Retained text/image/video/audio services use these names and direct behavior tests.
 - `internal/architecture/admin_only_test.go` and `tests/shared/architecture/admin-only.test.ts` are the permanent product-boundary guards.
 - Backend `contracts/admin/v1/` remains contract truth; frontend `contracts/backend/admin/v1/` and `contracts/backend/admin/lock.json` remain the exact consumer lock.
@@ -47,9 +47,9 @@ frontend_commit
 contract_manifest_sha256
 database_fingerprint_sha256
 recovery_artifact_sha256
-cos_evidence_sha256
+cos_disposition_evidence_sha256
 query_evidence_sha256
-tauri_candidate_manifest_sha256
+client_versions_freeze_evidence_sha256
 ```
 
 `lock-inputs.ps1` uses an ordered object populated only from verified commands and artifacts:
@@ -62,13 +62,13 @@ $lock = [ordered]@{
   contract_manifest_sha256 = Get-FileSha256 "$BackendRoot/contracts/admin/v1/manifest.json"
   database_fingerprint_sha256 = Get-EvidenceDigest $DatabaseFingerprint
   recovery_artifact_sha256 = Get-EvidenceDigest $RecoveryArtifact
-  cos_evidence_sha256 = Get-EvidenceDigest $CosEvidence
+  cos_disposition_evidence_sha256 = Get-EvidenceDigest $CosDispositionEvidence
   query_evidence_sha256 = Get-EvidenceDigest $QueryEvidence
-  tauri_candidate_manifest_sha256 = Get-EvidenceDigest $TauriCandidateManifest
+  client_versions_freeze_evidence_sha256 = Get-EvidenceDigest $ClientVersionsFreezeEvidence
 }
 ```
 
-It requires a clean frontend primary checkout. In the backend it permits only the exact Task 1 untracked/modified paths declared above, so the lock can be generated before their single commit; any runtime, contract, migration, or unrelated change fails. It rejects any registered secondary Git worktree, any path outside the two declared repositories, missing evidence, an unpromoted/mismatched Tauri candidate, a recovery artifact that has not passed restore verification, or any command that would print a DSN/token. It writes JSON through a temporary file and atomic rename. `check-inputs.ps1` validates the schema and recomputes every evidence digest without printing artifact content. Its final `-CheckOnly` mode treats backend/frontend commits as the intentionally frozen pre-contract inputs and checks ancestry plus evidence, not equality with later P09 HEAD commits.
+It requires a clean frontend primary checkout. In the backend it permits only the exact Task 1 untracked/modified paths declared above, so the lock can be generated before their single commit; any runtime, contract, migration, or unrelated change fails. It rejects any registered secondary Git worktree, any path outside the two declared repositories, missing P08R freeze/COS-disposition evidence, a recovery artifact that has not passed restore verification, a `client_versions` count/hash that differs from the P08R cutover proof, or any command that would print a DSN/token. It writes JSON through a temporary file and atomic rename. `check-inputs.ps1` validates the schema and recomputes every evidence digest without printing artifact content. Its final `-CheckOnly` mode treats backend/frontend commits as the intentionally frozen pre-contract inputs and checks ancestry plus evidence, not equality with later P09 HEAD commits.
 
 - [ ] **Step 2: Encode every legacy disposition**
 
@@ -84,12 +84,13 @@ The runbook and its executable count queries classify exactly:
 - agent and billing scenes: rename `canvas_text_generate`, `canvas_image_generate`, `canvas_video_generate`, and `canvas_audio_generate` to `text_generate`, `image_generate`, `video_generate`, and `audio_generate`;
 - `canvas_video_tasks`: remove product rows, then drop the retired table; P02 already created the canonical `ai_video_tasks` capability table;
 - `canvas_prompts` and `canvas_assets`: drop only after their source-to-`ai_prompts`/`ai_assets` hashes match P02 evidence.
+- `client_versions`: preserve the P08R row count/hash in the input lock, prove no active route/task/menu/grant/runtime package references the table, record the exact historical COS object retention/deletion decision, then drop the table only in Task 6 after the fresh destructive approval.
 
 No row receives an owner, platform, scene, kind, or object key without a documented source rule.
 
 - [ ] **Step 3: Make preconditions zero-row invariants**
 
-`050_contract_preconditions.sql` returns named violation result sets for unresolved object URLs, wallet mismatches, RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, and evidence hashes that differ from the input lock. `admin-db invariants` must fail on any returned row.
+`050_contract_preconditions.sql` returns named violation result sets for unresolved object URLs, wallet mismatches, RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, active client-version menu/grants/routes, any runtime reference to `client_versions`, and evidence hashes that differ from the input lock. It verifies the live `client_versions` count/hash equals the P08R freeze evidence. `admin-db invariants` must fail on any returned row.
 
 - [ ] **Step 4: Run and commit**
 
@@ -109,7 +110,7 @@ Expected: all lock fields are literal current values, precondition violations ar
 **Repository:** `E:/admin/admin_front_ts`
 
 **Files:**
-- Delete: `src/lib/http/platform.ts`
+- Modify: `src/lib/http/headers.ts`
 - Modify: `.env.development`
 - Modify: `.env.production`
 - Modify: `src/vite-env.d.ts`
@@ -157,7 +158,7 @@ Expected: all lock fields are literal current values, precondition violations ar
 
 - [ ] **Step 1: Add a failing source-only Admin guard**
 
-The guard parses production TypeScript/Vue and locale values. It excludes DOM `HTMLCanvasElement`, Canvas rendering APIs, CSS class names, and `src-tauri/target`. It rejects product values/imports rather than the substring alone:
+The guard parses production TypeScript/Vue and locale values. It excludes DOM `HTMLCanvasElement`, Canvas rendering APIs, and CSS class names. It rejects product values/imports rather than the substring alone:
 
 ```text
 /api/app/
@@ -179,7 +180,7 @@ Expected: FAIL on the current platform helper, env key, product scenes, and plat
 
 - [ ] **Step 2: Make Admin compile-time truth**
 
-Remove `getPlatform`; `ApiClient` sends the generated literal Admin header/claim where the contract still carries provenance. Remove platform selectors from permission, role, notification, session, auth-policy, and AI-run screens. Notification creation has Admin audience semantics only. Auth policy becomes one editable Admin policy: create/delete/status controls disappear. Scene values become:
+P08R already removed `getPlatform` and `src/lib/http/platform.ts`; keep `src/lib/http/headers.ts` on the literal Admin provenance required by the formal contract. Remove platform selectors from permission, role, notification, session, auth-policy, and AI-run screens. Notification creation has Admin audience semantics only. Auth policy becomes one editable Admin policy: create/delete/status controls disappear. Scene values become:
 
 ```text
 text_generate
@@ -188,16 +189,14 @@ video_generate
 audio_generate
 ```
 
-Keep legitimate native client platforms such as `windows-x86_64`; they are updater targets, not product platforms. Do not edit generated backend contracts in this task—Task 7 replaces them from backend truth.
+P08R has already removed native client platforms, updater targets, and client-version UI/contracts; this task must not recreate them. Do not edit generated backend contracts in this task—Task 7 replaces them from backend truth.
 
 - [ ] **Step 3: Verify and commit exact source files**
 
 ```powershell
-npm test -- tests/shared/architecture/admin-only.test.ts
-npm test -- --project integration tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
-npm run typecheck
-npm run lint
-git add -- .env.development .env.production src/vite-env.d.ts src/enums/index.ts src/lib/http/platform.ts src/api/ai/agents.ts src/api/ai/runs.ts src/api/permission/authPlatform.ts src/api/permission/permission.ts src/api/permission/role.ts src/api/system/notificationTask.ts src/api/user/users.ts src/features/ai-runs/workflow.ts src/features/notifications/workflow.ts src/features/user-management/workflow.ts src/views/Main/ai/agents/index.vue src/views/Main/ai/runs/components/RunList/index.vue src/views/Main/ai/runs/components/RunStats/index.vue src/views/Main/permission/authPlatform/index.vue src/views/Main/permission/authPlatform/helpers.ts src/views/Main/permission/authPlatform/components/FormDialog.vue src/views/Main/permission/permission/index.vue src/views/Main/permission/permission/helpers.ts src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue src/views/Main/permission/permission/components/PlatformTabs.vue src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue src/views/Main/system/notificationTask/index.vue src/views/Main/user/userManager/components/SessionList/index.vue src/i18n/locales/en-US/ai.ts src/i18n/locales/en-US/permission.ts src/i18n/locales/en-US/system.ts src/i18n/locales/en-US/user.ts src/i18n/locales/zh-CN/ai.ts src/i18n/locales/zh-CN/permission.ts src/i18n/locales/zh-CN/system.ts src/i18n/locales/zh-CN/user.ts scripts/check-admin-only.mjs tests/shared/architecture/admin-only.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
+$root = (Get-Location).Path
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm test -- tests/shared/architecture/admin-only.test.ts && npm test -- --project integration tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts && npm run typecheck && npm run lint"
+git add -- .env.development .env.production src/vite-env.d.ts src/enums/index.ts src/lib/http/headers.ts src/api/ai/agents.ts src/api/ai/runs.ts src/api/permission/authPlatform.ts src/api/permission/permission.ts src/api/permission/role.ts src/api/system/notificationTask.ts src/api/user/users.ts src/features/ai-runs/workflow.ts src/features/notifications/workflow.ts src/features/user-management/workflow.ts src/views/Main/ai/agents/index.vue src/views/Main/ai/runs/components/RunList/index.vue src/views/Main/ai/runs/components/RunStats/index.vue src/views/Main/permission/authPlatform/index.vue src/views/Main/permission/authPlatform/helpers.ts src/views/Main/permission/authPlatform/components/FormDialog.vue src/views/Main/permission/permission/index.vue src/views/Main/permission/permission/helpers.ts src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue src/views/Main/permission/permission/components/PlatformTabs.vue src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue src/views/Main/system/notificationTask/index.vue src/views/Main/user/userManager/components/SessionList/index.vue src/i18n/locales/en-US/ai.ts src/i18n/locales/en-US/permission.ts src/i18n/locales/en-US/system.ts src/i18n/locales/en-US/user.ts src/i18n/locales/zh-CN/ai.ts src/i18n/locales/zh-CN/permission.ts src/i18n/locales/zh-CN/system.ts src/i18n/locales/zh-CN/user.ts scripts/check-admin-only.mjs tests/shared/architecture/admin-only.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
 git diff --cached --check
 git commit -m "refactor(frontend): make admin the only product platform"
 ```
@@ -334,7 +333,7 @@ var NotificationTaskPlatforms = []string{PlatformAdmin}
 
 For this one transition commit, keep `PlatformApp` and `PlatformCanvas` constants only so the retained AI packages still compile; remove every non-AI use and ensure `IsPlatform` rejects them. Task 5 replaces the remaining AI references and then deletes both constants.
 
-They require auth-policy transport to expose read/update only, permission requests to omit a client-selected platform, role dictionaries to omit platform tabs, notification creation to assign Admin internally, and session/login statistics to return Admin data only. Native updater target platforms remain unchanged.
+They require auth-policy transport to expose read/update only, permission requests to omit a client-selected platform, role dictionaries to omit platform tabs, notification creation to assign Admin internally, and session/login statistics to return Admin data only. P08R Browser-only retirement remains unchanged and no updater target type is reintroduced.
 
 - [ ] **Step 2: Remove product-platform mutation APIs**
 
@@ -520,9 +519,9 @@ UPDATE ai_billing_records SET scene = CASE scene
 
 `051_verify_admin_rows.sql` proves the temporary-set source counts match locked evidence, no dependent survives, every remaining scene belongs to the canonical set, and no duplicate scene was introduced.
 
-`202607150202_admin_only_schema.sql` drops `canvas_video_tasks`, `canvas_prompts`, `canvas_assets`, and `users_quick_entry`; drops the unused `user_sessions.access_token_hash` column proven unreferenced by P04; verifies the canonical `ai_video_tasks` table from P02 remains; and removes only other compatibility columns/indexes accepted by P02 query evidence. It does not drop a performance index without a matching before/after evidence entry.
+`202607150202_admin_only_schema.sql` drops `canvas_video_tasks`, `canvas_prompts`, `canvas_assets`, `users_quick_entry`, and the P08R-frozen `client_versions` table; drops the unused `user_sessions.access_token_hash` column proven unreferenced by P04; verifies the canonical `ai_video_tasks` table from P02 remains; and removes only other compatibility columns/indexes accepted by P02 query evidence. Before dropping `client_versions`, it rechecks the locked count/hash, proves no foreign key/view/event references it, and requires the operator's fresh destructive approval token through the wrapper. It does not delete COS objects and does not drop a performance index without matching before/after evidence.
 
-`202607150203_admin_only_constraints.sql` adds named checks for the remaining Admin provenance columns and `auth_platforms.code`, then records the target fingerprint. The platform checks cover `permissions`, `user_sessions`, `users_login_log`, `notification_task`, `notifications`, `export_tasks`, `ai_runs`, `ai_text_tasks`, `ai_image_tasks`, and `ai_billing_records`.
+`202607150203_admin_only_constraints.sql` adds named checks for the remaining Admin provenance columns and `auth_platforms.code`, proves `client_versions` and all client-version constraints are absent, then records the target fingerprint. The platform checks cover `permissions`, `user_sessions`, `users_login_log`, `notification_task`, `notifications`, `export_tasks`, `ai_runs`, `ai_text_tasks`, `ai_image_tasks`, and `ai_billing_records`.
 
 - [ ] **Step 3: Make the wrapper stop between groups**
 
@@ -589,7 +588,7 @@ git commit -m "feat(database): contract schema to admin only"
 
 - [ ] **Step 1: Add final generated-contract guards**
 
-Backend and frontend guards reject App/Canvas paths, operations, permission codes, view keys, product enum values, old scenes, auth-platform mutation operations, and notification audience alternatives. They require every operation to have one route policy/audit decision and every artifact hash to match the manifest.
+Backend and frontend guards reject App/Canvas paths, operations, permission codes, view keys, product enum values, old scenes, auth-platform mutation operations, notification audience alternatives, client-version operations/views/permissions, client-variant headers, desktop refresh fields, and every Tauri/native generated identifier. They require every operation to have one route policy/audit decision and every artifact hash to match the manifest.
 
 - [ ] **Step 2: Regenerate backend truth from the committed runtime**
 
@@ -611,12 +610,8 @@ The generator records the current clean backend source SHA containing Tasks 1–
 cd E:/admin/admin_front_ts
 $backendManifest = Get-Content -Raw E:/admin/admin_back_go/contracts/admin/v1/manifest.json | ConvertFrom-Json
 $backendSourceCommit = $backendManifest.backend_commit
-npm run contract:sync -- --backend E:/admin/admin_back_go --commit $backendSourceCommit
-npm run contract:generate
-npm run routes:generate
-npm run contract:check
-npm test -- tests/shared/architecture/admin-only.test.ts
-pwsh -NoProfile -File scripts/verify-frontend.ps1
+$root = (Get-Location).Path
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,src=E:/admin/admin_back_go,dst=/backend,readonly" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm run contract:sync -- --backend /backend --commit $backendSourceCommit && npm run contract:generate && npm run routes:generate && npm run contract:check && npm test -- tests/shared/architecture/admin-only.test.ts && npm run check:browser-only && npm run typecheck && npm run lint"
 git add -- contracts/backend/admin/v1 contracts/backend/admin/lock.json src/modules/http/generated/admin.ts src/modules/http/generated/operations.ts src/modules/routing/generated/permissions.ts src/modules/routing/generated/views.ts tests/shared/architecture/admin-only.test.ts
 git diff --cached --check
 git commit -m "chore(contract): lock final admin-only bundle"
@@ -641,14 +636,15 @@ Expected: frontend lock commit/digest equals backend manifest, all generated fil
 
 - [ ] **Step 1: Write failing Docker-release boundary tests**
 
-Backend tests require a strict release schema, revision-labelled frontend/backend image digests, image-archive SHA-256 values, the exact Admin Contract Bundle digest, database/recovery evidence, and the already user-promoted P08.5 Windows candidate digest. Frontend tests reject every Web/backend deployment Workflow or versioned-web shell switch and allow only `.github/workflows/release-tauri.yml` from P08.5.
+Backend tests require a strict release schema, revision-labelled frontend/backend image digests, image-archive SHA-256 values, the exact Browser-only Admin Contract Bundle digest, database/recovery evidence, P08R retirement evidence, and the approved COS historical-object disposition digest. Frontend tests reject every `.github` directory, deployment Workflow, desktop artifact, and versioned-web shell switch.
 
 ```powershell
 cd E:/admin/admin_back_go
 go test ./internal/architecture -run TestAdminRelease -count=1
 
 cd E:/admin/admin_front_ts
-npm test -- tests/shared/deployment/admin-release.test.ts
+$root = (Get-Location).Path
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm test -- tests/shared/deployment/admin-release.test.ts"
 ```
 
 Expected: FAIL because release schema/scripts/tests do not exist.
@@ -662,7 +658,7 @@ The generated manifest is never committed. Its tracked schema contains concrete 
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "release_id", "backend", "frontend", "tauri", "contract", "database", "evidence"],
+  "required": ["schema_version", "release_id", "backend", "frontend", "contract", "database", "evidence"],
   "$defs": {
     "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
@@ -678,39 +674,35 @@ The generated manifest is never committed. Its tracked schema contains concrete 
       "type": "object", "additionalProperties": false, "required": ["commit", "image", "archive_sha256"],
       "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "image": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"}, "archive_sha256": {"$ref": "#/$defs/sha256"}}
     },
-    "tauri": {
-      "type": "object", "additionalProperties": false, "required": ["commit", "version", "tag", "candidate_manifest_sha256", "updater_manifest_sha256"],
-      "properties": {"commit": {"$ref": "#/$defs/gitSha"}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "tag": {"type": "string", "pattern": "^tauri-v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "candidate_manifest_sha256": {"$ref": "#/$defs/sha256"}, "updater_manifest_sha256": {"$ref": "#/$defs/sha256"}}
-    },
     "contract": {
       "type": "object", "additionalProperties": false, "required": ["bundle_version", "manifest_sha256"],
-      "properties": {"bundle_version": {"const": "admin-2026-07-15.2"}, "manifest_sha256": {"$ref": "#/$defs/sha256"}}
+      "properties": {"bundle_version": {"type": "string", "pattern": "^admin-[0-9]{4}-[0-9]{2}-[0-9]{2}\\.[1-9][0-9]*$"}, "manifest_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "database": {
       "type": "object", "additionalProperties": false, "required": ["atlas_version", "target_fingerprint_sha256", "atlas_sum_sha256"],
       "properties": {"atlas_version": {"const": "202607150203"}, "target_fingerprint_sha256": {"$ref": "#/$defs/sha256"}, "atlas_sum_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "evidence": {
-      "type": "object", "additionalProperties": false, "required": ["input_lock_sha256", "query_sha256", "cos_sha256", "recovery_sha256"],
-      "properties": {"input_lock_sha256": {"$ref": "#/$defs/sha256"}, "query_sha256": {"$ref": "#/$defs/sha256"}, "cos_sha256": {"$ref": "#/$defs/sha256"}, "recovery_sha256": {"$ref": "#/$defs/sha256"}}
+      "type": "object", "additionalProperties": false, "required": ["input_lock_sha256", "query_sha256", "cos_disposition_sha256", "recovery_sha256", "browser_only_retirement_sha256"],
+      "properties": {"input_lock_sha256": {"$ref": "#/$defs/sha256"}, "query_sha256": {"$ref": "#/$defs/sha256"}, "cos_disposition_sha256": {"$ref": "#/$defs/sha256"}, "recovery_sha256": {"$ref": "#/$defs/sha256"}, "browser_only_retirement_sha256": {"$ref": "#/$defs/sha256"}}
     }
   }
 }
 ```
 
-`new-release-manifest.ps1` reads artifact metadata and input lock, verifies clean tagged commits, and writes `release/admin-only/out/release-manifest.json` atomically.
+`new-release-manifest.ps1` reads artifact metadata and input lock, verifies the clean locked commits, and writes `release/admin-only/out/release-manifest.json` atomically.
 
 - [ ] **Step 3: Export verified Docker images without a deployment Workflow**
 
 `export-docker-images.ps1` first verifies both primary checkout directories are clean and at the input-lock commits. It delegates builds only to the repository Docker tooling, verifies each image revision label equals its owning commit, records immutable image digests, exports the two images to ignored `release/admin-only/out/images/`, computes archive SHA-256 values, and reruns `docker image inspect` after a clean load test. It never builds or deploys through GitHub Actions.
 
-The P08.5 Tauri Workflow remains separate. Task 8 only reads the promoted updater manifest and candidate metadata from COS and verifies their version/tag/commit/digests; it cannot rebuild, upload, or promote Tauri.
+There is no desktop release unit. Task 8 reads only the reviewed COS historical-object disposition evidence; it cannot upload, promote, overwrite, or delete those objects.
 
 - [ ] **Step 4: Implement Compose deployment and rollback**
 
-`deploy-admin-only.ps1` validates the manifest, image archives/digests/revision labels, current database fingerprint, recovery proof, and explicit maintenance inputs. It loads the verified images, runs Task 6 migration groups under the database lock, starts a candidate Compose project by immutable digest, waits for health/readiness, runs Admin HTTP/realtime smoke, then promotes the Compose project. It records the previous manifest/project and never deletes the previous image archives or state volumes.
+`deploy-admin-only.ps1` validates the manifest, image archives/digests/revision labels, current database fingerprint, recovery proof, and explicit maintenance inputs. It loads the verified images, runs Task 6 migration groups under the database lock, starts a staging Compose project by immutable digest, waits for health/readiness, runs Admin HTTP/realtime smoke, then promotes the Compose project. It records the previous manifest/project and never deletes the previous image archives or state volumes.
 
-`rollback-admin-only.ps1` verifies the previous manifest/archive digests, loads the previous frontend/backend images, restores the previous Compose project, and reruns health/readiness/Admin smoke. If the operator selects full database rollback, it requires the locked recovery artifact, a maintenance-window flag, and successful restore rehearsal evidence; it never invents reverse DDL for deleted rows. Tauri clients are not downgraded; a bad desktop release is repaired by a higher signed SemVer through P08.5.
+`rollback-admin-only.ps1` verifies the previous manifest/archive digests, loads the previous frontend/backend images, restores the previous Compose project, and reruns health/readiness/Admin smoke. If the operator selects full database rollback, it requires the locked recovery artifact, a maintenance-window flag, and successful restore rehearsal evidence; it never invents reverse DDL for deleted rows or reconstructs `client_versions` from guessed metadata.
 
 - [ ] **Step 5: Test and commit backend release machinery**
 
@@ -727,7 +719,8 @@ git commit -m "build(release): deploy immutable Docker artifacts"
 
 ```powershell
 cd E:/admin/admin_front_ts
-npm test -- tests/shared/deployment/admin-release.test.ts
+$root = (Get-Location).Path
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm test -- tests/shared/deployment/admin-release.test.ts"
 git add -- tests/shared/deployment/admin-release.test.ts
 git diff --cached --check
 git commit -m "test(release): enforce Docker-only frontend delivery"
@@ -761,13 +754,13 @@ runtime/identity/durable-work/realtime multi-node and termination gates
 Admin Contract Bundle generation/check and frontend lock check
 frontend lint/typecheck/unit/component/integration/build/budget gates
 P07 Docker health/revision/authenticated HTTP/realtime smoke and user acceptance evidence
-Rust fmt/Clippy/test/audit plus P08.5 signed Windows candidate/import evidence
+P08R Browser-only source/contract/menu/session retirement and user acceptance evidence
 secret/dump/sensitive-log scan
-Admin-only source/generated/schema scan
-primary-checkout/no-worktree/no-Web-deployment-Workflow checks
+Admin-only and Browser-only source/generated/schema scan, including absent client_versions
+primary-checkout/no-worktree/no-.github/no-deployment-Workflow checks
 ```
 
-It writes only hashes, counts, timings, Docker image identifiers, the Tauri candidate job URL/ID, and pass/fail status to `release/admin-only/out/proof.json`; it never copies live rows, prompts, credentials, dumps, certificates, or object content.
+It writes only hashes, counts, timings, Docker image identifiers, reconciliation/restore identifiers, and pass/fail status to `release/admin-only/out/proof.json`; it never copies live rows, prompts, credentials, dumps, certificates, or object content.
 
 - [ ] **Step 3: Rehearse deploy and both rollback modes**
 
@@ -778,7 +771,7 @@ On an isolated environment restored from the locked recovery artifact:
 3. run full Admin Docker HTTP/realtime smoke and present the manual UI checklist for user confirmation;
 4. switch to the previous frontend/backend Docker images and prove application rollback;
 5. enter maintenance mode, restore the recovery artifact, verify the original fingerprint, and prove full database rollback;
-6. redeploy the candidate and prove repeatability.
+6. redeploy the staging release and prove repeatability.
 
 Any mismatch invalidates the release manifest; do not patch evidence by hand.
 
@@ -792,7 +785,7 @@ git diff --cached --check
 git commit -m "docs(release): add admin-only operations and rollback proof"
 ```
 
-- [ ] **Step 5: Generate the final proof from clean tagged commits**
+- [ ] **Step 5: Generate the final proof from clean locked commits**
 
 ```powershell
 pwsh -NoProfile -File scripts/release/lock-inputs.ps1 -CheckOnly
@@ -803,4 +796,4 @@ git -C E:/admin/admin_back_go status --short
 git -C E:/admin/admin_front_ts status --short
 ```
 
-Expected: both status commands produce no output; all nine plan gates pass; imported, empty, and post-contract databases share the committed fingerprint; immutable Docker/Tauri artifacts match the manifest; rollback rehearsal passes; no secondary worktree or Web/backend deployment Workflow exists. Only after a fresh explicit user approval may the operator run the live contract migration and Compose promotion commands.
+Expected: both status commands produce no output; all nine plan gates pass; imported, empty, and post-contract databases share the committed fingerprint; immutable Docker artifacts match the manifest; `client_versions` is absent only after the approved contract group; rollback rehearsal passes; no secondary worktree, `.github` directory, desktop artifact, or deployment Workflow exists. Only after a fresh explicit user approval may the operator run the live contract migration and Compose promotion commands.

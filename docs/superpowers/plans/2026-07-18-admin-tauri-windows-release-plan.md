@@ -1,4 +1,8 @@
-# Admin Tauri Windows Candidate Release Implementation Plan
+# [CANCELLED] Admin Tauri Windows Candidate Release Implementation Plan
+
+> **Execution status:** CANCELLED by the approved `../specs/2026-07-19-admin-browser-only-tauri-retirement-design.md`. Do not execute any task or checkbox in this file.
+>
+> This document is retained only as an audit record of the abandoned P08.5 proposal. No Tauri tag, GitHub Workflow, Windows runner, signing input, NSIS artifact, COS candidate, candidate-import API/UI, updater manifest, or promotion mechanism may be created. The active replacement is `2026-07-19-admin-browser-only-tauri-retirement-plan.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Use subagents only when the user explicitly requests delegation. Steps use checkbox (`- [ ]`) syntax for tracking.
 

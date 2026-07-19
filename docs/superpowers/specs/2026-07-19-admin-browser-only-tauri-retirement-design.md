@@ -1,6 +1,6 @@
 # Admin Browser-only 与 Tauri 退役设计
 
-**状态：** 已确认方向，等待用户审阅本文后进入实施计划编写
+**状态：** 用户已于 2026-07-19 审阅批准；P08R 与后续计划重写门禁已开放
 **日期：** 2026-07-19
 **涉及仓库：** `E:/admin/admin_back_go`、`E:/admin/admin_front_ts`
 
