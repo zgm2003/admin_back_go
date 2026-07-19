@@ -11,11 +11,25 @@ import (
 )
 
 func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
+	schemas, err := openAPISchemas()
+	if err != nil {
+		return nil, err
+	}
 	paths := make(map[string]any)
 	for _, definition := range definitions {
 		path, parameters, err := openAPIPath(definition.Path)
 		if err != nil {
 			return nil, fmt.Errorf("%s %s: %w", definition.Method, definition.Path, err)
+		}
+		contract, hasWorkflowContract := workflowOperationContractFor(definition.Method, definition.Path)
+		if hasWorkflowContract {
+			parameters, err = workflowOperationParameters(parameters, contract)
+			if err != nil {
+				return nil, fmt.Errorf("%s %s: %w", definition.Method, definition.Path, err)
+			}
+			if err := validateWorkflowSchemaReferences(contract, schemas); err != nil {
+				return nil, fmt.Errorf("%s %s: %w", definition.Method, definition.Path, err)
+			}
 		}
 		method := strings.ToLower(definition.Method)
 		pathItem, _ := paths[path].(map[string]any)
@@ -31,6 +45,10 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 		if len(tags) == 0 {
 			tags = []string{operationTag(definition.Path)}
 		}
+		responseSchemaName := definition.ResponseSchema
+		if hasWorkflowContract {
+			responseSchemaName = contract.ResponseSchema
+		}
 		operation := map[string]any{
 			"operationId":    definition.OperationID,
 			"tags":           tags,
@@ -38,13 +56,20 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 			"x-runtime-path": definition.Path,
 			"x-admin-access": definition.Access,
 			"x-admin-audit":  definition.Audit,
-			"responses":      operationResponses(definition),
+			"responses":      operationResponses(definition, responseSchemaName),
+		}
+		if hasWorkflowContract && len(contract.ParameterRules) > 0 {
+			operation["x-admin-parameter-rules"] = append([]string(nil), contract.ParameterRules...)
 		}
 		if len(parameters) > 0 {
 			operation["parameters"] = parameters
 		}
 		operation["security"] = operationSecurity(definition)
-		if requestBody := operationRequestBody(definition); requestBody != nil {
+		requestBody := operationRequestBody(definition)
+		if hasWorkflowContract {
+			requestBody = workflowOperationRequestBody(contract)
+		}
+		if requestBody != nil {
 			operation["requestBody"] = requestBody
 		}
 		pathItem[method] = operation
@@ -76,7 +101,7 @@ func buildOpenAPI(definitions []adminroute.Definition) (map[string]any, error) {
 					"name": "ticket",
 				},
 			},
-			"schemas": openAPISchemas(),
+			"schemas": schemas,
 		},
 	}, nil
 }
@@ -145,7 +170,7 @@ func operationTag(path string) string {
 	return strings.Trim(remainder, ":*")
 }
 
-func operationResponses(definition adminroute.Definition) map[string]any {
+func operationResponses(definition adminroute.Definition, schemaName string) map[string]any {
 	if definition.Path == "/api/admin/v1/realtime/ws" {
 		return map[string]any{
 			"101":     map[string]any{"description": "WebSocket protocol switch"},
@@ -161,7 +186,7 @@ func operationResponses(definition adminroute.Definition) map[string]any {
 			"description": "Successful response",
 			"content": map[string]any{
 				"application/json": map[string]any{
-					"schema": responseSchema(definition.ResponseSchema),
+					"schema": responseSchema(schemaName),
 				},
 			},
 		},
@@ -209,7 +234,7 @@ func operationRequestBody(definition adminroute.Definition) map[string]any {
 	}
 }
 
-func openAPISchemas() map[string]any {
+func openAPISchemas() (map[string]any, error) {
 	categories := []string{
 		"authentication",
 		"authorization",
@@ -235,7 +260,7 @@ func openAPISchemas() map[string]any {
 			"trace_id":   map[string]any{"type": "string"},
 		},
 	}
-	return map[string]any{
+	schemas := map[string]any{
 		"EmptyObject": map[string]any{
 			"type":                 "object",
 			"additionalProperties": false,
@@ -283,6 +308,17 @@ func openAPISchemas() map[string]any {
 			},
 		},
 	}
+	workflowSchemas, err := workflowOpenAPISchemas()
+	if err != nil {
+		return nil, err
+	}
+	for name, schema := range workflowSchemas {
+		if _, duplicate := schemas[name]; duplicate {
+			return nil, fmt.Errorf("duplicate OpenAPI schema %s", name)
+		}
+		schemas[name] = schema
+	}
+	return schemas, nil
 }
 
 func successEnvelopeWithData(data map[string]any) map[string]any {

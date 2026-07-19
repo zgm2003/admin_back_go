@@ -1,0 +1,301 @@
+package admincontract
+
+import (
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+
+	"admin_back_go/internal/server/adminroute"
+)
+
+type workflowOperationKey struct {
+	Method string
+	Path   string
+}
+
+type workflowRequestBody struct {
+	Schema   string
+	Required bool
+}
+
+type workflowOperationContract struct {
+	PathParameters  map[string]map[string]any
+	QueryParameters []map[string]any
+	ParameterRules  []string
+	RequestBody     *workflowRequestBody
+	ResponseSchema  string
+}
+
+var workflowOperationContracts = buildWorkflowOperationContracts()
+
+func buildWorkflowOperationContracts() map[workflowOperationKey]workflowOperationContract {
+	positiveID := true
+	noID := false
+	return map[workflowOperationKey]workflowOperationContract{
+		workflowKey(http.MethodGet, "/api/admin/v1/users/page-init"): workflowContract("UserPageInitSuccessEnvelope", nil, nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/users"): workflowContract("UserListSuccessEnvelope", nil, []map[string]any{
+			queryParameter("address_id", false, schemaWith(stringSchema(), "minLength", 1, "pattern", `^\d+(,\d+)*$`), "Comma-separated positive address IDs."),
+			queryParameter("current_page", true, positiveIntegerSchema(), "One-based page number."),
+			queryParameter("date", false, stringSchema(), "Comma-separated start/end creation-time pair; ignored when date_start or date_end is present."),
+			queryParameter("date_end", false, stringSchema(), "Inclusive creation-time upper bound."),
+			queryParameter("date_start", false, stringSchema(), "Inclusive creation-time lower bound."),
+			queryParameter("detail_address", false, maxStringSchema(255), "Detail-address search."),
+			queryParameter("email", false, maxStringSchema(255), "Email search."),
+			queryParameter("keyword", false, maxStringSchema(100), "General user keyword search."),
+			queryParameter("page_size", true, integerRangeSchema(1, 50), "Number of rows per page."),
+			queryParameter("role_id", false, positiveIntegerSchema(), "Role ID filter."),
+			queryParameter("sex", false, integerEnumSchema(0, 1, 2), "Sex filter."),
+			queryParameter("username", false, maxStringSchema(64), "Username search."),
+		}, noID, "date_start/date_end take precedence over date when either explicit boundary is present"),
+		workflowKey(http.MethodPatch, "/api/admin/v1/users"):            workflowContract("EmptySuccessEnvelope", requiredBody("UserBatchProfileRequest"), nil, noID),
+		workflowKey(http.MethodDelete, "/api/admin/v1/users"):           workflowContract("EmptySuccessEnvelope", requiredBody("UserBatchDeleteRequest"), nil, noID),
+		workflowKey(http.MethodPut, "/api/admin/v1/users/:id"):          workflowContract("EmptySuccessEnvelope", requiredBody("UserUpdateRequest"), nil, positiveID),
+		workflowKey(http.MethodDelete, "/api/admin/v1/users/:id"):       workflowContract("EmptySuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodPatch, "/api/admin/v1/users/:id/status"): workflowContract("EmptySuccessEnvelope", requiredBody("UserStatusRequest"), nil, positiveID),
+		workflowKey(http.MethodPost, "/api/admin/v1/users/export"):      workflowContract("UserExportSuccessEnvelope", requiredBody("UserExportRequest"), nil, noID),
+
+		workflowKey(http.MethodGet, "/api/admin/v1/notifications/page-init"): workflowContract("NotificationPageInitSuccessEnvelope", nil, nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/notifications"): workflowContract("NotificationListSuccessEnvelope", nil, []map[string]any{
+			queryParameter("before_id", false, positiveIntegerSchema(), "Cursor ID for records before this notification."),
+			queryParameter("current_page", true, positiveIntegerSchema(), "One-based page number."),
+			queryParameter("is_read", false, integerEnumSchema(1, 2), "Read-state filter: 1 read, 2 unread."),
+			queryParameter("keyword", false, maxStringSchema(100), "Title/content keyword search."),
+			queryParameter("level", false, integerEnumSchema(1, 2), "Notification level filter."),
+			queryParameter("page_size", true, integerRangeSchema(1, 50), "Number of rows per page."),
+			queryParameter("type", false, integerEnumSchema(1, 2, 3, 4), "Notification type filter."),
+		}, noID),
+		workflowKey(http.MethodDelete, "/api/admin/v1/notifications"):           workflowContract("EmptySuccessEnvelope", requiredBody("NotificationDeleteBatchRequest"), nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/notifications/unread-count"): workflowContract("NotificationUnreadCountSuccessEnvelope", nil, nil, noID),
+		workflowKey(http.MethodPatch, "/api/admin/v1/notifications/:id/read"):   workflowContract("EmptySuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodPatch, "/api/admin/v1/notifications/read"): workflowContract("EmptySuccessEnvelope", optionalBody("NotificationReadRequest"), nil, noID,
+			"an absent request body or an absent/empty ids array marks all current-user notifications read"),
+		workflowKey(http.MethodDelete, "/api/admin/v1/notifications/:id"): workflowContract("EmptySuccessEnvelope", nil, nil, positiveID),
+
+		workflowKey(http.MethodGet, "/api/admin/v1/export-tasks"): workflowContract("ExportTaskListSuccessEnvelope", nil, []map[string]any{
+			queryParameter("before_id", false, positiveIntegerSchema(), "Cursor ID for records before this export task."),
+			queryParameter("current_page", false, schemaWith(positiveIntegerSchema(), "default", 1), "One-based page number."),
+			queryParameter("file_name", false, maxStringSchema(255), "File-name search."),
+			queryParameter("kind", false, maxStringSchema(64), "Export kind filter."),
+			queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."),
+			queryParameter("status", false, integerEnumSchema(1, 2, 3), "Export status filter."),
+			queryParameter("title", false, maxStringSchema(100), "Export title search."),
+		}, noID),
+		workflowKey(http.MethodDelete, "/api/admin/v1/export-tasks"): workflowContract("EmptySuccessEnvelope", requiredBody("ExportTaskDeleteBatchRequest"), nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/export-tasks/status-count"): workflowContract("ExportTaskStatusCountSuccessEnvelope", nil, []map[string]any{
+			queryParameter("file_name", false, maxStringSchema(255), "File-name search."),
+			queryParameter("kind", false, maxStringSchema(64), "Export kind filter."),
+			queryParameter("title", false, maxStringSchema(100), "Export title search."),
+		}, noID),
+		workflowKey(http.MethodDelete, "/api/admin/v1/export-tasks/:id"): workflowContract("EmptySuccessEnvelope", nil, nil, positiveID),
+
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-conversations"): workflowContract("AIConversationListSuccessEnvelope", nil, []map[string]any{
+			queryParameter("agent_id", false, positiveIntegerSchema(), "Agent ID filter."),
+			queryParameter("before_id", false, positiveIntegerSchema(), "Conversation cursor ID; must accompany before_time."),
+			queryParameter("before_time", false, schemaWith(stringSchema(), "pattern", `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`), "Conversation cursor time; must accompany before_id."),
+			queryParameter("limit", false, schemaWith(integerRangeSchema(1, 100), "default", 20), "Maximum conversations returned."),
+		}, noID, "before_time and before_id must either both be present or both be absent"),
+		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations"):       workflowContract("AIConversationCreateSuccessEnvelope", requiredBody("AIConversationCreateRequest"), nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-conversations/:id"):    workflowContract("AIConversationDetailSuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodPut, "/api/admin/v1/ai-conversations/:id"):    workflowContract("EmptySuccessEnvelope", requiredBody("AIConversationUpdateRequest"), nil, positiveID),
+		workflowKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id"): workflowContract("EmptySuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-conversations/:id/messages"): workflowContract("AIMessageListSuccessEnvelope", nil, []map[string]any{
+			queryParameter("before_id", false, positiveIntegerSchema(), "Message cursor ID."),
+			queryParameter("limit", false, schemaWith(integerRangeSchema(1, 100), "default", 20), "Maximum messages returned."),
+		}, positiveID),
+		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages"): workflowContract("AIMessageSendSuccessEnvelope", requiredBody("AIMessageSendRequest"), nil, positiveID,
+			"trimmed content must be non-empty or attachments must contain at least one image"),
+		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages/cancel"): workflowContract("AIMessageCancelSuccessEnvelope", requiredBody("AIMessageCancelRequest"), nil, positiveID),
+
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"):      workflowContract("AIRunPageInitSuccessEnvelope", nil, nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):                workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):            workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats"):          workflowContract("AIRunStatsSuccessEnvelope", nil, aiRunStatsQueryParameters(false), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date"):  workflowContract("AIRunStatsByDateSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent"): workflowContract("AIRunStatsByAgentSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user"):  workflowContract("AIRunStatsByUserSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+	}
+}
+
+func workflowKey(method string, path string) workflowOperationKey {
+	return workflowOperationKey{Method: strings.ToUpper(strings.TrimSpace(method)), Path: strings.TrimSpace(path)}
+}
+
+func workflowContract(response string, request *workflowRequestBody, query []map[string]any, positiveID bool, rules ...string) workflowOperationContract {
+	contract := workflowOperationContract{
+		QueryParameters: query,
+		ParameterRules:  append([]string(nil), rules...),
+		RequestBody:     request,
+		ResponseSchema:  response,
+	}
+	if positiveID {
+		contract.PathParameters = map[string]map[string]any{"id": positiveIntegerSchema()}
+	}
+	return contract
+}
+
+func requiredBody(schema string) *workflowRequestBody {
+	return &workflowRequestBody{Schema: schema, Required: true}
+}
+
+func optionalBody(schema string) *workflowRequestBody {
+	return &workflowRequestBody{Schema: schema}
+}
+
+func queryParameter(name string, required bool, schema map[string]any, description string) map[string]any {
+	return map[string]any{
+		"name":        name,
+		"in":          "query",
+		"required":    required,
+		"description": description,
+		"schema":      schema,
+	}
+}
+
+func aiRunListQueryParameters() []map[string]any {
+	parameters := []map[string]any{
+		queryParameter("agent_id", false, positiveIntegerSchema(), "Agent ID filter."),
+		queryParameter("current_page", false, schemaWith(positiveIntegerSchema(), "default", 1), "One-based page number."),
+		queryParameter("date_end", false, maxStringSchema(20), "Inclusive creation-time upper bound."),
+		queryParameter("date_start", false, maxStringSchema(20), "Inclusive creation-time lower bound."),
+		queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."),
+		queryParameter("platform", false, stringEnumSchema("admin", "app", "canvas"), "Origin platform filter."),
+		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
+		queryParameter("request_id", false, maxStringSchema(128), "Request ID search."),
+		queryParameter("status", false, stringEnumSchema("running", "success", "failed", "canceled", "timeout"), "Run status filter."),
+		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
+	}
+	return parameters
+}
+
+func aiRunStatsQueryParameters(paged bool) []map[string]any {
+	parameters := []map[string]any{
+		queryParameter("agent_id", false, positiveIntegerSchema(), "Agent ID filter."),
+	}
+	if paged {
+		parameters = append(parameters, queryParameter("current_page", false, schemaWith(positiveIntegerSchema(), "default", 1), "One-based page number."))
+	}
+	parameters = append(parameters,
+		queryParameter("date_end", false, maxStringSchema(20), "Inclusive creation-time upper bound."),
+		queryParameter("date_start", false, maxStringSchema(20), "Inclusive creation-time lower bound."),
+	)
+	if paged {
+		parameters = append(parameters, queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."))
+	}
+	parameters = append(parameters,
+		queryParameter("platform", false, stringEnumSchema("admin", "app", "canvas"), "Origin platform filter."),
+		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
+		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
+	)
+	return parameters
+}
+
+func workflowOperationContractFor(method string, path string) (workflowOperationContract, bool) {
+	contract, ok := workflowOperationContracts[workflowKey(method, path)]
+	return contract, ok
+}
+
+func workflowOperationParameters(pathParameters []map[string]any, contract workflowOperationContract) ([]map[string]any, error) {
+	parameters := make([]map[string]any, 0, len(pathParameters)+len(contract.QueryParameters))
+	seenPath := make(map[string]struct{}, len(pathParameters))
+	for _, parameter := range pathParameters {
+		copyParameter := cloneStringAnyMap(parameter)
+		name, _ := copyParameter["name"].(string)
+		if schema, ok := contract.PathParameters[name]; ok {
+			copyParameter["schema"] = cloneStringAnyMap(schema)
+			seenPath[name] = struct{}{}
+		}
+		parameters = append(parameters, copyParameter)
+	}
+	for name := range contract.PathParameters {
+		if _, ok := seenPath[name]; !ok {
+			return nil, fmt.Errorf("contract path parameter %q is not present in the runtime path", name)
+		}
+	}
+	seenQuery := make(map[string]struct{}, len(contract.QueryParameters))
+	for _, parameter := range contract.QueryParameters {
+		name, _ := parameter["name"].(string)
+		if name == "" {
+			return nil, fmt.Errorf("query parameter name is required")
+		}
+		if _, duplicate := seenQuery[name]; duplicate {
+			return nil, fmt.Errorf("duplicate query parameter %q", name)
+		}
+		seenQuery[name] = struct{}{}
+		parameters = append(parameters, cloneStringAnyMap(parameter))
+	}
+	return parameters, nil
+}
+
+func workflowOperationRequestBody(contract workflowOperationContract) map[string]any {
+	if contract.RequestBody == nil {
+		return nil
+	}
+	return map[string]any{
+		"required": contract.RequestBody.Required,
+		"content": map[string]any{
+			"application/json": map[string]any{
+				"schema": schemaReference(contract.RequestBody.Schema),
+			},
+		},
+	}
+}
+
+func validateWorkflowSchemaReferences(contract workflowOperationContract, schemas map[string]any) error {
+	if contract.ResponseSchema == "" {
+		return fmt.Errorf("response schema is required")
+	}
+	if schemas[contract.ResponseSchema] == nil {
+		return fmt.Errorf("response schema %q is not defined", contract.ResponseSchema)
+	}
+	if contract.RequestBody != nil {
+		if contract.RequestBody.Schema == "" {
+			return fmt.Errorf("request schema is required")
+		}
+		if schemas[contract.RequestBody.Schema] == nil {
+			return fmt.Errorf("request schema %q is not defined", contract.RequestBody.Schema)
+		}
+	}
+	return nil
+}
+
+func validateWorkflowOperationContracts(definitions []adminroute.Definition) error {
+	runtime := make(map[workflowOperationKey]adminroute.Definition, len(definitions))
+	for _, definition := range definitions {
+		runtime[workflowKey(definition.Method, definition.Path)] = definition
+	}
+	keys := make([]workflowOperationKey, 0, len(workflowOperationContracts))
+	for key := range workflowOperationContracts {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i int, j int) bool {
+		if keys[i].Path != keys[j].Path {
+			return keys[i].Path < keys[j].Path
+		}
+		return keys[i].Method < keys[j].Method
+	})
+	for _, key := range keys {
+		contract := workflowOperationContracts[key]
+		definition, ok := runtime[key]
+		if !ok {
+			return fmt.Errorf("%s %s has no compiled runtime operation", key.Method, key.Path)
+		}
+		if definition.ResponseSchema != "" && definition.ResponseSchema != contract.ResponseSchema {
+			return fmt.Errorf("%s %s response schema conflicts with route definition", key.Method, key.Path)
+		}
+		if definition.RequestSchema != "" {
+			if contract.RequestBody == nil || definition.RequestSchema != contract.RequestBody.Schema {
+				return fmt.Errorf("%s %s request schema conflicts with route definition", key.Method, key.Path)
+			}
+		}
+	}
+	return nil
+}
+
+func cloneStringAnyMap(source map[string]any) map[string]any {
+	result := make(map[string]any, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}

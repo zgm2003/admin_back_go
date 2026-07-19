@@ -19,6 +19,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-admin-cont
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-runtime-contracts.ps1
 ```
 
+The OpenAPI document is also the formal field-level HTTP contract. It is not
+permitted to infer request or response fields from the frontend. The first
+field-complete workflow slice covers user management, notifications, export
+tasks, AI conversations/messages, and AI run monitoring. Its human-readable
+method, parameter, nullability, enum, empty-state, and error-state reference is
+`docs/contracts/admin-v1-workflow-contracts.md`; the generated schemas under
+`contracts/admin/v1/openapi.json` are the machine-readable source consumed by
+the frontend. The explicit operation catalog must reference a compiled runtime
+route, and contract tests reject a listed workflow operation that falls back to
+`GenericObject` or `SuccessEnvelope`.
+
 On Windows, `verify-runtime-contracts.ps1` runs the race-enabled package gate
 inside the pinned Linux Go image; Linux CI runs the same `go test -race` gate
 directly. `verify-backend.ps1` and `verify-go-clean.ps1` both invoke this shared

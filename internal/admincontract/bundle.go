@@ -39,6 +39,9 @@ func Build(options BuildOptions) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
+	if err := validateWorkflowOperationContracts(definitions); err != nil {
+		return Bundle{}, fmt.Errorf("validate workflow operation contracts: %w", err)
+	}
 	views := buildViewsDocument()
 	permissions := buildPermissionsDocument(definitions, views)
 	views.UsersMe.ResponseSchema = usersMeResponseSchema(viewKeys(views.Views), permissions.PermissionCodes)
