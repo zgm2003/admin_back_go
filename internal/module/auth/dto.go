@@ -44,11 +44,11 @@ type ForgetPasswordInput struct {
 
 type LoginResponse struct {
 	UserID           int64  `json:"-"`
-	AccessToken      string `json:"access_token"`
-	RefreshToken     string `json:"refresh_token"`
-	ExpiresIn        int    `json:"expires_in"`
-	RefreshExpiresIn int    `json:"refresh_expires_in"`
-	IsNewUser        bool   `json:"is_new_user"`
+	AccessToken      string `json:"-"`
+	RefreshToken     string `json:"-"`
+	ExpiresIn        int    `json:"-"`
+	RefreshExpiresIn int    `json:"-"`
+	IsNewUser        bool   `json:"-"`
 }
 
 type RefreshResponse = TokenResult

@@ -13,36 +13,33 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/admincontract"
 	"admin_back_go/internal/module/permission"
 )
 
-func TestCredentialContractScopesRefreshFieldsToDesktopShapesAndHasNoAccessCookieFallback(t *testing.T) {
+func TestCredentialContractHasNoPublicRefreshFieldsOrAccessCookieFallback(t *testing.T) {
 	root := backendRoot(t)
-	openAPI := identityReadFile(t, root, "contracts/admin/v1/openapi.json")
+	bundle, err := admincontract.Build(admincontract.BuildOptions{BackendCommit: strings.Repeat("a", 40)})
+	if err != nil {
+		t.Fatalf("build Admin contract: %v", err)
+	}
 	var document any
-	if err := json.Unmarshal(openAPI, &document); err != nil {
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
 		t.Fatalf("decode Admin OpenAPI: %v", err)
 	}
-	var exposed []string
-	findJSONProperty(document, "$", "refresh_token", &exposed)
-	sort.Strings(exposed)
-	expectedDesktopShapes := []string{
-		"$.components.schemas.Go_internal_module_auth_transport_admin_LoginResponse_Output.properties.refresh_token",
-		"$.components.schemas.post_api_admin_v1_auth_refresh_Request.properties.refresh_token",
-	}
-	sort.Strings(expectedDesktopShapes)
-	if strings.Join(exposed, "\n") != strings.Join(expectedDesktopShapes, "\n") {
-		t.Fatalf(
-			"Admin OpenAPI refresh credential fields differ from the exact desktop-variant shapes:\nwant:\n  %s\ngot:\n  %s",
-			strings.Join(expectedDesktopShapes, "\n  "),
-			strings.Join(exposed, "\n  "),
-		)
+	for _, property := range []string{"refresh_token", "refresh_expires_in"} {
+		var exposed []string
+		findJSONProperty(document, "$", property, &exposed)
+		if len(exposed) != 0 {
+			sort.Strings(exposed)
+			t.Fatalf("Admin OpenAPI exposes %s:\n  %s", property, strings.Join(exposed, "\n  "))
+		}
 	}
 
 	cookieFallback := regexp.MustCompile(`(?m)(?:Cookie|GetCookie)\s*\(\s*["` + "`" + `]access_token["` + "`" + `]`)
 	queryFallback := regexp.MustCompile(`(?m)(?:Query|GetQuery)\s*\(\s*["` + "`" + `]access_token["` + "`" + `]`)
 	var offenders []string
-	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(filepath.Join(root, "internal"), func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

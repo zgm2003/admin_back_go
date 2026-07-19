@@ -114,11 +114,7 @@ func (h *Handler) Login(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("登录服务未配置"))
 		return
 	}
-	variant, ok := h.requireClientVariant(c)
-	if !ok {
-		return
-	}
-	if variant == authmodule.ClientBrowser && !h.requireAllowedOrigin(c) {
+	if !h.requireAllowedOrigin(c) {
 		return
 	}
 	var req LoginRequest
@@ -140,10 +136,8 @@ func (h *Handler) Login(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	if variant == authmodule.ClientBrowser {
-		h.setRefreshCookie(c, result.RefreshToken, result.RefreshExpiresIn)
-	}
-	response.OK(c, presentLogin(result, variant))
+	h.setRefreshCookie(c, result.RefreshToken, result.RefreshExpiresIn)
+	response.OK(c, presentLogin(result))
 }
 
 func (h *Handler) SendCode(c *gin.Context) {
@@ -194,25 +188,16 @@ func (h *Handler) Refresh(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("Token认证未配置"))
 		return
 	}
-
-	variant, ok := h.requireClientVariant(c)
-	if !ok {
+	if !h.requireAllowedOrigin(c) {
+		return
+	}
+	if !requireEmptyBody(c, "auth.refresh_body_forbidden") {
 		return
 	}
 	refreshToken := ""
-	if variant == authmodule.ClientBrowser {
-		if !h.requireAllowedOrigin(c) {
-			return
-		}
-		cookie, err := c.Request.Cookie(BrowserRefreshCookieName)
-		if err == nil {
-			refreshToken = strings.TrimSpace(cookie.Value)
-		}
-	} else {
-		var req RefreshRequest
-		if err := c.ShouldBindJSON(&req); err == nil {
-			refreshToken = strings.TrimSpace(req.RefreshToken)
-		}
+	cookie, err := c.Request.Cookie(BrowserRefreshCookieName)
+	if err == nil {
+		refreshToken = strings.TrimSpace(cookie.Value)
 	}
 	if refreshToken == "" {
 		response.Error(c, apperror.Unauthorized("缺少刷新令牌"))
@@ -228,10 +213,8 @@ func (h *Handler) Refresh(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	if variant == authmodule.ClientBrowser {
-		h.setRefreshCookie(c, result.RefreshToken, result.RefreshExpiresIn)
-	}
-	response.OK(c, presentCredentials(result, variant))
+	h.setRefreshCookie(c, result.RefreshToken, result.RefreshExpiresIn)
+	response.OK(c, presentRefresh(result))
 }
 
 func (h *Handler) Logout(c *gin.Context) {
@@ -240,11 +223,10 @@ func (h *Handler) Logout(c *gin.Context) {
 		return
 	}
 
-	variant, ok := h.requireClientVariant(c)
-	if !ok {
+	if !h.requireAllowedOrigin(c) {
 		return
 	}
-	if variant == authmodule.ClientBrowser && !h.requireAllowedOrigin(c) {
+	if !requireEmptyBody(c, "auth.logout_body_forbidden") {
 		return
 	}
 	accessToken, tokenErr := middleware.ParseBearerToken(c.GetHeader("Authorization"))
@@ -256,9 +238,7 @@ func (h *Handler) Logout(c *gin.Context) {
 		response.Error(c, appErr)
 		return
 	}
-	if variant == authmodule.ClientBrowser {
-		h.clearRefreshCookie(c)
-	}
+	h.clearRefreshCookie(c)
 	response.OKWithMessageKey(c, gin.H{}, "auth.logout.success", nil, "退出成功")
 }
 
@@ -281,14 +261,6 @@ func (h *Handler) RealtimeTicket(c *gin.Context) {
 }
 
 func (h *Handler) QueueMonitorGrant(c *gin.Context) {
-	variant, ok := h.requireClientVariant(c)
-	if !ok {
-		return
-	}
-	if variant != authmodule.ClientBrowser {
-		response.Error(c, apperror.BadRequestKey("auth.browser_variant_required", nil, "该操作仅支持浏览器客户端"))
-		return
-	}
 	if !h.requireAllowedOrigin(c) {
 		return
 	}
@@ -314,21 +286,12 @@ const BrowserRefreshCookieName = "__Secure-admin_refresh"
 
 const QueueMonitorGrantCookieName = "__Secure-admin_queue_monitor"
 
-func (h *Handler) requireClientVariant(c *gin.Context) (authmodule.ClientVariant, bool) {
-	variant, ok := authmodule.ParseClientVariant(c.GetHeader(authmodule.ClientVariantHeader))
-	if !ok {
-		response.Error(c, apperror.New(
-			"auth.client_variant_invalid",
-			apperror.CategoryValidation,
-			http.StatusBadRequest,
-			apperror.Permanent,
-			"auth.client_variant_invalid",
-			nil,
-			"缺少或无法识别客户端类型",
-		))
-		return "", false
+func requireEmptyBody(c *gin.Context, messageID string) bool {
+	if c.Request.ContentLength > 0 || len(c.Request.TransferEncoding) > 0 {
+		response.Error(c, apperror.BadRequestKey(messageID, nil, "请求体必须为空"))
+		return false
 	}
-	return variant, true
+	return true
 }
 
 func (h *Handler) requireAllowedOrigin(c *gin.Context) bool {

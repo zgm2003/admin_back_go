@@ -3,7 +3,8 @@ param(
   [string]$Password = $env:SMOKE_LOGIN_PASSWORD,
   [string]$HTTPAddr = '127.0.0.1:18080',
   [string]$Platform = 'admin',
-  [string]$DeviceID = 'codex-smoke'
+  [string]$DeviceID = 'codex-smoke',
+  [string]$Origin = 'http://localhost:5173'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +72,30 @@ function Assert-ApiOK($Response, [string]$Label) {
   if ($Response.code -ne 0) {
     throw "$Label failed: $($Response | ConvertTo-Json -Depth 12)"
   }
+}
+
+function Assert-CredentialResponse($Response, [string]$Label) {
+  if ($Response.code -ne 0 -or $null -eq $Response.data) {
+    throw "$Label failed"
+  }
+  $fields = @($Response.data.PSObject.Properties.Name)
+  if ($fields.Count -ne 2 -or $fields -notcontains 'access_token' -or $fields -notcontains 'expires_in') {
+    throw "$Label violated the closed Browser credential contract"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$Response.data.access_token) -or [int64]$Response.data.expires_in -le 0) {
+    throw "$Label returned an invalid Browser credential"
+  }
+}
+
+function Get-RefreshCookieHeader($Session, [string]$BaseURL) {
+  $builder = [System.UriBuilder]::new([uri]$BaseURL)
+  $builder.Scheme = 'https'
+  $builder.Path = '/api/admin/v1/auth/refresh'
+  $cookie = @($Session.Cookies.GetCookies($builder.Uri) | Where-Object { $_.Name -eq '__Secure-admin_refresh' }) | Select-Object -First 1
+  if ($null -eq $cookie -or [string]::IsNullOrWhiteSpace($cookie.Value)) {
+    throw 'Browser refresh Cookie was not issued'
+  }
+  return "$($cookie.Name)=$($cookie.Value)"
 }
 
 function New-SmokePermission([string]$BaseURL, [hashtable]$Headers, [hashtable]$Body, [string]$Label) {
@@ -190,6 +215,7 @@ $workerErrLog = '.tmp/basic-admin-worker-smoke-err.log'
 $completed = $false
 $authHeaders = $null
 $baseURL = $null
+$browserSession = $null
 $workerProc = $null
 $createdPermissionIDs = New-Object System.Collections.Generic.List[Int64]
 $smokeRole = $null
@@ -216,6 +242,7 @@ $proc = Start-Process -FilePath (Resolve-Path $serverExe) `
 
 try {
   $baseURL = "http://$HTTPAddr"
+  $browserSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   Wait-Health $baseURL
 
   $ready = Invoke-RestMethod "$baseURL/ready" -TimeoutSec 5
@@ -305,18 +332,27 @@ func main() {
   } | ConvertTo-Json -Depth 4
   $codeLogin = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
     -Method Post `
-    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code"; 'X-Admin-Client-Variant' = 'desktop' } `
+    -Headers @{ Origin = $Origin; platform = $Platform; 'device-id' = "$($DeviceID)-code" } `
+    -WebSession $browserSession `
     -ContentType 'application/json' `
     -Body $codeLoginBody `
     -TimeoutSec 10
 
-  if ($codeLogin.code -ne 0 -or [string]::IsNullOrWhiteSpace($codeLogin.data.access_token)) {
-    throw "code login failed: $($codeLogin | ConvertTo-Json -Depth 8)"
-  }
+  Assert-CredentialResponse $codeLogin 'code login'
+
+  $codeRefreshHeaders = @{ Origin = $Origin; platform = $Platform; 'device-id' = "$($DeviceID)-code" }
+  $codeRefreshHeaders.Cookie = Get-RefreshCookieHeader $browserSession $baseURL
+  $codeRefresh = Invoke-RestMethod "$baseURL/api/admin/v1/auth/refresh" `
+    -Method Post `
+    -Headers $codeRefreshHeaders `
+    -WebSession $browserSession `
+    -TimeoutSec 10
+  Assert-CredentialResponse $codeRefresh 'code refresh'
 
   Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" `
     -Method Post `
-    -Headers @{ platform = $Platform; 'device-id' = "$($DeviceID)-code"; 'X-Admin-Client-Variant' = 'desktop'; Authorization = "Bearer $($codeLogin.data.access_token)" } `
+    -Headers @{ Origin = $Origin; platform = $Platform; 'device-id' = "$($DeviceID)-code"; Authorization = "Bearer $($codeRefresh.data.access_token)" } `
+    -WebSession $browserSession `
     -TimeoutSec 10 | Out-Null
 
   $loginBody = @{
@@ -326,27 +362,35 @@ func main() {
   } | ConvertTo-Json -Depth 4
 
   $loginHeaders = @{
+    Origin = $Origin
     platform = $Platform
     'device-id' = $DeviceID
-    'X-Admin-Client-Variant' = 'desktop'
   }
 
   $login = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
     -Method Post `
     -Headers $loginHeaders `
+    -WebSession $browserSession `
     -ContentType 'application/json' `
     -Body $loginBody `
     -TimeoutSec 10
 
-  if ($login.code -ne 0 -or [string]::IsNullOrWhiteSpace($login.data.access_token)) {
-    throw "login failed: $($login | ConvertTo-Json -Depth 8)"
-  }
+  Assert-CredentialResponse $login 'password login'
+
+  $refreshHeaders = $loginHeaders.Clone()
+  $refreshHeaders.Cookie = Get-RefreshCookieHeader $browserSession $baseURL
+  $refresh = Invoke-RestMethod "$baseURL/api/admin/v1/auth/refresh" `
+    -Method Post `
+    -Headers $refreshHeaders `
+    -WebSession $browserSession `
+    -TimeoutSec 10
+  Assert-CredentialResponse $refresh 'password refresh'
 
   $authHeaders = @{
+    Origin = $Origin
     platform = $Platform
     'device-id' = $DeviceID
-    'X-Admin-Client-Variant' = 'desktop'
-    Authorization = "Bearer $($login.data.access_token)"
+    Authorization = "Bearer $($refresh.data.access_token)"
   }
 
   @"
@@ -655,7 +699,7 @@ func main() {
   Assert-ApiOK $permissionDelete 'permission subtree delete'
   $createdPermissionIDs.Clear()
 
-  $logout = Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" -Method Post -Headers $authHeaders -TimeoutSec 10
+  $logout = Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" -Method Post -Headers $authHeaders -WebSession $browserSession -TimeoutSec 10
 
   $summary = [ordered]@{
     ready_code = $ready.code
@@ -667,6 +711,7 @@ func main() {
     captcha_code = $captcha.code
     captcha_type = $captcha.data.captcha_type
     login_code = $login.code
+    refresh_code = $refresh.code
     access_token_present = -not [string]::IsNullOrWhiteSpace($login.data.access_token)
     login_log_count = $loginLogCount
     realtime_connected_type = $realtime.connected_type

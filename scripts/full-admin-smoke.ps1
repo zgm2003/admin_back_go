@@ -5,6 +5,7 @@ param(
   [string]$BasicHTTPAddr = '127.0.0.1:18080',
   [string]$Platform = 'admin',
   [string]$DeviceID = 'codex-full-smoke',
+  [string]$Origin = 'http://localhost:5173',
   [switch]$EnableAiProviderProbe
 )
 
@@ -135,6 +136,30 @@ function Assert-ApiOK($Response, [string]$Label) {
   if ($Response.code -ne 0) {
     throw "$Label failed: $($Response | ConvertTo-Json -Depth 12)"
   }
+}
+
+function Assert-CredentialResponse($Response, [string]$Label) {
+  if ($Response.code -ne 0 -or $null -eq $Response.data) {
+    throw "$Label failed"
+  }
+  $fields = @($Response.data.PSObject.Properties.Name)
+  if ($fields.Count -ne 2 -or $fields -notcontains 'access_token' -or $fields -notcontains 'expires_in') {
+    throw "$Label violated the closed Browser credential contract"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$Response.data.access_token) -or [int64]$Response.data.expires_in -le 0) {
+    throw "$Label returned an invalid Browser credential"
+  }
+}
+
+function Get-RefreshCookieHeader($Session, [string]$BaseURL) {
+  $builder = [System.UriBuilder]::new([uri]$BaseURL)
+  $builder.Scheme = 'https'
+  $builder.Path = '/api/admin/v1/auth/refresh'
+  $cookie = @($Session.Cookies.GetCookies($builder.Uri) | Where-Object { $_.Name -eq '__Secure-admin_refresh' }) | Select-Object -First 1
+  if ($null -eq $cookie -or [string]::IsNullOrWhiteSpace($cookie.Value)) {
+    throw 'Browser refresh Cookie was not issued'
+  }
+  return "$($cookie.Name)=$($cookie.Value)"
 }
 
 function Get-ObjectArray($Value) {
@@ -2491,7 +2516,8 @@ function Invoke-BasicSmoke() {
     -Password $Password `
     -HTTPAddr $BasicHTTPAddr `
     -Platform $Platform `
-    -DeviceID "$DeviceID-basic" 2>&1
+    -DeviceID "$DeviceID-basic" `
+    -Origin $Origin 2>&1
 
   if ($LASTEXITCODE -ne 0) {
     throw "basic smoke failed: $($basicOutput | Out-String)"
@@ -2552,6 +2578,7 @@ $completed = $false
 $baseURL = $null
 $proc = $null
 $authHeaders = $null
+$browserSession = $null
 $createdPermissionID = 0
 $operationLogRowID = 0
 
@@ -2570,6 +2597,7 @@ try {
     -RedirectStandardError $errLog
 
   $baseURL = "http://$HTTPAddr"
+  $browserSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   Wait-Health $baseURL
 
   $loginBody = @{
@@ -2580,21 +2608,28 @@ try {
 
   $login = Invoke-RestMethod "$baseURL/api/admin/v1/auth/login" `
     -Method Post `
-    -Headers @{ platform = $Platform; 'device-id' = $DeviceID; 'X-Admin-Client-Variant' = 'desktop' } `
+    -Headers @{ Origin = $Origin; platform = $Platform; 'device-id' = $DeviceID } `
+    -WebSession $browserSession `
     -ContentType 'application/json' `
     -Body $loginBody `
     -TimeoutSec 10
 
-  Assert-ApiOK $login 'full smoke login'
-  if ([string]::IsNullOrWhiteSpace($login.data.access_token)) {
-    throw "full smoke login returned empty access token"
-  }
+  Assert-CredentialResponse $login 'full smoke login'
+
+  $refreshHeaders = @{ Origin = $Origin; platform = $Platform; 'device-id' = $DeviceID }
+  $refreshHeaders.Cookie = Get-RefreshCookieHeader $browserSession $baseURL
+  $refresh = Invoke-RestMethod "$baseURL/api/admin/v1/auth/refresh" `
+    -Method Post `
+    -Headers $refreshHeaders `
+    -WebSession $browserSession `
+    -TimeoutSec 10
+  Assert-CredentialResponse $refresh 'full smoke refresh'
 
   $authHeaders = @{
+    Origin = $Origin
     platform = $Platform
     'device-id' = $DeviceID
-    'X-Admin-Client-Variant' = 'desktop'
-    Authorization = "Bearer $($login.data.access_token)"
+    Authorization = "Bearer $($refresh.data.access_token)"
   }
 
   $me = Invoke-RestMethod "$baseURL/api/admin/v1/users/me" -Headers $authHeaders -TimeoutSec 10
@@ -3105,7 +3140,7 @@ try {
   Assert-ApiOK $permissionDelete 'operation log smoke permission cleanup'
   $createdPermissionID = 0
 
-  $logout = Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" -Method Post -Headers $authHeaders -TimeoutSec 10
+  $logout = Invoke-RestMethod "$baseURL/api/admin/v1/auth/logout" -Method Post -Headers $authHeaders -WebSession $browserSession -TimeoutSec 10
   Assert-ApiOK $logout 'full smoke logout'
 
   $summary = [ordered]@{

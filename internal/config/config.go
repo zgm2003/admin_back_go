@@ -420,7 +420,6 @@ func DefaultCORSConfig() CORSConfig {
 			"device-id",
 			"X-Trace-Id",
 			"X-Request-Id",
-			"X-Admin-Client-Variant",
 		},
 		ExposeHeaders:    []string{"X-Request-Id"},
 		AllowCredentials: true,

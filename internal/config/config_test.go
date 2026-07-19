@@ -129,6 +129,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 			t.Fatalf("default cors headers must contain %s: %#v", header, cfg.CORS.AllowHeaders)
 		}
 	}
+	if containsString(cfg.CORS.AllowHeaders, "X-Admin-Client-Variant") {
+		t.Fatalf("default CORS must not allow retired client variant header: %#v", cfg.CORS.AllowHeaders)
+	}
 	if !containsString(cfg.CORS.ExposeHeaders, "X-Request-Id") {
 		t.Fatalf("default cors expose headers must contain X-Request-Id: %#v", cfg.CORS.ExposeHeaders)
 	}
@@ -820,6 +823,9 @@ func TestDefaultCORSConfigUsesCodeOwnedPolicy(t *testing.T) {
 		if !containsString(cfg.AllowHeaders, header) {
 			t.Fatalf("DefaultCORSConfig must allow %s, got %#v", header, cfg.AllowHeaders)
 		}
+	}
+	if containsString(cfg.AllowHeaders, "X-Admin-Client-Variant") {
+		t.Fatalf("DefaultCORSConfig must not allow retired client variant header: %#v", cfg.AllowHeaders)
 	}
 	if !reflect.DeepEqual(cfg.ExposeHeaders, []string{"X-Request-Id"}) {
 		t.Fatalf("unexpected default cors expose headers: %#v", cfg.ExposeHeaders)

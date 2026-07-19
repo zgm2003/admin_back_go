@@ -22,10 +22,6 @@ type ForgetPasswordRequest struct {
 	ConfirmPassword string `json:"confirm_password" binding:"required,min=6,max=128"`
 }
 
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
-}
-
 type sessionListRequest struct {
 	CurrentPage int    `form:"current_page"`
 	PageSize    int    `form:"page_size"`

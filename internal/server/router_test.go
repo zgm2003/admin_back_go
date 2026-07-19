@@ -1964,12 +1964,12 @@ func TestRouterInstallsAuthTokenForNonPublicPaths(t *testing.T) {
 }
 
 func TestRouterInstallsRefreshEndpointAsPublicPath(t *testing.T) {
-	router := newTestRouter(t, testDependencies{AuthService: fakeAuthService{}})
+	router := newTestRouter(t, testDependencies{CORS: config.DefaultCORSConfig(), AuthService: fakeAuthService{}})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", nil)
+	request.Header.Set("Origin", "http://localhost:5173")
+	request.AddCookie(&http.Cookie{Name: authadmin.BrowserRefreshCookieName, Value: "refresh-token"})
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -1989,10 +1989,9 @@ func TestRouterRefreshEndpointIncludesCORSHeaders(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
-	request.Header.Set("Content-Type", "application/json")
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", nil)
 	request.Header.Set("Origin", "http://127.0.0.1:5173")
-	request.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))
+	request.AddCookie(&http.Cookie{Name: authadmin.BrowserRefreshCookieName, Value: "refresh-token"})
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -2007,7 +2006,7 @@ func TestRouterRefreshEndpointIncludesCORSHeaders(t *testing.T) {
 }
 
 func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
-	router := newTestRouter(t, testDependencies{AuthService: fakeAuthService{}})
+	router := newTestRouter(t, testDependencies{CORS: config.DefaultCORSConfig(), AuthService: fakeAuthService{}})
 
 	configRecorder := httptest.NewRecorder()
 	configRequest := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth/login-config", nil)
@@ -2020,8 +2019,8 @@ func TestRouterInstallsLoginEndpointsAsPublicPaths(t *testing.T) {
 	loginRecorder := httptest.NewRecorder()
 	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRequest.Header.Set("Origin", "http://localhost:5173")
 	loginRequest.Header.Set("platform", "admin")
-	loginRequest.Header.Set(auth.ClientVariantHeader, string(auth.ClientDesktop))
 	router.ServeHTTP(loginRecorder, loginRequest)
 	if loginRecorder.Code != http.StatusOK {
 		t.Fatalf("expected login status %d, got %d body=%s", http.StatusOK, loginRecorder.Code, loginRecorder.Body.String())

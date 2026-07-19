@@ -2,6 +2,7 @@ param(
   [string]$Account = '',
   [string]$Password = '',
   [string]$BaseURL = 'http://127.0.0.1:8080',
+  [string]$Origin = 'http://localhost:5173',
   [switch]$RunRealExport
 )
 
@@ -40,24 +41,50 @@ if ([string]::IsNullOrWhiteSpace($Account) -or [string]::IsNullOrWhiteSpace($Pas
   throw 'Account and Password are required when -RunRealExport is set.'
 }
 
+function Assert-CredentialResponse($Response, [string]$Label) {
+  $fields = @($Response.data.PSObject.Properties.Name)
+  if ($Response.code -ne 0 -or $fields.Count -ne 2 -or $fields -notcontains 'access_token' -or $fields -notcontains 'expires_in') {
+    throw "$Label violated the closed Browser credential contract"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$Response.data.access_token) -or [int64]$Response.data.expires_in -le 0) {
+    throw "$Label returned an invalid Browser credential"
+  }
+}
+
+function Get-RefreshCookieHeader($Session, [string]$BaseURL) {
+  $builder = [System.UriBuilder]::new([uri]$BaseURL)
+  $builder.Scheme = 'https'
+  $builder.Path = '/api/admin/v1/auth/refresh'
+  $cookie = @($Session.Cookies.GetCookies($builder.Uri) | Where-Object { $_.Name -eq '__Secure-admin_refresh' }) | Select-Object -First 1
+  if ($null -eq $cookie -or [string]::IsNullOrWhiteSpace($cookie.Value)) {
+    throw 'Browser refresh Cookie was not issued'
+  }
+  return "$($cookie.Name)=$($cookie.Value)"
+}
+
+$browserSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$credentialHeaders = @{
+  Origin = $Origin
+  platform = 'admin'
+  'device-id' = 'codex-export-smoke'
+}
+
 $login = Invoke-RestMethod -Uri "$BaseURL/api/admin/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{
   login_type = 'password'
   login_account = $Account
   password = $Password
-} | ConvertTo-Json -Depth 4) -Headers @{
-  platform = 'admin'
-  'device-id' = 'codex-export-smoke'
-  'X-Admin-Client-Variant' = 'desktop'
-}
+} | ConvertTo-Json -Depth 4) -Headers $credentialHeaders -WebSession $browserSession
 
-$token = $login.data.access_token
-if ([string]::IsNullOrWhiteSpace($token)) {
-  throw "Login did not return access_token: $($login | ConvertTo-Json -Depth 8)"
-}
+Assert-CredentialResponse $login 'export smoke login'
+$refreshHeaders = $credentialHeaders.Clone()
+$refreshHeaders.Cookie = Get-RefreshCookieHeader $browserSession $BaseURL
+$refresh = Invoke-RestMethod -Uri "$BaseURL/api/admin/v1/auth/refresh" -Method Post -Headers $refreshHeaders -WebSession $browserSession
+Assert-CredentialResponse $refresh 'export smoke refresh'
+$token = $refresh.data.access_token
 $headers = @{
+  Origin = $Origin
   platform = 'admin'
   'device-id' = 'codex-export-smoke'
-  'X-Admin-Client-Variant' = 'desktop'
   Authorization = "Bearer $token"
 }
 
@@ -82,6 +109,8 @@ for ($i = 0; $i -lt 20; $i++) {
 if ($null -eq $task) {
   throw 'Export task was not observed in export task list.'
 }
+
+Invoke-RestMethod -Uri "$BaseURL/api/admin/v1/auth/logout" -Method Post -Headers $headers -WebSession $browserSession | Out-Null
 
 [pscustomobject]@{
   run_real_export   = $true

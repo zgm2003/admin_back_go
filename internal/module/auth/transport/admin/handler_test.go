@@ -18,6 +18,7 @@ import (
 )
 
 type fakeSessionService struct {
+	loginCalls          int
 	loginInput          authmodule.LoginInput
 	loginResult         *authmodule.LoginResponse
 	loginErr            *apperror.Error
@@ -29,14 +30,17 @@ type fakeSessionService struct {
 	configPlatform      string
 	configResult        *authmodule.LoginConfigResponse
 	configErr           *apperror.Error
+	refreshCalls        int
 	refreshInput        authmodule.RefreshInput
 	refreshResult       *authmodule.TokenResult
 	refreshErr          *apperror.Error
+	logoutCalls         int
 	logoutToken         string
 	logoutErr           *apperror.Error
 }
 
 func (f *fakeSessionService) Login(ctx context.Context, input authmodule.LoginInput) (*authmodule.LoginResponse, *apperror.Error) {
+	f.loginCalls++
 	f.loginInput = input
 	return f.loginResult, f.loginErr
 }
@@ -57,11 +61,13 @@ func (f *fakeSessionService) LoginConfig(ctx context.Context, platform string) (
 }
 
 func (f *fakeSessionService) Refresh(ctx context.Context, input authmodule.RefreshInput) (*authmodule.TokenResult, *apperror.Error) {
+	f.refreshCalls++
 	f.refreshInput = input
 	return f.refreshResult, f.refreshErr
 }
 
 func (f *fakeSessionService) Logout(ctx context.Context, accessToken string) *apperror.Error {
+	f.logoutCalls++
 	f.logoutToken = accessToken
 	return f.logoutErr
 }
@@ -138,21 +144,46 @@ func TestHandlerCaptchaLocalizesMissingService(t *testing.T) {
 	}
 }
 
-func TestHandlerRefreshRequiresRefreshToken(t *testing.T) {
-	router := newAuthTestRouter(&fakeSessionService{})
+func TestHandlerRefreshRejectsEveryRequestBodyBeforeCredentialWork(t *testing.T) {
+	for _, body := range []string{`{}`, `{"refresh_token":"legacy"}`} {
+		t.Run(body, func(t *testing.T) {
+			service := &fakeSessionService{}
+			router := newAuthTestRouter(service)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "http://localhost:5173")
+			request.AddCookie(&http.Cookie{Name: BrowserRefreshCookieName, Value: "cookie-refresh"})
+			router.ServeHTTP(recorder, request)
 
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			responseBody := decodeAuthBody(t, recorder)
+			errorBody := responseBody["error"].(map[string]any)
+			if errorBody["code"] != "request.invalid" || responseBody["msg"] != "刷新请求体必须为空" {
+				t.Fatalf("unexpected body rejection: %#v", responseBody)
+			}
+			if service.refreshCalls != 0 {
+				t.Fatalf("refresh service called %d time(s)", service.refreshCalls)
+			}
+		})
+	}
+}
+
+func TestHandlerRefreshRequiresSecureCookie(t *testing.T) {
+	service := &fakeSessionService{}
+	router := newAuthTestRouter(service)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", nil)
+	request.Header.Set("Origin", "http://localhost:5173")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	body := decodeAuthBody(t, recorder)
-	if body["msg"] != "缺少刷新令牌" {
-		t.Fatalf("expected missing refresh token message, got %#v", body["msg"])
+	if service.refreshCalls != 0 {
+		t.Fatalf("refresh service called %d time(s)", service.refreshCalls)
 	}
 }
 
@@ -248,7 +279,7 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("platform", "admin")
 	request.Header.Set("device-id", "device-1")
 	request.Header.Set("User-Agent", "test-agent")
@@ -269,8 +300,12 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	}
 	body := decodeAuthBody(t, recorder)
 	data := body["data"].(map[string]any)
-	if data["access_token"] != "access-token" || data["refresh_token"] != "refresh-token" {
+	if len(data) != 2 || data["access_token"] != "access-token" || data["expires_in"] != float64(14400) {
 		t.Fatalf("unexpected token response: %#v", data)
+	}
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != BrowserRefreshCookieName || cookies[0].Value != "refresh-token" {
+		t.Fatalf("login did not issue refresh cookie: %#v", cookies)
 	}
 }
 
@@ -287,7 +322,7 @@ func TestHandlerCodeLoginDoesNotRequirePasswordCaptchaFields(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"phone","code":"123456"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("platform", "admin")
 	router.ServeHTTP(recorder, request)
 
@@ -307,7 +342,7 @@ func TestHandlerLoginRejectsInvalidEnumInputBeforeService(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"wechat","password":"123456"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request.Header.Set("Origin", "http://localhost:5173")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusBadRequest {
@@ -328,10 +363,10 @@ func TestHandlerRefreshReturnsTokenResult(t *testing.T) {
 	router := newAuthTestRouter(service)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"old-refresh"}`))
-	request.Header.Set("Content-Type", "application/json")
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", nil)
+	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("User-Agent", "test-agent")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request.AddCookie(&http.Cookie{Name: BrowserRefreshCookieName, Value: "old-refresh"})
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -342,8 +377,12 @@ func TestHandlerRefreshReturnsTokenResult(t *testing.T) {
 	}
 	body := decodeAuthBody(t, recorder)
 	data := body["data"].(map[string]any)
-	if data["access_token"] != "new-access" || data["refresh_token"] != "new-refresh" {
+	if len(data) != 2 || data["access_token"] != "new-access" || data["expires_in"] != float64(14400) {
 		t.Fatalf("unexpected token response: %#v", data)
+	}
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Value != "new-refresh" {
+		t.Fatalf("refresh did not rotate cookie: %#v", cookies)
 	}
 }
 
@@ -354,7 +393,7 @@ func TestHandlerLogoutParsesBearerToken(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/logout", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request.Header.Set("Origin", "http://localhost:5173")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -366,6 +405,32 @@ func TestHandlerLogoutParsesBearerToken(t *testing.T) {
 	body := decodeAuthBody(t, recorder)
 	if body["msg"] != "退出成功" {
 		t.Fatalf("expected logout success message, got %#v", body["msg"])
+	}
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != BrowserRefreshCookieName || cookies[0].MaxAge != -1 {
+		t.Fatalf("logout did not expire refresh cookie: %#v", cookies)
+	}
+}
+
+func TestHandlerLogoutRejectsRequestBodyBeforeSessionRevocation(t *testing.T) {
+	service := &fakeSessionService{}
+	router := newAuthTestRouter(service)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/logout", strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Origin", "http://localhost:5173")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeAuthBody(t, recorder)
+	if body["error"].(map[string]any)["code"] != "request.invalid" || body["msg"] != "退出请求体必须为空" {
+		t.Fatalf("unexpected logout body rejection: %#v", body)
+	}
+	if service.logoutCalls != 0 {
+		t.Fatalf("logout service called %d time(s)", service.logoutCalls)
 	}
 }
 
@@ -381,7 +446,6 @@ func TestBrowserLoginSetsSecureRefreshCookieAndOmitsRefreshCredential(t *testing
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"admin","login_type":"password","password":"secret"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientBrowser))
 	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("platform", "admin")
 	router.ServeHTTP(recorder, request)
@@ -391,8 +455,8 @@ func TestBrowserLoginSetsSecureRefreshCookieAndOmitsRefreshCredential(t *testing
 	}
 	body := decodeAuthBody(t, recorder)
 	data := body["data"].(map[string]any)
-	if _, exposed := data["refresh_token"]; exposed {
-		t.Fatalf("browser response exposed refresh credential: %#v", data)
+	if len(data) != 2 || data["access_token"] != "access-token" || data["expires_in"] != float64(14400) {
+		t.Fatalf("login response is not the closed credential shape: %#v", data)
 	}
 	cookies := recorder.Result().Cookies()
 	if len(cookies) != 1 {
@@ -404,19 +468,20 @@ func TestBrowserLoginSetsSecureRefreshCookieAndOmitsRefreshCredential(t *testing
 	}
 }
 
-func TestDesktopLoginReturnsRefreshCredentialWithoutCookie(t *testing.T) {
+func TestLoginDoesNotInterpretObsoleteVariantHeader(t *testing.T) {
 	service := &fakeSessionService{loginResult: &authmodule.LoginResponse{
 		AccessToken:      "access-token",
-		RefreshToken:     "desktop-refresh",
+		RefreshToken:     "cookie-refresh",
 		ExpiresIn:        14400,
 		RefreshExpiresIn: 1209600,
 	}}
-	router := newAuthTestRouterWithOptions(service)
+	router := newAuthTestRouterWithOptions(service, WithAllowedOrigins([]string{"http://localhost:5173"}))
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"admin","login_type":"password","password":"secret"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientDesktop))
+	request.Header.Set("X-Admin-Client-Variant", "desktop")
+	request.Header.Set("Origin", "http://localhost:5173")
 	request.Header.Set("platform", "admin")
 	router.ServeHTTP(recorder, request)
 
@@ -425,11 +490,12 @@ func TestDesktopLoginReturnsRefreshCredentialWithoutCookie(t *testing.T) {
 	}
 	body := decodeAuthBody(t, recorder)
 	data := body["data"].(map[string]any)
-	if data["refresh_token"] != "desktop-refresh" {
-		t.Fatalf("desktop response missing refresh credential: %#v", data)
+	if len(data) != 2 || data["access_token"] != "access-token" {
+		t.Fatalf("obsolete header changed response shape: %#v", data)
 	}
-	if len(recorder.Result().Cookies()) != 0 {
-		t.Fatalf("desktop login set cookies: %#v", recorder.Result().Cookies())
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Value != "cookie-refresh" {
+		t.Fatalf("obsolete header changed cookie transport: %#v", cookies)
 	}
 }
 
@@ -443,9 +509,7 @@ func TestBrowserRefreshReadsOnlySecureCookieAndChecksExactOrigin(t *testing.T) {
 	router := newAuthTestRouterWithOptions(service, WithAllowedOrigins([]string{"http://localhost:5173"}))
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", strings.NewReader(`{"refresh_token":"json-must-not-win"}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientBrowser))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", nil)
 	request.Header.Set("Origin", "http://localhost:5173/")
 	request.AddCookie(&http.Cookie{Name: BrowserRefreshCookieName, Value: "cookie-refresh"})
 	router.ServeHTTP(recorder, request)
@@ -471,7 +535,6 @@ func TestBrowserRefreshRejectsDisallowedOriginBeforeService(t *testing.T) {
 	router := newAuthTestRouterWithOptions(service, WithAllowedOrigins([]string{"http://localhost:5173"}))
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/refresh", nil)
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientBrowser))
 	request.Header.Set("Origin", "http://evil.invalid")
 	request.AddCookie(&http.Cookie{Name: BrowserRefreshCookieName, Value: "cookie-refresh"})
 	router.ServeHTTP(recorder, request)
@@ -483,18 +546,29 @@ func TestBrowserRefreshRejectsDisallowedOriginBeforeService(t *testing.T) {
 	}
 }
 
-func TestAuthMutationRejectsMissingClientVariantBeforeService(t *testing.T) {
-	service := &fakeSessionService{}
-	router := newAuthTestRouterWithOptions(service)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"admin","login_type":"password"}`))
-	request.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
-	}
-	if service.loginInput.LoginAccount != "" {
-		t.Fatalf("service invoked without client variant: %#v", service.loginInput)
+func TestAuthLoginRejectsMissingUnlistedAndTauriOriginsBeforeService(t *testing.T) {
+	for _, origin := range []string{"", "http://evil.invalid", "tauri://localhost"} {
+		t.Run(origin, func(t *testing.T) {
+			service := &fakeSessionService{}
+			router := newAuthTestRouterWithOptions(service, WithAllowedOrigins([]string{"http://localhost:5173"}))
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"admin","login_type":"password","password":"secret"}`))
+			request.Header.Set("Content-Type", "application/json")
+			if origin != "" {
+				request.Header.Set("Origin", origin)
+			}
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusForbidden {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			responseBody := decodeAuthBody(t, recorder)
+			if responseBody["error"].(map[string]any)["code"] != "auth.origin_forbidden" {
+				t.Fatalf("unexpected origin failure: %#v", responseBody)
+			}
+			if service.loginCalls != 0 {
+				t.Fatalf("login service called %d time(s)", service.loginCalls)
+			}
+		})
 	}
 }
 
@@ -521,7 +595,6 @@ func TestQueueMonitorGrantEndpointSetsPathScopedSecureCookie(t *testing.T) {
 	router := newAuthGrantTestRouter(issuer)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/queue-monitor-grants", nil)
-	request.Header.Set(authmodule.ClientVariantHeader, string(authmodule.ClientBrowser))
 	request.Header.Set("Origin", "http://localhost:5173")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -552,7 +625,7 @@ func newAuthGrantTestRouter(issuer BrowserGrantIssuer) *gin.Engine {
 }
 
 func newAuthTestRouter(service authmodule.SessionService) *gin.Engine {
-	return newAuthTestRouterWithOptions(service)
+	return newAuthTestRouterWithOptions(service, WithAllowedOrigins([]string{"http://localhost:5173"}))
 }
 
 func newAuthTestRouterWithOptions(service authmodule.SessionService, options ...Option) *gin.Engine {

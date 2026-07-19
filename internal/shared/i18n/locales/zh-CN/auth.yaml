@@ -29,9 +29,9 @@ auth.platform.invalid: Token平台不匹配
 auth.browser_grant_authenticator_missing: 浏览器授权认证器未配置
 auth.browser_grant_invalid: 浏览器授权无效或已过期
 auth.browser_grant_unavailable: 浏览器授权服务不可用
-auth.browser_variant_required: 该操作仅支持浏览器客户端
-auth.client_variant_invalid: 缺少或无法识别Admin客户端类型
 auth.origin_forbidden: 请求来源不受信任
+auth.refresh_body_forbidden: 刷新请求体必须为空
+auth.logout_body_forbidden: 退出请求体必须为空
 auth.queue_monitor_grant_missing: 缺少队列监控授权
 auth.realtime_ticket_missing: 缺少实时授权票据
 auth.user_inactive: 用户已停用或删除

@@ -78,6 +78,29 @@ func TestDefaultCORSRejects5174Preflight(t *testing.T) {
 	}
 }
 
+func TestBrowserOnlyCORSDoesNotAdvertiseRetiredClientVariantHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CORS(config.DefaultCORSConfig()))
+	router.POST("/api/admin/v1/auth/login", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/admin/v1/auth/login", nil)
+	request.Header.Set("Origin", "http://localhost:5173")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "X-Admin-Client-Variant")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected preflight status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Headers"); strings.Contains(strings.ToLower(got), strings.ToLower("X-Admin-Client-Variant")) {
+		t.Fatalf("retired client variant header is still advertised: %q", got)
+	}
+}
+
 func TestCORSExposesRequestIDOnActualRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

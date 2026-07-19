@@ -60,7 +60,7 @@ func Register(router *gin.Engine, service auth.SessionService, captchaService au
 		Audit:  adminroute.NoAudit("public authentication state"),
 		Contract: &adminroute.HTTPContract{
 			Request:  LoginRequest{},
-			Response: LoginResponse{},
+			Response: CredentialResponse{},
 		},
 	}, handler.Login)
 	routes.Handle(adminroute.Definition{
@@ -69,9 +69,7 @@ func Register(router *gin.Engine, service auth.SessionService, captchaService au
 		Access: adminroute.Public(),
 		Audit:  adminroute.NoAudit("session rotation has domain audit"),
 		Contract: &adminroute.HTTPContract{
-			Request:         RefreshRequest{},
-			RequestOptional: true,
-			Response:        LoginResponse{},
+			Response: CredentialResponse{},
 		},
 	}, handler.Refresh)
 	routes.Handle(adminroute.Definition{

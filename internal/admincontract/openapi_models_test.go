@@ -31,6 +31,45 @@ type modeledResponse struct {
 	List []modeledItem `json:"list"`
 }
 
+func TestBrowserOnlyCredentialContractUsesClosedCookieTransport(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/api/admin/v1/auth/refresh", "/api/admin/v1/auth/logout"} {
+		operation := document.Paths[path]["post"]
+		if operation == nil {
+			t.Fatalf("missing POST %s", path)
+		}
+		if _, exists := operation["requestBody"]; exists {
+			t.Fatalf("POST %s must not publish requestBody", path)
+		}
+	}
+
+	for _, path := range []string{"/api/admin/v1/auth/login", "/api/admin/v1/auth/refresh"} {
+		operation := document.Paths[path]["post"]
+		response := operation["responses"].(map[string]any)["200"].(map[string]any)
+		envelopeRef := response["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)["$ref"].(string)
+		envelope := document.Components.Schemas[strings.TrimPrefix(envelopeRef, "#/components/schemas/")]
+		dataRef := envelope["properties"].(map[string]any)["data"].(map[string]any)["$ref"].(string)
+		credential := document.Components.Schemas[strings.TrimPrefix(dataRef, "#/components/schemas/")]
+		properties := credential["properties"].(map[string]any)
+		if len(properties) != 2 || properties["access_token"] == nil || properties["expires_in"] == nil {
+			t.Fatalf("POST %s credential properties=%#v", path, properties)
+		}
+		if credential["additionalProperties"] != false {
+			t.Fatalf("POST %s credential schema is not closed: %#v", path, credential)
+		}
+	}
+}
+
 func TestOpenAPIGeneratesFieldCompleteContractFromRuntimeModels(t *testing.T) {
 	document, err := buildOpenAPI([]adminroute.Definition{{
 		Method:      http.MethodPost,
