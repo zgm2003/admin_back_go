@@ -116,6 +116,10 @@ foreach ($needle in @(
 }
 
 foreach ($scriptPath in @($revokePath, $verifyPath)) {
+  $redisScript = Read-RequiredFile $scriptPath
+  Assert-Contains $redisScript 'if ([string]::IsNullOrEmpty($password))' "$scriptPath must not export an empty REDISCLI_AUTH"
+  Assert-Contains $redisScript '& $docker exec $script:RedisContainer redis-cli @Arguments' "$scriptPath must invoke redis-cli directly when Redis has no password"
+
   $tokens = $null
   $errors = $null
   [Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$errors) | Out-Null

@@ -94,9 +94,13 @@ function Invoke-MySQL([string]$SQL, [string]$Operation) {
 }
 
 function Invoke-Redis([string[]]$Arguments, [string]$Operation) {
-  $shell = 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; exec redis-cli "$@"'
   $password = if ($script:RuntimeValues.ContainsKey('REDIS_PASSWORD')) { [string]$script:RuntimeValues['REDIS_PASSWORD'] } else { '' }
-  $output = @($password | & $docker exec -i $script:RedisContainer sh -lc $shell browser-only @Arguments 2>$null | ForEach-Object { $_.ToString() })
+  if ([string]::IsNullOrEmpty($password)) {
+    $output = @(& $docker exec $script:RedisContainer redis-cli @Arguments 2>$null | ForEach-Object { $_.ToString() })
+  } else {
+    $shell = 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; exec redis-cli "$@"'
+    $output = @($password | & $docker exec -i $script:RedisContainer sh -lc $shell browser-only @Arguments 2>$null | ForEach-Object { $_.ToString() })
+  }
   if ($LASTEXITCODE -ne 0) { throw "$Operation failed" }
   return $output
 }
