@@ -24,7 +24,6 @@ import (
 	"admin_back_go/internal/module/auth"
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
 	canvastransport "admin_back_go/internal/module/canvas/transport/canvas"
-	clientversion "admin_back_go/internal/module/clientversion"
 	crontask "admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
 	mailadmin "admin_back_go/internal/module/mail/transport/admin"
@@ -67,7 +66,6 @@ type testDependencies struct {
 	OperationRules          map[middleware.RouteKey]middleware.OperationRule
 	AuthService             auth.SessionService
 	CaptchaService          auth.CaptchaHTTPService
-	ClientVersionService    clientversion.HTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
 	AiImageService          aiimage.HTTPService
@@ -141,13 +139,12 @@ func (deps testDependencies) grouped() Dependencies {
 				BrowserGrants: deps.BrowserGrants,
 			},
 			System: platformadmin.SystemGraph{
-				ClientVersions: deps.ClientVersionService,
-				CronTasks:      deps.CronTaskService,
-				Exports:        deps.ExportTaskService,
-				OperationLogs:  deps.OperationLogService,
-				QueueMonitor:   deps.QueueMonitorService,
-				Settings:       deps.SystemSettingService,
-				Logs:           deps.SystemLogService,
+				CronTasks:     deps.CronTaskService,
+				Exports:       deps.ExportTaskService,
+				OperationLogs: deps.OperationLogService,
+				QueueMonitor:  deps.QueueMonitorService,
+				Settings:      deps.SystemSettingService,
+				Logs:          deps.SystemLogService,
 			},
 			Communications: platformadmin.CommunicationsGraph{
 				Notifications:     deps.NotificationService,

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 	if document.SchemaVersion != PermissionSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.PermissionCodes), 111; got != want {
+	if got, want := len(document.PermissionCodes), 106; got != want {
 		t.Fatalf("permission codes=%d want=%d", got, want)
 	}
 	wantSorted := append([]string(nil), document.PermissionCodes...)
@@ -33,6 +34,9 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("duplicate permission code %q", code)
 		}
 		catalog[code] = struct{}{}
+		if strings.HasPrefix(code, "system_clientVersion_") {
+			t.Fatalf("retired client-version permission %q remains published", code)
+		}
 	}
 	for _, required := range []string{"ai_agent_add", "payment_recharge_add", "payment_recharge_list", "system_mail", "devTools_queueMonitor_list"} {
 		if _, exists := catalog[required]; !exists {

@@ -32,7 +32,6 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		TargetType      int    `binding:"required,notification_target_type"`
 		TaskStatus      int    `binding:"required,notification_task_status"`
 		TaskPlatform    string `binding:"required,notification_task_platform"`
-		ClientPlatform  string `binding:"required,client_platform"`
 		PaymentProvider string `binding:"required,payment_provider"`
 		PaymentMethod   string `binding:"required,payment_method"`
 	}
@@ -58,7 +57,6 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 		TargetType:      3,
 		TaskStatus:      4,
 		TaskPlatform:    "all",
-		ClientPlatform:  "windows-x86_64",
 		PaymentProvider: "alipay",
 		PaymentMethod:   "web",
 	}
@@ -130,12 +128,6 @@ func TestRegisterAddsEnumBackedGinValidators(t *testing.T) {
 	invalid.TaskPlatform = "mini"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid notification task platform to fail")
-	}
-
-	invalid = valid
-	invalid.ClientPlatform = "linux-x86_64"
-	if err := binding.Validator.ValidateStruct(invalid); err == nil {
-		t.Fatalf("expected invalid client platform to fail")
 	}
 
 	invalid = valid

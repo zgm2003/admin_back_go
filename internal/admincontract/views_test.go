@@ -17,7 +17,7 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	if document.SchemaVersion != ViewSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.Views), 30; got != want {
+	if got, want := len(document.Views), 29; got != want {
 		t.Fatalf("views=%d want=%d", got, want)
 	}
 	if document.UsersMe.Method != "GET" || document.UsersMe.Path != "/api/admin/v1/users/me" {
@@ -35,6 +35,9 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 		}
 		if strings.HasPrefix(view.Path, "/app/") || strings.HasPrefix(view.Path, "/canvas/") || strings.HasPrefix(view.ViewKey, "app/") || strings.HasPrefix(view.ViewKey, "canvas/") {
 			t.Fatalf("retired view present: %#v", view)
+		}
+		if view.ViewKey == "system/clientVersion" || view.I18nKey == "menu.system_clientVersion" {
+			t.Fatalf("retired client-version view remains published: %#v", view)
 		}
 		if _, duplicate := seen[view.ViewKey]; duplicate {
 			t.Fatalf("duplicate view key %q", view.ViewKey)

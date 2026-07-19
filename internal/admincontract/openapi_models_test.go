@@ -243,7 +243,6 @@ func TestSystemAndCommunicationsRoutesPublishRuntimeModelContracts(t *testing.T)
 		t.Fatal(err)
 	}
 	prefixes := []string{
-		"/api/admin/v1/client-versions",
 		"/api/admin/v1/cron-tasks",
 		"/api/admin/v1/mail",
 		"/api/admin/v1/notification-tasks",

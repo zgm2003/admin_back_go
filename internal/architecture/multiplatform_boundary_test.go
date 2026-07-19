@@ -79,7 +79,6 @@ func TestFoundationAdminTransportShells(t *testing.T) {
 		"operationlog",
 		"crontask",
 		"queuemonitor",
-		"clientversion",
 		"export",
 		"realtime",
 	} {

@@ -43,7 +43,6 @@ func buildViewsDocument() ViewsDocument {
 		{Path: "/permission/role", ViewKey: "permission/role", I18nKey: "menu.permission_role", ShowMenu: 1},
 		{Path: "/personal", ViewKey: "personal", I18nKey: "menu.personal", ShowMenu: 2},
 		{Path: "/profile/wallet", ViewKey: "profile/wallet", I18nKey: "menu.profile_wallet", ShowMenu: 2, PermissionCodes: []string{"profile_wallet"}},
-		{Path: "/system/clientVersion", ViewKey: "system/clientVersion", I18nKey: "menu.system_clientVersion", ShowMenu: 1},
 		{Path: "/system/cronTask", ViewKey: "system/cronTask", I18nKey: "menu.system_cronTask", ShowMenu: 1},
 		{Path: "/system/exportTask", ViewKey: "system/exportTask", I18nKey: "menu.system_exportTask", ShowMenu: 1},
 		{Path: "/system/log", ViewKey: "system/log", I18nKey: "menu.system_log", ShowMenu: 1},

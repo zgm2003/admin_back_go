@@ -595,7 +595,6 @@ func isJSONRawMessage(typeOf reflect.Type) bool {
 var modelValidationEnums = map[string][]any{
 	"auth_platform_login_type":   {"email", "phone", "password"},
 	"captcha_type":               {"slide"},
-	"client_platform":            {"windows-x86_64", "darwin-x86_64"},
 	"common_status":              {1, 2},
 	"common_yes_no":              {1, 2},
 	"log_level":                  {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"},

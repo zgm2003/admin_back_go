@@ -10,7 +10,6 @@ DELETE /api/admin/v1/ai-providers/:id
 DELETE /api/admin/v1/ai-tools/:id
 DELETE /api/admin/v1/auth-platforms
 DELETE /api/admin/v1/auth-platforms/:id
-DELETE /api/admin/v1/client-versions/:id
 DELETE /api/admin/v1/cron-tasks
 DELETE /api/admin/v1/cron-tasks/:id
 DELETE /api/admin/v1/export-tasks
@@ -81,10 +80,6 @@ GET /api/admin/v1/auth-platforms
 GET /api/admin/v1/auth-platforms/page-init
 GET /api/admin/v1/auth/captcha
 GET /api/admin/v1/auth/login-config
-GET /api/admin/v1/client-versions
-GET /api/admin/v1/client-versions/current-check
-GET /api/admin/v1/client-versions/page-init
-GET /api/admin/v1/client-versions/update-json
 GET /api/admin/v1/cron-tasks
 GET /api/admin/v1/cron-tasks/:id/logs
 GET /api/admin/v1/cron-tasks/page-init
@@ -165,8 +160,6 @@ PATCH /api/admin/v1/ai-prompts/:id/status
 PATCH /api/admin/v1/ai-providers/:id/status
 PATCH /api/admin/v1/ai-tools/:id/status
 PATCH /api/admin/v1/auth-platforms/:id/status
-PATCH /api/admin/v1/client-versions/:id/force-update
-PATCH /api/admin/v1/client-versions/:id/latest
 PATCH /api/admin/v1/cron-tasks/:id/status
 PATCH /api/admin/v1/mail/templates/:id/status
 PATCH /api/admin/v1/notification-tasks/:id/cancel
@@ -209,7 +202,6 @@ POST /api/admin/v1/auth/queue-monitor-grants
 POST /api/admin/v1/auth/realtime-tickets
 POST /api/admin/v1/auth/refresh
 POST /api/admin/v1/auth/send-code
-POST /api/admin/v1/client-versions
 POST /api/admin/v1/cron-tasks
 POST /api/admin/v1/mail/templates
 POST /api/admin/v1/mail/test
@@ -243,7 +235,6 @@ PUT /api/admin/v1/ai-providers/:id
 PUT /api/admin/v1/ai-providers/:id/models
 PUT /api/admin/v1/ai-tools/:id
 PUT /api/admin/v1/auth-platforms/:id
-PUT /api/admin/v1/client-versions/:id
 PUT /api/admin/v1/cron-tasks/:id
 PUT /api/admin/v1/mail/config
 PUT /api/admin/v1/mail/templates/:id

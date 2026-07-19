@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/admincontract"
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/shared/enum"
 )
 
 func TestBrowserOnlyAdminRejectsVariantProductionSurface(t *testing.T) {
@@ -80,6 +81,61 @@ func TestBrowserOnlyAdminGeneratedCredentialContract(t *testing.T) {
 	for _, token := range []string{"ClientVariant", "X-Admin-Client-Variant", `"refresh_token"`, `"refresh_expires_in"`} {
 		if strings.Contains(encoded, token) {
 			t.Fatalf("generated Admin OpenAPI contains retired token %q", token)
+		}
+	}
+}
+
+func TestBrowserOnlyAdminHasNoClientVersionRuntimeButKeepsHistoryTable(t *testing.T) {
+	root := backendRoot(t)
+	if _, err := os.Stat(filepath.Join(root, "internal", "module", "clientversion")); !os.IsNotExist(err) {
+		t.Fatalf("client-version runtime module still exists: %v", err)
+	}
+
+	bundle, err := admincontract.Build(admincontract.BuildOptions{BackendCommit: strings.Repeat("c", 40)})
+	if err != nil {
+		t.Fatalf("build Admin contract: %v", err)
+	}
+	for artifact, tokens := range map[string][]string{
+		"openapi.json":     {"/api/admin/v1/client-versions"},
+		"permissions.json": {"system_clientVersion_"},
+		"views.json":       {"system/clientVersion", "menu.system_clientVersion"},
+	} {
+		body := string(bundle.Artifacts[artifact])
+		for _, token := range tokens {
+			if strings.Contains(body, token) {
+				t.Fatalf("%s still contains retired client-version token %q", artifact, token)
+			}
+		}
+	}
+
+	for _, folder := range enum.UploadFolders {
+		if folder == "releases" || folder == "tauri_updater" {
+			t.Fatalf("retired updater upload folder %q remains active", folder)
+		}
+	}
+
+	schema, err := os.ReadFile(filepath.Join(root, "database", "schema", "admin.hcl"))
+	if err != nil {
+		t.Fatalf("read canonical schema: %v", err)
+	}
+	if !strings.Contains(string(schema), `table "client_versions"`) {
+		t.Fatal("P08R must freeze, not drop, the client_versions history table")
+	}
+
+	smoke, err := os.ReadFile(filepath.Join(root, "scripts", "full-admin-smoke.ps1"))
+	if err != nil {
+		t.Fatalf("read full smoke: %v", err)
+	}
+	if strings.Contains(string(smoke), "Assert-ClientVersion") {
+		t.Fatal("full smoke still contains positive client-version contract assertions")
+	}
+	for _, proof := range []string{
+		"client_version_unauthenticated_absence_status",
+		"client_version_authenticated_absence_status",
+		"route absence 404",
+	} {
+		if !strings.Contains(string(smoke), proof) {
+			t.Fatalf("full smoke is missing retired-route proof %q", proof)
 		}
 	}
 }

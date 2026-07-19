@@ -15,7 +15,6 @@ import (
 	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/module/auth"
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
-	clientversion "admin_back_go/internal/module/clientversion"
 	crontask "admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
 	mailadmin "admin_back_go/internal/module/mail/transport/admin"
@@ -56,13 +55,12 @@ type IdentityGraph struct {
 }
 
 type SystemGraph struct {
-	ClientVersions clientversion.HTTPService
-	CronTasks      crontask.HTTPService
-	Exports        exporttask.HTTPService
-	OperationLogs  operationlogadmin.HTTPService
-	QueueMonitor   queuemonitoradmin.HTTPService
-	Settings       systemsettingadmin.HTTPService
-	Logs           systemlogadmin.HTTPService
+	CronTasks     crontask.HTTPService
+	Exports       exporttask.HTTPService
+	OperationLogs operationlogadmin.HTTPService
+	QueueMonitor  queuemonitoradmin.HTTPService
+	Settings      systemsettingadmin.HTTPService
+	Logs          systemlogadmin.HTTPService
 }
 
 type CommunicationsGraph struct {
@@ -105,7 +103,6 @@ func (g Graph) Validate() error {
 		{name: "identity.sessions", value: g.Identity.Sessions},
 		{name: "identity.login_logs", value: g.Identity.LoginLogs},
 		{name: "identity.browser_grants", value: g.Identity.BrowserGrants},
-		{name: "system.client_versions", value: g.System.ClientVersions},
 		{name: "system.cron_tasks", value: g.System.CronTasks},
 		{name: "system.exports", value: g.System.Exports},
 		{name: "system.operation_logs", value: g.System.OperationLogs},

@@ -38,7 +38,6 @@ import (
 	"admin_back_go/internal/module/auth"
 	authplatform "admin_back_go/internal/module/auth_platform"
 	canvasmodule "admin_back_go/internal/module/canvas"
-	"admin_back_go/internal/module/clientversion"
 	"admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
 	"admin_back_go/internal/module/mail"
@@ -163,15 +162,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &providers.Secretbox)
 	mailService := mail.NewService(mail.NewGormRepository(resources.DB), providers.Secretbox, providers.MailSender)
 	smsService := sms.NewService(sms.NewGormRepository(resources.DB), providers.Secretbox, providers.SMSSender)
-	clientVersionService := clientversion.NewService(
-		clientversion.NewGormRepository(resources.DB),
-		clientversion.NewManifestPublisher(
-			clientversion.NewGormUploadConfigRepository(resources.DB),
-			providers.Secretbox,
-			providers.ObjectWriter,
-		),
-	)
-
 	aiProviderService := aiprovider.NewServiceWithDriver(
 		aiprovider.NewGormRepository(resources.DB),
 		providers.Secretbox,
@@ -343,13 +333,12 @@ func Build(input BuildInput) (*BuildResult, error) {
 			BrowserGrants: browserGrantService,
 		},
 		System: SystemGraph{
-			ClientVersions: clientVersionService,
-			CronTasks:      cronTaskService,
-			Exports:        exportTaskService,
-			OperationLogs:  operationService,
-			QueueMonitor:   queueMonitorService,
-			Settings:       systemSettingService,
-			Logs:           systemLogService,
+			CronTasks:     cronTaskService,
+			Exports:       exportTaskService,
+			OperationLogs: operationService,
+			QueueMonitor:  queueMonitorService,
+			Settings:      systemSettingService,
+			Logs:          systemLogService,
 		},
 		Communications: CommunicationsGraph{
 			Notifications:     notificationService,

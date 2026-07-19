@@ -1,7 +1,6 @@
 package server
 
 import (
-	clientversionadmin "admin_back_go/internal/module/clientversion/transport/admin"
 	crontaskadmin "admin_back_go/internal/module/crontask/transport/admin"
 	exporttaskadmin "admin_back_go/internal/module/export/transport/admin"
 	operationlogadmin "admin_back_go/internal/module/operationlog/transport/admin"
@@ -17,7 +16,6 @@ import (
 func registerAdminFoundationRoutes(router *gin.Engine, deps Dependencies) {
 	system := deps.Admin.System
 	systemadmin.RegisterRoutes(router, deps.Core.Readiness, deps.Core.RouteRegistry)
-	clientversionadmin.RegisterRoutes(router, system.ClientVersions, deps.Core.RouteRegistry)
 	exporttaskadmin.RegisterRoutes(router, system.Exports, deps.Core.RouteRegistry)
 	crontaskadmin.RegisterRoutes(router, system.CronTasks, deps.Core.RouteRegistry)
 	operationlogadmin.RegisterRoutes(router, system.OperationLogs, deps.Core.RouteRegistry)

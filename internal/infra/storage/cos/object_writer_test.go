@@ -15,7 +15,7 @@ import (
 func TestObjectWriterRejectsDisabledAndInvalidConfig(t *testing.T) {
 	writer := NewObjectWriter(ObjectWriterConfig{Enabled: false})
 	err := writer.Put(context.Background(), PutInput{
-		SecretID: "sid", SecretKey: "skey", Bucket: "bucket-123", Region: "ap-guangzhou", Key: "tauri_updater/windows.json", Body: []byte("{}"),
+		SecretID: "sid", SecretKey: "skey", Bucket: "bucket-123", Region: "ap-guangzhou", Key: "exports/report.json", Body: []byte("{}"),
 	})
 	if !errors.Is(err, ErrDisabled) {
 		t.Fatalf("expected disabled error, got %v", err)
@@ -57,7 +57,7 @@ func TestObjectWriterPutsJSONToScopedKey(t *testing.T) {
 		SecretKey:   "skey",
 		Bucket:      "bucket-123",
 		Region:      "ap-guangzhou",
-		Key:         "/tauri_updater/windows-x86_64.json",
+		Key:         "/exports/report.json",
 		Body:        []byte(`{"version":"1.0.7"}`),
 		ContentType: "application/json; charset=utf-8",
 		Endpoint:    server.URL,
@@ -65,7 +65,7 @@ func TestObjectWriterPutsJSONToScopedKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("put object: %v", err)
 	}
-	if gotPath != "/tauri_updater/windows-x86_64.json" {
+	if gotPath != "/exports/report.json" {
 		t.Fatalf("unexpected object path %q", gotPath)
 	}
 	if gotContentType != "application/json; charset=utf-8" {

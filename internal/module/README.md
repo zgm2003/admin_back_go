@@ -42,7 +42,7 @@ jobs.go                             queue task type、payload、handler
 system / systemsetting / systemlog
 auth / auth_platform / profile / user / permission / role
 mail / sms / notification / notification/task
-uploadconfig / uploadtoken / export / clientversion
+uploadconfig / uploadtoken / export
 operationlog / crontask / queuemonitor / realtime
 payment / payment/wallet
 ai/provider / ai/agent / ai/chat / ai/conversation / ai/message / ai/run / ai/tool / ai/knowledge / ai/image

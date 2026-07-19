@@ -175,21 +175,6 @@
     },
     {
       "method": "DELETE",
-      "path": "/api/admin/v1/client-versions/:id",
-      "operation_id": "delete_api_admin_v1_client_versions_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "system_clientVersion_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "client_version",
-        "action": "delete",
-        "title": "删除客户端版本"
-      }
-    },
-    {
-      "method": "DELETE",
       "path": "/api/admin/v1/cron-tasks",
       "operation_id": "delete_api_admin_v1_cron_tasks",
       "access": {
@@ -1110,54 +1095,6 @@
       "operation_id": "get_api_admin_v1_auth_login_config",
       "access": {
         "kind": "public"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/client-versions",
-      "operation_id": "get_api_admin_v1_client_versions",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/client-versions/current-check",
-      "operation_id": "get_api_admin_v1_client_versions_current_check",
-      "access": {
-        "kind": "public"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/client-versions/page-init",
-      "operation_id": "get_api_admin_v1_client_versions_page_init",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/client-versions/update-json",
-      "operation_id": "get_api_admin_v1_client_versions_update_json",
-      "access": {
-        "kind": "authenticated"
       },
       "audit": {
         "enabled": false,
@@ -2132,36 +2069,6 @@
     },
     {
       "method": "PATCH",
-      "path": "/api/admin/v1/client-versions/:id/force-update",
-      "operation_id": "patch_api_admin_v1_client_versions_id_force_update",
-      "access": {
-        "kind": "permission",
-        "permission_code": "system_clientVersion_forceUpdate"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "client_version",
-        "action": "force_update",
-        "title": "切换强制更新"
-      }
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/admin/v1/client-versions/:id/latest",
-      "operation_id": "patch_api_admin_v1_client_versions_id_latest",
-      "access": {
-        "kind": "permission",
-        "permission_code": "system_clientVersion_setLatest"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "client_version",
-        "action": "set_latest",
-        "title": "设为最新版本"
-      }
-    },
-    {
-      "method": "PATCH",
       "path": "/api/admin/v1/cron-tasks/:id/status",
       "operation_id": "patch_api_admin_v1_cron_tasks_id_status",
       "access": {
@@ -2759,21 +2666,6 @@
     },
     {
       "method": "POST",
-      "path": "/api/admin/v1/client-versions",
-      "operation_id": "post_api_admin_v1_client_versions",
-      "access": {
-        "kind": "permission",
-        "permission_code": "system_clientVersion_add"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "client_version",
-        "action": "create",
-        "title": "发布客户端版本"
-      }
-    },
-    {
-      "method": "POST",
       "path": "/api/admin/v1/cron-tasks",
       "operation_id": "post_api_admin_v1_cron_tasks",
       "access": {
@@ -3251,21 +3143,6 @@
         "module": "auth_platform",
         "action": "update",
         "title": "编辑认证平台"
-      }
-    },
-    {
-      "method": "PUT",
-      "path": "/api/admin/v1/client-versions/:id",
-      "operation_id": "put_api_admin_v1_client_versions_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "system_clientVersion_edit"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "client_version",
-        "action": "update",
-        "title": "编辑客户端版本"
       }
     },
     {
