@@ -39,8 +39,8 @@ Implementation plans may refine mechanics but may not change Browser-only scope,
 | P06 | complete, user-reviewed | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-kernel-plan.md` | frontend | P03, P04 | AppKernel, AuthSession, ApiClient, route registry, persistence |
 | P07 Tasks 1-5 | complete, user-reviewed | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P05, P06 | RealtimeClient, ResourceQuery, typed workflows, behavior-test migration |
 | P08 | historical, superseded | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-tauri-security-plan.md` | frontend | historical P04/P06/P07 1-5 | completed Tauri security implementation retained only for audit; runtime result removed by P08R |
-| P08R | active next | `2026-07-19-admin-browser-only-tauri-retirement-plan.md` | backend + frontend | approved Browser-only spec, P07 1-5, historical P08 baseline | one Browser-only auth/runtime, Tauri removal, frozen client-version history, Docker cutover proof |
-| P07 Tasks 6-10 | pending | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P08R + user P08R acceptance | page decomposition, zero warnings, budgets, WCAG, Docker/manual acceptance |
+| P08R | complete, user-reviewed | `2026-07-19-admin-browser-only-tauri-retirement-plan.md` | backend + frontend | approved Browser-only spec, P07 1-5, historical P08 baseline | one Browser-only auth/runtime, Tauri removal, frozen client-version history, Docker cutover proof |
+| P07 Tasks 6-10 | active next; not started | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P08R + user P08R acceptance | page decomposition, zero warnings, budgets, WCAG, Docker/manual acceptance |
 | P08.5 | cancelled; do not execute | `2026-07-18-admin-tauri-windows-release-plan.md` | none | cancelled by approved Browser-only spec | no artifact |
 | P09 | pending destructive phase | `2026-07-15-admin-only-release-plan.md` | backend + frontend | P08R, all P07, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, immutable Docker release/rollback proof |
 
@@ -66,18 +66,15 @@ P08.5 Windows candidate release = CANCELLED (no dependency edge)
 Fixed remaining order:
 
 ```text
-P08R plan review
-→ P08R Tasks 1–10
-→ joint Docker cutover
-→ user P08R functional acceptance
-→ P07 Tasks 6–10
+P07 Tasks 6–10
 → user P07 functional acceptance
 → P09 non-destructive prerequisites/rehearsal
 → fresh user approval immediately before destructive DDL
 → P09 contract/release proof
 ```
 
-No P07 Task 6 edit may race P08R, because P08R deletes pages/adapters/dependencies that would otherwise be decomposed or budgeted twice.
+P08R is closed and user-reviewed. P07 Task 6 is the next executable unit, but
+it does not start until the user opens that phase.
 
 ## Global execution protocol
 
@@ -176,9 +173,13 @@ P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlie
 
 - P05 durable task ownership, provider attempts, fenced leases, scheduler reconciliation, typed realtime recovery, Docker kill/restart, and full backend/database gates passed.
 
-### Gate F partial evidence (2026-07-18 through 2026-07-19)
+### Gate F partial evidence (2026-07-18 through 2026-07-20)
 
 - P06 AppKernel/AuthSession/ApiClient/routes/persistence and login-route regression fixes were implemented and manually reviewed.
 - P07 Tasks 1-5 completed typed realtime/resources/mutations/workflow migration and behavior-test conversion; exact evidence remains in the P07 plan.
 - P08 completed the now-retired Tauri security implementation. Its task checkboxes and commits remain audit history only.
-- Gate F remains unchecked until P08R and P07 Tasks 6-10 pass their Docker/manual gates.
+- P08R completed one Browser-only Cookie/Origin transport, removed Tauri and
+  client-version runtime surfaces, froze `client_versions`, passed backend,
+  database, Docker API/realtime, contract, frontend type/test/build gates, and
+  received explicit user functional acceptance on 2026-07-20.
+- Gate F remains unchecked until P07 Tasks 6-10 pass their Docker/manual gates.
