@@ -431,23 +431,7 @@
       },
       "AIMessageSendRequest": {
         "additionalProperties": false,
-        "anyOf": [
-          {
-            "required": [
-              "content"
-            ]
-          },
-          {
-            "properties": {
-              "attachments": {
-                "minItems": 1
-              }
-            },
-            "required": [
-              "attachments"
-            ]
-          }
-        ],
+        "description": "request_id is required; additionally, trimmed content must be non-empty or attachments must contain at least one image. The cross-field rule is also published on the operation.",
         "properties": {
           "attachments": {
             "items": {
