@@ -567,11 +567,11 @@ func main() {
   Assert-ApiOK $init 'users me'
   Assert-ApiOK $usersPageInit 'users page-init'
   Assert-ApiOK $usersList 'users list'
-  if (-not (Test-RoutePath $init.data.router '/system/clientVersion')) {
-    throw 'users me missing canonical client version route path /system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
+  if (Test-RoutePath $init.data.router '/system/clientVersion') {
+    throw 'users me still returns retired client-version route path /system/clientVersion'
   }
-  if (-not (Test-RouteViewKey $init.data.router 'system/clientVersion')) {
-    throw 'users me missing canonical client version view_key system/clientVersion; run database migration 20260507_client_version_permission_route_cleanup.sql'
+  if (Test-RouteViewKey $init.data.router 'system/clientVersion') {
+    throw 'users me still returns retired client-version view key system/clientVersion'
   }
   $retiredAINameRoutes = @{
     models = '/ai/models'

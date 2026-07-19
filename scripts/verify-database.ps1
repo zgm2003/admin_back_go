@@ -446,7 +446,7 @@ function Invoke-ExpandedVerification {
   foreach ($field in @(
     'schema_violations', 'relationship_violations', 'money_violations', 'ai_violations',
     'platform_violations', 'ai_image_delete_violations', 'export_cleanup_violations',
-    'cron_task_metadata_violations'
+    'cron_task_metadata_violations', 'browser_only_retirement_violations'
   )) {
     if ([uint64]$summary.$field -ne 0) { throw "expanded database verification failed: $field" }
   }
@@ -522,7 +522,7 @@ try {
 
     $firstRun = Invoke-Reconciliation -Database $importedDatabase -Port $port -ExpectedFingerprint $fixtureFingerprint
     $reconciliationApplied = @($firstRun | Where-Object { $_ -match '^APPLY ' }).Count
-    if ($reconciliationApplied -ne 9) { throw 'initial reconciliation did not apply every non-destructive script' }
+    if ($reconciliationApplied -ne 10) { throw 'initial reconciliation did not apply every non-destructive script' }
     $importedFingerprint = Get-Fingerprint -Database $importedDatabase -Port $port
     if ($importedFingerprint -cne $emptyFingerprint) {
       $emptyDocument = Get-FingerprintDocument -Database $emptyDatabase -Port $port
@@ -533,7 +533,7 @@ try {
 
     $secondRun = Invoke-Reconciliation -Database $importedDatabase -Port $port -ExpectedFingerprint $importedFingerprint
     $reconciliationSkipped = @($secondRun | Where-Object { $_ -match '^SKIP ' }).Count
-    if ($reconciliationSkipped -ne 9 -or @($secondRun | Where-Object { $_ -match '^APPLY ' }).Count -ne 0) {
+    if ($reconciliationSkipped -ne 10 -or @($secondRun | Where-Object { $_ -match '^APPLY ' }).Count -ne 0) {
       throw 'repeated reconciliation was not a complete no-op'
     }
     $repeatedFingerprint = Get-Fingerprint -Database $importedDatabase -Port $port

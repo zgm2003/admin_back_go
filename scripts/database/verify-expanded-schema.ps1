@@ -86,6 +86,7 @@ try {
   $aiImageDeleteViolations = Invoke-InvariantFile -Path 'database/reconciliation/035_verify_ai_image_soft_delete.sql'
   $exportCleanupViolations = Invoke-InvariantFile -Path 'database/reconciliation/036_verify_export_cleanup.sql'
   $cronTaskMetadataViolations = Invoke-InvariantFile -Path 'database/reconciliation/037_verify_cron_task_metadata.sql'
+  $browserOnlyRetirementViolations = Invoke-InvariantFile -Path 'database/reconciliation/038_verify_browser_only_retirement.sql'
 
   & go test ./internal/module/auth ./internal/module/user ./internal/module/notification/... ./internal/module/export ./internal/module/payment/... ./internal/module/ai/run 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'focused Admin smoke tests failed' }
@@ -132,6 +133,7 @@ SELECT
     ai_image_delete_violations = $aiImageDeleteViolations
     export_cleanup_violations = $exportCleanupViolations
     cron_task_metadata_violations = $cronTaskMetadataViolations
+    browser_only_retirement_violations = $browserOnlyRetirementViolations
     admin_smoke = 'passed'
     legacy_evidence = [ordered]@{
       legacy_missing_permission_grants = [uint64]$legacy[0]
