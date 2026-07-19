@@ -30,11 +30,10 @@ and `docs/contracts/admin-v1-runtime-model-contracts.md`; generated schemas unde
 the frontend. Contract tests reject covered operations that fall back to
 `GenericObject` or `SuccessEnvelope`.
 
-The currently published bundle is the historical browser/desktop-variant
-contract. The approved P08R target is
-`docs/contracts/admin-browser-auth-contract.md`; the frontend is blocked from
-implementing that target until Task 5 publishes the matching generated bundle.
-This paragraph records a transition target, not deployed runtime behavior.
+The active bundle is the Browser-only contract in
+`docs/contracts/admin-browser-auth-contract.md`. That document records the
+exact bundle version, committed backend source revision, and generated manifest
+SHA-256. Historical browser/desktop variants are not compatibility inputs.
 
 On Windows, `verify-runtime-contracts.ps1` runs the race-enabled package gate
 inside the pinned Linux Go image; Linux CI runs the same `go test -race` gate
@@ -1158,11 +1157,10 @@ email/phone code login 使用 Redis 短 TTL 验证码；email 随机码经 `Veri
 验证码登录支持自动注册：先校验 code 不消费，再检查 auth_platforms.allow_register；允许注册后消费 code，并在同一事务创建 users + user_profiles + 默认角色
 登录成功通过 session.Create 生成 JWT access_token + opaque refresh_token，并按 auth_platforms 执行单端/最大会话策略
 登录成功/密码错误/验证码错误写 users_login_log；有 queue producer 时投递 `auth:login-log:v1` 到 critical lane，由 `cmd/admin-worker` 消费；producer 未配置或投递失败时同步写库兜底，写日志失败不影响主登录结果
-当前发布 bundle 仍是历史 browser/desktop variant 合同；这不是前进架构
-批准的 P08R 目标见 docs/contracts/admin-browser-auth-contract.md，Task 5 发布前不得称为 active
-目标 login/refresh/logout 都要求精确允许的 Origin，不再存在 X-Admin-Client-Variant 或 desktop transport
-目标 refresh 是公开接口且只从专用 HttpOnly Cookie 读取 credential；请求体全部禁止
-目标 login/refresh 成功 data 只含 access_token + expires_in；logout 成功 data 精确为 {}
+当前 active bundle 是 docs/contracts/admin-browser-auth-contract.md 定义的 Browser-only 合同
+login/refresh/logout 都要求精确允许的 Origin，不存在 X-Admin-Client-Variant 或 desktop transport
+refresh 是公开接口且只从专用 HttpOnly Cookie 读取 credential；请求体全部禁止
+login/refresh 成功 data 只含 access_token + expires_in；logout 成功 data 精确为 {}
 logout 是认证接口，先走 AuthToken，再撤销 JWT sid 对应 session
 refresh 通过 user_sessions.refresh_token_hash 查会话
 refresh 重新签发 JWT access_token，rotate access_token_hash / refresh_token_hash / expires_at / last_seen_at / ip / ua
@@ -1811,6 +1809,6 @@ src/lib/upload/uploadClient.ts 只保留 cos-js-sdk-v5 动态加载
 ```
 
 历史迁移说明：pre-P08R runtime/bundle 曾提供 client-version 路由、权限、菜单、
-页面和 Tauri updater manifest 发布。它们不是 Browser-only 前进架构。P08R 会删除
-全部 active runtime surface，但保持 `client_versions` 行和历史 COS 对象原样冻结；
-只有 P09 在 restore 证据通过并再次取得用户对破坏性 DDL 的明确批准后才能物理删表。
+页面和 Tauri updater manifest 发布。Browser-only runtime 和正式 bundle 已删除这些
+active surface，但保持 `client_versions` 行和历史 COS 对象原样冻结；只有 P09 在
+restore 证据通过并再次取得用户对破坏性 DDL 的明确批准后才能物理删表。

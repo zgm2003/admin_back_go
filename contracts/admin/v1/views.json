@@ -93,7 +93,6 @@
                 "permission/role",
                 "personal",
                 "profile/wallet",
-                "system/clientVersion",
                 "system/cronTask",
                 "system/exportTask",
                 "system/log",
@@ -193,11 +192,6 @@
               "permission_role_edit",
               "permission_role_setDefault",
               "profile_wallet",
-              "system_clientVersion_add",
-              "system_clientVersion_del",
-              "system_clientVersion_edit",
-              "system_clientVersion_forceUpdate",
-              "system_clientVersion_setLatest",
               "system_log_content",
               "system_log_files",
               "system_mail",
@@ -418,13 +412,6 @@
       "permission_codes": [
         "profile_wallet"
       ]
-    },
-    {
-      "path": "/system/clientVersion",
-      "view_key": "system/clientVersion",
-      "i18n_key": "menu.system_clientVersion",
-      "show_menu": 1,
-      "permission_codes": []
     },
     {
       "path": "/system/cronTask",

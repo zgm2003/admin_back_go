@@ -4,11 +4,10 @@ Status: active formal contract
 
 Machine-readable source: `contracts/admin/v1/openapi.json`
 
-P08R transition: the currently published bundle is the historical
-browser/desktop-variant contract. The approved Browser-only authentication
-target is `admin-browser-auth-contract.md`; frontend implementation remains
-blocked until Task 5 publishes the matching generated bundle. This target is
-not yet deployed.
+The active bundle is the Browser-only contract identified by
+`admin-browser-auth-contract.md`. Its source revision and manifest SHA-256 are
+recorded there; historical browser/desktop variants are not part of the active
+field contract.
 
 This document defines how field-complete Admin operations outside the original
 workflow slice are published. Runtime route definitions bind their exact query,
@@ -22,8 +21,7 @@ The runtime-model catalog covers these Admin v1 families:
 
 - authentication helpers, profile/security, sessions, and login logs;
 - authentication platforms, permissions, and roles;
-- cron tasks, system logs/settings, and operation logs; the current bundle still
-  exposes the client-version family only as a pre-P08R historical surface;
+- cron tasks, system logs/settings, and operation logs;
 - mail, SMS, notification tasks, upload drivers/rules/settings/tokens;
 - payment configuration/certificates/recharges and wallet/ledger queries;
 - AI agents, knowledge bases/documents, prompts, providers, and tools.
@@ -53,14 +51,12 @@ grant responses remain the exact schemas defined by the Admin Contract Bundle.
 
 ## Explicit exceptional shapes
 
-- The pre-P08R bundle still describes the client-version updater endpoints.
-  The approved target removes that route family, its view, and its permissions;
-  the `client_versions` table remains frozen until P09's separately approved
+- The bundle has no client-version route, view, or permission. The
+  `client_versions` table remains frozen until P09's separately approved
   destructive gate.
 - `POST /api/admin/v1/payment/certificates` consumes
   `multipart/form-data` with `config_code`, `cert_type`, and binary `file`.
-- The pre-P08R bundle still exposes browser/desktop credential variants. The
-  approved target in `admin-browser-auth-contract.md` has one closed response
+- The Browser-only credential contract has one closed login/refresh response
   containing only `access_token` and `expires_in`; its refresh credential exists
   only in the scoped HttpOnly Cookie.
 - AI tool JSON-schema fields are explicitly arbitrary JSON because the backend

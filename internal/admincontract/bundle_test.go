@@ -2,6 +2,10 @@ package admincontract
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,6 +40,123 @@ func TestBundleIsDeterministicAndAdminOnly(t *testing.T) {
 	for name, data := range first.Files() {
 		if bytes.Contains(data, []byte("/api/app/")) || bytes.Contains(data, []byte("/api/canvas/")) {
 			t.Fatalf("%s contains retired operation", name)
+		}
+	}
+}
+
+func TestCheckedInBundlePublishesBrowserOnlyContractAndExactHashes(t *testing.T) {
+	files := readCheckedInBundleFiles(t)
+	assertBrowserOnlyOpenAPI(t, files["openapi.json"])
+
+	var permissions PermissionsDocument
+	if err := json.Unmarshal(files["permissions.json"], &permissions); err != nil {
+		t.Fatalf("decode checked-in permissions: %v", err)
+	}
+	for _, code := range permissions.PermissionCodes {
+		if strings.HasPrefix(code, "system_clientVersion_") {
+			t.Fatalf("checked-in permissions still publish retired code %s", code)
+		}
+	}
+	for _, operation := range permissions.Operations {
+		if strings.HasPrefix(operation.Path, "/api/admin/v1/client-versions") {
+			t.Fatalf("checked-in permissions still publish retired operation %s %s", operation.Method, operation.Path)
+		}
+		if strings.HasPrefix(operation.Access.PermissionCode, "system_clientVersion_") {
+			t.Fatalf("checked-in operation still publishes retired permission %s", operation.Access.PermissionCode)
+		}
+	}
+
+	var views ViewsDocument
+	if err := json.Unmarshal(files["views.json"], &views); err != nil {
+		t.Fatalf("decode checked-in views: %v", err)
+	}
+	for _, view := range views.Views {
+		if view.ViewKey == "system/clientVersion" || view.Path == "/system/clientVersion" || view.I18nKey == "menu.system_clientVersion" {
+			t.Fatalf("checked-in views still publish retired view %#v", view)
+		}
+		for _, code := range view.PermissionCodes {
+			if strings.HasPrefix(code, "system_clientVersion_") {
+				t.Fatalf("checked-in view still publishes retired permission %s", code)
+			}
+		}
+	}
+	assertNoRetiredClientVersionJSONValue(t, "views.users_me.response_schema", views.UsersMe.ResponseSchema)
+
+	var manifest Manifest
+	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
+		t.Fatalf("decode checked-in manifest: %v", err)
+	}
+	if len(files) != len(manifest.Artifacts)+1 {
+		t.Fatalf("checked-in file count=%d manifest artifacts=%d", len(files), len(manifest.Artifacts))
+	}
+	for name, artifact := range manifest.Artifacts {
+		data, exists := files[name]
+		if !exists {
+			t.Fatalf("checked-in manifest references missing artifact %s", name)
+		}
+		hash := sha256.Sum256(data)
+		if artifact.SHA256 != hex.EncodeToString(hash[:]) {
+			t.Fatalf("checked-in manifest hash mismatch for %s", name)
+		}
+	}
+	manifestHash := sha256.Sum256(files["manifest.json"])
+	authContract, err := os.ReadFile(filepath.Join("..", "..", "docs", "contracts", "admin-browser-auth-contract.md"))
+	if err != nil {
+		t.Fatalf("read Browser-only activation contract: %v", err)
+	}
+	for _, marker := range []string{
+		"bundle_version=" + manifest.BundleVersion,
+		"backend_source_commit=" + manifest.BackendCommit,
+		"manifest_sha256=" + hex.EncodeToString(manifestHash[:]),
+	} {
+		if !bytes.Contains(authContract, []byte(marker)) {
+			t.Fatalf("Browser-only activation contract is missing %s", marker)
+		}
+	}
+}
+
+func readCheckedInBundleFiles(t *testing.T) map[string][]byte {
+	t.Helper()
+	root := filepath.Join("..", "..", "contracts", "admin", "v1")
+	files := make(map[string][]byte)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		name, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(name)] = data
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read checked-in bundle: %v", err)
+	}
+	return files
+}
+
+func assertNoRetiredClientVersionJSONValue(t *testing.T, location string, value any) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			assertNoRetiredClientVersionJSONValue(t, location+"/"+key, child)
+		}
+	case []any:
+		for index, child := range typed {
+			assertNoRetiredClientVersionJSONValue(t, fmt.Sprintf("%s/%d", location, index), child)
+		}
+	case string:
+		if typed == "system/clientVersion" || typed == "/system/clientVersion" || typed == "menu.system_clientVersion" || strings.HasPrefix(typed, "system_clientVersion_") {
+			t.Fatalf("%s still publishes retired value %s", location, typed)
 		}
 	}
 }

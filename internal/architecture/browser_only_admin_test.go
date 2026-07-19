@@ -61,7 +61,10 @@ func TestBrowserOnlyAdminGeneratedCredentialContract(t *testing.T) {
 		t.Fatalf("build Admin contract: %v", err)
 	}
 	var document struct {
-		Paths map[string]map[string]map[string]any `json:"paths"`
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
 	}
 	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
 		t.Fatalf("decode Admin OpenAPI: %v", err)
@@ -77,12 +80,33 @@ func TestBrowserOnlyAdminGeneratedCredentialContract(t *testing.T) {
 		}
 	}
 
-	encoded := string(bundle.Artifacts["openapi.json"])
-	for _, token := range []string{"ClientVariant", "X-Admin-Client-Variant", `"refresh_token"`, `"refresh_expires_in"`} {
-		if strings.Contains(encoded, token) {
-			t.Fatalf("generated Admin OpenAPI contains retired token %q", token)
+	for name, schema := range document.Components.Schemas {
+		if strings.Contains(strings.ToLower(name), "clientvariant") {
+			t.Fatalf("generated Admin OpenAPI contains retired schema %q", name)
 		}
+		walkParsedContract(schema, func(location map[string]any) {
+			properties, ok := location["properties"].(map[string]any)
+			if !ok {
+				return
+			}
+			for _, property := range []string{"refresh_token", "refresh_expires_in"} {
+				if _, exists := properties[property]; exists {
+					t.Fatalf("generated Admin OpenAPI contains retired public property %q", property)
+				}
+			}
+		})
 	}
+	var parsed any
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &parsed); err != nil {
+		t.Fatalf("decode generic Admin OpenAPI: %v", err)
+	}
+	walkParsedContract(parsed, func(location map[string]any) {
+		name, hasName := location["name"].(string)
+		in, hasIn := location["in"].(string)
+		if hasName && hasIn && strings.EqualFold(in, "header") && strings.EqualFold(name, "X-Admin-Client-Variant") {
+			t.Fatal("generated Admin OpenAPI contains retired ClientVariant header parameter")
+		}
+	})
 }
 
 func TestBrowserOnlyAdminHasNoClientVersionRuntimeButKeepsHistoryTable(t *testing.T) {
@@ -95,16 +119,41 @@ func TestBrowserOnlyAdminHasNoClientVersionRuntimeButKeepsHistoryTable(t *testin
 	if err != nil {
 		t.Fatalf("build Admin contract: %v", err)
 	}
-	for artifact, tokens := range map[string][]string{
-		"openapi.json":     {"/api/admin/v1/client-versions"},
-		"permissions.json": {"system_clientVersion_"},
-		"views.json":       {"system/clientVersion", "menu.system_clientVersion"},
-	} {
-		body := string(bundle.Artifacts[artifact])
-		for _, token := range tokens {
-			if strings.Contains(body, token) {
-				t.Fatalf("%s still contains retired client-version token %q", artifact, token)
-			}
+	var openAPI struct {
+		Paths map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &openAPI); err != nil {
+		t.Fatalf("decode Admin OpenAPI: %v", err)
+	}
+	for path := range openAPI.Paths {
+		if strings.HasPrefix(path, "/api/admin/v1/client-versions") {
+			t.Fatalf("OpenAPI still publishes retired client-version path %q", path)
+		}
+	}
+	var permissions struct {
+		PermissionCodes []string `json:"permission_codes"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &permissions); err != nil {
+		t.Fatalf("decode Admin permissions: %v", err)
+	}
+	for _, code := range permissions.PermissionCodes {
+		if strings.HasPrefix(code, "system_clientVersion_") {
+			t.Fatalf("permissions still publish retired client-version code %q", code)
+		}
+	}
+	var views struct {
+		Views []struct {
+			Path    string `json:"path"`
+			ViewKey string `json:"view_key"`
+			I18nKey string `json:"i18n_key"`
+		} `json:"views"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["views.json"], &views); err != nil {
+		t.Fatalf("decode Admin views: %v", err)
+	}
+	for _, view := range views.Views {
+		if view.Path == "/system/clientVersion" || view.ViewKey == "system/clientVersion" || view.I18nKey == "menu.system_clientVersion" {
+			t.Fatalf("views still publish retired client-version view %#v", view)
 		}
 	}
 
@@ -136,6 +185,20 @@ func TestBrowserOnlyAdminHasNoClientVersionRuntimeButKeepsHistoryTable(t *testin
 	} {
 		if !strings.Contains(string(smoke), proof) {
 			t.Fatalf("full smoke is missing retired-route proof %q", proof)
+		}
+	}
+}
+
+func walkParsedContract(value any, visit func(map[string]any)) {
+	switch typed := value.(type) {
+	case map[string]any:
+		visit(typed)
+		for _, child := range typed {
+			walkParsedContract(child, visit)
+		}
+	case []any:
+		for _, child := range typed {
+			walkParsedContract(child, visit)
 		}
 	}
 }

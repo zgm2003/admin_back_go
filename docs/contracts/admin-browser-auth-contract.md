@@ -1,14 +1,18 @@
 # Admin Browser authentication transport contract
 
-Status: approved target; not active until the P08R Admin Contract Bundle is published
+Status: active formal contract
 
-Activation marker: pending Task 5 bundle version, backend source revision, and manifest SHA-256
+Activation marker:
 
-The currently published bundle (`admin-2026-07-15.1`) is the historical
-browser/desktop-variant contract. This document is the approved P08R target.
-Frontend authentication work is blocked until Task 5 generates a bundle whose
-manifest activates this document. Until then, the checked-in generated bundle
-remains the machine-readable current truth.
+```text
+bundle_version=admin-2026-07-15.1
+backend_source_commit=5e6915c6d415daf0cc1fb53fe08767aff1ec77b6
+manifest_sha256=d0a7649f4fe22ac5a095a108e7c8969fa1a626dea50fdf82f1fa19dfc0b8b1fa
+```
+
+The checked-in generated bundle is the machine-readable current truth for this
+Browser-only transport. Frontend authentication consumes that exact manifest;
+historical browser/desktop variants are not compatibility inputs.
 
 ## Shared transport rules
 

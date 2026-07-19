@@ -2,6 +2,7 @@ package admincontract
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -33,13 +34,19 @@ type modeledResponse struct {
 
 func TestBrowserOnlyCredentialContractUsesClosedCookieTransport(t *testing.T) {
 	bundle := mustBuildBundle(t)
+	assertBrowserOnlyOpenAPI(t, bundle.Artifacts["openapi.json"])
+}
+
+func assertBrowserOnlyOpenAPI(t *testing.T, data []byte) {
+	t.Helper()
 	var document struct {
 		Paths      map[string]map[string]map[string]any `json:"paths"`
 		Components struct {
-			Schemas map[string]map[string]any `json:"schemas"`
+			Schemas    map[string]map[string]any `json:"schemas"`
+			Parameters map[string]map[string]any `json:"parameters"`
 		} `json:"components"`
 	}
-	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,6 +73,64 @@ func TestBrowserOnlyCredentialContractUsesClosedCookieTransport(t *testing.T) {
 		}
 		if credential["additionalProperties"] != false {
 			t.Fatalf("POST %s credential schema is not closed: %#v", path, credential)
+		}
+	}
+
+	for path := range document.Paths {
+		if strings.HasPrefix(path, "/api/admin/v1/client-versions") {
+			t.Fatalf("generated OpenAPI still publishes retired path %s", path)
+		}
+	}
+	for name, schema := range document.Components.Schemas {
+		if strings.Contains(strings.ToLower(name), "clientvariant") {
+			t.Fatalf("generated OpenAPI still publishes retired schema %s", name)
+		}
+		assertNoRetiredCredentialProperty(t, "#/components/schemas/"+name, schema)
+	}
+
+	var decoded any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	assertNoRetiredVariantHeader(t, "$", decoded)
+}
+
+func assertNoRetiredCredentialProperty(t *testing.T, location string, value any) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		if rawProperties, ok := typed["properties"].(map[string]any); ok {
+			for _, name := range []string{"refresh_token", "refresh_expires_in"} {
+				if _, exists := rawProperties[name]; exists {
+					t.Fatalf("%s publishes retired public property %s", location, name)
+				}
+			}
+		}
+		for key, child := range typed {
+			assertNoRetiredCredentialProperty(t, location+"/"+key, child)
+		}
+	case []any:
+		for index, child := range typed {
+			assertNoRetiredCredentialProperty(t, fmt.Sprintf("%s/%d", location, index), child)
+		}
+	}
+}
+
+func assertNoRetiredVariantHeader(t *testing.T, location string, value any) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		name, hasName := typed["name"].(string)
+		in, hasIn := typed["in"].(string)
+		if hasName && hasIn && strings.EqualFold(in, "header") && strings.EqualFold(name, "X-Admin-Client-Variant") {
+			t.Fatalf("%s publishes retired ClientVariant header parameter", location)
+		}
+		for key, child := range typed {
+			assertNoRetiredVariantHeader(t, location+"/"+key, child)
+		}
+	case []any:
+		for index, child := range typed {
+			assertNoRetiredVariantHeader(t, fmt.Sprintf("%s/%d", location, index), child)
 		}
 	}
 }
