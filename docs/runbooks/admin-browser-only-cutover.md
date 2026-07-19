@@ -59,15 +59,23 @@ explicit approval.
    isolated `TOKEN_REDIS_DB`. It does not change users, login logs,
    `auth_platforms`, `single_session`, or `max_sessions`.
 
-5. Verify retirement and run the Browser-only smokes:
+5. Verify retirement and run the Browser-only smokes against the already
+   running Docker API:
 
    ```powershell
    pwsh -NoProfile -File scripts/browser-only/verify-retirement.ps1
-   pwsh -NoProfile -File scripts/basic-admin-smoke.ps1
-   pwsh -NoProfile -File scripts/full-admin-smoke.ps1
+   pwsh -NoProfile -File .tmp/p08r-docker-smoke.ps1
    pwsh -NoProfile -File scripts/check-admin-contract.ps1
    pwsh -NoProfile -File scripts/docker-platform.ps1 status
    ```
+
+   The Task 10 one-time smoke harness targets `http://127.0.0.1:8080`, creates
+   and removes its temporary password-login identity through the formal Admin
+   API, emits no credential, and starts no process. Its reviewed SHA-256 is
+   recorded below. Do **not** run the historical `basic-admin-smoke.ps1` or
+   `full-admin-smoke.ps1` during this cutover: both still compile and launch a
+   host API/Worker with `Start-Process`, which violates the Docker-only runtime
+   boundary. P09 owns the permanent Docker release-smoke replacement.
 
 6. End the maintenance window only after the operator records automated
    evidence and the user completes the separate frontend manual checklist.
@@ -98,18 +106,31 @@ history as an ad-hoc rollback.
 ## Task 10 evidence record
 
 ```text
-backend_commit=
-frontend_commit=
-backend_image_id=
-frontend_image_id=
-worker_image_id=
-contract_manifest_sha256=
-reconciliation_run_id=
-reconciliation_script_sha256=
-client_versions_count=
-client_versions_sha256=
-revoked_admin_sessions=
-token_redis_keys_after=
-automated_gate_result=
-user_acceptance=
+backend_commit=9cce01072c5713983f8646c69d30e8bc61c826d2
+frontend_commit=39fe04755a4fc76a83ab385a961cb9ccbbb08f92
+backend_image_id=sha256:27e4ff63e0c9b74805478faaeef0350f4366a442a34865b72e9ab6642b54164d
+frontend_image_id=sha256:cffc07471498bcf60239029c0ea54f411f639aeb27c3250d714ad9fb730558f2
+worker_image_id=sha256:27e4ff63e0c9b74805478faaeef0350f4366a442a34865b72e9ab6642b54164d
+contract_manifest_sha256=d0a7649f4fe22ac5a095a108e7c8969fa1a626dea50fdf82f1fa19dfc0b8b1fa
+recovery_artifact=C:\Users\Administrator\AppData\Local\Temp\admin-p08r-recovery\20260720T010547947-93598a6f17bc\artifact.json
+recovery_dump_sha256=a9590af7315c105809ac34ad0f438e59d8f38d4b0dbf87656295343b6d2178ec
+source_schema_fingerprint=2196c34285433b56b7ed9b2bd12394ce1e2c06472b52abcbcfbc85901a0ffafd
+reconciliation_run_id=13
+reconciliation_script_sha256=e66c16c5a6bab94f9bdeba321ef3c7929dab9e94f1a2153da9955d0d97c6a64f
+client_versions_count=8
+client_versions_sha256=ca574b6ce101d92b05cc3571e7e138aa9bf2bc5096c04357c8d39792ba806661
+revoked_admin_sessions=1
+post_fix_active_admin_sessions=0
+token_redis_keys_after=0
+smoke_harness_sha256=e8d8214d3d1e7b8632d9c31014f1a9e9b0e643fd90b90249a79ecc262640c209
+automated_gate_result=passed
+user_acceptance=passed_at_2026-07-20T05:35:17+08:00
 ```
+
+The first cutover revoked one pre-cutover Admin session. During final evidence
+review, the empty Redis-password path was found to set an empty
+`REDISCLI_AUTH`, so `redis-cli` remained on DB0 instead of selecting the
+isolated Token DB2. Commit `9cce01072c5713983f8646c69d30e8bc61c826d2`
+added a failing regression guard and a no-auth invocation path. The corrected
+apply pass observed Token DB2 `1 -> 0`, zero active Admin sessions, and the
+retirement verifier then passed with DB0 untouched.

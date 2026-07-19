@@ -74,7 +74,7 @@
 - Modify: `README.md`
 - Modify: `CONTEXT.md`
 
-- [ ] **Step 1: Record clean master baselines**
+- [x] **Step 1: Record clean master baselines**
 
 Run:
 
@@ -89,7 +89,7 @@ git -C E:/admin/admin_front_ts worktree list --porcelain
 
 Expected: both branches are `master`, both status commands are empty, and each worktree list has one `worktree` entry with no `.worktrees` path.
 
-- [ ] **Step 2: Write the exact formal transport contract**
+- [x] **Step 2: Write the exact formal transport contract**
 
 `docs/contracts/admin-browser-auth-contract.md` must state that it becomes active only with the P08R bundle hash and must contain these exact shapes:
 
@@ -117,7 +117,7 @@ Side effect: revoke session and expire the same scoped Cookie
 
 Also define exact failures for missing/unapproved Origin, missing Cookie, non-empty refresh/logout body, expired/reused refresh credential, and structurally invalid response. State explicitly that `X-Admin-Client-Variant`, JSON `refresh_token`, `refresh_expires_in`, desktop Origin, and User-Agent inference do not exist in the contract.
 
-- [ ] **Step 3: Mark current versus target truth correctly**
+- [x] **Step 3: Mark current versus target truth correctly**
 
 The existing architecture/runtime documents must say:
 
@@ -129,7 +129,7 @@ Frontend implementation is blocked until Task 5 publishes the matching generated
 
 Do not describe the target as deployed before Task 5. Remove client-version/Tauri language from forward-looking architecture sections while retaining a short historical migration note and the P09 table-drop boundary.
 
-- [ ] **Step 4: Review and commit the formal contract**
+- [x] **Step 4: Review and commit the formal contract**
 
 ```powershell
 rg -n "T[B]D|T[O]DO|implement l[a]ter|fill i[n]" docs/contracts/admin-browser-auth-contract.md
@@ -166,7 +166,7 @@ Expected: `rg` exits `1`; the commit changes documentation only and does not cla
 - Modify: `scripts/export-task-smoke.ps1`
 - Modify: `scripts/full-admin-smoke.ps1`
 
-- [ ] **Step 1: Write failing browser-only handler and contract tests**
+- [x] **Step 1: Write failing browser-only handler and contract tests**
 
 Tests must prove:
 
@@ -193,7 +193,7 @@ go test ./internal/module/auth/transport/admin ./internal/config ./internal/midd
 
 Expected: FAIL on the current variant parser, desktop presenter fields, refresh body, and allowed CORS header.
 
-- [ ] **Step 2: Replace variant presentation with one response type**
+- [x] **Step 2: Replace variant presentation with one response type**
 
 Use exactly one public response:
 
@@ -226,7 +226,7 @@ func presentLogin(result *authmodule.LoginResponse) *CredentialResponse {
 
 `LoginResponse` may retain an unexported/internal refresh credential for Cookie issuance, but it must not carry JSON tags that make it a public response schema. Delete `RefreshRequest`; do not replace it with an optional/compatibility body.
 
-- [ ] **Step 3: Require Origin and reject bodies before credential work**
+- [x] **Step 3: Require Origin and reject bodies before credential work**
 
 Login, refresh, logout, and queue-monitor grant all call `requireAllowedOrigin`. Refresh and logout use an exact body guard:
 
@@ -242,15 +242,15 @@ func requireEmptyBody(c *gin.Context, messageID string) bool {
 
 Refresh reads only `BrowserRefreshCookieName`; login/refresh always rotate the Cookie; logout always expires it. Queue-monitor grant removes the browser-variant check because the endpoint itself is now browser-only. Unknown headers are not interpreted as a variant and do not change behavior.
 
-- [ ] **Step 4: Remove the obsolete CORS and i18n surface**
+- [x] **Step 4: Remove the obsolete CORS and i18n surface**
 
 Remove `X-Admin-Client-Variant` from `DefaultCORSConfig().AllowHeaders`. Remove only `auth.client_variant_invalid` and `auth.browser_variant_required` catalog keys; add exact `auth.refresh_body_forbidden` and `auth.logout_body_forbidden` translations used by the handlers.
 
-- [ ] **Step 5: Convert smoke clients to the browser contract**
+- [x] **Step 5: Convert smoke clients to the browser contract**
 
 The three smoke scripts use a `Microsoft.PowerShell.Commands.WebRequestSession`, send the configured `Origin`, receive the refresh Cookie, refresh with no JSON body, and assert neither authentication response contains `refresh_token` nor `refresh_expires_in`. They must never print the Cookie or access token.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```powershell
 go test ./internal/module/auth/... ./internal/config ./internal/middleware ./internal/server ./internal/admincontract ./internal/architecture -count=1
@@ -292,7 +292,7 @@ Expected: focused tests pass; contract drift is expected until Task 5 regenerati
 - Modify: `internal/module/README.md`
 - Modify: `scripts/full-admin-smoke.ps1`
 
-- [ ] **Step 1: Write failing absence tests**
+- [x] **Step 1: Write failing absence tests**
 
 The backend guard must require all of these to be absent from active runtime and the compiled route registry:
 
@@ -316,19 +316,19 @@ go test ./internal/architecture ./internal/server ./internal/admincontract -run 
 
 Expected: FAIL on the module, routes, permissions, view, and smoke assertions.
 
-- [ ] **Step 2: Remove composition and routes before packages**
+- [x] **Step 2: Remove composition and routes before packages**
 
 Delete the `ClientVersions` graph field, provider construction, route registration, fake router service, route tests, route-policy golden entries, and OpenAPI prefix expectation. Remove the client-version view from `buildViewsDocument`. Keep generic `storage/cos.ObjectWriter` because AI image/video and export still use it; rewrite its tests with generic keys such as `exports/report.json`.
 
-- [ ] **Step 3: Delete capability-only helpers and upload folders**
+- [x] **Step 3: Delete capability-only helpers and upload folders**
 
 Delete the module, client platform enum/dict/validator, and catalogs. Remove `releases` and `tauri_updater` from the closed upload-folder enum because neither has a surviving business owner. Do not add aliases or deprecated constants.
 
-- [ ] **Step 4: Remove client-version smoke behavior**
+- [x] **Step 4: Remove client-version smoke behavior**
 
 Delete client-version init/list/update-json/current-check functions and invocations from `full-admin-smoke.ps1`. Add an unauthenticated/authenticated negative probe asserting `/api/admin/v1/client-versions` is not registered; do not accept a `403` as proof of retirement when the expected result is route absence.
 
-- [ ] **Step 5: Verify and commit runtime removal**
+- [x] **Step 5: Verify and commit runtime removal**
 
 ```powershell
 go test ./internal/platform/admin ./internal/server ./internal/admincontract ./internal/architecture ./internal/shared/... ./internal/infra/storage/cos -count=1
@@ -357,7 +357,7 @@ Expected: no Go runtime imports the removed module; `client_versions` remains in
 - Create: `scripts/tests/browser-only-cutover.tests.ps1`
 - Create: `docs/runbooks/admin-browser-only-cutover.md`
 
-- [ ] **Step 1: Write failing reconciliation and cutover contract tests**
+- [x] **Step 1: Write failing reconciliation and cutover contract tests**
 
 The PowerShell test must require:
 
@@ -381,7 +381,7 @@ pwsh -NoProfile -File scripts/tests/browser-only-cutover.tests.ps1
 
 Expected: FAIL because the scripts and SQL do not exist.
 
-- [ ] **Step 2: Implement the idempotent menu reconciliation**
+- [x] **Step 2: Implement the idempotent menu reconciliation**
 
 `046_retire_client_version_surface.sql` creates a temporary exact ID set using:
 
@@ -407,7 +407,7 @@ Before updates, set a bounded `group_concat_max_len`, capture `COUNT(*)`, and co
 
 Add stage `browser-only-retirement` and include it in `all-nondestructive`; update the expected reconciliation count from `9` to `10`. `038_verify_browser_only_retirement.sql` returns named violations if an active permission/grant/view selector survives or the historical table is missing.
 
-- [ ] **Step 3: Implement fail-closed session revocation**
+- [x] **Step 3: Implement fail-closed session revocation**
 
 `revoke-admin-sessions.ps1` operates only through the existing Docker MySQL and Redis state containers. Without `-Apply` it prints counts only. With `-Apply` it:
 
@@ -420,7 +420,7 @@ Add stage `browser-only-retirement` and include it in `all-nondestructive`; upda
 
 It must not change `single_session`, `max_sessions`, `auth_platforms`, users, or login logs.
 
-- [ ] **Step 4: Write exact operator and Credential Manager cleanup instructions**
+- [x] **Step 4: Write exact operator and Credential Manager cleanup instructions**
 
 The runbook records the maintenance order and tells former Windows users to remove these historical entries manually after retirement:
 
@@ -431,7 +431,7 @@ account: current-session
 
 The application cannot remotely erase already installed clients, so the runbook must not claim that server deployment clears Windows Credential Manager.
 
-- [ ] **Step 5: Rehearse on Docker-backed disposable data and commit**
+- [x] **Step 5: Rehearse on Docker-backed disposable data and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/browser-only-cutover.tests.ps1
@@ -460,7 +460,7 @@ Expected: the disposable restore has no active client-version menu/grant, its hi
 - Modify: `docs/contracts/admin-v1-runtime-model-contracts.md`
 - Modify: `docs/architecture.md`
 
-- [ ] **Step 1: Strengthen generated-bundle assertions**
+- [x] **Step 1: Strengthen generated-bundle assertions**
 
 Tests must assert all of the following by parsing JSON, not by matching a sample response:
 
@@ -475,7 +475,7 @@ no system/clientVersion view
 manifest hashes exactly match every artifact
 ```
 
-- [ ] **Step 2: Regenerate backend truth from a clean committed source**
+- [x] **Step 2: Regenerate backend truth from a clean committed source**
 
 ```powershell
 git diff --name-only
@@ -486,11 +486,11 @@ go test ./internal/admincontract ./internal/architecture -run 'Bundle|Manifest|B
 
 Expected: before generation the diff lists only the declared Task 5 test/docs paths; generation/check/tests pass and only the declared generated/docs files change.
 
-- [ ] **Step 3: Activate the formal contract with the generated hash**
+- [x] **Step 3: Activate the formal contract with the generated hash**
 
 Replace the target/pending marker in `admin-browser-auth-contract.md` with the generated bundle version, backend source commit, and manifest SHA-256. Update architecture wording from “approved target” to “active Browser-only contract”. Do not hand-edit generated JSON.
 
-- [ ] **Step 4: Commit the bundle**
+- [x] **Step 4: Commit the bundle**
 
 ```powershell
 git add -- contracts/admin/v1/openapi.json contracts/admin/v1/permissions.json contracts/admin/v1/views.json contracts/admin/v1/manifest.json internal/admincontract/bundle_test.go internal/admincontract/openapi_models_test.go internal/architecture/browser_only_admin_test.go docs/contracts/admin-browser-auth-contract.md docs/contracts/admin-v1-runtime-model-contracts.md docs/architecture.md
@@ -529,7 +529,7 @@ Expected: the bundle contains no retired operation/field/view/permission and rec
 - Modify: `tests/integration/app/logout.test.ts`
 - Modify: `tests/integration/app/session-events.test.ts`
 
-- [ ] **Step 1: Sync and generate only from the Task 5 bundle**
+- [x] **Step 1: Sync and generate only from the Task 5 bundle**
 
 Run in the pinned Node container:
 
@@ -541,7 +541,7 @@ docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,
 
 Expected: generated transport removes the variant header, refresh body/fields, client-version operations, permission codes, and view key. If the backend manifest and requested commit differ, stop instead of editing generated files.
 
-- [ ] **Step 2: Write failing single-adapter tests**
+- [x] **Step 2: Write failing single-adapter tests**
 
 The credential tests require:
 
@@ -557,7 +557,7 @@ export interface CredentialAdapter {
 
 They assert `CookieCredentialAdapter` always uses `credentials: 'include'`, sends no `X-Admin-Client-Variant`, sends no refresh body, includes the common Origin-compatible request headers, and treats any undocumented response field as a Zod contract error. Delete rather than skip desktop credential tests.
 
-- [ ] **Step 3: Remove environment and header variants**
+- [x] **Step 3: Remove environment and header variants**
 
 `AppEnvironment` contains only `mode`, `platform`, `apiOrigin`, and `realtimeOrigin`. Delete `VITE_ADMIN_CLIENT_VARIANT`. Rename the common header helper to `headers.ts`; its output is exactly:
 
@@ -570,11 +570,11 @@ return {
 }
 ```
 
-- [ ] **Step 4: Install one credential adapter in `main.ts`**
+- [x] **Step 4: Install one credential adapter in `main.ts`**
 
 Create one `CookieCredentialAdapter`; remove lazy variant selection, desktop adapter imports, and the `variant` getter. `AuthSession` behavior, access-token memory ownership, refresh coordinator, and logout cleanup remain unchanged.
 
-- [ ] **Step 5: Run Dockerized tests and commit**
+- [x] **Step 5: Run Dockerized tests and commit**
 
 ```powershell
 $root = (Get-Location).Path
@@ -620,7 +620,7 @@ git commit -m "refactor(auth): consume browser-only admin contract"
 - Modify: `src/modules/persistence/preferences.ts`
 - Create: `tests/unit/persistence/device-preferences.test.ts`
 
-- [ ] **Step 1: Write failing removal and preference-migration tests**
+- [x] **Step 1: Write failing removal and preference-migration tests**
 
 Tests require all Tauri/Rust paths and dependencies to be absent. A temporary Web-only bridge may remain for one commit so existing browser consumers continue to compile; it must have no Tauri import, desktop credential, updater implementation, process/window control, or runtime-kind branch and is deleted in Task 8. Device preferences move to codec version `2` and migrate version `1` by retaining only `theme`, `language`, and `rememberedLogin`; `desktopWindow` is discarded rather than preserved under an alias.
 
@@ -643,7 +643,7 @@ const devicePreferencesCodec = defineCodec({
 })
 ```
 
-- [ ] **Step 2: Remove Tauri packages using the pinned container**
+- [x] **Step 2: Remove Tauri packages using the pinned container**
 
 ```powershell
 $root = (Get-Location).Path
@@ -652,15 +652,15 @@ docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspac
 
 Remove the `tauri`, `tauri:dev`, and `tauri:build` scripts. Do not hand-edit the lockfile to simulate uninstall.
 
-- [ ] **Step 3: Remove desktop composition and UI**
+- [x] **Step 3: Remove desktop composition and UI**
 
 `main.ts` no longer detects or installs a Tauri bridge and no longer installs a Tauri store. `src/adapters/native.ts` is reduced temporarily to the existing Web implementation used by browser consumers; it cannot dynamically import a platform adapter. `App.vue` no longer mounts `TauriManager`. Login/Header/Settings contain no draggable region, window controls, updater status, close behavior, desktop labels, or Tauri condition. Delete the obsolete preference/store tests rather than weakening them.
 
-- [ ] **Step 4: Remove build/config exemptions**
+- [x] **Step 4: Remove build/config exemptions**
 
 Delete `TAURI_DEV_HOST`, `TAURI_ENV_DEBUG`, fixed Tauri port comments, and `src-tauri` watch/lint exclusions. The Vite dev command remains available for project tooling but is never used as a runtime acceptance path.
 
-- [ ] **Step 5: Verify deletion and commit**
+- [x] **Step 5: Verify deletion and commit**
 
 ```powershell
 $root = (Get-Location).Path
@@ -702,11 +702,11 @@ git commit -m "refactor(frontend): remove tauri and desktop shell"
 - Test: `tests/component/network/NetworkStatusNotice.test.ts`
 - Test: `tests/unit/auth/session.test.ts`
 
-- [ ] **Step 1: Test focused browser policies first**
+- [x] **Step 1: Test focused browser policies first**
 
 Navigation tests cover exact allowlisted HTTPS external hosts, credentials/HTTP/`javascript:` rejection, `noopener,noreferrer`, opener nulling, same-origin queue-monitor URLs, and payment navigation. Download tests cover same-origin or allowlisted HTTPS only, filename derivation, HTTP failure, Blob URL revocation, anchor cleanup, and no mock fallback.
 
-- [ ] **Step 2: Implement direct browser navigation helpers**
+- [x] **Step 2: Implement direct browser navigation helpers**
 
 Export only named browser functions:
 
@@ -718,19 +718,19 @@ export function navigateToExternalHttps(input: string): void
 
 Do not create `Bridge`, `Adapter`, `kind`, `isDesktop`, `isTauri`, or an unavailable native-operation object.
 
-- [ ] **Step 3: Reduce downloads to real browser behavior**
+- [x] **Step 3: Reduce downloads to real browser behavior**
 
 `src/lib/browser/download.ts` exports `downloadFile(url, filename?)` and pure filename/size formatting. It fetches the validated URL, requires `response.ok`, creates a Blob URL, clicks a temporary `<a download>`, and always removes/revokes resources. Delete native task IDs, cancel/reveal/progress manager UI, header download count, and Tauri demo text. Keep the export-task download action and a browser-only download demo.
 
-- [ ] **Step 4: Keep browser notification and online behavior explicit**
+- [x] **Step 4: Keep browser notification and online behavior explicit**
 
 `NotificationRuntime` always renders the in-app Element Plus notification; it does not attempt a native notification. Run the existing `NetworkStatusNotice` and AuthSession connectivity suites to prove the global `online`/`offline` UI remains visible on login/Layout and that API 401/500/contract errors are not relabelled as offline.
 
-- [ ] **Step 5: Delete client-version frontend surface**
+- [x] **Step 5: Delete client-version frontend surface**
 
 Delete the API wrapper, route page, signature component, local view loader, permission/view literal, and i18n domains. Remove `releases` and `tauri_updater` from the frontend upload-folder guard so it remains exactly equal to the generated backend union. Do not leave a hidden route or “temporarily unavailable” page.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```powershell
 $root = (Get-Location).Path
@@ -752,7 +752,7 @@ git commit -m "refactor(browser): replace native abstractions with web capabilit
 - Modify: `package.json`
 - Modify: `scripts/verify-frontend.ps1`
 
-- [ ] **Step 1: Write the failing architecture gate contract**
+- [x] **Step 1: Write the failing architecture gate contract**
 
 The test invokes/parses `check-browser-only.mjs` and requires it to reject:
 
@@ -769,11 +769,11 @@ runtime mock/fallback authentication data
 
 The guard excludes historical `docs/superpowers/plans/2026-07-15-admin-tauri-security-plan.md` and the guard's own literal list. It must parse `package.json`, contract JSON, and tracked paths instead of relying only on one broad substring search.
 
-- [ ] **Step 2: Add the gate without taking over P07 quality work**
+- [x] **Step 2: Add the gate without taking over P07 quality work**
 
 Add npm script `check:browser-only`. Rewrite every package/generation/lint/typecheck/test/build invocation in `verify-frontend.ps1` to execute inside `node:22.23.1-alpine`; do not implement P07's zero-warning, bundle-budget, or accessibility tasks here. The script must not run host npm.
 
-- [ ] **Step 3: Write the user-owned manual checklist**
+- [x] **Step 3: Write the user-owned manual checklist**
 
 The checklist records backend/frontend full revisions and bundle hash, and leaves unchecked user-owned boxes for:
 
@@ -793,7 +793,7 @@ theme/language/remembered account persistence after v1 preference migration
 
 The Agent may fill evidence fields but may not mark acceptance boxes.
 
-- [ ] **Step 4: Run the complete Dockerized frontend gate and commit**
+- [x] **Step 4: Run the complete Dockerized frontend gate and commit**
 
 ```powershell
 $root = (Get-Location).Path
@@ -814,7 +814,7 @@ Expected: the static gate, contract lock, generated routes, current P07 warning 
 - Modify after execution evidence only: `E:/admin/admin_front_ts/docs/acceptance/p08r-browser-only-manual.md`
 - Modify after execution evidence only: this plan's task checkboxes/evidence section
 
-- [ ] **Step 1: Re-run both clean static gates before touching live state**
+- [x] **Step 1: Re-run both clean static gates before touching live state**
 
 ```powershell
 git -C E:/admin/admin_back_go status --short
@@ -828,7 +828,7 @@ docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspac
 
 Expected: both status commands are empty and every static gate passes.
 
-- [ ] **Step 2: Build and start only through the existing Docker platform**
+- [x] **Step 2: Build and start only through the existing Docker platform**
 
 ```powershell
 cd E:/admin/admin_back_go
@@ -838,7 +838,7 @@ pwsh -NoProfile -File scripts/docker-platform.ps1 status
 
 Expected: frontend/API/Worker images carry their owning full Git revision labels; frontend, API, Worker, MySQL, and Redis are healthy. No host runtime is started.
 
-- [ ] **Step 3: Apply the retirement reconciliation and revoke pre-cutover sessions**
+- [x] **Step 3: Apply the retirement reconciliation and revoke pre-cutover sessions**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/reconcile.ps1 -Stage browser-only-retirement -Database admin -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT
@@ -848,7 +848,7 @@ pwsh -NoProfile -File scripts/browser-only/verify-retirement.ps1
 
 Expected: menu/grants are retired, `client_versions` count/hash is unchanged, all pre-cutover Admin sessions are revoked, token Redis is empty, and the operator must log in again.
 
-- [ ] **Step 4: Run browser-only Docker smoke**
+- [x] **Step 4: Run browser-only Docker smoke**
 
 Use smoke credentials only through `ADMIN_SMOKE_ACCOUNT` and `ADMIN_SMOKE_PASSWORD`:
 
@@ -861,11 +861,11 @@ pwsh -NoProfile -File scripts/docker-platform.ps1 status
 
 Smoke must prove password/code login, Cookie rotation, logout, Origin denial, JSON refresh-body denial, queue-monitor grant, realtime ticket/WebSocket, retired route absence, and no secret output.
 
-- [ ] **Step 5: Stop for user functional acceptance**
+- [x] **Step 5: Stop for user functional acceptance**
 
 Populate revisions, image IDs, manifest hash, reconciliation run ID/hash, session revocation count, and automated command results in the runbook/checklist. Do not mark user boxes. P07 Task 6 cannot start until the user confirms the checklist.
 
-- [ ] **Step 6: Commit evidence after user acceptance**
+- [x] **Step 6: Commit evidence after user acceptance**
 
 ```powershell
 git -C E:/admin/admin_back_go add -- docs/runbooks/admin-browser-only-cutover.md docs/superpowers/plans/2026-07-19-admin-browser-only-tauri-retirement-plan.md
@@ -876,6 +876,45 @@ git -C E:/admin/admin_front_ts add -- docs/acceptance/p08r-browser-only-manual.m
 git -C E:/admin/admin_front_ts diff --cached --check
 git -C E:/admin/admin_front_ts commit -m "docs(acceptance): record browser-only functional review"
 ```
+
+## Task 10 execution evidence (2026-07-20)
+
+- Backend runtime/cutover revision:
+  `9cce01072c5713983f8646c69d30e8bc61c826d2`; frontend revision:
+  `39fe04755a4fc76a83ab385a961cb9ccbbb08f92`.
+- Docker image IDs are
+  `sha256:27e4ff63e0c9b74805478faaeef0350f4366a442a34865b72e9ab6642b54164d`
+  for API/Worker and
+  `sha256:cffc07471498bcf60239029c0ea54f411f639aeb27c3250d714ad9fb730558f2`
+  for frontend; every revision label matches its owning repository.
+- Recovery dump SHA-256 is
+  `a9590af7315c105809ac34ad0f438e59d8f38d4b0dbf87656295343b6d2178ec`;
+  source and post-reconciliation schema fingerprint are both
+  `2196c34285433b56b7ed9b2bd12394ce1e2c06472b52abcbcfbc85901a0ffafd`.
+- Reconciliation run `13` applied script
+  `e66c16c5a6bab94f9bdeba321ef3c7929dab9e94f1a2153da9955d0d97c6a64f`.
+  `client_versions` remains frozen at 8 rows with SHA-256
+  `ca574b6ce101d92b05cc3571e7e138aa9bf2bc5096c04357c8d39792ba806661`.
+- The initial cutover revoked one pre-cutover Admin session. Regression commit
+  `9cce01072c5713983f8646c69d30e8bc61c826d2` corrected the empty
+  `REDISCLI_AUTH` path so the scripts select Token Redis DB2 rather than DB0;
+  its corrected apply proof observed DB2 `1 -> 0`, zero active sessions, and a
+  passing retirement verifier.
+- The Docker API smoke passed phone/email captcha enforcement, code login,
+  password login without captcha, scoped refresh Cookie policy and rotation,
+  old-Cookie denial, logout revocation, missing/wrong Origin denial, JSON
+  refresh-body denial, queue-monitor grant/UI, realtime ticket/WebSocket, and
+  authenticated retired-route `404`. It created and removed its temporary
+  identity, left zero active Admin sessions, and emitted no secret. Harness
+  SHA-256:
+  `e8d8214d3d1e7b8632d9c31014f1a9e9b0e643fd90b90249a79ecc262640c209`.
+- The historical `basic-admin-smoke.ps1` and `full-admin-smoke.ps1` were not
+  invoked because they compile and start host API/Worker processes, which
+  contradicts this plan's Docker-only fixed boundary. The equivalent required
+  Browser-only assertions ran against the existing Docker API instead.
+- Admin Contract Bundle check passed; frontend/API/Worker/MySQL/Redis are
+  healthy. The project owner explicitly confirmed every user-owned functional
+  acceptance item at `2026-07-20 05:35:17 +08:00`.
 
 ## Plan completion gate
 
