@@ -1,0 +1,215 @@
+SELECT 'active_retired_session_violations' AS invariant, COUNT(*) AS violations
+FROM `user_sessions`
+WHERE `platform` IN ('app', 'canvas')
+  AND `is_del` = 2
+  AND `revoked_at` IS NULL
+  AND `refresh_expires_at` > UTC_TIMESTAMP(6);
+
+SELECT 'unknown_platform_violations' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT `id` FROM `permissions` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `user_sessions` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `users_login_log` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `notification_task` WHERE `platform` NOT IN ('admin', 'app', 'canvas', 'all')
+  UNION ALL
+  SELECT `id` FROM `notifications` WHERE `platform` NOT IN ('admin', 'app', 'canvas', 'all')
+  UNION ALL
+  SELECT `id` FROM `export_tasks` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `ai_runs` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `ai_text_tasks` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `ai_image_tasks` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+  UNION ALL
+  SELECT `id` FROM `ai_reply_commands` WHERE `platform` NOT IN ('admin', 'app', 'canvas')
+) AS unknown_platforms;
+
+SELECT 'unmapped_scene_violations' AS invariant, COUNT(*) AS violations
+FROM `ai_agents` AS agent
+JOIN JSON_TABLE(
+  IF(JSON_VALID(agent.`scenes_json`), agent.`scenes_json`, JSON_ARRAY('__invalid_json__')),
+  '$[*]' COLUMNS (`scene` VARCHAR(64) PATH '$')
+) AS scenes
+WHERE scenes.`scene` NOT IN (
+  'chat',
+  'agent_generate',
+  'canvas_text_generate',
+  'canvas_image_generate',
+  'canvas_video_generate',
+  'canvas_audio_generate',
+  'text_generate',
+  'image_generate',
+  'video_generate',
+  'audio_generate'
+);
+
+SELECT 'nonterminal_durable_work_violations' AS invariant, COUNT(*) AS violations
+FROM `ai_reply_commands`
+WHERE `state` IN ('pending', 'claimed', 'running', 'outcome_unknown');
+
+SELECT 'nonterminal_provider_attempt_violations' AS invariant, COUNT(*) AS violations
+FROM `ai_runs`
+WHERE `status` IN ('pending', 'running', 'streaming');
+
+SELECT 'duplicate_idempotency_violations' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT `idempotency_key`
+  FROM `ai_reply_commands`
+  WHERE `idempotency_key` <> ''
+  GROUP BY `idempotency_key`
+  HAVING COUNT(*) > 1
+) AS duplicate_idempotency_keys;
+
+SELECT 'client_version_surface_violations' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT permission.`id`
+  FROM `permissions` AS permission
+  WHERE permission.`platform` = 'admin'
+    AND permission.`is_del` = 2
+    AND (
+      permission.`path` = '/system/clientVersion'
+      OR permission.`component` = 'system/clientVersion'
+      OR permission.`i18n_key` = 'menu.system_clientVersion'
+      OR permission.`code` IN (
+        'system_clientVersion_add',
+        'system_clientVersion_del',
+        'system_clientVersion_edit',
+        'system_clientVersion_forceUpdate',
+        'system_clientVersion_setLatest'
+      )
+    )
+  UNION ALL
+  SELECT grant_row.`id`
+  FROM `role_permissions` AS grant_row
+  JOIN `permissions` AS permission ON permission.`id` = grant_row.`permission_id`
+  WHERE grant_row.`is_del` = 2
+    AND permission.`platform` = 'admin'
+    AND (
+      permission.`path` = '/system/clientVersion'
+      OR permission.`component` = 'system/clientVersion'
+      OR permission.`i18n_key` = 'menu.system_clientVersion'
+      OR permission.`code` IN (
+        'system_clientVersion_add',
+        'system_clientVersion_del',
+        'system_clientVersion_edit',
+        'system_clientVersion_forceUpdate',
+        'system_clientVersion_setLatest'
+      )
+    )
+) AS active_client_version_surface;
+
+SELECT 'client_versions_count_mismatch' AS invariant,
+  IF(COUNT(*) = 8, 0, 1) AS violations
+FROM `client_versions`;
+
+SELECT 'client_versions_hash_mismatch' AS invariant,
+  IF(
+    SHA2(
+      COALESCE(
+        GROUP_CONCAT(
+          SHA2(
+            CAST(JSON_ARRAY(
+              `id`, `version`, `notes`, `file_url`, `signature`, `platform`,
+              `file_size`, `is_latest`, `force_update`, `is_del`, `created_at`, `updated_at`
+            ) AS CHAR),
+            256
+          )
+          ORDER BY `id` SEPARATOR ''
+        ),
+        ''
+      ),
+      256
+    ) = 'ca574b6ce101d92b05cc3571e7e138aa9bf2bc5096c04357c8d39792ba806661',
+    0,
+    1
+  ) AS violations
+FROM `client_versions`;
+
+SELECT 'wallet_balance_violations' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT wallet.`id`
+  FROM `user_wallets` AS wallet
+  LEFT JOIN (
+    SELECT
+      `wallet_id`,
+      SUM(CASE WHEN `direction` = 'in' THEN `amount_cents` ELSE -`amount_cents` END) AS balance,
+      SUM(CASE WHEN `direction` = 'in' AND `source_type` = 'recharge' THEN `amount_cents` ELSE 0 END) AS recharge,
+      SUM(CASE WHEN `direction` = 'out' THEN `amount_cents` ELSE 0 END) AS consume
+    FROM `wallet_transactions`
+    WHERE `is_del` = 2
+    GROUP BY `wallet_id`
+  ) AS ledger ON ledger.`wallet_id` = wallet.`id`
+  WHERE wallet.`is_del` = 2
+    AND (
+      wallet.`balance_cents` <> COALESCE(ledger.balance, 0)
+      OR wallet.`total_recharge_cents` <> COALESCE(ledger.recharge, 0)
+      OR wallet.`total_consume_cents` <> COALESCE(ledger.consume, 0)
+    )
+) AS invalid_wallets;
+
+SELECT 'classified_orphan_role_permission_mismatch' AS invariant,
+  IF(
+    COUNT(*) = 1
+    AND MAX(role_permission.`role_id`) = 1
+    AND MAX(role_permission.`permission_id`) = 539
+    AND MAX(permission.`id`) IS NULL,
+    0,
+    1
+  ) AS violations
+FROM `role_permissions` AS role_permission
+LEFT JOIN `permissions` AS permission ON permission.`id` = role_permission.`permission_id`
+WHERE role_permission.`id` = 723 AND role_permission.`is_del` = 2;
+
+SELECT 'orphan_relationship_violations' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT role_permission.`id`
+  FROM `role_permissions` AS role_permission
+  LEFT JOIN `roles` AS role_row ON role_row.`id` = role_permission.`role_id`
+  LEFT JOIN `permissions` AS permission ON permission.`id` = role_permission.`permission_id`
+  WHERE role_permission.`is_del` = 2
+    AND role_permission.`id` <> 723
+    AND (role_row.`id` IS NULL OR permission.`id` IS NULL OR permission.`is_del` <> 2)
+  UNION ALL
+  SELECT recharge.`id`
+  FROM `payment_recharges` AS recharge
+  LEFT JOIN `users` AS user_row ON user_row.`id` = recharge.`user_id`
+  LEFT JOIN `payment_orders` AS payment_order ON payment_order.`id` = recharge.`payment_order_id`
+  WHERE recharge.`is_del` = 2 AND (user_row.`id` IS NULL OR payment_order.`id` IS NULL)
+  UNION ALL
+  SELECT transaction_row.`id`
+  FROM `wallet_transactions` AS transaction_row
+  LEFT JOIN `user_wallets` AS wallet ON wallet.`id` = transaction_row.`wallet_id`
+  LEFT JOIN `users` AS user_row ON user_row.`id` = transaction_row.`user_id`
+  WHERE transaction_row.`is_del` = 2
+    AND (wallet.`id` IS NULL OR user_row.`id` IS NULL OR transaction_row.`user_id` <> wallet.`user_id`)
+  UNION ALL
+  SELECT image_file.`id`
+  FROM `ai_image_files` AS image_file
+  LEFT JOIN `ai_image_tasks` AS image_task ON image_task.`id` = image_file.`task_id`
+  WHERE image_task.`id` IS NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM `ai_runs` AS run_row
+      WHERE BINARY run_row.`request_id` = BINARY CONCAT('ai_image_task_', image_file.`task_id`)
+    )
+  UNION ALL
+  SELECT export_task.`id`
+  FROM `export_tasks` AS export_task
+  LEFT JOIN `users` AS user_row ON user_row.`id` = export_task.`user_id`
+  WHERE export_task.`is_del` = 2 AND user_row.`id` IS NULL
+) AS orphan_rows;
+
+SELECT 'already_absent_legacy_table_violations' AS invariant, COUNT(*) AS violations
+FROM `information_schema`.`tables`
+WHERE `table_schema` = DATABASE()
+  AND `table_name` IN (
+    'users_quick_entry',
+    'canvas_prompts',
+    'canvas_assets',
+    'ai_billing_rules',
+    'ai_billing_records'
+  );

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "backend_commit": "2931532803d56bf27fd09cc3351291b8ad25e88a",
+  "frontend_commit": "f83fee823c8df7fabc8c5331296bdd0e6663ab09",
+  "contract_manifest_sha256": "d0a7649f4fe22ac5a095a108e7c8969fa1a626dea50fdf82f1fa19dfc0b8b1fa",
+  "database_fingerprint_sha256": "b5189f693fc628a07747deeaa8e5dc1c3f1ab147dcc173742690ca38d9c6d76b",
+  "recovery_artifact_sha256": "daaf1a6db004d86192b129c90450600273ff8bdb4c4a65e15f0f96f5a7154737",
+  "cos_disposition_evidence_sha256": "6b9243774d06cc2fc4fc37fddc56972ebf6ba50842d30bcce10fb7aeba0f09fb",
+  "query_evidence_sha256": "575684bd5efe7683104e3965d9138a5e411c1a7b93815bf705c81e4a6c4543be",
+  "client_versions_freeze_evidence_sha256": "b398a4f2a3585f585fc287638028c428db27bdee337c33a78807680dee8728fa"
+}

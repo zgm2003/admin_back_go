@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://admin.local/release/admin-only/input-lock.schema.json",
+  "title": "Admin-only pre-contract input lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "backend_commit",
+    "frontend_commit",
+    "contract_manifest_sha256",
+    "database_fingerprint_sha256",
+    "recovery_artifact_sha256",
+    "cos_disposition_evidence_sha256",
+    "query_evidence_sha256",
+    "client_versions_freeze_evidence_sha256"
+  ],
+  "$defs": {
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "backend_commit": {
+      "$ref": "#/$defs/gitSha"
+    },
+    "frontend_commit": {
+      "$ref": "#/$defs/gitSha"
+    },
+    "contract_manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "database_fingerprint_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "recovery_artifact_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "cos_disposition_evidence_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "query_evidence_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "client_versions_freeze_evidence_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  }
+}
