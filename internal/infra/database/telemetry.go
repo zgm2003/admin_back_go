@@ -89,7 +89,11 @@ func (logger *telemetryLogger) Trace(ctx context.Context, begin time.Time, fc fu
 		slow["db.slow_digest"] = telemetry.SlowDigest(statement)
 		logger.recorder.Count("db.slow_queries", 1, slow)
 	}
-	logger.delegate.Trace(ctx, begin, cached, traceErr)
+	delegateErr := traceErr
+	if errors.Is(delegateErr, gorm.ErrRecordNotFound) {
+		delegateErr = nil
+	}
+	logger.delegate.Trace(ctx, begin, cached, delegateErr)
 }
 
 func classifyStatement(statement string) (string, string) {

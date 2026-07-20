@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/telemetry"
 
+	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
 
@@ -77,3 +78,49 @@ func TestTelemetryLoggerRecordsOnlyOperationTableDurationAndHashedSlowDigest(t *
 		t.Fatalf("slow digest was not bounded: %+v", events[2])
 	}
 }
+
+func TestTelemetryLoggerTreatsRecordNotFoundAsExpectedEmptyResultForDelegate(t *testing.T) {
+	delegate := &traceCaptureLogger{}
+	logger := newTelemetryLogger(delegate, telemetry.Noop(), time.Second)
+
+	logger.Trace(context.Background(), time.Now(), func() (string, int64) {
+		return "SELECT * FROM `jobs` LIMIT 1", 0
+	}, fmt.Errorf("empty queue: %w", gorm.ErrRecordNotFound))
+
+	if delegate.traceCalls != 1 {
+		t.Fatalf("expected one delegated trace, got %d", delegate.traceCalls)
+	}
+	if delegate.traceErr != nil {
+		t.Fatalf("expected record-not-found to reach the delegate as a successful empty result, got %v", delegate.traceErr)
+	}
+
+	driverErr := errors.New("driver unavailable")
+	logger.Trace(context.Background(), time.Now(), func() (string, int64) {
+		return "SELECT 1", 0
+	}, driverErr)
+	if !errors.Is(delegate.traceErr, driverErr) {
+		t.Fatalf("expected real database error to remain visible, got %v", delegate.traceErr)
+	}
+}
+
+type traceCaptureLogger struct {
+	traceCalls int
+	traceErr   error
+}
+
+func (logger *traceCaptureLogger) LogMode(gormlogger.LogLevel) gormlogger.Interface {
+	return logger
+}
+
+func (logger *traceCaptureLogger) Info(context.Context, string, ...interface{}) {}
+
+func (logger *traceCaptureLogger) Warn(context.Context, string, ...interface{}) {}
+
+func (logger *traceCaptureLogger) Error(context.Context, string, ...interface{}) {}
+
+func (logger *traceCaptureLogger) Trace(_ context.Context, _ time.Time, _ func() (string, int64), traceErr error) {
+	logger.traceCalls++
+	logger.traceErr = traceErr
+}
+
+var _ gormlogger.Interface = (*traceCaptureLogger)(nil)
