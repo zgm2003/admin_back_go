@@ -318,101 +318,88 @@ CORS_ALLOW_ORIGINS=https://<frontend-domain>
 
 ## 本地开发
 
-后端本地开发统一 Docker-first。不要在仓库根目录创建 `.env`，不要用 `go run ./cmd/admin-api` 或 `go run ./cmd/admin-worker` 启动后端。
+Windows 日常开发和正式部署采用两条明确分开的路径：
 
-### 1. 准备依赖
+| 场景 | MySQL / Redis | 前端 / API / Worker | 入口 |
+| --- | --- | --- | --- |
+| 本地热更新 | Docker | Windows 宿主机 | `admin-dev` |
+| 正式部署、阶段验收 | Docker | Docker | `admin-up` |
 
-需要：
+生产和正式验收始终使用完整 Docker。`admin-dev` 只是 Windows 开发反馈环，不改变发布架构，也不会在启动时自动执行数据库迁移。
 
-```text
-Docker Desktop / Docker Engine
-MySQL
-Redis
-PowerShell 7 或 Windows PowerShell
-```
-
-### 2. 使用 Docker-first 开发目录
-
-`deploy/docker-first/docker-compose.yml` 已经固定开发者默认值，不再需要 Compose `.env`：
+### Windows 固定工具链
 
 ```text
-源码目录:   ../..
-运行配置:   ./admin-go.env
-运行目录:   ./runtime -> /app/runtime
-导出目录:   ./exports -> /app/exports
-API 端口:   127.0.0.1:8080 -> container 8080
+PowerShell  7.x
+Node        E:\FlyEnv-Data\app\nodejs\v24.18.0（v24.18.0）
+npm         11.16.0
+Go          go1.26.5 windows/amd64
+Air         v1.66.0（首次使用时安装到 .tmp/tools，绝不全局安装）
+Docker      MySQL / Redis 以及正式五容器平台
 ```
 
-首次准备：
+本地运行配置继续只使用已忽略的 `deploy/docker-first/admin-go.env`。`admin-dev` 在子进程内存中把 Docker 地址转换为宿主地址，不复制、不打印 `MYSQL_DSN`、`APP_SECRET` 或密码：
+
+```text
+mysql:3306  -> 127.0.0.1:33306
+redis:6379  -> 127.0.0.1:36379
+:8080       -> 127.0.0.1:8080
+```
+
+### 一次性安装快捷命令
 
 ```powershell
-cd E:/admin_go/admin_back_go/deploy/docker-first
-New-Item -ItemType Directory -Force -Path runtime/logs, exports
+pwsh -NoProfile -File E:\admin\admin_back_go\scripts\install-admin-shortcuts.ps1
+. $PROFILE
 ```
 
-确认 `admin-go.env` 至少设置：
-
-```env
-MYSQL_DSN=你的 MySQL DSN
-REDIS_ADDR=host.docker.internal:6380
-# 至少 64 个 ASCII 字符；修改会让旧登录态和已加密业务密钥失效
-APP_SECRET=本地长随机字符串
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173
-```
-
-如果宿主 `8080` 被占用，直接改 `docker-compose.yml` 的 `ports` 行，例如 `127.0.0.1:18082:8080`；不要为了端口再引入 Compose `.env`，也不要用 full smoke 默认端口 `18081`。
-
-局域网真机调试时，再把 `ports` 行按需改成 `0.0.0.0:8080:8080`，并确认防火墙和 `CORS_ALLOW_ORIGINS` 覆盖当前 H5/LAN dev origin。
-
-### 3. 启动 API + Worker
+安装器同时维护 PowerShell 7 和 Windows PowerShell 的用户 Profile，并且只修改自己的标记区块。之后可直接使用：
 
 ```powershell
-cd E:/admin_go/admin_back_go/deploy/docker-first
-docker compose up -d --build
-docker compose ps
+admin-dev       # Docker 保留 MySQL/Redis；宿主启动 Vite/API/Worker 热更新
+admin-up        # 构建并启动正式五容器 Docker 平台
+admin-status    # 查看两个 Compose 项目状态
+admin-stop      # 停止完整 Docker 平台
 ```
 
-验证：
+如果当前终端尚未重新加载 Profile，也可直接运行仓库脚本：
 
 ```powershell
-curl.exe http://127.0.0.1:8080/health
-curl.exe http://127.0.0.1:8080/ready
-curl.exe http://127.0.0.1:8080/api/admin/v1/auth/login-config
+pwsh -NoProfile -File E:\admin\admin_back_go\scripts\admin-dev.ps1
+pwsh -NoProfile -File E:\admin\admin_back_go\scripts\docker-platform.ps1 -Action up
 ```
 
-### 4. 常用本地检查
+### `admin-dev` 行为
+
+1. 只允许两个现有 `master` 主检出，拒绝 worktree。
+2. 获取 `.tmp/dev/admin-dev.lock.json`，阻止 `admin-up` / `admin-stop` 破坏正在运行的开发环境。
+3. 停止 Docker 中的 frontend/API/worker，只启动并等待 MySQL、Redis healthy。
+4. 校验固定 Node/npm/Go，按需安装私有 Air；仅在 `package-lock.json` 哈希变化时执行 `npm ci`。
+5. 在同一终端启动并监管 Vite、API Air、Worker Air，日志分别带 `[WEB]`、`[API]`、`[WORKER]` 前缀。
+6. 等待 Vite、`/health`、`/ready` 和稳定 Worker；任一进程失败会清理其他宿主子进程。
+7. `Ctrl+C` 释放 `5173` / `8080` 和开发锁，但保留 MySQL、Redis 容器及数据卷。
+
+`admin-dev` 不会杀死未知端口进程；如果 `5173` 或 `8080` 已被其他程序占用，它会明确报错并停止。
+
+### 开发检查
 
 ```powershell
-# 推荐：完整后端验证（使用正常 Go module cache；PowerShell 7）
-cd E:/admin_go/admin_back_go
-pwsh -NoProfile -File scripts/verify-backend.ps1
-# Windows PowerShell 5.1 等价命令
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backend.ps1
-
-# clean-cache 验证（使用系统临时目录中的全新 Go module cache；PowerShell 7）
-pwsh -NoProfile -File scripts/verify-go-clean.ps1
-# Windows PowerShell 5.1 等价命令
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-go-clean.ps1
-
-# 排障时保留并输出 clean-cache scratch 路径（PowerShell 7）
-pwsh -NoProfile -File scripts/verify-go-clean.ps1 -KeepScratch
-# Windows PowerShell 5.1 等价命令
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-go-clean.ps1 -KeepScratch
-
-# 合同检查
-powershell -ExecutionPolicy Bypass -File ./scripts/check-contract.ps1
-
-# smoke 当前只自动导入仓库根 .env；如果不使用 .env，先在当前 shell 显式设置 MYSQL_DSN/REDIS_ADDR/APP_SECRET 等运行 env
-
-# 基础 smoke，会自行构建并启动临时 API/Worker；需要 18080 空闲，并传真实测试账号
-powershell -ExecutionPolicy Bypass -File ./scripts/basic-admin-smoke.ps1 -Account <account> -Password <password>
-
-# 完整 smoke，会自行构建并启动临时 API；需要 18080/18081 空闲
-powershell -ExecutionPolicy Bypass -File ./scripts/full-admin-smoke.ps1 -Account <account> -Password <password>
+pwsh -NoProfile -File scripts/tests/admin-dev.tests.ps1
+pwsh -NoProfile -File scripts/tests/docker-platform.tests.ps1
 ```
 
-两个验证入口都会运行全量测试、Auth/Payment/Task Queue/Realtime 的 race 测试、`go vet`、固定版本的 `staticcheck@v0.7.0` 和 `govulncheck@v1.6.0`，并分别构建 `admin-api` 与 `admin-worker`。推荐入口把二进制写入已忽略的 `.tmp/verify-bin`；clean-cache 入口把 module cache 和二进制放在系统临时目录的唯一 scratch 中，默认验证后删除，传入 `-KeepScratch` 时保留并输出路径。
+前端正式质量门禁仍在固定 Node 24 Docker 镜像中执行：
 
+```powershell
+pwsh -NoProfile -File E:\admin\admin_front_ts\scripts\docker-frontend-gate.ps1 -Command 'npm run verify:frontend'
+```
+
+完整平台验证必须切回 Docker：
+
+```powershell
+admin-up
+admin-status
+```
 ## 数据库和迁移
 
 数据库目录已经按用途隔离：

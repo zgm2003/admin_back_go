@@ -7,6 +7,7 @@ $commonPath = Join-Path $repoRoot 'scripts\dev\admin-dev-common.ps1'
 $apiAirPath = Join-Path $repoRoot '.air.api.toml'
 $workerAirPath = Join-Path $repoRoot '.air.worker.toml'
 $supervisorPath = Join-Path $repoRoot 'scripts\admin-dev.ps1'
+$shortcutInstallerPath = Join-Path $repoRoot 'scripts\install-admin-shortcuts.ps1'
 
 function Assert-ThrowsLike {
   param(
@@ -374,6 +375,57 @@ finally {
 }
 if (-not $timeoutDetected) {
   throw 'readiness timeout must fail closed and clean children'
+}
+
+if (-not (Test-Path -LiteralPath $shortcutInstallerPath -PathType Leaf)) {
+  throw 'install-admin-shortcuts.ps1 is missing'
+}
+$profileFixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('admin-profile-test-' + [guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($profileFixtureRoot) | Out-Null
+$profilePaths = @(
+  (Join-Path $profileFixtureRoot 'PowerShell\Microsoft.PowerShell_profile.ps1'),
+  (Join-Path $profileFixtureRoot 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1')
+)
+try {
+  foreach ($profilePath in $profilePaths) {
+    [IO.Directory]::CreateDirectory((Split-Path $profilePath -Parent)) | Out-Null
+    [IO.File]::WriteAllText($profilePath, "# unrelated profile content`n`$global:fixtureValue = 7`n", [Text.UTF8Encoding]::new($false))
+  }
+  & $shortcutInstallerPath -ProfilePaths $profilePaths
+  & $shortcutInstallerPath -ProfilePaths $profilePaths
+
+  foreach ($profilePath in $profilePaths) {
+    $profileContent = [IO.File]::ReadAllText($profilePath, [Text.Encoding]::UTF8)
+    if ([regex]::Matches($profileContent, '(?m)^# >>> admin platform shortcuts >>>$').Count -ne 1 -or
+        [regex]::Matches($profileContent, '(?m)^# <<< admin platform shortcuts <<<$').Count -ne 1) {
+      throw 'shortcut installation must leave exactly one managed block'
+    }
+    if (-not $profileContent.Contains('# unrelated profile content', [StringComparison]::Ordinal) -or
+        -not $profileContent.Contains('$global:fixtureValue = 7', [StringComparison]::Ordinal)) {
+      throw 'shortcut installation must preserve unrelated Profile content'
+    }
+    foreach ($shortcut in @('admin-dev', 'admin-up', 'admin-stop', 'admin-status')) {
+      if (-not $profileContent.Contains("function global:$shortcut", [StringComparison]::Ordinal)) {
+        throw "Profile shortcut is missing: $shortcut"
+      }
+    }
+    if ([regex]::Matches($profileContent, "(?m)& 'pwsh' -NoProfile").Count -ne 4 -or
+        -not $profileContent.Contains("-File 'E:\admin\admin_back_go\scripts\admin-dev.ps1'", [StringComparison]::Ordinal) -or
+        -not $profileContent.Contains("-File 'E:\admin\admin_back_go\scripts\docker-platform.ps1' -Action up", [StringComparison]::Ordinal) -or
+        -not $profileContent.Contains("-File 'E:\admin\admin_back_go\scripts\docker-platform.ps1' -Action stop", [StringComparison]::Ordinal) -or
+        -not $profileContent.Contains("-File 'E:\admin\admin_back_go\scripts\docker-platform.ps1' -Action status", [StringComparison]::Ordinal)) {
+      throw 'Profile shortcuts must use pwsh -NoProfile and repository-owned scripts'
+    }
+  }
+
+  $escapedProfile = $profilePaths[0].Replace("'", "''")
+  $discoveryOutput = @(& $pwsh -NoProfile -Command ". '$escapedProfile'; 'admin-dev','admin-up','admin-stop','admin-status' | ForEach-Object { (Get-Command `$_ -ErrorAction Stop).Name }")
+  if ($LASTEXITCODE -ne 0 -or @($discoveryOutput).Count -ne 4) {
+    throw 'fresh PowerShell 7 shell did not discover all Admin shortcuts'
+  }
+}
+finally {
+  Remove-Item -LiteralPath $profileFixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output 'admin-dev preparation assertions passed'
