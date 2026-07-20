@@ -199,6 +199,7 @@ func (r *SessionAdminGormRepository) Stats(ctx context.Context, now time.Time) (
 	err := r.db.WithContext(ctx).
 		Table("user_sessions AS us").
 		Where("us.is_del = ?", enum.CommonNo).
+		Where("us.platform IN ?", enum.RegisteredPlatforms()).
 		Where("us.revoked_at IS NULL").
 		Where("us.refresh_expires_at > ?", now).
 		Select("us.platform, COUNT(*) AS total").
@@ -278,6 +279,8 @@ func (r *SessionAdminGormRepository) baseSessionListQuery(ctx context.Context, q
 	}
 	if query.Platform != "" {
 		db = db.Where("us.platform = ?", query.Platform)
+	} else {
+		db = db.Where("us.platform IN ?", enum.RegisteredPlatforms())
 	}
 	if query.Status != "" {
 		switch query.Status {
@@ -361,11 +364,13 @@ func WithSessionAdminCacheRevoker(revoker SessionAdminCacheRevoker) SessionAdmin
 }
 
 func (s *SessionAdminService) PageInit(ctx context.Context) (*SessionPageInitResponse, *apperror.Error) {
+	platforms := enum.RegisteredPlatforms()
+	platformOptions := make([]SessionOption[string], 0, len(platforms))
+	for _, platform := range platforms {
+		platformOptions = append(platformOptions, SessionOption[string]{Label: platform, Value: platform})
+	}
 	return &SessionPageInitResponse{Dict: SessionPageInitDict{
-		PlatformArr: []SessionOption[string]{
-			{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
-			{Label: enum.PlatformApp, Value: enum.PlatformApp},
-		},
+		PlatformArr: platformOptions,
 		StatusArr: []SessionOption[string]{
 			{Label: "在线", Value: SessionStatusActive},
 			{Label: "已过期", Value: SessionStatusExpired},
@@ -406,13 +411,13 @@ func (s *SessionAdminService) Stats(ctx context.Context) (*SessionStatsResponse,
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "usersession.stats_failed", nil, "查询用户会话统计失败", err)
 	}
-	dist := map[string]int64{
-		enum.PlatformAdmin: 0,
-		enum.PlatformApp:   0,
+	dist := make(map[string]int64)
+	for _, platform := range enum.RegisteredPlatforms() {
+		dist[platform] = 0
 	}
 	var total int64
 	for _, row := range rows {
-		if row.Platform == "" {
+		if !enum.IsRegisteredPlatform(row.Platform) {
 			continue
 		}
 		dist[row.Platform] = row.Total
@@ -518,7 +523,7 @@ func (s *SessionAdminService) normalizeSessionListQuery(query SessionListQuery) 
 	query.Username = strings.TrimSpace(query.Username)
 	query.Platform = strings.TrimSpace(query.Platform)
 	query.Status = strings.TrimSpace(query.Status)
-	if query.Platform != "" && !enum.IsPlatform(query.Platform) {
+	if query.Platform != "" && !enum.IsRegisteredPlatform(query.Platform) {
 		return query, apperror.BadRequestKey("usersession.platform.invalid", nil, "无效的平台标识")
 	}
 	if query.Status != "" && !isSessionStatus(query.Status) {

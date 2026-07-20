@@ -27,5 +27,5 @@ func validateNotificationTaskStatus(fl playground.FieldLevel) bool {
 }
 
 func validateNotificationTaskPlatform(fl playground.FieldLevel) bool {
-	return enum.IsNotificationTaskPlatform(trimmedString(fl.Field()))
+	return enum.IsNotificationAudiencePlatform(trimmedString(fl.Field()))
 }

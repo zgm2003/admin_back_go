@@ -41,7 +41,7 @@ func WithPrincipalMutations(coordinator PrincipalMutationCoordinator) ServiceOpt
 
 func NewService(repository Repository, allowedPlatforms []string, options ...ServiceOption) *Service {
 	if len(allowedPlatforms) == 0 {
-		allowedPlatforms = []string{enum.PlatformAdmin, enum.PlatformApp, enum.PlatformCanvas}
+		allowedPlatforms = enum.RegisteredPlatforms()
 	}
 	allowed := make(map[string]struct{}, len(allowedPlatforms))
 	platforms := make([]string, 0, len(allowedPlatforms))
@@ -107,9 +107,16 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限字典失败", err)
 	}
 
+	registeredPermissions := make([]Permission, 0, len(allPermissions))
+	for _, row := range allPermissions {
+		if s.isAllowedPlatform(row.Platform) {
+			registeredPermissions = append(registeredPermissions, row)
+		}
+	}
+
 	return &InitResponse{
 		Dict: PermissionDict{
-			PermissionTree:        buildPermissionTreeNodes(allPermissions, s.platformLabels()),
+			PermissionTree:        buildPermissionTreeNodes(registeredPermissions, s.platformLabels()),
 			PermissionTypeArr:     permissionTypeOptions(),
 			PermissionPlatformArr: s.platformOptions(),
 		},
@@ -338,7 +345,7 @@ func (s *Service) mutatePrincipalUsers(ctx context.Context, userIDs []int64, mut
 	if s.principalMutations == nil {
 		return mutation(s.repository)
 	}
-	subjects := PrincipalSubjects(normalizeIDs(userIDs), "admin")
+	subjects := PrincipalSubjectsForPlatforms(normalizeIDs(userIDs), s.platforms)
 	if len(subjects) == 0 {
 		return mutation(s.repository)
 	}
@@ -391,14 +398,9 @@ func (s *Service) isAllowedPlatform(platform string) bool {
 }
 
 func (s *Service) platformLabels() map[string]string {
-	labels := map[string]string{
-		"admin": "admin",
-		"app":   "app",
-	}
+	labels := make(map[string]string, len(s.allowedPlatforms))
 	for platform := range s.allowedPlatforms {
-		if _, ok := labels[platform]; !ok {
-			labels[platform] = platform
-		}
+		labels[platform] = platform
 	}
 	return labels
 }
@@ -553,7 +555,7 @@ func (s *Service) assertValidParentAssignment(ctx context.Context, permissionTyp
 	}
 
 	if parentID == RootParentID {
-		if permissionType == TypeButton && platform == "admin" {
+		if permissionType == TypeButton {
 			return apperror.BadRequest("按钮类型的父节点只能是页面")
 		}
 		return nil

@@ -17,6 +17,7 @@ import (
 	platformadmin "admin_back_go/internal/platform/admin"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 	projecti18n "admin_back_go/internal/shared/i18n"
 	"admin_back_go/internal/shared/validate"
 	"admin_back_go/internal/telemetry"
@@ -61,6 +62,7 @@ func NewRouter(deps Dependencies) (*gin.Engine, error) {
 	router.Use(projecti18n.Localize())
 	router.Use(middleware.AuthToken(middleware.AuthTokenConfig{
 		Authenticator: core.Authenticator,
+		Platform:      enum.PlatformAdmin,
 		SkipPaths:     core.RouteRegistry.PublicPaths(),
 		BrowserGrants: middleware.BrowserGrantAuthConfig{
 			RealtimePath:              realtimeadmin.WSPath,

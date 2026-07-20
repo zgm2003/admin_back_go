@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 const (
@@ -45,7 +46,7 @@ func WithPrincipalMutations(coordinator permission.PrincipalMutationCoordinator)
 
 func NewService(repository Repository, permissionDictionary PermissionDictionary, cacheInvalidator CacheInvalidator, platforms []string, options ...Option) *Service {
 	if len(platforms) == 0 {
-		platforms = []string{"admin", "app"}
+		platforms = enum.RegisteredPlatforms()
 	}
 	service := &Service{
 		repository:           repository,
@@ -107,6 +108,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
+	activePermissions = permissionsForPlatforms(activePermissions, s.platforms)
 
 	list := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
@@ -243,7 +245,7 @@ func (s *Service) mutateRoleUsers(ctx context.Context, roleIDs []int64, mutation
 	if err != nil {
 		return err
 	}
-	subjects := permission.PrincipalSubjects(normalizeIDs(userIDs), "admin")
+	subjects := permission.PrincipalSubjectsForPlatforms(normalizeIDs(userIDs), s.platforms)
 	if len(subjects) == 0 {
 		return s.repository.WithTx(ctx, mutation)
 	}
@@ -346,6 +348,7 @@ func (s *Service) normalizeMutation(ctx context.Context, input MutationInput) (M
 	if err != nil {
 		return input, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询权限失败", err)
 	}
+	activePermissions = permissionsForPlatforms(activePermissions, s.platforms)
 	input.PermissionIDs = normalizeAssignablePermissionIDs(input.PermissionIDs, activePermissions)
 	return input, nil
 }
@@ -451,6 +454,20 @@ func normalizePlatforms(platforms []string) []string {
 		result = append(result, platform)
 	}
 	sort.Strings(result)
+	return result
+}
+
+func permissionsForPlatforms(permissions []permission.Permission, platforms []string) []permission.Permission {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range normalizePlatforms(platforms) {
+		allowed[platform] = struct{}{}
+	}
+	result := make([]permission.Permission, 0, len(permissions))
+	for _, row := range permissions {
+		if _, ok := allowed[strings.TrimSpace(row.Platform)]; ok {
+			result = append(result, row)
+		}
+	}
 	return result
 }
 

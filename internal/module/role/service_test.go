@@ -10,12 +10,20 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakePermissionDict struct {
 	called bool
 	result *permission.InitResponse
 	err    *apperror.Error
+}
+
+func TestServiceDefaultPlatformsUseRegisteredAdapters(t *testing.T) {
+	service := NewService(&fakeRepository{}, &fakePermissionDict{}, nil, nil)
+	if !reflect.DeepEqual(service.platforms, []string{enum.PlatformAdmin}) {
+		t.Fatalf("default role platforms mismatch: %#v", service.platforms)
+	}
 }
 
 func (f *fakePermissionDict) PageInit(ctx context.Context) (*permission.InitResponse, *apperror.Error) {
@@ -244,9 +252,9 @@ func TestServiceListNormalizesRolePermissionIDsWithPageParents(t *testing.T) {
 		roles:               []Role{{ID: 7, Name: "运营", IsDefault: permission.CommonNo, CreatedAt: now, UpdatedAt: now}},
 		permissionIDsByRole: map[int64][]int64{7: {1, 2, 3, 999}},
 		permissions: []permission.Permission{
-			{ID: 1, Type: permission.TypeDir, ParentID: permission.RootParentID, Status: permission.StatusActive, IsDel: permission.CommonNo},
-			{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
-			{ID: 3, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 1, Platform: enum.PlatformAdmin, Type: permission.TypeDir, ParentID: permission.RootParentID, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 3, Platform: enum.PlatformAdmin, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
 		},
 	}
 	svc := NewService(repo, &fakePermissionDict{}, nil, nil)
@@ -261,6 +269,25 @@ func TestServiceListNormalizesRolePermissionIDsWithPageParents(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.List[0].PermissionIDs, []int64{2, 3}) {
 		t.Fatalf("expected page parent + button only, got %#v", got.List[0].PermissionIDs)
+	}
+}
+
+func TestServiceListExcludesPermissionsOutsideServicePlatforms(t *testing.T) {
+	repo := &fakeRepository{
+		roles:               []Role{{ID: 7, Name: "operator"}},
+		permissionIDsByRole: map[int64][]int64{7: {2, 3}},
+		permissions: []permission.Permission{
+			{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 3, Platform: "partner_portal", Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
+		},
+	}
+
+	got, appErr := NewService(repo, &fakePermissionDict{}, nil, []string{enum.PlatformAdmin}).List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr != nil {
+		t.Fatalf("List() error = %v", appErr)
+	}
+	if len(got.List) != 1 || !reflect.DeepEqual(got.List[0].PermissionIDs, []int64{2}) {
+		t.Fatalf("unregistered permission leaked into role list: %#v", got.List)
 	}
 }
 
@@ -304,8 +331,8 @@ func TestServiceCreateSyncsNormalizedPermissionsInTransaction(t *testing.T) {
 	repo := &fakeRepository{
 		createdRoleID: 22,
 		permissions: []permission.Permission{
-			{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
-			{ID: 3, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 3, Platform: enum.PlatformAdmin, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
 		},
 	}
 	svc := NewService(repo, &fakePermissionDict{}, nil, nil)
@@ -330,7 +357,7 @@ func TestServiceCreateRestoresSoftDeletedRoleName(t *testing.T) {
 	repo := &fakeRepository{
 		deletedRoleByName: &Role{ID: 66, Name: "ces", IsDefault: permission.CommonYes},
 		permissions: []permission.Permission{
-			{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
+			{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
 		},
 	}
 	svc := NewService(repo, &fakePermissionDict{}, nil, nil)
@@ -354,7 +381,7 @@ func TestServiceCreateRestoresSoftDeletedRoleName(t *testing.T) {
 func TestServiceUpdateInvalidatesBoundUserRouteAccessGrantCaches(t *testing.T) {
 	repo := &fakeRepository{
 		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "客服", IsDefault: permission.CommonNo}},
-		permissions:      []permission.Permission{{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
+		permissions:      []permission.Permission{{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
 		userIDsByRoleIDs: []int64{101, 102},
 	}
 	cache := &fakeCacheInvalidator{}
@@ -376,23 +403,28 @@ func TestServiceUpdateInvalidatesBoundUserRouteAccessGrantCaches(t *testing.T) {
 	}
 }
 
-func TestPrincipalRoleUpdateBumpsEveryBoundUserInTransaction(t *testing.T) {
+func TestPrincipalRoleUpdateBumpsEveryBoundUserAcrossServicePlatformsInTransaction(t *testing.T) {
 	repo := &fakeRepository{
 		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "support", IsDefault: permission.CommonNo}},
-		permissions:      []permission.Permission{{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
+		permissions:      []permission.Permission{{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
 		userIDsByRoleIDs: []int64{101, 102},
 	}
 	coordinator := &fakePrincipalMutationCoordinator{}
-	svc := NewService(repo, &fakePermissionDict{}, nil, []string{"admin"}, WithPrincipalMutations(coordinator))
+	svc := NewService(repo, &fakePermissionDict{}, nil, []string{"admin", "partner_portal"}, WithPrincipalMutations(coordinator))
 
 	if appErr := svc.Update(context.Background(), 9, MutationInput{Name: "support lead", PermissionIDs: []int64{2}}); appErr != nil {
 		t.Fatalf("Update() error = %v", appErr)
 	}
-	want := []permission.PrincipalSubject{{UserID: 101, Platform: "admin"}, {UserID: 102, Platform: "admin"}}
+	want := []permission.PrincipalSubject{
+		{UserID: 101, Platform: "admin"},
+		{UserID: 102, Platform: "admin"},
+		{UserID: 101, Platform: "partner_portal"},
+		{UserID: 102, Platform: "partner_portal"},
+	}
 	if !reflect.DeepEqual(coordinator.subjects, want) || !coordinator.mutationCalled {
 		t.Fatalf("principal mutation = subjects:%#v called:%v", coordinator.subjects, coordinator.mutationCalled)
 	}
-	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, want) || len(coordinator.next) != 2 {
+	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, want) || len(coordinator.next) != 4 {
 		t.Fatalf("principal versions were not bumped in role transaction: repo=%#v next=%#v", repo.principalSubjects, coordinator.next)
 	}
 }
@@ -400,7 +432,7 @@ func TestPrincipalRoleUpdateBumpsEveryBoundUserInTransaction(t *testing.T) {
 func TestPrincipalRoleUpdateDoesNotTouchSQLWhenGateFails(t *testing.T) {
 	repo := &fakeRepository{
 		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "support"}},
-		permissions:      []permission.Permission{{ID: 2, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
+		permissions:      []permission.Permission{{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
 		userIDsByRoleIDs: []int64{101},
 	}
 	coordinator := &fakePrincipalMutationCoordinator{err: errors.New("redis down")}

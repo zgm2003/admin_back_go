@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 const defaultPrincipalSnapshotTTL = 30 * time.Minute
@@ -52,6 +53,9 @@ func (s *PrincipalService) Authorize(ctx context.Context, userID int64, platform
 	code = strings.TrimSpace(code)
 	if userID <= 0 {
 		return apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+	}
+	if !enum.IsRegisteredPlatform(platform) {
+		return apperror.ForbiddenKey("permission.platform_invalid", nil, "无效的平台标识")
 	}
 	if platform == "" || code == "" {
 		return apperror.ForbiddenKey("permission.code_missing", nil, "权限标识未配置")
@@ -115,6 +119,11 @@ func (s *PrincipalService) Mutate(ctx context.Context, subjects []PrincipalSubje
 	if mutation == nil {
 		return errors.New("principal mutation callback is required")
 	}
+	for _, subject := range subjects {
+		if subject.UserID <= 0 || !enum.IsRegisteredPlatform(strings.TrimSpace(subject.Platform)) {
+			return fmt.Errorf("invalid principal subject user_id=%d platform=%q", subject.UserID, subject.Platform)
+		}
+	}
 	subjects = normalizePrincipalSubjects(subjects)
 	if len(subjects) == 0 {
 		_, err := mutation()
@@ -177,9 +186,15 @@ func (s *PrincipalService) Reconcile(ctx context.Context) error {
 }
 
 func PrincipalSubjects(userIDs []int64, platform string) []PrincipalSubject {
-	subjects := make([]PrincipalSubject, 0, len(userIDs))
-	for _, userID := range userIDs {
-		subjects = append(subjects, PrincipalSubject{UserID: userID, Platform: platform})
+	return PrincipalSubjectsForPlatforms(userIDs, []string{platform})
+}
+
+func PrincipalSubjectsForPlatforms(userIDs []int64, platforms []string) []PrincipalSubject {
+	subjects := make([]PrincipalSubject, 0, len(userIDs)*len(platforms))
+	for _, platform := range platforms {
+		for _, userID := range userIDs {
+			subjects = append(subjects, PrincipalSubject{UserID: userID, Platform: platform})
+		}
 	}
 	return normalizePrincipalSubjects(subjects)
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakeManagementRepository struct {
@@ -201,8 +203,11 @@ func TestServiceInitReturnsTypedDictWithoutFallbackFields(t *testing.T) {
 	}
 }
 
-func TestServiceInitDefaultPlatformsIncludeCanvas(t *testing.T) {
-	repo := &fakeManagementRepository{}
+func TestServiceInitDefaultPlatformsUseRegisteredAdapters(t *testing.T) {
+	repo := &fakeManagementRepository{perms: []Permission{
+		{ID: 1, Name: "Admin", ParentID: RootParentID, Platform: enum.PlatformAdmin, Type: TypeDir},
+		{ID: 2, Name: "Retired App", ParentID: RootParentID, Platform: enum.PlatformApp, Type: TypeDir},
+	}}
 	svc := NewService(repo, nil)
 
 	got, appErr := svc.PageInit(context.Background())
@@ -214,9 +219,12 @@ func TestServiceInitDefaultPlatformsIncludeCanvas(t *testing.T) {
 	for _, item := range got.Dict.PermissionPlatformArr {
 		gotPlatforms = append(gotPlatforms, item.Value)
 	}
-	want := []string{"admin", "app", "canvas"}
+	want := []string{enum.PlatformAdmin}
 	if !reflect.DeepEqual(gotPlatforms, want) {
 		t.Fatalf("default permission platforms mismatch\nwant=%#v\n got=%#v", want, gotPlatforms)
+	}
+	if len(got.Dict.PermissionTree) != 1 || got.Dict.PermissionTree[0].Platform != enum.PlatformAdmin {
+		t.Fatalf("permission tree leaked an unregistered platform: %#v", got.Dict.PermissionTree)
 	}
 }
 
@@ -391,7 +399,7 @@ func TestServiceUpdateInvalidatesUsersGrantedChangedPermissionSubtree(t *testing
 	}
 }
 
-func TestPrincipalPermissionUpdateBumpsAffectedUsersInTransaction(t *testing.T) {
+func TestPrincipalPermissionUpdateBumpsAffectedUsersForEveryServicePlatformInTransaction(t *testing.T) {
 	repo := &fakeManagementRepository{
 		perms: []Permission{
 			{ID: 1, Name: "system", ParentID: RootParentID, Platform: "admin", Type: TypeDir},
@@ -402,7 +410,7 @@ func TestPrincipalPermissionUpdateBumpsAffectedUsersInTransaction(t *testing.T) 
 		userIDsByRoleIDs:       []int64{101, 102},
 	}
 	coordinator := &fakePermissionPrincipalCoordinator{}
-	svc := NewService(repo, []string{"admin"}, WithPrincipalMutations(coordinator))
+	svc := NewService(repo, []string{"admin", "partner_portal"}, WithPrincipalMutations(coordinator))
 
 	appErr := svc.Update(context.Background(), 2, PermissionMutationInput{
 		Platform: "admin", Type: TypePage, Name: "user management", ParentID: 1,
@@ -411,12 +419,39 @@ func TestPrincipalPermissionUpdateBumpsAffectedUsersInTransaction(t *testing.T) 
 	if appErr != nil {
 		t.Fatalf("Update() error = %v", appErr)
 	}
-	want := []PrincipalSubject{{UserID: 101, Platform: "admin"}, {UserID: 102, Platform: "admin"}}
+	want := []PrincipalSubject{
+		{UserID: 101, Platform: "admin"},
+		{UserID: 102, Platform: "admin"},
+		{UserID: 101, Platform: "partner_portal"},
+		{UserID: 102, Platform: "partner_portal"},
+	}
 	if !reflect.DeepEqual(coordinator.subjects, want) || !coordinator.mutationCalled {
 		t.Fatalf("principal mutation = subjects:%#v called:%v", coordinator.subjects, coordinator.mutationCalled)
 	}
-	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, want) || len(coordinator.next) != 2 {
+	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, want) || len(coordinator.next) != 4 {
 		t.Fatalf("principal versions were not bumped in permission transaction: repo=%#v next=%#v", repo.principalSubjects, coordinator.next)
+	}
+}
+
+func TestPermissionCreateRejectsRootButtonForEveryPlatform(t *testing.T) {
+	repo := &fakeManagementRepository{}
+	svc := NewService(repo, []string{"admin", "partner_portal"})
+
+	for _, platform := range []string{"admin", "partner_portal"} {
+		_, appErr := svc.Create(context.Background(), PermissionMutationInput{
+			Platform: platform,
+			Type:     TypeButton,
+			Name:     "root button",
+			ParentID: RootParentID,
+			Code:     platform + "_root_button",
+			Sort:     1,
+		})
+		if appErr == nil {
+			t.Fatalf("platform %q allowed a root button", platform)
+		}
+	}
+	if repo.createRow.Name != "" {
+		t.Fatalf("invalid root button reached repository: %#v", repo.createRow)
 	}
 }
 

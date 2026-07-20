@@ -150,6 +150,8 @@ func (r *LoginLogGormRepository) List(ctx context.Context, query LoginLogListQue
 	}
 	if query.Platform != "" {
 		db = db.Where("l.platform = ?", query.Platform)
+	} else {
+		db = db.Where("l.platform IN ?", enum.RegisteredPlatforms())
 	}
 	if query.IsSuccess != nil {
 		db = db.Where("l.is_success = ?", *query.IsSuccess)
@@ -247,7 +249,7 @@ func normalizeLoginLogQuery(query LoginLogListQuery) (LoginLogListQuery, *apperr
 	if query.LoginType != "" && !enum.IsLoginType(query.LoginType) {
 		return query, apperror.BadRequestKey("userloginlog.login_type.invalid", nil, "无效的登录类型")
 	}
-	if query.Platform != "" && !enum.IsPlatform(query.Platform) {
+	if query.Platform != "" && !enum.IsRegisteredPlatform(query.Platform) {
 		return query, apperror.BadRequestKey("userloginlog.platform.invalid", nil, "无效的平台标识")
 	}
 	if query.IsSuccess != nil && !enum.IsCommonYesNo(*query.IsSuccess) {

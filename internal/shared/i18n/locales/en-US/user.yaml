@@ -1,5 +1,6 @@
 user.service_missing: User service is not configured
 user.current_user_missing: Current user data was not returned
+user.platform.invalid: Invalid platform identifier
 app.profile.request.invalid: Invalid profile request
 app.profile.result_missing: Profile data was not returned
 profile.service_missing: Profile service is not configured

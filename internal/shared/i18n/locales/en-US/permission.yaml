@@ -1,6 +1,7 @@
 permission.checker_missing: Permission checker is not configured
 permission.api.denied: API permission denied
 permission.code_missing: Permission code is not configured
+permission.platform_invalid: Invalid platform identifier
 permission.principal_cache_unavailable: Authorization principal cache is unavailable
 permission.principal_invalidating: Authorization is being updated
 permission.principal_repository_failed: Failed to load authorization principal

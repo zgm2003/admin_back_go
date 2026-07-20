@@ -44,26 +44,34 @@ func PermissionTypeOptions() []Option[int] {
 }
 
 func PlatformOptions() []Option[string] {
-	return []Option[string]{
-		{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
-		{Label: enum.PlatformApp, Value: enum.PlatformApp},
+	values := enum.RegisteredPlatforms()
+	options := make([]Option[string], 0, len(values))
+	for _, value := range values {
+		options = append(options, Option[string]{Label: value, Value: value})
 	}
+	return options
 }
 
 func AIRunPlatformOptions() []Option[string] {
-	options := make([]Option[string], 0, len(enum.Platforms))
-	for _, value := range enum.Platforms {
+	values := enum.RegisteredPlatforms()
+	options := make([]Option[string], 0, len(values))
+	for _, value := range values {
 		options = append(options, Option[string]{Label: value, Value: value})
 	}
 	return options
 }
 
 func NotificationTaskPlatformOptions() []Option[string] {
-	return []Option[string]{
-		{Label: "全平台", Value: enum.PlatformAll},
-		{Label: enum.PlatformAdmin, Value: enum.PlatformAdmin},
-		{Label: enum.PlatformApp, Value: enum.PlatformApp},
+	values := enum.NotificationAudiencePlatforms()
+	options := make([]Option[string], 0, len(values))
+	for _, value := range values {
+		label := value
+		if value == enum.PlatformAll {
+			label = "全平台"
+		}
+		options = append(options, Option[string]{Label: label, Value: value})
 	}
+	return options
 }
 
 func SexOptions() []Option[int] {

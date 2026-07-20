@@ -141,8 +141,8 @@ func normalizeIdentity(identity Identity) (Identity, *apperror.Error) {
 		return identity, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	identity.Platform = strings.TrimSpace(identity.Platform)
-	if identity.Platform == "" {
-		identity.Platform = enum.PlatformAdmin
+	if !enum.IsRegisteredPlatform(identity.Platform) {
+		return identity, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	return identity, nil
 }

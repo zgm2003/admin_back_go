@@ -411,6 +411,10 @@ Expected: no retired route/import remains and retained capability tests still pa
 - Modify: `internal/module/permission/service.go`
 - Modify: `internal/module/permission/service_test.go`
 - Modify: `internal/module/permission/management_service_test.go`
+- Modify: `internal/module/permission/principal_service.go`
+- Modify: `internal/module/permission/principal_repository.go`
+- Modify: `internal/module/permission/principal_integration_test.go`
+- Create: `internal/module/permission/principal_repository_unit_test.go`
 - Modify: `internal/module/permission/transport/admin/request.go`
 - Modify: `internal/module/permission/transport/admin/handler.go`
 - Modify: `internal/module/permission/transport/admin/handler_test.go`
@@ -425,6 +429,8 @@ Expected: no retired route/import remains and retained capability tests still pa
 - Modify: `internal/module/notification/task/repository.go`
 - Modify: `internal/module/notification/transport/admin/task_request.go`
 - Modify: `internal/module/notification/transport/admin/task_handler.go`
+- Modify: `internal/module/notification/service.go`
+- Modify: `internal/module/notification/service_test.go`
 - Modify: `internal/module/auth/loginlog.go`
 - Modify: `internal/module/auth/loginlog_test.go`
 - Modify: `internal/module/auth/session_admin.go`
@@ -438,19 +444,35 @@ Expected: no retired route/import remains and retained capability tests still pa
 - Modify: `internal/module/ai/run/recorder_test.go`
 - Modify: `internal/module/ai/run/service_test.go`
 - Modify: `internal/module/export/notifier.go`
+- Modify: `internal/module/export/notifier_test.go`
+- Modify: `internal/module/export/jobs.go`
+- Modify: `internal/module/export/jobs_test.go`
+- Modify: `internal/module/export/run_test.go`
+- Modify: `internal/module/export/service.go`
+- Modify: `internal/module/export/service_test.go`
 - Modify: `internal/middleware/auth_token.go`
 - Modify: `internal/middleware/auth_token_test.go`
 - Modify: `internal/server/routes_admin_commerce_rbac.go`
 - Modify: `internal/server/routes_admin_comms.go`
 - Modify: `internal/server/routes_admin_user.go`
+- Modify: `internal/server/router.go`
 - Modify: `internal/server/router_test.go`
 - Modify: `internal/module/role/transport/admin/handler_test.go`
 - Create: `internal/architecture/platform_kernel_test.go`
+- Create: `internal/shared/enum/platform_test.go`
+- Modify: `internal/shared/i18n/locales/en-US/auth.yaml`
+- Modify: `internal/shared/i18n/locales/en-US/exporttask.yaml`
+- Modify: `internal/shared/i18n/locales/en-US/permission.yaml`
+- Modify: `internal/shared/i18n/locales/en-US/user.yaml`
+- Modify: `internal/shared/i18n/locales/zh-CN/auth.yaml`
+- Modify: `internal/shared/i18n/locales/zh-CN/exporttask.yaml`
+- Modify: `internal/shared/i18n/locales/zh-CN/permission.yaml`
+- Modify: `internal/shared/i18n/locales/zh-CN/user.yaml`
 - Modify: `internal/server/testdata/admin_route_policy_golden.json`
 - Modify: `internal/server/testdata/admin_routes_golden.txt`
 - Modify: `scripts/full-admin-smoke.ps1`
 
-- [ ] **Step 1: Write failing registry and kernel-preservation tests**
+- [x] **Step 1: Write failing registry and kernel-preservation tests**
 
 Treat the enum registry as the compile-time adapter registry, not as the
 database configuration catalog. Replace exported mutable slices with copied
@@ -490,7 +512,7 @@ methods, permission/role platform fields, session/login-log filters, or
 notification audience fields disappear. They also fail if App/Canvas is
 registered or if an Admin handler trusts a spoofed platform header.
 
-- [ ] **Step 2: Restore the configuration catalog and keep runtime fail-closed**
+- [x] **Step 2: Restore the configuration catalog and keep runtime fail-closed**
 
 Preserve these exact management operations:
 
@@ -515,7 +537,7 @@ Admin authentication and authorization transports inject
 an Admin credential endpoint cannot change that value. No generic fallback
 turns an unknown platform into Admin.
 
-- [ ] **Step 3: Preserve platform isolation across core modules**
+- [x] **Step 3: Preserve platform isolation across core modules**
 
 Permission list/create/update retains its explicit management `platform`
 field and validates it against `RegisteredPlatforms()`. Role initialization
@@ -542,13 +564,14 @@ User/export/AI provenance fields remain explicit. Current Admin transports
 write Admin; future adapters can supply only their compiled registered code.
 Capability modules contain no App/Canvas switch.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
-go test -p 1 ./internal/shared/dict ./internal/shared/validate ./internal/module/auth_platform ./internal/module/auth_platform/transport/admin ./internal/module/permission ./internal/module/permission/transport/admin ./internal/module/role ./internal/module/role/transport/admin ./internal/module/notification/task ./internal/module/notification/transport/admin ./internal/module/auth ./internal/module/auth/transport/admin ./internal/module/user ./internal/server -count=1
+go test -p 1 ./internal/shared/enum ./internal/shared/dict ./internal/shared/validate ./internal/shared/i18n ./internal/middleware ./internal/module/auth_platform ./internal/module/auth_platform/transport/admin ./internal/module/permission ./internal/module/permission/transport/admin ./internal/module/role ./internal/module/role/transport/admin ./internal/module/notification ./internal/module/notification/task ./internal/module/notification/transport/admin ./internal/module/auth ./internal/module/auth/transport/admin ./internal/module/export ./internal/module/user ./internal/server -count=1
 go test -p 1 ./internal/platform/admin ./internal/runtime ./internal/architecture -run 'TestAdminOnly|TestPlatformKernel' -count=1
 go test -p 1 ./internal/module/... -count=1
 git add -- internal/shared/enum/platform.go internal/shared/dict/dict.go internal/shared/dict/options_test.go internal/shared/validate/platform.go internal/shared/validate/validate_test.go internal/module/auth_platform/dto.go internal/module/auth_platform/errors.go internal/module/auth_platform/repository.go internal/module/auth_platform/service.go internal/module/auth_platform/service_test.go internal/module/auth_platform/management_service_test.go internal/module/auth_platform/management_i18n_test.go internal/module/auth_platform/transport/admin/request.go internal/module/auth_platform/transport/admin/handler.go internal/module/auth_platform/transport/admin/handler_test.go internal/module/auth_platform/transport/admin/handler_i18n_test.go internal/module/auth_platform/transport/admin/route.go internal/module/permission/dto.go internal/module/permission/service.go internal/module/permission/service_test.go internal/module/permission/management_service_test.go internal/module/permission/transport/admin/request.go internal/module/permission/transport/admin/handler.go internal/module/permission/transport/admin/handler_test.go internal/module/role/dto.go internal/module/role/service.go internal/module/role/service_test.go internal/module/role/transport/admin/handler_test.go internal/module/notification/task/dto.go internal/module/notification/task/repository.go internal/module/notification/task/service.go internal/module/notification/task/service_test.go internal/module/notification/task/i18n_test.go internal/module/notification/task/jobs_test.go internal/module/notification/transport/admin/task_request.go internal/module/notification/transport/admin/task_handler.go internal/module/auth/loginlog.go internal/module/auth/loginlog_test.go internal/module/auth/session_admin.go internal/module/auth/session_test.go internal/module/auth/transport/admin/request.go internal/module/auth/transport/admin/handler.go internal/module/auth/transport/admin/handler_test.go internal/module/user/service.go internal/module/user/service_test.go internal/module/ai/run/recorder.go internal/module/ai/run/recorder_test.go internal/module/ai/run/service_test.go internal/module/export/notifier.go internal/middleware/auth_token.go internal/middleware/auth_token_test.go internal/server/router_test.go internal/server/routes_admin_commerce_rbac.go internal/server/routes_admin_comms.go internal/server/routes_admin_user.go internal/architecture/platform_kernel_test.go internal/server/testdata/admin_route_policy_golden.json internal/server/testdata/admin_routes_golden.txt scripts/full-admin-smoke.ps1
+git add -- docs/superpowers/plans/2026-07-15-admin-only-release-plan.md internal/shared/enum/platform_test.go internal/shared/i18n/locales/en-US/auth.yaml internal/shared/i18n/locales/en-US/exporttask.yaml internal/shared/i18n/locales/en-US/permission.yaml internal/shared/i18n/locales/en-US/user.yaml internal/shared/i18n/locales/zh-CN/auth.yaml internal/shared/i18n/locales/zh-CN/exporttask.yaml internal/shared/i18n/locales/zh-CN/permission.yaml internal/shared/i18n/locales/zh-CN/user.yaml internal/module/permission/principal_service.go internal/module/permission/principal_repository.go internal/module/permission/principal_integration_test.go internal/module/permission/principal_repository_unit_test.go internal/module/notification/service.go internal/module/notification/service_test.go internal/module/export/jobs.go internal/module/export/jobs_test.go internal/module/export/notifier_test.go internal/module/export/run_test.go internal/module/export/service.go internal/module/export/service_test.go internal/server/router.go
 git diff --cached --check
 git commit -m "refactor(platform): preserve the extensible platform kernel"
 ```

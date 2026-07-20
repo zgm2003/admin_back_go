@@ -131,6 +131,20 @@ func TestUnreadCountRequiresIdentityAndScopesRepository(t *testing.T) {
 	}
 }
 
+func TestNotificationIdentityRejectsMissingOrUnregisteredPlatform(t *testing.T) {
+	repo := &fakeRepository{unreadCount: 5}
+	service := NewService(repo)
+	for _, platform := range []string{"", "partner_portal"} {
+		_, appErr := service.UnreadCount(context.Background(), Identity{UserID: 12, Platform: platform})
+		if appErr == nil || appErr.MessageID != "auth.token.invalid_or_expired" {
+			t.Fatalf("platform %q must fail closed, got %#v", platform, appErr)
+		}
+	}
+	if repo.gotUnreadUserID != 0 || repo.gotUnreadPlatform != "" {
+		t.Fatalf("invalid identity reached repository: user=%d platform=%q", repo.gotUnreadUserID, repo.gotUnreadPlatform)
+	}
+}
+
 func TestMarkReadNormalizesIDsAndAllowsAllWhenEmpty(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo)

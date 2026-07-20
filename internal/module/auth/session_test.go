@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/accesstoken"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 var _ Lifecycle = (*SessionLifecycle)(nil)
@@ -1253,6 +1254,16 @@ type fakeSessionAdminCacheRevoker struct {
 	err   error
 }
 
+func TestSessionAdmin_PageInitUsesRegisteredPlatformOptions(t *testing.T) {
+	got, appErr := NewSessionAdminService(&fakeSessionAdminRepository{}).PageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("page init failed: %v", appErr)
+	}
+	if len(got.Dict.PlatformArr) != 1 || got.Dict.PlatformArr[0].Value != enum.PlatformAdmin {
+		t.Fatalf("session platform options must come from registered adapters: %#v", got.Dict.PlatformArr)
+	}
+}
+
 func (f *fakeSessionAdminCacheRevoker) RevokeCache(ctx context.Context, row Session) error {
 	f.calls++
 	f.rows = append(f.rows, row)
@@ -1343,10 +1354,11 @@ func TestSessionAdmin_ListWrapsSessionAdminRepositoryError(t *testing.T) {
 	}
 }
 
-func TestSessionAdmin_StatsAlwaysReturnsAdminAndAppKeys(t *testing.T) {
+func TestSessionAdmin_StatsIncludesRegisteredPlatformsOnly(t *testing.T) {
 	now := time.Date(2026, 5, 8, 10, 0, 0, 0, time.Local)
 	repo := &fakeSessionAdminRepository{statsRows: []SessionStatsRow{
 		{Platform: "admin", Total: 2},
+		{Platform: "partner_portal", Total: 7},
 	}}
 	service := NewSessionAdminService(repo, WithSessionAdminNow(func() time.Time { return now }))
 
@@ -1357,7 +1369,7 @@ func TestSessionAdmin_StatsAlwaysReturnsAdminAndAppKeys(t *testing.T) {
 	if got.TotalActive != 2 {
 		t.Fatalf("total_active mismatch: %d", got.TotalActive)
 	}
-	if got.PlatformDistribution["admin"] != 2 || got.PlatformDistribution["app"] != 0 {
+	if len(got.PlatformDistribution) != 1 || got.PlatformDistribution[enum.PlatformAdmin] != 2 {
 		t.Fatalf("platform_distribution mismatch: %#v", got.PlatformDistribution)
 	}
 }

@@ -105,8 +105,9 @@ func TestStatusCountReturnsFixedOrderAndScopesUser(t *testing.T) {
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{counts: map[int]int64{enum.ExportTaskStatusSuccess: 2}}
 	got, appErr := NewService(repo, WithNow(func() time.Time { return now })).StatusCount(context.Background(), StatusCountQuery{
-		UserID: 9,
-		Title:  " 用户 ",
+		UserID:   9,
+		Platform: enum.PlatformAdmin,
+		Title:    " 用户 ",
 	})
 	if appErr != nil {
 		t.Fatalf("StatusCount returned error: %v", appErr)
@@ -173,7 +174,7 @@ func TestCleanupExpiredRunsAsExplicitWorkerOperation(t *testing.T) {
 
 func TestDeleteNormalizesIDsAndScopesUser(t *testing.T) {
 	repo := &fakeRepository{}
-	appErr := NewService(repo).Delete(context.Background(), DeleteInput{UserID: 9, IDs: []int64{3, 2, 3, 0, -1}})
+	appErr := NewService(repo).Delete(context.Background(), DeleteInput{UserID: 9, Platform: enum.PlatformAdmin, IDs: []int64{3, 2, 3, 0, -1}})
 	if appErr != nil {
 		t.Fatalf("Delete returned error: %v", appErr)
 	}
@@ -185,7 +186,7 @@ func TestDeleteNormalizesIDsAndScopesUser(t *testing.T) {
 func TestCreatePendingCreatesSevenDayPendingTask(t *testing.T) {
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{createdID: 88}
-	got, err := NewService(repo, WithNow(func() time.Time { return now })).CreatePending(context.Background(), CreatePendingInput{UserID: 9, Title: "用户列表导出"})
+	got, err := NewService(repo, WithNow(func() time.Time { return now })).CreatePending(context.Background(), CreatePendingInput{UserID: 9, Platform: enum.PlatformAdmin, Title: "用户列表导出"})
 	if err != nil {
 		t.Fatalf("CreatePending returned error: %v", err)
 	}
@@ -212,20 +213,20 @@ func TestMarkFailedCapsMessageAtFiveHundredRunes(t *testing.T) {
 }
 
 func TestListRejectsInvalidStatus(t *testing.T) {
-	_, appErr := NewService(&fakeRepository{}).List(context.Background(), ListQuery{UserID: 9, CurrentPage: 1, PageSize: 20, Status: ptrInt(99)})
+	_, appErr := NewService(&fakeRepository{}).List(context.Background(), ListQuery{UserID: 9, Platform: enum.PlatformAdmin, CurrentPage: 1, PageSize: 20, Status: ptrInt(99)})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "exporttask.status.invalid" {
 		t.Fatalf("expected bad request for invalid status, got %#v", appErr)
 	}
 }
 
 func TestDeleteRejectsEmptyIDsWithKey(t *testing.T) {
-	appErr := NewService(&fakeRepository{}).Delete(context.Background(), DeleteInput{UserID: 9, IDs: []int64{0}})
+	appErr := NewService(&fakeRepository{}).Delete(context.Background(), DeleteInput{UserID: 9, Platform: enum.PlatformAdmin, IDs: []int64{0}})
 	if appErr == nil || appErr.MessageID != "exporttask.delete.empty" {
 		t.Fatalf("expected keyed empty delete error, got %#v", appErr)
 	}
 }
 
-func TestCreatePendingStoresKindPlatformAndDefaults(t *testing.T) {
+func TestCreatePendingStoresExplicitKindAndPlatform(t *testing.T) {
 	now := time.Date(2026, 5, 30, 9, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{createdID: 88}
 
@@ -245,13 +246,51 @@ func TestCreatePendingStoresKindPlatformAndDefaults(t *testing.T) {
 		t.Fatalf("expected kind/platform to be stored, got kind=%q platform=%q", repo.created.Kind, repo.created.Platform)
 	}
 
-	repo = &fakeRepository{createdID: 89}
-	_, err = NewService(repo, WithNow(func() time.Time { return now })).CreatePending(context.Background(), CreatePendingInput{UserID: 9, Title: "用户列表导出"})
-	if err != nil {
-		t.Fatalf("CreatePending with defaults returned error: %v", err)
-	}
-	if repo.created.Kind != KindUserList || repo.created.Platform != enum.PlatformAdmin {
-		t.Fatalf("expected default kind/platform, got kind=%q platform=%q", repo.created.Kind, repo.created.Platform)
+}
+
+func TestExportOperationsRejectMissingOrUnregisteredPlatformBeforeRepository(t *testing.T) {
+	for _, platform := range []string{"", "partner_portal"} {
+		t.Run("status-count/"+platform, func(t *testing.T) {
+			repo := &fakeRepository{}
+			_, appErr := NewService(repo).StatusCount(context.Background(), StatusCountQuery{UserID: 9, Platform: platform})
+			if appErr == nil || appErr.MessageID != "exporttask.platform.invalid" {
+				t.Fatalf("platform %q must fail closed, got %#v", platform, appErr)
+			}
+			if repo.gotCount.UserID != 0 {
+				t.Fatalf("invalid platform reached count repository: %#v", repo.gotCount)
+			}
+		})
+		t.Run("list/"+platform, func(t *testing.T) {
+			repo := &fakeRepository{}
+			_, appErr := NewService(repo).List(context.Background(), ListQuery{UserID: 9, Platform: platform, CurrentPage: 1, PageSize: 20})
+			if appErr == nil || appErr.MessageID != "exporttask.platform.invalid" {
+				t.Fatalf("platform %q must fail closed, got %#v", platform, appErr)
+			}
+			if repo.gotList.UserID != 0 {
+				t.Fatalf("invalid platform reached list repository: %#v", repo.gotList)
+			}
+		})
+		t.Run("delete/"+platform, func(t *testing.T) {
+			repo := &fakeRepository{}
+			appErr := NewService(repo).Delete(context.Background(), DeleteInput{UserID: 9, Platform: platform, IDs: []int64{1}})
+			if appErr == nil || appErr.MessageID != "exporttask.platform.invalid" {
+				t.Fatalf("platform %q must fail closed, got %#v", platform, appErr)
+			}
+			if repo.deletedUserID != 0 {
+				t.Fatalf("invalid platform reached delete repository: user=%d", repo.deletedUserID)
+			}
+		})
+		t.Run("create/"+platform, func(t *testing.T) {
+			repo := &fakeRepository{}
+			_, err := NewService(repo).CreatePending(context.Background(), CreatePendingInput{UserID: 9, Platform: platform, Kind: KindUserList, Title: "users"})
+			appErr, ok := err.(*apperror.Error)
+			if !ok || appErr.MessageID != "exporttask.platform.invalid" {
+				t.Fatalf("platform %q must fail closed, got %#v", platform, err)
+			}
+			if repo.created.UserID != 0 {
+				t.Fatalf("invalid platform reached create repository: %#v", repo.created)
+			}
+		})
 	}
 }
 

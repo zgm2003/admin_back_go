@@ -83,8 +83,8 @@ func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
 	if len(res.Dict.StatusArr) == 0 || res.Dict.AgentArr[0].Value != 3 || res.Dict.ProviderArr[0].Value != 2 {
 		t.Fatalf("unexpected init response: %#v", res)
 	}
-	if len(res.Dict.PlatformArr) == 0 || res.Dict.PlatformArr[len(res.Dict.PlatformArr)-1].Value != enum.PlatformCanvas {
-		t.Fatalf("AI run platform options must expose canvas runs: %#v", res.Dict.PlatformArr)
+	if len(res.Dict.PlatformArr) != 1 || res.Dict.PlatformArr[0].Value != enum.PlatformAdmin {
+		t.Fatalf("AI run platform options must expose registered adapters only: %#v", res.Dict.PlatformArr)
 	}
 	encoded, err := json.Marshal(res)
 	if err != nil {

@@ -28,12 +28,12 @@ func TestCoreDictOptionsComeFromEnums(t *testing.T) {
 	}
 
 	platforms := PlatformOptions()
-	if len(platforms) != 2 || platforms[0].Value != enum.PlatformAdmin || platforms[1].Value != enum.PlatformApp {
+	if len(platforms) != 1 || platforms[0].Value != enum.PlatformAdmin {
 		t.Fatalf("unexpected platform options: %#v", platforms)
 	}
 
 	taskPlatforms := NotificationTaskPlatformOptions()
-	if len(taskPlatforms) != 3 || taskPlatforms[0].Value != enum.PlatformAll || taskPlatforms[1].Value != enum.PlatformAdmin || taskPlatforms[2].Value != enum.PlatformApp {
+	if len(taskPlatforms) != 2 || taskPlatforms[0].Value != enum.PlatformAll || taskPlatforms[1].Value != enum.PlatformAdmin {
 		t.Fatalf("unexpected notification task platform options: %#v", taskPlatforms)
 	}
 

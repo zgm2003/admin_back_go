@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/middleware"
 	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 	projecti18n "admin_back_go/internal/shared/i18n"
 
 	"github.com/gin-gonic/gin"
@@ -187,7 +188,7 @@ func TestHandlerRefreshRequiresSecureCookie(t *testing.T) {
 	}
 }
 
-func TestHandlerLoginConfigUsesPlatformHeader(t *testing.T) {
+func TestHandlerLoginConfigUsesTrustedAdminPlatform(t *testing.T) {
 	service := &fakeSessionService{configResult: &authmodule.LoginConfigResponse{
 		LoginTypeArr:   []authmodule.LoginTypeOption{{Label: "密码登录", Value: "password"}},
 		CaptchaEnabled: true,
@@ -197,14 +198,14 @@ func TestHandlerLoginConfigUsesPlatformHeader(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/auth/login-config", nil)
-	request.Header.Set("platform", "admin")
+	request.Header.Set("platform", "partner_portal")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.configPlatform != "admin" {
-		t.Fatalf("expected platform header admin, got %q", service.configPlatform)
+	if service.configPlatform != enum.PlatformAdmin {
+		t.Fatalf("admin handler trusted client platform header: %q", service.configPlatform)
 	}
 	body := decodeAuthBody(t, recorder)
 	data := body["data"].(map[string]any)
@@ -280,7 +281,7 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"15671628271","login_type":"password","password":"123456"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://localhost:5173")
-	request.Header.Set("platform", "admin")
+	request.Header.Set("platform", "partner_portal")
 	request.Header.Set("device-id", "device-1")
 	request.Header.Set("User-Agent", "test-agent")
 	router.ServeHTTP(recorder, request)
@@ -293,7 +294,7 @@ func TestHandlerLoginReturnsTokenResult(t *testing.T) {
 		service.loginInput.Password != "123456" ||
 		service.loginInput.CaptchaID != "" ||
 		service.loginInput.CaptchaAnswer != nil ||
-		service.loginInput.Platform != "admin" ||
+		service.loginInput.Platform != enum.PlatformAdmin ||
 		service.loginInput.DeviceID != "device-1" ||
 		service.loginInput.UserAgent != "test-agent" {
 		t.Fatalf("unexpected login input: %#v", service.loginInput)

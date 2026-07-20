@@ -1,6 +1,7 @@
 permission.checker_missing: 权限检查未配置
 permission.api.denied: 无接口权限
 permission.code_missing: 权限标识未配置
+permission.platform_invalid: 无效的平台标识
 permission.principal_cache_unavailable: 权限主体缓存不可用
 permission.principal_invalidating: 权限正在更新
 permission.principal_repository_failed: 权限主体读取失败

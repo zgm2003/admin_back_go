@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/gin-gonic/gin"
 )
@@ -80,13 +81,13 @@ func TestDefaultAuthSkipPathsExcludeRetiredProductEndpoints(t *testing.T) {
 	}
 }
 
-func TestAuthTokenDoesNotInferProductPlatformFromPath(t *testing.T) {
+func TestAuthTokenRejectsMissingTrustedPlatformConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	var gotInput TokenInput
+	called := false
 	router := gin.New()
 	router.Use(AuthToken(AuthTokenConfig{
 		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
-			gotInput = input
+			called = true
 			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"}, nil
 		},
 	}))
@@ -99,11 +100,30 @@ func TestAuthTokenDoesNotInferProductPlatformFromPath(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer bearer-token")
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	assertJSONError(t, recorder, http.StatusInternalServerError, apperror.CodeInternal, "认证平台未配置")
+	if called {
+		t.Fatal("authenticator must not receive empty trusted provenance")
 	}
-	if gotInput.Platform != "" {
-		t.Fatalf("expected missing product provenance to remain empty, got %q", gotInput.Platform)
+}
+
+func TestAuthTokenRejectsUnregisteredTrustedPlatformConfiguration(t *testing.T) {
+	called := false
+	router := newAuthTokenTestRouter(AuthTokenConfig{
+		Platform: "partner_portal",
+		Authenticator: func(context.Context, TokenInput) (*AuthIdentity, *apperror.Error) {
+			called = true
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "partner_portal"}, nil
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	request.Header.Set("Authorization", "Bearer bearer-token")
+	router.ServeHTTP(recorder, request)
+
+	assertJSONError(t, recorder, http.StatusInternalServerError, apperror.CodeInternal, "认证平台未注册")
+	if called {
+		t.Fatal("authenticator must not receive unregistered provenance")
 	}
 }
 func TestAuthTokenRejectsMissingBearer(t *testing.T) {
@@ -141,12 +161,13 @@ func TestAuthTokenRejectsMissingAuthenticator(t *testing.T) {
 func TestAuthTokenStoresIdentityReturnedByAuthenticator(t *testing.T) {
 	var gotInput TokenInput
 	router := newAuthTokenTestRouter(AuthTokenConfig{
+		Platform: enum.PlatformAdmin,
 		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
 			gotInput = input
 			return &AuthIdentity{
 				UserID:    12,
 				SessionID: 34,
-				Platform:  "admin-from-session",
+				Platform:  enum.PlatformAdmin,
 			}, nil
 		},
 	})
@@ -154,7 +175,7 @@ func TestAuthTokenStoresIdentityReturnedByAuthenticator(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	request.Header.Set("Authorization", "Bearer valid-token")
-	request.Header.Set("platform", "admin")
+	request.Header.Set("platform", "partner_portal")
 	request.Header.Set("device-id", "device-1")
 	router.ServeHTTP(recorder, request)
 
@@ -164,15 +185,30 @@ func TestAuthTokenStoresIdentityReturnedByAuthenticator(t *testing.T) {
 	if gotInput.AccessToken != "valid-token" {
 		t.Fatalf("expected token valid-token, got %q", gotInput.AccessToken)
 	}
-	if gotInput.Platform != "admin" {
-		t.Fatalf("expected platform header to be passed to authenticator, got %q", gotInput.Platform)
+	if gotInput.Platform != enum.PlatformAdmin {
+		t.Fatalf("auth middleware trusted client platform header: %q", gotInput.Platform)
 	}
 	if gotInput.DeviceID != "device-1" {
 		t.Fatalf("expected device id device-1, got %q", gotInput.DeviceID)
 	}
-	if recorder.Body.String() != "12|34|admin-from-session" {
+	if recorder.Body.String() != "12|34|admin" {
 		t.Fatalf("expected identity from authenticator, got %q", recorder.Body.String())
 	}
+}
+
+func TestAuthTokenRejectsIdentityFromDifferentPlatform(t *testing.T) {
+	router := newAuthTokenTestRouter(AuthTokenConfig{
+		Platform: enum.PlatformAdmin,
+		Authenticator: func(context.Context, TokenInput) (*AuthIdentity, *apperror.Error) {
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "partner_portal"}, nil
+		},
+	})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	request.Header.Set("Authorization", "Bearer valid-token")
+	router.ServeHTTP(recorder, request)
+
+	assertJSONError(t, recorder, http.StatusUnauthorized, apperror.CodeUnauthorized, "Token平台与当前客户端不一致")
 }
 
 func TestAuthTokenConsumesRealtimeTicketInsteadOfBearerOrAccessCookie(t *testing.T) {
@@ -180,6 +216,7 @@ func TestAuthTokenConsumesRealtimeTicketInsteadOfBearerOrAccessCookie(t *testing
 	consumed := ""
 	router := gin.New()
 	router.Use(AuthToken(AuthTokenConfig{
+		Platform: enum.PlatformAdmin,
 		BrowserGrants: BrowserGrantAuthConfig{
 			RealtimePath: "/api/admin/v1/realtime/ws",
 			ConsumeRealtimeTicket: func(_ context.Context, credential string) (*AuthIdentity, *apperror.Error) {
@@ -212,6 +249,7 @@ func TestAuthTokenValidatesQueueMonitorGrantInsteadOfBearer(t *testing.T) {
 	validated := ""
 	router := gin.New()
 	router.Use(AuthToken(AuthTokenConfig{
+		Platform: enum.PlatformAdmin,
 		BrowserGrants: BrowserGrantAuthConfig{
 			QueueMonitorPathPrefixes: []string{"/api/admin/v1/queue-monitor-ui"},
 			QueueMonitorCookieName:   "__Secure-admin_queue_monitor",
@@ -237,6 +275,26 @@ func TestAuthTokenValidatesQueueMonitorGrantInsteadOfBearer(t *testing.T) {
 	if validated != "queue-grant" {
 		t.Fatalf("validated credential=%q", validated)
 	}
+}
+
+func TestAuthTokenRejectsBrowserGrantIdentityFromDifferentPlatform(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(AuthToken(AuthTokenConfig{
+		Platform: enum.PlatformAdmin,
+		BrowserGrants: BrowserGrantAuthConfig{
+			RealtimePath: "/api/admin/v1/realtime/ws",
+			ConsumeRealtimeTicket: func(context.Context, string) (*AuthIdentity, *apperror.Error) {
+				return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "partner_portal"}, nil
+			},
+		},
+	}))
+	router.GET("/api/admin/v1/realtime/ws", func(c *gin.Context) { c.Status(http.StatusOK) })
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/realtime/ws?ticket=grant", nil)
+	router.ServeHTTP(recorder, request)
+
+	assertJSONError(t, recorder, http.StatusUnauthorized, apperror.CodeUnauthorized, "浏览器授权平台与当前客户端不一致")
 }
 
 func TestAuthTokenDoesNotUseCookieForNormalAPIPath(t *testing.T) {

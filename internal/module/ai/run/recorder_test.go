@@ -13,11 +13,11 @@ import (
 func TestRecorderStartsImageRunWithoutPolymorphicSourceFields(t *testing.T) {
 	repo := &fakeRecorderRepository{nextID: 9}
 	svc := NewRecorder(repo, func() time.Time { return time.Date(2026, 6, 7, 1, 2, 3, 0, time.UTC) })
-	id, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformCanvas, RequestID: "image-77", UserID: 5, AgentID: 8, ProviderID: 9, ModelID: "gpt-image-1", ModelDisplayName: "GPT Image", InputSnapshot: "cat"})
+	id, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformAdmin, RequestID: "image-77", UserID: 5, AgentID: 8, ProviderID: 9, ModelID: "gpt-image-1", ModelDisplayName: "GPT Image", InputSnapshot: "cat"})
 	if err != nil || id != 9 {
 		t.Fatalf("start failed id=%d err=%v", id, err)
 	}
-	if repo.started.Platform != enum.PlatformCanvas || repo.started.RequestID != "image-77" {
+	if repo.started.Platform != enum.PlatformAdmin || repo.started.RequestID != "image-77" {
 		t.Fatalf("bad start record: %#v", repo.started)
 	}
 }
@@ -36,7 +36,7 @@ func TestRecorderPreservesExplicitIdempotencyKey(t *testing.T) {
 
 func TestRecorderRejectsMissingRequestID(t *testing.T) {
 	svc := NewRecorder(&fakeRecorderRepository{}, time.Now)
-	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformCanvas, UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})
+	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformAdmin, UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})
 	if err == nil {
 		t.Fatalf("expected missing request id error")
 	}
@@ -100,7 +100,7 @@ func (f *fakeRecorderRepository) FinishRun(ctx context.Context, input FinishReco
 func TestRecorderReturnsRepositoryStartError(t *testing.T) {
 	wantErr := errors.New("insert failed")
 	svc := NewRecorder(&fakeRecorderRepository{startErr: wantErr}, time.Now)
-	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformCanvas, RequestID: "image-7", UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})
+	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformAdmin, RequestID: "image-7", UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected repository error, got %v", err)
 	}

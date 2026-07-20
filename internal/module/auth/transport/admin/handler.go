@@ -12,6 +12,7 @@ import (
 	authmodule "admin_back_go/internal/module/auth"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
@@ -88,7 +89,7 @@ func (h *Handler) LoginConfig(c *gin.Context) {
 		return
 	}
 
-	result, appErr := h.service.LoginConfig(c.Request.Context(), c.GetHeader("platform"))
+	result, appErr := h.service.LoginConfig(c.Request.Context(), enum.PlatformAdmin)
 	if appErr != nil {
 		response.Error(c, appErr)
 		return
@@ -127,7 +128,7 @@ func (h *Handler) Login(c *gin.Context) {
 		LoginType:    req.LoginType,
 		Password:     req.Password,
 		Code:         req.Code,
-		Platform:     c.GetHeader("platform"),
+		Platform:     enum.PlatformAdmin,
 		DeviceID:     c.GetHeader("device-id"),
 		ClientIP:     c.ClientIP(),
 		UserAgent:    c.GetHeader("User-Agent"),

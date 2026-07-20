@@ -1856,14 +1856,14 @@ func TestRouterInstallsUsersMeAsProtectedPath(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/users/me", nil)
 	request.Header.Set("Authorization", "Bearer access-token")
-	request.Header.Set("platform", "admin")
+	request.Header.Set("platform", "partner_portal")
 	request.Header.Set("device-id", "desktop-1")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if authInput.AccessToken != "access-token" || authInput.Platform != "admin" || authInput.DeviceID != "desktop-1" {
+	if authInput.AccessToken != "access-token" || authInput.Platform != enum.PlatformAdmin || authInput.DeviceID != "desktop-1" {
 		t.Fatalf("unexpected auth input: %#v", authInput)
 	}
 	if userService.input.UserID != 1 || userService.input.Platform != "admin" {

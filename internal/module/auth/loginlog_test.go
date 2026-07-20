@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakeLoginLogRepository struct {
@@ -26,7 +28,7 @@ func TestLoginLogPageInitReturnsPlatformAndLoginTypeDicts(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected page-init to succeed, got %v", appErr)
 	}
-	if len(got.Dict.PlatformArr) == 0 || got.Dict.PlatformArr[0].Value != "admin" {
+	if len(got.Dict.PlatformArr) != 1 || got.Dict.PlatformArr[0].Value != enum.PlatformAdmin {
 		t.Fatalf("platform dict mismatch: %#v", got.Dict.PlatformArr)
 	}
 	if len(got.Dict.LoginTypeArr) != 3 || got.Dict.LoginTypeArr[0].Value != "email" || got.Dict.LoginTypeArr[2].Value != "password" {

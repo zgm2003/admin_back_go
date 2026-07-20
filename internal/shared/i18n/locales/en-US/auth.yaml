@@ -2,6 +2,10 @@ auth.token.missing: Missing token
 auth.token.invalid_format: Invalid token format
 auth.token.invalid_or_expired: Token is invalid or expired
 auth.token.authenticator_missing: Token authenticator is not configured
+auth.token.platform_missing: Authentication platform is not configured
+auth.token.platform_unregistered: Authentication platform is not registered
+auth.token.platform_mismatch: Token platform does not match the current client
+auth.browser_grant_platform_mismatch: Browser grant platform does not match the current client
 auth.verify_code.sent: Verification code sent
 auth.verify_code.ttl.missing: Verification code TTL config is missing
 auth.verify_code.ttl.disabled: Verification code TTL config is disabled

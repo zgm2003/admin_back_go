@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 )
 
 const (
@@ -159,6 +160,9 @@ func validateRunInput(input RunInput) error {
 	}
 	if input.UserID <= 0 {
 		return fmt.Errorf("%s payload user_id is required", TypeRunV1)
+	}
+	if !enum.IsRegisteredPlatform(input.Platform) {
+		return fmt.Errorf("%s payload platform is not registered: %q", TypeRunV1, input.Platform)
 	}
 	switch input.Scope {
 	case ScopeSelected:

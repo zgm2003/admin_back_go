@@ -32,6 +32,7 @@ type fakeRepository struct {
 	sendTask       *Task
 	sendClaimed    bool
 	targetUserIDs  []int64
+	targetCalls    int
 	inserted       []Notification
 	progressSent   []int
 	progressTotal  []int
@@ -102,6 +103,7 @@ func (f *fakeRepository) Renew(context.Context, int64, string, uint64, time.Time
 }
 
 func (f *fakeRepository) TargetUserIDs(ctx context.Context, task Task) ([]int64, error) {
+	f.targetCalls++
 	if f.blockTargets {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -354,6 +356,21 @@ func TestSendTaskWritesNotificationsAndMarksSuccess(t *testing.T) {
 	}
 }
 
+func TestSendTaskRejectsUnregisteredAudienceBeforeTargetResolution(t *testing.T) {
+	repo := &fakeRepository{
+		sendTask:    &Task{ID: 7, Platform: "partner_portal", TargetType: enum.NotificationTargetAll},
+		sendClaimed: true,
+	}
+
+	_, err := NewService(repo).SendTask(context.Background(), SendTaskInput{TaskID: 7})
+	if err == nil || !strings.Contains(err.Error(), "platform") {
+		t.Fatalf("SendTask() must fail closed for unregistered audience, got %v", err)
+	}
+	if repo.targetCalls != 0 || len(repo.inserted) != 0 || repo.failedMsg == "" {
+		t.Fatalf("unregistered audience reached delivery: targets=%d inserted=%#v failed=%q", repo.targetCalls, repo.inserted, repo.failedMsg)
+	}
+}
+
 func TestSendTaskNoopsWhenAlreadyDone(t *testing.T) {
 	got, err := NewService(&fakeRepository{sendTask: &Task{ID: 7, Status: enum.NotificationTaskStatusSuccess}, sendClaimed: false}).SendTask(context.Background(), SendTaskInput{TaskID: 7})
 	if err != nil {
@@ -368,7 +385,7 @@ func TestLeaseLossCancelsNotificationWorkAndPreventsTerminalWrite(t *testing.T) 
 	repo := &fakeRepository{
 		sendTask: &Task{
 			ID: 10, Title: "lease", Status: enum.NotificationTaskStatusSending,
-			TargetType: enum.NotificationTargetUsers, TargetIDs: `[1]`,
+			Platform: enum.PlatformAdmin, TargetType: enum.NotificationTargetUsers, TargetIDs: `[1]`,
 		},
 		sendClaimed:  true,
 		renewLost:    true,

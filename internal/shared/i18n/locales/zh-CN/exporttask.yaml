@@ -8,6 +8,7 @@ exporttask.cleanup_failed: 清理过期导出任务失败
 exporttask.status_count_failed: 查询导出任务状态统计失败
 exporttask.query_failed: 查询导出任务失败
 exporttask.create_pending.invalid: 导出任务参数错误
+exporttask.platform.invalid: 无效的平台标识
 exporttask.delete.empty: 请选择要删除的导出任务
 exporttask.delete_failed: 删除导出任务失败
 exporttask.status.invalid: 导出任务状态错误

@@ -49,6 +49,8 @@ func TestNewRunTaskUsesVersionedTypeLowQueueAndLeanPayload(t *testing.T) {
 func TestDecodeRunPayloadRejectsMissingRequiredFields(t *testing.T) {
 	cases := [][]byte{
 		[]byte(`{}`),
+		[]byte(`{"task_id":7,"kind":"user_list","user_id":9,"scope":"selected","ids":[1]}`),
+		[]byte(`{"task_id":7,"kind":"user_list","user_id":9,"platform":"partner_portal","scope":"selected","ids":[1]}`),
 		[]byte(`{"task_id":7,"kind":"user_list","user_id":9,"scope":"selected","ids":[]}`),
 		[]byte(`{"task_id":7,"kind":"","user_id":9,"scope":"selected","ids":[1]}`),
 		[]byte(`{"task_id":7,"kind":"user_list","user_id":0,"scope":"selected","ids":[1]}`),

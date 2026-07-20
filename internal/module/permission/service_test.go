@@ -337,22 +337,12 @@ func TestServiceBuildContextAllowsRootButtonOnlyPlatform(t *testing.T) {
 	}
 }
 
-func TestServiceBuildContextAllowsCanvasPlatformByDefault(t *testing.T) {
-	svc := NewService(&fakeRepository{
-		grantedIDs: []int64{21},
-		perms: []Permission{
-			{ID: 21, Name: "Canvas访问", ParentID: 0, Type: TypeButton, Platform: enum.PlatformCanvas, Code: "canvas_access", Sort: 1},
-			{ID: 22, Name: "APP访问", ParentID: 0, Type: TypeButton, Platform: enum.PlatformApp, Code: "app_access", Sort: 2},
-		},
-	}, nil)
-
-	got, appErr := svc.BuildContextByRole(context.Background(), 8, enum.PlatformCanvas)
-
-	if appErr != nil {
-		t.Fatalf("expected no app error, got %v", appErr)
-	}
-	if !reflect.DeepEqual(got.ButtonCodes, []string{"canvas_access"}) {
-		t.Fatalf("buttonCodes mismatch: %#v", got.ButtonCodes)
+func TestServiceBuildContextRejectsRetiredPlatformsByDefault(t *testing.T) {
+	svc := NewService(&fakeRepository{}, nil)
+	for _, retired := range []string{enum.PlatformApp, enum.PlatformCanvas} {
+		if _, appErr := svc.BuildContextByRole(context.Background(), 8, retired); appErr == nil || appErr.LegacyCode != 100 {
+			t.Fatalf("retired platform %q must fail closed, got %#v", retired, appErr)
+		}
 	}
 }
 func TestServiceBuildContextRejectsInvalidPlatform(t *testing.T) {

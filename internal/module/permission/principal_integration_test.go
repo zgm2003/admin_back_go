@@ -201,6 +201,50 @@ func TestPrincipalCacheFailureFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPrincipalServiceRejectsUnregisteredPlatformBeforeCacheOrRepository(t *testing.T) {
+	repository := &fakePrincipalRepository{snapshot: PrincipalSnapshot{
+		UserID: 12, RoleID: 7, Platform: "partner_portal", Version: 1,
+		UserActive: true, RoleActive: true, RouteCodes: []string{"user_list"},
+	}}
+	service := NewPrincipalService(repository, &fakePrincipalCache{}, PrincipalServiceOptions{})
+
+	if appErr := service.Authorize(context.Background(), 12, "partner_portal", "user_list"); appErr == nil {
+		t.Fatal("Authorize() allowed an unregistered platform")
+	}
+	if got := repository.loadCount(); got != 0 {
+		t.Fatalf("unregistered platform reached repository %d times", got)
+	}
+}
+
+func TestPrincipalMutationRejectsUnregisteredPlatformBeforeCallback(t *testing.T) {
+	repository := &fakePrincipalRepository{current: []PrincipalVersion{{UserID: 12, RoleID: 7, Platform: "partner_portal", Version: 1}}}
+	service := NewPrincipalService(repository, &fakePrincipalCache{}, PrincipalServiceOptions{MutationToken: func() (string, error) { return "mutation-unknown", nil }})
+	called := false
+
+	err := service.Mutate(context.Background(), []PrincipalSubject{{UserID: 12, Platform: "partner_portal"}}, func() ([]PrincipalVersion, error) {
+		called = true
+		return []PrincipalVersion{{UserID: 12, RoleID: 7, Platform: "partner_portal", Version: 2}}, nil
+	})
+	if err == nil {
+		t.Fatal("Mutate() allowed an unregistered platform")
+	}
+	if called {
+		t.Fatal("unregistered platform mutation reached callback")
+	}
+}
+
+func TestPrincipalMutationRejectsMalformedSubjectBeforeCallback(t *testing.T) {
+	service := NewPrincipalService(&fakePrincipalRepository{}, &fakePrincipalCache{}, PrincipalServiceOptions{})
+	called := false
+	err := service.Mutate(context.Background(), []PrincipalSubject{{UserID: 12, Platform: "  "}}, func() ([]PrincipalVersion, error) {
+		called = true
+		return nil, nil
+	})
+	if err == nil || called {
+		t.Fatalf("malformed principal subject was not rejected: err=%v called=%v", err, called)
+	}
+}
+
 func TestPrincipalMutationKeepsOldSnapshotUnusable(t *testing.T) {
 	oldSnapshot := PrincipalSnapshot{UserID: 12, RoleID: 7, Platform: "admin", Version: 3, UserActive: true, RoleActive: true, RouteCodes: []string{"user_list"}}
 	newSnapshot := PrincipalSnapshot{UserID: 12, RoleID: 8, Platform: "admin", Version: 4, UserActive: true, RoleActive: true, RouteCodes: []string{"role_list"}}

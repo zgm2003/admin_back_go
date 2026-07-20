@@ -2,6 +2,7 @@ package exporttask
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,8 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
+
+var ErrNotificationPlatformInvalid = errors.New("export notification platform is not registered")
 
 type NotificationTaskCreator interface {
 	Create(ctx context.Context, input notificationtask.CreateInput) (*notificationtask.CreateResponse, *apperror.Error)
@@ -42,8 +45,8 @@ func (n *NotificationTaskNotifier) create(ctx context.Context, input NotifyInput
 		return nil
 	}
 	platform := strings.TrimSpace(input.Platform)
-	if platform == "" {
-		platform = enum.PlatformAdmin
+	if !enum.IsRegisteredPlatform(platform) {
+		return fmt.Errorf("%w: %q", ErrNotificationPlatformInvalid, platform)
 	}
 	_, appErr := n.creator.Create(ctx, notificationtask.CreateInput{
 		Title:      title,

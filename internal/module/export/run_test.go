@@ -112,7 +112,7 @@ func TestRunMarksFailedAndNotifiesWhenGenerationFails(t *testing.T) {
 	provider := &fakeDataProvider{err: errors.New("provider failed")}
 	notifier := &fakeNotifier{}
 
-	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, provider)), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, Scope: ScopeSelected, IDs: []int64{3}})
+	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, provider)), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: KindUserList, UserID: 9, Platform: enum.PlatformAdmin, Scope: ScopeSelected, IDs: []int64{3}})
 	if err == nil {
 		t.Fatalf("expected Run error")
 	}
@@ -128,7 +128,7 @@ func TestRunMarksFailedForUnknownKind(t *testing.T) {
 	repo := &fakeRepository{getRow: &Task{ID: 7, UserID: 9, Platform: enum.PlatformAdmin, Kind: "payment_orders", Title: "订单导出", Status: enum.ExportTaskStatusPending, IsDel: enum.CommonNo, CreatedAt: time.Now()}}
 	notifier := &fakeNotifier{}
 
-	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, &fakeDataProvider{})), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: "payment_orders", UserID: 9, Scope: ScopeSelected, IDs: []int64{3}})
+	err := NewService(repo, WithDefinitionRegistry(testRegistry(t, &fakeDataProvider{})), WithFileWriter(&fakeFileWriter{}), WithFileUploader(&fakeUploader{}), WithNotifier(notifier)).Run(context.Background(), RunInput{TaskID: 7, Kind: "payment_orders", UserID: 9, Platform: enum.PlatformAdmin, Scope: ScopeSelected, IDs: []int64{3}})
 	if err == nil {
 		t.Fatalf("expected Run error")
 	}

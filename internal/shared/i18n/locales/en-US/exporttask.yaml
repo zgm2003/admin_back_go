@@ -8,6 +8,7 @@ exporttask.cleanup_failed: Failed to clean expired export tasks
 exporttask.status_count_failed: Failed to query export task status counts
 exporttask.query_failed: Failed to query export tasks
 exporttask.create_pending.invalid: Invalid export task request
+exporttask.platform.invalid: Invalid platform identifier
 exporttask.delete.empty: Select export tasks to delete
 exporttask.delete_failed: Failed to delete export tasks
 exporttask.status.invalid: Invalid export task status

@@ -3,7 +3,6 @@ package permission
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -57,9 +56,6 @@ func (r *GormPrincipalRepository) LoadSnapshot(ctx context.Context, userID int64
 	platform = strings.TrimSpace(platform)
 	if userID <= 0 || platform == "" {
 		return PrincipalSnapshot{}, ErrPrincipalNotFound
-	}
-	if platform != enum.PlatformAdmin {
-		return PrincipalSnapshot{}, fmt.Errorf("unsupported principal platform %q", platform)
 	}
 
 	var identity principalIdentityRow
@@ -147,15 +143,19 @@ func (r *GormPrincipalRepository) AllVersions(ctx context.Context) ([]PrincipalV
 	if r == nil || r.db == nil {
 		return nil, ErrPrincipalRepositoryNotConfigured
 	}
-	var rows []PrincipalVersion
-	err := r.db.WithContext(ctx).
-		Table("users AS u").
-		Select("u.id AS user_id, u.role_id, ? AS platform, COALESCE(v.version, 1) AS version", enum.PlatformAdmin).
-		Joins("LEFT JOIN authz_principal_versions AS v ON v.user_id = u.id AND v.platform = ?", enum.PlatformAdmin).
-		Order("u.id ASC").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
+	rows := make([]PrincipalVersion, 0)
+	for _, platform := range enum.RegisteredPlatforms() {
+		var platformRows []PrincipalVersion
+		err := r.db.WithContext(ctx).
+			Table("users AS u").
+			Select("u.id AS user_id, u.role_id, ? AS platform, COALESCE(v.version, 1) AS version", platform).
+			Joins("LEFT JOIN authz_principal_versions AS v ON v.user_id = u.id AND v.platform = ?", platform).
+			Order("u.id ASC").
+			Scan(&platformRows).Error
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, platformRows...)
 	}
 	for index := range rows {
 		if rows[index].Version == 0 {
@@ -170,28 +170,25 @@ func loadPrincipalVersions(ctx context.Context, db *gorm.DB, subjects []Principa
 	if len(subjects) == 0 {
 		return []PrincipalVersion{}, nil
 	}
-	ids := make([]int64, 0, len(subjects))
-	for _, subject := range subjects {
-		if subject.Platform != enum.PlatformAdmin {
-			return nil, fmt.Errorf("unsupported principal platform %q", subject.Platform)
+	rows := make([]PrincipalVersion, 0, len(subjects))
+	for _, group := range groupPrincipalSubjectsByPlatform(subjects) {
+		query := db.WithContext(ctx).
+			Table("users AS u").
+			Select("u.id AS user_id, u.role_id, ? AS platform, COALESCE(v.version, 1) AS version", group.Platform).
+			Joins("LEFT JOIN authz_principal_versions AS v ON v.user_id = u.id AND v.platform = ?", group.Platform).
+			Where("u.id IN ?", group.UserIDs).
+			Order("u.id ASC")
+		if lock {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE", Table: clause.Table{Name: "u"}})
 		}
-		ids = append(ids, subject.UserID)
-	}
-	query := db.WithContext(ctx).
-		Table("users AS u").
-		Select("u.id AS user_id, u.role_id, ? AS platform, COALESCE(v.version, 1) AS version", enum.PlatformAdmin).
-		Joins("LEFT JOIN authz_principal_versions AS v ON v.user_id = u.id AND v.platform = ?", enum.PlatformAdmin).
-		Where("u.id IN ?", ids).
-		Order("u.id ASC")
-	if lock {
-		query = query.Clauses(clause.Locking{Strength: "UPDATE", Table: clause.Table{Name: "u"}})
-	}
-	var rows []PrincipalVersion
-	if err := query.Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	if len(rows) != len(subjects) {
-		return nil, ErrPrincipalNotFound
+		var groupRows []PrincipalVersion
+		if err := query.Scan(&groupRows).Error; err != nil {
+			return nil, err
+		}
+		if len(groupRows) != len(group.UserIDs) {
+			return nil, ErrPrincipalNotFound
+		}
+		rows = append(rows, groupRows...)
 	}
 	for index := range rows {
 		if rows[index].Version == 0 {
@@ -209,14 +206,7 @@ func BumpPrincipalVersions(ctx context.Context, db *gorm.DB, subjects []Principa
 	if len(subjects) == 0 {
 		return []PrincipalVersion{}, nil
 	}
-	ids := make([]int64, 0, len(subjects))
-	for _, subject := range subjects {
-		if subject.Platform != enum.PlatformAdmin {
-			return nil, fmt.Errorf("unsupported principal platform %q", subject.Platform)
-		}
-		ids = append(ids, subject.UserID)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	ids := principalSubjectUserIDs(subjects)
 
 	var lockedIDs []int64
 	if err := db.WithContext(ctx).
@@ -232,22 +222,56 @@ func BumpPrincipalVersions(ctx context.Context, db *gorm.DB, subjects []Principa
 	}
 
 	now := time.Now().UTC()
-	for _, userID := range ids {
-		if err := db.WithContext(ctx).Exec(
-			"INSERT INTO authz_principal_versions (user_id, platform, version, updated_at) VALUES (?, ?, 1, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)",
-			userID,
-			enum.PlatformAdmin,
-			now,
-		).Error; err != nil {
+	for _, group := range groupPrincipalSubjectsByPlatform(subjects) {
+		for _, userID := range group.UserIDs {
+			if err := db.WithContext(ctx).Exec(
+				"INSERT INTO authz_principal_versions (user_id, platform, version, updated_at) VALUES (?, ?, 1, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)",
+				userID,
+				group.Platform,
+				now,
+			).Error; err != nil {
+				return nil, err
+			}
+		}
+		if err := db.WithContext(ctx).
+			Table("authz_principal_versions").
+			Where("platform = ?", group.Platform).
+			Where("user_id IN ?", group.UserIDs).
+			Updates(map[string]any{"version": gorm.Expr("version + 1"), "updated_at": now}).Error; err != nil {
 			return nil, err
 		}
 	}
-	if err := db.WithContext(ctx).
-		Table("authz_principal_versions").
-		Where("platform = ?", enum.PlatformAdmin).
-		Where("user_id IN ?", ids).
-		Updates(map[string]any{"version": gorm.Expr("version + 1"), "updated_at": now}).Error; err != nil {
-		return nil, err
-	}
 	return loadPrincipalVersions(ctx, db, subjects, false)
+}
+
+type principalSubjectGroup struct {
+	Platform string
+	UserIDs  []int64
+}
+
+func groupPrincipalSubjectsByPlatform(subjects []PrincipalSubject) []principalSubjectGroup {
+	subjects = normalizePrincipalSubjects(subjects)
+	groups := make([]principalSubjectGroup, 0)
+	for _, subject := range subjects {
+		if len(groups) == 0 || groups[len(groups)-1].Platform != subject.Platform {
+			groups = append(groups, principalSubjectGroup{Platform: subject.Platform, UserIDs: []int64{}})
+		}
+		last := len(groups) - 1
+		groups[last].UserIDs = append(groups[last].UserIDs, subject.UserID)
+	}
+	return groups
+}
+
+func principalSubjectUserIDs(subjects []PrincipalSubject) []int64 {
+	seen := make(map[int64]struct{}, len(subjects))
+	ids := make([]int64, 0, len(subjects))
+	for _, subject := range normalizePrincipalSubjects(subjects) {
+		if _, exists := seen[subject.UserID]; exists {
+			continue
+		}
+		seen[subject.UserID] = struct{}{}
+		ids = append(ids, subject.UserID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }

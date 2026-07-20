@@ -80,7 +80,7 @@ func NewService(repository Repository, permissionBuilder PermissionBuilder, rout
 		permissionBuilder:   permissionBuilder,
 		routeAccessCache:    routeAccessCache,
 		routeAccessCacheTTL: routeAccessCacheTTL,
-		platforms:           normalizePlatforms(enum.Platforms),
+		platforms:           normalizePlatforms(enum.RegisteredPlatforms()),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -123,6 +123,10 @@ func WithPrincipalMutations(coordinator permission.PrincipalMutationCoordinator)
 func (s *Service) Init(ctx context.Context, input InitInput) (*InitResponse, *apperror.Error) {
 	if input.UserID <= 0 {
 		return nil, apperror.Unauthorized("Token无效或已过期")
+	}
+	input.Platform = strings.TrimSpace(input.Platform)
+	if s == nil || !s.hasPlatform(input.Platform) {
+		return nil, apperror.BadRequestKey("user.platform.invalid", nil, "无效的平台标识")
 	}
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("用户仓储未配置")
@@ -294,6 +298,10 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 func (s *Service) Export(ctx context.Context, input ExportInput) (*ExportResponse, *apperror.Error) {
 	if input.UserID <= 0 {
 		return nil, apperror.Unauthorized("Token无效或已过期")
+	}
+	input.Platform = strings.TrimSpace(input.Platform)
+	if s == nil || !s.hasPlatform(input.Platform) {
+		return nil, apperror.BadRequestKey("user.platform.invalid", nil, "无效的平台标识")
 	}
 	if s == nil || s.repository == nil {
 		return nil, apperror.Internal("用户仓储未配置")
@@ -615,7 +623,7 @@ func (s *Service) mutatePrincipalUsers(ctx context.Context, userIDs []int64, mut
 	if mutation == nil {
 		return errors.New("user mutation callback is required")
 	}
-	subjects := permission.PrincipalSubjects(normalizeIDs(userIDs), enum.PlatformAdmin)
+	subjects := permission.PrincipalSubjectsForPlatforms(normalizeIDs(userIDs), s.platforms)
 	if s.principalMutations == nil || len(subjects) == 0 {
 		return s.repository.WithTx(ctx, mutation)
 	}
@@ -1190,6 +1198,19 @@ func normalizePlatforms(platforms []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func (s *Service) hasPlatform(platform string) bool {
+	if s == nil {
+		return false
+	}
+	platform = strings.TrimSpace(platform)
+	for _, registered := range s.platforms {
+		if platform == registered {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeDateRange(values []string) []string {

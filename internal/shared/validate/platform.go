@@ -11,7 +11,7 @@ import (
 var platformCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,48}$`)
 
 func validatePlatformScope(fl playground.FieldLevel) bool {
-	return enum.IsPlatform(trimmedString(fl.Field()))
+	return enum.IsRegisteredPlatform(trimmedString(fl.Field()))
 }
 
 func validatePlatformCode(fl playground.FieldLevel) bool {

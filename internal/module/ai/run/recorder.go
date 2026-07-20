@@ -165,7 +165,7 @@ func normalizeStartInput(input StartInput, now time.Time) (StartRecord, error) {
 	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
 	input.ModelID = strings.TrimSpace(input.ModelID)
 	input.ModelDisplayName = strings.TrimSpace(input.ModelDisplayName)
-	if input.Platform == "" || !enum.IsPlatform(input.Platform) {
+	if input.Platform == "" || !enum.IsRegisteredPlatform(input.Platform) {
 		return StartRecord{}, fmt.Errorf("%w: platform", ErrRecorderInvalidInput)
 	}
 	if input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {

@@ -323,6 +323,9 @@ func (s *Service) SendTask(ctx context.Context, input SendTaskInput) (*SendTaskR
 
 func (s *Service) deliverClaim(ctx context.Context, repo Repository, claim *Claim) (*SendTaskResult, error) {
 	task := claim.Task
+	if !enum.IsNotificationAudiencePlatform(strings.TrimSpace(task.Platform)) {
+		return nil, fmt.Errorf("notification task %d platform is not registered: %q", task.ID, task.Platform)
+	}
 
 	userIDs, err := repo.TargetUserIDs(ctx, task)
 	if err != nil {
@@ -478,7 +481,7 @@ func normalizeCreateInput(input CreateInput, now time.Time) (CreateInput, *time.
 	if input.Platform == "" {
 		input.Platform = enum.PlatformAll
 	}
-	if !enum.IsNotificationTaskPlatform(input.Platform) {
+	if !enum.IsNotificationAudiencePlatform(input.Platform) {
 		return input, nil, apperror.BadRequestKey("notificationtask.platform.invalid", nil, "无效的平台标识")
 	}
 	if !enum.IsNotificationTargetType(input.TargetType) {
@@ -577,8 +580,6 @@ func platformText(platform string) string {
 		return "全平台"
 	case enum.PlatformAdmin:
 		return enum.PlatformAdmin
-	case enum.PlatformApp:
-		return enum.PlatformApp
 	default:
 		return platform
 	}

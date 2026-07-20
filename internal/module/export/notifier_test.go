@@ -40,3 +40,17 @@ func TestNotificationTaskNotifierCreatesSuccessAndFailedTasks(t *testing.T) {
 		t.Fatalf("unexpected failed notification input: %#v", failed)
 	}
 }
+
+func TestNotificationTaskNotifierRejectsMissingOrUnregisteredProvenance(t *testing.T) {
+	creator := &fakeNotificationCreator{}
+	notifier := NewNotificationTaskNotifier(creator)
+	for _, platform := range []string{"", "partner_portal"} {
+		err := notifier.NotifyExportSuccess(context.Background(), NotifyInput{TaskID: 7, UserID: 9, Platform: platform})
+		if err == nil {
+			t.Fatalf("platform %q must fail closed", platform)
+		}
+	}
+	if len(creator.inputs) != 0 {
+		t.Fatalf("invalid provenance reached notification creator: %#v", creator.inputs)
+	}
+}

@@ -330,6 +330,14 @@ func TestServiceInitReturnsNotFoundWhenUserMissing(t *testing.T) {
 	}
 }
 
+func TestServiceInitRejectsUnregisteredPlatformBeforeRepositoryUse(t *testing.T) {
+	repo := &fakeUserRepository{user: &User{ID: 1, Username: "admin"}}
+	_, appErr := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute).Init(context.Background(), InitInput{UserID: 1, Platform: "partner_portal"})
+	if appErr == nil {
+		t.Fatal("Init() allowed an unregistered platform")
+	}
+}
+
 func TestServiceInitSkipsPermissionBuildWhenRoleMissing(t *testing.T) {
 	builder := &fakePermissionBuilder{ctx: permission.Context{ButtonCodes: []string{"user_add"}, RouteAccessCodes: []string{"user_list", "user_add"}}}
 	cache := &fakeRouteAccessGrantCache{}
@@ -400,7 +408,7 @@ func TestServicePageInitReturnsRoleSexPlatformAndAddressTree(t *testing.T) {
 	if len(got.Dict.SexArr) != 3 || got.Dict.SexArr[0].Value != enum.SexUnknown || got.Dict.SexArr[1].Value != enum.SexMale || got.Dict.SexArr[2].Value != enum.SexFemale {
 		t.Fatalf("sex dict mismatch: %#v", got.Dict.SexArr)
 	}
-	if len(got.Dict.PlatformArr) != 2 || got.Dict.PlatformArr[0].Value != enum.PlatformAdmin || got.Dict.PlatformArr[1].Value != enum.PlatformApp {
+	if len(got.Dict.PlatformArr) != 1 || got.Dict.PlatformArr[0].Value != enum.PlatformAdmin {
 		t.Fatalf("platform dict mismatch: %#v", got.Dict.PlatformArr)
 	}
 	tree := got.Dict.AuthAddressTree
@@ -718,8 +726,8 @@ func TestServiceUpdateUserProfileAndInvalidatesRoleCacheWhenRoleChanges(t *testi
 	if repo.updatedProfileUserID != 9 || repo.updatedProfileFields["address_id"] != int64(3) || repo.updatedProfileFields["sex"] != enum.SexFemale {
 		t.Fatalf("profile update mismatch: %#v", repo.updatedProfileFields)
 	}
-	if cache.key != "auth_perm_uid_9_canvas_rbac_route_access_grants" {
-		t.Fatalf("expected cache invalidation to visit sorted admin/app/canvas keys, last key=%q", cache.key)
+	if cache.key != "auth_perm_uid_9_admin_rbac_route_access_grants" {
+		t.Fatalf("expected cache invalidation to visit every registered adapter, last key=%q", cache.key)
 	}
 }
 
@@ -730,16 +738,20 @@ func TestPrincipalRoleChangeBumpsVersionInsideFailClosedMutation(t *testing.T) {
 	}
 	coordinator := &fakePrincipalMutationCoordinator{}
 	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithPrincipalMutations(coordinator))
+	svc.platforms = []string{"admin", "partner_portal"}
 
 	appErr := svc.Update(context.Background(), 9, UpdateInput{Username: "new", RoleID: 2, Sex: enum.SexUnknown, AddressID: 1})
 	if appErr != nil {
 		t.Fatalf("Update() error = %v", appErr)
 	}
-	wantSubjects := []permission.PrincipalSubject{{UserID: 9, Platform: "admin"}}
+	wantSubjects := []permission.PrincipalSubject{
+		{UserID: 9, Platform: "admin"},
+		{UserID: 9, Platform: "partner_portal"},
+	}
 	if !reflect.DeepEqual(coordinator.subjects, wantSubjects) || !coordinator.mutationCalled {
 		t.Fatalf("principal mutation = subjects:%#v called:%v", coordinator.subjects, coordinator.mutationCalled)
 	}
-	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, wantSubjects) || len(coordinator.next) != 1 || coordinator.next[0].Version != 2 {
+	if !repo.txCalled || !reflect.DeepEqual(repo.principalSubjects, wantSubjects) || len(coordinator.next) != 2 || coordinator.next[0].Version != 2 || coordinator.next[1].Version != 2 {
 		t.Fatalf("version bump did not share user transaction: repo=%#v next=%#v", repo.principalSubjects, coordinator.next)
 	}
 }
@@ -882,6 +894,22 @@ func TestServiceExportNormalizesCreatesPendingAndEnqueuesRegisteredTask(t *testi
 	}
 }
 
+func TestServiceExportRejectsUnregisteredPlatformBeforeCreatingTask(t *testing.T) {
+	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "operator"}}}
+	creator := &fakeExportTaskCreator{createdID: 88}
+	enqueuer := &fakeExportEnqueuer{}
+
+	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{
+		UserID: 9, Platform: "partner_portal", IDs: []int64{2},
+	})
+	if appErr == nil {
+		t.Fatal("Export() allowed an unregistered platform")
+	}
+	if creator.createdInput.UserID != 0 || len(enqueuer.tasks) != 0 {
+		t.Fatalf("unregistered export reached durable task path: creator=%#v tasks=%#v", creator.createdInput, enqueuer.tasks)
+	}
+}
+
 func TestServiceExportMarksTaskFailedWhenEnqueueFails(t *testing.T) {
 	repo := &fakeUserRepository{exportRows: []ExportUserRow{{ID: 2, Username: "u2"}}}
 	creator := &fakeExportTaskCreator{createdID: 88}
@@ -899,7 +927,7 @@ func TestServiceExportReturnsNotFoundWhenNoSelectedUsersExist(t *testing.T) {
 	repo := &fakeUserRepository{}
 	creator := &fakeExportTaskCreator{}
 	enqueuer := &fakeExportEnqueuer{}
-	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, IDs: []int64{99}})
+	_, appErr := NewService(repo, nil, nil, time.Minute, WithExportTaskCreator(creator), WithExportEnqueuer(enqueuer)).Export(context.Background(), ExportInput{UserID: 9, Platform: enum.PlatformAdmin, IDs: []int64{99}})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeNotFound {
 		t.Fatalf("expected not found, got %#v", appErr)
 	}

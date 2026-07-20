@@ -167,6 +167,9 @@ func (s *Service) StatusCount(ctx context.Context, query StatusCountQuery) ([]St
 	if query.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
+	if appErr := invalidPlatformError(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	counts, err := repo.CountByStatus(ctx, query)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.status_count_failed", nil, "查询导出任务状态统计失败", err)
@@ -220,6 +223,9 @@ func (s *Service) CreatePending(ctx context.Context, input CreatePendingInput) (
 	if input.UserID <= 0 || input.Title == "" {
 		return 0, apperror.BadRequestKey("exporttask.create_pending.invalid", nil, "导出任务参数错误")
 	}
+	if appErr := invalidPlatformError(input.Platform); appErr != nil {
+		return 0, appErr
+	}
 	now := s.now()
 	expireAt := now.Add(defaultExpireDuration)
 	return repo.Create(ctx, Task{
@@ -260,6 +266,9 @@ func (s *Service) Delete(ctx context.Context, input DeleteInput) *apperror.Error
 		return apperror.BadRequestKey("exporttask.delete.empty", nil, "请选择要删除的导出任务")
 	}
 	platform := normalizePlatform(input.Platform)
+	if appErr := invalidPlatformError(platform); appErr != nil {
+		return appErr
+	}
 	if err := repo.DeleteByUser(ctx, input.UserID, platform, ids); err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, 500, "exporttask.delete_failed", nil, "删除导出任务失败", err)
 	}
@@ -483,11 +492,14 @@ func normalizeKind(value string) string {
 }
 
 func normalizePlatform(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return enum.PlatformAdmin
+	return strings.TrimSpace(value)
+}
+
+func invalidPlatformError(platform string) *apperror.Error {
+	if enum.IsRegisteredPlatform(platform) {
+		return nil
 	}
-	return value
+	return apperror.BadRequestKey("exporttask.platform.invalid", nil, "无效的平台标识")
 }
 
 func kindText(kind string) string {
@@ -514,6 +526,9 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 		return query, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	query.Platform = normalizePlatform(query.Platform)
+	if appErr := invalidPlatformError(query.Platform); appErr != nil {
+		return query, appErr
+	}
 	query.Kind = strings.TrimSpace(query.Kind)
 	if query.CurrentPage <= 0 {
 		query.CurrentPage = 1

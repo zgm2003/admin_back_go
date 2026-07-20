@@ -118,7 +118,7 @@ func TestManagementCreateValidatesCaptchaTypeAndStoresJSONLoginTypes(t *testing.
 	service := NewService(repo)
 
 	id, appErr := service.Create(context.Background(), CreateInput{
-		Code: "mini", Name: "小程序", LoginTypes: []string{enum.LoginTypePassword, enum.LoginTypeEmail}, CaptchaType: enum.CaptchaTypeSlide,
+		Code: "partner_portal", Name: "合作方门户", LoginTypes: []string{enum.LoginTypePassword, enum.LoginTypeEmail}, CaptchaType: enum.CaptchaTypeSlide,
 		AccessTTL: 3600, RefreshTTL: 86400, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
 		BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
 	})
@@ -133,6 +133,9 @@ func TestManagementCreateValidatesCaptchaTypeAndStoresJSONLoginTypes(t *testing.
 	}
 	if repo.gotCreate.LoginTypes != `["email","password"]` {
 		t.Fatalf("expected normalized login_types json, got %q", repo.gotCreate.LoginTypes)
+	}
+	if enum.IsRegisteredPlatform("partner_portal") {
+		t.Fatal("configuration creation must not activate a runtime adapter")
 	}
 }
 

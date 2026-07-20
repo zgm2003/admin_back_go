@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,7 @@ type AuthIdentity struct {
 
 type AuthTokenConfig struct {
 	Authenticator TokenAuthenticator
+	Platform      string
 	SkipPaths     map[string]struct{}
 	BrowserGrants BrowserGrantAuthConfig
 }
@@ -57,7 +59,7 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 
-		if handled := authenticateBrowserGrant(c, cfg.BrowserGrants); handled {
+		if handled := authenticateBrowserGrant(c, cfg.Platform, cfg.BrowserGrants); handled {
 			return
 		}
 
@@ -70,10 +72,19 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			response.Abort(c, apperror.UnauthorizedKey("auth.token.authenticator_missing", nil, "Token认证未配置"))
 			return
 		}
+		platform := strings.TrimSpace(cfg.Platform)
+		if platform == "" {
+			response.Abort(c, apperror.InternalKey("auth.token.platform_missing", nil, "认证平台未配置"))
+			return
+		}
+		if !enum.IsRegisteredPlatform(platform) {
+			response.Abort(c, apperror.InternalKey("auth.token.platform_unregistered", nil, "认证平台未注册"))
+			return
+		}
 
 		identity, err := cfg.Authenticator(c.Request.Context(), TokenInput{
 			AccessToken: token.value,
-			Platform:    strings.TrimSpace(c.GetHeader("platform")),
+			Platform:    platform,
 			DeviceID:    c.GetHeader("device-id"),
 			ClientIP:    c.ClientIP(),
 		})
@@ -85,6 +96,11 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			response.Abort(c, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期"))
 			return
 		}
+		if strings.TrimSpace(identity.Platform) != platform {
+			response.Abort(c, apperror.UnauthorizedKey("auth.token.platform_mismatch", nil, "Token平台与当前客户端不一致"))
+			return
+		}
+		identity.Platform = platform
 
 		c.Set(ContextAuthIdentity, identity)
 		c.Next()
@@ -183,7 +199,7 @@ func matchesPathPrefix(path string, prefixes []string) bool {
 	return false
 }
 
-func authenticateBrowserGrant(c *gin.Context, cfg BrowserGrantAuthConfig) bool {
+func authenticateBrowserGrant(c *gin.Context, trustedPlatform string, cfg BrowserGrantAuthConfig) bool {
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return false
 	}
@@ -194,7 +210,7 @@ func authenticateBrowserGrant(c *gin.Context, cfg BrowserGrantAuthConfig) bool {
 			response.Abort(c, apperror.UnauthorizedKey("auth.realtime_ticket_missing", nil, "缺少实时授权票据"))
 			return true
 		}
-		authenticateGrant(c, credential, cfg.ConsumeRealtimeTicket)
+		authenticateGrant(c, credential, trustedPlatform, cfg.ConsumeRealtimeTicket)
 		return true
 	}
 	if matchesPathPrefix(path, cfg.QueueMonitorPathPrefixes) {
@@ -204,15 +220,24 @@ func authenticateBrowserGrant(c *gin.Context, cfg BrowserGrantAuthConfig) bool {
 			response.Abort(c, apperror.UnauthorizedKey("auth.queue_monitor_grant_missing", nil, "缺少队列监控授权"))
 			return true
 		}
-		authenticateGrant(c, strings.TrimSpace(cookie.Value), cfg.ValidateQueueMonitorGrant)
+		authenticateGrant(c, strings.TrimSpace(cookie.Value), trustedPlatform, cfg.ValidateQueueMonitorGrant)
 		return true
 	}
 	return false
 }
 
-func authenticateGrant(c *gin.Context, credential string, authenticator BrowserGrantAuthenticator) {
+func authenticateGrant(c *gin.Context, credential string, trustedPlatform string, authenticator BrowserGrantAuthenticator) {
 	if authenticator == nil {
 		response.Abort(c, apperror.UnauthorizedKey("auth.browser_grant_authenticator_missing", nil, "浏览器授权服务未配置"))
+		return
+	}
+	trustedPlatform = strings.TrimSpace(trustedPlatform)
+	if trustedPlatform == "" {
+		response.Abort(c, apperror.InternalKey("auth.token.platform_missing", nil, "认证平台未配置"))
+		return
+	}
+	if !enum.IsRegisteredPlatform(trustedPlatform) {
+		response.Abort(c, apperror.InternalKey("auth.token.platform_unregistered", nil, "认证平台未注册"))
 		return
 	}
 	identity, appErr := authenticator(c.Request.Context(), credential)
@@ -224,6 +249,11 @@ func authenticateGrant(c *gin.Context, credential string, authenticator BrowserG
 		response.Abort(c, apperror.UnauthorizedKey("auth.browser_grant_invalid", nil, "浏览器授权已失效"))
 		return
 	}
+	if strings.TrimSpace(identity.Platform) != trustedPlatform {
+		response.Abort(c, apperror.UnauthorizedKey("auth.browser_grant_platform_mismatch", nil, "浏览器授权平台与当前客户端不一致"))
+		return
+	}
+	identity.Platform = trustedPlatform
 	c.Set(ContextAuthIdentity, identity)
 	c.Next()
 }
