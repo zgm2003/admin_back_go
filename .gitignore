@@ -15,7 +15,7 @@ coverage.out
 .env
 .env.*.local
 
-# Local smoke/runtime scratch
+# Local smoke/runtime scratch, development locks and private tools
 .tmp/
 /runtime/
 

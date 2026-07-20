@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('init','up','stop','status')]
+  [ValidateSet('init','dev-state','up','stop','status')]
   [string]$Action
 )
 
@@ -9,12 +9,14 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+. (Join-Path $PSScriptRoot 'dev\admin-dev-common.ps1')
 $stateCompose = Join-Path $repoRoot 'deploy\docker-state\docker-compose.yml'
 $appCompose = Join-Path $repoRoot 'deploy\docker-first\docker-compose.yml'
 $frontendRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '..\admin_front_ts'))
 $stateRuntime = Join-Path $repoRoot 'deploy\docker-state\runtime'
 $mysqlSecret = Join-Path $stateRuntime 'mysql-root-password.txt'
 $backendEnv = Join-Path $repoRoot 'deploy\docker-first\admin-go.env'
+$adminDevLock = Join-Path $repoRoot '.tmp\dev\admin-dev.lock.json'
 $defaultDockerBin = 'E:\Docker\Docker\resources\bin'
 $defaultDocker = Join-Path $defaultDockerBin 'docker.exe'
 
@@ -135,7 +137,16 @@ switch ($Action) {
     Write-Output 'initialized ignored Docker platform runtime files'
   }
 
+  'dev-state' {
+    if (-not (Test-Path -LiteralPath $mysqlSecret -PathType Leaf)) {
+      throw 'MySQL secret is missing; run init first'
+    }
+    Invoke-Docker @('compose', '-f', $appCompose, 'stop', 'frontend', 'admin-api', 'admin-worker')
+    Invoke-Docker @('compose', '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
+  }
+
   'up' {
+    Assert-NoLiveAdminDevLock -Path $adminDevLock -RepositoryRoot $repoRoot
     if (-not (Test-Path -LiteralPath $mysqlSecret -PathType Leaf)) {
       throw 'MySQL secret is missing; run init first'
     }
@@ -158,6 +169,7 @@ switch ($Action) {
   }
 
   'stop' {
+    Assert-NoLiveAdminDevLock -Path $adminDevLock -RepositoryRoot $repoRoot
     Invoke-Docker @('compose', '-f', $appCompose, 'stop')
     Invoke-Docker @('compose', '-f', $stateCompose, 'stop')
   }
