@@ -7,7 +7,7 @@ services:
       context: ../../../admin_front_ts
       dockerfile: Dockerfile
       args:
-        NODE_IMAGE: node:22.23.1-alpine
+        NODE_IMAGE: node:24.18.0-alpine
         NGINX_IMAGE: nginxinc/nginx-unprivileged:1.31.3-alpine
         VITE_GO_API_BASE_URL: http://localhost:5173
         VITE_WEB_SOCKET_URL: ws://localhost:5173/api/admin/v1/realtime/ws
