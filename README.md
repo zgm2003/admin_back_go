@@ -363,7 +363,8 @@ pwsh -NoProfile -File E:\admin\admin_back_go\scripts\install-admin-shortcuts.ps1
 安装器同时维护 PowerShell 7 和 Windows PowerShell 的用户 Profile，并且只修改自己的标记区块。之后可直接使用：
 
 ```powershell
-admin-dev       # Docker 保留 MySQL/Redis；宿主启动 Vite/API/Worker 热更新
+admin-dev       # Docker 保留 MySQL/Redis；宿主启动热更新，就绪后打开浏览器
+admin-dev -NoBrowser # 启动热更新，但不自动打开浏览器
 admin-up        # 构建并启动正式五容器 Docker 平台
 admin-status    # 查看两个 Compose 项目状态
 admin-stop      # 停止完整 Docker 平台
@@ -384,7 +385,8 @@ pwsh -NoProfile -File E:\admin\admin_back_go\scripts\docker-platform.ps1 -Action
 4. 校验固定 Node/npm/Go，按需安装私有 Air；仅在 `package-lock.json` 哈希变化时执行 `npm ci`。
 5. 在同一终端启动并监管 Vite、API Air、Worker Air，日志分别带 `[WEB]`、`[API]`、`[WORKER]` 前缀。
 6. 等待 Vite、`/health`、`/ready` 和稳定 Worker；任一进程失败会清理其他宿主子进程。
-7. `Ctrl+C` 释放 `5173` / `8080` 和开发锁，但保留 MySQL、Redis 容器及数据卷。
+7. 默认只打开一次 `http://localhost:5173`；传入 `-NoBrowser` 可禁止打开，热重载不会重复打开。
+8. `Ctrl+C` 释放 `5173` / `8080` 和开发锁，但保留 MySQL、Redis 容器及数据卷。
 
 `admin-dev` 不会杀死未知端口进程；如果 `5173` 或 `8080` 已被其他程序占用，它会明确报错并停止。
 

@@ -253,6 +253,26 @@ foreach ($prefix in @('[WEB]', '[API]', '[WORKER]')) {
     throw "supervisor log prefix is missing: $prefix"
   }
 }
+foreach ($browserContract in @(
+  '[switch]$NoBrowser',
+  'if (-not $NoBrowser)',
+  'http://localhost:5173',
+  'UseShellExecute = $true',
+  '[Diagnostics.Process]::Start($browserStartInfo)'
+)) {
+  if (-not $supervisorSource.Contains($browserContract)) {
+    throw "browser launch contract is missing: $browserContract"
+  }
+}
+$readyIndex = $supervisorSource.IndexOf('Wait-AdminDevRuntimeReady', [StringComparison]::Ordinal)
+$browserIndex = $supervisorSource.IndexOf('[Diagnostics.Process]::Start($browserStartInfo)', [StringComparison]::Ordinal)
+$watchIndex = $supervisorSource.IndexOf('Watch-AdminDevManagedProcesses', [StringComparison]::Ordinal)
+if ($readyIndex -lt 0 -or $browserIndex -le $readyIndex -or $watchIndex -le $browserIndex) {
+  throw 'browser must open once after readiness and before the process watch loop'
+}
+if ([regex]::Matches($supervisorSource, [regex]::Escape('[Diagnostics.Process]::Start($browserStartInfo)')).Count -ne 1) {
+  throw 'browser launch must occur exactly once per admin-dev invocation'
+}
 if ($supervisorSource -match "(?i)-Action\s+(stop|down)" -or
     $supervisorSource -match "(?i)docker\s+compose.+\b(stop|down)\b") {
   throw 'admin-dev cleanup must preserve Docker state services'

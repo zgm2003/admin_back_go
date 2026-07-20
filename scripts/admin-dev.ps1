@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+  [switch]$NoBrowser,
   [ValidateRange(10, 600)][int]$ReadinessTimeoutSeconds = 180
 )
 
@@ -126,6 +127,12 @@ try {
   Write-Host '[WEB] Vite is ready at http://127.0.0.1:5173'
   Write-Host '[API] API health and readiness checks passed at http://127.0.0.1:8080/health and http://127.0.0.1:8080/ready'
   Write-Host '[WORKER] worker child process is stable'
+  if (-not $NoBrowser) {
+    $browserStartInfo = [Diagnostics.ProcessStartInfo]::new()
+    $browserStartInfo.FileName = 'http://localhost:5173'
+    $browserStartInfo.UseShellExecute = $true
+    [Diagnostics.Process]::Start($browserStartInfo) | Out-Null
+  }
   Write-Host 'admin-dev is running; press Ctrl+C to stop host processes and keep MySQL/Redis running'
   Watch-AdminDevManagedProcesses -States $states.ToArray()
 }
