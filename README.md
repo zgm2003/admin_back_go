@@ -346,6 +346,13 @@ redis:6379  -> 127.0.0.1:36379
 :8080       -> 127.0.0.1:8080
 ```
 
+`APP_SECRET` 仍遵守现有轮换语义：
+
+```env
+# 至少 64 个 ASCII 字符；修改会让旧登录态和已加密业务密钥失效
+APP_SECRET=本地长随机字符串
+```
+
 ### 一次性安装快捷命令
 
 ```powershell
@@ -386,6 +393,17 @@ pwsh -NoProfile -File E:\admin\admin_back_go\scripts\docker-platform.ps1 -Action
 ```powershell
 pwsh -NoProfile -File scripts/tests/admin-dev.tests.ps1
 pwsh -NoProfile -File scripts/tests/docker-platform.tests.ps1
+```
+
+后端完整验证和 clean-cache 验证继续保留 PowerShell 7 / Windows PowerShell 两套受支持入口：
+
+```powershell
+pwsh -NoProfile -File scripts/verify-backend.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backend.ps1
+pwsh -NoProfile -File scripts/verify-go-clean.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-go-clean.ps1
+pwsh -NoProfile -File scripts/verify-go-clean.ps1 -KeepScratch
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-go-clean.ps1 -KeepScratch
 ```
 
 前端正式质量门禁仍在固定 Node 24 Docker 镜像中执行：
