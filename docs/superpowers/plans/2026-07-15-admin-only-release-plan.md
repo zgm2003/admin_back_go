@@ -1,10 +1,10 @@
-# Admin-Only Contract and Release Implementation Plan
+# Current-Admin Release and Extensible Platform Kernel Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task directly on `master`. Do not use subagents or worktrees unless the user explicitly changes that rule. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove App/Canvas product-platform code and schema, physically retire the P08R-frozen `client_versions` history after explicit approval, retain independently tested generic capabilities, and produce one synchronized, immutable, rollback-ready Browser-only Admin release.
+**Goal:** Remove the retired App/Canvas product implementations and classified data, preserve the extensible platform kernel for the next independently authenticated platform, physically retire the P08R-frozen `client_versions` history after explicit approval, retain independently tested generic capabilities, and produce one synchronized, immutable, rollback-ready Browser-only Admin release.
 
-**Architecture:** Product transports and workflow terminology are deleted before database contract DDL. Generic AI/provider/storage capabilities survive only behind transport-neutral interfaces and direct tests. A final two-repository proof locks backend/frontend Docker image digests, the Browser-only Admin Contract Bundle, database fingerprint, recovery/query/COS-disposition evidence, and runbooks to one generated release manifest. No desktop artifact or GitHub Workflow belongs to the release.
+**Architecture:** Product transports and legacy workflow terminology are deleted before database contract DDL, while `auth_platforms`, platform-aware RBAC, sessions, login logs, notification audiences, provenance columns, and their indexes remain generic. The runtime adapter registry contains only Admin after P09; database configuration alone never activates a platform, and every trusted transport injects its own registered provenance. Generic AI/provider/storage capabilities survive behind transport-neutral interfaces and direct tests. A final two-repository proof locks backend/frontend Docker image digests, the Browser-only Admin Contract Bundle, database fingerprint, recovery/query/COS-disposition evidence, and runbooks to one generated release manifest. No desktop artifact or GitHub Workflow belongs to the release.
 
 **Tech Stack:** Go, MySQL 8.4, Atlas 0.38.0, Vue/TypeScript, Docker Compose, PowerShell 7.
 
@@ -12,12 +12,19 @@
 
 ## Current execution order and contract boundary
 
+This plan implements
+`docs/superpowers/specs/2026-07-20-extensible-platform-kernel-design.md`.
+“Current Admin-only” describes the adapters and active product data shipped by
+this release; it never means that the platform kernel or database schema is a
+permanent singleton.
+
 Task numbers group related artifacts; they are not permission to make the
 frontend outrun the formal backend contract. Execute the groups in this order:
 
 ```text
-Task 1
-→ Tasks 3–5
+Task 1 (complete: 87b86c4)
+→ Task 3 (complete: db8c458)
+→ Tasks 4–5
 → Task 6 implementation and non-mutating validation
 → fresh destructive approval
 → Task 6 approved disposable-restore rehearsals and contract DDL
@@ -47,6 +54,18 @@ drop those tables. The remaining physical product tables are the empty
 `client_versions` history; `user_sessions.access_token_hash` is also still
 present. Current `ai_video_tasks` is retained.
 
+The P09 platform invariant is two-part:
+
+1. the compiled runtime and active product data contain only the Admin adapter;
+2. the generic platform configuration, RBAC, session, login-log, notification,
+   provenance, and indexing seams remain available for a separately contracted
+   future adapter.
+
+An `auth_platforms` row is configuration, not a route. A future platform becomes
+runnable only after its adapter, registry entry, permissions, and formal
+Contract Bundle are committed. Admin routes never trust a client-supplied
+platform value.
+
 ## Destructive-stage prerequisites
 
 P09 stops before DDL unless P01-P08R and all P07 tasks are committed and accepted, both primary checkout working directories are clean, no Git worktree registration/directory exists, every active program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, P08R proves `client_versions` has had no runtime reader/writer since cutover, and the frontend contract lock matches the backend bundle manifest.
@@ -59,10 +78,10 @@ P09 reads and writes only `E:/admin/admin_back_go` and `E:/admin/admin_front_ts`
 - `scripts/release/` owns input locking, release-manifest validation, deployment, rollback, and full proof orchestration.
 - `database/reconciliation/050`–`053` own pre/post destructive invariants; `database/migrations/202607150201`–`203` own the serialized Atlas contract groups, including the approved physical removal of frozen `client_versions`.
 - `internal/module/ai/capability/` owns transport-neutral generation scene names. Retained text/image/video/audio services use these names and direct behavior tests.
-- `internal/architecture/admin_only_test.go` and `tests/shared/architecture/admin-only.test.ts` are the permanent product-boundary guards.
+- `internal/architecture/admin_only_test.go`, `internal/architecture/platform_kernel_test.go`, and `tests/shared/architecture/admin-only.test.ts` jointly guard retired product removal and platform-kernel preservation.
 - Backend `contracts/admin/v1/` remains contract truth; frontend `contracts/backend/admin/v1/` and `contracts/backend/admin/lock.json` remain the exact consumer lock.
 
-### Task 1: Freeze the pre-contract release inputs
+### Task 1: Freeze the pre-contract release inputs (complete: `87b86c4`)
 
 **Files:**
 - Create: `release/admin-only/input-lock.json`
@@ -74,7 +93,7 @@ P09 reads and writes only `E:/admin/admin_back_go` and `E:/admin/admin_front_ts`
 - Create: `database/reconciliation/050_contract_preconditions.sql`
 - Create: `docs/runbooks/admin-only-data-disposition.md`
 
-- [ ] **Step 1: Define and test the release lock**
+- [x] **Step 1: Define and test the release lock**
 
 `input-lock.schema.json` requires `schema_version: 1`, 40-character lowercase Git SHAs, 64-character lowercase SHA-256 values, and these fields:
 
@@ -107,7 +126,7 @@ $lock = [ordered]@{
 
 It requires a clean frontend primary checkout. In the backend it permits only the exact Task 1 untracked/modified paths declared above, so the lock can be generated before their single commit; any runtime, contract, migration, or unrelated change fails. It rejects any registered secondary Git worktree, any path outside the two declared repositories, missing P08R freeze/COS-disposition evidence, a recovery artifact that has not passed restore verification, a `client_versions` count/hash that differs from the P08R cutover proof, or any command that would print a DSN/token. It writes JSON through a temporary file and atomic rename. `check-inputs.ps1` validates the schema and recomputes every evidence digest without printing artifact content. Its final `-CheckOnly` mode treats backend/frontend commits as the intentionally frozen pre-contract inputs and checks ancestry plus evidence, not equality with later P09 HEAD commits.
 
-- [ ] **Step 2: Encode every legacy disposition**
+- [x] **Step 2: Encode every legacy disposition**
 
 The runbook and its executable count queries classify exactly:
 
@@ -135,11 +154,11 @@ The runbook and its executable count queries classify exactly:
 
 No row receives an owner, platform, scene, kind, or object key without a documented source rule.
 
-- [ ] **Step 3: Make preconditions zero-row invariants**
+- [x] **Step 3: Make preconditions zero-row invariants**
 
 `050_contract_preconditions.sql` returns named violation result sets for unresolved retained object URLs, wallet mismatches, unclassified RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, active client-version menu/grants/routes, any runtime reference to `client_versions`, and any unexpected reappearance of the five already-absent legacy tables. The PowerShell input checker owns external evidence-file digest validation. SQL verifies the exact pre-existing orphan-grant set, the live `client_versions` count/hash, and the P08R freeze evidence. `admin-db invariants` must fail on any returned row.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/release-input-lock.tests.ps1
@@ -152,7 +171,7 @@ git commit -m "chore(release): lock admin-only contract inputs"
 
 Expected: all lock fields are literal current values, precondition violations are zero, and no secret or dump is tracked.
 
-### Task 2: Remove frontend product-platform branches and terminology
+### Task 2: Remove retired frontend product branches while preserving platform administration
 
 **Repository:** `E:/admin/admin_front_ts`
 
@@ -184,7 +203,7 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Modify: `src/views/Main/permission/permission/helpers.ts`
 - Modify: `src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts`
 - Modify: `src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue`
-- Delete: `src/views/Main/permission/permission/components/PlatformTabs.vue`
+- Modify: `src/views/Main/permission/permission/components/PlatformTabs.vue`
 - Modify: `src/views/Main/permission/role/index.vue`
 - Modify: `src/views/Main/permission/role/role-matrix.ts`
 - Modify: `src/views/Main/permission/role/use-role-page.ts`
@@ -206,15 +225,16 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Create: `scripts/check-admin-only.mjs`
 - Create: `tests/shared/architecture/admin-only.test.ts`
 - Create: `tests/integration/features/admin-auth-policy.test.ts`
+- Create: `tests/integration/features/platform-kernel.test.ts`
 - Modify: `tests/unit/app/environment.test.ts`
 - Modify: `tests/integration/app/kernel.test.ts`
 - Modify: `tests/integration/features/user-management.test.ts`
 - Modify: `tests/integration/features/notifications.test.ts`
 - Modify: `tests/integration/features/ai-runs.test.ts`
 
-- [ ] **Step 1: Add a failing source-only Admin guard**
+- [ ] **Step 1: Add failing retired-product and platform-kernel guards**
 
-The guard parses production TypeScript/Vue and locale values. It excludes DOM `HTMLCanvasElement`, Canvas rendering APIs, and CSS class names. It rejects product values/imports rather than the substring alone:
+The source guard parses production TypeScript/Vue and locale values. It excludes DOM `HTMLCanvasElement`, Canvas rendering APIs, and CSS class names. It rejects retired product values/imports rather than the substring alone:
 
 ```text
 /api/app/
@@ -230,13 +250,42 @@ user-agent based product inference
 App/Canvas product labels in active menu/locale values
 ```
 
-Run: `npm test -- tests/shared/architecture/admin-only.test.ts`
+The same guard must fail if the generic platform kernel disappears. It requires
+the auth-platform view and API, add/edit/delete/status permissions, permission
+platform selection, role platform tabs, session/login-log platform filters,
+and notification audience selection. It must not assert that every platform
+type is the literal `admin`.
 
-Expected: FAIL on the current platform helper, env key, product scenes, and platform selectors.
+`platform-kernel.test.ts` uses the current formal Admin option to prove UI
+adapters pass the exact selected platform to permission, role, session/log,
+and notification APIs without fallback chains. It asserts that platform types
+come from generated operations and dictionaries rather than a handwritten
+`'admin' | 'app' | 'canvas'` union or literal runtime whitelist. It must not
+invent a `partner_portal` mock before that code exists in a future formal
+Bundle.
 
-- [ ] **Step 2: Make Admin compile-time truth**
+Run:
 
-P08R already removed `getPlatform` and `src/lib/http/platform.ts`; keep `src/lib/http/headers.ts` on the literal Admin provenance required by the formal contract. Remove platform selectors from permission, role, notification, session, auth-policy, and AI-run screens. Notification creation has Admin audience semantics only. Auth policy becomes one editable Admin policy: create/delete/status controls disappear. Scene values become:
+```powershell
+npm test -- tests/shared/architecture/admin-only.test.ts tests/integration/features/platform-kernel.test.ts
+```
+
+Expected: FAIL on the current product helper, env key, old scene values, and
+any platform-kernel control removed by the earlier singleton draft.
+
+- [ ] **Step 2: Keep Admin transport truth without collapsing management**
+
+P08R already removed `getPlatform` and `src/lib/http/platform.ts`; keep
+`src/lib/http/headers.ts` on the literal Admin provenance required by the Admin
+transport contract. This header cannot select another runtime adapter.
+
+Retain the complete auth-platform CRUD/status page, permission platform field,
+role platform tabs, session/login-log platform filters, and notification
+audience selector. Their options come only from the formal backend response;
+the frontend does not invent a second platform or infer one from the browser.
+Remove handwritten platform whitelists; generated schemas and exact page-init
+dictionaries validate the current options. Remove only App/Canvas literals and
+branches. Scene values become:
 
 ```text
 text_generate
@@ -245,21 +294,26 @@ video_generate
 audio_generate
 ```
 
-P08R has already removed native client platforms, updater targets, and client-version UI/contracts; this task must not recreate them. Do not edit generated backend contracts in this task—Task 7 replaces them from backend truth.
+P08R has already removed native client platforms, updater targets, and
+client-version UI/contracts; this task must not recreate them. Do not edit
+generated backend contracts in this task—Task 7 replaces them from backend
+truth. Do not handwrite a compatibility type while waiting for Task 7.
 
 - [ ] **Step 3: Verify and commit exact source files**
 
 ```powershell
 $root = (Get-Location).Path
-docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm test -- tests/shared/architecture/admin-only.test.ts tests/unit/app/environment.test.ts && npm test -- --project integration tests/integration/app/kernel.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts && npm run typecheck && npm run lint"
-git add -- .env.development .env.production src/vite-env.d.ts src/app/environment.ts src/enums/index.ts src/lib/http/headers.ts src/api/ai/agents.ts src/api/ai/runs.ts src/api/permission/authPlatform.ts src/api/permission/permission.ts src/api/permission/role.ts src/api/system/notificationTask.ts src/api/user/users.ts src/api/user/usersLoginLog.ts src/features/ai-runs/workflow.ts src/features/notifications/workflow.ts src/features/user-management/workflow.ts src/views/Main/ai/agents/index.vue src/views/Main/ai/agents/use-agent-admin-page.ts src/views/Main/ai/runs/components/RunList/index.vue src/views/Main/ai/runs/components/RunStats/index.vue src/views/Main/permission/authPlatform/index.vue src/views/Main/permission/authPlatform/helpers.ts src/views/Main/permission/authPlatform/components/FormDialog.vue src/views/Main/permission/permission/index.vue src/views/Main/permission/permission/helpers.ts src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue src/views/Main/permission/permission/components/PlatformTabs.vue src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/use-role-page.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue src/views/Main/system/notificationTask/index.vue src/views/Main/system/notificationTask/use-notification-task-page.ts src/views/Main/user/userManager/components/SessionList/index.vue src/views/Main/user/usersLoginLog/index.vue src/views/Main/user/usersLoginLog/composables/useUsersLoginLogTable.ts src/i18n/locales/en-US/ai.ts src/i18n/locales/en-US/permission.ts src/i18n/locales/en-US/system.ts src/i18n/locales/en-US/user.ts src/i18n/locales/zh-CN/ai.ts src/i18n/locales/zh-CN/permission.ts src/i18n/locales/zh-CN/system.ts src/i18n/locales/zh-CN/user.ts scripts/check-admin-only.mjs tests/shared/architecture/admin-only.test.ts tests/integration/features/admin-auth-policy.test.ts tests/unit/app/environment.test.ts tests/integration/app/kernel.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm test -- tests/shared/architecture/admin-only.test.ts tests/unit/app/environment.test.ts && npm test -- --project integration tests/integration/app/kernel.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/platform-kernel.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts && npm run typecheck && npm run lint"
+git add -- .env.development .env.production src/vite-env.d.ts src/app/environment.ts src/enums/index.ts src/lib/http/headers.ts src/api/ai/agents.ts src/api/ai/runs.ts src/api/permission/authPlatform.ts src/api/permission/permission.ts src/api/permission/role.ts src/api/system/notificationTask.ts src/api/user/users.ts src/api/user/usersLoginLog.ts src/features/ai-runs/workflow.ts src/features/notifications/workflow.ts src/features/user-management/workflow.ts src/views/Main/ai/agents/index.vue src/views/Main/ai/agents/use-agent-admin-page.ts src/views/Main/ai/runs/components/RunList/index.vue src/views/Main/ai/runs/components/RunStats/index.vue src/views/Main/permission/authPlatform/index.vue src/views/Main/permission/authPlatform/helpers.ts src/views/Main/permission/authPlatform/components/FormDialog.vue src/views/Main/permission/permission/index.vue src/views/Main/permission/permission/helpers.ts src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue src/views/Main/permission/permission/components/PlatformTabs.vue src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/use-role-page.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue src/views/Main/system/notificationTask/index.vue src/views/Main/system/notificationTask/use-notification-task-page.ts src/views/Main/user/userManager/components/SessionList/index.vue src/views/Main/user/usersLoginLog/index.vue src/views/Main/user/usersLoginLog/composables/useUsersLoginLogTable.ts src/i18n/locales/en-US/ai.ts src/i18n/locales/en-US/permission.ts src/i18n/locales/en-US/system.ts src/i18n/locales/en-US/user.ts src/i18n/locales/zh-CN/ai.ts src/i18n/locales/zh-CN/permission.ts src/i18n/locales/zh-CN/system.ts src/i18n/locales/zh-CN/user.ts scripts/check-admin-only.mjs tests/shared/architecture/admin-only.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/platform-kernel.test.ts tests/unit/app/environment.test.ts tests/integration/app/kernel.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
 git diff --cached --check
-git commit -m "refactor(frontend): make admin the only product platform"
+git commit -m "refactor(frontend): retire legacy products without collapsing platform admin"
 ```
 
-Expected: source-only guard, typecheck, and zero-warning lint pass; generated-contract retirement remains intentionally pending Task 7.
+Expected: source-only guard, platform-kernel integration tests, typecheck, and
+zero-warning lint pass; generated-contract synchronization remains intentionally
+pending Task 7.
 
-### Task 3: Remove backend App/Canvas route registration and transports
+### Task 3: Remove backend App/Canvas route registration and transports (complete: `db8c458`)
 
 **Files:**
 - Delete: `internal/server/routes_canvas.go`
@@ -301,11 +355,11 @@ Expected: source-only guard, typecheck, and zero-warning lint pass; generated-co
 - Modify: `internal/server/testdata/admin_route_policy_golden.json`
 - Modify: `internal/server/testdata/admin_routes_golden.txt`
 
-- [ ] **Step 1: Add route, dependency, and public-path guards**
+- [x] **Step 1: Add route, dependency, and public-path guards**
 
 `admin_only_test.go` compiles the router and asserts no `/api/app` or `/api/canvas` route, no import of a retired transport/module, no retired public auth path, and no App/Canvas permission seed outside `database/legacy-migrations`. It also asserts the compiled Admin route/policy registry equals both golden files.
 
-- [ ] **Step 2: Remove registration before deleting packages**
+- [x] **Step 2: Remove registration before deleting packages**
 
 Delete App/Canvas calls, dependency fields, imports, auth public paths, and platform inference from the runtime graph. Run server/Admin tests while the old packages still exist:
 
@@ -315,11 +369,11 @@ go test ./internal/server ./internal/middleware ./internal/architecture -run 'Te
 
 Expected: the binary exposes only Admin, health/readiness, metrics if configured, and required payment callback routes.
 
-- [ ] **Step 3: Delete the now-unreachable product code**
+- [x] **Step 3: Delete the now-unreachable product code**
 
 Delete only the directories/files declared above. Retain provider, engine, run-recorder, prompt, asset, storage, image, video, audio, and chat capability packages for Task 5 classification.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```powershell
 go test ./internal/server ./internal/middleware ./internal/architecture -run 'TestAdminOnly|TestRoute|TestAuth' -count=1
@@ -333,12 +387,14 @@ git commit -m "refactor(backend): remove app and canvas transports"
 
 Expected: no retired route/import remains and retained capability tests still pass.
 
-### Task 4: Collapse backend product metadata and workflows to Admin
+### Task 4: Retire legacy product values while preserving the platform kernel
 
 **Files:**
 - Modify: `internal/shared/enum/platform.go`
 - Modify: `internal/shared/dict/dict.go`
 - Modify: `internal/shared/dict/options_test.go`
+- Modify: `internal/shared/validate/platform.go`
+- Modify: `internal/shared/validate/validate_test.go`
 - Modify: `internal/module/auth_platform/dto.go`
 - Modify: `internal/module/auth_platform/errors.go`
 - Modify: `internal/module/auth_platform/repository.go`
@@ -364,52 +420,142 @@ Expected: no retired route/import remains and retained capability tests still pa
 - Modify: `internal/module/notification/task/dto.go`
 - Modify: `internal/module/notification/task/service.go`
 - Modify: `internal/module/notification/task/service_test.go`
+- Modify: `internal/module/notification/task/i18n_test.go`
 - Modify: `internal/module/notification/task/jobs_test.go`
+- Modify: `internal/module/notification/task/repository.go`
+- Modify: `internal/module/notification/transport/admin/task_request.go`
+- Modify: `internal/module/notification/transport/admin/task_handler.go`
 - Modify: `internal/module/auth/loginlog.go`
 - Modify: `internal/module/auth/loginlog_test.go`
 - Modify: `internal/module/auth/session_admin.go`
 - Modify: `internal/module/auth/session_test.go`
+- Modify: `internal/module/auth/transport/admin/request.go`
+- Modify: `internal/module/auth/transport/admin/handler.go`
+- Modify: `internal/module/auth/transport/admin/handler_test.go`
 - Modify: `internal/module/user/service.go`
 - Modify: `internal/module/user/service_test.go`
+- Modify: `internal/module/ai/run/recorder.go`
+- Modify: `internal/module/ai/run/recorder_test.go`
+- Modify: `internal/module/ai/run/service_test.go`
+- Modify: `internal/module/export/notifier.go`
+- Modify: `internal/middleware/auth_token.go`
+- Modify: `internal/middleware/auth_token_test.go`
 - Modify: `internal/server/routes_admin_commerce_rbac.go`
 - Modify: `internal/server/routes_admin_comms.go`
 - Modify: `internal/server/routes_admin_user.go`
+- Modify: `internal/server/router_test.go`
+- Modify: `internal/module/role/transport/admin/handler_test.go`
+- Create: `internal/architecture/platform_kernel_test.go`
 - Modify: `internal/server/testdata/admin_route_policy_golden.json`
+- Modify: `internal/server/testdata/admin_routes_golden.txt`
+- Modify: `scripts/full-admin-smoke.ps1`
 
-- [ ] **Step 1: Write failing singleton-policy tests**
+- [ ] **Step 1: Write failing registry and kernel-preservation tests**
 
-Tests require exactly one product value:
+Treat the enum registry as the compile-time adapter registry, not as the
+database configuration catalog. Replace exported mutable slices with copied
+accessors:
 
 ```go
 const PlatformAdmin = "admin"
 
-var Platforms = []string{PlatformAdmin}
-var NotificationTaskPlatforms = []string{PlatformAdmin}
+func RegisteredPlatforms() []string
+func IsRegisteredPlatform(string) bool
+func NotificationAudiencePlatforms() []string
+func IsNotificationAudiencePlatform(string) bool
 ```
 
-For this one transition commit, keep `PlatformApp` and `PlatformCanvas` constants only so the retained AI packages still compile; remove every non-AI use and ensure `IsPlatform` rejects them. Task 5 replaces the remaining AI references and then deletes both constants.
+`RegisteredPlatforms()` returns a defensive copy containing only `admin`.
+`NotificationAudiencePlatforms()` returns `all` followed by registered adapter
+codes. `all` is a notification audience only. Keep `PlatformApp` and
+`PlatformCanvas` temporarily only for Task 5 AI compilation, but neither is
+registered or accepted by runtime validators; Task 5 removes both constants.
+Replace every production caller of the ambiguous `IsPlatform` and exported
+`Platforms` slice with `IsRegisteredPlatform`/`RegisteredPlatforms` in this
+task. AI-run tests use Admin while retaining the platform field; they do not
+use retired Canvas merely to make compilation pass.
 
-They require auth-policy transport to expose read/update only, permission requests to omit a client-selected platform, role dictionaries to omit platform tabs, notification creation to assign Admin internally, and session/login statistics to return Admin data only. P08R Browser-only retirement remains unchanged and no updater target type is reintroduced.
+Add tests with the non-production code `partner_portal` proving the two-layer
+boundary:
 
-- [ ] **Step 2: Remove product-platform mutation APIs**
+```go
+id, appErr := service.Create(ctx, validCreateInput("partner_portal"))
+if appErr != nil || id == 0 { t.Fatalf("configuration must be creatable: %v", appErr) }
+if enum.IsRegisteredPlatform("partner_portal") { t.Fatal("configuration must not activate an adapter") }
+```
 
-Keep `GET /api/admin/v1/auth-platforms/page-init`, `GET /api/admin/v1/auth-platforms`, and `PUT /api/admin/v1/auth-platforms/:id` for the single Admin policy. Delete create, status, single-delete, and batch-delete registrations and their DTO/service branches. The service rejects an update unless the row code is `admin`.
+Route tests require all seven auth-platform operations and their exact
+permissions/audits. Architecture tests fail if the auth-platform CRUD/status
+methods, permission/role platform fields, session/login-log filters, or
+notification audience fields disappear. They also fail if App/Canvas is
+registered or if an Admin handler trusts a spoofed platform header.
 
-Permission list/create/update no longer accepts `platform`; handlers set Admin provenance before calling the service. Role initialization returns one Admin permission tree without `permission_platform_arr`. Notification tasks no longer accept `all` or `app`; their persisted and realtime audience is Admin. User/session/login dictionaries contain Admin only.
+- [ ] **Step 2: Restore the configuration catalog and keep runtime fail-closed**
 
-- [ ] **Step 3: Keep fail-closed internal provenance**
+Preserve these exact management operations:
 
-Database-backed models may retain `platform` for provenance, but every new write uses `admin`, every query that crosses an identity boundary includes Admin, and permission cache keys keep the Admin principal version. There is no `switch platform` branch in a Capability Module.
+```text
+GET    /api/admin/v1/auth-platforms/page-init
+GET    /api/admin/v1/auth-platforms
+POST   /api/admin/v1/auth-platforms
+PUT    /api/admin/v1/auth-platforms/:id
+PATCH  /api/admin/v1/auth-platforms/:id/status
+DELETE /api/admin/v1/auth-platforms/:id
+DELETE /api/admin/v1/auth-platforms
+```
+
+Restore `CreateInput`, repository create/code-exists/batch lookup/delete
+methods, service create/delete/status methods, request DTOs, handlers, error
+keys, and route policies. Keep the existing rules that `admin` cannot be
+deleted or disabled. Creating a syntactically valid configuration does not add
+it to `RegisteredPlatforms()` and therefore cannot add a route.
+
+Admin authentication and authorization transports inject
+`enum.PlatformAdmin` internally. A `platform` header, query, or body field on
+an Admin credential endpoint cannot change that value. No generic fallback
+turns an unknown platform into Admin.
+
+- [ ] **Step 3: Preserve platform isolation across core modules**
+
+Permission list/create/update retains its explicit management `platform`
+field and validates it against `RegisteredPlatforms()`. Role initialization
+retains `permission_platform_arr` and one permission tree per registered
+adapter. Cache invalidation and principal versions use the selected platform.
+
+Session and login-log management retain platform filters, platform labels, and
+distribution statistics. Repositories apply an explicit requested platform
+when supplied and otherwise query all registered platform provenance; they are
+not hard-coded to `WHERE platform = 'admin'`. Service validation tests prove an
+unregistered `partner_portal` filter fails closed. Repository/cache isolation
+tests use `admin` and `partner_portal` with different counts and IDs directly,
+without adding the latter to the production registry, to expose accidental
+mixing before the future adapter exists.
+
+Notification task create/list/count/cancel/delete/claim retains its audience
+field. It accepts `all` and registered platform codes, rejects App/Canvas and
+unknown codes, and persists the exact documented audience. Realtime delivery
+must not infer an unregistered target. Existing historical `all` row
+disposition remains Task 6 data work, not a reason to delete the runtime
+audience contract.
+
+User/export/AI provenance fields remain explicit. Current Admin transports
+write Admin; future adapters can supply only their compiled registered code.
+Capability modules contain no App/Canvas switch.
 
 - [ ] **Step 4: Verify and commit**
 
 ```powershell
-go test ./internal/shared/dict ./internal/shared/validate ./internal/module/auth_platform ./internal/module/permission ./internal/module/role ./internal/module/notification/task ./internal/module/auth ./internal/module/user ./internal/server -count=1
-go test ./internal/architecture -run TestAdminOnly -count=1
-git add -- internal/shared/enum/platform.go internal/shared/dict/dict.go internal/shared/dict/options_test.go internal/module/auth_platform/dto.go internal/module/auth_platform/errors.go internal/module/auth_platform/repository.go internal/module/auth_platform/service.go internal/module/auth_platform/service_test.go internal/module/auth_platform/management_service_test.go internal/module/auth_platform/management_i18n_test.go internal/module/auth_platform/transport/admin/request.go internal/module/auth_platform/transport/admin/handler.go internal/module/auth_platform/transport/admin/handler_test.go internal/module/auth_platform/transport/admin/handler_i18n_test.go internal/module/auth_platform/transport/admin/route.go internal/module/permission/dto.go internal/module/permission/service.go internal/module/permission/service_test.go internal/module/permission/management_service_test.go internal/module/permission/transport/admin/request.go internal/module/permission/transport/admin/handler.go internal/module/permission/transport/admin/handler_test.go internal/module/role/dto.go internal/module/role/service.go internal/module/role/service_test.go internal/module/notification/task/dto.go internal/module/notification/task/service.go internal/module/notification/task/service_test.go internal/module/notification/task/jobs_test.go internal/module/auth/loginlog.go internal/module/auth/loginlog_test.go internal/module/auth/session_admin.go internal/module/auth/session_test.go internal/module/user/service.go internal/module/user/service_test.go internal/server/routes_admin_commerce_rbac.go internal/server/routes_admin_comms.go internal/server/routes_admin_user.go internal/server/testdata/admin_route_policy_golden.json
+go test -p 1 ./internal/shared/dict ./internal/shared/validate ./internal/module/auth_platform ./internal/module/auth_platform/transport/admin ./internal/module/permission ./internal/module/permission/transport/admin ./internal/module/role ./internal/module/role/transport/admin ./internal/module/notification/task ./internal/module/notification/transport/admin ./internal/module/auth ./internal/module/auth/transport/admin ./internal/module/user ./internal/server -count=1
+go test -p 1 ./internal/platform/admin ./internal/runtime ./internal/architecture -run 'TestAdminOnly|TestPlatformKernel' -count=1
+go test -p 1 ./internal/module/... -count=1
+git add -- internal/shared/enum/platform.go internal/shared/dict/dict.go internal/shared/dict/options_test.go internal/shared/validate/platform.go internal/shared/validate/validate_test.go internal/module/auth_platform/dto.go internal/module/auth_platform/errors.go internal/module/auth_platform/repository.go internal/module/auth_platform/service.go internal/module/auth_platform/service_test.go internal/module/auth_platform/management_service_test.go internal/module/auth_platform/management_i18n_test.go internal/module/auth_platform/transport/admin/request.go internal/module/auth_platform/transport/admin/handler.go internal/module/auth_platform/transport/admin/handler_test.go internal/module/auth_platform/transport/admin/handler_i18n_test.go internal/module/auth_platform/transport/admin/route.go internal/module/permission/dto.go internal/module/permission/service.go internal/module/permission/service_test.go internal/module/permission/management_service_test.go internal/module/permission/transport/admin/request.go internal/module/permission/transport/admin/handler.go internal/module/permission/transport/admin/handler_test.go internal/module/role/dto.go internal/module/role/service.go internal/module/role/service_test.go internal/module/role/transport/admin/handler_test.go internal/module/notification/task/dto.go internal/module/notification/task/repository.go internal/module/notification/task/service.go internal/module/notification/task/service_test.go internal/module/notification/task/i18n_test.go internal/module/notification/task/jobs_test.go internal/module/notification/transport/admin/task_request.go internal/module/notification/transport/admin/task_handler.go internal/module/auth/loginlog.go internal/module/auth/loginlog_test.go internal/module/auth/session_admin.go internal/module/auth/session_test.go internal/module/auth/transport/admin/request.go internal/module/auth/transport/admin/handler.go internal/module/auth/transport/admin/handler_test.go internal/module/user/service.go internal/module/user/service_test.go internal/module/ai/run/recorder.go internal/module/ai/run/recorder_test.go internal/module/ai/run/service_test.go internal/module/export/notifier.go internal/middleware/auth_token.go internal/middleware/auth_token_test.go internal/server/router_test.go internal/server/routes_admin_commerce_rbac.go internal/server/routes_admin_comms.go internal/server/routes_admin_user.go internal/architecture/platform_kernel_test.go internal/server/testdata/admin_route_policy_golden.json internal/server/testdata/admin_routes_golden.txt scripts/full-admin-smoke.ps1
 git diff --cached --check
-git commit -m "refactor(admin): collapse product metadata to one platform"
+git commit -m "refactor(platform): preserve the extensible platform kernel"
 ```
+
+Expected: only Admin is registered, all auth-platform management operations
+remain, App/Canvas is rejected, an unregistered configuration is not routable,
+and platform-aware modules pass isolation tests.
 
 ### Task 5: Retain generic AI capabilities without Canvas language
 
@@ -464,11 +610,26 @@ const (
 )
 ```
 
-`ai_capability_boundary_test.go` requires direct behavior tests for provider dispatch, run recording, storage keys, cancellation/failure, and repository state in every retained modality. It rejects Gin imports, retired transport imports, `canvas_` identifiers, `canvas.` i18n keys, `canvas_video_tasks`, and platform switches inside retained capability packages. After the capability references are replaced, delete `PlatformApp` and `PlatformCanvas` from `internal/shared/enum/platform.go` and prove all production packages compile.
+`ai_capability_boundary_test.go` requires direct behavior tests for provider
+dispatch, run recording, storage keys, cancellation/failure, provenance, and
+repository state in every retained modality. It rejects Gin imports, retired
+transport imports, `canvas_` identifiers, `canvas.` i18n keys,
+`canvas_video_tasks`, and App/Canvas platform switches inside retained
+capability packages. It must not reject the generic `platform` provenance
+field. After the capability references are replaced, delete `PlatformApp` and
+`PlatformCanvas` from `internal/shared/enum/platform.go` and prove all
+production packages compile.
 
 - [ ] **Step 2: Rename interfaces and records, not only labels**
 
-Rename `CanvasCompletionInput/Response` and `CanvasCompletion` to `TextCompletionInput/Response` and `CompleteText`. Rename helper/request IDs to `text-completion-*`, `ai_audio_*`, and `ai_video_task_*`. `VideoTask.TableName()` becomes `ai_video_tasks`. Image/text/audio/video run records use Admin provenance without accepting a caller-controlled product platform. AI-run Admin filters no longer accept App/Canvas.
+Rename `CanvasCompletionInput/Response` and `CanvasCompletion` to
+`TextCompletionInput/Response` and `CompleteText`. Rename helper/request IDs to
+`text-completion-*`, `ai_audio_*`, and `ai_video_task_*`.
+`VideoTask.TableName()` becomes `ai_video_tasks`. Image/text/audio/video run
+records retain a required registered-platform provenance. The Admin transport
+injects Admin internally; an Admin create request cannot choose another
+platform. AI-run management filters retain the generic platform field and use
+the registered adapter options, which currently contain only Admin.
 
 Replace every capability error key with `aitext.*`, `aiimage.*`, `aiaudio.*`, or `aivideo.*`; remove Canvas wording from safe messages. Do not rename DOM Canvas APIs or the untouched repository.
 
@@ -489,7 +650,7 @@ git commit -m "refactor(ai): retain transport-neutral generation capabilities"
 
 Expected: `rg` has no matches and exits 1; all retained capability tests pass without a retired transport.
 
-### Task 6: Execute guarded Admin-only Atlas contract groups
+### Task 6: Execute guarded legacy-product Atlas contract groups
 
 **Files:**
 - Create: `database/migrations/202607150201_admin_only_rows.sql`
@@ -515,7 +676,9 @@ Tests prove lock contention fails closed, child failure releases the lock, a DSN
 
 - [ ] **Step 2: Write three independently verifiable migration groups**
 
-`202607150201_admin_only_rows.sql` performs only the dispositions locked in Task 1, in dependency order:
+`202607150201_admin_only_rows.sql` performs only the dispositions locked in
+Task 1, in dependency order. These statements remove retired product rows;
+they do not redefine the platform kernel as a singleton:
 
 ```sql
 DELETE rp FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
@@ -532,6 +695,10 @@ DELETE FROM notification_task WHERE platform IN ('app', 'canvas');
 DELETE FROM notifications WHERE platform IN ('app', 'canvas');
 DELETE FROM export_tasks WHERE platform IN ('app', 'canvas');
 ```
+
+The `all` updates above are the locked disposition of historical rows only.
+The runtime notification contract and final schema continue to permit the
+formally defined `all` virtual audience for new tasks.
 
 The same file deletes Canvas AI dependents before `ai_runs`, `ai_text_tasks`,
 `ai_image_tasks`, and video-task owners; it updates all four `ai_agents` scene
@@ -581,7 +748,30 @@ requires the operator's fresh destructive approval token through the wrapper.
 It does not delete COS objects and does not drop a performance index without
 matching before/after evidence.
 
-`202607150203_admin_only_constraints.sql` adds named checks for the remaining Admin provenance columns and `auth_platforms.code`, proves `client_versions` and all client-version constraints are absent, then records the target fingerprint. The platform checks cover `permissions`, `user_sessions`, `users_login_log`, `notification_task`, `notifications`, `export_tasks`, `ai_runs`, `ai_text_tasks`, and `ai_image_tasks`; they do not reference the already-absent `ai_billing_records` table.
+`202607150203_admin_only_constraints.sql` proves `client_versions` and all
+client-version constraints are absent, then records the target fingerprint.
+It must not add `platform = 'admin'` or `auth_platforms.code = 'admin'` checks.
+Instead it adds named syntax/retirement checks equivalent to:
+
+```sql
+CHECK (
+  platform REGEXP '^[a-z][a-z0-9_]{1,48}$'
+  AND platform NOT IN ('app', 'canvas')
+)
+```
+
+For notification tables, `all` remains an allowed virtual audience. For every
+other active provenance row, `052`/`053` use zero-row joins to prove the code
+exists in a non-deleted `auth_platforms` row. The checks and invariants cover
+`permissions`, `authz_principal_versions`, `user_sessions`,
+`users_login_log`, `notification_task`, `notifications`, `export_tasks`,
+`ai_runs`, `ai_text_tasks`, and `ai_image_tasks`; they do not reference the
+already-absent `ai_billing_records` table.
+
+`053_verify_admin_only.sql` additionally proves that `auth_platforms`, its
+unique code index, its policy columns, every retained provenance column, and
+the platform query indexes still exist. It proves current registered/active
+product rows are Admin-only without forbidding a future valid code in schema.
 
 - [ ] **Step 3: Make the wrapper stop between groups**
 
@@ -608,7 +798,9 @@ pwsh -NoProfile -File scripts/database/contract-admin-only.ps1 -Database $env:AD
 pwsh -NoProfile -File scripts/database/check-drift.ps1 -Database $env:ADMIN_RESTORE_DB
 ```
 
-Expected: both restores reach the same fingerprint, `053` returns zero rows, repeat execution is clean, and no live schema is touched.
+Expected: both restores reach the same fingerprint, `053` returns zero rows,
+repeat execution is clean, no live schema is touched, App/Canvas is absent,
+and the platform-kernel schema remains intact.
 
 - [ ] **Step 5: Commit the reviewed migration and canonical schema**
 
@@ -616,10 +808,10 @@ Expected: both restores reach the same fingerprint, `053` returns zero rows, rep
 pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
 git add -- database/migrations/202607150201_admin_only_rows.sql database/migrations/202607150202_admin_only_schema.sql database/migrations/202607150203_admin_only_constraints.sql database/migrations/atlas.sum database/schema/admin.hcl database/reconciliation/051_verify_admin_rows.sql database/reconciliation/052_verify_ai_contract.sql database/reconciliation/053_verify_admin_only.sql internal/databaseevolution/migration_lock.go internal/databaseevolution/migration_lock_test.go cmd/admin-db/main.go scripts/database/contract-admin-only.ps1 scripts/tests/admin-only-contract.tests.ps1 database/README.md
 git diff --cached --check
-git commit -m "feat(database): contract schema to admin only"
+git commit -m "feat(database): retire legacy product schema safely"
 ```
 
-### Task 7: Publish and consume the final Admin Contract Bundle
+### Task 7: Publish and consume the current-Admin platform-kernel Contract Bundle
 
 **Backend files:**
 - Modify: `internal/admincontract/bundle.go`
@@ -648,7 +840,20 @@ git commit -m "feat(database): contract schema to admin only"
 
 - [ ] **Step 1: Add final generated-contract guards**
 
-Backend and frontend guards reject App/Canvas paths, operations, permission codes, view keys, product enum values, old scenes, auth-platform mutation operations, notification audience alternatives, client-version operations/views/permissions, client-variant headers, desktop refresh fields, and every Tauri/native generated identifier. They require every operation to have one route policy/audit decision and every artifact hash to match the manifest.
+Backend and frontend guards reject App/Canvas paths, permission codes, view
+keys, retired product enum values, old scenes, client-version
+operations/views/permissions, client-variant headers, desktop refresh fields,
+and every Tauri/native generated identifier. They require every operation to
+have one route policy/audit decision and every artifact hash to match the
+manifest.
+
+The guards also require all seven auth-platform management operations,
+permission/role platform fields, session/login-log platform filters and
+statistics, notification audience fields including `all`, and generic
+provenance fields. Generated platform option enums may contain only the current
+registered Admin adapter (plus notification `all`); configuration code fields
+remain validated strings so a future adapter can be staged without a schema
+rewrite.
 
 - [ ] **Step 2: Regenerate backend truth from the committed runtime**
 
@@ -659,7 +864,7 @@ pwsh -NoProfile -File scripts/check-admin-contract.ps1
 go test ./internal/admincontract ./internal/architecture -run 'TestBundle|TestManifest|TestAdminOnly' -count=1
 git add -- internal/admincontract/bundle.go internal/admincontract/openapi.go internal/admincontract/permissions.go internal/admincontract/views.go internal/admincontract/realtime.go internal/admincontract/manifest.go internal/admincontract/bundle_test.go contracts/admin/v1/openapi.json contracts/admin/v1/permissions.json contracts/admin/v1/views.json contracts/admin/v1/realtime/envelope.schema.json contracts/admin/v1/realtime/events.schema.json contracts/admin/v1/manifest.json internal/architecture/admin_only_test.go
 git diff --cached --check
-git commit -m "feat(contract): publish final admin-only bundle"
+git commit -m "feat(contract): publish current-admin platform-kernel bundle"
 ```
 
 The generator records the current clean backend source SHA containing Tasks 1–6 and bumps the bundle version to `admin-2026-07-15.2`. The following generated-contract commit is deliberately newer, avoiding a self-referential commit hash.
@@ -674,10 +879,12 @@ $root = (Get-Location).Path
 docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,src=E:/admin/admin_back_go,dst=/backend,readonly" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm run contract:sync -- --backend /backend --commit $backendSourceCommit && npm run contract:generate && npm run routes:generate && npm run contract:check && npm test -- tests/shared/architecture/admin-only.test.ts && npm run check:browser-only && npm run typecheck && npm run lint"
 git add -- contracts/backend/admin/v1 contracts/backend/admin/lock.json src/modules/http/generated/admin.ts src/modules/http/generated/operations.ts src/modules/routing/generated/permissions.ts src/modules/routing/generated/views.ts tests/shared/architecture/admin-only.test.ts
 git diff --cached --check
-git commit -m "chore(contract): lock final admin-only bundle"
+git commit -m "chore(contract): lock current-admin platform-kernel bundle"
 ```
 
-Expected: frontend lock commit/digest equals backend manifest, all generated files are clean, and no retired operation is representable.
+Expected: frontend lock commit/digest equals backend manifest, all generated
+files are clean, no retired App/Canvas operation is representable, and the
+platform administration core remains fully representable.
 
 ### Task 8: Build a synchronized immutable deployment and rollback path
 
@@ -685,6 +892,7 @@ Expected: frontend lock commit/digest equals backend manifest, all generated fil
 - Create: `release/admin-only/release-manifest.schema.json`
 - Create: `scripts/release/new-release-manifest.ps1`
 - Create: `scripts/release/check-release-manifest.ps1`
+- Create: `scripts/release/check-platform-kernel.ps1`
 - Create: `scripts/release/export-docker-images.ps1`
 - Create: `scripts/release/deploy-admin-only.ps1`
 - Create: `scripts/release/rollback-admin-only.ps1`
@@ -696,7 +904,22 @@ Expected: frontend lock commit/digest equals backend manifest, all generated fil
 
 - [ ] **Step 1: Write failing Docker-release boundary tests**
 
-Backend tests require a strict release schema, revision-labelled frontend/backend image digests, image-archive SHA-256 values, the exact Browser-only Admin Contract Bundle digest, database/recovery evidence, P08R retirement evidence, and the approved COS historical-object disposition digest. Frontend tests reject every `.github` directory, deployment Workflow, desktop artifact, and versioned-web shell switch.
+Backend tests require a strict release schema, revision-labelled
+frontend/backend image digests, image-archive SHA-256 values, the exact
+Browser-only Admin Contract Bundle digest, database/recovery evidence, P08R
+retirement evidence, the approved COS historical-object disposition digest,
+and a platform-kernel proof digest. The platform-kernel proof must demonstrate
+both current Admin-only adapter registration and retained generic management/
+schema seams. Frontend tests reject every `.github` directory, deployment
+Workflow, desktop artifact, and versioned-web shell switch.
+
+`check-platform-kernel.ps1` runs the committed backend
+`TestPlatformKernel` guard, checks the final backend Bundle for all seven
+auth-platform operations and platform-aware schemas, checks the frontend lock
+against that Bundle, and executes the post-contract `053` platform-kernel
+invariants against the supplied disposable database. It writes only commits,
+artifact digests, invariant counts, and pass/fail state to ignored
+`release/admin-only/out/platform-kernel-proof.json` through atomic rename.
 
 ```powershell
 cd E:/admin/admin_back_go
@@ -743,14 +966,15 @@ The generated manifest is never committed. Its tracked schema contains concrete 
       "properties": {"atlas_version": {"const": "202607150203"}, "target_fingerprint_sha256": {"$ref": "#/$defs/sha256"}, "atlas_sum_sha256": {"$ref": "#/$defs/sha256"}}
     },
     "evidence": {
-      "type": "object", "additionalProperties": false, "required": ["input_lock_sha256", "query_sha256", "cos_disposition_sha256", "recovery_sha256", "browser_only_retirement_sha256"],
-      "properties": {"input_lock_sha256": {"$ref": "#/$defs/sha256"}, "query_sha256": {"$ref": "#/$defs/sha256"}, "cos_disposition_sha256": {"$ref": "#/$defs/sha256"}, "recovery_sha256": {"$ref": "#/$defs/sha256"}, "browser_only_retirement_sha256": {"$ref": "#/$defs/sha256"}}
+      "type": "object", "additionalProperties": false, "required": ["input_lock_sha256", "query_sha256", "cos_disposition_sha256", "recovery_sha256", "browser_only_retirement_sha256", "platform_kernel_sha256"],
+      "properties": {"input_lock_sha256": {"$ref": "#/$defs/sha256"}, "query_sha256": {"$ref": "#/$defs/sha256"}, "cos_disposition_sha256": {"$ref": "#/$defs/sha256"}, "recovery_sha256": {"$ref": "#/$defs/sha256"}, "browser_only_retirement_sha256": {"$ref": "#/$defs/sha256"}, "platform_kernel_sha256": {"$ref": "#/$defs/sha256"}}
     }
   }
 }
 ```
 
-`new-release-manifest.ps1` reads artifact metadata and the pre-contract input
+`new-release-manifest.ps1` reads artifact metadata, the committed
+platform-kernel verification output, and the pre-contract input
 lock, verifies both current clean P09 release commits, proves that the two
 pre-contract commits are ancestors of them, and writes
 `release/admin-only/out/release-manifest.json` atomically. The manifest records
@@ -781,7 +1005,7 @@ There is no desktop release unit. Task 8 reads only the reviewed COS historical-
 cd E:/admin/admin_back_go
 go test ./internal/architecture -run TestAdminRelease -count=1
 pwsh -NoProfile -File scripts/release/check-release-manifest.ps1 -SchemaOnly
-git add -- release/admin-only/release-manifest.schema.json scripts/release/new-release-manifest.ps1 scripts/release/check-release-manifest.ps1 scripts/release/export-docker-images.ps1 scripts/release/deploy-admin-only.ps1 scripts/release/rollback-admin-only.ps1 deploy/admin-only/docker-compose.yml internal/architecture/admin_release_test.go
+git add -- release/admin-only/release-manifest.schema.json scripts/release/new-release-manifest.ps1 scripts/release/check-release-manifest.ps1 scripts/release/check-platform-kernel.ps1 scripts/release/export-docker-images.ps1 scripts/release/deploy-admin-only.ps1 scripts/release/rollback-admin-only.ps1 deploy/admin-only/docker-compose.yml internal/architecture/admin_release_test.go
 git diff --cached --check
 git commit -m "build(release): deploy immutable Docker artifacts"
 ```
@@ -807,12 +1031,25 @@ git commit -m "test(release): enforce Docker-only frontend delivery"
 - Create: `docs/runbooks/admin-only-secrets.md`
 - Create: `docs/runbooks/admin-only-observability.md`
 - Create: `docs/runbooks/admin-only-schema-status.md`
+- Create: `docs/runbooks/platform-onboarding.md`
 - Modify: `docs/architecture.md`
 - Modify: `CONTEXT.md`
 
 - [ ] **Step 1: Write operational runbooks with exact stop conditions**
 
-Document required roles/secrets without values, artifact acquisition, digest verification, database lock/status, preflight fingerprints, migration group stop points, health/readiness, Admin smoke, WebSocket/queue/scheduler/provider metrics, log redaction checks, application rollback, full recovery rollback, RTO/RPO recording, and incident escalation. Every command reads credentials from the environment or ignored files and redacts them from output.
+Document required roles/secrets without values, artifact acquisition, digest
+verification, database lock/status, preflight fingerprints, migration group
+stop points, health/readiness, Admin smoke, WebSocket/queue/scheduler/provider
+metrics, log redaction checks, application rollback, full recovery rollback,
+RTO/RPO recording, and incident escalation. Every command reads credentials
+from the environment or ignored files and redacts them from output.
+
+`platform-onboarding.md` records the mandatory future order: approve the new
+platform contract, implement a dedicated trusted transport, add its compile-
+time registry entry, publish a matching Bundle, configure `auth_platforms`,
+assign independent permission/role data, configure notification audiences,
+run cross-platform isolation tests, and deploy by Docker. It explicitly states
+that a database row or client header never activates a platform.
 
 - [ ] **Step 2: Automate the complete proof**
 
@@ -827,7 +1064,8 @@ frontend lint/typecheck/unit/component/integration/build/budget gates
 P07 Docker health/revision/authenticated HTTP/realtime smoke and user acceptance evidence
 P08R Browser-only source/contract/menu/session retirement and user acceptance evidence
 secret/dump/sensitive-log scan
-Admin-only and Browser-only source/generated/schema scan, including absent client_versions
+current-Admin adapter and Browser-only source/generated scan, including absent client_versions
+platform-kernel contract/schema scan requiring auth-platform CRUD, RBAC/session/log/notification dimensions, provenance columns, and indexes
 primary-checkout/no-worktree/no-.github/no-deployment-Workflow checks
 ```
 
@@ -851,7 +1089,7 @@ Any mismatch invalidates the release manifest; do not patch evidence by hand.
 ```powershell
 cd E:/admin/admin_back_go
 pwsh -NoProfile -File scripts/tests/admin-only-release-rehearsal.tests.ps1
-git add -- scripts/release/verify-admin-only-release.ps1 scripts/tests/admin-only-release-rehearsal.tests.ps1 docs/runbooks/admin-only-deployment.md docs/runbooks/admin-only-rollback.md docs/runbooks/admin-only-secrets.md docs/runbooks/admin-only-observability.md docs/runbooks/admin-only-schema-status.md docs/architecture.md CONTEXT.md
+git add -- scripts/release/verify-admin-only-release.ps1 scripts/tests/admin-only-release-rehearsal.tests.ps1 docs/runbooks/admin-only-deployment.md docs/runbooks/admin-only-rollback.md docs/runbooks/admin-only-secrets.md docs/runbooks/admin-only-observability.md docs/runbooks/admin-only-schema-status.md docs/runbooks/platform-onboarding.md docs/architecture.md CONTEXT.md
 git diff --cached --check
 git commit -m "docs(release): add admin-only operations and rollback proof"
 ```
@@ -860,6 +1098,7 @@ git commit -m "docs(release): add admin-only operations and rollback proof"
 
 ```powershell
 pwsh -NoProfile -File scripts/release/lock-inputs.ps1 -CheckOnly
+pwsh -NoProfile -File scripts/release/check-platform-kernel.ps1 -Database $env:ADMIN_RESTORE_DB -Output release/admin-only/out/platform-kernel-proof.json
 pwsh -NoProfile -File scripts/release/new-release-manifest.ps1
 pwsh -NoProfile -File scripts/release/check-release-manifest.ps1 -Manifest release/admin-only/out/release-manifest.json
 pwsh -NoProfile -File scripts/release/verify-admin-only-release.ps1 -Manifest release/admin-only/out/release-manifest.json
@@ -867,4 +1106,11 @@ git -C E:/admin/admin_back_go status --short
 git -C E:/admin/admin_front_ts status --short
 ```
 
-Expected: both status commands produce no output; all nine plan gates pass; imported, empty, and post-contract databases share the committed fingerprint; immutable Docker artifacts match the manifest; `client_versions` is absent only after the approved contract group; rollback rehearsal passes; no secondary worktree, `.github` directory, desktop artifact, or deployment Workflow exists. Only after a fresh explicit user approval may the operator run the live contract migration and Compose promotion commands.
+Expected: both status commands produce no output; all nine plan gates pass;
+imported, empty, and post-contract databases share the committed fingerprint;
+immutable Docker artifacts match the manifest; `client_versions` is absent
+only after the approved contract group; App/Canvas adapters and data are absent;
+the extensible platform kernel proof is present; rollback rehearsal passes; no
+secondary worktree, `.github` directory, desktop artifact, or deployment
+Workflow exists. Only after a fresh explicit user approval may the operator run
+the live contract migration and Compose promotion commands.

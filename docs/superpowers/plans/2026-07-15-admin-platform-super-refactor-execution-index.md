@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to execute the active plan task-by-task. Work inline unless the user explicitly requests delegation. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Coordinate the independently testable P01-P09 phases, including the completed P03.5 and P08R, into one Browser-only Admin platform whose formal delivery remains exclusively Docker-based.
+**Goal:** Coordinate the independently testable P01-P09 phases, including the completed P03.5 and P08R, into one current Browser-only Admin product whose formal delivery remains exclusively Docker-based while its authenticated platform kernel remains ready for the next explicitly contracted adapter.
 
 **Architecture:** Foundation/database/runtime phases remain serialized. All active work runs directly in the two existing `master` checkouts with no worktrees, no browser automation, and no GitHub Workflow. Formal builds and acceptance remain full-Docker; the approved Windows development phase alone runs Vite/API/Worker on the host while MySQL/Redis stay in Docker. P08 is retained as completed history but its Tauri result is superseded by P08R; P08.5 is cancelled. P09 is the only phase allowed to execute destructive App/Canvas or `client_versions` contract DDL.
 
@@ -14,18 +14,23 @@
 
 Current precedence, highest first:
 
-1. `../specs/2026-07-19-admin-browser-only-tauri-retirement-design.md`
-2. `../specs/2026-07-20-windows-local-hot-reload-development-design.md`
-3. `../specs/2026-07-15-admin-platform-super-refactor-design.md`
-4. `../specs/2026-07-15-admin-foundation-database-design.md`
-5. `../specs/2026-07-15-admin-go-architecture-design.md`
-6. `../specs/2026-07-17-admin-docker-stability-closure-design.md`
-7. `E:/admin/admin_front_ts/docs/superpowers/specs/2026-07-15-admin-frontend-super-refactor-design.md`, except sections explicitly superseded by item 1
-8. `../../../CONTEXT.md`
+1. `../specs/2026-07-20-extensible-platform-kernel-design.md`
+2. `../specs/2026-07-19-admin-browser-only-tauri-retirement-design.md`
+3. `../specs/2026-07-20-windows-local-hot-reload-development-design.md`
+4. `../specs/2026-07-15-admin-platform-super-refactor-design.md`
+5. `../specs/2026-07-15-admin-foundation-database-design.md`
+6. `../specs/2026-07-15-admin-go-architecture-design.md`
+7. `../specs/2026-07-17-admin-docker-stability-closure-design.md`
+8. `E:/admin/admin_front_ts/docs/superpowers/specs/2026-07-15-admin-frontend-super-refactor-design.md`, except sections explicitly superseded by items 1 and 2
+9. `../../../CONTEXT.md`
 
 `../specs/2026-07-18-p07-p09-execution-rebaseline-design.md` is an archived, superseded Tauri-era rebaseline and is not executable.
 
-Implementation plans may refine mechanics but may not change Browser-only scope, Cookie/Origin authentication, current Admin single-session policy, Docker-only runtime, the frontend document-as-contract rule, or the P09 destructive boundary. Any such change returns to specification review.
+Implementation plans may refine mechanics but may not change Browser-only
+scope, Cookie/Origin authentication, current Admin single-session policy,
+Docker-only runtime, the frontend document-as-contract rule, the extensible
+platform-kernel boundary, or the P09 destructive boundary. Any such change
+returns to specification review.
 
 ## Plan set and dependency order
 
@@ -44,7 +49,7 @@ Implementation plans may refine mechanics but may not change Browser-only scope,
 | P07 Tasks 6-10 | complete, user-reviewed | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P08R + user P08R acceptance | page decomposition, zero warnings, budgets, WCAG, Docker/manual acceptance |
 | P08.5 | cancelled; do not execute | `2026-07-18-admin-tauri-windows-release-plan.md` | none | cancelled by approved Browser-only spec | no artifact |
 | Windows local development | complete, user-reviewed | `2026-07-20-windows-local-hot-reload-development-plan.md` | backend + frontend | Gate F + approved Windows design | one-command host HMR with Docker state and unchanged full-Docker delivery |
-| P09 | active; destructive DDL still approval-gated | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, immutable Docker release/rollback proof |
+| P09 | active; destructive DDL still approval-gated | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, approved extensible-platform spec, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, preserved platform kernel, immutable Docker release/rollback proof |
 
 ## Dependency graph
 
@@ -61,7 +66,7 @@ P01 Foundation
                                 └─→ P08R Browser-only retirement
                                       └─→ P07 Tasks 6–10
                                             └─→ Windows local development
-                                                  └─→ P09 Admin-only final contract/release
+                                                  └─→ P09 current-Admin release with extensible platform kernel
 
 P08.5 Windows candidate release = CANCELLED (no dependency edge)
 ```
@@ -155,7 +160,7 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, an unreviewed mig
 - [x] **Gate D:** P04 proves one-winner refresh, session/RBAC invalidation, and route-policy completeness. Its browser/desktop presentation is historical and does not satisfy P08R.
 - [x] **Gate E:** P05 proves durable work recovery, scheduler lease safety, and realtime resume/deduplication.
 - [x] **Gate F:** P08R plus P07 Tasks 6-10 prove one Browser-only contract, no Tauri/client-variant/client-version runtime, Docker-only delivery, zero-warning frontend quality, budgets, WCAG behavior, smoke, and user acceptance.
-- [ ] **Gate G:** P09 removes approved retired product/schema surfaces—including frozen `client_versions` only after fresh approval—and passes the complete immutable Docker release/rollback proof.
+- [ ] **Gate G:** P09 removes approved retired product/schema surfaces—including frozen `client_versions` only after fresh approval—preserves and proves the extensible authenticated platform kernel, and passes the complete immutable Docker release/rollback proof.
 
 P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlier one. P09 stops before destructive DDL if recovery restore, frozen-table evidence, COS disposition, contract lock, Docker image revision, or user approval is missing.
 
