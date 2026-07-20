@@ -25,7 +25,7 @@ aiimage.quality.invalid: 无效的图片质量
 aiimage.output_format.invalid: 无效的输出格式
 aiimage.output_compression.invalid: 输出压缩率必须在0到100之间
 aiimage.moderation.invalid: 无效的审核参数
-aiimage.n.too_many: 单次最多生成4张图片
+aiimage.n.too_many: 单次最多生成15张图片
 aiimage.input_assets.too_many: 参考图最多10张
 aiimage.mask.requires_input: 遮罩图必须配合参考图使用
 aiimage.mask_target.invalid: 遮罩目标图必须在参考图中
@@ -38,9 +38,9 @@ aiimage.asset.source_type.unsupported: 图片资产来源不支持
 aiimage.agent.not_found: 图片智能体不存在或未启用
 aiimage.agent.runtime_disabled: 图片智能体、供应商或模型未启用
 aiimage.agent.scene_missing: 智能体未启用图片生成场景
-aiimage.model.unsupported: Canvas图片生成只支持 gpt-image-2
+aiimage.model.unsupported: AI图片生成只支持 gpt-image-2
 aiimage.provider.api_key_missing: AI供应商API Key未配置
-aiimage.provider.unsupported: Canvas图片生成只支持 OpenAI-compatible 供应商
+aiimage.provider.unsupported: AI图片生成只支持 OpenAI-compatible 供应商
 aiimage.asset.query_failed: 查询图片资产失败
 aiimage.asset.not_owned: 图片资产不存在或不属于当前用户
 aiimage.input_asset.cos_required: 参考图必须来自已上传的 COS 图片资产
@@ -66,3 +66,7 @@ aiimage.output.upload_failed: 上传生成图片失败
 aiimage.run.usage_status_missing: 图片生成用量状态缺失
 aiimage.upload.empty: 上传图片不能为空
 aiimage.upload.mime.invalid: 上传图片MIME类型不合法
+aiimage.request.invalid: 图片生成参数错误
+aiimage.result_invalid: AI图片生成结果无效
+aiimage.id.invalid: 图片任务ID无效
+aiimage.list.request.invalid: 图片任务列表参数错误

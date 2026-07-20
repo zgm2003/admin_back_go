@@ -586,12 +586,17 @@ and platform-aware modules pass isolation tests.
 - Create: `internal/module/ai/capability/scenes.go`
 - Create: `internal/module/ai/capability/scenes_test.go`
 - Modify: `internal/shared/enum/platform.go`
+- Modify: `internal/shared/enum/platform_test.go`
 - Modify: `internal/module/ai/agent/service.go`
 - Modify: `internal/module/ai/agent/service_test.go`
 - Modify: `internal/module/ai/chat/dto.go`
 - Modify: `internal/module/ai/chat/service.go`
 - Modify: `internal/module/ai/chat/service_test.go`
 - Modify: `internal/module/ai/image/dto.go`
+- Modify: `internal/module/ai/image/jobs.go`
+- Modify: `internal/module/ai/image/jobs_test.go`
+- Modify: `internal/module/ai/image/repository.go`
+- Modify: `internal/module/ai/image/repository_delete_test.go`
 - Modify: `internal/module/ai/image/service.go`
 - Modify: `internal/module/ai/image/service_test.go`
 - Modify: `internal/module/ai/image/model_split_test.go`
@@ -600,9 +605,11 @@ and platform-aware modules pass isolation tests.
 - Modify: `internal/module/ai/audio/service_test.go`
 - Modify: `internal/module/ai/video/dto.go`
 - Modify: `internal/module/ai/video/model.go`
+- Modify: `internal/module/ai/video/repository.go`
 - Modify: `internal/module/ai/video/service.go`
 - Modify: `internal/module/ai/video/service_test.go`
 - Modify: `internal/module/ai/run/recorder_test.go`
+- Modify: `internal/module/ai/run/service.go`
 - Modify: `internal/module/ai/run/service_test.go`
 - Modify: `internal/module/ai/run/transport/admin/request.go`
 - Create: `internal/shared/i18n/locales/en-US/aitext.yaml`
@@ -615,12 +622,19 @@ and platform-aware modules pass isolation tests.
 - Modify: `internal/shared/i18n/locales/zh-CN/aiimage.yaml`
 - Modify: `internal/shared/i18n/locales/en-US/user.yaml`
 - Modify: `internal/shared/i18n/locales/zh-CN/user.yaml`
+- Modify: `internal/shared/i18n/locales/en-US/airun.yaml`
+- Modify: `internal/shared/i18n/locales/zh-CN/airun.yaml`
 - Delete: `internal/shared/i18n/locales/en-US/canvas.yaml`
 - Delete: `internal/shared/i18n/locales/zh-CN/canvas.yaml`
 - Create: `internal/architecture/ai_capability_boundary_test.go`
+- Modify: `internal/architecture/admin_ai_interaction_retirement_test.go`
+- Modify: `internal/architecture/platform_kernel_test.go`
+- Modify: `internal/module/permission/management_service_test.go`
+- Modify: `internal/module/permission/service_test.go`
+- Modify: `internal/server/router_test.go`
 - Modify: `scripts/full-admin-smoke.ps1`
 
-- [ ] **Step 1: Centralize canonical scenes and prove classification**
+- [x] **Step 1: Centralize canonical scenes and prove classification**
 
 ```go
 package capability
@@ -643,7 +657,7 @@ field. After the capability references are replaced, delete `PlatformApp` and
 `PlatformCanvas` from `internal/shared/enum/platform.go` and prove all
 production packages compile.
 
-- [ ] **Step 2: Rename interfaces and records, not only labels**
+- [x] **Step 2: Rename interfaces and records, not only labels**
 
 Rename `CanvasCompletionInput/Response` and `CanvasCompletion` to
 `TextCompletionInput/Response` and `CompleteText`. Rename helper/request IDs to
@@ -656,16 +670,16 @@ the registered adapter options, which currently contain only Admin.
 
 Replace every capability error key with `aitext.*`, `aiimage.*`, `aiaudio.*`, or `aivideo.*`; remove Canvas wording from safe messages. Do not rename DOM Canvas APIs or the untouched repository.
 
-- [ ] **Step 3: Prove retained capability behavior directly**
+- [x] **Step 3: Prove retained capability behavior directly**
 
 Each modality test invokes its service with fake engine, secret, run recorder, repository/storage, and clock. Tests cover success, invalid scene, provider failure, empty response, run completion/failure, object-key generation, and idempotent terminal update without any HTTP transport.
 
-- [ ] **Step 4: Run the terminology guard and commit**
+- [x] **Step 4: Run the terminology guard and commit**
 
 ```powershell
 go test ./internal/module/ai/capability ./internal/module/ai/agent ./internal/module/ai/chat ./internal/module/ai/image ./internal/module/ai/audio ./internal/module/ai/video ./internal/module/ai/run ./internal/shared/i18n ./internal/architecture -count=1
 rg -n -i "canvas_|canvas\.|PlatformCanvas|CanvasCompletion|canvas_video_tasks" internal/module/ai internal/shared scripts/full-admin-smoke.ps1 --glob "!**/legacy/**"
-git add -- internal/module/ai/capability/scenes.go internal/module/ai/capability/scenes_test.go internal/shared/enum/platform.go internal/module/ai/agent/service.go internal/module/ai/agent/service_test.go internal/module/ai/chat/dto.go internal/module/ai/chat/service.go internal/module/ai/chat/service_test.go internal/module/ai/image/dto.go internal/module/ai/image/service.go internal/module/ai/image/service_test.go internal/module/ai/image/model_split_test.go internal/module/ai/audio/dto.go internal/module/ai/audio/service.go internal/module/ai/audio/service_test.go internal/module/ai/video/dto.go internal/module/ai/video/model.go internal/module/ai/video/service.go internal/module/ai/video/service_test.go internal/module/ai/run/recorder_test.go internal/module/ai/run/service_test.go internal/module/ai/run/transport/admin/request.go internal/shared/i18n/locales/en-US/aitext.yaml internal/shared/i18n/locales/en-US/aiaudio.yaml internal/shared/i18n/locales/en-US/aivideo.yaml internal/shared/i18n/locales/zh-CN/aitext.yaml internal/shared/i18n/locales/zh-CN/aiaudio.yaml internal/shared/i18n/locales/zh-CN/aivideo.yaml internal/shared/i18n/locales/en-US/aiimage.yaml internal/shared/i18n/locales/zh-CN/aiimage.yaml internal/shared/i18n/locales/en-US/user.yaml internal/shared/i18n/locales/zh-CN/user.yaml internal/architecture/ai_capability_boundary_test.go scripts/full-admin-smoke.ps1
+git add -- internal/module/ai/capability/scenes.go internal/module/ai/capability/scenes_test.go internal/shared/enum/platform.go internal/module/ai/agent/service.go internal/module/ai/agent/service_test.go internal/module/ai/chat/dto.go internal/module/ai/chat/service.go internal/module/ai/chat/service_test.go internal/module/ai/image/dto.go internal/module/ai/image/service.go internal/module/ai/image/service_test.go internal/module/ai/image/model_split_test.go internal/module/ai/audio/dto.go internal/module/ai/audio/service.go internal/module/ai/audio/service_test.go internal/module/ai/video/dto.go internal/module/ai/video/model.go internal/module/ai/video/service.go internal/module/ai/video/service_test.go internal/module/ai/run/recorder_test.go internal/module/ai/run/service_test.go internal/module/ai/run/transport/admin/request.go internal/shared/i18n/locales/en-US/aitext.yaml internal/shared/i18n/locales/en-US/aiaudio.yaml internal/shared/i18n/locales/en-US/aivideo.yaml internal/shared/i18n/locales/zh-CN/aitext.yaml internal/shared/i18n/locales/zh-CN/aiaudio.yaml internal/shared/i18n/locales/zh-CN/aivideo.yaml internal/shared/i18n/locales/en-US/aiimage.yaml internal/shared/i18n/locales/zh-CN/aiimage.yaml internal/shared/i18n/locales/en-US/user.yaml internal/shared/i18n/locales/zh-CN/user.yaml internal/architecture/ai_capability_boundary_test.go scripts/full-admin-smoke.ps1 docs/superpowers/plans/2026-07-15-admin-only-release-plan.md internal/shared/enum/platform_test.go internal/module/ai/image/jobs.go internal/module/ai/image/jobs_test.go internal/module/ai/image/repository.go internal/module/ai/image/repository_delete_test.go internal/module/ai/video/repository.go internal/module/ai/run/service.go internal/shared/i18n/locales/en-US/airun.yaml internal/shared/i18n/locales/zh-CN/airun.yaml internal/architecture/admin_ai_interaction_retirement_test.go internal/architecture/platform_kernel_test.go internal/module/permission/management_service_test.go internal/module/permission/service_test.go internal/server/router_test.go
 git add -u -- internal/shared/i18n/locales/en-US/canvas.yaml internal/shared/i18n/locales/zh-CN/canvas.yaml
 git diff --cached --check
 git commit -m "refactor(ai): retain transport-neutral generation capabilities"

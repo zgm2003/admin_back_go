@@ -1334,14 +1334,10 @@ function Assert-AIAgentInit($Response) {
   if (-not ($sceneValues -contains 'agent_generate')) {
     throw "AI agent init missing agent_generate scene: $($Response | ConvertTo-Json -Depth 12)"
   }
-  foreach ($canvasScene in @('canvas_text_generate', 'canvas_image_generate', 'canvas_video_generate')) {
-    if (-not ($sceneValues -contains $canvasScene)) {
-      throw "AI agent init missing ${canvasScene} scene: $($Response | ConvertTo-Json -Depth 12)"
+  foreach ($generationScene in @('text_generate', 'image_generate', 'video_generate', 'audio_generate')) {
+    if (-not ($sceneValues -contains $generationScene)) {
+      throw "AI agent init missing ${generationScene} scene: $($Response | ConvertTo-Json -Depth 12)"
     }
-  }
-  $retiredImageScene = 'image' + '_generate'
-  if ($sceneValues -contains $retiredImageScene) {
-    throw "AI agent init still exposes retired non-Canvas image scene: $($Response | ConvertTo-Json -Depth 12)"
   }
   return [pscustomobject]@{
     SceneCount = (Get-ObjectArray $Response.data.dict.scene_arr).Count
@@ -2788,11 +2784,11 @@ try {
     -TimeoutSec 10
   [void](Assert-AIAgentList $aiAgentGenerateSceneList)
 
-  foreach ($scene in @('canvas_text_generate', 'canvas_image_generate', 'canvas_video_generate')) {
-    $aiAgentCanvasSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=$scene" `
+  foreach ($scene in @('text_generate', 'image_generate', 'video_generate', 'audio_generate')) {
+    $aiAgentGenerationSceneList = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents?current_page=1&page_size=20&scene=$scene" `
       -Headers $authHeaders `
       -TimeoutSec 10
-    [void](Assert-AIAgentList $aiAgentCanvasSceneList)
+    [void](Assert-AIAgentList $aiAgentGenerationSceneList)
   }
 
   $aiAgentOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options" `
@@ -2800,11 +2796,11 @@ try {
     -TimeoutSec 10
   $aiAgentOptionsSummary = Assert-AIAgentOptions $aiAgentOptions
 
-  foreach ($scene in @('canvas_text_generate', 'canvas_image_generate', 'canvas_video_generate')) {
-    $aiAgentCanvasOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options?scene=$scene" `
+  foreach ($scene in @('text_generate', 'image_generate', 'video_generate', 'audio_generate')) {
+    $aiAgentGenerationOptions = Invoke-RestMethod "$baseURL/api/admin/v1/ai-agents/options?scene=$scene" `
       -Headers $authHeaders `
       -TimeoutSec 10
-    [void](Assert-AIAgentOptions $aiAgentCanvasOptions)
+    [void](Assert-AIAgentOptions $aiAgentGenerationOptions)
   }
 
 

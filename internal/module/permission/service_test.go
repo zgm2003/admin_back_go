@@ -5,8 +5,6 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-
-	"admin_back_go/internal/shared/enum"
 )
 
 type fakeRepository struct {
@@ -339,7 +337,7 @@ func TestServiceBuildContextAllowsRootButtonOnlyPlatform(t *testing.T) {
 
 func TestServiceBuildContextRejectsRetiredPlatformsByDefault(t *testing.T) {
 	svc := NewService(&fakeRepository{}, nil)
-	for _, retired := range []string{enum.PlatformApp, enum.PlatformCanvas} {
+	for _, retired := range []string{"app", "canvas"} {
 		if _, appErr := svc.BuildContextByRole(context.Background(), 8, retired); appErr == nil || appErr.LegacyCode != 100 {
 			t.Fatalf("retired platform %q must fail closed, got %#v", retired, appErr)
 		}

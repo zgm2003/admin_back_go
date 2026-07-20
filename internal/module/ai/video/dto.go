@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	SceneCanvasVideoGenerate = "canvas_video_generate"
-
 	StatusPending   = "pending"
 	StatusRunning   = "running"
 	StatusCompleted = "completed"
@@ -24,12 +22,13 @@ const (
 
 type HTTPService interface {
 	Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error)
-	Status(ctx context.Context, userID int64, id int64) (*StatusResponse, *apperror.Error)
-	Content(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error)
+	Status(ctx context.Context, platform string, userID int64, id int64) (*StatusResponse, *apperror.Error)
+	Content(ctx context.Context, platform string, userID int64, id int64) ([]byte, string, *apperror.Error)
 	UploadReferenceMedia(ctx context.Context, input ReferenceMediaUploadInput) (*ReferenceMediaUploadResponse, *apperror.Error)
 }
 
 type CreateInput struct {
+	Platform        string
 	UserID          int64
 	AgentID         int64
 	ModelID         string
@@ -52,6 +51,7 @@ type StatusResponse struct {
 }
 
 type ReferenceMediaUploadInput struct {
+	Platform  string
 	UserID    int64
 	MediaKind string
 	FileName  string
@@ -87,8 +87,8 @@ type AgentRuntime struct {
 type Repository interface {
 	AgentForRuntime(ctx context.Context, agentID int64) (*AgentRuntime, error)
 	CreateTask(ctx context.Context, task VideoTask) (int64, error)
-	UpdateTask(ctx context.Context, userID int64, id int64, fields map[string]any) error
-	GetTask(ctx context.Context, userID int64, id int64) (*VideoTask, error)
+	UpdateTask(ctx context.Context, platform string, userID int64, id int64, fields map[string]any) error
+	GetTask(ctx context.Context, platform string, userID int64, id int64) (*VideoTask, error)
 	LoadUploadConfig(ctx context.Context) (*UploadConfig, error)
 }
 

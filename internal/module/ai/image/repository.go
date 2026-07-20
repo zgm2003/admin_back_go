@@ -18,15 +18,15 @@ type Repository interface {
 	ListImageAgents(ctx context.Context, scene string) ([]AgentOption, error)
 	ListTasks(ctx context.Context, userID uint64, query ListQuery) ([]ImageTask, int64, error)
 	GetTask(ctx context.Context, userID uint64, taskID uint64, platform string) (*ImageTask, error)
-	GetTaskForWorker(ctx context.Context, userID uint64, taskID uint64) (*ImageTask, error)
+	GetTaskForWorker(ctx context.Context, platform string, userID uint64, taskID uint64) (*ImageTask, error)
 	LoadTaskFiles(ctx context.Context, taskID uint64) ([]ImageFile, error)
 	CreateTaskWithFiles(ctx context.Context, task ImageTask, files TaskFileSet) (uint64, error)
 	DeleteTask(ctx context.Context, userID uint64, taskID uint64, platform string) error
 	LoadAgentRuntime(ctx context.Context, agentID uint64) (*AgentRuntime, error)
-	ClaimTask(ctx context.Context, userID uint64, taskID uint64, startedAt time.Time) (bool, error)
+	ClaimTask(ctx context.Context, platform string, userID uint64, taskID uint64, startedAt time.Time) (bool, error)
 	AppendTaskFiles(ctx context.Context, files []ImageFile) error
-	FinishTaskSuccess(ctx context.Context, userID uint64, taskID uint64, actualParamsJSON *string, rawResponseJSON *string, elapsedMS int, finishedAt time.Time) error
-	FinishTaskFailed(ctx context.Context, userID uint64, taskID uint64, message string, elapsedMS int, finishedAt time.Time) error
+	FinishTaskSuccess(ctx context.Context, platform string, userID uint64, taskID uint64, actualParamsJSON *string, rawResponseJSON *string, elapsedMS int, finishedAt time.Time) error
+	FinishTaskFailed(ctx context.Context, platform string, userID uint64, taskID uint64, message string, elapsedMS int, finishedAt time.Time) error
 	LoadUploadConfig(ctx context.Context) (*UploadConfig, error)
 }
 
@@ -63,10 +63,7 @@ func (r *GormRepository) ListTasks(ctx context.Context, userID uint64, query Lis
 	if r == nil || r.db == nil {
 		return nil, 0, ErrRepositoryNotConfigured
 	}
-	db := r.tasks(ctx).Where("user_id = ?", userID)
-	if strings.TrimSpace(query.Platform) != "" {
-		db = db.Where("platform = ?", strings.TrimSpace(query.Platform))
-	}
+	db := r.tasks(ctx).Where("platform = ? AND user_id = ?", strings.TrimSpace(query.Platform), userID)
 	if strings.TrimSpace(query.Status) != "" {
 		db = db.Where("status = ?", strings.TrimSpace(query.Status))
 	}
@@ -94,7 +91,7 @@ func (r *GormRepository) GetTask(ctx context.Context, userID uint64, taskID uint
 	return &row, err
 }
 
-func (r *GormRepository) GetTaskForWorker(ctx context.Context, userID uint64, taskID uint64) (*ImageTask, error) {
+func (r *GormRepository) GetTaskForWorker(ctx context.Context, platform string, userID uint64, taskID uint64) (*ImageTask, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
@@ -102,7 +99,7 @@ func (r *GormRepository) GetTaskForWorker(ctx context.Context, userID uint64, ta
 		return nil, nil
 	}
 	var row ImageTask
-	err := r.userTask(ctx, userID, taskID, "").Take(&row).Error
+	err := r.userTask(ctx, userID, taskID, platform).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -162,10 +159,7 @@ func (r *GormRepository) DeleteTask(ctx context.Context, userID uint64, taskID u
 	now := time.Now()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		tasks := tx.Model(&ImageTask{}).
-			Where("user_id = ? AND id = ?", userID, taskID)
-		if strings.TrimSpace(platform) != "" {
-			tasks = tasks.Where("platform = ?", strings.TrimSpace(platform))
-		}
+			Where("platform = ? AND user_id = ? AND id = ?", strings.TrimSpace(platform), userID, taskID)
 		result := tasks.Where("is_del = ?", enum.CommonNo).
 			Updates(map[string]any{"is_del": enum.CommonYes, "updated_at": now})
 		if result.Error != nil {
@@ -212,12 +206,12 @@ func (r *GormRepository) LoadAgentRuntime(ctx context.Context, agentID uint64) (
 	return &row, err
 }
 
-func (r *GormRepository) ClaimTask(ctx context.Context, userID uint64, taskID uint64, startedAt time.Time) (bool, error) {
+func (r *GormRepository) ClaimTask(ctx context.Context, platform string, userID uint64, taskID uint64, startedAt time.Time) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
 	tx := r.tasks(ctx).
-		Where("user_id = ? AND id = ? AND status = ?", userID, taskID, StatusPending).
+		Where("platform = ? AND user_id = ? AND id = ? AND status = ?", strings.TrimSpace(platform), userID, taskID, StatusPending).
 		Updates(map[string]any{"status": StatusRunning, "updated_at": startedAt})
 	if tx.Error != nil {
 		return false, tx.Error
@@ -238,8 +232,8 @@ func (r *GormRepository) AppendTaskFiles(ctx context.Context, files []ImageFile)
 	return r.db.WithContext(ctx).Create(&files).Error
 }
 
-func (r *GormRepository) FinishTaskSuccess(ctx context.Context, userID uint64, taskID uint64, actualParamsJSON *string, rawResponseJSON *string, elapsedMS int, finishedAt time.Time) error {
-	return r.finishTask(ctx, userID, taskID, map[string]any{
+func (r *GormRepository) FinishTaskSuccess(ctx context.Context, platform string, userID uint64, taskID uint64, actualParamsJSON *string, rawResponseJSON *string, elapsedMS int, finishedAt time.Time) error {
+	return r.finishTask(ctx, platform, userID, taskID, map[string]any{
 		"status":             StatusSuccess,
 		"error_message":      "",
 		"actual_params_json": actualParamsJSON,
@@ -250,8 +244,8 @@ func (r *GormRepository) FinishTaskSuccess(ctx context.Context, userID uint64, t
 	})
 }
 
-func (r *GormRepository) FinishTaskFailed(ctx context.Context, userID uint64, taskID uint64, message string, elapsedMS int, finishedAt time.Time) error {
-	return r.finishTask(ctx, userID, taskID, map[string]any{
+func (r *GormRepository) FinishTaskFailed(ctx context.Context, platform string, userID uint64, taskID uint64, message string, elapsedMS int, finishedAt time.Time) error {
+	return r.finishTask(ctx, platform, userID, taskID, map[string]any{
 		"status":        StatusFailed,
 		"error_message": message,
 		"elapsed_ms":    elapsedMS,
@@ -290,18 +284,14 @@ func (r *GormRepository) tasks(ctx context.Context) *gorm.DB {
 }
 
 func (r *GormRepository) userTask(ctx context.Context, userID uint64, taskID uint64, platform string) *gorm.DB {
-	tx := r.tasks(ctx).Where("user_id = ? AND id = ?", userID, taskID)
-	if strings.TrimSpace(platform) != "" {
-		tx = tx.Where("platform = ?", strings.TrimSpace(platform))
-	}
-	return tx
+	return r.tasks(ctx).Where("platform = ? AND user_id = ? AND id = ?", strings.TrimSpace(platform), userID, taskID)
 }
 
-func (r *GormRepository) finishTask(ctx context.Context, userID uint64, taskID uint64, fields map[string]any) error {
+func (r *GormRepository) finishTask(ctx context.Context, platform string, userID uint64, taskID uint64, fields map[string]any) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	tx := r.tasks(ctx).Where("user_id = ? AND id = ?", userID, taskID).Updates(fields)
+	tx := r.tasks(ctx).Where("platform = ? AND user_id = ? AND id = ?", strings.TrimSpace(platform), userID, taskID).Updates(fields)
 	if tx.Error != nil {
 		return tx.Error
 	}

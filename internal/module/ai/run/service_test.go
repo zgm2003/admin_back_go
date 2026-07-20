@@ -114,6 +114,17 @@ func TestListFiltersAndMapsDuration(t *testing.T) {
 	}
 }
 
+func TestListRejectsUnregisteredPlatformFilter(t *testing.T) {
+	repo := &fakeRepository{}
+	_, appErr := NewService(repo).List(context.Background(), ListQuery{Platform: "partner_portal"})
+	if appErr == nil || appErr.MessageID != "airun.platform.invalid" {
+		t.Fatalf("expected unregistered platform filter to fail, got %#v", appErr)
+	}
+	if repo.listQuery.Platform != "" {
+		t.Fatalf("unregistered platform filter reached repository: %#v", repo.listQuery)
+	}
+}
+
 func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	startedAt := time.Date(2026, 5, 10, 11, 18, 14, 0, time.UTC)
 	repo := &fakeRepository{
@@ -137,8 +148,8 @@ func TestDetailAllowsImageRunWithoutMessages(t *testing.T) {
 	startedAt := time.Date(2026, 6, 7, 11, 18, 14, 0, time.UTC)
 	repo := &fakeRepository{
 		run: &RunDetailRow{
-			ID: 9, Platform: enum.PlatformCanvas, RequestID: "ai_image_task-77",
-			UserID: 7, Username: "canvas-user", AgentID: 8, AgentName: "image agent",
+			ID: 9, Platform: enum.PlatformAdmin, RequestID: "ai_image_task-77",
+			UserID: 7, Username: "image-user", AgentID: 8, AgentName: "image agent",
 			ProviderID: 3, ProviderName: "OpenAI", Status: enum.AIRunStatusSuccess,
 			ModelID: "gpt-image-1", InputSnapshot: "cat",
 			TotalTokens: 11, StartedAt: &startedAt,
@@ -157,7 +168,7 @@ func TestDetailAllowsImageRunWithoutMessages(t *testing.T) {
 			t.Fatalf("AI run detail leaked retired source field %s: %s", key, string(encoded))
 		}
 	}
-	if res.Platform != enum.PlatformCanvas || res.UserMessage != nil || res.AssistantMessage != nil {
+	if res.Platform != enum.PlatformAdmin || res.UserMessage != nil || res.AssistantMessage != nil {
 		t.Fatalf("bad detail: %#v", res)
 	}
 }

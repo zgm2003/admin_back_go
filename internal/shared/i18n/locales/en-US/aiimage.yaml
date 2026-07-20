@@ -25,7 +25,7 @@ aiimage.quality.invalid: Invalid image quality
 aiimage.output_format.invalid: Invalid output format
 aiimage.output_compression.invalid: Output compression must be between 0 and 100
 aiimage.moderation.invalid: Invalid moderation parameter
-aiimage.n.too_many: Generate at most 4 images per task
+aiimage.n.too_many: Generate at most 15 images per task
 aiimage.input_assets.too_many: At most 10 reference images are allowed
 aiimage.mask.requires_input: Mask image requires at least one reference image
 aiimage.mask_target.invalid: Mask target must be one of the reference images
@@ -38,9 +38,9 @@ aiimage.asset.source_type.unsupported: Unsupported image asset source
 aiimage.agent.not_found: Image agent does not exist or is disabled
 aiimage.agent.runtime_disabled: Image agent, provider, or model is disabled
 aiimage.agent.scene_missing: Agent does not enable the image generation scene
-aiimage.model.unsupported: Canvas image generation only supports gpt-image-2
+aiimage.model.unsupported: AI image generation only supports gpt-image-2
 aiimage.provider.api_key_missing: AI provider API key is not configured
-aiimage.provider.unsupported: Canvas image generation only supports OpenAI-compatible providers
+aiimage.provider.unsupported: AI image generation only supports OpenAI-compatible providers
 aiimage.asset.query_failed: Failed to query image assets
 aiimage.asset.not_owned: Image asset does not exist or does not belong to current user
 aiimage.input_asset.cos_required: Reference images must be uploaded COS image assets
@@ -66,3 +66,7 @@ aiimage.output.upload_failed: Failed to upload generated image
 aiimage.run.usage_status_missing: Image generation usage status is missing
 aiimage.upload.empty: Uploaded image must not be empty
 aiimage.upload.mime.invalid: Invalid uploaded image MIME type
+aiimage.request.invalid: Invalid image generation request
+aiimage.result_invalid: Invalid AI image generation result
+aiimage.id.invalid: Invalid image task ID
+aiimage.list.request.invalid: Invalid image task list request

@@ -10,28 +10,25 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/capability"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
 )
 
 const (
-	timeLayout               = "2006-01-02 15:04:05"
-	sceneChat                = "chat"
-	sceneAgentGenerate       = "agent_generate"
-	sceneCanvasTextGenerate  = "canvas_text_generate"
-	sceneCanvasImageGenerate = "canvas_image_generate"
-	sceneCanvasVideoGenerate = "canvas_video_generate"
-	sceneCanvasAudioGenerate = "canvas_audio_generate"
+	timeLayout         = "2006-01-02 15:04:05"
+	sceneChat          = "chat"
+	sceneAgentGenerate = "agent_generate"
 )
 
 var sceneLabels = map[string]string{
-	sceneChat:                "对话",
-	sceneAgentGenerate:       "工具生成",
-	sceneCanvasTextGenerate:  "无限画布-文本",
-	sceneCanvasImageGenerate: "无限画布-图片",
-	sceneCanvasVideoGenerate: "无限画布-视频",
-	sceneCanvasAudioGenerate: "无限画布-音频",
+	sceneChat:                     "对话",
+	sceneAgentGenerate:            "工具生成",
+	capability.SceneTextGenerate:  "文本生成",
+	capability.SceneImageGenerate: "图片生成",
+	capability.SceneVideoGenerate: "视频生成",
+	capability.SceneAudioGenerate: "音频生成",
 }
 
 type Service struct {
@@ -458,7 +455,7 @@ func providerModelDTO(row ProviderModel) ProviderModelDTO {
 }
 
 func sceneOptions() []dict.Option[string] {
-	return stringOptions([]string{sceneChat, sceneAgentGenerate, sceneCanvasTextGenerate, sceneCanvasImageGenerate, sceneCanvasVideoGenerate, sceneCanvasAudioGenerate}, sceneLabels)
+	return stringOptions([]string{sceneChat, sceneAgentGenerate, capability.SceneTextGenerate, capability.SceneImageGenerate, capability.SceneVideoGenerate, capability.SceneAudioGenerate}, sceneLabels)
 }
 func stringOptions(values []string, labels map[string]string) []dict.Option[string] {
 	options := make([]dict.Option[string], 0, len(values))

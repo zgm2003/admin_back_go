@@ -59,6 +59,9 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 		return nil, appErr
 	}
 	query = normalizeListQuery(query)
+	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行记录失败", err)
@@ -134,6 +137,9 @@ func (s *Service) Stats(ctx context.Context, query StatsFilter) (*StatsResponse,
 		return nil, appErr
 	}
 	query = normalizeStatsFilter(query)
+	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	row, err := repo.StatsSummary(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行统计失败", err)
@@ -155,6 +161,9 @@ func (s *Service) StatsByDate(ctx context.Context, query StatsListQuery) (*Stats
 		return nil, appErr
 	}
 	query = normalizeStatsListQuery(query)
+	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	rows, total, err := repo.StatsByDate(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行日期统计失败", err)
@@ -172,6 +181,9 @@ func (s *Service) StatsByAgent(ctx context.Context, query StatsListQuery) (*Stat
 		return nil, appErr
 	}
 	query = normalizeStatsListQuery(query)
+	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	rows, total, err := repo.StatsByAgent(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行智能体统计失败", err)
@@ -189,6 +201,9 @@ func (s *Service) StatsByUser(ctx context.Context, query StatsListQuery) (*Stats
 		return nil, appErr
 	}
 	query = normalizeStatsListQuery(query)
+	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	rows, total, err := repo.StatsByUser(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行用户统计失败", err)
@@ -205,6 +220,14 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 		return nil, apperror.Internal("AI运行仓储未配置")
 	}
 	return s.repository, nil
+}
+
+func validateOptionalPlatform(platform string) *apperror.Error {
+	platform = strings.TrimSpace(platform)
+	if platform != "" && !enum.IsRegisteredPlatform(platform) {
+		return apperror.BadRequestKey("airun.platform.invalid", nil, "无效的AI运行平台")
+	}
+	return nil
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {

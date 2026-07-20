@@ -1,0 +1,21 @@
+aitext.platform.invalid: 无效的文本生成平台
+aitext.request.invalid: 文本生成参数错误
+aitext.service_missing: AI文本生成服务未配置
+aitext.result_invalid: AI文本生成结果无效
+aitext.provider_failed: AI文本生成失败
+aitext.empty_result: AI文本生成结果为空
+aitext.repository_missing: AI文本生成仓储未配置
+aitext.agent_query_failed: 查询文本智能体失败
+aitext.agent_not_found: 文本智能体不存在
+aitext.agent_unavailable: 该智能体不支持文本生成
+aitext.provider_key_missing: AI供应商API Key未配置
+aitext.secretbox_missing: AI密钥服务未配置
+aitext.provider_key_decrypt_failed: 解密AI供应商API Key失败
+aitext.engine_missing: AI引擎未配置
+aitext.engine_create_failed: 创建AI引擎失败
+aitext.text_task_store_missing: AI文本任务存储未配置
+aitext.run_recorder_missing: AI文本运行记录器未配置
+aitext.text_task_failed: 创建AI文本任务失败
+aitext.run_start_failed: 创建AI文本运行记录失败
+aitext.text_task_complete_failed: 更新AI文本任务失败
+aitext.run_complete_failed: 更新AI文本运行记录失败

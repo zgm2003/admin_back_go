@@ -9,6 +9,7 @@ const (
 
 type VideoTask struct {
 	ID              int64      `gorm:"column:id"`
+	Platform        string     `gorm:"column:platform"`
 	UserID          int64      `gorm:"column:user_id"`
 	AgentID         int64      `gorm:"column:agent_id"`
 	ProviderID      int64      `gorm:"column:provider_id"`
@@ -27,7 +28,7 @@ type VideoTask struct {
 	FinishedAt      *time.Time `gorm:"column:finished_at"`
 }
 
-func (VideoTask) TableName() string { return "canvas_video_tasks" }
+func (VideoTask) TableName() string { return "ai_video_tasks" }
 
 type UploadConfig struct {
 	SettingID    int64  `gorm:"column:setting_id"`

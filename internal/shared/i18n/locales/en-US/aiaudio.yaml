@@ -1,0 +1,19 @@
+aiaudio.platform.invalid: Invalid audio generation platform
+aiaudio.request.invalid: Invalid audio generation request
+aiaudio.service_missing: AI audio generation service is not configured
+aiaudio.content_empty: AI audio content is empty
+aiaudio.content_type_invalid: Invalid AI audio content type
+aiaudio.provider_failed: AI audio generation failed
+aiaudio.repository_missing: AI audio generation repository is not configured
+aiaudio.agent_query_failed: Failed to query audio agent
+aiaudio.agent_not_found: Audio agent does not exist
+aiaudio.agent_unavailable: This agent does not support audio generation
+aiaudio.provider_key_missing: AI provider API key is not configured
+aiaudio.model_missing: Audio agent model is not configured
+aiaudio.secretbox_missing: AI secret service is not configured
+aiaudio.provider_key_decrypt_failed: Failed to decrypt AI provider API key
+aiaudio.engine_missing: AI audio engine is not configured
+aiaudio.engine_create_failed: Failed to create AI audio engine
+aiaudio.run_recorder_missing: AI audio run recorder is not configured
+aiaudio.run_start_failed: Failed to create AI audio run record
+aiaudio.run_complete_failed: Failed to update AI audio run record

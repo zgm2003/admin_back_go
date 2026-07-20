@@ -3,6 +3,7 @@ package aivideo
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/shared/enum"
@@ -64,15 +65,15 @@ func (r *GormRepository) CreateTask(ctx context.Context, task VideoTask) (int64,
 	return task.ID, nil
 }
 
-func (r *GormRepository) UpdateTask(ctx context.Context, userID int64, id int64, fields map[string]any) error {
+func (r *GormRepository) UpdateTask(ctx context.Context, platform string, userID int64, id int64, fields map[string]any) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	if userID <= 0 || id <= 0 {
+	if strings.TrimSpace(platform) == "" || userID <= 0 || id <= 0 {
 		return gorm.ErrRecordNotFound
 	}
 	tx := r.db.WithContext(ctx).Model(&VideoTask{}).
-		Where("user_id = ? AND id = ? AND is_del = ?", userID, id, IsDelActive).
+		Where("platform = ? AND user_id = ? AND id = ? AND is_del = ?", strings.TrimSpace(platform), userID, id, IsDelActive).
 		Updates(fields)
 	if tx.Error != nil {
 		return tx.Error
@@ -83,16 +84,16 @@ func (r *GormRepository) UpdateTask(ctx context.Context, userID int64, id int64,
 	return nil
 }
 
-func (r *GormRepository) GetTask(ctx context.Context, userID int64, id int64) (*VideoTask, error) {
+func (r *GormRepository) GetTask(ctx context.Context, platform string, userID int64, id int64) (*VideoTask, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	if userID <= 0 || id <= 0 {
+	if strings.TrimSpace(platform) == "" || userID <= 0 || id <= 0 {
 		return nil, nil
 	}
 	var row VideoTask
 	err := r.db.WithContext(ctx).
-		Where("user_id = ? AND id = ? AND is_del = ?", userID, id, IsDelActive).
+		Where("platform = ? AND user_id = ? AND id = ? AND is_del = ?", strings.TrimSpace(platform), userID, id, IsDelActive).
 		Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil

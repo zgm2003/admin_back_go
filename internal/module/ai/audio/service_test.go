@@ -15,9 +15,11 @@ import (
 type fakeRepository struct {
 	agent *AgentRuntime
 	err   error
+	calls int
 }
 
 func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID int64) (*AgentRuntime, error) {
+	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -93,13 +95,13 @@ func (f *fakeRunRecorder) Fail(ctx context.Context, input airun.FailInput) error
 func (f *fakeRunRecorder) Cancel(ctx context.Context, input airun.CancelInput) error   { return nil }
 func (f *fakeRunRecorder) Timeout(ctx context.Context, input airun.TimeoutInput) error { return nil }
 
-func validCanvasAudioAgent() *AgentRuntime {
+func validGenerationAudioAgent() *AgentRuntime {
 	return &AgentRuntime{
 		AgentID:          8,
 		ProviderID:       9,
 		ModelID:          "tts-1",
 		ModelDisplayName: "TTS 1",
-		ScenesJSON:       `["canvas_audio_generate"]`,
+		ScenesJSON:       `["audio_generate"]`,
 		EngineType:       string(infraai.EngineTypeOpenAI),
 		EngineBaseURL:    "https://api.openai.test/v1",
 		EngineAPIKeyEnc:  "cipher-key",
@@ -108,23 +110,23 @@ func validCanvasAudioAgent() *AgentRuntime {
 	}
 }
 
-func TestGenerateUsesCanvasAudioAgentAndProviderOwnedModel(t *testing.T) {
+func TestGenerateUsesGenerationAudioAgentAndProviderOwnedModel(t *testing.T) {
 	speed := 1.25
 	engine := &fakeAudioEngine{body: []byte("audio"), mime: "audio/wav"}
 	factory := &fakeEngineFactory{engine: engine}
 	recorder := &fakeRunRecorder{nextID: 77}
 
 	result, appErr := NewService(Dependencies{
-		Repository:    &fakeRepository{agent: validCanvasAudioAgent()},
+		Repository:    &fakeRepository{agent: validGenerationAudioAgent()},
 		Secretbox:     fakeSecretbox{plain: "plain-provider-key"},
 		EngineFactory: factory,
 		RunRecorder:   recorder,
 		Now:           func() time.Time { return time.Unix(100, 0) },
-	}).Generate(context.Background(), GenerateInput{
+	}).Generate(context.Background(), GenerateInput{Platform: enum.PlatformAdmin,
 		UserID:         7,
 		AgentID:        8,
 		ModelID:        "client-model-must-be-ignored",
-		Prompt:         "  hello canvas  ",
+		Prompt:         "  hello audio  ",
 		Voice:          "nova",
 		ResponseFormat: "wav",
 		Speed:          &speed,
@@ -140,10 +142,10 @@ func TestGenerateUsesCanvasAudioAgentAndProviderOwnedModel(t *testing.T) {
 	if factory.input.EngineType != infraai.EngineTypeOpenAI || factory.input.BaseURL != "https://api.openai.test/v1" || factory.input.APIKey != "plain-provider-key" {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
-	if engine.input.Model != "tts-1" || engine.input.Model == "client-model-must-be-ignored" || engine.input.Prompt != "hello canvas" || engine.input.Voice != "nova" || engine.input.ResponseFormat != "wav" || engine.input.Speed == nil || *engine.input.Speed != 1.25 || engine.input.Instructions != "warm narration" {
+	if engine.input.Model != "tts-1" || engine.input.Model == "client-model-must-be-ignored" || engine.input.Prompt != "hello audio" || engine.input.Voice != "nova" || engine.input.ResponseFormat != "wav" || engine.input.Speed == nil || *engine.input.Speed != 1.25 || engine.input.Instructions != "warm narration" {
 		t.Fatalf("unexpected audio input: %#v", engine.input)
 	}
-	if recorder.startInput.Platform != enum.PlatformCanvas || recorder.startInput.UserID != 7 || recorder.startInput.AgentID != 8 || recorder.startInput.ProviderID != 9 || recorder.startInput.ModelID != "tts-1" || recorder.startInput.InputSnapshot != "hello canvas" {
+	if recorder.startInput.Platform != enum.PlatformAdmin || recorder.startInput.RequestID != "ai_audio_100000000000" || recorder.startInput.UserID != 7 || recorder.startInput.AgentID != 8 || recorder.startInput.ProviderID != 9 || recorder.startInput.ModelID != "tts-1" || recorder.startInput.InputSnapshot != "hello audio" {
 		t.Fatalf("unexpected run start: %#v", recorder.startInput)
 	}
 	if recorder.completeInput.RunID != 77 {
@@ -151,18 +153,31 @@ func TestGenerateUsesCanvasAudioAgentAndProviderOwnedModel(t *testing.T) {
 	}
 }
 
-func TestGenerateRejectsNonCanvasAudioScene(t *testing.T) {
-	agent := validCanvasAudioAgent()
-	agent.ScenesJSON = `["canvas_text_generate"]`
+func TestGenerateRejectsMissingOrUnregisteredPlatformBeforeRepository(t *testing.T) {
+	for _, platform := range []string{"", "partner_portal"} {
+		repo := &fakeRepository{agent: validGenerationAudioAgent()}
+		_, appErr := NewService(Dependencies{Repository: repo}).Generate(context.Background(), GenerateInput{Platform: platform, UserID: 7, AgentID: 8, Prompt: "hello"})
+		if appErr == nil || appErr.MessageID != "aiaudio.platform.invalid" {
+			t.Fatalf("expected platform %q to be rejected, got %#v", platform, appErr)
+		}
+		if repo.calls != 0 {
+			t.Fatalf("invalid platform %q reached repository", platform)
+		}
+	}
+}
+
+func TestGenerateRejectsNonGenerationAudioScene(t *testing.T) {
+	agent := validGenerationAudioAgent()
+	agent.ScenesJSON = `["text_generate"]`
 
 	_, appErr := NewService(Dependencies{
 		Repository:    &fakeRepository{agent: agent},
 		Secretbox:     fakeSecretbox{plain: "plain-provider-key"},
 		EngineFactory: &fakeEngineFactory{engine: &fakeAudioEngine{body: []byte("audio"), mime: "audio/mpeg"}},
 		RunRecorder:   &fakeRunRecorder{},
-	}).Generate(context.Background(), GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello"})
+	}).Generate(context.Background(), GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: "hello"})
 
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.audio.agent_unavailable" {
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "aiaudio.agent_unavailable" {
 		t.Fatalf("expected agent_unavailable, got %#v", appErr)
 	}
 }
@@ -174,21 +189,21 @@ func TestGenerateValidatesAudioParameters(t *testing.T) {
 		name  string
 		input GenerateInput
 	}{
-		{name: "missing prompt", input: GenerateInput{UserID: 7, AgentID: 8, Prompt: " "}},
-		{name: "invalid voice", input: GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello", Voice: "client-voice"}},
-		{name: "invalid format", input: GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello", ResponseFormat: "json"}},
-		{name: "speed too fast", input: GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello", Speed: &tooFast}},
-		{name: "speed too slow", input: GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello", Speed: &tooSlow}},
+		{name: "missing prompt", input: GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: " "}},
+		{name: "invalid voice", input: GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: "hello", Voice: "client-voice"}},
+		{name: "invalid format", input: GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: "hello", ResponseFormat: "json"}},
+		{name: "speed too fast", input: GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: "hello", Speed: &tooFast}},
+		{name: "speed too slow", input: GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: "hello", Speed: &tooSlow}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, appErr := NewService(Dependencies{
-				Repository:    &fakeRepository{agent: validCanvasAudioAgent()},
+				Repository:    &fakeRepository{agent: validGenerationAudioAgent()},
 				Secretbox:     fakeSecretbox{plain: "plain-provider-key"},
 				EngineFactory: &fakeEngineFactory{engine: &fakeAudioEngine{body: []byte("audio"), mime: "audio/mpeg"}},
 				RunRecorder:   &fakeRunRecorder{},
 			}).Generate(context.Background(), tt.input)
-			if appErr == nil || appErr.MessageID != "canvas.ai.audio.request.invalid" {
+			if appErr == nil || appErr.MessageID != "aiaudio.request.invalid" {
 				t.Fatalf("expected invalid request, got %#v", appErr)
 			}
 		})
@@ -197,13 +212,13 @@ func TestGenerateValidatesAudioParameters(t *testing.T) {
 
 func TestGenerateFailsClosedOnProviderError(t *testing.T) {
 	_, appErr := NewService(Dependencies{
-		Repository:    &fakeRepository{agent: validCanvasAudioAgent()},
+		Repository:    &fakeRepository{agent: validGenerationAudioAgent()},
 		Secretbox:     fakeSecretbox{plain: "plain-provider-key"},
 		EngineFactory: &fakeEngineFactory{engine: &fakeAudioEngine{err: errors.New("provider down")}},
 		RunRecorder:   &fakeRunRecorder{nextID: 77},
-	}).Generate(context.Background(), GenerateInput{UserID: 7, AgentID: 8, Prompt: "hello"})
+	}).Generate(context.Background(), GenerateInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Prompt: "hello"})
 
-	if appErr == nil || appErr.MessageID != "canvas.ai.audio.provider_failed" {
+	if appErr == nil || appErr.MessageID != "aiaudio.provider_failed" {
 		t.Fatalf("expected provider_failed, got %#v", appErr)
 	}
 }

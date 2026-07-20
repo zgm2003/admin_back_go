@@ -206,7 +206,7 @@ func TestServiceInitReturnsTypedDictWithoutFallbackFields(t *testing.T) {
 func TestServiceInitDefaultPlatformsUseRegisteredAdapters(t *testing.T) {
 	repo := &fakeManagementRepository{perms: []Permission{
 		{ID: 1, Name: "Admin", ParentID: RootParentID, Platform: enum.PlatformAdmin, Type: TypeDir},
-		{ID: 2, Name: "Retired App", ParentID: RootParentID, Platform: enum.PlatformApp, Type: TypeDir},
+		{ID: 2, Name: "Retired App", ParentID: RootParentID, Platform: "app", Type: TypeDir},
 	}}
 	svc := NewService(repo, nil)
 

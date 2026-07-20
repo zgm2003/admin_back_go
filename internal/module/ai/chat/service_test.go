@@ -296,7 +296,7 @@ func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	}, box
 }
 
-func validCanvasTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
+func validGenerationTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 	t.Helper()
 	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	cipher, err := box.Encrypt("provider-key")
@@ -305,12 +305,12 @@ func validCanvasTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box
 	}
 	return &AgentEngineConfig{
 		AgentID:          8,
-		AgentName:        "Canvas文本助手",
+		AgentName:        "Generation文本助手",
 		ProviderID:       2,
 		ModelID:          "gpt-4.1-mini",
 		ModelDisplayName: "GPT 4.1 Mini",
 		SystemPrompt:     "用中文回答",
-		ScenesJSON:       `["canvas_text_generate"]`,
+		ScenesJSON:       `["text_generate"]`,
 		EngineType:       string(infraai.EngineTypeOpenAI),
 		EngineBaseURL:    "https://api.openai.test/v1",
 		EngineAPIKeyEnc:  cipher,
@@ -319,8 +319,8 @@ func validCanvasTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box
 	}, box
 }
 
-func TestCanvasCompletionUsesCanvasTextAgentAndDoesNotPersistConversation(t *testing.T) {
-	agent, box := validCanvasTextAgentConfig(t)
+func TestCompleteTextUsesGenerationTextAgentAndDoesNotPersistConversation(t *testing.T) {
+	agent, box := validGenerationTextAgentConfig(t)
 	repo := &fakeRepository{agent: agent}
 	engine := &captureEngine{}
 	factory := &fakeEngineFactory{engine: engine}
@@ -336,18 +336,18 @@ func TestCanvasCompletionUsesCanvasTextAgentAndDoesNotPersistConversation(t *tes
 		EngineFactory:      factory,
 		Secretbox:          box,
 		Now:                func() time.Time { return now },
-	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello canvas "})
+	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello text "})
 
 	if appErr != nil {
-		t.Fatalf("CanvasCompletion returned error: %#v", appErr)
+		t.Fatalf("CompleteText returned error: %#v", appErr)
 	}
-	if res == nil || res.ID != "canvas-chat-1780574400000000123" || res.Object != "chat.completion" || res.Content != "看到了图片" {
+	if res == nil || res.ID != "text-completion-1780574400000000123" || res.Object != "chat.completion" || res.Content != "看到了图片" {
 		t.Fatalf("unexpected response: %#v", res)
 	}
 	if repo.agentID != 8 {
 		t.Fatalf("expected runtime agent id 8, got %d", repo.agentID)
 	}
-	if engine.input.UserID != 7 || engine.input.AgentID != 8 || engine.input.UserKey != "canvas:7" || engine.input.Content != "hello canvas" {
+	if engine.input.UserID != 7 || engine.input.AgentID != 8 || engine.input.UserKey != "admin:7" || engine.input.Content != "hello text" {
 		t.Fatalf("unexpected engine input: %#v", engine.input)
 	}
 	if engine.input.Inputs["model_id"] != "gpt-4.1-mini" || engine.input.Inputs["system_prompt"] != "用中文回答" {
@@ -361,8 +361,8 @@ func TestCanvasCompletionUsesCanvasTextAgentAndDoesNotPersistConversation(t *tes
 	}
 }
 
-func TestCanvasCompletionRecordsRun(t *testing.T) {
-	agent, box := validCanvasTextAgentConfig(t)
+func TestCompleteTextRecordsRun(t *testing.T) {
+	agent, box := validGenerationTextAgentConfig(t)
 	repo := &fakeRepository{agent: agent}
 	textTasks := &fakeTextTaskStore{nextID: 77}
 	recorder := &fakeRunRecorder{nextID: 99}
@@ -371,15 +371,15 @@ func TestCanvasCompletionRecordsRun(t *testing.T) {
 		return time.Date(2026, 6, 7, 3, 4, 5, 0, time.UTC)
 	}})
 
-	res, appErr := service.CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 8, Message: "draw a cat"})
+	res, appErr := service.CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Message: "draw a cat"})
 
 	if appErr != nil || res == nil || res.Content != "ok" {
 		t.Fatalf("completion failed res=%#v err=%v", res, appErr)
 	}
-	if textTasks.created.Prompt != "draw a cat" || textTasks.created.Platform != enum.PlatformCanvas || textTasks.completed.Answer != "ok" {
+	if textTasks.created.Prompt != "draw a cat" || textTasks.created.Platform != enum.PlatformAdmin || textTasks.completed.Answer != "ok" {
 		t.Fatalf("text task not recorded: created=%#v completed=%#v", textTasks.created, textTasks.completed)
 	}
-	if recorder.started.Platform != enum.PlatformCanvas || recorder.started.RequestID != "ai_text_task_77" || recorder.started.InputSnapshot != "draw a cat" || recorder.started.UserID != 7 || recorder.started.AgentID != 8 {
+	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.RequestID != "text-completion-77" || recorder.started.InputSnapshot != "draw a cat" || recorder.started.UserID != 7 || recorder.started.AgentID != 8 {
 		t.Fatalf("run not started: %#v", recorder.started)
 	}
 	if recorder.completed.RunID != 99 || recorder.completed.TotalTokens != 5 {
@@ -387,28 +387,41 @@ func TestCanvasCompletionRecordsRun(t *testing.T) {
 	}
 }
 
-func TestCanvasCompletionRejectsNonCanvasTextScene(t *testing.T) {
+func TestCompleteTextRejectsMissingOrUnregisteredPlatformBeforeRepository(t *testing.T) {
+	for _, platform := range []string{"", "partner_portal"} {
+		repo := &fakeRepository{}
+		_, appErr := NewService(Dependencies{Repository: repo}).CompleteText(context.Background(), TextCompletionInput{Platform: platform, UserID: 7, AgentID: 8, Message: "hello"})
+		if appErr == nil || appErr.MessageID != "aitext.platform.invalid" {
+			t.Fatalf("expected platform %q to be rejected, got %#v", platform, appErr)
+		}
+		if repo.agentID != 0 {
+			t.Fatalf("invalid platform %q reached repository", platform)
+		}
+	}
+}
+
+func TestCompleteTextRejectsNonGenerationTextScene(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	_, appErr := NewService(Dependencies{
 		Repository:    &fakeRepository{agent: agent},
 		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
 		Secretbox:     box,
-	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 5, Message: "hi"})
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "canvas.ai.chat.agent_unavailable" {
-		t.Fatalf("expected canvas text scene rejection, got %#v", appErr)
+	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 5, Message: "hi"})
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "aitext.agent_unavailable" {
+		t.Fatalf("expected generation text scene rejection, got %#v", appErr)
 	}
 }
 
-func TestCanvasCompletionRejectsEmptyProviderAnswer(t *testing.T) {
-	agent, box := validCanvasTextAgentConfig(t)
+func TestCompleteTextRejectsEmptyProviderAnswer(t *testing.T) {
+	agent, box := validGenerationTextAgentConfig(t)
 	_, appErr := NewService(Dependencies{
 		Repository:    &fakeRepository{agent: agent},
 		TextTasks:     &fakeTextTaskStore{},
 		RunRecorder:   &fakeRunRecorder{},
 		EngineFactory: &fakeEngineFactory{engine: &blankEngine{}},
 		Secretbox:     box,
-	}).CanvasCompletion(context.Background(), CanvasCompletionInput{UserID: 7, AgentID: 8, Message: "hi"})
-	if appErr == nil || appErr.MessageID != "canvas.ai.chat.empty_result" {
+	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Message: "hi"})
+	if appErr == nil || appErr.MessageID != "aitext.empty_result" {
 		t.Fatalf("expected empty result error, got %#v", appErr)
 	}
 }

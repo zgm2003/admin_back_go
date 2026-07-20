@@ -1,10 +1,8 @@
 package enum
 
 const (
-	PlatformAll    = "all"
-	PlatformAdmin  = "admin"
-	PlatformApp    = "app"
-	PlatformCanvas = "canvas"
+	PlatformAll   = "all"
+	PlatformAdmin = "admin"
 )
 
 var registeredPlatforms = [...]string{PlatformAdmin}

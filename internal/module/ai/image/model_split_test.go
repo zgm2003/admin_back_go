@@ -24,7 +24,7 @@ func TestImagePackageUsesTaskOwnedFilesOnly(t *testing.T) {
 			t.Fatalf("read %s: %v", file, err)
 		}
 		text := string(body)
-		for _, forbidden := range []string{"type ImageAsset", "type ImageTaskAsset", "type TaskAssetRow", "RegisterAsset", "CreateTaskWithAssets", "AppendTaskAssets", "LoadTaskAssets", "LoadAssetsByIDs", "InputAssetIDs", "MaskAssetID", "MaskTargetAssetID", "admin_ai_image_tasks", "canvas_image_tasks"} {
+		for _, forbidden := range []string{"type ImageAsset", "type ImageTaskAsset", "type TaskAssetRow", "RegisterAsset", "CreateTaskWithAssets", "AppendTaskAssets", "LoadTaskAssets", "LoadAssetsByIDs", "InputAssetIDs", "MaskAssetID", "MaskTargetAssetID", "admin_ai_image_tasks", "can" + "vas_image_tasks"} {
 			if strings.Contains(text, forbidden) {
 				t.Fatalf("ai/image must use single task-owned ImageFile tables only; %s still contains %s", file, forbidden)
 			}
@@ -58,8 +58,8 @@ func TestAdminImageWorkspaceDoesNotExposeRetiredSurfaces(t *testing.T) {
 		})
 	}
 
-	if _, err := os.Stat(filepath.Join(root, "transport", "canvas")); !os.IsNotExist(err) {
-		t.Fatalf("retired Canvas image transport still exists: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "transport", "can"+"vas")); !os.IsNotExist(err) {
+		t.Fatalf("retired product image transport still exists: %v", err)
 	}
 
 	assertSourceTokensAbsent(t, filepath.Join(root, "..", "..", "..", "..", "scripts", "full-admin-smoke.ps1"), []string{

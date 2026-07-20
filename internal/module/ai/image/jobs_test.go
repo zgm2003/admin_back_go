@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/shared/enum"
 )
 
 type fakeImageJobService struct {
@@ -18,7 +19,7 @@ func (f *fakeImageJobService) ExecuteGenerate(ctx context.Context, input Generat
 }
 
 func TestNewGenerateTaskBuildsStablePayload(t *testing.T) {
-	task, err := NewGenerateTask(GeneratePayload{TaskID: 12, UserID: 34})
+	task, err := NewGenerateTask(GeneratePayload{Platform: enum.PlatformAdmin, TaskID: 12, UserID: 34})
 	if err != nil {
 		t.Fatalf("NewGenerateTask returned error: %v", err)
 	}
@@ -29,8 +30,16 @@ func TestNewGenerateTaskBuildsStablePayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeGeneratePayload returned error: %v", err)
 	}
-	if payload.TaskID != 12 || payload.UserID != 34 {
+	if payload.Platform != enum.PlatformAdmin || payload.TaskID != 12 || payload.UserID != 34 {
 		t.Fatalf("payload mismatch: %#v", payload)
+	}
+}
+
+func TestNewGenerateTaskRejectsMissingOrUnregisteredPlatform(t *testing.T) {
+	for _, platform := range []string{"", "partner_portal"} {
+		if _, err := NewGenerateTask(GeneratePayload{Platform: platform, TaskID: 12, UserID: 34}); err == nil {
+			t.Fatalf("expected platform %q to be rejected", platform)
+		}
 	}
 }
 
@@ -39,14 +48,14 @@ func TestRegisterHandlersDispatchesGenerateTask(t *testing.T) {
 	mux := taskqueue.NewMux()
 	RegisterHandlers(mux, service, slog.Default())
 
-	task, err := NewGenerateTask(GeneratePayload{TaskID: 12, UserID: 34})
+	task, err := NewGenerateTask(GeneratePayload{Platform: enum.PlatformAdmin, TaskID: 12, UserID: 34})
 	if err != nil {
 		t.Fatalf("NewGenerateTask returned error: %v", err)
 	}
 	if err := mux.ProcessProjectTask(context.Background(), task); err != nil {
 		t.Fatalf("ProcessProjectTask returned error: %v", err)
 	}
-	if service.input.TaskID != 12 || service.input.UserID != 34 {
+	if service.input.Platform != enum.PlatformAdmin || service.input.TaskID != 12 || service.input.UserID != 34 {
 		t.Fatalf("expected job payload to be dispatched, got %#v", service.input)
 	}
 }

@@ -1,3 +1,4 @@
 ai.run.usage_status_missing: AI运行用量状态缺失
 ai.chat.user_message_empty: 用户消息内容为空
 ai.chat.input_snapshot_failed: 生成AI运行输入快照失败
+airun.platform.invalid: 无效的AI运行平台

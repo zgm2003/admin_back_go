@@ -26,7 +26,7 @@ func TestDeleteTaskSoftDeletesTaskAndFilesInOneTransaction(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE ` + "`ai_image_tasks`" + ` SET .*` + "`is_del`" + `=\?.* WHERE .*user_id = \? AND id = \?.*platform = \?.*is_del = \?`).
+	mock.ExpectExec(`UPDATE ` + "`ai_image_tasks`" + ` SET .*` + "`is_del`" + `=\?.* WHERE .*platform = \? AND user_id = \? AND id = \?.*is_del = \?`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE ` + "`ai_image_files`" + ` SET ` + "`is_del`" + `=\? WHERE task_id = \? AND is_del = \?`).
 		WillReturnResult(sqlmock.NewResult(0, 3))

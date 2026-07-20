@@ -45,25 +45,6 @@ func TestAdminAIInteractionSurfacesRetired(t *testing.T) {
 			t.Fatalf("full admin smoke must reject retired Admin AI menu/button surface %q", required)
 		}
 	}
-	for _, forbidden := range []string{
-		"sceneImageGenerate",
-		`"image_generate"`,
-		"'image_generate'",
-		"SceneImageGenerate",
-	} {
-		agentService := readAdminAIRetirementText(t, filepath.Join(root, "internal/module/ai/agent/service.go"))
-		if strings.Contains(agentService, forbidden) {
-			t.Fatalf("AI agent service still exposes retired non-Canvas image scene %q", forbidden)
-		}
-		imageService := readAdminAIRetirementText(t, filepath.Join(root, "internal/module/ai/image/service.go"))
-		if strings.Contains(imageService, forbidden) {
-			t.Fatalf("AI image service still exposes retired non-Canvas image scene %q", forbidden)
-		}
-		if strings.Contains(fullSmoke, forbidden) {
-			t.Fatalf("full admin smoke still probes retired non-Canvas image scene %q", forbidden)
-		}
-	}
-
 	retireMigration := readAdminAIRetirementText(t, filepath.Join(root, "database/legacy-migrations/20260608_admin_ai_interaction_retirement.sql"))
 	for _, required := range []string{
 		"ai_image_playground_page",

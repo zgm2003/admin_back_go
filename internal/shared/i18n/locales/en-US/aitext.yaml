@@ -1,0 +1,21 @@
+aitext.platform.invalid: Invalid text generation platform
+aitext.request.invalid: Invalid text generation request
+aitext.service_missing: AI text generation service is not configured
+aitext.result_invalid: Invalid AI text generation result
+aitext.provider_failed: AI text generation failed
+aitext.empty_result: Empty AI text generation result
+aitext.repository_missing: AI text generation repository is not configured
+aitext.agent_query_failed: Failed to query text agent
+aitext.agent_not_found: Text agent does not exist
+aitext.agent_unavailable: This agent does not support text generation
+aitext.provider_key_missing: AI provider API key is not configured
+aitext.secretbox_missing: AI secret service is not configured
+aitext.provider_key_decrypt_failed: Failed to decrypt AI provider API key
+aitext.engine_missing: AI engine is not configured
+aitext.engine_create_failed: Failed to create AI engine
+aitext.text_task_store_missing: AI text task store is not configured
+aitext.run_recorder_missing: AI text run recorder is not configured
+aitext.text_task_failed: Failed to create AI text task
+aitext.run_start_failed: Failed to create AI text run record
+aitext.text_task_complete_failed: Failed to update AI text task
+aitext.run_complete_failed: Failed to update AI text run record

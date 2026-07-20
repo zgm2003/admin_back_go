@@ -8,6 +8,11 @@ import (
 	"time"
 
 	"admin_back_go/internal/shared/enum"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestRecorderStartsImageRunWithoutPolymorphicSourceFields(t *testing.T) {
@@ -65,6 +70,39 @@ func TestRecorderCompleteStoresTokenCountsOnly(t *testing.T) {
 	}
 	if repo.completed.TotalTokens != 7 {
 		t.Fatalf("bad complete record: %#v", repo.completed)
+	}
+}
+
+func TestRecorderTerminalUpdateIsIdempotent(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("create sql mock: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `ai_runs` SET .* WHERE id = \\? AND status = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) FROM `ai_run_events` WHERE run_id = \\?").WillReturnRows(sqlmock.NewRows([]string{"COALESCE(MAX(seq), 0)"}).AddRow(1))
+	mock.ExpectExec("INSERT INTO `ai_run_events` .* VALUES .*").WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `ai_runs` SET .* WHERE id = \\? AND status = \\?").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	recorder := NewRecorder(&GormRepository{db: db}, func() time.Time { return time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC) })
+	input := CompleteInput{RunID: 9, PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, DurationMS: 1200}
+	if err := recorder.Complete(context.Background(), input); err != nil {
+		t.Fatalf("first completion failed: %v", err)
+	}
+	if err := recorder.Complete(context.Background(), input); err != nil {
+		t.Fatalf("repeated completion must be idempotent: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("terminal update was not idempotent: %v", err)
 	}
 }
 

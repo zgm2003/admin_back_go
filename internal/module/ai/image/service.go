@@ -23,6 +23,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/module/ai/capability"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
@@ -33,8 +34,7 @@ import (
 )
 
 const (
-	SceneCanvasImageGenerate = "canvas_image_generate"
-	RequiredModelID          = "gpt-image-2"
+	RequiredModelID = "gpt-image-2"
 
 	StatusPending = "pending"
 	StatusRunning = "running"
@@ -123,7 +123,7 @@ func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Er
 	if appErr != nil {
 		return nil, appErr
 	}
-	agents, err := repo.ListImageAgents(ctx, SceneCanvasImageGenerate)
+	agents, err := repo.ListImageAgents(ctx, capability.SceneImageGenerate)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.agent.query_failed", nil, "查询图片智能体失败", err)
 	}
@@ -142,6 +142,9 @@ func (s *Service) List(ctx context.Context, userID uint64, query ListQuery) (*Li
 		return nil, appErr
 	}
 	query = normalizeListQuery(query)
+	if appErr := validateTaskPlatform(query.Platform); appErr != nil {
+		return nil, appErr
+	}
 	if query.Status != "" && !isStatus(query.Status) {
 		return nil, apperror.BadRequestKey("aiimage.task.status.invalid", nil, "无效的图片任务状态")
 	}
@@ -196,7 +199,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
-	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, SceneCanvasImageGenerate)
+	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, capability.SceneImageGenerate)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -211,18 +214,21 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.create_failed", nil, "创建图片任务失败", err)
 	}
 	task.ID = id
-	queueTask, err := NewGenerateTask(GeneratePayload{TaskID: id, UserID: normalized.UserID})
+	queueTask, err := NewGenerateTask(GeneratePayload{Platform: normalized.Platform, TaskID: id, UserID: normalized.UserID})
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.create_failed", nil, "创建图片队列任务失败", err)
 	}
 	if _, err := s.enqueuer.Enqueue(ctx, queueTask); err != nil {
-		_ = repo.FinishTaskFailed(context.Background(), normalized.UserID, id, "图片生成任务入队失败", 0, s.now())
+		_ = repo.FinishTaskFailed(context.Background(), normalized.Platform, normalized.UserID, id, "图片生成任务入队失败", 0, s.now())
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.enqueue_failed", nil, "图片生成任务入队失败", err)
 	}
 	return &CreateTaskResponse{Task: taskDTO(task)}, nil
 }
 
 func (s *Service) CreateWithUploadedFiles(ctx context.Context, input CreateWithUploadedFilesInput) (*CreateTaskResponse, *apperror.Error) {
+	if appErr := validateTaskPlatform(input.CreateInput.Platform); appErr != nil {
+		return nil, appErr
+	}
 	if len(input.Files) == 0 {
 		return s.Create(ctx, input.CreateInput)
 	}
@@ -258,17 +264,21 @@ func (s *Service) Delete(ctx context.Context, userID uint64, taskID uint64, plat
 }
 
 func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*GenerateResult, error) {
+	input.Platform = strings.TrimSpace(input.Platform)
+	if appErr := validateTaskPlatform(input.Platform); appErr != nil {
+		return nil, appErr
+	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
 	}
 	startedAt := s.now()
-	claimed, err := repo.ClaimTask(ctx, input.UserID, input.TaskID, startedAt)
+	claimed, err := repo.ClaimTask(ctx, input.Platform, input.UserID, input.TaskID, startedAt)
 	if err != nil {
 		return nil, fmt.Errorf("claim ai image task: %w", err)
 	}
 	if !claimed {
-		task, loadErr := repo.GetTaskForWorker(ctx, input.UserID, input.TaskID)
+		task, loadErr := repo.GetTaskForWorker(ctx, input.Platform, input.UserID, input.TaskID)
 		if loadErr != nil {
 			return nil, fmt.Errorf("load unclaimed ai image task: %w", loadErr)
 		}
@@ -278,14 +288,17 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 		}
 		return &GenerateResult{TaskID: input.TaskID, Status: status}, nil
 	}
-	task, err := repo.GetTaskForWorker(ctx, input.UserID, input.TaskID)
+	task, err := repo.GetTaskForWorker(ctx, input.Platform, input.UserID, input.TaskID)
 	if err != nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "读取图片任务失败", err)
 	}
 	if task == nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片任务不存在", nil)
 	}
-	if appErr := validateTaskPlatform(task.Platform); appErr != nil {
+	if appErr := validateTaskPlatform(task.Platform); appErr != nil || task.Platform != input.Platform {
+		if appErr == nil {
+			appErr = apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
+		}
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
 	}
 	if s.runRecorder == nil {
@@ -295,7 +308,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if err != nil {
 		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "创建图片运行记录失败", err)
 	}
-	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, SceneCanvasImageGenerate)
+	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, capability.SceneImageGenerate)
 	if appErr != nil {
 		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
 	}
@@ -331,7 +344,7 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	finishedAt := s.now()
 	actualParamsJSON := jsonString(result.ActualParams)
 	rawResponseJSON := sanitizeRawResponse(result.RawResponse)
-	if err := repo.FinishTaskSuccess(ctx, task.UserID, task.ID, actualParamsJSON, rawResponseJSON, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
+	if err := repo.FinishTaskSuccess(ctx, task.Platform, task.UserID, task.ID, actualParamsJSON, rawResponseJSON, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
 		return nil, fmt.Errorf("finish ai image task success: %w", err)
 	}
 	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens, FinishedAt: finishedAt, DurationMS: uint(elapsedMS(startedAt, finishedAt))}); err != nil {
@@ -348,7 +361,7 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 }
 
 func validateTaskPlatform(platform string) *apperror.Error {
-	if platform != enum.PlatformCanvas {
+	if !enum.IsRegisteredPlatform(strings.TrimSpace(platform)) {
 		return apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
 	}
 	return nil
@@ -370,7 +383,7 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	if input.Prompt == "" {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.prompt.required", nil, "提示词不能为空")
 	}
-	if input.Platform != enum.PlatformCanvas {
+	if !enum.IsRegisteredPlatform(input.Platform) {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
 	}
 	if len([]rune(input.Prompt)) > 20000 {
@@ -406,10 +419,7 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	if input.N <= 0 {
 		input.N = defaultN
 	}
-	maxN := 4
-	if input.Platform == enum.PlatformCanvas {
-		maxN = 15
-	}
+	maxN := 15
 	if input.N > maxN {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.n.too_many", nil, "单次生成图片数量超出限制")
 	}
@@ -482,13 +492,13 @@ func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID 
 		return nil, apperror.BadRequestKey("aiimage.agent.scene_missing", nil, "智能体未启用图片生成场景")
 	}
 	if agent.ModelID != RequiredModelID {
-		return nil, apperror.BadRequestKey("aiimage.model.unsupported", nil, "Canvas图片生成只支持 gpt-image-2")
+		return nil, apperror.BadRequestKey("aiimage.model.unsupported", nil, "AI图片生成只支持 gpt-image-2")
 	}
 	if strings.TrimSpace(agent.APIKeyEnc) == "" {
 		return nil, apperror.BadRequestKey("aiimage.provider.api_key_missing", nil, "AI供应商API Key未配置")
 	}
 	if strings.TrimSpace(agent.EngineType) != string(infraai.EngineTypeOpenAI) {
-		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "Canvas图片生成只支持 OpenAI-compatible 供应商")
+		return nil, apperror.BadRequestKey("aiimage.provider.unsupported", nil, "AI图片生成只支持 OpenAI-compatible 供应商")
 	}
 	return agent, nil
 }
@@ -745,7 +755,7 @@ func (s *Service) finishGenerateFailedWithRun(ctx context.Context, repo Reposito
 	default:
 		_ = s.runRecorder.Fail(context.Background(), failInput)
 	}
-	if err := repo.FinishTaskFailed(ctx, input.UserID, input.TaskID, failInput.Message, int(duration), finishedAt); err != nil {
+	if err := repo.FinishTaskFailed(ctx, input.Platform, input.UserID, input.TaskID, failInput.Message, int(duration), finishedAt); err != nil {
 		return nil, fmt.Errorf("finish ai image task failed state: %w", err)
 	}
 	return &GenerateResult{TaskID: input.TaskID, Status: StatusFailed}, nil
@@ -753,7 +763,7 @@ func (s *Service) finishGenerateFailedWithRun(ctx context.Context, repo Reposito
 func (s *Service) finishFailed(ctx context.Context, repo Repository, input GenerateInput, startedAt time.Time, message string, cause error) error {
 	message = trimErrorMessage(message, cause)
 	finishedAt := s.now()
-	if err := repo.FinishTaskFailed(ctx, input.UserID, input.TaskID, message, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
+	if err := repo.FinishTaskFailed(ctx, input.Platform, input.UserID, input.TaskID, message, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
 		return fmt.Errorf("finish ai image task failed state: %w", err)
 	}
 	return nil

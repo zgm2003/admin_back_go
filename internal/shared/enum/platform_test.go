@@ -12,7 +12,7 @@ func TestRegisteredPlatformsExposeOnlyCurrentAdapters(t *testing.T) {
 	if !IsRegisteredPlatform(PlatformAdmin) {
 		t.Fatal("admin adapter must be registered")
 	}
-	for _, retired := range []string{PlatformApp, PlatformCanvas} {
+	for _, retired := range []string{"app", "canvas"} {
 		if IsRegisteredPlatform(retired) {
 			t.Fatalf("retired adapter %q must not be registered", retired)
 		}
@@ -35,7 +35,7 @@ func TestNotificationAudiencePlatformsKeepAllSeparateFromAdapters(t *testing.T) 
 	if !IsNotificationAudiencePlatform(PlatformAll) || !IsNotificationAudiencePlatform(PlatformAdmin) {
 		t.Fatal("documented notification audiences must be accepted")
 	}
-	for _, invalid := range []string{PlatformApp, PlatformCanvas, "partner_portal"} {
+	for _, invalid := range []string{"app", "canvas", "partner_portal"} {
 		if IsNotificationAudiencePlatform(invalid) {
 			t.Fatalf("unregistered notification audience %q must fail closed", invalid)
 		}

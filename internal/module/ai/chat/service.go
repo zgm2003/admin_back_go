@@ -16,6 +16,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/capability"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
@@ -25,7 +26,6 @@ import (
 const defaultTimeoutLimit = 100
 const defaultRunStaleTimeout = 15 * time.Minute
 const maxHistoryLimit = 50
-const canvasTextGenerateScene = "canvas_text_generate"
 
 var (
 	ErrAssistantPublisherNotConfigured = errors.New("assistant publisher is not configured")
@@ -286,42 +286,46 @@ func replyRunIdempotencyKey(commandID uint64) string {
 	return "reply-command:" + strconv.FormatUint(commandID, 10)
 }
 
-func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionInput) (*CanvasCompletionResponse, *apperror.Error) {
+func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (*TextCompletionResponse, *apperror.Error) {
+	input.Platform = strings.TrimSpace(input.Platform)
 	input.Message = strings.TrimSpace(input.Message)
 	input.ModelID = strings.TrimSpace(input.ModelID)
+	if !enum.IsRegisteredPlatform(input.Platform) {
+		return nil, apperror.BadRequestKey("aitext.platform.invalid", nil, "无效的文本生成平台")
+	}
 	if input.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if input.AgentID <= 0 || input.Message == "" {
-		return nil, apperror.BadRequestKey("canvas.ai.chat.request.invalid", nil, "文本生成参数错误")
+		return nil, apperror.BadRequestKey("aitext.request.invalid", nil, "文本生成参数错误")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.repository_missing", nil, "Canvas文本生成仓储未配置")
+		return nil, apperror.InternalKey("aitext.repository_missing", nil, "AI文本生成仓储未配置")
 	}
 	agent, err := repo.AgentForRuntime(ctx, uint64(input.AgentID))
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.agent_query_failed", nil, "查询文本智能体失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.agent_query_failed", nil, "查询文本智能体失败", err)
 	}
 	if agent == nil || agent.AgentID == 0 {
-		return nil, apperror.NotFoundKey("canvas.ai.chat.agent_not_found", nil, "文本智能体不存在")
+		return nil, apperror.NotFoundKey("aitext.agent_not_found", nil, "文本智能体不存在")
 	}
-	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsCanvasText(agent.ScenesJSON) {
-		return nil, apperror.BadRequestKey("canvas.ai.chat.agent_unavailable", nil, "该智能体不支持文本生成")
+	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsTextGeneration(agent.ScenesJSON) {
+		return nil, apperror.BadRequestKey("aitext.agent_unavailable", nil, "该智能体不支持文本生成")
 	}
-	engine, appErr := s.canvasCompletionEngine(ctx, *agent)
+	engine, appErr := s.textCompletionEngine(ctx, *agent)
 	if appErr != nil {
 		return nil, appErr
 	}
 	if s.textTasks == nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.text_task_store_missing", nil, "Canvas文本任务仓储未配置")
+		return nil, apperror.InternalKey("aitext.text_task_store_missing", nil, "AI文本任务仓储未配置")
 	}
 	if s.runRecorder == nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.run_recorder_missing", nil, "Canvas文本运行记录服务未配置")
+		return nil, apperror.InternalKey("aitext.run_recorder_missing", nil, "AI文本运行记录服务未配置")
 	}
 	startedAt := s.now()
 	textTaskID, err := s.textTasks.Create(ctx, aitext.CreateInput{
-		Platform:   enum.PlatformCanvas,
+		Platform:   input.Platform,
 		UserID:     input.UserID,
 		AgentID:    agent.AgentID,
 		ProviderID: agent.ProviderID,
@@ -333,11 +337,11 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 		UpdatedAt:  startedAt,
 	})
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.text_task_failed", nil, "创建Canvas文本任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.text_task_failed", nil, "创建AI文本任务失败", err)
 	}
 	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
-		Platform:         enum.PlatformCanvas,
-		RequestID:        "ai_text_task_" + strconv.FormatUint(textTaskID, 10),
+		Platform:         input.Platform,
+		RequestID:        "text-completion-" + strconv.FormatUint(textTaskID, 10),
 		UserID:           input.UserID,
 		AgentID:          int64(agent.AgentID),
 		ProviderID:       int64(agent.ProviderID),
@@ -348,21 +352,21 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 	})
 	if err != nil {
 		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "创建Canvas文本运行记录失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.run_start_failed", nil, "创建Canvas文本运行记录失败", err)
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "创建AI文本运行记录失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.run_start_failed", nil, "创建AI文本运行记录失败", err)
 	}
 	result, err := engine.StreamChat(ctx, infraai.ChatInput{
 		AgentID: agent.AgentID,
 		UserID:  uint64(input.UserID),
-		UserKey: canvasUserKey(input.UserID),
+		UserKey: platformUserKey(input.Platform, input.UserID),
 		Content: input.Message,
-		Inputs:  canvasCompletionInputs(*agent),
+		Inputs:  textCompletionInputs(*agent),
 	}, discardEventSink{})
 	if err != nil {
 		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "Canvas文本生成失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "Canvas文本生成失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.provider_failed", nil, "Canvas文本生成失败", err)
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "AI文本生成失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "AI文本生成失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.provider_failed", nil, "AI文本生成失败", err)
 	}
 	answer := ""
 	if result != nil {
@@ -370,9 +374,9 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 	}
 	if answer == "" {
 		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "Canvas文本生成结果为空", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "Canvas文本生成结果为空", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.BadRequestKey("canvas.ai.chat.empty_result", nil, "Canvas文本生成结果为空")
+		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "AI文本生成结果为空", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "AI文本生成结果为空", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+		return nil, apperror.BadRequestKey("aitext.empty_result", nil, "AI文本生成结果为空")
 	}
 	if appErr := validateRunUsageStatus(result); appErr != nil {
 		finishedAt := s.now()
@@ -383,13 +387,13 @@ func (s *Service) CanvasCompletion(ctx context.Context, input CanvasCompletionIn
 	tokens := resultTokens(result)
 	finishedAt := s.now()
 	if err := s.textTasks.Complete(ctx, aitext.CompleteInput{ID: textTaskID, Answer: answer, FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)}); err != nil {
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "更新Canvas文本任务失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.text_task_complete_failed", nil, "更新Canvas文本任务失败", err)
+		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "更新AI文本任务失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.text_task_complete_failed", nil, "更新AI文本任务失败", err)
 	}
 	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.run_complete_failed", nil, "更新Canvas文本运行记录失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.run_complete_failed", nil, "更新AI文本运行记录失败", err)
 	}
-	return &CanvasCompletionResponse{ID: fmt.Sprintf("canvas-chat-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
+	return &TextCompletionResponse{ID: fmt.Sprintf("text-completion-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
 }
 
 func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
@@ -573,30 +577,30 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	return engine, nil
 }
 
-func (s *Service) canvasCompletionEngine(ctx context.Context, agent AgentEngineConfig) (infraai.Engine, *apperror.Error) {
+func (s *Service) textCompletionEngine(ctx context.Context, agent AgentEngineConfig) (infraai.Engine, *apperror.Error) {
 	if agent.AgentID == 0 || agent.ProviderID == 0 {
-		return nil, apperror.BadRequestKey("canvas.ai.chat.agent_unavailable", nil, "该智能体不支持文本生成")
+		return nil, apperror.BadRequestKey("aitext.agent_unavailable", nil, "该智能体不支持文本生成")
 	}
 	apiKeyEnc := strings.TrimSpace(agent.EngineAPIKeyEnc)
 	if apiKeyEnc == "" {
-		return nil, apperror.BadRequestKey("canvas.ai.chat.provider_key_missing", nil, "AI供应商API Key未配置")
+		return nil, apperror.BadRequestKey("aitext.provider_key_missing", nil, "AI供应商API Key未配置")
 	}
 	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.provider_key_decrypt_failed", nil, "解密AI供应商API Key失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.provider_key_decrypt_failed", nil, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequestKey("canvas.ai.chat.provider_key_missing", nil, "AI供应商API Key未配置")
+		return nil, apperror.BadRequestKey("aitext.provider_key_missing", nil, "AI供应商API Key未配置")
 	}
 	if s.engineFactory == nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.engine_missing", nil, "AI引擎工厂未配置")
+		return nil, apperror.InternalKey("aitext.engine_missing", nil, "AI引擎工厂未配置")
 	}
 	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.chat.engine_create_failed", nil, "创建AI引擎失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.engine_create_failed", nil, "创建AI引擎失败", err)
 	}
 	if engine == nil {
-		return nil, apperror.InternalKey("canvas.ai.chat.engine_missing", nil, "AI引擎未配置")
+		return nil, apperror.InternalKey("aitext.engine_missing", nil, "AI引擎未配置")
 	}
 	return engine, nil
 }
@@ -644,7 +648,7 @@ func (s *conversationEventSink) Emit(ctx context.Context, event infraai.Event) e
 	return nil
 }
 
-func canvasCompletionInputs(agent AgentEngineConfig) map[string]any {
+func textCompletionInputs(agent AgentEngineConfig) map[string]any {
 	inputs := map[string]any{"model_id": agent.ModelID}
 	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
 		inputs["system_prompt"] = systemPrompt
@@ -652,8 +656,8 @@ func canvasCompletionInputs(agent AgentEngineConfig) map[string]any {
 	return inputs
 }
 
-func canvasUserKey(userID int64) string {
-	return fmt.Sprintf("canvas:%d", userID)
+func platformUserKey(platform string, userID int64) string {
+	return fmt.Sprintf("%s:%d", strings.TrimSpace(platform), userID)
 }
 
 type discardEventSink struct{}
@@ -662,8 +666,8 @@ func (discardEventSink) Emit(ctx context.Context, event infraai.Event) error {
 	return nil
 }
 
-func agentSupportsCanvasText(raw string) bool {
-	return agentSupportsScene(raw, canvasTextGenerateScene)
+func agentSupportsTextGeneration(raw string) bool {
+	return agentSupportsScene(raw, capability.SceneTextGenerate)
 }
 
 func agentSupportsChat(raw string) bool {

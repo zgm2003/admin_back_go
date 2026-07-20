@@ -253,12 +253,12 @@ func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.Stats
 }
 
 type fakeRouterAIChatService struct {
-	input aichat.CanvasCompletionInput
+	input aichat.TextCompletionInput
 }
 
-func (f *fakeRouterAIChatService) CanvasCompletion(ctx context.Context, input aichat.CanvasCompletionInput) (*aichat.CanvasCompletionResponse, *apperror.Error) {
+func (f *fakeRouterAIChatService) CompleteText(ctx context.Context, input aichat.TextCompletionInput) (*aichat.TextCompletionResponse, *apperror.Error) {
 	f.input = input
-	return &aichat.CanvasCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
+	return &aichat.TextCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
 }
 
 type fakeAppRouterAuthService struct {

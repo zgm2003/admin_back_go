@@ -203,21 +203,22 @@ type RunRecorder = airun.Recorder
 
 type TextTaskStore = aitext.Store
 
-type CanvasCompletionInput struct {
-	UserID  int64
-	AgentID int64
-	ModelID string
-	Message string
+type TextCompletionInput struct {
+	Platform string
+	UserID   int64
+	AgentID  int64
+	ModelID  string
+	Message  string
 }
 
-type CanvasCompletionResponse struct {
+type TextCompletionResponse struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Content string `json:"content"`
 }
 
 type HTTPService interface {
-	CanvasCompletion(ctx context.Context, input CanvasCompletionInput) (*CanvasCompletionResponse, *apperror.Error)
+	CompleteText(ctx context.Context, input TextCompletionInput) (*TextCompletionResponse, *apperror.Error)
 }
 
 type JobService interface {

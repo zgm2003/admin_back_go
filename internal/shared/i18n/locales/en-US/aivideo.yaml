@@ -1,0 +1,45 @@
+aivideo.platform.invalid: Invalid video generation platform
+aivideo.request.invalid: Invalid video generation request
+aivideo.service_missing: AI video generation service is not configured
+aivideo.content_empty: AI video content is empty
+aivideo.id.invalid: Invalid video task ID
+aivideo.not_found: AI video task does not exist
+aivideo.provider_failed: AI video generation failed
+aivideo.provider_task_invalid: Invalid AI video task creation result
+aivideo.provider_status_failed: Failed to query AI video task
+aivideo.provider_status_invalid: Invalid AI video task status
+aivideo.provider_content_failed: Failed to download AI video content
+aivideo.repository_missing: AI video generation repository is not configured
+aivideo.agent_query_failed: Failed to query video agent
+aivideo.agent_not_found: Video agent does not exist
+aivideo.agent_unavailable: This agent does not support video generation
+aivideo.provider_key_missing: AI provider API key is not configured
+aivideo.secretbox_missing: AI secret service is not configured
+aivideo.provider_key_decrypt_failed: Failed to decrypt AI provider API key
+aivideo.engine_missing: AI video engine is not configured
+aivideo.engine_create_failed: Failed to create AI video engine
+aivideo.provider_task_missing: AI video task has no bound provider task
+aivideo.task_create_failed: Failed to create AI video task
+aivideo.task_invalid: Invalid AI video task creation result
+aivideo.task_query_failed: Failed to query AI video task
+aivideo.task_update_failed: Failed to update AI video task
+aivideo.run_recorder_missing: AI video run recorder is not configured
+aivideo.run_binding_missing: AI video task is missing run record binding
+aivideo.run_start_failed: Failed to create AI video run record
+aivideo.run_complete_failed: Failed to update AI video run record
+aivideo.run_fail_failed: Failed to update AI video run record
+aivideo.run_cancel_failed: Failed to update AI video run record
+aivideo.reference_media.request.invalid: Invalid reference media upload request
+aivideo.reference_media.kind.invalid: Invalid reference media type
+aivideo.reference_media.empty: Reference media cannot be empty
+aivideo.reference_media.mime.invalid: Invalid reference media MIME type
+aivideo.reference_media.cos_writer_missing: Reference media storage writer is not configured
+aivideo.reference_media.key_failed: Failed to generate reference media storage path
+aivideo.reference_media.upload_failed: Failed to upload reference media
+aivideo.reference_media.file.required: Reference media file is required
+aivideo.reference_media.file.invalid: Invalid reference media file
+aivideo.reference_media.too_large: Reference media file is too large
+aivideo.upload_config.read_failed: Failed to read upload configuration
+aivideo.cos_config.missing: Valid COS upload configuration is not configured
+aivideo.cos_secret_id.unavailable: COS SecretID is unavailable
+aivideo.cos_secret_key.unavailable: COS SecretKey is unavailable

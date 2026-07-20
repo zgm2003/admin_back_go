@@ -15,6 +15,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	storagecos "admin_back_go/internal/infra/storage/cos"
+	"admin_back_go/internal/module/ai/capability"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -47,9 +48,13 @@ func NewService(deps Dependencies) *Service {
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateResponse, *apperror.Error) {
+	input.Platform = strings.TrimSpace(input.Platform)
 	input.Prompt = strings.TrimSpace(input.Prompt)
+	if !enum.IsRegisteredPlatform(input.Platform) {
+		return nil, apperror.BadRequestKey("aivideo.platform.invalid", nil, "无效的视频生成平台")
+	}
 	if input.UserID <= 0 || input.AgentID <= 0 || input.Prompt == "" {
-		return nil, apperror.BadRequestKey("canvas.ai.video.request.invalid", nil, "视频生成参数错误")
+		return nil, apperror.BadRequestKey("aivideo.request.invalid", nil, "视频生成参数错误")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -66,6 +71,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	modelID := strings.TrimSpace(agent.ModelID)
 	now := s.now()
 	localTask := VideoTask{
+		Platform:        input.Platform,
 		UserID:          input.UserID,
 		AgentID:         input.AgentID,
 		ProviderID:      agent.ProviderID,
@@ -81,17 +87,17 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	}
 	taskID, err := repo.CreateTask(ctx, localTask)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_create_failed", nil, "创建Canvas视频任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_create_failed", nil, "创建AI视频任务失败", err)
 	}
 	if s.runRecorder == nil {
-		if markErr := s.markTaskFailed(input.UserID, taskID, "Canvas视频运行记录服务未配置"); markErr != nil {
-			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
+		if markErr := s.markTaskFailed(input.Platform, input.UserID, taskID, "AI视频运行记录服务未配置"); markErr != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", markErr)
 		}
-		return nil, apperror.InternalKey("canvas.ai.video.run_recorder_missing", nil, "Canvas视频运行记录服务未配置")
+		return nil, apperror.InternalKey("aivideo.run_recorder_missing", nil, "AI视频运行记录服务未配置")
 	}
 	runStartedAt := now
 	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
-		Platform:         enum.PlatformCanvas,
+		Platform:         input.Platform,
 		RequestID:        videoRunRequestID(taskID),
 		UserID:           input.UserID,
 		AgentID:          input.AgentID,
@@ -102,45 +108,45 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 		StartedAt:        runStartedAt,
 	})
 	if err != nil {
-		if markErr := s.markTaskFailed(input.UserID, taskID, "创建Canvas视频运行记录失败"); markErr != nil {
-			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
+		if markErr := s.markTaskFailed(input.Platform, input.UserID, taskID, "创建AI视频运行记录失败"); markErr != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", markErr)
 		}
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_start_failed", nil, "创建Canvas视频运行记录失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.run_start_failed", nil, "创建AI视频运行记录失败", err)
 	}
-	if err := repo.UpdateTask(ctx, input.UserID, taskID, map[string]any{"run_id": runID, "updated_at": s.now()}); err != nil {
-		s.failRun(context.Background(), runID, "绑定Canvas视频运行记录失败", runStartedAt)
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
+	if err := repo.UpdateTask(ctx, input.Platform, input.UserID, taskID, map[string]any{"run_id": runID, "updated_at": s.now()}); err != nil {
+		s.failRun(context.Background(), runID, "绑定AI视频运行记录失败", runStartedAt)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", err)
 	}
 	providerTask, err := engine.CreateVideo(ctx, infraai.VideoInput{Model: modelID, Prompt: input.Prompt, DurationSeconds: input.DurationSeconds, Size: input.Size, ResolutionName: input.ResolutionName, GenerateAudio: input.GenerateAudio, Watermark: input.Watermark})
 	if err != nil {
-		s.failRun(context.Background(), runID, "Canvas视频生成失败", runStartedAt)
-		if markErr := s.markTaskFailed(input.UserID, taskID, "Canvas视频生成失败"); markErr != nil {
-			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
+		s.failRun(context.Background(), runID, "AI视频生成失败", runStartedAt)
+		if markErr := s.markTaskFailed(input.Platform, input.UserID, taskID, "AI视频生成失败"); markErr != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", markErr)
 		}
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.provider_failed", nil, "Canvas视频生成失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.provider_failed", nil, "AI视频生成失败", err)
 	}
 	providerTaskID := ""
 	if providerTask != nil {
 		providerTaskID = strings.TrimSpace(providerTask.ID)
 	}
 	if providerTaskID == "" {
-		s.failRun(context.Background(), runID, "Canvas视频任务创建结果无效", runStartedAt)
-		if markErr := s.markTaskFailed(input.UserID, taskID, "Canvas视频任务创建结果无效"); markErr != nil {
-			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", markErr)
+		s.failRun(context.Background(), runID, "AI视频任务创建结果无效", runStartedAt)
+		if markErr := s.markTaskFailed(input.Platform, input.UserID, taskID, "AI视频任务创建结果无效"); markErr != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", markErr)
 		}
-		return nil, apperror.InternalKey("canvas.ai.video.provider_task_invalid", nil, "Canvas视频任务创建结果无效")
+		return nil, apperror.InternalKey("aivideo.provider_task_invalid", nil, "AI视频任务创建结果无效")
 	}
 	status, ok := normalizeVideoStatus(providerTask.Status)
 	if !ok {
-		s.failRun(context.Background(), runID, "Canvas视频任务状态无效", runStartedAt)
-		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
+		s.failRun(context.Background(), runID, "AI视频任务状态无效", runStartedAt)
+		return nil, apperror.InternalKey("aivideo.provider_status_invalid", nil, "AI视频任务状态无效")
 	}
 	fields := map[string]any{"provider_task_id": providerTaskID, "provider_id": agent.ProviderID, "model_id": modelID, "status": status, "updated_at": s.now()}
 	if isTerminalStatus(status) {
 		fields["finished_at"] = s.now()
 	}
-	if err := repo.UpdateTask(ctx, input.UserID, taskID, fields); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
+	if err := repo.UpdateTask(ctx, input.Platform, input.UserID, taskID, fields); err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", err)
 	}
 	if isTerminalStatus(status) {
 		if appErr := s.finishRunForVideoStatus(context.Background(), runID, status, "", runStartedAt); appErr != nil {
@@ -150,8 +156,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateRespons
 	return &CreateResponse{ID: taskID, Status: status}, nil
 }
 
-func (s *Service) Status(ctx context.Context, userID int64, id int64) (*StatusResponse, *apperror.Error) {
-	task, appErr := s.ownedTask(ctx, userID, id)
+func (s *Service) Status(ctx context.Context, platform string, userID int64, id int64) (*StatusResponse, *apperror.Error) {
+	task, appErr := s.ownedTask(ctx, platform, userID, id)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -161,21 +167,21 @@ func (s *Service) Status(ctx context.Context, userID int64, id int64) (*StatusRe
 	}
 	providerTask, err := engine.GetVideo(ctx, providerTaskID)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.provider_status_failed", nil, "查询Canvas视频任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.provider_status_failed", nil, "查询AI视频任务失败", err)
 	}
 	if providerTask == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
+		return nil, apperror.InternalKey("aivideo.provider_status_invalid", nil, "AI视频任务状态无效")
 	}
 	status, ok := normalizeVideoStatus(providerTask.Status)
 	if !ok {
-		return nil, apperror.InternalKey("canvas.ai.video.provider_status_invalid", nil, "Canvas视频任务状态无效")
+		return nil, apperror.InternalKey("aivideo.provider_status_invalid", nil, "AI视频任务状态无效")
 	}
 	fields := map[string]any{"status": status, "error_message": strings.TrimSpace(providerTask.ErrorMessage), "updated_at": s.now()}
 	if isTerminalStatus(status) {
 		fields["finished_at"] = s.now()
 	}
-	if err := s.repository.UpdateTask(ctx, userID, id, fields); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_update_failed", nil, "更新Canvas视频任务失败", err)
+	if err := s.repository.UpdateTask(ctx, task.Platform, userID, id, fields); err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_update_failed", nil, "更新AI视频任务失败", err)
 	}
 	if isTerminalStatus(status) {
 		if appErr := s.finishRunForVideoStatus(context.Background(), task.RunID, status, providerTask.ErrorMessage, task.CreatedAt); appErr != nil {
@@ -185,8 +191,8 @@ func (s *Service) Status(ctx context.Context, userID int64, id int64) (*StatusRe
 	return &StatusResponse{ID: task.ID, Status: status}, nil
 }
 
-func (s *Service) Content(ctx context.Context, userID int64, id int64) ([]byte, string, *apperror.Error) {
-	task, appErr := s.ownedTask(ctx, userID, id)
+func (s *Service) Content(ctx context.Context, platform string, userID int64, id int64) ([]byte, string, *apperror.Error) {
+	task, appErr := s.ownedTask(ctx, platform, userID, id)
 	if appErr != nil {
 		return nil, "", appErr
 	}
@@ -196,35 +202,39 @@ func (s *Service) Content(ctx context.Context, userID int64, id int64) ([]byte, 
 	}
 	body, contentType, err := engine.DownloadVideo(ctx, providerTaskID)
 	if err != nil {
-		return nil, "", apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.provider_content_failed", nil, "下载Canvas视频内容失败", err)
+		return nil, "", apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.provider_content_failed", nil, "下载AI视频内容失败", err)
 	}
 	if len(body) == 0 {
-		return nil, "", apperror.BadRequestKey("canvas.ai.video.content_empty", nil, "Canvas视频内容为空")
+		return nil, "", apperror.BadRequestKey("aivideo.content_empty", nil, "AI视频内容为空")
 	}
 	return body, contentType, nil
 }
 
 func (s *Service) UploadReferenceMedia(ctx context.Context, input ReferenceMediaUploadInput) (*ReferenceMediaUploadResponse, *apperror.Error) {
+	input.Platform = strings.TrimSpace(input.Platform)
 	input.FileName = strings.TrimSpace(input.FileName)
 	input.MediaKind = strings.ToLower(strings.TrimSpace(input.MediaKind))
 	input.MimeType = referenceMimeType(input.MimeType, input.FileName, input.Body)
+	if !enum.IsRegisteredPlatform(input.Platform) {
+		return nil, apperror.BadRequestKey("aivideo.platform.invalid", nil, "无效的视频生成平台")
+	}
 	if input.UserID <= 0 {
-		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.request.invalid", nil, "参考媒体上传参数错误")
+		return nil, apperror.BadRequestKey("aivideo.reference_media.request.invalid", nil, "参考媒体上传参数错误")
 	}
 	if !isReferenceMediaKind(input.MediaKind) {
-		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.kind.invalid", nil, "参考媒体类型无效")
+		return nil, apperror.BadRequestKey("aivideo.reference_media.kind.invalid", nil, "参考媒体类型无效")
 	}
 	if len(input.Body) == 0 {
-		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.empty", nil, "参考媒体不能为空")
+		return nil, apperror.BadRequestKey("aivideo.reference_media.empty", nil, "参考媒体不能为空")
 	}
 	if len(input.Body) > maxReferenceMediaBytes {
-		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.too_large", nil, "参考媒体文件过大")
+		return nil, apperror.BadRequestKey("aivideo.reference_media.too_large", nil, "参考媒体文件过大")
 	}
 	if !referenceMimeMatchesKind(input.MediaKind, input.MimeType) {
-		return nil, apperror.BadRequestKey("canvas.ai.video.reference_media.mime.invalid", nil, "参考媒体MIME类型不合法")
+		return nil, apperror.BadRequestKey("aivideo.reference_media.mime.invalid", nil, "参考媒体MIME类型不合法")
 	}
 	if s == nil || s.objectWriter == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.reference_media.cos_writer_missing", nil, "参考媒体存储写入器未配置")
+		return nil, apperror.InternalKey("aivideo.reference_media.cos_writer_missing", nil, "参考媒体存储写入器未配置")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -236,11 +246,11 @@ func (s *Service) UploadReferenceMedia(ctx context.Context, input ReferenceMedia
 	}
 	randomID, err := s.referenceRandomID()
 	if err != nil {
-		return nil, apperror.InternalKey("canvas.ai.video.reference_media.key_failed", nil, "参考媒体存储路径失败")
+		return nil, apperror.InternalKey("aivideo.reference_media.key_failed", nil, "参考媒体存储路径失败")
 	}
-	key := referenceMediaKey(input.UserID, input.MediaKind, input.MimeType, s.now(), randomID)
+	key := referenceMediaKey(input.Platform, input.UserID, input.MediaKind, input.MimeType, s.now(), randomID)
 	if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: key, Body: input.Body, ContentType: input.MimeType}); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.reference_media.upload_failed", nil, "上传参考媒体失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.reference_media.upload_failed", nil, "上传参考媒体失败", err)
 	}
 	return &ReferenceMediaUploadResponse{
 		ID:              "ref_" + randomID,
@@ -253,34 +263,38 @@ func (s *Service) UploadReferenceMedia(ctx context.Context, input ReferenceMedia
 	}, nil
 }
 
-func (s *Service) ownedTask(ctx context.Context, userID int64, id int64) (*VideoTask, *apperror.Error) {
+func (s *Service) ownedTask(ctx context.Context, platform string, userID int64, id int64) (*VideoTask, *apperror.Error) {
+	platform = strings.TrimSpace(platform)
+	if !enum.IsRegisteredPlatform(platform) {
+		return nil, apperror.BadRequestKey("aivideo.platform.invalid", nil, "无效的视频生成平台")
+	}
 	if userID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if id <= 0 {
-		return nil, apperror.BadRequestKey("canvas.ai.video.id.invalid", nil, "视频任务ID无效")
+		return nil, apperror.BadRequestKey("aivideo.id.invalid", nil, "视频任务ID无效")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
 	}
-	task, err := repo.GetTask(ctx, userID, id)
+	task, err := repo.GetTask(ctx, platform, userID, id)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.task_query_failed", nil, "查询Canvas视频任务失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.task_query_failed", nil, "查询AI视频任务失败", err)
 	}
-	if task == nil || task.UserID != userID || task.ID != id || task.IsDel != IsDelActive {
-		return nil, apperror.NotFoundKey("canvas.ai.video.not_found", nil, "Canvas视频任务不存在")
+	if task == nil || task.Platform != platform || task.UserID != userID || task.ID != id || task.IsDel != IsDelActive {
+		return nil, apperror.NotFoundKey("aivideo.not_found", nil, "AI视频任务不存在")
 	}
 	return task, nil
 }
 
 func (s *Service) engineForTask(ctx context.Context, task *VideoTask) (infraai.VideoEngine, string, *apperror.Error) {
 	if task == nil {
-		return nil, "", apperror.NotFoundKey("canvas.ai.video.not_found", nil, "Canvas视频任务不存在")
+		return nil, "", apperror.NotFoundKey("aivideo.not_found", nil, "AI视频任务不存在")
 	}
 	providerTaskID := strings.TrimSpace(task.ProviderTaskID)
 	if providerTaskID == "" {
-		return nil, "", apperror.InternalKey("canvas.ai.video.provider_task_missing", nil, "Canvas视频任务尚未绑定Provider任务")
+		return nil, "", apperror.InternalKey("aivideo.provider_task_missing", nil, "AI视频任务尚未绑定Provider任务")
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -300,69 +314,69 @@ func (s *Service) engineForTask(ctx context.Context, task *VideoTask) (infraai.V
 func (s *Service) validVideoAgent(ctx context.Context, repo Repository, agentID int64) (*AgentRuntime, *apperror.Error) {
 	agent, err := repo.AgentForRuntime(ctx, agentID)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.agent_query_failed", nil, "查询视频智能体失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.agent_query_failed", nil, "查询视频智能体失败", err)
 	}
 	if agent == nil || agent.AgentID <= 0 {
-		return nil, apperror.NotFoundKey("canvas.ai.video.agent_not_found", nil, "视频智能体不存在")
+		return nil, apperror.NotFoundKey("aivideo.agent_not_found", nil, "视频智能体不存在")
 	}
-	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !supportsScene(agent.ScenesJSON, SceneCanvasVideoGenerate) {
-		return nil, apperror.BadRequestKey("canvas.ai.video.agent_unavailable", nil, "该智能体不支持视频生成")
+	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !supportsScene(agent.ScenesJSON, capability.SceneVideoGenerate) {
+		return nil, apperror.BadRequestKey("aivideo.agent_unavailable", nil, "该智能体不支持视频生成")
 	}
 	if strings.TrimSpace(agent.EngineAPIKeyEnc) == "" {
-		return nil, apperror.BadRequestKey("canvas.ai.video.provider_key_missing", nil, "AI供应商API Key未配置")
+		return nil, apperror.BadRequestKey("aivideo.provider_key_missing", nil, "AI供应商API Key未配置")
 	}
 	return agent, nil
 }
 
 func (s *Service) engine(ctx context.Context, agent AgentRuntime) (infraai.VideoEngine, *apperror.Error) {
 	if s == nil || s.secretbox == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.secretbox_missing", nil, "AI密钥服务未配置")
+		return nil, apperror.InternalKey("aivideo.secretbox_missing", nil, "AI密钥服务未配置")
 	}
 	apiKey, err := s.secretbox.Decrypt(agent.EngineAPIKeyEnc)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.provider_key_decrypt_failed", nil, "解密AI供应商API Key失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.provider_key_decrypt_failed", nil, "解密AI供应商API Key失败", err)
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequestKey("canvas.ai.video.provider_key_missing", nil, "AI供应商API Key未配置")
+		return nil, apperror.BadRequestKey("aivideo.provider_key_missing", nil, "AI供应商API Key未配置")
 	}
 	if s.engineFactory == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.engine_missing", nil, "AI视频引擎工厂未配置")
+		return nil, apperror.InternalKey("aivideo.engine_missing", nil, "AI视频引擎工厂未配置")
 	}
 	engine, err := s.engineFactory.NewVideoEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.engine_create_failed", nil, "创建AI视频引擎失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.engine_create_failed", nil, "创建AI视频引擎失败", err)
 	}
 	if engine == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.engine_missing", nil, "AI视频引擎未配置")
+		return nil, apperror.InternalKey("aivideo.engine_missing", nil, "AI视频引擎未配置")
 	}
 	return engine, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.repository_missing", nil, "Canvas视频生成仓储未配置")
+		return nil, apperror.InternalKey("aivideo.repository_missing", nil, "AI视频生成仓储未配置")
 	}
 	return s.repository, nil
 }
 
 func (s *Service) loadCOSConfig(ctx context.Context, repo Repository) (*cosRuntimeConfig, *apperror.Error) {
 	if s == nil || s.secretbox == nil {
-		return nil, apperror.InternalKey("canvas.ai.video.secretbox_missing", nil, "AI密钥服务未配置")
+		return nil, apperror.InternalKey("aivideo.secretbox_missing", nil, "AI密钥服务未配置")
 	}
 	cfg, err := repo.LoadUploadConfig(ctx)
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.upload_config.read_failed", nil, "读取上传配置失败", err)
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.upload_config.read_failed", nil, "读取上传配置失败", err)
 	}
 	if cfg == nil || strings.TrimSpace(cfg.Driver) != StorageProviderCOS {
-		return nil, apperror.InternalKey("canvas.ai.video.cos_config.missing", nil, "未配置有效的 COS 上传配置")
+		return nil, apperror.InternalKey("aivideo.cos_config.missing", nil, "未配置有效的 COS 上传配置")
 	}
 	secretID, err := s.secretbox.Decrypt(cfg.SecretIDEnc)
 	if err != nil || strings.TrimSpace(secretID) == "" {
-		return nil, apperror.InternalKey("canvas.ai.video.cos_secret_id.unavailable", nil, "COS SecretID 不可用")
+		return nil, apperror.InternalKey("aivideo.cos_secret_id.unavailable", nil, "COS SecretID 不可用")
 	}
 	secretKey, err := s.secretbox.Decrypt(cfg.SecretKeyEnc)
 	if err != nil || strings.TrimSpace(secretKey) == "" {
-		return nil, apperror.InternalKey("canvas.ai.video.cos_secret_key.unavailable", nil, "COS SecretKey 不可用")
+		return nil, apperror.InternalKey("aivideo.cos_secret_key.unavailable", nil, "COS SecretKey 不可用")
 	}
 	return &cosRuntimeConfig{SecretID: strings.TrimSpace(secretID), SecretKey: strings.TrimSpace(secretKey), Bucket: strings.TrimSpace(cfg.Bucket), Region: strings.TrimSpace(cfg.Region), Endpoint: strings.TrimSpace(cfg.Endpoint), BucketDomain: strings.TrimSpace(cfg.BucketDomain)}, nil
 }
@@ -388,12 +402,12 @@ func (s *Service) referenceRandomID() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func (s *Service) markTaskFailed(userID int64, id int64, message string) error {
+func (s *Service) markTaskFailed(platform string, userID int64, id int64, message string) error {
 	if s == nil || s.repository == nil || userID <= 0 || id <= 0 {
 		return ErrRepositoryNotConfigured
 	}
 	now := s.now()
-	return s.repository.UpdateTask(context.Background(), userID, id, map[string]any{"status": StatusFailed, "error_message": strings.TrimSpace(message), "updated_at": now, "finished_at": now})
+	return s.repository.UpdateTask(context.Background(), platform, userID, id, map[string]any{"status": StatusFailed, "error_message": strings.TrimSpace(message), "updated_at": now, "finished_at": now})
 }
 
 func (s *Service) failRun(ctx context.Context, runID int64, message string, startedAt time.Time) {
@@ -406,32 +420,32 @@ func (s *Service) failRun(ctx context.Context, runID int64, message string, star
 
 func (s *Service) finishRunForVideoStatus(ctx context.Context, runID int64, status string, message string, startedAt time.Time) *apperror.Error {
 	if s == nil || s.runRecorder == nil {
-		return apperror.InternalKey("canvas.ai.video.run_recorder_missing", nil, "Canvas视频运行记录服务未配置")
+		return apperror.InternalKey("aivideo.run_recorder_missing", nil, "AI视频运行记录服务未配置")
 	}
 	if runID <= 0 {
-		return apperror.InternalKey("canvas.ai.video.run_binding_missing", nil, "Canvas视频任务缺少运行记录绑定")
+		return apperror.InternalKey("aivideo.run_binding_missing", nil, "AI视频任务缺少运行记录绑定")
 	}
 	finishedAt := s.now()
 	duration := durationMS(startedAt, finishedAt)
 	switch status {
 	case StatusCompleted:
 		if err := s.runRecorder.Complete(ctx, airun.CompleteInput{RunID: runID, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
-			return apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_complete_failed", nil, "更新Canvas视频运行记录失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.run_complete_failed", nil, "更新AI视频运行记录失败", err)
 		}
 	case StatusFailed:
 		if err := s.runRecorder.Fail(ctx, airun.FailInput{RunID: runID, Message: message, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
-			return apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_fail_failed", nil, "更新Canvas视频运行记录失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.run_fail_failed", nil, "更新AI视频运行记录失败", err)
 		}
 	case StatusCancelled:
 		if err := s.runRecorder.Cancel(ctx, airun.CancelInput{RunID: runID, Message: message, FinishedAt: finishedAt, DurationMS: duration}); err != nil {
-			return apperror.WrapKey(apperror.CodeInternal, 500, "canvas.ai.video.run_cancel_failed", nil, "更新Canvas视频运行记录失败", err)
+			return apperror.WrapKey(apperror.CodeInternal, 500, "aivideo.run_cancel_failed", nil, "更新AI视频运行记录失败", err)
 		}
 	}
 	return nil
 }
 
 func videoRunRequestID(taskID int64) string {
-	return "canvas_video_task_" + strconv.FormatInt(taskID, 10)
+	return "ai_video_task_" + strconv.FormatInt(taskID, 10)
 }
 
 func durationMS(startedAt time.Time, finishedAt time.Time) uint {
@@ -496,8 +510,8 @@ func referenceMimeType(raw string, fileName string, body []byte) string {
 	return strings.TrimSpace(mimeType)
 }
 
-func referenceMediaKey(userID int64, kind string, mimeType string, now time.Time, randomID string) string {
-	return fmt.Sprintf("ai-video-references/%s/%04d/%02d/%02d/%d-%s%s", strings.ToLower(strings.TrimSpace(kind)), now.Year(), int(now.Month()), now.Day(), userID, randomID, extensionForReferenceMime(mimeType))
+func referenceMediaKey(platform string, userID int64, kind string, mimeType string, now time.Time, randomID string) string {
+	return fmt.Sprintf("ai-video-references/%s/%s/%04d/%02d/%02d/%d-%s%s", strings.TrimSpace(platform), strings.ToLower(strings.TrimSpace(kind)), now.Year(), int(now.Month()), now.Day(), userID, randomID, extensionForReferenceMime(mimeType))
 }
 
 func extensionForReferenceMime(mimeType string) string {

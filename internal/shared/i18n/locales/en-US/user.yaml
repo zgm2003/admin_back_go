@@ -4,5 +4,3 @@ user.platform.invalid: Invalid platform identifier
 app.profile.request.invalid: Invalid profile request
 app.profile.result_missing: Profile data was not returned
 profile.service_missing: Profile service is not configured
-canvas.profile.request.invalid: Invalid profile request
-canvas.profile.result_missing: Profile data was not returned

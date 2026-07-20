@@ -14,7 +14,7 @@ func TestPlatformKernelRegistersOnlyCurrentAdminAdapter(t *testing.T) {
 	if got := enum.RegisteredPlatforms(); !reflect.DeepEqual(got, []string{enum.PlatformAdmin}) {
 		t.Fatalf("current adapter registry mismatch: %#v", got)
 	}
-	for _, retired := range []string{enum.PlatformApp, enum.PlatformCanvas} {
+	for _, retired := range []string{"app", "canvas"} {
 		if enum.IsRegisteredPlatform(retired) {
 			t.Fatalf("retired platform %q is registered", retired)
 		}

@@ -9,13 +9,12 @@ import (
 	"admin_back_go/internal/shared/apperror"
 )
 
-const SceneCanvasAudioGenerate = "canvas_audio_generate"
-
 type HTTPService interface {
 	Generate(ctx context.Context, input GenerateInput) (*GenerateResponse, *apperror.Error)
 }
 
 type GenerateInput struct {
+	Platform       string
 	UserID         int64
 	AgentID        int64
 	ModelID        string
