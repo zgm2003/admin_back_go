@@ -6,6 +6,7 @@ $frontendRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '..\admin_front_ts')
 $commonPath = Join-Path $repoRoot 'scripts\dev\admin-dev-common.ps1'
 $apiAirPath = Join-Path $repoRoot '.air.api.toml'
 $workerAirPath = Join-Path $repoRoot '.air.worker.toml'
+$supervisorPath = Join-Path $repoRoot 'scripts\admin-dev.ps1'
 
 function Assert-ThrowsLike {
   param(
@@ -184,6 +185,195 @@ if ($apiAir.Contains('.tmp/dev/worker') -or $workerAir.Contains('.tmp/dev/api'))
 
 if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot 'package-lock.json') -PathType Leaf)) {
   throw 'frontend package-lock.json is missing'
+}
+
+if (-not (Test-Path -LiteralPath $supervisorPath -PathType Leaf)) {
+  throw 'admin-dev.ps1 is missing'
+}
+$supervisorSource = [IO.File]::ReadAllText($supervisorPath)
+$commonSource = [IO.File]::ReadAllText($commonPath)
+foreach ($required in @(
+  'Assert-AdminDevPrimaryRepositories',
+  'Enter-AdminDevLock',
+  'docker-platform.ps1',
+  '-Action dev-state',
+  'Wait-AdminDevRuntimeReady',
+  'Stop-AdminDevManagedProcesses',
+  'finally',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:8080/health',
+  'http://127.0.0.1:8080/ready'
+)) {
+  if (-not $supervisorSource.Contains($required)) {
+    throw "supervisor contract is missing: $required"
+  }
+}
+foreach ($required in @(
+  'RedirectStandardOutput = $true',
+  'RedirectStandardError = $true',
+  '$startInfo.Environment[',
+  'Kill($true)',
+  'ADMIN_DEV_PORT_IN_USE',
+  'ADMIN_DEV_PROCESS_EXITED',
+  'ADMIN_DEV_READINESS_TIMEOUT'
+)) {
+  if (-not $commonSource.Contains($required)) {
+    throw "managed-process contract is missing: $required"
+  }
+}
+foreach ($prefix in @('[WEB]', '[API]', '[WORKER]')) {
+  if (-not $supervisorSource.Contains($prefix)) {
+    throw "supervisor log prefix is missing: $prefix"
+  }
+}
+if ($supervisorSource -match "(?i)-Action\s+(stop|down)" -or
+    $supervisorSource -match "(?i)docker\s+compose.+\b(stop|down)\b") {
+  throw 'admin-dev cleanup must preserve Docker state services'
+}
+
+$formatted = Format-AdminDevLogLine -Prefix '[API]' -Line 'secret=fixture-app-secret-value' -SensitiveValues @('fixture-app-secret-value')
+if ($formatted -cne '[API] secret=[REDACTED]') {
+  throw 'managed log lines must be prefixed and secret-redacted'
+}
+
+$processFixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('admin-dev-process-test-' + [guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($processFixtureRoot) | Out-Null
+$childScript = Join-Path $processFixtureRoot 'child.ps1'
+$longScript = Join-Path $processFixtureRoot 'long.ps1'
+$failScript = Join-Path $processFixtureRoot 'fail.ps1'
+$childPidPath = Join-Path $processFixtureRoot 'child.pid'
+[IO.File]::WriteAllText($childScript, @'
+Start-Sleep -Seconds 60
+'@, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($longScript, @'
+param([string]$ChildScript, [string]$ChildPidPath)
+if ($env:ADMIN_DEV_FIXTURE -cne 'available') { exit 91 }
+Write-Output 'fixture stdout'
+[Console]::Error.WriteLine('fixture stderr')
+if (-not [string]::IsNullOrWhiteSpace($ChildScript)) {
+  $info = [Diagnostics.ProcessStartInfo]::new()
+  $info.FileName = (Get-Command pwsh -ErrorAction Stop).Source
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  $info.ArgumentList.Add('-NoProfile')
+  $info.ArgumentList.Add('-File')
+  $info.ArgumentList.Add($ChildScript)
+  $child = [Diagnostics.Process]::Start($info)
+  [IO.File]::WriteAllText($ChildPidPath, [string]$child.Id, [Text.UTF8Encoding]::new($false))
+}
+Start-Sleep -Seconds 60
+'@, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($failScript, @'
+Write-Output 'failing fixture'
+exit 23
+'@, [Text.UTF8Encoding]::new($false))
+
+$pwsh = (Get-Command pwsh -ErrorAction Stop | Select-Object -First 1).Source
+$managed = [Collections.Generic.List[object]]::new()
+try {
+  $managed.Add((Start-AdminDevManagedProcess `
+    -Name 'fixture-web' `
+    -Prefix '[WEB]' `
+    -FilePath $pwsh `
+    -ArgumentList @('-NoProfile', '-File', $longScript, '-ChildScript', $childScript, '-ChildPidPath', $childPidPath) `
+    -WorkingDirectory $processFixtureRoot `
+    -Environment @{ ADMIN_DEV_FIXTURE = 'available' } `
+    -SensitiveValues @()))
+  $managed.Add((Start-AdminDevManagedProcess `
+    -Name 'fixture-api' `
+    -Prefix '[API]' `
+    -FilePath $pwsh `
+    -ArgumentList @('-NoProfile', '-File', $longScript) `
+    -WorkingDirectory $processFixtureRoot `
+    -Environment @{ ADMIN_DEV_FIXTURE = 'available' } `
+    -SensitiveValues @()))
+  Wait-AdminDevManagedProcesses `
+    -States $managed.ToArray() `
+    -TimeoutSeconds 5 `
+    -ReadyCondition { param($states) return @($states | Where-Object { -not $_.Process.HasExited }).Count -eq 2 }
+  $deadline = [DateTime]::UtcNow.AddSeconds(5)
+  while (-not (Test-Path -LiteralPath $childPidPath -PathType Leaf) -and [DateTime]::UtcNow -lt $deadline) {
+    Start-Sleep -Milliseconds 50
+  }
+  if (-not (Test-Path -LiteralPath $childPidPath -PathType Leaf)) {
+    throw 'fixture descendant did not start'
+  }
+  $descendantPid = [int][IO.File]::ReadAllText($childPidPath, [Text.Encoding]::UTF8)
+}
+finally {
+  Stop-AdminDevManagedProcesses -States $managed.ToArray()
+}
+foreach ($state in $managed) {
+  if (-not $state.Process.HasExited) {
+    throw "managed root process survived cleanup: $($state.Name)"
+  }
+}
+if ($null -ne (Get-Process -Id $descendantPid -ErrorAction SilentlyContinue)) {
+  throw 'managed descendant process survived cleanup'
+}
+
+$failureGroup = [Collections.Generic.List[object]]::new()
+$failureDetected = $false
+try {
+  $failureGroup.Add((Start-AdminDevManagedProcess `
+    -Name 'fixture-sibling' `
+    -Prefix '[WEB]' `
+    -FilePath $pwsh `
+    -ArgumentList @('-NoProfile', '-File', $longScript) `
+    -WorkingDirectory $processFixtureRoot `
+    -Environment @{ ADMIN_DEV_FIXTURE = 'available' } `
+    -SensitiveValues @()))
+  $failureGroup.Add((Start-AdminDevManagedProcess `
+    -Name 'fixture-failure' `
+    -Prefix '[API]' `
+    -FilePath $pwsh `
+    -ArgumentList @('-NoProfile', '-File', $failScript) `
+    -WorkingDirectory $processFixtureRoot `
+    -Environment @{} `
+    -SensitiveValues @()))
+  try {
+    Wait-AdminDevManagedProcesses -States $failureGroup.ToArray() -TimeoutSeconds 5 -ReadyCondition { return $false }
+  }
+  catch {
+    $failureDetected = $_.Exception.Message.Contains('ADMIN_DEV_PROCESS_EXITED')
+  }
+}
+finally {
+  Stop-AdminDevManagedProcesses -States $failureGroup.ToArray()
+}
+if (-not $failureDetected) {
+  throw 'one child failure must fail the supervisor and clean siblings'
+}
+foreach ($state in $failureGroup) {
+  if (-not $state.Process.HasExited) {
+    throw "sibling survived child failure cleanup: $($state.Name)"
+  }
+}
+
+$timeoutGroup = [Collections.Generic.List[object]]::new()
+$timeoutDetected = $false
+try {
+  $timeoutGroup.Add((Start-AdminDevManagedProcess `
+    -Name 'fixture-timeout' `
+    -Prefix '[WORKER]' `
+    -FilePath $pwsh `
+    -ArgumentList @('-NoProfile', '-File', $longScript) `
+    -WorkingDirectory $processFixtureRoot `
+    -Environment @{ ADMIN_DEV_FIXTURE = 'available' } `
+    -SensitiveValues @()))
+  try {
+    Wait-AdminDevManagedProcesses -States $timeoutGroup.ToArray() -TimeoutSeconds 1 -ReadyCondition { return $false }
+  }
+  catch {
+    $timeoutDetected = $_.Exception.Message.Contains('ADMIN_DEV_READINESS_TIMEOUT')
+  }
+}
+finally {
+  Stop-AdminDevManagedProcesses -States $timeoutGroup.ToArray()
+  Remove-Item -LiteralPath $processFixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (-not $timeoutDetected) {
+  throw 'readiness timeout must fail closed and clean children'
 }
 
 Write-Output 'admin-dev preparation assertions passed'

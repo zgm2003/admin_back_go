@@ -549,3 +549,333 @@ function Install-AdminDevAir {
   [IO.File]::WriteAllText($paths.VersionMarker, "v1.66.0`n", [Text.UTF8Encoding]::new($false))
   return [string]$paths.Executable
 }
+
+function Invoke-AdminDevGitCapture {
+  param(
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+    [Parameter(Mandatory = $true)][string[]]$Arguments
+  )
+
+  $gitCommand = Get-Command 'git.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $gitCommand) {
+    $gitCommand = Get-Command 'git' -ErrorAction Stop | Select-Object -First 1
+  }
+  $output = @(& $gitCommand.Source -C $RepositoryRoot @Arguments 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    throw 'ADMIN_DEV_GIT_VALIDATION_FAILED'
+  }
+  return (($output | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+}
+
+function Assert-AdminDevPrimaryRepositories {
+  param(
+    [Parameter(Mandatory = $true)][string]$BackendRoot,
+    [Parameter(Mandatory = $true)][string]$FrontendRoot
+  )
+
+  foreach ($repository in @($BackendRoot, $FrontendRoot)) {
+    $canonicalRoot = Get-AdminDevCanonicalPath -Path $repository
+    if (-not (Test-Path -LiteralPath $canonicalRoot -PathType Container)) {
+      throw "ADMIN_DEV_REPOSITORY_MISSING: $canonicalRoot"
+    }
+    $gitRoot = Invoke-AdminDevGitCapture -RepositoryRoot $canonicalRoot -Arguments @('rev-parse', '--show-toplevel')
+    if (-not [StringComparer]::OrdinalIgnoreCase.Equals(
+      (Get-AdminDevCanonicalPath -Path $gitRoot),
+      $canonicalRoot
+    )) {
+      throw "ADMIN_DEV_PRIMARY_CHECKOUT_REQUIRED: $canonicalRoot"
+    }
+    $branch = Invoke-AdminDevGitCapture -RepositoryRoot $canonicalRoot -Arguments @('branch', '--show-current')
+    if ($branch -cne 'master') {
+      throw "ADMIN_DEV_MASTER_REQUIRED: $canonicalRoot"
+    }
+    $worktreeOutput = Invoke-AdminDevGitCapture -RepositoryRoot $canonicalRoot -Arguments @('worktree', 'list', '--porcelain')
+    $worktreePaths = @(
+      [regex]::Matches($worktreeOutput, '(?m)^worktree (.+)$') |
+        ForEach-Object { Get-AdminDevCanonicalPath -Path $_.Groups[1].Value.Trim() }
+    )
+    if ($worktreePaths.Count -ne 1 -or
+        -not [StringComparer]::OrdinalIgnoreCase.Equals($worktreePaths[0], $canonicalRoot) -or
+        (Test-Path -LiteralPath (Join-Path $canonicalRoot '.worktrees'))) {
+      throw "ADMIN_DEV_SINGLE_CHECKOUT_REQUIRED: $canonicalRoot"
+    }
+  }
+}
+
+function Assert-AdminDevPortsAvailable {
+  param([Parameter(Mandatory = $true)][int[]]$Ports)
+
+  $listeningPorts = @(
+    [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |
+      ForEach-Object { $_.Port }
+  )
+  foreach ($port in $Ports) {
+    if ($listeningPorts -contains $port) {
+      throw "ADMIN_DEV_PORT_IN_USE: $port"
+    }
+  }
+}
+
+function Format-AdminDevLogLine {
+  param(
+    [Parameter(Mandatory = $true)][string]$Prefix,
+    [AllowEmptyString()][string]$Line,
+    [AllowNull()][string[]]$SensitiveValues
+  )
+
+  return "$Prefix $(Protect-AdminDevText -Text $Line -SensitiveValues $SensitiveValues)"
+}
+
+function Start-AdminDevManagedProcess {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Prefix,
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+    [Parameter(Mandatory = $true)][Collections.IDictionary]$Environment,
+    [AllowNull()][string[]]$SensitiveValues
+  )
+
+  foreach ($argument in $ArgumentList) {
+    foreach ($secret in @($SensitiveValues)) {
+      if (-not [string]::IsNullOrEmpty($secret) -and
+          [string]$argument -ne '' -and
+          [string]$argument.Contains($secret, [StringComparison]::Ordinal)) {
+        throw 'ADMIN_DEV_SECRET_ARGUMENT_REJECTED'
+      }
+    }
+  }
+
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.WorkingDirectory = $WorkingDirectory
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  foreach ($argument in $ArgumentList) {
+    $startInfo.ArgumentList.Add([string]$argument)
+  }
+  foreach ($entry in $Environment.GetEnumerator()) {
+    $startInfo.Environment[[string]$entry.Key] = [string]$entry.Value
+  }
+
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) {
+    throw "ADMIN_DEV_PROCESS_START_FAILED: $Name"
+  }
+  return [pscustomobject]@{
+    Name = $Name
+    Prefix = $Prefix
+    Process = $process
+    OutputTask = $process.StandardOutput.ReadLineAsync()
+    ErrorTask = $process.StandardError.ReadLineAsync()
+    SensitiveValues = @($SensitiveValues)
+  }
+}
+
+function Receive-AdminDevManagedProcessLines {
+  param([Parameter(Mandatory = $true)][object[]]$States)
+
+  foreach ($state in $States) {
+    foreach ($stream in @(
+      @{ Property = 'OutputTask'; Reader = $state.Process.StandardOutput },
+      @{ Property = 'ErrorTask'; Reader = $state.Process.StandardError }
+    )) {
+      $task = $state.($stream.Property)
+      while ($null -ne $task -and $task.IsCompleted) {
+        $line = $task.GetAwaiter().GetResult()
+        if ($null -eq $line) {
+          $state.($stream.Property) = $null
+          $task = $null
+          continue
+        }
+        Write-Host (Format-AdminDevLogLine -Prefix $state.Prefix -Line $line -SensitiveValues $state.SensitiveValues)
+        $task = $stream.Reader.ReadLineAsync()
+        $state.($stream.Property) = $task
+      }
+    }
+  }
+}
+
+function Assert-AdminDevManagedProcessesRunning {
+  param([Parameter(Mandatory = $true)][object[]]$States)
+
+  foreach ($state in $States) {
+    if ($state.Process.HasExited) {
+      Receive-AdminDevManagedProcessLines -States @($state)
+      throw "ADMIN_DEV_PROCESS_EXITED: $($state.Name) ($($state.Process.ExitCode))"
+    }
+  }
+}
+
+function Wait-AdminDevManagedProcesses {
+  param(
+    [Parameter(Mandatory = $true)][object[]]$States,
+    [Parameter(Mandatory = $true)][ValidateRange(1, 600)][int]$TimeoutSeconds,
+    [Parameter(Mandatory = $true)][scriptblock]$ReadyCondition
+  )
+
+  $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+  while ($stopwatch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+    Receive-AdminDevManagedProcessLines -States $States
+    Assert-AdminDevManagedProcessesRunning -States $States
+    $ready = & $ReadyCondition $States
+    if ($ready -eq $true) {
+      return
+    }
+    Start-Sleep -Milliseconds 50
+  }
+  throw "ADMIN_DEV_READINESS_TIMEOUT: $TimeoutSeconds seconds"
+}
+
+function Stop-AdminDevManagedProcesses {
+  param([AllowNull()][object[]]$States)
+
+  $items = @($States)
+  [array]::Reverse($items)
+  foreach ($state in $items) {
+    if ($null -eq $state -or $null -eq $state.Process) {
+      continue
+    }
+    try {
+      if (-not $state.Process.HasExited) {
+        $state.Process.Kill($true)
+      }
+    }
+    catch {
+      Write-Warning "could not stop managed process $($state.Name)"
+    }
+  }
+  foreach ($state in $items) {
+    if ($null -eq $state -or $null -eq $state.Process) {
+      continue
+    }
+    try {
+      if (-not $state.Process.HasExited) {
+        $null = $state.Process.WaitForExit(10000)
+      }
+    }
+    catch {
+      Write-Warning "could not wait for managed process $($state.Name)"
+    }
+  }
+}
+
+function Test-AdminDevHttpReady {
+  param(
+    [Parameter(Mandatory = $true)][string]$Uri,
+    [ValidateRange(1, 10)][int]$TimeoutSeconds = 1
+  )
+
+  $client = [Net.Http.HttpClient]::new()
+  $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+  try {
+    $response = $client.GetAsync($Uri).GetAwaiter().GetResult()
+    try {
+      return $response.IsSuccessStatusCode
+    }
+    finally {
+      $response.Dispose()
+    }
+  }
+  catch {
+    return $false
+  }
+  finally {
+    $client.Dispose()
+  }
+}
+
+function Get-AdminDevWorkerDescendantId {
+  param([Parameter(Mandatory = $true)][int]$RootProcessId)
+
+  try {
+    $processes = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name -ErrorAction Stop)
+  }
+  catch {
+    return $null
+  }
+  $descendants = [Collections.Generic.HashSet[int]]::new()
+  $null = $descendants.Add($RootProcessId)
+  $changed = $true
+  while ($changed) {
+    $changed = $false
+    foreach ($process in $processes) {
+      if ($descendants.Contains([int]$process.ParentProcessId) -and
+          -not $descendants.Contains([int]$process.ProcessId)) {
+        $null = $descendants.Add([int]$process.ProcessId)
+        $changed = $true
+      }
+    }
+  }
+  $worker = $processes |
+    Where-Object { $descendants.Contains([int]$_.ProcessId) -and [string]$_.Name -ieq 'admin-worker.exe' } |
+    Select-Object -First 1
+  if ($null -eq $worker) {
+    return $null
+  }
+  return [int]$worker.ProcessId
+}
+
+function Wait-AdminDevRuntimeReady {
+  param(
+    [Parameter(Mandatory = $true)][object[]]$States,
+    [ValidateRange(10, 600)][int]$TimeoutSeconds = 180
+  )
+
+  $workerState = $States | Where-Object { $_.Name -ceq 'worker' } | Select-Object -First 1
+  if ($null -eq $workerState) {
+    throw 'ADMIN_DEV_WORKER_STATE_MISSING'
+  }
+  $stableWorkerId = $null
+  $stableSince = [DateTime]::MinValue
+  $lastHttpCheck = [DateTime]::MinValue
+  $viteReady = $false
+  $healthReady = $false
+  $apiReady = $false
+  $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+  while ($stopwatch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+    Receive-AdminDevManagedProcessLines -States $States
+    Assert-AdminDevManagedProcessesRunning -States $States
+
+    if (([DateTime]::UtcNow - $lastHttpCheck).TotalMilliseconds -ge 500) {
+      $viteReady = Test-AdminDevHttpReady -Uri 'http://127.0.0.1:5173'
+      $healthReady = Test-AdminDevHttpReady -Uri 'http://127.0.0.1:8080/health'
+      $apiReady = Test-AdminDevHttpReady -Uri 'http://127.0.0.1:8080/ready'
+      $lastHttpCheck = [DateTime]::UtcNow
+    }
+
+    $workerId = Get-AdminDevWorkerDescendantId -RootProcessId $workerState.Process.Id
+    if ($null -eq $workerId) {
+      $stableWorkerId = $null
+      $stableSince = [DateTime]::MinValue
+    }
+    elseif ($stableWorkerId -ne $workerId) {
+      $stableWorkerId = $workerId
+      $stableSince = [DateTime]::UtcNow
+    }
+    $workerReady = $null -ne $stableWorkerId -and
+      ([DateTime]::UtcNow - $stableSince).TotalSeconds -ge 3
+
+    if ($viteReady -and $healthReady -and $apiReady -and $workerReady) {
+      return
+    }
+    Start-Sleep -Milliseconds 100
+  }
+  throw "ADMIN_DEV_READINESS_TIMEOUT: $TimeoutSeconds seconds"
+}
+
+function Watch-AdminDevManagedProcesses {
+  param([Parameter(Mandatory = $true)][object[]]$States)
+
+  while ($true) {
+    Receive-AdminDevManagedProcessLines -States $States
+    Assert-AdminDevManagedProcessesRunning -States $States
+    Start-Sleep -Milliseconds 100
+  }
+}
