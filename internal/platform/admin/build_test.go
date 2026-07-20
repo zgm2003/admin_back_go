@@ -64,7 +64,7 @@ func TestBuildRejectsMissingRequiredResources(t *testing.T) {
 	}
 }
 
-func TestBuildProducesCompleteAdminAndRetiredGraphs(t *testing.T) {
+func TestBuildProducesCompleteAdminGraph(t *testing.T) {
 	keys, err := secretkey.NewKeyRing(strings.Repeat("k", 64))
 	if err != nil {
 		t.Fatalf("key ring: %v", err)
@@ -89,9 +89,6 @@ func TestBuildProducesCompleteAdminAndRetiredGraphs(t *testing.T) {
 	}
 	if err := result.Graph.Validate(); err != nil {
 		t.Fatalf("graph validation: %v", err)
-	}
-	if result.Retired.Canvas == nil || result.Retired.AIImages == nil || result.Retired.AIChat == nil {
-		t.Fatalf("retired graph incomplete: %+v", result.Retired)
 	}
 	if result.Authenticator == nil || result.PermissionChecker == nil {
 		t.Fatalf("runtime seams incomplete: %+v", result)

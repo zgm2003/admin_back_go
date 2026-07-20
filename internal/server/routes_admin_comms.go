@@ -6,7 +6,6 @@ import (
 	smsadmin "admin_back_go/internal/module/sms/transport/admin"
 	uploadconfigadmin "admin_back_go/internal/module/uploadconfig/transport/admin"
 	uploadtokenadmin "admin_back_go/internal/module/uploadtoken/transport/admin"
-	uploadtokenapp "admin_back_go/internal/module/uploadtoken/transport/app"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,5 +18,4 @@ func registerAdminCommsRoutes(router *gin.Engine, deps Dependencies) {
 	smsadmin.RegisterRoutes(router, communications.SMS, deps.Core.RouteRegistry)
 	uploadconfigadmin.RegisterRoutes(router, communications.UploadConfig, deps.Core.RouteRegistry)
 	uploadtokenadmin.RegisterRoutes(router, communications.UploadTokens, deps.Core.RouteRegistry)
-	uploadtokenapp.RegisterRoutes(router, communications.UploadTokens, deps.Core.RouteRegistry)
 }

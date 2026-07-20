@@ -145,8 +145,6 @@ GET /api/admin/v1/users/me
 GET /api/admin/v1/users/page-init
 GET /api/admin/v1/wallet/summary
 GET /api/admin/v1/wallet/transactions
-GET /api/app/v1/users/me
-GET /api/canvas/v1/users/me
 GET /health
 GET /ready
 HEAD /api/admin/v1/queue-monitor-ui

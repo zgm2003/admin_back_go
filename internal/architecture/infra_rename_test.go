@@ -9,7 +9,7 @@ func TestInfraRenameComplete(t *testing.T) {
 	mustExist(t, root, "internal/infra")
 	mustExist(t, root, "internal/platform/admin/graph.go")
 	mustExist(t, root, "internal/platform/admin/build.go")
-	mustExist(t, root, "internal/platform/retired/graph.go")
+	mustNotExist(t, root, "internal/platform/retired")
 
 	for _, legacyInfraPath := range []string{
 		"internal/platform/database",

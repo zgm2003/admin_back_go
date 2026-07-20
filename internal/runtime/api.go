@@ -198,8 +198,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 					QueueMonitorUI:    queueMonitorUI,
 					RealtimeHandler:   realtime.handler,
 				},
-				Admin:   adminBuild.Graph,
-				Retired: adminBuild.Retired,
+				Admin: adminBuild.Graph,
 			})
 			if err != nil {
 				return nil, err

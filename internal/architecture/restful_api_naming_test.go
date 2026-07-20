@@ -36,15 +36,9 @@ func TestAdminRoutesExposePageInitForPageDictionariesWithoutLegacyInitAliases(t 
 	}
 }
 
-func TestCurrentUserBootstrapUsesUsersMeForEveryPlatform(t *testing.T) {
+func TestCurrentUserBootstrapUsesAdminUsersMeOnly(t *testing.T) {
 	routes := readRouteSnapshot(t, backendRoot(t))
-	for _, route := range []string{
-		"GET /api/admin/v1/users/me",
-		"GET /api/app/v1/users/me",
-		"GET /api/canvas/v1/users/me",
-	} {
-		assertRouteSnapshotContains(t, routes, route)
-	}
+	assertRouteSnapshotContains(t, routes, "GET /api/admin/v1/users/me")
 	for route := range routes {
 		if strings.Contains(routePath(route), "/users/init") {
 			t.Fatalf("current-user bootstrap must not expose users/init: %s", route)

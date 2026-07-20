@@ -61,45 +61,49 @@ func TestAuthTokenDefaultSkipPathsExcludeLegacyUsersRoutes(t *testing.T) {
 	}
 }
 
-func TestDefaultAuthSkipPathsExposeCanvasAuthPublicEndpoints(t *testing.T) {
+func TestDefaultAuthSkipPathsExcludeRetiredProductEndpoints(t *testing.T) {
 	paths := DefaultAuthSkipPaths()
 	for _, path := range []string{
+		"/api/app/v1/auth/captcha",
+		"/api/app/v1/auth/login-config",
+		"/api/app/v1/auth/send-code",
+		"/api/app/v1/auth/login",
 		"/api/canvas/v1/auth/captcha",
 		"/api/canvas/v1/auth/login-config",
 		"/api/canvas/v1/auth/send-code",
 		"/api/canvas/v1/auth/login",
 		"/api/canvas/v1/auth/refresh",
 	} {
-		if _, ok := paths[path]; !ok {
-			t.Fatalf("canvas auth public endpoint %s must be skipped", path)
+		if _, ok := paths[path]; ok {
+			t.Fatalf("retired product endpoint %s must not remain public", path)
 		}
 	}
 }
 
-func TestAuthTokenDefaultsPlatformForCanvasAPIBearerRequest(t *testing.T) {
+func TestAuthTokenDoesNotInferProductPlatformFromPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var gotInput TokenInput
 	router := gin.New()
 	router.Use(AuthToken(AuthTokenConfig{
 		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
 			gotInput = input
-			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "canvas"}, nil
+			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "admin"}, nil
 		},
 	}))
-	router.GET("/api/canvas/v1/users/me", func(c *gin.Context) {
+	router.GET("/retired-product-shaped-path", func(c *gin.Context) {
 		c.String(http.StatusOK, "me")
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/canvas/v1/users/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/retired-product-shaped-path", nil)
 	request.Header.Set("Authorization", "Bearer bearer-token")
 	router.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if gotInput.Platform != "canvas" {
-		t.Fatalf("expected canvas API bearer request to default platform canvas, got %q", gotInput.Platform)
+	if gotInput.Platform != "" {
+		t.Fatalf("expected missing product provenance to remain empty, got %q", gotInput.Platform)
 	}
 }
 func TestAuthTokenRejectsMissingBearer(t *testing.T) {
@@ -150,7 +154,7 @@ func TestAuthTokenStoresIdentityReturnedByAuthenticator(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	request.Header.Set("Authorization", "Bearer valid-token")
-	request.Header.Set("platform", "app-from-header")
+	request.Header.Set("platform", "admin")
 	request.Header.Set("device-id", "device-1")
 	router.ServeHTTP(recorder, request)
 
@@ -160,7 +164,7 @@ func TestAuthTokenStoresIdentityReturnedByAuthenticator(t *testing.T) {
 	if gotInput.AccessToken != "valid-token" {
 		t.Fatalf("expected token valid-token, got %q", gotInput.AccessToken)
 	}
-	if gotInput.Platform != "app-from-header" {
+	if gotInput.Platform != "admin" {
 		t.Fatalf("expected platform header to be passed to authenticator, got %q", gotInput.Platform)
 	}
 	if gotInput.DeviceID != "device-1" {
@@ -200,33 +204,6 @@ func TestAuthTokenConsumesRealtimeTicketInsteadOfBearerOrAccessCookie(t *testing
 	}
 	if consumed != "one-time-ticket" || recorder.Body.String() != "34" {
 		t.Fatalf("ticket=%q body=%q", consumed, recorder.Body.String())
-	}
-}
-
-func TestAuthTokenDefaultsPlatformForAppAPIBearerRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	var gotInput TokenInput
-	router := gin.New()
-	router.Use(AuthToken(AuthTokenConfig{
-		Authenticator: func(ctx context.Context, input TokenInput) (*AuthIdentity, *apperror.Error) {
-			gotInput = input
-			return &AuthIdentity{UserID: 12, SessionID: 34, Platform: "app"}, nil
-		},
-	}))
-	router.GET("/api/app/v1/users/me", func(c *gin.Context) {
-		c.String(http.StatusOK, "me")
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/app/v1/users/me", nil)
-	request.Header.Set("Authorization", "Bearer bearer-token")
-	router.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
-	}
-	if gotInput.Platform != "app" {
-		t.Fatalf("expected app API bearer request to default platform app, got %q", gotInput.Platform)
 	}
 }
 

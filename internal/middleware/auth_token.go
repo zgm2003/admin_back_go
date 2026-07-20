@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"admin_back_go/internal/shared/apperror"
-	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
@@ -72,14 +71,9 @@ func AuthToken(cfg AuthTokenConfig) gin.HandlerFunc {
 			return
 		}
 
-		platform := c.GetHeader("platform")
-		if strings.TrimSpace(platform) == "" {
-			platform = defaultPlatformForPath(c.Request.URL.Path)
-		}
-
 		identity, err := cfg.Authenticator(c.Request.Context(), TokenInput{
 			AccessToken: token.value,
-			Platform:    platform,
+			Platform:    strings.TrimSpace(c.GetHeader("platform")),
 			DeviceID:    c.GetHeader("device-id"),
 			ClientIP:    c.ClientIP(),
 		})
@@ -143,15 +137,6 @@ func DefaultAuthSkipPaths() map[string]struct{} {
 		"/api/admin/v1/auth/forgot-password": {},
 		"/api/admin/v1/auth/login":           {},
 		"/api/admin/v1/auth/refresh":         {},
-		"/api/app/v1/auth/captcha":           {},
-		"/api/app/v1/auth/login-config":      {},
-		"/api/app/v1/auth/send-code":         {},
-		"/api/app/v1/auth/login":             {},
-		"/api/canvas/v1/auth/captcha":        {},
-		"/api/canvas/v1/auth/login-config":   {},
-		"/api/canvas/v1/auth/send-code":      {},
-		"/api/canvas/v1/auth/login":          {},
-		"/api/canvas/v1/auth/refresh":        {},
 		"/api/payment/callbacks/alipay":      {},
 		"/favicon.ico":                       {},
 		"/robots.txt":                        {},
@@ -241,14 +226,4 @@ func authenticateGrant(c *gin.Context, credential string, authenticator BrowserG
 	}
 	c.Set(ContextAuthIdentity, identity)
 	c.Next()
-}
-
-func defaultPlatformForPath(path string) string {
-	if strings.HasPrefix(path, "/api/app/v1/") || path == "/api/app/v1" {
-		return enum.PlatformApp
-	}
-	if strings.HasPrefix(path, "/api/canvas/v1/") || path == "/api/canvas/v1" {
-		return enum.PlatformCanvas
-	}
-	return ""
 }

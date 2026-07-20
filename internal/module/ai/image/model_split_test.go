@@ -58,14 +58,8 @@ func TestAdminImageWorkspaceDoesNotExposeRetiredSurfaces(t *testing.T) {
 		})
 	}
 
-	canvasTransportFiles := []string{
-		"transport/canvas/handler.go",
-		"transport/canvas/handler_test.go",
-	}
-	for _, file := range canvasTransportFiles {
-		assertSourceTokensAbsent(t, filepath.Join(root, filepath.FromSlash(file)), []string{
-			"Favorite(",
-		})
+	if _, err := os.Stat(filepath.Join(root, "transport", "canvas")); !os.IsNotExist(err) {
+		t.Fatalf("retired Canvas image transport still exists: %v", err)
 	}
 
 	assertSourceTokensAbsent(t, filepath.Join(root, "..", "..", "..", "..", "scripts", "full-admin-smoke.ps1"), []string{

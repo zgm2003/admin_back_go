@@ -52,7 +52,7 @@ func TestRoutePolicyGoldenIsAdminOnlyAndCurrent(t *testing.T) {
 		}
 		operationIDs[definition.OperationID] = struct{}{}
 		if strings.HasPrefix(definition.Path, "/api/app/") || strings.HasPrefix(definition.Path, "/api/canvas/") {
-			continue
+			t.Fatalf("retired product route compiled: %s %s", definition.Method, definition.Path)
 		}
 		if strings.HasPrefix(definition.Path, "/api/admin/") ||
 			strings.HasPrefix(definition.Path, "/api/payment/callbacks/") ||

@@ -8,22 +8,16 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
-	aiassetcanvas "admin_back_go/internal/module/ai/asset/transport/canvas"
-	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
-	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
 	aipromptadmin "admin_back_go/internal/module/ai/prompt/transport/admin"
-	aipromptcanvas "admin_back_go/internal/module/ai/prompt/transport/canvas"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
-	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
-	canvastransport "admin_back_go/internal/module/canvas/transport/canvas"
 	crontask "admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
 	mailadmin "admin_back_go/internal/module/mail/transport/admin"
@@ -44,7 +38,6 @@ import (
 	uploadtokenadmin "admin_back_go/internal/module/uploadtoken/transport/admin"
 	"admin_back_go/internal/module/user"
 	platformadmin "admin_back_go/internal/platform/admin"
-	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
@@ -68,12 +61,7 @@ type testDependencies struct {
 	CaptchaService          auth.CaptchaHTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
-	AiImageService          aiimage.HTTPService
-	AiAudioService          aiaudio.HTTPService
-	AiAssetService          aiassetcanvas.HTTPService
 	AiPromptAdminService    aipromptadmin.HTTPService
-	AiPromptService         aipromptcanvas.HTTPService
-	AiVideoService          aivideo.HTTPService
 	AiAgentService          aiagent.HTTPService
 	AiProviderService       aiprovider.HTTPService
 	AiKnowledgeService      aiknowledge.HTTPService
@@ -103,7 +91,6 @@ type testDependencies struct {
 	RealtimeHandler         *realtimeadmin.Handler
 	RoleService             roleadmin.HTTPService
 	AuthPlatformService     authplatformadmin.HTTPService
-	CanvasService           canvastransport.HTTPService
 	AuthSkipPaths           map[string]struct{}
 }
 
@@ -169,15 +156,6 @@ func (deps testDependencies) grouped() Dependencies {
 				Runs:          deps.AiRunService,
 				Tools:         deps.AiToolService,
 			},
-		},
-		Retired: retired.Graph{
-			Canvas:   deps.CanvasService,
-			AIAssets: deps.AiAssetService,
-			AIAudio:  deps.AiAudioService,
-			AIChat:   deps.AiChatService,
-			AIImages: deps.AiImageService,
-			AIPrompt: deps.AiPromptService,
-			AIVideo:  deps.AiVideoService,
 		},
 	}
 }

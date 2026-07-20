@@ -30,6 +30,13 @@ func TestQuickEntryRemovedFromActiveRuntime(t *testing.T) {
 				return walkErr
 			}
 			if entry.IsDir() {
+				relative, err := filepath.Rel(root, path)
+				if err != nil {
+					return err
+				}
+				if filepath.ToSlash(relative) == "scripts/tests" {
+					return filepath.SkipDir
+				}
 				if entry.Name() == "testdata" {
 					return filepath.SkipDir
 				}

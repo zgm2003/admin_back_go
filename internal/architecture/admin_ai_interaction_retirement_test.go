@@ -86,7 +86,7 @@ func TestAdminAIInteractionSurfacesRetired(t *testing.T) {
 	}
 }
 
-func TestCanvasAssetsAreUserOwned(t *testing.T) {
+func TestAIAssetsRemainUserOwnedCapability(t *testing.T) {
 	root := adminAIRetirementRepoRoot(t)
 
 	ownershipMigration := readAdminAIRetirementText(t, filepath.Join(root, "database/legacy-migrations/20260608_ai_asset_user_ownership.sql"))
@@ -117,18 +117,8 @@ func TestCanvasAssetsAreUserOwned(t *testing.T) {
 		}
 	}
 
-	canvasHandler := readAdminAIRetirementText(t, filepath.Join(root, "internal/module/ai/asset/transport/canvas/handler.go"))
-	for _, required := range []string{
-		"middleware.ContextAuthIdentity",
-		"identity.UserID",
-		"UserList",
-		"UserCreate",
-		"UserUpdate",
-		"UserDelete",
-	} {
-		if !strings.Contains(canvasHandler, required) {
-			t.Fatalf("Canvas asset handler missing user-owned flow %q", required)
-		}
+	if _, err := os.Stat(filepath.Join(root, "internal/module/ai/asset/transport/canvas")); !os.IsNotExist(err) {
+		t.Fatalf("retired Canvas asset transport still exists: %v", err)
 	}
 }
 

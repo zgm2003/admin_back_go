@@ -21,7 +21,6 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
-	aiasset "admin_back_go/internal/module/ai/asset"
 	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
@@ -37,7 +36,6 @@ import (
 	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
 	authplatform "admin_back_go/internal/module/auth_platform"
-	canvasmodule "admin_back_go/internal/module/canvas"
 	"admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
 	"admin_back_go/internal/module/mail"
@@ -56,7 +54,6 @@ import (
 	"admin_back_go/internal/module/uploadconfig"
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
-	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/telemetry"
 )
@@ -104,7 +101,6 @@ type BuildInput struct {
 
 type BuildResult struct {
 	Graph             Graph
-	Retired           retired.Graph
 	Authenticator     middleware.TokenAuthenticator
 	PermissionChecker middleware.PermissionChecker
 	OperationRecorder middleware.OperationRecorder
@@ -172,15 +168,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
-	aiImageService := aiimage.NewService(aiimage.Dependencies{
-		Repository:    aiimage.NewGormRepository(resources.DB),
-		Enqueuer:      input.Queue,
-		Secretbox:     providers.Secretbox,
-		EngineFactory: providers.AIImageFactory,
-		ObjectReader:  providers.ObjectReader,
-		ObjectWriter:  providers.ObjectWriter,
-		RunRecorder:   aiRunRecorder,
-	})
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
 	aiToolService := aitool.NewService(
 		aiToolRepository,
@@ -191,25 +178,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(aiRunRepository)
-	aiAssetService := aiasset.NewService(aiasset.NewGormRepository(resources.DB))
 	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
-	aiVideoService := aivideo.NewService(aivideo.Dependencies{
-		Repository:    aivideo.NewGormRepository(resources.DB),
-		Secretbox:     providers.Secretbox,
-		EngineFactory: providers.AIVideoFactory,
-		RunRecorder:   aiRunRecorder,
-		ObjectWriter:  providers.ObjectWriter,
-	})
-	aiAudioService := aiaudio.NewService(aiaudio.Dependencies{
-		Repository:    aiaudio.NewGormRepository(resources.DB),
-		Secretbox:     providers.Secretbox,
-		EngineFactory: providers.AIAudioFactory,
-		RunRecorder:   aiRunRecorder,
-	})
-
-	canvasService := canvasmodule.NewServiceWithSettings(canvasmodule.NewGormRepository(resources.DB), canvasmodule.SettingsDependencies{
-		AuthPolicy: authPlatformService,
-	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),
 		Gateway:      providers.PaymentGateway,
@@ -370,16 +339,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		operationRecorder = operationlog.NewRecorder(operationRepository)
 	}
 	return &BuildResult{
-		Graph: graph,
-		Retired: retired.Graph{
-			Canvas:   canvasService,
-			AIAssets: aiAssetService,
-			AIAudio:  aiAudioService,
-			AIChat:   aiChatService,
-			AIImages: aiImageService,
-			AIPrompt: aiPromptService,
-			AIVideo:  aiVideoService,
-		},
+		Graph:             graph,
 		Authenticator:     tokenAuthenticatorFor(sessionAuthenticator),
 		PermissionChecker: permissionCheckerFor(principalService),
 		OperationRecorder: operationRecorder,

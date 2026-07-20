@@ -15,7 +15,6 @@ import (
 	realtimeadmin "admin_back_go/internal/module/realtime/transport/admin"
 	"admin_back_go/internal/module/system"
 	platformadmin "admin_back_go/internal/platform/admin"
-	"admin_back_go/internal/platform/retired"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
@@ -39,9 +38,8 @@ type CoreDependencies struct {
 }
 
 type Dependencies struct {
-	Core    CoreDependencies
-	Admin   platformadmin.Graph
-	Retired retired.Graph
+	Core  CoreDependencies
+	Admin platformadmin.Graph
 }
 
 func NewRouter(deps Dependencies) (*gin.Engine, error) {
@@ -88,7 +86,6 @@ func NewRouter(deps Dependencies) (*gin.Engine, error) {
 	registerAdminUserRoutes(router, deps)
 	registerAdminCommsRoutes(router, deps)
 	registerAdminCommerceRBACRoutes(router, deps)
-	registerCanvasRoutes(router, deps)
 
 	routes := router.Routes()
 	actual := make([]adminroute.Route, 0, len(routes))
