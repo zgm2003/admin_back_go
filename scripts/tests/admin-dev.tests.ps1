@@ -285,6 +285,16 @@ exit 23
 '@, [Text.UTF8Encoding]::new($false))
 
 $pwsh = (Get-Command pwsh -ErrorAction Stop | Select-Object -First 1).Source
+Assert-ThrowsLike {
+  Start-AdminDevManagedProcess `
+    -Name 'fixture-secret-argument' `
+    -Prefix '[API]' `
+    -FilePath $pwsh `
+    -ArgumentList @('fixture-secret-command-value') `
+    -WorkingDirectory $processFixtureRoot `
+    -Environment @{} `
+    -SensitiveValues @('fixture-secret-command-value') | Out-Null
+} 'ADMIN_DEV_SECRET_ARGUMENT_REJECTED'
 $managed = [Collections.Generic.List[object]]::new()
 try {
   $managed.Add((Start-AdminDevManagedProcess `
@@ -294,7 +304,7 @@ try {
     -ArgumentList @('-NoProfile', '-File', $longScript, '-ChildScript', $childScript, '-ChildPidPath', $childPidPath) `
     -WorkingDirectory $processFixtureRoot `
     -Environment @{ ADMIN_DEV_FIXTURE = 'available' } `
-    -SensitiveValues @()))
+    -SensitiveValues @('fixture-secret-not-in-arguments')))
   $managed.Add((Start-AdminDevManagedProcess `
     -Name 'fixture-api' `
     -Prefix '[API]' `

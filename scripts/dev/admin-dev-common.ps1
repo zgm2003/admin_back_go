@@ -647,7 +647,7 @@ function Start-AdminDevManagedProcess {
     foreach ($secret in @($SensitiveValues)) {
       if (-not [string]::IsNullOrEmpty($secret) -and
           [string]$argument -ne '' -and
-          [string]$argument.Contains($secret, [StringComparison]::Ordinal)) {
+          ([string]$argument).Contains($secret, [StringComparison]::Ordinal)) {
         throw 'ADMIN_DEV_SECRET_ARGUMENT_REJECTED'
       }
     }
