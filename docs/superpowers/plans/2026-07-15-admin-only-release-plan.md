@@ -37,6 +37,16 @@ Windows development uses `admin-dev` (Docker MySQL/Redis plus host
 Vite/API/Worker) for focused feedback. Every authoritative frontend gate and
 the final release still use exact `node:24.18.0-alpine` and full Docker.
 
+The 2026-07-20 preflight fingerprint and a fresh read-only live-schema query
+also corrected an older database assumption: `users_quick_entry`,
+`canvas_prompts`, `canvas_assets`, `ai_billing_rules`, and
+`ai_billing_records` are already absent because reviewed legacy migrations ran
+before P09. P09 must prove that absence and must not recreate or pretend to
+drop those tables. The remaining physical product tables are the empty
+`canvas_video_tasks` compatibility table and the eight-row frozen
+`client_versions` history; `user_sessions.access_token_hash` is also still
+present. Current `ai_video_tasks` is retained.
+
 ## Destructive-stage prerequisites
 
 P09 stops before DDL unless P01-P08R and all P07 tasks are committed and accepted, both primary checkout working directories are clean, no Git worktree registration/directory exists, every active program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, P08R proves `client_versions` has had no runtime reader/writer since cutover, and the frontend contract lock matches the backend bundle manifest.
@@ -104,20 +114,27 @@ The runbook and its executable count queries classify exactly:
 - App/Canvas sessions and login attempts: preserve counts in recovery evidence, revoke, then delete;
 - App/Canvas permissions and role grants: delete grants before permissions;
 - App/Canvas `auth_platforms` rows: delete; the Admin policy row remains enabled;
-- `users_quick_entry`: drop only after the observed 107 rows / 3 active rows are present in recovery evidence;
+- `users_quick_entry`: already absent before P09; preserve the historical P02
+  107-row / 3-active-row evidence, prove current absence, and do not recreate
+  or claim a new P09 drop;
 - `all` notification tasks/notifications: convert to `admin`; App/Canvas-only rows: delete;
 - non-Admin exports: verify artifact/object evidence, then delete task rows;
 - Canvas AI run/task/file/billing rows: preserve exact object keys and counts, delete dependents before owners, do not delete COS objects during this migration, and never delete provider/agent/storage configuration solely because a retired transport used it;
-- agent and billing scenes: rename `canvas_text_generate`, `canvas_image_generate`, `canvas_video_generate`, and `canvas_audio_generate` to `text_generate`, `image_generate`, `video_generate`, and `audio_generate`;
+- agent scenes: rename `canvas_text_generate`, `canvas_image_generate`,
+  `canvas_video_generate`, and `canvas_audio_generate` to `text_generate`,
+  `image_generate`, `video_generate`, and `audio_generate`; the already-absent
+  legacy billing tables are verified absent rather than referenced;
 - `canvas_video_tasks`: remove product rows, then drop the retired table; P02 already created the canonical `ai_video_tasks` capability table;
-- `canvas_prompts` and `canvas_assets`: drop only after their source-to-`ai_prompts`/`ai_assets` hashes match P02 evidence.
+- `canvas_prompts` and `canvas_assets`: already absent before P09 after their
+  source-to-`ai_prompts`/`ai_assets` migration; verify absence and retain the
+  P02 evidence without recreating or dropping them again.
 - `client_versions`: preserve the P08R row count/hash in the input lock, prove no active route/task/menu/grant/runtime package references the table, record the exact historical COS object retention/deletion decision, then drop the table only in Task 6 after the fresh destructive approval.
 
 No row receives an owner, platform, scene, kind, or object key without a documented source rule.
 
 - [ ] **Step 3: Make preconditions zero-row invariants**
 
-`050_contract_preconditions.sql` returns named violation result sets for unresolved object URLs, wallet mismatches, RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, active client-version menu/grants/routes, any runtime reference to `client_versions`, and evidence hashes that differ from the input lock. It verifies the live `client_versions` count/hash equals the P08R freeze evidence. `admin-db invariants` must fail on any returned row.
+`050_contract_preconditions.sql` returns named violation result sets for unresolved retained object URLs, wallet mismatches, RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, active client-version menu/grants/routes, any runtime reference to `client_versions`, and any unexpected reappearance of the five already-absent legacy tables. The PowerShell input checker owns external evidence-file digest validation. SQL verifies the live `client_versions` count/hash equals the P08R freeze evidence. `admin-db invariants` must fail on any returned row.
 
 - [ ] **Step 4: Run and commit**
 
@@ -511,7 +528,11 @@ DELETE FROM notifications WHERE platform IN ('app', 'canvas');
 DELETE FROM export_tasks WHERE platform IN ('app', 'canvas');
 ```
 
-The same file deletes Canvas AI dependents before `ai_runs`, `ai_text_tasks`, `ai_image_tasks`, `ai_billing_records`, and video-task owners; it updates all four agent/billing scene values using `JSON_REPLACE`/explicit scalar updates. The migration contains no guessed reassignment and aborts if an expected evidence count differs.
+The same file deletes Canvas AI dependents before `ai_runs`, `ai_text_tasks`,
+`ai_image_tasks`, and video-task owners; it updates all four `ai_agents` scene
+values using `JSON_REPLACE`. It does not reference the already-absent billing
+tables. The migration contains no guessed reassignment and aborts if an
+expected evidence count differs.
 
 Use a temporary ID set so dependent deletion is explicit and repeatable:
 
@@ -529,7 +550,6 @@ DELETE f FROM ai_image_files f JOIN ai_image_tasks t ON t.id = f.task_id
 WHERE t.platform IN ('app', 'canvas');
 DELETE FROM ai_image_tasks WHERE platform IN ('app', 'canvas');
 DELETE FROM ai_text_tasks WHERE platform IN ('app', 'canvas');
-DELETE FROM ai_billing_records WHERE platform IN ('app', 'canvas');
 DELETE FROM canvas_video_tasks;
 UPDATE ai_agents
 SET scenes_json = REPLACE(REPLACE(REPLACE(REPLACE(
@@ -539,25 +559,24 @@ SET scenes_json = REPLACE(REPLACE(REPLACE(REPLACE(
   '"canvas_video_generate"', '"video_generate"'),
   '"canvas_audio_generate"', '"audio_generate"')
 WHERE JSON_VALID(scenes_json);
-UPDATE ai_billing_rules SET scene = CASE scene
-  WHEN 'canvas_text_generate' THEN 'text_generate'
-  WHEN 'canvas_image_generate' THEN 'image_generate'
-  WHEN 'canvas_video_generate' THEN 'video_generate'
-  WHEN 'canvas_audio_generate' THEN 'audio_generate'
-  ELSE scene END;
-UPDATE ai_billing_records SET scene = CASE scene
-  WHEN 'canvas_text_generate' THEN 'text_generate'
-  WHEN 'canvas_image_generate' THEN 'image_generate'
-  WHEN 'canvas_video_generate' THEN 'video_generate'
-  WHEN 'canvas_audio_generate' THEN 'audio_generate'
-  ELSE scene END;
 ```
 
 `051_verify_admin_rows.sql` proves the temporary-set source counts match locked evidence, no dependent survives, every remaining scene belongs to the canonical set, and no duplicate scene was introduced.
 
-`202607150202_admin_only_schema.sql` drops `canvas_video_tasks`, `canvas_prompts`, `canvas_assets`, `users_quick_entry`, and the P08R-frozen `client_versions` table; drops the unused `user_sessions.access_token_hash` column proven unreferenced by P04; verifies the canonical `ai_video_tasks` table from P02 remains; and removes only other compatibility columns/indexes accepted by P02 query evidence. Before dropping `client_versions`, it rechecks the locked count/hash, proves no foreign key/view/event references it, and requires the operator's fresh destructive approval token through the wrapper. It does not delete COS objects and does not drop a performance index without matching before/after evidence.
+`202607150202_admin_only_schema.sql` first proves
+`users_quick_entry`, `canvas_prompts`, `canvas_assets`, `ai_billing_rules`, and
+`ai_billing_records` are already absent. It drops only the empty
+`canvas_video_tasks` compatibility table and the P08R-frozen
+`client_versions` table; drops the unused `user_sessions.access_token_hash`
+column proven unreferenced by P04; verifies the canonical `ai_video_tasks`
+table from P02 remains; and removes only other compatibility columns/indexes
+accepted by P02 query evidence. Before dropping `client_versions`, it rechecks
+the locked count/hash, proves no foreign key/view/event references it, and
+requires the operator's fresh destructive approval token through the wrapper.
+It does not delete COS objects and does not drop a performance index without
+matching before/after evidence.
 
-`202607150203_admin_only_constraints.sql` adds named checks for the remaining Admin provenance columns and `auth_platforms.code`, proves `client_versions` and all client-version constraints are absent, then records the target fingerprint. The platform checks cover `permissions`, `user_sessions`, `users_login_log`, `notification_task`, `notifications`, `export_tasks`, `ai_runs`, `ai_text_tasks`, `ai_image_tasks`, and `ai_billing_records`.
+`202607150203_admin_only_constraints.sql` adds named checks for the remaining Admin provenance columns and `auth_platforms.code`, proves `client_versions` and all client-version constraints are absent, then records the target fingerprint. The platform checks cover `permissions`, `user_sessions`, `users_login_log`, `notification_task`, `notifications`, `export_tasks`, `ai_runs`, `ai_text_tasks`, and `ai_image_tasks`; they do not reference the already-absent `ai_billing_records` table.
 
 - [ ] **Step 3: Make the wrapper stop between groups**
 
