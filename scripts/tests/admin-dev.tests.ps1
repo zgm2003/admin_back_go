@@ -1,0 +1,189 @@
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$frontendRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '..\admin_front_ts'))
+$commonPath = Join-Path $repoRoot 'scripts\dev\admin-dev-common.ps1'
+$apiAirPath = Join-Path $repoRoot '.air.api.toml'
+$workerAirPath = Join-Path $repoRoot '.air.worker.toml'
+
+function Assert-ThrowsLike {
+  param(
+    [Parameter(Mandatory = $true)][scriptblock]$Operation,
+    [Parameter(Mandatory = $true)][string]$Expected
+  )
+
+  $message = ''
+  try {
+    & $Operation
+  }
+  catch {
+    $message = $_.Exception.Message
+  }
+  if (-not $message.Contains($Expected, [StringComparison]::Ordinal)) {
+    throw "expected error containing '$Expected', received '$message'"
+  }
+}
+
+if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) {
+  throw 'admin-dev-common.ps1 is missing'
+}
+. $commonPath
+
+$nodePaths = Get-AdminDevNodePaths
+if ([string]$nodePaths.NodeExecutable -cne 'E:\FlyEnv-Data\app\nodejs\v24.18.0\node.exe' -or
+    [string]$nodePaths.NpmExecutable -cne 'E:\FlyEnv-Data\app\nodejs\v24.18.0\npm.cmd') {
+  throw 'Node 24 must resolve only from the approved FlyEnv path'
+}
+Assert-AdminDevNodeVersions -NodeVersion 'v24.18.0' -NpmVersion '11.16.0'
+Assert-ThrowsLike { Assert-AdminDevNodeVersions -NodeVersion 'v24.17.0' -NpmVersion '11.16.0' } 'ADMIN_DEV_NODE_VERSION_INVALID'
+Assert-ThrowsLike { Assert-AdminDevNodeVersions -NodeVersion 'v24.18.0' -NpmVersion '11.15.0' } 'ADMIN_DEV_NPM_VERSION_INVALID'
+Assert-AdminDevGoVersion -VersionOutput 'go version go1.26.5 windows/amd64'
+Assert-ThrowsLike { Assert-AdminDevGoVersion -VersionOutput 'go version go1.26.4 windows/amd64' } 'ADMIN_DEV_GO_VERSION_INVALID'
+Assert-ThrowsLike { Assert-AdminDevGoVersion -VersionOutput 'go version go1.26.5 linux/amd64' } 'ADMIN_DEV_GO_VERSION_INVALID'
+
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('admin-dev-test-' + [guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
+try {
+  $envPath = Join-Path $temporaryRoot 'admin-go.env'
+  $validEnvironment = @'
+# fixture values are intentionally synthetic
+MYSQL_DSN=fixture_user:fixture=pass@tcp(mysql:3306)/admin?charset=utf8mb4&parseTime=True&loc=Local
+REDIS_ADDR=redis:6379
+REDIS_PASSWORD=fixture-redis-password
+HTTP_ADDR=:8080
+LOG_DIR=/app/runtime/logs
+PAYMENT_CERT_BASE_DIR=/app
+APP_SECRET=fixture-app-secret-value
+OPAQUE_VALUE=left=middle=right
+'@
+  [IO.File]::WriteAllText($envPath, $validEnvironment, [Text.UTF8Encoding]::new($false))
+  $requiredKeys = @(
+    'MYSQL_DSN',
+    'REDIS_ADDR',
+    'REDIS_PASSWORD',
+    'HTTP_ADDR',
+    'LOG_DIR',
+    'PAYMENT_CERT_BASE_DIR',
+    'APP_SECRET'
+  )
+  $environment = Read-AdminDevEnvironmentFile -Path $envPath -RequiredKeys $requiredKeys
+  if ([string]$environment.OPAQUE_VALUE -cne 'left=middle=right') {
+    throw 'environment values must split only on the first equals sign'
+  }
+
+  $hostEnvironment = ConvertTo-AdminDevHostEnvironment -Environment $environment -RepositoryRoot $repoRoot
+  $dockerRuntimeRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'deploy\docker-first'))
+  if ([string]$hostEnvironment.MYSQL_DSN -cne 'fixture_user:fixture=pass@tcp(127.0.0.1:33306)/admin?charset=utf8mb4&parseTime=True&loc=Local' -or
+      [string]$hostEnvironment.REDIS_ADDR -cne '127.0.0.1:36379' -or
+      [string]$hostEnvironment.HTTP_ADDR -cne '127.0.0.1:8080' -or
+      [string]$hostEnvironment.LOG_DIR -cne (Join-Path $dockerRuntimeRoot 'runtime\logs') -or
+      [string]$hostEnvironment.PAYMENT_CERT_BASE_DIR -cne $dockerRuntimeRoot) {
+    throw 'container-only addresses and paths were not converted exactly'
+  }
+  foreach ($unchanged in @('REDIS_PASSWORD', 'APP_SECRET', 'OPAQUE_VALUE')) {
+    if ([string]$hostEnvironment[$unchanged] -cne [string]$environment[$unchanged]) {
+      throw "non-container environment value changed: $unchanged"
+    }
+  }
+  if ([string]$environment.MYSQL_DSN -notmatch 'mysql:3306') {
+    throw 'host conversion must not mutate the parsed source environment'
+  }
+
+  $sensitiveValues = Get-AdminDevSensitiveValues -Environment $environment
+  $unsafeText = "dsn=$($environment.MYSQL_DSN); secret=$($environment.APP_SECRET); redis=$($environment.REDIS_PASSWORD)"
+  $safeText = Protect-AdminDevText -Text $unsafeText -SensitiveValues $sensitiveValues
+  foreach ($secret in @($environment.MYSQL_DSN, $environment.APP_SECRET, $environment.REDIS_PASSWORD)) {
+    if ($safeText.Contains([string]$secret, [StringComparison]::Ordinal)) {
+      throw 'secret redaction left a configured secret in output'
+    }
+  }
+  if (-not $safeText.Contains('[REDACTED]', [StringComparison]::Ordinal)) {
+    throw 'secret redaction did not mark protected content'
+  }
+
+  foreach ($invalidFixture in @(
+    @{ Name = 'duplicate'; Text = "APP_SECRET=one`nAPP_SECRET=two"; Error = 'ADMIN_DEV_ENV_DUPLICATE' },
+    @{ Name = 'malformed'; Text = "NOT VALID=value"; Error = 'ADMIN_DEV_ENV_MALFORMED' },
+    @{ Name = 'empty'; Text = "APP_SECRET="; Error = 'ADMIN_DEV_ENV_REQUIRED' },
+    @{ Name = 'missing'; Text = "OTHER=value"; Error = 'ADMIN_DEV_ENV_REQUIRED' }
+  )) {
+    $invalidPath = Join-Path $temporaryRoot ($invalidFixture.Name + '.env')
+    [IO.File]::WriteAllText($invalidPath, $invalidFixture.Text, [Text.UTF8Encoding]::new($false))
+    Assert-ThrowsLike {
+      Read-AdminDevEnvironmentFile -Path $invalidPath -RequiredKeys @('APP_SECRET') | Out-Null
+    } $invalidFixture.Error
+  }
+
+  $lockfile = Join-Path $temporaryRoot 'package-lock.json'
+  $stampPath = Join-Path $temporaryRoot 'frontend-dependencies.json'
+  [IO.File]::WriteAllText($lockfile, '{"lockfileVersion":3}', [Text.UTF8Encoding]::new($false))
+  if (Test-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $stampPath) {
+    throw 'missing frontend dependency stamp must be a cache miss'
+  }
+  Write-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $stampPath
+  if (-not (Test-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $stampPath)) {
+    throw 'matching package-lock hash must be a cache hit'
+  }
+  [IO.File]::AppendAllText($lockfile, "`n", [Text.UTF8Encoding]::new($false))
+  if (Test-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $stampPath) {
+    throw 'changed package-lock hash must invalidate the dependency cache'
+  }
+  $stampText = [IO.File]::ReadAllText($stampPath, [Text.Encoding]::UTF8)
+  if ($stampText.Contains('lockfileVersion', [StringComparison]::Ordinal)) {
+    throw 'dependency stamp must contain a hash, not package-lock contents'
+  }
+
+  $airPaths = Get-AdminDevAirPaths -RepositoryRoot $temporaryRoot
+  $expectedAirRoot = Join-Path $temporaryRoot '.tmp\tools\air\v1.66.0'
+  if ([string]$airPaths.Root -cne $expectedAirRoot -or
+      [string]$airPaths.Executable -cne (Join-Path $expectedAirRoot 'air.exe')) {
+    throw 'Air must use the repository-private pinned tool path'
+  }
+  [IO.Directory]::CreateDirectory($airPaths.Root) | Out-Null
+  [IO.File]::WriteAllBytes($airPaths.Executable, [byte[]]@(0))
+  [IO.File]::WriteAllText($airPaths.VersionMarker, 'v1.66.0', [Text.UTF8Encoding]::new($false))
+  if (-not (Test-AdminDevAirReady -RepositoryRoot $temporaryRoot)) {
+    throw 'matching Air executable and marker must be reusable'
+  }
+  [IO.File]::WriteAllText($airPaths.VersionMarker, 'v1.65.0', [Text.UTF8Encoding]::new($false))
+  if (Test-AdminDevAirReady -RepositoryRoot $temporaryRoot) {
+    throw 'wrong Air marker must require reinstall'
+  }
+}
+finally {
+  Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+foreach ($airPath in @($apiAirPath, $workerAirPath)) {
+  if (-not (Test-Path -LiteralPath $airPath -PathType Leaf)) {
+    throw "Air configuration is missing: $airPath"
+  }
+}
+$apiAir = [IO.File]::ReadAllText($apiAirPath)
+$workerAir = [IO.File]::ReadAllText($workerAirPath)
+foreach ($required in @(
+  'send_interrupt = true',
+  'kill_delay = "2s"',
+  'include_ext = ["go"]',
+  'exclude_dir = [".git", ".tmp", "deploy", "docs", "runtime"]'
+)) {
+  if (-not $apiAir.Contains($required) -or -not $workerAir.Contains($required)) {
+    throw "Air watch contract is missing: $required"
+  }
+}
+if (-not $apiAir.Contains('.tmp/dev/api/admin-api.exe') -or
+    -not $apiAir.Contains('./cmd/admin-api') -or
+    -not $workerAir.Contains('.tmp/dev/worker/admin-worker.exe') -or
+    -not $workerAir.Contains('./cmd/admin-worker')) {
+  throw 'API and worker Air outputs must be distinct and target the correct commands'
+}
+if ($apiAir.Contains('.tmp/dev/worker') -or $workerAir.Contains('.tmp/dev/api')) {
+  throw 'Air configurations must not share build output directories'
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot 'package-lock.json') -PathType Leaf)) {
+  throw 'frontend package-lock.json is missing'
+}
+
+Write-Output 'admin-dev preparation assertions passed'

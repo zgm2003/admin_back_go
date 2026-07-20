@@ -1,0 +1,25 @@
+root = "."
+tmp_dir = ".tmp/dev/worker"
+
+[build]
+  bin = ".tmp/dev/worker/admin-worker.exe"
+  cmd = "go build -trimpath -o ./.tmp/dev/worker/admin-worker.exe ./cmd/admin-worker"
+  delay = 500
+  exclude_dir = [".git", ".tmp", "deploy", "docs", "runtime"]
+  exclude_regex = ["_test.go"]
+  exclude_unchanged = true
+  include_ext = ["go"]
+  kill_delay = "2s"
+  rerun = false
+  send_interrupt = true
+  stop_on_error = true
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

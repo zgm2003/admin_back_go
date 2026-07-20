@@ -215,3 +215,337 @@ function Exit-AdminDevLock {
   }
   Remove-Item -LiteralPath ([string]$Handle.Path) -Force -ErrorAction SilentlyContinue
 }
+
+function Get-AdminDevNodePaths {
+  $nodeRoot = 'E:\FlyEnv-Data\app\nodejs\v24.18.0'
+  return [pscustomobject]@{
+    NodeExecutable = Join-Path $nodeRoot 'node.exe'
+    NpmExecutable = Join-Path $nodeRoot 'npm.cmd'
+  }
+}
+
+function Assert-AdminDevNodeVersions {
+  param(
+    [Parameter(Mandatory = $true)][string]$NodeVersion,
+    [Parameter(Mandatory = $true)][string]$NpmVersion
+  )
+
+  if ($NodeVersion.Trim() -cne 'v24.18.0') {
+    throw 'ADMIN_DEV_NODE_VERSION_INVALID: expected v24.18.0'
+  }
+  if ($NpmVersion.Trim() -cne '11.16.0') {
+    throw 'ADMIN_DEV_NPM_VERSION_INVALID: expected 11.16.0'
+  }
+}
+
+function Assert-AdminDevGoVersion {
+  param([Parameter(Mandatory = $true)][string]$VersionOutput)
+
+  if ($VersionOutput.Trim() -cne 'go version go1.26.5 windows/amd64') {
+    throw 'ADMIN_DEV_GO_VERSION_INVALID: expected go1.26.5 windows/amd64'
+  }
+}
+
+function Invoke-AdminDevVersionCommand {
+  param(
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+
+  $output = @(& $Executable @Arguments 2>&1)
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) {
+    throw "ADMIN_DEV_TOOL_VERSION_FAILED: $Label"
+  }
+  return (($output | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+}
+
+function Resolve-AdminDevHostTools {
+  $nodePaths = Get-AdminDevNodePaths
+  foreach ($path in @($nodePaths.NodeExecutable, $nodePaths.NpmExecutable)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+      throw "ADMIN_DEV_TOOL_MISSING: $path"
+    }
+  }
+  $goCommand = Get-Command 'go.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $goCommand) {
+    $goCommand = Get-Command 'go' -ErrorAction Stop | Select-Object -First 1
+  }
+
+  $nodeVersion = Invoke-AdminDevVersionCommand -Executable $nodePaths.NodeExecutable -Arguments @('--version') -Label 'node'
+  $npmVersion = Invoke-AdminDevVersionCommand -Executable $nodePaths.NpmExecutable -Arguments @('--version') -Label 'npm'
+  $goVersion = Invoke-AdminDevVersionCommand -Executable $goCommand.Source -Arguments @('version') -Label 'go'
+  Assert-AdminDevNodeVersions -NodeVersion $nodeVersion -NpmVersion $npmVersion
+  Assert-AdminDevGoVersion -VersionOutput $goVersion
+
+  return [pscustomobject]@{
+    NodeExecutable = [string]$nodePaths.NodeExecutable
+    NpmExecutable = [string]$nodePaths.NpmExecutable
+    GoExecutable = [string]$goCommand.Source
+  }
+}
+
+function Read-AdminDevEnvironmentFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string[]]$RequiredKeys
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw 'ADMIN_DEV_ENV_MISSING'
+  }
+  $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+  if ($text.Contains([char]0)) {
+    throw 'ADMIN_DEV_ENV_MALFORMED'
+  }
+  $environment = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($line in [regex]::Split($text, "\r\n|\n|\r")) {
+    if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#') {
+      continue
+    }
+    $match = [regex]::Match($line, '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$')
+    if (-not $match.Success) {
+      throw 'ADMIN_DEV_ENV_MALFORMED'
+    }
+    $name = $match.Groups[1].Value
+    if ($environment.ContainsKey($name)) {
+      throw "ADMIN_DEV_ENV_DUPLICATE: $name"
+    }
+    $environment.Add($name, $match.Groups[2].Value)
+  }
+  foreach ($required in $RequiredKeys) {
+    if (-not $environment.ContainsKey($required) -or
+        [string]::IsNullOrWhiteSpace($environment[$required])) {
+      throw "ADMIN_DEV_ENV_REQUIRED: $required"
+    }
+  }
+  return $environment
+}
+
+function ConvertTo-AdminDevHostEnvironment {
+  param(
+    [Parameter(Mandatory = $true)][Collections.Generic.IDictionary[string,string]]$Environment,
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot
+  )
+
+  $result = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($entry in $Environment.GetEnumerator()) {
+    $result.Add([string]$entry.Key, [string]$entry.Value)
+  }
+  foreach ($required in @('MYSQL_DSN', 'REDIS_ADDR', 'HTTP_ADDR', 'LOG_DIR', 'PAYMENT_CERT_BASE_DIR')) {
+    if (-not $result.ContainsKey($required)) {
+      throw "ADMIN_DEV_ENV_REQUIRED: $required"
+    }
+  }
+
+  $dsnNeedle = '@tcp(mysql:3306)'
+  $dsn = $result['MYSQL_DSN']
+  $dsnIndex = $dsn.IndexOf($dsnNeedle, [StringComparison]::Ordinal)
+  if ($dsnIndex -lt 0 -or
+      $dsn.IndexOf($dsnNeedle, $dsnIndex + $dsnNeedle.Length, [StringComparison]::Ordinal) -ge 0) {
+    throw 'ADMIN_DEV_MYSQL_DSN_CONTAINER_ADDRESS_INVALID'
+  }
+  $result['MYSQL_DSN'] = $dsn.Substring(0, $dsnIndex) + '@tcp(127.0.0.1:33306)' + $dsn.Substring($dsnIndex + $dsnNeedle.Length)
+
+  if ($result['REDIS_ADDR'] -cne 'redis:6379') {
+    throw 'ADMIN_DEV_REDIS_CONTAINER_ADDRESS_INVALID'
+  }
+  if ($result['HTTP_ADDR'] -cne ':8080') {
+    throw 'ADMIN_DEV_HTTP_CONTAINER_ADDRESS_INVALID'
+  }
+  if ($result['LOG_DIR'] -cne '/app/runtime/logs') {
+    throw 'ADMIN_DEV_LOG_DIR_CONTAINER_PATH_INVALID'
+  }
+  if ($result['PAYMENT_CERT_BASE_DIR'] -cne '/app') {
+    throw 'ADMIN_DEV_CERT_DIR_CONTAINER_PATH_INVALID'
+  }
+
+  $runtimeRoot = [IO.Path]::GetFullPath((Join-Path $RepositoryRoot 'deploy\docker-first'))
+  $result['REDIS_ADDR'] = '127.0.0.1:36379'
+  $result['HTTP_ADDR'] = '127.0.0.1:8080'
+  $result['LOG_DIR'] = Join-Path $runtimeRoot 'runtime\logs'
+  $result['PAYMENT_CERT_BASE_DIR'] = $runtimeRoot
+  return $result
+}
+
+function Get-AdminDevSensitiveValues {
+  param([Parameter(Mandatory = $true)][Collections.Generic.IDictionary[string,string]]$Environment)
+
+  $values = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($entry in $Environment.GetEnumerator()) {
+    if ([string]$entry.Key -match '(?i)(PASSWORD|SECRET|DSN|PRIVATE_KEY|API_KEY|ACCESS_TOKEN|REFRESH_TOKEN)$' -and
+        -not [string]::IsNullOrEmpty([string]$entry.Value)) {
+      $null = $values.Add([string]$entry.Value)
+    }
+  }
+  return @($values | Sort-Object Length -Descending)
+}
+
+function Protect-AdminDevText {
+  param(
+    [AllowEmptyString()][string]$Text,
+    [AllowNull()][string[]]$SensitiveValues
+  )
+
+  $safe = [string]$Text
+  foreach ($value in @($SensitiveValues)) {
+    if (-not [string]::IsNullOrEmpty($value)) {
+      $safe = $safe.Replace($value, '[REDACTED]', [StringComparison]::Ordinal)
+    }
+  }
+  return $safe
+}
+
+function Get-AdminDevFileSHA256 {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "ADMIN_DEV_FILE_MISSING: $Path"
+  }
+  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Test-AdminDevDependencyStamp {
+  param(
+    [Parameter(Mandatory = $true)][string]$LockfilePath,
+    [Parameter(Mandatory = $true)][string]$StampPath
+  )
+
+  if (-not (Test-Path -LiteralPath $LockfilePath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $StampPath -PathType Leaf)) {
+    return $false
+  }
+  try {
+    $stamp = [IO.File]::ReadAllText($StampPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+  }
+  catch {
+    return $false
+  }
+  return [int]$stamp.schema_version -eq 1 -and
+    [string]$stamp.package_lock_sha256 -ceq (Get-AdminDevFileSHA256 -Path $LockfilePath) -and
+    [string]$stamp.node_version -ceq 'v24.18.0' -and
+    [string]$stamp.npm_version -ceq '11.16.0'
+}
+
+function Write-AdminDevDependencyStamp {
+  param(
+    [Parameter(Mandatory = $true)][string]$LockfilePath,
+    [Parameter(Mandatory = $true)][string]$StampPath
+  )
+
+  $stamp = [ordered]@{
+    schema_version = 1
+    package_lock_sha256 = Get-AdminDevFileSHA256 -Path $LockfilePath
+    node_version = 'v24.18.0'
+    npm_version = '11.16.0'
+  }
+  $directory = Split-Path ([IO.Path]::GetFullPath($StampPath)) -Parent
+  [IO.Directory]::CreateDirectory($directory) | Out-Null
+  $temporaryPath = Join-Path $directory ([IO.Path]::GetRandomFileName())
+  try {
+    [IO.File]::WriteAllText(
+      $temporaryPath,
+      (($stamp | ConvertTo-Json -Compress) + "`n"),
+      [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::Move($temporaryPath, [IO.Path]::GetFullPath($StampPath), $true)
+    $temporaryPath = $null
+  }
+  finally {
+    if (-not [string]::IsNullOrEmpty($temporaryPath) -and (Test-Path -LiteralPath $temporaryPath)) {
+      Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Initialize-AdminDevFrontendDependencies {
+  param(
+    [Parameter(Mandatory = $true)][string]$FrontendRoot,
+    [Parameter(Mandatory = $true)][string]$NpmExecutable,
+    [Parameter(Mandatory = $true)][string]$StampPath
+  )
+
+  $lockfile = Join-Path $FrontendRoot 'package-lock.json'
+  $nodeModules = Join-Path $FrontendRoot 'node_modules'
+  if ((Test-Path -LiteralPath $nodeModules -PathType Container) -and
+      (Test-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $StampPath)) {
+    return $false
+  }
+  Push-Location $FrontendRoot
+  try {
+    & $NpmExecutable 'ci' '--no-audit' '--no-fund'
+    if ($LASTEXITCODE -ne 0) {
+      throw 'ADMIN_DEV_NPM_CI_FAILED'
+    }
+  }
+  finally {
+    Pop-Location
+  }
+  Write-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $StampPath
+  return $true
+}
+
+function Get-AdminDevAirPaths {
+  param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+
+  $root = Join-Path (Get-AdminDevCanonicalPath -Path $RepositoryRoot) '.tmp\tools\air\v1.66.0'
+  return [pscustomobject]@{
+    Root = $root
+    Executable = Join-Path $root 'air.exe'
+    VersionMarker = Join-Path $root 'version.txt'
+  }
+}
+
+function Test-AdminDevAirReady {
+  param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+
+  $paths = Get-AdminDevAirPaths -RepositoryRoot $RepositoryRoot
+  if (-not (Test-Path -LiteralPath $paths.Executable -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $paths.VersionMarker -PathType Leaf)) {
+    return $false
+  }
+  try {
+    return [IO.File]::ReadAllText($paths.VersionMarker, [Text.Encoding]::UTF8).Trim() -ceq 'v1.66.0'
+  }
+  catch {
+    return $false
+  }
+}
+
+function Install-AdminDevAir {
+  param(
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+    [Parameter(Mandatory = $true)][string]$GoExecutable
+  )
+
+  $paths = Get-AdminDevAirPaths -RepositoryRoot $RepositoryRoot
+  if (Test-AdminDevAirReady -RepositoryRoot $RepositoryRoot) {
+    return [string]$paths.Executable
+  }
+  [IO.Directory]::CreateDirectory($paths.Root) | Out-Null
+  Remove-Item -LiteralPath $paths.Executable -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $paths.VersionMarker -Force -ErrorAction SilentlyContinue
+
+  $previousGoBin = [Environment]::GetEnvironmentVariable('GOBIN', 'Process')
+  $previousGoToolchain = [Environment]::GetEnvironmentVariable('GOTOOLCHAIN', 'Process')
+  try {
+    $env:GOBIN = $paths.Root
+    $env:GOTOOLCHAIN = 'local'
+    & $GoExecutable 'install' 'github.com/air-verse/air@v1.66.0'
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $paths.Executable -PathType Leaf)) {
+      throw 'ADMIN_DEV_AIR_INSTALL_FAILED'
+    }
+  }
+  finally {
+    [Environment]::SetEnvironmentVariable('GOBIN', $previousGoBin, 'Process')
+    [Environment]::SetEnvironmentVariable('GOTOOLCHAIN', $previousGoToolchain, 'Process')
+  }
+
+  $versionOutput = Invoke-AdminDevVersionCommand -Executable $paths.Executable -Arguments @('-v') -Label 'air'
+  if ($versionOutput -notmatch '(?m)\bv?1\.66\.0\b') {
+    throw 'ADMIN_DEV_AIR_VERSION_INVALID'
+  }
+  [IO.File]::WriteAllText($paths.VersionMarker, "v1.66.0`n", [Text.UTF8Encoding]::new($false))
+  return [string]$paths.Executable
+}
