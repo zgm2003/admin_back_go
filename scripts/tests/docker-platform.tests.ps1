@@ -114,6 +114,12 @@ try {
     throw 'full Docker lifecycle must reject a live admin-dev lock'
   }
 
+  Exit-AdminDevLock -Handle $handle
+  if (Test-Path -LiteralPath $lockPath) {
+    throw 'the owning supervisor must remove its development lock during cleanup'
+  }
+  $handle = Enter-AdminDevLock -Path $lockPath -RepositoryRoot $repoRoot
+
   $foreignJSON = Get-Content -Raw -LiteralPath $lockPath | ConvertFrom-Json
   $foreignJSON.lock_id = [guid]::NewGuid().ToString('N')
   [IO.File]::WriteAllText($lockPath, ($foreignJSON | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))

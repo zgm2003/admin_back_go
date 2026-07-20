@@ -203,10 +203,25 @@ function Exit-AdminDevLock {
   catch {
     return
   }
+  try {
+    $recordStartTicks = [DateTimeOffset]::Parse(
+      [string]$record.process_started_at_utc,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [Globalization.DateTimeStyles]::RoundtripKind
+    ).UtcTicks
+    $handleStartTicks = [DateTimeOffset]::Parse(
+      [string]$Handle.ProcessStartedAtUtc,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [Globalization.DateTimeStyles]::RoundtripKind
+    ).UtcTicks
+  }
+  catch {
+    return
+  }
   if ($null -eq $record -or
       [string]$record.lock_id -cne [string]$Handle.LockId -or
       [int]$record.pid -ne [int]$Handle.ProcessId -or
-      [string]$record.process_started_at_utc -cne [string]$Handle.ProcessStartedAtUtc -or
+      $recordStartTicks -ne $handleStartTicks -or
       -not [StringComparer]::OrdinalIgnoreCase.Equals(
         (Get-AdminDevCanonicalPath -Path ([string]$record.repository_root)),
         (Get-AdminDevCanonicalPath -Path ([string]$Handle.RepositoryRoot))
