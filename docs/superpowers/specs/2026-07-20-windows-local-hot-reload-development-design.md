@@ -1,6 +1,6 @@
 # Windows Local Hot-Reload Development Design
 
-**Status:** Approved in conversation on 2026-07-20; pending written-spec review.
+**Status:** Implemented and automatically verified on 2026-07-20; final user acceptance pending.
 
 **Execution order:** Implement and accept this development loop before opening P09. P09 remains the next product-reduction phase after this work.
 

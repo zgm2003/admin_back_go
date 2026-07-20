@@ -43,7 +43,7 @@ Implementation plans may refine mechanics but may not change Browser-only scope,
 | P08R | complete, user-reviewed | `2026-07-19-admin-browser-only-tauri-retirement-plan.md` | backend + frontend | approved Browser-only spec, P07 1-5, historical P08 baseline | one Browser-only auth/runtime, Tauri removal, frozen client-version history, Docker cutover proof |
 | P07 Tasks 6-10 | complete, user-reviewed | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P08R + user P08R acceptance | page decomposition, zero warnings, budgets, WCAG, Docker/manual acceptance |
 | P08.5 | cancelled; do not execute | `2026-07-18-admin-tauri-windows-release-plan.md` | none | cancelled by approved Browser-only spec | no artifact |
-| Windows local development | active; implementation/acceptance in progress | `2026-07-20-windows-local-hot-reload-development-plan.md` | backend + frontend | Gate F + approved Windows design | one-command host HMR with Docker state and unchanged full-Docker delivery |
+| Windows local development | implementation complete; user acceptance pending | `2026-07-20-windows-local-hot-reload-development-plan.md` | backend + frontend | Gate F + approved Windows design | one-command host HMR with Docker state and unchanged full-Docker delivery |
 | P09 | pending destructive phase | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, immutable Docker release/rollback proof |
 
 ## Dependency graph
@@ -192,8 +192,10 @@ P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlie
 - P07 Task 10 commit `0858edd` made Browser-only, contract, routes, locale, zero-warning lint, coverage, typecheck, build, bundle, architecture, and dependency audit blocking in Docker.
 - The user explicitly accepted the P07 functional stage on 2026-07-20; Gate F is closed.
 
-### Windows local-development phase (active 2026-07-20)
+### Windows local-development phase (implemented 2026-07-20; user acceptance pending)
 
 - Approved design and implementation plan are `2026-07-20-windows-local-hot-reload-development-design.md` and `2026-07-20-windows-local-hot-reload-development-plan.md`.
 - Node/npm formal and host baselines are now exact `24.18.0` / `11.16.0`; Go remains exact `1.26.5 windows/amd64`, and Air is private/pinned at `1.66.0`.
-- The phase must finish static fixtures, real HMR/rebuild/state-preservation checks, full five-container restoration, and user acceptance before P09 opens.
+- Static fixtures passed; real Vite HMR, API/worker Air rebuild, host-port release, lock release, state-container preservation, and full five-container restoration were verified without browser automation.
+- Implementation commits include frontend `f83fee8` and backend `fc6a00a`, `653ecef`, `8fbb381`, `823d809`, `9b59ead`, plus focused acceptance fixes through `9a4aaf8`.
+- P09 still waits for the user's explicit local-development acceptance.
