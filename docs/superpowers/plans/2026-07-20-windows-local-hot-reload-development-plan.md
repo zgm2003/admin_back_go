@@ -261,4 +261,5 @@ Both repositories must be clean on `master`, have one checkout, contain no `.wor
 - `scripts/tests/admin-dev.tests.ps1` and `scripts/tests/docker-platform.tests.ps1` passed; the frontend Node 24 Docker gate passed 111 files / 439 tests, lint 0/0, typecheck, build, bundle, architecture, and production dependency audit.
 - Real host acceptance returned `LOCAL_DEV_READY=1`, `VITE_HMR=1`, `AIR_API_REBUILD=1`, `AIR_WORKER_REBUILD=1`, `HOST_PORTS_RELEASED=1`, and `DEV_LOCK_RELEASED=1` without Playwright.
 - MySQL/Redis remained healthy across the host-development exit, and the full five-container Docker platform was rebuilt healthy afterward.
-- User-owned local-development acceptance remains the only open prerequisite before P09.
+- The user accepted the local-development loop and explicitly opened P09 on
+  2026-07-20. P09's separate destructive-DDL approval remains unchanged.

@@ -10,6 +10,33 @@
 
 ---
 
+## Current execution order and contract boundary
+
+Task numbers group related artifacts; they are not permission to make the
+frontend outrun the formal backend contract. Execute the groups in this order:
+
+```text
+Task 1
+→ Tasks 3–5
+→ Task 6 implementation and non-mutating validation
+→ fresh destructive approval
+→ Task 6 approved disposable-restore rehearsals and contract DDL
+→ Task 7 backend bundle publication
+→ Task 2 together with Task 7 frontend bundle consumption
+→ Tasks 8–9
+```
+
+The frontend Task 2 changes API fields, operations, and scene values, so it may
+start only after Task 7 has published the matching formal backend bundle. This
+preserves `admin_front_ts/docs/rule.md`: no handwritten frontend API type may
+anticipate an unpublished backend contract. Tasks 3–6 are not a deployable
+mixed-version release; user-visible Docker promotion happens only after both
+repositories consume the same Task 7 bundle.
+
+Windows development uses `admin-dev` (Docker MySQL/Redis plus host
+Vite/API/Worker) for focused feedback. Every authoritative frontend gate and
+the final release still use exact `node:24.18.0-alpine` and full Docker.
+
 ## Destructive-stage prerequisites
 
 P09 stops before DDL unless P01-P08R and all P07 tasks are committed and accepted, both primary checkout working directories are clean, no Git worktree registration/directory exists, every active program gate is green, the latest recovery artifact restores, retained COS keys are reachable, every legacy row has an explicit disposition, P08R proves `client_versions` has had no runtime reader/writer since cutover, and the frontend contract lock matches the backend bundle manifest.
@@ -114,6 +141,7 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Modify: `.env.development`
 - Modify: `.env.production`
 - Modify: `src/vite-env.d.ts`
+- Modify: `src/app/environment.ts`
 - Modify: `src/enums/index.ts`
 - Modify: `src/api/ai/agents.ts`
 - Modify: `src/api/ai/runs.ts`
@@ -126,6 +154,7 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Modify: `src/features/notifications/workflow.ts`
 - Modify: `src/features/user-management/workflow.ts`
 - Modify: `src/views/Main/ai/agents/index.vue`
+- Modify: `src/views/Main/ai/agents/use-agent-admin-page.ts`
 - Modify: `src/views/Main/ai/runs/components/RunList/index.vue`
 - Modify: `src/views/Main/ai/runs/components/RunStats/index.vue`
 - Modify: `src/views/Main/permission/authPlatform/index.vue`
@@ -138,9 +167,14 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Delete: `src/views/Main/permission/permission/components/PlatformTabs.vue`
 - Modify: `src/views/Main/permission/role/index.vue`
 - Modify: `src/views/Main/permission/role/role-matrix.ts`
+- Modify: `src/views/Main/permission/role/use-role-page.ts`
 - Modify: `src/views/Main/permission/role/components/RolePermissionMatrix.vue`
 - Modify: `src/views/Main/system/notificationTask/index.vue`
+- Modify: `src/views/Main/system/notificationTask/use-notification-task-page.ts`
 - Modify: `src/views/Main/user/userManager/components/SessionList/index.vue`
+- Modify: `src/api/user/usersLoginLog.ts`
+- Modify: `src/views/Main/user/usersLoginLog/index.vue`
+- Modify: `src/views/Main/user/usersLoginLog/composables/useUsersLoginLogTable.ts`
 - Modify: `src/i18n/locales/en-US/ai.ts`
 - Modify: `src/i18n/locales/en-US/permission.ts`
 - Modify: `src/i18n/locales/en-US/system.ts`
@@ -152,6 +186,8 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Create: `scripts/check-admin-only.mjs`
 - Create: `tests/shared/architecture/admin-only.test.ts`
 - Create: `tests/integration/features/admin-auth-policy.test.ts`
+- Modify: `tests/unit/app/environment.test.ts`
+- Modify: `tests/integration/app/kernel.test.ts`
 - Modify: `tests/integration/features/user-management.test.ts`
 - Modify: `tests/integration/features/notifications.test.ts`
 - Modify: `tests/integration/features/ai-runs.test.ts`
@@ -195,8 +231,8 @@ P08R has already removed native client platforms, updater targets, and client-ve
 
 ```powershell
 $root = (Get-Location).Path
-docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm test -- tests/shared/architecture/admin-only.test.ts && npm test -- --project integration tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts && npm run typecheck && npm run lint"
-git add -- .env.development .env.production src/vite-env.d.ts src/enums/index.ts src/lib/http/headers.ts src/api/ai/agents.ts src/api/ai/runs.ts src/api/permission/authPlatform.ts src/api/permission/permission.ts src/api/permission/role.ts src/api/system/notificationTask.ts src/api/user/users.ts src/features/ai-runs/workflow.ts src/features/notifications/workflow.ts src/features/user-management/workflow.ts src/views/Main/ai/agents/index.vue src/views/Main/ai/runs/components/RunList/index.vue src/views/Main/ai/runs/components/RunStats/index.vue src/views/Main/permission/authPlatform/index.vue src/views/Main/permission/authPlatform/helpers.ts src/views/Main/permission/authPlatform/components/FormDialog.vue src/views/Main/permission/permission/index.vue src/views/Main/permission/permission/helpers.ts src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue src/views/Main/permission/permission/components/PlatformTabs.vue src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue src/views/Main/system/notificationTask/index.vue src/views/Main/user/userManager/components/SessionList/index.vue src/i18n/locales/en-US/ai.ts src/i18n/locales/en-US/permission.ts src/i18n/locales/en-US/system.ts src/i18n/locales/en-US/user.ts src/i18n/locales/zh-CN/ai.ts src/i18n/locales/zh-CN/permission.ts src/i18n/locales/zh-CN/system.ts src/i18n/locales/zh-CN/user.ts scripts/check-admin-only.mjs tests/shared/architecture/admin-only.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm test -- tests/shared/architecture/admin-only.test.ts tests/unit/app/environment.test.ts && npm test -- --project integration tests/integration/app/kernel.test.ts tests/integration/features/admin-auth-policy.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts && npm run typecheck && npm run lint"
+git add -- .env.development .env.production src/vite-env.d.ts src/app/environment.ts src/enums/index.ts src/lib/http/headers.ts src/api/ai/agents.ts src/api/ai/runs.ts src/api/permission/authPlatform.ts src/api/permission/permission.ts src/api/permission/role.ts src/api/system/notificationTask.ts src/api/user/users.ts src/api/user/usersLoginLog.ts src/features/ai-runs/workflow.ts src/features/notifications/workflow.ts src/features/user-management/workflow.ts src/views/Main/ai/agents/index.vue src/views/Main/ai/agents/use-agent-admin-page.ts src/views/Main/ai/runs/components/RunList/index.vue src/views/Main/ai/runs/components/RunStats/index.vue src/views/Main/permission/authPlatform/index.vue src/views/Main/permission/authPlatform/helpers.ts src/views/Main/permission/authPlatform/components/FormDialog.vue src/views/Main/permission/permission/index.vue src/views/Main/permission/permission/helpers.ts src/views/Main/permission/permission/composables/usePermissionDefinitionPage.ts src/views/Main/permission/permission/components/PermissionDefinitionDialog.vue src/views/Main/permission/permission/components/PlatformTabs.vue src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/use-role-page.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue src/views/Main/system/notificationTask/index.vue src/views/Main/system/notificationTask/use-notification-task-page.ts src/views/Main/user/userManager/components/SessionList/index.vue src/views/Main/user/usersLoginLog/index.vue src/views/Main/user/usersLoginLog/composables/useUsersLoginLogTable.ts src/i18n/locales/en-US/ai.ts src/i18n/locales/en-US/permission.ts src/i18n/locales/en-US/system.ts src/i18n/locales/en-US/user.ts src/i18n/locales/zh-CN/ai.ts src/i18n/locales/zh-CN/permission.ts src/i18n/locales/zh-CN/system.ts src/i18n/locales/zh-CN/user.ts scripts/check-admin-only.mjs tests/shared/architecture/admin-only.test.ts tests/integration/features/admin-auth-policy.test.ts tests/unit/app/environment.test.ts tests/integration/app/kernel.test.ts tests/integration/features/user-management.test.ts tests/integration/features/notifications.test.ts tests/integration/features/ai-runs.test.ts
 git diff --cached --check
 git commit -m "refactor(frontend): make admin the only product platform"
 ```
@@ -611,7 +647,7 @@ cd E:/admin/admin_front_ts
 $backendManifest = Get-Content -Raw E:/admin/admin_back_go/contracts/admin/v1/manifest.json | ConvertFrom-Json
 $backendSourceCommit = $backendManifest.backend_commit
 $root = (Get-Location).Path
-docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,src=E:/admin/admin_back_go,dst=/backend,readonly" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm run contract:sync -- --backend /backend --commit $backendSourceCommit && npm run contract:generate && npm run routes:generate && npm run contract:check && npm test -- tests/shared/architecture/admin-only.test.ts && npm run check:browser-only && npm run typecheck && npm run lint"
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,src=E:/admin/admin_back_go,dst=/backend,readonly" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm run contract:sync -- --backend /backend --commit $backendSourceCommit && npm run contract:generate && npm run routes:generate && npm run contract:check && npm test -- tests/shared/architecture/admin-only.test.ts && npm run check:browser-only && npm run typecheck && npm run lint"
 git add -- contracts/backend/admin/v1 contracts/backend/admin/lock.json src/modules/http/generated/admin.ts src/modules/http/generated/operations.ts src/modules/routing/generated/permissions.ts src/modules/routing/generated/views.ts tests/shared/architecture/admin-only.test.ts
 git diff --cached --check
 git commit -m "chore(contract): lock final admin-only bundle"
@@ -644,7 +680,7 @@ go test ./internal/architecture -run TestAdminRelease -count=1
 
 cd E:/admin/admin_front_ts
 $root = (Get-Location).Path
-docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm test -- tests/shared/deployment/admin-release.test.ts"
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm test -- tests/shared/deployment/admin-release.test.ts"
 ```
 
 Expected: FAIL because release schema/scripts/tests do not exist.
@@ -690,11 +726,22 @@ The generated manifest is never committed. Its tracked schema contains concrete 
 }
 ```
 
-`new-release-manifest.ps1` reads artifact metadata and input lock, verifies the clean locked commits, and writes `release/admin-only/out/release-manifest.json` atomically.
+`new-release-manifest.ps1` reads artifact metadata and the pre-contract input
+lock, verifies both current clean P09 release commits, proves that the two
+pre-contract commits are ancestors of them, and writes
+`release/admin-only/out/release-manifest.json` atomically. The manifest records
+the current release commits, never the older pre-contract commits.
 
 - [ ] **Step 3: Export verified Docker images without a deployment Workflow**
 
-`export-docker-images.ps1` first verifies both primary checkout directories are clean and at the input-lock commits. It delegates builds only to the repository Docker tooling, verifies each image revision label equals its owning commit, records immutable image digests, exports the two images to ignored `release/admin-only/out/images/`, computes archive SHA-256 values, and reruns `docker image inspect` after a clean load test. It never builds or deploys through GitHub Actions.
+`export-docker-images.ps1` first verifies both primary checkout directories are
+clean at their current P09 release commits and proves the input-lock commits are
+ancestors. It must not check out or build either pre-contract commit. It
+delegates builds only to the repository Docker tooling, verifies each image
+revision label equals its current owning commit, records immutable image
+digests, exports the two images to ignored `release/admin-only/out/images/`,
+computes archive SHA-256 values, and reruns `docker image inspect` after a clean
+load test. It never builds or deploys through GitHub Actions.
 
 There is no desktop release unit. Task 8 reads only the reviewed COS historical-object disposition evidence; it cannot upload, promote, overwrite, or delete those objects.
 
@@ -720,7 +767,7 @@ git commit -m "build(release): deploy immutable Docker artifacts"
 ```powershell
 cd E:/admin/admin_front_ts
 $root = (Get-Location).Path
-docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:22.23.1-alpine sh -lc "npm ci && npm test -- tests/shared/deployment/admin-release.test.ts"
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm test -- tests/shared/deployment/admin-release.test.ts"
 git add -- tests/shared/deployment/admin-release.test.ts
 git diff --cached --check
 git commit -m "test(release): enforce Docker-only frontend delivery"
