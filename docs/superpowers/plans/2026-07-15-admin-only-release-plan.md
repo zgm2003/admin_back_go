@@ -113,6 +113,9 @@ The runbook and its executable count queries classify exactly:
 
 - App/Canvas sessions and login attempts: preserve counts in recovery evidence, revoke, then delete;
 - App/Canvas permissions and role grants: delete grants before permissions;
+- pre-existing role grants whose permission row is already absent: lock the
+  exact grant/role/permission IDs as orphan evidence and delete only that
+  classified set; never infer a replacement permission;
 - App/Canvas `auth_platforms` rows: delete; the Admin policy row remains enabled;
 - `users_quick_entry`: already absent before P09; preserve the historical P02
   107-row / 3-active-row evidence, prove current absence, and do not recreate
@@ -134,7 +137,7 @@ No row receives an owner, platform, scene, kind, or object key without a documen
 
 - [ ] **Step 3: Make preconditions zero-row invariants**
 
-`050_contract_preconditions.sql` returns named violation result sets for unresolved retained object URLs, wallet mismatches, RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, active client-version menu/grants/routes, any runtime reference to `client_versions`, and any unexpected reappearance of the five already-absent legacy tables. The PowerShell input checker owns external evidence-file digest validation. SQL verifies the live `client_versions` count/hash equals the P08R freeze evidence. `admin-db invariants` must fail on any returned row.
+`050_contract_preconditions.sql` returns named violation result sets for unresolved retained object URLs, wallet mismatches, unclassified RBAC/payment/AI/export/notification orphans, duplicate idempotency keys, running/claimed durable work, active App/Canvas sessions, unknown platform values, missing scene mappings, non-terminal provider attempts, active client-version menu/grants/routes, any runtime reference to `client_versions`, and any unexpected reappearance of the five already-absent legacy tables. The PowerShell input checker owns external evidence-file digest validation. SQL verifies the exact pre-existing orphan-grant set, the live `client_versions` count/hash, and the P08R freeze evidence. `admin-db invariants` must fail on any returned row.
 
 - [ ] **Step 4: Run and commit**
 
@@ -517,6 +520,8 @@ Tests prove lock contention fails closed, child failure releases the lock, a DSN
 ```sql
 DELETE rp FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
 WHERE p.platform IN ('app', 'canvas');
+DELETE rp FROM role_permissions rp LEFT JOIN permissions p ON p.id = rp.permission_id
+WHERE p.id IS NULL AND rp.id = 723 AND rp.role_id = 1 AND rp.permission_id = 539;
 DELETE FROM permissions WHERE platform IN ('app', 'canvas');
 DELETE FROM user_sessions WHERE platform IN ('app', 'canvas');
 DELETE FROM users_login_log WHERE platform IN ('app', 'canvas');
