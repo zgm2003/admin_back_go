@@ -289,7 +289,8 @@ function Resolve-AdminDevHostTools {
 function Read-AdminDevEnvironmentFile {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string[]]$RequiredKeys
+    [Parameter(Mandatory = $true)][string[]]$RequiredKeys,
+    [string[]]$AllowEmptyKeys = @()
   )
 
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -314,9 +315,14 @@ function Read-AdminDevEnvironmentFile {
     }
     $environment.Add($name, $match.Groups[2].Value)
   }
+  $allowedEmpty = [Collections.Generic.HashSet[string]]::new(
+    $AllowEmptyKeys,
+    [StringComparer]::OrdinalIgnoreCase
+  )
   foreach ($required in $RequiredKeys) {
     if (-not $environment.ContainsKey($required) -or
-        [string]::IsNullOrWhiteSpace($environment[$required])) {
+        (-not $allowedEmpty.Contains($required) -and
+          [string]::IsNullOrWhiteSpace($environment[$required]))) {
       throw "ADMIN_DEV_ENV_REQUIRED: $required"
     }
   }

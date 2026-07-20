@@ -104,6 +104,21 @@ OPAQUE_VALUE=left=middle=right
     throw 'secret redaction did not mark protected content'
   }
 
+  $emptyRedisPasswordPath = Join-Path $temporaryRoot 'empty-redis-password.env'
+  [IO.File]::WriteAllText(
+    $emptyRedisPasswordPath,
+    "APP_SECRET=fixture-app-secret-value`nREDIS_PASSWORD=",
+    [Text.UTF8Encoding]::new($false)
+  )
+  $emptyRedisEnvironment = Read-AdminDevEnvironmentFile `
+    -Path $emptyRedisPasswordPath `
+    -RequiredKeys @('APP_SECRET', 'REDIS_PASSWORD') `
+    -AllowEmptyKeys @('REDIS_PASSWORD')
+  if (-not $emptyRedisEnvironment.ContainsKey('REDIS_PASSWORD') -or
+      [string]$emptyRedisEnvironment['REDIS_PASSWORD'] -cne '') {
+    throw 'an explicitly configured empty Redis password must remain valid and present'
+  }
+
   foreach ($invalidFixture in @(
     @{ Name = 'duplicate'; Text = "APP_SECRET=one`nAPP_SECRET=two"; Error = 'ADMIN_DEV_ENV_DUPLICATE' },
     @{ Name = 'malformed'; Text = "NOT VALID=value"; Error = 'ADMIN_DEV_ENV_MALFORMED' },

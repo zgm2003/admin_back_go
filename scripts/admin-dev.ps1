@@ -56,7 +56,8 @@ try {
   )
   $containerEnvironment = Read-AdminDevEnvironmentFile `
     -Path $environmentPath `
-    -RequiredKeys $requiredEnvironmentKeys
+    -RequiredKeys $requiredEnvironmentKeys `
+    -AllowEmptyKeys @('REDIS_PASSWORD')
   $sensitiveValues = Get-AdminDevSensitiveValues -Environment $containerEnvironment
   $runtimeEnvironment = ConvertTo-AdminDevHostEnvironment `
     -Environment $containerEnvironment `
