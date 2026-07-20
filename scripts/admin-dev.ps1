@@ -81,6 +81,7 @@ try {
   $runtimeEnvironment['GOTOOLCHAIN'] = 'local'
   $runtimeEnvironment['GOWORK'] = 'off'
   $runtimeEnvironment['GOFLAGS'] = '-mod=readonly'
+  $runtimeEnvironment['ZONEINFO'] = $tools.ZoneInfoPath
   $runtimeEnvironment['Path'] = @(
     (Split-Path $tools.GoExecutable -Parent),
     (Split-Path $tools.NodeExecutable -Parent),

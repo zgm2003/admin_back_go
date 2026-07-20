@@ -276,13 +276,19 @@ function Resolve-AdminDevHostTools {
   $nodeVersion = Invoke-AdminDevVersionCommand -Executable $nodePaths.NodeExecutable -Arguments @('--version') -Label 'node'
   $npmVersion = Invoke-AdminDevVersionCommand -Executable $nodePaths.NpmExecutable -Arguments @('--version') -Label 'npm'
   $goVersion = Invoke-AdminDevVersionCommand -Executable $goCommand.Source -Arguments @('version') -Label 'go'
+  $goRoot = Invoke-AdminDevVersionCommand -Executable $goCommand.Source -Arguments @('env', 'GOROOT') -Label 'go root'
   Assert-AdminDevNodeVersions -NodeVersion $nodeVersion -NpmVersion $npmVersion
   Assert-AdminDevGoVersion -VersionOutput $goVersion
+  $zoneInfoPath = Join-Path $goRoot 'lib\time\zoneinfo.zip'
+  if (-not (Test-Path -LiteralPath $zoneInfoPath -PathType Leaf)) {
+    throw 'ADMIN_DEV_GO_ZONEINFO_MISSING'
+  }
 
   return [pscustomobject]@{
     NodeExecutable = [string]$nodePaths.NodeExecutable
     NpmExecutable = [string]$nodePaths.NpmExecutable
     GoExecutable = [string]$goCommand.Source
+    ZoneInfoPath = [IO.Path]::GetFullPath($zoneInfoPath)
   }
 }
 

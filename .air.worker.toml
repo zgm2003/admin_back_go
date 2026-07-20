@@ -2,7 +2,7 @@ root = "."
 tmp_dir = ".tmp/dev/worker"
 
 [build]
-  bin = ".tmp/dev/worker/admin-worker.exe"
+  entrypoint = [".tmp/dev/worker/admin-worker.exe"]
   cmd = "go build -trimpath -o ./.tmp/dev/worker/admin-worker.exe ./cmd/admin-worker"
   delay = 500
   exclude_dir = [".git", ".tmp", "deploy", "docs", "runtime"]

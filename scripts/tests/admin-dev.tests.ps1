@@ -43,6 +43,11 @@ Assert-ThrowsLike { Assert-AdminDevNodeVersions -NodeVersion 'v24.18.0' -NpmVers
 Assert-AdminDevGoVersion -VersionOutput 'go version go1.26.5 windows/amd64'
 Assert-ThrowsLike { Assert-AdminDevGoVersion -VersionOutput 'go version go1.26.4 windows/amd64' } 'ADMIN_DEV_GO_VERSION_INVALID'
 Assert-ThrowsLike { Assert-AdminDevGoVersion -VersionOutput 'go version go1.26.5 linux/amd64' } 'ADMIN_DEV_GO_VERSION_INVALID'
+$resolvedHostTools = Resolve-AdminDevHostTools
+if (-not (Test-Path -LiteralPath $resolvedHostTools.ZoneInfoPath -PathType Leaf) -or
+    [IO.Path]::GetFileName([string]$resolvedHostTools.ZoneInfoPath) -cne 'zoneinfo.zip') {
+  throw 'Windows Go children require the exact toolchain zoneinfo.zip path'
+}
 
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('admin-dev-test-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
@@ -190,10 +195,15 @@ foreach ($required in @(
   }
 }
 if (-not $apiAir.Contains('.tmp/dev/api/admin-api.exe') -or
+    -not $apiAir.Contains('entrypoint = [".tmp/dev/api/admin-api.exe"]') -or
     -not $apiAir.Contains('./cmd/admin-api') -or
     -not $workerAir.Contains('.tmp/dev/worker/admin-worker.exe') -or
+    -not $workerAir.Contains('entrypoint = [".tmp/dev/worker/admin-worker.exe"]') -or
     -not $workerAir.Contains('./cmd/admin-worker')) {
   throw 'API and worker Air outputs must be distinct and target the correct commands'
+}
+if ($apiAir -match '(?m)^\s*bin\s*=' -or $workerAir -match '(?m)^\s*bin\s*=') {
+  throw 'Air configurations must use the non-deprecated entrypoint contract'
 }
 if ($apiAir.Contains('.tmp/dev/worker') -or $workerAir.Contains('.tmp/dev/api')) {
   throw 'Air configurations must not share build output directories'
@@ -214,6 +224,7 @@ foreach ($required in @(
   'docker-platform.ps1',
   '-Action dev-state',
   'Wait-AdminDevRuntimeReady',
+  "`$runtimeEnvironment['ZONEINFO']",
   'Stop-AdminDevManagedProcesses',
   'finally',
   'http://127.0.0.1:5173',
