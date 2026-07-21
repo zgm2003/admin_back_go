@@ -914,13 +914,15 @@ git commit -m "feat(database): retire legacy product schema safely"
 - Modify: `contracts/backend/admin/lock.json`
 - Modify: `src/modules/http/generated/admin.ts`
 - Modify: `src/modules/http/generated/operations.ts`
+- Modify: `src/modules/routing/generated/local-views.ts`
 - Modify: `src/modules/routing/generated/permissions.ts`
 - Modify: `src/modules/routing/generated/views.ts`
-- Modify: `tests/shared/architecture/admin-only.test.ts`
+- Modify: `tests/shared/ai/admin-ai-interaction-retirement.test.ts`
+- Modify: `tests/unit/contracts/admin-contract.test.ts`
 - Delete: `src/views/Main/ai/prompts/`
-- Delete: `src/api/ai/prompts/`
+- Delete: `src/api/ai/prompts.ts`
 
-- [ ] **Step 1: Add final generated-contract guards**
+- [x] **Step 1: Add final generated-contract guards**
 
 Backend and frontend guards reject App/Canvas paths, permission codes, view
 keys, retired product enum values, old scenes, client-version
@@ -942,7 +944,7 @@ registered Admin adapter (plus notification `all`); configuration code fields
 remain validated strings so a future adapter can be staged without a schema
 rewrite.
 
-- [ ] **Step 2: Regenerate backend truth from the committed runtime**
+- [x] **Step 2: Regenerate backend truth from the committed runtime**
 
 ```powershell
 cd E:/admin/admin_back_go
@@ -956,15 +958,15 @@ git commit -m "feat(contract): publish current-admin platform-kernel bundle"
 
 The generator records the current clean backend source SHA containing Tasks 1–6 and bumps the bundle version to `admin-2026-07-15.2`. The following generated-contract commit is deliberately newer, avoiding a self-referential commit hash.
 
-- [ ] **Step 3: Lock frontend consumption to that exact bundle**
+- [x] **Step 3: Lock frontend consumption to that exact bundle**
 
 ```powershell
 cd E:/admin/admin_front_ts
 $backendManifest = Get-Content -Raw E:/admin/admin_back_go/contracts/admin/v1/manifest.json | ConvertFrom-Json
 $backendSourceCommit = $backendManifest.backend_commit
 $root = (Get-Location).Path
-docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,src=E:/admin/admin_back_go,dst=/backend,readonly" --workdir /workspace node:24.18.0-alpine sh -lc "npm ci && npm run contract:sync -- --backend /backend --commit $backendSourceCommit && npm run contract:generate && npm run routes:generate && npm run contract:check && npm test -- tests/shared/architecture/admin-only.test.ts && npm run check:browser-only && npm run typecheck && npm run lint"
-git add -- contracts/backend/admin/v1 contracts/backend/admin/lock.json src/modules/http/generated/admin.ts src/modules/http/generated/operations.ts src/modules/routing/generated/permissions.ts src/modules/routing/generated/views.ts tests/shared/architecture/admin-only.test.ts
+docker run --rm --mount "type=bind,src=$root,dst=/workspace" --mount "type=bind,src=E:/admin/admin_back_go,dst=/backend,readonly" --mount "type=volume,dst=/workspace/node_modules" --workdir /workspace node:24.18.0-alpine sh -lc "apk add --no-cache git >/dev/null && git config --global core.autocrlf true && npm ci && npm run contract:sync -- --backend /backend --commit $backendSourceCommit && npm run contract:generate && npm run routes:generate && npm run contract:check && npm run routes:check && npm test -- tests/unit/contracts/admin-contract.test.ts tests/shared/ai/admin-ai-interaction-retirement.test.ts && npm run check:browser-only && npm run typecheck && npm run lint"
+git add -- contracts/backend/admin/v1 contracts/backend/admin/lock.json src/modules/http/generated/admin.ts src/modules/http/generated/operations.ts src/modules/routing/generated/local-views.ts src/modules/routing/generated/permissions.ts src/modules/routing/generated/views.ts src/api/ai/prompts.ts src/views/Main/ai/prompts tests/shared/ai/admin-ai-interaction-retirement.test.ts tests/unit/contracts/admin-contract.test.ts
 git diff --cached --check
 git commit -m "chore(contract): lock current-admin platform-kernel bundle"
 ```
@@ -972,6 +974,32 @@ git commit -m "chore(contract): lock current-admin platform-kernel bundle"
 Expected: frontend lock commit/digest equals backend manifest, all generated
 files are clean, no retired App/Canvas operation is representable, and the
 platform administration core remains fully representable.
+
+#### P09 Task 7 completion evidence (2026-07-21)
+
+- Backend source commit `565a6062e21564925388a4c695b926653e1bf796`
+  removed the Prompt Admin transport and wiring while retaining the
+  transport-neutral Prompt model, repository, service, and empty table.
+- Backend publication commit `0cfc6a6` generated Bundle
+  `admin-2026-07-15.2` with manifest SHA-256
+  `ce118f200614f740b0da52c48b47d36de1178e92cad5c24ad0e86406eab02b43`.
+  The active `admin-dev` directory watcher required generation through a
+  temporary output directory followed by file synchronization; the committed
+  Bundle passed `scripts/check-admin-contract.ps1`, the targeted contract and
+  architecture tests, `go test ./... -count=1`, and `git diff --check`.
+- Frontend commit `c8bf3b0` locks that exact backend source commit and manifest,
+  deletes the Prompt API/page, refreshes all generated contract and local-view
+  outputs, and adds guards for the retired Prompt surface, Admin-only platform
+  enums, all seven auth-platform operations, and retained platform fields.
+- The frontend gate passed in `node:24.18.0-alpine`: contract sync/generation
+  and checks, route generation/check, eight targeted tests, Browser-only
+  verification, typecheck, and lint. Container Git used
+  `core.autocrlf=true` so the read-only Windows backend checkout was verified
+  clean without changing it.
+- The existing `admin-dev` supervisor remained active. Vite served the updated
+  local-view registry without `ai/prompts` and with
+  `permission/authPlatform`; Web, API health, and API readiness probes all
+  returned HTTP 200.
 
 ### Task 8: Build a synchronized immutable deployment and rollback path
 
