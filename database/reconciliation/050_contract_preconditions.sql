@@ -64,9 +64,15 @@ FROM (
   HAVING COUNT(*) > 1
 ) AS duplicate_idempotency_keys;
 
-SELECT 'client_version_surface_violations' AS invariant, COUNT(*) AS violations
+SELECT 'client_version_surface_count_mismatch' AS invariant,
+  IF(
+    SUM(`kind` = 'permission') = 6
+    AND SUM(`kind` = 'role_permission') = 12,
+    0,
+    1
+  ) AS violations
 FROM (
-  SELECT permission.`id`
+  SELECT 'permission' AS `kind`, permission.`id`
   FROM `permissions` AS permission
   WHERE permission.`platform` = 'admin'
     AND permission.`is_del` = 2
@@ -83,7 +89,7 @@ FROM (
       )
     )
   UNION ALL
-  SELECT grant_row.`id`
+  SELECT 'role_permission' AS `kind`, grant_row.`id`
   FROM `role_permissions` AS grant_row
   JOIN `permissions` AS permission ON permission.`id` = grant_row.`permission_id`
   WHERE grant_row.`is_del` = 2

@@ -21,11 +21,13 @@ $constraintPath = Join-Path $root 'database\migrations\202607150203_admin_only_c
 $verifyRowsPath = Join-Path $root 'database\reconciliation\051_verify_admin_rows.sql'
 $verifySchemaPath = Join-Path $root 'database\reconciliation\052_verify_ai_contract.sql'
 $verifyFinalPath = Join-Path $root 'database\reconciliation\053_verify_admin_only.sql'
+$preconditionsPath = Join-Path $root 'database\reconciliation\050_contract_preconditions.sql'
 $wrapperPath = Join-Path $root 'scripts\database\contract-admin-only.ps1'
 
 $rows = Read-Required $rowPath
 $schema = Read-Required $schemaPath
 $constraints = Read-Required $constraintPath
+$preconditions = Read-Required $preconditionsPath
 $verifyRows = Read-Required $verifyRowsPath
 $verifySchema = Read-Required $verifySchemaPath
 $verifyFinal = Read-Required $verifyFinalPath
@@ -39,6 +41,11 @@ foreach ($needle in @(
   'DELETE FROM `users_login_log`',
   'DELETE FROM `ai_video_tasks`',
   'DELETE FROM `ai_reply_commands`',
+  'system_clientVersion_add',
+  'system_clientVersion_del',
+  'system_clientVersion_edit',
+  'system_clientVersion_forceUpdate',
+  'system_clientVersion_setLatest',
   'contract_retired_ai_runs',
   'canvas_text_generate',
   'text_generate'
@@ -46,6 +53,7 @@ foreach ($needle in @(
   Assert-Contains $rows $needle "row migration is missing $needle"
 }
 Assert-True (-not [regex]::IsMatch($rows, '(?i)\b(ALTER|TRUNCATE)\b|CREATE\s+TABLE|DROP\s+TABLE')) 'row migration may not contain permanent DDL'
+Assert-True (-not $rows.Contains('ROW_COUNT()', [StringComparison]::OrdinalIgnoreCase)) 'row migration must not depend on ROW_COUNT across Atlas statements'
 
 foreach ($needle in @(
   'DROP TABLE `canvas_video_tasks`',
@@ -68,8 +76,12 @@ Assert-True (-not [regex]::IsMatch($constraints, "(?i)platform`?\s*=\s*'admin'")
 Assert-Contains $constraints "NOT IN ('app', 'canvas')" 'constraints must permanently reject retired product codes'
 
 foreach ($pair in @(
+  @($preconditions, 'client_version_surface_count_mismatch'),
+  @($preconditions, "SUM(``kind`` = 'permission') = 6"),
+  @($preconditions, "SUM(``kind`` = 'role_permission') = 12"),
   @($verifyRows, 'prompt_rows_remaining'),
   @($verifyRows, 'retired_platform_rows_remaining'),
+  @($verifyRows, 'client_version_surface_remaining'),
   @($verifySchema, 'retired_schema_surface_remaining'),
   @($verifySchema, 'access_token_hash_remaining'),
   @($verifyFinal, 'platform_kernel_schema_missing'),
@@ -79,12 +91,19 @@ foreach ($pair in @(
   Assert-Contains $pair[0] $pair[1] "verification SQL is missing $($pair[1])"
 }
 
+$platformJoinPattern = 'platform_row\.`code`\s+COLLATE\s+utf8mb4_0900_ai_ci\s*=\s*row_data\.`platform`\s+COLLATE\s+utf8mb4_0900_ai_ci'
+Assert-True ([regex]::Matches($verifyFinal, $platformJoinPattern).Count -eq 12) 'verification SQL must normalize all platform provenance joins to one collation'
+
 foreach ($needle in @(
   '[string]$ExpectedSourceFingerprint',
   '[string]$InputLock',
   '[string]$DestructiveApproval',
   '[switch]$Apply',
   'admin-db lock-run',
+  'Invoke-LockedAtlasSet',
+  '--allow-classified-not-found',
+  '202607150101',
+  '202607150102',
   '050_contract_preconditions.sql',
   '051_verify_admin_rows.sql',
   '052_verify_ai_contract.sql',

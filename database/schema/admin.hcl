@@ -1190,7 +1190,6 @@ table "ai_messages" {
     null     = true
     type     = bigint
     unsigned = true
-    comment  = "durable reply command publication identity"
   }
   column "is_del" {
     null     = false

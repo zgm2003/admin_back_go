@@ -36,62 +36,62 @@ SELECT 'unconfigured_platform_provenance_remaining' AS invariant, COALESCE(SUM(`
 FROM (
   SELECT COUNT(*) AS violations
   FROM `permissions` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `authz_principal_versions` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `user_sessions` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `users_login_log` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `notification_task` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE row_data.`platform` <> 'all' AND platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `notifications` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE row_data.`platform` <> 'all' AND platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `export_tasks` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `ai_runs` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `ai_text_tasks` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `ai_image_tasks` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `ai_video_tasks` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
   UNION ALL
   SELECT COUNT(*)
   FROM `ai_reply_commands` AS row_data
-  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` = row_data.`platform` AND platform_row.`is_del` = 2
+  LEFT JOIN `auth_platforms` AS platform_row ON platform_row.`code` COLLATE utf8mb4_0900_ai_ci = row_data.`platform` COLLATE utf8mb4_0900_ai_ci AND platform_row.`is_del` = 2
   WHERE platform_row.`id` IS NULL
 ) AS unconfigured_platform;
 

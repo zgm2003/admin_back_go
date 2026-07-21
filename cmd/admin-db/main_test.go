@@ -314,6 +314,94 @@ func TestRunCOSReferencesPrintsOnlyManifestPathAndCounts(t *testing.T) {
 	}
 }
 
+func TestRunCOSReferencesAllowsClassifiedNotFoundWhenRequested(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectClose()
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	var output bytes.Buffer
+	dependencies := commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return strings.Repeat("a", 64)
+			default:
+				t.Fatalf("unexpected environment key %q", key)
+				return ""
+			}
+		},
+		openDatabase: func(string) (*sql.DB, error) { return database, nil },
+		verifyCOSReferences: func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error) {
+			return []databaseevolution.COSReferenceResult{
+				{Key: "private/missing.png", Status: databaseevolution.COSReferenceNotFound},
+			}, nil
+		},
+		writeCOSManifest: func(string, []databaseevolution.COSReferenceResult) error { return nil },
+		stdout:           &output,
+	}
+
+	err = run(context.Background(), []string{
+		"cos-references", "--schema", "admin", "--out", "cos-evidence.json", "--allow-classified-not-found",
+	}, dependencies)
+	if err != nil {
+		t.Fatalf("expected classified not_found reference to pass: %v", err)
+	}
+	if output.String() != "cos-evidence.json\nreachable\t0\nnot_found\t1\ndependency\t0\n" {
+		t.Fatalf("stdout=%q", output.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunCOSReferencesAllowClassifiedNotFoundStillFailsDependency(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectClose()
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	var output bytes.Buffer
+	dependencies := commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return strings.Repeat("a", 64)
+			default:
+				t.Fatalf("unexpected environment key %q", key)
+				return ""
+			}
+		},
+		openDatabase: func(string) (*sql.DB, error) { return database, nil },
+		verifyCOSReferences: func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error) {
+			return []databaseevolution.COSReferenceResult{
+				{Key: "private/dependency.png", Status: databaseevolution.COSReferenceDependency, DependencyClass: "provider"},
+			}, nil
+		},
+		writeCOSManifest: func(string, []databaseevolution.COSReferenceResult) error { return nil },
+		stdout:           &output,
+	}
+
+	err = run(context.Background(), []string{
+		"cos-references", "--schema", "admin", "--out", "cos-evidence.json", "--allow-classified-not-found",
+	}, dependencies)
+	if err == nil {
+		t.Fatal("expected dependency reference failure")
+	}
+	if output.String() != "cos-evidence.json\nreachable\t0\nnot_found\t0\ndependency\t1\n" {
+		t.Fatalf("stdout=%q", output.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunQueryManifestFilesPrintsNormalizedUniquePaths(t *testing.T) {
 	var output bytes.Buffer
 	dependencies := commandDependencies{

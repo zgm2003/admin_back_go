@@ -22,6 +22,42 @@ WHERE permission.`code` IN (
   'ai_prompt_del'
 );
 
+SELECT 'client_version_surface_remaining' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT permission.`id`
+  FROM `permissions` AS permission
+  WHERE permission.`platform` = 'admin'
+    AND (
+      permission.`path` = '/system/clientVersion'
+      OR permission.`component` = 'system/clientVersion'
+      OR permission.`i18n_key` = 'menu.system_clientVersion'
+      OR permission.`code` IN (
+        'system_clientVersion_add',
+        'system_clientVersion_del',
+        'system_clientVersion_edit',
+        'system_clientVersion_forceUpdate',
+        'system_clientVersion_setLatest'
+      )
+    )
+  UNION ALL
+  SELECT role_permission.`id`
+  FROM `role_permissions` AS role_permission
+  JOIN `permissions` AS permission ON permission.`id` = role_permission.`permission_id`
+  WHERE permission.`platform` = 'admin'
+    AND (
+      permission.`path` = '/system/clientVersion'
+      OR permission.`component` = 'system/clientVersion'
+      OR permission.`i18n_key` = 'menu.system_clientVersion'
+      OR permission.`code` IN (
+        'system_clientVersion_add',
+        'system_clientVersion_del',
+        'system_clientVersion_edit',
+        'system_clientVersion_forceUpdate',
+        'system_clientVersion_setLatest'
+      )
+    )
+) AS active_client_version_surface;
+
 SELECT 'retired_platform_rows_remaining' AS invariant, COALESCE(SUM(`violations`), 0) AS violations
 FROM (
   SELECT COUNT(*) AS violations FROM `permissions` WHERE `platform` IN ('app', 'canvas')

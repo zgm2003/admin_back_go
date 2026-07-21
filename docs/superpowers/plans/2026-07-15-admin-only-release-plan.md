@@ -837,7 +837,7 @@ Atlas apply through 202607150203
 
 Every Atlas call runs beneath `admin-db lock-run`. A failed invariant prevents the next version.
 
-- [ ] **Step 4: Rehearse on two disposable restores**
+- [x] **Step 4: Rehearse on two disposable restores**
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/admin-only-contract.tests.ps1
@@ -851,7 +851,7 @@ Expected: both restores reach the same fingerprint, `053` returns zero rows,
 repeat execution is clean, no live schema is touched, App/Canvas is absent,
 and the platform-kernel schema remains intact.
 
-- [ ] **Step 5: Commit the reviewed migration and canonical schema**
+- [x] **Step 5: Commit the reviewed migration and canonical schema**
 
 ```powershell
 pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
@@ -860,7 +860,7 @@ git diff --cached --check
 git commit -m "feat(database): retire legacy product schema safely"
 ```
 
-#### P09 Task 6 non-destructive checkpoint evidence (2026-07-21)
+#### P09 Task 6 completion evidence (2026-07-21)
 
 - `admin-db lock-run` now holds one MySQL connection for the advisory lock,
   captures the schema fingerprint on that same connection, and forwards only
@@ -876,9 +876,16 @@ git commit -m "feat(database): retire legacy product schema safely"
   `pwsh -NoProfile -File scripts/tests/release-input-lock.tests.ps1`;
   `pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations`;
   `go test ./... -count=1`.
-- Task 6 is intentionally not complete. The two disposable restore rehearsals,
-  post-contract drift proof, final commit, and any live destructive DDL remain
-  blocked until the separate fresh destructive approval boundary is satisfied.
+- Fresh destructive approval was supplied for disposable restores only. Both
+  `admin_p09_restore_a_d72c9a02` and `admin_p09_restore_b_d72c9a02` completed
+  the guarded wrapper and converged to
+  `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678`.
+- The live source fingerprint remained
+  `2196c34285433b56b7ed9b2bd12394ce1e2c06472b52abcbcfbc85901a0ffafd`.
+  All `051`/`052`/`053` checks returned zero for both restores and canonical
+  drift returned zero. No live destructive DDL was executed.
+- Final Task 6 gates passed: contract assertions, input-lock assertions, Atlas
+  migration validation, `go test ./... -count=1`, and `git diff --check`.
 
 ### Task 7: Publish and consume the current-Admin platform-kernel Contract Bundle
 

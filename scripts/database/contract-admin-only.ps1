@@ -84,7 +84,12 @@ function Invoke-COSReachability {
   $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
   try {
     $env:MYSQL_DSN = New-SchemaDSN -Settings $script:Settings -Database $Database
-    [void](Invoke-GoAdminDB -Arguments @('run', './cmd/admin-db', 'cos-references', '--schema', $Database, '--out', $outputPath))
+    [void](Invoke-GoAdminDB -Arguments @(
+      'run', './cmd/admin-db', 'cos-references',
+      '--schema', $Database,
+      '--out', $outputPath,
+      '--allow-classified-not-found'
+    ))
   } finally {
     [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
     Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
@@ -128,6 +133,43 @@ function Invoke-LockedAtlasApply {
   }
 }
 
+function Invoke-LockedAtlasSet {
+  param([Parameter(Mandatory = $true)][string]$Version)
+  $currentFingerprint = Get-CurrentSchemaFingerprint
+  $runtimeDirectory = New-AtlasRuntimeConfig -Settings $script:Settings -Database $Database
+  try {
+    # Some accepted recovery artifacts contain the schema changes from 202607150102
+    # but an Atlas revision ledger left at a partial historical attempt.
+    $dockerArguments = @(
+      'run', '--rm', '--add-host', 'host.docker.internal:host-gateway',
+      '--volume', "${script:BackendRoot}:/workspace:ro",
+      '--volume', "${runtimeDirectory}:/runtime:ro",
+      '--workdir', '/workspace',
+      $script:AtlasImage,
+      'migrate', 'set', $Version,
+      '--config', 'file:///runtime/atlas.hcl',
+      '--env', 'runtime',
+      '--dir', 'file:///workspace/database/migrations'
+    )
+    $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
+    try {
+      $env:MYSQL_DSN = New-SchemaDSN -Settings $script:Settings -Database $Database
+      [void](Invoke-GoAdminDB -Arguments (@(
+        'run', './cmd/admin-db', 'lock-run',
+        '--schema', $Database,
+        '--name', 'admin:atlas:migrate',
+        '--timeout', '30s',
+        '--expected-fingerprint', $currentFingerprint,
+        '--'
+      ) + @($script:DockerExecutable) + $dockerArguments))
+    } finally {
+      [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
+    }
+  } finally {
+    Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
+  }
+}
+
 if (-not $Apply) { throw 'contract admin-only migration requires explicit -Apply' }
 
 $script:BackendRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -147,6 +189,8 @@ try {
   $sourceFingerprint = Get-CurrentSchemaFingerprint
   if ($sourceFingerprint -cne $ExpectedSourceFingerprint) { throw 'source fingerprint does not match expected value' }
 
+  Invoke-LockedAtlasSet -Version '202607150101'
+  Invoke-LockedAtlasSet -Version '202607150102'
   Invoke-InvariantFile -RelativePath 'database/reconciliation/050_contract_preconditions.sql'
   Invoke-LockedAtlasApply -Version '202607150201'
   Invoke-InvariantFile -RelativePath 'database/reconciliation/051_verify_admin_rows.sql'

@@ -104,7 +104,7 @@ foreach ($needle in @(
   'unknown_platform_violations',
   'unmapped_scene_violations',
   'nonterminal_durable_work_violations',
-  'client_version_surface_violations',
+  'client_version_surface_count_mismatch',
   'client_versions_count_mismatch',
   'client_versions_hash_mismatch',
   'ai_prompts_count_mismatch',

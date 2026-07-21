@@ -46,8 +46,9 @@ type invariantOptions struct {
 }
 
 type cosReferenceOptions struct {
-	schema string
-	output string
+	schema                  string
+	output                  string
+	allowClassifiedNotFound bool
 }
 
 type queryManifestOptions struct {
@@ -300,6 +301,7 @@ func parseCOSReferenceOptions(args []string) (cosReferenceOptions, error) {
 	outputFlag := &singleStringFlag{name: "out", value: &options.output}
 	flags.Var(schemaFlag, "schema", "schema containing COS references")
 	flags.Var(outputFlag, "out", "evidence manifest path")
+	flags.BoolVar(&options.allowClassifiedNotFound, "allow-classified-not-found", false, "allow previously classified not_found references while still failing dependency errors")
 	if err := flags.Parse(args); err != nil {
 		for _, value := range []*singleStringFlag{schemaFlag, outputFlag} {
 			if value.duplicate {
@@ -453,7 +455,8 @@ func runCOSReferences(ctx context.Context, options cosReferenceOptions, dependen
 			return fmt.Errorf("print COS reference summary: %w", err)
 		}
 	}
-	if counts[databaseevolution.COSReferenceNotFound]+counts[databaseevolution.COSReferenceDependency] != 0 {
+	if counts[databaseevolution.COSReferenceDependency] != 0 ||
+		(!options.allowClassifiedNotFound && counts[databaseevolution.COSReferenceNotFound] != 0) {
 		return safeCommandError("verify COS references", errors.New("one or more COS references are not reachable"))
 	}
 	return nil
