@@ -181,8 +181,13 @@ func releaseStringArray(t *testing.T, value any, label string) []string {
 
 func assertPowerShellParses(t *testing.T, path string) {
 	t.Helper()
+	powerShell, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Logf("pwsh unavailable; static release assertions still apply: %v", err)
+		return
+	}
 	script := `$tokens=$null; $errors=$null; [Management.Automation.Language.Parser]::ParseFile($env:ADMIN_RELEASE_PARSE_PATH, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -ne 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }`
-	command := exec.Command("pwsh", "-NoProfile", "-Command", script)
+	command := exec.Command(powerShell, "-NoProfile", "-Command", script)
 	command.Env = append(os.Environ(), "ADMIN_RELEASE_PARSE_PATH="+path)
 	output, err := command.CombinedOutput()
 	if err != nil {
