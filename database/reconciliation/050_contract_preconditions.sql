@@ -129,6 +129,45 @@ SELECT 'client_versions_hash_mismatch' AS invariant,
   ) AS violations
 FROM `client_versions`;
 
+SELECT 'ai_prompts_count_mismatch' AS invariant,
+  IF(COUNT(*) = 1356 AND SUM(`is_del` = 2) = 1356, 0, 1) AS violations
+FROM `ai_prompts`;
+
+SELECT 'ai_prompt_permission_count_mismatch' AS invariant,
+  IF(
+    COUNT(*) = 5
+    AND SUM(`is_del` = 2) = 5
+    AND SUM(`platform` = 'admin') = 5
+    AND COUNT(DISTINCT `code`) = 5,
+    0,
+    1
+  ) AS violations
+FROM `permissions`
+WHERE `code` IN (
+  'ai_prompt_page',
+  'ai_prompt_add',
+  'ai_prompt_edit',
+  'ai_prompt_status',
+  'ai_prompt_del'
+);
+
+SELECT 'ai_prompt_role_grant_count_mismatch' AS invariant,
+  IF(COUNT(*) = 10 AND SUM(role_permission.`is_del` = 2) = 10, 0, 1) AS violations
+FROM `role_permissions` AS role_permission
+JOIN `permissions` AS permission ON permission.`id` = role_permission.`permission_id`
+WHERE permission.`code` IN (
+  'ai_prompt_page',
+  'ai_prompt_add',
+  'ai_prompt_edit',
+  'ai_prompt_status',
+  'ai_prompt_del'
+);
+
+SELECT 'ai_prompt_foreign_key_reference_violations' AS invariant, COUNT(*) AS violations
+FROM `information_schema`.`key_column_usage`
+WHERE `referenced_table_schema` = DATABASE()
+  AND `referenced_table_name` = 'ai_prompts';
+
 SELECT 'wallet_balance_violations' AS invariant, COUNT(*) AS violations
 FROM (
   SELECT wallet.`id`

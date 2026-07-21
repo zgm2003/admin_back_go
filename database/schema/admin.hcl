@@ -669,6 +669,9 @@ table "ai_image_tasks" {
   index "idx_ai_image_tasks_platform_user_created" {
     columns = [column.platform, column.user_id, column.created_at]
   }
+  check "chk_ai_image_tasks_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
+  }
 }
 table "ai_knowledge_bases" {
   schema  = schema.admin
@@ -1654,7 +1657,7 @@ table "ai_reply_commands" {
     columns = [column.conversation_id, column.request_id]
   }
   check "chk_ai_reply_platform" {
-    expr = "(`platform` = _utf8mb4'admin')"
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
   check "chk_ai_reply_state" {
     expr = "(`state` in (_utf8mb4'pending',_utf8mb4'claimed',_utf8mb4'running',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown',_utf8mb4'timed_out'))"
@@ -1914,6 +1917,9 @@ table "ai_runs" {
     unique  = true
     columns = [column.user_message_id]
   }
+  check "chk_ai_runs_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
+  }
   check "chk_ai_runs_status" {
     expr = "(`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout'))"
   }
@@ -1995,6 +2001,9 @@ table "ai_text_tasks" {
   }
   index "idx_ai_text_tasks_user_created" {
     columns = [column.user_id, column.created_at, column.id]
+  }
+  check "chk_ai_text_tasks_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
   check "chk_ai_text_tasks_status" {
     expr = "(`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed'))"
@@ -2314,7 +2323,7 @@ table "ai_video_tasks" {
     columns = [column.user_id, column.is_del, column.created_at, column.id]
   }
   check "chk_ai_video_platform" {
-    expr = "(`platform` in (_gbk'admin',_gbk'canvas'))"
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
 }
 table "atlas_schema_revisions" {
@@ -2497,6 +2506,9 @@ table "auth_platforms" {
     unique  = true
     columns = [column.code]
   }
+  check "chk_auth_platforms_code" {
+    expr = "((`code` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`code` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`code` <> _utf8mb4'all'))"
+  }
 }
 table "authz_principal_versions" {
   schema = schema.admin
@@ -2524,201 +2536,7 @@ table "authz_principal_versions" {
     columns = [column.user_id, column.platform]
   }
   check "chk_authz_principal_platform" {
-    expr = "(`platform` = _gbk'admin')"
-  }
-}
-table "canvas_video_tasks" {
-  schema  = schema.admin
-  comment = "无限画布视频生成任务"
-  collate = "utf8mb4_unicode_ci"
-  column "id" {
-    null           = false
-    type           = bigint
-    unsigned       = true
-    auto_increment = true
-  }
-  column "user_id" {
-    null     = false
-    type     = bigint
-    unsigned = true
-  }
-  column "agent_id" {
-    null     = false
-    type     = bigint
-    unsigned = true
-  }
-  column "provider_id" {
-    null     = false
-    type     = bigint
-    default  = 0
-    unsigned = true
-  }
-  column "model_id" {
-    null    = false
-    type    = varchar(191)
-    default = ""
-  }
-  column "prompt" {
-    null = false
-    type = text
-  }
-  column "duration_seconds" {
-    null    = false
-    type    = int
-    default = 0
-  }
-  column "size" {
-    null    = false
-    type    = varchar(64)
-    default = ""
-  }
-  column "resolution_name" {
-    null    = false
-    type    = varchar(64)
-    default = ""
-  }
-  column "provider_task_id" {
-    null    = false
-    type    = varchar(191)
-    default = ""
-  }
-  column "run_id" {
-    null     = true
-    type     = bigint
-    unsigned = true
-  }
-  column "status" {
-    null    = false
-    type    = varchar(32)
-    default = "pending"
-  }
-  column "error_message" {
-    null    = false
-    type    = varchar(1024)
-    default = ""
-  }
-  column "is_del" {
-    null    = false
-    type    = tinyint
-    default = 2
-  }
-  column "created_at" {
-    null    = false
-    type    = datetime
-    default = sql("CURRENT_TIMESTAMP")
-  }
-  column "updated_at" {
-    null      = false
-    type      = datetime
-    default   = sql("CURRENT_TIMESTAMP")
-    on_update = sql("CURRENT_TIMESTAMP")
-  }
-  column "finished_at" {
-    null = true
-    type = datetime
-  }
-  primary_key {
-    columns = [column.id]
-  }
-  index "idx_canvas_video_tasks_provider_task" {
-    columns = [column.provider_id, column.provider_task_id]
-  }
-  index "idx_canvas_video_tasks_run_id" {
-    columns = [column.run_id]
-  }
-  index "idx_canvas_video_tasks_user_status" {
-    columns = [column.user_id, column.status, column.is_del, column.created_at, column.id]
-  }
-}
-table "client_versions" {
-  schema  = schema.admin
-  comment = "客户端版本管理"
-  column "id" {
-    null           = false
-    type           = int
-    unsigned       = true
-    auto_increment = true
-  }
-  column "version" {
-    null    = false
-    type    = varchar(20)
-    comment = "版本号"
-  }
-  column "notes" {
-    null    = true
-    type    = text
-    comment = "更新说明"
-  }
-  column "file_url" {
-    null    = false
-    type    = varchar(500)
-    comment = "文件地址"
-  }
-  column "signature" {
-    null    = false
-    type    = text
-    comment = "签名"
-  }
-  column "platform" {
-    null    = false
-    type    = varchar(50)
-    default = "windows-x86_64"
-    comment = "平台"
-  }
-  column "file_size" {
-    null     = true
-    type     = int
-    unsigned = true
-    comment  = "文件大小(字节)"
-  }
-  column "is_latest" {
-    null     = false
-    type     = tinyint
-    default  = 2
-    unsigned = true
-  }
-  column "force_update" {
-    null     = false
-    type     = tinyint
-    default  = 2
-    unsigned = true
-  }
-  column "is_del" {
-    null     = false
-    type     = tinyint
-    default  = 2
-    unsigned = true
-    comment  = "soft delete: 1 deleted 2 normal"
-  }
-  column "created_at" {
-    null    = false
-    type    = datetime
-    default = sql("CURRENT_TIMESTAMP")
-  }
-  column "updated_at" {
-    null      = false
-    type      = datetime
-    default   = sql("CURRENT_TIMESTAMP")
-    on_update = sql("CURRENT_TIMESTAMP")
-  }
-  primary_key {
-    columns = [column.id]
-  }
-  index "idx_created_at" {
-    columns = [column.created_at]
-    comment = "创建时间索引"
-  }
-  index "idx_force_update" {
-    columns = [column.force_update]
-    comment = "强制更新索引"
-  }
-  index "idx_platform_latest" {
-    columns = [column.platform, column.is_latest]
-    comment = "平台最新版本索引"
-  }
-  index "uk_version_platform_del" {
-    unique  = true
-    columns = [column.version, column.platform, column.is_del]
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
 }
 table "cron_task" {
@@ -3027,6 +2845,9 @@ table "export_tasks" {
   }
   index "idx_user_status" {
     columns = [column.user_id, column.status, column.is_del]
+  }
+  check "chk_export_tasks_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
 }
 table "job_history" {
@@ -3670,6 +3491,9 @@ table "notification_task" {
   index "idx_status_del_send" {
     columns = [column.status, column.is_del, column.send_at]
   }
+  check "chk_notification_task_platform" {
+    expr = "((`platform` = _utf8mb4'all') or ((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all')))"
+  }
 }
 table "notifications" {
   schema  = schema.admin
@@ -3763,6 +3587,9 @@ table "notifications" {
   index "uk_notifications_source_user" {
     unique  = true
     columns = [column.source_task_id, column.user_id]
+  }
+  check "chk_notifications_platform" {
+    expr = "((`platform` = _utf8mb4'all') or ((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all')))"
   }
 }
 table "operation_logs" {
@@ -4431,6 +4258,9 @@ table "permissions" {
   index "uk_permissions_platform_code" {
     unique  = true
     columns = [column.platform, column.code]
+  }
+  check "chk_permissions_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
 }
 table "realtime_event_retention_watermarks" {
@@ -5312,11 +5142,6 @@ table "user_sessions" {
     type     = int
     unsigned = true
   }
-  column "access_token_hash" {
-    null    = false
-    type    = char(64)
-    comment = "access token sha256"
-  }
   column "refresh_token_hash" {
     null    = false
     type    = char(64)
@@ -5401,13 +5226,12 @@ table "user_sessions" {
   index "idx_user_sessions_user_platform_active_refresh" {
     columns = [column.user_id, column.platform, column.is_del, column.revoked_at, column.refresh_expires_at, column.id]
   }
-  index "uniq_access_hash" {
-    unique  = true
-    columns = [column.access_token_hash]
-  }
   index "uniq_refresh_hash" {
     unique  = true
     columns = [column.refresh_token_hash]
+  }
+  check "chk_user_sessions_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
 }
 table "user_wallets" {
@@ -5656,6 +5480,9 @@ table "users_login_log" {
       desc   = true
       column = column.created_at
     }
+  }
+  check "chk_users_login_log_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
 }
 table "wallet_transactions" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -390,7 +391,7 @@ func TestNewAuthenticatorNormalizesTokenConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestAccessHashIsNotPersistedDuringIssue(t *testing.T) {
+func TestAccessCredentialIsNotPersistedDuringIssue(t *testing.T) {
 	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	generator := &sequenceTokenGenerator{values: []string{"refresh-token"}}
 	repo := &fakeSessionRepository{createdID: 42}
@@ -415,7 +416,13 @@ func TestAccessHashIsNotPersistedDuringIssue(t *testing.T) {
 	if strings.Count(result.RefreshToken, ".") != 0 {
 		t.Fatalf("expected opaque refresh token, got %q", result.RefreshToken)
 	}
-	if repo.created.LegacyNonce == "" || repo.updatedAccessID != 0 || repo.updatedHash != "" {
+	if _, exists := reflect.TypeOf(Session{}).FieldByName("LegacyNonce"); exists {
+		t.Fatal("session persistence must not retain the retired access-token compatibility column")
+	}
+	if _, exists := reflect.TypeOf(SessionCreate{}).FieldByName("LegacyNonce"); exists {
+		t.Fatal("session creation must not populate the retired access-token compatibility column")
+	}
+	if repo.updatedAccessID != 0 || repo.updatedHash != "" {
 		t.Fatalf("access credential must not be hashed into persistence: created=%#v updated_id=%d hash=%q", repo.created, repo.updatedAccessID, repo.updatedHash)
 	}
 }

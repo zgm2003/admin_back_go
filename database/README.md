@@ -55,3 +55,23 @@ pwsh -NoProfile -File scripts/database/check-drift.ps1 `
 ```
 
 The drift check creates a random `admin_empty_<12hex>` schema, applies a temporary schema-name-rebound copy of `admin.hcl`, compares deterministic structural fingerprints, and drops only the generated schema in `finally`. Success is a JSON summary with `drift=0` and identical imported/empty `schema_sha256` values.
+
+## P09 Admin-only contract groups
+
+The P09 contract migrations are serialized Atlas groups:
+
+- `202607150201_admin_only_rows.sql` removes only classified retired product rows and canonicalizes AI scene values.
+- `202607150202_admin_only_schema.sql` removes only `canvas_video_tasks`, frozen `client_versions`, and `user_sessions.access_token_hash`.
+- `202607150203_admin_only_constraints.sql` keeps the platform kernel extensible while permanently rejecting retired `app` and `canvas` product codes.
+
+Run them only through the guarded wrapper:
+
+```powershell
+pwsh -NoProfile -File scripts/database/contract-admin-only.ps1 `
+  -Database $env:ADMIN_RESTORE_DB `
+  -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT `
+  -InputLock release/admin-only/input-lock.json `
+  -Apply
+```
+
+The wrapper runs every Atlas apply under `admin-db lock-run`, stops before the destructive schema group until the operator supplies the fresh P09 approval token, and rejects the live `admin` schema unless a validated release manifest is supplied. Application startup still never applies migrations.

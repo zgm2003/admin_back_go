@@ -705,13 +705,13 @@ Expected: `rg` has no matches and exits 1; all retained capability tests pass wi
 - Create: `scripts/tests/admin-only-contract.tests.ps1`
 - Modify: `database/README.md`
 
-- [ ] **Step 1: Add a lock-held child execution primitive**
+- [x] **Step 1: Add a lock-held child execution primitive**
 
 `admin-db lock-run` opens one MySQL connection, acquires `GET_LOCK('admin:atlas:migrate', 30)`, verifies the schema and input fingerprint, executes one child command while the same connection holds the lock, and releases it in `defer`. It forwards the child exit code but never prints `MYSQL_DSN`.
 
 Tests prove lock contention fails closed, child failure releases the lock, a DSN for another schema is rejected, and arguments are passed without shell interpolation.
 
-- [ ] **Step 2: Write three independently verifiable migration groups**
+- [x] **Step 2: Write three independently verifiable migration groups**
 
 `202607150201_admin_only_rows.sql` performs only the dispositions locked in
 Task 1, in dependency order. These statements remove retired product rows;
@@ -731,7 +731,18 @@ UPDATE notifications SET platform = 'admin' WHERE platform = 'all';
 DELETE FROM notification_task WHERE platform IN ('app', 'canvas');
 DELETE FROM notifications WHERE platform IN ('app', 'canvas');
 DELETE FROM export_tasks WHERE platform IN ('app', 'canvas');
+DELETE rp FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+WHERE p.code IN ('ai_prompt_page', 'ai_prompt_add', 'ai_prompt_edit', 'ai_prompt_status', 'ai_prompt_del');
+DELETE FROM permissions
+WHERE code IN ('ai_prompt_page', 'ai_prompt_add', 'ai_prompt_edit', 'ai_prompt_status', 'ai_prompt_del');
+DELETE FROM ai_prompts;
 ```
+
+The prompt deletion is separately locked to exactly 1,356 active rows, five
+Admin `ai_prompt_*` permissions, ten active role grants, and zero foreign-key
+references. It removes the legacy catalog and Admin management-surface data
+while preserving the empty `ai_prompts` table and generic Prompt core for a
+future formally contracted platform.
 
 The `all` updates above are the locked disposition of historical rows only.
 The runtime notification contract and final schema continue to permit the
@@ -778,8 +789,8 @@ WHERE JSON_VALID(scenes_json);
 `canvas_video_tasks` compatibility table and the P08R-frozen
 `client_versions` table; drops the unused `user_sessions.access_token_hash`
 column proven unreferenced by P04; verifies the canonical `ai_video_tasks`
-table from P02 remains; and removes only other compatibility columns/indexes
-accepted by P02 query evidence. Before dropping `client_versions`, it rechecks
+table from P02 remains. It drops no other column, index, or table. Before
+dropping `client_versions`, it rechecks
 the locked count/hash, proves no foreign key/view/event references it, and
 requires the operator's fresh destructive approval token through the wrapper.
 It does not delete COS objects and does not drop a performance index without
@@ -810,7 +821,7 @@ unique code index, its policy columns, every retained provenance column, and
 the platform query indexes still exist. It proves current registered/active
 product rows are Admin-only without forbidding a future valid code in schema.
 
-- [ ] **Step 3: Make the wrapper stop between groups**
+- [x] **Step 3: Make the wrapper stop between groups**
 
 `contract-admin-only.ps1` requires `-ExpectedSourceFingerprint`, `-InputLock`, and explicit `-Apply`. It rejects the live `admin` schema unless a validated release manifest is also supplied. For a restore/staging schema it runs:
 
@@ -830,8 +841,9 @@ Every Atlas call runs beneath `admin-db lock-run`. A failed invariant prevents t
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/admin-only-contract.tests.ps1
-pwsh -NoProfile -File scripts/database/contract-admin-only.ps1 -Database $env:ADMIN_RESTORE_DB -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT -InputLock release/admin-only/input-lock.json -Apply
-pwsh -NoProfile -File scripts/database/contract-admin-only.ps1 -Database $env:ADMIN_SECOND_RESTORE_DB -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT -InputLock release/admin-only/input-lock.json -Apply
+if ($env:P09_DESTRUCTIVE_APPROVAL -cne 'DROP_CLIENT_VERSIONS_FOR_P09') { throw 'fresh P09 destructive approval is required' }
+pwsh -NoProfile -File scripts/database/contract-admin-only.ps1 -Database $env:ADMIN_RESTORE_DB -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT -InputLock release/admin-only/input-lock.json -DestructiveApproval $env:P09_DESTRUCTIVE_APPROVAL -Apply
+pwsh -NoProfile -File scripts/database/contract-admin-only.ps1 -Database $env:ADMIN_SECOND_RESTORE_DB -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT -InputLock release/admin-only/input-lock.json -DestructiveApproval $env:P09_DESTRUCTIVE_APPROVAL -Apply
 pwsh -NoProfile -File scripts/database/check-drift.ps1 -Database $env:ADMIN_RESTORE_DB
 ```
 
@@ -847,6 +859,26 @@ git add -- database/migrations/202607150201_admin_only_rows.sql database/migrati
 git diff --cached --check
 git commit -m "feat(database): retire legacy product schema safely"
 ```
+
+#### P09 Task 6 non-destructive checkpoint evidence (2026-07-21)
+
+- `admin-db lock-run` now holds one MySQL connection for the advisory lock,
+  captures the schema fingerprint on that same connection, and forwards only
+  argv-form child commands.
+- The three Atlas migration groups, 051/052/053 invariant files, guarded
+  wrapper, canonical schema, and input-lock precondition updates are present.
+- `contract-admin-only.ps1` rejects execution without `-Apply`, rejects live
+  `admin` without a release manifest, and stops with
+  `P09_DESTRUCTIVE_APPROVAL_REQUIRED` before the schema group unless the
+  operator supplies the fresh P09 destructive approval token.
+- Verified so far:
+  `pwsh -NoProfile -File scripts/tests/admin-only-contract.tests.ps1`;
+  `pwsh -NoProfile -File scripts/tests/release-input-lock.tests.ps1`;
+  `pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations`;
+  `go test ./... -count=1`.
+- Task 6 is intentionally not complete. The two disposable restore rehearsals,
+  post-contract drift proof, final commit, and any live destructive DDL remain
+  blocked until the separate fresh destructive approval boundary is satisfied.
 
 ### Task 7: Publish and consume the current-Admin platform-kernel Contract Bundle
 
@@ -865,6 +897,10 @@ git commit -m "feat(database): retire legacy product schema safely"
 - Modify: `contracts/admin/v1/realtime/events.schema.json`
 - Modify: `contracts/admin/v1/manifest.json`
 - Modify: `internal/architecture/admin_only_test.go`
+- Modify: `internal/server/routes_admin_ai.go`
+- Delete: `internal/module/ai/prompt/transport/admin/`
+- Modify: `internal/server/testdata/admin_route_policy_golden.json`
+- Modify: `internal/server/testdata/admin_routes_golden.txt`
 
 **Frontend files:**
 - Replace: `contracts/backend/admin/v1/`
@@ -874,6 +910,8 @@ git commit -m "feat(database): retire legacy product schema safely"
 - Modify: `src/modules/routing/generated/permissions.ts`
 - Modify: `src/modules/routing/generated/views.ts`
 - Modify: `tests/shared/architecture/admin-only.test.ts`
+- Delete: `src/views/Main/ai/prompts/`
+- Delete: `src/api/ai/prompts/`
 
 - [ ] **Step 1: Add final generated-contract guards**
 
@@ -883,6 +921,11 @@ operations/views/permissions, client-variant headers, desktop refresh fields,
 and every Tauri/native generated identifier. They require every operation to
 have one route policy/audit decision and every artifact hash to match the
 manifest.
+
+They also reject every `/api/admin/v1/ai-prompts` operation, `ai_prompt_*`
+permission, `ai/prompts` view/menu entry, and frontend prompt-page/API module.
+The transport-neutral backend Prompt model/repository/service and the empty
+`ai_prompts` table remain available for a future platform contract.
 
 The guards also require all seven auth-platform management operations,
 permission/role platform fields, session/login-log platform filters and

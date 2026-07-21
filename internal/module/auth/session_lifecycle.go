@@ -35,10 +35,6 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
-	legacyNonce, nonceErr := makeToken(32)
-	if nonceErr != nil {
-		return nil, apperror.Internal("创建登录会话失败")
-	}
 
 	var (
 		sessionID       int64
@@ -59,7 +55,6 @@ func (a *SessionLifecycle) Issue(ctx context.Context, input IssueCommand) (*Cred
 
 		createdID, insertErr := repository.Insert(ctx, SessionCreate{
 			UserID:           input.UserID,
-			LegacyNonce:      legacyNonce,
 			RefreshTokenHash: refreshHash,
 			Platform:         input.Platform,
 			DeviceID:         input.DeviceID,

@@ -56,7 +56,7 @@ try {
     $env:MYSQL_DSN = New-SchemaDSN -Settings $settings -Database $Database
     Push-Location $backendRoot
     try {
-      $lockArguments = @('run', './cmd/admin-db', 'lock-run', '--schema', $Database, '--name', 'admin:atlas:migrate', '--timeout', '30s', '--') + @($docker) + $dockerArguments
+      $lockArguments = @('run', './cmd/admin-db', 'lock-run', '--schema', $Database, '--name', 'admin:atlas:migrate', '--timeout', '30s', '--expected-fingerprint', $ExpectedFingerprint, '--') + @($docker) + $dockerArguments
       [void](Invoke-BoundedCommand -Executable 'go' -Arguments $lockArguments -Operation 'initialize Atlas baseline under lock' -TimeoutSeconds $CommandTimeoutSeconds)
     } finally {
       Pop-Location

@@ -269,15 +269,23 @@ func NewFingerprintDocument(gitCommit string, fingerprint Fingerprint) (Fingerpr
 	if gitCommit == "" {
 		return FingerprintDocument{}, fmt.Errorf("git commit is required")
 	}
-	canonical, err := CanonicalJSON(fingerprint)
+	schemaSHA256, err := SchemaSHA256(fingerprint)
 	if err != nil {
-		return FingerprintDocument{}, fmt.Errorf("encode canonical fingerprint: %w", err)
+		return FingerprintDocument{}, err
 	}
 	return FingerprintDocument{
 		GitCommit:    gitCommit,
-		SchemaSHA256: fmt.Sprintf("%x", sha256.Sum256(canonical)),
+		SchemaSHA256: schemaSHA256,
 		Fingerprint:  normalizeFingerprint(fingerprint),
 	}, nil
+}
+
+func SchemaSHA256(fingerprint Fingerprint) (string, error) {
+	canonical, err := CanonicalJSON(fingerprint)
+	if err != nil {
+		return "", fmt.Errorf("encode canonical fingerprint: %w", err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(canonical)), nil
 }
 
 func WriteFingerprintDocument(outputPath string, document FingerprintDocument) error {
@@ -328,6 +336,22 @@ func Capture(ctx context.Context, db *sql.DB, schema string) (Fingerprint, error
 	if db == nil {
 		return Fingerprint{}, fmt.Errorf("database connection is required")
 	}
+	return capture(ctx, db, schema)
+}
+
+func CaptureConnection(ctx context.Context, connection *sql.Conn, schema string) (Fingerprint, error) {
+	if connection == nil {
+		return Fingerprint{}, fmt.Errorf("database connection is required")
+	}
+	return capture(ctx, connection, schema)
+}
+
+type schemaQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func capture(ctx context.Context, db schemaQueryer, schema string) (Fingerprint, error) {
 	schema = strings.TrimSpace(schema)
 	if schema == "" {
 		return Fingerprint{}, fmt.Errorf("schema is required")
@@ -369,7 +393,7 @@ func Capture(ctx context.Context, db *sql.DB, schema string) (Fingerprint, error
 	return normalizeFingerprint(result), nil
 }
 
-func captureTables(ctx context.Context, db *sql.DB, schema string, result *Fingerprint) (map[string]int, error) {
+func captureTables(ctx context.Context, db schemaQueryer, schema string, result *Fingerprint) (map[string]int, error) {
 	rows, err := db.QueryContext(ctx, tablesQuery, schema)
 	if err != nil {
 		return nil, fmt.Errorf("capture tables: %w", err)
@@ -391,7 +415,7 @@ func captureTables(ctx context.Context, db *sql.DB, schema string, result *Finge
 	return tableByName, nil
 }
 
-func captureColumns(ctx context.Context, db *sql.DB, schema string, tableByName map[string]int, result *Fingerprint) error {
+func captureColumns(ctx context.Context, db schemaQueryer, schema string, tableByName map[string]int, result *Fingerprint) error {
 	rows, err := db.QueryContext(ctx, columnsQuery, schema)
 	if err != nil {
 		return fmt.Errorf("capture columns: %w", err)
@@ -424,7 +448,7 @@ func captureColumns(ctx context.Context, db *sql.DB, schema string, tableByName 
 	return nil
 }
 
-func captureIndexes(ctx context.Context, db *sql.DB, schema string, tableByName map[string]int, result *Fingerprint) error {
+func captureIndexes(ctx context.Context, db schemaQueryer, schema string, tableByName map[string]int, result *Fingerprint) error {
 	rows, err := db.QueryContext(ctx, indexesQuery, schema)
 	if err != nil {
 		return fmt.Errorf("capture indexes: %w", err)
@@ -474,7 +498,7 @@ func captureIndexes(ctx context.Context, db *sql.DB, schema string, tableByName 
 	return nil
 }
 
-func captureForeignKeys(ctx context.Context, db *sql.DB, schema string) ([]ForeignKey, error) {
+func captureForeignKeys(ctx context.Context, db schemaQueryer, schema string) ([]ForeignKey, error) {
 	rows, err := db.QueryContext(ctx, foreignKeysQuery, schema)
 	if err != nil {
 		return nil, fmt.Errorf("capture foreign keys: %w", err)
@@ -495,7 +519,7 @@ func captureForeignKeys(ctx context.Context, db *sql.DB, schema string) ([]Forei
 	return result, nil
 }
 
-func captureChecks(ctx context.Context, db *sql.DB, schema string) ([]Check, error) {
+func captureChecks(ctx context.Context, db schemaQueryer, schema string) ([]Check, error) {
 	rows, err := db.QueryContext(ctx, checksQuery, schema)
 	if err != nil {
 		return nil, fmt.Errorf("capture checks: %w", err)
@@ -518,7 +542,7 @@ func captureChecks(ctx context.Context, db *sql.DB, schema string) ([]Check, err
 	return result, nil
 }
 
-func captureTriggers(ctx context.Context, db *sql.DB, schema string) ([]Trigger, error) {
+func captureTriggers(ctx context.Context, db schemaQueryer, schema string) ([]Trigger, error) {
 	rows, err := db.QueryContext(ctx, triggersQuery, schema)
 	if err != nil {
 		return nil, fmt.Errorf("capture triggers: %w", err)
@@ -545,7 +569,7 @@ func captureTriggers(ctx context.Context, db *sql.DB, schema string) ([]Trigger,
 	return result, nil
 }
 
-func captureRoutines(ctx context.Context, db *sql.DB, schema string) ([]Routine, error) {
+func captureRoutines(ctx context.Context, db schemaQueryer, schema string) ([]Routine, error) {
 	rows, err := db.QueryContext(ctx, routinesQuery, schema)
 	if err != nil {
 		return nil, fmt.Errorf("capture routines: %w", err)
@@ -578,7 +602,7 @@ func captureRoutines(ctx context.Context, db *sql.DB, schema string) ([]Routine,
 	return result, nil
 }
 
-func captureRoutineParameters(ctx context.Context, db *sql.DB, schema string, routines []Routine) error {
+func captureRoutineParameters(ctx context.Context, db schemaQueryer, schema string, routines []Routine) error {
 	routinePositions := make(map[string]int, len(routines))
 	for index := range routines {
 		routinePositions[routines[index].Type+"\x00"+routines[index].Name] = index
@@ -617,7 +641,7 @@ func captureRoutineParameters(ctx context.Context, db *sql.DB, schema string, ro
 	return nil
 }
 
-func captureEvents(ctx context.Context, db *sql.DB, schema string) ([]Event, error) {
+func captureEvents(ctx context.Context, db schemaQueryer, schema string) ([]Event, error) {
 	rows, err := db.QueryContext(ctx, eventsQuery, schema)
 	if err != nil {
 		return nil, fmt.Errorf("capture events: %w", err)

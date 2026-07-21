@@ -15,11 +15,8 @@ var ErrSessionRepositoryNotConfigured = errors.New("session repository is not co
 
 // Session persistence model and cache serialization.
 type Session struct {
-	ID     int64 `gorm:"column:id"`
-	UserID int64 `gorm:"column:user_id"`
-	// LegacyNonce satisfies the pre-P09 unique physical column without deriving
-	// or retaining any value from the signed access credential.
-	LegacyNonce      string     `gorm:"column:access_token_hash"`
+	ID               int64      `gorm:"column:id"`
+	UserID           int64      `gorm:"column:user_id"`
 	RefreshTokenHash string     `gorm:"column:refresh_token_hash"`
 	Platform         string     `gorm:"column:platform"`
 	DeviceID         string     `gorm:"column:device_id"`
@@ -53,7 +50,6 @@ type SessionRepository interface {
 
 type SessionCreate struct {
 	UserID           int64
-	LegacyNonce      string
 	RefreshTokenHash string
 	Platform         string
 	DeviceID         string
@@ -103,7 +99,6 @@ func (r *SessionGormRepository) Insert(ctx context.Context, input SessionCreate)
 
 	row := Session{
 		UserID:           input.UserID,
-		LegacyNonce:      input.LegacyNonce,
 		RefreshTokenHash: input.RefreshTokenHash,
 		Platform:         input.Platform,
 		DeviceID:         input.DeviceID,

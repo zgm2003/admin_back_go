@@ -345,16 +345,34 @@ func TestRunLockRunHoldsNamedLockWhileExecutingCommand(t *testing.T) {
 	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
 	locked := false
 	executed := false
+	lockedFingerprint := databaseevolution.Fingerprint{}
+	expectedFingerprint, err := databaseevolution.SchemaSHA256(lockedFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lockedConnection *sql.Conn
 	dependencies := commandDependencies{
 		getenv:       func(string) string { return dsn },
 		openDatabase: func(string) (*sql.DB, error) { return database, nil },
-		withAdvisoryLock: func(_ context.Context, got *sql.DB, name string, timeout time.Duration, callback func() error) error {
+		withAdvisoryLock: func(ctx context.Context, got *sql.DB, name string, timeout time.Duration, callback func(*sql.Conn) error) error {
 			if got != database || name != "admin:atlas:migrate" || timeout != 30*time.Second {
 				t.Fatalf("unexpected lock request database=%p name=%q timeout=%s", got, name, timeout)
 			}
+			connection, connectionErr := got.Conn(ctx)
+			if connectionErr != nil {
+				return connectionErr
+			}
+			defer connection.Close()
+			lockedConnection = connection
 			locked = true
 			defer func() { locked = false }()
-			return callback()
+			return callback(connection)
+		},
+		captureConnection: func(_ context.Context, connection *sql.Conn, schema string) (databaseevolution.Fingerprint, error) {
+			if !locked || connection == nil || connection != lockedConnection || schema != "admin" {
+				t.Fatalf("fingerprint was not captured on the lock-owning connection")
+			}
+			return lockedFingerprint, nil
 		},
 		runExternal: func(_ context.Context, command []string) error {
 			if !locked || !reflect.DeepEqual(command, []string{"docker", "run", "atlas"}) {
@@ -365,7 +383,7 @@ func TestRunLockRunHoldsNamedLockWhileExecutingCommand(t *testing.T) {
 		},
 		stdout: io.Discard,
 	}
-	if err := run(context.Background(), []string{"lock-run", "--schema", "admin", "--name", "admin:atlas:migrate", "--timeout", "30s", "--", "docker", "run", "atlas"}, dependencies); err != nil {
+	if err := run(context.Background(), []string{"lock-run", "--schema", "admin", "--name", "admin:atlas:migrate", "--timeout", "30s", "--expected-fingerprint", expectedFingerprint, "--", "docker", "run", "atlas"}, dependencies); err != nil {
 		t.Fatalf("lock-run returned error: %v", err)
 	}
 	if !executed || locked {
@@ -373,5 +391,26 @@ func TestRunLockRunHoldsNamedLockWhileExecutingCommand(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParseLockRunRequiresExpectedFingerprint(t *testing.T) {
+	validFingerprint := strings.Repeat("a", 64)
+	if _, err := parseLockRunOptions([]string{
+		"--schema", "admin",
+		"--name", "admin:atlas:migrate",
+		"--timeout", "30s",
+		"--expected-fingerprint", validFingerprint,
+		"--", "docker", "run", "atlas",
+	}); err != nil {
+		t.Fatalf("valid expected fingerprint was rejected: %v", err)
+	}
+	if _, err := parseLockRunOptions([]string{
+		"--schema", "admin",
+		"--name", "admin:atlas:migrate",
+		"--timeout", "30s",
+		"--", "docker", "run", "atlas",
+	}); err == nil {
+		t.Fatal("lock-run accepted a command without an expected source fingerprint")
 	}
 }

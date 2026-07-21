@@ -80,6 +80,20 @@ those rows again.
 - Provider, agent, model, prompt, generic asset, upload, and COS configuration
   survive unless a separate explicit rule names the row.
 
+### Prompt catalog reset
+
+The user explicitly classified the existing Canvas-era prompt catalog as old
+product data. The locked source contains exactly 1,356 prompt rows, all active,
+five `ai_prompt_*` permissions, and ten role grants for those permissions.
+There are no foreign keys referencing `ai_prompts`.
+
+The approved row contract deletes the ten role grants, then the five
+permissions, then all 1,356 prompt rows. Task 7 removes the Admin prompt routes,
+menu, API client, and page from the published contract and frontend. The
+contract must preserve the empty ai_prompts table and the transport-neutral
+Prompt model/repository/service so a future formally contracted platform can
+load new data. It must not replace the deleted catalog with mock/default rows.
+
 ### Scene rename
 
 The only approved scene mappings are:

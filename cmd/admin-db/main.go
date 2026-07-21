@@ -28,7 +28,8 @@ type commandDependencies struct {
 	verifyCOSReferences func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error)
 	writeCOSManifest    func(string, []databaseevolution.COSReferenceResult) error
 	queryManifestFiles  func(string) ([]string, error)
-	withAdvisoryLock    func(context.Context, *sql.DB, string, time.Duration, func() error) error
+	withAdvisoryLock    func(context.Context, *sql.DB, string, time.Duration, func(*sql.Conn) error) error
+	captureConnection   func(context.Context, *sql.Conn, string) (databaseevolution.Fingerprint, error)
 	runExternal         func(context.Context, []string) error
 	stdout              io.Writer
 }
@@ -54,10 +55,11 @@ type queryManifestOptions struct {
 }
 
 type lockRunOptions struct {
-	schema  string
-	name    string
-	timeout time.Duration
-	command []string
+	schema              string
+	name                string
+	timeout             time.Duration
+	expectedFingerprint string
+	command             []string
 }
 
 type commandError struct {
@@ -114,7 +116,8 @@ func main() {
 		verifyCOSReferences: databaseevolution.VerifyStoredCOSReferences,
 		writeCOSManifest:    databaseevolution.WriteCOSReferenceManifest,
 		queryManifestFiles:  loadQueryManifestFiles,
-		withAdvisoryLock:    databaseevolution.WithAdvisoryLock,
+		withAdvisoryLock:    databaseevolution.WithAdvisoryLockConnection,
+		captureConnection:   databaseevolution.CaptureConnection,
 		runExternal:         runExternalCommand,
 		stdout:              os.Stdout,
 	}
@@ -177,11 +180,13 @@ func parseLockRunOptions(args []string) (lockRunOptions, error) {
 	schemaFlag := &singleStringFlag{name: "schema", value: &options.schema}
 	nameFlag := &singleStringFlag{name: "name", value: &options.name}
 	timeoutFlag := &singleStringFlag{name: "timeout", value: &timeoutValue}
+	fingerprintFlag := &singleStringFlag{name: "expected-fingerprint", value: &options.expectedFingerprint}
 	flags.Var(schemaFlag, "schema", "schema used for the lock connection")
 	flags.Var(nameFlag, "name", "MySQL advisory lock name")
 	flags.Var(timeoutFlag, "timeout", "lock acquisition timeout")
+	flags.Var(fingerprintFlag, "expected-fingerprint", "expected source schema SHA-256")
 	if err := flags.Parse(args); err != nil {
-		for _, value := range []*singleStringFlag{schemaFlag, nameFlag, timeoutFlag} {
+		for _, value := range []*singleStringFlag{schemaFlag, nameFlag, timeoutFlag, fingerprintFlag} {
 			if value.duplicate {
 				return lockRunOptions{}, fmt.Errorf("--%s may be provided only once", value.name)
 			}
@@ -190,6 +195,7 @@ func parseLockRunOptions(args []string) (lockRunOptions, error) {
 	}
 	options.schema = strings.TrimSpace(options.schema)
 	options.name = strings.TrimSpace(options.name)
+	options.expectedFingerprint = strings.TrimSpace(options.expectedFingerprint)
 	if options.schema == "" {
 		return lockRunOptions{}, fmt.Errorf("--schema is required")
 	}
@@ -204,6 +210,12 @@ func parseLockRunOptions(args []string) (lockRunOptions, error) {
 		return lockRunOptions{}, fmt.Errorf("--timeout must be between 1s and 5m")
 	}
 	options.timeout = timeout
+	if len(options.expectedFingerprint) != 64 || strings.ToLower(options.expectedFingerprint) != options.expectedFingerprint {
+		return lockRunOptions{}, fmt.Errorf("--expected-fingerprint must be a lowercase SHA-256")
+	}
+	if _, err := hex.DecodeString(options.expectedFingerprint); err != nil {
+		return lockRunOptions{}, fmt.Errorf("--expected-fingerprint must be a lowercase SHA-256")
+	}
 	options.command = append([]string(nil), flags.Args()...)
 	if len(options.command) == 0 || strings.TrimSpace(options.command[0]) == "" {
 		return lockRunOptions{}, fmt.Errorf("external command is required after --")
@@ -467,7 +479,7 @@ func runQueryManifestFiles(options queryManifestOptions, dependencies commandDep
 }
 
 func runLockRun(ctx context.Context, options lockRunOptions, dependencies commandDependencies) error {
-	if dependencies.getenv == nil || dependencies.openDatabase == nil || dependencies.withAdvisoryLock == nil || dependencies.runExternal == nil {
+	if dependencies.getenv == nil || dependencies.openDatabase == nil || dependencies.withAdvisoryLock == nil || dependencies.captureConnection == nil || dependencies.runExternal == nil {
 		return fmt.Errorf("lock-run command dependencies are incomplete")
 	}
 	dsn := dependencies.getenv("MYSQL_DSN")
@@ -479,7 +491,18 @@ func runLockRun(ctx context.Context, options lockRunOptions, dependencies comman
 		return safeCommandError("open MySQL connection", err)
 	}
 	defer database.Close()
-	if err := dependencies.withAdvisoryLock(ctx, database, options.name, options.timeout, func() error {
+	if err := dependencies.withAdvisoryLock(ctx, database, options.name, options.timeout, func(connection *sql.Conn) error {
+		fingerprint, err := dependencies.captureConnection(ctx, connection, options.schema)
+		if err != nil {
+			return fmt.Errorf("capture locked schema fingerprint: %w", err)
+		}
+		actualFingerprint, err := databaseevolution.SchemaSHA256(fingerprint)
+		if err != nil {
+			return err
+		}
+		if actualFingerprint != options.expectedFingerprint {
+			return errors.New("source schema fingerprint does not match expected value")
+		}
 		return dependencies.runExternal(ctx, options.command)
 	}); err != nil {
 		return safeCommandError("run command under database lock", err)

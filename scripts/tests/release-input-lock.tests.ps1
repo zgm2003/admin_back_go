@@ -107,6 +107,10 @@ foreach ($needle in @(
   'client_version_surface_violations',
   'client_versions_count_mismatch',
   'client_versions_hash_mismatch',
+  'ai_prompts_count_mismatch',
+  'ai_prompt_permission_count_mismatch',
+  'ai_prompt_role_grant_count_mismatch',
+  'ai_prompt_foreign_key_reference_violations',
   'wallet_balance_violations',
   'orphan_relationship_violations'
 )) {
@@ -120,6 +124,10 @@ foreach ($needle in @(
   'notification_task',
   'export_tasks',
   'client_versions',
+  '1,356 prompt rows',
+  'five `ai_prompt_*` permissions',
+  'ten role grants',
+  'preserve the empty ai_prompts table',
   'canvas_text_generate',
   'text_generate',
   'No COS delete operation',
