@@ -39,7 +39,6 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/module/payment"
-	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
 	realtimemodule "admin_back_go/internal/module/realtime"
@@ -258,49 +257,6 @@ type fakeRouterAIChatService struct {
 func (f *fakeRouterAIChatService) CompleteText(ctx context.Context, input aichat.TextCompletionInput) (*aichat.TextCompletionResponse, *apperror.Error) {
 	f.input = input
 	return &aichat.TextCompletionResponse{ID: "chat-1", Object: "chat.completion", Content: "ok"}, nil
-}
-
-type fakeAppRouterAuthService struct {
-	loginFn       func(context.Context, auth.LoginInput) (*auth.LoginResponse, *apperror.Error)
-	loginConfigFn func(context.Context, string) (*auth.LoginConfigResponse, *apperror.Error)
-	sendCodeFn    func(context.Context, auth.SendCodeInput) (string, *apperror.Error)
-	logoutFn      func(context.Context, string) *apperror.Error
-}
-
-func (f *fakeAppRouterAuthService) Login(ctx context.Context, input auth.LoginInput) (*auth.LoginResponse, *apperror.Error) {
-	if f.loginFn != nil {
-		return f.loginFn(ctx, input)
-	}
-	return &auth.LoginResponse{AccessToken: "app-token"}, nil
-}
-
-func (f *fakeAppRouterAuthService) SendCode(ctx context.Context, input auth.SendCodeInput) (string, *apperror.Error) {
-	if f.sendCodeFn != nil {
-		return f.sendCodeFn(ctx, input)
-	}
-	return "", nil
-}
-
-func (f *fakeAppRouterAuthService) ForgetPassword(ctx context.Context, input auth.ForgetPasswordInput) *apperror.Error {
-	return nil
-}
-
-func (f *fakeAppRouterAuthService) LoginConfig(ctx context.Context, platform string) (*auth.LoginConfigResponse, *apperror.Error) {
-	if f.loginConfigFn != nil {
-		return f.loginConfigFn(ctx, platform)
-	}
-	return &auth.LoginConfigResponse{}, nil
-}
-
-func (f *fakeAppRouterAuthService) Refresh(ctx context.Context, input auth.RefreshInput) (*auth.TokenResult, *apperror.Error) {
-	return &auth.TokenResult{}, nil
-}
-
-func (f *fakeAppRouterAuthService) Logout(ctx context.Context, accessToken string) *apperror.Error {
-	if f.logoutFn != nil {
-		return f.logoutFn(ctx, accessToken)
-	}
-	return nil
 }
 
 type fakeAuthService struct{}
@@ -1397,32 +1353,6 @@ func (f *fakeRouterUploadTokenService) Create(ctx context.Context, input uploadt
 			},
 		},
 	}, nil
-}
-
-type fakeRouterWalletService struct {
-	summaryUserID int64
-	query         walletmodule.TransactionListQuery
-}
-
-func (f *fakeRouterWalletService) Summary(ctx context.Context, userID int64) (*walletmodule.SummaryResponse, *apperror.Error) {
-	f.summaryUserID = userID
-	return &walletmodule.SummaryResponse{BalanceCents: 1200, BalanceText: "12.00"}, nil
-}
-func (f *fakeRouterWalletService) Transactions(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error) {
-	f.query = query
-	return &walletmodule.TransactionListResponse{List: []walletmodule.TransactionItem{{ID: 1, UserID: query.UserID, TransactionNo: "WLT1", AmountCents: 100}}, Page: walletmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
-}
-func (f *fakeRouterWalletService) WalletUsersPageInit(ctx context.Context) (*walletmodule.WalletUsersPageInitResponse, *apperror.Error) {
-	return &walletmodule.WalletUsersPageInitResponse{}, nil
-}
-func (f *fakeRouterWalletService) WalletUsers(ctx context.Context, query walletmodule.WalletUserListQuery) (*walletmodule.WalletUserListResponse, *apperror.Error) {
-	return &walletmodule.WalletUserListResponse{}, nil
-}
-func (f *fakeRouterWalletService) LedgerPageInit(ctx context.Context) (*walletmodule.LedgerPageInitResponse, *apperror.Error) {
-	return &walletmodule.LedgerPageInitResponse{}, nil
-}
-func (f *fakeRouterWalletService) Ledger(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error) {
-	return &walletmodule.TransactionListResponse{}, nil
 }
 
 type fakeRouterQueueMonitorService struct {
@@ -3461,33 +3391,6 @@ func mustRouterData(t *testing.T, body map[string]any) map[string]any {
 		t.Fatalf("expected data object, got %#v", body["data"])
 	}
 	return data
-}
-
-func routerStringSliceEqual(value any, want []string) bool {
-	got, ok := value.([]any)
-	if !ok || len(got) != len(want) {
-		return false
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func routerRouteSliceContains(value any, wantPath string) bool {
-	got, ok := value.([]any)
-	if !ok {
-		return false
-	}
-	for _, raw := range got {
-		item, ok := raw.(map[string]any)
-		if ok && item["path"] == wantPath {
-			return true
-		}
-	}
-	return false
 }
 
 func assertRequestID(t *testing.T, recorder *httptest.ResponseRecorder) {
