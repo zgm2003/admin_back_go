@@ -1,5 +1,5 @@
 {
-  "schema_version": "admin-permissions-2026-07-15.1",
+  "schema_version": "admin-permissions-2026-07-15.2",
   "permission_codes": [
     "ai_agent_add",
     "ai_agent_binding_add",
@@ -17,11 +17,6 @@
     "ai_knowledge_reindex",
     "ai_knowledge_retrieval_test",
     "ai_knowledge_status",
-    "ai_prompt_add",
-    "ai_prompt_del",
-    "ai_prompt_edit",
-    "ai_prompt_page",
-    "ai_prompt_status",
     "ai_provider_add",
     "ai_provider_del",
     "ai_provider_edit",
@@ -620,117 +615,6 @@
         "module": "ai_knowledge_document",
         "action": "change_status",
         "title": "修改AI知识库文档状态"
-      }
-    },
-    {
-      "operation_id": "delete_api_admin_v1_ai_prompts",
-      "method": "DELETE",
-      "path": "/api/admin/v1/ai-prompts",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "delete_batch",
-        "title": "批量删除AI提示词"
-      }
-    },
-    {
-      "operation_id": "get_api_admin_v1_ai_prompts",
-      "method": "GET",
-      "path": "/api/admin/v1/ai-prompts",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "operation_id": "post_api_admin_v1_ai_prompts",
-      "method": "POST",
-      "path": "/api/admin/v1/ai-prompts",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_add"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "create",
-        "title": "新增AI提示词"
-      }
-    },
-    {
-      "operation_id": "delete_api_admin_v1_ai_prompts_id",
-      "method": "DELETE",
-      "path": "/api/admin/v1/ai-prompts/:id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "delete",
-        "title": "删除AI提示词"
-      }
-    },
-    {
-      "operation_id": "get_api_admin_v1_ai_prompts_id",
-      "method": "GET",
-      "path": "/api/admin/v1/ai-prompts/:id",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "operation_id": "put_api_admin_v1_ai_prompts_id",
-      "method": "PUT",
-      "path": "/api/admin/v1/ai-prompts/:id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_edit"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "update",
-        "title": "编辑AI提示词"
-      }
-    },
-    {
-      "operation_id": "patch_api_admin_v1_ai_prompts_id_status",
-      "method": "PATCH",
-      "path": "/api/admin/v1/ai-prompts/:id/status",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_status"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "change_status",
-        "title": "修改AI提示词状态"
-      }
-    },
-    {
-      "operation_id": "get_api_admin_v1_ai_prompts_page_init",
-      "method": "GET",
-      "path": "/api/admin/v1/ai-prompts/page-init",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
       }
     },
     {

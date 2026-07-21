@@ -1,5 +1,5 @@
 {
-  "schema_version": "admin-views-2026-07-15.1",
+  "schema_version": "admin-views-2026-07-15.2",
   "users_me": {
     "method": "GET",
     "path": "/api/admin/v1/users/me",
@@ -79,7 +79,6 @@
                 "ai/agents",
                 "ai/chat",
                 "ai/knowledge",
-                "ai/prompts",
                 "ai/providers",
                 "ai/runs",
                 "ai/tools",
@@ -144,11 +143,6 @@
               "ai_knowledge_reindex",
               "ai_knowledge_retrieval_test",
               "ai_knowledge_status",
-              "ai_prompt_add",
-              "ai_prompt_del",
-              "ai_prompt_edit",
-              "ai_prompt_page",
-              "ai_prompt_status",
               "ai_provider_add",
               "ai_provider_del",
               "ai_provider_edit",
@@ -300,15 +294,6 @@
       "i18n_key": "menu.ai_knowledge",
       "show_menu": 1,
       "permission_codes": []
-    },
-    {
-      "path": "/ai/prompts",
-      "view_key": "ai/prompts",
-      "i18n_key": "menu.ai_prompts",
-      "show_menu": 1,
-      "permission_codes": [
-        "ai_prompt_page"
-      ]
     },
     {
       "path": "/ai/providers",

@@ -617,9 +617,7 @@
           },
           "platform": {
             "enum": [
-              "admin",
-              "app",
-              "canvas"
+              "admin"
             ],
             "type": "string"
           },
@@ -1033,9 +1031,7 @@
           },
           "platform": {
             "enum": [
-              "admin",
-              "app",
-              "canvas"
+              "admin"
             ],
             "type": "string"
           },
@@ -3201,120 +3197,6 @@
           "rank_no",
           "ref",
           "score"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_ai_prompt_Item_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "category": {
-            "type": "string"
-          },
-          "cover_url": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string"
-          },
-          "id": {
-            "type": "integer"
-          },
-          "preview": {
-            "type": "string"
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "source_url": {
-            "type": "string"
-          },
-          "status": {
-            "type": "integer"
-          },
-          "tags_json": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "category",
-          "cover_url",
-          "created_at",
-          "id",
-          "preview",
-          "prompt",
-          "slug",
-          "source_url",
-          "status",
-          "tags_json",
-          "title",
-          "updated_at"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_ai_prompt_ListResponse_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "list": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_module_ai_prompt_Item_Output"
-            },
-            "type": "array"
-          },
-          "page": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_prompt_Page_Output"
-          }
-        },
-        "required": [
-          "list",
-          "page"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_ai_prompt_PageInitResponse_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "common_status_arr": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "common_status_arr"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_ai_prompt_Page_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "current_page": {
-            "type": "integer"
-          },
-          "page_size": {
-            "type": "integer"
-          },
-          "total": {
-            "type": "integer"
-          },
-          "total_page": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "current_page",
-          "page_size",
-          "total",
-          "total_page"
         ],
         "type": "object"
       },
@@ -8721,65 +8603,6 @@
         ],
         "type": "object"
       },
-      "delete_api_admin_v1_ai_prompts_Request": {
-        "additionalProperties": false,
-        "properties": {
-          "ids": {
-            "items": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "minItems": 1,
-            "type": "array"
-          }
-        },
-        "required": [
-          "ids"
-        ],
-        "type": "object"
-      },
-      "delete_api_admin_v1_ai_prompts_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "delete_api_admin_v1_ai_prompts_id_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
       "delete_api_admin_v1_ai_providers_id_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -9854,69 +9677,6 @@
           },
           "data": {
             "$ref": "#/components/schemas/Go_internal_module_ai_knowledge_ChunkListResponse_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "get_api_admin_v1_ai_prompts_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_prompt_ListResponse_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "get_api_admin_v1_ai_prompts_id_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_prompt_Item_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "get_api_admin_v1_ai_prompts_page_init_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_prompt_PageInitResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -11333,43 +11093,6 @@
         ],
         "type": "object"
       },
-      "patch_api_admin_v1_ai_prompts_id_status_Request": {
-        "additionalProperties": false,
-        "properties": {
-          "status": {
-            "enum": [
-              1,
-              2
-            ],
-            "type": "integer"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "patch_api_admin_v1_ai_prompts_id_status_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
       "patch_api_admin_v1_ai_providers_id_status_Request": {
         "additionalProperties": false,
         "properties": {
@@ -12129,78 +11852,6 @@
           },
           "data": {
             "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "post_api_admin_v1_ai_prompts_Request": {
-        "additionalProperties": false,
-        "properties": {
-          "category": {
-            "maxLength": 191,
-            "type": "string"
-          },
-          "cover_url": {
-            "maxLength": 1024,
-            "type": "string"
-          },
-          "preview": {
-            "maxLength": 512,
-            "type": "string"
-          },
-          "prompt": {
-            "maxLength": 20000,
-            "type": "string"
-          },
-          "slug": {
-            "maxLength": 191,
-            "type": "string"
-          },
-          "source_url": {
-            "maxLength": 1024,
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              0,
-              1,
-              2
-            ],
-            "type": "integer"
-          },
-          "tags_json": {
-            "maxLength": 4000,
-            "type": "string"
-          },
-          "title": {
-            "maxLength": 191,
-            "type": "string"
-          }
-        },
-        "required": [
-          "prompt",
-          "slug",
-          "title"
-        ],
-        "type": "object"
-      },
-      "post_api_admin_v1_ai_prompts_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_IDData_Output"
           },
           "msg": {
             "type": "string"
@@ -13029,8 +12680,7 @@
           "platform": {
             "enum": [
               "all",
-              "admin",
-              "app"
+              "admin"
             ],
             "type": "string"
           },
@@ -13370,9 +13020,7 @@
           },
           "platform": {
             "enum": [
-              "admin",
-              "app",
-              "canvas"
+              "admin"
             ],
             "type": "string"
           },
@@ -14152,78 +13800,6 @@
         ],
         "type": "object"
       },
-      "put_api_admin_v1_ai_prompts_id_Request": {
-        "additionalProperties": false,
-        "properties": {
-          "category": {
-            "maxLength": 191,
-            "type": "string"
-          },
-          "cover_url": {
-            "maxLength": 1024,
-            "type": "string"
-          },
-          "preview": {
-            "maxLength": 512,
-            "type": "string"
-          },
-          "prompt": {
-            "maxLength": 20000,
-            "type": "string"
-          },
-          "slug": {
-            "maxLength": 191,
-            "type": "string"
-          },
-          "source_url": {
-            "maxLength": 1024,
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              0,
-              1,
-              2
-            ],
-            "type": "integer"
-          },
-          "tags_json": {
-            "maxLength": 4000,
-            "type": "string"
-          },
-          "title": {
-            "maxLength": 191,
-            "type": "string"
-          }
-        },
-        "required": [
-          "prompt",
-          "slug",
-          "title"
-        ],
-        "type": "object"
-      },
-      "put_api_admin_v1_ai_prompts_id_ResponseEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
       "put_api_admin_v1_ai_providers_id_Request": {
         "additionalProperties": false,
         "properties": {
@@ -14871,9 +14447,7 @@
           },
           "platform": {
             "enum": [
-              "admin",
-              "app",
-              "canvas"
+              "admin"
             ],
             "type": "string"
           },
@@ -15571,7 +15145,7 @@
   "info": {
     "description": "Deterministic active Admin HTTP contract generated from the runtime route-policy registry.",
     "title": "Admin API",
-    "version": "admin-2026-07-15.1"
+    "version": "admin-2026-07-15.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -18037,509 +17611,6 @@
         "x-runtime-path": "/api/admin/v1/ai-knowledge-documents/:id/status"
       }
     },
-    "/api/admin/v1/ai-prompts": {
-      "delete": {
-        "operationId": "delete_api_admin_v1_ai_prompts",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/delete_api_admin_v1_ai_prompts_Request"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/delete_api_admin_v1_ai_prompts_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "DELETE /api/admin/v1/ai-prompts",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_prompt_del"
-        },
-        "x-admin-audit": {
-          "enabled": true,
-          "module": "ai_prompt",
-          "action": "delete_batch",
-          "title": "批量删除AI提示词"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts"
-      },
-      "get": {
-        "operationId": "get_api_admin_v1_ai_prompts",
-        "parameters": [
-          {
-            "description": "",
-            "in": "query",
-            "name": "category",
-            "required": false,
-            "schema": {
-              "maxLength": 191,
-              "type": "string"
-            }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "current_page",
-            "required": false,
-            "schema": {
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "keyword",
-            "required": false,
-            "schema": {
-              "maxLength": 128,
-              "type": "string"
-            }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "maximum": 50,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "enum": [
-                1,
-                2
-              ],
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/get_api_admin_v1_ai_prompts_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-prompts",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "authenticated"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts"
-      },
-      "post": {
-        "operationId": "post_api_admin_v1_ai_prompts",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/post_api_admin_v1_ai_prompts_Request"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/post_api_admin_v1_ai_prompts_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "POST /api/admin/v1/ai-prompts",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_prompt_add"
-        },
-        "x-admin-audit": {
-          "enabled": true,
-          "module": "ai_prompt",
-          "action": "create",
-          "title": "新增AI提示词"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts"
-      }
-    },
-    "/api/admin/v1/ai-prompts/page-init": {
-      "get": {
-        "operationId": "get_api_admin_v1_ai_prompts_page_init",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/get_api_admin_v1_ai_prompts_page_init_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-prompts/page-init",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "authenticated"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts/page-init"
-      }
-    },
-    "/api/admin/v1/ai-prompts/{id}": {
-      "delete": {
-        "operationId": "delete_api_admin_v1_ai_prompts_id",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/delete_api_admin_v1_ai_prompts_id_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "DELETE /api/admin/v1/ai-prompts/:id",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_prompt_del"
-        },
-        "x-admin-audit": {
-          "enabled": true,
-          "module": "ai_prompt",
-          "action": "delete",
-          "title": "删除AI提示词"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts/:id"
-      },
-      "get": {
-        "operationId": "get_api_admin_v1_ai_prompts_id",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/get_api_admin_v1_ai_prompts_id_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-prompts/:id",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "authenticated"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts/:id"
-      },
-      "put": {
-        "operationId": "put_api_admin_v1_ai_prompts_id",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/put_api_admin_v1_ai_prompts_id_Request"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/put_api_admin_v1_ai_prompts_id_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "PUT /api/admin/v1/ai-prompts/:id",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_prompt_edit"
-        },
-        "x-admin-audit": {
-          "enabled": true,
-          "module": "ai_prompt",
-          "action": "update",
-          "title": "编辑AI提示词"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts/:id"
-      }
-    },
-    "/api/admin/v1/ai-prompts/{id}/status": {
-      "patch": {
-        "operationId": "patch_api_admin_v1_ai_prompts_id_status",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/patch_api_admin_v1_ai_prompts_id_status_Request"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/patch_api_admin_v1_ai_prompts_id_status_ResponseEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "PATCH /api/admin/v1/ai-prompts/:id/status",
-        "tags": [
-          "ai-prompts"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_prompt_status"
-        },
-        "x-admin-audit": {
-          "enabled": true,
-          "module": "ai_prompt",
-          "action": "change_status",
-          "title": "修改AI提示词状态"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-prompts/:id/status"
-      }
-    },
     "/api/admin/v1/ai-providers": {
       "get": {
         "operationId": "get_api_admin_v1_ai_providers",
@@ -19360,9 +18431,7 @@
             "required": false,
             "schema": {
               "enum": [
-                "admin",
-                "app",
-                "canvas"
+                "admin"
               ],
               "type": "string"
             }
@@ -19543,9 +18612,7 @@
             "required": false,
             "schema": {
               "enum": [
-                "admin",
-                "app",
-                "canvas"
+                "admin"
               ],
               "type": "string"
             }
@@ -19681,9 +18748,7 @@
             "required": false,
             "schema": {
               "enum": [
-                "admin",
-                "app",
-                "canvas"
+                "admin"
               ],
               "type": "string"
             }
@@ -19819,9 +18884,7 @@
             "required": false,
             "schema": {
               "enum": [
-                "admin",
-                "app",
-                "canvas"
+                "admin"
               ],
               "type": "string"
             }
@@ -19957,9 +19020,7 @@
             "required": false,
             "schema": {
               "enum": [
-                "admin",
-                "app",
-                "canvas"
+                "admin"
               ],
               "type": "string"
             }
@@ -25459,9 +24520,7 @@
             "required": true,
             "schema": {
               "enum": [
-                "admin",
-                "app",
-                "canvas"
+                "admin"
               ],
               "type": "string"
             }

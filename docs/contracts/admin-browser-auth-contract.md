@@ -5,9 +5,9 @@ Status: active formal contract
 Activation marker:
 
 ```text
-bundle_version=admin-2026-07-15.1
-backend_source_commit=5e6915c6d415daf0cc1fb53fe08767aff1ec77b6
-manifest_sha256=d0a7649f4fe22ac5a095a108e7c8969fa1a626dea50fdf82f1fa19dfc0b8b1fa
+bundle_version=admin-2026-07-15.2
+backend_source_commit=565a6062e21564925388a4c695b926653e1bf796
+manifest_sha256=ce118f200614f740b0da52c48b47d36de1178e92cad5c24ad0e86406eab02b43
 ```
 
 The checked-in generated bundle is the machine-readable current truth for this
