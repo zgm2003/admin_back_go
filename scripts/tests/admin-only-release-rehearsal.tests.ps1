@@ -62,6 +62,24 @@ $invalidDatabaseOutput = @(& pwsh -NoProfile -File $verifierPath -Database 'inva
 Assert-True ($LASTEXITCODE -ne 0) 'release verifier returned before validating its database argument'
 Assert-True (($invalidDatabaseOutput -join "`n").Contains('ADMIN_RESTORE_DB or -Database', [StringComparison]::Ordinal)) 'release verifier did not report its database validation failure'
 
+$tokens = $null
+$parseErrors = $null
+$verifierAst = [Management.Automation.Language.Parser]::ParseInput($verifier, [ref]$tokens, [ref]$parseErrors)
+Assert-True ($parseErrors.Count -eq 0) 'release verifier contains PowerShell parse errors'
+$manifestCalls = @($verifierAst.FindAll({
+  param($node)
+  return $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Assert-ReleaseManifest'
+}, $true))
+Assert-True ($manifestCalls.Count -eq 2) 'release verifier must validate the manifest at both artifact gates'
+foreach ($call in $manifestCalls) {
+  $parameterNames = @($call.CommandElements |
+    Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] } |
+    ForEach-Object { $_.ParameterName })
+  foreach ($requiredParameter in @('ManifestPath', 'InputLockPath', 'PlatformKernelProofPath', 'ImageMetadataPath', 'DockerExecutable')) {
+    Assert-True ($parameterNames -ccontains $requiredParameter) "release verifier manifest validation is missing -$requiredParameter"
+  }
+}
+
 $frontendCommit = (& git -C $frontendRoot rev-parse --verify HEAD).Trim().ToLowerInvariant()
 $cleanBoundary = & {
   param([string]$VerifierPath, [string]$Repository, [string]$Commit)

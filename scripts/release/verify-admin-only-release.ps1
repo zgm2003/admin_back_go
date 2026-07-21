@@ -263,6 +263,9 @@ if ($FrontendURL -cnotmatch '^http://127\.0\.0\.1:[0-9]{2,5}$' -or $APIURL -cnot
 }
 
 $manifestPath = Get-RequiredFilePath -Path $Manifest -Label 'release manifest'
+$inputLockPath = Join-Path $script:BackendRoot 'release\admin-only\input-lock.json'
+$platformKernelProofPath = Join-Path $script:ReleaseOutputRoot 'platform-kernel-proof.json'
+$imageMetadataPath = Join-Path $script:ReleaseOutputRoot 'images\metadata.json'
 $release = Get-ReleaseManifestDocument -Path $manifestPath
 $docker = Resolve-ReleaseExecutable -Command $DockerCommand
 $frontendP07Acceptance = Join-Path $script:FrontendRoot 'docs\acceptance\p07-frontend-manual.md'
@@ -301,11 +304,11 @@ try {
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'release-manifest' -Action {
-    $validated = Assert-ReleaseManifest -ManifestPath $manifestPath -DockerExecutable $docker
+    $validated = Assert-ReleaseManifest -ManifestPath $manifestPath -InputLockPath $inputLockPath -PlatformKernelProofPath $platformKernelProofPath -ImageMetadataPath $imageMetadataPath -DockerExecutable $docker
     return [ordered]@{
       manifest_sha256 = Get-ReleaseFileSHA256 -Path $validated.Path
-      input_lock_sha256 = Get-ReleaseFileSHA256 -Path (Join-Path $script:BackendRoot 'release\admin-only\input-lock.json')
-      platform_kernel_sha256 = Get-ReleaseFileSHA256 -Path (Join-Path $script:ReleaseOutputRoot 'platform-kernel-proof.json')
+      input_lock_sha256 = Get-ReleaseFileSHA256 -Path $inputLockPath
+      platform_kernel_sha256 = Get-ReleaseFileSHA256 -Path $platformKernelProofPath
     }
   }))
 
@@ -399,10 +402,9 @@ try {
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'release-artifact-integrity' -Action {
-    $validated = Assert-ReleaseManifest -ManifestPath $manifestPath -DockerExecutable $docker
-    $metadataPath = Join-Path $script:ReleaseOutputRoot 'images\metadata.json'
+    $validated = Assert-ReleaseManifest -ManifestPath $manifestPath -InputLockPath $inputLockPath -PlatformKernelProofPath $platformKernelProofPath -ImageMetadataPath $imageMetadataPath -DockerExecutable $docker
     return [ordered]@{
-      metadata_sha256 = Get-ReleaseFileSHA256 -Path $metadataPath
+      metadata_sha256 = Get-ReleaseFileSHA256 -Path $imageMetadataPath
       backend_archive_sha256 = [string]$validated.Document.backend.archive_sha256
       frontend_archive_sha256 = [string]$validated.Document.frontend.archive_sha256
       backend_image_id = Get-ReleaseImageID -Image ([string]$validated.Document.backend.image)
