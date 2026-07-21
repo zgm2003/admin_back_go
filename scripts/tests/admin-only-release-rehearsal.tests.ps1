@@ -62,6 +62,14 @@ $invalidDatabaseOutput = @(& pwsh -NoProfile -File $verifierPath -Database 'inva
 Assert-True ($LASTEXITCODE -ne 0) 'release verifier returned before validating its database argument'
 Assert-True (($invalidDatabaseOutput -join "`n").Contains('ADMIN_RESTORE_DB or -Database', [StringComparison]::Ordinal)) 'release verifier did not report its database validation failure'
 
+$frontendCommit = (& git -C $frontendRoot rev-parse --verify HEAD).Trim().ToLowerInvariant()
+$cleanBoundary = & {
+  param([string]$VerifierPath, [string]$Repository, [string]$Commit)
+  . $VerifierPath -ImportFunctions
+  Assert-ReleaseRepositoryBoundary -Repository $Repository -ExpectedCommit $Commit -Label 'clean fixture'
+} $verifierPath $frontendRoot $frontendCommit
+Assert-True ([int]$cleanBoundary.dirty_path_count -eq 0) 'release verifier did not accept a clean repository boundary'
+
 foreach ($needle in @(
   '[string]$Manifest',
   '[switch]$ImportFunctions',

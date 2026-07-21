@@ -144,7 +144,7 @@ function Assert-ReleaseRepositoryBoundary {
   $worktreePath = [IO.Path]::GetFullPath(([string]($worktreeLines | Where-Object { $_ -like 'worktree *' } | Select-Object -First 1)).Substring(9))
   if (-not $worktreePath.Equals($Repository, [StringComparison]::OrdinalIgnoreCase)) { throw "$Label primary checkout changed" }
 
-  $status = Invoke-ReleaseGit -Repository $Repository -Arguments @('status', '--porcelain=v1', '--untracked-files=all') -Label "$Label status check"
+  $status = @(Invoke-ReleaseGit -Repository $Repository -Arguments @('status', '--porcelain=v1', '--untracked-files=all') -Label "$Label status check")
   if ($status.Count -ne 0) { throw "$Label repository is not clean" }
   if (Test-Path -LiteralPath (Join-Path $Repository '.github')) { throw "$Label contains a forbidden .github directory" }
   return [ordered]@{ commit = $commit; worktree_count = $worktreeCount; dirty_path_count = 0; github_path_count = 0 }
