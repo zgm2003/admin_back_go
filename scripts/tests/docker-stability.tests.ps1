@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Network = 'admin-platform',
+  [string]$Network = '',
   [int]$LateStateProbeSeconds = 5
 )
 
@@ -42,12 +42,31 @@ function Invoke-Docker {
 
 function Invoke-AppCompose {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
-  return Invoke-Docker -Arguments (@('compose', '-f', $appCompose) + $Arguments)
+  return Invoke-Docker -Arguments (@(
+    'compose', '--project-name', $script:AppProject,
+    '-f', $appCompose,
+    '-f', $script:AppOverride
+  ) + $Arguments)
 }
 
 function Invoke-StateCompose {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
   return Invoke-Docker -Arguments (@('compose', '-f', $stateCompose) + $Arguments)
+}
+
+function Invoke-DockerCleanup {
+  param([Parameter(Mandatory = $true)][string[]]$Arguments)
+
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'SilentlyContinue'
+    & $script:DockerExecutable @Arguments *> $null
+  }
+  catch {
+  }
+  finally {
+    $ErrorActionPreference = $previousPreference
+  }
 }
 
 function Resolve-GitRevision {
@@ -258,14 +277,51 @@ if (($env:Path -split [IO.Path]::PathSeparator) -notcontains $dockerDirectory) {
 
 $backendRevision = Resolve-GitRevision -Repository $repoRoot
 $frontendRevision = Resolve-GitRevision -Repository $frontendRoot
+$script:AppProject = 'admin-stability-' + $PID
+if ([string]::IsNullOrWhiteSpace($Network)) {
+  $Network = $script:AppProject + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+}
+if ($Network -cnotmatch '^[a-z0-9][a-z0-9_.-]{0,62}$') {
+  throw 'stability network name is invalid'
+}
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ($script:AppProject + '-' + [guid]::NewGuid().ToString('N'))
+$script:AppOverride = Join-Path $temporaryRoot 'docker-compose.override.yml'
 $reservationName = 'admin-api-address-reservation-' + $PID
 $reservationExists = $false
+$networkExists = $false
+$stateMySQL = ''
+$stateRedis = ''
 $lateAPI = ''
 $lateWorker = ''
 
 try {
+  [IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
+  $overrideLines = @(
+    'services:',
+    '  frontend:',
+    '    ports: !override []',
+    '  admin-api:',
+    '    ports: !override []',
+    'networks:',
+    '  platform:',
+    "    name: $Network"
+  )
+  [IO.File]::WriteAllLines($script:AppOverride, $overrideLines, [Text.UTF8Encoding]::new($false))
+
   Assert-ImageRevision -Image 'admin-go-backend:local' -Expected $backendRevision
   Assert-ImageRevision -Image 'admin-frontend:local' -Expected $frontendRevision
+
+  Invoke-StateCompose -Arguments @('up', '-d', '--wait', '--wait-timeout', '180') | Out-Null
+  $stateMySQL = Get-ComposeContainerID -Project state -Service mysql
+  $stateRedis = Get-ComposeContainerID -Project state -Service redis
+  Wait-ForHealthy -Container $stateMySQL
+  Wait-ForHealthy -Container $stateRedis
+
+  Invoke-Docker -Arguments @('network', 'create', $Network) | Out-Null
+  $networkExists = $true
+  Invoke-Docker -Arguments @('network', 'connect', '--alias', 'mysql', $Network, $stateMySQL) | Out-Null
+  Invoke-Docker -Arguments @('network', 'connect', '--alias', 'redis', $Network, $stateRedis) | Out-Null
+  Invoke-AppCompose -Arguments @('up', '-d', '--no-build', '--wait', '--wait-timeout', '300') | Out-Null
 
   $frontend = Get-ComposeContainerID -Project app -Service frontend
   $originalAPI = Get-ComposeContainerID -Project app -Service admin-api
@@ -300,7 +356,8 @@ try {
   Invoke-Docker -Arguments @('rm', '--force', $reservationName) | Out-Null
   $reservationExists = $false
 
-  Invoke-StateCompose -Arguments @('stop') | Out-Null
+  Invoke-Docker -Arguments @('network', 'disconnect', $Network, $stateMySQL) | Out-Null
+  Invoke-Docker -Arguments @('network', 'disconnect', $Network, $stateRedis) | Out-Null
   Invoke-AppCompose -Arguments @('up', '-d', '--no-deps', '--no-build', '--force-recreate', 'admin-api', 'admin-worker') | Out-Null
   $lateAPI = Get-ComposeContainerID -Project app -Service admin-api
   $lateWorker = Get-ComposeContainerID -Project app -Service admin-worker
@@ -314,7 +371,8 @@ try {
   Assert-NoRestarts -Container $lateAPI
   Assert-NoRestarts -Container $lateWorker
 
-  Invoke-StateCompose -Arguments @('up', '-d', '--wait', '--wait-timeout', '180') | Out-Null
+  Invoke-Docker -Arguments @('network', 'connect', '--alias', 'mysql', $Network, $stateMySQL) | Out-Null
+  Invoke-Docker -Arguments @('network', 'connect', '--alias', 'redis', $Network, $stateRedis) | Out-Null
   Wait-ForHealthy -Container $lateAPI
   Wait-ForHealthy -Container $lateWorker
   Wait-ForWorkerStartCount -Container $lateWorker -Minimum 1
@@ -336,36 +394,50 @@ try {
   Stop-And-AssertGraceful -Container $lateAPI
   Invoke-AppCompose -Arguments @('up', '-d', '--no-deps', '--no-build', 'admin-api') | Out-Null
   Wait-ForHealthy -Container $lateAPI
+
+  $finalFrontend = Get-ComposeContainerID -Project app -Service frontend
+  $finalAPI = Get-ComposeContainerID -Project app -Service admin-api
+  $finalWorker = Get-ComposeContainerID -Project app -Service admin-worker
+  foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $stateMySQL, $stateRedis)) {
+    if (-not (Test-ContainerRunning -Container $container)) {
+      throw "$container is not running after final restoration"
+    }
+  }
+  foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $stateMySQL, $stateRedis)) {
+    Wait-ForHealthy -Container $container
+  }
+  Assert-NoRestarts -Container $finalAPI
+  Assert-NoRestarts -Container $finalWorker
+  Wait-ForCondition -TimeoutSeconds 20 -FailureMessage 'frontend proxy is unavailable after final restoration' -Probe {
+    Test-FrontendProxy -FrontendContainer $finalFrontend
+  }
+
+  Write-Output "backend_revision=$backendRevision"
+  Write-Output "frontend_revision=$frontendRevision"
+  Write-Output "api_restart_count=$(Get-RestartCount -Container $finalAPI)"
+  Write-Output "worker_restart_count=$(Get-RestartCount -Container $finalWorker)"
+  Write-Output 'docker stability assertions passed'
 }
 finally {
   if ($reservationExists) {
-    & $script:DockerExecutable rm --force $reservationName *> $null
+    Invoke-DockerCleanup -Arguments @('rm', '--force', $reservationName)
   }
-  Invoke-StateCompose -Arguments @('up', '-d', '--wait', '--wait-timeout', '180') | Out-Null
-  Invoke-AppCompose -Arguments @('up', '-d', '--no-build', '--wait', '--wait-timeout', '300') | Out-Null
-}
-
-$finalFrontend = Get-ComposeContainerID -Project app -Service frontend
-$finalAPI = Get-ComposeContainerID -Project app -Service admin-api
-$finalWorker = Get-ComposeContainerID -Project app -Service admin-worker
-$finalMySQL = Get-ComposeContainerID -Project state -Service mysql
-$finalRedis = Get-ComposeContainerID -Project state -Service redis
-foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $finalMySQL, $finalRedis)) {
-  if (-not (Test-ContainerRunning -Container $container)) {
-    throw "$container is not running after final restoration"
+  if (Test-Path -LiteralPath $script:AppOverride -PathType Leaf) {
+    Invoke-DockerCleanup -Arguments @(
+      'compose', '--project-name', $script:AppProject,
+      '-f', $appCompose,
+      '-f', $script:AppOverride,
+      'down', '--remove-orphans'
+    )
   }
+  if (-not [string]::IsNullOrWhiteSpace($stateMySQL)) {
+    Invoke-DockerCleanup -Arguments @('network', 'disconnect', $Network, $stateMySQL)
+  }
+  if (-not [string]::IsNullOrWhiteSpace($stateRedis)) {
+    Invoke-DockerCleanup -Arguments @('network', 'disconnect', $Network, $stateRedis)
+  }
+  if ($networkExists) {
+    Invoke-DockerCleanup -Arguments @('network', 'rm', $Network)
+  }
+  Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $finalMySQL, $finalRedis)) {
-  Wait-ForHealthy -Container $container
-}
-Assert-NoRestarts -Container $finalAPI
-Assert-NoRestarts -Container $finalWorker
-Wait-ForCondition -TimeoutSeconds 20 -FailureMessage 'frontend proxy is unavailable after final restoration' -Probe {
-  Test-FrontendProxy -FrontendContainer $finalFrontend
-}
-
-Write-Output "backend_revision=$backendRevision"
-Write-Output "frontend_revision=$frontendRevision"
-Write-Output "api_restart_count=$(Get-RestartCount -Container $finalAPI)"
-Write-Output "worker_restart_count=$(Get-RestartCount -Container $finalWorker)"
-Write-Output 'docker stability assertions passed'

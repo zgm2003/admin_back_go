@@ -167,6 +167,12 @@ foreach ($required in @(
   "'--ip', `$oldAPIAddress",
   "'--no-deps', '--no-build', 'admin-api'",
   "'--force-recreate', 'admin-api', 'admin-worker'",
+  "'admin-stability-' + `$PID",
+  "'--project-name', `$script:AppProject",
+  'ports: !override []',
+  "'network', 'connect', '--alias', 'mysql'",
+  "'network', 'connect', '--alias', 'redis'",
+  "'network', 'disconnect'",
   "'stop', '--signal', 'SIGTERM'",
   'RestartCount',
   'org.opencontainers.image.revision',
@@ -178,6 +184,12 @@ foreach ($required in @(
 }
 if ($stabilityContent -match '(?i)down\s+-v|--volumes|volume\s+rm') {
   throw 'Docker stability regression must not delete volumes'
+}
+if ($stabilityContent.Contains("Invoke-StateCompose -Arguments @('stop')")) {
+  throw 'Docker stability regression must not stop shared state services'
+}
+if ([regex]::Matches($stabilityContent, [regex]::Escape('ports: !override []')).Count -ne 2) {
+  throw 'Docker stability regression must suppress both application host ports'
 }
 
 $buildNeedle = "Invoke-Docker @('compose', '-f', `$appCompose, 'build', 'admin-api', 'frontend')"
