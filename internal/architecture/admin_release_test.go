@@ -55,6 +55,20 @@ func TestAdminReleaseManifestSchema(t *testing.T) {
 	}
 }
 
+func TestReleaseManifestGeneratorAvoidsImportedManifestParameter(t *testing.T) {
+	root := backendRoot(t)
+	path := filepath.Join(root, "scripts", "release", "new-release-manifest.ps1")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read release manifest generator: %v", err)
+	}
+
+	assignment := regexp.MustCompile(`(?im)^\s*\$manifest\s*=\s*\[ordered\]@\{`)
+	if assignment.Match(body) {
+		t.Fatal("release manifest generator must not reuse the imported typed $Manifest parameter")
+	}
+}
+
 func TestAdminReleaseMachineryIsImmutableAndFailClosed(t *testing.T) {
 	root := backendRoot(t)
 	files := []string{

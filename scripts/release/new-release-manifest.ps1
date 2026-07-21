@@ -77,7 +77,7 @@ $contractDigest = Get-FileSha256 -Path $contractPath
 Assert-ExactString ([string]$proof.bundle_version) ([string]$contract.bundle_version) 'platform proof bundle version'
 Assert-ExactString ([string]$proof.contract_manifest_sha256) $contractDigest 'platform proof contract digest'
 
-$manifest = [ordered]@{
+$releaseDocument = [ordered]@{
   schema_version = 1
   release_id = $ReleaseID
   backend = [ordered]@{
@@ -109,7 +109,7 @@ $manifest = [ordered]@{
   }
 }
 
-$json = $manifest | ConvertTo-Json -Depth 8
+$json = $releaseDocument | ConvertTo-Json -Depth 8
 if (-not ($json | Test-Json -SchemaFile $script:ReleaseManifestSchema -ErrorAction SilentlyContinue)) {
   throw 'generated release manifest does not match its schema'
 }
