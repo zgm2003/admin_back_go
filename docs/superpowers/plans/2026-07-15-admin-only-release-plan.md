@@ -1017,7 +1017,7 @@ platform administration core remains fully representable.
 **Frontend files:**
 - Create: `tests/shared/deployment/admin-release.test.ts`
 
-- [ ] **Step 1: Write failing Docker-release boundary tests**
+- [x] **Step 1: Write failing Docker-release boundary tests**
 
 Backend tests require a strict release schema, revision-labelled
 frontend/backend image digests, image-archive SHA-256 values, the exact
@@ -1047,7 +1047,7 @@ docker run --rm --mount "type=bind,src=$root,dst=/workspace" --workdir /workspac
 
 Expected: FAIL because release schema/scripts/tests do not exist.
 
-- [ ] **Step 2: Define one non-circular release manifest**
+- [x] **Step 2: Define one non-circular release manifest**
 
 The generated manifest is never committed. Its tracked schema contains concrete validation rules rather than a value template:
 
@@ -1095,7 +1095,7 @@ pre-contract commits are ancestors of them, and writes
 `release/admin-only/out/release-manifest.json` atomically. The manifest records
 the current release commits, never the older pre-contract commits.
 
-- [ ] **Step 3: Export verified Docker images without a deployment Workflow**
+- [x] **Step 3: Export verified Docker images without a deployment Workflow**
 
 `export-docker-images.ps1` first verifies both primary checkout directories are
 clean at their current P09 release commits and proves the input-lock commits are
@@ -1108,13 +1108,13 @@ load test. It never builds or deploys through GitHub Actions.
 
 There is no desktop release unit. Task 8 reads only the reviewed COS historical-object disposition evidence; it cannot upload, promote, overwrite, or delete those objects.
 
-- [ ] **Step 4: Implement Compose deployment and rollback**
+- [x] **Step 4: Implement Compose deployment and rollback**
 
 `deploy-admin-only.ps1` validates the manifest, image archives/digests/revision labels, current database fingerprint, recovery proof, and explicit maintenance inputs. It loads the verified images, runs Task 6 migration groups under the database lock, starts a staging Compose project by immutable digest, waits for health/readiness, runs Admin HTTP/realtime smoke, then promotes the Compose project. It records the previous manifest/project and never deletes the previous image archives or state volumes.
 
 `rollback-admin-only.ps1` verifies the previous manifest/archive digests, loads the previous frontend/backend images, restores the previous Compose project, and reruns health/readiness/Admin smoke. If the operator selects full database rollback, it requires the locked recovery artifact, a maintenance-window flag, and successful restore rehearsal evidence; it never invents reverse DDL for deleted rows or reconstructs `client_versions` from guessed metadata.
 
-- [ ] **Step 5: Test and commit backend release machinery**
+- [x] **Step 5: Test and commit backend release machinery**
 
 ```powershell
 cd E:/admin/admin_back_go
@@ -1125,7 +1125,7 @@ git diff --cached --check
 git commit -m "build(release): deploy immutable Docker artifacts"
 ```
 
-- [ ] **Step 6: Test and commit the frontend deployment boundary**
+- [x] **Step 6: Test and commit the frontend deployment boundary**
 
 ```powershell
 cd E:/admin/admin_front_ts
@@ -1135,6 +1135,21 @@ git add -- tests/shared/deployment/admin-release.test.ts
 git diff --cached --check
 git commit -m "test(release): enforce Docker-only frontend delivery"
 ```
+
+#### P09 Task 8 completion evidence (2026-07-21)
+
+- Backend commit `67f0aec` adds the strict release manifest/schema checker,
+  platform-kernel proof, immutable Docker export metadata, Compose deployment,
+  application/full-database rollback controls, and architecture guards.
+- Frontend commit `50dde6e` adds the Docker-only Browser delivery boundary and
+  rejects deployment Workflows, desktop artifacts, and versioned Web shells.
+- `go test ./internal/architecture -run TestAdminRelease -count=1`,
+  `go test ./... -count=1`, and the release-manifest schema self-test pass.
+- Both deploy and rollback scripts import without executing and fail closed
+  without `-Apply`; Compose configuration accepts immutable image IDs.
+- The fixed `node:24.18.0-alpine` gate passes both deployment-boundary tests
+  and `npm run lint`. No image export, deployment, migration, or destructive
+  database operation was performed while completing this task.
 
 ### Task 9: Rehearse rollback and produce the cross-repository release proof
 
