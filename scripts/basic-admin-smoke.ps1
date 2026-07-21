@@ -577,18 +577,18 @@ func main() {
     models = '/ai/models'
     agents = '/ai/agent'
   }
-  $retiredAIRoutes = @('/ai/goods', '/ai/cine', '/ai/image-playground', '/ai/assets') + @($retiredAINameRoutes.Values)
+  $retiredAIRoutes = @('/ai/goods', '/ai/cine', '/ai/image-playground', '/ai/assets', '/ai/prompts') + @($retiredAINameRoutes.Values)
   foreach ($route in $retiredAIRoutes) {
     if (Test-RoutePath $init.data.router $route) {
       throw "users me still returns retired AI route $route; run AI core rebuild migration and clear operator-side caches"
     }
   }
   foreach ($code in (Get-ObjectArray $init.data.buttonCodes)) {
-    if (@('ai_image_task_add', 'ai_image_task_del', 'ai_image_task_favorite', 'ai_image_asset_add', 'ai_asset_add', 'ai_asset_edit', 'ai_asset_del') -contains [string]$code) {
+    if (@('ai_image_task_add', 'ai_image_task_del', 'ai_image_task_favorite', 'ai_image_asset_add', 'ai_asset_add', 'ai_asset_edit', 'ai_asset_del', 'ai_prompt_page', 'ai_prompt_add', 'ai_prompt_edit', 'ai_prompt_status', 'ai_prompt_del') -contains [string]$code) {
       throw "users me still returns retired AI button code $code; run 20260608_admin_ai_interaction_retirement.sql and clear operator-side caches"
     }
   }
-  $requiredAIRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/prompts')
+  $requiredAIRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
   foreach ($route in $requiredAIRoutes) {
     if (-not (Test-RoutePath $init.data.router $route)) {
       throw "users me missing AI product route $route"

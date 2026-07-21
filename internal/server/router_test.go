@@ -26,7 +26,6 @@ import (
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
-	aiprompt "admin_back_go/internal/module/ai/prompt"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
@@ -1398,52 +1397,6 @@ func (f *fakeRouterUploadTokenService) Create(ctx context.Context, input uploadt
 			},
 		},
 	}, nil
-}
-
-type fakeRouterAdminAIPromptService struct {
-	listQuery       aiprompt.ListQuery
-	detailID        int64
-	created         aiprompt.Input
-	updatedID       int64
-	updated         aiprompt.Input
-	statusID        int64
-	status          int
-	deletedID       int64
-	batchDeletedIDs []int64
-}
-
-func (f *fakeRouterAdminAIPromptService) PageInit(ctx context.Context) (*aiprompt.PageInitResponse, *apperror.Error) {
-	return &aiprompt.PageInitResponse{}, nil
-}
-func (f *fakeRouterAdminAIPromptService) List(ctx context.Context, query aiprompt.ListQuery) (*aiprompt.ListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &aiprompt.ListResponse{List: []aiprompt.Item{{ID: 1, Slug: "prompt", Title: "Prompt", Prompt: "text"}}}, nil
-}
-func (f *fakeRouterAdminAIPromptService) Detail(ctx context.Context, id int64) (*aiprompt.Item, *apperror.Error) {
-	f.detailID = id
-	return &aiprompt.Item{ID: id, Slug: "prompt", Title: "Prompt", Prompt: "text"}, nil
-}
-func (f *fakeRouterAdminAIPromptService) Create(ctx context.Context, input aiprompt.Input) (int64, *apperror.Error) {
-	f.created = input
-	return 31, nil
-}
-func (f *fakeRouterAdminAIPromptService) Update(ctx context.Context, id int64, input aiprompt.Input) *apperror.Error {
-	f.updatedID = id
-	f.updated = input
-	return nil
-}
-func (f *fakeRouterAdminAIPromptService) ChangeStatus(ctx context.Context, id int64, status int) *apperror.Error {
-	f.statusID = id
-	f.status = status
-	return nil
-}
-func (f *fakeRouterAdminAIPromptService) DeleteOne(ctx context.Context, id int64) *apperror.Error {
-	f.deletedID = id
-	return nil
-}
-func (f *fakeRouterAdminAIPromptService) DeleteBatch(ctx context.Context, ids []int64) *apperror.Error {
-	f.batchDeletedIDs = append([]int64(nil), ids...)
-	return nil
 }
 
 type fakeRouterWalletService struct {
@@ -2969,53 +2922,6 @@ func TestRouterInstallsPaymentConfigAndRechargeRoutes(t *testing.T) {
 		if recorder.Code == http.StatusOK {
 			t.Fatalf("retired payment route still returns OK: %s %s", retired.method, retired.path)
 		}
-	}
-}
-
-func TestRouterInstallsAdminAIPromptRoutes(t *testing.T) {
-	promptService := &fakeRouterAdminAIPromptService{}
-	router := newTestRouter(t, testDependencies{
-		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
-			return &middleware.AuthIdentity{UserID: 7, SessionID: 10, Platform: "admin"}, nil
-		},
-		AiPromptAdminService: promptService,
-	})
-
-	requests := []struct {
-		method string
-		path   string
-		body   string
-	}{
-		{http.MethodGet, "/api/admin/v1/ai-prompts/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-prompts?keyword=cat&category=style&status=2", ""},
-		{http.MethodGet, "/api/admin/v1/ai-prompts/9", ""},
-		{http.MethodPost, "/api/admin/v1/ai-prompts", `{"slug":"cat","title":"Cat","prompt":"draw cat","status":2}`},
-		{http.MethodPut, "/api/admin/v1/ai-prompts/7", `{"slug":"cat","title":"Cat","prompt":"draw cat","status":1}`},
-		{http.MethodPatch, "/api/admin/v1/ai-prompts/7/status", `{"status":2}`},
-		{http.MethodDelete, "/api/admin/v1/ai-prompts/7", ""},
-		{http.MethodDelete, "/api/admin/v1/ai-prompts", `{"ids":[3,4]}`},
-	}
-	for _, tc := range requests {
-		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			var body io.Reader
-			if tc.body != "" {
-				body = strings.NewReader(tc.body)
-			}
-			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(tc.method, tc.path, body)
-			request.Header.Set("Authorization", "Bearer access-token")
-			if tc.body != "" {
-				request.Header.Set("Content-Type", "application/json")
-			}
-			router.ServeHTTP(recorder, request)
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("expected admin AI prompt route, code=%d body=%s", recorder.Code, recorder.Body.String())
-			}
-		})
-	}
-
-	if promptService.listQuery.Keyword != "cat" || promptService.detailID != 9 || promptService.created.Status != aiprompt.StatusDisabled || promptService.updatedID != 7 || promptService.statusID != 7 || promptService.status != aiprompt.StatusDisabled || promptService.deletedID != 7 || !reflect.DeepEqual(promptService.batchDeletedIDs, []int64{3, 4}) {
-		t.Fatalf("admin AI prompt routes not wired correctly: %#v", promptService)
 	}
 }
 

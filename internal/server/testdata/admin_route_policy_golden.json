@@ -85,36 +85,6 @@
     },
     {
       "method": "DELETE",
-      "path": "/api/admin/v1/ai-prompts",
-      "operation_id": "delete_api_admin_v1_ai_prompts",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "delete_batch",
-        "title": "批量删除AI提示词"
-      }
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/admin/v1/ai-prompts/:id",
-      "operation_id": "delete_api_admin_v1_ai_prompts_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "delete",
-        "title": "删除AI提示词"
-      }
-    },
-    {
-      "method": "DELETE",
       "path": "/api/admin/v1/ai-providers/:id",
       "operation_id": "delete_api_admin_v1_ai_providers_id",
       "access": {
@@ -853,42 +823,6 @@
       "method": "GET",
       "path": "/api/admin/v1/ai-knowledge-documents/:id/chunks",
       "operation_id": "get_api_admin_v1_ai_knowledge_documents_id_chunks",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-prompts",
-      "operation_id": "get_api_admin_v1_ai_prompts",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-prompts/:id",
-      "operation_id": "get_api_admin_v1_ai_prompts_id",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-prompts/page-init",
-      "operation_id": "get_api_admin_v1_ai_prompts_page_init",
       "access": {
         "kind": "authenticated"
       },
@@ -2009,21 +1943,6 @@
     },
     {
       "method": "PATCH",
-      "path": "/api/admin/v1/ai-prompts/:id/status",
-      "operation_id": "patch_api_admin_v1_ai_prompts_id_status",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_status"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "change_status",
-        "title": "修改AI提示词状态"
-      }
-    },
-    {
-      "method": "PATCH",
       "path": "/api/admin/v1/ai-providers/:id/status",
       "operation_id": "patch_api_admin_v1_ai_providers_id_status",
       "access": {
@@ -2439,21 +2358,6 @@
         "module": "ai_knowledge",
         "action": "reindex",
         "title": "重建AI知识库文档索引"
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/v1/ai-prompts",
-      "operation_id": "post_api_admin_v1_ai_prompts",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_add"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "create",
-        "title": "新增AI提示词"
       }
     },
     {
@@ -3068,21 +2972,6 @@
         "module": "ai_knowledge_document",
         "action": "update",
         "title": "编辑AI知识库文档"
-      }
-    },
-    {
-      "method": "PUT",
-      "path": "/api/admin/v1/ai-prompts/:id",
-      "operation_id": "put_api_admin_v1_ai_prompts_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_prompt_edit"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_prompt",
-        "action": "update",
-        "title": "编辑AI提示词"
       }
     },
     {

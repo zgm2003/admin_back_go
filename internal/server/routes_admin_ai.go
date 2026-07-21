@@ -6,7 +6,6 @@ import (
 	aiconversationadmin "admin_back_go/internal/module/ai/conversation/transport/admin"
 	aiknowledgeadmin "admin_back_go/internal/module/ai/knowledge/transport/admin"
 	aimessageadmin "admin_back_go/internal/module/ai/message/transport/admin"
-	aipromptadmin "admin_back_go/internal/module/ai/prompt/transport/admin"
 	aiprovideradmin "admin_back_go/internal/module/ai/provider/transport/admin"
 	airunadmin "admin_back_go/internal/module/ai/run/transport/admin"
 	aitooladmin "admin_back_go/internal/module/ai/tool/transport/admin"
@@ -24,5 +23,4 @@ func registerAdminAIRoutes(router *gin.Engine, deps Dependencies) {
 	aimessageadmin.Register(router, ai.Messages, deps.Core.RouteRegistry)
 	airunadmin.Register(router, ai.Runs, deps.Core.RouteRegistry)
 	aichatadmin.Register(router, ai.Chat)
-	aipromptadmin.RegisterRoutes(router, ai.Prompts, deps.Core.RouteRegistry)
 }

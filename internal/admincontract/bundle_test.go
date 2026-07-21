@@ -44,6 +44,232 @@ func TestBundleIsDeterministicAndAdminOnly(t *testing.T) {
 	}
 }
 
+func TestBundlePublishesCurrentAdminPlatformKernel(t *testing.T) {
+	bundle := mustBuildBundle(t)
+
+	var openAPI struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &openAPI); err != nil {
+		t.Fatalf("decode OpenAPI: %v", err)
+	}
+
+	t.Run("publishes bundle version 2", func(t *testing.T) {
+		if bundle.Manifest.BundleVersion != "admin-2026-07-15.2" {
+			t.Fatalf("bundle version=%q", bundle.Manifest.BundleVersion)
+		}
+	})
+
+	t.Run("retires Admin Prompt transport", func(t *testing.T) {
+		for path := range openAPI.Paths {
+			if strings.HasPrefix(path, "/api/admin/v1/ai-prompts") {
+				t.Fatalf("retired Prompt operation remains: %s", path)
+			}
+		}
+		for name := range openAPI.Components.Schemas {
+			normalized := strings.ToLower(strings.ReplaceAll(name, "_", ""))
+			if strings.Contains(normalized, "aiprompt") {
+				t.Fatalf("retired Prompt transport schema remains: %s", name)
+			}
+		}
+
+		var permissions PermissionsDocument
+		if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &permissions); err != nil {
+			t.Fatalf("decode permissions: %v", err)
+		}
+		for _, code := range permissions.PermissionCodes {
+			if strings.HasPrefix(code, "ai_prompt_") {
+				t.Fatalf("retired Prompt permission remains: %s", code)
+			}
+		}
+		for _, operation := range permissions.Operations {
+			if strings.HasPrefix(operation.Path, "/api/admin/v1/ai-prompts") {
+				t.Fatalf("retired Prompt policy remains: %s %s", operation.Method, operation.Path)
+			}
+		}
+
+		var views ViewsDocument
+		if err := json.Unmarshal(bundle.Artifacts["views.json"], &views); err != nil {
+			t.Fatalf("decode views: %v", err)
+		}
+		for _, view := range views.Views {
+			if view.Path == "/ai/prompts" || view.ViewKey == "ai/prompts" || view.I18nKey == "menu.ai_prompts" {
+				t.Fatalf("retired Prompt view remains: %#v", view)
+			}
+			for _, code := range view.PermissionCodes {
+				if strings.HasPrefix(code, "ai_prompt_") {
+					t.Fatalf("retired Prompt view permission remains: %s", code)
+				}
+			}
+		}
+	})
+
+	t.Run("publishes all auth-platform management operations", func(t *testing.T) {
+		expected := []struct {
+			method string
+			path   string
+		}{
+			{method: "get", path: "/api/admin/v1/auth-platforms/page-init"},
+			{method: "get", path: "/api/admin/v1/auth-platforms"},
+			{method: "post", path: "/api/admin/v1/auth-platforms"},
+			{method: "put", path: "/api/admin/v1/auth-platforms/{id}"},
+			{method: "patch", path: "/api/admin/v1/auth-platforms/{id}/status"},
+			{method: "delete", path: "/api/admin/v1/auth-platforms/{id}"},
+			{method: "delete", path: "/api/admin/v1/auth-platforms"},
+		}
+		for _, item := range expected {
+			operation := openAPI.Paths[item.path][item.method]
+			if operation == nil {
+				t.Errorf("missing %s %s", strings.ToUpper(item.method), item.path)
+				continue
+			}
+			if operation["x-admin-access"] == nil || operation["x-admin-audit"] == nil {
+				t.Errorf("%s %s has no access/audit policy", strings.ToUpper(item.method), item.path)
+			}
+		}
+	})
+
+	t.Run("publishes only current registered platform enums", func(t *testing.T) {
+		var decoded any
+		if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &decoded); err != nil {
+			t.Fatal(err)
+		}
+		assertNoRetiredGeneratedEnum(t, "$", decoded)
+
+		assertSchemaPropertyStringEnum(t, openAPI.Components.Schemas, "AIRunListItem", "platform", []string{"admin"})
+		assertSchemaPropertyStringEnum(t, openAPI.Components.Schemas, "AIRunDetail", "platform", []string{"admin"})
+		assertSchemaPropertyStringEnum(t, openAPI.Components.Schemas, "post_api_admin_v1_permissions_Request", "platform", []string{"admin"})
+		assertSchemaPropertyStringEnum(t, openAPI.Components.Schemas, "put_api_admin_v1_permissions_id_Request", "platform", []string{"admin"})
+		assertSchemaPropertyStringEnum(t, openAPI.Components.Schemas, "post_api_admin_v1_notification_tasks_Request", "platform", []string{"all", "admin"})
+
+		assertQueryStringEnum(t, openAPI.Paths["/api/admin/v1/permissions"]["get"], "platform", []string{"admin"})
+		for _, path := range []string{
+			"/api/admin/v1/ai-runs",
+			"/api/admin/v1/ai-runs/stats",
+			"/api/admin/v1/ai-runs/stats/by-agent",
+			"/api/admin/v1/ai-runs/stats/by-date",
+			"/api/admin/v1/ai-runs/stats/by-user",
+		} {
+			assertQueryStringEnum(t, openAPI.Paths[path]["get"], "platform", []string{"admin"})
+		}
+	})
+
+	t.Run("retains generic platform fields", func(t *testing.T) {
+		for schema, property := range map[string]string{
+			"Go_internal_module_permission_PermissionDict_Output":     "permission_platform_arr",
+			"Go_internal_module_permission_PermissionTreeNode_Output": "platform",
+			"Go_internal_module_role_InitDict_Output":                 "permission_platform_arr",
+			"Go_internal_module_auth_SessionPageInitDict_Output":      "platformArr",
+			"Go_internal_module_auth_SessionListItem_Output":          "platform",
+			"Go_internal_module_auth_SessionStatsResponse_Output":     "platform_distribution",
+			"Go_internal_module_auth_LoginLogPageInitDict_Output":     "platformArr",
+			"Go_internal_module_auth_LoginLogListItem_Output":         "platform",
+			"Go_internal_module_notification_task_InitDict_Output":    "platformArr",
+			"Go_internal_module_notification_task_ListItem_Output":    "platform",
+		} {
+			assertSchemaProperty(t, openAPI.Components.Schemas, schema, property)
+		}
+		assertQueryParameter(t, openAPI.Paths["/api/admin/v1/user-sessions"]["get"], "platform")
+		assertQueryParameter(t, openAPI.Paths["/api/admin/v1/users/login-logs"]["get"], "platform")
+
+		createPlatform := openAPI.Components.Schemas["post_api_admin_v1_auth_platforms_Request"]
+		code := schemaProperty(t, createPlatform, "code")
+		if code["pattern"] == nil || code["enum"] != nil {
+			t.Fatalf("auth-platform code must remain an extensible validated string: %#v", code)
+		}
+	})
+}
+
+func assertNoRetiredGeneratedEnum(t *testing.T, location string, value any) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		if rawEnum, ok := typed["enum"].([]any); ok {
+			for _, raw := range rawEnum {
+				item, _ := raw.(string)
+				switch strings.ToLower(item) {
+				case "app", "canvas", "desktop", "tauri", "native":
+					t.Fatalf("%s publishes retired enum value %q", location, item)
+				}
+			}
+		}
+		for key, child := range typed {
+			assertNoRetiredGeneratedEnum(t, location+"/"+key, child)
+		}
+	case []any:
+		for index, child := range typed {
+			assertNoRetiredGeneratedEnum(t, fmt.Sprintf("%s/%d", location, index), child)
+		}
+	}
+}
+
+func assertSchemaProperty(t *testing.T, schemas map[string]map[string]any, schemaName string, propertyName string) map[string]any {
+	t.Helper()
+	schema := schemas[schemaName]
+	if schema == nil {
+		t.Fatalf("missing schema %s", schemaName)
+	}
+	return schemaProperty(t, schema, propertyName)
+}
+
+func schemaProperty(t *testing.T, schema map[string]any, propertyName string) map[string]any {
+	t.Helper()
+	properties, _ := schema["properties"].(map[string]any)
+	property, _ := properties[propertyName].(map[string]any)
+	if property == nil {
+		t.Fatalf("missing schema property %s", propertyName)
+	}
+	return property
+}
+
+func assertSchemaPropertyStringEnum(t *testing.T, schemas map[string]map[string]any, schemaName string, propertyName string, want []string) {
+	t.Helper()
+	property := assertSchemaProperty(t, schemas, schemaName, propertyName)
+	assertStringEnum(t, schemaName+"."+propertyName, property, want)
+}
+
+func assertQueryParameter(t *testing.T, operation map[string]any, name string) map[string]any {
+	t.Helper()
+	if operation == nil {
+		t.Fatalf("missing operation containing query parameter %s", name)
+	}
+	parameters, _ := operation["parameters"].([]any)
+	for _, raw := range parameters {
+		parameter, _ := raw.(map[string]any)
+		if parameter["in"] == "query" && parameter["name"] == name {
+			return parameter
+		}
+	}
+	t.Fatalf("missing query parameter %s", name)
+	return nil
+}
+
+func assertQueryStringEnum(t *testing.T, operation map[string]any, name string, want []string) {
+	t.Helper()
+	parameter := assertQueryParameter(t, operation, name)
+	schema, _ := parameter["schema"].(map[string]any)
+	assertStringEnum(t, "query."+name, schema, want)
+}
+
+func assertStringEnum(t *testing.T, location string, schema map[string]any, want []string) {
+	t.Helper()
+	raw, _ := schema["enum"].([]any)
+	got := make([]string, 0, len(raw))
+	for _, item := range raw {
+		value, ok := item.(string)
+		if !ok {
+			t.Fatalf("%s enum contains non-string value %#v", location, item)
+		}
+		got = append(got, value)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s enum=%v want=%v", location, got, want)
+	}
+}
+
 func TestCheckedInBundlePublishesBrowserOnlyContractAndExactHashes(t *testing.T) {
 	files := readCheckedInBundleFiles(t)
 	assertBrowserOnlyOpenAPI(t, files["openapi.json"])

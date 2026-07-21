@@ -17,7 +17,7 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	if document.SchemaVersion != ViewSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.Views), 29; got != want {
+	if got, want := len(document.Views), 28; got != want {
 		t.Fatalf("views=%d want=%d", got, want)
 	}
 	if document.UsersMe.Method != "GET" || document.UsersMe.Path != "/api/admin/v1/users/me" {

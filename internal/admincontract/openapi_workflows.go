@@ -160,7 +160,7 @@ func aiRunListQueryParameters() []map[string]any {
 		queryParameter("date_end", false, maxStringSchema(20), "Inclusive creation-time upper bound."),
 		queryParameter("date_start", false, maxStringSchema(20), "Inclusive creation-time lower bound."),
 		queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."),
-		queryParameter("platform", false, stringEnumSchema("admin", "app", "canvas"), "Origin platform filter."),
+		queryParameter("platform", false, registeredPlatformSchema(), "Origin platform filter."),
 		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
 		queryParameter("request_id", false, maxStringSchema(128), "Request ID search."),
 		queryParameter("status", false, stringEnumSchema("running", "success", "failed", "canceled", "timeout"), "Run status filter."),
@@ -184,7 +184,7 @@ func aiRunStatsQueryParameters(paged bool) []map[string]any {
 		parameters = append(parameters, queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."))
 	}
 	parameters = append(parameters,
-		queryParameter("platform", false, stringEnumSchema("admin", "app", "canvas"), "Origin platform filter."),
+		queryParameter("platform", false, registeredPlatformSchema(), "Origin platform filter."),
 		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
 		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
 	)

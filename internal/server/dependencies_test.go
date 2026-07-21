@@ -12,7 +12,6 @@ import (
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
-	aipromptadmin "admin_back_go/internal/module/ai/prompt/transport/admin"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
@@ -61,7 +60,6 @@ type testDependencies struct {
 	CaptchaService          auth.CaptchaHTTPService
 	AiChatService           aichat.HTTPService
 	AiConversationService   aiconversation.HTTPService
-	AiPromptAdminService    aipromptadmin.HTTPService
 	AiAgentService          aiagent.HTTPService
 	AiProviderService       aiprovider.HTTPService
 	AiKnowledgeService      aiknowledge.HTTPService
@@ -151,7 +149,6 @@ func (deps testDependencies) grouped() Dependencies {
 				Conversations: deps.AiConversationService,
 				Knowledge:     deps.AiKnowledgeService,
 				Messages:      deps.AiMessageService,
-				Prompts:       deps.AiPromptAdminService,
 				Providers:     deps.AiProviderService,
 				Runs:          deps.AiRunService,
 				Tools:         deps.AiToolService,

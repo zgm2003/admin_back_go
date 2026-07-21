@@ -27,7 +27,6 @@ import (
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
-	aiprompt "admin_back_go/internal/module/ai/prompt"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
@@ -178,7 +177,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(aiRunRepository)
-	aiPromptService := aiprompt.NewService(aiprompt.NewGormRepository(resources.DB))
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB),
 		Gateway:      providers.PaymentGateway,
@@ -324,7 +322,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 			Conversations: aiConversationService,
 			Knowledge:     aiKnowledgeService,
 			Messages:      aiMessageService,
-			Prompts:       aiPromptService,
 			Providers:     aiProviderService,
 			Runs:          aiRunService,
 			Tools:         aiToolService,

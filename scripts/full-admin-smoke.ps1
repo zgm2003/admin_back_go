@@ -1198,7 +1198,7 @@ function Assert-UsersInitAIRoutes($Response) {
     models = '/ai/models'
     agents = '/ai/agent'
   }
-  $retiredRoutes = @('/ai/goods', '/ai/cine', '/ai/image-playground', '/ai/assets') + @($retiredAINameRoutes.Values)
+  $retiredRoutes = @('/ai/goods', '/ai/cine', '/ai/image-playground', '/ai/assets', '/ai/prompts') + @($retiredAINameRoutes.Values)
   $retiredPresent = @{}
   foreach ($route in $retiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -1208,7 +1208,7 @@ function Assert-UsersInitAIRoutes($Response) {
     }
   }
 
-  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat', '/ai/prompts')
+  $requiredRoutes = @('/ai/providers', '/ai/agents', '/ai/knowledge', '/ai/tools', '/ai/runs', '/ai/chat')
   $requiredPresent = @{}
   foreach ($route in $requiredRoutes) {
     $present = Test-RoutePath $Response.data.router $route
@@ -1220,7 +1220,7 @@ function Assert-UsersInitAIRoutes($Response) {
   Assert-RoutePathOrder $Response.data.permissions $requiredRoutes 'users me AI menu order'
   $aiToolAddButton = $false
   $aiToolGenerateButton = $false
-  $retiredAIButtonCodes = @('ai_image_task_add', 'ai_image_task_del', 'ai_image_task_favorite', 'ai_image_asset_add', 'ai_asset_add', 'ai_asset_edit', 'ai_asset_del')
+  $retiredAIButtonCodes = @('ai_image_task_add', 'ai_image_task_del', 'ai_image_task_favorite', 'ai_image_asset_add', 'ai_asset_add', 'ai_asset_edit', 'ai_asset_del', 'ai_prompt_page', 'ai_prompt_add', 'ai_prompt_edit', 'ai_prompt_status', 'ai_prompt_del')
   $retiredAIButtonPresent = $false
   foreach ($code in (Get-ObjectArray $Response.data.buttonCodes)) {
     if ([string]$code -eq 'ai_tool_add') { $aiToolAddButton = $true }
@@ -1241,7 +1241,7 @@ function Assert-UsersInitAIRoutes($Response) {
     RetiredAgentsPresent = $retiredPresent[$retiredAINameRoutes['agents']]
     ImagePlaygroundPresent = $retiredPresent['/ai/image-playground']
     AssetsPresent = $retiredPresent['/ai/assets']
-    PromptsPresent = $requiredPresent['/ai/prompts']
+    PromptsPresent = $retiredPresent['/ai/prompts']
     ProvidersPresent = $requiredPresent['/ai/providers']
     AgentsPresent = $requiredPresent['/ai/agents']
     ChatPresent = $requiredPresent['/ai/chat']

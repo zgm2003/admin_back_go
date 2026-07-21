@@ -4,8 +4,6 @@ DELETE /api/admin/v1/ai-agents/:id
 DELETE /api/admin/v1/ai-conversations/:id
 DELETE /api/admin/v1/ai-knowledge-bases/:id
 DELETE /api/admin/v1/ai-knowledge-documents/:id
-DELETE /api/admin/v1/ai-prompts
-DELETE /api/admin/v1/ai-prompts/:id
 DELETE /api/admin/v1/ai-providers/:id
 DELETE /api/admin/v1/ai-tools/:id
 DELETE /api/admin/v1/auth-platforms
@@ -60,9 +58,6 @@ GET /api/admin/v1/ai-knowledge-bases/:id/documents
 GET /api/admin/v1/ai-knowledge-bases/page-init
 GET /api/admin/v1/ai-knowledge-documents/:id
 GET /api/admin/v1/ai-knowledge-documents/:id/chunks
-GET /api/admin/v1/ai-prompts
-GET /api/admin/v1/ai-prompts/:id
-GET /api/admin/v1/ai-prompts/page-init
 GET /api/admin/v1/ai-providers
 GET /api/admin/v1/ai-providers/:id/models
 GET /api/admin/v1/ai-providers/page-init
@@ -154,7 +149,6 @@ OPTIONS /api/admin/v1/queue-monitor-ui/*path
 PATCH /api/admin/v1/ai-agents/:id/status
 PATCH /api/admin/v1/ai-knowledge-bases/:id/status
 PATCH /api/admin/v1/ai-knowledge-documents/:id/status
-PATCH /api/admin/v1/ai-prompts/:id/status
 PATCH /api/admin/v1/ai-providers/:id/status
 PATCH /api/admin/v1/ai-tools/:id/status
 PATCH /api/admin/v1/auth-platforms/:id/status
@@ -184,7 +178,6 @@ POST /api/admin/v1/ai-knowledge-bases
 POST /api/admin/v1/ai-knowledge-bases/:id/documents
 POST /api/admin/v1/ai-knowledge-bases/:id/retrieval-tests
 POST /api/admin/v1/ai-knowledge-documents/:id/reindex
-POST /api/admin/v1/ai-prompts
 POST /api/admin/v1/ai-providers
 POST /api/admin/v1/ai-providers/:id/model-options
 POST /api/admin/v1/ai-providers/:id/sync-models
@@ -228,7 +221,6 @@ PUT /api/admin/v1/ai-agents/:id/tools
 PUT /api/admin/v1/ai-conversations/:id
 PUT /api/admin/v1/ai-knowledge-bases/:id
 PUT /api/admin/v1/ai-knowledge-documents/:id
-PUT /api/admin/v1/ai-prompts/:id
 PUT /api/admin/v1/ai-providers/:id
 PUT /api/admin/v1/ai-providers/:id/models
 PUT /api/admin/v1/ai-tools/:id

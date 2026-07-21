@@ -9,7 +9,6 @@ import (
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
-	aipromptadmin "admin_back_go/internal/module/ai/prompt/transport/admin"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
 	aitool "admin_back_go/internal/module/ai/tool"
@@ -83,7 +82,6 @@ type AIGraph struct {
 	Conversations aiconversation.HTTPService
 	Knowledge     aiknowledge.HTTPService
 	Messages      aimessage.HTTPService
-	Prompts       aipromptadmin.HTTPService
 	Providers     aiprovider.HTTPService
 	Runs          airun.HTTPService
 	Tools         aitool.HTTPService
@@ -122,7 +120,6 @@ func (g Graph) Validate() error {
 		{name: "ai.conversations", value: g.AI.Conversations},
 		{name: "ai.knowledge", value: g.AI.Knowledge},
 		{name: "ai.messages", value: g.AI.Messages},
-		{name: "ai.prompts", value: g.AI.Prompts},
 		{name: "ai.providers", value: g.AI.Providers},
 		{name: "ai.runs", value: g.AI.Runs},
 		{name: "ai.tools", value: g.AI.Tools},

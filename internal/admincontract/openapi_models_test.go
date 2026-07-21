@@ -382,7 +382,6 @@ func TestAIAdministrationRoutesPublishRuntimeModelContracts(t *testing.T) {
 		"/api/admin/v1/ai-agents",
 		"/api/admin/v1/ai-knowledge-bases",
 		"/api/admin/v1/ai-knowledge-documents",
-		"/api/admin/v1/ai-prompts",
 		"/api/admin/v1/ai-providers",
 		"/api/admin/v1/ai-tools",
 	}

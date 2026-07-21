@@ -3,6 +3,8 @@ package admincontract
 import (
 	"fmt"
 	"sort"
+
+	"admin_back_go/internal/shared/enum"
 )
 
 func workflowOpenAPISchemas() (map[string]any, error) {
@@ -104,6 +106,10 @@ func maxStringSchema(maximum int) map[string]any {
 
 func stringEnumSchema(values ...string) map[string]any {
 	return map[string]any{"type": "string", "enum": append([]string(nil), values...)}
+}
+
+func registeredPlatformSchema() map[string]any {
+	return stringEnumSchema(enum.RegisteredPlatforms()...)
 }
 
 func integerSchema() map[string]any {

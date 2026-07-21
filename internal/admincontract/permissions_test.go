@@ -17,7 +17,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 	if document.SchemaVersion != PermissionSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.PermissionCodes), 106; got != want {
+	if got, want := len(document.PermissionCodes), 101; got != want {
 		t.Fatalf("permission codes=%d want=%d", got, want)
 	}
 	wantSorted := append([]string(nil), document.PermissionCodes...)

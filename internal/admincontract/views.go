@@ -29,7 +29,6 @@ func buildViewsDocument() ViewsDocument {
 		{Path: "/ai/agents", ViewKey: "ai/agents", I18nKey: "menu.ai_agents", ShowMenu: 1},
 		{Path: "/ai/chat", ViewKey: "ai/chat", I18nKey: "menu.ai_chat", ShowMenu: 1},
 		{Path: "/ai/knowledge", ViewKey: "ai/knowledge", I18nKey: "menu.ai_knowledge", ShowMenu: 1},
-		{Path: "/ai/prompts", ViewKey: "ai/prompts", I18nKey: "menu.ai_prompts", ShowMenu: 1, PermissionCodes: []string{"ai_prompt_page"}},
 		{Path: "/ai/providers", ViewKey: "ai/providers", I18nKey: "menu.ai_providers", ShowMenu: 1},
 		{Path: "/ai/runs", ViewKey: "ai/runs", I18nKey: "menu.ai_runs", ShowMenu: 1},
 		{Path: "/ai/tools", ViewKey: "ai/tools", I18nKey: "menu.ai_tools", ShowMenu: 1},

@@ -105,6 +105,39 @@ func TestAdminOnlyRetiredTransportPackagesAreAbsent(t *testing.T) {
 	}
 }
 
+func TestAdminOnlyPromptCoreRemainsWithoutAdminTransport(t *testing.T) {
+	root := backendRoot(t)
+	mustNotExist(t, root, "internal/module/ai/prompt/transport/admin")
+	for _, relative := range []string{
+		"internal/module/ai/prompt/model.go",
+		"internal/module/ai/prompt/repository.go",
+		"internal/module/ai/prompt/service.go",
+	} {
+		mustExist(t, root, relative)
+	}
+	model, err := os.ReadFile(filepath.Join(root, "internal", "module", "ai", "prompt", "model.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(model), `return "ai_prompts"`) {
+		t.Fatal("transport-neutral Prompt model no longer retains the empty ai_prompts table")
+	}
+
+	for _, relative := range []string{
+		"internal/server/routes_admin_ai.go",
+		"internal/server/testdata/admin_routes_golden.txt",
+		"internal/server/testdata/admin_route_policy_golden.json",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatalf("read %s: %v", relative, err)
+		}
+		if strings.Contains(string(body), "/api/admin/v1/ai-prompts") || strings.Contains(string(body), "ai_prompt_") {
+			t.Errorf("%s still exposes retired Prompt administration", relative)
+		}
+	}
+}
+
 func TestAdminOnlyCompiledRouteGoldenContainsNoRetiredProductPrefix(t *testing.T) {
 	root := backendRoot(t)
 	for _, relative := range []string{

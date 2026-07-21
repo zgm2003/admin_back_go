@@ -174,7 +174,7 @@ func aiRunListItemProperties() map[string]any {
 		"agent_name":         stringSchema(),
 		"provider_id":        positiveIntegerSchema(),
 		"provider_name":      stringSchema(),
-		"platform":           stringEnumSchema("admin", "app", "canvas"),
+		"platform":           registeredPlatformSchema(),
 		"input_snapshot":     stringSchema(),
 		"conversation_id":    nullableSchema(positiveIntegerSchema()),
 		"conversation_title": stringSchema(),
