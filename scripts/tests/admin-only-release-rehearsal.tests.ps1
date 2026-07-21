@@ -58,6 +58,10 @@ $actualGates = @(& pwsh -NoProfile -File $verifierPath -ListGates)
 Assert-True ($LASTEXITCODE -eq 0) 'release verifier gate listing failed'
 Assert-True (($actualGates -join '|') -ceq ($expectedGates -join '|')) 'release verifier gate order changed'
 
+$invalidDatabaseOutput = @(& pwsh -NoProfile -File $verifierPath -Database 'invalid-name' 2>&1)
+Assert-True ($LASTEXITCODE -ne 0) 'release verifier returned before validating its database argument'
+Assert-True (($invalidDatabaseOutput -join "`n").Contains('ADMIN_RESTORE_DB or -Database', [StringComparison]::Ordinal)) 'release verifier did not report its database validation failure'
+
 foreach ($needle in @(
   '[string]$Manifest',
   '[switch]$ImportFunctions',

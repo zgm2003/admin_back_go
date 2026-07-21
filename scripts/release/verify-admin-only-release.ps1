@@ -40,7 +40,23 @@ if ($ListGates) {
   return
 }
 
+$requestedVerifierParameters = [pscustomobject]@{
+  Manifest = $Manifest
+  Database = $Database
+  Output = $Output
+  FrontendURL = $FrontendURL
+  APIURL = $APIURL
+  DockerCommand = $DockerCommand
+  ImportFunctions = [bool]$ImportFunctions
+}
 . (Join-Path $PSScriptRoot 'check-release-manifest.ps1') -ImportFunctions
+$Manifest = $requestedVerifierParameters.Manifest
+$Database = $requestedVerifierParameters.Database
+$Output = $requestedVerifierParameters.Output
+$FrontendURL = $requestedVerifierParameters.FrontendURL
+$APIURL = $requestedVerifierParameters.APIURL
+$DockerCommand = $requestedVerifierParameters.DockerCommand
+$ImportFunctions = $requestedVerifierParameters.ImportFunctions
 
 function Get-ReleaseTextSHA256 {
   param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
