@@ -1,0 +1,83 @@
+services:
+  frontend:
+    image: ${ADMIN_FRONTEND_IMAGE:?ADMIN_FRONTEND_IMAGE is required}
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_FRONTEND_BIND_ADDRESS:-127.0.0.1}:${ADMIN_FRONTEND_PORT:?ADMIN_FRONTEND_PORT is required}:8080"
+    labels:
+      io.admin.release.id: ${ADMIN_RELEASE_ID:?ADMIN_RELEASE_ID is required}
+      org.opencontainers.image.revision: ${ADMIN_FRONTEND_REVISION:?ADMIN_FRONTEND_REVISION is required}
+    networks:
+      - platform
+    depends_on:
+      admin-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  admin-api:
+    image: ${ADMIN_BACKEND_IMAGE:?ADMIN_BACKEND_IMAGE is required}
+    pull_policy: never
+    command: ["/app/admin-api"]
+    restart: unless-stopped
+    env_file:
+      - ${ADMIN_BACKEND_ENV_FILE:?ADMIN_BACKEND_ENV_FILE is required}
+    ports:
+      - "${ADMIN_API_BIND_ADDRESS:-127.0.0.1}:${ADMIN_API_PORT:?ADMIN_API_PORT is required}:8080"
+    labels:
+      io.admin.release.id: ${ADMIN_RELEASE_ID:?ADMIN_RELEASE_ID is required}
+      org.opencontainers.image.revision: ${ADMIN_BACKEND_REVISION:?ADMIN_BACKEND_REVISION is required}
+    volumes:
+      - runtime:/app/runtime
+      - exports:/app/exports
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:8080/health >/dev/null; else python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()\"; fi"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  admin-worker:
+    image: ${ADMIN_BACKEND_IMAGE:?ADMIN_BACKEND_IMAGE is required}
+    pull_policy: never
+    command: ["/app/admin-worker"]
+    restart: unless-stopped
+    env_file:
+      - ${ADMIN_BACKEND_ENV_FILE:?ADMIN_BACKEND_ENV_FILE is required}
+    labels:
+      io.admin.release.id: ${ADMIN_RELEASE_ID:?ADMIN_RELEASE_ID is required}
+      org.opencontainers.image.revision: ${ADMIN_BACKEND_REVISION:?ADMIN_BACKEND_REVISION is required}
+    volumes:
+      - runtime:/app/runtime
+      - exports:/app/exports
+    networks:
+      - platform
+    depends_on:
+      admin-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  platform:
+    external: true
+    name: ${ADMIN_PLATFORM_NETWORK:-admin-platform}
+
+volumes:
+  runtime:
+    external: true
+    name: ${ADMIN_RUNTIME_VOLUME:?ADMIN_RUNTIME_VOLUME is required}
+  exports:
+    external: true
+    name: ${ADMIN_EXPORT_VOLUME:?ADMIN_EXPORT_VOLUME is required}
