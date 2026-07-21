@@ -49,7 +49,7 @@ returns to specification review.
 | P07 Tasks 6-10 | complete, user-reviewed | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P08R + user P08R acceptance | page decomposition, zero warnings, budgets, WCAG, Docker/manual acceptance |
 | P08.5 | cancelled; do not execute | `2026-07-18-admin-tauri-windows-release-plan.md` | none | cancelled by approved Browser-only spec | no artifact |
 | Windows local development | complete, user-reviewed | `2026-07-20-windows-local-hot-reload-development-plan.md` | backend + frontend | Gate F + approved Windows design | one-command host HMR with Docker state and unchanged full-Docker delivery |
-| P09 | active; destructive DDL still approval-gated | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, approved extensible-platform spec, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, preserved platform kernel, immutable Docker release/rollback proof |
+| P09 | release proof complete; deploy/rollback rehearsal remains operator-gated | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, approved extensible-platform spec, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, preserved platform kernel, immutable Docker release/rollback proof |
 
 ## Dependency graph
 
@@ -160,7 +160,7 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, an unreviewed mig
 - [x] **Gate D:** P04 proves one-winner refresh, session/RBAC invalidation, and route-policy completeness. Its browser/desktop presentation is historical and does not satisfy P08R.
 - [x] **Gate E:** P05 proves durable work recovery, scheduler lease safety, and realtime resume/deduplication.
 - [x] **Gate F:** P08R plus P07 Tasks 6-10 prove one Browser-only contract, no Tauri/client-variant/client-version runtime, Docker-only delivery, zero-warning frontend quality, budgets, WCAG behavior, smoke, and user acceptance.
-- [ ] **Gate G:** P09 removes approved retired product/schema surfaces—including frozen `client_versions` only after fresh approval—preserves and proves the extensible authenticated platform kernel, and passes the complete immutable Docker release/rollback proof.
+- [ ] **Gate G:** P09 removes approved retired product/schema surfaces—including frozen `client_versions` only after fresh approval—preserves and proves the extensible authenticated platform kernel, and passes the complete immutable Docker release/rollback proof. The 12-gate artifact proof passes; closure still requires Task 9 Step 3's operator-approved deploy and rollback rehearsal.
 
 P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlier one. P09 stops before destructive DDL if recovery restore, frozen-table evidence, COS disposition, contract lock, Docker image revision, or user approval is missing.
 
@@ -207,3 +207,20 @@ P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlie
 - Implementation commits include frontend `f83fee8` and backend `fc6a00a`, `653ecef`, `8fbb381`, `823d809`, `9b59ead`, plus focused acceptance fixes through `9a4aaf8`.
 - The user accepted the local-development loop and explicitly opened P09 on
   2026-07-20. This acceptance does not authorize P09 destructive DDL.
+
+### Gate G verification evidence (2026-07-21)
+
+- The approved disposable P09 contract removed the frozen `client_versions`
+  surface and converged both restore schemas plus empty/imported verification
+  paths to fingerprint
+  `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678`.
+- Release `admin-v2026.07.21.1` passed all 12 immutable release gates against
+  backend `ddbce91ec3263ff11aa3be5a76e9e499f27c3350` and frontend
+  `95937a8958ef41e12b15a5547a859c07a43d05c8`; the proof contains no failed
+  gate and completed in `2,995,071 ms`.
+- The platform-kernel proof, Admin Contract Bundle, Browser-only retirement,
+  backend/database/runtime/frontend quality, sensitive-material scan, and
+  image/archive integrity all passed. Docker stability used an isolated
+  no-host-port project while `admin-dev` remained available.
+- Gate G remains unchecked only because no operator-approved deploy,
+  application rollback, or full database rollback rehearsal was executed.

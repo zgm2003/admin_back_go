@@ -1165,7 +1165,7 @@ git commit -m "test(release): enforce Docker-only frontend delivery"
 - Modify: `docs/architecture.md`
 - Modify: `CONTEXT.md`
 
-- [ ] **Step 1: Write operational runbooks with exact stop conditions**
+- [x] **Step 1: Write operational runbooks with exact stop conditions**
 
 Document required roles/secrets without values, artifact acquisition, digest
 verification, database lock/status, preflight fingerprints, migration group
@@ -1181,7 +1181,7 @@ assign independent permission/role data, configure notification audiences,
 run cross-platform isolation tests, and deploy by Docker. It explicitly states
 that a database row or client header never activates a platform.
 
-- [ ] **Step 2: Automate the complete proof**
+- [x] **Step 2: Automate the complete proof**
 
 `verify-admin-only-release.ps1` runs, in order:
 
@@ -1214,7 +1214,13 @@ On an isolated environment restored from the locked recovery artifact:
 
 Any mismatch invalidates the release manifest; do not patch evidence by hand.
 
-- [ ] **Step 4: Commit runbooks and proof tooling**
+Operator-gated status (2026-07-21): this step remains open. The release
+tooling, fail-closed controls, disposable recovery paths, and Docker recovery
+scenarios are verified, but no deploy, application rollback, full database
+rollback, or live destructive DDL was executed under the current user
+constraint.
+
+- [x] **Step 4: Commit runbooks and proof tooling**
 
 ```powershell
 cd E:/admin/admin_back_go
@@ -1224,7 +1230,7 @@ git diff --cached --check
 git commit -m "docs(release): add admin-only operations and rollback proof"
 ```
 
-- [ ] **Step 5: Generate the final proof from clean locked commits**
+- [x] **Step 5: Generate the final proof from clean locked commits**
 
 ```powershell
 pwsh -NoProfile -File scripts/release/lock-inputs.ps1 -CheckOnly
@@ -1244,3 +1250,27 @@ the extensible platform kernel proof is present; rollback rehearsal passes; no
 secondary worktree, `.github` directory, desktop artifact, or deployment
 Workflow exists. Only after a fresh explicit user approval may the operator run
 the live contract migration and Compose promotion commands.
+
+#### P09 Task 9 verification evidence (2026-07-21)
+
+- Release `admin-v2026.07.21.1` passed all 12 verifier gates in
+  `2,995,071 ms`; `failed_gate` is empty.
+- The proof binds backend commit
+  `ddbce91ec3263ff11aa3be5a76e9e499f27c3350` and unchanged frontend commit
+  `95937a8958ef41e12b15a5547a859c07a43d05c8`.
+- The backend image is
+  `sha256:67820aa535e398fb5edfb14750ba28aef52df7a8775baff3cba4c30f9e6d82c1`;
+  its archive SHA-256 is
+  `bb080ef8ec88058bab615be97d365e4fe2a74ea50230457e3c3c736d7ecf277d`.
+  The frontend image remains
+  `sha256:429379ed8f501b5e2f092a796f6d093467ac75155068c5a430cfd19ecd9d1ed5`.
+- Empty, imported, and post-contract database paths converged to
+  `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678`;
+  reconciliation applied eight scripts and skipped all eight on repeat.
+- Docker stability ran in a disposable project and network with no host port
+  publication. API and Worker restart counts remained zero while the existing
+  `admin-dev` Web/API/Worker loop stayed on its hot-reload ports.
+- Runbooks, proof tooling, release-manifest checks, platform-kernel proof,
+  backend/frontend quality, runtime acceptance, sensitive-material scan, and
+  artifact integrity all passed. No live deploy or rollback was performed, so
+  Step 3 remains the only open Task 9 item.
