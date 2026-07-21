@@ -80,6 +80,115 @@ foreach ($call in $manifestCalls) {
   }
 }
 
+$backendQualityEnvironmentNames = @(
+  'APP_ENV',
+  'APP_SECRET',
+  'APP_SECRET_PREVIOUS',
+  'HTTP_ADDR',
+  'HTTP_READ_HEADER_TIMEOUT',
+  'LOG_DIR',
+  'MYSQL_DSN',
+  'MYSQL_MAX_OPEN_CONNS',
+  'MYSQL_MAX_IDLE_CONNS',
+  'MYSQL_CONN_MAX_LIFETIME',
+  'REDIS_ADDR',
+  'REDIS_PASSWORD',
+  'REDIS_DB',
+  'TOKEN_REDIS_DB',
+  'PAYMENT_CERT_BASE_DIR',
+  'QUEUE_ENABLED',
+  'QUEUE_REDIS_DB',
+  'QUEUE_CONCURRENCY',
+  'REALTIME_ENABLED',
+  'REALTIME_PUBLISHER',
+  'SCHEDULER_ENABLED',
+  'CORS_ALLOW_ORIGINS',
+  'DB_HOST',
+  'DB_PORT',
+  'DB_DATABASE',
+  'DB_USERNAME',
+  'DB_PASSWORD',
+  'REDIS_HOST',
+  'REDIS_PORT'
+)
+$backendQualityGates = @($verifierAst.FindAll({
+  param($node)
+  if ($node -isnot [Management.Automation.Language.CommandAst] -or
+      $node.GetCommandName() -cne 'Invoke-AdminReleaseGate') {
+    return $false
+  }
+  return @($node.CommandElements | Where-Object {
+    $_ -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $_.Value -ceq 'backend-quality'
+  }).Count -eq 1
+}, $true))
+Assert-True ($backendQualityGates.Count -eq 1) 'release verifier must define one backend-quality gate'
+$backendEnvironmentScopes = @($backendQualityGates[0].FindAll({
+  param($node)
+  return $node -is [Management.Automation.Language.CommandAst] -and
+    $node.GetCommandName() -ceq 'Invoke-ReleaseWithCleanBackendEnvironment'
+}, $true))
+Assert-True ($backendEnvironmentScopes.Count -eq 1) 'backend-quality must run in one clean runtime environment scope'
+
+$backendEnvironmentRestored = & {
+  param([string]$VerifierPath, [string[]]$EnvironmentNames)
+  . $VerifierPath -ImportFunctions
+
+  $target = [EnvironmentVariableTarget]::Process
+  $before = [Environment]::GetEnvironmentVariables($target)
+  $original = [ordered]@{}
+  foreach ($name in $EnvironmentNames) {
+    $original[$name] = [pscustomobject]@{
+      Exists = $before.Contains($name)
+      Value = [Environment]::GetEnvironmentVariable($name, $target)
+    }
+  }
+
+  try {
+    for ($index = 0; $index -lt $EnvironmentNames.Count; $index++) {
+      if ($index -eq ($EnvironmentNames.Count - 1)) {
+        Remove-Item -LiteralPath "Env:$($EnvironmentNames[$index])" -ErrorAction SilentlyContinue
+      } else {
+        [Environment]::SetEnvironmentVariable($EnvironmentNames[$index], "release-fixture-$index", $target)
+      }
+    }
+
+    $caughtFixtureFailure = $false
+    try {
+      Invoke-ReleaseWithCleanBackendEnvironment -Action {
+        $isolated = [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Process)
+        foreach ($name in $EnvironmentNames) {
+          if ($isolated.Contains($name)) { throw "backend quality inherited $name" }
+        }
+        [Environment]::SetEnvironmentVariable('HTTP_ADDR', 'changed-inside-action', [EnvironmentVariableTarget]::Process)
+        throw 'backend environment fixture failure'
+      }
+    } catch {
+      if ($_.Exception.Message -cne 'backend environment fixture failure') { throw }
+      $caughtFixtureFailure = $true
+    }
+    Assert-True $caughtFixtureFailure 'backend environment fixture did not execute'
+
+    $restored = [Environment]::GetEnvironmentVariables($target)
+    for ($index = 0; $index -lt ($EnvironmentNames.Count - 1); $index++) {
+      $name = $EnvironmentNames[$index]
+      Assert-True ($restored.Contains($name)) "backend quality did not restore $name"
+      Assert-True ([string]$restored[$name] -ceq "release-fixture-$index") "backend quality changed restored $name"
+    }
+    Assert-True (-not $restored.Contains($EnvironmentNames[-1])) 'backend quality restored an originally absent variable'
+    return $true
+  } finally {
+    foreach ($name in $EnvironmentNames) {
+      if ($original[$name].Exists) {
+        [Environment]::SetEnvironmentVariable($name, $original[$name].Value, $target)
+      } else {
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+      }
+    }
+  }
+} $verifierPath $backendQualityEnvironmentNames
+Assert-True $backendEnvironmentRestored 'backend-quality environment restoration fixture failed'
+
 $frontendCommit = (& git -C $frontendRoot rev-parse --verify HEAD).Trim().ToLowerInvariant()
 $cleanBoundary = & {
   param([string]$VerifierPath, [string]$Repository, [string]$Commit)

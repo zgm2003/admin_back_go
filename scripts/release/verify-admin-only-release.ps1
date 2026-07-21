@@ -34,6 +34,37 @@ $script:GateNames = @(
   'admin-only-platform-kernel',
   'release-artifact-integrity'
 )
+$script:BackendQualityEnvironmentNames = @(
+  'APP_ENV',
+  'APP_SECRET',
+  'APP_SECRET_PREVIOUS',
+  'HTTP_ADDR',
+  'HTTP_READ_HEADER_TIMEOUT',
+  'LOG_DIR',
+  'MYSQL_DSN',
+  'MYSQL_MAX_OPEN_CONNS',
+  'MYSQL_MAX_IDLE_CONNS',
+  'MYSQL_CONN_MAX_LIFETIME',
+  'REDIS_ADDR',
+  'REDIS_PASSWORD',
+  'REDIS_DB',
+  'TOKEN_REDIS_DB',
+  'PAYMENT_CERT_BASE_DIR',
+  'QUEUE_ENABLED',
+  'QUEUE_REDIS_DB',
+  'QUEUE_CONCURRENCY',
+  'REALTIME_ENABLED',
+  'REALTIME_PUBLISHER',
+  'SCHEDULER_ENABLED',
+  'CORS_ALLOW_ORIGINS',
+  'DB_HOST',
+  'DB_PORT',
+  'DB_DATABASE',
+  'DB_USERNAME',
+  'DB_PASSWORD',
+  'REDIS_HOST',
+  'REDIS_PORT'
+)
 
 if ($ListGates) {
   $script:GateNames | Write-Output
@@ -113,6 +144,33 @@ function Invoke-ReleasePowerShell {
   $path = Join-Path $script:BackendRoot $RelativePath
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "$Label script is missing" }
   return Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'pwsh') -Arguments (@('-NoProfile', '-File', $path) + $Arguments) -Label $Label
+}
+
+function Invoke-ReleaseWithCleanBackendEnvironment {
+  param([Parameter(Mandatory = $true)][scriptblock]$Action)
+
+  $target = [EnvironmentVariableTarget]::Process
+  $environment = [Environment]::GetEnvironmentVariables($target)
+  $previous = [ordered]@{}
+  foreach ($name in $script:BackendQualityEnvironmentNames) {
+    $previous[$name] = [pscustomobject]@{
+      Exists = $environment.Contains($name)
+      Value = [Environment]::GetEnvironmentVariable($name, $target)
+    }
+    Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+  }
+
+  try {
+    return & $Action
+  } finally {
+    foreach ($name in $script:BackendQualityEnvironmentNames) {
+      if ($previous[$name].Exists) {
+        [Environment]::SetEnvironmentVariable($name, $previous[$name].Value, $target)
+      } else {
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+      }
+    }
+  }
 }
 
 function Invoke-ReleaseGit {
@@ -313,13 +371,15 @@ try {
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'backend-quality' -Action {
-    # go clean -testcache
-    $clean = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('clean', '-testcache') -Label 'backend clean test cache'
-    # go mod verify
-    $modules = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('mod', 'verify') -Label 'backend dependency verification'
-    $quality = Invoke-ReleasePowerShell -RelativePath 'scripts\verify-backend.ps1' -Label 'backend quality gate'
-    $releaseArchitecture = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('test', './internal/architecture', '-run', 'TestAdminRelease', '-count=1') -Label 'Admin release architecture gate'
-    return [ordered]@{ clean = $clean; dependencies = $modules; quality = $quality; release_architecture = $releaseArchitecture }
+    return Invoke-ReleaseWithCleanBackendEnvironment -Action {
+      # go clean -testcache
+      $clean = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('clean', '-testcache') -Label 'backend clean test cache'
+      # go mod verify
+      $modules = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('mod', 'verify') -Label 'backend dependency verification'
+      $quality = Invoke-ReleasePowerShell -RelativePath 'scripts\verify-backend.ps1' -Label 'backend quality gate'
+      $releaseArchitecture = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('test', './internal/architecture', '-run', 'TestAdminRelease', '-count=1') -Label 'Admin release architecture gate'
+      return [ordered]@{ clean = $clean; dependencies = $modules; quality = $quality; release_architecture = $releaseArchitecture }
+    }
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'database-recovery-contract' -Action {
