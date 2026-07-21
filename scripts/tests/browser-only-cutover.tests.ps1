@@ -62,8 +62,10 @@ foreach ($needle in @('browser-only-retirement', '046_retire_client_version_surf
   Assert-Contains $reconcile $needle "reconcile.ps1 is missing $needle"
 }
 Assert-Contains $expanded '038_verify_browser_only_retirement.sql' 'expanded verification does not run Browser-only invariant SQL'
-Assert-Contains $databaseGate 'reconciliationApplied -ne 10' 'database gate does not require ten first-run reconciliations'
-Assert-Contains $databaseGate 'reconciliationSkipped -ne 10' 'database gate does not require ten repeat-run skips'
+Assert-Contains $reconcile "'post-contract'" 'reconcile.ps1 is missing the post-contract replay stage'
+Assert-Contains $databaseGate "-Stage 'post-contract'" 'database gate does not use the post-contract replay stage'
+Assert-Contains $databaseGate 'reconciliationApplied -ne 8' 'database gate does not require eight post-contract first-run reconciliations'
+Assert-Contains $databaseGate 'reconciliationSkipped -ne 8' 'database gate does not require eight post-contract repeat-run skips'
 Assert-Contains $basicSmoke "if (Test-RoutePath `$init.data.router '/system/clientVersion')" 'basic Admin smoke does not reject the retired client-version route path'
 Assert-Contains $basicSmoke "if (Test-RouteViewKey `$init.data.router 'system/clientVersion')" 'basic Admin smoke does not reject the retired client-version view key'
 Assert-NotMatch $basicSmoke '(?i)missing canonical client version' 'basic Admin smoke still requires the retired client-version surface'

@@ -85,9 +85,13 @@ func TestDatabaseVerificationPinsImmutableDockerInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read expanded-schema verifier: %v", err)
 	}
+	reconcileVerifier, err := os.ReadFile(filepath.Join(root, "scripts", "database", "reconcile.ps1"))
+	if err != nil {
+		t.Fatalf("read reconciliation verifier: %v", err)
+	}
 
 	combined := string(script) + "\n" + string(expandedVerifier)
-	verificationText := string(script) + "\n" + string(expandedVerifier)
+	verificationText := string(script) + "\n" + string(expandedVerifier) + "\n" + string(reconcileVerifier)
 	for _, required := range []string{
 		"mysql:8.4.10",
 		"arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a",
@@ -125,6 +129,67 @@ func TestDatabaseVerificationPinsImmutableDockerInputs(t *testing.T) {
 	}
 }
 
+func TestDatabaseVerificationUsesPostContractReconciliationSet(t *testing.T) {
+	root := backendRoot(t)
+	verifier, err := os.ReadFile(filepath.Join(root, "scripts", "verify-database.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expanded, err := os.ReadFile(filepath.Join(root, "scripts", "database", "verify-expanded-schema.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconcile, err := os.ReadFile(filepath.Join(root, "scripts", "database", "reconcile.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stage := regexp.MustCompile(`(?s)'post-contract'\s*=\s*@\((.*?)\)`).FindSubmatch(reconcile)
+	if len(stage) != 2 {
+		t.Fatal("reconcile.ps1 must define one post-contract stage")
+	}
+	for _, file := range []string{
+		"001_ledger.sql",
+		"010_expand_core.sql",
+		"020_backfill_core.sql",
+		"041_apply_proven_indexes.sql",
+		"042_add_ai_image_soft_delete.sql",
+		"043_register_export_cleanup.sql",
+		"044_realtime_retention.sql",
+		"045_repair_cron_task_utf8_metadata.sql",
+	} {
+		if !strings.Contains(string(stage[1]), file) {
+			t.Fatalf("post-contract reconciliation is missing %s", file)
+		}
+	}
+	for _, retiredSourceStage := range []string{"021_backfill_ai.sql", "046_retire_client_version_surface.sql"} {
+		if strings.Contains(string(stage[1]), retiredSourceStage) {
+			t.Fatalf("post-contract reconciliation must not replay %s after its source tables were contracted", retiredSourceStage)
+		}
+	}
+
+	for _, required := range []string{
+		"-Stage 'post-contract'",
+		"reconciliationApplied -ne 8",
+		"reconciliationSkipped -ne 8",
+		"-PostContract",
+	} {
+		if !strings.Contains(string(verifier), required) {
+			t.Fatalf("database verifier is missing post-contract replay guard %q", required)
+		}
+	}
+	for _, required := range []string{
+		"[switch]$PostContract",
+		"051_verify_admin_rows.sql",
+		"052_verify_ai_contract.sql",
+		"053_verify_admin_only.sql",
+	} {
+		if !strings.Contains(string(expanded), required) {
+			t.Fatalf("expanded verifier is missing post-contract invariant %q", required)
+		}
+	}
+}
+
 func TestDatabaseVerifierFixturePreservesCanonicalCheckConstraints(t *testing.T) {
 	root := backendRoot(t)
 	script, err := os.ReadFile(filepath.Join(root, "scripts", "verify-database.ps1"))
@@ -138,5 +203,23 @@ func TestDatabaseVerifierFixturePreservesCanonicalCheckConstraints(t *testing.T)
 		if pattern.Match(script) {
 			t.Fatalf("synthetic fixture recreates canonical CHECK constraint text for %s", table)
 		}
+	}
+	if regexp.MustCompile("(?i)DROP\\s+(?:CHECK|CONSTRAINT)\\s+`chk_export_tasks_platform`").Match(script) {
+		t.Fatal("synthetic fixture must not drop the canonical export platform CHECK")
+	}
+
+	lastPosition := -1
+	for _, marker := range []string{
+		"INSERT INTO `auth_platforms` (`id`,`code`,`name`,`login_types`,`created_at`,`updated_at`)",
+		"ALTER TABLE `export_tasks` ALTER CHECK `chk_export_tasks_platform` NOT ENFORCED;",
+		"VALUES (900001,900001,'','Synthetic export fixture','',1,2,UTC_TIMESTAMP(),UTC_TIMESTAMP());",
+		"$firstRun = Invoke-Reconciliation",
+		"ALTER TABLE `export_tasks` ALTER CHECK `chk_export_tasks_platform` ENFORCED;",
+	} {
+		position := strings.Index(string(script), marker)
+		if position <= lastPosition {
+			t.Fatalf("synthetic fixture must preserve CHECK objects while loading historical rows; missing or out-of-order %q", marker)
+		}
+		lastPosition = position
 	}
 }

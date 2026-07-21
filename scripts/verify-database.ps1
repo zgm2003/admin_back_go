@@ -411,8 +411,11 @@ DROP TABLE `ai_provider_attempts`;
 DROP TABLE `realtime_events`;
 DROP TABLE `realtime_event_retention_watermarks`;
 SET FOREIGN_KEY_CHECKS=1;
+INSERT INTO `auth_platforms` (`id`,`code`,`name`,`login_types`,`created_at`,`updated_at`)
+VALUES (900001,'admin','Synthetic Admin',JSON_ARRAY('password'),UTC_TIMESTAMP(),UTC_TIMESTAMP());
 INSERT INTO `users` (`id`,`role_id`,`username`,`status`,`is_del`,`created_at`,`updated_at`)
 VALUES (900001,0,'synthetic_admin',1,2,UTC_TIMESTAMP(),UTC_TIMESTAMP());
+ALTER TABLE `export_tasks` ALTER CHECK `chk_export_tasks_platform` NOT ENFORCED;
 INSERT INTO `export_tasks` (`id`,`user_id`,`platform`,`title`,`kind`,`status`,`is_del`,`created_at`,`updated_at`)
 VALUES (900001,900001,'','Synthetic export fixture','',1,2,UTC_TIMESTAMP(),UTC_TIMESTAMP());
 '@
@@ -426,7 +429,7 @@ function Invoke-Reconciliation {
     [Parameter(Mandatory = $true)][string]$ExpectedFingerprint
   )
   Set-DatabaseDSN -Database $Database -Port $Port
-  return @(& (Join-Path $backendRoot 'scripts/database/reconcile.ps1') -Database $Database -Stage 'all-nondestructive' -ExpectedSourceFingerprint $ExpectedFingerprint -MySQLCommand $mysqlWrapper -Executor 'database-verifier')
+  return @(& (Join-Path $backendRoot 'scripts/database/reconcile.ps1') -Database $Database -Stage 'post-contract' -ExpectedSourceFingerprint $ExpectedFingerprint -MySQLCommand $mysqlWrapper -Executor 'database-verifier')
 }
 
 function Invoke-ExpandedVerification {
@@ -437,7 +440,7 @@ function Invoke-ExpandedVerification {
   Set-DatabaseDSN -Database $Database -Port $Port
   Push-Location $backendRoot
   try {
-    $output = @(& (Join-Path $backendRoot 'scripts/database/verify-expanded-schema.ps1') -Database $Database -MySQLCommand $mysqlWrapper)
+    $output = @(& (Join-Path $backendRoot 'scripts/database/verify-expanded-schema.ps1') -Database $Database -MySQLCommand $mysqlWrapper -PostContract)
   } finally {
     Pop-Location
   }
@@ -521,8 +524,9 @@ try {
     if ($fixtureFingerprint -ceq $emptyFingerprint) { throw 'synthetic imported fixture did not exercise schema reconciliation' }
 
     $firstRun = Invoke-Reconciliation -Database $importedDatabase -Port $port -ExpectedFingerprint $fixtureFingerprint
+    [void](Invoke-MySQLClient -Database $importedDatabase -SQL 'ALTER TABLE `export_tasks` ALTER CHECK `chk_export_tasks_platform` ENFORCED;' -Operation 'restore canonical export platform check enforcement')
     $reconciliationApplied = @($firstRun | Where-Object { $_ -match '^APPLY ' }).Count
-    if ($reconciliationApplied -ne 10) { throw 'initial reconciliation did not apply every non-destructive script' }
+    if ($reconciliationApplied -ne 8) { throw 'initial reconciliation did not apply every post-contract script' }
     $importedFingerprint = Get-Fingerprint -Database $importedDatabase -Port $port
     if ($importedFingerprint -cne $emptyFingerprint) {
       $emptyDocument = Get-FingerprintDocument -Database $emptyDatabase -Port $port
@@ -533,7 +537,7 @@ try {
 
     $secondRun = Invoke-Reconciliation -Database $importedDatabase -Port $port -ExpectedFingerprint $importedFingerprint
     $reconciliationSkipped = @($secondRun | Where-Object { $_ -match '^SKIP ' }).Count
-    if ($reconciliationSkipped -ne 10 -or @($secondRun | Where-Object { $_ -match '^APPLY ' }).Count -ne 0) {
+    if ($reconciliationSkipped -ne 8 -or @($secondRun | Where-Object { $_ -match '^APPLY ' }).Count -ne 0) {
       throw 'repeated reconciliation was not a complete no-op'
     }
     $repeatedFingerprint = Get-Fingerprint -Database $importedDatabase -Port $port

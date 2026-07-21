@@ -6,7 +6,9 @@ param(
 
   [string]$MySQLCommand = 'mysql',
 
-  [string]$COSManifest = ''
+  [string]$COSManifest = '',
+
+  [switch]$PostContract
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,15 +80,27 @@ try {
   if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Git commit could not be resolved' }
   $beforeSHA = Get-SchemaSHA256 -Commit $commit
 
-  $schemaViolations = Invoke-InvariantFile -Path 'database/reconciliation/030_verify_schema.sql'
-  $relationshipViolations = Invoke-InvariantFile -Path 'database/reconciliation/031_verify_relations.sql'
-  $moneyViolations = Invoke-InvariantFile -Path 'database/reconciliation/032_verify_money.sql'
-  $aiViolations = Invoke-InvariantFile -Path 'database/reconciliation/033_verify_ai.sql'
-  $platformViolations = Invoke-InvariantFile -Path 'database/reconciliation/034_verify_platform.sql'
-  $aiImageDeleteViolations = Invoke-InvariantFile -Path 'database/reconciliation/035_verify_ai_image_soft_delete.sql'
-  $exportCleanupViolations = Invoke-InvariantFile -Path 'database/reconciliation/036_verify_export_cleanup.sql'
-  $cronTaskMetadataViolations = Invoke-InvariantFile -Path 'database/reconciliation/037_verify_cron_task_metadata.sql'
-  $browserOnlyRetirementViolations = Invoke-InvariantFile -Path 'database/reconciliation/038_verify_browser_only_retirement.sql'
+  if ($PostContract) {
+    $schemaViolations = Invoke-InvariantFile -Path 'database/reconciliation/053_verify_admin_only.sql'
+    $relationshipViolations = Invoke-InvariantFile -Path 'database/reconciliation/031_verify_relations.sql'
+    $moneyViolations = Invoke-InvariantFile -Path 'database/reconciliation/032_verify_money.sql'
+    $aiViolations = Invoke-InvariantFile -Path 'database/reconciliation/052_verify_ai_contract.sql'
+    $platformViolations = Invoke-InvariantFile -Path 'database/reconciliation/051_verify_admin_rows.sql'
+    $aiImageDeleteViolations = Invoke-InvariantFile -Path 'database/reconciliation/035_verify_ai_image_soft_delete.sql'
+    $exportCleanupViolations = Invoke-InvariantFile -Path 'database/reconciliation/036_verify_export_cleanup.sql'
+    $cronTaskMetadataViolations = Invoke-InvariantFile -Path 'database/reconciliation/037_verify_cron_task_metadata.sql'
+    $browserOnlyRetirementViolations = [uint64]0
+  } else {
+    $schemaViolations = Invoke-InvariantFile -Path 'database/reconciliation/030_verify_schema.sql'
+    $relationshipViolations = Invoke-InvariantFile -Path 'database/reconciliation/031_verify_relations.sql'
+    $moneyViolations = Invoke-InvariantFile -Path 'database/reconciliation/032_verify_money.sql'
+    $aiViolations = Invoke-InvariantFile -Path 'database/reconciliation/033_verify_ai.sql'
+    $platformViolations = Invoke-InvariantFile -Path 'database/reconciliation/034_verify_platform.sql'
+    $aiImageDeleteViolations = Invoke-InvariantFile -Path 'database/reconciliation/035_verify_ai_image_soft_delete.sql'
+    $exportCleanupViolations = Invoke-InvariantFile -Path 'database/reconciliation/036_verify_export_cleanup.sql'
+    $cronTaskMetadataViolations = Invoke-InvariantFile -Path 'database/reconciliation/037_verify_cron_task_metadata.sql'
+    $browserOnlyRetirementViolations = Invoke-InvariantFile -Path 'database/reconciliation/038_verify_browser_only_retirement.sql'
+  }
 
   & go test ./internal/module/auth ./internal/module/user ./internal/module/notification/... ./internal/module/export ./internal/module/payment/... ./internal/module/ai/run 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'focused Admin smoke tests failed' }
