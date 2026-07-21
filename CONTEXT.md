@@ -1,13 +1,28 @@
 # Admin Platform Domain Context
 
-This repository currently delivers one product platform: **Admin**. Its approved
-P08R product shape is one Browser-only client; the currently published bundle is
-still the historical browser/desktop variant contract until P08R Task 5 activates
-the replacement. `app` and `canvas` are retired product-platform lines during the
-2026-07 super refactor. The next product direction prioritizes integrating a
-concrete additional platform supplied by the user; SaaS/tenant behavior remains
-lower priority and outside the current implementation scope. No generic future
-platform framework is built before that concrete project and contract exist.
+This repository currently delivers one product platform: **Admin**. Its final
+P09 product shape is one Browser-only client and one backend image shared by API
+and Worker. The published Admin Contract Bundle contains no desktop, App,
+Canvas, client-version, or Prompt-management product transport. The next product
+direction prioritizes integrating a concrete additional platform supplied by
+the user; SaaS/tenant behavior remains lower priority and outside the current
+implementation scope. No speculative future platform framework is built before
+that concrete project and contract exist.
+
+## Admin-only immutable release
+
+The release manifest binds the backend/frontend commits, immutable Docker image
+IDs and archive hashes, current Bundle digest, final database fingerprint, and
+reviewed evidence. The complete proof is written to
+`release/admin-only/out/proof.json`; generated release output is ignored and is
+never a source file.
+
+Admin remains the only compile-time registered adapter. Generic platform-aware
+authentication, RBAC, session, login-log, notification, provenance, and index
+capabilities remain available for a separately approved platform. A database row or client header
+never activates a platform. Activation requires an
+approved contract, dedicated trusted transport, compile-time registry entry,
+isolation tests, and a new immutable Docker release.
 
 ## Domain language
 

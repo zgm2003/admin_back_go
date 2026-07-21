@@ -61,6 +61,27 @@ resolver instead of retaining its startup address. Runtime and E2E recovery
 tests manipulate and probe only containers; no host API, worker, Vite, MySQL, or
 Redis process is an accepted verification path.
 
+## Admin-only immutable release
+
+The final release unit is a synchronized Browser-only frontend image plus one
+backend image used by API and Worker. `release/admin-only/out/release-manifest.json`
+binds both clean repository commits, OCI image IDs and archive hashes, the Admin
+Contract Bundle, Atlas checksum, target database fingerprint, recovery/input/
+query/COS/retirement evidence, and the retained platform-kernel proof.
+
+Deployment and rollback use `deploy/admin-only/docker-compose.yml` with
+immutable image IDs and `--no-build`. Application rollback restores the prior
+archived image package. Full database rollback restores the locked recovery
+artifact; it never synthesizes reverse DDL. The complete gate writes only safe
+hashes, counts, timings, and image IDs to
+`release/admin-only/out/proof.json`.
+
+Admin is the only registered runtime adapter. Generic `auth_platforms`, RBAC,
+sessions, login logs, notification audiences, provenance columns, and indexes
+remain for a future separately contracted platform. A database row or client header
+never activates a platform; activation requires a dedicated trusted
+transport and compile-time registry entry.
+
 本仓库采用 `Gin modular monolith`。
 
 完整架构规则见：
