@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -729,18 +730,21 @@ func TestServiceLoginRejectsWrongPasswordAndEnqueuesFailure(t *testing.T) {
 	}
 }
 
-func TestServiceSendCodeStoresFixedPhoneLoginCode(t *testing.T) {
+func TestServiceSendCodeGeneratesCachesAndSendsPhoneVerification(t *testing.T) {
 	store := &fakeCodeStore{}
-	randomGeneratorCalled := false
+	phoneSender := &fakeVerifyCodePhoneSender{}
+	generatorCalls := 0
 	service := NewService(
 		&fakeAuthRepository{},
 		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodePhoneSender(phoneSender),
 		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) {
-			randomGeneratorCalled = true
+		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypePhone: 9 * time.Minute}}),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) {
+			generatorCalls++
 			return "654321", nil
 		}}),
 	)
@@ -753,14 +757,17 @@ func TestServiceSendCodeStoresFixedPhoneLoginCode(t *testing.T) {
 	if message != "验证码发送成功" {
 		t.Fatalf("unexpected send message %q", message)
 	}
-	if randomGeneratorCalled {
-		t.Fatalf("phone send-code must use fixed phone code, not random generator")
-	}
-	if store.setCode != "123456" || store.setTTL != 5*time.Minute {
+	if store.setCode != "654321" || store.setTTL != 9*time.Minute {
 		t.Fatalf("unexpected code store write: code=%q ttl=%s", store.setCode, store.setTTL)
 	}
 	if store.setKey != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" {
 		t.Fatalf("unexpected verify code key %q", store.setKey)
+	}
+	if phoneSender.scene != VerifyCodeSceneLogin || phoneSender.phone != "15671628271" || phoneSender.code != store.setCode || phoneSender.ttl != store.setTTL {
+		t.Fatalf("sender=%#v store=%#v", phoneSender, store)
+	}
+	if generatorCalls != 1 {
+		t.Fatalf("generator calls=%d", generatorCalls)
 	}
 }
 
@@ -1030,14 +1037,14 @@ func TestServiceSendCodeLoginStopsWhenCaptchaIsRejected(t *testing.T) {
 	}
 }
 
-func TestServiceSendCodeLoginVerifiesCaptchaBeforeSendingEmailOrMockPhone(t *testing.T) {
+func TestServiceSendCodeLoginVerifiesCaptchaBeforeSendingEmailOrPhone(t *testing.T) {
 	tests := []struct {
 		name      string
 		account   string
 		loginType string
 	}{
 		{name: "email", account: "user@example.com", loginType: LoginTypeEmail},
-		{name: "mock phone", account: "15671628271", loginType: LoginTypePhone},
+		{name: "phone", account: "15671628271", loginType: LoginTypePhone},
 	}
 
 	for _, tt := range tests {
@@ -1052,6 +1059,7 @@ func TestServiceSendCodeLoginVerifiesCaptchaBeforeSendingEmailOrMockPhone(t *tes
 				WithCodeStore(store),
 				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 				WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
+				WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{}),
 				WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 			)
 
@@ -1121,7 +1129,7 @@ func TestServiceSendCodeLoginRejectsAccountThatDoesNotMatchSelectedType(t *testi
 	}
 }
 
-func TestServicePhoneCodeLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
+func TestServicePhoneVerificationLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
 	store := &fakeCodeStore{values: map[string]string{
 		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
 	}}
@@ -1357,6 +1365,22 @@ type fakeVerifyCodeMailSender struct {
 	err   *apperror.Error
 }
 
+type fakeVerifyCodePhoneSender struct {
+	scene string
+	phone string
+	code  string
+	ttl   time.Duration
+	err   *apperror.Error
+}
+
+func (f *fakeVerifyCodePhoneSender) SendVerifyCode(_ context.Context, scene, phone, code string, ttl time.Duration) *apperror.Error {
+	f.scene = scene
+	f.phone = phone
+	f.code = code
+	f.ttl = ttl
+	return f.err
+}
+
 func (f *fakeVerifyCodeMailSender) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error {
 	f.scene = scene
 	f.email = toEmail
@@ -1408,21 +1432,23 @@ func TestServiceSendCodeUsesPolicyTTLForEmailCacheAndMailSender(t *testing.T) {
 
 func TestServiceSendCodeUsesPolicyTTLForPhoneCache(t *testing.T) {
 	store := &fakeCodeStore{}
+	phoneSender := &fakeVerifyCodePhoneSender{}
 	service := NewService(
 		&fakeAuthRepository{},
 		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodePhoneSender(phoneSender),
 		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypePhone: 8 * time.Minute}}),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 	_, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
 	if appErr != nil {
 		t.Fatalf("unexpected err %#v", appErr)
 	}
-	if store.setCode != "123456" || store.setTTL != 8*time.Minute {
+	if store.setCode != "654321" || store.setTTL != 8*time.Minute || phoneSender.ttl != store.setTTL {
 		t.Fatalf("code=%q ttl=%s", store.setCode, store.setTTL)
 	}
 }
@@ -1477,6 +1503,7 @@ func TestServiceSendCodeStopsWhenPolicyTTLInvalid(t *testing.T) {
 func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 	store := &fakeCodeStore{}
 	mailSender := &fakeVerifyCodeMailSender{}
+	generatorCalls := 0
 	service := NewService(
 		&fakeAuthRepository{},
 		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
@@ -1485,7 +1512,10 @@ func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 		WithCodeStore(store),
 		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(mailSender),
-		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) {
+			generatorCalls++
+			return "654321", nil
+		}}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("user@example.com", LoginTypeEmail))
@@ -1501,6 +1531,9 @@ func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 	}
 	if mailSender.scene != VerifyCodeSceneLogin || mailSender.email != "user@example.com" || mailSender.code != "654321" || mailSender.ttl != 5*time.Minute {
 		t.Fatalf("unexpected mail sender call: %#v", mailSender)
+	}
+	if generatorCalls != 1 {
+		t.Fatalf("generator calls=%d", generatorCalls)
 	}
 }
 
@@ -1528,9 +1561,9 @@ func TestServiceSendCodeRealEmailDeletesCachedCodeWhenMailFails(t *testing.T) {
 	}
 }
 
-func TestServiceSendCodePhoneIgnoresMailSenderAndStoresFixedCode(t *testing.T) {
+func TestServiceSendCodeDeletesPhoneVerificationWhenSMSFails(t *testing.T) {
 	store := &fakeCodeStore{}
-	mailSender := &fakeVerifyCodeMailSender{}
+	wantErr := apperror.InternalKey("sms.send.failed", nil, "短信发送失败")
 	service := NewService(
 		&fakeAuthRepository{},
 		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
@@ -1538,17 +1571,81 @@ func TestServiceSendCodePhoneIgnoresMailSenderAndStoresFixedCode(t *testing.T) {
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
-		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{err: wantErr}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 
 	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
 
-	if appErr != nil || message != "验证码发送成功" {
-		t.Fatalf("expected fixed phone code success, message=%q err=%#v", message, appErr)
+	if message != "" || appErr != wantErr {
+		t.Fatalf("message=%q err=%#v", message, appErr)
 	}
-	if store.setCode != "123456" || store.setKey != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" || mailSender.email != "" {
-		t.Fatalf("phone send-code must cache fixed code and skip mail sender, store=%#v sender=%#v", store, mailSender)
+	if store.deleted != store.setKey || store.values[store.setKey] != "" {
+		t.Fatalf("store=%#v", store)
+	}
+}
+
+func TestServiceSendCodeGenerationFailureDoesNotCacheOrSend(t *testing.T) {
+	store := &fakeCodeStore{}
+	phoneSender := &fakeVerifyCodePhoneSender{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodePhoneSender(phoneSender),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "", errors.New("entropy unavailable") }}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if message != "" || appErr == nil || appErr.Message != "验证码生成失败" {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if store.setKey != "" || phoneSender.phone != "" {
+		t.Fatalf("store=%#v sender=%#v", store, phoneSender)
+	}
+}
+
+func TestServiceSendCodePhoneRequiresSenderAndDeletesCachedCode(t *testing.T) {
+	store := &fakeCodeStore{}
+	service := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if message != "" || appErr == nil || appErr.MessageID != "auth.verify_code.phone_unavailable" || appErr.Message != "短信验证码服务未配置" || appErr.LegacyCode != apperror.CodeInternal {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if store.deleted != store.setKey || store.values[store.setKey] != "" {
+		t.Fatalf("store=%#v", store)
+	}
+}
+
+func TestServiceSendCodeCacheFailureDoesNotSend(t *testing.T) {
+	store := &fakeCodeStore{err: errors.New("cache unavailable")}
+	phoneSender := &fakeVerifyCodePhoneSender{}
+	service := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodePhoneSender(phoneSender),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if message != "" || appErr == nil || appErr.Message != "验证码缓存写入失败" {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if phoneSender.phone != "" {
+		t.Fatalf("sender=%#v", phoneSender)
 	}
 }
 
@@ -1566,13 +1663,32 @@ func TestServiceSendCodeEmailRequiresMailSenderAndDeletesCachedCode(t *testing.T
 
 	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("user@example.com", LoginTypeEmail))
 
-	if message != "" || appErr == nil || appErr.Message != "邮件验证码服务未配置" {
+	if message != "" || appErr == nil || appErr.MessageID != "auth.verify_code.email_unavailable" || appErr.Message != "邮件验证码服务未配置" || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("expected missing mail sender error, message=%q err=%#v", message, appErr)
 	}
 	if store.setCode != "654321" || store.deleted != store.setKey || store.values[store.setKey] != "" {
 		t.Fatalf("email send-code must clean cached code when sender is missing, store=%#v", store)
 	}
 }
+
+func TestRandomSixDigitCodeFromReaderPreservesLeadingZero(t *testing.T) {
+	code, err := randomSixDigitCodeFromReader(bytes.NewReader(make([]byte, 3)))
+	if err != nil {
+		t.Fatalf("generate code: %v", err)
+	}
+	if code != "000000" {
+		t.Fatalf("expected leading-zero code %q, got %q", "000000", code)
+	}
+	if len(code) != 6 {
+		t.Fatalf("expected exactly six bytes, got %q", code)
+	}
+	for _, digit := range []byte(code) {
+		if digit < '0' || digit > '9' {
+			t.Fatalf("expected only ASCII digits, got %q", code)
+		}
+	}
+}
+
 func TestVerifyCodeCacheKeyUsesCodeOwnedNamespace(t *testing.T) {
 	got := VerifyCodeCacheKey("email", VerifyCodeSceneLogin, "user@example.com")
 	want := "auth:verify_code:email:login:b58996c504c5638798eb6b511e6f49af"

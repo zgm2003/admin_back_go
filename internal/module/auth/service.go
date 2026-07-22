@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -34,7 +35,6 @@ const (
 
 const (
 	defaultVerifyCodeTTL = 5 * time.Minute
-	defaultPhoneCode     = "123456"
 	profileSexUnknown    = 0
 )
 
@@ -67,39 +67,40 @@ type VerifyCodeMailSender interface {
 	SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error
 }
 
+type VerifyCodePhoneSender interface {
+	SendVerifyCode(ctx context.Context, scene, toPhone, code string, ttl time.Duration) *apperror.Error
+}
+
 type VerifyCodeOptions struct {
 	TTL           time.Duration
-	PhoneCode     string
 	CodeGenerator func() (string, error)
 }
 
 type Option func(*Service)
 
 type Service struct {
-	repository           Repository
-	platformConfig       PlatformConfigProvider
-	sessionManager       Lifecycle
-	captchaVerifier      CaptchaVerifier
-	codeStore            CodeStore
-	loginLogEnqueuer     taskqueue.Enqueuer
-	verifyCodeMailSender VerifyCodeMailSender
-	verifyCodePolicy     VerifyCodePolicyProvider
-	verifyCodeReadiness  VerifyCodeReadinessProvider
-	logger               *slog.Logger
-	verifyCodeOptions    VerifyCodeOptions
+	repository            Repository
+	platformConfig        PlatformConfigProvider
+	sessionManager        Lifecycle
+	captchaVerifier       CaptchaVerifier
+	codeStore             CodeStore
+	loginLogEnqueuer      taskqueue.Enqueuer
+	verifyCodeMailSender  VerifyCodeMailSender
+	verifyCodePhoneSender VerifyCodePhoneSender
+	verifyCodePolicy      VerifyCodePolicyProvider
+	verifyCodeReadiness   VerifyCodeReadinessProvider
+	logger                *slog.Logger
+	verifyCodeOptions     VerifyCodeOptions
 }
 
 func NewService(repository Repository, platformConfig PlatformConfigProvider, sessionManager Lifecycle, captchaVerifier CaptchaVerifier, opts ...Option) *Service {
 	service := &Service{
-		repository:      repository,
-		platformConfig:  platformConfig,
-		sessionManager:  sessionManager,
-		captchaVerifier: captchaVerifier,
-		logger:          slog.Default(),
-		verifyCodeOptions: VerifyCodeOptions{
-			TTL:       defaultVerifyCodeTTL,
-			PhoneCode: defaultPhoneCode,
-		},
+		repository:        repository,
+		platformConfig:    platformConfig,
+		sessionManager:    sessionManager,
+		captchaVerifier:   captchaVerifier,
+		logger:            slog.Default(),
+		verifyCodeOptions: VerifyCodeOptions{TTL: defaultVerifyCodeTTL},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -139,6 +140,12 @@ func WithVerifyCodeOptions(options VerifyCodeOptions) Option {
 func WithVerifyCodeMailSender(sender VerifyCodeMailSender) Option {
 	return func(s *Service) {
 		s.verifyCodeMailSender = sender
+	}
+}
+
+func WithVerifyCodePhoneSender(sender VerifyCodePhoneSender) Option {
+	return func(s *Service) {
+		s.verifyCodePhoneSender = sender
 	}
 }
 
@@ -238,28 +245,32 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		return "", appErr
 	}
 
-	code := s.verifyCodeOptions.PhoneCode
-	if accountType == LoginTypeEmail {
-		generated, err := s.generateVerifyCode()
-		if err != nil {
-			return "", apperror.Internal("验证码生成失败")
-		}
-		code = generated
+	code, err := s.generateVerifyCode()
+	if err != nil {
+		return "", apperror.Internal("验证码生成失败")
 	}
 	cacheKey := s.verifyCodeCacheKey(accountType, input.Scene, input.Account)
 	if err := s.codeStore.Set(ctx, cacheKey, code, ttl); err != nil {
 		return "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
-	if accountType == LoginTypePhone {
-		return "验证码发送成功", nil
+	var sendErr *apperror.Error
+	switch accountType {
+	case LoginTypeEmail:
+		if s.verifyCodeMailSender == nil {
+			sendErr = apperror.InternalKey("auth.verify_code.email_unavailable", nil, "邮件验证码服务未配置")
+		} else {
+			sendErr = s.verifyCodeMailSender.SendVerifyCode(ctx, input.Scene, input.Account, code, ttl)
+		}
+	case LoginTypePhone:
+		if s.verifyCodePhoneSender == nil {
+			sendErr = apperror.InternalKey("auth.verify_code.phone_unavailable", nil, "短信验证码服务未配置")
+		} else {
+			sendErr = s.verifyCodePhoneSender.SendVerifyCode(ctx, input.Scene, input.Account, code, ttl)
+		}
 	}
-	if s.verifyCodeMailSender == nil {
+	if sendErr != nil {
 		_ = s.codeStore.Delete(ctx, cacheKey)
-		return "", apperror.Internal("邮件验证码服务未配置")
-	}
-	if appErr := s.verifyCodeMailSender.SendVerifyCode(ctx, input.Scene, input.Account, code, ttl); appErr != nil {
-		_ = s.codeStore.Delete(ctx, cacheKey)
-		return "", appErr
+		return "", sendErr
 	}
 	return "验证码发送成功", nil
 }
@@ -770,10 +781,6 @@ func normalizeVerifyCodeOptions(options VerifyCodeOptions) VerifyCodeOptions {
 	if options.TTL <= 0 {
 		options.TTL = defaultVerifyCodeTTL
 	}
-	options.PhoneCode = strings.TrimSpace(options.PhoneCode)
-	if options.PhoneCode == "" {
-		options.PhoneCode = defaultPhoneCode
-	}
 	if options.CodeGenerator == nil {
 		options.CodeGenerator = randomSixDigitCode
 	}
@@ -851,12 +858,15 @@ func loginConfigOrder(loginTypes []string) []string {
 }
 
 func randomSixDigitCode() (string, error) {
-	max := big.NewInt(900000)
-	value, err := rand.Int(rand.Reader, max)
+	return randomSixDigitCodeFromReader(rand.Reader)
+}
+
+func randomSixDigitCodeFromReader(reader io.Reader) (string, error) {
+	value, err := rand.Int(reader, big.NewInt(1_000_000))
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%06d", value.Int64()+100000), nil
+	return fmt.Sprintf("%06d", value.Int64()), nil
 }
 
 func newUsername() string {

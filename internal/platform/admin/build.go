@@ -211,6 +211,8 @@ func Build(input BuildInput) (*BuildResult, error) {
 		captchaService,
 		auth.WithCodeStore(auth.NewRedisCodeStore(resources.Redis)),
 		auth.WithVerifyCodeMailSender(mailService),
+		auth.WithVerifyCodePhoneSender(smsService),
+		auth.WithVerifyCodeReadinessProvider(auth.NewChannelVerifyCodeReadinessProvider(mailService, smsService)),
 		auth.WithVerifyCodePolicyProvider(auth.NewChannelVerifyCodePolicyProvider(mailService, smsService)),
 		auth.WithLoginLogEnqueuer(input.Queue),
 		auth.WithLogger(logger),

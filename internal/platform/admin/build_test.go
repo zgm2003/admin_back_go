@@ -26,6 +26,23 @@ func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
+func TestBuildWiresAuthVerificationChannelCapabilities(t *testing.T) {
+	body, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatalf("read admin composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{
+		"auth.WithVerifyCodeMailSender(mailService)",
+		"auth.WithVerifyCodePhoneSender(smsService)",
+		"auth.WithVerifyCodeReadinessProvider(auth.NewChannelVerifyCodeReadinessProvider(mailService, smsService))",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("admin auth composition missing %q", want)
+		}
+	}
+}
+
 func TestAccessTokenCodecForKeysSupportsDualKeyWindow(t *testing.T) {
 	oldRing, err := secretkey.NewKeyRing(strings.Repeat("o", 64))
 	if err != nil {
