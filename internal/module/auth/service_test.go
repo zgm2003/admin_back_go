@@ -187,13 +187,15 @@ type fakeCodeStore struct {
 	setTTL               time.Duration
 	getKey               string
 	deleted              string
+	consumed             string
+	consumeCode          string
 	deleteCtx            context.Context
 	deleteCtxErr         error
 	deleteCtxHadDeadline bool
 	err                  error
 	setErr               error
 	getErr               error
-	deleteErr            error
+	consumeErr           error
 }
 
 func (f *fakeCodeStore) Set(ctx context.Context, key string, code string, ttl time.Duration) error {
@@ -224,16 +226,20 @@ func (f *fakeCodeStore) Get(ctx context.Context, key string) (string, error) {
 	return f.values[key], f.err
 }
 
-func (f *fakeCodeStore) Delete(ctx context.Context, key string) error {
-	f.deleted = key
-	f.deleteCtx = ctx
-	f.deleteCtxErr = ctx.Err()
-	_, f.deleteCtxHadDeadline = ctx.Deadline()
-	delete(f.values, key)
-	if f.deleteErr != nil {
-		return f.deleteErr
+func (f *fakeCodeStore) Consume(_ context.Context, key string, expectedCode string) (bool, error) {
+	f.consumeCode = expectedCode
+	if f.consumeErr != nil {
+		return false, f.consumeErr
 	}
-	return f.err
+	if f.err != nil {
+		return false, f.err
+	}
+	if expectedCode == "" || f.values == nil || f.values[key] != expectedCode {
+		return false, nil
+	}
+	f.consumed = key
+	delete(f.values, key)
+	return true, nil
 }
 
 type fakeLoginLogEnqueuer struct {
@@ -437,8 +443,38 @@ func TestServiceForgetPasswordConsumesForgetCodeAndWritesPasswordHash(t *testing
 	if !verifyPassword("new-secret", repo.passwordHash) {
 		t.Fatalf("expected written hash to verify")
 	}
-	if store.deleted != "auth:verify_code:phone:forget:d521793014a021c7fec54bb8feee4885" {
-		t.Fatalf("expected forget code to be consumed, got %q", store.deleted)
+	if store.consumed != "auth:verify_code:phone:forget:d521793014a021c7fec54bb8feee4885" || store.consumeCode != "123456" {
+		t.Fatalf("expected forget code to be consumed atomically, got store=%#v", store)
+	}
+}
+
+func TestServiceForgetPasswordMapsAtomicConsumeFailure(t *testing.T) {
+	store := &fakeCodeStore{
+		values: map[string]string{
+			"auth:verify_code:phone:forget:d521793014a021c7fec54bb8feee4885": "123456",
+		},
+		consumeErr: errors.New("redis unavailable"),
+	}
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:     42,
+		Phone:  "15671628271",
+		Status: commonYes,
+		IsDel:  commonNo,
+	}}
+	service := NewService(repo, fakeLoginTypeProvider{}, &fakeSessionCreator{}, &fakeCaptchaVerifier{}, WithCodeStore(store))
+
+	appErr := service.ForgetPassword(context.Background(), ForgetPasswordInput{
+		Account:         "15671628271",
+		Code:            "123456",
+		NewPassword:     "new-secret",
+		ConfirmPassword: "new-secret",
+	})
+
+	if appErr == nil || appErr.Message != "验证码消费失败" {
+		t.Fatalf("expected consume failure, got %#v", appErr)
+	}
+	if repo.passwordHash != "" {
+		t.Fatal("password changed after verification-code consume failure")
 	}
 }
 
@@ -459,8 +495,8 @@ func TestServiceForgetPasswordRejectsMismatchedPasswordBeforeConsumingCode(t *te
 	if appErr == nil || !strings.Contains(appErr.Message, "两次输入的密码不一致") {
 		t.Fatalf("expected password mismatch error, got %v", appErr)
 	}
-	if store.deleted != "" || repo.passwordHash != "" {
-		t.Fatalf("mismatch must not consume code or write password: deleted=%q hash=%q", store.deleted, repo.passwordHash)
+	if store.consumed != "" || repo.passwordHash != "" {
+		t.Fatalf("mismatch must not consume code or write password: consumed=%q hash=%q", store.consumed, repo.passwordHash)
 	}
 }
 
@@ -880,7 +916,7 @@ func TestServiceSendCodePropagatesReadinessFailureBeforeCaptcha(t *testing.T) {
 	if len(readiness.calls) != 1 || readiness.calls[0] != wantCall {
 		t.Fatalf("calls=%#v", readiness.calls)
 	}
-	if verifier.calls != 0 || store.setKey != "" || store.getKey != "" || store.deleted != "" {
+	if verifier.calls != 0 || store.setKey != "" || store.getKey != "" || store.deleted != "" || store.consumed != "" {
 		t.Fatalf("verifier=%#v store=%#v", verifier, store)
 	}
 }
@@ -1197,8 +1233,8 @@ func TestServicePhoneVerificationLoginCreatesNewUserWhenRegisterAllowed(t *testi
 	if repo.profile.UserID != 99 || repo.profile.Sex != 0 {
 		t.Fatalf("unexpected profile input: %#v", repo.profile)
 	}
-	if store.deleted != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" {
-		t.Fatalf("expected verify code to be consumed, got deleted key %q", store.deleted)
+	if store.consumed != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" || store.consumeCode != "123456" {
+		t.Fatalf("expected verify code to be consumed atomically, got store=%#v", store)
 	}
 	if sessions.input.UserID != 99 || sessions.input.Platform != "admin" {
 		t.Fatalf("unexpected session input: %#v", sessions.input)
@@ -1230,8 +1266,8 @@ func TestServiceCodeLoginRejectsUnavailableSelectedChannel(t *testing.T) {
 	if len(readiness.calls) != 1 || readiness.calls[0] != (verifyCodeReadinessCall{accountType: LoginTypePhone, scene: VerifyCodeSceneLogin}) {
 		t.Fatalf("calls=%#v", readiness.calls)
 	}
-	if store.deleted != "" {
-		t.Fatalf("unavailable channel consumed code: %q", store.deleted)
+	if store.consumed != "" {
+		t.Fatalf("unavailable channel consumed code: %q", store.consumed)
 	}
 }
 
@@ -1262,7 +1298,7 @@ func TestServiceCodeLoginPropagatesSelectedChannelReadinessFailure(t *testing.T)
 	if len(readiness.calls) != 1 || readiness.calls[0] != wantCall {
 		t.Fatalf("calls=%#v", readiness.calls)
 	}
-	if store.getKey != "" || store.deleted != "" {
+	if store.getKey != "" || store.deleted != "" || store.consumed != "" {
 		t.Fatalf("store=%#v", store)
 	}
 }
@@ -1287,7 +1323,7 @@ func TestServiceCodeLoginChecksPlatformPolicyBeforeReadiness(t *testing.T) {
 	if result != nil || appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "当前平台不支持该登录方式" {
 		t.Fatalf("result=%#v err=%#v", result, appErr)
 	}
-	if len(readiness.calls) != 0 || store.getKey != "" || store.deleted != "" {
+	if len(readiness.calls) != 0 || store.getKey != "" || store.deleted != "" || store.consumed != "" {
 		t.Fatalf("calls=%#v store=%#v", readiness.calls, store)
 	}
 }
@@ -1320,8 +1356,8 @@ func TestServiceCodeLoginRejectsRegisterWhenPlatformDisallowsIt(t *testing.T) {
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "暂未开放注册" {
 		t.Fatalf("expected register disabled error, got %#v", appErr)
 	}
-	if store.deleted != "" {
-		t.Fatalf("verify code must not be consumed when register is denied, got %q", store.deleted)
+	if store.consumed != "" {
+		t.Fatalf("verify code must not be consumed when register is denied, got %q", store.consumed)
 	}
 	if repo.txCalled {
 		t.Fatalf("registration transaction should not run when register is denied")

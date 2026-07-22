@@ -39,8 +39,7 @@ type RouteAccessGrantCache interface {
 }
 
 type VerifyCodeStore interface {
-	Get(ctx context.Context, key string) (string, error)
-	Delete(ctx context.Context, key string) error
+	Consume(ctx context.Context, key string, expectedCode string) (bool, error)
 }
 
 type ExportTaskCreator interface {
@@ -859,15 +858,12 @@ func (s *Service) verifyCode(ctx context.Context, accountType string, scene stri
 		return apperror.Internal("验证码缓存未配置")
 	}
 	key := verifycode.CacheKey(accountType, scene, account)
-	cached, err := s.verifyCodeStore.Get(ctx, key)
+	consumed, err := s.verifyCodeStore.Consume(ctx, key, strings.TrimSpace(code))
 	if err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, 500, "验证码缓存读取失败", err)
-	}
-	if cached == "" || cached != strings.TrimSpace(code) {
-		return apperror.BadRequest("验证码错误或已失效")
-	}
-	if err := s.verifyCodeStore.Delete(ctx, key); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "验证码消费失败", err)
+	}
+	if !consumed {
+		return apperror.BadRequest("验证码错误或已失效")
 	}
 	return nil
 }

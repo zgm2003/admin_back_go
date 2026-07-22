@@ -29,6 +29,27 @@ end
 return ""
 `
 
+const consumeVerificationCodeScript = `
+if ARGV[1] == "" then
+  return 0
+end
+local value_type = redis.call("TYPE", KEYS[1]).ok
+if value_type == "string" then
+  if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+    return 0
+  end
+  return redis.call("DEL", KEYS[1])
+end
+if value_type == "hash" then
+  if redis.call("HGET", KEYS[1], "state") ~= "delivered"
+    or redis.call("HGET", KEYS[1], "code") ~= ARGV[1] then
+    return 0
+  end
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+`
+
 const acquireDeliveryLeaseScript = `
 if redis.call("SET", KEYS[1], ARGV[1], "NX", "PX", ARGV[2]) then
   return 1
@@ -90,7 +111,7 @@ return 1
 type CodeStore interface {
 	Set(ctx context.Context, key string, code string, ttl time.Duration) error
 	Get(ctx context.Context, key string) (string, error)
-	Delete(ctx context.Context, key string) error
+	Consume(ctx context.Context, key string, expectedCode string) (bool, error)
 }
 
 type verifyCodeDeliveryLease struct {
@@ -135,11 +156,22 @@ func (s *RedisCodeStore) Get(ctx context.Context, key string) (string, error) {
 	return value, nil
 }
 
-func (s *RedisCodeStore) Delete(ctx context.Context, key string) error {
+func (s *RedisCodeStore) Consume(ctx context.Context, key string, expectedCode string) (bool, error) {
 	if s == nil || s.client == nil || s.client.Redis == nil {
-		return ErrRepositoryNotConfigured
+		return false, ErrRepositoryNotConfigured
 	}
-	return s.client.Redis.Del(ctx, key).Err()
+	result, err := s.client.Redis.Eval(ctx, consumeVerificationCodeScript, []string{key}, expectedCode).Int64()
+	if err != nil {
+		return false, fmt.Errorf("consume verification code: %w", err)
+	}
+	switch result {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("consume verification code: unexpected result %d", result)
+	}
 }
 
 func (s *RedisCodeStore) AcquireDelivery(ctx context.Context, key string, ttl time.Duration) (verifyCodeDeliveryLease, error) {
@@ -256,3 +288,4 @@ func VerifyCodeCacheKey(accountType string, scene string, account string) string
 }
 
 var _ verifyCodeDeliveryStore = (*RedisCodeStore)(nil)
+var _ CodeStore = (*RedisCodeStore)(nil)

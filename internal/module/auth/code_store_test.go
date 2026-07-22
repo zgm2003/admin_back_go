@@ -34,6 +34,128 @@ type errorReader struct{ err error }
 
 func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
 
+type verificationCodeConsumer interface {
+	Consume(context.Context, string, string) (bool, error)
+}
+
+func TestRedisCodeStoreConsumeAtomically(t *testing.T) {
+	store := &RedisCodeStore{}
+	consumer, ok := any(store).(verificationCodeConsumer)
+	if !ok {
+		t.Fatal("RedisCodeStore must implement atomic verification-code consumption")
+	}
+
+	client := verificationCodeStoreRedisClient(t)
+	store.client = &redisclient.Client{Redis: client}
+	ctx := context.Background()
+
+	newKey := func(t *testing.T, suffix string) string {
+		t.Helper()
+		key := fmt.Sprintf("test:auth:verify-code:consume:%s:%d", suffix, time.Now().UnixNano())
+		t.Cleanup(func() {
+			_ = client.Del(ctx, key, key+":delivery-lock").Err()
+		})
+		return key
+	}
+	setDelivered := func(t *testing.T, key, code string) {
+		t.Helper()
+		lease, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		if err := store.SetPendingDelivery(ctx, lease, key, code, time.Minute); err != nil {
+			t.Fatalf("set pending delivery: %v", err)
+		}
+		if err := store.CommitDelivery(ctx, lease, key); err != nil {
+			t.Fatalf("commit delivery: %v", err)
+		}
+	}
+
+	t.Run("consumes matching delivered code", func(t *testing.T) {
+		key := newKey(t, "delivered-match")
+		setDelivered(t, key, "111111")
+
+		consumed, err := consumer.Consume(ctx, key, "111111")
+		if err != nil || !consumed {
+			t.Fatalf("consume matching delivered code: consumed=%v err=%v", consumed, err)
+		}
+		if code, err := store.Get(ctx, key); err != nil || code != "" {
+			t.Fatalf("consumed code remains available: code=%q err=%v", code, err)
+		}
+	})
+
+	t.Run("preserves mismatched delivered code", func(t *testing.T) {
+		key := newKey(t, "delivered-mismatch")
+		setDelivered(t, key, "222222")
+
+		consumed, err := consumer.Consume(ctx, key, "999999")
+		if err != nil || consumed {
+			t.Fatalf("consume mismatched delivered code: consumed=%v err=%v", consumed, err)
+		}
+		if code, err := store.Get(ctx, key); err != nil || code != "222222" {
+			t.Fatalf("mismatched delivered code was changed: code=%q err=%v", code, err)
+		}
+	})
+
+	t.Run("never consumes matching pending code", func(t *testing.T) {
+		key := newKey(t, "pending-match")
+		lease, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		if err := store.SetPendingDelivery(ctx, lease, key, "333333", time.Minute); err != nil {
+			t.Fatalf("set pending delivery: %v", err)
+		}
+
+		consumed, err := consumer.Consume(ctx, key, "333333")
+		if err != nil || consumed {
+			t.Fatalf("consume matching pending code: consumed=%v err=%v", consumed, err)
+		}
+		if err := store.CommitDelivery(ctx, lease, key); err != nil {
+			t.Fatalf("pending delivery was not preserved for commit: %v", err)
+		}
+	})
+
+	t.Run("preserves replacement pending delivery", func(t *testing.T) {
+		key := newKey(t, "replacement-pending")
+		setDelivered(t, key, "444444")
+		replacement, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire replacement delivery: %v", err)
+		}
+		if err := store.SetPendingDelivery(ctx, replacement, key, "555555", time.Minute); err != nil {
+			t.Fatalf("set replacement pending delivery: %v", err)
+		}
+
+		consumed, err := consumer.Consume(ctx, key, "444444")
+		if err != nil || consumed {
+			t.Fatalf("consume replaced code: consumed=%v err=%v", consumed, err)
+		}
+		if err := store.CommitDelivery(ctx, replacement, key); err != nil {
+			t.Fatalf("replacement pending delivery was not preserved for commit: %v", err)
+		}
+		if code, err := store.Get(ctx, key); err != nil || code != "555555" {
+			t.Fatalf("replacement delivered code unavailable: code=%q err=%v", code, err)
+		}
+	})
+
+	t.Run("supports legacy string codes", func(t *testing.T) {
+		key := newKey(t, "legacy")
+		if err := store.Set(ctx, key, "666666", time.Minute); err != nil {
+			t.Fatalf("set legacy code: %v", err)
+		}
+
+		consumed, err := consumer.Consume(ctx, key, "999999")
+		if err != nil || consumed {
+			t.Fatalf("consume mismatched legacy code: consumed=%v err=%v", consumed, err)
+		}
+		consumed, err = consumer.Consume(ctx, key, "666666")
+		if err != nil || !consumed {
+			t.Fatalf("consume matching legacy code: consumed=%v err=%v", consumed, err)
+		}
+	})
+}
+
 func TestRedisCodeStoreDeliveryProtocolHidesPendingAndRejectsStaleRollback(t *testing.T) {
 	client := verificationCodeStoreRedisClient(t)
 	store := NewRedisCodeStore(&redisclient.Client{Redis: client}).(*RedisCodeStore)

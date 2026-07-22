@@ -247,21 +247,27 @@ func (f *fakeRouteAccessGrantCache) Delete(ctx context.Context, key string) erro
 }
 
 type fakeVerifyCodeStore struct {
-	values     map[string]string
-	deletedKey string
-	err        error
+	values       map[string]string
+	consumedKey  string
+	consumedCode string
+	err          error
+	consumeErr   error
 }
 
-func (f *fakeVerifyCodeStore) Get(ctx context.Context, key string) (string, error) {
-	if f.err != nil {
-		return "", f.err
+func (f *fakeVerifyCodeStore) Consume(_ context.Context, key string, expectedCode string) (bool, error) {
+	f.consumedCode = expectedCode
+	if f.consumeErr != nil {
+		return false, f.consumeErr
 	}
-	return f.values[key], nil
-}
-
-func (f *fakeVerifyCodeStore) Delete(ctx context.Context, key string) error {
-	f.deletedKey = key
-	return f.err
+	if f.err != nil {
+		return false, f.err
+	}
+	if expectedCode == "" || f.values == nil || f.values[key] != expectedCode {
+		return false, nil
+	}
+	f.consumedKey = key
+	delete(f.values, key)
+	return true, nil
 }
 
 func mustUserPasswordHash(t *testing.T, password string) string {
@@ -504,8 +510,8 @@ func TestServiceUpdatePasswordWithCodeConsumesOwnedAccountCode(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("expected no app error, got %v", appErr)
 	}
-	if store.deletedKey == "" {
-		t.Fatalf("expected verification code to be consumed")
+	if store.consumedKey == "" || store.consumedCode != "123456" {
+		t.Fatalf("expected verification code to be consumed atomically, got store=%#v", store)
 	}
 	if _, ok := repo.updatedUserFields["password"].(string); !ok {
 		t.Fatalf("expected password update, got %#v", repo.updatedUserFields)
@@ -527,8 +533,8 @@ func TestServiceUpdateEmailConsumesBindEmailCodeAndRejectsDuplicate(t *testing.T
 	if repo.existsEmailUserID != 9 || repo.existsEmail != "new@example.com" {
 		t.Fatalf("duplicate email check mismatch: %#v", repo)
 	}
-	if repo.updatedUserFields["email"] != "new@example.com" || store.deletedKey == "" {
-		t.Fatalf("email update/code consume mismatch: fields=%#v deleted=%q", repo.updatedUserFields, store.deletedKey)
+	if repo.updatedUserFields["email"] != "new@example.com" || store.consumedKey == "" {
+		t.Fatalf("email update/code consume mismatch: fields=%#v consumed=%q", repo.updatedUserFields, store.consumedKey)
 	}
 
 	dupRepo := &fakeUserRepository{user: &User{ID: 9}, emailUsed: true}
@@ -554,8 +560,8 @@ func TestServiceUpdatePhoneConsumesBindPhoneCodeAndRejectsDuplicate(t *testing.T
 	if repo.existsPhoneUserID != 9 || repo.existsPhone != "15671628271" {
 		t.Fatalf("duplicate phone check mismatch: %#v", repo)
 	}
-	if repo.updatedUserFields["phone"] != "15671628271" || store.deletedKey == "" {
-		t.Fatalf("phone update/code consume mismatch: fields=%#v deleted=%q", repo.updatedUserFields, store.deletedKey)
+	if repo.updatedUserFields["phone"] != "15671628271" || store.consumedKey == "" {
+		t.Fatalf("phone update/code consume mismatch: fields=%#v consumed=%q", repo.updatedUserFields, store.consumedKey)
 	}
 
 	dupRepo := &fakeUserRepository{user: &User{ID: 9}, phoneUsed: true}
@@ -563,6 +569,30 @@ func TestServiceUpdatePhoneConsumesBindPhoneCodeAndRejectsDuplicate(t *testing.T
 	appErr = dupSvc.UpdatePhone(context.Background(), UpdatePhoneInput{UserID: 9, Phone: "15671628271", Code: "123456"})
 	if appErr == nil || appErr.Message != "手机号已被绑定" {
 		t.Fatalf("expected duplicate phone error, got %#v", appErr)
+	}
+}
+
+func TestServiceUpdatePhoneMapsAtomicConsumeFailure(t *testing.T) {
+	store := &fakeVerifyCodeStore{
+		values: map[string]string{
+			"auth:verify_code:phone:bind_phone:d521793014a021c7fec54bb8feee4885": "123456",
+		},
+		consumeErr: errors.New("redis unavailable"),
+	}
+	repo := &fakeUserRepository{user: &User{ID: 9}}
+	svc := NewService(repo, &fakePermissionBuilder{}, nil, time.Minute, WithVerifyCodeStore(store))
+
+	appErr := svc.UpdatePhone(context.Background(), UpdatePhoneInput{
+		UserID: 9,
+		Phone:  "15671628271",
+		Code:   "123456",
+	})
+
+	if appErr == nil || appErr.Message != "验证码消费失败" {
+		t.Fatalf("expected consume failure, got %#v", appErr)
+	}
+	if repo.updatedUserFields != nil {
+		t.Fatalf("phone changed after verification-code consume failure: %#v", repo.updatedUserFields)
 	}
 }
 

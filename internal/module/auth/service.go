@@ -770,17 +770,27 @@ func (s *Service) verifyCode(ctx context.Context, account string, code string, s
 	if accountType == "" {
 		return apperror.BadRequest("请输入正确的邮箱或手机号")
 	}
-	cached, err := s.codeStore.Get(ctx, s.verifyCodeCacheKey(accountType, scene, account))
+	expectedCode := strings.TrimSpace(code)
+	if expectedCode == "" {
+		return apperror.BadRequest("验证码错误或已失效")
+	}
+	key := s.verifyCodeCacheKey(accountType, scene, account)
+	if consume {
+		consumed, err := s.codeStore.Consume(ctx, key, expectedCode)
+		if err != nil {
+			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码消费失败", err)
+		}
+		if !consumed {
+			return apperror.BadRequest("验证码错误或已失效")
+		}
+		return nil
+	}
+	cached, err := s.codeStore.Get(ctx, key)
 	if err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存读取失败", err)
 	}
-	if cached == "" || cached != strings.TrimSpace(code) {
+	if cached == "" || cached != expectedCode {
 		return apperror.BadRequest("验证码错误或已失效")
-	}
-	if consume {
-		if err := s.codeStore.Delete(ctx, s.verifyCodeCacheKey(accountType, scene, account)); err != nil {
-			return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码消费失败", err)
-		}
 	}
 	return nil
 }
