@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/infra/redislock"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -42,9 +41,10 @@ const (
 )
 
 var (
-	phonePattern           = regexp.MustCompile(`^1[3-9]\d{9}$`)
-	emailPattern           = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
-	errDefaultRoleNotFound = errors.New("default role not found")
+	phonePattern                          = regexp.MustCompile(`^1[3-9]\d{9}$`)
+	emailPattern                          = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+	errDefaultRoleNotFound                = errors.New("default role not found")
+	errVerificationDeliveryRenewalStopped = errors.New("verification delivery renewal stopped")
 )
 
 type PlatformConfigProvider interface {
@@ -259,7 +259,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		return "", verifyCodeDeliveryStateError()
 	}
 	lease, err := deliveryStore.AcquireDelivery(ctx, cacheKey, s.verifyCodeOptions.DeliveryLeaseTTL)
-	if errors.Is(err, redislock.ErrNotAcquired) {
+	if errors.Is(err, errVerificationDeliveryInProgress) {
 		return "", verifyCodeDeliveryInProgressError()
 	}
 	if err != nil {
@@ -294,18 +294,18 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 func (s *Service) sendVerifyCodeWithDeliveryRenewal(
 	ctx context.Context,
 	deliveryStore verifyCodeDeliveryStore,
-	lease redislock.Lease,
+	lease verifyCodeDeliveryLease,
 	accountType string,
 	input SendCodeInput,
 	code string,
 	ttl time.Duration,
 ) (*apperror.Error, error) {
 	sendCtx, cancelSend := context.WithCancel(ctx)
-	stopRenewal := make(chan struct{})
-	renewalDone := make(chan struct{})
-	renewalErr := make(chan error, 1)
+	defer cancelSend()
+	renewalCtx, cancelRenewal := context.WithCancelCause(ctx)
+	defer cancelRenewal(errVerificationDeliveryRenewalStopped)
+	renewalDone := make(chan error, 1)
 	go func() {
-		defer close(renewalDone)
 		interval := s.verifyCodeOptions.DeliveryLeaseTTL / 3
 		if interval < time.Millisecond {
 			interval = time.Millisecond
@@ -314,14 +314,24 @@ func (s *Service) sendVerifyCodeWithDeliveryRenewal(
 		defer ticker.Stop()
 		for {
 			select {
-			case <-stopRenewal:
-				return
-			case <-sendCtx.Done():
+			case <-renewalCtx.Done():
+				if errors.Is(context.Cause(renewalCtx), errVerificationDeliveryRenewalStopped) {
+					renewalDone <- nil
+				} else {
+					renewalDone <- renewalCtx.Err()
+				}
 				return
 			case <-ticker.C:
-				if err := deliveryStore.RenewDelivery(sendCtx, lease, s.verifyCodeOptions.DeliveryLeaseTTL); err != nil {
-					renewalErr <- err
+				if err := deliveryStore.RenewDelivery(renewalCtx, lease, s.verifyCodeOptions.DeliveryLeaseTTL); err != nil {
+					if errors.Is(err, context.Canceled) && errors.Is(context.Cause(renewalCtx), errVerificationDeliveryRenewalStopped) {
+						renewalDone <- nil
+						return
+					}
+					if s.logger != nil {
+						s.logger.ErrorContext(ctx, "verification delivery renewal failed", "account_type", accountType, "scene", input.Scene, "error", err)
+					}
 					cancelSend()
+					renewalDone <- err
 					return
 				}
 			}
@@ -343,21 +353,14 @@ func (s *Service) sendVerifyCodeWithDeliveryRenewal(
 			sendErr = s.verifyCodePhoneSender.SendVerifyCode(sendCtx, input.Scene, input.Account, code, ttl)
 		}
 	}
-	close(stopRenewal)
-	cancelSend()
-	<-renewalDone
-	select {
-	case err := <-renewalErr:
-		return sendErr, err
-	default:
-		return sendErr, nil
-	}
+	cancelRenewal(errVerificationDeliveryRenewalStopped)
+	return sendErr, <-renewalDone
 }
 
 func (s *Service) rollbackVerifyCodeDelivery(
 	ctx context.Context,
 	deliveryStore verifyCodeDeliveryStore,
-	lease redislock.Lease,
+	lease verifyCodeDeliveryLease,
 	cacheKey string,
 	accountType string,
 	scene string,
@@ -375,7 +378,7 @@ func verifyCodeDeliveryInProgressError() *apperror.Error {
 		"auth.verify_code.delivery_in_progress",
 		apperror.CategoryConflict,
 		http.StatusConflict,
-		apperror.Permanent,
+		apperror.Retryable,
 		"auth.verify_code.delivery_in_progress",
 		nil,
 		"验证码正在发送，请稍后重试",

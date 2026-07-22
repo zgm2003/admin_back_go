@@ -1720,7 +1720,7 @@ func TestServiceSendCodeRejectsConcurrentDeliveryWithoutInvalidatingSuccessfulCo
 	if first.err != nil || first.message != "验证码发送成功" {
 		t.Fatalf("first delivery message=%q err=%#v", first.message, first.err)
 	}
-	if secondMessage != "" || secondErr == nil || secondErr.MessageID != "auth.verify_code.delivery_in_progress" || secondErr.Category != apperror.CategoryConflict || secondErr.HTTPStatus != http.StatusConflict {
+	if secondMessage != "" || secondErr == nil || secondErr.MessageID != "auth.verify_code.delivery_in_progress" || secondErr.Category != apperror.CategoryConflict || secondErr.HTTPStatus != http.StatusConflict || secondErr.Retry != apperror.Retryable {
 		t.Fatalf("second delivery must be rejected before overwriting: message=%q err=%#v", secondMessage, secondErr)
 	}
 	cacheKey := firstService.verifyCodeCacheKey(LoginTypePhone, VerifyCodeSceneLogin, "15671628271")
@@ -1787,6 +1787,38 @@ func TestServiceSendCodeRenewsDeliveryLeaseWhileSenderIsInFlight(t *testing.T) {
 	}
 	if store.renewCalls == 0 {
 		t.Fatal("delivery lease was not renewed while sender was in flight")
+	}
+}
+
+func TestServiceSendCodeIgnoresCanceledRenewalDuringNormalShutdown(t *testing.T) {
+	store := &fakeCodeStore{}
+	renewEntered := make(chan struct{})
+	store.renew = func(ctx context.Context, _ verifyCodeDeliveryLease, _ time.Duration) error {
+		close(renewEntered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	service := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{send: func(context.Context, string, string, string, time.Duration) *apperror.Error {
+			<-renewEntered
+			return nil
+		}}),
+		WithVerifyCodeOptions(VerifyCodeOptions{
+			CodeGenerator:    func() (string, error) { return "654321", nil },
+			DeliveryLeaseTTL: 30 * time.Millisecond,
+		}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if appErr != nil || message != "验证码发送成功" {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if code, _ := store.Get(context.Background(), service.verifyCodeCacheKey(LoginTypePhone, VerifyCodeSceneLogin, "15671628271")); code != "654321" {
+		t.Fatalf("normally stopped renewal prevented delivery commit: %q", code)
 	}
 }
 

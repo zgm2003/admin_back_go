@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/redisclient"
-	"admin_back_go/internal/infra/redislock"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -40,9 +39,8 @@ func TestRedisCodeStoreDeliveryProtocolHidesPendingAndRejectsStaleRollback(t *te
 	store := NewRedisCodeStore(&redisclient.Client{Redis: client}).(*RedisCodeStore)
 	ctx := context.Background()
 	key := fmt.Sprintf("test:auth:verify-code:%d", time.Now().UnixNano())
-	lockKey := key + ":delivery-lock"
 	t.Cleanup(func() {
-		_ = client.Del(ctx, key, lockKey, lockKey+":fencing-token").Err()
+		_ = client.Del(ctx, key).Err()
 	})
 
 	first, err := store.AcquireDelivery(ctx, key, time.Second)
@@ -86,6 +84,105 @@ func TestRedisCodeStoreDeliveryProtocolHidesPendingAndRejectsStaleRollback(t *te
 	}
 }
 
+func TestRedisCodeStoreDeliveryLeaseLifecycleLeavesNoAuxiliaryKeys(t *testing.T) {
+	client := verificationCodeStoreRedisClient(t)
+	store := NewRedisCodeStore(&redisclient.Client{Redis: client}).(*RedisCodeStore)
+	ctx := context.Background()
+
+	t.Run("commit", func(t *testing.T) {
+		key := fmt.Sprintf("test:auth:verify-code:commit:%d", time.Now().UnixNano())
+		t.Cleanup(func() { _ = client.Del(ctx, key).Err() })
+		lease, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		if err := store.SetPendingDelivery(ctx, lease, key, "111111", time.Minute); err != nil {
+			t.Fatalf("set pending delivery: %v", err)
+		}
+		if err := store.CommitDelivery(ctx, lease, key); err != nil {
+			t.Fatalf("commit delivery: %v", err)
+		}
+		assertNoVerificationDeliveryAuxiliaryKeys(t, client, key)
+	})
+
+	t.Run("rollback", func(t *testing.T) {
+		key := fmt.Sprintf("test:auth:verify-code:rollback:%d", time.Now().UnixNano())
+		lease, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		if err := store.SetPendingDelivery(ctx, lease, key, "222222", time.Minute); err != nil {
+			t.Fatalf("set pending delivery: %v", err)
+		}
+		if err := store.RollbackDelivery(ctx, lease, key); err != nil {
+			t.Fatalf("rollback delivery: %v", err)
+		}
+		assertNoVerificationDeliveryAuxiliaryKeys(t, client, key)
+	})
+
+	t.Run("lease expiry", func(t *testing.T) {
+		key := fmt.Sprintf("test:auth:verify-code:expiry:%d", time.Now().UnixNano())
+		if _, err := store.AcquireDelivery(ctx, key, 30*time.Millisecond); err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		lockKey := key + ":delivery-lock"
+		deadline := time.Now().Add(time.Second)
+		for {
+			exists, err := client.Exists(ctx, lockKey).Result()
+			if err != nil {
+				t.Fatalf("inspect delivery lock: %v", err)
+			}
+			if exists == 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("delivery lock did not expire: %q", lockKey)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		assertNoVerificationDeliveryAuxiliaryKeys(t, client, key)
+	})
+
+	t.Run("unique key batch", func(t *testing.T) {
+		prefix := fmt.Sprintf("test:auth:verify-code:batch:%d", time.Now().UnixNano())
+		before, err := client.Keys(ctx, prefix+"*").Result()
+		if err != nil {
+			t.Fatalf("count baseline keys: %v", err)
+		}
+		for i := 0; i < 16; i++ {
+			key := fmt.Sprintf("%s:%02d", prefix, i)
+			lease, err := store.AcquireDelivery(ctx, key, time.Second)
+			if err != nil {
+				t.Fatalf("acquire delivery %d: %v", i, err)
+			}
+			if err := store.SetPendingDelivery(ctx, lease, key, "333333", time.Minute); err != nil {
+				t.Fatalf("set pending delivery %d: %v", i, err)
+			}
+			if err := store.RollbackDelivery(ctx, lease, key); err != nil {
+				t.Fatalf("rollback delivery %d: %v", i, err)
+			}
+		}
+		after, err := client.Keys(ctx, prefix+"*").Result()
+		if err != nil {
+			t.Fatalf("count keys after delivery lifecycle: %v", err)
+		}
+		if len(after) != len(before) {
+			t.Fatalf("verification delivery lifecycle leaked keys: before=%v after=%v", before, after)
+		}
+	})
+}
+
+func assertNoVerificationDeliveryAuxiliaryKeys(t *testing.T, client *redis.Client, key string) {
+	t.Helper()
+	keys, err := client.Keys(context.Background(), key+":delivery-lock*").Result()
+	if err != nil {
+		t.Fatalf("inspect verification delivery auxiliary keys: %v", err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("verification delivery lifecycle leaked auxiliary keys: %v", keys)
+	}
+}
+
 func verificationCodeStoreRedisClient(t *testing.T) *redis.Client {
 	t.Helper()
 	addr := os.Getenv("TEST_REDIS_ADDR")
@@ -106,7 +203,7 @@ func verificationCodeStoreRedisClient(t *testing.T) *redis.Client {
 type fakeDeliveryCodeStoreState struct {
 	mu sync.Mutex
 
-	deliveryLease     *redislock.Lease
+	deliveryLease     *verifyCodeDeliveryLease
 	deliveryPending   map[string]fakePendingDelivery
 	deliverySetErr    error
 	acquireErr        error
@@ -115,6 +212,7 @@ type fakeDeliveryCodeStoreState struct {
 	rollbackErr       error
 	releaseErr        error
 	renewCalled       chan struct{}
+	renew             func(context.Context, verifyCodeDeliveryLease, time.Duration) error
 	renewCalls        int
 	nextDeliveryToken uint64
 }
@@ -124,27 +222,25 @@ type fakePendingDelivery struct {
 	code  string
 }
 
-func (f *fakeCodeStore) AcquireDelivery(_ context.Context, key string, ttl time.Duration) (redislock.Lease, error) {
+func (f *fakeCodeStore) AcquireDelivery(_ context.Context, key string, _ time.Duration) (verifyCodeDeliveryLease, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.acquireErr != nil {
-		return redislock.Lease{}, f.acquireErr
+		return verifyCodeDeliveryLease{}, f.acquireErr
 	}
 	if f.deliveryLease != nil {
-		return redislock.Lease{}, redislock.ErrNotAcquired
+		return verifyCodeDeliveryLease{}, errVerificationDeliveryInProgress
 	}
 	f.nextDeliveryToken++
-	lease := redislock.Lease{
-		Key:       key + ":delivery-lock",
-		Owner:     fmt.Sprintf("attempt-%d", f.nextDeliveryToken),
-		Token:     f.nextDeliveryToken,
-		ExpiresAt: time.Now().Add(ttl),
+	lease := verifyCodeDeliveryLease{
+		key:   key + ":delivery-lock",
+		owner: fmt.Sprintf("attempt-%d", f.nextDeliveryToken),
 	}
 	f.deliveryLease = &lease
 	return lease, nil
 }
 
-func (f *fakeCodeStore) SetPendingDelivery(_ context.Context, lease redislock.Lease, key, code string, ttl time.Duration) error {
+func (f *fakeCodeStore) SetPendingDelivery(_ context.Context, lease verifyCodeDeliveryLease, key, code string, ttl time.Duration) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.deliverySetErr != nil {
@@ -156,18 +252,21 @@ func (f *fakeCodeStore) SetPendingDelivery(_ context.Context, lease redislock.Le
 	if f.err != nil {
 		return f.err
 	}
-	if f.deliveryLease == nil || f.deliveryLease.Owner != lease.Owner || f.deliveryLease.Token != lease.Token {
-		return redislock.ErrLeaseLost
+	if f.deliveryLease == nil || f.deliveryLease.key != lease.key || f.deliveryLease.owner != lease.owner {
+		return errVerificationDeliveryStateLost
 	}
 	if f.deliveryPending == nil {
 		f.deliveryPending = map[string]fakePendingDelivery{}
 	}
-	f.deliveryPending[key] = fakePendingDelivery{owner: lease.Owner, code: code}
+	f.deliveryPending[key] = fakePendingDelivery{owner: lease.owner, code: code}
 	f.setKey, f.setCode, f.setTTL = key, code, ttl
 	return nil
 }
 
-func (f *fakeCodeStore) RenewDelivery(_ context.Context, lease redislock.Lease, ttl time.Duration) error {
+func (f *fakeCodeStore) RenewDelivery(ctx context.Context, lease verifyCodeDeliveryLease, ttl time.Duration) error {
+	if f.renew != nil {
+		return f.renew(ctx, lease, ttl)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.renewCalls++
@@ -180,14 +279,13 @@ func (f *fakeCodeStore) RenewDelivery(_ context.Context, lease redislock.Lease, 
 	if f.renewErr != nil {
 		return f.renewErr
 	}
-	if f.deliveryLease == nil || f.deliveryLease.Owner != lease.Owner || f.deliveryLease.Token != lease.Token {
-		return redislock.ErrLeaseLost
+	if f.deliveryLease == nil || f.deliveryLease.key != lease.key || f.deliveryLease.owner != lease.owner {
+		return errVerificationDeliveryStateLost
 	}
-	f.deliveryLease.ExpiresAt = time.Now().Add(ttl)
 	return nil
 }
 
-func (f *fakeCodeStore) CommitDelivery(ctx context.Context, lease redislock.Lease, key string) error {
+func (f *fakeCodeStore) CommitDelivery(ctx context.Context, lease verifyCodeDeliveryLease, key string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.captureDeliveryCleanupContext(ctx)
@@ -198,8 +296,8 @@ func (f *fakeCodeStore) CommitDelivery(ctx context.Context, lease redislock.Leas
 		return f.releaseErr
 	}
 	pending, ok := f.deliveryPending[key]
-	if f.deliveryLease == nil || f.deliveryLease.Owner != lease.Owner || f.deliveryLease.Token != lease.Token || !ok || pending.owner != lease.Owner {
-		return redislock.ErrLeaseLost
+	if f.deliveryLease == nil || f.deliveryLease.key != lease.key || f.deliveryLease.owner != lease.owner || !ok || pending.owner != lease.owner {
+		return errVerificationDeliveryStateLost
 	}
 	if f.values == nil {
 		f.values = map[string]string{}
@@ -210,7 +308,7 @@ func (f *fakeCodeStore) CommitDelivery(ctx context.Context, lease redislock.Leas
 	return nil
 }
 
-func (f *fakeCodeStore) RollbackDelivery(ctx context.Context, lease redislock.Lease, key string) error {
+func (f *fakeCodeStore) RollbackDelivery(ctx context.Context, lease verifyCodeDeliveryLease, key string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.captureDeliveryCleanupContext(ctx)
@@ -220,11 +318,11 @@ func (f *fakeCodeStore) RollbackDelivery(ctx context.Context, lease redislock.Le
 	if f.releaseErr != nil {
 		return f.releaseErr
 	}
-	if pending, ok := f.deliveryPending[key]; ok && pending.owner == lease.Owner {
+	if pending, ok := f.deliveryPending[key]; ok && pending.owner == lease.owner {
 		delete(f.deliveryPending, key)
 		f.deleted = key
 	}
-	if f.deliveryLease != nil && f.deliveryLease.Owner == lease.Owner && f.deliveryLease.Token == lease.Token {
+	if f.deliveryLease != nil && f.deliveryLease.key == lease.key && f.deliveryLease.owner == lease.owner {
 		f.deliveryLease = nil
 	}
 	return nil
