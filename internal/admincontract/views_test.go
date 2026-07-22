@@ -17,7 +17,7 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	if document.SchemaVersion != ViewSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.Views), 28; got != want {
+	if got, want := len(document.Views), 33; got != want {
 		t.Fatalf("views=%d want=%d", got, want)
 	}
 	if document.UsersMe.Method != "GET" || document.UsersMe.Path != "/api/admin/v1/users/me" {
@@ -50,7 +50,17 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	if !reflect.DeepEqual(keys, wantSorted) {
 		t.Fatalf("view keys are not sorted")
 	}
-	for _, required := range []string{"ai/chat", "payment/recharge", "system/queueMonitor", "user/userManager"} {
+	for _, required := range []string{
+		"ai/chat",
+		"component/display",
+		"component/download",
+		"component/effect",
+		"component/form",
+		"component/upload",
+		"payment/recharge",
+		"system/queueMonitor",
+		"user/userManager",
+	} {
 		if _, exists := seen[required]; !exists {
 			t.Fatalf("missing active Admin view %q", required)
 		}
