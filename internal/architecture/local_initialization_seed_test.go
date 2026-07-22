@@ -11,14 +11,20 @@ import (
 )
 
 type permissionSeedRow struct {
-	id       int64
-	parentID int64
-	platform string
-	typeID   int
-	code     string
-	showMenu int
-	status   int
-	isDel    int
+	id        int64
+	name      string
+	path      string
+	icon      string
+	parentID  int64
+	component string
+	platform  string
+	typeID    int
+	sort      int
+	code      string
+	i18nKey   string
+	showMenu  int
+	status    int
+	isDel     int
 }
 
 func TestLocalPermissionSeed(t *testing.T) {
@@ -61,12 +67,13 @@ func TestLocalPermissionSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse local permission seed: %v", err)
 	}
-	if len(rows) != 125 {
-		t.Fatalf("permission seed row count=%d want 125", len(rows))
+	if len(rows) != 131 {
+		t.Fatalf("permission seed row count=%d want 131", len(rows))
 	}
 
 	ids := make(map[int64]struct{}, len(rows))
 	codes := make(map[string]int64, len(rows))
+	rowsByID := make(map[int64]permissionSeedRow, len(rows))
 	var previousID int64
 	for _, row := range rows {
 		if row.id <= previousID {
@@ -77,6 +84,7 @@ func TestLocalPermissionSeed(t *testing.T) {
 			t.Fatalf("permission seed contains duplicate id %d", row.id)
 		}
 		ids[row.id] = struct{}{}
+		rowsByID[row.id] = row
 		if row.platform != "admin" || row.status != 1 || row.isDel != 2 {
 			t.Fatalf("permission %d has invalid lifecycle fields", row.id)
 		}
@@ -100,6 +108,24 @@ func TestLocalPermissionSeed(t *testing.T) {
 	}
 	if len(codes) != 101 {
 		t.Fatalf("permission seed code count=%d want 101", len(codes))
+	}
+
+	restored := map[int64]permissionSeedRow{
+		4:  {id: 4, name: "组件演示", path: "", icon: "Menu", parentID: 0, component: "", platform: "admin", typeID: 1, sort: 4, code: "", i18nKey: "menu.component", showMenu: 1, status: 1, isDel: 2},
+		40: {id: 40, name: "上传", path: "/component/upload", icon: "", parentID: 4, component: "component/upload", platform: "admin", typeID: 2, sort: 1, code: "", i18nKey: "menu.component_upload", showMenu: 1, status: 1, isDel: 2},
+		41: {id: 41, name: "表单", path: "/component/form", icon: "", parentID: 4, component: "component/form", platform: "admin", typeID: 2, sort: 2, code: "", i18nKey: "menu.component_form", showMenu: 1, status: 1, isDel: 2},
+		42: {id: 42, name: "展示", path: "/component/display", icon: "", parentID: 4, component: "component/display", platform: "admin", typeID: 2, sort: 3, code: "", i18nKey: "menu.component_display", showMenu: 1, status: 1, isDel: 2},
+		43: {id: 43, name: "特效", path: "/component/effect", icon: "", parentID: 4, component: "component/effect", platform: "admin", typeID: 2, sort: 4, code: "", i18nKey: "menu.component_effect", showMenu: 1, status: 1, isDel: 2},
+		80: {id: 80, name: "下载管理器", path: "/component/download", icon: "", parentID: 4, component: "component/download", platform: "admin", typeID: 2, sort: 5, code: "", i18nKey: "menu.component_download", showMenu: 1, status: 1, isDel: 2},
+	}
+	for id, want := range restored {
+		got, ok := rowsByID[id]
+		if !ok {
+			t.Fatalf("restored component permission %d is missing", id)
+		}
+		if got != want {
+			t.Fatalf("restored component permission %d=%+v want %+v", id, got, want)
+		}
 	}
 }
 
@@ -143,6 +169,10 @@ func parsePermissionSeedRows(seed string) ([]permissionSeedRow, error) {
 		if err != nil {
 			return nil, err
 		}
+		sort, err := parseSeedInt(fields[8], "sort")
+		if err != nil {
+			return nil, err
+		}
 		showMenu, err := parseSeedInt(fields[11], "show_menu")
 		if err != nil {
 			return nil, err
@@ -156,14 +186,20 @@ func parsePermissionSeedRows(seed string) ([]permissionSeedRow, error) {
 			return nil, err
 		}
 		rows = append(rows, permissionSeedRow{
-			id:       id,
-			parentID: parentID,
-			platform: sqlSeedString(fields[6]),
-			typeID:   int(typeID),
-			code:     sqlSeedString(fields[9]),
-			showMenu: int(showMenu),
-			status:   int(status),
-			isDel:    int(isDel),
+			id:        id,
+			name:      sqlSeedString(fields[1]),
+			path:      sqlSeedString(fields[2]),
+			icon:      sqlSeedString(fields[3]),
+			parentID:  parentID,
+			component: sqlSeedString(fields[5]),
+			platform:  sqlSeedString(fields[6]),
+			typeID:    int(typeID),
+			sort:      int(sort),
+			code:      sqlSeedString(fields[9]),
+			i18nKey:   sqlSeedString(fields[10]),
+			showMenu:  int(showMenu),
+			status:    int(status),
+			isDel:     int(isDel),
 		})
 	}
 	if err := scanner.Err(); err != nil {

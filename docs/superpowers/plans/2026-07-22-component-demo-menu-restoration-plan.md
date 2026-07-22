@@ -23,7 +23,7 @@
 - Modify: `internal/architecture/local_initialization_seed_test.go`
 - Test: `internal/architecture/local_initialization_seed_test.go`
 
-- [ ] **Step 1: Write the failing architecture assertions**
+- [x] **Step 1: Write the failing architecture assertions**
 
 Extend `permissionSeedRow` to parse `name`, `path`, `component`, and `i18n_key`.
 Change the row count to 131 and assert these exact rows:
@@ -39,7 +39,7 @@ expected := map[int64]permissionSeedRow{
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -49,19 +49,21 @@ go test ./internal/architecture -run TestLocalPermissionSeed -count=1
 
 Expected: FAIL with `permission seed row count=125 want 131`.
 
+Observed: FAIL with `permission seed row count=125 want 131`.
+
 ### Task 2: Restore Tracked And Local Data
 
 **Files:**
 - Modify: `database/seeds/admin_permissions.sql`
 - Test: `internal/architecture/local_initialization_seed_test.go`
 
-- [ ] **Step 1: Add the six seed tuples in strict ID order**
+- [x] **Step 1: Add the six seed tuples in strict ID order**
 
 Use root ID 4 and page IDs 40, 41, 42, 43, and 80. Use `Menu` for the root
 icon, empty path/component values for the directory, null permission codes,
 visible active lifecycle values, and the route and locale values from Task 1.
 
-- [ ] **Step 2: Verify GREEN**
+- [x] **Step 2: Verify GREEN**
 
 Run:
 
@@ -71,30 +73,36 @@ go test ./internal/architecture -run TestLocalPermissionSeed -count=1
 
 Expected: PASS with 131 rows and 101 non-empty unique permission codes.
 
-- [ ] **Step 3: Apply the local database transaction**
+- [x] **Step 3: Apply the local database transaction**
 
 Insert the six permission rows, then insert active `role_permissions` rows for
 role ID 2 and page IDs 40, 41, 42, 43, and 80. Do not grant directory ID 4 and
 do not modify role ID 1.
 
-- [ ] **Step 4: Verify local data**
+- [x] **Step 4: Verify local data**
 
 Assert the six permission rows match the seed projection, exactly five active
 role-2 grants target the restored pages, and no role-1 grant targets them.
+
+Observed: six matching permission rows, five active role-2 page grants, and
+zero role-1 grants. The retained local user remains role ID 2.
 
 ### Task 3: Runtime And Delivery Verification
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-22-component-demo-menu-restoration-plan.md`
 
-- [ ] **Step 1: Verify the disposable seed**
+- [x] **Step 1: Verify the disposable seed**
 
 Clone `admin.permissions` into a random disposable schema, apply the seed, and
 assert 131 rows with zero 14-column mismatches against the current active Admin
 rows. Assert a second application fails in `_admin_permission_seed_guard` and
 drop the schema in `finally`.
 
-- [ ] **Step 2: Verify runtime routing**
+Observed: first application produced 131 matching rows with zero projection
+mismatches; the empty-table guard rejected the second application.
+
+- [x] **Step 2: Verify runtime routing**
 
 Using the running `admin-dev` environment, authenticate as the retained local
 user and assert the menu response contains `/component/upload`,
@@ -102,7 +110,11 @@ user and assert the menu response contains `/component/upload`,
 `/component/download`. Open at least one restored route and confirm the page
 renders without a missing-route or bootstrap error.
 
-- [ ] **Step 3: Run full checks**
+Observed: `/users/me` returned all five restored routes. The running frontend
+rendered the `组件演示` sidebar entry and the `UpMedia 图片上传` page with zero
+bootstrap or missing-route console errors.
+
+- [x] **Step 3: Run full checks**
 
 Run:
 
@@ -114,7 +126,10 @@ git diff --check
 
 Expected: all commands pass.
 
-- [ ] **Step 4: Commit and push master**
+Observed: architecture tests and the complete Go test suite passed;
+`git diff --check` completed with no whitespace errors.
+
+- [x] **Step 4: Commit and push master**
 
 ```powershell
 git add database/seeds/admin_permissions.sql internal/architecture/local_initialization_seed_test.go docs/superpowers/plans/2026-07-22-component-demo-menu-restoration-plan.md
