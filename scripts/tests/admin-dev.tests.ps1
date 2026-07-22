@@ -83,7 +83,7 @@ OPAQUE_VALUE=left=middle=right
   $dockerRuntimeRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'deploy\docker-first'))
   if ([string]$hostEnvironment.MYSQL_DSN -cne 'fixture_user:fixture=pass@tcp(127.0.0.1:33306)/admin?charset=utf8mb4&parseTime=True&loc=Local' -or
       [string]$hostEnvironment.REDIS_ADDR -cne '127.0.0.1:36379' -or
-      [string]$hostEnvironment.HTTP_ADDR -cne '127.0.0.1:8080' -or
+      [string]$hostEnvironment.HTTP_ADDR -cne '[::]:8080' -or
       [string]$hostEnvironment.LOG_DIR -cne (Join-Path $dockerRuntimeRoot 'runtime\logs') -or
       [string]$hostEnvironment.PAYMENT_CERT_BASE_DIR -cne $dockerRuntimeRoot) {
     throw 'container-only addresses and paths were not converted exactly'
@@ -227,6 +227,7 @@ foreach ($required in @(
   "`$runtimeEnvironment['ZONEINFO']",
   'Stop-AdminDevManagedProcesses',
   'finally',
+  "'--host', '::'",
   'http://127.0.0.1:5173',
   'http://127.0.0.1:8080/health',
   'http://127.0.0.1:8080/ready'

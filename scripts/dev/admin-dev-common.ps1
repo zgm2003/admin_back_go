@@ -390,7 +390,7 @@ function ConvertTo-AdminDevHostEnvironment {
 
   $runtimeRoot = [IO.Path]::GetFullPath((Join-Path $RepositoryRoot 'deploy\docker-first'))
   $result['REDIS_ADDR'] = '127.0.0.1:36379'
-  $result['HTTP_ADDR'] = '127.0.0.1:8080'
+  $result['HTTP_ADDR'] = '[::]:8080'
   $result['LOG_DIR'] = Join-Path $runtimeRoot 'runtime\logs'
   $result['PAYMENT_CERT_BASE_DIR'] = $runtimeRoot
   return $result

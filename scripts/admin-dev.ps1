@@ -118,7 +118,7 @@ try {
     -Name 'web' `
     -Prefix '[WEB]' `
     -FilePath $tools.NodeExecutable `
-    -ArgumentList @($viteEntrypoint, '--host', '127.0.0.1', '--port', '5173', '--strictPort') `
+    -ArgumentList @($viteEntrypoint, '--host', '::', '--port', '5173', '--strictPort') `
     -WorkingDirectory $frontendRoot `
     -Environment $webEnvironment `
     -SensitiveValues @()))
