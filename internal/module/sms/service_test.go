@@ -251,6 +251,8 @@ type fakeSmsRepository struct {
 	lastTestAt    *time.Time
 	lastTestError string
 	nextID        uint64
+	configErr     error
+	templateErr   error
 }
 
 func newFakeSmsRepository() *fakeSmsRepository {
@@ -262,7 +264,9 @@ func newFakeSmsRepository() *fakeSmsRepository {
 	}
 }
 
-func (r *fakeSmsRepository) DefaultConfig(ctx context.Context) (*Config, error) { return r.config, nil }
+func (r *fakeSmsRepository) DefaultConfig(ctx context.Context) (*Config, error) {
+	return r.config, r.configErr
+}
 func (r *fakeSmsRepository) SaveDefaultConfig(ctx context.Context, row Config) error {
 	r.config = &row
 	return nil
@@ -294,7 +298,7 @@ func (r *fakeSmsRepository) TemplateByID(ctx context.Context, id uint64) (*Templ
 	return nil, nil
 }
 func (r *fakeSmsRepository) TemplateByScene(ctx context.Context, scene string) (*Template, error) {
-	return r.templates[scene], nil
+	return r.templates[scene], r.templateErr
 }
 func (r *fakeSmsRepository) SaveTemplate(ctx context.Context, row Template) (uint64, error) {
 	if row.ID == 0 {
