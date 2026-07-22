@@ -4305,9 +4305,6 @@
           "refresh_ttl": {
             "type": "integer"
           },
-          "single_session": {
-            "type": "integer"
-          },
           "status": {
             "type": "integer"
           },
@@ -4332,7 +4329,6 @@
           "max_sessions",
           "name",
           "refresh_ttl",
-          "single_session",
           "status",
           "status_name",
           "updated_at"
@@ -12355,13 +12351,6 @@
             "maximum": 31536000,
             "minimum": 60,
             "type": "integer"
-          },
-          "single_session": {
-            "enum": [
-              1,
-              2
-            ],
-            "type": "integer"
           }
         },
         "required": [
@@ -12374,8 +12363,7 @@
           "code",
           "login_types",
           "name",
-          "refresh_ttl",
-          "single_session"
+          "refresh_ttl"
         ],
         "type": "object"
       },
@@ -14059,13 +14047,6 @@
             "maximum": 31536000,
             "minimum": 60,
             "type": "integer"
-          },
-          "single_session": {
-            "enum": [
-              1,
-              2
-            ],
-            "type": "integer"
           }
         },
         "required": [
@@ -14077,8 +14058,7 @@
           "captcha_type",
           "login_types",
           "name",
-          "refresh_ttl",
-          "single_session"
+          "refresh_ttl"
         ],
         "type": "object"
       },
