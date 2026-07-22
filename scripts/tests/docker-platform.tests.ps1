@@ -27,6 +27,7 @@ foreach ($required in @(
   'SetAccessRuleProtection($true, $false)',
   'mysql:3306',
   'redis:6379',
+  "-CorsOrigin 'http://localhost:5173,http://127.0.0.1:5173'",
   "'--wait'",
   'mysql-root-password.txt',
   'function Resolve-GitRevision',

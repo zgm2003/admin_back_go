@@ -292,6 +292,7 @@ $updatedMySQLDSN = 'test_user:updated-fake-password@tcp([::1]:3306)/admin?charse
 $canonicalDsnError = 'MySQLDSN must use the Compose-safe canonical local format.'
 $validRedisAddress = '127.0.0.1:6380'
 $validCorsOrigin = 'http://localhost:5173'
+$validCorsOrigins = 'http://localhost:5173,http://127.0.0.1:5173'
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('admin-init-local-env-tests-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($tempRoot)
@@ -360,6 +361,15 @@ try {
   Assert-True $happyContent.Contains("MYSQL_DSN=$validMySQLDSN") 'generated env must contain the requested MySQL DSN'
   Assert-True $happyContent.Contains("REDIS_ADDR=$validRedisAddress") 'generated env must contain the requested Redis address'
   Assert-True $happyContent.Contains("CORS_ALLOW_ORIGINS=$validCorsOrigin") 'generated env must contain the requested CORS origin'
+
+  $multipleOriginsPath = Join-Path $tempRoot 'multiple-origins.env'
+  $null = Invoke-SuccessInitializer `
+    -OutputPath $multipleOriginsPath `
+    -MySQLDSN $validMySQLDSN `
+    -RedisAddress $validRedisAddress `
+    -CorsOrigin $validCorsOrigins
+  $multipleOriginsContent = [IO.File]::ReadAllText($multipleOriginsPath)
+  Assert-True $multipleOriginsContent.Contains("CORS_ALLOW_ORIGINS=$validCorsOrigins") 'initializer must render multiple comma-separated CORS origins'
 
   $firstSecret = Get-AppSecret $happyContent
   Assert-True ($firstSecret.Length -ge 64) 'generated APP_SECRET must contain at least 64 characters'
@@ -1022,6 +1032,7 @@ try {
   Assert-True $readmeContent.Contains('scripts/docker-platform.ps1 init') 'Docker-first README must document the platform initializer'
   Assert-True $readmeContent.Contains('mysql:3306') 'Docker-first README must use Docker DNS for MySQL'
   Assert-True $readmeContent.Contains('redis:6379') 'Docker-first README must use Docker DNS for Redis'
+  Assert-True $readmeContent.Contains('CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173') 'Docker-first README must document both supported loopback origins'
   Assert-False $readmeContent.Contains('$env:ADMIN_LOCAL_MYSQL_DSN') 'Docker-first README must not retain the retired host MySQL variable flow'
   Assert-False $readmeContent.Contains('$env:ADMIN_LOCAL_REDIS_ADDR') 'Docker-first README must not retain the retired host Redis variable flow'
   Assert-True $readmeContent.Contains('Compose-safe canonical MySQL DSN') 'Docker-first README must document the narrow local MySQL DSN contract'

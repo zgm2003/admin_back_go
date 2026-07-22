@@ -32,10 +32,10 @@ The canonical local values are:
 ```text
 MYSQL_DSN=root:<process-only-password>@tcp(mysql:3306)/admin?charset=utf8mb4&parseTime=True&loc=Local
 REDIS_ADDR=redis:6379
-CORS_ALLOW_ORIGINS=http://localhost:5173
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-The initializer accepts only the Compose-safe canonical MySQL DSN shown above. Reusable `APP_SECRET` values must contain at least 64 ASCII characters and must be safe for the Compose env file. Custom `-OutputPath` values are allowed only outside the repository; the default ignored path is `deploy/docker-first/admin-go.env`.
+The initializer accepts only the Compose-safe canonical MySQL DSN shown above and validates every origin in a comma-separated CORS list. Reusable `APP_SECRET` values must contain at least 64 ASCII characters and must be safe for the Compose env file. Custom `-OutputPath` values are allowed only outside the repository; the default ignored path is `deploy/docker-first/admin-go.env`.
 
 ## Lifecycle
 

@@ -142,6 +142,22 @@ function Test-CorsOrigin {
   return $parsedUri.AbsolutePath -eq '/'
 }
 
+function Test-CorsOrigins {
+  param([AllowEmptyString()][string]$Value)
+
+  if ([string]::IsNullOrWhiteSpace($Value)) {
+    return $false
+  }
+
+  foreach ($origin in $Value.Split(',')) {
+    $trimmedOrigin = $origin.Trim()
+    if ([string]::IsNullOrEmpty($trimmedOrigin) -or -not (Test-CorsOrigin $trimmedOrigin)) {
+      return $false
+    }
+  }
+  return $true
+}
+
 function Get-ReusableSecret {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -564,7 +580,7 @@ if (-not (Test-AdminMySQLDSN $MySQLDSN)) {
 if (-not (Test-HostPort $RedisAddress)) {
   throw 'RedisAddress must be a valid host:port with port 1..65535.'
 }
-if (-not (Test-CorsOrigin $CorsOrigin)) {
+if (-not (Test-CorsOrigins $CorsOrigin)) {
   throw 'CorsOrigin must be a plain HTTP(S) origin.'
 }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {

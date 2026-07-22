@@ -124,7 +124,7 @@ switch ($Action) {
         & (Join-Path $repoRoot 'deploy\docker-first\init-local-env.ps1') `
           -MySQLDSN $dsn `
           -RedisAddress 'redis:6379' `
-          -CorsOrigin 'http://localhost:5173'
+          -CorsOrigin 'http://localhost:5173,http://127.0.0.1:5173'
       }
       finally {
         $dsn = $null
