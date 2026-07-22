@@ -196,9 +196,14 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 	refreshToken := ""
-	cookie, err := c.Request.Cookie(BrowserRefreshCookieName)
-	if err == nil {
-		refreshToken = strings.TrimSpace(cookie.Value)
+	for _, cookieName := range browserRefreshCookieNames(c) {
+		cookie, err := c.Request.Cookie(cookieName)
+		if err == nil {
+			refreshToken = strings.TrimSpace(cookie.Value)
+			if refreshToken != "" {
+				break
+			}
+		}
 	}
 	if refreshToken == "" {
 		response.Error(c, apperror.Unauthorized("缺少刷新令牌"))
@@ -285,6 +290,11 @@ func (h *Handler) QueueMonitorGrant(c *gin.Context) {
 
 const BrowserRefreshCookieName = "__Secure-admin_refresh"
 
+// HTTP development browsers reject Secure cookies on IP loopback hosts. Keep
+// the production cookie unchanged and use a scoped alternate name only for
+// explicitly allowed non-localhost HTTP origins.
+const browserRefreshCookieNameHTTP = "admin_refresh_dev"
+
 const QueueMonitorGrantCookieName = "__Secure-admin_queue_monitor"
 
 func requireEmptyBody(c *gin.Context, messageID string) bool {
@@ -324,28 +334,45 @@ func normalizeOrigin(value string) (string, bool) {
 }
 
 func (h *Handler) setRefreshCookie(c *gin.Context, credential string, expiresIn int) {
+	cookieName := browserRefreshCookieNameForRequest(c)
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     BrowserRefreshCookieName,
+		Name:     cookieName,
 		Value:    credential,
 		Path:     "/api/admin/v1/auth",
 		Expires:  h.now().Add(time.Duration(expiresIn) * time.Second),
 		MaxAge:   expiresIn,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   cookieName == BrowserRefreshCookieName,
 		SameSite: http.SameSiteStrictMode,
 	})
 }
 
 func (h *Handler) clearRefreshCookie(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     BrowserRefreshCookieName,
+		Name:     browserRefreshCookieNameForRequest(c),
 		Path:     "/api/admin/v1/auth",
 		Expires:  time.Unix(1, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   browserRefreshCookieNameForRequest(c) == BrowserRefreshCookieName,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+func browserRefreshCookieNames(c *gin.Context) []string {
+	name := browserRefreshCookieNameForRequest(c)
+	if name == BrowserRefreshCookieName {
+		return []string{name}
+	}
+	return []string{name, BrowserRefreshCookieName}
+}
+
+func browserRefreshCookieNameForRequest(c *gin.Context) string {
+	origin, err := url.Parse(strings.TrimSpace(c.GetHeader("Origin")))
+	if err == nil && origin.Scheme == "http" && !strings.EqualFold(origin.Hostname(), "localhost") {
+		return browserRefreshCookieNameHTTP
+	}
+	return BrowserRefreshCookieName
 }
 
 func (h *Handler) setQueueMonitorGrantCookie(c *gin.Context, credential string, expiresIn int) {

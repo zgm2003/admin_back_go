@@ -469,6 +469,35 @@ func TestBrowserLoginSetsSecureRefreshCookieAndOmitsRefreshCredential(t *testing
 	}
 }
 
+func TestBrowserLoginUsesAnHTTPCompatibleCookieFor127Origin(t *testing.T) {
+	service := &fakeSessionService{loginResult: &authmodule.LoginResponse{
+		AccessToken:      "access-token",
+		RefreshToken:     "browser-refresh",
+		ExpiresIn:        14400,
+		RefreshExpiresIn: 1209600,
+	}}
+	router := newAuthTestRouterWithOptions(service, WithAllowedOrigins([]string{"http://127.0.0.1:5173"}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth/login", strings.NewReader(`{"login_account":"admin","login_type":"password","password":"secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://127.0.0.1:5173")
+	request.Header.Set("platform", "admin")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies=%#v, want one refresh cookie", cookies)
+	}
+	cookie := cookies[0]
+	if cookie.Name != browserRefreshCookieNameHTTP || cookie.Value != "browser-refresh" || !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/api/admin/v1/auth" {
+		t.Fatalf("unexpected HTTP browser refresh cookie: %#v", cookie)
+	}
+}
+
 func TestLoginDoesNotInterpretObsoleteVariantHeader(t *testing.T) {
 	service := &fakeSessionService{loginResult: &authmodule.LoginResponse{
 		AccessToken:      "access-token",
