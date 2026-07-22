@@ -270,13 +270,13 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		return "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
 	sendErr, renewalErr := s.sendVerifyCodeWithDeliveryRenewal(ctx, deliveryStore, lease, accountType, input, code, ttl)
-	if renewalErr != nil {
-		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
-		return "", verifyCodeDeliveryStateError()
-	}
 	if sendErr != nil {
 		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
 		return "", sendErr
+	}
+	if renewalErr != nil {
+		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
+		return "", verifyCodeDeliveryStateError()
 	}
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), verifyCodeDeliveryCleanupTimeout)
 	commitErr := deliveryStore.CommitDelivery(cleanupCtx, lease, cacheKey)

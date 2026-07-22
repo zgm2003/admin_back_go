@@ -1790,16 +1790,17 @@ func TestServiceSendCodeRenewsDeliveryLeaseWhileSenderIsInFlight(t *testing.T) {
 	}
 }
 
-func TestServiceSendCodeReturnsInternalWhenDeliveryLeaseIsLost(t *testing.T) {
+func TestServiceSendCodePreservesSenderErrorWhenDeliveryLeaseIsLost(t *testing.T) {
 	store := &fakeCodeStore{}
 	store.renewErr = errors.New("delivery lease lost")
+	wantErr := apperror.InternalKey("sms.send.failed", nil, "短信发送失败")
 	service := NewService(
 		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
 		WithCodeStore(store),
 		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{send: func(ctx context.Context, _ string, _ string, _ string, _ time.Duration) *apperror.Error {
 			<-ctx.Done()
-			return nil
+			return wantErr
 		}}),
 		WithVerifyCodeOptions(VerifyCodeOptions{
 			CodeGenerator:    func() (string, error) { return "654321", nil },
@@ -1809,8 +1810,8 @@ func TestServiceSendCodeReturnsInternalWhenDeliveryLeaseIsLost(t *testing.T) {
 
 	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
 
-	if message != "" || appErr == nil || appErr.MessageID != "auth.verify_code.delivery_state_failed" || appErr.LegacyCode != apperror.CodeInternal {
-		t.Fatalf("message=%q err=%#v", message, appErr)
+	if message != "" || appErr != wantErr {
+		t.Fatalf("sender error pointer must be preserved: message=%q err=%#v", message, appErr)
 	}
 	if code, _ := store.Get(context.Background(), service.verifyCodeCacheKey(LoginTypePhone, VerifyCodeSceneLogin, "15671628271")); code != "" {
 		t.Fatalf("lease-lost pending code became verifiable: %q", code)
