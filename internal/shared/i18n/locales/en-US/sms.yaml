@@ -14,6 +14,7 @@ sms.ttl.cache_clear_failed: Failed to clear verification code TTL cache
 sms.config.delete_failed: Failed to delete SMS configuration
 sms.scene.invalid: Invalid SMS template scene
 sms.phone.invalid: Invalid phone number
+sms.verify_code.invalid: SMS verification code must be exactly six digits
 sms.log.create_failed: Failed to create SMS send log
 sms.log.finish_failed: Failed to finish SMS send log
 sms.config.test_result_failed: Failed to update SMS test result

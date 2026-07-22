@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -128,76 +127,13 @@ func (s *Service) DeleteConfig(ctx context.Context) *apperror.Error {
 }
 
 func (s *Service) TestSend(ctx context.Context, input TestInput) *apperror.Error {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return appErr
-	}
-	sender, appErr := s.requireSender()
-	if appErr != nil {
-		return appErr
-	}
-	input.TemplateScene = strings.TrimSpace(input.TemplateScene)
-	if !enum.IsSmsTemplateScene(input.TemplateScene) {
-		return badRequest("sms.scene.invalid", "无效的短信模板场景")
-	}
-	phone, appErr := normalizePhone(input.ToPhone)
-	if appErr != nil {
-		return appErr
-	}
-	cfg, appErr := s.enabledConfig(ctx, repo)
-	if appErr != nil {
-		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
-		return appErr
-	}
-	tmpl, appErr := enabledTemplate(ctx, repo, input.TemplateScene)
-	if appErr != nil {
-		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
-		return appErr
-	}
-	ttl, appErr := verifyCodeTTLMinutesFromConfig(cfg)
-	if appErr != nil {
-		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
-		return appErr
-	}
-	params, appErr := templateParamsFromRow(*tmpl, map[string]string{"code": testCode, "ttl_minutes": strconv.Itoa(ttl)})
-	if appErr != nil {
-		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
-		return appErr
-	}
-	secretID, secretKey, appErr := s.decryptCredentials(*cfg)
-	if appErr != nil {
-		_ = repo.UpdateConfigTestResult(ctx, timePtr(time.Now()), appErr.Message)
-		return appErr
-	}
-	logID, err := repo.CreateLog(ctx, Log{Scene: enum.SmsSceneTest, TemplateID: &tmpl.ID, ToPhone: phone, Status: enum.SmsLogStatusPending, IsDel: enum.CommonNo})
-	if err != nil {
-		return wrapInternal("sms.log.create_failed", "创建短信发送日志失败", err)
-	}
-	started := time.Now()
-	result, err := sender.Send(ctx, SendInput{
-		SecretID: secretID, SecretKey: secretKey, Region: cfg.Region, Endpoint: cfg.Endpoint,
-		SmsSdkAppID: cfg.SmsSdkAppID, SignName: cfg.SignName, TemplateID: tmpl.TencentTemplateID,
-		PhoneNumber: phone, TemplateParamSet: params,
+	return s.sendVerificationCode(ctx, verificationDeliveryInput{
+		TemplateScene:    strings.TrimSpace(input.TemplateScene),
+		LogScene:         enum.SmsSceneTest,
+		ToPhone:          input.ToPhone,
+		Code:             testCode,
+		RecordTestResult: true,
 	})
-	duration := uint64(time.Since(started).Milliseconds())
-	finishedAt := time.Now()
-	if err != nil {
-		message := err.Error()
-		finish := LogFinish{Status: enum.SmsLogStatusFailed, RequestID: result.RequestID, SerialNo: result.SerialNo, Fee: result.Fee, ErrorCode: senderErrorCode(err), ErrorMessage: message, DurationMS: duration}
-		if finishErr := repo.FinishLog(ctx, logID, finish); finishErr != nil {
-			return wrapInternal("sms.log.finish_failed", "更新短信发送日志失败", finishErr)
-		}
-		_ = repo.UpdateConfigTestResult(ctx, &finishedAt, message)
-		return wrapInternal("sms.send.failed", "短信发送失败", err)
-	}
-	finish := LogFinish{Status: enum.SmsLogStatusSuccess, RequestID: result.RequestID, SerialNo: result.SerialNo, Fee: result.Fee, DurationMS: duration, SentAt: &finishedAt}
-	if err := repo.FinishLog(ctx, logID, finish); err != nil {
-		return wrapInternal("sms.log.finish_failed", "更新短信发送日志失败", err)
-	}
-	if err := repo.UpdateConfigTestResult(ctx, &finishedAt, ""); err != nil {
-		return wrapInternal("sms.config.test_result_failed", "更新短信测试结果失败", err)
-	}
-	return nil
 }
 
 func (s *Service) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {

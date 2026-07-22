@@ -1,9 +1,13 @@
 package tencentcloudsms
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	tcerr "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 )
 
 func TestNewUsesDefaultTimeout(t *testing.T) {
@@ -55,5 +59,26 @@ func TestNewKeepsPositiveTimeout(t *testing.T) {
 	client := New(3 * time.Second)
 	if client.Timeout != 3*time.Second {
 		t.Fatalf("timeout = %s", client.Timeout)
+	}
+}
+
+func TestRequestIDFromSDKErrorSupportsWrappedTencentError(t *testing.T) {
+	sdkErr := tcerr.NewTencentCloudSDKError("FailedOperation.TemplateIncorrect", "template incorrect", "req-sdk")
+	wrapped := fmt.Errorf("send sms: %w", sdkErr)
+
+	if got := requestIDFromSDKError(wrapped); got != "req-sdk" {
+		t.Fatalf("request id=%q", got)
+	}
+}
+
+func TestWrapSendErrorSupportsWrappedTencentError(t *testing.T) {
+	sdkErr := tcerr.NewTencentCloudSDKError("FailedOperation.TemplateIncorrect", "template incorrect", "req-sdk")
+	wrapped := fmt.Errorf("send sms: %w", sdkErr)
+
+	err := wrapSendError(wrapped)
+
+	var sendErr SendError
+	if !errors.As(err, &sendErr) || sendErr.Code != "FailedOperation.TemplateIncorrect" || sendErr.Message != "template incorrect" {
+		t.Fatalf("send error=%#v", err)
 	}
 }

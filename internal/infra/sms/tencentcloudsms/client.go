@@ -2,6 +2,7 @@ package tencentcloudsms
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -90,7 +91,7 @@ func (c *Client) Send(ctx context.Context, input SendInput) (SendResult, error) 
 
 	response, err := client.SendSmsWithContext(ctx, request)
 	if err != nil {
-		return SendResult{}, wrapSendError(err)
+		return SendResult{RequestID: requestIDFromSDKError(err)}, wrapSendError(err)
 	}
 	if response == nil || response.Response == nil {
 		return SendResult{}, fmt.Errorf("tencent sms returned empty response")
@@ -160,10 +161,19 @@ func newSDKClient(input SendInput, timeout time.Duration) (*sms.Client, error) {
 }
 
 func wrapSendError(err error) error {
-	if sdkErr, ok := err.(*tcerr.TencentCloudSDKError); ok {
+	var sdkErr *tcerr.TencentCloudSDKError
+	if errors.As(err, &sdkErr) {
 		return SendError{Code: sdkErr.GetCode(), Message: sdkErr.GetMessage(), Cause: err}
 	}
 	return err
+}
+
+func requestIDFromSDKError(err error) string {
+	var sdkErr *tcerr.TencentCloudSDKError
+	if errors.As(err, &sdkErr) {
+		return sdkErr.GetRequestId()
+	}
+	return ""
 }
 
 func stringValue(value *string) string {

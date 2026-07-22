@@ -14,6 +14,7 @@ sms.ttl.cache_clear_failed: 清理验证码有效期配置缓存失败
 sms.config.delete_failed: 删除短信配置失败
 sms.scene.invalid: 无效的短信模板场景
 sms.phone.invalid: 手机号格式不正确
+sms.verify_code.invalid: 短信验证码必须是六位数字
 sms.log.create_failed: 创建短信发送日志失败
 sms.log.finish_failed: 更新短信发送日志失败
 sms.config.test_result_failed: 更新短信测试结果失败
