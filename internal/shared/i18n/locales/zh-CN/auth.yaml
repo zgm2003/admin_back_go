@@ -17,6 +17,11 @@ auth.verify_code.policy_missing: 验证码有效期策略未配置
 auth.verify_code.email_policy_missing: 邮箱验证码有效期策略未配置
 auth.verify_code.phone_policy_missing: 短信验证码有效期策略未配置
 auth.verify_code.account_type_invalid: 无效的验证码账号类型
+auth.verify_code.readiness_missing: 验证码渠道就绪检查未配置
+auth.verify_code.email_readiness_missing: 邮箱验证码渠道就绪检查未配置
+auth.verify_code.phone_readiness_missing: 短信验证码渠道就绪检查未配置
+auth.verify_code.email_unavailable: 邮箱验证码服务未配置
+auth.verify_code.phone_unavailable: 短信验证码服务未配置
 auth.logout.success: 退出成功
 auth.platform.service_missing: 登录服务未配置
 auth.platform.user_service_missing: 用户服务未配置

@@ -131,6 +131,32 @@ type fakeCaptchaVerifier struct {
 	calls int
 }
 
+type verifyCodeReadinessCall struct {
+	accountType string
+	scene       string
+}
+
+type fakeVerifyCodeReadinessProvider struct {
+	readyByAccountType map[string]bool
+	err                *apperror.Error
+	calls              []verifyCodeReadinessCall
+}
+
+func (f *fakeVerifyCodeReadinessProvider) VerifyCodeReady(_ context.Context, accountType, scene string) (bool, *apperror.Error) {
+	f.calls = append(f.calls, verifyCodeReadinessCall{accountType: accountType, scene: scene})
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.readyByAccountType[accountType], nil
+}
+
+func allVerificationChannelsReady() *fakeVerifyCodeReadinessProvider {
+	return &fakeVerifyCodeReadinessProvider{readyByAccountType: map[string]bool{
+		LoginTypeEmail: true,
+		LoginTypePhone: true,
+	}}
+}
+
 func (f *fakeCaptchaVerifier) Verify(ctx context.Context, input VerifyInput) *apperror.Error {
 	f.calls++
 	f.input = input
@@ -154,6 +180,7 @@ type fakeCodeStore struct {
 	setKey  string
 	setCode string
 	setTTL  time.Duration
+	getKey  string
 	deleted string
 	err     error
 }
@@ -170,6 +197,7 @@ func (f *fakeCodeStore) Set(ctx context.Context, key string, code string, ttl ti
 }
 
 func (f *fakeCodeStore) Get(ctx context.Context, key string) (string, error) {
+	f.getKey = key
 	if f.values == nil {
 		return "", f.err
 	}
@@ -196,7 +224,16 @@ func (f *fakeLoginLogEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task)
 }
 
 func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
-	service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: TypeSlide, allowRegister: true}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{"email", "phone", "password"}, captchaType: TypeSlide, allowRegister: true},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithVerifyCodeReadinessProvider(&fakeVerifyCodeReadinessProvider{readyByAccountType: map[string]bool{
+			LoginTypeEmail: true,
+			LoginTypePhone: true,
+		}}),
+	)
 
 	result, appErr := service.LoginConfig(context.Background(), "admin")
 
@@ -217,6 +254,116 @@ func TestServiceLoginConfigReturnsConfiguredLoginTypes(t *testing.T) {
 	}
 	if !result.AllowRegister {
 		t.Fatalf("expected login-config to expose allow_register=true, got %#v", result)
+	}
+}
+
+func TestServiceLoginConfigFiltersUnavailableVerificationChannels(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		ready map[string]bool
+		want  []string
+	}{
+		{name: "both unavailable", ready: map[string]bool{}, want: []string{LoginTypePassword}},
+		{name: "email ready", ready: map[string]bool{LoginTypeEmail: true}, want: []string{LoginTypeEmail, LoginTypePassword}},
+		{name: "phone ready", ready: map[string]bool{LoginTypePhone: true}, want: []string{LoginTypePhone, LoginTypePassword}},
+		{name: "both ready", ready: map[string]bool{LoginTypeEmail: true, LoginTypePhone: true}, want: []string{LoginTypeEmail, LoginTypePhone, LoginTypePassword}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			readiness := &fakeVerifyCodeReadinessProvider{readyByAccountType: tt.ready}
+			service := NewService(
+				&fakeAuthRepository{},
+				fakeLoginTypeProvider{types: []string{LoginTypePhone, LoginTypePassword, LoginTypeEmail}, captchaType: TypeSlide},
+				&fakeSessionCreator{},
+				&fakeCaptchaVerifier{},
+				WithVerifyCodeReadinessProvider(readiness),
+			)
+			result, appErr := service.LoginConfig(context.Background(), "admin")
+			if appErr != nil {
+				t.Fatalf("LoginConfig error=%#v", appErr)
+			}
+			if len(result.LoginTypeArr) != len(tt.want) {
+				t.Fatalf("types=%#v", result.LoginTypeArr)
+			}
+			for i, want := range tt.want {
+				if result.LoginTypeArr[i].Value != want {
+					t.Fatalf("types=%#v", result.LoginTypeArr)
+				}
+			}
+			for _, call := range readiness.calls {
+				if call.scene != VerifyCodeSceneLogin {
+					t.Fatalf("calls=%#v", readiness.calls)
+				}
+			}
+		})
+	}
+}
+
+func TestServiceLoginConfigPropagatesReadinessFailure(t *testing.T) {
+	wantErr := apperror.Internal("mail repository unavailable")
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail, LoginTypePassword}, captchaType: TypeSlide},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithVerifyCodeReadinessProvider(&fakeVerifyCodeReadinessProvider{err: wantErr}),
+	)
+	result, appErr := service.LoginConfig(context.Background(), "admin")
+	if result != nil || appErr != wantErr {
+		t.Fatalf("result=%#v err=%#v", result, appErr)
+	}
+}
+
+func TestServiceLoginConfigQueriesOnlyConfiguredVerificationChannels(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		configured []string
+		want       []string
+		wantCalls  []verifyCodeReadinessCall
+	}{
+		{name: "password only", configured: []string{LoginTypePassword}, want: []string{LoginTypePassword}},
+		{
+			name:       "email and password",
+			configured: []string{LoginTypePassword, LoginTypeEmail},
+			want:       []string{LoginTypeEmail, LoginTypePassword},
+			wantCalls:  []verifyCodeReadinessCall{{accountType: LoginTypeEmail, scene: VerifyCodeSceneLogin}},
+		},
+		{
+			name:       "phone and password",
+			configured: []string{LoginTypePassword, LoginTypePhone},
+			want:       []string{LoginTypePhone, LoginTypePassword},
+			wantCalls:  []verifyCodeReadinessCall{{accountType: LoginTypePhone, scene: VerifyCodeSceneLogin}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			readiness := allVerificationChannelsReady()
+			service := NewService(
+				&fakeAuthRepository{},
+				fakeLoginTypeProvider{types: tt.configured, captchaType: TypeSlide},
+				&fakeSessionCreator{},
+				&fakeCaptchaVerifier{},
+				WithVerifyCodeReadinessProvider(readiness),
+			)
+			result, appErr := service.LoginConfig(context.Background(), "admin")
+			if appErr != nil {
+				t.Fatalf("LoginConfig error=%#v", appErr)
+			}
+			if len(result.LoginTypeArr) != len(tt.want) {
+				t.Fatalf("types=%#v", result.LoginTypeArr)
+			}
+			for i, want := range tt.want {
+				if result.LoginTypeArr[i].Value != want {
+					t.Fatalf("types=%#v", result.LoginTypeArr)
+				}
+			}
+			if len(readiness.calls) != len(tt.wantCalls) {
+				t.Fatalf("calls=%#v want=%#v", readiness.calls, tt.wantCalls)
+			}
+			for i, want := range tt.wantCalls {
+				if readiness.calls[i] != want {
+					t.Fatalf("calls=%#v want=%#v", readiness.calls, tt.wantCalls)
+				}
+			}
+		})
 	}
 }
 
@@ -335,6 +482,35 @@ func TestServiceLoginVerifiesPHPBcryptPasswordWithoutCaptchaAndCreatesSession(t 
 	}
 	if len(repo.attempts) != 1 || repo.attempts[0].IsSuccess != commonYes || repo.attempts[0].UserID == nil || *repo.attempts[0].UserID != 1 {
 		t.Fatalf("expected successful login attempt log, got %#v", repo.attempts)
+	}
+}
+
+func TestServicePasswordLoginDoesNotQueryVerificationReadiness(t *testing.T) {
+	readiness := &fakeVerifyCodeReadinessProvider{err: apperror.Internal("channel repository unavailable")}
+	repo := &fakeAuthRepository{credential: &UserCredential{
+		ID:           1,
+		PasswordHash: phpBcryptHash(t, "123456"),
+		Status:       commonYes,
+		IsDel:        commonNo,
+	}}
+	service := NewService(
+		repo,
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail, LoginTypePhone, LoginTypePassword}},
+		&fakeSessionCreator{result: &TokenResult{AccessToken: "access-token"}},
+		&fakeCaptchaVerifier{},
+		WithVerifyCodeReadinessProvider(readiness),
+	)
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePassword,
+		Password:     "123456",
+		Platform:     "admin",
+	})
+	if appErr != nil || result == nil || result.AccessToken != "access-token" {
+		t.Fatalf("result=%#v err=%#v", result, appErr)
+	}
+	if len(readiness.calls) != 0 {
+		t.Fatalf("calls=%#v", readiness.calls)
 	}
 }
 
@@ -562,6 +738,7 @@ func TestServiceSendCodeStoresFixedPhoneLoginCode(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) {
 			randomGeneratorCalled = true
 			return "654321", nil
@@ -587,6 +764,132 @@ func TestServiceSendCodeStoresFixedPhoneLoginCode(t *testing.T) {
 	}
 }
 
+func TestServiceSendCodeValidatesInputBeforeCodeStoreDependency(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		input   SendCodeInput
+		message string
+	}{
+		{name: "empty account", input: SendCodeInput{Scene: VerifyCodeSceneLogin}, message: "账号不能为空"},
+		{name: "invalid account", input: SendCodeInput{Account: "not-an-account", Scene: VerifyCodeSceneLogin}, message: "请输入正确的邮箱或手机号"},
+		{name: "invalid scene", input: SendCodeInput{Account: "15671628271", Scene: "unknown"}, message: "无效的验证码场景"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewService(&fakeAuthRepository{}, fakeLoginTypeProvider{}, &fakeSessionCreator{}, &fakeCaptchaVerifier{})
+			message, appErr := service.SendCode(context.Background(), tt.input)
+			if message != "" || appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != tt.message {
+				t.Fatalf("message=%q err=%#v", message, appErr)
+			}
+		})
+	}
+}
+
+func TestServiceSendCodeRejectsUnavailableChannelBeforeCaptcha(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		account     string
+		accountType string
+		scene       string
+		loginType   string
+	}{
+		{name: "phone login", account: "15671628271", accountType: LoginTypePhone, scene: VerifyCodeSceneLogin, loginType: LoginTypePhone},
+		{name: "email bind", account: "user@example.com", accountType: LoginTypeEmail, scene: VerifyCodeSceneBindEmail},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := &fakeCaptchaVerifier{}
+			store := &fakeCodeStore{}
+			readiness := &fakeVerifyCodeReadinessProvider{readyByAccountType: map[string]bool{}}
+			service := NewService(
+				&fakeAuthRepository{},
+				fakeLoginTypeProvider{types: []string{tt.loginType}},
+				&fakeSessionCreator{},
+				verifier,
+				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(readiness),
+			)
+			message, appErr := service.SendCode(context.Background(), SendCodeInput{
+				Account:       tt.account,
+				Scene:         tt.scene,
+				LoginType:     tt.loginType,
+				CaptchaID:     "captcha-id",
+				CaptchaAnswer: &Answer{X: 120, Y: 80},
+			})
+			if message != "" || appErr == nil || appErr.Code != "auth.verify_code.channel_unavailable" {
+				t.Fatalf("message=%q err=%#v", message, appErr)
+			}
+			if verifier.calls != 0 || store.setKey != "" {
+				t.Fatalf("verifier=%#v store=%#v", verifier, store)
+			}
+			if len(readiness.calls) != 1 || readiness.calls[0].accountType != tt.accountType || readiness.calls[0].scene != tt.scene {
+				t.Fatalf("calls=%#v", readiness.calls)
+			}
+		})
+	}
+}
+
+func TestServiceSendCodePropagatesReadinessFailureBeforeCaptcha(t *testing.T) {
+	wantErr := apperror.Internal("sms repository unavailable")
+	readiness := &fakeVerifyCodeReadinessProvider{err: wantErr}
+	verifier := &fakeCaptchaVerifier{}
+	store := &fakeCodeStore{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
+		&fakeSessionCreator{},
+		verifier,
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(readiness),
+	)
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+	if message != "" || appErr != wantErr {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	wantCall := verifyCodeReadinessCall{accountType: LoginTypePhone, scene: VerifyCodeSceneLogin}
+	if len(readiness.calls) != 1 || readiness.calls[0] != wantCall {
+		t.Fatalf("calls=%#v", readiness.calls)
+	}
+	if verifier.calls != 0 || store.setKey != "" || store.getKey != "" || store.deleted != "" {
+		t.Fatalf("verifier=%#v store=%#v", verifier, store)
+	}
+}
+
+func TestServiceSendCodeRejectsBindSceneAccountMismatchBeforeReadiness(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		account       string
+		scene         string
+		wantMessageID string
+	}{
+		{name: "phone account for bind email", account: "15671628271", scene: VerifyCodeSceneBindEmail, wantMessageID: "auth.send_code.email.invalid"},
+		{name: "email account for bind phone", account: "user@example.com", scene: VerifyCodeSceneBindPhone, wantMessageID: "auth.send_code.phone.invalid"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			readiness := allVerificationChannelsReady()
+			verifier := &fakeCaptchaVerifier{}
+			service := NewService(
+				&fakeAuthRepository{},
+				fakeLoginTypeProvider{},
+				&fakeSessionCreator{},
+				verifier,
+				WithCodeStore(&fakeCodeStore{}),
+				WithVerifyCodeReadinessProvider(readiness),
+			)
+			message, appErr := service.SendCode(context.Background(), SendCodeInput{
+				Account:       tt.account,
+				Scene:         tt.scene,
+				CaptchaID:     "captcha-id",
+				CaptchaAnswer: &Answer{X: 120, Y: 80},
+			})
+			if message != "" || appErr == nil || appErr.MessageID != tt.wantMessageID {
+				t.Fatalf("message=%q err=%#v", message, appErr)
+			}
+			if len(readiness.calls) != 0 || verifier.calls != 0 {
+				t.Fatalf("readiness=%#v verifier=%#v", readiness.calls, verifier)
+			}
+		})
+	}
+}
+
 func TestServiceSendCodeRejectsLoginRequestWithoutSecurityProof(t *testing.T) {
 	store := &fakeCodeStore{}
 	service := NewService(
@@ -595,6 +898,7 @@ func TestServiceSendCodeRejectsLoginRequestWithoutSecurityProof(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{
@@ -630,6 +934,7 @@ func TestServiceSendCodeLoginRequiresCaptchaForEmailAndPhone(t *testing.T) {
 				&fakeSessionCreator{},
 				verifier,
 				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 				WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
 			)
 
@@ -672,6 +977,7 @@ func TestServiceSendCodeRequiresCaptchaForEveryScene(t *testing.T) {
 				&fakeSessionCreator{},
 				&fakeCaptchaVerifier{},
 				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 				WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
 			)
 
@@ -700,6 +1006,7 @@ func TestServiceSendCodeLoginStopsWhenCaptchaIsRejected(t *testing.T) {
 		&fakeSessionCreator{},
 		verifier,
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 	)
 
 	message, appErr := service.SendCode(context.Background(), SendCodeInput{
@@ -743,6 +1050,7 @@ func TestServiceSendCodeLoginVerifiesCaptchaBeforeSendingEmailOrMockPhone(t *tes
 				&fakeSessionCreator{},
 				verifier,
 				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 				WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
 				WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 			)
@@ -791,6 +1099,7 @@ func TestServiceSendCodeLoginRejectsAccountThatDoesNotMatchSelectedType(t *testi
 				&fakeSessionCreator{},
 				verifier,
 				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 				WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
 			)
 
@@ -829,6 +1138,7 @@ func TestServicePhoneCodeLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
 		sessions,
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 	)
 
@@ -862,6 +1172,93 @@ func TestServicePhoneCodeLoginCreatesNewUserWhenRegisterAllowed(t *testing.T) {
 	}
 }
 
+func TestServiceCodeLoginRejectsUnavailableSelectedChannel(t *testing.T) {
+	readiness := &fakeVerifyCodeReadinessProvider{readyByAccountType: map[string]bool{}}
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail, LoginTypePhone, LoginTypePassword}, allowRegister: true},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(readiness),
+	)
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePhone,
+		Code:         "123456",
+		Platform:     "admin",
+	})
+	if result != nil || appErr == nil || appErr.Code != "auth.verify_code.channel_unavailable" {
+		t.Fatalf("result=%#v err=%#v", result, appErr)
+	}
+	if len(readiness.calls) != 1 || readiness.calls[0] != (verifyCodeReadinessCall{accountType: LoginTypePhone, scene: VerifyCodeSceneLogin}) {
+		t.Fatalf("calls=%#v", readiness.calls)
+	}
+	if store.deleted != "" {
+		t.Fatalf("unavailable channel consumed code: %q", store.deleted)
+	}
+}
+
+func TestServiceCodeLoginPropagatesSelectedChannelReadinessFailure(t *testing.T) {
+	wantErr := apperror.Internal("sms repository unavailable")
+	readiness := &fakeVerifyCodeReadinessProvider{err: wantErr}
+	store := &fakeCodeStore{values: map[string]string{
+		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
+	}}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail, LoginTypePhone, LoginTypePassword}, allowRegister: true},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(readiness),
+	)
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePhone,
+		Code:         "123456",
+		Platform:     "admin",
+	})
+	if result != nil || appErr != wantErr {
+		t.Fatalf("result=%#v err=%#v", result, appErr)
+	}
+	wantCall := verifyCodeReadinessCall{accountType: LoginTypePhone, scene: VerifyCodeSceneLogin}
+	if len(readiness.calls) != 1 || readiness.calls[0] != wantCall {
+		t.Fatalf("calls=%#v", readiness.calls)
+	}
+	if store.getKey != "" || store.deleted != "" {
+		t.Fatalf("store=%#v", store)
+	}
+}
+
+func TestServiceCodeLoginChecksPlatformPolicyBeforeReadiness(t *testing.T) {
+	readiness := &fakeVerifyCodeReadinessProvider{err: apperror.Internal("readiness must not be queried")}
+	store := &fakeCodeStore{}
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail, LoginTypePassword}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(readiness),
+	)
+	result, appErr := service.Login(context.Background(), LoginInput{
+		LoginAccount: "15671628271",
+		LoginType:    LoginTypePhone,
+		Code:         "123456",
+		Platform:     "admin",
+	})
+	if result != nil || appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "当前平台不支持该登录方式" {
+		t.Fatalf("result=%#v err=%#v", result, appErr)
+	}
+	if len(readiness.calls) != 0 || store.getKey != "" || store.deleted != "" {
+		t.Fatalf("calls=%#v store=%#v", readiness.calls, store)
+	}
+}
+
 func TestServiceCodeLoginRejectsRegisterWhenPlatformDisallowsIt(t *testing.T) {
 	store := &fakeCodeStore{values: map[string]string{
 		"auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885": "123456",
@@ -873,6 +1270,7 @@ func TestServiceCodeLoginRejectsRegisterWhenPlatformDisallowsIt(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 	)
 
@@ -909,6 +1307,7 @@ func TestServiceCodeLoginRejectsInvalidCodeAndEnqueuesFailure(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 		WithLoginLogEnqueuer(enqueuer),
 	)
@@ -993,6 +1392,7 @@ func TestServiceSendCodeUsesPolicyTTLForEmailCacheAndMailSender(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(mailSender),
 		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypeEmail: 9 * time.Minute}}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
@@ -1014,6 +1414,7 @@ func TestServiceSendCodeUsesPolicyTTLForPhoneCache(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{ttlByAccountType: map[string]time.Duration{LoginTypePhone: 8 * time.Minute}}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute}),
 	)
@@ -1035,6 +1436,7 @@ func TestServiceSendCodePassesAccountTypeToPolicyProvider(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
 		WithVerifyCodePolicyProvider(policy),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
@@ -1058,6 +1460,7 @@ func TestServiceSendCodeStopsWhenPolicyTTLInvalid(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(&fakeVerifyCodeMailSender{}),
 		WithVerifyCodePolicyProvider(&fakeVerifyCodePolicyProvider{err: apperror.BadRequest("验证码有效期配置已禁用")}),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
@@ -1080,6 +1483,7 @@ func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(mailSender),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
@@ -1109,6 +1513,7 @@ func TestServiceSendCodeRealEmailDeletesCachedCodeWhenMailFails(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(mailSender),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
@@ -1132,6 +1537,7 @@ func TestServiceSendCodePhoneIgnoresMailSenderAndStoresFixedCode(t *testing.T) {
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeMailSender(mailSender),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
@@ -1154,6 +1560,7 @@ func TestServiceSendCodeEmailRequiresMailSenderAndDeletesCachedCode(t *testing.T
 		&fakeSessionCreator{},
 		&fakeCaptchaVerifier{},
 		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
 		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
 	)
 

@@ -84,6 +84,7 @@ type Service struct {
 	loginLogEnqueuer     taskqueue.Enqueuer
 	verifyCodeMailSender VerifyCodeMailSender
 	verifyCodePolicy     VerifyCodePolicyProvider
+	verifyCodeReadiness  VerifyCodeReadinessProvider
 	logger               *slog.Logger
 	verifyCodeOptions    VerifyCodeOptions
 }
@@ -147,14 +148,23 @@ func WithVerifyCodePolicyProvider(provider VerifyCodePolicyProvider) Option {
 	}
 }
 
+func WithVerifyCodeReadinessProvider(provider VerifyCodeReadinessProvider) Option {
+	return func(s *Service) {
+		s.verifyCodeReadiness = provider
+	}
+}
+
 func (s *Service) LoginConfig(ctx context.Context, platform string) (*LoginConfigResponse, *apperror.Error) {
 	loginTypes, appErr := s.allowedLoginTypes(ctx, platform)
 	if appErr != nil {
 		return nil, appErr
 	}
-	orderedLoginTypes := loginConfigOrder(loginTypes)
-	options := make([]LoginTypeOption, 0, len(orderedLoginTypes))
-	for _, loginType := range orderedLoginTypes {
+	effectiveLoginTypes, appErr := s.effectiveLoginTypes(ctx, loginTypes, VerifyCodeSceneLogin)
+	if appErr != nil {
+		return nil, appErr
+	}
+	options := make([]LoginTypeOption, 0, len(effectiveLoginTypes))
+	for _, loginType := range effectiveLoginTypes {
 		options = append(options, LoginTypeOption{Label: loginTypeLabel(loginType), Value: loginType})
 	}
 	captchaType, appErr := s.captchaType(ctx, platform)
@@ -174,9 +184,6 @@ func (s *Service) LoginConfig(ctx context.Context, platform string) (*LoginConfi
 }
 
 func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *apperror.Error) {
-	if s == nil || s.codeStore == nil {
-		return "", apperror.Internal("验证码缓存未配置")
-	}
 	input = normalizeSendCodeInput(input)
 	if input.Account == "" {
 		return "", apperror.BadRequest("账号不能为空")
@@ -199,6 +206,18 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 			}
 			return "", apperror.BadRequestKey("auth.send_code.phone.invalid", nil, "请输入正确的手机号格式")
 		}
+	}
+	if input.Scene == VerifyCodeSceneBindEmail && accountType != LoginTypeEmail {
+		return "", apperror.BadRequestKey("auth.send_code.email.invalid", nil, "请输入正确的邮箱格式")
+	}
+	if input.Scene == VerifyCodeSceneBindPhone && accountType != LoginTypePhone {
+		return "", apperror.BadRequestKey("auth.send_code.phone.invalid", nil, "请输入正确的手机号格式")
+	}
+	if appErr := s.assertVerifyCodeReady(ctx, accountType, input.Scene); appErr != nil {
+		return "", appErr
+	}
+	if s == nil || s.codeStore == nil {
+		return "", apperror.Internal("验证码缓存未配置")
 	}
 	if input.CaptchaID == "" || input.CaptchaAnswer == nil {
 		return "", requiredCaptchaError()
@@ -484,10 +503,67 @@ func (s *Service) assertLoginTypeAllowed(ctx context.Context, platform string, l
 	}
 	for _, allowed := range loginTypes {
 		if allowed == loginType {
-			return nil
+			switch loginType {
+			case LoginTypePassword:
+				return nil
+			case LoginTypeEmail, LoginTypePhone:
+				return s.assertVerifyCodeReady(ctx, loginType, VerifyCodeSceneLogin)
+			default:
+				return apperror.BadRequest("当前平台不支持该登录方式")
+			}
 		}
 	}
 	return apperror.BadRequest("当前平台不支持该登录方式")
+}
+
+func (s *Service) effectiveLoginTypes(ctx context.Context, configured []string, scene string) ([]string, *apperror.Error) {
+	ordered := loginConfigOrder(configured)
+	result := make([]string, 0, len(ordered))
+	for _, loginType := range ordered {
+		if loginType == LoginTypePassword {
+			result = append(result, loginType)
+			continue
+		}
+		if appErr := s.requireVerifyCodeReadiness(); appErr != nil {
+			return nil, appErr
+		}
+		ready, appErr := s.verifyCodeReadiness.VerifyCodeReady(ctx, loginType, scene)
+		if appErr != nil {
+			return nil, appErr
+		}
+		if ready {
+			result = append(result, loginType)
+		}
+	}
+	return result, nil
+}
+
+func (s *Service) assertVerifyCodeReady(ctx context.Context, accountType string, scene string) *apperror.Error {
+	if appErr := s.requireVerifyCodeReadiness(); appErr != nil {
+		return appErr
+	}
+	ready, appErr := s.verifyCodeReadiness.VerifyCodeReady(ctx, accountType, scene)
+	if appErr != nil {
+		return appErr
+	}
+	if !ready {
+		return unavailableVerifyCodeChannelError(accountType)
+	}
+	return nil
+}
+
+func (s *Service) requireVerifyCodeReadiness() *apperror.Error {
+	if s == nil || s.verifyCodeReadiness == nil {
+		return apperror.InternalKey("auth.verify_code.readiness_missing", nil, "验证码渠道就绪检查未配置")
+	}
+	return nil
+}
+
+func unavailableVerifyCodeChannelError(accountType string) *apperror.Error {
+	if accountType == LoginTypeEmail {
+		return apperror.BadRequestKey("auth.verify_code.email_unavailable", nil, "邮箱验证码服务未配置").WithCode("auth.verify_code.channel_unavailable")
+	}
+	return apperror.BadRequestKey("auth.verify_code.phone_unavailable", nil, "短信验证码服务未配置").WithCode("auth.verify_code.channel_unavailable")
 }
 
 func (s *Service) findCredential(ctx context.Context, account string) (*UserCredential, *apperror.Error) {

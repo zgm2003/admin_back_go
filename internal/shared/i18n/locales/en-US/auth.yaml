@@ -17,6 +17,11 @@ auth.verify_code.policy_missing: Verification code TTL policy is not configured
 auth.verify_code.email_policy_missing: Email verification code TTL policy is not configured
 auth.verify_code.phone_policy_missing: SMS verification code TTL policy is not configured
 auth.verify_code.account_type_invalid: Invalid verification code account type
+auth.verify_code.readiness_missing: Verification channel readiness check is not configured
+auth.verify_code.email_readiness_missing: Email verification channel readiness check is not configured
+auth.verify_code.phone_readiness_missing: SMS verification channel readiness check is not configured
+auth.verify_code.email_unavailable: Email verification service is not configured
+auth.verify_code.phone_unavailable: SMS verification service is not configured
 auth.logout.success: Signed out successfully
 auth.platform.service_missing: Login service is not configured
 auth.platform.user_service_missing: User service is not configured
