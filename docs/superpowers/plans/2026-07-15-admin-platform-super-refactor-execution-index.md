@@ -49,7 +49,7 @@ returns to specification review.
 | P07 Tasks 6-10 | complete, user-reviewed | `E:/admin/admin_front_ts/docs/superpowers/plans/2026-07-15-admin-frontend-realtime-resource-plan.md` | frontend | P08R + user P08R acceptance | page decomposition, zero warnings, budgets, WCAG, Docker/manual acceptance |
 | P08.5 | cancelled; do not execute | `2026-07-18-admin-tauri-windows-release-plan.md` | none | cancelled by approved Browser-only spec | no artifact |
 | Windows local development | complete, user-reviewed | `2026-07-20-windows-local-hot-reload-development-plan.md` | backend + frontend | Gate F + approved Windows design | one-command host HMR with Docker state and unchanged full-Docker delivery |
-| P09 | release proof complete; deploy/rollback rehearsal remains operator-gated | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, approved extensible-platform spec, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, preserved platform kernel, immutable Docker release/rollback proof |
+| P09 | complete; rollback rehearsal explicitly waived by operator | `2026-07-15-admin-only-release-plan.md` | backend + frontend | Gate F, accepted Windows development loop, approved extensible-platform spec, restore proof, fresh user approval | App/Canvas and `client_versions` contract DDL, preserved platform kernel, immutable Docker release proof |
 
 ## Dependency graph
 
@@ -75,15 +75,16 @@ Fixed remaining order:
 
 ```text
 Windows local-development implementation and acceptance
-→ P09 non-destructive prerequisites/rehearsal
-→ fresh user approval immediately before destructive DDL
-→ P09 contract/release proof
+→ P09 non-destructive prerequisites
+→ fresh user approval and live contract DDL
+→ P09 release proof and closure
 ```
 
 P08R, all P07 tasks, and the Windows local-development phase are closed and
-user-reviewed. The user opened P09 on 2026-07-20. Non-destructive P09 work may
-proceed; Task 6 still stops immediately before destructive DDL for a separate,
-fresh approval.
+user-reviewed. The user opened P09 on 2026-07-20 and later explicitly approved
+the live contract migration with `DROP_CLIENT_VERSIONS_FOR_P09`. P09's live
+contract and release proof are closed; rollback rehearsal was explicitly
+waived for this new-forward-state release.
 
 ## Global execution protocol
 
@@ -160,9 +161,9 @@ Never use `git add -A`, `git reset --hard`, `git checkout --`, an unreviewed mig
 - [x] **Gate D:** P04 proves one-winner refresh, session/RBAC invalidation, and route-policy completeness. Its browser/desktop presentation is historical and does not satisfy P08R.
 - [x] **Gate E:** P05 proves durable work recovery, scheduler lease safety, and realtime resume/deduplication.
 - [x] **Gate F:** P08R plus P07 Tasks 6-10 prove one Browser-only contract, no Tauri/client-variant/client-version runtime, Docker-only delivery, zero-warning frontend quality, budgets, WCAG behavior, smoke, and user acceptance.
-- [ ] **Gate G:** P09 removes approved retired product/schema surfaces—including frozen `client_versions` only after fresh approval—preserves and proves the extensible authenticated platform kernel, and passes the complete immutable Docker release/rollback proof. The 12-gate artifact proof passes; closure still requires Task 9 Step 3's operator-approved deploy and rollback rehearsal.
+- [x] **Gate G:** P09 removed the approved retired product/schema surfaces—including frozen `client_versions` after fresh approval—preserved and proved the extensible authenticated platform kernel, and produced the immutable Docker release proof. The prior 12-gate artifact proof and fresh post-fix contract/live/artifact checks passed; rollback rehearsal was explicitly waived by the operator and is not represented as passed evidence.
 
-P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlier one. P09 stops before destructive DDL if recovery restore, frozen-table evidence, COS disposition, contract lock, Docker image revision, or user approval is missing.
+P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlier one. P09's destructive boundary was crossed only after recovery restore, frozen-table evidence, COS disposition, contract lock, Docker image revision, and explicit user approval were present. The rollback runbooks remain available, but this release records the user's explicit waiver instead of a rehearsal result.
 
 ## Completed evidence summary
 
@@ -208,19 +209,27 @@ P08 and P08.5 are not active Gate F deliverables. No later gate waives an earlie
 - The user accepted the local-development loop and explicitly opened P09 on
   2026-07-20. This acceptance does not authorize P09 destructive DDL.
 
-### Gate G verification evidence (2026-07-21)
+### Gate G verification evidence (2026-07-22)
 
 - The approved disposable P09 contract removed the frozen `client_versions`
   surface and converged both restore schemas plus empty/imported verification
   paths to fingerprint
   `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678`.
 - Release `admin-v2026.07.21.1` passed all 12 immutable release gates against
-  backend `ddbce91ec3263ff11aa3be5a76e9e499f27c3350` and frontend
-  `95937a8958ef41e12b15a5547a859c07a43d05c8`; the proof contains no failed
-  gate and completed in `2,995,071 ms`.
+  the prior backend commit and frontend `95937a8958ef41e12b15a5547a859c07a43d05c8`;
+  the proof contains no failed gate and completed in `2,995,071 ms`. It remains
+  the quality baseline for the current release.
+- Release `admin-v2026.07.22.1` was regenerated from the final clean `master`
+  checkouts after the live contract fix. Its current backend/frontend image
+  IDs, archive digests, target fingerprint, and platform-kernel proof are
+  recorded in `release/admin-only/out/release-manifest.json` and passed
+  `check-release-manifest.ps1`.
 - The platform-kernel proof, Admin Contract Bundle, Browser-only retirement,
   backend/database/runtime/frontend quality, sensitive-material scan, and
-  image/archive integrity all passed. Docker stability used an isolated
-  no-host-port project while `admin-dev` remained available.
-- Gate G remains unchecked only because no operator-approved deploy,
-  application rollback, or full database rollback rehearsal was executed.
+  image/archive integrity all passed. The live groups `201/202/203`, checks
+  `050`-`053`, drift, COS disposition, and all six platform invariants passed;
+  Docker stability used an isolated no-host-port project while `admin-dev`
+  remained available.
+- No frontend source change was required: the existing P09 contract consumer
+  passed the fresh Docker quality gate. The user explicitly waived application
+  and database rollback rehearsal, so the closure records no rollback result.

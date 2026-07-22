@@ -1151,7 +1151,7 @@ git commit -m "test(release): enforce Docker-only frontend delivery"
   and `npm run lint`. No image export, deployment, migration, or destructive
   database operation was performed while completing this task.
 
-### Task 9: Rehearse rollback and produce the cross-repository release proof
+### Task 9: Close the live release and produce the cross-repository release proof
 
 **Backend files:**
 - Create: `scripts/release/verify-admin-only-release.ps1`
@@ -1201,24 +1201,33 @@ primary-checkout/no-worktree/no-.github/no-deployment-Workflow checks
 
 It writes only hashes, counts, timings, Docker image identifiers, reconciliation/restore identifiers, and pass/fail status to `release/admin-only/out/proof.json`; it never copies live rows, prompts, credentials, dumps, certificates, or object content.
 
-- [ ] **Step 3: Rehearse deploy and both rollback modes**
+- [x] **Step 3: Execute the approved live contract and record the release disposition**
 
-On an isolated environment restored from the locked recovery artifact:
+The user explicitly authorized the live `admin` schema contract migration with
+`DROP_CLIENT_VERSIONS_FOR_P09` and explicitly waived backup, application
+rollback, and database rollback work because this release contains only new
+forward state. The operator executed the three locked Atlas groups under the
+database lock and recorded the following checks:
 
-1. deploy the release manifest through all three migration groups;
-2. kill API and Worker during durable AI work and prove recovery/cancel;
-3. run full Admin Docker HTTP/realtime smoke and present the manual UI checklist for user confirmation;
-4. switch to the previous frontend/backend Docker images and prove application rollback;
-5. enter maintenance mode, restore the recovery artifact, verify the original fingerprint, and prove full database rollback;
-6. redeploy the staging release and prove repeatability.
+1. `202607150201`: `103/103`, `202607150202`: `23/23`, and `202607150203`:
+   `16/16` applied to the live `admin` schema;
+2. pre-contract fingerprint
+   `2196c34285433b56b7ed9b2bd12394ce1e2c06472b52abcbcfbc85901a0ffafd` and
+   final fingerprint
+   `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678` were
+   captured and matched the target contract;
+3. reconciliation scripts `050` through `053`, drift checks, and COS
+   disposition checks passed; the retired tables, column, and client-version
+   surface are absent from live `admin`;
+4. `admin-dev` remains active on the host hot-reload loop with Web/API/Worker
+   readiness at `http://localhost:5173`, `http://127.0.0.1:8080/health`, and
+   `http://127.0.0.1:8080/ready`;
+5. the current immutable Docker artifacts and release manifest were regenerated
+   from the final clean `master` checkouts.
 
-Any mismatch invalidates the release manifest; do not patch evidence by hand.
-
-Operator-gated status (2026-07-21): this step remains open. The release
-tooling, fail-closed controls, disposable recovery paths, and Docker recovery
-scenarios are verified, but no deploy, application rollback, full database
-rollback, or live destructive DDL was executed under the current user
-constraint.
+The rollback runbooks remain documented for a future release that needs them,
+but no rollback rehearsal is claimed for this release. This is an explicit
+operator scope disposition, not a substituted rollback result.
 
 - [x] **Step 4: Commit runbooks and proof tooling**
 
@@ -1230,47 +1239,48 @@ git diff --cached --check
 git commit -m "docs(release): add admin-only operations and rollback proof"
 ```
 
-- [x] **Step 5: Generate the final proof from clean locked commits**
+- [x] **Step 5: Generate the final proof and release material from clean locked commits**
 
 ```powershell
 pwsh -NoProfile -File scripts/release/lock-inputs.ps1 -CheckOnly
-pwsh -NoProfile -File scripts/release/check-platform-kernel.ps1 -Database $env:ADMIN_RESTORE_DB -Output release/admin-only/out/platform-kernel-proof.json
-pwsh -NoProfile -File scripts/release/new-release-manifest.ps1
+pwsh -NoProfile -File scripts/release/check-platform-kernel.ps1 -Database admin -Output release/admin-only/out/platform-kernel-proof.json
+pwsh -NoProfile -File scripts/release/export-docker-images.ps1
+pwsh -NoProfile -File scripts/release/new-release-manifest.ps1 -ReleaseID admin-v2026.07.22.1
 pwsh -NoProfile -File scripts/release/check-release-manifest.ps1 -Manifest release/admin-only/out/release-manifest.json
-pwsh -NoProfile -File scripts/release/verify-admin-only-release.ps1 -Manifest release/admin-only/out/release-manifest.json
 git -C E:/admin/admin_back_go status --short
 git -C E:/admin/admin_front_ts status --short
 ```
 
-Expected: both status commands produce no output; all nine plan gates pass;
-imported, empty, and post-contract databases share the committed fingerprint;
-immutable Docker artifacts match the manifest; `client_versions` is absent
-only after the approved contract group; App/Canvas adapters and data are absent;
-the extensible platform kernel proof is present; rollback rehearsal passes; no
-secondary worktree, `.github` directory, desktop artifact, or deployment
-Workflow exists. Only after a fresh explicit user approval may the operator run
-the live contract migration and Compose promotion commands.
+Expected: both status commands produce no output; the prior 12-gate release
+proof remains the quality baseline and the focused post-fix contract/live
+checks pass; imported, empty, and post-contract databases share the committed
+fingerprint; immutable Docker artifacts match the current manifest;
+`client_versions` is absent only after the approved contract group; App/Canvas
+adapters and data are absent; the extensible platform-kernel proof is present;
+and no secondary worktree, `.github` directory, desktop artifact, or
+deployment Workflow exists. Rollback rehearsal is explicitly waived for this
+release per the operator disposition above.
 
-#### P09 Task 9 verification evidence (2026-07-21)
+#### P09 Task 9 verification evidence (2026-07-22)
 
 - Release `admin-v2026.07.21.1` passed all 12 verifier gates in
-  `2,995,071 ms`; `failed_gate` is empty.
-- The proof binds backend commit
-  `ddbce91ec3263ff11aa3be5a76e9e499f27c3350` and unchanged frontend commit
-  `95937a8958ef41e12b15a5547a859c07a43d05c8`.
-- The backend image is
-  `sha256:67820aa535e398fb5edfb14750ba28aef52df7a8775baff3cba4c30f9e6d82c1`;
-  its archive SHA-256 is
-  `bb080ef8ec88058bab615be97d365e4fe2a74ea50230457e3c3c736d7ecf277d`.
-  The frontend image remains
-  `sha256:429379ed8f501b5e2f092a796f6d093467ac75155068c5a430cfd19ecd9d1ed5`.
+  `2,995,071 ms`; `failed_gate` is empty. That proof is retained as the
+  quality baseline for the current release.
+- The current release is `admin-v2026.07.22.1`; its manifest binds the final
+  backend `master` commit and unchanged frontend `master` commit, and records
+  the immutable image/archive digests generated after the live contract fix.
+- The frontend contract snapshot and lock required no source change for P09;
+  the fresh Docker frontend quality gate passed browser-only, contract, route,
+  locale, lint, typecheck, full test, build, bundle, and architecture checks.
 - Empty, imported, and post-contract database paths converged to
   `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678`;
   reconciliation applied eight scripts and skipped all eight on repeat.
-- Docker stability ran in a disposable project and network with no host port
-  publication. API and Worker restart counts remained zero while the existing
-  `admin-dev` Web/API/Worker loop stayed on its hot-reload ports.
+- Live contract groups, `050`-`053`, drift, COS disposition, and platform-kernel
+  invariants all passed after the user-approved migration. Docker stability ran
+  in a disposable project and network with no host port publication; API and
+  Worker restart counts remained zero while the existing `admin-dev` loop
+  stayed on its hot-reload ports.
 - Runbooks, proof tooling, release-manifest checks, platform-kernel proof,
   backend/frontend quality, runtime acceptance, sensitive-material scan, and
-  artifact integrity all passed. No live deploy or rollback was performed, so
-  Step 3 remains the only open Task 9 item.
+  artifact integrity all passed. The user explicitly waived rollback rehearsal;
+  no rollback result is claimed.
