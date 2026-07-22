@@ -264,7 +264,6 @@ func validCreateInput() CreateInput {
 		BindPlatform:  enum.CommonYes,
 		BindDevice:    enum.CommonNo,
 		BindIP:        enum.CommonNo,
-		SingleSession: enum.CommonYes,
 		MaxSessions:   1,
 		AllowRegister: enum.CommonYes,
 	}

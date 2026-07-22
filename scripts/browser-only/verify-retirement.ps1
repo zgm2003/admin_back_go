@@ -92,11 +92,11 @@ if ($historyParts.Count -ne 2 -or $historyParts[0] -notmatch '^[0-9]+$' -or $his
   throw 'client_versions history evidence was malformed'
 }
 
-$policy = @(Invoke-MySQL "SELECT COUNT(*),COALESCE(MAX(single_session),0),COALESCE(MAX(max_sessions),0) FROM auth_platforms WHERE code='admin' AND is_del=2" 'read Admin session policy')
+$policy = @(Invoke-MySQL "SELECT COUNT(*),COALESCE(MAX(max_sessions),0) FROM auth_platforms WHERE code='admin' AND is_del=2" 'read Admin session policy')
 if ($policy.Count -ne 1) { throw 'Admin session policy evidence was invalid' }
 $policyParts = $policy[0] -split "`t"
-if ($policyParts.Count -ne 3 -or $policyParts[0] -cne '1' -or $policyParts[1] -cne '1' -or $policyParts[2] -cne '1') {
-  throw 'Admin single_session/max_sessions policy changed'
+if ($policyParts.Count -ne 2 -or $policyParts[0] -cne '1' -or $policyParts[1] -cne '1') {
+  throw 'Admin max_sessions policy changed'
 }
 
 $redisLines = @(Invoke-Redis @('-n', [string]$tokenRedisDB, '--raw', 'DBSIZE') 'read token Redis key count')
@@ -111,8 +111,7 @@ Write-Output "active_permission_violations=$activePermissionViolations"
 Write-Output "active_role_permission_violations=$activeRolePermissionViolations"
 Write-Output "client_versions_count=$($historyParts[0])"
 Write-Output "client_versions_sha256=$($historyParts[1])"
-Write-Output "single_session=$($policyParts[1])"
-Write-Output "max_sessions=$($policyParts[2])"
+Write-Output "max_sessions=$($policyParts[1])"
 Write-Output "active_admin_sessions=$activeAdminSessions"
 Write-Output "token_redis_keys=$tokenRedisKeys"
 Write-Output "retirement_reconciliation_runs=$reconciliationRuns"

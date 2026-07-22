@@ -41,7 +41,6 @@ type Platform struct {
 	BindPlatform  int       `gorm:"column:bind_platform"`
 	BindDevice    int       `gorm:"column:bind_device"`
 	BindIP        int       `gorm:"column:bind_ip"`
-	SingleSession int       `gorm:"column:single_session"`
 	MaxSessions   int       `gorm:"column:max_sessions"`
 	AllowRegister int       `gorm:"column:allow_register"`
 	AccessTTL     int       `gorm:"column:access_ttl"`
@@ -78,7 +77,7 @@ func (s *Service) Policy(ctx context.Context, platform string) (*authmodule.Auth
 		BindPlatform:             row.BindPlatform == enum.CommonYes,
 		BindDevice:               row.BindDevice == enum.CommonYes,
 		BindIP:                   row.BindIP == enum.CommonYes,
-		SingleSessionPerPlatform: row.SingleSession == enum.CommonYes,
+		SingleSessionPerPlatform: row.MaxSessions == 1,
 		MaxSessions:              row.MaxSessions,
 		AllowRegister:            row.AllowRegister == enum.CommonYes,
 		AccessTTL:                time.Duration(row.AccessTTL) * time.Second,
@@ -312,7 +311,7 @@ func normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
 	update, appErr := normalizeUpdateInput(UpdateInput{
 		Name: input.Name, LoginTypes: input.LoginTypes, CaptchaType: input.CaptchaType,
 		AccessTTL: input.AccessTTL, RefreshTTL: input.RefreshTTL, BindPlatform: input.BindPlatform, BindDevice: input.BindDevice,
-		BindIP: input.BindIP, SingleSession: input.SingleSession, MaxSessions: input.MaxSessions, AllowRegister: input.AllowRegister,
+		BindIP: input.BindIP, MaxSessions: input.MaxSessions, AllowRegister: input.AllowRegister,
 	})
 	if appErr != nil {
 		return input, appErr
@@ -325,7 +324,6 @@ func normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
 	input.BindPlatform = update.BindPlatform
 	input.BindDevice = update.BindDevice
 	input.BindIP = update.BindIP
-	input.SingleSession = update.SingleSession
 	input.MaxSessions = update.MaxSessions
 	input.AllowRegister = update.AllowRegister
 	return input, nil
@@ -351,7 +349,7 @@ func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
 	if input.RefreshTTL < minRefreshTTL || input.RefreshTTL > maxRefreshTTL {
 		return input, apperror.BadRequestKey("authplatform.refresh_ttl.invalid", nil, "refresh_token有效期无效")
 	}
-	if !enum.IsCommonYesNo(input.BindPlatform) || !enum.IsCommonYesNo(input.BindDevice) || !enum.IsCommonYesNo(input.BindIP) || !enum.IsCommonYesNo(input.SingleSession) || !enum.IsCommonYesNo(input.AllowRegister) {
+	if !enum.IsCommonYesNo(input.BindPlatform) || !enum.IsCommonYesNo(input.BindDevice) || !enum.IsCommonYesNo(input.BindIP) || !enum.IsCommonYesNo(input.AllowRegister) {
 		return input, apperror.BadRequestKey("authplatform.policy.invalid", nil, "安全策略参数无效")
 	}
 	if input.MaxSessions < minMaxSessions || input.MaxSessions > maxMaxSessions {
@@ -392,7 +390,7 @@ func platformFromCreateInput(input CreateInput) (Platform, *apperror.Error) {
 	return Platform{
 		Code: input.Code, Name: input.Name, LoginTypes: loginTypes, CaptchaType: input.CaptchaType,
 		BindPlatform: input.BindPlatform, BindDevice: input.BindDevice, BindIP: input.BindIP,
-		SingleSession: input.SingleSession, MaxSessions: input.MaxSessions, AllowRegister: input.AllowRegister,
+		MaxSessions: input.MaxSessions, AllowRegister: input.AllowRegister,
 		AccessTTL: input.AccessTTL, RefreshTTL: input.RefreshTTL, Status: enum.CommonYes, IsDel: enum.CommonNo,
 	}, nil
 }
@@ -406,7 +404,7 @@ func updateFieldsFromInput(input UpdateInput) (map[string]any, *apperror.Error) 
 		"name": input.Name, "login_types": loginTypes, "captcha_type": input.CaptchaType,
 		"access_ttl": input.AccessTTL, "refresh_ttl": input.RefreshTTL,
 		"bind_platform": input.BindPlatform, "bind_device": input.BindDevice, "bind_ip": input.BindIP,
-		"single_session": input.SingleSession, "max_sessions": input.MaxSessions, "allow_register": input.AllowRegister,
+		"max_sessions": input.MaxSessions, "allow_register": input.AllowRegister,
 	}, nil
 }
 
@@ -422,7 +420,7 @@ func listItemFromPlatform(row Platform) ListItem {
 	return ListItem{
 		ID: row.ID, Code: row.Code, Name: row.Name, LoginTypes: normalizeLoginTypes(row.LoginTypes), CaptchaType: row.CaptchaType,
 		AccessTTL: row.AccessTTL, RefreshTTL: row.RefreshTTL, BindPlatform: row.BindPlatform, BindDevice: row.BindDevice,
-		BindIP: row.BindIP, SingleSession: row.SingleSession, MaxSessions: row.MaxSessions, AllowRegister: row.AllowRegister,
+		BindIP: row.BindIP, MaxSessions: row.MaxSessions, AllowRegister: row.AllowRegister,
 		Status: row.Status, StatusName: statusLabel(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
 }

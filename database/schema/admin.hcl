@@ -2449,13 +2449,6 @@ table "auth_platforms" {
     unsigned = true
     comment  = "绑定IP 1=是 2=否"
   }
-  column "single_session" {
-    null     = false
-    type     = tinyint
-    default  = 2
-    unsigned = true
-    comment  = "单端登录 1=是 2=否"
-  }
   column "max_sessions" {
     null     = false
     type     = int

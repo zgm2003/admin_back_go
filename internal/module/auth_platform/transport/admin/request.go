@@ -17,7 +17,6 @@ type createRequest struct {
 	BindPlatform  int      `json:"bind_platform" binding:"required,common_yes_no"`
 	BindDevice    int      `json:"bind_device" binding:"required,common_yes_no"`
 	BindIP        int      `json:"bind_ip" binding:"required,common_yes_no"`
-	SingleSession int      `json:"single_session" binding:"required,common_yes_no"`
 	MaxSessions   int      `json:"max_sessions" binding:"min=0,max=100"`
 	AllowRegister int      `json:"allow_register" binding:"required,common_yes_no"`
 }
@@ -31,7 +30,6 @@ type updateRequest struct {
 	BindPlatform  int      `json:"bind_platform" binding:"required,common_yes_no"`
 	BindDevice    int      `json:"bind_device" binding:"required,common_yes_no"`
 	BindIP        int      `json:"bind_ip" binding:"required,common_yes_no"`
-	SingleSession int      `json:"single_session" binding:"required,common_yes_no"`
 	MaxSessions   int      `json:"max_sessions" binding:"min=0,max=100"`
 	AllowRegister int      `json:"allow_register" binding:"required,common_yes_no"`
 }

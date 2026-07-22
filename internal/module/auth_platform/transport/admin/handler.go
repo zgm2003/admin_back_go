@@ -174,7 +174,7 @@ func bindCreate(c *gin.Context) (authplatformmodule.CreateInput, bool) {
 	return authplatformmodule.CreateInput{
 		Code: req.Code, Name: req.Name, LoginTypes: req.LoginTypes, CaptchaType: req.CaptchaType,
 		AccessTTL: req.AccessTTL, RefreshTTL: req.RefreshTTL, BindPlatform: req.BindPlatform, BindDevice: req.BindDevice,
-		BindIP: req.BindIP, SingleSession: req.SingleSession, MaxSessions: req.MaxSessions, AllowRegister: req.AllowRegister,
+		BindIP: req.BindIP, MaxSessions: req.MaxSessions, AllowRegister: req.AllowRegister,
 	}, true
 }
 
@@ -187,6 +187,6 @@ func bindUpdate(c *gin.Context) (authplatformmodule.UpdateInput, bool) {
 	return authplatformmodule.UpdateInput{
 		Name: req.Name, LoginTypes: req.LoginTypes, CaptchaType: req.CaptchaType,
 		AccessTTL: req.AccessTTL, RefreshTTL: req.RefreshTTL, BindPlatform: req.BindPlatform, BindDevice: req.BindDevice,
-		BindIP: req.BindIP, SingleSession: req.SingleSession, MaxSessions: req.MaxSessions, AllowRegister: req.AllowRegister,
+		BindIP: req.BindIP, MaxSessions: req.MaxSessions, AllowRegister: req.AllowRegister,
 	}, true
 }

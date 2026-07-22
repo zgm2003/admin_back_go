@@ -94,7 +94,7 @@ func TestManagementListIncludesCaptchaTypeWithoutFallbackFields(t *testing.T) {
 		rows: []Platform{{
 			ID: 1, Code: "admin", Name: "PC后台", LoginTypes: `["password"]`, CaptchaType: enum.CaptchaTypeSlide,
 			AccessTTL: 14400, RefreshTTL: 1209600, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
-			BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
+			BindIP: enum.CommonNo, MaxSessions: 1, AllowRegister: enum.CommonYes,
 			Status: enum.CommonYes, CreatedAt: createdAt, UpdatedAt: createdAt,
 		}},
 		total: 1,
@@ -120,7 +120,7 @@ func TestManagementCreateValidatesCaptchaTypeAndStoresJSONLoginTypes(t *testing.
 	id, appErr := service.Create(context.Background(), CreateInput{
 		Code: "partner_portal", Name: "合作方门户", LoginTypes: []string{enum.LoginTypePassword, enum.LoginTypeEmail}, CaptchaType: enum.CaptchaTypeSlide,
 		AccessTTL: 3600, RefreshTTL: 86400, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
-		BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
+		BindIP: enum.CommonNo, MaxSessions: 1, AllowRegister: enum.CommonYes,
 	})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
@@ -145,7 +145,7 @@ func TestManagementCreateRejectsUnsupportedCaptchaType(t *testing.T) {
 	_, appErr := service.Create(context.Background(), CreateInput{
 		Code: "mini", Name: "小程序", LoginTypes: []string{enum.LoginTypePassword}, CaptchaType: "click",
 		AccessTTL: 3600, RefreshTTL: 86400, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
-		BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
+		BindIP: enum.CommonNo, MaxSessions: 1, AllowRegister: enum.CommonYes,
 	})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的验证码类型" {
 		t.Fatalf("expected captcha type validation error, got %#v", appErr)
@@ -229,6 +229,6 @@ func validUpdateInput() UpdateInput {
 	return UpdateInput{
 		Name: "小程序", LoginTypes: []string{enum.LoginTypePassword}, CaptchaType: enum.CaptchaTypeSlide,
 		AccessTTL: 3600, RefreshTTL: 86400, BindPlatform: enum.CommonYes, BindDevice: enum.CommonNo,
-		BindIP: enum.CommonNo, SingleSession: enum.CommonYes, MaxSessions: 1, AllowRegister: enum.CommonYes,
+		BindIP: enum.CommonNo, MaxSessions: 1, AllowRegister: enum.CommonYes,
 	}
 }

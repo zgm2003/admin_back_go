@@ -1,7 +1,8 @@
-h1:cgJivyupjRSONsYk4I/6HGVV5BAou5amAR++PJHtWPg=
+h1:IeplyQaxZLBiG/C57ZogCZ0AI10knXhltfmeVzJJYuk=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
 202607150201_admin_only_rows.sql h1:/kAIBP3HWME++r8iDjtsEFcjFbTugU8nXvIbTe9Ph3U=
 202607150202_admin_only_schema.sql h1:HXfw0duuSk4ZD9OgIgTnz+ii9zaRty9+2R3NXp4wzds=
 202607150203_admin_only_constraints.sql h1:5rNHcoR+8cYdYcJ7wFIajP5XkdjBwnP5yikkyDdsaEE=
+202607220101_auth_platform_session_policy.sql h1:VG94YieSLCPCbb65MEmTM6cUQsxRMn8uetggMidqZV8=

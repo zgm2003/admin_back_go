@@ -15,7 +15,7 @@ import (
 func TestHandlerLocalizesCreateRequestError(t *testing.T) {
 	router, service := newLocalizedAuthPlatformHandlerRouter()
 
-	body := `{"code":"mini","name":"小程序","login_types":["password"],"captcha_type":"click","access_ttl":3600,"refresh_ttl":86400,"bind_platform":1,"bind_device":2,"bind_ip":2,"single_session":1,"max_sessions":1,"allow_register":1}`
+	body := `{"code":"mini","name":"小程序","login_types":["password"],"captcha_type":"click","access_ttl":3600,"refresh_ttl":86400,"bind_platform":1,"bind_device":2,"bind_ip":2,"max_sessions":1,"allow_register":1}`
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth-platforms", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

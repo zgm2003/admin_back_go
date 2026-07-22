@@ -68,7 +68,7 @@ func TestHandlerBindsListQueryWithValidator(t *testing.T) {
 func TestHandlerRejectsUnsupportedCaptchaTypeBeforeService(t *testing.T) {
 	router, service := newAuthPlatformHandlerRouter()
 
-	body := `{"code":"mini","name":"小程序","login_types":["password"],"captcha_type":"click","access_ttl":3600,"refresh_ttl":86400,"bind_platform":1,"bind_device":2,"bind_ip":2,"single_session":1,"max_sessions":1,"allow_register":1}`
+	body := `{"code":"mini","name":"小程序","login_types":["password"],"captcha_type":"click","access_ttl":3600,"refresh_ttl":86400,"bind_platform":1,"bind_device":2,"bind_ip":2,"max_sessions":1,"allow_register":1}`
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth-platforms", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
@@ -86,6 +86,23 @@ func TestHandlerRejectsUnsupportedCaptchaTypeBeforeService(t *testing.T) {
 	}
 	if payload["code"] != float64(apperror.CodeBadRequest) {
 		t.Fatalf("unexpected response payload: %#v", payload)
+	}
+}
+
+func TestHandlerBindsCreateWithoutSingleSession(t *testing.T) {
+	router, service := newAuthPlatformHandlerRouter()
+
+	body := `{"code":"mini","name":"小程序","login_types":["password"],"captcha_type":"slide","access_ttl":3600,"refresh_ttl":86400,"bind_platform":1,"bind_device":2,"bind_ip":2,"max_sessions":1,"allow_register":1}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/auth-platforms", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.createInput.Code != "mini" || service.createInput.MaxSessions != 1 {
+		t.Fatalf("unexpected create input: %#v", service.createInput)
 	}
 }
 

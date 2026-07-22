@@ -37,36 +37,46 @@ func TestServiceReturnsNilPolicyWhenPlatformIsMissing(t *testing.T) {
 	}
 }
 
-func TestServiceMapsLegacyYesNoFlagsToSessionPolicy(t *testing.T) {
-	service := NewService(&fakeRepository{platform: &Platform{
-		Code:          "admin",
-		BindPlatform:  1,
-		BindDevice:    1,
-		BindIP:        2,
-		SingleSession: 1,
-		MaxSessions:   1,
-		AllowRegister: 2,
-		AccessTTL:     14400,
-		RefreshTTL:    1209600,
-	}})
+func TestServiceDerivesSessionPolicyFromMaxSessions(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		maxSessions int
+		wantSingle  bool
+	}{
+		{name: "unlimited", maxSessions: 0, wantSingle: false},
+		{name: "single", maxSessions: 1, wantSingle: true},
+		{name: "limited", maxSessions: 3, wantSingle: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := NewService(&fakeRepository{platform: &Platform{
+				Code:          "admin",
+				BindPlatform:  1,
+				BindDevice:    1,
+				BindIP:        2,
+				MaxSessions:   test.maxSessions,
+				AllowRegister: 2,
+				AccessTTL:     14400,
+				RefreshTTL:    1209600,
+			}})
 
-	policy, err := service.Policy(context.Background(), "admin")
-
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	want := authmodule.AuthPolicy{
-		BindPlatform:             true,
-		BindDevice:               true,
-		BindIP:                   false,
-		SingleSessionPerPlatform: true,
-		MaxSessions:              1,
-		AllowRegister:            false,
-		AccessTTL:                4 * time.Hour,
-		RefreshTTL:               14 * 24 * time.Hour,
-	}
-	if *policy != want {
-		t.Fatalf("unexpected policy: %#v", policy)
+			policy, err := service.Policy(context.Background(), "admin")
+			if err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+			want := authmodule.AuthPolicy{
+				BindPlatform:             true,
+				BindDevice:               true,
+				BindIP:                   false,
+				SingleSessionPerPlatform: test.wantSingle,
+				MaxSessions:              test.maxSessions,
+				AllowRegister:            false,
+				AccessTTL:                4 * time.Hour,
+				RefreshTTL:               14 * 24 * time.Hour,
+			}
+			if *policy != want {
+				t.Fatalf("unexpected policy: %#v", policy)
+			}
+		})
 	}
 }
 

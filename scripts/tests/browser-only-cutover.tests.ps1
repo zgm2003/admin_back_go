@@ -99,7 +99,6 @@ foreach ($needle in @(
   'client_versions_sha256',
   'active_permission_violations',
   'active_role_permission_violations',
-  'single_session',
   'max_sessions',
   'token_redis_keys'
 )) {

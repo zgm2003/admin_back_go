@@ -112,13 +112,19 @@ func TestPlatformKernelSchemaRemainsExtensible(t *testing.T) {
 		`index "uk_code"`,
 		`column "login_types"`,
 		`column "captcha_type"`,
-		`column "single_session"`,
 		`column "max_sessions"`,
 		`column "platform"`,
 	} {
 		if !strings.Contains(schema, token) {
 			t.Errorf("canonical schema lost platform-kernel token %q", token)
 		}
+	}
+	if strings.Contains(schema, `column "single_session"`) {
+		t.Fatal("canonical schema still contains redundant auth_platforms.single_session")
+	}
+	migration := readArchitectureText(t, "database/migrations/202607220101_auth_platform_session_policy.sql")
+	if !strings.Contains(migration, "DROP COLUMN `single_session`") {
+		t.Fatal("session policy migration does not drop auth_platforms.single_session")
 	}
 	for _, singleton := range []string{
 		`auth_platforms.code = 'admin'`,

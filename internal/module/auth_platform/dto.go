@@ -42,7 +42,6 @@ type ListItem struct {
 	BindPlatform  int      `json:"bind_platform"`
 	BindDevice    int      `json:"bind_device"`
 	BindIP        int      `json:"bind_ip"`
-	SingleSession int      `json:"single_session"`
 	MaxSessions   int      `json:"max_sessions"`
 	AllowRegister int      `json:"allow_register"`
 	Status        int      `json:"status"`
@@ -61,7 +60,6 @@ type CreateInput struct {
 	BindPlatform  int
 	BindDevice    int
 	BindIP        int
-	SingleSession int
 	MaxSessions   int
 	AllowRegister int
 }
@@ -75,7 +73,6 @@ type UpdateInput struct {
 	BindPlatform  int
 	BindDevice    int
 	BindIP        int
-	SingleSession int
 	MaxSessions   int
 	AllowRegister int
 }

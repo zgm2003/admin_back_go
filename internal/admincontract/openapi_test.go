@@ -118,6 +118,13 @@ func TestOpenAPIContainsEveryRuntimeAdminOperation(t *testing.T) {
 	}
 }
 
+func TestOpenAPIRemovesRedundantSingleSessionField(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	if strings.Contains(string(bundle.Artifacts["openapi.json"]), `"single_session"`) {
+		t.Fatal("Admin OpenAPI still publishes redundant single_session field")
+	}
+}
+
 func TestOpenAPIUsesStableSafeErrorEnvelope(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document struct {
