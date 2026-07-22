@@ -1266,12 +1266,19 @@ release per the operator disposition above.
 - Release `admin-v2026.07.21.1` passed all 12 verifier gates in
   `2,995,071 ms`; `failed_gate` is empty. That proof is retained as the
   quality baseline for the current release.
-- The current release is `admin-v2026.07.22.1`; its manifest binds the final
-  backend `master` commit and unchanged frontend `master` commit, and records
-  the immutable image/archive digests generated after the live contract fix.
-- The frontend contract snapshot and lock required no source change for P09;
-  the fresh Docker frontend quality gate passed browser-only, contract, route,
-  locale, lint, typecheck, full test, build, bundle, and architecture checks.
+- The current release baseline was `admin-v2026.07.22.1`. The post-gate
+  frontend fix is captured by the next immutable release manifest; it binds
+  the current backend `master` commit and frontend commit `9934c34221ac9e0a8010a0263ba394b0f0fc3f9f`.
+- The frontend contract snapshot and lock remain exact. The fresh Docker
+  frontend quality gate passed browser-only, contract, route, locale, zero-
+  warning lint, typecheck, 113 test files / 447 tests with coverage, build,
+  bundle, architecture, and dependency checks. The added `SendCode` regression
+  suite proves login/forget scenes use eagerly loaded auth copy, personal
+  scenes keep their lazy feature copy, and parent attrs reach the visible
+  wrapper without a Vue fragment warning.
+- `admin-dev` remained on its existing hot-reload supervisor; Vite, API
+  `/health`, and API `/ready` continued returning HTTP 200 during the fix and
+  artifact rebuild.
 - Empty, imported, and post-contract database paths converged to
   `9a019819051e7252cb09c4c4ea56cd3b285aedb4362d49f6ec95f80299604678`;
   reconciliation applied eight scripts and skipped all eight on repeat.
