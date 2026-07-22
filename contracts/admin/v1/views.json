@@ -82,6 +82,11 @@
                 "ai/providers",
                 "ai/runs",
                 "ai/tools",
+                "component/display",
+                "component/download",
+                "component/effect",
+                "component/form",
+                "component/upload",
                 "notification",
                 "payment/config",
                 "payment/ledger",
@@ -313,6 +318,41 @@
       "path": "/ai/tools",
       "view_key": "ai/tools",
       "i18n_key": "menu.ai_tools",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/component/display",
+      "view_key": "component/display",
+      "i18n_key": "menu.component_display",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/component/download",
+      "view_key": "component/download",
+      "i18n_key": "menu.component_download",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/component/effect",
+      "view_key": "component/effect",
+      "i18n_key": "menu.component_effect",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/component/form",
+      "view_key": "component/form",
+      "i18n_key": "menu.component_form",
+      "show_menu": 1,
+      "permission_codes": []
+    },
+    {
+      "path": "/component/upload",
+      "view_key": "component/upload",
+      "i18n_key": "menu.component_upload",
       "show_menu": 1,
       "permission_codes": []
     },

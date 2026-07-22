@@ -3,7 +3,7 @@
   "openapi_version": "3.1.0",
   "permission_version": "admin-permissions-2026-07-15.2",
   "realtime_version": "admin-realtime-2026-07-18.1",
-  "backend_commit": "565a6062e21564925388a4c695b926653e1bf796",
+  "backend_commit": "5d291e7c7a6bdc7ac4cd775054387f860ac19f55",
   "artifacts": {
     "openapi.json": {
       "sha256": "6a8ff4db9519fd5dcacf244ecd5c1267f8f4c21181e8be123aa55d20bc2e9a8e",
@@ -22,7 +22,7 @@
       "schema_version": "admin-realtime-2026-07-18.1"
     },
     "views.json": {
-      "sha256": "6622c36a5f77cf88c4e7a3297d242b8140848a8b8f37878d7fbb44f379248bc2",
+      "sha256": "8239ee6875d84e9870d88b185bfa2d9a92e1e7cd9548264fdd435d564b54c72a",
       "schema_version": "admin-views-2026-07-15.2"
     }
   }
