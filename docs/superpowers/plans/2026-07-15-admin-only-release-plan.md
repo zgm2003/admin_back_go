@@ -171,7 +171,7 @@ git commit -m "chore(release): lock admin-only contract inputs"
 
 Expected: all lock fields are literal current values, precondition violations are zero, and no secret or dump is tracked.
 
-### Task 2: Remove retired frontend product branches while preserving platform administration
+### Task 2: Remove retired frontend product branches while preserving platform administration (complete: `c8bf3b0`, follow-up `9934c34`)
 
 **Repository:** `E:/admin/admin_front_ts`
 
@@ -232,7 +232,7 @@ Expected: all lock fields are literal current values, precondition violations ar
 - Modify: `tests/integration/features/notifications.test.ts`
 - Modify: `tests/integration/features/ai-runs.test.ts`
 
-- [ ] **Step 1: Add failing retired-product and platform-kernel guards**
+- [x] **Step 1: Add failing retired-product and platform-kernel guards**
 
 The source guard parses production TypeScript/Vue and locale values. It excludes DOM `HTMLCanvasElement`, Canvas rendering APIs, and CSS class names. It rejects retired product values/imports rather than the substring alone:
 
@@ -273,7 +273,7 @@ npm test -- tests/shared/architecture/admin-only.test.ts tests/integration/featu
 Expected: FAIL on the current product helper, env key, old scene values, and
 any platform-kernel control removed by the earlier singleton draft.
 
-- [ ] **Step 2: Keep Admin transport truth without collapsing management**
+- [x] **Step 2: Keep Admin transport truth without collapsing management**
 
 P08R already removed `getPlatform` and `src/lib/http/platform.ts`; keep
 `src/lib/http/headers.ts` on the literal Admin provenance required by the Admin
@@ -299,7 +299,7 @@ client-version UI/contracts; this task must not recreate them. Do not edit
 generated backend contracts in this task—Task 7 replaces them from backend
 truth. Do not handwrite a compatibility type while waiting for Task 7.
 
-- [ ] **Step 3: Verify and commit exact source files**
+- [x] **Step 3: Verify and commit exact source files**
 
 ```powershell
 $root = (Get-Location).Path
