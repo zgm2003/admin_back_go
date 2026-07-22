@@ -75,7 +75,6 @@ FROM (
   SELECT 'permission' AS `kind`, permission.`id`
   FROM `permissions` AS permission
   WHERE permission.`platform` = 'admin'
-    AND permission.`is_del` = 2
     AND (
       permission.`path` = '/system/clientVersion'
       OR permission.`component` = 'system/clientVersion'
@@ -92,8 +91,7 @@ FROM (
   SELECT 'role_permission' AS `kind`, grant_row.`id`
   FROM `role_permissions` AS grant_row
   JOIN `permissions` AS permission ON permission.`id` = grant_row.`permission_id`
-  WHERE grant_row.`is_del` = 2
-    AND permission.`platform` = 'admin'
+  WHERE permission.`platform` = 'admin'
     AND (
       permission.`path` = '/system/clientVersion'
       OR permission.`component` = 'system/clientVersion'

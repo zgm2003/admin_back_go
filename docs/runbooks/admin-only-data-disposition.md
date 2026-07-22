@@ -33,6 +33,10 @@ removed only by the explicit rules below.
 - Build the exact retired permission ID set from `platform IN ('app','canvas')`.
 - Remove active `role_permissions` for that set before removing the permission
   rows.
+- P08R already soft-deletes the six Admin client-version permissions and their
+  twelve role grants. P09 locks that complete six-plus-twelve identity set and
+  physically removes both the active and already-soft-deleted rows; it does
+  not resurrect soft-deleted permissions first.
 - One pre-existing active orphan is separately locked: role-permission ID 723,
   role ID 1, missing permission ID 539. The approved row contract removes only
   that grant; it does not invent or attach a replacement permission.
@@ -145,7 +149,8 @@ Before physical removal, all of the following must be true:
 
 1. the live count/hash still matches P08R;
 2. no active route, task, menu, role grant, package, or generated Admin
-   contract references the table;
+   contract references the table; the already-soft-deleted client-version
+   permission/grant rows are included in the P09 physical cleanup;
 3. all eight historical URL hashes have the explicit
    `record_missing_no_object_delete` disposition;
 4. the recovery artifact and complete rollback rehearsal remain valid;

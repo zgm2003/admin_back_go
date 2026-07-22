@@ -48,7 +48,8 @@ foreach ($needle in @(
   'system_clientVersion_setLatest',
   'contract_retired_ai_runs',
   'canvas_text_generate',
-  'text_generate'
+  'text_generate',
+  'cleanup must include both is_del states'
 )) {
   Assert-Contains $rows $needle "row migration is missing $needle"
 }
@@ -90,6 +91,11 @@ foreach ($pair in @(
 )) {
   Assert-Contains $pair[0] $pair[1] "verification SQL is missing $($pair[1])"
 }
+$clientSurfaceStart = $preconditions.IndexOf("SELECT 'client_version_surface_count_mismatch'", [StringComparison]::Ordinal)
+$clientSurfaceEnd = $preconditions.IndexOf("SELECT 'client_versions_count_mismatch'", $clientSurfaceStart, [StringComparison]::Ordinal)
+Assert-True ($clientSurfaceStart -ge 0 -and $clientSurfaceEnd -gt $clientSurfaceStart) 'client-version precondition section is missing'
+$clientSurface = $preconditions.Substring($clientSurfaceStart, $clientSurfaceEnd - $clientSurfaceStart)
+Assert-True (-not [regex]::IsMatch($clientSurface, 'permission\.`is_del`|grant_row\.`is_del`')) 'client-version precondition ignores already soft-deleted rows'
 
 $platformJoinPattern = 'platform_row\.`code`\s+COLLATE\s+utf8mb4_0900_ai_ci\s*=\s*row_data\.`platform`\s+COLLATE\s+utf8mb4_0900_ai_ci'
 Assert-True ([regex]::Matches($verifyFinal, $platformJoinPattern).Count -eq 12) 'verification SQL must normalize all platform provenance joins to one collation'

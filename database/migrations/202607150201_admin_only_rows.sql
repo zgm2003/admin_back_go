@@ -107,11 +107,12 @@ FROM `information_schema`.`key_column_usage`
 WHERE `referenced_table_schema` = DATABASE()
   AND `referenced_table_name` = 'ai_prompts';
 
+-- P08R may already have soft-deleted these rows. The locked set is physical
+-- identity-based, so cleanup must include both is_del states.
 INSERT INTO `_p09_contract_guard`
 SELECT IF(COUNT(*) = 6, 0, 1)
 FROM `permissions` AS permission
 WHERE permission.`platform` = 'admin'
-  AND permission.`is_del` = 2
   AND (
     permission.`path` = '/system/clientVersion'
     OR permission.`component` = 'system/clientVersion'
@@ -129,8 +130,7 @@ INSERT INTO `_p09_contract_guard`
 SELECT IF(COUNT(*) = 12, 0, 1)
 FROM `role_permissions` AS role_permission
 JOIN `permissions` AS permission ON permission.`id` = role_permission.`permission_id`
-WHERE role_permission.`is_del` = 2
-  AND permission.`platform` = 'admin'
+WHERE permission.`platform` = 'admin'
   AND (
     permission.`path` = '/system/clientVersion'
     OR permission.`component` = 'system/clientVersion'
@@ -163,9 +163,12 @@ CREATE TEMPORARY TABLE `contract_admin_principal_versions` (
 );
 
 INSERT INTO `contract_admin_principal_versions` (`user_id`, `version`)
-SELECT `user_id`, `version`
-FROM `authz_principal_versions`
-WHERE `platform` = 'admin';
+SELECT principal_version.`user_id`, principal_version.`version`
+FROM `authz_principal_versions` AS principal_version
+JOIN `users` AS user_row ON user_row.`id` = principal_version.`user_id`
+WHERE principal_version.`platform` = 'admin'
+  AND user_row.`status` = 1
+  AND user_row.`is_del` = 2;
 
 INSERT INTO `_p09_contract_guard`
 SELECT IF(COUNT(*) = 7, 0, 1)
@@ -388,7 +391,6 @@ DELETE role_permission
 FROM `role_permissions` AS role_permission
 JOIN `permissions` AS permission ON permission.`id` = role_permission.`permission_id`
 WHERE permission.`platform` = 'admin'
-  AND permission.`is_del` = 2
   AND (
     permission.`path` = '/system/clientVersion'
     OR permission.`component` = 'system/clientVersion'
@@ -421,7 +423,6 @@ WHERE permission.`platform` = 'admin'
 
 DELETE FROM `permissions`
 WHERE `platform` = 'admin'
-  AND `is_del` = 2
   AND (
     `path` = '/system/clientVersion'
     OR `component` = 'system/clientVersion'
@@ -455,7 +456,9 @@ UPDATE `authz_principal_versions` AS principal_version
 JOIN `users` AS user_row ON user_row.`id` = principal_version.`user_id`
 SET principal_version.`version` = principal_version.`version` + 1,
     principal_version.`updated_at` = UTC_TIMESTAMP(6)
-WHERE principal_version.`platform` = 'admin';
+WHERE principal_version.`platform` = 'admin'
+  AND user_row.`status` = 1
+  AND user_row.`is_del` = 2;
 INSERT INTO `_p09_contract_guard`
 SELECT IF(COUNT(*) = 7, 0, 1)
 FROM `authz_principal_versions` AS principal_version
