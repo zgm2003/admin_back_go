@@ -22,6 +22,8 @@ auth.verify_code.email_readiness_missing: 邮箱验证码渠道就绪检查未�
 auth.verify_code.phone_readiness_missing: 短信验证码渠道就绪检查未配置
 auth.verify_code.email_unavailable: 邮箱验证码服务未配置
 auth.verify_code.phone_unavailable: 短信验证码服务未配置
+auth.verify_code.delivery_in_progress: 验证码正在发送，请稍后重试
+auth.verify_code.delivery_state_failed: 验证码发送状态确认失败
 auth.logout.success: 退出成功
 auth.platform.service_missing: 登录服务未配置
 auth.platform.user_service_missing: 用户服务未配置

@@ -36,6 +36,7 @@ func TestBuildWiresAuthVerificationChannelCapabilities(t *testing.T) {
 		"auth.WithVerifyCodeMailSender(mailService)",
 		"auth.WithVerifyCodePhoneSender(smsService)",
 		"auth.WithVerifyCodeReadinessProvider(auth.NewChannelVerifyCodeReadinessProvider(mailService, smsService))",
+		"auth.WithVerifyCodePolicyProvider(auth.NewChannelVerifyCodePolicyProvider(mailService, smsService))",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("admin auth composition missing %q", want)

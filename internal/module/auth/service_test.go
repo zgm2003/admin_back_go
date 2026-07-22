@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -177,13 +179,21 @@ func validLoginSendCodeInput(account string, loginType string) SendCodeInput {
 }
 
 type fakeCodeStore struct {
-	values  map[string]string
-	setKey  string
-	setCode string
-	setTTL  time.Duration
-	getKey  string
-	deleted string
-	err     error
+	fakeDeliveryCodeStoreState
+
+	values               map[string]string
+	setKey               string
+	setCode              string
+	setTTL               time.Duration
+	getKey               string
+	deleted              string
+	deleteCtx            context.Context
+	deleteCtxErr         error
+	deleteCtxHadDeadline bool
+	err                  error
+	setErr               error
+	getErr               error
+	deleteErr            error
 }
 
 func (f *fakeCodeStore) Set(ctx context.Context, key string, code string, ttl time.Duration) error {
@@ -194,20 +204,35 @@ func (f *fakeCodeStore) Set(ctx context.Context, key string, code string, ttl ti
 		f.values = map[string]string{}
 	}
 	f.values[key] = code
+	if f.setErr != nil {
+		return f.setErr
+	}
 	return f.err
 }
 
 func (f *fakeCodeStore) Get(ctx context.Context, key string) (string, error) {
 	f.getKey = key
 	if f.values == nil {
+		if f.getErr != nil {
+			return "", f.getErr
+		}
 		return "", f.err
+	}
+	if f.getErr != nil {
+		return "", f.getErr
 	}
 	return f.values[key], f.err
 }
 
 func (f *fakeCodeStore) Delete(ctx context.Context, key string) error {
 	f.deleted = key
+	f.deleteCtx = ctx
+	f.deleteCtxErr = ctx.Err()
+	_, f.deleteCtxHadDeadline = ctx.Deadline()
 	delete(f.values, key)
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	return f.err
 }
 
@@ -1371,13 +1396,17 @@ type fakeVerifyCodePhoneSender struct {
 	code  string
 	ttl   time.Duration
 	err   *apperror.Error
+	send  func(context.Context, string, string, string, time.Duration) *apperror.Error
 }
 
-func (f *fakeVerifyCodePhoneSender) SendVerifyCode(_ context.Context, scene, phone, code string, ttl time.Duration) *apperror.Error {
+func (f *fakeVerifyCodePhoneSender) SendVerifyCode(ctx context.Context, scene, phone, code string, ttl time.Duration) *apperror.Error {
 	f.scene = scene
 	f.phone = phone
 	f.code = code
 	f.ttl = ttl
+	if f.send != nil {
+		return f.send(ctx, scene, phone, code, ttl)
+	}
 	return f.err
 }
 
@@ -1582,6 +1611,209 @@ func TestServiceSendCodeDeletesPhoneVerificationWhenSMSFails(t *testing.T) {
 	}
 	if store.deleted != store.setKey || store.values[store.setKey] != "" {
 		t.Fatalf("store=%#v", store)
+	}
+}
+
+func TestServiceSendCodeRollbackUsesCleanupContextAfterRequestCancellation(t *testing.T) {
+	store := &fakeCodeStore{}
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	wantErr := apperror.InternalKey("sms.send.failed", nil, "短信发送失败")
+	service := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{send: func(context.Context, string, string, string, time.Duration) *apperror.Error {
+			cancelRequest()
+			return wantErr
+		}}),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "654321", nil }}),
+	)
+
+	message, appErr := service.SendCode(requestCtx, validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if message != "" || appErr != wantErr {
+		t.Fatalf("sender error pointer must be preserved: message=%q err=%#v", message, appErr)
+	}
+	if store.deleteCtx == nil || store.deleteCtxErr != nil {
+		t.Fatalf("rollback reused canceled request context: ctx=%#v err=%v", store.deleteCtx, store.deleteCtxErr)
+	}
+	if !store.deleteCtxHadDeadline {
+		t.Fatal("rollback context must have a short deadline")
+	}
+}
+
+func TestServiceSendCodeWarnsWhenRollbackFailsAndPreservesSenderError(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		configure func(*fakeCodeStore)
+	}{
+		{name: "rollback", configure: func(store *fakeCodeStore) { store.rollbackErr = errors.New("redis rollback unavailable") }},
+		{name: "release", configure: func(store *fakeCodeStore) { store.releaseErr = errors.New("redis release unavailable") }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeCodeStore{}
+			tt.configure(store)
+			wantErr := apperror.InternalKey("sms.send.failed", nil, "短信发送失败")
+			var logs bytes.Buffer
+			service := NewService(
+				&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+				WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{err: wantErr}),
+				WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "654321", nil }}),
+				WithLogger(slog.New(slog.NewTextHandler(&logs, nil))),
+			)
+
+			message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+			if message != "" || appErr != wantErr {
+				t.Fatalf("sender error pointer must be preserved: message=%q err=%#v", message, appErr)
+			}
+			if output := logs.String(); !strings.Contains(output, "verification delivery rollback failed") {
+				t.Fatalf("rollback failure was not observable: %q", output)
+			} else if strings.Contains(output, "654321") || strings.Contains(output, "attempt-") {
+				t.Fatalf("rollback log leaked verification code or owner: %q", output)
+			}
+		})
+	}
+}
+
+func TestServiceSendCodeRejectsConcurrentDeliveryWithoutInvalidatingSuccessfulCode(t *testing.T) {
+	store := &fakeCodeStore{}
+	firstEnteredSender := make(chan struct{})
+	releaseFirstSender := make(chan struct{})
+	firstSender := &fakeVerifyCodePhoneSender{send: func(context.Context, string, string, string, time.Duration) *apperror.Error {
+		close(firstEnteredSender)
+		<-releaseFirstSender
+		return nil
+	}}
+	secondSenderErr := apperror.InternalKey("sms.send.failed", nil, "短信发送失败")
+	firstService := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodePhoneSender(firstSender),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "111111", nil }}),
+	)
+	secondService := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{err: secondSenderErr}),
+		WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "222222", nil }}),
+	)
+
+	type sendResult struct {
+		message string
+		err     *apperror.Error
+	}
+	firstResult := make(chan sendResult, 1)
+	go func() {
+		message, appErr := firstService.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+		firstResult <- sendResult{message: message, err: appErr}
+	}()
+	<-firstEnteredSender
+	secondMessage, secondErr := secondService.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+	close(releaseFirstSender)
+	first := <-firstResult
+
+	if first.err != nil || first.message != "验证码发送成功" {
+		t.Fatalf("first delivery message=%q err=%#v", first.message, first.err)
+	}
+	if secondMessage != "" || secondErr == nil || secondErr.MessageID != "auth.verify_code.delivery_in_progress" || secondErr.Category != apperror.CategoryConflict || secondErr.HTTPStatus != http.StatusConflict {
+		t.Fatalf("second delivery must be rejected before overwriting: message=%q err=%#v", secondMessage, secondErr)
+	}
+	cacheKey := firstService.verifyCodeCacheKey(LoginTypePhone, VerifyCodeSceneLogin, "15671628271")
+	if store.values[cacheKey] != "111111" {
+		t.Fatalf("successful delivery code must remain verifiable, cache=%#v", store.values)
+	}
+}
+
+func TestServiceSendCodeReturnsInternalWhenSuccessfulSendCannotCommitDelivery(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		configure func(*fakeCodeStore)
+	}{
+		{name: "commit failed", configure: func(store *fakeCodeStore) { store.commitErr = errors.New("redis commit unavailable") }},
+		{name: "release failed", configure: func(store *fakeCodeStore) { store.releaseErr = errors.New("redis release unavailable") }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeCodeStore{}
+			tt.configure(store)
+			service := NewService(
+				&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+				WithCodeStore(store),
+				WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+				WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{}),
+				WithVerifyCodeOptions(VerifyCodeOptions{CodeGenerator: func() (string, error) { return "654321", nil }}),
+			)
+
+			message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+			if message != "" || appErr == nil || appErr.MessageID != "auth.verify_code.delivery_state_failed" || appErr.LegacyCode != apperror.CodeInternal {
+				t.Fatalf("message=%q err=%#v", message, appErr)
+			}
+			if code, _ := store.Get(context.Background(), service.verifyCodeCacheKey(LoginTypePhone, VerifyCodeSceneLogin, "15671628271")); code != "" {
+				t.Fatalf("uncommitted code became verifiable: %q", code)
+			}
+		})
+	}
+}
+
+func TestServiceSendCodeRenewsDeliveryLeaseWhileSenderIsInFlight(t *testing.T) {
+	store := &fakeCodeStore{}
+	store.renewCalled = make(chan struct{}, 1)
+	service := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{send: func(context.Context, string, string, string, time.Duration) *apperror.Error {
+			select {
+			case <-store.renewCalled:
+			case <-time.After(250 * time.Millisecond):
+			}
+			return nil
+		}}),
+		WithVerifyCodeOptions(VerifyCodeOptions{
+			CodeGenerator:    func() (string, error) { return "654321", nil },
+			DeliveryLeaseTTL: 30 * time.Millisecond,
+		}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if appErr != nil || message != "验证码发送成功" {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if store.renewCalls == 0 {
+		t.Fatal("delivery lease was not renewed while sender was in flight")
+	}
+}
+
+func TestServiceSendCodeReturnsInternalWhenDeliveryLeaseIsLost(t *testing.T) {
+	store := &fakeCodeStore{}
+	store.renewErr = errors.New("delivery lease lost")
+	service := NewService(
+		&fakeAuthRepository{}, fakeLoginTypeProvider{types: []string{LoginTypePhone}}, &fakeSessionCreator{}, &fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodePhoneSender(&fakeVerifyCodePhoneSender{send: func(ctx context.Context, _ string, _ string, _ string, _ time.Duration) *apperror.Error {
+			<-ctx.Done()
+			return nil
+		}}),
+		WithVerifyCodeOptions(VerifyCodeOptions{
+			CodeGenerator:    func() (string, error) { return "654321", nil },
+			DeliveryLeaseTTL: 30 * time.Millisecond,
+		}),
+	)
+
+	message, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone))
+
+	if message != "" || appErr == nil || appErr.MessageID != "auth.verify_code.delivery_state_failed" || appErr.LegacyCode != apperror.CodeInternal {
+		t.Fatalf("message=%q err=%#v", message, appErr)
+	}
+	if code, _ := store.Get(context.Background(), service.verifyCodeCacheKey(LoginTypePhone, VerifyCodeSceneLogin, "15671628271")); code != "" {
+		t.Fatalf("lease-lost pending code became verifiable: %q", code)
 	}
 }
 

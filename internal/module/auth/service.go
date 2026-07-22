@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/infra/redislock"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -34,8 +35,10 @@ const (
 )
 
 const (
-	defaultVerifyCodeTTL = 5 * time.Minute
-	profileSexUnknown    = 0
+	defaultVerifyCodeTTL              = 5 * time.Minute
+	defaultVerifyCodeDeliveryLeaseTTL = 30 * time.Second
+	verifyCodeDeliveryCleanupTimeout  = 3 * time.Second
+	profileSexUnknown                 = 0
 )
 
 var (
@@ -72,8 +75,9 @@ type VerifyCodePhoneSender interface {
 }
 
 type VerifyCodeOptions struct {
-	TTL           time.Duration
-	CodeGenerator func() (string, error)
+	TTL              time.Duration
+	CodeGenerator    func() (string, error)
+	DeliveryLeaseTTL time.Duration
 }
 
 type Option func(*Service)
@@ -250,29 +254,136 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 		return "", apperror.Internal("验证码生成失败")
 	}
 	cacheKey := s.verifyCodeCacheKey(accountType, input.Scene, input.Account)
-	if err := s.codeStore.Set(ctx, cacheKey, code, ttl); err != nil {
+	deliveryStore, ok := s.codeStore.(verifyCodeDeliveryStore)
+	if !ok {
+		return "", verifyCodeDeliveryStateError()
+	}
+	lease, err := deliveryStore.AcquireDelivery(ctx, cacheKey, s.verifyCodeOptions.DeliveryLeaseTTL)
+	if errors.Is(err, redislock.ErrNotAcquired) {
+		return "", verifyCodeDeliveryInProgressError()
+	}
+	if err != nil {
+		return "", verifyCodeDeliveryStateError()
+	}
+	if err := deliveryStore.SetPendingDelivery(ctx, lease, cacheKey, code, ttl); err != nil {
+		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
 		return "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
+	sendErr, renewalErr := s.sendVerifyCodeWithDeliveryRenewal(ctx, deliveryStore, lease, accountType, input, code, ttl)
+	if renewalErr != nil {
+		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
+		return "", verifyCodeDeliveryStateError()
+	}
+	if sendErr != nil {
+		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
+		return "", sendErr
+	}
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), verifyCodeDeliveryCleanupTimeout)
+	commitErr := deliveryStore.CommitDelivery(cleanupCtx, lease, cacheKey)
+	cancelCleanup()
+	if commitErr != nil {
+		if s.logger != nil {
+			s.logger.ErrorContext(ctx, "verification delivery commit failed", "account_type", accountType, "scene", input.Scene, "error", commitErr)
+		}
+		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
+		return "", verifyCodeDeliveryStateError()
+	}
+	return "验证码发送成功", nil
+}
+
+func (s *Service) sendVerifyCodeWithDeliveryRenewal(
+	ctx context.Context,
+	deliveryStore verifyCodeDeliveryStore,
+	lease redislock.Lease,
+	accountType string,
+	input SendCodeInput,
+	code string,
+	ttl time.Duration,
+) (*apperror.Error, error) {
+	sendCtx, cancelSend := context.WithCancel(ctx)
+	stopRenewal := make(chan struct{})
+	renewalDone := make(chan struct{})
+	renewalErr := make(chan error, 1)
+	go func() {
+		defer close(renewalDone)
+		interval := s.verifyCodeOptions.DeliveryLeaseTTL / 3
+		if interval < time.Millisecond {
+			interval = time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopRenewal:
+				return
+			case <-sendCtx.Done():
+				return
+			case <-ticker.C:
+				if err := deliveryStore.RenewDelivery(sendCtx, lease, s.verifyCodeOptions.DeliveryLeaseTTL); err != nil {
+					renewalErr <- err
+					cancelSend()
+					return
+				}
+			}
+		}
+	}()
+
 	var sendErr *apperror.Error
 	switch accountType {
 	case LoginTypeEmail:
 		if s.verifyCodeMailSender == nil {
 			sendErr = apperror.InternalKey("auth.verify_code.email_unavailable", nil, "邮件验证码服务未配置")
 		} else {
-			sendErr = s.verifyCodeMailSender.SendVerifyCode(ctx, input.Scene, input.Account, code, ttl)
+			sendErr = s.verifyCodeMailSender.SendVerifyCode(sendCtx, input.Scene, input.Account, code, ttl)
 		}
 	case LoginTypePhone:
 		if s.verifyCodePhoneSender == nil {
 			sendErr = apperror.InternalKey("auth.verify_code.phone_unavailable", nil, "短信验证码服务未配置")
 		} else {
-			sendErr = s.verifyCodePhoneSender.SendVerifyCode(ctx, input.Scene, input.Account, code, ttl)
+			sendErr = s.verifyCodePhoneSender.SendVerifyCode(sendCtx, input.Scene, input.Account, code, ttl)
 		}
 	}
-	if sendErr != nil {
-		_ = s.codeStore.Delete(ctx, cacheKey)
-		return "", sendErr
+	close(stopRenewal)
+	cancelSend()
+	<-renewalDone
+	select {
+	case err := <-renewalErr:
+		return sendErr, err
+	default:
+		return sendErr, nil
 	}
-	return "验证码发送成功", nil
+}
+
+func (s *Service) rollbackVerifyCodeDelivery(
+	ctx context.Context,
+	deliveryStore verifyCodeDeliveryStore,
+	lease redislock.Lease,
+	cacheKey string,
+	accountType string,
+	scene string,
+) {
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), verifyCodeDeliveryCleanupTimeout)
+	err := deliveryStore.RollbackDelivery(cleanupCtx, lease, cacheKey)
+	cancelCleanup()
+	if err != nil && s.logger != nil {
+		s.logger.WarnContext(ctx, "verification delivery rollback failed", "account_type", accountType, "scene", scene, "error", err)
+	}
+}
+
+func verifyCodeDeliveryInProgressError() *apperror.Error {
+	return apperror.New(
+		"auth.verify_code.delivery_in_progress",
+		apperror.CategoryConflict,
+		http.StatusConflict,
+		apperror.Permanent,
+		"auth.verify_code.delivery_in_progress",
+		nil,
+		"验证码正在发送，请稍后重试",
+	)
+}
+
+func verifyCodeDeliveryStateError() *apperror.Error {
+	return apperror.InternalKey("auth.verify_code.delivery_state_failed", nil, "验证码发送状态确认失败")
 }
 
 func (s *Service) ForgetPassword(ctx context.Context, input ForgetPasswordInput) *apperror.Error {
@@ -783,6 +894,9 @@ func normalizeVerifyCodeOptions(options VerifyCodeOptions) VerifyCodeOptions {
 	}
 	if options.CodeGenerator == nil {
 		options.CodeGenerator = randomSixDigitCode
+	}
+	if options.DeliveryLeaseTTL <= 0 {
+		options.DeliveryLeaseTTL = defaultVerifyCodeDeliveryLeaseTTL
 	}
 	return options
 }

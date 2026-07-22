@@ -22,6 +22,8 @@ auth.verify_code.email_readiness_missing: Email verification channel readiness c
 auth.verify_code.phone_readiness_missing: SMS verification channel readiness check is not configured
 auth.verify_code.email_unavailable: Email verification service is not configured
 auth.verify_code.phone_unavailable: SMS verification service is not configured
+auth.verify_code.delivery_in_progress: A verification code is already being sent. Please try again shortly
+auth.verify_code.delivery_state_failed: Verification code delivery state could not be confirmed
 auth.logout.success: Signed out successfully
 auth.platform.service_missing: Login service is not configured
 auth.platform.user_service_missing: User service is not configured
