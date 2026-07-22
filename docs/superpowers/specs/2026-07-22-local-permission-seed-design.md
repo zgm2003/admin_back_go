@@ -1,12 +1,14 @@
-# Local Permission Seed Design
+# Local Database Initialization Data Design
 
 **Date:** 2026-07-22
 
 ## Goal
 
-Turn the current local database's complete active Admin permission tree into a
-tracked, deterministic seed for initializing an empty local `permissions`
-table. The seed includes directories, pages, and button permissions.
+Prepare the current local database's intentional initial data state:
+
+1. turn the complete active Admin permission tree into a tracked,
+   deterministic seed for an empty local `permissions` table;
+2. remove payment data other than the retained payment configuration.
 
 ## Scope
 
@@ -34,6 +36,24 @@ This stage does not:
 The future full project-initialization flow will separately collect the first
 administrator account, create its role, and grant the seeded permissions.
 
+## Local Payment Data Reset
+
+The reset preserves `payment_configs` byte-for-byte and clears every row from:
+
+- `payment_callback_events`;
+- `payment_recharges`;
+- `payment_orders`;
+- `payment_recharge_packages`;
+- `wallet_transactions`;
+- `user_wallets`.
+
+Child records are cleared before parent records. The reset also returns the
+cleared tables' auto-increment counters to their empty-table state. It does not
+change menu permissions or any user, role, or role grant.
+
+The reset is a separate explicit local initialization operation. It does not
+run during API or Worker startup and is not embedded in the permission seed.
+
 ## Seed Placement And Execution
 
 The canonical data belongs under `database/seeds/`, not in the Atlas schema
@@ -58,6 +78,10 @@ Automated validation must prove that:
 - the deterministic seeded row projection matches the current local database;
 - the initialization path contains no write to `users`, `roles`, or
   `role_permissions`.
+
+Payment reset verification must prove that all six cleared tables contain zero
+rows and that the retained `payment_configs` count and deterministic row hash
+are unchanged.
 
 An empty disposable database verification will apply the canonical schema and
 the permission seed, then check the same invariants without creating accounts
