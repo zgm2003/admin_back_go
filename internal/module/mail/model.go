@@ -65,3 +65,24 @@ type Log struct {
 }
 
 func (Log) TableName() string { return "mail_logs" }
+
+// VerificationCodeSnapshot stores the encrypted, immutable diagnostic snapshot for one mail log.
+type VerificationCodeSnapshot struct {
+	ID        uint64    `gorm:"column:id;primaryKey"`
+	MailLogID uint64    `gorm:"column:mail_log_id"`
+	KeyID     string    `gorm:"column:key_id"`
+	CodeEnc   string    `gorm:"column:code_enc"`
+	ExpiresAt time.Time `gorm:"column:expires_at"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+func (VerificationCodeSnapshot) TableName() string { return "mail_log_verification_codes" }
+
+// LogReadRow preserves nullable values from the optional verification child join.
+type LogReadRow struct {
+	Log
+	VerificationSnapshotID *uint64    `gorm:"column:verification_snapshot_id"`
+	VerificationKeyID      *string    `gorm:"column:verification_key_id"`
+	VerificationCodeEnc    *string    `gorm:"column:verification_code_enc"`
+	VerificationExpiresAt  *time.Time `gorm:"column:verification_expires_at"`
+}

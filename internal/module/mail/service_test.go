@@ -13,17 +13,19 @@ import (
 )
 
 type fakeMailRepository struct {
-	config    *Config
-	templates map[string]*Template
-	logs      map[uint64]Log
-	created   Log
-	nextLogID uint64
-	saved     *Config
-	finish    LogFinish
-	finishID  uint64
-	testAt    *time.Time
-	testError string
-	err       error
+	config              *Config
+	templates           map[string]*Template
+	logs                map[uint64]Log
+	logRows             map[uint64]LogReadRow
+	created             Log
+	createdVerification *VerificationCodeSnapshot
+	nextLogID           uint64
+	saved               *Config
+	finish              LogFinish
+	finishID            uint64
+	testAt              *time.Time
+	testError           string
+	err                 error
 }
 
 func (f *fakeMailRepository) DefaultConfig(ctx context.Context) (*Config, error) {
@@ -83,6 +85,16 @@ func (f *fakeMailRepository) CreateLog(ctx context.Context, row Log) (uint64, er
 	return row.ID, f.err
 }
 
+func (f *fakeMailRepository) CreateVerificationLog(ctx context.Context, row Log, snapshot VerificationCodeSnapshot) (uint64, error) {
+	id, err := f.CreateLog(ctx, row)
+	if err != nil {
+		return 0, err
+	}
+	snapshot.MailLogID = id
+	f.createdVerification = &snapshot
+	return id, nil
+}
+
 func (f *fakeMailRepository) FinishLog(ctx context.Context, id uint64, finish LogFinish) error {
 	f.finishID = id
 	f.finish = finish
@@ -98,20 +110,30 @@ func (f *fakeMailRepository) FinishLog(ctx context.Context, id uint64, finish Lo
 	return f.err
 }
 
-func (f *fakeMailRepository) ListLogs(ctx context.Context, query LogQuery) ([]Log, int64, error) {
-	rows := make([]Log, 0, len(f.logs))
+func (f *fakeMailRepository) ListLogRows(ctx context.Context, query LogQuery) ([]LogReadRow, int64, error) {
+	if f.logRows != nil {
+		rows := make([]LogReadRow, 0, len(f.logRows))
+		for _, row := range f.logRows {
+			rows = append(rows, row)
+		}
+		return rows, int64(len(rows)), f.err
+	}
+	rows := make([]LogReadRow, 0, len(f.logs))
 	for _, row := range f.logs {
-		rows = append(rows, row)
+		rows = append(rows, LogReadRow{Log: row})
 	}
 	return rows, int64(len(rows)), f.err
 }
 
-func (f *fakeMailRepository) LogByID(ctx context.Context, id uint64) (*Log, error) {
+func (f *fakeMailRepository) LogRowByID(ctx context.Context, id uint64) (*LogReadRow, error) {
+	if row, ok := f.logRows[id]; ok {
+		return &row, f.err
+	}
 	row, ok := f.logs[id]
 	if !ok {
 		return nil, f.err
 	}
-	return &row, f.err
+	return &LogReadRow{Log: row}, f.err
 }
 
 func (f *fakeMailRepository) SoftDeleteLogs(ctx context.Context, ids []uint64) error { return f.err }
@@ -157,7 +179,7 @@ func TestServiceSendVerifyCodeUsesEnabledConfigTemplateAndWritesSanitizedLogs(t 
 	sender := &fakeMailSender{result: SendResult{RequestID: "req-1", MessageID: "msg-1"}}
 	service := NewService(repo, box, sender)
 
-	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute)
+	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Now().Add(5*time.Minute))
 
 	if appErr != nil {
 		t.Fatalf("expected SendVerifyCode to succeed, got %v", appErr)
@@ -200,7 +222,7 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 	sender := &fakeMailSender{err: codedMailTestError{code: "FailedOperation.TemplateNotApproved", msg: "template not approved"}}
 	service := NewService(repo, box, sender)
 
-	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneForget, "user@example.com", "654321", 5*time.Minute)
+	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneForget, "user@example.com", "654321", 5*time.Minute, time.Now().Add(5*time.Minute))
 
 	if appErr == nil || appErr.Message != "邮件发送失败" {
 		t.Fatalf("expected send failure, got %#v", appErr)
@@ -210,6 +232,31 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 	}
 	if strings.Contains(repo.finish.ErrorMessage, "654321") || strings.Contains(repo.finish.ErrorMessage, "TemplateData") {
 		t.Fatalf("failed log must not persist verify code or template data: %#v", repo.finish)
+	}
+}
+
+func TestTestSendCreatesParentLogWithoutVerificationSnapshot(t *testing.T) {
+	box := testSecretBox()
+	secretIDEnc, _ := box.Encrypt("AKID-secret")
+	secretKeyEnc, _ := box.Encrypt("SECRET-key")
+	repo := &fakeMailRepository{
+		config: &Config{SecretIDEnc: secretIDEnc, SecretKeyEnc: secretKeyEnc, Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
+		templates: map[string]*Template{
+			enum.VerifyCodeSceneLogin: {ID: 77, Scene: enum.VerifyCodeSceneLogin, Subject: "Login code", TencentTemplateID: 123456, VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
+		},
+	}
+	service := NewService(repo, box, &fakeMailSender{result: SendResult{RequestID: "req", MessageID: "msg"}})
+
+	appErr := service.TestSend(context.Background(), TestInput{ToEmail: "user@example.com", TemplateScene: enum.VerifyCodeSceneLogin})
+
+	if appErr != nil {
+		t.Fatalf("TestSend returned error: %v", appErr)
+	}
+	if repo.created.ID == 0 || repo.created.Scene != enum.MailSceneTest {
+		t.Fatalf("TestSend must create a parent log: %#v", repo.created)
+	}
+	if repo.createdVerification != nil {
+		t.Fatalf("TestSend must not create a verification child: %#v", repo.createdVerification)
 	}
 }
 
@@ -467,7 +514,7 @@ func TestServiceRejectsMissingTemplateVariablesBeforeSending(t *testing.T) {
 	sender := &fakeMailSender{}
 	service := NewService(repo, box, sender)
 
-	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneBindEmail, "user@example.com", "654321", 5*time.Minute)
+	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneBindEmail, "user@example.com", "654321", 5*time.Minute, time.Now().Add(5*time.Minute))
 	if appErr == nil || !strings.Contains(appErr.Message, "邮件模板变量缺少 missing") {
 		t.Fatalf("expected missing variable error, got %#v", appErr)
 	}

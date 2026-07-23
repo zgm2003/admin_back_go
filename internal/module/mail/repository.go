@@ -25,9 +25,10 @@ type Repository interface {
 	UpdateTemplate(ctx context.Context, id uint64, update TemplateUpdate) error
 	SoftDeleteTemplate(ctx context.Context, id uint64) error
 	CreateLog(ctx context.Context, row Log) (uint64, error)
+	CreateVerificationLog(ctx context.Context, row Log, snapshot VerificationCodeSnapshot) (uint64, error)
 	FinishLog(ctx context.Context, id uint64, finish LogFinish) error
-	ListLogs(ctx context.Context, query LogQuery) ([]Log, int64, error)
-	LogByID(ctx context.Context, id uint64) (*Log, error)
+	ListLogRows(ctx context.Context, query LogQuery) ([]LogReadRow, int64, error)
+	LogRowByID(ctx context.Context, id uint64) (*LogReadRow, error)
 	SoftDeleteLogs(ctx context.Context, ids []uint64) error
 }
 
@@ -250,6 +251,26 @@ func (r *GormRepository) CreateLog(ctx context.Context, row Log) (uint64, error)
 	return row.ID, nil
 }
 
+func (r *GormRepository) CreateVerificationLog(ctx context.Context, row Log, snapshot VerificationCodeSnapshot) (uint64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrRepositoryNotConfigured
+	}
+	row.IsDel = enum.CommonNo
+	var logID uint64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		logID = row.ID
+		snapshot.MailLogID = row.ID
+		return tx.Create(&snapshot).Error
+	})
+	if err != nil {
+		return 0, err
+	}
+	return logID, nil
+}
+
 func (r *GormRepository) FinishLog(ctx context.Context, id uint64, finish LogFinish) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
@@ -270,44 +291,48 @@ func (r *GormRepository) FinishLog(ctx context.Context, id uint64, finish LogFin
 		Updates(fields).Error
 }
 
-func (r *GormRepository) ListLogs(ctx context.Context, query LogQuery) ([]Log, int64, error) {
+func (r *GormRepository) ListLogRows(ctx context.Context, query LogQuery) ([]LogReadRow, int64, error) {
 	if r == nil || r.db == nil {
 		return nil, 0, ErrRepositoryNotConfigured
 	}
-	db := r.db.WithContext(ctx).Model(&Log{}).Where("is_del = ?", enum.CommonNo)
+	db := r.db.WithContext(ctx).Table("mail_logs").Where("mail_logs.is_del = ?", enum.CommonNo)
 	if query.Scene != "" {
-		db = db.Where("scene = ?", query.Scene)
+		db = db.Where("mail_logs.scene = ?", query.Scene)
 	}
 	if query.Status != nil {
-		db = db.Where("status = ?", *query.Status)
+		db = db.Where("mail_logs.status = ?", *query.Status)
 	}
 	if query.ToEmail != "" {
-		db = db.Where("to_email LIKE ?", strings.TrimSpace(query.ToEmail)+"%")
+		db = db.Where("mail_logs.to_email LIKE ?", strings.TrimSpace(query.ToEmail)+"%")
 	}
 	if query.CreatedAtStart != nil {
-		db = db.Where("created_at >= ?", *query.CreatedAtStart)
+		db = db.Where("mail_logs.created_at >= ?", *query.CreatedAtStart)
 	}
 	if query.CreatedAtEnd != nil {
-		db = db.Where("created_at <= ?", *query.CreatedAtEnd)
+		db = db.Where("mail_logs.created_at <= ?", *query.CreatedAtEnd)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var rows []Log
-	err := db.Order("created_at DESC, id DESC").Limit(query.PageSize).Offset((query.CurrentPage - 1) * query.PageSize).Find(&rows).Error
+	var rows []LogReadRow
+	err := db.Select("mail_logs.*, mvc.id AS verification_snapshot_id, mvc.key_id AS verification_key_id, mvc.code_enc AS verification_code_enc, mvc.expires_at AS verification_expires_at").
+		Joins("LEFT JOIN mail_log_verification_codes AS mvc ON mvc.mail_log_id = mail_logs.id").
+		Order("mail_logs.created_at DESC, mail_logs.id DESC").Limit(query.PageSize).Offset((query.CurrentPage - 1) * query.PageSize).Find(&rows).Error
 	return rows, total, err
 }
 
-func (r *GormRepository) LogByID(ctx context.Context, id uint64) (*Log, error) {
+func (r *GormRepository) LogRowByID(ctx context.Context, id uint64) (*LogReadRow, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	if id == 0 {
 		return nil, nil
 	}
-	var row Log
-	err := r.db.WithContext(ctx).Where("id = ?", id).Where("is_del = ?", enum.CommonNo).First(&row).Error
+	var row LogReadRow
+	err := r.db.WithContext(ctx).Table("mail_logs").Select("mail_logs.*, mvc.id AS verification_snapshot_id, mvc.key_id AS verification_key_id, mvc.code_enc AS verification_code_enc, mvc.expires_at AS verification_expires_at").
+		Joins("LEFT JOIN mail_log_verification_codes AS mvc ON mvc.mail_log_id = mail_logs.id").
+		Where("mail_logs.id = ?", id).Where("mail_logs.is_del = ?", enum.CommonNo).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

@@ -268,13 +268,13 @@ func (s *Service) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *
 	if appErr != nil {
 		return nil, appErr
 	}
-	rows, total, err := repo.ListLogs(ctx, query)
+	rows, total, err := repo.ListLogRows(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
 	}
 	list := make([]LogDTO, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, logDTOFromRow(row))
+		list = append(list, logDTOFromRow(row.Log))
 	}
 	return &LogListResponse{List: list, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: total, TotalPage: totalPage(total, query.PageSize)}}, nil
 }
@@ -287,14 +287,14 @@ func (s *Service) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
 	if appErr != nil {
 		return nil, appErr
 	}
-	row, err := repo.LogByID(ctx, id)
+	row, err := repo.LogRowByID(ctx, id)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
 	}
 	if row == nil {
 		return nil, apperror.NotFound("邮件日志不存在")
 	}
-	result := logDTOFromRow(*row)
+	result := logDTOFromRow(row.Log)
 	if row.TemplateID != nil {
 		tmpl, err := repo.TemplateByID(ctx, *row.TemplateID)
 		if err != nil {
@@ -326,7 +326,8 @@ func (s *Service) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error 
 	return nil
 }
 
-func (s *Service) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error {
+func (s *Service) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration, expiresAt time.Time) *apperror.Error {
+	_ = expiresAt
 	scene = strings.TrimSpace(scene)
 	toEmail = strings.TrimSpace(toEmail)
 	code = strings.TrimSpace(code)
