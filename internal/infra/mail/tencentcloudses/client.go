@@ -3,7 +3,9 @@ package tencentcloudses
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -35,32 +37,29 @@ type SendResult struct {
 	MessageID string
 }
 
-type Client struct{ Timeout time.Duration }
+type sdkClient interface {
+	SendEmailWithContext(context.Context, *ses.SendEmailRequest) (*ses.SendEmailResponse, error)
+}
+
+type sdkClientFactory func(SendInput, time.Duration) (sdkClient, error)
+type templateDataEncoder func(map[string]string) (string, error)
+
+type Client struct {
+	Timeout            time.Duration
+	newSDKClient       sdkClientFactory
+	encodeTemplateData templateDataEncoder
+}
 
 func New(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return &Client{Timeout: timeout}
+	return &Client{Timeout: timeout, newSDKClient: defaultSDKClientFactory, encodeTemplateData: TemplateDataJSON}
 }
 
-type SendError struct {
-	Code    string
-	Message string
-	Cause   error
-}
+type SendError struct{ Code string }
 
-func (e SendError) Error() string {
-	if e.Message == "" {
-		return e.Cause.Error()
-	}
-	if e.Code == "" {
-		return e.Message
-	}
-	return e.Code + ": " + e.Message
-}
-
-func (e SendError) Unwrap() error     { return e.Cause }
+func (e SendError) Error() string     { return "邮件服务调用失败" }
 func (e SendError) ErrorCode() string { return e.Code }
 
 func BuildFromEmailAddress(email string, name string) string {
@@ -96,19 +95,31 @@ func (c *Client) Send(ctx context.Context, input SendInput) (SendResult, error) 
 	if c == nil {
 		c = New(defaultTimeout)
 	}
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	data, err := TemplateDataJSON(input.TemplateData)
-	if err != nil {
-		return SendResult{}, err
+	encoder := c.encodeTemplateData
+	if encoder == nil {
+		encoder = TemplateDataJSON
 	}
-	client, err := newSDKClient(input, c.Timeout)
+	data, err := encoder(input.TemplateData)
 	if err != nil {
-		return SendResult{}, err
+		return SendResult{}, wrapSendError(err, input)
+	}
+	factory := c.newSDKClient
+	if factory == nil {
+		factory = defaultSDKClientFactory
+	}
+	client, err := factory(input, timeout)
+	if err != nil || client == nil {
+		return SendResult{}, wrapSendError(err, input)
 	}
 	request := ses.NewSendEmailRequest()
 	request.FromEmailAddress = common.StringPtr(BuildFromEmailAddress(input.FromEmail, input.FromName))
@@ -121,10 +132,10 @@ func (c *Client) Send(ctx context.Context, input SendInput) (SendResult, error) 
 	}
 	response, err := client.SendEmailWithContext(ctx, request)
 	if err != nil {
-		return SendResult{}, wrapSendError(err)
+		return SendResult{}, wrapSendError(err, input)
 	}
 	if response == nil || response.Response == nil {
-		return SendResult{}, fmt.Errorf("tencent ses returned empty response")
+		return SendResult{}, wrapSendError(errors.New("tencent ses returned empty response"), input)
 	}
 	return SendResult{RequestID: stringValue(response.Response.RequestId), MessageID: stringValue(response.Response.MessageId)}, nil
 }
@@ -141,11 +152,35 @@ func newSDKClient(input SendInput, timeout time.Duration) (*ses.Client, error) {
 	return client, nil
 }
 
-func wrapSendError(err error) error {
+func defaultSDKClientFactory(input SendInput, timeout time.Duration) (sdkClient, error) {
+	return newSDKClient(input, timeout)
+}
+
+var providerErrorCodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
+
+func wrapSendError(err error, input SendInput) error {
+	code := "provider_error"
 	if sdkErr, ok := err.(*tcerr.TencentCloudSDKError); ok {
-		return SendError{Code: sdkErr.GetCode(), Message: sdkErr.GetMessage(), Cause: err}
+		candidate := sdkErr.GetCode()
+		if providerErrorCodePattern.MatchString(candidate) && !containsSensitive(candidate, input) {
+			code = candidate
+		}
 	}
-	return err
+	return SendError{Code: code}
+}
+
+func containsSensitive(value string, input SendInput) bool {
+	for _, secret := range []string{input.SecretID, input.SecretKey} {
+		if secret != "" && strings.Contains(value, secret) {
+			return true
+		}
+	}
+	for _, templateValue := range input.TemplateData {
+		if templateValue != "" && strings.Contains(value, templateValue) {
+			return true
+		}
+	}
+	return false
 }
 
 func stringValue(value *string) string {

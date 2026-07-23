@@ -1,1 +1,4 @@
 mail.ttl.unconfigured: Email verification code config is not enabled
+mail.verify_code.code_invalid: Verification code must contain exactly six digits
+mail.verify_code.ttl_invalid: Verification code TTL must be positive
+mail.verify_code.deadline_invalid: Verification code expiration deadline is invalid

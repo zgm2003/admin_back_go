@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
 )
 
@@ -23,6 +24,12 @@ type fakeMailRepository struct {
 	saved               *Config
 	finish              LogFinish
 	finishID            uint64
+	createErr           error
+	finishErr           error
+	finishCalls         int
+	finishCtx           context.Context
+	finishCtxErr        error
+	sequence            []string
 	testAt              *time.Time
 	testError           string
 	err                 error
@@ -75,6 +82,10 @@ func (f *fakeMailRepository) UpdateTemplate(ctx context.Context, id uint64, upda
 func (f *fakeMailRepository) SoftDeleteTemplate(ctx context.Context, id uint64) error { return f.err }
 
 func (f *fakeMailRepository) CreateLog(ctx context.Context, row Log) (uint64, error) {
+	f.sequence = append(f.sequence, "create-log")
+	if f.createErr != nil {
+		return 0, f.createErr
+	}
 	if f.logs == nil {
 		f.logs = map[uint64]Log{}
 	}
@@ -86,16 +97,28 @@ func (f *fakeMailRepository) CreateLog(ctx context.Context, row Log) (uint64, er
 }
 
 func (f *fakeMailRepository) CreateVerificationLog(ctx context.Context, row Log, snapshot VerificationCodeSnapshot) (uint64, error) {
-	id, err := f.CreateLog(ctx, row)
-	if err != nil {
-		return 0, err
+	f.sequence = append(f.sequence, "create-verification-log")
+	if f.createErr != nil {
+		return 0, f.createErr
 	}
+	if f.logs == nil {
+		f.logs = map[uint64]Log{}
+	}
+	f.nextLogID++
+	row.ID = f.nextLogID
+	f.logs[row.ID] = row
+	f.created = row
+	id := row.ID
 	snapshot.MailLogID = id
 	f.createdVerification = &snapshot
 	return id, nil
 }
 
 func (f *fakeMailRepository) FinishLog(ctx context.Context, id uint64, finish LogFinish) error {
+	f.sequence = append(f.sequence, "finish-log")
+	f.finishCalls++
+	f.finishCtx = ctx
+	f.finishCtxErr = ctx.Err()
 	f.finishID = id
 	f.finish = finish
 	row := f.logs[id]
@@ -107,6 +130,9 @@ func (f *fakeMailRepository) FinishLog(ctx context.Context, id uint64, finish Lo
 	row.DurationMS = finish.DurationMS
 	row.SentAt = finish.SentAt
 	f.logs[id] = row
+	if f.finishErr != nil {
+		return f.finishErr
+	}
 	return f.err
 }
 
@@ -139,17 +165,286 @@ func (f *fakeMailRepository) LogRowByID(ctx context.Context, id uint64) (*LogRea
 func (f *fakeMailRepository) SoftDeleteLogs(ctx context.Context, ids []uint64) error { return f.err }
 
 type fakeMailSender struct {
-	input  SendInput
-	result SendResult
-	err    error
+	input    SendInput
+	result   SendResult
+	err      error
+	ctx      context.Context
+	calls    int
+	sequence *[]string
 }
 
 func (f *fakeMailSender) Send(ctx context.Context, input SendInput) (SendResult, error) {
+	f.ctx = ctx
+	f.calls++
+	if f.sequence != nil {
+		*f.sequence = append(*f.sequence, "sender")
+	}
 	f.input = input
 	if f.err != nil {
 		return SendResult{}, f.err
 	}
 	return f.result, nil
+}
+
+func testDiagnosticBox() secretbox.VersionedBox {
+	box, err := secretbox.NewVersioned("diag-current", map[string][]byte{
+		"diag-current": []byte("12345678901234567890123456789012"),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return box
+}
+
+func diagnosticService(repo Repository, credentialBox secretbox.Box, diagnosticBox secretbox.VersionedBox, sender Sender, now time.Time) *Service {
+	return NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: credentialBox, DiagnosticBox: diagnosticBox,
+		Sender: sender, Clock: clock.Func(func() time.Time { return now }),
+	})
+}
+
+func configuredVerifyRepository(box secretbox.Box, scene string) *fakeMailRepository {
+	secretIDEnc, _ := box.Encrypt("AKID-secret")
+	secretKeyEnc, _ := box.Encrypt("SECRET-key")
+	return &fakeMailRepository{
+		config: &Config{SecretIDEnc: secretIDEnc, SecretKeyEnc: secretKeyEnc, Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes},
+		templates: map[string]*Template{
+			scene: {ID: 77, Scene: scene, Subject: "Login code", TencentTemplateID: 123456, VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
+		},
+	}
+}
+
+func TestSendVerifyCodeEncryptsAndCommitsBeforeProviderIO(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	sender := &fakeMailSender{result: SendResult{RequestID: "req", MessageID: "msg"}, sequence: &repo.sequence}
+	service := diagnosticService(repo, credentialBox, testDiagnosticBox(), sender, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+
+	if err != nil {
+		t.Fatalf("SendVerifyCode returned error: %v", err)
+	}
+	if got := strings.Join(repo.sequence, ","); got != "create-verification-log,sender,finish-log" {
+		t.Fatalf("expected commit before provider and finish after provider, got %q", got)
+	}
+	if repo.createdVerification == nil || repo.createdVerification.KeyID != "diag-current" || repo.createdVerification.CodeEnc == "" {
+		t.Fatalf("expected encrypted verification snapshot, got %#v", repo.createdVerification)
+	}
+}
+
+func TestSendVerifyCodeDoesNotCreateVerificationSnapshotWithoutDiagnosticBox(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	sender := &fakeMailSender{}
+	service := diagnosticService(repo, credentialBox, secretbox.VersionedBox{}, sender, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+
+	if err == nil || err.Message != "邮件验证码诊断加密未配置" {
+		t.Fatalf("expected safe diagnostic configuration error, got %#v", err)
+	}
+	if repo.created.ID != 0 || repo.createdVerification != nil || sender.calls != 0 {
+		t.Fatalf("diagnostic setup failure must precede writes and provider I/O: repo=%#v child=%#v calls=%d", repo.created, repo.createdVerification, sender.calls)
+	}
+}
+
+func TestSendVerifyCodeValidatesASCIICodeTTLAndDeadline(t *testing.T) {
+	credentialBox := testSecretBox()
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	service := diagnosticService(&fakeMailRepository{}, credentialBox, testDiagnosticBox(), &fakeMailSender{}, now)
+	tests := []struct {
+		name string
+		code string
+		ttl  time.Duration
+		exp  time.Time
+	}{
+		{name: "non ascii digits", code: "１２３４５６", ttl: 5 * time.Minute, exp: now.Add(5 * time.Minute)},
+		{name: "wrong length", code: "12345", ttl: 5 * time.Minute, exp: now.Add(5 * time.Minute)},
+		{name: "surrounding whitespace", code: " 123456 ", ttl: 5 * time.Minute, exp: now.Add(5 * time.Minute)},
+		{name: "zero ttl", code: "123456", ttl: 0, exp: now.Add(5 * time.Minute)},
+		{name: "past expiry", code: "123456", ttl: 5 * time.Minute, exp: now.Add(-time.Second)},
+		{name: "subsecond expiry", code: "123456", ttl: 5 * time.Minute, exp: now.Add(5*time.Minute + time.Nanosecond)},
+		{name: "expiry exceeds ttl", code: "123456", ttl: 5 * time.Minute, exp: now.Add(6 * time.Minute)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", tt.code, tt.ttl, tt.exp)
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			if tt.name == "surrounding whitespace" && err.Message != "验证码必须是六位数字" {
+				t.Fatalf("surrounding whitespace must fail strict code validation, got %#v", err)
+			}
+		})
+	}
+}
+
+func TestSendVerifyCodeTransactionFailureSkipsProvider(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	repo.createErr = errors.New("transaction contains 654321")
+	sender := &fakeMailSender{}
+	service := diagnosticService(repo, credentialBox, testDiagnosticBox(), sender, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+
+	if err == nil || err.Message != "写入邮件验证码诊断失败" || err.Cause != nil {
+		t.Fatalf("expected fixed transaction error without cause, got %#v", err)
+	}
+	if sender.calls != 0 || repo.createdVerification != nil {
+		t.Fatalf("transaction failure must skip provider: calls=%d child=%#v", sender.calls, repo.createdVerification)
+	}
+}
+
+func TestSendVerifyCodeSkipsProviderWhenDeadlineExpiresAfterCommit(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	reads := 0
+	sender := &fakeMailSender{}
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: credentialBox, DiagnosticBox: testDiagnosticBox(), Sender: sender,
+		Clock: clock.Func(func() time.Time {
+			reads++
+			if reads > 1 {
+				return now.Add(5 * time.Minute)
+			}
+			return now
+		}),
+	})
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
+
+	if err == nil || err.Message != "验证码发送已过期" {
+		t.Fatalf("expected safe deadline error, got %#v", err)
+	}
+	if sender.calls != 0 || repo.finish.Status != enum.MailLogStatusFailed || repo.finish.ErrorCode != "verification_deadline_elapsed" || repo.createdVerification == nil {
+		t.Fatalf("deadline must finalize parent without provider and preserve child: calls=%d finish=%#v child=%#v", sender.calls, repo.finish, repo.createdVerification)
+	}
+}
+
+func TestSendVerifyCodeBindsProviderContextToEarlierDeadline(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	sender := &fakeMailSender{result: SendResult{RequestID: "req", MessageID: "msg"}}
+	service := diagnosticService(repo, credentialBox, testDiagnosticBox(), sender, now)
+	incomingDeadline := now.Add(2 * time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), incomingDeadline)
+	defer cancel()
+
+	err := service.SendVerifyCode(ctx, enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
+
+	if err != nil {
+		t.Fatalf("SendVerifyCode returned error: %v", err)
+	}
+	deadline, ok := sender.ctx.Deadline()
+	if !ok || !deadline.Equal(incomingDeadline) {
+		t.Fatalf("provider context must retain earlier incoming deadline, got %v", deadline)
+	}
+}
+
+func TestSendVerifyCodeProviderFailureRemainsPrimaryWhenFinalizationFails(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	repo.finishErr = errors.New("database contains 654321")
+	sender := &fakeMailSender{err: codedMailTestError{code: "FailedOperation.TemplateNotApproved", msg: "provider contains SECRET-key and 654321"}}
+	service := diagnosticService(repo, credentialBox, testDiagnosticBox(), sender, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+
+	if err == nil || err.Message != "邮件发送失败" || strings.Contains(err.Error(), "SECRET-key") || strings.Contains(err.Error(), "654321") {
+		t.Fatalf("provider failure must remain primary and safe, got %#v", err)
+	}
+	if repo.createdVerification == nil || repo.finish.ErrorMessage != "邮件服务调用失败" {
+		t.Fatalf("failed finalization must not mutate child or persist raw provider error: child=%#v finish=%#v", repo.createdVerification, repo.finish)
+	}
+}
+
+func TestSendVerifyCodeFinalizesAfterCallerCancellation(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sender := SenderFunc(func(context.Context, SendInput) (SendResult, error) {
+		cancel()
+		return SendResult{}, errors.New("provider contains 654321")
+	})
+	service := diagnosticService(repo, credentialBox, testDiagnosticBox(), sender, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+
+	err := service.SendVerifyCode(ctx, enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+
+	if err == nil || err.Message != "邮件发送失败" {
+		t.Fatalf("provider failure must remain primary, got %#v", err)
+	}
+	if repo.finishCalls != 1 || repo.finish.Status != enum.MailLogStatusFailed || repo.finishCtx == nil || repo.finishCtxErr != nil {
+		t.Fatalf("finalization must ignore caller cancellation: calls=%d finish=%#v ctx=%v", repo.finishCalls, repo.finish, repo.finishCtx)
+	}
+}
+
+func TestSendVerifyCodeDropsRawConfigurationAndTemplateErrors(t *testing.T) {
+	credentialBox := testSecretBox()
+	raw := errors.New("database contains AKID-secret SECRET-key 654321 ciphertext")
+	tests := []struct {
+		name string
+		repo *verificationErrorRepository
+		want string
+	}{
+		{name: "configuration", repo: &verificationErrorRepository{fakeMailRepository: configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin), configErr: raw}, want: "查询邮件配置失败"},
+		{name: "template", repo: &verificationErrorRepository{fakeMailRepository: configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin), templateErr: raw}, want: "查询邮件模板失败"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := diagnosticService(tt.repo, credentialBox, testDiagnosticBox(), &fakeMailSender{}, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+			err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+			if err == nil || err.Message != tt.want || err.Cause != nil {
+				t.Fatalf("expected fixed error without cause, got %#v", err)
+			}
+			for _, sensitive := range []string{"AKID-secret", "SECRET-key", "654321", "ciphertext"} {
+				if strings.Contains(err.Error(), sensitive) {
+					t.Fatalf("raw dependency failure leaked %q: %v", sensitive, err)
+				}
+			}
+		})
+	}
+}
+
+type verificationErrorRepository struct {
+	*fakeMailRepository
+	configErr   error
+	templateErr error
+}
+
+func (r *verificationErrorRepository) DefaultConfig(ctx context.Context) (*Config, error) {
+	if r.configErr != nil {
+		return nil, r.configErr
+	}
+	return r.fakeMailRepository.DefaultConfig(ctx)
+}
+
+func (r *verificationErrorRepository) TemplateByScene(ctx context.Context, scene string) (*Template, error) {
+	if r.templateErr != nil {
+		return nil, r.templateErr
+	}
+	return r.fakeMailRepository.TemplateByScene(ctx, scene)
+}
+
+func TestSendVerifyCodeSuccessFinalizationFailureIsFixedAndChildUnchanged(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	repo.finishErr = errors.New("finish contains 654321")
+	sender := &fakeMailSender{result: SendResult{RequestID: "req", MessageID: "msg"}}
+	service := diagnosticService(repo, credentialBox, testDiagnosticBox(), sender, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Date(2026, 7, 23, 12, 5, 0, 0, time.UTC))
+
+	if err == nil || err.Message != "更新邮件日志失败" || strings.Contains(err.Error(), "654321") {
+		t.Fatalf("expected fixed finalization error, got %#v", err)
+	}
+	if repo.createdVerification == nil || repo.createdVerification.CodeEnc == "" {
+		t.Fatalf("finalization must not mutate child: %#v", repo.createdVerification)
+	}
 }
 
 type codedMailTestError struct {
@@ -177,9 +472,10 @@ func TestServiceSendVerifyCodeUsesEnabledConfigTemplateAndWritesSanitizedLogs(t 
 		},
 	}
 	sender := &fakeMailSender{result: SendResult{RequestID: "req-1", MessageID: "msg-1"}}
-	service := NewService(repo, box, sender)
+	now := time.Now().Truncate(time.Second)
+	service := diagnosticService(repo, box, testDiagnosticBox(), sender, now)
 
-	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, time.Now().Add(5*time.Minute))
+	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
 
 	if appErr != nil {
 		t.Fatalf("expected SendVerifyCode to succeed, got %v", appErr)
@@ -220,14 +516,15 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 		},
 	}
 	sender := &fakeMailSender{err: codedMailTestError{code: "FailedOperation.TemplateNotApproved", msg: "template not approved"}}
-	service := NewService(repo, box, sender)
+	now := time.Now().Truncate(time.Second)
+	service := diagnosticService(repo, box, testDiagnosticBox(), sender, now)
 
-	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneForget, "user@example.com", "654321", 5*time.Minute, time.Now().Add(5*time.Minute))
+	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneForget, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
 
 	if appErr == nil || appErr.Message != "邮件发送失败" {
 		t.Fatalf("expected send failure, got %#v", appErr)
 	}
-	if repo.finish.Status != enum.MailLogStatusFailed || repo.finish.ErrorCode != "FailedOperation.TemplateNotApproved" || repo.finish.ErrorMessage != "template not approved" {
+	if repo.finish.Status != enum.MailLogStatusFailed || repo.finish.ErrorCode != "FailedOperation.TemplateNotApproved" || repo.finish.ErrorMessage != "邮件服务调用失败" {
 		t.Fatalf("unexpected failed finish log: %#v", repo.finish)
 	}
 	if strings.Contains(repo.finish.ErrorMessage, "654321") || strings.Contains(repo.finish.ErrorMessage, "TemplateData") {
@@ -235,7 +532,7 @@ func TestServiceSendVerifyCodeFailureStoresProviderErrorCodeOnly(t *testing.T) {
 	}
 }
 
-func TestTestSendCreatesParentLogWithoutVerificationSnapshot(t *testing.T) {
+func TestTestSendDoesNotCreateVerificationSnapshot(t *testing.T) {
 	box := testSecretBox()
 	secretIDEnc, _ := box.Encrypt("AKID-secret")
 	secretKeyEnc, _ := box.Encrypt("SECRET-key")
@@ -512,9 +809,10 @@ func TestServiceRejectsMissingTemplateVariablesBeforeSending(t *testing.T) {
 		},
 	}
 	sender := &fakeMailSender{}
-	service := NewService(repo, box, sender)
+	now := time.Now().Truncate(time.Second)
+	service := diagnosticService(repo, box, testDiagnosticBox(), sender, now)
 
-	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneBindEmail, "user@example.com", "654321", 5*time.Minute, time.Now().Add(5*time.Minute))
+	appErr := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneBindEmail, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
 	if appErr == nil || !strings.Contains(appErr.Message, "邮件模板变量缺少 missing") {
 		t.Fatalf("expected missing variable error, got %#v", appErr)
 	}

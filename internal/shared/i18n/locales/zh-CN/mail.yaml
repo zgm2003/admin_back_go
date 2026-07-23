@@ -1,1 +1,4 @@
 mail.ttl.unconfigured: 邮件验证码配置未启用
+mail.verify_code.code_invalid: 验证码必须是六位数字
+mail.verify_code.ttl_invalid: 验证码有效期必须为正数
+mail.verify_code.deadline_invalid: 验证码有效期截止时间无效

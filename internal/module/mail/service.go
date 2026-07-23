@@ -14,21 +14,27 @@ import (
 
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
 )
 
 const (
-	timeLayout                  = "2006-01-02 15:04:05"
-	defaultPage                 = 1
-	defaultPageSize             = 20
-	maxTemplateVarLen           = 64
-	defaultVerifyCodeTTLMinutes = 5
-	minVerifyCodeTTLMinutes     = 1
-	maxVerifyCodeTTLMinutes     = 60
+	timeLayout                    = "2006-01-02 15:04:05"
+	defaultPage                   = 1
+	defaultPageSize               = 20
+	maxTemplateVarLen             = 64
+	defaultVerifyCodeTTLMinutes   = 5
+	minVerifyCodeTTLMinutes       = 1
+	maxVerifyCodeTTLMinutes       = 60
+	verificationProviderErrorCode = "provider_error"
+	verificationDeadlineErrorCode = "verification_deadline_elapsed"
+	verificationFinalizeTimeout   = 5 * time.Second
 )
 
 var simpleEmailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+var verifyCodePattern = regexp.MustCompile(`^[0-9]{6}$`)
+var providerErrorCodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
 
 type Sender interface {
 	Send(ctx context.Context, input SendInput) (SendResult, error)
@@ -45,13 +51,34 @@ type codedError interface {
 }
 
 type Service struct {
-	repository Repository
-	secretBox  secretbox.Box
-	sender     Sender
+	repository    Repository
+	secretBox     secretbox.Box
+	diagnosticBox secretbox.VersionedBox
+	sender        Sender
+	clock         clock.Clock
 }
 
 func NewService(repository Repository, secretBox secretbox.Box, sender Sender) *Service {
-	return &Service{repository: repository, secretBox: secretBox, sender: sender}
+	return NewServiceWithDependencies(ServiceDependencies{Repository: repository, CredentialBox: secretBox, Sender: sender})
+}
+
+type ServiceDependencies struct {
+	Repository    Repository
+	CredentialBox secretbox.Box
+	DiagnosticBox secretbox.VersionedBox
+	Sender        Sender
+	Clock         clock.Clock
+}
+
+func NewServiceWithDependencies(deps ServiceDependencies) *Service {
+	serviceClock := deps.Clock
+	if serviceClock == nil {
+		serviceClock = clock.SystemClock{}
+	}
+	return &Service{
+		repository: deps.Repository, secretBox: deps.CredentialBox,
+		diagnosticBox: deps.DiagnosticBox, sender: deps.Sender, clock: serviceClock,
+	}
 }
 
 func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
@@ -327,24 +354,29 @@ func (s *Service) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error 
 }
 
 func (s *Service) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration, expiresAt time.Time) *apperror.Error {
-	_ = expiresAt
 	scene = strings.TrimSpace(scene)
 	toEmail = strings.TrimSpace(toEmail)
-	code = strings.TrimSpace(code)
 	if !enum.IsMailTemplateScene(scene) {
 		return apperror.BadRequest("无效的邮件验证码场景")
 	}
 	if !isEmail(toEmail) {
 		return apperror.BadRequest("邮箱格式不正确")
 	}
-	if code == "" {
-		return apperror.BadRequest("验证码不能为空")
+	if !verifyCodePattern.MatchString(code) {
+		return apperror.BadRequestKey("mail.verify_code.code_invalid", nil, "验证码必须是六位数字")
+	}
+	if ttl <= 0 {
+		return apperror.BadRequestKey("mail.verify_code.ttl_invalid", nil, "验证码有效期必须为正数")
+	}
+	now := s.now()
+	if expiresAt.IsZero() || expiresAt.Nanosecond() != 0 || !now.Before(expiresAt) || expiresAt.After(now.Add(ttl)) {
+		return apperror.BadRequestKey("mail.verify_code.deadline_invalid", nil, "验证码有效期截止时间无效")
 	}
 	data := map[string]string{
 		"code":        code,
 		"ttl_minutes": ttlMinutes(ttl),
 	}
-	return s.send(ctx, scene, scene, toEmail, data)
+	return s.sendVerification(ctx, scene, toEmail, code, ttl, expiresAt, data)
 }
 
 func (s *Service) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.Error) {
@@ -398,22 +430,97 @@ func (s *Service) send(ctx context.Context, templateScene string, logScene strin
 	if err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "写入邮件日志失败", err)
 	}
-	started := time.Now()
+	started := s.now()
 	result, err := sender.Send(ctx, SendInput{
 		SecretID: secretID, SecretKey: secretKey, Region: cfg.Region, Endpoint: cfg.Endpoint,
 		FromEmail: cfg.FromEmail, FromName: cfg.FromName, ReplyTo: cfg.ReplyTo,
 		ToEmail: toEmail, Subject: tmpl.Subject, TemplateID: tmpl.TencentTemplateID, TemplateData: data,
 	})
-	duration := uint64(time.Since(started).Milliseconds())
+	duration := elapsedMilliseconds(started, s.now())
 	if err != nil {
-		finish := LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: senderErrorCode(err), ErrorMessage: err.Error(), DurationMS: duration}
+		finish := LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: senderErrorCodeWithSensitive(err, secretID, secretKey, data), ErrorMessage: "邮件服务调用失败", DurationMS: duration}
 		_ = repo.FinishLog(ctx, logID, finish)
-		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送失败", err)
+		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送失败")
 	}
-	sentAt := time.Now()
+	sentAt := s.now()
 	finish := LogFinish{Status: enum.MailLogStatusSuccess, RequestID: result.RequestID, MessageID: result.MessageID, DurationMS: duration, SentAt: &sentAt}
 	if err := repo.FinishLog(ctx, logID, finish); err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件日志失败", err)
+		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件日志失败")
+	}
+	return nil
+}
+
+func (s *Service) sendVerification(ctx context.Context, scene, toEmail, code string, ttl time.Duration, expiresAt time.Time, data map[string]string) *apperror.Error {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return appErr
+	}
+	sender, appErr := s.requireSender()
+	if appErr != nil {
+		return appErr
+	}
+	cfg, appErr := s.enabledConfig(ctx, repo)
+	if appErr != nil {
+		return safeVerificationAppError(appErr)
+	}
+	tmpl, appErr := enabledTemplate(ctx, repo, scene)
+	if appErr != nil {
+		return safeVerificationAppError(appErr)
+	}
+	variables, err := decodeVariables(tmpl.VariablesJSON)
+	if err != nil {
+		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "解析邮件模板变量失败")
+	}
+	if appErr := ensureTemplateDataCoversVariables(variables, data); appErr != nil {
+		return appErr
+	}
+	secretID, secretKey, appErr := s.decryptCredentials(*cfg)
+	if appErr != nil {
+		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "解密邮件凭证失败")
+	}
+	if s.diagnosticBox.CurrentKeyID() == "" {
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件验证码诊断加密未配置", ErrDiagnosticCipherNotConfigured)
+	}
+	keyID, ciphertext, err := s.diagnosticBox.Encrypt(code)
+	if err != nil || keyID == "" || ciphertext == "" {
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件验证码诊断加密失败", ErrInvalidDiagnosticSnapshot)
+	}
+	templateID := tmpl.ID
+	logID, err := repo.CreateVerificationLog(ctx, Log{
+		Scene: scene, TemplateID: &templateID, ToEmail: toEmail, Subject: tmpl.Subject, Status: enum.MailLogStatusPending,
+	}, VerificationCodeSnapshot{KeyID: keyID, CodeEnc: ciphertext, ExpiresAt: expiresAt})
+	if err != nil {
+		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "写入邮件验证码诊断失败")
+	}
+	if s.now().Compare(expiresAt) >= 0 {
+		finalizeCtx, cancelFinalize := verificationFinalizeContext(ctx)
+		defer cancelFinalize()
+		_ = repo.FinishLog(finalizeCtx, logID, LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: verificationDeadlineErrorCode, ErrorMessage: "验证码发送已过期"})
+		return verificationDeadlineElapsedError()
+	}
+	providerCtx := ctx
+	if providerCtx == nil {
+		providerCtx = context.Background()
+	}
+	providerCtx, cancel := context.WithDeadline(providerCtx, expiresAt)
+	defer cancel()
+	started := s.now()
+	result, sendErr := sender.Send(providerCtx, SendInput{
+		SecretID: secretID, SecretKey: secretKey, Region: cfg.Region, Endpoint: cfg.Endpoint,
+		FromEmail: cfg.FromEmail, FromName: cfg.FromName, ReplyTo: cfg.ReplyTo,
+		ToEmail: toEmail, Subject: tmpl.Subject, TemplateID: tmpl.TencentTemplateID, TemplateData: data,
+	})
+	duration := elapsedMilliseconds(started, s.now())
+	finalizeCtx, cancelFinalize := verificationFinalizeContext(ctx)
+	defer cancelFinalize()
+	if sendErr != nil {
+		finish := LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: senderErrorCodeWithSensitive(sendErr, secretID, secretKey, data), ErrorMessage: "邮件服务调用失败", DurationMS: duration}
+		_ = repo.FinishLog(finalizeCtx, logID, finish)
+		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "邮件发送失败")
+	}
+	sentAt := s.now()
+	if err := repo.FinishLog(finalizeCtx, logID, LogFinish{Status: enum.MailLogStatusSuccess, RequestID: result.RequestID, MessageID: result.MessageID, DurationMS: duration, SentAt: &sentAt}); err != nil {
+		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新邮件日志失败", ErrLogFinalizationFailed)
 	}
 	return nil
 }
@@ -857,9 +964,74 @@ func isEmail(value string) bool {
 }
 
 func senderErrorCode(err error) string {
+	return senderErrorCodeWithSensitive(err)
+}
+
+func senderErrorCodeWithSensitive(err error, secrets ...any) string {
 	var coded codedError
 	if err != nil && errors.As(err, &coded) {
-		return coded.ErrorCode()
+		code := strings.TrimSpace(coded.ErrorCode())
+		if !providerErrorCodePattern.MatchString(code) {
+			return verificationProviderErrorCode
+		}
+		for _, secret := range secrets {
+			switch value := secret.(type) {
+			case string:
+				if value != "" && strings.Contains(code, value) {
+					return verificationProviderErrorCode
+				}
+			case map[string]string:
+				for _, item := range value {
+					if item != "" && strings.Contains(code, item) {
+						return verificationProviderErrorCode
+					}
+				}
+			}
+		}
+		return code
 	}
-	return ""
+	return verificationProviderErrorCode
+}
+
+func (s *Service) now() time.Time {
+	if s == nil || s.clock == nil {
+		return time.Now()
+	}
+	return s.clock.Now()
+}
+
+func elapsedMilliseconds(start, end time.Time) uint64 {
+	if end.Before(start) {
+		return 0
+	}
+	return uint64(end.Sub(start).Milliseconds())
+}
+
+func verificationDeadlineElapsedError() *apperror.Error {
+	return apperror.Wrap(
+		"internal.unknown",
+		apperror.CategoryInternal,
+		http.StatusInternalServerError,
+		apperror.Permanent,
+		"auth.verify_code.deadline_elapsed",
+		nil,
+		"验证码发送已过期",
+		ErrVerificationDeadlineElapsed,
+	)
+}
+
+func verificationFinalizeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), verificationFinalizeTimeout)
+}
+
+func safeVerificationAppError(appErr *apperror.Error) *apperror.Error {
+	if appErr == nil {
+		return nil
+	}
+	safe := apperror.New(appErr.Code, appErr.Category, appErr.HTTPStatus, appErr.Retry, appErr.MessageID, nil, appErr.Message)
+	safe.LegacyCode = appErr.LegacyCode
+	return safe
 }
