@@ -2,9 +2,34 @@ package secretkey
 
 import (
 	"bytes"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+var authCacheKeyMethod = regexp.MustCompile(`(?m)^func\s+\(s\s+\*SessionRevocationService\)\s+sessionCacheKey\s*\(\s*sessionID\s+int64\s*\)\s*string\s*\{`)
+
+func TestKeyRingDoesNotDeriveSessionCacheCapability(t *testing.T) {
+	secretkeySource, err := os.ReadFile("secretkey.go")
+	if err != nil {
+		t.Fatal("forbidden token")
+	}
+	for _, forbidden := range []string{
+		"sessionCache" + "Key",
+		"SessionCache" + "Key",
+		"admin_go:session-" + "cache:v1",
+	} {
+		if strings.Contains(string(secretkeySource), forbidden) {
+			t.Fatal("forbidden token")
+		}
+	}
+
+	authSessionCacheSource, err := os.ReadFile("../../module/auth/session_cache.go")
+	if err != nil || !authCacheKeyMethod.Match(authSessionCacheSource) {
+		t.Fatal("forbidden token")
+	}
+}
 
 func TestNewKeyRingDerivesStableSeparatedKeys(t *testing.T) {
 	root := strings.Repeat("a", 64)

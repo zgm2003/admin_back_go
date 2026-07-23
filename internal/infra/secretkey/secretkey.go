@@ -18,7 +18,6 @@ type KeyRing struct {
 	jwtSigningKey   []byte
 	jwtSigningKeyID string
 	jwtVerifyKeys   map[string][]byte
-	sessionCacheKey []byte
 }
 
 func NewKeyRing(rootSecret string) (*KeyRing, error) {
@@ -42,10 +41,6 @@ func NewKeyRingWithPrevious(rootSecret string, previousSecrets []string) (*KeyRi
 		return nil, err
 	}
 	jwtSigningKey, err := derive(root, "admin_go:jwt-signing:v1")
-	if err != nil {
-		return nil, err
-	}
-	sessionCacheKey, err := derive(root, "admin_go:session-cache:v1")
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +70,6 @@ func NewKeyRingWithPrevious(rootSecret string, previousSecrets []string) (*KeyRi
 		jwtSigningKey:   jwtSigningKey,
 		jwtSigningKeyID: jwtSigningKeyID,
 		jwtVerifyKeys:   jwtVerifyKeys,
-		sessionCacheKey: sessionCacheKey,
 	}, nil
 }
 
@@ -116,13 +110,6 @@ func (k *KeyRing) JWTVerificationKeys() map[string][]byte {
 		keys[keyID] = clone(key)
 	}
 	return keys
-}
-
-func (k *KeyRing) SessionCacheKey() []byte {
-	if k == nil {
-		return nil
-	}
-	return clone(k.sessionCacheKey)
 }
 
 func derive(root string, info string) ([]byte, error) {
