@@ -266,6 +266,24 @@ func TestWorkerReplyRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
+func TestWorkerDoesNotConsumeMailDiagnosticWriteOrRekeyCapabilities(t *testing.T) {
+	body, err := os.ReadFile("worker.go")
+	if err != nil {
+		t.Fatalf("read worker composition: %v", err)
+	}
+	for _, forbidden := range []string{
+		"mail.NewService",
+		"CreateVerificationLog",
+		"NewDiagnosticRekeyService",
+		"RewriteDiagnosticCipherBatch",
+		"mail_log_verification_codes",
+	} {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("worker composition consumes mail diagnostic write capability %q", forbidden)
+		}
+	}
+}
+
 func TestRealtimePublisherForWorkerUsesCodeOwnedDefaultChannel(t *testing.T) {
 	publisher := realtimePublisherForWorker(config.Config{
 		Realtime: config.RealtimeConfig{Enabled: true, Publisher: config.RealtimePublisherRedis},

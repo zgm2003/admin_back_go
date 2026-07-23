@@ -146,6 +146,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			}
 			adminProviders := platformadmin.ProviderSet{
 				Secretbox:           providers.Secretbox,
+				MailDiagnosticBox:   providers.MailDiagnosticBox,
 				MailSender:          providers.MailSender,
 				SMSSender:           providers.SMSSender,
 				AIConnectionTester:  providers.AIConnectionTester,

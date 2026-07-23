@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -14,6 +15,17 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/server/adminroute"
 )
+
+func TestAPIThreadsMailDiagnosticBoxIntoAdminProviders(t *testing.T) {
+	body, err := os.ReadFile("api.go")
+	if err != nil {
+		t.Fatalf("read API composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	if !strings.Contains(compact, "MailDiagnosticBox: providers.MailDiagnosticBox,") {
+		t.Fatal("API composition does not thread the mail diagnostic box into Admin")
+	}
+}
 
 func TestNewAPIValidatesSecretsWithoutOpeningResources(t *testing.T) {
 	runtime, err := NewAPI(config.Config{}, slog.Default(), adminroute.NewRegistry())

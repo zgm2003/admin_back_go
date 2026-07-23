@@ -59,10 +59,6 @@ type Service struct {
 	clock             clock.Clock
 }
 
-func NewService(repository Repository, secretBox secretbox.Box, sender Sender) *Service {
-	return NewServiceWithDependencies(ServiceDependencies{Repository: repository, CredentialBox: secretBox, Sender: sender})
-}
-
 type ServiceDependencies struct {
 	Repository    Repository
 	CredentialBox secretbox.Box

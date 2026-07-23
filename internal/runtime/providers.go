@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"admin_back_go/internal/config"
@@ -28,7 +29,8 @@ import (
 )
 
 type Providers struct {
-	Secretbox secretbox.Box
+	Secretbox         secretbox.Box
+	MailDiagnosticBox secretbox.VersionedBox
 
 	MailSender mail.Sender
 	SMSSender  sms.Sender
@@ -58,8 +60,13 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, recorders ...tel
 		recorder = recorders[0]
 	}
 	box := secretbox.New(keys.SecretboxKey())
+	diagnosticBox, err := secretbox.NewVersioned(keys.MailDiagnosticKeyID(), keys.MailDiagnosticDecryptionKeys())
+	if err != nil {
+		return Providers{}, fmt.Errorf("build mail diagnostic box: %w", err)
+	}
 	return Providers{
 		Secretbox:           box,
+		MailDiagnosticBox:   diagnosticBox,
 		MailSender:          newMailSender(),
 		SMSSender:           newSMSSender(),
 		AIConnectionTester:  aiConnectionTester{recorder: recorder},

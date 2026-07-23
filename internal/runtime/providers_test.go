@@ -4,13 +4,131 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"admin_back_go/internal/config"
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/infra/secretkey"
 	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 )
+
+func TestBuildProvidersBuildsCurrentOnlyMailDiagnosticBoxFromKeyRing(t *testing.T) {
+	ring, err := secretkey.NewKeyRing(strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatalf("current key ring: %v", err)
+	}
+	providers, err := BuildProviders(config.Config{}, ring)
+	if err != nil {
+		t.Fatalf("BuildProviders: %v", err)
+	}
+	box := requireMailDiagnosticBox(t, providers)
+	if box.CurrentKeyID() != ring.MailDiagnosticKeyID() {
+		t.Fatalf("diagnostic current key ID = %q, want %q", box.CurrentKeyID(), ring.MailDiagnosticKeyID())
+	}
+	keyID, ciphertext, err := box.Encrypt("123456")
+	if err != nil || keyID != ring.MailDiagnosticKeyID() {
+		t.Fatalf("diagnostic encrypt key=%q err=%v", keyID, err)
+	}
+	plain, err := box.Decrypt(keyID, ciphertext)
+	if err != nil || plain != "123456" {
+		t.Fatalf("diagnostic current-key decrypt plain=%q err=%v", plain, err)
+	}
+	otherRing, err := secretkey.NewKeyRing(strings.Repeat("x", 64))
+	if err != nil {
+		t.Fatalf("other key ring: %v", err)
+	}
+	otherCiphertext, err := secretbox.New(otherRing.MailDiagnosticKey()).Encrypt("654321")
+	if err != nil {
+		t.Fatalf("encrypt other diagnostic code: %v", err)
+	}
+	if _, err := box.Decrypt(otherRing.MailDiagnosticKeyID(), otherCiphertext); err == nil {
+		t.Fatal("current-only diagnostic box retained an unconfigured previous key")
+	}
+}
+
+func TestBuildProvidersBuildsCurrentPreviousMailDiagnosticBoxFromKeyRing(t *testing.T) {
+	oldRing, err := secretkey.NewKeyRing(strings.Repeat("o", 64))
+	if err != nil {
+		t.Fatalf("old key ring: %v", err)
+	}
+	dualRing, err := secretkey.NewKeyRingWithPrevious(strings.Repeat("n", 64), []string{strings.Repeat("o", 64)})
+	if err != nil {
+		t.Fatalf("dual key ring: %v", err)
+	}
+	providers, err := BuildProviders(config.Config{}, dualRing)
+	if err != nil {
+		t.Fatalf("BuildProviders: %v", err)
+	}
+	box := requireMailDiagnosticBox(t, providers)
+	oldCiphertext, err := secretbox.New(oldRing.MailDiagnosticKey()).Encrypt("654321")
+	if err != nil {
+		t.Fatalf("encrypt old diagnostic code: %v", err)
+	}
+	plain, err := box.Decrypt(oldRing.MailDiagnosticKeyID(), oldCiphertext)
+	if err != nil || plain != "654321" {
+		t.Fatalf("previous diagnostic decrypt plain=%q err=%v", plain, err)
+	}
+	if box.CurrentKeyID() != dualRing.MailDiagnosticKeyID() || box.CurrentKeyID() == oldRing.MailDiagnosticKeyID() {
+		t.Fatalf("dual diagnostic box did not retain the new current key")
+	}
+}
+
+func TestBuildProvidersSeparatesCredentialAndMailDiagnosticPurposes(t *testing.T) {
+	ring, err := secretkey.NewKeyRing(strings.Repeat("p", 64))
+	if err != nil {
+		t.Fatalf("key ring: %v", err)
+	}
+	providers, err := BuildProviders(config.Config{}, ring)
+	if err != nil {
+		t.Fatalf("BuildProviders: %v", err)
+	}
+	diagnosticBox := requireMailDiagnosticBox(t, providers)
+	credentialCiphertext, err := providers.Secretbox.Encrypt("credential-secret")
+	if err != nil {
+		t.Fatalf("credential encrypt: %v", err)
+	}
+	if _, err := diagnosticBox.Decrypt(ring.MailDiagnosticKeyID(), credentialCiphertext); err == nil {
+		t.Fatal("mail diagnostic box decrypted credential-purpose ciphertext")
+	}
+	_, diagnosticCiphertext, err := diagnosticBox.Encrypt("123456")
+	if err != nil {
+		t.Fatalf("diagnostic encrypt: %v", err)
+	}
+	if _, err := providers.Secretbox.Decrypt(diagnosticCiphertext); err == nil {
+		t.Fatal("credential box decrypted mail-diagnostic-purpose ciphertext")
+	}
+}
+
+func TestRuntimeMailDiagnosticProviderUsesNoSeparateEnvironmentSecret(t *testing.T) {
+	for _, path := range []string{"providers.go", "api.go", "worker.go"} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(body), "MAIL_DIAGNOSTIC_SECRET") {
+			t.Fatalf("%s introduced a separate mail diagnostic root", path)
+		}
+	}
+}
+
+func requireMailDiagnosticBox(t *testing.T, providers Providers) secretbox.VersionedBox {
+	t.Helper()
+	field := reflect.ValueOf(providers).FieldByName("MailDiagnosticBox")
+	if !field.IsValid() {
+		t.Fatal("runtime Providers is missing MailDiagnosticBox")
+	}
+	box, ok := field.Interface().(secretbox.VersionedBox)
+	if !ok {
+		t.Fatalf("MailDiagnosticBox has type %T", field.Interface())
+	}
+	return box
+}
 
 func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

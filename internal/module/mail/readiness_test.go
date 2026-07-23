@@ -79,7 +79,9 @@ func TestVerifyCodeReadyRequiresCompleteEnabledMailSetup(t *testing.T) {
 				config:    readyMailConfig(),
 				templates: map[string]*Template{enum.VerifyCodeSceneLogin: readyMailTemplate(enum.VerifyCodeSceneLogin)},
 			}
-			service := NewService(repo, testSecretBox(), &fakeMailSender{})
+			service := NewServiceWithDependencies(ServiceDependencies{
+				Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+			})
 			tt.mutate(service, repo)
 			ready, appErr := service.VerifyCodeReady(context.Background(), enum.VerifyCodeSceneLogin)
 			if appErr != nil || ready {
@@ -101,7 +103,9 @@ func TestVerifyCodeReadyReturnsTrueForCompleteMailSetup(t *testing.T) {
 		senderCalls++
 		return SendResult{}, errors.New("readiness must not call sender")
 	})
-	ready, appErr := NewService(repo, testSecretBox(), sender).
+	ready, appErr := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: sender,
+	}).
 		VerifyCodeReady(context.Background(), enum.VerifyCodeSceneLogin)
 	if appErr != nil || !ready {
 		t.Fatalf("ready=%v err=%#v", ready, appErr)
@@ -112,7 +116,9 @@ func TestVerifyCodeReadyReturnsTrueForCompleteMailSetup(t *testing.T) {
 }
 
 func TestVerifyCodeReadyRejectsUnconfiguredMailRepository(t *testing.T) {
-	ready, appErr := NewService(nil, testSecretBox(), &fakeMailSender{}).
+	ready, appErr := NewServiceWithDependencies(ServiceDependencies{
+		Repository: nil, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	}).
 		VerifyCodeReady(context.Background(), enum.VerifyCodeSceneLogin)
 	if ready || appErr == nil || appErr.LegacyCode != apperror.CodeInternal || !errors.Is(appErr, ErrRepositoryNotConfigured) {
 		t.Fatalf("ready=%v err=%#v", ready, appErr)
@@ -122,7 +128,9 @@ func TestVerifyCodeReadyRejectsUnconfiguredMailRepository(t *testing.T) {
 func TestVerifyCodeReadyPropagatesMailConfigQueryFailure(t *testing.T) {
 	wantErr := errors.New("mail database unavailable")
 	repo := &fakeMailRepository{config: readyMailConfig(), err: wantErr}
-	ready, appErr := NewService(repo, testSecretBox(), &fakeMailSender{}).
+	ready, appErr := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	}).
 		VerifyCodeReady(context.Background(), enum.VerifyCodeSceneLogin)
 	if ready || appErr == nil || !errors.Is(appErr, wantErr) || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("ready=%v err=%#v", ready, appErr)
@@ -135,7 +143,9 @@ func TestVerifyCodeReadyPropagatesMailTemplateQueryFailure(t *testing.T) {
 		fakeMailRepository: &fakeMailRepository{config: readyMailConfig()},
 		err:                wantErr,
 	}
-	ready, appErr := NewService(repo, testSecretBox(), &fakeMailSender{}).
+	ready, appErr := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	}).
 		VerifyCodeReady(context.Background(), enum.VerifyCodeSceneLogin)
 	if ready || appErr == nil || !errors.Is(appErr, wantErr) || appErr.LegacyCode != apperror.CodeInternal {
 		t.Fatalf("ready=%v err=%#v", ready, appErr)
@@ -144,7 +154,9 @@ func TestVerifyCodeReadyPropagatesMailTemplateQueryFailure(t *testing.T) {
 
 func TestVerifyCodeReadyRejectsNonMailScene(t *testing.T) {
 	repo := &fakeMailRepository{config: readyMailConfig()}
-	ready, appErr := NewService(repo, testSecretBox(), &fakeMailSender{}).
+	ready, appErr := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	}).
 		VerifyCodeReady(context.Background(), enum.VerifyCodeSceneBindPhone)
 	if ready || appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("ready=%v err=%#v", ready, appErr)

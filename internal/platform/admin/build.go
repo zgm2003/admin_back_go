@@ -54,6 +54,7 @@ import (
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/telemetry"
 )
 
@@ -65,7 +66,8 @@ type BuildResources struct {
 }
 
 type ProviderSet struct {
-	Secretbox secretbox.Box
+	Secretbox         secretbox.Box
+	MailDiagnosticBox secretbox.VersionedBox
 
 	MailSender mail.Sender
 	SMSSender  sms.Sender
@@ -126,6 +128,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	}
 	providers := *input.Providers
 	resources := input.Resources
+	sharedClock := clock.SystemClock{}
 	realtimeEventRepository := modulerealtime.NewGormRepository(resources.DB, modulerealtime.DefaultRegistry())
 	realtimeEventSink := modulerealtime.NewDurableEventSink(realtimeEventRepository, publisher, logger)
 	accessCodec, err := accessTokenCodecForKeys(input.Keys)
@@ -155,7 +158,13 @@ func Build(input BuildInput) (*BuildResult, error) {
 	systemSettingService := systemsetting.NewService(systemSettingRepository)
 	walletService := walletmodule.NewService(walletmodule.NewGormRepository(resources.DB))
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &providers.Secretbox)
-	mailService := mail.NewService(mail.NewGormRepository(resources.DB), providers.Secretbox, providers.MailSender)
+	mailService := mail.NewServiceWithDependencies(mail.ServiceDependencies{
+		Repository:    mail.NewGormRepository(resources.DB),
+		CredentialBox: providers.Secretbox,
+		DiagnosticBox: providers.MailDiagnosticBox,
+		Sender:        providers.MailSender,
+		Clock:         sharedClock,
+	})
 	smsService := sms.NewService(sms.NewGormRepository(resources.DB), providers.Secretbox, providers.SMSSender)
 	aiProviderService := aiprovider.NewServiceWithDriver(
 		aiprovider.NewGormRepository(resources.DB),
@@ -216,6 +225,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		auth.WithVerifyCodePolicyProvider(auth.NewChannelVerifyCodePolicyProvider(mailService, smsService)),
 		auth.WithLoginLogEnqueuer(input.Queue),
 		auth.WithLogger(logger),
+		auth.WithClock(sharedClock),
 	)
 
 	principalRepository := permission.NewGormPrincipalRepository(resources.DB)

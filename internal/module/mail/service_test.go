@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,6 +18,23 @@ import (
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
 )
+
+func TestMailPackageUsesDependencyConstructorOnly(t *testing.T) {
+	legacyConstructor := "New" + "Service("
+	paths, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("list Mail Go files: %v", err)
+	}
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(body), legacyConstructor) {
+			t.Fatalf("%s still uses the positional Mail constructor", path)
+		}
+	}
+}
 
 type fakeMailRepository struct {
 	config              *Config
@@ -636,7 +655,10 @@ func TestTestSendDoesNotCreateVerificationSnapshot(t *testing.T) {
 			enum.VerifyCodeSceneLogin: {ID: 77, Scene: enum.VerifyCodeSceneLogin, Subject: "Login code", TencentTemplateID: 123456, VariablesJSON: `["code","ttl_minutes"]`, SampleVariablesJSON: `{"code":"123456","ttl_minutes":"5"}`, Status: enum.CommonYes},
 		},
 	}
-	service := NewService(repo, box, &fakeMailSender{result: SendResult{RequestID: "req", MessageID: "msg"}})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: box, DiagnosticBox: testDiagnosticBox(),
+		Sender: &fakeMailSender{result: SendResult{RequestID: "req", MessageID: "msg"}},
+	})
 
 	appErr := service.TestSend(context.Background(), TestInput{ToEmail: "user@example.com", TemplateScene: enum.VerifyCodeSceneLogin})
 
@@ -655,7 +677,9 @@ func TestServiceConfigResponseDoesNotExposeEncryptedSecrets(t *testing.T) {
 	repo := &fakeMailRepository{
 		config: &Config{ID: 1, SecretIDEnc: "cipher-id", SecretIDHint: "***t-id", SecretKeyEnc: "cipher-key", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 6},
 	}
-	service := NewService(repo, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	result, appErr := service.Config(context.Background())
 	if appErr != nil {
@@ -678,7 +702,9 @@ func TestServiceConfigIncludesVerifyCodeTTLFromConfigRow(t *testing.T) {
 	repo := &fakeMailRepository{
 		config: &Config{ID: 1, SecretIDHint: "***t-id", SecretKeyHint: "***-key", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 11},
 	}
-	service := NewService(repo, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	result, appErr := service.Config(context.Background())
 
@@ -691,7 +717,9 @@ func TestServiceConfigIncludesVerifyCodeTTLFromConfigRow(t *testing.T) {
 }
 
 func TestServiceDefaultConfigUsesDefaultVerifyCodeTTLWhenConfigMissing(t *testing.T) {
-	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	result, appErr := service.Config(context.Background())
 
@@ -704,7 +732,9 @@ func TestServiceDefaultConfigUsesDefaultVerifyCodeTTLWhenConfigMissing(t *testin
 }
 
 func TestServicePageInitExposesTencentSESRegions(t *testing.T) {
-	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	result, appErr := service.PageInit(context.Background())
 	if appErr != nil {
@@ -723,7 +753,9 @@ func TestServicePageInitExposesTencentSESRegions(t *testing.T) {
 
 func TestServiceSaveConfigRejectsUnsupportedRegion(t *testing.T) {
 	box := testSecretBox()
-	service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: box, DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	appErr := service.SaveConfig(context.Background(), SaveConfigInput{
 		SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: "ap-shanghai", Endpoint: DefaultEndpoint,
@@ -748,7 +780,9 @@ func TestServiceLogDetailIncludesTemplateSummaryWithoutPayload(t *testing.T) {
 			7: {ID: 7, Scene: enum.MailSceneTest, TemplateID: &templateID, ToEmail: "user@example.com", Subject: "Login", Status: enum.MailLogStatusSuccess},
 		},
 	}
-	service := NewService(repo, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	result, appErr := service.Log(context.Background(), 7)
 	if appErr != nil {
@@ -769,7 +803,9 @@ func TestServiceLogDetailIncludesTemplateSummaryWithoutPayload(t *testing.T) {
 
 func TestServiceSaveConfigRequiresSecretsOnFirstConfigAndReusesExistingSecretsOnEdit(t *testing.T) {
 	box := testSecretBox()
-	service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: box, DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	appErr := service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 5})
 	if appErr == nil || !strings.Contains(appErr.Message, "首次配置必须填写") {
@@ -779,7 +815,9 @@ func TestServiceSaveConfigRequiresSecretsOnFirstConfigAndReusesExistingSecretsOn
 	existingID, _ := box.Encrypt("AKID-existing")
 	existingKey, _ := box.Encrypt("SECRET-existing")
 	repo := &fakeMailRepository{config: &Config{SecretIDEnc: existingID, SecretIDHint: "***ting", SecretKeyEnc: existingKey, SecretKeyHint: "***ting", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "old@example.com", Status: enum.CommonYes}}
-	service = NewService(repo, box, &fakeMailSender{})
+	service = NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: box, DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	appErr = service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "new@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 5})
 	if appErr != nil {
@@ -795,7 +833,9 @@ func TestServiceSaveConfigPersistsVerifyCodeTTLToConfigRow(t *testing.T) {
 	secretIDEnc, _ := box.Encrypt("AKID-existing")
 	secretKeyEnc, _ := box.Encrypt("SECRET-existing")
 	repo := &fakeMailRepository{config: &Config{SecretIDEnc: secretIDEnc, SecretIDHint: "***ting", SecretKeyEnc: secretKeyEnc, SecretKeyHint: "***ting", Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "old@example.com", Status: enum.CommonYes}}
-	service := NewService(repo, box, &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: box, DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	appErr := service.SaveConfig(context.Background(), SaveConfigInput{Region: DefaultRegion, Endpoint: DefaultEndpoint, FromEmail: "new@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: 11})
 
@@ -808,7 +848,10 @@ func TestServiceSaveConfigPersistsVerifyCodeTTLToConfigRow(t *testing.T) {
 }
 
 func TestServiceVerifyCodeTTLUsesConfigRow(t *testing.T) {
-	service := NewService(&fakeMailRepository{config: &Config{VerifyCodeTTLMinutes: 13}}, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository:    &fakeMailRepository{config: &Config{VerifyCodeTTLMinutes: 13}},
+		CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	got, appErr := service.VerifyCodeTTL(context.Background())
 
@@ -818,7 +861,9 @@ func TestServiceVerifyCodeTTLUsesConfigRow(t *testing.T) {
 }
 
 func TestServiceVerifyCodeTTLRejectsMissingConfig(t *testing.T) {
-	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 
 	got, appErr := service.VerifyCodeTTL(context.Background())
 
@@ -829,7 +874,10 @@ func TestServiceVerifyCodeTTLRejectsMissingConfig(t *testing.T) {
 
 func TestServiceVerifyCodeTTLRejectsInvalidConfigRow(t *testing.T) {
 	for _, ttl := range []int{0, 61} {
-		service := NewService(&fakeMailRepository{config: &Config{VerifyCodeTTLMinutes: ttl}}, testSecretBox(), &fakeMailSender{})
+		service := NewServiceWithDependencies(ServiceDependencies{
+			Repository:    &fakeMailRepository{config: &Config{VerifyCodeTTLMinutes: ttl}},
+			CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+		})
 		got, appErr := service.VerifyCodeTTL(context.Background())
 		if appErr == nil || appErr.Message != "验证码有效期必须在 1-60 分钟之间" || got != 0 {
 			t.Fatalf("ttl=%d got duration=%s err=%#v", ttl, got, appErr)
@@ -848,7 +896,9 @@ func TestServiceSaveConfigRejectsInvalidVerifyCodeTTL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := NewService(&fakeMailRepository{}, box, &fakeMailSender{})
+			service := NewServiceWithDependencies(ServiceDependencies{
+				Repository: &fakeMailRepository{}, CredentialBox: box, DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+			})
 			appErr := service.SaveConfig(context.Background(), SaveConfigInput{
 				SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: DefaultRegion, Endpoint: DefaultEndpoint,
 				FromEmail: "noreply@example.com", Status: enum.CommonYes, VerifyCodeTTLMinutes: tt.ttl,
@@ -861,7 +911,9 @@ func TestServiceSaveConfigRejectsInvalidVerifyCodeTTL(t *testing.T) {
 }
 
 func TestServiceRejectsVerifyCodeTemplateWithAppNameVariable(t *testing.T) {
-	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 	_, appErr := service.CreateTemplate(context.Background(), SaveTemplateInput{
 		Scene:             enum.VerifyCodeSceneLogin,
 		Name:              "登录验证码",
@@ -877,7 +929,9 @@ func TestServiceRejectsVerifyCodeTemplateWithAppNameVariable(t *testing.T) {
 }
 
 func TestServiceRejectsVerifyCodeTemplateWithExtraSampleVariable(t *testing.T) {
-	service := NewService(&fakeMailRepository{}, testSecretBox(), &fakeMailSender{})
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: &fakeMailRepository{}, CredentialBox: testSecretBox(), DiagnosticBox: testDiagnosticBox(), Sender: &fakeMailSender{},
+	})
 	_, appErr := service.CreateTemplate(context.Background(), SaveTemplateInput{
 		Scene:             enum.VerifyCodeSceneForget,
 		Name:              "找回密码验证码",

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,8 +12,45 @@ import (
 	"admin_back_go/internal/infra/database"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/redisclient"
+	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/infra/secretkey"
 )
+
+func TestProviderSetCarriesMailDiagnosticBox(t *testing.T) {
+	field, ok := reflect.TypeOf(ProviderSet{}).FieldByName("MailDiagnosticBox")
+	if !ok || field.Type != reflect.TypeOf(secretbox.VersionedBox{}) {
+		t.Fatal("Admin ProviderSet must carry a versioned mail diagnostic box")
+	}
+}
+
+func TestBuildSeparatesMailPurposesAndSharesOneClockWithAuth(t *testing.T) {
+	body, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatalf("read admin composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{
+		"sharedClock := clock.SystemClock{}",
+		"mailService := mail.NewServiceWithDependencies(mail.ServiceDependencies{",
+		"CredentialBox: providers.Secretbox",
+		"DiagnosticBox: providers.MailDiagnosticBox",
+		"Clock: sharedClock",
+		"auth.WithClock(sharedClock)",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("admin composition missing %q", want)
+		}
+	}
+	if strings.Count(compact, "clock.SystemClock{}") != 1 {
+		t.Fatal("Admin Build must instantiate exactly one system clock")
+	}
+	if strings.Contains(compact, "mail.NewService(") {
+		t.Fatal("Admin Build still uses the positional Mail constructor")
+	}
+	if strings.Contains(compact, "MAIL_DIAGNOSTIC_SECRET") {
+		t.Fatal("Admin Build introduced a separate diagnostic root")
+	}
+}
 
 func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	body, err := os.ReadFile("build.go")
