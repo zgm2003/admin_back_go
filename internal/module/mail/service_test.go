@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -1070,6 +1071,10 @@ func TestLogDTOFromReadRowRejectsInvalidSnapshotsWithoutLeakingSecrets(t *testin
 	lineWrappedCipher.VerificationCodeEnc = valuePtr("\r\n" + *valid.VerificationCodeEnc + "\r\n")
 	lineWrappedKey := valid
 	lineWrappedKey.VerificationKeyID = valuePtr("\r\ndiag-current\r\n")
+	embeddedLineBreakCipher := valid
+	embeddedLineBreakCipher.VerificationCodeEnc = valuePtr((*valid.VerificationCodeEnc)[:4] + "\r\n" + (*valid.VerificationCodeEnc)[4:])
+	nonCanonicalPaddingCipher := valid
+	nonCanonicalPaddingCipher.VerificationCodeEnc = valuePtr(nonCanonicalBase64Alias(t, *valid.VerificationCodeEnc))
 
 	tests := []struct {
 		name    string
@@ -1092,6 +1097,8 @@ func TestLogDTOFromReadRowRejectsInvalidSnapshotsWithoutLeakingSecrets(t *testin
 		{name: "padded ciphertext is not normalized", service: &Service{diagnosticBox: testDiagnosticBox()}, row: paddedCipher, secrets: []string{*valid.VerificationCodeEnc}},
 		{name: "line wrapped ciphertext is not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: lineWrappedCipher, secrets: []string{*valid.VerificationCodeEnc}},
 		{name: "line wrapped key is not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: lineWrappedKey, secrets: []string{"diag-current"}},
+		{name: "embedded line break ciphertext is not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: embeddedLineBreakCipher, secrets: []string{*embeddedLineBreakCipher.VerificationCodeEnc}},
+		{name: "non canonical padding bits are not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: nonCanonicalPaddingCipher, secrets: []string{*nonCanonicalPaddingCipher.VerificationCodeEnc}},
 	}
 
 	for _, code := range []string{"", "12345", "1234567", " 12345", "12345 ", "12345\n", "１２３４５６"} {
@@ -1301,6 +1308,35 @@ func diagnosticLogReadRow(t *testing.T, status int, expiresAt time.Time, keyID, 
 
 func valuePtr[T any](value T) *T {
 	return &value
+}
+
+func nonCanonicalBase64Alias(t *testing.T, canonical string) string {
+	t.Helper()
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	if !strings.HasSuffix(canonical, "==") {
+		t.Fatalf("test ciphertext %q must end in double padding", canonical)
+	}
+	lastDataIndex := len(canonical) - 3
+	alphabetIndex := strings.IndexByte(alphabet, canonical[lastDataIndex])
+	if alphabetIndex < 0 || alphabetIndex&0x0f != 0 {
+		t.Fatalf("test ciphertext %q does not have canonical four padding bits", canonical)
+	}
+	alias := canonical[:lastDataIndex] + string(alphabet[alphabetIndex|1]) + canonical[lastDataIndex+1:]
+	canonicalBytes, err := base64.StdEncoding.DecodeString(canonical)
+	if err != nil {
+		t.Fatalf("decode canonical test ciphertext: %v", err)
+	}
+	aliasBytes, err := base64.StdEncoding.DecodeString(alias)
+	if err != nil {
+		t.Fatalf("permissive decoder rejected test alias: %v", err)
+	}
+	if !reflect.DeepEqual(aliasBytes, canonicalBytes) {
+		t.Fatalf("test alias decoded to different payload")
+	}
+	if _, err := base64.StdEncoding.Strict().DecodeString(alias); err == nil {
+		t.Fatal("strict decoder accepted non-canonical padding bits")
+	}
+	return alias
 }
 
 func assertInvalidDiagnosticProjection(t *testing.T, got LogDTO, err error) {

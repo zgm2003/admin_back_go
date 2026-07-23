@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -941,6 +942,10 @@ func (s *Service) logDTOFromReadRow(row LogReadRow, now time.Time) (LogDTO, erro
 		trimmedKeyID == "" || keyID != trimmedKeyID ||
 		trimmedCiphertext == "" || ciphertext != trimmedCiphertext ||
 		expiresAt.IsZero() || expiresAt.Nanosecond() != 0 || s == nil || s.diagnosticBox.CurrentKeyID() == "" {
+		return result, ErrInvalidDiagnosticSnapshot
+	}
+	decodedCiphertext, err := base64.StdEncoding.Strict().DecodeString(ciphertext)
+	if err != nil || base64.StdEncoding.EncodeToString(decodedCiphertext) != ciphertext {
 		return result, ErrInvalidDiagnosticSnapshot
 	}
 
