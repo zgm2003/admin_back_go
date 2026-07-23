@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/databaseevolution"
+	"admin_back_go/internal/module/mail"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -501,4 +502,257 @@ func TestParseLockRunRequiresExpectedFingerprint(t *testing.T) {
 	}); err == nil {
 		t.Fatal("lock-run accepted a command without an expected source fingerprint")
 	}
+}
+
+func TestMailDiagnosticRekeyCommandRejectsArgumentsWithoutRunning(t *testing.T) {
+	const marker = "marker-mail-rekey-argument-secret"
+	for _, args := range [][]string{
+		{"mail-diagnostic-rekey", marker},
+		{"mail-diagnostic-rekey", "--" + marker},
+	} {
+		called := false
+		var output bytes.Buffer
+		err := run(context.Background(), args, commandDependencies{
+			getenv: func(string) string { return "" },
+			runMailDiagnosticRekey: func(context.Context, string, string, string, mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+				called = true
+				return mail.DiagnosticRekeyResult{}, nil
+			},
+			stdout: &output,
+		})
+		if err == nil || err.Error() != "usage: admin-db mail-diagnostic-rekey" {
+			t.Fatalf("mail diagnostic rekey arguments did not return fixed usage")
+		}
+		if called || output.Len() != 0 || strings.Contains(err.Error(), marker) {
+			t.Fatalf("invalid arguments ran or exposed the command input")
+		}
+	}
+}
+
+func TestMailDiagnosticRekeyCommandValidatesEnvironmentRunsAndPrintsSafeFields(t *testing.T) {
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	currentRoot := strings.Repeat("a", 64)
+	previousRoot := strings.Repeat("b", 64)
+	const currentID = "mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAAA"
+	const previousID = "mail-diagnostic-v1-BBBBBBBBBBBBBBBBBBBBBB"
+	var output bytes.Buffer
+	runnerCalls := 0
+	err := run(context.Background(), []string{"mail-diagnostic-rekey"}, commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return currentRoot
+			case "APP_SECRET_PREVIOUS":
+				return previousRoot
+			default:
+				t.Fatalf("unexpected environment key")
+				return ""
+			}
+		},
+		runMailDiagnosticRekey: func(_ context.Context, gotDSN, gotCurrent, gotPrevious string, observer mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+			runnerCalls++
+			if gotDSN != dsn || gotCurrent != currentRoot || gotPrevious != previousRoot || observer == nil {
+				t.Fatalf("runner inputs were changed or incomplete")
+			}
+			if err := observer(7); err != nil {
+				return mail.DiagnosticRekeyResult{}, err
+			}
+			if err := observer(9); err != nil {
+				return mail.DiagnosticRekeyResult{}, err
+			}
+			return mail.DiagnosticRekeyResult{
+				CurrentKeyID: currentID, PreviousKeyID: previousID,
+				Scanned: 2, Rekeyed: 2, PreviousReferences: 0, UnknownReferences: 0,
+			}, nil
+		},
+		stdout: &output,
+	})
+	if err != nil {
+		t.Fatalf("mail diagnostic rekey command returned fixed-error candidate: %v", err)
+	}
+	if runnerCalls != 1 {
+		t.Fatalf("mail diagnostic rekey runner call count was not one")
+	}
+	want := "rekeyed_row_id\t7\n" +
+		"rekeyed_row_id\t9\n" +
+		"current_key_id\t" + currentID + "\n" +
+		"previous_key_id\t" + previousID + "\n" +
+		"scanned\t2\n" +
+		"rekeyed\t2\n" +
+		"previous_references\t0\n" +
+		"unknown_references\t0\n"
+	if output.String() != want {
+		t.Fatalf("mail diagnostic rekey output did not match the stable field contract")
+	}
+	for _, forbidden := range []string{dsn, currentRoot, previousRoot, "safe-password"} {
+		if strings.Contains(output.String(), forbidden) {
+			t.Fatalf("mail diagnostic rekey output exposed a forbidden value")
+		}
+	}
+}
+
+func TestMailDiagnosticRekeyCommandRejectsUnsafeEnvironmentBeforeRunner(t *testing.T) {
+	validDSN := "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	validRoot := strings.Repeat("a", 64)
+	tests := []struct {
+		name     string
+		dsn      string
+		current  string
+		previous string
+		markers  []string
+	}{
+		{name: "malformed dsn", dsn: "marker-malformed-dsn", current: validRoot, markers: []string{"marker-malformed-dsn"}},
+		{name: "dsn without database", dsn: "admin_user:safe-password@tcp(127.0.0.1:3306)/", current: validRoot, markers: []string{"safe-password"}},
+		{name: "short current root", dsn: validDSN, current: "marker-short-current-root", markers: []string{"marker-short-current-root", "safe-password"}},
+		{name: "placeholder current root", dsn: validDSN, current: "change_me_to_long_random", markers: []string{"change_me_to_long_random", "safe-password"}},
+		{name: "same previous root", dsn: validDSN, current: validRoot, previous: validRoot, markers: []string{validRoot, "safe-password"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			var output bytes.Buffer
+			err := run(context.Background(), []string{"mail-diagnostic-rekey"}, commandDependencies{
+				getenv: func(key string) string {
+					switch key {
+					case "MYSQL_DSN":
+						return test.dsn
+					case "APP_SECRET":
+						return test.current
+					case "APP_SECRET_PREVIOUS":
+						return test.previous
+					default:
+						return ""
+					}
+				},
+				runMailDiagnosticRekey: func(context.Context, string, string, string, mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+					called = true
+					return mail.DiagnosticRekeyResult{}, nil
+				},
+				stdout: &output,
+			})
+			if err == nil || err.Error() != "mail diagnostic rekey command: failed" {
+				t.Fatalf("unsafe environment did not return the fixed command failure")
+			}
+			if called || output.Len() != 0 {
+				t.Fatalf("unsafe environment ran the rekey or wrote output")
+			}
+			for _, marker := range test.markers {
+				if marker != "" && strings.Contains(err.Error(), marker) {
+					t.Fatalf("unsafe environment error exposed a forbidden value")
+				}
+			}
+		})
+	}
+}
+
+func TestMailDiagnosticRekeyCommandRedactsRunnerFailure(t *testing.T) {
+	const dsn = "admin_user:marker-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	currentRoot := strings.Repeat("c", 64)
+	previousRoot := strings.Repeat("d", 64)
+	providerErr := errors.New("marker-provider-error-with-secret-material")
+	var output bytes.Buffer
+	err := run(context.Background(), []string{"mail-diagnostic-rekey"}, commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return currentRoot
+			case "APP_SECRET_PREVIOUS":
+				return previousRoot
+			default:
+				return ""
+			}
+		},
+		runMailDiagnosticRekey: func(context.Context, string, string, string, mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+			return mail.DiagnosticRekeyResult{}, providerErr
+		},
+		stdout: &output,
+	})
+	if err == nil || err.Error() != "mail diagnostic rekey command: failed" || !errors.Is(err, providerErr) {
+		t.Fatalf("runner failure did not preserve its cause behind the fixed command error")
+	}
+	if output.Len() != 0 {
+		t.Fatalf("failed runner wrote summary output")
+	}
+	for _, marker := range []string{dsn, "marker-password", currentRoot, previousRoot, providerErr.Error()} {
+		if strings.Contains(err.Error(), marker) {
+			t.Fatalf("runner failure exposed a forbidden value")
+		}
+	}
+}
+
+func TestMailDiagnosticRekeyCommandMapsObserverWriterFailureToFixedError(t *testing.T) {
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	root := strings.Repeat("e", 64)
+	writer := diagnosticRekeyFailWriter{}
+	err := run(context.Background(), []string{"mail-diagnostic-rekey"}, commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return root
+			case "APP_SECRET_PREVIOUS":
+				return ""
+			default:
+				return ""
+			}
+		},
+		runMailDiagnosticRekey: func(_ context.Context, _ string, _ string, _ string, observer mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+			err := observer(41)
+			if !errors.Is(err, mail.ErrDiagnosticRekeyOutputFailed) || err.Error() != mail.ErrDiagnosticRekeyOutputFailed.Error() {
+				t.Fatalf("observer did not map writer failure to the fixed output sentinel")
+			}
+			return mail.DiagnosticRekeyResult{}, err
+		},
+		stdout: writer,
+	})
+	if err == nil || err.Error() != "mail diagnostic rekey command: failed" || !errors.Is(err, mail.ErrDiagnosticRekeyOutputFailed) {
+		t.Fatalf("writer failure did not return the fixed command failure")
+	}
+	if strings.Contains(err.Error(), diagnosticRekeyWriterMarker) || strings.Contains(err.Error(), dsn) || strings.Contains(err.Error(), root) {
+		t.Fatalf("writer failure exposed a forbidden value")
+	}
+}
+
+func TestMailDiagnosticRekeyCommandRejectsUnsafeResultBeforeSummaryOutput(t *testing.T) {
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	root := strings.Repeat("f", 64)
+	const unsafeID = "marker-unsafe-key-id\nmarker-injected-field"
+	var output bytes.Buffer
+	err := run(context.Background(), []string{"mail-diagnostic-rekey"}, commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "APP_SECRET":
+				return root
+			case "APP_SECRET_PREVIOUS":
+				return ""
+			default:
+				return ""
+			}
+		},
+		runMailDiagnosticRekey: func(context.Context, string, string, string, mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+			return mail.DiagnosticRekeyResult{CurrentKeyID: unsafeID}, nil
+		},
+		stdout: &output,
+	})
+	if err == nil || err.Error() != "mail diagnostic rekey command: failed" || output.Len() != 0 {
+		t.Fatalf("unsafe result ID was emitted or did not return fixed failure")
+	}
+	if strings.Contains(err.Error(), "marker-unsafe") || strings.Contains(err.Error(), root) {
+		t.Fatalf("unsafe result failure exposed a forbidden value")
+	}
+}
+
+const diagnosticRekeyWriterMarker = "marker-diagnostic-rekey-writer-provider-error"
+
+type diagnosticRekeyFailWriter struct{}
+
+func (diagnosticRekeyFailWriter) Write([]byte) (int, error) {
+	return 0, errors.New(diagnosticRekeyWriterMarker)
 }

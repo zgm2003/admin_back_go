@@ -14,24 +14,30 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/config"
 	"admin_back_go/internal/databaseevolution"
+	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/infra/secretkey"
+	"admin_back_go/internal/module/mail"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 type commandDependencies struct {
-	getenv              func(string) string
-	openDatabase        func(string) (*sql.DB, error)
-	capture             func(context.Context, *sql.DB, string) (databaseevolution.Fingerprint, error)
-	write               func(string, databaseevolution.FingerprintDocument) error
-	runInvariants       func(context.Context, *sql.DB, string) (databaseevolution.InvariantResult, error)
-	verifyCOSReferences func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error)
-	writeCOSManifest    func(string, []databaseevolution.COSReferenceResult) error
-	queryManifestFiles  func(string) ([]string, error)
-	withAdvisoryLock    func(context.Context, *sql.DB, string, time.Duration, func(*sql.Conn) error) error
-	captureConnection   func(context.Context, *sql.Conn, string) (databaseevolution.Fingerprint, error)
-	runExternal         func(context.Context, []string) error
-	stdout              io.Writer
+	getenv                 func(string) string
+	openDatabase           func(string) (*sql.DB, error)
+	capture                func(context.Context, *sql.DB, string) (databaseevolution.Fingerprint, error)
+	write                  func(string, databaseevolution.FingerprintDocument) error
+	runInvariants          func(context.Context, *sql.DB, string) (databaseevolution.InvariantResult, error)
+	verifyCOSReferences    func(context.Context, *sql.DB, string) ([]databaseevolution.COSReferenceResult, error)
+	writeCOSManifest       func(string, []databaseevolution.COSReferenceResult) error
+	queryManifestFiles     func(string) ([]string, error)
+	withAdvisoryLock       func(context.Context, *sql.DB, string, time.Duration, func(*sql.Conn) error) error
+	captureConnection      func(context.Context, *sql.Conn, string) (databaseevolution.Fingerprint, error)
+	runExternal            func(context.Context, []string) error
+	runMailDiagnosticRekey func(context.Context, string, string, string, mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error)
+	stdout                 io.Writer
 }
 
 type fingerprintOptions struct {
@@ -109,18 +115,19 @@ func (value *singleStringFlag) Set(input string) error {
 
 func main() {
 	dependencies := commandDependencies{
-		getenv:              os.Getenv,
-		openDatabase:        func(dsn string) (*sql.DB, error) { return sql.Open("mysql", dsn) },
-		capture:             databaseevolution.Capture,
-		write:               databaseevolution.WriteFingerprintDocument,
-		runInvariants:       databaseevolution.RunInvariantFile,
-		verifyCOSReferences: databaseevolution.VerifyStoredCOSReferences,
-		writeCOSManifest:    databaseevolution.WriteCOSReferenceManifest,
-		queryManifestFiles:  loadQueryManifestFiles,
-		withAdvisoryLock:    databaseevolution.WithAdvisoryLockConnection,
-		captureConnection:   databaseevolution.CaptureConnection,
-		runExternal:         runExternalCommand,
-		stdout:              os.Stdout,
+		getenv:                 os.Getenv,
+		openDatabase:           func(dsn string) (*sql.DB, error) { return sql.Open("mysql", dsn) },
+		capture:                databaseevolution.Capture,
+		write:                  databaseevolution.WriteFingerprintDocument,
+		runInvariants:          databaseevolution.RunInvariantFile,
+		verifyCOSReferences:    databaseevolution.VerifyStoredCOSReferences,
+		writeCOSManifest:       databaseevolution.WriteCOSReferenceManifest,
+		queryManifestFiles:     loadQueryManifestFiles,
+		withAdvisoryLock:       databaseevolution.WithAdvisoryLockConnection,
+		captureConnection:      databaseevolution.CaptureConnection,
+		runExternal:            runExternalCommand,
+		runMailDiagnosticRekey: runMailDiagnosticRekeyProduction,
+		stdout:                 os.Stdout,
 	}
 	if err := run(context.Background(), os.Args[1:], dependencies); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -130,7 +137,7 @@ func main() {
 
 func run(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references|query-manifest|lock-run> [arguments]")
+		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references|query-manifest|lock-run|mail-diagnostic-rekey> [arguments]")
 	}
 	switch args[0] {
 	case "fingerprint":
@@ -166,9 +173,128 @@ func run(ctx context.Context, args []string, dependencies commandDependencies) e
 			return err
 		}
 		return runLockRun(ctx, options, dependencies)
+	case "mail-diagnostic-rekey":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: admin-db mail-diagnostic-rekey")
+		}
+		return runMailDiagnosticRekeyCommand(ctx, dependencies)
 	default:
 		return fmt.Errorf("unsupported subcommand")
 	}
+}
+
+var mailDiagnosticKeyIDPattern = regexp.MustCompile(`^mail-diagnostic-v1-[A-Za-z0-9_-]{22}$`)
+
+func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDependencies) error {
+	if dependencies.getenv == nil || dependencies.runMailDiagnosticRekey == nil || dependencies.stdout == nil {
+		return safeCommandError("mail diagnostic rekey command", errors.New("command dependencies are incomplete"))
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	dsn := strings.TrimSpace(dependencies.getenv("MYSQL_DSN"))
+	parsedDSN, err := mysqldriver.ParseDSN(dsn)
+	if err != nil || strings.TrimSpace(parsedDSN.DBName) == "" {
+		return safeCommandError("mail diagnostic rekey command", errors.New("MYSQL_DSN is invalid"))
+	}
+	currentRoot := dependencies.getenv("APP_SECRET")
+	previousRoot := dependencies.getenv("APP_SECRET_PREVIOUS")
+	previousRoots := []string(nil)
+	if strings.TrimSpace(previousRoot) != "" {
+		previousRoots = []string{previousRoot}
+	}
+	if err := config.ValidateRuntimeSecrets(config.Config{App: config.AppConfig{
+		Secret: currentRoot, PreviousSecrets: previousRoots,
+	}}); err != nil {
+		return safeCommandError("mail diagnostic rekey command", err)
+	}
+
+	observer := func(id uint64) error {
+		if _, err := fmt.Fprintf(dependencies.stdout, "rekeyed_row_id\t%d\n", id); err != nil {
+			return mail.ErrDiagnosticRekeyOutputFailed
+		}
+		return nil
+	}
+	result, err := dependencies.runMailDiagnosticRekey(ctx, dsn, currentRoot, previousRoot, observer)
+	if err != nil {
+		return safeCommandError("mail diagnostic rekey command", err)
+	}
+	if !safeMailDiagnosticRekeyResult(result) {
+		return safeCommandError("mail diagnostic rekey command", mail.ErrDiagnosticRekeyIncomplete)
+	}
+
+	lines := []struct {
+		name  string
+		value any
+	}{
+		{name: "current_key_id", value: result.CurrentKeyID},
+		{name: "previous_key_id", value: result.PreviousKeyID},
+		{name: "scanned", value: result.Scanned},
+		{name: "rekeyed", value: result.Rekeyed},
+		{name: "previous_references", value: result.PreviousReferences},
+		{name: "unknown_references", value: result.UnknownReferences},
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintf(dependencies.stdout, "%s\t%v\n", line.name, line.value); err != nil {
+			return safeCommandError("mail diagnostic rekey command", mail.ErrDiagnosticRekeyOutputFailed)
+		}
+	}
+	return nil
+}
+
+func safeMailDiagnosticRekeyResult(result mail.DiagnosticRekeyResult) bool {
+	if !mailDiagnosticKeyIDPattern.MatchString(result.CurrentKeyID) {
+		return false
+	}
+	if result.PreviousKeyID != "" {
+		if !mailDiagnosticKeyIDPattern.MatchString(result.PreviousKeyID) || result.PreviousKeyID == result.CurrentKeyID {
+			return false
+		}
+	}
+	return result.Rekeyed <= result.Scanned && result.PreviousReferences == 0 && result.UnknownReferences == 0
+}
+
+func runMailDiagnosticRekeyProduction(ctx context.Context, dsn, currentRoot, previousRoot string, observer mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
+	previousRoots := []string(nil)
+	if strings.TrimSpace(previousRoot) != "" {
+		previousRoots = []string{previousRoot}
+	}
+	ring, err := secretkey.NewKeyRingWithPrevious(currentRoot, previousRoots)
+	if err != nil {
+		return mail.DiagnosticRekeyResult{}, mail.ErrDiagnosticRekeyCorruptCipher
+	}
+	diagnosticBox, err := secretbox.NewVersioned(ring.MailDiagnosticKeyID(), ring.MailDiagnosticDecryptionKeys())
+	if err != nil {
+		return mail.DiagnosticRekeyResult{}, mail.ErrDiagnosticRekeyCorruptCipher
+	}
+	previousKeyID := ""
+	if len(previousRoots) == 1 {
+		previousRing, previousErr := secretkey.NewKeyRing(previousRoots[0])
+		if previousErr != nil {
+			return mail.DiagnosticRekeyResult{}, mail.ErrDiagnosticRekeyUnknownKey
+		}
+		previousKeyID = previousRing.MailDiagnosticKeyID()
+	}
+
+	client, err := database.Open(config.MySQLConfig{
+		DSN: dsn, MaxOpenConns: 1, MaxIdleConns: 1, ConnMaxLifetime: time.Minute,
+	})
+	if err != nil {
+		return mail.DiagnosticRekeyResult{}, mail.ErrDiagnosticRekeyRepositoryFailure
+	}
+	service := mail.NewDiagnosticRekeyService(
+		mail.NewGormDiagnosticRekeyRepository(client), diagnosticBox, previousKeyID, observer,
+	)
+	result, runErr := service.Run(ctx)
+	closeErr := client.Close()
+	if runErr != nil {
+		return result, runErr
+	}
+	if closeErr != nil {
+		return result, mail.ErrDiagnosticRekeyRepositoryFailure
+	}
+	return result, nil
 }
 
 var advisoryLockNamePattern = regexp.MustCompile(`^[A-Za-z0-9:_.-]{1,128}$`)
