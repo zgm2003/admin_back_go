@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -249,6 +250,12 @@ func TestSendVerifyCodeDoesNotCreateVerificationSnapshotWithoutDiagnosticBox(t *
 	}
 }
 
+func TestServiceDependenciesDoesNotExposeDiagnosticEncrypt(t *testing.T) {
+	if field, ok := reflect.TypeOf(ServiceDependencies{}).FieldByName("DiagnosticEncrypt"); ok {
+		t.Fatalf("ServiceDependencies must not expose diagnostic encryption override %q", field.Name)
+	}
+}
+
 func TestSendVerifyCodeMapsDiagnosticEncryptionFailureToInvalidSnapshot(t *testing.T) {
 	credentialBox := testSecretBox()
 	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
@@ -257,10 +264,10 @@ func TestSendVerifyCodeMapsDiagnosticEncryptionFailureToInvalidSnapshot(t *testi
 	service := NewServiceWithDependencies(ServiceDependencies{
 		Repository: repo, CredentialBox: credentialBox, DiagnosticBox: testDiagnosticBox(), Sender: sender,
 		Clock: clock.Func(func() time.Time { return now }),
-		DiagnosticEncrypt: func(string) (string, string, error) {
-			return "", "", errors.New("encrypt contains SECRET-key and 654321")
-		},
 	})
+	service.diagnosticEncrypt = func(string) (string, string, error) {
+		return "", "", errors.New("encrypt contains SECRET-key and 654321")
+	}
 
 	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
 

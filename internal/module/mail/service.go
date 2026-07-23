@@ -63,12 +63,11 @@ func NewService(repository Repository, secretBox secretbox.Box, sender Sender) *
 }
 
 type ServiceDependencies struct {
-	Repository        Repository
-	CredentialBox     secretbox.Box
-	DiagnosticBox     secretbox.VersionedBox
-	DiagnosticEncrypt func(string) (keyID, ciphertext string, err error)
-	Sender            Sender
-	Clock             clock.Clock
+	Repository    Repository
+	CredentialBox secretbox.Box
+	DiagnosticBox secretbox.VersionedBox
+	Sender        Sender
+	Clock         clock.Clock
 }
 
 func NewServiceWithDependencies(deps ServiceDependencies) *Service {
@@ -76,13 +75,9 @@ func NewServiceWithDependencies(deps ServiceDependencies) *Service {
 	if serviceClock == nil {
 		serviceClock = clock.SystemClock{}
 	}
-	diagnosticEncrypt := deps.DiagnosticEncrypt
-	if diagnosticEncrypt == nil {
-		diagnosticEncrypt = deps.DiagnosticBox.Encrypt
-	}
 	return &Service{
 		repository: deps.Repository, secretBox: deps.CredentialBox,
-		diagnosticBox: deps.DiagnosticBox, diagnosticEncrypt: diagnosticEncrypt,
+		diagnosticBox: deps.DiagnosticBox, diagnosticEncrypt: deps.DiagnosticBox.Encrypt,
 		sender: deps.Sender, clock: serviceClock,
 	}
 }
