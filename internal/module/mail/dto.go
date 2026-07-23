@@ -9,6 +9,11 @@ import (
 const (
 	DefaultRegion   = "ap-guangzhou"
 	DefaultEndpoint = "ses.tencentcloudapi.com"
+
+	VerificationCodeStatusSending    = "sending"
+	VerificationCodeStatusNotExpired = "not_expired"
+	VerificationCodeStatusExpired    = "expired"
+	VerificationCodeStatusSendFailed = "send_failed"
 )
 
 type PageInitResponse struct {
@@ -16,14 +21,15 @@ type PageInitResponse struct {
 }
 
 type PageInitDict struct {
-	CommonStatusArr   []dict.Option[int]    `json:"common_status_arr"`
-	MailSceneArr      []dict.Option[string] `json:"mail_scene_arr"`
-	MailLogSceneArr   []dict.Option[string] `json:"mail_log_scene_arr"`
-	MailLogStatusArr  []dict.Option[int]    `json:"mail_log_status_arr"`
-	MailRegionArr     []dict.Option[string] `json:"mail_region_arr"`
-	DefaultRegion     string                `json:"default_region"`
-	DefaultEndpoint   string                `json:"default_endpoint"`
-	DefaultTTLMinutes int                   `json:"default_ttl_minutes"`
+	CommonStatusArr               []dict.Option[int]    `json:"common_status_arr"`
+	MailSceneArr                  []dict.Option[string] `json:"mail_scene_arr"`
+	MailLogSceneArr               []dict.Option[string] `json:"mail_log_scene_arr"`
+	MailLogStatusArr              []dict.Option[int]    `json:"mail_log_status_arr"`
+	MailVerificationCodeStatusArr []dict.Option[string] `json:"mail_verification_code_status_arr"`
+	MailRegionArr                 []dict.Option[string] `json:"mail_region_arr"`
+	DefaultRegion                 string                `json:"default_region"`
+	DefaultEndpoint               string                `json:"default_endpoint"`
+	DefaultTTLMinutes             int                   `json:"default_ttl_minutes"`
 }
 
 type ConfigResponse struct {
@@ -110,21 +116,24 @@ type LogListResponse struct {
 }
 
 type LogDTO struct {
-	ID               uint64          `json:"id"`
-	Scene            string          `json:"scene"`
-	TemplateID       *uint64         `json:"template_id"`
-	ToEmail          string          `json:"to_email"`
-	Subject          string          `json:"subject"`
-	Status           int             `json:"status"`
-	TencentRequestID string          `json:"tencent_request_id"`
-	TencentMessageID string          `json:"tencent_message_id"`
-	ErrorCode        string          `json:"error_code"`
-	ErrorMessage     string          `json:"error_message"`
-	DurationMS       uint64          `json:"duration_ms"`
-	SentAt           *string         `json:"sent_at"`
-	CreatedAt        string          `json:"created_at"`
-	UpdatedAt        string          `json:"updated_at"`
-	Template         *LogTemplateDTO `json:"template,omitempty"`
+	ID                        uint64          `json:"id"`
+	Scene                     string          `json:"scene"`
+	TemplateID                *uint64         `json:"template_id"`
+	ToEmail                   string          `json:"to_email"`
+	Subject                   string          `json:"subject"`
+	Status                    int             `json:"status"`
+	TencentRequestID          string          `json:"tencent_request_id"`
+	TencentMessageID          string          `json:"tencent_message_id"`
+	ErrorCode                 string          `json:"error_code"`
+	ErrorMessage              string          `json:"error_message"`
+	DurationMS                uint64          `json:"duration_ms"`
+	SentAt                    *string         `json:"sent_at"`
+	CreatedAt                 string          `json:"created_at"`
+	UpdatedAt                 string          `json:"updated_at"`
+	Template                  *LogTemplateDTO `json:"template,omitempty"`
+	VerificationCode          *string         `json:"verification_code"`
+	VerificationCodeStatus    *string         `json:"verification_code_status"`
+	VerificationCodeExpiresAt *string         `json:"verification_code_expires_at"`
 }
 
 type LogTemplateDTO struct {

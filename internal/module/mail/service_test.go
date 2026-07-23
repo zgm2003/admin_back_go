@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
 )
@@ -19,6 +21,7 @@ type fakeMailRepository struct {
 	templates           map[string]*Template
 	logs                map[uint64]Log
 	logRows             map[uint64]LogReadRow
+	listedLogRows       []LogReadRow
 	created             Log
 	createdVerification *VerificationCodeSnapshot
 	nextLogID           uint64
@@ -138,6 +141,9 @@ func (f *fakeMailRepository) FinishLog(ctx context.Context, id uint64, finish Lo
 }
 
 func (f *fakeMailRepository) ListLogRows(ctx context.Context, query LogQuery) ([]LogReadRow, int64, error) {
+	if f.listedLogRows != nil {
+		return append([]LogReadRow(nil), f.listedLogRows...), int64(len(f.listedLogRows)), f.err
+	}
 	if f.logRows != nil {
 		rows := make([]LogReadRow, 0, len(f.logRows))
 		for _, row := range f.logRows {
@@ -189,7 +195,8 @@ func (f *fakeMailSender) Send(ctx context.Context, input SendInput) (SendResult,
 
 func testDiagnosticBox() secretbox.VersionedBox {
 	box, err := secretbox.NewVersioned("diag-current", map[string][]byte{
-		"diag-current": []byte("12345678901234567890123456789012"),
+		"diag-current":  []byte("12345678901234567890123456789012"),
+		"diag-previous": []byte("abcdefghijklmnopqrstuvwxyzABCDEF"),
 	})
 	if err != nil {
 		panic(err)
@@ -927,6 +934,406 @@ func TestSenderErrorCodeRequiresDirectCodedError(t *testing.T) {
 				t.Fatalf("senderErrorCode() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestVerificationCodeStatusPrecedence(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	service := &Service{diagnosticBox: testDiagnosticBox()}
+	tests := []struct {
+		name      string
+		status    int
+		expiresAt time.Time
+		want      string
+	}{
+		{name: "failed wins after expiry", status: enum.MailLogStatusFailed, expiresAt: now.Add(-time.Minute), want: VerificationCodeStatusSendFailed},
+		{name: "future failed is send failed", status: enum.MailLogStatusFailed, expiresAt: now.Add(time.Minute), want: VerificationCodeStatusSendFailed},
+		{name: "exact deadline is expired", status: enum.MailLogStatusPending, expiresAt: now, want: VerificationCodeStatusExpired},
+		{name: "past pending is expired", status: enum.MailLogStatusPending, expiresAt: now.Add(-time.Second), want: VerificationCodeStatusExpired},
+		{name: "future pending is sending", status: enum.MailLogStatusPending, expiresAt: now.Add(time.Second), want: VerificationCodeStatusSending},
+		{name: "future success is not expired", status: enum.MailLogStatusSuccess, expiresAt: now.Add(time.Second), want: VerificationCodeStatusNotExpired},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := diagnosticLogReadRow(t, tt.status, tt.expiresAt, "diag-current", "123456")
+			got, err := service.logDTOFromReadRow(row, now)
+			if err != nil {
+				t.Fatalf("logDTOFromReadRow returned error: %v", err)
+			}
+			if got.VerificationCodeStatus == nil || *got.VerificationCodeStatus != tt.want {
+				t.Fatalf("status = %#v, want %q", got.VerificationCodeStatus, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogDTOFromReadRowSupportsHistoricalCurrentAndPreviousSnapshots(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+
+	t.Run("historical row is explicitly null without diagnostic box", func(t *testing.T) {
+		got, err := (&Service{}).logDTOFromReadRow(LogReadRow{Log: Log{ID: 41, Status: enum.MailLogStatusSuccess}}, now)
+		if err != nil {
+			t.Fatalf("historical row returned error: %v", err)
+		}
+		if got.VerificationCode != nil || got.VerificationCodeStatus != nil || got.VerificationCodeExpiresAt != nil {
+			t.Fatalf("historical verification fields must all be nil: %#v", got)
+		}
+		body, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("marshal historical log DTO: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal historical log DTO: %v", err)
+		}
+		for _, key := range []string{"verification_code", "verification_code_status", "verification_code_expires_at"} {
+			value, exists := payload[key]
+			if !exists || value != nil {
+				t.Fatalf("%s must be present as JSON null, payload=%s", key, body)
+			}
+		}
+	})
+
+	service := &Service{diagnosticBox: testDiagnosticBox()}
+	for _, keyID := range []string{"diag-current", "diag-previous"} {
+		t.Run(keyID, func(t *testing.T) {
+			expiresAt := now.Add(5 * time.Minute)
+			row := diagnosticLogReadRow(t, enum.MailLogStatusSuccess, expiresAt, keyID, "654321")
+			got, err := service.logDTOFromReadRow(row, now)
+			if err != nil {
+				t.Fatalf("logDTOFromReadRow returned error: %v", err)
+			}
+			if got.VerificationCode == nil || *got.VerificationCode != "654321" ||
+				got.VerificationCodeStatus == nil || *got.VerificationCodeStatus != VerificationCodeStatusNotExpired ||
+				got.VerificationCodeExpiresAt == nil || *got.VerificationCodeExpiresAt != expiresAt.Format(timeLayout) {
+				t.Fatalf("unexpected verification projection: %#v", got)
+			}
+		})
+	}
+}
+
+func TestLogDTOFromReadRowRejectsPartialVerificationJoins(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	valid := diagnosticLogReadRow(t, enum.MailLogStatusSuccess, now.Add(time.Minute), "diag-current", "123456")
+	service := &Service{diagnosticBox: testDiagnosticBox()}
+
+	for mask := 1; mask < 15; mask++ {
+		row := valid
+		if mask&1 == 0 {
+			row.VerificationSnapshotID = nil
+		}
+		if mask&2 == 0 {
+			row.VerificationKeyID = nil
+		}
+		if mask&4 == 0 {
+			row.VerificationCodeEnc = nil
+		}
+		if mask&8 == 0 {
+			row.VerificationExpiresAt = nil
+		}
+		t.Run(string(rune('a'+mask)), func(t *testing.T) {
+			got, err := service.logDTOFromReadRow(row, now)
+			assertInvalidDiagnosticProjection(t, got, err)
+		})
+	}
+}
+
+func TestLogDTOFromReadRowRejectsInvalidSnapshotsWithoutLeakingSecrets(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	valid := diagnosticLogReadRow(t, enum.MailLogStatusSuccess, now.Add(time.Minute), "diag-current", "123456")
+	zeroID := valid
+	zeroID.VerificationSnapshotID = valuePtr(uint64(0))
+	unknownStatus := valid
+	unknownStatus.Status = 99
+	zeroExpiry := valid
+	zeroExpiry.VerificationExpiresAt = valuePtr(time.Time{})
+	subsecondExpiry := valid
+	subsecondExpiry.VerificationExpiresAt = valuePtr(now.Add(time.Minute + time.Nanosecond))
+	unknownKey := valid
+	unknownKey.VerificationKeyID = valuePtr("sensitive-unknown-key")
+	corruptCipher := valid
+	corruptCipher.VerificationCodeEnc = valuePtr("sensitive-corrupt-ciphertext")
+	emptyKey := valid
+	emptyKey.VerificationKeyID = valuePtr("")
+	spaceKey := valid
+	spaceKey.VerificationKeyID = valuePtr("   ")
+	paddedKey := valid
+	paddedKey.VerificationKeyID = valuePtr(" diag-current ")
+	emptyCipher := valid
+	emptyCipher.VerificationCodeEnc = valuePtr("")
+	spaceCipher := valid
+	spaceCipher.VerificationCodeEnc = valuePtr("   ")
+	paddedCipher := valid
+	paddedCipher.VerificationCodeEnc = valuePtr(" " + *valid.VerificationCodeEnc + " ")
+
+	tests := []struct {
+		name    string
+		service *Service
+		row     LogReadRow
+		secrets []string
+	}{
+		{name: "zero child id", service: &Service{diagnosticBox: testDiagnosticBox()}, row: zeroID},
+		{name: "unknown parent status", service: &Service{diagnosticBox: testDiagnosticBox()}, row: unknownStatus},
+		{name: "zero expiry", service: &Service{diagnosticBox: testDiagnosticBox()}, row: zeroExpiry},
+		{name: "subsecond expiry", service: &Service{diagnosticBox: testDiagnosticBox()}, row: subsecondExpiry},
+		{name: "diagnostic box missing", service: &Service{}, row: valid},
+		{name: "unknown key", service: &Service{diagnosticBox: testDiagnosticBox()}, row: unknownKey, secrets: []string{"sensitive-unknown-key"}},
+		{name: "corrupt ciphertext", service: &Service{diagnosticBox: testDiagnosticBox()}, row: corruptCipher, secrets: []string{"sensitive-corrupt-ciphertext"}},
+		{name: "empty key", service: &Service{diagnosticBox: testDiagnosticBox()}, row: emptyKey},
+		{name: "whitespace key", service: &Service{diagnosticBox: testDiagnosticBox()}, row: spaceKey},
+		{name: "padded key is not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: paddedKey, secrets: []string{"diag-current"}},
+		{name: "empty ciphertext", service: &Service{diagnosticBox: testDiagnosticBox()}, row: emptyCipher},
+		{name: "whitespace ciphertext", service: &Service{diagnosticBox: testDiagnosticBox()}, row: spaceCipher},
+		{name: "padded ciphertext is not normalized", service: &Service{diagnosticBox: testDiagnosticBox()}, row: paddedCipher, secrets: []string{*valid.VerificationCodeEnc}},
+	}
+
+	for _, code := range []string{"", "12345", "1234567", " 12345", "12345 ", "12345\n", "１２３４５６"} {
+		row := diagnosticLogReadRow(t, enum.MailLogStatusSuccess, now.Add(time.Minute), "diag-current", code)
+		tests = append(tests, struct {
+			name    string
+			service *Service
+			row     LogReadRow
+			secrets []string
+		}{name: "invalid plaintext " + code, service: &Service{diagnosticBox: testDiagnosticBox()}, row: row, secrets: []string{code}})
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.service.logDTOFromReadRow(tt.row, now)
+			assertInvalidDiagnosticProjection(t, got, err)
+			for _, secret := range tt.secrets {
+				if secret != "" && strings.Contains(err.Error(), secret) {
+					t.Fatalf("projector error leaked %q: %v", secret, err)
+				}
+			}
+		})
+	}
+}
+
+func TestLogDTOFromReadRowServiceReadsAreAtomicSafeAndUseOneNow(t *testing.T) {
+	baseNow := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	validOne := diagnosticLogReadRow(t, enum.MailLogStatusPending, baseNow.Add(time.Minute), "diag-current", "123456")
+	validOne.ID = 1
+	validTwo := diagnosticLogReadRow(t, enum.MailLogStatusPending, baseNow.Add(time.Minute), "diag-current", "654321")
+	validTwo.ID = 2
+
+	t.Run("logs use one page timestamp", func(t *testing.T) {
+		counter := &countingMailClock{values: []time.Time{baseNow, baseNow.Add(2 * time.Minute)}}
+		service := NewServiceWithDependencies(ServiceDependencies{
+			Repository:    &fakeMailRepository{listedLogRows: []LogReadRow{validOne, validTwo}},
+			DiagnosticBox: testDiagnosticBox(), Clock: counter,
+		})
+		result, appErr := service.Logs(context.Background(), LogQuery{})
+		if appErr != nil {
+			t.Fatalf("Logs returned error: %v", appErr)
+		}
+		if counter.calls != 1 {
+			t.Fatalf("Logs clock calls = %d, want 1", counter.calls)
+		}
+		if len(result.List) != 2 {
+			t.Fatalf("Logs list length = %d, want 2", len(result.List))
+		}
+		for _, item := range result.List {
+			if item.VerificationCodeStatus == nil || *item.VerificationCodeStatus != VerificationCodeStatusSending {
+				t.Fatalf("page rows must share the first timestamp: %#v", result.List)
+			}
+		}
+	})
+
+	t.Run("log uses one timestamp and preserves template projection", func(t *testing.T) {
+		templateID := uint64(71)
+		row := validOne
+		row.TemplateID = &templateID
+		counter := &countingMailClock{values: []time.Time{baseNow, baseNow.Add(2 * time.Minute)}}
+		repo := &fakeMailRepository{
+			logRows: map[uint64]LogReadRow{row.ID: row},
+			templates: map[string]*Template{"login": {
+				ID: templateID, Scene: enum.VerifyCodeSceneLogin, VariablesJSON: `["code","ttl_minutes"]`, Status: enum.CommonYes,
+			}},
+		}
+		service := NewServiceWithDependencies(ServiceDependencies{Repository: repo, DiagnosticBox: testDiagnosticBox(), Clock: counter})
+		result, appErr := service.Log(context.Background(), row.ID)
+		if appErr != nil {
+			t.Fatalf("Log returned error: %v", appErr)
+		}
+		if counter.calls != 1 {
+			t.Fatalf("Log clock calls = %d, want 1", counter.calls)
+		}
+		if result.VerificationCodeStatus == nil || *result.VerificationCodeStatus != VerificationCodeStatusSending || result.Template == nil || result.Template.ID != templateID {
+			t.Fatalf("unexpected log detail: %#v", result)
+		}
+	})
+
+	t.Run("invalid list row rejects whole response with safe error", func(t *testing.T) {
+		invalid := diagnosticLogReadRow(t, enum.MailLogStatusSuccess, baseNow.Add(time.Minute), "diag-current", "65432x")
+		invalid.ID = 2
+		counter := &countingMailClock{values: []time.Time{baseNow}}
+		service := NewServiceWithDependencies(ServiceDependencies{
+			Repository:    &fakeMailRepository{listedLogRows: []LogReadRow{validOne, invalid}},
+			DiagnosticBox: testDiagnosticBox(), Clock: counter,
+		})
+		result, appErr := service.Logs(context.Background(), LogQuery{})
+		if result != nil {
+			t.Fatalf("Logs returned partial response: %#v", result)
+		}
+		assertSafeDiagnosticReadError(t, appErr, "65432x", *invalid.VerificationCodeEnc, *invalid.VerificationKeyID)
+		if counter.calls != 1 {
+			t.Fatalf("failed Logs clock calls = %d, want 1", counter.calls)
+		}
+	})
+
+	t.Run("invalid detail rejects response with safe error", func(t *testing.T) {
+		invalid := validOne
+		invalid.VerificationKeyID = valuePtr("sensitive-missing-key")
+		counter := &countingMailClock{values: []time.Time{baseNow}}
+		service := NewServiceWithDependencies(ServiceDependencies{
+			Repository:    &fakeMailRepository{logRows: map[uint64]LogReadRow{invalid.ID: invalid}},
+			DiagnosticBox: testDiagnosticBox(), Clock: counter,
+		})
+		result, appErr := service.Log(context.Background(), invalid.ID)
+		if result != nil {
+			t.Fatalf("Log returned partial response: %#v", result)
+		}
+		assertSafeDiagnosticReadError(t, appErr, "sensitive-missing-key", *invalid.VerificationCodeEnc, "123456")
+		if counter.calls != 1 {
+			t.Fatalf("failed Log clock calls = %d, want 1", counter.calls)
+		}
+	})
+}
+
+func TestLogDTOFromReadRowServiceReadsUseNilSafeClock(t *testing.T) {
+	expiresAt := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	row := diagnosticLogReadRow(t, enum.MailLogStatusPending, expiresAt, "diag-current", "123456")
+
+	t.Run("logs", func(t *testing.T) {
+		service := &Service{
+			repository:    &fakeMailRepository{listedLogRows: []LogReadRow{row}},
+			diagnosticBox: testDiagnosticBox(),
+		}
+		result, appErr := service.Logs(context.Background(), LogQuery{})
+		if appErr != nil || len(result.List) != 1 {
+			t.Fatalf("Logs result=%#v err=%#v", result, appErr)
+		}
+	})
+
+	t.Run("log", func(t *testing.T) {
+		service := &Service{
+			repository:    &fakeMailRepository{logRows: map[uint64]LogReadRow{row.ID: row}},
+			diagnosticBox: testDiagnosticBox(),
+		}
+		result, appErr := service.Log(context.Background(), row.ID)
+		if appErr != nil || result == nil {
+			t.Fatalf("Log result=%#v err=%#v", result, appErr)
+		}
+	})
+}
+
+func TestLogDTOFromReadRowPageInitPublishesClosedStatusDictionary(t *testing.T) {
+	result, appErr := (&Service{}).PageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("PageInit returned error: %v", appErr)
+	}
+	want := []struct {
+		label string
+		value string
+	}{
+		{label: "发送中", value: VerificationCodeStatusSending},
+		{label: "未过期", value: VerificationCodeStatusNotExpired},
+		{label: "已过期", value: VerificationCodeStatusExpired},
+		{label: "发送失败", value: VerificationCodeStatusSendFailed},
+	}
+	if len(result.Dict.MailVerificationCodeStatusArr) != len(want) {
+		t.Fatalf("verification status options = %#v", result.Dict.MailVerificationCodeStatusArr)
+	}
+	for i, option := range result.Dict.MailVerificationCodeStatusArr {
+		if option.Label != want[i].label || option.Value != want[i].value {
+			t.Fatalf("option %d = %#v, want %#v", i, option, want[i])
+		}
+	}
+}
+
+type countingMailClock struct {
+	values []time.Time
+	calls  int
+}
+
+func (c *countingMailClock) Now() time.Time {
+	index := c.calls
+	c.calls++
+	if len(c.values) == 0 {
+		return time.Time{}
+	}
+	if index >= len(c.values) {
+		index = len(c.values) - 1
+	}
+	return c.values[index]
+}
+
+func diagnosticLogReadRow(t *testing.T, status int, expiresAt time.Time, keyID, code string) LogReadRow {
+	t.Helper()
+	keys := map[string][]byte{
+		"diag-current":  []byte("12345678901234567890123456789012"),
+		"diag-previous": []byte("abcdefghijklmnopqrstuvwxyzABCDEF"),
+	}
+	key, exists := keys[keyID]
+	if !exists {
+		t.Fatalf("test key %q is not configured", keyID)
+	}
+	ciphertext, err := secretbox.New(key).Encrypt(code)
+	if err != nil {
+		t.Fatalf("encrypt diagnostic code: %v", err)
+	}
+	return LogReadRow{
+		Log:                    Log{ID: 41, Status: status},
+		VerificationSnapshotID: valuePtr(uint64(91)),
+		VerificationKeyID:      valuePtr(keyID),
+		VerificationCodeEnc:    valuePtr(ciphertext),
+		VerificationExpiresAt:  valuePtr(expiresAt),
+	}
+}
+
+func valuePtr[T any](value T) *T {
+	return &value
+}
+
+func assertInvalidDiagnosticProjection(t *testing.T, got LogDTO, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrInvalidDiagnosticSnapshot) {
+		t.Fatalf("error = %v, want ErrInvalidDiagnosticSnapshot", err)
+	}
+	if got.ID != 41 {
+		t.Fatalf("projector must retain only the parent DTO on failure: %#v", got)
+	}
+	if got.VerificationCode != nil || got.VerificationCodeStatus != nil || got.VerificationCodeExpiresAt != nil {
+		t.Fatalf("projector returned partial verification data: %#v", got)
+	}
+}
+
+func assertSafeDiagnosticReadError(t *testing.T, appErr interface {
+	Error() string
+}, secrets ...string) {
+	t.Helper()
+	err, ok := appErr.(*apperror.Error)
+	if !ok || err == nil {
+		t.Fatalf("error = %#v, want internal app error", appErr)
+	}
+	if err.HTTPStatus != http.StatusInternalServerError || err.LegacyCode != apperror.CodeInternal || err.Message != "读取邮件日志验证码失败" || !errors.Is(err.Cause, ErrInvalidDiagnosticSnapshot) {
+		t.Fatalf("unexpected diagnostic read error: %#v", err)
+	}
+	metadata, marshalErr := json.Marshal(err.TemplateData)
+	if marshalErr != nil {
+		t.Fatalf("marshal error metadata: %v", marshalErr)
+	}
+	cause := ""
+	if err.Cause != nil {
+		cause = err.Cause.Error()
+	}
+	surface := strings.Join([]string{err.Error(), err.MessageID, err.Operation, string(metadata), cause}, "|")
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(surface, secret) {
+			t.Fatalf("app error leaked %q: %s", secret, surface)
+		}
 	}
 }
 

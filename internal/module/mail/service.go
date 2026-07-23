@@ -84,10 +84,16 @@ func NewServiceWithDependencies(deps ServiceDependencies) *Service {
 
 func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
 	return &PageInitResponse{Dict: PageInitDict{
-		CommonStatusArr:   dict.CommonStatusOptions(),
-		MailSceneArr:      dict.MailSceneOptions(),
-		MailLogSceneArr:   dict.MailLogSceneOptions(),
-		MailLogStatusArr:  dict.MailLogStatusOptions(),
+		CommonStatusArr:  dict.CommonStatusOptions(),
+		MailSceneArr:     dict.MailSceneOptions(),
+		MailLogSceneArr:  dict.MailLogSceneOptions(),
+		MailLogStatusArr: dict.MailLogStatusOptions(),
+		MailVerificationCodeStatusArr: []dict.Option[string]{
+			{Label: "发送中", Value: VerificationCodeStatusSending},
+			{Label: "未过期", Value: VerificationCodeStatusNotExpired},
+			{Label: "已过期", Value: VerificationCodeStatusExpired},
+			{Label: "发送失败", Value: VerificationCodeStatusSendFailed},
+		},
 		MailRegionArr:     dict.MailRegionOptions(),
 		DefaultRegion:     DefaultRegion,
 		DefaultEndpoint:   DefaultEndpoint,
@@ -300,9 +306,14 @@ func (s *Service) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询邮件日志失败", err)
 	}
+	now := s.now()
 	list := make([]LogDTO, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, logDTOFromRow(row.Log))
+		item, err := s.logDTOFromReadRow(row, now)
+		if err != nil {
+			return nil, diagnosticLogReadError()
+		}
+		list = append(list, item)
 	}
 	return &LogListResponse{List: list, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: total, TotalPage: totalPage(total, query.PageSize)}}, nil
 }
@@ -322,7 +333,11 @@ func (s *Service) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error)
 	if row == nil {
 		return nil, apperror.NotFound("邮件日志不存在")
 	}
-	result := logDTOFromRow(row.Log)
+	now := s.now()
+	result, projectionErr := s.logDTOFromReadRow(*row, now)
+	if projectionErr != nil {
+		return nil, diagnosticLogReadError()
+	}
 	if row.TemplateID != nil {
 		tmpl, err := repo.TemplateByID(ctx, *row.TemplateID)
 		if err != nil {
@@ -895,6 +910,59 @@ func logDTOFromRow(row Log) LogDTO {
 		ErrorCode: row.ErrorCode, ErrorMessage: row.ErrorMessage, DurationMS: row.DurationMS,
 		SentAt: formatOptionalTime(row.SentAt), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
+}
+
+func (s *Service) logDTOFromReadRow(row LogReadRow, now time.Time) (LogDTO, error) {
+	result := logDTOFromRow(row.Log)
+	presentCount := 0
+	for _, present := range []bool{
+		row.VerificationSnapshotID != nil,
+		row.VerificationKeyID != nil,
+		row.VerificationCodeEnc != nil,
+		row.VerificationExpiresAt != nil,
+	} {
+		if present {
+			presentCount++
+		}
+	}
+	if presentCount == 0 {
+		return result, nil
+	}
+	if presentCount != 4 {
+		return result, ErrInvalidDiagnosticSnapshot
+	}
+
+	keyID := *row.VerificationKeyID
+	ciphertext := *row.VerificationCodeEnc
+	expiresAt := *row.VerificationExpiresAt
+	if *row.VerificationSnapshotID == 0 || !enum.IsMailLogStatus(row.Status) ||
+		strings.TrimSpace(keyID) == "" || strings.TrimSpace(ciphertext) == "" ||
+		expiresAt.IsZero() || expiresAt.Nanosecond() != 0 || s == nil || s.diagnosticBox.CurrentKeyID() == "" {
+		return result, ErrInvalidDiagnosticSnapshot
+	}
+
+	code, err := s.diagnosticBox.Decrypt(keyID, ciphertext)
+	if err != nil || !verifyCodePattern.MatchString(code) {
+		return result, ErrInvalidDiagnosticSnapshot
+	}
+
+	status := VerificationCodeStatusNotExpired
+	if row.Status == enum.MailLogStatusFailed {
+		status = VerificationCodeStatusSendFailed
+	} else if !now.Before(expiresAt) {
+		status = VerificationCodeStatusExpired
+	} else if row.Status == enum.MailLogStatusPending {
+		status = VerificationCodeStatusSending
+	}
+	expiresAtText := formatTime(expiresAt)
+	result.VerificationCode = &code
+	result.VerificationCodeStatus = &status
+	result.VerificationCodeExpiresAt = &expiresAtText
+	return result, nil
+}
+
+func diagnosticLogReadError() *apperror.Error {
+	return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "读取邮件日志验证码失败", ErrInvalidDiagnosticSnapshot)
 }
 
 func configResponseFromRow(row Config, ttlMinutes int) *ConfigResponse {
