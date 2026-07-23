@@ -935,8 +935,11 @@ func (s *Service) logDTOFromReadRow(row LogReadRow, now time.Time) (LogDTO, erro
 	keyID := *row.VerificationKeyID
 	ciphertext := *row.VerificationCodeEnc
 	expiresAt := *row.VerificationExpiresAt
+	trimmedKeyID := strings.TrimSpace(keyID)
+	trimmedCiphertext := strings.TrimSpace(ciphertext)
 	if *row.VerificationSnapshotID == 0 || !enum.IsMailLogStatus(row.Status) ||
-		strings.TrimSpace(keyID) == "" || strings.TrimSpace(ciphertext) == "" ||
+		trimmedKeyID == "" || keyID != trimmedKeyID ||
+		trimmedCiphertext == "" || ciphertext != trimmedCiphertext ||
 		expiresAt.IsZero() || expiresAt.Nanosecond() != 0 || s == nil || s.diagnosticBox.CurrentKeyID() == "" {
 		return result, ErrInvalidDiagnosticSnapshot
 	}

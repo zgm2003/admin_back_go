@@ -1066,6 +1066,10 @@ func TestLogDTOFromReadRowRejectsInvalidSnapshotsWithoutLeakingSecrets(t *testin
 	spaceCipher.VerificationCodeEnc = valuePtr("   ")
 	paddedCipher := valid
 	paddedCipher.VerificationCodeEnc = valuePtr(" " + *valid.VerificationCodeEnc + " ")
+	lineWrappedCipher := valid
+	lineWrappedCipher.VerificationCodeEnc = valuePtr("\r\n" + *valid.VerificationCodeEnc + "\r\n")
+	lineWrappedKey := valid
+	lineWrappedKey.VerificationKeyID = valuePtr("\r\ndiag-current\r\n")
 
 	tests := []struct {
 		name    string
@@ -1086,6 +1090,8 @@ func TestLogDTOFromReadRowRejectsInvalidSnapshotsWithoutLeakingSecrets(t *testin
 		{name: "empty ciphertext", service: &Service{diagnosticBox: testDiagnosticBox()}, row: emptyCipher},
 		{name: "whitespace ciphertext", service: &Service{diagnosticBox: testDiagnosticBox()}, row: spaceCipher},
 		{name: "padded ciphertext is not normalized", service: &Service{diagnosticBox: testDiagnosticBox()}, row: paddedCipher, secrets: []string{*valid.VerificationCodeEnc}},
+		{name: "line wrapped ciphertext is not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: lineWrappedCipher, secrets: []string{*valid.VerificationCodeEnc}},
+		{name: "line wrapped key is not an alias", service: &Service{diagnosticBox: testDiagnosticBox()}, row: lineWrappedKey, secrets: []string{"diag-current"}},
 	}
 
 	for _, code := range []string{"", "12345", "1234567", " 12345", "12345 ", "12345\n", "１２３４５６"} {
