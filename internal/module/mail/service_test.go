@@ -249,6 +249,34 @@ func TestSendVerifyCodeDoesNotCreateVerificationSnapshotWithoutDiagnosticBox(t *
 	}
 }
 
+func TestSendVerifyCodeMapsDiagnosticEncryptionFailureToInvalidSnapshot(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	sender := &fakeMailSender{}
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: credentialBox, DiagnosticBox: testDiagnosticBox(), Sender: sender,
+		Clock: clock.Func(func() time.Time { return now }),
+		DiagnosticEncrypt: func(string) (string, string, error) {
+			return "", "", errors.New("encrypt contains SECRET-key and 654321")
+		},
+	})
+
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
+
+	if err == nil || err.Message != "邮件验证码诊断加密失败" || !errors.Is(err, ErrInvalidDiagnosticSnapshot) {
+		t.Fatalf("expected invalid diagnostic snapshot error, got %#v", err)
+	}
+	for _, sensitive := range []string{"encrypt contains", "SECRET-key", "654321"} {
+		if strings.Contains(err.Error(), sensitive) {
+			t.Fatalf("diagnostic encryption failure leaked %q: %v", sensitive, err)
+		}
+	}
+	if repo.created.ID != 0 || repo.createdVerification != nil || sender.calls != 0 {
+		t.Fatalf("encryption failure must precede writes and provider I/O: repo=%#v child=%#v calls=%d", repo.created, repo.createdVerification, sender.calls)
+	}
+}
+
 func TestSendVerifyCodeValidatesASCIICodeTTLAndDeadline(t *testing.T) {
 	credentialBox := testSecretBox()
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
@@ -297,10 +325,53 @@ func TestSendVerifyCodeTransactionFailureSkipsProvider(t *testing.T) {
 	}
 }
 
-func TestSendVerifyCodeSkipsProviderWhenDeadlineExpiresAfterCommit(t *testing.T) {
+type deadlineBindingContext struct {
+	context.Context
+	bound *bool
+}
+
+func (c deadlineBindingContext) Deadline() (time.Time, bool) {
+	*c.bound = true
+	return time.Time{}, false
+}
+
+func TestSendVerifyCodeSkipsProviderWhenFinalPreSendClockReadExpires(t *testing.T) {
 	credentialBox := testSecretBox()
 	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	now := time.Now().UTC().Truncate(time.Second)
+	expiresAt := now.Add(5 * time.Minute)
+	providerContextBound := false
+	sender := &fakeMailSender{}
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository: repo, CredentialBox: credentialBox, DiagnosticBox: testDiagnosticBox(), Sender: sender,
+		Clock: clock.Func(func() time.Time {
+			if providerContextBound {
+				return expiresAt
+			}
+			return now
+		}),
+	})
+	ctx := deadlineBindingContext{Context: context.Background(), bound: &providerContextBound}
+
+	err := service.SendVerifyCode(ctx, enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, expiresAt)
+
+	if err == nil || err.Message != "验证码发送已过期" || !errors.Is(err, ErrVerificationDeadlineElapsed) {
+		t.Fatalf("expected safe deadline error, got %#v", err)
+	}
+	if sender.calls != 0 || repo.finish.Status != enum.MailLogStatusFailed || repo.finish.ErrorCode != "verification_deadline_elapsed" {
+		t.Fatalf("deadline must finalize parent without provider: calls=%d finish=%#v", sender.calls, repo.finish)
+	}
+	if child := repo.createdVerification; child == nil || child.MailLogID != 1 || child.KeyID != "diag-current" || child.CodeEnc == "" || !child.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("deadline must finalize parent without provider and preserve child: calls=%d finish=%#v child=%#v", sender.calls, repo.finish, repo.createdVerification)
+	}
+}
+
+func TestSendVerifyCodeDeadlineFailureRemainsPrimaryWhenFinalizationFails(t *testing.T) {
+	credentialBox := testSecretBox()
+	repo := configuredVerifyRepository(credentialBox, enum.VerifyCodeSceneLogin)
+	repo.finishErr = errors.New("finish contains SECRET-key and 654321")
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(5 * time.Minute)
 	reads := 0
 	sender := &fakeMailSender{}
 	service := NewServiceWithDependencies(ServiceDependencies{
@@ -308,19 +379,27 @@ func TestSendVerifyCodeSkipsProviderWhenDeadlineExpiresAfterCommit(t *testing.T)
 		Clock: clock.Func(func() time.Time {
 			reads++
 			if reads > 1 {
-				return now.Add(5 * time.Minute)
+				return expiresAt
 			}
 			return now
 		}),
 	})
 
-	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, now.Add(5*time.Minute))
+	err := service.SendVerifyCode(context.Background(), enum.VerifyCodeSceneLogin, "user@example.com", "654321", 5*time.Minute, expiresAt)
 
-	if err == nil || err.Message != "验证码发送已过期" {
-		t.Fatalf("expected safe deadline error, got %#v", err)
+	if err == nil || err.Message != "验证码发送已过期" || !errors.Is(err, ErrVerificationDeadlineElapsed) {
+		t.Fatalf("deadline error must remain primary, got %#v", err)
 	}
-	if sender.calls != 0 || repo.finish.Status != enum.MailLogStatusFailed || repo.finish.ErrorCode != "verification_deadline_elapsed" || repo.createdVerification == nil {
-		t.Fatalf("deadline must finalize parent without provider and preserve child: calls=%d finish=%#v child=%#v", sender.calls, repo.finish, repo.createdVerification)
+	for _, sensitive := range []string{"finish contains", "SECRET-key", "654321"} {
+		if strings.Contains(err.Error(), sensitive) {
+			t.Fatalf("finalization failure leaked %q: %v", sensitive, err)
+		}
+	}
+	if sender.calls != 0 || repo.finishCalls != 1 || repo.finish.Status != enum.MailLogStatusFailed || repo.finish.ErrorCode != verificationDeadlineErrorCode {
+		t.Fatalf("deadline branch must skip provider and attempt fixed parent finalization: calls=%d finishCalls=%d finish=%#v", sender.calls, repo.finishCalls, repo.finish)
+	}
+	if child := repo.createdVerification; child == nil || child.MailLogID != 1 || child.KeyID != "diag-current" || child.CodeEnc == "" || !child.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("failed parent finalization must leave child unchanged: %#v", child)
 	}
 }
 
@@ -825,10 +904,22 @@ func testSecretBox() secretbox.Box {
 	return secretbox.New([]byte("12345678901234567890123456789012"))
 }
 
-func TestSenderErrorCodeUsesErrorsAs(t *testing.T) {
-	wrapped := errors.Join(errors.New("outer"), codedMailTestError{code: "CodeInChain", msg: "provider"})
-	if got := senderErrorCode(wrapped); got != "CodeInChain" {
-		t.Fatalf("expected coded error through errors.As, got %q", got)
+func TestSenderErrorCodeRequiresDirectCodedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "direct coded", err: codedMailTestError{code: "DirectCode", msg: "provider"}, want: "DirectCode"},
+		{name: "wrapped coded", err: errors.Join(errors.New("outer"), codedMailTestError{code: "CodeInChain", msg: "provider"}), want: verificationProviderErrorCode},
+		{name: "unknown", err: errors.New("unknown provider failure"), want: verificationProviderErrorCode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := senderErrorCode(tt.err); got != tt.want {
+				t.Fatalf("senderErrorCode() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

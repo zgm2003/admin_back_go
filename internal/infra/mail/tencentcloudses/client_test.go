@@ -46,23 +46,30 @@ func TestWrapSendErrorSanitizesAllNonDirectOrSensitiveProviderErrors(t *testing.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := wrapSendError(tt.err, input)
-			var safe SendError
-			if !errors.As(got, &safe) {
-				t.Fatalf("expected SendError, got %T", got)
-			}
-			if safe.Code != tt.code || safe.ErrorCode() != tt.code || safe.Error() != "邮件服务调用失败" {
-				t.Fatalf("unexpected safe provider error: %#v", safe)
-			}
-			text := got.Error()
-			for _, secret := range []string{"AKID-secret", "SECRET-key", "654321", "provider"} {
-				if strings.Contains(text, secret) {
-					t.Fatalf("raw provider text leaked: %q", text)
-				}
-			}
-			if errors.Unwrap(got) != nil {
-				t.Fatal("sanitized provider error must not unwrap a cause")
-			}
+			assertSanitizedSendError(t, got, tt.code, "AKID-secret", "SECRET-key", "654321", "provider")
 		})
+	}
+}
+
+func assertSanitizedSendError(t *testing.T, err error, wantCode string, sensitive ...string) {
+	t.Helper()
+	safe, ok := err.(SendError)
+	if !ok {
+		t.Fatalf("expected direct SendError, got %T", err)
+	}
+	if safe.Code != wantCode || safe.ErrorCode() != wantCode || err.Error() != "邮件服务调用失败" {
+		t.Fatalf("unexpected safe provider error: %#v", safe)
+	}
+	if errors.Unwrap(err) != nil {
+		t.Fatal("sanitized provider error must not unwrap a cause")
+	}
+	if _, ok := err.(interface{ Cause() error }); ok {
+		t.Fatal("sanitized provider error must not expose Cause")
+	}
+	for _, value := range sensitive {
+		if value != "" && strings.Contains(err.Error(), value) {
+			t.Fatalf("sensitive provider text leaked %q: %q", value, err.Error())
+		}
 	}
 }
 
@@ -84,28 +91,45 @@ func (f *fakeSDKClient) SendEmailWithContext(ctx context.Context, request *ses.S
 	return f.response, f.err
 }
 
-func TestClientSendSanitizesSerializationEmptyResponseAndConstructionErrors(t *testing.T) {
-	input := SendInput{SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: "ap-guangzhou", Endpoint: "ses.tencentcloudapi.com", FromEmail: "noreply@example.com", ToEmail: "user@example.com", Subject: "subject", TemplateID: 7, TemplateData: map[string]string{"code": "654321"}}
-	tests := []struct {
-		name   string
-		client *Client
-		code   string
-	}{
-		{name: "serialization", client: &Client{Timeout: time.Second, encodeTemplateData: func(map[string]string) (string, error) { return "", errors.New("marshal AKID-secret 654321") }}, code: "provider_error"},
-		{name: "client construction", client: &Client{Timeout: time.Second, newSDKClient: func(SendInput, time.Duration) (sdkClient, error) { return nil, errors.New("construct SECRET-key") }}, code: "provider_error"},
-		{name: "empty response", client: &Client{Timeout: time.Second, newSDKClient: func(SendInput, time.Duration) (sdkClient, error) { return &fakeSDKClient{}, nil }}, code: "provider_error"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.client.Send(context.Background(), input)
-			var safe SendError
-			if !errors.As(err, &safe) || safe.Code != tt.code || safe.Error() != "邮件服务调用失败" {
-				t.Fatalf("expected sanitized provider error, got %#v", err)
-			}
-			if strings.Contains(err.Error(), "AKID-secret") || strings.Contains(err.Error(), "SECRET-key") || strings.Contains(err.Error(), "654321") {
-				t.Fatalf("sensitive provider error leaked: %v", err)
-			}
-		})
+func TestClientSendSanitizesSerializationError(t *testing.T) {
+	input := sensitiveSendInput()
+	client := &Client{Timeout: time.Second, encodeTemplateData: func(map[string]string) (string, error) {
+		return "", errors.New("marshal AKID-secret SECRET-key 654321")
+	}}
+
+	_, err := client.Send(context.Background(), input)
+
+	assertSanitizedSendError(t, err, "provider_error", "marshal", input.SecretID, input.SecretKey, input.TemplateData["code"])
+}
+
+func TestClientSendSanitizesClientConstructionError(t *testing.T) {
+	input := sensitiveSendInput()
+	client := &Client{Timeout: time.Second, newSDKClient: func(SendInput, time.Duration) (sdkClient, error) {
+		return nil, errors.New("construct AKID-secret SECRET-key 654321")
+	}}
+
+	_, err := client.Send(context.Background(), input)
+
+	assertSanitizedSendError(t, err, "provider_error", "construct", input.SecretID, input.SecretKey, input.TemplateData["code"])
+}
+
+func TestClientSendSanitizesEmptyResponseErrorContainingSensitiveValue(t *testing.T) {
+	input := sensitiveSendInput()
+	input.TemplateData["code"] = "tencent ses returned empty response"
+	client := &Client{Timeout: time.Second, newSDKClient: func(SendInput, time.Duration) (sdkClient, error) {
+		return &fakeSDKClient{}, nil
+	}}
+
+	_, err := client.Send(context.Background(), input)
+
+	assertSanitizedSendError(t, err, "provider_error", input.SecretID, input.SecretKey, input.TemplateData["code"])
+}
+
+func sensitiveSendInput() SendInput {
+	return SendInput{
+		SecretID: "AKID-secret", SecretKey: "SECRET-key", Region: "ap-guangzhou", Endpoint: "ses.tencentcloudapi.com",
+		FromEmail: "noreply@example.com", ToEmail: "user@example.com", Subject: "subject", TemplateID: 7,
+		TemplateData: map[string]string{"code": "654321"},
 	}
 }
 
@@ -139,10 +163,7 @@ func TestClientSendSanitizesNilConstructedClient(t *testing.T) {
 
 	_, err := client.Send(context.Background(), SendInput{TemplateData: map[string]string{"code": "654321"}})
 
-	var safe SendError
-	if !errors.As(err, &safe) || safe.Code != "provider_error" || safe.Error() != "邮件服务调用失败" {
-		t.Fatalf("nil constructed client must return a safe error, got %#v", err)
-	}
+	assertSanitizedSendError(t, err, "provider_error", "654321")
 }
 
 func stringPtr(value string) *string { return &value }

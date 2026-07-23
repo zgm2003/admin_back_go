@@ -3,7 +3,6 @@ package mail
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -51,11 +50,12 @@ type codedError interface {
 }
 
 type Service struct {
-	repository    Repository
-	secretBox     secretbox.Box
-	diagnosticBox secretbox.VersionedBox
-	sender        Sender
-	clock         clock.Clock
+	repository        Repository
+	secretBox         secretbox.Box
+	diagnosticBox     secretbox.VersionedBox
+	diagnosticEncrypt func(string) (keyID, ciphertext string, err error)
+	sender            Sender
+	clock             clock.Clock
 }
 
 func NewService(repository Repository, secretBox secretbox.Box, sender Sender) *Service {
@@ -63,11 +63,12 @@ func NewService(repository Repository, secretBox secretbox.Box, sender Sender) *
 }
 
 type ServiceDependencies struct {
-	Repository    Repository
-	CredentialBox secretbox.Box
-	DiagnosticBox secretbox.VersionedBox
-	Sender        Sender
-	Clock         clock.Clock
+	Repository        Repository
+	CredentialBox     secretbox.Box
+	DiagnosticBox     secretbox.VersionedBox
+	DiagnosticEncrypt func(string) (keyID, ciphertext string, err error)
+	Sender            Sender
+	Clock             clock.Clock
 }
 
 func NewServiceWithDependencies(deps ServiceDependencies) *Service {
@@ -75,9 +76,14 @@ func NewServiceWithDependencies(deps ServiceDependencies) *Service {
 	if serviceClock == nil {
 		serviceClock = clock.SystemClock{}
 	}
+	diagnosticEncrypt := deps.DiagnosticEncrypt
+	if diagnosticEncrypt == nil {
+		diagnosticEncrypt = deps.DiagnosticBox.Encrypt
+	}
 	return &Service{
 		repository: deps.Repository, secretBox: deps.CredentialBox,
-		diagnosticBox: deps.DiagnosticBox, sender: deps.Sender, clock: serviceClock,
+		diagnosticBox: deps.DiagnosticBox, diagnosticEncrypt: diagnosticEncrypt,
+		sender: deps.Sender, clock: serviceClock,
 	}
 }
 
@@ -481,7 +487,7 @@ func (s *Service) sendVerification(ctx context.Context, scene, toEmail, code str
 	if s.diagnosticBox.CurrentKeyID() == "" {
 		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件验证码诊断加密未配置", ErrDiagnosticCipherNotConfigured)
 	}
-	keyID, ciphertext, err := s.diagnosticBox.Encrypt(code)
+	keyID, ciphertext, err := s.diagnosticEncrypt(code)
 	if err != nil || keyID == "" || ciphertext == "" {
 		return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "邮件验证码诊断加密失败", ErrInvalidDiagnosticSnapshot)
 	}
@@ -492,12 +498,6 @@ func (s *Service) sendVerification(ctx context.Context, scene, toEmail, code str
 	if err != nil {
 		return apperror.LegacyNew(apperror.CodeInternal, http.StatusInternalServerError, "写入邮件验证码诊断失败")
 	}
-	if s.now().Compare(expiresAt) >= 0 {
-		finalizeCtx, cancelFinalize := verificationFinalizeContext(ctx)
-		defer cancelFinalize()
-		_ = repo.FinishLog(finalizeCtx, logID, LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: verificationDeadlineErrorCode, ErrorMessage: "验证码发送已过期"})
-		return verificationDeadlineElapsedError()
-	}
 	providerCtx := ctx
 	if providerCtx == nil {
 		providerCtx = context.Background()
@@ -505,6 +505,12 @@ func (s *Service) sendVerification(ctx context.Context, scene, toEmail, code str
 	providerCtx, cancel := context.WithDeadline(providerCtx, expiresAt)
 	defer cancel()
 	started := s.now()
+	if !started.Before(expiresAt) {
+		finalizeCtx, cancelFinalize := verificationFinalizeContext(ctx)
+		defer cancelFinalize()
+		_ = repo.FinishLog(finalizeCtx, logID, LogFinish{Status: enum.MailLogStatusFailed, ErrorCode: verificationDeadlineErrorCode, ErrorMessage: "验证码发送已过期"})
+		return verificationDeadlineElapsedError()
+	}
 	result, sendErr := sender.Send(providerCtx, SendInput{
 		SecretID: secretID, SecretKey: secretKey, Region: cfg.Region, Endpoint: cfg.Endpoint,
 		FromEmail: cfg.FromEmail, FromName: cfg.FromName, ReplyTo: cfg.ReplyTo,
@@ -968,8 +974,7 @@ func senderErrorCode(err error) string {
 }
 
 func senderErrorCodeWithSensitive(err error, secrets ...any) string {
-	var coded codedError
-	if err != nil && errors.As(err, &coded) {
+	if coded, ok := err.(codedError); ok {
 		code := strings.TrimSpace(coded.ErrorCode())
 		if !providerErrorCodePattern.MatchString(code) {
 			return verificationProviderErrorCode
