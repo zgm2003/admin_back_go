@@ -23,17 +23,29 @@ func TestProviderSetCarriesMailDiagnosticBox(t *testing.T) {
 	}
 }
 
-func TestBuildSeparatesMailPurposesAndSharesOneClockWithAuth(t *testing.T) {
-	body, err := os.ReadFile("build.go")
-	if err != nil {
-		t.Fatalf("read admin composition: %v", err)
-	}
-	compact := strings.Join(strings.Fields(string(body)), " ")
+func TestBuildWiresMailDiagnosticDependencies(t *testing.T) {
+	compact := compactAdminBuild(t)
 	for _, want := range []string{
-		"sharedClock := clock.SystemClock{}",
 		"mailService := mail.NewServiceWithDependencies(mail.ServiceDependencies{",
 		"CredentialBox: providers.Secretbox",
 		"DiagnosticBox: providers.MailDiagnosticBox",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("admin composition missing %q", want)
+		}
+	}
+	if strings.Contains(compact, "mail.NewService(") {
+		t.Fatal("Admin Build still uses the positional Mail constructor")
+	}
+	if strings.Contains(compact, "MAIL_DIAGNOSTIC_SECRET") {
+		t.Fatal("Admin Build introduced a separate diagnostic root")
+	}
+}
+
+func TestBuildUsesSingleVerificationClock(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"sharedClock := clock.SystemClock{}",
 		"Clock: sharedClock",
 		"auth.WithClock(sharedClock)",
 	} {
@@ -44,12 +56,15 @@ func TestBuildSeparatesMailPurposesAndSharesOneClockWithAuth(t *testing.T) {
 	if strings.Count(compact, "clock.SystemClock{}") != 1 {
 		t.Fatal("Admin Build must instantiate exactly one system clock")
 	}
-	if strings.Contains(compact, "mail.NewService(") {
-		t.Fatal("Admin Build still uses the positional Mail constructor")
+}
+
+func compactAdminBuild(t *testing.T) string {
+	t.Helper()
+	body, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatalf("read admin composition: %v", err)
 	}
-	if strings.Contains(compact, "MAIL_DIAGNOSTIC_SECRET") {
-		t.Fatal("Admin Build introduced a separate diagnostic root")
-	}
+	return strings.Join(strings.Fields(string(body)), " ")
 }
 
 func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {

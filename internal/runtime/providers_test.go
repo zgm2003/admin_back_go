@@ -18,7 +18,7 @@ import (
 	aichat "admin_back_go/internal/module/ai/chat"
 )
 
-func TestBuildProvidersBuildsCurrentOnlyMailDiagnosticBoxFromKeyRing(t *testing.T) {
+func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxCurrentOnly(t *testing.T) {
 	ring, err := secretkey.NewKeyRing(strings.Repeat("c", 64))
 	if err != nil {
 		t.Fatalf("current key ring: %v", err)
@@ -52,7 +52,7 @@ func TestBuildProvidersBuildsCurrentOnlyMailDiagnosticBoxFromKeyRing(t *testing.
 	}
 }
 
-func TestBuildProvidersBuildsCurrentPreviousMailDiagnosticBoxFromKeyRing(t *testing.T) {
+func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxCurrentPrevious(t *testing.T) {
 	oldRing, err := secretkey.NewKeyRing(strings.Repeat("o", 64))
 	if err != nil {
 		t.Fatalf("old key ring: %v", err)
@@ -79,7 +79,7 @@ func TestBuildProvidersBuildsCurrentPreviousMailDiagnosticBoxFromKeyRing(t *test
 	}
 }
 
-func TestBuildProvidersSeparatesCredentialAndMailDiagnosticPurposes(t *testing.T) {
+func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxWithPurposeSeparation(t *testing.T) {
 	ring, err := secretkey.NewKeyRing(strings.Repeat("p", 64))
 	if err != nil {
 		t.Fatalf("key ring: %v", err)

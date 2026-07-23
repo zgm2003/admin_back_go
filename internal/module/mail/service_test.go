@@ -213,15 +213,39 @@ func (f *fakeMailSender) Send(ctx context.Context, input SendInput) (SendResult,
 	return f.result, nil
 }
 
+const (
+	testDiagnosticCurrentKeyMaterial  = "diagnostic-fixture-key-000000000"
+	testDiagnosticPreviousKeyMaterial = "previous-diagnostic-key-00000000"
+)
+
 func testDiagnosticBox() secretbox.VersionedBox {
 	box, err := secretbox.NewVersioned("diag-current", map[string][]byte{
-		"diag-current":  []byte("12345678901234567890123456789012"),
-		"diag-previous": []byte("abcdefghijklmnopqrstuvwxyzABCDEF"),
+		"diag-current":  []byte(testDiagnosticCurrentKeyMaterial),
+		"diag-previous": []byte(testDiagnosticPreviousKeyMaterial),
 	})
 	if err != nil {
 		panic(err)
 	}
 	return box
+}
+
+func TestDiagnosticTestFixtureSeparatesCredentialPurpose(t *testing.T) {
+	credentialBox := testSecretBox()
+	diagnosticBox := testDiagnosticBox()
+	credentialCiphertext, err := credentialBox.Encrypt("credential-fixture-value")
+	if err != nil {
+		t.Fatalf("encrypt credential fixture: %v", err)
+	}
+	if _, err := diagnosticBox.Decrypt(diagnosticBox.CurrentKeyID(), credentialCiphertext); err == nil {
+		t.Fatal("diagnostic fixture decrypted credential-purpose ciphertext")
+	}
+	_, diagnosticCiphertext, err := diagnosticBox.Encrypt("123456")
+	if err != nil {
+		t.Fatalf("encrypt diagnostic fixture: %v", err)
+	}
+	if _, err := credentialBox.Decrypt(diagnosticCiphertext); err == nil {
+		t.Fatal("credential fixture decrypted diagnostic-purpose ciphertext")
+	}
 }
 
 func diagnosticService(repo Repository, credentialBox secretbox.Box, diagnosticBox secretbox.VersionedBox, sender Sender, now time.Time) *Service {
@@ -1340,8 +1364,8 @@ func (c *countingMailClock) Now() time.Time {
 func diagnosticLogReadRow(t *testing.T, status int, expiresAt time.Time, keyID, code string) LogReadRow {
 	t.Helper()
 	keys := map[string][]byte{
-		"diag-current":  []byte("12345678901234567890123456789012"),
-		"diag-previous": []byte("abcdefghijklmnopqrstuvwxyzABCDEF"),
+		"diag-current":  []byte(testDiagnosticCurrentKeyMaterial),
+		"diag-previous": []byte(testDiagnosticPreviousKeyMaterial),
 	}
 	key, exists := keys[keyID]
 	if !exists {
