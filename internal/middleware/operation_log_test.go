@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/telemetry"
 
@@ -262,6 +263,108 @@ func TestOperationLogRequired(t *testing.T) {
 		}
 	})
 
+	t.Run("retained context stays staged while recorder blocks", func(t *testing.T) {
+		var retained *gin.Context
+		recorderEntered := make(chan OperationInput, 1)
+		releaseRecorder := make(chan struct{})
+		router := newOperationLogTestRouter(OperationLogConfig{
+			Rules: map[RouteKey]OperationRule{requiredOperationRouteKey(): requiredOperationRule()},
+			Recorder: func(_ context.Context, input OperationInput) error {
+				recorderEntered <- input
+				<-releaseRecorder
+				return nil
+			},
+		}, &AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"})
+		router.GET(requiredOperationPath, func(c *gin.Context) {
+			retained = c
+			c.Header("X-Initial-Stage", "yes")
+			_, _ = c.Writer.WriteString("initial")
+		})
+
+		client := httptest.NewRecorder()
+		served := make(chan struct{})
+		go func() {
+			router.ServeHTTP(client, httptest.NewRequest(http.MethodGet, requiredOperationPath, nil))
+			close(served)
+		}()
+
+		var input OperationInput
+		select {
+		case input = <-recorderEntered:
+		case <-time.After(time.Second):
+			t.Fatal("required recorder was not reached")
+		}
+		_, stayedStaged := retained.Writer.(*requiredAuditWriter)
+		retained.Writer.Header().Set("X-Late-Stage", "yes")
+		written, writeErr := retained.Writer.WriteString("-late")
+		escapedBody := client.Body.String()
+		escapedInitialHeader := client.Header().Get("X-Initial-Stage")
+		escapedLateHeader := client.Header().Get("X-Late-Stage")
+		close(releaseRecorder)
+		select {
+		case <-served:
+		case <-time.After(time.Second):
+			t.Fatal("required response was not released")
+		}
+
+		if !stayedStaged || escapedBody != "" || escapedInitialHeader != "" || escapedLateHeader != "" {
+			t.Fatalf("retained context bypassed audit gate: staged=%v body=%q initial_header=%q late_header=%q", stayedStaged, escapedBody, escapedInitialHeader, escapedLateHeader)
+		}
+		if writeErr == nil || written != 0 {
+			t.Fatalf("late sealed write=(%d, %v)", written, writeErr)
+		}
+		if input.RequestPayload != nil || input.ResponsePayload != nil {
+			t.Fatalf("required audit captured payload: %#v", input)
+		}
+		if client.Code != http.StatusOK || client.Body.String() != "initial" || client.Header().Get("X-Initial-Stage") != "yes" || client.Header().Get("X-Late-Stage") != "" {
+			t.Fatalf("bounded staged response was not released after audit: code=%d headers=%v body=%q", client.Code, client.Header(), client.Body.String())
+		}
+		if _, stillStaged := retained.Writer.(*requiredAuditWriter); stillStaged {
+			t.Fatalf("writer was not restored after response release")
+		}
+	})
+
+	t.Run("late recorder write cannot cross staging cap", func(t *testing.T) {
+		var retained *gin.Context
+		var client *httptest.ResponseRecorder
+		var got OperationInput
+		var lateWriteErr error
+		lateWritten := -1
+		recorderCalls := 0
+		router := newOperationLogTestRouter(OperationLogConfig{
+			Rules: map[RouteKey]OperationRule{requiredOperationRouteKey(): requiredOperationRule()},
+			Recorder: func(_ context.Context, input OperationInput) error {
+				recorderCalls++
+				got = input
+				if client.Body.Len() != 0 {
+					t.Fatalf("full staged response escaped before audit: size=%d", client.Body.Len())
+				}
+				lateWritten, lateWriteErr = retained.Writer.WriteString("x")
+				return nil
+			},
+		}, &AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"})
+		router.GET(requiredOperationPath, func(c *gin.Context) {
+			retained = c
+			_, _ = c.Writer.Write(bytes.Repeat([]byte("a"), 1<<20))
+		})
+
+		client = httptest.NewRecorder()
+		router.ServeHTTP(client, httptest.NewRequest(http.MethodGet, requiredOperationPath, nil))
+
+		if recorderCalls != 1 {
+			t.Fatalf("recorder calls=%d, want 1", recorderCalls)
+		}
+		if got.Status != http.StatusOK || !got.Success || got.RequestPayload != nil || got.ResponsePayload != nil {
+			t.Fatalf("late-cap audit input=%#v", got)
+		}
+		if lateWritten != 0 || lateWriteErr == nil {
+			t.Fatalf("late cap write=(%d, %v)", lateWritten, lateWriteErr)
+		}
+		if client.Code != http.StatusOK || client.Body.Len() != 1<<20 {
+			t.Fatalf("frozen response code=%d size=%d", client.Code, client.Body.Len())
+		}
+	})
+
 	t.Run("recorder failure discards staged output", func(t *testing.T) {
 		router := newOperationLogTestRouter(OperationLogConfig{
 			Rules: map[RouteKey]OperationRule{requiredOperationRouteKey(): requiredOperationRule()},
@@ -370,6 +473,84 @@ func TestOperationLogRequired(t *testing.T) {
 		}
 		if got.Status != http.StatusBadRequest || got.Success || got.ResponsePayload != nil {
 			t.Fatalf("handler error audit mismatch: %#v", got)
+		}
+	})
+
+	t.Run("handler panic is audited and fails closed", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			recorderErr error
+		}{
+			{name: "recorder success"},
+			{name: "recorder failure", recorderErr: errors.New("audit unavailable")},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				const (
+					stagedMarker  = "panic-staged-marker"
+					requestMarker = "panic-request-marker"
+					panicMarker   = "panic-value-marker"
+					outerMarker   = "outer-recovery-marker"
+				)
+				var got OperationInput
+				var retained *gin.Context
+				var client *httptest.ResponseRecorder
+				var logBuffer bytes.Buffer
+				recorderCalls := 0
+				rule := requiredOperationRule()
+				rule.SkipRequestPayload = false
+				rule.SkipResponsePayload = false
+				router := newOperationLogPanicTestRouter(OperationLogConfig{
+					Rules: map[RouteKey]OperationRule{
+						NewRouteKey(http.MethodPost, requiredOperationPath): rule,
+					},
+					Recorder: func(_ context.Context, input OperationInput) error {
+						recorderCalls++
+						got = input
+						if client.Body.Len() != 0 || client.Header().Get("X-Panic-Stage") != "" {
+							t.Fatalf("panic response escaped before audit: headers=%v body=%q", client.Header(), client.Body.String())
+						}
+						if _, staged := retained.Writer.(*requiredAuditWriter); !staged {
+							t.Fatalf("panic recorder did not retain staging writer")
+						}
+						return tt.recorderErr
+					},
+					Logger: slog.New(slog.NewJSONHandler(&logBuffer, nil)),
+				}, &AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"}, outerMarker)
+				router.POST(requiredOperationPath, func(c *gin.Context) {
+					retained = c
+					c.Header("X-Panic-Stage", "hidden")
+					_, _ = c.Writer.WriteString(stagedMarker)
+					panic(panicMarker)
+				})
+
+				client = httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodPost, requiredOperationPath, strings.NewReader(`{"field":"`+requestMarker+`"}`))
+				request.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(client, request)
+
+				if recorderCalls != 1 {
+					t.Fatalf("panic recorder calls=%d, want 1", recorderCalls)
+				}
+				if got.Status != http.StatusInternalServerError || got.Success || got.RequestPayload != nil || got.ResponsePayload != nil {
+					t.Fatalf("panic audit input=%#v", got)
+				}
+				assertRequiredAuditFailureResponse(t, client, stagedMarker)
+				if client.Header().Get("X-Panic-Stage") != "" {
+					t.Fatalf("panic staged header escaped: %v", client.Header())
+				}
+				for _, forbidden := range []string{requestMarker, panicMarker, outerMarker} {
+					if strings.Contains(client.Body.String(), forbidden) || strings.Contains(logBuffer.String(), forbidden) {
+						t.Fatalf("panic path exposed forbidden marker")
+					}
+				}
+				if !strings.Contains(logBuffer.String(), "required operation handler panicked") {
+					t.Fatalf("missing sanitized panic warning: %s", logBuffer.String())
+				}
+				if _, stillStaged := retained.Writer.(*requiredAuditWriter); stillStaged {
+					t.Fatalf("panic path did not restore destination writer")
+				}
+			})
 		}
 	})
 
@@ -541,13 +722,13 @@ func requiredOperationRule() OperationRule {
 func assertRequiredAuditFailureResponse(t *testing.T, recorder *httptest.ResponseRecorder, forbidden string) {
 	t.Helper()
 	if recorder.Code != http.StatusInternalServerError {
-		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+		t.Fatalf("status=%d body_size=%d", recorder.Code, recorder.Body.Len())
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store, private" || recorder.Header().Get("Pragma") != "no-cache" {
 		t.Fatalf("required audit failure is cacheable: %v", recorder.Header())
 	}
 	if forbidden != "" && strings.Contains(recorder.Body.String(), forbidden) {
-		t.Fatalf("required audit failure leaked staged output: %q", recorder.Body.String())
+		t.Fatalf("required audit failure leaked staged output")
 	}
 }
 
@@ -579,6 +760,28 @@ func newOperationLogTestRouter(cfg OperationLogConfig, identity *AuthIdentity) *
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(RequestID())
+	if identity != nil {
+		router.Use(func(c *gin.Context) {
+			c.Set(ContextAuthIdentity, identity)
+			c.Next()
+		})
+	}
+	router.Use(OperationLog(cfg))
+	return router
+}
+
+func newOperationLogPanicTestRouter(cfg OperationLogConfig, identity *AuthIdentity, outerMarker string) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequestID())
+	router.Use(func(c *gin.Context) {
+		defer func() {
+			if recover() != nil {
+				c.String(http.StatusInternalServerError, outerMarker)
+			}
+		}()
+		c.Next()
+	})
 	if identity != nil {
 		router.Use(func(c *gin.Context) {
 			c.Set(ContextAuthIdentity, identity)

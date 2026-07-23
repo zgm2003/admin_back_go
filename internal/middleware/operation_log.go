@@ -28,7 +28,10 @@ const (
 	requiredAuditResponseOverflowed = "response_overflow"
 )
 
-var errRequiredAuditHijackUnsupported = errors.New("required audit response staging does not support hijacking")
+var (
+	errRequiredAuditHijackUnsupported = errors.New("required audit response staging does not support hijacking")
+	errRequiredAuditResponseSealed    = errors.New("required audit response staging is sealed")
+)
 
 type OperationRule struct {
 	Module string
@@ -167,13 +170,46 @@ func runRequiredOperationLog(
 
 	destination := c.Writer
 	staged := newRequiredAuditWriter(destination)
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		c.Writer = destination
+		restored = true
+	}
 	c.Writer = staged
+	defer restore()
+	downstreamPanicked := false
 	func() {
 		defer func() {
-			c.Writer = destination
+			if recover() != nil {
+				downstreamPanicked = true
+			}
 		}()
 		c.Next()
 	}()
+	staged.seal()
+	if downstreamPanicked {
+		input := requiredOperationInput(c, path, rule, http.StatusInternalServerError, false, startedAt, nil, nil)
+		logger.WarnContext(c.Request.Context(), "required operation handler panicked",
+			"request_id", input.RequestID,
+			"user_id", input.UserID,
+			"session_id", input.SessionID,
+			"method", input.Method,
+			"route", input.Path,
+			"module", input.Module,
+			"action", input.Action,
+		)
+		recordErr := recorder(c.Request.Context(), input)
+		restore()
+		if recordErr != nil {
+			writeRequiredAuditFailure(c, input, requiredAuditRecorderFailed, logger, metrics)
+			return
+		}
+		writeRequiredInternalFailure(c)
+		return
+	}
 
 	var responsePayload any
 	if !rule.SkipResponsePayload && !staged.Overflowed() {
@@ -194,10 +230,13 @@ func runRequiredOperationLog(
 		input.Success = false
 		input.ResponsePayload = nil
 		_ = recorder(c.Request.Context(), input)
+		restore()
 		writeRequiredAuditFailure(c, input, requiredAuditResponseOverflowed, logger, metrics)
 		return
 	}
-	if err := recorder(c.Request.Context(), input); err != nil {
+	recordErr := recorder(c.Request.Context(), input)
+	restore()
+	if recordErr != nil {
 		writeRequiredAuditFailure(c, input, requiredAuditRecorderFailed, logger, metrics)
 		return
 	}
@@ -273,7 +312,10 @@ func writeRequiredAuditFailure(
 		"error.code":  reason,
 		"outcome":     "error",
 	})
+	writeRequiredInternalFailure(c)
+}
 
+func writeRequiredInternalFailure(c *gin.Context) {
 	header := c.Writer.Header()
 	for _, name := range []string{"Content-Encoding", "Content-Length", "Content-Type", "Etag", "Last-Modified", "Location"} {
 		header.Del(name)
@@ -284,15 +326,18 @@ func writeRequiredAuditFailure(
 }
 
 type requiredAuditWriter struct {
-	destination gin.ResponseWriter
-	header      http.Header
-	body        bytes.Buffer
-	closeNotify <-chan bool
-	status      int
-	size        int
-	written     bool
-	flushed     bool
-	overflowed  bool
+	destination   gin.ResponseWriter
+	header        http.Header
+	sealedHeader  http.Header
+	discardHeader http.Header
+	body          bytes.Buffer
+	closeNotify   <-chan bool
+	status        int
+	size          int
+	written       bool
+	flushed       bool
+	overflowed    bool
+	sealed        bool
 }
 
 func newRequiredAuditWriter(destination gin.ResponseWriter) *requiredAuditWriter {
@@ -314,18 +359,21 @@ func newRequiredAuditWriter(destination gin.ResponseWriter) *requiredAuditWriter
 }
 
 func (w *requiredAuditWriter) Header() http.Header {
+	if w.sealed {
+		return w.discardHeader
+	}
 	return w.header
 }
 
 func (w *requiredAuditWriter) WriteHeader(status int) {
-	if w.written || status <= 0 {
+	if w.sealed || w.written || status <= 0 {
 		return
 	}
 	w.status = status
 }
 
 func (w *requiredAuditWriter) WriteHeaderNow() {
-	if w.written {
+	if w.sealed || w.written {
 		return
 	}
 	w.written = true
@@ -333,6 +381,9 @@ func (w *requiredAuditWriter) WriteHeaderNow() {
 }
 
 func (w *requiredAuditWriter) Write(data []byte) (int, error) {
+	if w.sealed {
+		return 0, errRequiredAuditResponseSealed
+	}
 	w.WriteHeaderNow()
 	w.size += len(data)
 	if w.overflowed || len(data) == 0 {
@@ -367,6 +418,9 @@ func (w *requiredAuditWriter) Written() bool {
 }
 
 func (w *requiredAuditWriter) Flush() {
+	if w.sealed {
+		return
+	}
 	w.WriteHeaderNow()
 	w.flushed = true
 }
@@ -394,11 +448,24 @@ func (w *requiredAuditWriter) Overflowed() bool {
 	return w != nil && w.overflowed
 }
 
+func (w *requiredAuditWriter) seal() {
+	if w == nil || w.sealed {
+		return
+	}
+	w.sealedHeader = w.header.Clone()
+	w.discardHeader = make(http.Header)
+	w.sealed = true
+}
+
 func (w *requiredAuditWriter) release() error {
 	if w == nil || w.destination == nil {
 		return errors.New("required audit response destination is unavailable")
 	}
-	replaceOperationHeader(w.destination.Header(), w.header)
+	releaseHeader := w.header
+	if w.sealedHeader != nil {
+		releaseHeader = w.sealedHeader
+	}
+	replaceOperationHeader(w.destination.Header(), releaseHeader)
 	w.destination.WriteHeader(w.status)
 	if w.body.Len() > 0 {
 		n, err := w.destination.Write(w.body.Bytes())
