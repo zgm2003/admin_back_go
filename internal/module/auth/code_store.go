@@ -16,6 +16,7 @@ import (
 var (
 	errVerificationDeliveryInProgress = errors.New("verification delivery already in progress")
 	errVerificationDeliveryStateLost  = errors.New("verification delivery state lost")
+	errVerificationDeadlineElapsed    = errors.New("verification deadline elapsed")
 )
 
 const getVerificationCodeScript = `
@@ -61,13 +62,18 @@ const setPendingDeliveryScript = `
 if redis.call("GET", KEYS[2]) ~= ARGV[1] then
   return 0
 end
+local server_time = redis.call("TIME")
+local server_now_ms = tonumber(server_time[1]) * 1000 + math.floor(tonumber(server_time[2]) / 1000)
+if tonumber(ARGV[3]) <= server_now_ms then
+	return -1
+end
 redis.call("DEL", KEYS[1])
 redis.call("HSET", KEYS[1],
   "version", "1",
-  "state", "pending",
-  "owner", ARGV[1],
-  "code", ARGV[2])
-redis.call("PEXPIRE", KEYS[1], ARGV[3])
+	"state", "pending",
+	"owner", ARGV[1],
+	"code", ARGV[2])
+redis.call("PEXPIREAT", KEYS[1], ARGV[3])
 return 1
 `
 
@@ -121,7 +127,7 @@ type verifyCodeDeliveryLease struct {
 
 type verifyCodeDeliveryStore interface {
 	AcquireDelivery(context.Context, string, time.Duration) (verifyCodeDeliveryLease, error)
-	SetPendingDelivery(context.Context, verifyCodeDeliveryLease, string, string, time.Duration) error
+	SetPendingDelivery(context.Context, verifyCodeDeliveryLease, string, string, time.Time) error
 	RenewDelivery(context.Context, verifyCodeDeliveryLease, time.Duration) error
 	CommitDelivery(context.Context, verifyCodeDeliveryLease, string) error
 	RollbackDelivery(context.Context, verifyCodeDeliveryLease, string) error
@@ -196,11 +202,11 @@ func (s *RedisCodeStore) AcquireDelivery(ctx context.Context, key string, ttl ti
 	return lease, nil
 }
 
-func (s *RedisCodeStore) SetPendingDelivery(ctx context.Context, lease verifyCodeDeliveryLease, key, code string, ttl time.Duration) error {
+func (s *RedisCodeStore) SetPendingDelivery(ctx context.Context, lease verifyCodeDeliveryLease, key, code string, expiresAt time.Time) error {
 	if s == nil || s.client == nil || s.client.Redis == nil {
 		return ErrRepositoryNotConfigured
 	}
-	if lease.key == "" || lease.owner == "" || ttl < time.Millisecond {
+	if lease.key == "" || lease.owner == "" || expiresAt.IsZero() {
 		return errVerificationDeliveryStateLost
 	}
 	result, err := s.client.Redis.Eval(
@@ -209,12 +215,15 @@ func (s *RedisCodeStore) SetPendingDelivery(ctx context.Context, lease verifyCod
 		[]string{key, lease.key},
 		lease.owner,
 		code,
-		ttl.Milliseconds(),
+		expiresAt.UnixMilli(),
 	).Int64()
 	if err != nil {
 		return fmt.Errorf("set pending verification delivery: %w", err)
 	}
 	if result != 1 {
+		if result == -1 {
+			return errVerificationDeadlineElapsed
+		}
 		return errVerificationDeliveryStateLost
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/clock"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -185,6 +186,7 @@ type fakeCodeStore struct {
 	setKey               string
 	setCode              string
 	setTTL               time.Duration
+	pendingExpiresAt     time.Time
 	getKey               string
 	deleted              string
 	consumed             string
@@ -818,13 +820,13 @@ func TestServiceSendCodeGeneratesCachesAndSendsPhoneVerification(t *testing.T) {
 	if message != "验证码发送成功" {
 		t.Fatalf("unexpected send message %q", message)
 	}
-	if store.setCode != "654321" || store.setTTL != 9*time.Minute {
-		t.Fatalf("unexpected code store write: code=%q ttl=%s", store.setCode, store.setTTL)
+	if store.setCode != "654321" || store.pendingExpiresAt.IsZero() {
+		t.Fatalf("unexpected code store write: code=%q expires_at=%v", store.setCode, store.pendingExpiresAt)
 	}
 	if store.setKey != "auth:verify_code:phone:login:d521793014a021c7fec54bb8feee4885" {
 		t.Fatalf("unexpected verify code key %q", store.setKey)
 	}
-	if phoneSender.scene != VerifyCodeSceneLogin || phoneSender.phone != "15671628271" || phoneSender.code != store.setCode || phoneSender.ttl != store.setTTL {
+	if phoneSender.scene != VerifyCodeSceneLogin || phoneSender.phone != "15671628271" || phoneSender.code != store.setCode || phoneSender.ttl != 9*time.Minute {
 		t.Fatalf("sender=%#v store=%#v", phoneSender, store)
 	}
 	if generatorCalls != 1 {
@@ -1419,11 +1421,12 @@ func phpBcryptHash(t *testing.T, password string) string {
 }
 
 type fakeVerifyCodeMailSender struct {
-	scene string
-	email string
-	code  string
-	ttl   time.Duration
-	err   *apperror.Error
+	scene     string
+	email     string
+	code      string
+	ttl       time.Duration
+	expiresAt time.Time
+	err       *apperror.Error
 }
 
 type fakeVerifyCodePhoneSender struct {
@@ -1446,11 +1449,12 @@ func (f *fakeVerifyCodePhoneSender) SendVerifyCode(ctx context.Context, scene, p
 	return f.err
 }
 
-func (f *fakeVerifyCodeMailSender) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error {
+func (f *fakeVerifyCodeMailSender) SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration, expiresAt time.Time) *apperror.Error {
 	f.scene = scene
 	f.email = toEmail
 	f.code = code
 	f.ttl = ttl
+	f.expiresAt = expiresAt
 	return f.err
 }
 
@@ -1490,8 +1494,36 @@ func TestServiceSendCodeUsesPolicyTTLForEmailCacheAndMailSender(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("unexpected err %#v", appErr)
 	}
-	if store.setTTL != 9*time.Minute || mailSender.ttl != 9*time.Minute {
-		t.Fatalf("store=%s mail=%s", store.setTTL, mailSender.ttl)
+	if store.pendingExpiresAt.IsZero() || mailSender.ttl != 9*time.Minute {
+		t.Fatalf("store expiry=%v mail ttl=%s", store.pendingExpiresAt, mailSender.ttl)
+	}
+}
+
+func TestSendCodeUsesOneSecondPrecisionDeadline(t *testing.T) {
+	store := &fakeCodeStore{}
+	mailSender := &fakeVerifyCodeMailSender{}
+	now := time.Date(2026, 7, 23, 10, 11, 12, 987654321, time.UTC)
+	clockReads := 0
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypeEmail}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodeMailSender(mailSender),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 5 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
+		WithClock(clock.Func(func() time.Time { clockReads++; return now })),
+	)
+	if _, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("user@example.com", LoginTypeEmail)); appErr != nil {
+		t.Fatalf("unexpected err %#v", appErr)
+	}
+	want := now.Add(5 * time.Minute).Truncate(time.Second)
+	if clockReads != 1 {
+		t.Fatalf("clock reads=%d, want 1", clockReads)
+	}
+	if !store.pendingExpiresAt.Equal(want) || !mailSender.expiresAt.Equal(want) {
+		t.Fatalf("store expiry=%v mail expiry=%v want=%v", store.pendingExpiresAt, mailSender.expiresAt, want)
 	}
 }
 
@@ -1513,8 +1545,32 @@ func TestServiceSendCodeUsesPolicyTTLForPhoneCache(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("unexpected err %#v", appErr)
 	}
-	if store.setCode != "654321" || store.setTTL != 8*time.Minute || phoneSender.ttl != store.setTTL {
-		t.Fatalf("code=%q ttl=%s", store.setCode, store.setTTL)
+	if store.setCode != "654321" || store.pendingExpiresAt.IsZero() || phoneSender.ttl != 8*time.Minute {
+		t.Fatalf("code=%q expires_at=%v phone ttl=%s", store.setCode, store.pendingExpiresAt, phoneSender.ttl)
+	}
+}
+
+func TestPhonePathUsesAbsolutePendingDeadline(t *testing.T) {
+	store := &fakeCodeStore{}
+	phoneSender := &fakeVerifyCodePhoneSender{}
+	now := time.Date(2026, 7, 23, 10, 11, 12, 987654321, time.UTC)
+	service := NewService(
+		&fakeAuthRepository{},
+		fakeLoginTypeProvider{types: []string{LoginTypePhone}},
+		&fakeSessionCreator{},
+		&fakeCaptchaVerifier{},
+		WithCodeStore(store),
+		WithVerifyCodePhoneSender(phoneSender),
+		WithVerifyCodeReadinessProvider(allVerificationChannelsReady()),
+		WithVerifyCodeOptions(VerifyCodeOptions{TTL: 8 * time.Minute, CodeGenerator: func() (string, error) { return "654321", nil }}),
+		WithClock(clock.Func(func() time.Time { return now })),
+	)
+	if _, appErr := service.SendCode(context.Background(), validLoginSendCodeInput("15671628271", LoginTypePhone)); appErr != nil {
+		t.Fatalf("unexpected err %#v", appErr)
+	}
+	want := now.Add(8 * time.Minute).Truncate(time.Second)
+	if !store.pendingExpiresAt.Equal(want) || phoneSender.ttl != 8*time.Minute {
+		t.Fatalf("store expiry=%v want=%v phone ttl=%s", store.pendingExpiresAt, want, phoneSender.ttl)
 	}
 }
 
@@ -1591,8 +1647,8 @@ func TestServiceSendCodeRealEmailUsesMailSender(t *testing.T) {
 	if message != "验证码发送成功" {
 		t.Fatalf("unexpected send message %q", message)
 	}
-	if store.setCode != "654321" || store.setTTL != 5*time.Minute || store.setKey != "auth:verify_code:email:login:b58996c504c5638798eb6b511e6f49af" {
-		t.Fatalf("unexpected code store write: key=%q code=%q ttl=%s", store.setKey, store.setCode, store.setTTL)
+	if store.setCode != "654321" || store.pendingExpiresAt.IsZero() || store.setKey != "auth:verify_code:email:login:b58996c504c5638798eb6b511e6f49af" {
+		t.Fatalf("unexpected code store write: key=%q code=%q expires_at=%v", store.setKey, store.setCode, store.pendingExpiresAt)
 	}
 	if mailSender.scene != VerifyCodeSceneLogin || mailSender.email != "user@example.com" || mailSender.code != "654321" || mailSender.ttl != 5*time.Minute {
 		t.Fatalf("unexpected mail sender call: %#v", mailSender)

@@ -15,6 +15,7 @@ import (
 
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
@@ -67,7 +68,7 @@ type CaptchaVerifier interface {
 }
 
 type VerifyCodeMailSender interface {
-	SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration) *apperror.Error
+	SendVerifyCode(ctx context.Context, scene string, toEmail string, code string, ttl time.Duration, expiresAt time.Time) *apperror.Error
 }
 
 type VerifyCodePhoneSender interface {
@@ -93,6 +94,7 @@ type Service struct {
 	verifyCodePhoneSender VerifyCodePhoneSender
 	verifyCodePolicy      VerifyCodePolicyProvider
 	verifyCodeReadiness   VerifyCodeReadinessProvider
+	clock                 clock.Clock
 	logger                *slog.Logger
 	verifyCodeOptions     VerifyCodeOptions
 }
@@ -104,6 +106,7 @@ func NewService(repository Repository, platformConfig PlatformConfigProvider, se
 		sessionManager:    sessionManager,
 		captchaVerifier:   captchaVerifier,
 		logger:            slog.Default(),
+		clock:             clock.SystemClock{},
 		verifyCodeOptions: VerifyCodeOptions{TTL: defaultVerifyCodeTTL},
 	}
 	for _, opt := range opts {
@@ -113,6 +116,14 @@ func NewService(repository Repository, platformConfig PlatformConfigProvider, se
 	}
 	service.verifyCodeOptions = normalizeVerifyCodeOptions(service.verifyCodeOptions)
 	return service
+}
+
+func WithClock(value clock.Clock) Option {
+	return func(s *Service) {
+		if value != nil {
+			s.clock = value
+		}
+	}
 }
 
 func WithCodeStore(store CodeStore) Option {
@@ -265,11 +276,25 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (string, *a
 	if err != nil {
 		return "", verifyCodeDeliveryStateError()
 	}
-	if err := deliveryStore.SetPendingDelivery(ctx, lease, cacheKey, code, ttl); err != nil {
+	var now time.Time
+	if s.clock != nil {
+		now = s.clock.Now()
+	} else {
+		now = time.Now()
+	}
+	expiresAt := now.Add(ttl).Truncate(time.Second)
+	if !expiresAt.After(now) {
 		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
+		return "", verificationDeadlineElapsedError()
+	}
+	if err := deliveryStore.SetPendingDelivery(ctx, lease, cacheKey, code, expiresAt); err != nil {
+		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
+		if errors.Is(err, errVerificationDeadlineElapsed) {
+			return "", verificationDeadlineElapsedError()
+		}
 		return "", apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "验证码缓存写入失败", err)
 	}
-	sendErr, renewalErr := s.sendVerifyCodeWithDeliveryRenewal(ctx, deliveryStore, lease, accountType, input, code, ttl)
+	sendErr, renewalErr := s.sendVerifyCodeWithDeliveryRenewal(ctx, deliveryStore, lease, accountType, input, code, ttl, expiresAt)
 	if sendErr != nil {
 		s.rollbackVerifyCodeDelivery(ctx, deliveryStore, lease, cacheKey, accountType, input.Scene)
 		return "", sendErr
@@ -299,6 +324,7 @@ func (s *Service) sendVerifyCodeWithDeliveryRenewal(
 	input SendCodeInput,
 	code string,
 	ttl time.Duration,
+	expiresAt time.Time,
 ) (*apperror.Error, error) {
 	sendCtx, cancelSend := context.WithCancel(ctx)
 	defer cancelSend()
@@ -344,7 +370,7 @@ func (s *Service) sendVerifyCodeWithDeliveryRenewal(
 		if s.verifyCodeMailSender == nil {
 			sendErr = apperror.InternalKey("auth.verify_code.email_unavailable", nil, "邮件验证码服务未配置")
 		} else {
-			sendErr = s.verifyCodeMailSender.SendVerifyCode(sendCtx, input.Scene, input.Account, code, ttl)
+			sendErr = s.verifyCodeMailSender.SendVerifyCode(sendCtx, input.Scene, input.Account, code, ttl, expiresAt)
 		}
 	case LoginTypePhone:
 		if s.verifyCodePhoneSender == nil {
@@ -355,6 +381,10 @@ func (s *Service) sendVerifyCodeWithDeliveryRenewal(
 	}
 	cancelRenewal(errVerificationDeliveryRenewalStopped)
 	return sendErr, <-renewalDone
+}
+
+func verificationDeadlineElapsedError() *apperror.Error {
+	return apperror.InternalKey("auth.verify_code.deadline_elapsed", nil, "验证码发送已过期")
 }
 
 func (s *Service) rollbackVerifyCodeDelivery(

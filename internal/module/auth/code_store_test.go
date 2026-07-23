@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -38,6 +39,95 @@ type verificationCodeConsumer interface {
 	Consume(context.Context, string, string) (bool, error)
 }
 
+func TestRedisCodeStoreSetPendingAbsoluteDeadline(t *testing.T) {
+	if strings.Contains(setPendingDeliveryScript, `redis.call("PEXPIRE", KEYS[1]`) {
+		t.Fatal("pending script must not use PEXPIRE")
+	}
+	if !strings.Contains(setPendingDeliveryScript, `redis.call("TIME")`) {
+		t.Fatal("pending script must use Redis TIME")
+	}
+	if !strings.Contains(setPendingDeliveryScript, `redis.call("PEXPIREAT", KEYS[1]`) {
+		t.Fatal("pending script must use PEXPIREAT")
+	}
+	client := verificationCodeStoreRedisClient(t)
+	store := NewRedisCodeStore(&redisclient.Client{Redis: client}).(*RedisCodeStore)
+	ctx := context.Background()
+	newKey := func(t *testing.T, suffix string) string {
+		t.Helper()
+		key := fmt.Sprintf("test:auth:verify-code:absolute:%s:%d", suffix, time.Now().UnixNano())
+		t.Cleanup(func() { _ = client.Del(ctx, key, key+":delivery-lock").Err() })
+		return key
+	}
+
+	t.Run("command latency cannot extend deadline", func(t *testing.T) {
+		key := newKey(t, "latency")
+		lease, err := store.AcquireDelivery(ctx, key, 5*time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		serverNow, err := client.Time(ctx).Result()
+		if err != nil {
+			t.Fatalf("read Redis time: %v", err)
+		}
+		deadline := serverNow.Add(500 * time.Millisecond)
+		waitUntil := time.Now().Add(3 * time.Second)
+		for {
+			serverNow, err = client.Time(ctx).Result()
+			if err != nil {
+				t.Fatalf("read Redis time while waiting: %v", err)
+			}
+			if !serverNow.Before(deadline) {
+				break
+			}
+			if time.Now().After(waitUntil) {
+				t.Fatalf("Redis time did not reach deadline %v", deadline)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		if err := store.SetPendingDelivery(ctx, lease, key, "123456", deadline); !errors.Is(err, errVerificationDeadlineElapsed) {
+			t.Fatalf("delayed command error=%v, want %v", err, errVerificationDeadlineElapsed)
+		}
+		exists, err := client.Exists(ctx, key).Result()
+		if err != nil {
+			t.Fatalf("inspect pending key: %v", err)
+		}
+		if exists != 0 {
+			t.Fatal("elapsed deadline created a pending key")
+		}
+	})
+
+	t.Run("future deadline is installed unchanged", func(t *testing.T) {
+		key := newKey(t, "future")
+		lease, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		deadline := time.Now().Add(3 * time.Second).Truncate(time.Second)
+		if err := store.SetPendingDelivery(ctx, lease, key, "123456", deadline); err != nil {
+			t.Fatalf("set pending delivery: %v", err)
+		}
+		pttl, err := client.PTTL(ctx, key).Result()
+		if err != nil {
+			t.Fatalf("read pending TTL: %v", err)
+		}
+		remaining := time.Until(deadline)
+		if pttl > remaining+500*time.Millisecond || pttl <= 0 {
+			t.Fatalf("pending TTL=%s remaining=%s; deadline was extended", pttl, remaining)
+		}
+	})
+
+	t.Run("past deadline is rejected", func(t *testing.T) {
+		key := newKey(t, "past")
+		lease, err := store.AcquireDelivery(ctx, key, time.Second)
+		if err != nil {
+			t.Fatalf("acquire delivery: %v", err)
+		}
+		if err := store.SetPendingDelivery(ctx, lease, key, "123456", time.Now().Add(-time.Second)); !errors.Is(err, errVerificationDeadlineElapsed) {
+			t.Fatalf("past deadline error=%v, want %v", err, errVerificationDeadlineElapsed)
+		}
+	})
+}
+
 func TestRedisCodeStoreConsumeAtomically(t *testing.T) {
 	store := &RedisCodeStore{}
 	consumer, ok := any(store).(verificationCodeConsumer)
@@ -63,7 +153,7 @@ func TestRedisCodeStoreConsumeAtomically(t *testing.T) {
 		if err != nil {
 			t.Fatalf("acquire delivery: %v", err)
 		}
-		if err := store.SetPendingDelivery(ctx, lease, key, code, time.Minute); err != nil {
+		if err := store.SetPendingDelivery(ctx, lease, key, code, time.Now().Add(time.Minute)); err != nil {
 			t.Fatalf("set pending delivery: %v", err)
 		}
 		if err := store.CommitDelivery(ctx, lease, key); err != nil {
@@ -103,7 +193,7 @@ func TestRedisCodeStoreConsumeAtomically(t *testing.T) {
 		if err != nil {
 			t.Fatalf("acquire delivery: %v", err)
 		}
-		if err := store.SetPendingDelivery(ctx, lease, key, "333333", time.Minute); err != nil {
+		if err := store.SetPendingDelivery(ctx, lease, key, "333333", time.Now().Add(time.Minute)); err != nil {
 			t.Fatalf("set pending delivery: %v", err)
 		}
 
@@ -123,7 +213,7 @@ func TestRedisCodeStoreConsumeAtomically(t *testing.T) {
 		if err != nil {
 			t.Fatalf("acquire replacement delivery: %v", err)
 		}
-		if err := store.SetPendingDelivery(ctx, replacement, key, "555555", time.Minute); err != nil {
+		if err := store.SetPendingDelivery(ctx, replacement, key, "555555", time.Now().Add(time.Minute)); err != nil {
 			t.Fatalf("set replacement pending delivery: %v", err)
 		}
 
@@ -169,7 +259,7 @@ func TestRedisCodeStoreDeliveryProtocolHidesPendingAndRejectsStaleRollback(t *te
 	if err != nil {
 		t.Fatalf("acquire first delivery: %v", err)
 	}
-	if err := store.SetPendingDelivery(ctx, first, key, "111111", time.Minute); err != nil {
+	if err := store.SetPendingDelivery(ctx, first, key, "111111", time.Now().Add(time.Minute)); err != nil {
 		t.Fatalf("set first pending delivery: %v", err)
 	}
 	if code, err := store.Get(ctx, key); err != nil || code != "" {
@@ -186,7 +276,7 @@ func TestRedisCodeStoreDeliveryProtocolHidesPendingAndRejectsStaleRollback(t *te
 	if err != nil {
 		t.Fatalf("acquire second delivery: %v", err)
 	}
-	if err := store.SetPendingDelivery(ctx, second, key, "222222", time.Minute); err != nil {
+	if err := store.SetPendingDelivery(ctx, second, key, "222222", time.Now().Add(time.Minute)); err != nil {
 		t.Fatalf("set second pending delivery: %v", err)
 	}
 	if err := store.RollbackDelivery(ctx, first, key); err == nil {
@@ -218,7 +308,7 @@ func TestRedisCodeStoreDeliveryLeaseLifecycleLeavesNoAuxiliaryKeys(t *testing.T)
 		if err != nil {
 			t.Fatalf("acquire delivery: %v", err)
 		}
-		if err := store.SetPendingDelivery(ctx, lease, key, "111111", time.Minute); err != nil {
+		if err := store.SetPendingDelivery(ctx, lease, key, "111111", time.Now().Add(time.Minute)); err != nil {
 			t.Fatalf("set pending delivery: %v", err)
 		}
 		if err := store.CommitDelivery(ctx, lease, key); err != nil {
@@ -233,7 +323,7 @@ func TestRedisCodeStoreDeliveryLeaseLifecycleLeavesNoAuxiliaryKeys(t *testing.T)
 		if err != nil {
 			t.Fatalf("acquire delivery: %v", err)
 		}
-		if err := store.SetPendingDelivery(ctx, lease, key, "222222", time.Minute); err != nil {
+		if err := store.SetPendingDelivery(ctx, lease, key, "222222", time.Now().Add(time.Minute)); err != nil {
 			t.Fatalf("set pending delivery: %v", err)
 		}
 		if err := store.RollbackDelivery(ctx, lease, key); err != nil {
@@ -277,7 +367,7 @@ func TestRedisCodeStoreDeliveryLeaseLifecycleLeavesNoAuxiliaryKeys(t *testing.T)
 			if err != nil {
 				t.Fatalf("acquire delivery %d: %v", i, err)
 			}
-			if err := store.SetPendingDelivery(ctx, lease, key, "333333", time.Minute); err != nil {
+			if err := store.SetPendingDelivery(ctx, lease, key, "333333", time.Now().Add(time.Minute)); err != nil {
 				t.Fatalf("set pending delivery %d: %v", i, err)
 			}
 			if err := store.RollbackDelivery(ctx, lease, key); err != nil {
@@ -362,7 +452,7 @@ func (f *fakeCodeStore) AcquireDelivery(_ context.Context, key string, _ time.Du
 	return lease, nil
 }
 
-func (f *fakeCodeStore) SetPendingDelivery(_ context.Context, lease verifyCodeDeliveryLease, key, code string, ttl time.Duration) error {
+func (f *fakeCodeStore) SetPendingDelivery(_ context.Context, lease verifyCodeDeliveryLease, key, code string, expiresAt time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.deliverySetErr != nil {
@@ -381,7 +471,7 @@ func (f *fakeCodeStore) SetPendingDelivery(_ context.Context, lease verifyCodeDe
 		f.deliveryPending = map[string]fakePendingDelivery{}
 	}
 	f.deliveryPending[key] = fakePendingDelivery{owner: lease.owner, code: code}
-	f.setKey, f.setCode, f.setTTL = key, code, ttl
+	f.setKey, f.setCode, f.pendingExpiresAt = key, code, expiresAt
 	return nil
 }
 
