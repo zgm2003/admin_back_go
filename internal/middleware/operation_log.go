@@ -31,6 +31,7 @@ const (
 var (
 	errRequiredAuditHijackUnsupported = errors.New("required audit response staging does not support hijacking")
 	errRequiredAuditResponseSealed    = errors.New("required audit response staging is sealed")
+	errRequiredAuditRecorderPanicked  = errors.New("required audit recorder panicked")
 )
 
 type OperationRule struct {
@@ -180,17 +181,18 @@ func runRequiredOperationLog(
 	}
 	c.Writer = staged
 	defer restore()
-	downstreamPanicked := false
+	downstreamCompleted := false
 	func() {
 		defer func() {
-			if recover() != nil {
-				downstreamPanicked = true
+			if !downstreamCompleted {
+				_ = recover()
 			}
 		}()
 		c.Next()
+		downstreamCompleted = true
 	}()
 	staged.seal()
-	if downstreamPanicked {
+	if !downstreamCompleted {
 		input := requiredOperationInput(c, path, rule, http.StatusInternalServerError, false, startedAt, nil, nil)
 		logger.WarnContext(c.Request.Context(), "required operation handler panicked",
 			"request_id", input.RequestID,
@@ -201,7 +203,7 @@ func runRequiredOperationLog(
 			"module", input.Module,
 			"action", input.Action,
 		)
-		recordErr := recorder(c.Request.Context(), input)
+		recordErr := callRequiredOperationRecorder(c.Request.Context(), recorder, input)
 		restore()
 		if recordErr != nil {
 			writeRequiredAuditFailure(c, input, requiredAuditRecorderFailed, logger, metrics)
@@ -229,12 +231,16 @@ func runRequiredOperationLog(
 		input.Status = http.StatusInternalServerError
 		input.Success = false
 		input.ResponsePayload = nil
-		_ = recorder(c.Request.Context(), input)
+		recordErr := callRequiredOperationRecorder(c.Request.Context(), recorder, input)
 		restore()
+		if recordErr != nil {
+			writeRequiredAuditFailure(c, input, requiredAuditRecorderFailed, logger, metrics)
+			return
+		}
 		writeRequiredAuditFailure(c, input, requiredAuditResponseOverflowed, logger, metrics)
 		return
 	}
-	recordErr := recorder(c.Request.Context(), input)
+	recordErr := callRequiredOperationRecorder(c.Request.Context(), recorder, input)
 	restore()
 	if recordErr != nil {
 		writeRequiredAuditFailure(c, input, requiredAuditRecorderFailed, logger, metrics)
@@ -251,6 +257,20 @@ func runRequiredOperationLog(
 			"action", input.Action,
 		)
 	}
+}
+
+func callRequiredOperationRecorder(ctx context.Context, recorder OperationRecorder, input OperationInput) (err error) {
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		_ = recover()
+		err = errRequiredAuditRecorderPanicked
+	}()
+	err = recorder(ctx, input)
+	completed = true
+	return err
 }
 
 func requiredOperationInput(
@@ -303,12 +323,9 @@ func writeRequiredAuditFailure(
 		"reason", reason,
 	)
 	metrics.Count(requiredAuditFailureMetric, 1, telemetry.Attributes{
-		"user_id":     input.UserID,
-		"session_id":  input.SessionID,
 		"http.method": input.Method,
 		"http.route":  input.Path,
 		"http.status": http.StatusInternalServerError,
-		"request_id":  input.RequestID,
 		"error.code":  reason,
 		"outcome":     "error",
 	})
@@ -378,6 +395,7 @@ func (w *requiredAuditWriter) WriteHeaderNow() {
 	}
 	w.written = true
 	w.size = 0
+	w.sealedHeader = w.header.Clone()
 }
 
 func (w *requiredAuditWriter) Write(data []byte) (int, error) {
@@ -452,7 +470,9 @@ func (w *requiredAuditWriter) seal() {
 	if w == nil || w.sealed {
 		return
 	}
-	w.sealedHeader = w.header.Clone()
+	if w.sealedHeader == nil {
+		w.sealedHeader = w.header.Clone()
+	}
 	w.discardHeader = make(http.Header)
 	w.sealed = true
 }

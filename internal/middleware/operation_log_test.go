@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +262,54 @@ func TestOperationLogRequired(t *testing.T) {
 		}
 		if got.RequestPayload != nil || got.ResponsePayload != nil {
 			t.Fatalf("required diagnostic audit captured payload: %#v", got)
+		}
+	})
+
+	t.Run("committed headers ignore later mutations", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			commit       func(gin.ResponseWriter)
+			expectedBody string
+		}{
+			{
+				name: "Write",
+				commit: func(writer gin.ResponseWriter) {
+					_, _ = writer.Write([]byte("write-body"))
+				},
+				expectedBody: "write-body",
+			},
+			{
+				name: "WriteString",
+				commit: func(writer gin.ResponseWriter) {
+					_, _ = writer.WriteString("string-body")
+				},
+				expectedBody: "string-body",
+			},
+			{
+				name:   "Flush",
+				commit: func(writer gin.ResponseWriter) { writer.Flush() },
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				router := newOperationLogTestRouter(OperationLogConfig{
+					Rules:    map[RouteKey]OperationRule{requiredOperationRouteKey(): requiredOperationRule()},
+					Recorder: func(context.Context, OperationInput) error { return nil },
+				}, &AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"})
+				router.GET(requiredOperationPath, func(c *gin.Context) {
+					c.Header("X-Commit-State", "before")
+					tt.commit(c.Writer)
+					c.Writer.Header().Set("X-Commit-State", "after")
+				})
+
+				client := httptest.NewRecorder()
+				router.ServeHTTP(client, httptest.NewRequest(http.MethodGet, requiredOperationPath, nil))
+
+				if client.Header().Get("X-Commit-State") != "before" || client.Body.String() != tt.expectedBody {
+					t.Fatalf("committed response changed: headers=%v body=%q", client.Header(), client.Body.String())
+				}
+			})
 		}
 	})
 
@@ -554,6 +604,94 @@ func TestOperationLogRequired(t *testing.T) {
 		}
 	})
 
+	t.Run("recorder panic fails closed on every required path", func(t *testing.T) {
+		const (
+			stagedMarker        = "recorder-panic-staged-marker"
+			recorderPanicMarker = "recorder-panic-sensitive-value"
+			handlerPanicMarker  = "handler-panic-sensitive-value"
+			outerMarker         = "outer-recorder-panic-recovery"
+		)
+		tests := []struct {
+			name    string
+			handler gin.HandlerFunc
+		}{
+			{
+				name: "normal response",
+				handler: func(c *gin.Context) {
+					c.Header("X-Recorder-Panic", "hidden")
+					_, _ = c.Writer.WriteString(stagedMarker)
+				},
+			},
+			{
+				name: "response overflow",
+				handler: func(c *gin.Context) {
+					c.Header("X-Recorder-Panic", "hidden")
+					body := append([]byte(stagedMarker), bytes.Repeat([]byte("x"), maxRequiredAuditResponseBytes+1-len(stagedMarker))...)
+					_, _ = c.Writer.Write(body)
+				},
+			},
+			{
+				name: "handler panic",
+				handler: func(c *gin.Context) {
+					c.Header("X-Recorder-Panic", "hidden")
+					_, _ = c.Writer.WriteString(stagedMarker)
+					panic(handlerPanicMarker)
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var retained *gin.Context
+				var logBuffer bytes.Buffer
+				metrics := &rawOperationTelemetry{}
+				recorderCalls := 0
+				router := newOperationLogPanicTestRouter(OperationLogConfig{
+					Rules: map[RouteKey]OperationRule{requiredOperationRouteKey(): requiredOperationRule()},
+					Recorder: func(context.Context, OperationInput) error {
+						recorderCalls++
+						panic(recorderPanicMarker)
+					},
+					Logger:    slog.New(slog.NewJSONHandler(&logBuffer, nil)),
+					Telemetry: metrics,
+				}, &AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"}, outerMarker)
+				router.GET(requiredOperationPath, func(c *gin.Context) {
+					retained = c
+					tt.handler(c)
+				})
+
+				client := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodGet, requiredOperationPath, nil)
+				request.Header.Set(HeaderRequestID, "recorder-panic-request")
+				router.ServeHTTP(client, request)
+
+				if recorderCalls != 1 {
+					t.Fatalf("recorder calls=%d, want 1", recorderCalls)
+				}
+				assertRequiredAuditFailureResponse(t, client, stagedMarker)
+				if client.Header().Get("X-Recorder-Panic") != "" {
+					t.Fatalf("staged header escaped recorder panic: %v", client.Header())
+				}
+				if retained == nil {
+					t.Fatal("handler did not retain context")
+				}
+				if _, stillStaged := retained.Writer.(*requiredAuditWriter); stillStaged {
+					t.Fatal("recorder panic did not restore destination writer")
+				}
+				for _, forbidden := range []string{stagedMarker, recorderPanicMarker, handlerPanicMarker, outerMarker} {
+					if strings.Contains(client.Body.String(), forbidden) || strings.Contains(logBuffer.String(), forbidden) {
+						t.Fatalf("recorder panic path exposed forbidden marker %q", forbidden)
+					}
+				}
+				if !strings.Contains(logBuffer.String(), "required operation audit failed") ||
+					!strings.Contains(logBuffer.String(), requiredAuditRecorderFailed) {
+					t.Fatalf("missing sanitized recorder failure warning: %s", logBuffer.String())
+				}
+				assertRequiredAuditFailureTelemetry(t, metrics, requiredAuditRecorderFailed)
+			})
+		}
+	})
+
 	t.Run("stages headers status body and flush", func(t *testing.T) {
 		var client *httptest.ResponseRecorder
 		router := newOperationLogTestRouter(OperationLogConfig{
@@ -619,22 +757,28 @@ func TestOperationLogRequired(t *testing.T) {
 	t.Run("all fail-closed paths warn and count without payload", func(t *testing.T) {
 		tests := []struct {
 			name     string
+			reason   string
 			recorder OperationRecorder
 			handler  gin.HandlerFunc
 		}{
 			{
-				name: "recorder failure",
+				name:   "recorder failure",
+				reason: requiredAuditRecorderFailed,
 				recorder: func(context.Context, OperationInput) error {
 					return errors.New("audit unavailable")
 				},
 				handler: func(c *gin.Context) { c.String(http.StatusOK, "private-diagnostic-payload") },
 			},
 			{
-				name:    "missing recorder",
-				handler: func(c *gin.Context) { c.String(http.StatusOK, "private-diagnostic-payload") },
+				name:   "missing recorder",
+				reason: requiredAuditRecorderMissing,
+				handler: func(c *gin.Context) {
+					c.String(http.StatusOK, "private-diagnostic-payload")
+				},
 			},
 			{
 				name:     "overflow",
+				reason:   requiredAuditResponseOverflowed,
 				recorder: func(context.Context, OperationInput) error { return nil },
 				handler:  func(c *gin.Context) { _, _ = c.Writer.Write(bytes.Repeat([]byte("p"), (1<<20)+1)) },
 			},
@@ -667,16 +811,17 @@ func TestOperationLogRequired(t *testing.T) {
 				if strings.Contains(logBuffer.String(), "private-diagnostic-payload") {
 					t.Fatalf("warning leaked payload: %s", logBuffer.String())
 				}
-				if len(metrics.counts) != 1 {
-					t.Fatalf("telemetry counts=%+v", metrics.counts)
+				assertRequiredAuditFailureTelemetry(t, metrics, tt.reason)
+				attributes := metrics.counts[0].attributes
+				for _, forbiddenKey := range []string{"user_id", "session_id", "request_id"} {
+					if _, exists := attributes[forbiddenKey]; exists {
+						t.Fatalf("telemetry contains identity key %q: %+v", forbiddenKey, attributes)
+					}
 				}
-				count := metrics.counts[0]
-				if count.name != "operation.audit.required_failure" || count.delta != 1 ||
-					count.attributes["user_id"] != int64(41) || count.attributes["session_id"] != int64(51) ||
-					count.attributes["http.route"] != requiredOperationPath || count.attributes["request_id"] != "required-failure" {
-					t.Fatalf("required-audit telemetry mismatch: %+v", count)
+				if len(attributes) != 5 {
+					t.Fatalf("telemetry attributes=%+v, want exactly five low-cardinality keys", attributes)
 				}
-				encoded, err := json.Marshal(count.attributes)
+				encoded, err := json.Marshal(attributes)
 				if err != nil {
 					t.Fatalf("encode telemetry attributes: %v", err)
 				}
@@ -706,6 +851,46 @@ func TestOperationLogRequired(t *testing.T) {
 	})
 }
 
+func TestOperationLogRequiredDetectsNilPanicCompatibility(t *testing.T) {
+	const childEnvironment = "ADMIN_BACK_GO_PANICNIL_CHILD"
+	if os.Getenv(childEnvironment) == "1" {
+		var got OperationInput
+		recorderCalls := 0
+		router := newOperationLogTestRouter(OperationLogConfig{
+			Rules: map[RouteKey]OperationRule{requiredOperationRouteKey(): requiredOperationRule()},
+			Recorder: func(_ context.Context, input OperationInput) error {
+				recorderCalls++
+				got = input
+				return nil
+			},
+		}, &AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"})
+		router.GET(requiredOperationPath, func(c *gin.Context) {
+			c.Header("X-Panic-Nil", "hidden")
+			_, _ = c.Writer.WriteString("panic-nil-staged-marker")
+			panic(nil)
+		})
+
+		client := httptest.NewRecorder()
+		router.ServeHTTP(client, httptest.NewRequest(http.MethodGet, requiredOperationPath, nil))
+
+		if recorderCalls != 1 || got.Status != http.StatusInternalServerError || got.Success {
+			t.Fatalf("panic(nil) audit calls=%d input=%#v", recorderCalls, got)
+		}
+		assertRequiredAuditFailureResponse(t, client, "panic-nil-staged-marker")
+		if client.Header().Get("X-Panic-Nil") != "" {
+			t.Fatalf("panic(nil) staged header escaped: %v", client.Header())
+		}
+		return
+	}
+
+	command := exec.Command(os.Args[0], "-test.run=^TestOperationLogRequiredDetectsNilPanicCompatibility$")
+	command.Env = append(os.Environ(), childEnvironment+"=1", "GODEBUG=panicnil=1")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("panicnil compatibility subprocess failed: %v\n%s", err, output)
+	}
+}
+
 const requiredOperationPath = "/api/admin/v1/mail/logs"
 
 func requiredOperationRouteKey() RouteKey {
@@ -729,6 +914,41 @@ func assertRequiredAuditFailureResponse(t *testing.T, recorder *httptest.Respons
 	}
 	if forbidden != "" && strings.Contains(recorder.Body.String(), forbidden) {
 		t.Fatalf("required audit failure leaked staged output")
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "application/json") {
+		t.Fatalf("required audit failure content type=%q", contentType)
+	}
+	var body struct {
+		Code  int            `json:"code"`
+		Data  map[string]any `json:"data"`
+		Msg   string         `json:"msg"`
+		Error struct {
+			Code      string `json:"code"`
+			Category  string `json:"category"`
+			Retryable bool   `json:"retryable"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode required audit failure JSON: %v", err)
+	}
+	if body.Code != http.StatusInternalServerError || len(body.Data) != 0 || body.Msg != "系统错误" ||
+		body.Error.Code != "internal.unknown" || body.Error.Category != "internal" || body.Error.Retryable {
+		t.Fatalf("required audit failure body=%+v", body)
+	}
+}
+
+func assertRequiredAuditFailureTelemetry(t *testing.T, metrics *rawOperationTelemetry, reason string) {
+	t.Helper()
+	if len(metrics.counts) != 1 {
+		t.Fatalf("telemetry counts=%+v", metrics.counts)
+	}
+	count := metrics.counts[0]
+	if count.name != requiredAuditFailureMetric || count.delta != 1 ||
+		count.attributes["http.method"] != http.MethodGet ||
+		count.attributes["http.route"] != requiredOperationPath ||
+		count.attributes["http.status"] != http.StatusInternalServerError ||
+		count.attributes["error.code"] != reason || count.attributes["outcome"] != "error" {
+		t.Fatalf("required-audit telemetry mismatch: %+v", count)
 	}
 }
 
