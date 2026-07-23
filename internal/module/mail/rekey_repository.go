@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"strings"
 	"time"
@@ -28,7 +29,7 @@ func NewGormDiagnosticRekeyRepository(client *database.Client) *GormDiagnosticRe
 	return &GormDiagnosticRekeyRepository{db: db, sql: client.SQL}
 }
 
-func (r *GormDiagnosticRekeyRepository) WithDiagnosticRekeyLock(ctx context.Context, name string, callback func(DiagnosticRekeyRepository) error) error {
+func (r *GormDiagnosticRekeyRepository) WithDiagnosticRekeyLock(ctx context.Context, name string, callback func(DiagnosticRekeyRepository) error) (returnErr error) {
 	if r == nil || r.db == nil || r.sql == nil {
 		return ErrDiagnosticRekeyRepositoryNotConfigured
 	}
@@ -42,30 +43,44 @@ func (r *GormDiagnosticRekeyRepository) WithDiagnosticRekeyLock(ctx context.Cont
 	if err != nil {
 		return ErrDiagnosticRekeyRepositoryFailure
 	}
-	defer connection.Close()
+	lockHeld := false
+	defer func() {
+		if lockHeld {
+			releaseCtx, cancel := context.WithTimeout(context.Background(), diagnosticRekeyReleaseTimeout)
+			var releaseResult sql.NullInt64
+			releaseErr := connection.QueryRowContext(releaseCtx, "SELECT RELEASE_LOCK(?)", name).Scan(&releaseResult)
+			cancel()
+			if releaseErr != nil || !releaseResult.Valid || releaseResult.Int64 != 1 {
+				returnErr = ErrDiagnosticRekeyRepositoryFailure
+				_ = connection.Raw(func(any) error { return driver.ErrBadConn })
+			}
+		}
+		if closeErr := connection.Close(); closeErr != nil {
+			returnErr = ErrDiagnosticRekeyRepositoryFailure
+		}
+	}()
 
 	var lockResult sql.NullInt64
 	if err := connection.QueryRowContext(ctx, "SELECT GET_LOCK(?, ?)", name, 0).Scan(&lockResult); err != nil {
 		return ErrDiagnosticRekeyRepositoryFailure
 	}
-	if !lockResult.Valid || lockResult.Int64 != 1 {
+	if !lockResult.Valid {
+		return ErrDiagnosticRekeyRepositoryFailure
+	}
+	if lockResult.Int64 == 0 {
 		return ErrDiagnosticRekeyLockUnavailable
 	}
+	if lockResult.Int64 != 1 {
+		return ErrDiagnosticRekeyRepositoryFailure
+	}
+	lockHeld = true
 
 	boundDB := r.db.Session(&gorm.Session{NewDB: true, Context: ctx})
 	boundDB.Statement.ConnPool = connection
-	callbackErr := callback(&GormDiagnosticRekeyRepository{db: boundDB, sql: r.sql})
-
-	releaseCtx, cancel := context.WithTimeout(context.Background(), diagnosticRekeyReleaseTimeout)
-	defer cancel()
-	var releaseResult sql.NullInt64
-	if err := connection.QueryRowContext(releaseCtx, "SELECT RELEASE_LOCK(?)", name).Scan(&releaseResult); err != nil || !releaseResult.Valid || releaseResult.Int64 != 1 {
-		return ErrDiagnosticRekeyRepositoryFailure
+	if callbackErr := callback(&GormDiagnosticRekeyRepository{db: boundDB, sql: r.sql}); callbackErr != nil {
+		returnErr = fixedDiagnosticRekeyError(callbackErr)
 	}
-	if callbackErr != nil {
-		return fixedDiagnosticRekeyError(callbackErr)
-	}
-	return nil
+	return returnErr
 }
 
 func (r *GormDiagnosticRekeyRepository) DistinctDiagnosticKeyIDs(ctx context.Context) ([]string, error) {
@@ -91,7 +106,7 @@ func (r *GormDiagnosticRekeyRepository) ListDiagnosticCipherRows(ctx context.Con
 	}
 	var rows []DiagnosticCipherRow
 	err := r.db.WithContext(contextOrBackground(ctx)).Raw(
-		"SELECT id,key_id,code_enc FROM mail_log_verification_codes WHERE BINARY key_id=BINARY ? AND id>? ORDER BY BINARY key_id ASC,id ASC LIMIT ?",
+		"SELECT id,key_id,code_enc FROM mail_log_verification_codes WHERE key_id=BINARY ? AND id>? ORDER BY key_id ASC,id ASC LIMIT ?",
 		keyID, afterID, limit,
 	).Scan(&rows).Error
 	if err != nil {
@@ -137,7 +152,7 @@ func (r *GormDiagnosticRekeyRepository) CountDiagnosticKeyID(ctx context.Context
 	}
 	var count int64
 	if err := r.db.WithContext(contextOrBackground(ctx)).Raw(
-		"SELECT COUNT(*) FROM mail_log_verification_codes WHERE BINARY key_id=BINARY ?", keyID,
+		"SELECT COUNT(*) FROM mail_log_verification_codes WHERE key_id=BINARY ?", keyID,
 	).Scan(&count).Error; err != nil {
 		return 0, ErrDiagnosticRekeyRepositoryFailure
 	}

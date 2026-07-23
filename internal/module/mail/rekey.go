@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"regexp"
+	"strings"
 
 	"admin_back_go/internal/infra/secretbox"
 )
@@ -14,7 +14,7 @@ const (
 	DiagnosticRekeyLockName         = "admin_go:mail-diagnostic-rekey:v1"
 )
 
-var diagnosticRekeyKeyIDPattern = regexp.MustCompile(`^mail-diagnostic-v1-[A-Za-z0-9_-]{22}$`)
+const diagnosticKeyIDPrefix = "mail-diagnostic-v1-"
 
 type DiagnosticCipherRow struct {
 	ID      uint64 `gorm:"column:id"`
@@ -130,7 +130,7 @@ func (s *DiagnosticRekeyService) Run(ctx context.Context) (DiagnosticRekeyResult
 
 func (s *DiagnosticRekeyService) validateKeys() (string, []string, error) {
 	currentKeyID := s.box.CurrentKeyID()
-	if !diagnosticRekeyKeyIDPattern.MatchString(currentKeyID) {
+	if !IsCanonicalDiagnosticKeyID(currentKeyID) {
 		return currentKeyID, nil, ErrDiagnosticRekeyCorruptCipher
 	}
 	keyID, ciphertext, err := s.box.Encrypt("000000")
@@ -142,7 +142,7 @@ func (s *DiagnosticRekeyService) validateKeys() (string, []string, error) {
 	if s.previousKeyID == "" {
 		return currentKeyID, allowed, nil
 	}
-	if !diagnosticRekeyKeyIDPattern.MatchString(s.previousKeyID) || s.previousKeyID == currentKeyID {
+	if !IsCanonicalDiagnosticKeyID(s.previousKeyID) || s.previousKeyID == currentKeyID {
 		return currentKeyID, nil, ErrDiagnosticRekeyUnknownKey
 	}
 	if _, err := s.box.Decrypt(s.previousKeyID, ""); err != nil {
@@ -211,6 +211,17 @@ func (s *DiagnosticRekeyService) rekeyPreviousRows(ctx context.Context, reposito
 func isCanonicalDiagnosticCiphertext(ciphertext string) bool {
 	decoded, err := base64.StdEncoding.Strict().DecodeString(ciphertext)
 	return err == nil && base64.StdEncoding.EncodeToString(decoded) == ciphertext
+}
+
+// IsCanonicalDiagnosticKeyID accepts only IDs produced by secretkey's 16-byte
+// digest encoding, including strict rejection of non-zero base64 padding bits.
+func IsCanonicalDiagnosticKeyID(keyID string) bool {
+	suffix, ok := strings.CutPrefix(keyID, diagnosticKeyIDPrefix)
+	if !ok || len(suffix) != 22 {
+		return false
+	}
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(suffix)
+	return err == nil && len(decoded) == 16 && base64.RawURLEncoding.EncodeToString(decoded) == suffix
 }
 
 func fixedDiagnosticRekeyRepositoryError(err error) error {

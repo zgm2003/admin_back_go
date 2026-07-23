@@ -51,6 +51,7 @@ func TestDiagnosticRekeyCurrentOnlyIsANoOpWithZeroReferences(t *testing.T) {
 
 func TestDiagnosticRekeyRejectsMalformedConfiguredKeyIDsBeforeLock(t *testing.T) {
 	const malformedID = "mail-diagnostic-v1-short"
+	const nonCanonicalID = "mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAAB"
 	const validID = "mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAAA"
 	tests := []struct {
 		name       string
@@ -60,6 +61,8 @@ func TestDiagnosticRekeyRejectsMalformedConfiguredKeyIDsBeforeLock(t *testing.T)
 	}{
 		{name: "current", currentID: malformedID, want: ErrDiagnosticRekeyCorruptCipher},
 		{name: "previous", currentID: validID, previousID: malformedID, want: ErrDiagnosticRekeyUnknownKey},
+		{name: "noncanonical current", currentID: nonCanonicalID, want: ErrDiagnosticRekeyCorruptCipher},
+		{name: "noncanonical previous", currentID: validID, previousID: nonCanonicalID, want: ErrDiagnosticRekeyUnknownKey},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -79,6 +82,20 @@ func TestDiagnosticRekeyRejectsMalformedConfiguredKeyIDsBeforeLock(t *testing.T)
 				t.Fatalf("malformed configured key ID reached the repository")
 			}
 		})
+	}
+}
+
+func TestIsCanonicalDiagnosticKeyIDRequiresStrictRawURL16ByteEncoding(t *testing.T) {
+	tests := map[string]bool{
+		"mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAAA":  true,
+		"mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAAB":  false,
+		"mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAA":   false,
+		"mail-diagnostic-v1-AAAAAAAAAAAAAAAAAAAAAA=": false,
+	}
+	for keyID, want := range tests {
+		if got := IsCanonicalDiagnosticKeyID(keyID); got != want {
+			t.Fatalf("IsCanonicalDiagnosticKeyID(%q) = %v, want %v", keyID, got, want)
+		}
 	}
 }
 
@@ -338,12 +355,50 @@ func TestDiagnosticRekeyRepositoryLockContentionSkipsCallback(t *testing.T) {
 	assertDiagnosticRekeySQLExpectations(t, mock)
 }
 
+func TestDiagnosticRekeyRepositoryTreatsNullLockResultAsRepositoryFailure(t *testing.T) {
+	repository, mock, _, closeDB := newDiagnosticRekeySQLMock(t)
+	defer closeDB()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT GET_LOCK(?, ?)")).WithArgs(DiagnosticRekeyLockName, 0).WillReturnRows(sqlmock.NewRows([]string{"lock_result"}).AddRow(nil))
+	called := false
+	err := repository.WithDiagnosticRekeyLock(context.Background(), DiagnosticRekeyLockName, func(DiagnosticRekeyRepository) error {
+		called = true
+		return nil
+	})
+	assertFixedDiagnosticRekeyError(t, err, ErrDiagnosticRekeyRepositoryFailure)
+	if called {
+		t.Fatalf("NULL lock result invoked callback")
+	}
+	assertDiagnosticRekeySQLExpectations(t, mock)
+}
+
+func TestDiagnosticRekeyRepositoryReleasesLockAfterCallbackPanic(t *testing.T) {
+	repository, mock, _, closeDB := newDiagnosticRekeySQLMock(t)
+	defer closeDB()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT GET_LOCK(?, ?)")).WithArgs(DiagnosticRekeyLockName, 0).WillReturnRows(sqlmock.NewRows([]string{"lock_result"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT RELEASE_LOCK(?)")).WithArgs(DiagnosticRekeyLockName).WillReturnRows(sqlmock.NewRows([]string{"release_result"}).AddRow(1))
+	const panicMarker = "marker-diagnostic-rekey-callback-panic"
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		_ = repository.WithDiagnosticRekeyLock(context.Background(), DiagnosticRekeyLockName, func(DiagnosticRekeyRepository) error {
+			panic(panicMarker)
+		})
+	}()
+	if recovered != panicMarker {
+		t.Fatalf("callback panic was swallowed or changed")
+	}
+	assertDiagnosticRekeySQLExpectations(t, mock)
+}
+
 func TestDiagnosticRekeyRepositoryReleaseFailureIsNotSwallowed(t *testing.T) {
 	repository, mock, _, closeDB := newDiagnosticRekeySQLMock(t)
 	defer closeDB()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT GET_LOCK(?, ?)")).WithArgs(DiagnosticRekeyLockName, 0).WillReturnRows(sqlmock.NewRows([]string{"lock_result"}).AddRow(1))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT RELEASE_LOCK(?)")).WithArgs(DiagnosticRekeyLockName).WillReturnError(errors.New("marker-release-provider-error"))
-	err := repository.WithDiagnosticRekeyLock(context.Background(), DiagnosticRekeyLockName, func(DiagnosticRekeyRepository) error { return nil })
+	mock.ExpectClose()
+	err := repository.WithDiagnosticRekeyLock(context.Background(), DiagnosticRekeyLockName, func(DiagnosticRekeyRepository) error {
+		return ErrDiagnosticRekeyUnknownKey
+	})
 	assertFixedDiagnosticRekeyError(t, err, ErrDiagnosticRekeyRepositoryFailure, "marker-release-provider-error")
 	assertDiagnosticRekeySQLExpectations(t, mock)
 }
@@ -363,7 +418,7 @@ func TestDiagnosticRekeyRepositoryRedactsUnknownCallbackFailureAfterRelease(t *t
 func TestDiagnosticRekeyRepositoryScansChildTableWithoutParentFilter(t *testing.T) {
 	repository, mock, _, closeDB := newDiagnosticRekeySQLMock(t)
 	defer closeDB()
-	query := "SELECT id,key_id,code_enc FROM mail_log_verification_codes WHERE BINARY key_id=BINARY ? AND id>? ORDER BY BINARY key_id ASC,id ASC LIMIT ?"
+	query := "SELECT id,key_id,code_enc FROM mail_log_verification_codes WHERE key_id=BINARY ? AND id>? ORDER BY key_id ASC,id ASC LIMIT ?"
 	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs("previous", uint64(40), 100).WillReturnRows(
 		sqlmock.NewRows([]string{"id", "key_id", "code_enc"}).AddRow(41, "previous", "cipher-for-soft-deleted-parent"),
 	)
@@ -413,7 +468,7 @@ func TestDiagnosticRekeyRepositoryRollsBackWholeBatchOnCompareMismatch(t *testin
 func TestDiagnosticRekeyRepositoryCountsPreviousAndCaseVariantUnknownReferences(t *testing.T) {
 	repository, mock, _, closeDB := newDiagnosticRekeySQLMock(t)
 	defer closeDB()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mail_log_verification_codes WHERE BINARY key_id=BINARY ?")).WithArgs("previous").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mail_log_verification_codes WHERE key_id=BINARY ?")).WithArgs("previous").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mail_log_verification_codes WHERE BINARY key_id NOT IN (BINARY ?,BINARY ?)")).WithArgs("current", "previous").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	previous, err := repository.CountDiagnosticKeyID(context.Background(), "previous")
 	if err != nil || previous != 0 {

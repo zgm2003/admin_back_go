@@ -183,11 +183,9 @@ func run(ctx context.Context, args []string, dependencies commandDependencies) e
 	}
 }
 
-var mailDiagnosticKeyIDPattern = regexp.MustCompile(`^mail-diagnostic-v1-[A-Za-z0-9_-]{22}$`)
-
 func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDependencies) error {
 	if dependencies.getenv == nil || dependencies.runMailDiagnosticRekey == nil || dependencies.stdout == nil {
-		return safeCommandError("mail diagnostic rekey command", errors.New("command dependencies are incomplete"))
+		return safeMailDiagnosticRekeyCommandError(errors.New("command dependencies are incomplete"))
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -196,7 +194,7 @@ func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDepe
 	dsn := strings.TrimSpace(dependencies.getenv("MYSQL_DSN"))
 	parsedDSN, err := mysqldriver.ParseDSN(dsn)
 	if err != nil || strings.TrimSpace(parsedDSN.DBName) == "" {
-		return safeCommandError("mail diagnostic rekey command", errors.New("MYSQL_DSN is invalid"))
+		return safeMailDiagnosticRekeyCommandError(errors.New("MYSQL_DSN is invalid"))
 	}
 	currentRoot := dependencies.getenv("APP_SECRET")
 	previousRoot := dependencies.getenv("APP_SECRET_PREVIOUS")
@@ -207,7 +205,7 @@ func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDepe
 	if err := config.ValidateRuntimeSecrets(config.Config{App: config.AppConfig{
 		Secret: currentRoot, PreviousSecrets: previousRoots,
 	}}); err != nil {
-		return safeCommandError("mail diagnostic rekey command", err)
+		return safeMailDiagnosticRekeyCommandError(err)
 	}
 
 	observer := func(id uint64) error {
@@ -218,10 +216,10 @@ func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDepe
 	}
 	result, err := dependencies.runMailDiagnosticRekey(ctx, dsn, currentRoot, previousRoot, observer)
 	if err != nil {
-		return safeCommandError("mail diagnostic rekey command", err)
+		return safeMailDiagnosticRekeyCommandError(err)
 	}
 	if !safeMailDiagnosticRekeyResult(result) {
-		return safeCommandError("mail diagnostic rekey command", mail.ErrDiagnosticRekeyIncomplete)
+		return safeMailDiagnosticRekeyCommandError(mail.ErrDiagnosticRekeyIncomplete)
 	}
 
 	lines := []struct {
@@ -237,22 +235,50 @@ func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDepe
 	}
 	for _, line := range lines {
 		if _, err := fmt.Fprintf(dependencies.stdout, "%s\t%v\n", line.name, line.value); err != nil {
-			return safeCommandError("mail diagnostic rekey command", mail.ErrDiagnosticRekeyOutputFailed)
+			return safeMailDiagnosticRekeyCommandError(mail.ErrDiagnosticRekeyOutputFailed)
 		}
 	}
 	return nil
 }
 
 func safeMailDiagnosticRekeyResult(result mail.DiagnosticRekeyResult) bool {
-	if !mailDiagnosticKeyIDPattern.MatchString(result.CurrentKeyID) {
+	if !mail.IsCanonicalDiagnosticKeyID(result.CurrentKeyID) {
 		return false
 	}
 	if result.PreviousKeyID != "" {
-		if !mailDiagnosticKeyIDPattern.MatchString(result.PreviousKeyID) || result.PreviousKeyID == result.CurrentKeyID {
+		if !mail.IsCanonicalDiagnosticKeyID(result.PreviousKeyID) || result.PreviousKeyID == result.CurrentKeyID {
 			return false
 		}
 	}
 	return result.Rekeyed <= result.Scanned && result.PreviousReferences == 0 && result.UnknownReferences == 0
+}
+
+func safeMailDiagnosticRekeyCommandError(err error) error {
+	return safeCommandError("mail diagnostic rekey command", safeMailDiagnosticRekeyCause(err))
+}
+
+func safeMailDiagnosticRekeyCause(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	for _, sentinel := range []error{
+		mail.ErrDiagnosticRekeyRepositoryNotConfigured,
+		mail.ErrDiagnosticRekeyRepositoryFailure,
+		mail.ErrDiagnosticRekeyLockUnavailable,
+		mail.ErrDiagnosticRekeyUnknownKey,
+		mail.ErrDiagnosticRekeyCorruptCipher,
+		mail.ErrDiagnosticRekeyOptimisticCompareFailed,
+		mail.ErrDiagnosticRekeyOutputFailed,
+		mail.ErrDiagnosticRekeyIncomplete,
+	} {
+		if errors.Is(err, sentinel) {
+			return sentinel
+		}
+	}
+	return mail.ErrDiagnosticRekeyRepositoryFailure
 }
 
 func runMailDiagnosticRekeyProduction(ctx context.Context, dsn, currentRoot, previousRoot string, observer mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error) {
