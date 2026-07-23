@@ -77,9 +77,10 @@ func NewRouter(deps Dependencies) (*gin.Engine, error) {
 		Rules:   core.RouteRegistry.PermissionRules(),
 	}))
 	router.Use(middleware.OperationLog(middleware.OperationLogConfig{
-		Recorder: core.OperationRecorder,
-		Rules:    core.RouteRegistry.OperationRules(),
-		Logger:   core.Logger,
+		Recorder:  core.OperationRecorder,
+		Rules:     core.RouteRegistry.OperationRules(),
+		Logger:    core.Logger,
+		Telemetry: core.Telemetry,
 	}))
 
 	registerAuthRoutes(router, deps)

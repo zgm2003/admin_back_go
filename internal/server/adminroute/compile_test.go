@@ -115,3 +115,31 @@ func TestNewLegacyRegistryNormalizesLegacyKeys(t *testing.T) {
 		t.Fatalf("legacy metadata was not normalized")
 	}
 }
+
+func TestMailLogReadsRequirePermissionAndAuditLegacyAdapterPreservesRequired(t *testing.T) {
+	key := middleware.NewRouteKey(http.MethodGet, "/api/admin/v1/mail/logs")
+	registry, err := NewLegacyRegistry(
+		map[middleware.RouteKey]string{key: "system_mail_logView"},
+		map[middleware.RouteKey]middleware.OperationRule{key: {
+			Module: "mail", Action: "list_logs", Title: "查看邮件日志及验证码",
+			SkipRequestPayload: true, SkipResponsePayload: true, Required: true,
+		}},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewLegacyRegistry: %v", err)
+	}
+	if err := registry.CompileRoutes([]Route{{Method: key.Method, Path: key.Path}}); err != nil {
+		t.Fatalf("CompileRoutes: %v", err)
+	}
+
+	definition := registry.Definitions()[0]
+	if !definition.Audit.Required {
+		t.Fatalf("legacy definition dropped required audit: %+v", definition.Audit)
+	}
+	operation := registry.OperationRules()[key]
+	if !operation.Required || !operation.SkipRequestPayload || !operation.SkipResponsePayload {
+		t.Fatalf("legacy runtime rule dropped required payload-free audit: %+v", operation)
+	}
+}

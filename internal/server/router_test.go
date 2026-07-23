@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -3268,6 +3269,43 @@ func TestRouterPassesTelemetryToAccessLogUsingRegisteredRoute(t *testing.T) {
 		if event.Attributes["http.route"] != "/health" || event.Attributes["http.method"] != http.MethodGet {
 			t.Fatalf("router telemetry mismatch: %+v", event)
 		}
+	}
+}
+
+func TestRouterPassesTelemetryToRequiredOperationLog(t *testing.T) {
+	recorder := telemetry.NewMemoryRecorder()
+	router := newTestRouter(t, testDependencies{
+		Telemetry: recorder,
+		Authenticator: func(context.Context, middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+			return &middleware.AuthIdentity{UserID: 41, SessionID: 51, Platform: "admin"}, nil
+		},
+		PermissionChecker: func(context.Context, middleware.PermissionInput) *apperror.Error { return nil },
+		OperationRecorder: func(context.Context, middleware.OperationInput) error {
+			return errors.New("audit unavailable")
+		},
+		MailService: &fakeRouterMailService{},
+	})
+
+	responseRecorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/mail/logs", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set(middleware.HeaderRequestID, "required-router-failure")
+	router.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusInternalServerError || strings.Contains(responseRecorder.Body.String(), "user@example.com") {
+		t.Fatalf("required audit failure response mismatch: code=%d body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	found := false
+	for _, event := range recorder.Events() {
+		if event.Kind == telemetry.EventCount && event.Name == "operation.audit.required_failure" {
+			found = true
+			if event.Attributes["http.route"] != "/api/admin/v1/mail/logs" {
+				t.Fatalf("required audit telemetry route=%#v", event.Attributes["http.route"])
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("required operation telemetry was not wired: %+v", recorder.Events())
 	}
 }
 

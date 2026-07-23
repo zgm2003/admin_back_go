@@ -123,6 +123,7 @@ func (h *Handler) DeleteTemplate(c *gin.Context) {
 }
 
 func (h *Handler) Logs(c *gin.Context) {
+	setDiagnosticNoStore(c)
 	var req logListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, apperror.BadRequest("邮件日志列表参数错误"))
@@ -138,6 +139,7 @@ func (h *Handler) Logs(c *gin.Context) {
 }
 
 func (h *Handler) Log(c *gin.Context) {
+	setDiagnosticNoStore(c)
 	id, ok := routeID(c, "无效的邮件日志ID")
 	if !ok {
 		return
@@ -263,6 +265,11 @@ func writeResult(c *gin.Context, result any, appErr *apperror.Error) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func setDiagnosticNoStore(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, private")
+	c.Header("Pragma", "no-cache")
 }
 
 var _ HTTPService = (*mailmodule.Service)(nil)

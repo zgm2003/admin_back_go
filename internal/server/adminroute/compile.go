@@ -104,6 +104,7 @@ func NewLegacyRegistry(
 			decision = Audit(rule.Module, rule.Action, rule.Title)
 			decision.SkipRequestPayload = rule.SkipRequestPayload
 			decision.SkipResponsePayload = rule.SkipResponsePayload
+			decision.Required = rule.Required
 		} else if isMutation(key.Method) {
 			reason := registry.noAuditReason(routeKey{method: key.Method, path: key.Path})
 			decision = NoAudit(reason)
@@ -268,6 +269,7 @@ func (registry *Registry) compileRuntimeMaps() error {
 				Title:               definition.Audit.Title,
 				SkipRequestPayload:  definition.Audit.SkipRequestPayload,
 				SkipResponsePayload: definition.Audit.SkipResponsePayload,
+				Required:            definition.Audit.Required,
 			}
 		}
 	}

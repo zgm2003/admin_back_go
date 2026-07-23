@@ -1320,6 +1320,70 @@ func TestLogDTOFromReadRowServiceReadsUseNilSafeClock(t *testing.T) {
 	})
 }
 
+func TestLogsDiagnosticProjection(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	first := diagnosticLogReadRow(t, enum.MailLogStatusPending, now.Add(time.Minute), "diag-current", "123456")
+	first.ID = 1
+	second := diagnosticLogReadRow(t, enum.MailLogStatusPending, now.Add(time.Minute), "diag-current", "654321")
+	second.ID = 2
+	clock := &countingMailClock{values: []time.Time{now, now.Add(2 * time.Minute)}}
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository:    &fakeMailRepository{listedLogRows: []LogReadRow{first, second}},
+		DiagnosticBox: testDiagnosticBox(),
+		Clock:         clock,
+	})
+
+	result, appErr := service.Logs(context.Background(), LogQuery{})
+	if appErr != nil || result == nil || len(result.List) != 2 {
+		t.Fatalf("Logs result=%#v err=%v", result, appErr)
+	}
+	if clock.calls != 1 {
+		t.Fatalf("Logs clock calls=%d, want 1", clock.calls)
+	}
+	for _, item := range result.List {
+		if item.VerificationCodeStatus == nil || *item.VerificationCodeStatus != VerificationCodeStatusSending {
+			t.Fatalf("list rows did not share one projection timestamp: %#v", result.List)
+		}
+	}
+
+	invalid := second
+	invalid.VerificationCodeEnc = nil
+	failedClock := &countingMailClock{values: []time.Time{now}}
+	service = NewServiceWithDependencies(ServiceDependencies{
+		Repository:    &fakeMailRepository{listedLogRows: []LogReadRow{first, invalid}},
+		DiagnosticBox: testDiagnosticBox(),
+		Clock:         failedClock,
+	})
+	result, appErr = service.Logs(context.Background(), LogQuery{})
+	if result != nil {
+		t.Fatalf("Logs returned partial diagnostic list: %#v", result)
+	}
+	assertSafeDiagnosticReadError(t, appErr, "123456", "654321")
+	if failedClock.calls != 1 {
+		t.Fatalf("failed Logs clock calls=%d, want 1", failedClock.calls)
+	}
+}
+
+func TestLogDiagnosticProjection(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	row := diagnosticLogReadRow(t, enum.MailLogStatusPending, now.Add(time.Minute), "diag-current", "123456")
+	row.ID = 7
+	clock := &countingMailClock{values: []time.Time{now, now.Add(2 * time.Minute)}}
+	service := NewServiceWithDependencies(ServiceDependencies{
+		Repository:    &fakeMailRepository{logRows: map[uint64]LogReadRow{row.ID: row}},
+		DiagnosticBox: testDiagnosticBox(),
+		Clock:         clock,
+	})
+
+	result, appErr := service.Log(context.Background(), row.ID)
+	if appErr != nil || result == nil || result.VerificationCodeStatus == nil || *result.VerificationCodeStatus != VerificationCodeStatusSending {
+		t.Fatalf("Log result=%#v err=%v", result, appErr)
+	}
+	if clock.calls != 1 {
+		t.Fatalf("Log clock calls=%d, want 1", clock.calls)
+	}
+}
+
 func TestLogDTOFromReadRowPageInitPublishesClosedStatusDictionary(t *testing.T) {
 	result, appErr := (&Service{}).PageInit(context.Background())
 	if appErr != nil {

@@ -202,6 +202,9 @@ func normalizeDefinition(definition Definition) (Definition, error) {
 	if isPublicProviderCallback(definition) && definition.Audit.Enabled {
 		return Definition{}, fmt.Errorf("%w: %s %s", ErrPublicCallbackAudit, definition.Method, definition.Path)
 	}
+	if definition.Audit.Required && !definition.Audit.Enabled {
+		return Definition{}, fmt.Errorf("%w: %s %s", ErrAuditDecisionRequired, definition.Method, definition.Path)
+	}
 	if definition.Audit.Enabled && (definition.Audit.Module == "" || definition.Audit.Action == "" || definition.Audit.Title == "") {
 		return Definition{}, fmt.Errorf("%w: %s %s", ErrAuditMetadataRequired, definition.Method, definition.Path)
 	}

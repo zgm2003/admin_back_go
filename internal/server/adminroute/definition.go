@@ -28,11 +28,12 @@ func Permission(code string) Access {
 }
 
 type AuditDecision struct {
-	Enabled bool   `json:"enabled"`
-	Module  string `json:"module,omitempty"`
-	Action  string `json:"action,omitempty"`
-	Title   string `json:"title,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	Enabled  bool   `json:"enabled"`
+	Required bool   `json:"required,omitempty"`
+	Module   string `json:"module,omitempty"`
+	Action   string `json:"action,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 
 	SkipRequestPayload  bool `json:"skip_request_payload,omitempty"`
 	SkipResponsePayload bool `json:"skip_response_payload,omitempty"`

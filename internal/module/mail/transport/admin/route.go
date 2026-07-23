@@ -147,8 +147,16 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/mail/logs",
-		Access: adminroute.Authenticated(),
-		Audit:  adminroute.NoAudit("read-only"),
+		Access: adminroute.Permission("system_mail_logView"),
+		Audit: adminroute.AuditDecision{
+			Enabled:             true,
+			Required:            true,
+			Module:              "mail",
+			Action:              "list_logs",
+			Title:               "查看邮件日志及验证码",
+			SkipRequestPayload:  true,
+			SkipResponsePayload: true,
+		},
 		Contract: &adminroute.HTTPContract{
 			Query:    logListRequest{},
 			Response: mailmodule.LogListResponse{},
@@ -157,8 +165,16 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/mail/logs/:id",
-		Access: adminroute.Authenticated(),
-		Audit:  adminroute.NoAudit("read-only"),
+		Access: adminroute.Permission("system_mail_logView"),
+		Audit: adminroute.AuditDecision{
+			Enabled:             true,
+			Required:            true,
+			Module:              "mail",
+			Action:              "view_log",
+			Title:               "查看单条邮件日志及验证码",
+			SkipRequestPayload:  true,
+			SkipResponsePayload: true,
+		},
 		Contract: &adminroute.HTTPContract{
 			Response: mailmodule.LogDTO{},
 		},

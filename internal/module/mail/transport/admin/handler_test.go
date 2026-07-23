@@ -18,7 +18,12 @@ import (
 type fakeMailHTTPService struct {
 	pageInitResult *mailmodule.PageInitResponse
 	configResult   *mailmodule.ConfigResponse
+	logsResult     *mailmodule.LogListResponse
 	logResult      *mailmodule.LogDTO
+	logsErr        *apperror.Error
+	logErr         *apperror.Error
+	logsCalls      int
+	logCalls       int
 	savedConfig    mailmodule.SaveConfigInput
 	deletedIDs     []uint64
 }
@@ -58,10 +63,18 @@ func (f *fakeMailHTTPService) DeleteTemplate(ctx context.Context, id uint64) *ap
 	return nil
 }
 func (f *fakeMailHTTPService) Logs(ctx context.Context, query mailmodule.LogQuery) (*mailmodule.LogListResponse, *apperror.Error) {
+	f.logsCalls++
+	if f.logsErr != nil {
+		return nil, f.logsErr
+	}
+	if f.logsResult != nil {
+		return f.logsResult, nil
+	}
 	return &mailmodule.LogListResponse{}, nil
 }
 func (f *fakeMailHTTPService) Log(ctx context.Context, id uint64) (*mailmodule.LogDTO, *apperror.Error) {
-	return f.logResult, nil
+	f.logCalls++
+	return f.logResult, f.logErr
 }
 func (f *fakeMailHTTPService) DeleteLogs(ctx context.Context, ids []uint64) *apperror.Error {
 	f.deletedIDs = ids
@@ -151,6 +164,59 @@ func TestHandlerSaveConfigBindsPublicSecretFields(t *testing.T) {
 		service.savedConfig.FromEmail != "noreply@example.com" ||
 		service.savedConfig.VerifyCodeTTLMinutes != 9 {
 		t.Fatalf("unexpected saved config input: %#v", service.savedConfig)
+	}
+}
+
+func TestHandlerLogsNoStore(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		service *fakeMailHTTPService
+	}{
+		{name: "success", target: "/api/admin/v1/mail/logs", service: &fakeMailHTTPService{}},
+		{name: "bind error", target: "/api/admin/v1/mail/logs?status=not-a-number", service: &fakeMailHTTPService{}},
+		{name: "query error", target: "/api/admin/v1/mail/logs?created_at_start=invalid", service: &fakeMailHTTPService{}},
+		{name: "service error", target: "/api/admin/v1/mail/logs", service: &fakeMailHTTPService{logsErr: apperror.Internal("mail log read failed")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := newMailTestRouter(tt.service)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.target, nil))
+			assertMailDiagnosticNoStore(t, recorder)
+		})
+	}
+}
+
+func TestHandlerLogNoStore(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		service *fakeMailHTTPService
+	}{
+		{name: "success", target: "/api/admin/v1/mail/logs/7", service: &fakeMailHTTPService{logResult: &mailmodule.LogDTO{ID: 7}}},
+		{name: "id error", target: "/api/admin/v1/mail/logs/invalid", service: &fakeMailHTTPService{}},
+		{name: "service error", target: "/api/admin/v1/mail/logs/7", service: &fakeMailHTTPService{logErr: apperror.Internal("mail log read failed")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := newMailTestRouter(tt.service)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.target, nil))
+			assertMailDiagnosticNoStore(t, recorder)
+		})
+	}
+}
+
+func assertMailDiagnosticNoStore(t *testing.T, recorder *httptest.ResponseRecorder) {
+	t.Helper()
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store, private" {
+		t.Fatalf("Cache-Control=%q, want %q", got, "no-store, private")
+	}
+	if got := recorder.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("Pragma=%q, want %q", got, "no-cache")
 	}
 }
 

@@ -87,6 +87,22 @@ func TestRegistryReturnsNormalizedDeterministicDefinitions(t *testing.T) {
 	}
 }
 
+func TestMailLogReadsRequirePermissionAndAuditRejectsRequiredWhenAuditDisabled(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.Add(Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/mail/logs",
+		Access: Permission("system_mail_logView"),
+		Audit: AuditDecision{
+			Required: true,
+			Reason:   "read-only",
+		},
+	})
+	if !errors.Is(err, ErrAuditDecisionRequired) {
+		t.Fatalf("Add error=%v, want %v", err, ErrAuditDecisionRequired)
+	}
+}
+
 func mustAdd(t *testing.T, registry *Registry, definition Definition) {
 	t.Helper()
 	if err := registry.Add(definition); err != nil {
