@@ -12,12 +12,17 @@ const keyLength = 32
 
 const maxPreviousKeys = 1
 
+const mailDiagnosticPurpose = "admin_go:mail-verification-diagnostic:v1"
+
 type KeyRing struct {
-	secretboxKey    []byte
-	tokenPepper     string
-	jwtSigningKey   []byte
-	jwtSigningKeyID string
-	jwtVerifyKeys   map[string][]byte
+	secretboxKey                 []byte
+	tokenPepper                  string
+	jwtSigningKey                []byte
+	jwtSigningKeyID              string
+	jwtVerifyKeys                map[string][]byte
+	mailDiagnosticKey            []byte
+	mailDiagnosticKeyID          string
+	mailDiagnosticDecryptionKeys map[string][]byte
 }
 
 func NewKeyRing(rootSecret string) (*KeyRing, error) {
@@ -40,6 +45,12 @@ func NewKeyRingWithPrevious(rootSecret string, previousSecrets []string) (*KeyRi
 	if err != nil {
 		return nil, err
 	}
+	mailDiagnosticKey, err := derive(root, mailDiagnosticPurpose)
+	if err != nil {
+		return nil, err
+	}
+	mailDiagnosticKeyID := diagnosticKeyID(mailDiagnosticKey)
+	mailDiagnosticDecryptionKeys := map[string][]byte{mailDiagnosticKeyID: clone(mailDiagnosticKey)}
 	jwtSigningKey, err := derive(root, "admin_go:jwt-signing:v1")
 	if err != nil {
 		return nil, err
@@ -63,13 +74,26 @@ func NewKeyRingWithPrevious(rootSecret string, previousSecrets []string) (*KeyRi
 			return nil, fmt.Errorf("APP_SECRET_PREVIOUS duplicates the current JWT key ID")
 		}
 		jwtVerifyKeys[previousKeyID] = clone(previousJWTKey)
+
+		previousMailDiagnosticKey, err := derive(previousRoot, mailDiagnosticPurpose)
+		if err != nil {
+			return nil, err
+		}
+		previousMailDiagnosticKeyID := diagnosticKeyID(previousMailDiagnosticKey)
+		if _, exists := mailDiagnosticDecryptionKeys[previousMailDiagnosticKeyID]; exists {
+			return nil, fmt.Errorf("APP_SECRET_PREVIOUS duplicates the current mail diagnostic key ID")
+		}
+		mailDiagnosticDecryptionKeys[previousMailDiagnosticKeyID] = clone(previousMailDiagnosticKey)
 	}
 	return &KeyRing{
-		secretboxKey:    secretboxKey,
-		tokenPepper:     base64.RawURLEncoding.EncodeToString(tokenPepperKey),
-		jwtSigningKey:   jwtSigningKey,
-		jwtSigningKeyID: jwtSigningKeyID,
-		jwtVerifyKeys:   jwtVerifyKeys,
+		secretboxKey:                 secretboxKey,
+		tokenPepper:                  base64.RawURLEncoding.EncodeToString(tokenPepperKey),
+		jwtSigningKey:                jwtSigningKey,
+		jwtSigningKeyID:              jwtSigningKeyID,
+		jwtVerifyKeys:                jwtVerifyKeys,
+		mailDiagnosticKey:            mailDiagnosticKey,
+		mailDiagnosticKeyID:          mailDiagnosticKeyID,
+		mailDiagnosticDecryptionKeys: mailDiagnosticDecryptionKeys,
 	}, nil
 }
 
@@ -112,6 +136,31 @@ func (k *KeyRing) JWTVerificationKeys() map[string][]byte {
 	return keys
 }
 
+func (k *KeyRing) MailDiagnosticKey() []byte {
+	if k == nil {
+		return nil
+	}
+	return clone(k.mailDiagnosticKey)
+}
+
+func (k *KeyRing) MailDiagnosticKeyID() string {
+	if k == nil {
+		return ""
+	}
+	return k.mailDiagnosticKeyID
+}
+
+func (k *KeyRing) MailDiagnosticDecryptionKeys() map[string][]byte {
+	if k == nil {
+		return nil
+	}
+	keys := make(map[string][]byte, len(k.mailDiagnosticDecryptionKeys))
+	for keyID, key := range k.mailDiagnosticDecryptionKeys {
+		keys[keyID] = clone(key)
+	}
+	return keys
+}
+
 func derive(root string, info string) ([]byte, error) {
 	key, err := hkdf.Key(sha256.New, []byte(root), nil, info, keyLength)
 	if err != nil {
@@ -133,6 +182,11 @@ func validateRootSecret(name string, root string) error {
 func jwtKeyID(key []byte) string {
 	digest := sha256.Sum256(key)
 	return "jwt-v1-" + base64.RawURLEncoding.EncodeToString(digest[:16])
+}
+
+func diagnosticKeyID(key []byte) string {
+	digest := sha256.Sum256(key)
+	return "mail-diagnostic-v1-" + base64.RawURLEncoding.EncodeToString(digest[:16])
 }
 
 func clone(in []byte) []byte {

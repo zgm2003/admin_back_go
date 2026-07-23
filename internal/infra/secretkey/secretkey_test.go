@@ -2,6 +2,9 @@ package secretkey
 
 import (
 	"bytes"
+	"crypto/hkdf"
+	"crypto/sha256"
+	"encoding/base64"
 	"os"
 	"regexp"
 	"strings"
@@ -112,5 +115,98 @@ func TestNewKeyRingWithPreviousRejectsInvalidRotation(t *testing.T) {
 				t.Fatal("expected rotation configuration to be rejected")
 			}
 		})
+	}
+}
+
+func TestKeyRingDerivesStableMailDiagnosticKeyAndID(t *testing.T) {
+	root := strings.Repeat("d", 64)
+
+	first, err := NewKeyRing(root)
+	if err != nil {
+		t.Fatalf("NewKeyRing returned error: %v", err)
+	}
+	second, err := NewKeyRing(root)
+	if err != nil {
+		t.Fatalf("NewKeyRing second call returned error: %v", err)
+	}
+
+	wantKey, err := hkdf.Key(sha256.New, []byte(root), nil, "admin_go:mail-verification-diagnostic:v1", 32)
+	if err != nil {
+		t.Fatalf("derive expected diagnostic key: %v", err)
+	}
+	wantDigest := sha256.Sum256(wantKey)
+	wantID := "mail-diagnostic-v1-" + base64.RawURLEncoding.EncodeToString(wantDigest[:16])
+
+	if !bytes.Equal(first.MailDiagnosticKey(), wantKey) {
+		t.Fatal("mail diagnostic key was not derived with the required purpose")
+	}
+	if !bytes.Equal(first.MailDiagnosticKey(), second.MailDiagnosticKey()) {
+		t.Fatal("mail diagnostic key derivation is not deterministic")
+	}
+	if got := first.MailDiagnosticKeyID(); got != wantID {
+		t.Fatalf("MailDiagnosticKeyID() = %q, want %q", got, wantID)
+	}
+	if bytes.Equal(first.MailDiagnosticKey(), first.SecretboxKey()) {
+		t.Fatal("mail diagnostic key must be separated from the general secretbox key")
+	}
+}
+
+func TestKeyRingCarriesCurrentAndPreviousMailDiagnosticKeys(t *testing.T) {
+	currentRoot := strings.Repeat("c", 64)
+	previousRoot := strings.Repeat("p", 64)
+
+	ring, err := NewKeyRingWithPrevious(currentRoot, []string{previousRoot})
+	if err != nil {
+		t.Fatalf("NewKeyRingWithPrevious returned error: %v", err)
+	}
+	previousRing, err := NewKeyRing(previousRoot)
+	if err != nil {
+		t.Fatalf("NewKeyRing(previous) returned error: %v", err)
+	}
+
+	keys := ring.MailDiagnosticDecryptionKeys()
+	if len(keys) != 2 {
+		t.Fatalf("MailDiagnosticDecryptionKeys() length = %d, want 2", len(keys))
+	}
+	if !bytes.Equal(keys[ring.MailDiagnosticKeyID()], ring.MailDiagnosticKey()) {
+		t.Fatal("current mail diagnostic key is absent from decryption keys")
+	}
+	if !bytes.Equal(keys[previousRing.MailDiagnosticKeyID()], previousRing.MailDiagnosticKey()) {
+		t.Fatal("previous mail diagnostic key is absent from decryption keys")
+	}
+}
+
+func TestMailDiagnosticAccessorsReturnClones(t *testing.T) {
+	ring, err := NewKeyRingWithPrevious(strings.Repeat("c", 64), []string{strings.Repeat("p", 64)})
+	if err != nil {
+		t.Fatalf("NewKeyRingWithPrevious returned error: %v", err)
+	}
+
+	key := ring.MailDiagnosticKey()
+	key[0] ^= 0xff
+	if bytes.Equal(key, ring.MailDiagnosticKey()) {
+		t.Fatal("MailDiagnosticKey exposed internal key bytes")
+	}
+
+	keys := ring.MailDiagnosticDecryptionKeys()
+	currentID := ring.MailDiagnosticKeyID()
+	keys[currentID][0] ^= 0xff
+	delete(keys, currentID)
+	fresh := ring.MailDiagnosticDecryptionKeys()
+	if len(fresh) != 2 || !bytes.Equal(fresh[currentID], ring.MailDiagnosticKey()) {
+		t.Fatal("MailDiagnosticDecryptionKeys exposed internal map or key bytes")
+	}
+}
+
+func TestNilKeyRingMailDiagnosticAccessors(t *testing.T) {
+	var ring *KeyRing
+	if ring.MailDiagnosticKey() != nil {
+		t.Fatal("nil KeyRing returned a diagnostic key")
+	}
+	if ring.MailDiagnosticKeyID() != "" {
+		t.Fatal("nil KeyRing returned a diagnostic key ID")
+	}
+	if ring.MailDiagnosticDecryptionKeys() != nil {
+		t.Fatal("nil KeyRing returned diagnostic decryption keys")
 	}
 }
