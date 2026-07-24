@@ -1,7 +1,7 @@
 # 钱包兑换码充值设计
 
 **日期：** 2026-07-24
-**状态：** 待用户书面复核
+**状态：** 已确认
 **前置关系：** 本设计先于 `2026-07-24-ai-chat-consumer-pricing-wallet-design.md` 实施；本期继续使用现有 cents 钱包，后续由 AI 计费项目统一迁移到 money units。
 
 ## 1. 目的
@@ -367,13 +367,13 @@ CSV 对字段正确引用，并中和备注、账号等以 `= + - @` 开头的�
 
 版本化迁移和 seed 同步新增菜单/按钮权限。当前发布基线以 `roles.id=1` 作为内置管理员角色稳定身份，因此迁移必须：
 
-1. 校验 `roles.id=1` 存在、启用且未删除；
+1. 校验 `roles.id=1 AND is_del=2` 唯一存在；`roles` 表没有 `status` 字段，不虚构“角色启用”条件；
 2. 校验支付管理父权限唯一存在；
 3. 创建或恢复兑换码 PAGE/BUTTON 权限；
 4. 向 role ID 1 幂等授予 `payment`、`payment_redeem_code_list`、`payment_redeem_code_generate`、`payment_redeem_code_void`；
-5. 在同一迁移事务内补齐所有绑定 role ID 1 的 active Admin 用户缺失的 `authz_principal_versions(platform=admin)` 行，再统一递增版本；该数据库更新本身不宣称已刷新 Redis；
+5. 在同一迁移事务内补齐所有满足 `users.role_id=1 AND status=1 AND is_del=2` 的 active Admin 用户缺失的 `authz_principal_versions(platform=admin)` 行，再统一递增版本；该数据库更新本身不宣称已刷新 Redis；
 6. 校验授权恰好存在且有效；
-7. 不按“管理员”显示名称猜角色，不向其他活动角色批量授权。
+7. 不按“管理员”显示名称猜角色，不向其他角色批量授权。
 
 任一前置条件不满足时迁移失败，不能静默跳过。新增路由进入 route metadata，并从编译路由重新生成 Admin Contract Bundle 与前端客户端。
 
