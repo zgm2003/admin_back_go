@@ -26,7 +26,13 @@ The rehearsal runs its old, dual-key, and new-only session nodes in Docker again
    ```
 
 3. Drain and stop all old-current API and Worker writers before starting any new-current API or Worker process. Do not leave an old-current writer running after the dual-root env is staged.
-4. Run the explicit mail diagnostic rekey operation while the writers remain stopped. Record zero previous references and zero unknown references in its output before any new-current API or Worker starts.
+4. Run the explicit mail diagnostic rekey operation while the writers remain stopped:
+
+   ```powershell
+   go run ./cmd/admin-db mail-diagnostic-rekey
+   ```
+
+   Record zero previous references and zero unknown references in its output before any new-current API or Worker starts.
 5. Recreate API and Worker containers through the approved Docker deployment. Do not start host processes. Never use `docker compose down -v`.
 6. Verify every node is healthy and that:
    - an access credential issued before the dual-key deployment still authenticates;
@@ -36,7 +42,14 @@ The rehearsal runs its old, dual-key, and new-only session nodes in Docker again
 7. Sign in again under the new current key. Revoke every session created before the cutover through the Admin session-management surface. The refresh-token pepper intentionally has no previous-key fallback.
 8. `APP_SECRET` also derives the secretbox key. Re-enter every encrypted business credential from the deployment secret store so it is encrypted under the new current key; validate each affected provider before continuing. This release does not silently migrate or log plaintext credentials.
 9. Keep the dual JWT verification window no longer than the declared maximum access-token TTL. Confirm no required old-key access session remains.
-10. Preserve the backup and rekey evidence before removing `APP_SECRET_PREVIOUS` from every node, recreate API/Worker containers with Docker, and prove:
+10. Immediately before removing `APP_SECRET_PREVIOUS`, drain and stop all API and Worker writers again, then run and record the independent final mail diagnostic gate:
+
+    ```powershell
+    go run ./cmd/admin-db mail-diagnostic-rekey
+    ```
+
+    Verify and record zero previous references and zero unknown references. Do not remove `APP_SECRET_PREVIOUS` until this final gate succeeds.
+11. Preserve the backup and rekey evidence before removing `APP_SECRET_PREVIOUS` from every node, recreate API/Worker containers with Docker, and prove:
    - current-key credentials still authenticate;
    - old-key access credentials fail;
    - old refresh credentials fail;

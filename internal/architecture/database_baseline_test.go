@@ -193,6 +193,20 @@ func TestMailVerificationDiagnosticDocumentation(t *testing.T) {
 			t.Errorf("session-secret rotation runbook missing %q", required)
 		}
 	}
+	rekeyCommand := "go run ./cmd/admin-db mail-diagnostic-rekey"
+	if strings.Count(rotation, rekeyCommand) != 2 {
+		t.Fatalf("session-secret rotation runbook must require the mail diagnostic rekey command twice")
+	}
+	firstRekey := strings.Index(rotation, rekeyCommand)
+	startGate := strings.Index(rotation, "before any new-current api or worker starts")
+	if firstRekey < 0 || startGate < firstRekey {
+		t.Fatal("initial mail diagnostic rekey must precede the new-current API/Worker start gate")
+	}
+	removeGate := strings.Index(rotation, "immediately before removing `app_secret_previous`")
+	secondRekey := strings.LastIndex(rotation, rekeyCommand)
+	if removeGate < 0 || secondRekey < removeGate || !strings.Contains(rotation[secondRekey:], "zero previous") || !strings.Contains(rotation[secondRekey:], "zero unknown") {
+		t.Fatal("removing APP_SECRET_PREVIOUS must have an independent final mail diagnostic zero-reference rekey gate")
+	}
 
 	architecture := read("docs", "architecture.md")
 	for _, required := range []string{

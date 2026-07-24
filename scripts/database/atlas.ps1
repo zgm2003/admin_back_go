@@ -18,7 +18,13 @@ if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
   throw 'Docker is required to run the pinned Atlas container.'
 }
 
-& docker run --rm --network none --volume "${root}:/workspace:ro" --workdir /workspace $image $Command @Arguments
+$mounts = @('--volume', "${root}:/workspace:ro")
+if ($Command -eq 'migrate' -and $Arguments.Count -gt 0 -and $Arguments[0] -eq 'hash') {
+  $migrations = Join-Path $root 'database\migrations'
+  $mounts += @('--volume', "${migrations}:/workspace/database/migrations:rw")
+}
+
+& docker run --rm --network none @mounts --workdir /workspace $image $Command @Arguments
 if ($LASTEXITCODE -ne 0) {
   throw "Atlas exited with code $LASTEXITCODE"
 }

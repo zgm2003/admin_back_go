@@ -74,6 +74,34 @@ func TestDatabaseLayoutSeparatesLegacyAndAtlasMigrations(t *testing.T) {
 	}
 }
 
+func TestAtlasHashGetsOnlyTheMigrationDirectoryWriteMount(t *testing.T) {
+	root := backendRoot(t)
+	script, err := os.ReadFile(filepath.Join(root, "scripts", "database", "atlas.ps1"))
+	if err != nil {
+		t.Fatalf("read Atlas wrapper: %v", err)
+	}
+	body := string(script)
+	for _, required := range []string{
+		`"${root}:/workspace:ro"`,
+		`$Command -eq 'migrate'`,
+		`$Arguments.Count -gt 0`,
+		`$Arguments[0] -eq 'hash'`,
+		`Join-Path $root 'database\migrations'`,
+		`"${migrations}:/workspace/database/migrations:rw"`,
+		`@mounts`,
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("Atlas wrapper missing scoped hash mount contract %q", required)
+		}
+	}
+	if strings.Contains(body, `"${root}:/workspace:rw"`) {
+		t.Fatal("Atlas wrapper must never grant the entire repository write access")
+	}
+	if strings.Count(body, ":rw") != 1 {
+		t.Fatal("only migrate hash may receive one writable mount")
+	}
+}
+
 func TestDatabaseVerificationPinsImmutableDockerInputs(t *testing.T) {
 	root := backendRoot(t)
 	scriptPath := filepath.Join(root, "scripts", "verify-database.ps1")
