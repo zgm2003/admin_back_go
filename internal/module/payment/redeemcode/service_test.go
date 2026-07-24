@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/module/payment/wallet"
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
 )
@@ -161,6 +163,68 @@ func TestServiceGenerateValidatesInputsAndBoundsCollisionRetries(t *testing.T) {
 	if appErr == nil || appErr.Code != ErrorIntegrityViolation || repository.createCalls != maxCreateBatchAttempts {
 		t.Fatalf("collision error=%+v calls=%d", appErr, repository.createCalls)
 	}
+}
+
+func TestServiceRepositoryIntegrityErrorsArePermanentAndNonRetryable(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	expires := now.Add(time.Hour)
+	dependencyErr := errors.New("database unavailable")
+	tests := []struct {
+		name   string
+		setErr func(*fakeRepository, error)
+		invoke func(*fakeRepository) *apperror.Error
+	}{
+		{name: "generate_find_batch", setErr: func(repository *fakeRepository, err error) { repository.findErr = err }, invoke: func(repository *fakeRepository) *apperror.Error {
+			service := NewService(repository, WithClock(clock.Func(func() time.Time { return now })), WithRandom(&incrementingReader{}))
+			_, appErr := service.GenerateBatch(context.Background(), 7, GenerateBatchInput{RequestID: "request-1", Amount: "1", Quantity: 1, ExpiresAt: &expires})
+			return appErr
+		}},
+		{name: "list", setErr: func(repository *fakeRepository, err error) { repository.listErr = err }, invoke: func(repository *fakeRepository) *apperror.Error {
+			service := NewService(repository, WithClock(clock.Func(func() time.Time { return now })))
+			_, appErr := service.List(context.Background(), ListQuery{})
+			return appErr
+		}},
+		{name: "lookup", setErr: func(repository *fakeRepository, err error) { repository.lookupErr = err }, invoke: func(repository *fakeRepository) *apperror.Error {
+			service := NewService(repository, WithClock(clock.Func(func() time.Time { return now })))
+			_, appErr := service.Lookup(context.Background(), LookupInput{Code: "ZHR-2345-6789-ABCD-EFGH-JKMN"})
+			return appErr
+		}},
+		{name: "export", setErr: func(repository *fakeRepository, err error) { repository.exportErr = err }, invoke: func(repository *fakeRepository) *apperror.Error {
+			service := NewService(repository, WithClock(clock.Func(func() time.Time { return now })))
+			_, appErr := service.Export(context.Background(), ExportInput{})
+			return appErr
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &fakeRepository{}
+			test.setErr(repository, ErrIntegrityViolation)
+			appErr := test.invoke(repository)
+			if appErr == nil || appErr.Code != ErrorIntegrityViolation || appErr.Category != apperror.CategoryInternal || appErr.HTTPStatus != http.StatusInternalServerError || appErr.Retryable() || appErr.Cause != nil {
+				t.Fatalf("integrity error=%+v", appErr)
+			}
+
+			repository = &fakeRepository{}
+			test.setErr(repository, dependencyErr)
+			appErr = test.invoke(repository)
+			if appErr == nil || appErr.Code != ErrorDependencyUnavailable || appErr.Category != apperror.CategoryDependency || appErr.HTTPStatus != http.StatusServiceUnavailable || !appErr.Retryable() || !errors.Is(appErr, dependencyErr) {
+				t.Fatalf("dependency error=%+v", appErr)
+			}
+		})
+	}
+}
+
+func TestServiceGenerateFindBatchIntegrityRecordsIntegrityReason(t *testing.T) {
+	recorder := &captureRecorder{}
+	repository := &fakeRepository{findErr: ErrIntegrityViolation}
+	service := NewService(repository, WithTelemetry(recorder), WithRandom(&incrementingReader{}))
+	_, appErr := service.GenerateBatch(context.Background(), 7, GenerateBatchInput{RequestID: "request-1", Amount: "1", Quantity: 1})
+	if appErr == nil || appErr.Code != ErrorIntegrityViolation {
+		t.Fatalf("GenerateBatch error=%+v", appErr)
+	}
+	assertCapturedMetric(t, recorder.events, "payment.redeem_code.batches", map[string]any{
+		"operation": "generate", "outcome": "error", "reason": "integrity",
+	})
 }
 
 func TestServiceListLookupProjectsDerivedStateAndCapturesOneNow(t *testing.T) {

@@ -125,8 +125,12 @@ func (service *Service) GenerateBatch(ctx context.Context, createdBy int64, inpu
 
 	existing, err := repository.FindBatchByRequest(ctx, createdBy, normalized.requestID)
 	if err != nil {
-		service.metrics.batch("error", "dependency")
-		return nil, managementDependency(err)
+		if errors.Is(err, ErrIntegrityViolation) {
+			service.metrics.batch("error", "integrity")
+		} else {
+			service.metrics.batch("error", "dependency")
+		}
+		return nil, managementRepositoryError(err)
 	}
 	if existing != nil {
 		response, replayErr := service.replayResponse(existing, fingerprint)
@@ -203,7 +207,7 @@ func (service *Service) List(ctx context.Context, query ListQuery) (*ListRespons
 	now := operationNow(service.clock)
 	rows, total, err := repository.ListCodes(ctx, query, now)
 	if err != nil {
-		return nil, managementDependency(err)
+		return nil, managementRepositoryError(err)
 	}
 	items := codeItems(rows, now)
 	return &ListResponse{List: items, Page: Page{
@@ -223,7 +227,7 @@ func (service *Service) Lookup(ctx context.Context, input LookupInput) (*LookupR
 	now := operationNow(service.clock)
 	row, err := repository.LookupCode(ctx, code, now)
 	if err != nil {
-		return nil, managementDependency(err)
+		return nil, managementRepositoryError(err)
 	}
 	if row == nil {
 		return &LookupResponse{}, nil
@@ -280,7 +284,7 @@ func (service *Service) Export(ctx context.Context, input ExportInput) (*ExportR
 	now := operationNow(service.clock)
 	rows, err := repository.ExportCodes(ctx, query, now, MaxExportRows+1)
 	if err != nil {
-		return nil, managementDependency(err)
+		return nil, managementRepositoryError(err)
 	}
 	if len(rows) > MaxExportRows {
 		return nil, newAppError(ErrorExportTooLarge, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "导出结果超过上限", nil)
@@ -598,6 +602,13 @@ func managementConflict(code, message string) *apperror.Error {
 
 func managementDependency(cause error) *apperror.Error {
 	return newAppError(ErrorDependencyUnavailable, apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "兑换码服务暂不可用", cause)
+}
+
+func managementRepositoryError(err error) *apperror.Error {
+	if errors.Is(err, ErrIntegrityViolation) {
+		return managementIntegrity(nil)
+	}
+	return managementDependency(err)
 }
 
 func managementIntegrity(cause error) *apperror.Error {
