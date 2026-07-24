@@ -1,10 +1,10 @@
 # AI 消费者对话交互、官方数值定价与钱包结算设计
 
 **日期：** 2026-07-24
-**状态：** P0 规则待修订，禁止据此进入 implementation plan
+**状态：** 待用户最终审核；第 2.4 节产品决策确认前不进入 implementation plan
 **取代：** `2026-07-24-ai-official-pricing-wallet-settlement-design.md` 与 `2026-07-24-ai-chat-consumer-interactions-design.md`
 
-> **P0 书面阻断（2026-07-24）：** 用户已经重新确认，聊天“取消”不是当然免费的业务终态。最终应按供应商实际已经消耗且能够取得的分类用量结算；只有供应商链路明确确认取消成功、并能证明没有产生可计费用量时才不扣款。当前第 11.5 节仍包含“running 时用户停止即 released”的旧规则，而且现有实现取消后可能拿不到供应商最终用量。该问题必须作为后续 AI 计费任务的首个专项设计，明确各供应商取消能力、流式 usage 获取、断连后用量对账和无法取得用量时的资金策略，再修订本文。阻断关闭前不得为本文编写或执行 implementation plan。
+> **2026-07-24 技术审查修订：** 本文已经统一取消、普通重试、计费明细、用户删除、媒体存储、执行所有权、Run Event 和钱包迁移语义。第 2.4 节仍有八项产品政策等待用户确认；这些条目不是默认值，也不能在实施计划中被擅自补全。
 
 ## 1. 目的
 
@@ -47,8 +47,9 @@
 16. 钱包可用余额不能因 AI 结算变成负数。
 17. 冻结只是预占可用余额，不是消费；只按最终真实用量扣款并释放差额。
 18. 所有付费入口都由客户端提供稳定 `request_id`；同一身份只能重放首次任务或结果，不能再次调用供应商或再次扣款。
-19. 正常状态下，已经交付或已经扣款的生成结果必须可由首次请求身份重放。本期不自动清理成功任务、成功结果正文或媒体对象；若平台永久损坏已扣款结果，则完整退款并稳定报错，绝不能借原请求再次生成或扣款。
-20. 供应商结果不确定、平台 finalizer 暂时失败或媒体对象处于候选状态时，都必须有持久化截止时间和有界恢复，不能无限冻结用户余额。
+19. 已经形成终态的生成请求必须可由首次请求身份重放其终态；重放不能再次调用供应商或再次扣款。成功结果保留多久、永久损坏后的退款方式由第 2.4 节决定。
+20. 供应商结果不确定、平台 finalizer 暂时失败或媒体对象处于候选状态时，都必须使用首次派发时固化的持久化截止时间和有界恢复，不能因重启续期或无限冻结用户余额；具体时长由第 2.4 节决定。
+21. 用户停止只改变内容是否发布，不抹掉已经发生的供应商用量。派发前取消或供应商明确证明未产生可计费用量时释放冻结；派发后取得完整合法用量时按实际用量结算，无法准确取得时不得按估算金额扣款。
 
 ### 2.2 消息与运行
 
@@ -71,6 +72,21 @@
 1. Codex 只自动运行与当前改动直接相关、预计单条两分钟内完成的针对性检查。
 2. 全仓测试、race、全量前端 coverage/build、Docker 和完整 release gate 只列出命令，由用户决定是否手动运行。
 3. 未经用户在当前对话明确授权，不启动预计超过两分钟的验证。
+
+### 2.4 待用户确认的产品决策
+
+以下决策没有从两份源 Spec 或现有代码中得到用户批准。它们不是默认行为；用户确认前，后续 implementation plan 不得实现依赖这些政策的自动清理、退款、封禁或收费分支。
+
+| ID | 待确认决策 | 已确定的技术边界 |
+| --- | --- | --- |
+| `PD-01` | 成功文本和媒体结果保存多久，是否设置成功结果 TTL | 保留期内同一 `request_id` 必须重放同一结果；政策确定前不得新增成功结果清理器 |
+| `PD-02` | 平台确认永久损坏已扣款结果时是否完整退款，以及是否允许其他退款方式 | 不得重新生成或二次扣款；临时存储故障不能被判成永久损坏 |
+| `PD-03` | 多图任务部分成功后，仅部分输出永久损坏时如何退款 | 用户主动删除与平台损坏必须分开；金额处理等待确认 |
+| `PD-04` | 对话、文本、工具、音频、图片和视频的绝对恢复截止时间 | 截止时间必须在首次派发时快照且不可因重启延长，余额不能无限冻结 |
+| `PD-05` | 单次计量/估算异常是否立即 block，以及 block 的阈值和作用范围 | 异常必须持久化并跨实例可见；当前请求不能猜价或透支 |
+| `PD-06` | block 通过 safety revision、Admin 审批还是其他受控方式解除 | 解除必须审计、不能通过重启或普通目录刷新绕过 |
+| `PD-07` | 供应商明确失败但返回完整可计费用量时，该失败尝试是否向用户收费 | 每次真实调用的原始用量都必须保存；未确认前不得把“必须计量”解释成“必须扣款” |
+| `PD-08` | 用户主动删除付费媒体后，对象立即清理、保留审计期还是长期保留 | 用户删除不退款，同一 `request_id` 返回原任务的已删除终态且不得重新生成 |
 
 ## 3. 当前项目事实与架构约束
 
@@ -184,7 +200,7 @@ route -> handler -> service -> repository -> model
 
 对持久化对话命令而言，HTTP 接收事务不冻结钱包。最终序列化的供应商请求、知识上下文、工具轮次上限、模型快照和保守报价只能由 Worker 在执行时确定；把冻结塞进对话 HTTP 接收事务会复制请求组装逻辑并产生过期快照。
 
-平台统一不变量是：真正执行供应商调用的一端在取得稳定业务任务和 Run、组装最终请求后、发送请求前完成权威冻结。对话和异步媒体任务由 Worker 执行；同步文本、音频或工具草稿链路由当前请求内的业务 service 执行。可选预检只能改善提示，不能代替执行端的价格、计量能力和可用余额校验。
+平台统一不变量是：所有付费生成先持久化业务任务，再由 durable task runner 取得 lease/fencing token；runner 在取得稳定 Run、组装最终请求后、发送请求前完成权威冻结。文本、音频和工具草稿可以由 HTTP 短时等待同一任务以保留同步体验，但供应商调用不由请求 context 或连接生命周期拥有。可选预检只能改善提示，不能代替执行端的价格、计量能力、媒体存储 readiness 和可用余额校验。
 
 所有可计费入口都必须先接收客户端 `request_id`、计算服务端请求指纹并持久化业务任务，再创建 Run、冻结和派发供应商请求。服务端自增 task ID 只能作为 task 创建成功后的内部身份，不能代替客户端请求 ID。相同请求重放返回首次任务或首次结果；相同 ID 携带不同输入返回 HTTP 409。
 
@@ -197,11 +213,15 @@ WebSocket 不是未读、钱包或完成状态的真相源：
   -> ai.response.start.v1
   -> 非持久化 delta
 
-最终完成事务
-  -> 账单结算或 unbilled 释放
-  -> 写入 assistant message
-  -> 完成 reply command 与 ai_run
-  -> 追加 durable ai.response.completed.v1
+供应商返回
+  -> 持久化 attempt、归一化原始用量和结果候选
+
+统一 finalizer
+  -> 决定账单终态并写最终不可变明细
+  -> capture 或 release
+  -> 原子完成 reply command、ai_run 与 Run Event
+  -> 未被取消时写入 assistant message 和 durable ai.response.completed.v1
+  -> 已取消时丢弃内容，但完整实际用量仍可 settled
 
 客户端收到完成事件
   -> 当前会话：恢复消息后推进已读游标
@@ -220,20 +240,22 @@ WebSocket 不是未读、钱包或完成状态的真相源：
 - `replycommand`：拥有回复命令、租约、停止、结果不确定恢复和聊天完成事务编排。
 - `replycommand` 同时拥有最终助手结果的短期持久化候选，保证供应商已经返回后可以只重试本地完成事务，而不重复调用供应商。
 - `message` / `conversation`：拥有消息与会话读写、软删除、配对投影和已读游标。
-- `run`：拥有 AI Run 监控记录、输入快照、点赞和运行详情投影。
+- `run`：拥有 AI Run 监控记录、输入快照、点赞、运行详情投影，以及“状态条件更新 + 有序 Run Event”的事务参与接口。
+- durable task runner：只拥有任务调度、claim/续租和 fencing 执行框架，不拥有各模态业务终态；HTTP 连接不是任务 owner。
+- `storage`：拥有不可变位置版本解析、凭据轮换，以及私有对象 Put/stream/multipart、Stat、Delete 和短时只读签名能力。
 - text、tool、image、video、audio 各自拥有自己的业务任务、请求指纹和可重放结果；不建立一个同时接管所有产品状态的通用“生成任务”大表。
 - 各模态业务服务通过小接口接入 `pricing`、`providerattempt`、`usagecharge` 和 `wallet`，不复制价格公式或直接修改钱包表。
 
 聊天完成时，由 `replycommand` 的窄工作流 finalizer 使用共享数据库事务，调用各所有者提供的事务参与接口；它不能绕过模块 repository 直接写财务表。其他模态由各自任务 finalizer 使用同一 `usagecharge`/`wallet` 能力，不复制第二套余额逻辑。
 
-### 5.6 计费 profile 的跨实例熔断
+### 5.6 计费 profile 异常与跨实例保护
 
 价格解析时必须生成两种身份：
 
 - `billing_profile_digest`：规范模型、模态/档位、实际采用的价格项、用量归一化 profile、估算器与金额算法实现版本、输入/输出硬上限的规范 SHA-256，用于账单快照和金额指纹；
 - `billing_safety_key`：规范模型、模态/档位、用量/估算 profile key 和显式 `billing_safety_revision` 的规范 SHA-256，用于跨目录版本的运行安全 block。
 
-运行中出现以下任一情况，都说明此前宣称 billing-ready 的 safety profile 已经失效，不能只在当前进程打印日志后继续接单：
+运行中出现以下任一情况，都说明此前宣称 billing-ready 的 safety profile 至少发生了需要审计的异常，不能只在当前进程打印日志后继续接单：
 
 - 实际费用超过保守冻结；
 - profile 宣称可计量，但供应商返回的必要用量缺失、不合法或不能守恒；
@@ -246,7 +268,7 @@ WebSocket 不是未读、钱包或完成状态的真相源：
 billing_safety_key
 ```
 
-记录同时保存触发时的 `billing_profile_digest`、目录摘要、规范模型、模态、profile key、首次/最近违规 Run 与账单、受控原因、测算金额、冻结金额和 `blocked_at`。finalizer 在完成该次 `settled`、`released` 或 `unbilled` 的同一数据库事务内幂等写入 block；之后所有实例在冻结前都必须检查 safety key，命中时返回定价未就绪且不得调用供应商。该表不是价格覆盖表，不允许修改单价或倍率，也不提供本期 Admin 解封接口。修正相关价格/计量/估算输入后必须显式递增 `billing_safety_revision` 才能形成新 key；仅修改无关目录项、目录摘要或官方价格数值不能意外绕过旧 block，旧 block 永久保留审计。
+记录同时保存触发时的 `billing_profile_digest`、目录摘要、规范模型、模态、profile key、首次/最近违规 Run 与账单、受控原因、测算金额、冻结金额和 `blocked_at`。finalizer 在完成该次 `settled`、`released` 或 `unbilled` 的同一数据库事务内幂等写入异常事实；是否立即把该事实提升为跨实例 active block、触发阈值和解除方式由 `PD-05`、`PD-06` 决定。无论采用哪种政策，所有实例在冻结前都必须读取同一份持久化 readiness 结果，命中 active block 时不得调用供应商。该表不是价格覆盖表，不允许修改单价或倍率；重启、缓存刷新或无关目录更新不能绕过已生效的 block。最终 schema 必须保留旧异常的审计事实，并能表达受控解除或新的 `billing_safety_revision`，具体动作在产品决策确认后冻结。
 
 ## 6. 官方数值价格目录
 
@@ -351,7 +373,7 @@ contracts/ai-pricing/v1/catalog.schema.json
 
 驱动必须区分“字段不存在”和“字段存在且为 0”。模型存在独立缓存价格、但响应无法区分普通与缓存输入时，用量标记为不完整。
 
-不完整或不合法用量不能全部按普通输入高价扣款。若供应商已经返回有效内容，账单进入 `unbilled`、释放冻结，用户仍获得完整回复，平台承担异常成本。若没有形成有效结果，则按失败流程结束。两种情况都记录可诊断计费故障，并按第 5.6 节 block 此前错误宣称 billing-ready 的 safety profile。
+不完整或不合法用量不能全部按普通输入高价扣款。若供应商已经返回有效内容，账单进入 `unbilled`、释放冻结，用户仍获得完整回复，平台承担异常成本。若没有形成有效结果，则按失败流程结束。两种情况都记录第 5.6 节定义的跨实例计费异常；是否提升为 active block 遵循 `PD-05`。
 
 模型官方规则本身没有缓存价格时，完整输入总量可直接按普通输入计费。
 
@@ -418,29 +440,26 @@ capture  -> 减少 held_units 与 balance_units，并写一条扣款流水
 release  -> 只减少 held_units
 ```
 
-每个冻结使用唯一 `(source_type, source_id)`，AI 的 `source_id` 是用量账单 ID。最终扣款使用 `SourceAIGenerate`；结算后冲正使用 `SourceAIRefund`。释放未扣款冻结不是退款，不产生钱包收入流水。本期退款是以 charge ID 幂等执行的一次完整冲正，不支持多次或部分退款；退款不修改已结算账单和原扣款流水。
+每个冻结使用唯一 `(source_type, source_id)`，AI 的 `source_id` 是用量账单 ID。最终扣款使用 `SourceAIGenerate`；若 `PD-02`/`PD-03` 确认需要结算后冲正，则使用 `SourceAIRefund`。释放未扣款冻结不是退款，不产生钱包收入流水。退款不修改已结算账单和原扣款流水；退款范围、次数和幂等身份必须在两项政策确认后冻结，若允许多图部分退款，不能只用 charge ID 唯一键阻止合法的不同输出退款。
 
 冻结、补充、捕获和释放都锁定钱包行并保持幂等。钱包规则只存在于 `wallet` 模块，`usagecharge` 和 AI 服务不得复制余额算法。
 
-Token 请求临时冻结按普通输入、缓存写入、缓存读取中的最高适用价格估算；最终只按真实互斥分类扣款并释放差额。每个请求必须有最大输出 Token，未提供时使用产品上限与目录模型上限中的较小值；工具调用轮次也必须有产品硬上限，否则无法形成可证明的最大报价。
+Token 请求临时冻结按普通输入、缓存写入、缓存读取中的最高适用价格估算；最终只按真实互斥分类扣款并释放差额。每个请求必须有最大输出 Token，未提供时使用产品上限与目录模型上限中的较小值；工具调用轮次、工具输出和每轮模型输出都必须有产品硬上限。能够形成整次安全上界时，首次冻结直接覆盖全部允许轮次；无法形成整次上界时才允许按轮次补充同一冻结。
 
 目录为模型绑定受控冻结估算 profile。估算器接收最终序列化供应商请求并返回保守输入上界，禁止使用通用字符数随意猜测。缺少经过测试的估算 profile 或输出上限时，模型不能进入 billing-ready。
 
-工具对话每次追加模型调用前补充同一冻结；余额不足则在下一次供应商调用前停止，绝不先调用再透支。
+按轮次补充冻结时，必须在每次追加模型调用前完成。余额不足则停止下一次供应商调用，并由统一 finalizer 按此前已经发生且能够准确取得的实际用量结算；Run/任务失败且不交付半成品，不能释放全部冻结后把此前供应商成本变成免费调用，也绝不先调用再透支。
 
 冻结的 `expires_at` 是下一次恢复扫描时间，不是自动归还时间；权威硬上限由账单的 `resolution_deadline_at` 表达。恢复 Worker 只有在证明失败、取消、形成可恢复结果候选或到达硬上限后，才能通过统一 finalizer 改变资金状态，不能仅靠一个过期扫描器直接修改钱包。
 
-首版运行策略固定如下，计时起点为首次 provider-attempt 进入 `dispatched`：
+恢复策略必须按模态保存两个不同的时间点，计时起点固定为首次 provider-attempt 进入 `dispatched`：
 
-| 模态 | `uncertain_resolution_ttl` | `absolute_resolution_ttl` |
-| --- | ---: | ---: |
-| 对话、文本、工具草稿、音频 | 15 分钟 | 1 小时 |
-| 图片 | 30 分钟 | 6 小时 |
-| 视频 | 6 小时 | 24 小时 |
+- `uncertain_resolution_ttl`：下一次对账扫描的最小间隔；
+- `absolute_resolution_ttl`：从首次派发起算的不可延长硬截止时间。
 
-`uncertain_resolution_ttl` 到达时，如果没有可靠的“供应商任务仍在执行”证据，则立即终结恢复；只有供应商权威查询明确报告任务仍活跃时，才把 `next_reconcile_at` 推进到不晚于“当前时间 + 本模态 uncertain TTL”，且绝不能越过 `resolution_deadline_at = first_dispatched_at + effective_absolute_resolution_ttl`。目录版本可以为特定模型声明更短期限，但不能超过上表绝对上限，运行中也不能因重新部署而重算首次截止时间。
+两者必须在首次派发前由目录/运行策略解析并写入账单快照；重新 claim、进程重启、Worker 迁移和供应商轮询都不能重算或延长 `resolution_deadline_at`。各模态的具体时长尚待 `PD-04` 确认，未确认前不能把任意示例分钟数当成实施约束，也不能将模型配置声明为 billing-ready。
 
-到达绝对上限后：已有完整且验证通过的结果候选按 `unbilled` 免费完成并交付；没有可靠结果候选则将任务/命令和 Run 设为失败、账单设为 `unbilled`、释放冻结并 best-effort 取消供应商任务。此后到达的迟到结果只记录摘要并丢弃，不能重新扣款或把失败请求改回成功。这样即使供应商或本地 finalizer 长时间异常，也不会无限占用用户可用余额。
+到达已确认的绝对上限后：已有完整且验证通过的结果候选按最终计费政策完成；没有可靠结果候选则将任务/命令和 Run 设为失败或取消终态、账单进入不捕获用户资金的终态并释放冻结。此后到达的迟到结果只记录摘要并丢弃，不能重新扣款或把已终结请求改回成功。无论产品政策如何选择，都不得无限占用用户可用余额；无法取得准确用量时禁止按估算金额结算。
 
 ## 10. 持久化模型
 
@@ -498,11 +517,13 @@ Token 请求临时冻结按普通输入、缓存写入、缓存读取中的最�
 
 ```text
 running -> success | failed | canceled | timeout | outcome_unknown
-outcome_unknown -> success | failed
+outcome_unknown -> success | failed | canceled | timeout
 outcome_unknown -> running（仅当对账证明上次请求未执行且允许重试）
 ```
 
-进入 `outcome_unknown` 时追加同名 Run 事件但不写 `finished_at`。恢复重试时仍复用同一 Run，并追加新的 `start` 事件；只有最终状态才写 `finished_at`。通用 stale-run 清理必须排除有关联活动命令、`outcome_unknown` 命令或 `uncertain` 账单的 Run。
+普通可重试失败不终结 Run：命令回到 `pending`，Run 保持 `running`，并追加一次幂等的 `retry_scheduled` Run Event。下一次真实供应商调用使用新的 `attempt_no`；只有供应商明确保证幂等重放时才复用原 provider idempotency key。重试等待期间 Charge 与非零 Hold 保持非终态，不能先 `released` 后复活账单。首次执行时快照 `max_attempts`，重新 claim 和重启不得重置已消耗次数。达到 `max_attempts`、不可重试错误或恢复硬截止后，统一 finalizer 才终结 Command、Run、Charge、Hold 和 durable failed/canceled event；`resolution_deadline_at` 不因重试或重启延长。各 attempt 的原始用量全部保留，最终是否把失败 attempt 纳入用户扣款由 `PD-07` 决定。
+
+进入 `outcome_unknown` 时追加同名 Run 事件但不写 `finished_at`。恢复重试时仍复用同一 Run，并追加新的 `start` 事件；只有最终状态才写 `finished_at`。所有状态条件更新、时间字段、Token/用量汇总、assistant 绑定和有序 Run Event 必须由同一个事务参与接口原子完成。通用 stale-run 清理必须排除有关联活动命令、`outcome_unknown` 命令或 `uncertain` 账单的 Run。
 
 ### 10.5 `ai_usage_charges`
 
@@ -527,7 +548,7 @@ pending -> rejected
 reserved -> unbilled
 ```
 
-`settled`、`released`、`rejected`、`unbilled` 是终态。`unbilled` 只表达“本次没有捕获用户资金”，不单独表达业务成功或失败：有完整有效结果时，业务任务/命令和 Run 成功、结果 `finalized` 并免费交付；没有可靠结果时，业务任务/命令和 Run 失败且不交付结果。查询与审计必须联合业务状态、结果状态和账单状态判断，不能把所有 `unbilled` 都显示成成功或失败。退款通过新钱包入账表达，不修改已结算账单金额。
+`settled`、`released`、`rejected`、`unbilled` 是终态。`unbilled` 只表达“本次没有捕获用户资金”，不单独表达业务成功或失败：有完整有效结果时，业务任务/命令和 Run 可以成功或取消，结果按对应规则发布或丢弃；没有可靠结果时，业务任务/命令和 Run 失败或取消且不交付结果。查询与审计必须联合业务状态、结果状态和账单状态判断，不能把所有 `unbilled` 都显示成成功或失败。退款若经 `PD-02`/`PD-03` 确认，通过新钱包入账表达，不修改已结算账单金额。
 
 `uncertain -> reserved` 只允许在供应商对账明确证明上次请求没有执行、回复命令被重新排队时发生；继续复用原价格快照和冻结。已确认供应商成功或仍无法判定时禁止重发。
 
@@ -535,17 +556,17 @@ reserved -> unbilled
 
 ### 10.6 `ai_usage_charge_items`
 
-计费明细为追加写事实，保存：
+计费明细为最终结算时追加写入的不可变事实，保存：
 
 - 账单 ID、供应商调用序号；
 - 可选 provider-attempt 与 provider-request 身份；
 - `metric_code`、`tier_key`、数量、数量单位；
 - 定价数量单位和人民币单价；
 - 官方原始币种/数值与人民币数值；
-- 分配后的基础计算金额、倍率后计算金额和用户实际扣款金额；
+- 分配后的基础计算金额、倍率后计算金额和最终用户实际扣款金额；
 - 用量指纹和价格指纹。
 
-唯一的调用/指标/档位身份阻止 Worker 重试重复写入。即使账单 `released` 或 `unbilled`，真实数量与计算金额仍保留，但用户实际扣款金额为零，用于明确区分平台测得成本与用户钱包扣款。
+provider-attempt 或完成候选阶段只保存经过校验的归一化原始用量、用量完整性和用量指纹，不提前写入 `ai_usage_charge_items`。统一 finalizer 在已经决定 `settled`、`released` 或 `unbilled` 后，与 Charge/钱包终态同一事务内一次性插入最终明细；`released` 或 `unbilled` 的用户实际扣款金额为零，但平台测得的原始数量和理论金额仍保留在 attempt/candidate 审计事实中。唯一身份中的 `tier_key` 必须为 `NOT NULL` 规范值；没有档位时使用空字符串，不能依赖 MySQL nullable unique column 阻止重复。重试发现相同身份但指纹不同必须失败并进入诊断恢复，不能覆盖旧事实。
 
 ### 10.7 `wallet_holds`
 
@@ -560,7 +581,7 @@ reserved -> unbilled
 - 全部调用的聚合用量指纹与用量完整性；
 - `staged`、`finalized` 或 `discarded` 状态及关键时间。
 
-最终一次 provider-attempt 结果、已归一化计费明细和完成候选在同一短事务中持久化。该事务必须再次验证 command 仍为当前租约 owner/fencing token 持有的 `running` 状态；候选写入成功后，任何 Worker 重试都只能重试本地 finalizer，不能再次调用供应商。
+最终一次 provider-attempt 结果、经过校验的归一化原始用量和完成候选在同一短事务中持久化。该阶段只保存用量数量、分类、完整性和指纹，不写包含“用户实际扣款金额”的最终计费明细。事务必须再次验证 command 仍为当前租约 owner/fencing token 持有的 `running` 或已接受取消请求但尚未终结的状态；候选写入成功后，任何 Worker 重试都只能重试本地 finalizer，不能再次调用供应商。
 
 候选正文只用于崩溃恢复，访问边界与 `ai_messages` 相同且不得进入日志。finalizer 成功插入正式助手消息或确认丢弃时，在同一事务中清空候选正文，只保留哈希、状态和时间，避免永久保存第二份回复正文。
 
@@ -578,9 +599,9 @@ reserved -> unbilled
 | `request_fingerprint_version` | 各任务类型固定的指纹算法版本 |
 | `run_id` | 一对一绑定的稳定 AI Run |
 
-每张任务表使用 `(platform, user_id, request_id)` 唯一约束。相同 ID 和相同指纹返回首次任务及其当前状态；首次任务成功时重放首次结果，失败或结果不确定时返回同一状态，不能创建第二次供应商调用。相同 ID 与不同指纹返回 HTTP 409。用户主动发起一次新的生成必须使用新的 `request_id`。
+每张任务表使用 `(platform, user_id, request_id)` 唯一约束。所有参与幂等唯一键的 `request_id` 列必须显式使用 `utf8mb4_0900_bin`，不能继承数据库默认的 `utf8mb4_0900_ai_ci`；应用层按持久化 UTF-8 字节进行同样的大小写敏感比较。相同 ID 和相同指纹返回首次任务及其当前状态；首次任务成功时重放首次结果，失败、用户删除或结果不确定时返回同一任务和状态，不能创建第二次供应商调用。相同 ID 与不同指纹返回 HTTP 409。用户主动发起一次新的生成必须使用新的 `request_id`。
 
-`request_id` 先执行一次首尾空白去除，之后必须包含 1 至 128 个 Unicode 字符且不得含控制字符、换行或保留前缀 `legacy:`；服务端持久化该规范值，后续比较区分大小写。缺失/空白与格式非法是两个稳定错误。唯一键冲突后必须重新读取既有任务并比较指纹，不能把所有数据库唯一键错误都当成幂等成功。
+`request_id` 先执行一次首尾空白去除，之后必须包含 1 至 128 个 Unicode 字符且不得含控制字符或换行；客户端 ID 对 ASCII `legacy:` 保留前缀执行大小写不敏感拒绝，迁移生成值只使用精确小写 `legacy:`。服务端持久化规范值，除此之外的后续比较全部区分大小写。缺失/空白与格式非法是两个稳定错误。唯一键冲突后必须重新读取既有任务并比较指纹，不能把所有数据库唯一键错误都当成幂等成功。
 
 指纹覆盖任务类型、智能体 ID、服务端规范化后的全部生成参数以及输入内容。图片/视频参考文件使用服务端计算的内容 SHA-256 和稳定存储身份，不能信任客户端文件名、URL 或客户端上报哈希。客户端若仍携带兼容性 `model_id`，该值属于客户端意图并进入指纹；对新任务才校验它与智能体当前模型一致，实际执行仍以服务端智能体配置为准。幂等查询和指纹比较必须早于这类会随管理员配置变化的 readiness 校验，因此旧请求在智能体改模型后仍能重放首次结果。服务端当前模型、目录版本和倍率属于首次执行快照，不属于客户端请求指纹。
 
@@ -601,36 +622,44 @@ audio-task:<id>
 
 ### 10.10 可重放结果与模态任务
 
-除聊天 reply command 继续使用 `succeeded` 外，非聊天模态任务统一使用 `pending`、`running`、`success`、`failed`、`outcome_unknown` 业务状态，并另存 `result_state`：
+除聊天 reply command 继续使用 `succeeded` 外，非聊天模态任务统一使用 `pending`、`running`、`success`、`failed`、`canceled`、`outcome_unknown` 业务状态，并另存 `result_state`：
 
 ```text
 none -> staged -> finalized
                -> discarded
-finalized -> unavailable（仅确认结果完整性永久损坏）
+finalized -> user_deleted（用户主动删除）
+finalized -> unavailable（平台确认结果永久损坏）
 legacy（仅 `request_id_source=legacy` 的迁移终态）
 ```
 
-新的客户端任务进入 `success` 的事务必须同时把结果设为 `finalized`；之后只有确认结果完整性永久损坏时才允许转为 `unavailable`。`legacy` 只隔离无法在 SQL 迁移中证明新结果契约的历史任务，不得进入客户端幂等重放、计费或新 Worker。`staged` 只表示平台已经持久化可恢复候选，不能通过用户查询、直链或签名 URL 对外发布。候选至少保存内容 SHA-256、规范结果 manifest SHA-256、可计费用量指纹、创建时间和 finalizer 错误摘要。正文类候选保存在所属任务表；对象类候选还保存 `storage_provider`、私有 `storage_key`、MIME、字节数和模态元数据。
+新的客户端任务进入 `success` 的事务必须同时把结果设为 `finalized`。用户主动删除只允许 `finalized -> user_deleted`，不退款、不修改旧账单或钱包流水；同一 `request_id` 始终返回原任务及 `user_deleted`，再次生成必须使用新 ID。删除事务不得通过通用 `is_del` 过滤把任务移出幂等查询范围：普通列表可以隐藏结果，但 request ID 查询必须包含 `user_deleted` 终态。平台完整性检查不能把 `user_deleted` 当作损坏；只有仍应可用的结果被确认永久缺失或摘要不符时才允许 `finalized -> unavailable`，具体退款动作受 `PD-02`、`PD-03` 约束。聊天消息继续使用 `is_del` 表达用户隐藏，不改变 Run 或财务事实。
+
+`legacy` 只隔离无法在 SQL 迁移中证明新结果契约的历史任务，不得进入客户端幂等重放、计费或新 Worker。`staged` 只表示平台已经持久化可恢复候选，不能通过用户查询、直链或签名 URL 对外发布。候选至少保存内容 SHA-256、规范结果 manifest SHA-256、可计费用量指纹、创建时间和 finalizer 错误摘要。正文类候选保存在所属任务表；对象类候选还保存不可变 `storage_location_id`、私有 `storage_key`、MIME、字节数和模态元数据。
 
 - `ai_text_tasks` 继续保存最终答案，并补充幂等字段、Run 绑定、业务状态和 `result_state`。
-- 新增 `ai_tool_generation_tasks`，保存规范化需求、code hint、有效的最终草稿/澄清结果 JSON 和同一组幂等、Run、状态字段。模型返回合法的 `ok=false` 澄清结果属于成功结果并正常结算；协议无效或无法解析的输出不交付用户，任务按失败结束、释放冻结并记录供应商实际用量与协议诊断，不把原始模型文本当作草稿返回。
-- `ai_image_tasks` 增加幂等字段、显式 Run 绑定、结果状态、期望/实际输出数量和 manifest 摘要；现有 `ai_image_files` 继续作为输入、遮罩和输出结果事实。输出行增加 `publish_state`、内容 SHA-256 和验证元数据，多张输出全部进入候选 manifest 后才允许 finalizer；官方允许部分成功时，manifest 明确实际成功集合并只按该集合结算。
-- `ai_video_tasks` 增加幂等字段、结果状态与候选对象元数据。供应商成功后先把最终视频复制到平台控制的私有对象存储；只保存易过期的 provider task ID 不足以承诺已付费结果可重放。
-- 新增 `ai_audio_tasks`，保存规范化请求、业务/结果状态、Run、候选对象的 storage key、MIME、字节数、内容 SHA-256 和时长等可验证元数据。音频正文进入平台控制的私有对象存储，不把大二进制写入 MySQL。
+- 新增 `ai_tool_generation_tasks`，保存规范化需求、code hint、有效的最终草稿/澄清结果 JSON 和同一组幂等、Run、状态字段。模型返回合法的 `ok=false` 澄清结果属于成功结果并正常结算；协议无效或无法解析的输出不交付用户，任务按失败结束并记录供应商原始用量与协议诊断，失败尝试是否扣款遵循 `PD-07`，不把原始模型文本当作草稿返回。
+- `ai_image_tasks` 增加幂等字段、显式 Run 绑定、结果状态、期望/实际输出数量和 manifest 摘要；现有 `ai_image_files` 继续作为输入、遮罩和输出结果事实。输出行增加 `publish_state`、内容 SHA-256 和验证元数据，多张输出全部进入候选 manifest 后才允许 finalizer；官方允许部分成功时，manifest 明确实际成功集合并只按该集合结算。用户删除与平台损坏分别记录，不能复用同一个 `is_del` 推导退款。
+- `ai_video_tasks` 增加幂等字段、结果状态与候选对象元数据。供应商成功后先把最终视频复制到平台控制的私有对象存储；只保存易过期的 provider task ID 不足以承诺结果可重放。
+- 新增 `ai_audio_tasks`，保存规范化请求、业务/结果状态、Run、候选对象的 storage location/key、MIME、字节数、内容 SHA-256 和时长等可验证元数据。音频正文进入平台控制的私有对象存储，不把大二进制写入 MySQL。
+
+对象的稳定身份是 `(storage_location_id, storage_key)`。`storage_location_id` 指向 storage 模块拥有的不可变位置版本，固化 provider、bucket、region 和规范 endpoint 等非秘密定位信息；现有上传驱动修改 bucket/region/endpoint 时必须产生新位置版本，旧位置只停止新写入，不能因配置切换而失去读取能力。凭据继续使用现有加密上传配置和 `APP_SECRET` 根密钥体系，可在同一位置下受控轮换，结果表不保存秘密明文，也不新增计费专用密钥。
+
+媒体在任何供应商派发前必须验证目标位置具备本模态所需的写入、读取、Stat/HEAD、幂等 Delete 和授权下载能力；大视频还必须具备流式或 multipart 上传，禁止用当前只接收 `[]byte` 的 `ObjectWriter` 缓冲完整视频。私有结果下载固定采用“后端先校验当前用户所有权和 `result_state=finalized`，再签发短时只读 URL”的契约；URL 只是临时交付凭证，不是对象身份。
 
 对象结果采用以下两阶段发布协议：
 
-1. 使用由 task ID 和输出序号派生的确定性私有 key 上传，写入内容摘要元数据；相同 key 的恢复上传必须先 HEAD 并核对摘要，绝不能静默覆盖不同内容；
-2. 上传和完整性校验成功后，在持有任务 lease/fencing token 的短事务中写入 `staged` 候选、provider-attempt 结果和归一化用量；
-3. finalizer 锁定任务、候选、账单和钱包，原子提交业务 `success`、结果 `finalized`、Run 与财务终态；对象不需要在事务后移动，下载授权只允许读取数据库已 `finalized` 且属于当前用户的私有 key；
-4. 上传成功但数据库提交前崩溃时，Worker 用确定性 key 和摘要恢复候选；没有任何任务/候选引用的对象只能由带宽限和宽限期的孤儿清理器删除；
-5. 失败或取消的候选进入 `discarded`，对象删除使用幂等清理任务。删除失败只产生清理告警，不能把业务失败改成成功，也不能再次调用供应商。
+1. 在稳定的私有结果命名空间中，使用由 task ID 和输出序号派生的确定性 key 上传并写入内容摘要；key 不包含 `staged/finalized/user_deleted` 状态，相同 key 的恢复上传必须先 HEAD 并核对摘要，绝不能静默覆盖不同内容；
+2. 上传和完整性校验成功后，在持有任务 lease/fencing token 的短事务中写入 `staged` 候选、provider-attempt 结果和归一化原始用量；
+3. finalizer 锁定任务、候选、账单和钱包，原子提交业务状态、结果状态、最终计费明细、Run/Run Event 与财务终态；对象不因状态改变而移动，授权层只允许读取当前数据库仍可见的 `finalized` 对象；
+4. 上传成功但数据库提交前崩溃时，Worker 用确定性 location/key 和摘要恢复候选；没有任何任务/候选引用的对象只能由带宽限和宽限期的孤儿清理器删除；
+5. 失败或取消的候选进入 `discarded`，对象删除使用幂等清理任务。临时上传使用独立命名空间和独立生命周期规则；清理器不能仅凭 key 前缀推断业务状态；
+6. 用户删除只改变数据库可见性和 `result_state`，对象何时物理删除由 `PD-08` 决定。删除失败只产生清理告警，不能改变业务或财务终态，也不能再次调用供应商。
 
-`storage_provider + storage_key` 是对象身份事实；历史 `storage_url` 如继续保留，只能作为可重新生成的展示缓存，不能用于结算、重放或完整性判断。成功结果使用独立私有前缀，该前缀必须排除在临时上传和孤儿对象生命周期规则之外。
+所有付费生成都由 durable task runner 取得任务 lease/fencing token 后执行。文本、工具草稿和音频仍可提供同步体验，但 HTTP handler 只在有界时间内等待同一个持久化任务的 finalizer 结果；供应商调用使用由 runner 所有、独立于 HTTP 连接且受任务截止时间约束的 context。客户端断开只停止等待，不撤销任务 owner、不直接取消供应商调用，也不能让第二个执行者再次派发。
 
-同步文本、工具草稿和音频仍可保持同步 HTTP 体验，但响应必须来自已经 finalizer 成功的持久化结果。若成功响应在网络途中丢失，客户端用同一 `request_id` 重试时直接重放结果，不能重新调用供应商或再次扣款。任务显示 `success` 但正文、manifest 或对象引用经确认永久缺失/摘要不符时，结果完整性 finalizer 锁定结果、账单和钱包，在同一事务内把结果从 `finalized` 置为 `unavailable`，并在原账单确有非零 `settled` 扣款时通过 `SourceAIRefund + charge_id` 身份幂等执行一次完整退款；账单和原扣款仍保持不可变审计。随后返回 `error.code=ai.result_unavailable`，绝不能借同一 ID 重新生成。对象存储暂时不可用时只返回可重试 dependency 错误，不提前判定永久损坏或退款。
+任务显示 `success` 但正文、manifest 或对象引用经确认永久缺失/摘要不符时，先幂等转为 `unavailable` 并返回 `error.code=ai.result_unavailable`，绝不能借同一 ID 重新生成。是否以及如何退款按 `PD-02`、`PD-03` 执行；账单与原扣款始终保持不可变审计。对象存储暂时不可用时只返回可重试 dependency 错误，不提前判定永久损坏或退款。
 
-本期不实现成功结果 TTL，也不注册清理成功任务、结果正文、`finalized` 图片、视频或音频对象的定时任务。输入附件继续遵守既有存储生命周期，但不得清理仍被付费结果重放所需的对象。未来删除或分层归档成功结果必须另写产品保留策略、用户提示、账单争议规则和数据迁移设计，不能作为普通后台清理顺手加入。
+成功结果保留策略由 `PD-01` 决定。在该决策确认并形成迁移、用户提示和争议规则之前，不得新增清理成功任务、结果正文或 `finalized` 媒体对象的后台任务；这只是防止未授权数据丢失的发布门槛，不等同于已经承诺无限期保存。输入附件继续遵守既有存储生命周期，但不能误删仍被结果重放引用的对象。
 
 ### 10.11 Run 级供应商尝试
 
@@ -640,24 +669,25 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 - `(run_id, attempt_no)` 唯一，每个 Run 内的供应商调用序号从 1 单调递增；工具调用后的模型轮次使用下一序号；
 - 每个调用在发送前持久化 `prepared` 并取得由 `run_id + attempt_no` 派生的稳定 provider idempotency key；“即将发送”不能与外部网络 I/O 真正原子，因此发送前先持久化 `dispatched_at` 和 `dispatched`，再使用同一个 key 调用供应商；
 - 驱动支持时必须把该 key 传给供应商；异步媒体同时保存 provider task ID；
-- 成功保存供应商请求 ID、响应哈希和结构化用量，失败、取消与 `outcome_unknown` 保存明确状态；
+- 每次响应都保存供应商请求 ID、响应哈希、经过校验的归一化原始用量、完整性和用量指纹；失败、取消与 `outcome_unknown` 也保存明确状态，不能因为业务没有结果就丢弃供应商返回的 usage；
 - `prepared` 且没有 `dispatched_at` 可以由当前合法执行 owner 使用原 key 派发；任何已经带 `dispatched_at` 的尝试都视为“可能已到达供应商”；
-- 恢复只能复用同一调用身份。只有供应商文档明确保证该 key 的幂等重放，或权威查询证明上次没有执行时才可再次发送；否则保持不确定并最终按本设计释放，禁止换新 key 盲目重发。
+- 恢复只能复用同一调用身份。只有供应商文档明确保证该 key 的幂等重放，或权威查询证明上次没有执行时才可再次发送；否则保持不确定并最终按本设计终结，禁止换新 key 盲目重发；
+- 已证明未形成成功结果的普通可重试错误把业务任务重新排队，但原 Run、Charge、价格/倍率快照、Hold 和首次 `resolution_deadline_at` 保持不变；下一次真实供应商调用分配新的 `attempt_no`，Run 原子追加 `retry_scheduled` 事件。
 
 聊天现有 command lease/fencing token 继续保护尝试写入；其他任务必须提供等价的 claim/lease 或单次 compare-and-swap 状态保护，不能仅凭 Run ID 绕过执行所有权。
 
 ### 10.12 `ai_billing_profile_blocks`
 
-该表由 `pricing` 能力拥有，只保存系统自动触发的运行安全 block：
+该表由 `pricing` 能力拥有，保存跨实例计费异常及其 block 判定所需事实：
 
 - 目录摘要、规范模型、模态和估算 profile key；
 - `billing_profile_digest`；
 - `billing_safety_key` 与触发时的 safety revision；
 - 首次/最近触发的 Run 与账单 ID；
 - 冻结金额、完整测算金额、原因和触发次数；
-- `blocked_at`、`last_seen_at`，不使用软删除。
+- 异常首次/最近时间、触发计数，以及产品政策确认后所需的 active/resolved 审计字段；不使用软删除掩盖历史。
 
-唯一键为 `billing_safety_key`。表中存在该 key 即表示 block 生效，不设置可被误清空的布尔开关；只有修正后显式递增 `billing_safety_revision` 才能恢复 billing-ready。读取失败必须 fail closed，不能在数据库异常时绕过 block 检查。
+唯一聚合身份为 `billing_safety_key`。表中存在异常记录不自动等同于 active block；异常提升阈值和解除渠道由 `PD-05`、`PD-06` 决定并在实施前冻结。active 判定必须由 `pricing` 模块单点提供、跨实例一致且 fail closed，不能在数据库异常、进程重启或缓存失效时绕过。无论最终采用 safety revision 还是受控 Admin 解除，历史异常、block 和解除动作都必须保留审计。
 
 ## 11. 对话请求、运行与结算生命周期
 
@@ -688,7 +718,7 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 8. 创建或恢复本次 provider-attempt；在发送任何网络字节前，把 attempt 的 `dispatched_at` 与账单首次 `resolution_deadline_at` 在同一事务中持久化；
 9. 冻结和派发事实都成功后才允许发送供应商请求，并 best-effort 发布 `ai.response.start.v1`。
 
-价格、计量能力、估算器或余额校验失败时，不调用供应商。Run 与命令进入明确失败终态，账单为 `rejected` 或已冻结部分被 `released`，并通过现有 durable failed 事件把稳定错误类别送达前端。
+价格、计量能力、估算器、媒体 storage readiness 或余额校验失败时，不调用供应商。Run 与命令进入明确失败终态，账单为 `rejected` 或已冻结部分被 `released`，并通过现有 durable failed 事件把稳定错误类别送达前端。
 
 由于冻结是 Worker 权威动作，HTTP 202 后仍可能异步得到“可用余额不足”。前端保留用户消息，停止加载态，显示简短余额不足提示和现有充值入口；不得把它伪装成供应商错误。
 
@@ -698,8 +728,8 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 - delta 不持久化、不增加未读数；
 - start/delta 的实时投递失败不改变命令、Run 或账单状态，也不能中断已经获准的供应商调用；最终 durable 事件和 HTTP 查询负责权威恢复；
 - 前端必须把 delta 视为临时内容；收到 failed、canceled、timed_out 或权威恢复结果后清除临时内容，不能把未完成 delta 留成一条本地成功回复；
-- 工具调用后准备下一次模型请求前，先归一化已完成调用的用量并补充冻结；
-- 补充冻结失败时不发送下一次供应商请求；本次 Run 按失败规则释放冻结，不向用户捕获半成品估算费用；
+- 工具调用后准备下一次模型请求前，先持久化并归一化已完成调用的原始用量；首次冻结未覆盖整次上界时，再补充同一冻结；
+- 补充冻结失败时不发送下一次供应商请求；本次 Run 按失败 finalizer 终结，并按此前完整合法的实际用量结算，绝不捕获半成品估算费用；
 - 页面切换后继续按 `conversation_id + request_id` 保存流式会话状态，断线时以权威查询恢复。
 
 ### 11.4 成功结果的原子完成
@@ -707,24 +737,22 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 供应商返回有效最终内容后：
 
 1. 驱动校验并归一化每次调用用量；
-2. 在短事务中完成最终 provider-attempt、按调用序号幂等写入计费明细并写入完成候选；
-3. 用量完整时计算一次精确总费用；用量不完整但内容有效时选择 `unbilled`，并准备第 5.6 节定义的 safety block 事实；
+2. 在短事务中完成最终 provider-attempt、归一化原始用量、用量指纹和完成候选；此时不写最终用户扣款明细；
+3. 用量完整时计算一次精确总费用；用量不完整但内容有效时只能准备 `unbilled` 候选和第 5.6 节异常事实，禁止按估算金额结算；
 4. 聊天 finalizer 锁定命令、候选、账单和钱包，在同一 MySQL 事务中完成以下事实：
-   - 用量完整且扣款大于零：capture 精确金额、释放差额、写一条钱包流水、账单设为 `settled`；
-   - 用量完整且扣款为零：释放全部冻结、不写零金额流水、账单设为 `settled`；
-   - 用量不完整：释放全部冻结、账单设为 `unbilled`，并以 `billing_safety_key` 幂等写入 `ai_billing_profile_blocks`；
-   - 插入可见 assistant message；
-   - 绑定 reply command 与 `ai_run.assistant_message_id`；
-   - 将回复命令设为 `succeeded`，Run 设为成功；
-   - 追加 durable `ai.response.completed.v1`。
-   - 将完成候选设为 `finalized` 并清空候选正文。
+   - 用量完整且扣款大于零：先在 finalizer 内一次性插入不可变 `ai_usage_charge_items`，capture 精确金额、释放差额、写一条钱包流水、账单设为 `settled`；
+   - 用量完整且扣款为零：插入零实际扣款的明细、释放全部冻结、不写零金额流水、账单设为 `settled`；
+   - 用量不完整：只为已经验证的已知用量项插入实际扣款为零的明细，缺失分类不造行、不猜数量或金额；释放全部冻结、账单设为 `unbilled`，并写入持久化异常事实；是否提升为 active block 遵循 `PD-05`；
+   - 未收到有效取消胜出信号时，插入可见 assistant message，绑定 reply command 与 `ai_run.assistant_message_id`，将回复命令设为 `succeeded`、Run 设为成功，原子追加 Run success event 和 durable `ai.response.completed.v1`；
+   - 收到已胜出的取消请求时，绝不插入 assistant message 或未读，只将候选设为 `discarded`，命令和 Run 设为 `canceled`，原子追加 Run canceled event；完整用量仍按实际金额 `settled`，无用量时 `released`，用量不完整时保持 `uncertain` 等待恢复；
+   - 成功发布或确认丢弃后，将完成候选设为 `finalized`/`discarded` 并清空候选正文。
 5. 事务提交后才 best-effort 实时推送完成事件。
 
-禁止继续采用“先发布成功消息，再 best-effort 记录 Run 或扣钱包”的顺序，也禁止“钱包已扣、消息和 Run 仍报告失败”。事务参与接口由各模块 owner 提供，finalizer 不直接跨模块写表。
+禁止继续采用“先发布成功消息，再 best-effort 记录 Run 或扣钱包”的顺序，也禁止未定义的钱包/业务状态撕裂；第 11.5 节明确列出的“用户取消胜出、内容不发布、完整实际用量 `settled`”是合法组合，不得被监控误判为事务失败。事务参与接口由各模块 owner 提供，finalizer 不直接跨模块写表。
 
-finalizer 暂时失败时保留冻结，并从持久化候选重试相同完成事实，不重复调用供应商。数据库死锁、超时或短暂不可用属于可重试 finalizer 故障，必须回滚整个事务，不能被解释成“补充冻结失败”而提前改变资金事实。若恢复时已经越过持久化的 `resolution_deadline_at`，有效候选按 `unbilled` 免费完成；没有候选则按不确定终态释放。若供应商已经响应、但完成候选尚未成功落库时进程崩溃，则进入不确定恢复；最终只能根据供应商查询或其他持久化证据完成，否则免费释放，不能盲目重发或拿估算金额结算。
+finalizer 暂时失败时保留冻结，并从持久化候选重试相同完成事实，不重复调用供应商。数据库死锁、超时或短暂不可用属于可重试 finalizer 故障，必须回滚整个事务，不能被解释成“补充冻结失败”而提前改变资金事实。若恢复时已经越过持久化的 `resolution_deadline_at`，完整且验证通过的候选才能按不捕获估算金额的规则完成；用量不完整的有效候选进入 `unbilled`，根据取消是否胜出决定发布或丢弃；没有可靠候选则把业务置为对应 `canceled/failed` 终态、账单置为 `unbilled` 并释放冻结。若供应商已经响应、但完成候选尚未成功落库时进程崩溃，则进入不确定恢复；最终只能根据供应商查询或其他持久化证据取得真实用量和结果，否则释放且不扣估算金额，不能盲目重发。
 
-失败、取消和超时也使用单一终态 finalizer：在同一事务内释放冻结、终结账单、更新 command 与 Run、丢弃并清空已有完成候选、追加对应 durable failed/canceled 事件。禁止由 chat service、Run recorder 和 wallet 各自 best-effort 写终态。
+不可重试失败、耗尽重试、取消和超时也使用单一终态 finalizer：在同一事务内根据已持久化的真实用量决定 `settled`/`released`/`uncertain`/`unbilled`，按最终状态插入计费明细，更新 command 与 Run，丢弃并清空已有完成候选，追加对应 durable failed/canceled/timed_out 事件。普通可重试错误在达到终止条件前不得走这个终态 finalizer。禁止由 chat service、Run recorder 和 wallet 各自 best-effort 写终态。
 
 ### 11.5 停止、失败和结果不确定
 
@@ -733,18 +761,24 @@ finalizer 暂时失败时保留冻结，并从持久化候选重试相同完成�
 | `pending` 时停止 | `canceled` | 尚未创建 | 无账单 | 无 AI 回复、无未读 |
 | `claimed`、调用前停止 | `canceled` | 未创建或 `canceled` | 无账单或 `released` | 无 AI 回复、无未读 |
 | 调用前定价/余额失败 | `failed` | `failed` | `rejected` 或 `released` | 稳定错误；余额不足提供充值入口 |
-| 供应商确认失败 | `failed` | `failed` | `released`，不扣款 | 无完整 AI 回复、无未读 |
-| `running` 时用户停止 | `canceled` | `canceled` | `released`，不扣款 | 丢弃临时 delta，不落助手消息 |
-| 超时且确认无成功结果 | `timed_out` | `timeout` | `released`，不扣款 | 无完整 AI 回复、无未读 |
+| 已证明无成功结果的普通可重试错误 | `pending` | `running` + `retry_scheduled` | `reserved`，原 Hold 保持 active | 保持生成态；不创建新 Run/Charge |
+| 供应商确认失败且没有可计费用量 | `failed` | `failed` | `released` | 无完整 AI 回复、无未读 |
+| 供应商确认失败但有完整可计费用量 | `failed` | `failed` | 按 `PD-07` 决定 `settled` 或 `released` | 无完整 AI 回复、无未读 |
+| `running` 时停止且供应商确认未派发/无用量 | `canceled` | `canceled` | `released` | 丢弃临时 delta，不落助手消息 |
+| 已派发后停止且取得完整用量 | `canceled` | `canceled` | 按实际用量 `settled`，释放差额 | 丢弃内容，不落助手消息、不计未读 |
+| 已派发后停止但用量不完整 | `outcome_unknown` | `outcome_unknown` | `uncertain`，继续冻结至截止时间 | 正在确认，不落助手消息 |
+| 超时且取得完整用量但无成功结果 | `timed_out` | `timeout` | 按 `PD-07` 决定实际用量 `settled` 或 `released` | 无完整 AI 回复、无未读 |
+| 已超时但用量/结果仍未知且未到硬截止 | `outcome_unknown` | `outcome_unknown` | `uncertain`，继续对账至截止时间 | 无完整 AI 回复、无未读 |
 | 请求已发出但结果未知 | `outcome_unknown` | `outcome_unknown` | `uncertain`，继续冻结 | 显示“正在确认结果”，不计未读 |
 | 对账证明未执行并允许重试 | `pending` | `running`（重新 claim 时） | `reserved`，复用原冻结 | 恢复生成态，不新建 Run 或账单 |
 | 对账恢复内容和完整用量 | `succeeded` | `success` | `settled` | 原子发布完整回复 |
 | 对账恢复内容但用量不完整 | `succeeded` | `success` | `unbilled` 并释放 | 免费发布完整回复 |
-| 到期仍无可靠结果 | `failed` | `failed` | `unbilled` 并释放 | 无完整回复，不扣款 |
+| 取消已胜出且到期仍无可靠用量 | `canceled` | `canceled` | `unbilled` 并释放 | 无完整回复，不扣款 |
+| 非取消请求到期仍无可靠结果 | `failed` | `failed` | `unbilled` 并释放 | 无完整回复，不扣款 |
 
 `outcome_unknown` 不能通过“停止生成”伪装成已取消，因为服务端无法证明供应商没有成功。该状态下隐藏或禁用停止操作，阻止发送、编辑、重新生成和删除，等待对账进入明确终态。前端按钮只是体验层，Service 和事务查询必须再次校验。
 
-停止与完成并发时由命令租约、fencing token、行锁和一次终态转换决定唯一赢家：停止请求先写入 `cancel_requested_at` 时，完成 finalizer 必须拒绝发布，取消 finalizer 释放资金并丢弃候选；完成事务先提交时返回既有成功结果，迟到停止不能撤销已结算事实。
+停止与完成并发时由命令租约、fencing token、行锁和一次终态转换决定唯一赢家：停止请求先写入 `cancel_requested_at` 时，Worker 必须尝试供应商取消/停止流式接收并继续取得最终 usage 或权威任务状态，不能立即把已派发命令改成免费 `canceled`。取消 finalizer 胜出后拒绝发布内容，但对完整合法用量照常结算；用量不完整则保持 `outcome_unknown/uncertain` 到对账截止。完成事务先提交时返回既有成功结果，迟到停止不能撤销已结算事实。
 
 现有停止接口继续使用：
 
@@ -757,9 +791,9 @@ POST /api/admin/v1/ai-conversations/:conversation_id/messages/cancel
 - `pending` 可在请求事务内直接进入 `canceled`；
 - `claimed` 或 `running` 只表示已接受停止请求，前端保持“正在停止”直到 durable 终态事件或权威恢复；
 - 已进入终态时幂等返回真实终态，若为 `succeeded` 说明完成事务赢得竞态；
-- `outcome_unknown` 返回 HTTP 409 和稳定错误，不承诺能够取消供应商已经可能完成的请求。
+- `outcome_unknown` 返回 HTTP 409 和稳定错误，不承诺能够取消供应商已经可能完成的请求；若停止请求在进入该状态前已被接受，恢复器仍须保留 `cancel_requested_at`，完成后不得发布内容。
 
-如果实际费用意外超过保守冻结，finalizer 在同一钱包锁内计算差额：可用余额足够时补充同一 hold 后正常捕获；锁内确定余额不足时，有效完整结果免费交付，账单记录完整测算金额但进入 `unbilled`，释放已有冻结且用户实际扣款为零。无论差额是否补充成功，超额本身都证明估算 profile 失效，必须按第 5.6 节持久化 block 并阻止同一 `billing_safety_key` 继续接收新调用。禁止部分捕获、禁止透支，也不能把数据库异常或“调用后再负数扣款”当作正常补差路径。
+如果实际费用意外超过保守冻结，finalizer 在同一钱包锁内计算差额：可用余额足够时补充同一 hold 后正常捕获；锁内确定余额不足时，不能部分捕获或透支，结果按不捕获估算金额的 `unbilled` 规则处理并释放已有冻结。无论差额是否补充成功，超额都必须持久化计费异常；是否立即形成 active block 按 `PD-05`，解除按 `PD-06`。数据库异常不能被当作余额不足，也不能把“调用后再负数扣款”当作正常补差路径。
 
 ## 12. 消息选择、编辑与重新生成
 
@@ -946,7 +980,7 @@ PUT /api/admin/v1/ai-runs/:id/user-feedback
 - 只读 billing-ready 状态；
 - 当前模型和场景所需的只读基础价格项。
 
-选择供应商模型后刷新价格预览。billing-ready 同时要求目录能力完整且当前 `billing_safety_key` 没有 active block；缺少价格、估算、计量能力或命中 block 时，表单不能启用该智能体，已启用智能体的后续运行也必须在供应商调用前 fail closed。block 只读展示原因和触发时间，不提供绕过或解封控件。
+选择供应商模型后刷新价格预览。billing-ready 同时要求目录能力完整且当前 `billing_safety_key` 没有 active block；缺少价格、估算、计量能力或命中 block 时，表单不能启用该智能体，已启用智能体的后续运行也必须在供应商调用前 fail closed。block 至少只读展示原因、状态、触发时间和审计身份；是否提供受控解除入口由 `PD-06` 决定，任何入口都不能绕过权限和审计。
 
 ### 15.2 只读价格目录
 
@@ -963,7 +997,7 @@ AI Run 详情统一增加：
 - 目录、模型和倍率快照；
 - 普通输入、缓存写入档位、缓存读取、输出和媒体用量；
 - 单价、分项金额、冻结和异常恢复状态；
-- 结果可用性、完整退款流水和 billing safety block 诊断。
+- 结果可用性、用户删除/平台损坏原因、按 `PD-02`/`PD-03` 形成的退款流水和 billing safety block 诊断。
 
 钱包摘要区分总余额与可用余额。AI 流水最多显示 8 位小数并链接到账单/Run 详情。缓存 Token 及折扣价必须可见，便于确认没有按普通输入重复扣费。
 
@@ -976,26 +1010,28 @@ AI Run 详情统一增加：
 
 新增 `ai_pricing_list` 和 `ai_run_list` 权限定义并进入 route metadata 与 Admin Contract Bundle，但不自动赋予角色，也不写 `role_permissions`。
 
+发布时先注册权限定义并保持相关新管理页面关闭；由用户通过现有 RBAC 权限管理显式授予目标管理员角色后，再恢复价格目录和 Run 管理页面。部署脚本、迁移和应用启动都不得替用户自动授权，也不能假设已有角色天然拥有新 code。
+
 ## 16. 各模态计费规则
 
 ### 16.1 对话、文本与智能体生成
 
-- 每次真实模型调用都计量，包括工具调用后的模型轮次；
+- 每次真实模型调用都必须保存并校验原始用量，包括工具调用后的模型轮次；是否向用户收取“明确失败但有用量”的尝试遵循 `PD-07`，不能把计量事实直接等同于扣款政策；
 - 本地工具执行和本地知识检索本身不收费，独立调用计费模型时才产生新用量；
 - 普通输入、缓存写入、缓存读取、输出及官方区分的图像/音频 Token 分别记录；
 - `ai_runs` 保存统计汇总，账单明细保存资金分类。
 
-聊天使用 reply command ID 作为稳定业务身份。同步文本与 `agent_generate` 工具草稿接口必须接收客户端 `request_id`，先创建或恢复各自任务，再以 task ID 建立 Run、供应商尝试和账单。
+聊天使用 reply command ID 作为稳定业务身份。同步文本与 `agent_generate` 工具草稿接口必须接收客户端 `request_id`，先创建或恢复各自任务，再由 durable task runner 以 task ID 建立或恢复 Run、供应商尝试和账单。
 
-同步文本与工具草稿在返回成功响应前，通过各自 finalizer 原子完成任务结果、Run、账单和钱包事实；若 finalizer 失败则保留冻结并返回带相同任务/请求身份的可恢复错误，不能先返回正文或草稿再 best-effort 扣款。同一 `request_id` 的后续查询或重试只重放已保存结果。
+同步文本与工具草稿在返回成功响应前，通过各自 finalizer 原子完成任务结果、Run、账单和钱包事实；HTTP 只等待同一任务的短时结果，断开连接不撤销 runner。若 finalizer 失败则保留冻结并返回带相同任务/请求身份的可恢复错误，不能先返回正文或草稿再 best-effort 扣款。同一 `request_id` 的后续查询或重试只重放已保存结果。
 
 ### 16.2 图片
 
 - 按张模型根据请求数量、尺寸和质量冻结，按实际成功的可计费输出数量结算；
 - Token 计价图片模型记录图片输入/输出 Token，不能伪装成按张价格；
-- 部分成功按实际成功数量和真实用量结算；
+- 部分成功按实际成功数量和真实用量结算；部分输出的用户删除与平台永久损坏分开记录，损坏退款政策遵循 `PD-03`；
 - 创建接口携带客户端 `request_id`，相同 ID 重放既有 task；task ID 是 Worker、Run、账单和供应商尝试的内部稳定身份；
-- Worker 重试复用同一 task、Run、账单和 provider-attempt，不能因任务已入队但 HTTP 响应丢失而创建第二个任务；
+- Worker 重试复用同一 task、Run、账单和价格/倍率快照；同一已派发 provider-attempt 只有在供应商保证幂等重放时才复用，新的真实调用必须使用下一 `attempt_no`。任务已入队但 HTTP 响应丢失不能创建第二个任务；
 - 图片输出文件与任务成功、Run 和财务终态由模态 finalizer 协调提交；对象已经写入但数据库事务失败时，恢复复用已持久化的候选对象或清理孤儿对象，不能再次调用供应商。
 
 ### 16.3 视频
@@ -1003,7 +1039,7 @@ AI Run 详情统一增加：
 - 创建供应商任务前，根据时长、分辨率、音频选项和官方计费项冻结；
 - 供应商任务处理中保持冻结；
 - 创建接口携带客户端 `request_id`，相同 ID 返回既有平台 task；供应商 task ID 绑定同一个 provider-attempt；
-- 成功后先把供应商内容复制到平台控制的用户结果存储，再由 finalizer 协调提交持久化结果与财务终态；失败、取消或超时释放；
+- 成功后先把供应商内容以流式/multipart 方式复制到带 `storage_location_id` 快照的平台控制私有结果存储，再由 finalizer 协调提交持久化结果与财务终态；失败、取消或超时按第 11.5 节的实际用量规则处理；
 - 状态轮询和内容下载不得产生新费用，重复轮询只能恢复同一供应商 task；
 - 过期任务使用统一账单恢复，不新增媒体专用余额逻辑。
 
@@ -1013,11 +1049,11 @@ AI Run 详情统一增加：
 - 按字符计费使用规范化请求字符数；
 - 按时长计费使用供应商时长或确定性媒体时长解析；
 - 按 Token 计费使用分类输入/输出 Token；
-- 缺少官方计费所需数据时 `unbilled`，不能用响应字节数猜时长或 Token。
+- 缺少官方计费所需数据时 `unbilled`，不能用响应字节数猜时长或 Token；平台必须保存异常事实，是否形成 active block 遵循 `PD-05`。
 
-音频接口必须接收客户端 `request_id` 并先创建 `ai_audio_tasks`。当前直接返回原始音频响应的同步链路必须在有界内存或临时文件中完整接收并验证供应商结果，把音频持久化到用户结果存储，再完成 Run 与财务 finalizer，最后才向客户端写成功响应。若网络交付失败，同一 `request_id` 从持久化对象重放，不再调用供应商。
+音频接口必须接收客户端 `request_id` 并先创建 `ai_audio_tasks`。当前直接返回原始音频响应的同步链路必须由 durable task runner 在有界内存或临时文件中完整接收并验证供应商结果，把音频持久化到带位置快照的用户结果存储，再完成 Run 与财务 finalizer，最后才向客户端写成功响应。若网络交付失败，同一 `request_id` 从持久化对象重放，不再调用供应商；HTTP 断开不能取消后台 owner。
 
-若模型按请求字符计费，数量仍取规范化请求字符数；缓冲音频字节只用于确保结果完整，绝不能成为计费单位。响应超过受控大小上限时按失败释放，不允许无限缓冲。对象存储写入成功但 finalizer 失败时保留可恢复候选引用并重试本地 finalizer；确认失败后清理孤儿对象。
+若模型按请求字符计费，数量仍取规范化请求字符数；缓冲音频字节只用于确保结果完整，绝不能成为计费单位。响应超过受控大小上限时按失败终态和已取得的真实用量处理，不允许无限缓冲。对象存储写入成功但 finalizer 失败时保留可恢复候选引用并重试本地 finalizer；确认候选被丢弃后清理孤儿对象。
 
 浏览器消息朗读不属于 AI 音频生成，不进入本节计费链路。
 
@@ -1033,25 +1069,60 @@ AI Run 详情统一增加：
           -> ai_usage_charges.run_id（唯一）
               -> wallet_holds(ai_usage, charge_id)（仅非零报价；唯一）
               -> wallet_transactions(ai_generate, charge_id)（仅非零实际扣款；唯一）
-              -> wallet_transactions(ai_refund, charge_id)（仅永久结果损坏且存在非零扣款；唯一）
+              -> wallet_transactions(ai_refund, refund_scope_id)（仅 `PD-02`/`PD-03` 确认需要退款且存在非零扣款）
 ```
 
-聊天业务任务按 `(conversation_id, request_id)` 唯一；其他任务按 `(platform, user_id, request_id)` 唯一。计费明细额外使用 Run 内调用序号与用量指纹。同一身份、同一指纹重试返回既有任务/结果；同一身份出现不同请求、用量或价格指纹时报冲突，禁止覆盖。
+聊天业务任务按 `(conversation_id, request_id)` 唯一；其他任务按 `(platform, user_id, request_id)` 唯一，所有 `request_id` 唯一键使用第 10.9 节的二进制排序规则。最终计费明细额外使用 Run 内调用序号、`NOT NULL` 规范 `tier_key` 与用量指纹。同一身份、同一指纹重试返回既有任务/结果；同一身份出现不同请求、用量或价格指纹时报冲突，禁止覆盖。
+
+`refund_scope_id` 的结构等待 `PD-02`、`PD-03`：若只允许整单退款，可由 charge ID 唯一派生；若允许多图部分退款，必须由 charge ID 与稳定输出身份共同派生，使同一范围最多退款一次且不同合法范围不会互相冲突。未确认前不创建退款自动化或假定只有一条退款流水。
+
+统一执行路径固定为：
+
+```text
+HTTP 接收事务
+  -> 幂等查询和指纹校验
+  -> 写业务任务/历史改写
+  -> 提交并唤醒 durable task runner
+
+Runner 执行
+  -> claim/续租任务并取得 fencing token
+  -> 创建或恢复 Run / Charge / Hold
+  -> 检查 pricing、active billing block、媒体 storage readiness
+  -> 持久化 provider-attempt dispatched
+  -> 使用独立于 HTTP 的有界 task context 调用供应商
+
+供应商返回
+  -> 持久化 attempt 结果和归一化原始用量
+  -> 持久化可恢复结果候选
+  -> 从此只允许本地 finalizer，不再调用供应商
+
+统一 finalizer
+  -> 锁定 task / candidate / charge / wallet
+  -> 决定 settled / released / uncertain / unbilled
+  -> 写最终不可变 charge items
+  -> capture 或 release
+  -> 原子写业务终态、Run 状态与 Run Event
+  -> 成功且未取消时发布结果
+  -> 写 durable 完成/失败/取消事件并清理候选正文
+  -> 提交后 best-effort 实时推送
+```
+
+普通重试、用户取消、`outcome_unknown`、finalizer 重试和绝对截止恢复都回到这条路径。HTTP 请求 context 只控制等待和响应写入，不拥有供应商执行；同一任务在任意时刻只能有一个有效 lease/fencing owner。
 
 幂等重放的 HTTP 规则固定为：
 
 - 对话、图片和视频的新建或非终态重放返回 HTTP 202 和同一业务任务身份；
-- 同步文本、工具草稿和音频首次请求可以等待 finalizer，成功或成功重放返回 HTTP 200；并发重放发现任务仍为 `pending`、`running` 或 `outcome_unknown` 时返回 HTTP 202 和任务身份/当前状态，不等待第二次供应商调用；
-- 首次任务已经终态失败时，重放同一稳定错误和任务身份；首次结果不可用时返回 `ai.result_unavailable`，不能创建替代结果；
+- 文本、工具草稿和音频首次请求可以在 HTTP 有界等待窗口内等待同一 durable task 的 finalizer，成功或成功重放返回 HTTP 200；连接仍在但等待超时时返回 HTTP 202 和任务身份/当前状态，客户端已经断开时不再写响应但任务继续执行；后续同 ID 重放只恢复该任务，不启动第二次供应商调用；
+- 首次任务已经终态失败时，重放同一稳定错误和任务身份；`user_deleted` 返回同一任务身份、该结果状态和空结果，不重新生成；首次结果不可用时返回 `ai.result_unavailable`，不能创建替代结果；
 - 同一 ID 不同指纹始终返回 HTTP 409；不同 request ID 与活动会话命令冲突也返回 HTTP 409，但两者使用不同稳定错误码。
 
 这里的 HTTP 202 是创建、同一请求幂等重放或状态查询的正常“仍在处理”响应，不携带 `ai.provider_outcome_unknown` 错误。只有取消、编辑、重新生成、删除或提交不同新请求等要求当前运行具有确定终态的操作，在命中 `outcome_unknown` 时才返回 HTTP 409 与 `ai.provider_outcome_unknown`；只读查询和同一请求重放仍返回当前任务身份与 `outcome_unknown` 状态。同步入口已经持久化 `staged` 候选、但在本次等待窗口内无法提交 finalizer 时，返回 HTTP 503、`ai.finalization_pending` 和同一任务身份；后续同 ID 重放只能继续本地 finalizer 或返回既有状态，不能重新调用供应商。
 
 所有任务创建/生成响应都返回规范化后的 `request_id`、业务任务 ID 和当前状态；成功结果还返回原业务结果。公共响应本期不新增 `idempotent_replay` 字段，服务端仅记录受控的幂等命中计数；是否命中重放不能改变任务身份、HTTP 状态规则或结果内容。
 
-恢复器先扫描聊天 `staged` 完成候选和各模态已经持久化的结果候选，只重试本地 finalizer；随后扫描超过恢复期限的非终态任务、provider-attempt、账单和冻结。所有扫描使用租约及有界批次幂等恢复。恢复只能依据持久化真实内容/用量结算，或依据已证明失败释放；不能重复调用已知已派发但结果不确定的供应商请求。
+恢复器先扫描聊天 `staged` 完成候选和各模态已经持久化的结果候选，只重试本地 finalizer；随后扫描超过恢复期限的非终态任务、provider-attempt、账单和冻结。所有扫描使用租约、fencing token 及有界批次幂等恢复。恢复只能依据持久化真实内容/用量结算，依据已证明未执行/无用量释放，或在截止后以 `unbilled` 释放；不能重复调用已知已派发但结果不确定的供应商请求。
 
-成功结果的顺序固定为“结果候选可恢复 -> finalizer 提交业务成功和财务终态 -> 对外返回/发布”。失败路径固定为“证明无可交付成功结果 -> 释放冻结并终结任务/Run/账单”。任何模态都禁止任务先成功而钱包仍未决，也禁止钱包已扣但结果尚无可重放引用。
+成功结果的顺序固定为“结果候选可恢复 -> finalizer 提交业务成功、Run/Run Event 和财务终态 -> 对外返回/发布”。失败、取消和超时路径必须先汇总全部已持久化 attempt 用量，再按实际用量及 `PD-07` 决定结算或释放，不能一律释放。任何模态都禁止任务先成功而钱包仍未决，也禁止钱包已扣但结果尚无可重放引用。
 
 编辑和重新生成一经服务端接受，就是已提交的可见历史改写。后续调用失败或取消时，新用户消息保留，旧尾部继续软删除，不跨外部调用回滚历史；用户可再次编辑新用户消息提交新请求。
 
@@ -1108,27 +1179,46 @@ AI Run 详情统一增加：
 
 ## 19. 数据迁移与发布顺序
 
-迁移只能由版本化脚本执行，不能放进应用启动：
+迁移只能由版本化脚本执行，不能放进应用启动。钱包从 cents 切换到 money units 是维护窗口内的单写者迁移，但必须采用 expand/backfill/validate/contract，避免 MySQL DDL 隐式提交后留下钱包与流水使用不同单位的业务状态。
 
-钱包从 cents 切换到 money units 是不兼容的单写者迁移，必须安排维护窗口：先停止旧版 API、AI Worker、支付回调消费者和所有钱包写入者，确认没有在途写事务后制作可恢复备份；再执行迁移与全量校验、部署只读写 money units 的新二进制，最后恢复入口。旧版与新版不得同时写钱包，不做 cents/units 双写。若迁移或校验失败，回滚方式是恢复维护窗口前备份并重新部署旧二进制，不能在开放流量时逆向换算。
+**阶段 A：停写与备份**
 
-1. 增加智能体倍率、会话已读游标、回复命令意图字段、Run 点赞/不确定状态与事件、消息查询索引和聊天完成候选；
-2. 将 `ai_provider_attempts` 扩展为 Run 级所有者。现有聊天尝试只允许通过 `ai_runs.idempotency_key = CONCAT('reply-command:', command_id)` 回填，并交叉校验 command/run 的 platform、user、conversation、user message 与 request ID；零条、多条或任一身份不一致都使迁移失败，禁止按时间邻近猜 Run。校验后再把 `run_id` 设为必填，`command_id` 改为可空关联；
-3. 为 text/image/video task 增加客户端幂等字段、Run 绑定、业务/结果状态和结果候选字段，新增 tool/audio task；对象结果字段按第 10.10 节回填，不能把 provider 临时 URL 伪装成平台持久化结果；
-4. 增加账单、计费明细、钱包冻结、`ai_billing_profile_blocks`、恢复截止时间、约束和索引；
-5. 在写入任何 money units 前，对钱包、累计金额、流水金额及变动前后余额的每个旧 cents 值执行非负与 `value <= floor(MaxInt64 / 1_000_000)` 前置校验；任一失败则整次迁移在修改数据前终止；
-6. 将每个旧钱包金额从“分”精确乘以 `1_000_000`，逐钱包和汇总校验后删除旧 cents 字段；
-7. 钱包流水金额与前后余额按相同规则转换并校验守恒；
-8. 校验并嵌入价格目录；
-9. 现有智能体倍率回填 `1.0`，未知模型不猜目录映射；
-10. 未定价或不可计量模型标记 billing-unready，在供应商调用前失败；
-11. 发布统一 reply finalizer、各模态计费接入与恢复 Worker；
-12. 发布消息交互、未读、Run 详情和充值页前端；
-13. 新增但不授权 `ai_pricing_list`、`ai_run_list`，从编译路由重新生成 Admin Contract Bundle 与前端客户端，Run 状态筛选和事件契约同步加入 `outcome_unknown`。
+1. 停止旧版 API、AI Worker、支付回调消费者和所有钱包写入者，确认没有在途写事务；
+2. 制作并校验可恢复备份，记录迁移基线行数、钱包总余额、累计金额和流水守恒摘要；
+3. 旧版与新版不得同时写钱包，整个切换过程不做 cents/units 双写。
+
+**阶段 B：Expand 与业务模型回填**
+
+1. 同时为 `user_wallets` 和 `wallet_transactions` 的全部金额、变动前后余额增加 nullable units 影子列，保留全部 cents 列；先加列不删除旧事实；
+2. 增加智能体倍率、会话已读游标、回复命令意图字段、Run 点赞/不确定状态与事件、消息查询索引和聊天完成候选，并把 `ai_reply_commands.request_id` 显式迁移为第 10.9 节的 binary collation；
+3. 将 `ai_provider_attempts` 扩展为 Run 级所有者。现有聊天尝试只允许通过 `ai_runs.idempotency_key = CONCAT('reply-command:', command_id)` 回填，并交叉校验 command/run 的 platform、user、conversation、user message 与 request ID；零条、多条或任一身份不一致都使迁移失败，禁止按时间邻近猜 Run；
+4. 为 text/image/video task 增加显式 binary-collation `request_id`、Run 绑定、业务/结果状态、`user_deleted` 和结果候选字段，新增 tool/audio task 及不可变 storage location 版本；对象结果字段按第 10.10 节回填，不能把 provider 临时 URL 伪装成平台持久化结果；
+5. 增加账单、最终计费明细、钱包冻结、计费异常/block、恢复截止时间、约束和索引；`PD-04`、`PD-05`、`PD-06` 未确认前不得伪造默认期限或 block 政策；
+6. 校验并嵌入价格目录，现有智能体倍率回填 `1.0`；未知模型不猜目录映射，未定价或不可计量模型保持 billing-unready。
+
+**阶段 C：Backfill 与全量校验**
+
+1. 在写入任何 units 值前，对钱包、累计金额、流水金额及变动前后余额的每个旧 cents 值执行非负与 `value <= floor(MaxInt64 / 1_000_000)` 前置校验；任一失败都在金额回填前终止；
+2. 在 cents 列仍完整存在时，把钱包和钱包流水的所有影子列统一按 `cents * 1_000_000` 回填；全新的 `held_units` 初始化为 0，并确认迁移前不存在 AI Hold 事实；不得先迁钱包并删除旧列，再迁流水；
+3. 对钱包逐行比较 cents/units，校验 `balance - held`、累计金额和全局汇总；对流水逐行比较 amount/before/after 并校验每条变化守恒；
+4. 所有新 units 列回填完整后设为 `NOT NULL` 并建立新约束。任何校验失败时 cents 事实仍在，可修复后幂等重跑；不得恢复业务流量。
+
+**阶段 D：新二进制验证与 Contract**
+
+1. 在 API 入口、后台 Worker 和支付消费者仍暂停时部署只读写 units 的新二进制，执行短针对性 schema/钱包兼容检查，确认运行时代码完全不读取或写入 cents；本阶段不得启动任何钱包写入者；
+2. 新二进制包含 durable task runner、统一 finalizer、各模态计费接入、恢复 Worker、消息交互、未读、Run 详情及充值页前端，但相关进程/入口保持暂停到阶段 E；
+3. 从编译路由重新生成 Admin Contract Bundle 与前端客户端，Run 状态/事件契约同步加入 `outcome_unknown`、`retry_scheduled` 和取消待对账语义；
+4. 最后通过独立、可重入的 contract migration 删除全部 cents 列。某条 DDL 失败时，新二进制仍只使用已经完整校验的 units，因此遗留的 cents 列只是待清理旧结构，不形成混合单位业务事实；一旦任一 cents 列已删除，回退旧二进制只能恢复阶段 A 备份，不能在原库逆向换算。
+
+**阶段 E：权限与恢复流量**
+
+1. 注册但不授权 `ai_pricing_list`、`ai_run_list`，不写 `role_permissions`；
+2. 用户通过现有 RBAC 权限管理手动授予目标管理员角色，并确认相关菜单/接口授权后，才开放价格目录和 Run 管理页面；
+3. 完成最终迁移摘要核对后恢复 API、Worker 和支付回调入口。任何阶段失败都保持入口关闭，不允许旧写入者与 units 新写入者同时运行。
 
 迁移验收必须证明：
 
-- 每个钱包与流水旧 cents 和新 units 精确相等；
+- contract 前每个钱包与流水旧 cents 和新 units 精确相等，contract 后保存可复核的行数、逐表摘要和汇总校验报告；
 - 迁移钱包 `held_units = 0`；
 - 余额、冻结、累计金额和流水金额非负；
 - `balance_units - held_units >= 0`；
@@ -1137,13 +1227,14 @@ AI Run 详情统一增加：
 - 每个现有 `ai_provider_attempts.command_id` 都通过 `reply-command:<command_id>` 精确解析到唯一且身份一致的聊天 Run，回填后不存在空 `run_id`、重复 `(run_id, attempt_no)` 或孤儿尝试；
 - 旧 text/image/video task 的客户端幂等字段使用唯一 `legacy:` 身份、`request_id_source=legacy` 并标为不可由客户端重放；不得为历史音频或工具调用伪造不存在的任务结果；
 - 历史成功文本只有答案正文和新契约要求的摘要事实完整时才能回填 `result_state=finalized`；历史成功图片/视频只有平台控制的持久化对象、输出 manifest 和必要摘要事实都可验证时才能回填 `finalized`；所有无法证明新结果契约的其余历史任务统一回填 `result_state=legacy`，包括只有 provider task ID、临时 URL 或不完整输出行的记录；
-- 迁移完成后不存在 `request_id_source=legacy` 却使用 `result_state=none/staged` 的终态任务，也不存在新客户端 `success` 与非 `finalized/unavailable` 结果状态组合；`legacy` 任务不被新 Worker、计费或客户端幂等重放读取；
+- 迁移完成后不存在 `request_id_source=legacy` 却使用 `result_state=none/staged` 的终态任务，也不存在新客户端 `success` 与非 `finalized/user_deleted/unavailable` 结果状态组合；`legacy` 任务不被新 Worker、计费或客户端幂等重放读取；
 - 每个旧会话的 `last_read_message_id` 回填为迁移时最新的当前可见 AI 消息 ID，无可见 AI 消息时才为 0，避免上线瞬间把全部历史回复误报为未读；迁移后只由用户阅读动作单调推进；
 - 旧 AI 计费表继续不存在；
-- `ai_billing_profile_blocks` 初始为空，且不存在绕过 block 的备用计费路径；
+- 计费异常/block 表初始为空；`PD-05`、`PD-06` 确认后，active 判定不存在跨实例绕过路径；
 - `ai_pricing_list`、`ai_run_list` 权限定义存在，但没有自动新增任何角色权限关系；
-- 没有新增清理 `success/finalized` 结果的定时任务或对象存储生命周期规则；
-- 维护窗口内旧钱包写入者全部停止，迁移前溢出校验先于任何数据修改，恢复入口后只有 money-units 新版本能够写入。
+- 每个新媒体结果都保存可解析的不可变 `storage_location_id`，配置切换后仍能定位旧对象；
+- `PD-01`、`PD-08` 确认前没有新增清理 `success/finalized/user_deleted` 结果的定时任务或对象存储生命周期规则；
+- 维护窗口内旧钱包写入者全部停止，溢出校验先于任何 units 回填，钱包和流水全部回填校验后才删除 cents，恢复入口后只有 money-units 新版本能够写入。
 
 ## 20. 被否决的方案
 
@@ -1204,28 +1295,30 @@ AI Run 详情统一增加：
 - 官方零价与整单向下取整为零时不创建零金额 hold/流水，但账单仍幂等 `settled`；
 - 缓存字段缺失与显式 0、OpenAI inclusive cached tokens、缓存读写拆分和工具轮次汇总；
 - 未知模型/档位、计量能力或余额不足时不调用供应商；
-- 冻结、补充、捕获、释放、退款和并发幂等；
-- 估算上限意外不足时仅在余额足够时补充；余额不足则完整结果 `unbilled` 免费交付，不部分扣款、不透支；估算不足、计量不完整、未知单位/档位和金额指纹漂移都原子写入 profile block，后续实例在供应商调用前 fail closed；
-- 账单、回复命令和停止/完成竞态状态机；
-- provider 结果候选落库后 finalizer 重试不重复调用供应商，成功后候选正文被清空；
+- 冻结、补充、捕获、释放和并发幂等；`PD-02`/`PD-03` 确认退款政策后再覆盖对应退款分支；
+- 估算上限意外不足时仅在余额足够时补充；余额不足不部分扣款、不透支；估算不足、计量不完整、未知单位/档位和金额指纹漂移都持久化异常，`PD-05`/`PD-06` 确认后再验证 block 阈值与解除路径；
+- 账单、回复命令和停止/完成竞态状态机；派发后取消取得完整 usage 时业务 `canceled` 但账单 `settled`，取得不完整 usage 时保持待对账；
+- 普通可重试失败复用同一 Run、Charge、Hold 和截止时间，追加 `retry_scheduled` Run Event，新的真实调用使用下一 `attempt_no`；
+- provider 结果候选落库后 finalizer 重试不重复调用供应商；最终计费明细只在 finalizer 中形成，并与 Run 状态、Run Event、钱包和候选终态原子提交；
 - outcome-unknown 对账期间不允许历史改写且不伪装取消；
-- 首版各模态恢复期限、绝对截止时间不可被重启延长、到期资金释放以及迟到结果丢弃；
-- 成功聊天原子提交消息、Run、账单、钱包和 durable completed 事件；
+- `PD-04` 确认后的各模态恢复期限、绝对截止时间不可被重启延长、到期资金释放以及迟到结果丢弃；
+- 成功聊天原子提交消息、Run、Run Event、账单、钱包和 durable completed 事件；
 - 用量不完整时免费发布有效结果且不重复扣缓存 Token；
-- 发送、编辑、重新生成的 request ID 指纹重放与冲突；
-- 同步文本、工具草稿、图片、视频和音频创建的 request ID 重放与指纹冲突，HTTP 响应丢失后不创建第二个 task/Run/账单；
+- 发送、编辑、重新生成的 request ID 指纹重放与冲突，以及 binary collation 下大小写不同 ID 的一致行为；
+- 文本、工具草稿、图片、视频和音频创建的 request ID 重放与指纹冲突；HTTP 超时/断开后 durable owner 继续执行且不创建第二个 task/Run/账单或供应商调用；
 - `request_id` 缺失/格式非法、幂等冲突、活动命令冲突、finalizer 待恢复和结果不可用返回各自稳定 `error.code`；
 - 所有模态的 provider-attempt 以 Run 和调用序号唯一，`dispatched` 或 `outcome_unknown` 不换 key 盲目重发；
 - 不确定冻结在各模态绝对恢复上限内解决，超限自动转 `unbilled` 并释放，不无限占用余额；
-- 文本/工具结果、图片文件、平台视频和平台音频在扣款后均可用同一请求身份重放；对象上传、候选提交和 finalizer 任一崩溃点只恢复同一对象/本地提交，不重复生成；
-- 已扣款结果确认永久缺失或摘要不符时只转一次 `unavailable`、完整退款一次并稳定返回 `ai.result_unavailable`；临时对象存储故障不误退款；
-- `success/finalized` 结果和仍待 finalizer 的 `staged` 候选不被后台 TTL 清理，`discarded`/孤儿对象清理不误删活动或正式结果；
+- 文本/工具结果、图片文件、平台视频和平台音频可用同一请求身份重放；对象上传、候选提交和 finalizer 任一崩溃点只恢复同一 location/key 或本地提交，不重复生成；配置切换后旧 location 仍可读取；
+- 已确认永久缺失或摘要不符时只转一次 `unavailable` 并稳定返回 `ai.result_unavailable`；临时对象存储故障不误判，退款断言等待 `PD-02`/`PD-03`；
+- 用户删除只转为 `user_deleted`，不退款且同一请求不重新生成；`PD-08` 确认后再测试物理对象清理时机；
+- `PD-01` 确认前 `success/finalized` 和仍待 finalizer 的 `staged` 候选不被后台 TTL 清理，`discarded`/孤儿对象清理不误删活动或正式结果；
 - 任意消息软删除、配对投影、可见上下文与财务记录不变；
 - 已读游标单调性、删除未读消息和 WebSocket 重放恢复；
 - Run 点赞所有权和删除消息后保留；
 - 浏览器朗读状态清理；
 - 输入快照纯文本、附件 JSON、嵌套 `meta_json` 和异常回退；
-- cents 到 units 的非负/溢出前置校验、维护窗口单写者切换和精确迁移，以及 provider-attempt 通过 `reply-command:<id>` 精确回填 Run；
+- cents 到 units 的非负/溢出前置校验、钱包与流水同步 expand/backfill/validate/contract、维护窗口单写者切换，以及 provider-attempt 通过 `reply-command:<id>` 精确回填 Run；
 - 历史任务只能在完整证明新结果契约时回填 `finalized`，其余使用不可重放的 `legacy`，且不存在迁移后的 `success + none/staged`；
 - 智能体价格预览、缓存明细、高精度金额和权限显示；
 - `ai_run_list`/`ai_pricing_list` 管理权限与当前用户自助所有权接口分离，且迁移不自动授权；
@@ -1236,12 +1329,12 @@ AI Run 详情统一增加：
 1. 官方 `$5 / M Token` 结算为 `¥5 / M Token`，不存在 FX 配置或隐藏换算。
 2. 管理员只能修改智能体倍率，不能修改模型基础价。
 3. 同模型的两个智能体可采用不同倍率；切换模型后倍率不变。
-4. 普通输入、缓存写入、缓存读取、输出和媒体用量形成独立不可变明细。
+4. 普通输入、缓存写入、缓存读取、输出和媒体用量形成独立不可变明细；包含用户实际扣款金额的明细只由 finalizer 在金额终态确定后写入。
 5. 缓存 Token 使用官方缓存价且不重复进入普通输入；缓存明细缺失不按高价扣用户。
 6. 小于一分钱的消费能精确改变钱包，不设置一分钱最低消费。
 7. 可用余额不足时不调用供应商，并给用户明确充值入口。
-8. 同一客户端 `request_id` 重试后仍只有一个业务任务、一个 Run 身份和一张账单；非零 `settled` 费用最多一次有效冻结捕获和一条扣款流水，零金额不写零 hold/流水，失败或 `unbilled` 不写扣款；同 ID 不同请求返回冲突。
-9. 失败、取消、超时、超过不确定恢复上限或无法恢复准确用量时不捕获估算金额，也不无限冻结用户余额。
+8. 同一客户端 `request_id` 重试后仍只有一个业务任务、一个 Run 身份和一张账单；非零 `settled` 费用最多一次有效冻结捕获和一条扣款流水，零金额不写零 hold/流水，`unbilled` 不写扣款；同 ID 不同请求返回冲突。
+9. 失败、取消、超时或超过不确定恢复上限时都不捕获估算金额，也不无限冻结用户余额；取消后取得完整合法用量时允许业务 `canceled` 与账单按实际用量 `settled` 同时成立，失败尝试是否收费遵循 `PD-07`。
 10. 发送、编辑和重新生成在 Worker 调用前完成价格快照与冻结，成功结果统一原子完成。
 11. 编辑只改变文字；附件和运行参数不变；新 Run 使用当前模型与倍率。
 12. 编辑和重新生成产生新消息、命令、Run 和账单，旧审计与财务事实不变。
@@ -1253,13 +1346,14 @@ AI Run 详情统一增加：
 18. 非当前会话完整回复产生准确未读数，进入会话后清零，断线重放不重复。
 19. AI Runs 同时展示结构化输入、点赞、计费分类、缓存折扣和高精度费用。
 20. 图片、视频和音频按模型真实官方单位计费，不回退到场景固定价。
-21. 同步文本、工具草稿、图片、视频和音频的成功结果都可由首次请求身份重放，不因响应丢失重复调用供应商或扣款。
+21. 文本、工具草稿、图片、视频和音频的保留期内成功结果都可由首次请求身份重放；HTTP 断开或响应丢失不终止 durable owner，也不重复调用供应商或扣款。
 22. 所有真实供应商调用都有 Run 级 attempt 身份；不确定结果不得换 key 盲目重发。
-23. `staged` 对象不能被用户读取，finalizer 只发布已验证的私有对象；成功结果本期没有自动 TTL，永久结果损坏返回稳定错误、完整退款且不重新生成。
-24. 每个冻结都有不可被重启延长的绝对恢复上限；超过上限后不扣估算金额、不无限占用余额，迟到结果也不反转终态。
-25. 任一估算上限突破、计量不完整、未知单位/档位或金额指纹漂移都会形成跨实例 billing-profile block，修正并显式升级 safety revision 前同一 `billing_safety_key` 不再调用供应商。
+23. `staged` 对象不能被用户读取，finalizer 只发布带不可变 storage location 快照的已验证私有对象；用户删除进入 `user_deleted` 且不重新生成，保留和退款动作分别等待 `PD-01`、`PD-02`、`PD-03`、`PD-08`。
+24. `PD-04` 确认后，每个冻结都有首次派发时固化且不可被重启延长的绝对恢复上限；超过上限后不扣估算金额、不无限占用余额，迟到结果也不反转终态。
+25. 任一估算上限突破、计量不完整、未知单位/档位或金额指纹漂移都会形成跨实例异常事实；active block 阈值和受控解除按 `PD-05`、`PD-06` 执行，不能被进程重启或缓存刷新绕过。
 26. 后续价格、模型或倍率变化不能修改历史账单快照或同一请求的首次执行结果。
 27. 收银台不再出现最近充值，充值记录与继续支付不受影响。
 28. 旧 AI 计费表继续不存在，且没有新增密钥/环境变量、自动角色授权或已退役 Admin/Canvas AI transport。
 29. 实施只自动执行短而针对性的测试，长脚本明确交由用户手动运行。
-30. 钱包单位切换在停止全部旧写入者的维护窗口内完成，任何 cents 值溢出风险都在修改数据前失败，发布后不存在 cents/units 混写或双写。
+30. 钱包单位切换在停止全部旧写入者的维护窗口内按 expand/backfill/validate/contract 完成；任何 cents 值溢出风险都在 units 回填前失败，钱包与流水全部校验后才删除旧列，发布后不存在 cents/units 混写或双写。
+31. `PD-01` 至 `PD-08` 在进入相应 implementation plan 前逐项确认；未确认项不能由实现者选取默认政策。
