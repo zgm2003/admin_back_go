@@ -257,6 +257,90 @@ func TestRepositoryRedeemMapsWalletSourceAndOverflowToIntegrity(t *testing.T) {
 	}
 }
 
+func TestRepositoryRedeemRetriesMySQLDeadlockAndLockTimeoutWithStableFundsIdentity(t *testing.T) {
+	tests := []struct {
+		name   string
+		number uint16
+	}{
+		{name: "deadlock_1213", number: 1213},
+		{name: "lock_timeout_1205", number: 1205},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			firstDecision := time.Date(2026, 7, 24, 12, 0, 0, 100, time.UTC)
+			secondDecision := firstDecision.Add(time.Microsecond)
+			createdAt := firstDecision.Add(-time.Hour)
+			expiresAt := secondDecision.Add(time.Hour)
+			fakeClock := &countingClock{times: []time.Time{firstDecision, secondDecision}}
+			repository, participant, mock, closeDB := newMockRedeemRepository(t, fakeClock)
+			defer closeDB()
+			participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceCents: 100, TotalRechargeCents: 100, IsDel: enum.CommonNo}
+			participant.creditTransaction = &wallet.Transaction{
+				ID: 9, WalletID: 4, UserID: 8, Direction: wallet.DirectionIn,
+				AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100,
+				SourceType: wallet.SourceRedeemCode, SourceID: 20, Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: secondDecision,
+			}
+			participant.creditFn = func(call int, input wallet.RedeemCodeCreditInput, _ time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
+				if call == 1 {
+					return nil, nil, &mysqlDriver.MySQLError{Number: test.number, Message: test.name}
+				}
+				transaction := *participant.creditTransaction
+				transaction.TransactionNo = input.TransactionNo
+				return participant.creditWallet, &transaction, nil
+			}
+
+			for attempt := 0; attempt < 2; attempt++ {
+				mock.ExpectBegin()
+				expectCodeForUpdate(mock, "ZHR-2345-6789-ABCD-EFGH-JKMN").WillReturnRows(codeRows().
+					AddRow(int64(20), int64(10), "ZHR-2345-6789-ABCD-EFGH-JKMN", StateUnused, nil, nil, createdAt, createdAt))
+				expectBatchByID(mock, 10).WillReturnRows(batchRows().AddRow(
+					int64(10), "RCB1", "request-1", RequestFingerprintVersion, strings.Repeat("a", 64),
+					int64(100), 1, expiresAt, "", int64(7), createdAt, createdAt,
+				))
+				if attempt == 0 {
+					mock.ExpectRollback()
+				} else {
+					mock.ExpectExec("UPDATE `redeem_codes` SET .* WHERE id = .* AND state =").WillReturnResult(sqlmock.NewResult(0, 1))
+					mock.ExpectCommit()
+				}
+			}
+
+			fact, err := repository.Redeem(context.Background(), 8, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+			if err != nil || fact == nil || fact.Transaction == nil {
+				t.Fatalf("Redeem=(%+v,%v)", fact, err)
+			}
+			if participant.creditCalls != 2 || len(participant.creditInputs) != 2 || len(participant.creditTimes) != 2 {
+				t.Fatalf("credit calls=%d inputs=%+v times=%+v", participant.creditCalls, participant.creditInputs, participant.creditTimes)
+			}
+			var transactionNo string
+			for attempt, input := range participant.creditInputs {
+				if input.UserID != 8 || input.CodeID != 20 || input.AmountCents != 100 || input.BatchNo != "RCB1" {
+					t.Fatalf("attempt %d changed funds identity: %+v", attempt+1, input)
+				}
+				if input.TransactionNo == "" {
+					t.Fatalf("attempt %d has empty transaction identity", attempt+1)
+				}
+				if transactionNo == "" {
+					transactionNo = input.TransactionNo
+				} else if input.TransactionNo != transactionNo {
+					t.Fatalf("attempt %d transaction identity=%q want %q", attempt+1, input.TransactionNo, transactionNo)
+				}
+			}
+			if fact.Transaction.TransactionNo != transactionNo {
+				t.Fatalf("committed transaction identity=%q want %q", fact.Transaction.TransactionNo, transactionNo)
+			}
+			if !participant.creditTimes[0].Equal(firstDecision.UTC().Truncate(time.Microsecond)) ||
+				!participant.creditTimes[1].Equal(secondDecision.UTC().Truncate(time.Microsecond)) {
+				t.Fatalf("decision times=%v", participant.creditTimes)
+			}
+			if fact.Transaction.SourceType != wallet.SourceRedeemCode || fact.Transaction.SourceID != 20 || fact.Transaction.AmountCents != 100 {
+				t.Fatalf("committed funds identity=%+v", fact.Transaction)
+			}
+			assertSQLMock(t, mock)
+		})
+	}
+}
+
 func TestRepositoryListLookupAndExportUseBoundedJoinReadModel(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	repository, _, mock, closeDB := newMockRedeemRepository(t, nil)
@@ -298,6 +382,9 @@ type fakeWalletParticipant struct {
 	creditTransaction *wallet.Transaction
 	creditErr         error
 	lastCredit        wallet.RedeemCodeCreditInput
+	creditInputs      []wallet.RedeemCodeCreditInput
+	creditTimes       []time.Time
+	creditFn          func(int, wallet.RedeemCodeCreditInput, time.Time) (*wallet.Wallet, *wallet.Transaction, error)
 }
 
 func (participant *fakeWalletParticipant) FindRedeemCodeCreditInTx(context.Context, *gorm.DB, int64, bool) (*wallet.Wallet, *wallet.Transaction, error) {
@@ -305,9 +392,14 @@ func (participant *fakeWalletParticipant) FindRedeemCodeCreditInTx(context.Conte
 	return participant.findWallet, participant.findTransaction, participant.findErr
 }
 
-func (participant *fakeWalletParticipant) CreditRedeemCodeInTx(_ context.Context, _ *gorm.DB, input wallet.RedeemCodeCreditInput, _ time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
+func (participant *fakeWalletParticipant) CreditRedeemCodeInTx(_ context.Context, _ *gorm.DB, input wallet.RedeemCodeCreditInput, now time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
 	participant.creditCalls++
 	participant.lastCredit = input
+	participant.creditInputs = append(participant.creditInputs, input)
+	participant.creditTimes = append(participant.creditTimes, now)
+	if participant.creditFn != nil {
+		return participant.creditFn(participant.creditCalls, input, now)
+	}
 	return participant.creditWallet, participant.creditTransaction, participant.creditErr
 }
 

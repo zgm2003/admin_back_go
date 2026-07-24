@@ -18,20 +18,24 @@ func TestGenerateCodeUsesFixedFormatAlphabetAndRejectionSampling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateCode error=%v", err)
 	}
-	if len(code) != len("ZHR-XXXX-XXXX-XXXX-XXXX-XXXX") || !strings.HasPrefix(code, "ZHR-") {
-		t.Fatalf("unexpected format %q", code)
+	const want = "ZHR-2345-6789-ABCD-EFGH-JKMN"
+	if code != want {
+		t.Fatalf("GenerateCode=%q want %q; bytes 248..255 must be discarded", code, want)
 	}
-	compact := strings.ReplaceAll(strings.TrimPrefix(code, "ZHR-"), "-", "")
-	if len(compact) != 20 {
-		t.Fatalf("random character count=%d code=%q", len(compact), code)
+	if reader.reads != 28 {
+		t.Fatalf("reader reads=%d want 28", reader.reads)
 	}
-	for index, character := range compact {
-		if character != rune(CodeAlphabet[index]) {
-			t.Fatalf("character[%d]=%q want %q; rejected bytes must be discarded", index, character, CodeAlphabet[index])
-		}
+}
+
+func TestGeneratePublicConstantsMatchApprovedContract(t *testing.T) {
+	if CodeAlphabet != "23456789ABCDEFGHJKMNPQRSTUVWXYZ" {
+		t.Fatalf("CodeAlphabet=%q", CodeAlphabet)
 	}
-	if reader.reads != len(rejected)+len(accepted) {
-		t.Fatalf("reader reads=%d want %d", reader.reads, len(rejected)+len(accepted))
+	if RequestFingerprintVersion != "redeem_batch_request_v1" {
+		t.Fatalf("RequestFingerprintVersion=%q", RequestFingerprintVersion)
+	}
+	if MaxBatchQuantity != 1000 || MaxVoidCodes != 1000 || MaxExportRows != 10000 || MaxRawCodeBytes != 128 || MaxAmountCents != 100_000_000 {
+		t.Fatalf("limits=(%d,%d,%d,%d,%d)", MaxBatchQuantity, MaxVoidCodes, MaxExportRows, MaxRawCodeBytes, MaxAmountCents)
 	}
 }
 
@@ -76,7 +80,7 @@ func TestNormalizeCodeAcceptsOnlyApprovedASCIISyntax(t *testing.T) {
 		"X-ZHR-2345-6789-ABCD-EFGH-JKMN",
 		"ZHR-2345-6789-ABCD-EFGH-JKMN\n",
 		"ZHR-2345-6789-ABCD-EFGH-JKMＮ", // Unicode full-width homograph.
-		strings.Repeat("Z", MaxRawCodeBytes+1),
+		strings.Repeat("Z", 129),
 	}
 	for _, raw := range invalid {
 		got, err := NormalizeCode(raw)
@@ -99,7 +103,7 @@ func TestParseAmountCentsUsesStrictASCIIIntegerParsing(t *testing.T) {
 		{raw: "1", wantCents: 100, wantText: "1.00"},
 		{raw: "0.1", wantCents: 10, wantText: "0.10"},
 		{raw: "12.34", wantCents: 1234, wantText: "12.34"},
-		{raw: "1000000.00", wantCents: MaxAmountCents, wantText: "1000000.00"},
+		{raw: "1000000.00", wantCents: 100_000_000, wantText: "1000000.00"},
 	}
 	for _, test := range tests {
 		cents, text, err := ParseAmountCents(test.raw)

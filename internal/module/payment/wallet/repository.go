@@ -187,6 +187,7 @@ func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, 
 		return nil, nil, err
 	}
 	input.BatchNo = strings.TrimSpace(input.BatchNo)
+	input.TransactionNo = strings.TrimSpace(input.TransactionNo)
 	if input.UserID <= 0 || input.CodeID <= 0 || input.AmountCents <= 0 || input.BatchNo == "" {
 		return nil, nil, ErrRedeemCodeInvalidInput
 	}
@@ -219,8 +220,12 @@ func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, 
 	balanceAfter := wallet.BalanceCents + input.AmountCents
 	totalRechargeAfter := wallet.TotalRechargeCents + input.AmountCents
 
+	transactionNo := input.TransactionNo
+	if transactionNo == "" {
+		transactionNo = newTransactionNo(now)
+	}
 	transaction := Transaction{
-		TransactionNo:      newTransactionNo(now),
+		TransactionNo:      transactionNo,
 		WalletID:           wallet.ID,
 		UserID:             input.UserID,
 		Direction:          DirectionIn,

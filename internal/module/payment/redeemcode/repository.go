@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/payment/serialno"
 	"admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
@@ -293,6 +294,7 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 	}
 	ctx = nonNilContext(ctx)
 	var fact *RedemptionFact
+	var transactionNo string
 	err = repository.withTransactionRetry(ctx, func(tx *gorm.DB) error {
 		lockedCode, err := findCodeForUpdate(tx, code)
 		if err != nil {
@@ -343,11 +345,17 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if batch.ExpiresAt != nil && !batch.ExpiresAt.After(decisionTime) {
 			return ErrExpired
 		}
+		if transactionNo == "" {
+			transactionNo = serialno.NewWalletTransactionNo(decisionTime)
+		}
 		currentWallet, transaction, creditErr := repository.walletParticipant.CreditRedeemCodeInTx(ctx, tx, wallet.RedeemCodeCreditInput{
-			UserID: userID, CodeID: lockedCode.ID, AmountCents: batch.AmountCents, BatchNo: batch.BatchNo,
+			UserID: userID, CodeID: lockedCode.ID, AmountCents: batch.AmountCents, BatchNo: batch.BatchNo, TransactionNo: transactionNo,
 		}, decisionTime)
 		if creditErr != nil {
 			return mapWalletError(creditErr)
+		}
+		if transaction != nil && transaction.TransactionNo != "" {
+			transactionNo = transaction.TransactionNo
 		}
 		if !validWalletRedemptionFacts(currentWallet, transaction, batch, *lockedCode, userID) {
 			return ErrIntegrityViolation
@@ -570,7 +578,7 @@ func validWalletRedemptionFacts(currentWallet *wallet.Wallet, transaction *walle
 	if currentWallet == nil || transaction == nil || currentWallet.ID <= 0 || currentWallet.UserID != userID || currentWallet.IsDel != enum.CommonNo {
 		return false
 	}
-	if transaction.ID <= 0 || transaction.WalletID != currentWallet.ID || transaction.UserID != userID || transaction.IsDel != enum.CommonNo ||
+	if transaction.ID <= 0 || transaction.TransactionNo == "" || transaction.WalletID != currentWallet.ID || transaction.UserID != userID || transaction.IsDel != enum.CommonNo ||
 		transaction.Direction != wallet.DirectionIn || transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID != code.ID ||
 		transaction.AmountCents != batch.AmountCents || transaction.Remark != batch.BatchNo || transaction.BalanceBeforeCents < 0 {
 		return false

@@ -381,7 +381,7 @@ func TestRepositoryRedeemCodeCreditLocksActiveWalletAndUpdatesRechargeTotals(t *
 	mock.ExpectCommit()
 
 	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{
-		UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "  RCB202607240001  ",
+		UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "  RCB202607240001  ", TransactionNo: "WLT-FIXED-REDEEM",
 	}, now)
 	if err != nil {
 		t.Fatalf("CreditRedeemCodeInTx error=%v", err)
@@ -389,7 +389,7 @@ func TestRepositoryRedeemCodeCreditLocksActiveWalletAndUpdatesRechargeTotals(t *
 	if wallet == nil || wallet.BalanceCents != 1100 || wallet.TotalRechargeCents != 1600 || wallet.TotalConsumeCents != 200 {
 		t.Fatalf("unexpected credited wallet=%#v", wallet)
 	}
-	if transaction == nil || transaction.Direction != DirectionIn || transaction.SourceType != SourceRedeemCode || transaction.SourceID != 88 || transaction.Remark != "RCB202607240001" {
+	if transaction == nil || transaction.TransactionNo != "WLT-FIXED-REDEEM" || transaction.Direction != DirectionIn || transaction.SourceType != SourceRedeemCode || transaction.SourceID != 88 || transaction.Remark != "RCB202607240001" {
 		t.Fatalf("unexpected redeem code transaction=%#v", transaction)
 	}
 	if transaction.BalanceBeforeCents != 1000 || transaction.BalanceAfterCents != 1100 || transaction.AmountCents != 100 {

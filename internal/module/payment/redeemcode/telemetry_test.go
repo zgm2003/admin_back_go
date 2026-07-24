@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/payment/wallet"
+	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/telemetry"
 )
 
@@ -12,19 +14,19 @@ func TestTelemetryRecordsControlledRedeemCodeMetrics(t *testing.T) {
 	memory := telemetry.NewMemoryRecorder()
 	metrics := newMetrics(memory)
 	metrics.batch("ok", "created")
-	metrics.codes(3, StateUnused)
-	metrics.transition(2, StateVoided, "admin_void")
+	metrics.codes(3, "unused")
+	metrics.transition(2, "voided", "admin_void")
 	metrics.redemption("ok", "created", 250*time.Millisecond)
 	metrics.conflict("generate", "request")
 
 	events := memory.Events()
 	wantNames := []string{
-		metricBatches,
-		metricCodes,
-		metricStateTransitions,
-		metricRedemptions,
-		metricRedemptionLatency,
-		metricConflicts,
+		"payment.redeem_code.batches",
+		"payment.redeem_code.codes",
+		"payment.redeem_code.state_transitions",
+		"payment.redeem_code.redemptions",
+		"payment.redeem_code.redemption_latency_seconds",
+		"payment.redeem_code.conflicts",
 	}
 	if len(events) != len(wantNames) {
 		t.Fatalf("events=%+v", events)
@@ -42,6 +44,42 @@ func TestTelemetryRecordsControlledRedeemCodeMetrics(t *testing.T) {
 	if events[1].Value != 3 || events[2].Value != 2 || events[4].Value != 0.25 {
 		t.Fatalf("metric values=%+v", events)
 	}
+}
+
+func TestTelemetryServiceRedeemRecordsUsedAndSuccess(t *testing.T) {
+	recorder := &captureRecorder{}
+	repository := &fakeRepository{redeemFact: validTelemetryRedemptionFact()}
+	service := NewService(repository, WithTelemetry(recorder))
+
+	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr != nil || response == nil || response.Replayed {
+		t.Fatalf("Redeem=(%+v,%+v)", response, appErr)
+	}
+	assertCapturedMetric(t, recorder.events, "payment.redeem_code.codes", map[string]any{
+		"operation": "inventory", "state": "used",
+	})
+	assertCapturedMetric(t, recorder.events, "payment.redeem_code.redemptions", map[string]any{
+		"operation": "redeem", "outcome": "ok", "reason": "created",
+	})
+	assertOnlyControlledTelemetryAttributes(t, recorder.events)
+}
+
+func TestTelemetryServiceRedeemRecordsExpiredUnavailable(t *testing.T) {
+	recorder := &captureRecorder{}
+	repository := &fakeRepository{redeemErr: ErrExpired}
+	service := NewService(repository, WithTelemetry(recorder))
+
+	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if response != nil || appErr == nil || appErr.Code != ErrorWalletUnavailable {
+		t.Fatalf("Redeem=(%+v,%+v)", response, appErr)
+	}
+	assertCapturedMetric(t, recorder.events, "payment.redeem_code.codes", map[string]any{
+		"operation": "inventory", "state": "expired",
+	})
+	assertCapturedMetric(t, recorder.events, "payment.redeem_code.redemptions", map[string]any{
+		"operation": "redeem", "outcome": "unavailable", "reason": "expired",
+	})
+	assertOnlyControlledTelemetryAttributes(t, recorder.events)
 }
 
 func TestTelemetryPassesOnlyBoundedAttributeNamesAndReasons(t *testing.T) {
@@ -85,4 +123,48 @@ func (recorder *captureRecorder) Observe(name string, _ float64, attributes tele
 
 func (recorder *captureRecorder) Start(ctx context.Context, _ string, _ telemetry.Attributes) (context.Context, func(error)) {
 	return ctx, func(error) {}
+}
+
+func validTelemetryRedemptionFact() *RedemptionFact {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	return &RedemptionFact{
+		AmountCents: 100,
+		Transaction: &wallet.Transaction{
+			ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn,
+			AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100,
+			SourceType: wallet.SourceRedeemCode, SourceID: 20, Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: now,
+		},
+		Wallet: &wallet.Wallet{ID: 4, UserID: 7, BalanceCents: 100, TotalRechargeCents: 100, IsDel: enum.CommonNo},
+	}
+}
+
+func assertCapturedMetric(t *testing.T, events []capturedMetric, name string, want map[string]any) {
+	t.Helper()
+	for _, event := range events {
+		if event.name != name {
+			continue
+		}
+		matches := true
+		for key, value := range want {
+			if event.attributes[key] != value {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return
+		}
+	}
+	t.Fatalf("metric %q with attributes %+v not found in %+v", name, want, events)
+}
+
+func assertOnlyControlledTelemetryAttributes(t *testing.T, events []capturedMetric) {
+	t.Helper()
+	for _, event := range events {
+		for key := range event.attributes {
+			if key != "operation" && key != "outcome" && key != "state" && key != "reason" {
+				t.Fatalf("metric %q has forbidden attribute %q", event.name, key)
+			}
+		}
+	}
 }

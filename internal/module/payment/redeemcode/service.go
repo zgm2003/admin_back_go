@@ -360,6 +360,7 @@ func (service *Service) Redeem(ctx context.Context, userID int64, rawCode string
 	if fact.Replayed {
 		outcome, reason = "replayed", "replayed"
 	} else {
+		service.metrics.codes(1, StateUsed)
 		service.metrics.transition(1, StateUsed, "created")
 	}
 	service.metrics.redemption(outcome, reason, elapsed)
