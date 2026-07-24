@@ -209,6 +209,34 @@ func TestWalletRedeemCodeDatabaseContract(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("overflow safe money arithmetic", func(t *testing.T) {
+		invariants := []struct {
+			name     string
+			operator string
+		}{
+			{name: "redeem_code_used_without_transaction", operator: `=`},
+			{name: "redeem_code_transaction_without_used_code", operator: `<>`},
+		}
+		for _, rel := range []string{"032_verify_money.sql", "050_contract_preconditions.sql"} {
+			body := readWalletRedeemCodeContractFile(t, root, "database", "reconciliation", rel)
+			for _, invariant := range invariants {
+				block := normalizeWalletRedeemCodeSQL(walletRedeemCodeInvariantBlock(t, body, invariant.name))
+				safeComparison := regexp.MustCompile(
+					`cast\(transaction_row\.balance_before_cents as decimal\(65,0\)\)\s*\+\s*` +
+						`cast\(transaction_row\.amount_cents as decimal\(65,0\)\)\s*` + regexp.QuoteMeta(invariant.operator) + `\s*` +
+						`cast\(transaction_row\.balance_after_cents as decimal\(65,0\)\)`,
+				)
+				if count := len(safeComparison.FindAllStringIndex(block, -1)); count != 1 {
+					t.Errorf("%s invariant %s has %d overflow-safe balance comparisons, want 1", rel, invariant.name, count)
+				}
+				unsafeAddition := regexp.MustCompile(`transaction_row\.balance_before_cents\s*\+\s*transaction_row\.amount_cents`)
+				if unsafeAddition.MatchString(block) {
+					t.Errorf("%s invariant %s performs signed BIGINT addition before widening", rel, invariant.name)
+				}
+			}
+		}
+	})
 }
 
 func readWalletRedeemCodeContractFile(t *testing.T, root string, path ...string) string {
@@ -246,4 +274,19 @@ func hclColumnBlock(t *testing.T, table string, name string) string {
 	}
 	t.Fatalf("canonical column %q has unbalanced braces", name)
 	return ""
+}
+
+func walletRedeemCodeInvariantBlock(t *testing.T, body string, name string) string {
+	t.Helper()
+	lowerBody := strings.ToLower(body)
+	marker := "select '" + strings.ToLower(name) + "' as invariant"
+	start := strings.Index(lowerBody, marker)
+	if start < 0 {
+		t.Fatalf("reconciliation SQL missing invariant %q", name)
+	}
+	tail := lowerBody[start+len(marker):]
+	if next := strings.Index(tail, "select '"); next >= 0 {
+		return body[start : start+len(marker)+next]
+	}
+	return body[start:]
 }

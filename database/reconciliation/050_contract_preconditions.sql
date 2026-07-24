@@ -217,7 +217,9 @@ WHERE code_row.`state` = 'used'
         AND wallet.`user_id` = code_row.`used_by`
         AND transaction_row.`amount_cents` = batch_row.`amount_cents`
         AND transaction_row.`direction` = 'in'
-        AND transaction_row.`balance_before_cents` + transaction_row.`amount_cents` = transaction_row.`balance_after_cents`
+        AND CAST(transaction_row.`balance_before_cents` AS DECIMAL(65,0))
+          + CAST(transaction_row.`amount_cents` AS DECIMAL(65,0))
+          = CAST(transaction_row.`balance_after_cents` AS DECIMAL(65,0))
     )
   );
 
@@ -240,7 +242,9 @@ WHERE transaction_row.`source_type` = 'redeem_code'
     OR wallet.`user_id` <> code_row.`used_by`
     OR transaction_row.`amount_cents` <> batch_row.`amount_cents`
     OR transaction_row.`direction` <> 'in'
-    OR transaction_row.`balance_before_cents` + transaction_row.`amount_cents` <> transaction_row.`balance_after_cents`
+    OR CAST(transaction_row.`balance_before_cents` AS DECIMAL(65,0))
+      + CAST(transaction_row.`amount_cents` AS DECIMAL(65,0))
+      <> CAST(transaction_row.`balance_after_cents` AS DECIMAL(65,0))
   );
 
 SELECT 'redeem_code_non_used_with_transaction' AS invariant, COUNT(*) AS violations
