@@ -162,7 +162,7 @@ func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.
 		}
 		return nil, nil, err
 	}
-	if transaction.IsDel != enum.CommonNo {
+	if !validRedeemCodeTransactionFact(&transaction) || transaction.IsDel != enum.CommonNo {
 		return nil, nil, ErrRedeemCodeWalletIntegrity
 	}
 
@@ -177,7 +177,7 @@ func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.
 		}
 		return nil, nil, err
 	}
-	if wallet.IsDel != enum.CommonNo {
+	if !validRedeemCodeWalletFact(&wallet, transaction.UserID) || wallet.ID != transaction.WalletID || wallet.IsDel != enum.CommonNo {
 		return nil, nil, ErrRedeemCodeWalletIntegrity
 	}
 	return &wallet, &transaction, nil
@@ -202,6 +202,9 @@ func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, 
 	var existing Transaction
 	err := tx.Where("source_type = ? AND source_id = ?", SourceRedeemCode, input.CodeID).First(&existing).Error
 	if err == nil {
+		if !validRedeemCodeTransactionFact(&existing) {
+			return nil, nil, ErrRedeemCodeWalletIntegrity
+		}
 		return nil, nil, ErrRedeemCodeSourceExists
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -298,22 +301,51 @@ func lockOrCreateRedeemCodeWalletForUpdate(tx *gorm.DB, userID int64) (*Wallet, 
 		}
 		return nil, err
 	}
-	if locked.IsDel != enum.CommonNo {
+	if !validRedeemCodeWalletFact(&locked, userID) || locked.ID != wallet.ID || locked.IsDel != enum.CommonNo {
 		return nil, ErrRedeemCodeWalletIntegrity
 	}
 	return &locked, nil
 }
 
 func findRedeemCodeWalletByUserIDForUpdate(tx *gorm.DB, userID int64) (*Wallet, error) {
-	var wallet Wallet
-	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error
+	var wallets []Wallet
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ?", userID).
+		Order("id ASC").
+		Limit(2).
+		Find(&wallets).Error
 	if err != nil {
 		return nil, err
 	}
-	if wallet.IsDel != enum.CommonNo {
+	if len(wallets) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if len(wallets) != 1 || !validRedeemCodeWalletFact(&wallets[0], userID) || wallets[0].IsDel != enum.CommonNo {
 		return nil, ErrRedeemCodeWalletIntegrity
 	}
-	return &wallet, nil
+	return &wallets[0], nil
+}
+
+func validRedeemCodeTransactionFact(transaction *Transaction) bool {
+	return transaction != nil &&
+		transaction.ID > 0 &&
+		transaction.WalletID > 0 &&
+		transaction.UserID > 0 &&
+		transaction.SourceType == SourceRedeemCode &&
+		transaction.SourceID > 0 &&
+		validRedeemCodeLifecycle(transaction.IsDel)
+}
+
+func validRedeemCodeWalletFact(wallet *Wallet, userID int64) bool {
+	return wallet != nil &&
+		wallet.ID > 0 &&
+		wallet.UserID > 0 &&
+		wallet.UserID == userID &&
+		validRedeemCodeLifecycle(wallet.IsDel)
+}
+
+func validRedeemCodeLifecycle(isDel int) bool {
+	return isDel == enum.CommonYes || isDel == enum.CommonNo
 }
 
 func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput, direction string, now time.Time) (*Wallet, *Transaction, error) {
