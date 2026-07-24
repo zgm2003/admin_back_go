@@ -419,7 +419,7 @@ GET/HEAD /api/admin/v1/queue-monitor-ui/*
 当前实现：
 
 ```text
-APP_SECRET 是唯一根密钥；internal/infra/secretkey 用 HKDF-SHA256 派生 jwt-signing、token-pepper、secretbox、session-cache keys。
+APP_SECRET 是唯一当前根密钥；APP_SECRET_PREVIOUS 仅在轮换时保存一个可选的前一根密钥。internal/infra/secretkey 用 HKDF-SHA256 派生 jwt-signing、token-pepper、secretbox 和 mail diagnostic keys。
 access_token 是本系统签发的 JWT，只包含 sid/sub/platform/device_id/iat/nbf/exp/iss 最小 claims。
 refresh_token 是 opaque random string，数据库只保存 sha256(refresh_token + "|" + derived token pepper)。
 Redis session key = "token:session:" + session_id，其中 "token:" 是代码内置命名空间。
@@ -948,14 +948,14 @@ DELETE /api/admin/v1/mail/logs
 边界规则：
 
 ```text
-internal/module/mail 拥有 mail_configs / mail_templates / mail_logs 业务事实、软删除、日志和验证码邮件编排
+internal/module/mail 拥有 mail_configs / mail_templates / mail_logs / mail_log_verification_codes 业务事实、软删除、日志和验证码邮件编排
 internal/infra/mail/tencentcloudses 是唯一允许 import Tencent Cloud SDK 的包
 只支持 Tencent Cloud SES API；不做 SMTP、自建邮件服务器、多供应商抽象
 SendEmail region 只暴露 ap-guangzhou / ap-hongkong；默认 ap-guangzhou，不让后台用户手写任意 region
 SecretId / SecretKey 是后台业务配置，使用 APP_SECRET 派生 secretbox 加密入库，不进入 .env
 HTTP config 响应只返回 secret_id_hint / secret_key_hint，不返回明文或密文
-mail_logs 只记录场景、收件人、主题、腾讯 RequestId/MessageId、错误码、耗时和状态；详情可附带模板摘要帮助定位 TemplateID/变量名，但不保存正文、验证码明文、完整模板数据
-三张表都有 is_del；所有 read path 过滤 is_del=2；删除都是 soft delete
+mail_logs 只记录场景、收件人、主题、腾讯 RequestId/MessageId、错误码、耗时和状态；详情可附带模板摘要帮助定位 TemplateID/变量名，但不保存正文、验证码明文、完整模板数据。mail_log_verification_codes 是一对一的加密诊断证据，保存 key id、密文和绝对过期时间；plaintext 只可由已授权的邮件日志读取响应返回，操作审计保持 payload-free，传输必须使用 TLS
+mail_configs、mail_templates 和 mail_logs 都有 is_del；所有对应 read path 过滤 is_del=2，删除都是 soft delete。不可变的 mail_log_verification_codes 子表没有软删除字段
 ```
 
 `auth/send-code` 集成规则：

@@ -147,3 +147,8 @@ FROM (
 SELECT 'export_relationship_orphans' AS invariant, COUNT(*) AS violations
 FROM `export_tasks` e LEFT JOIN `users` u ON u.`id`=e.`user_id`
 WHERE e.`is_del`=2 AND u.`id` IS NULL;
+
+SELECT 'mail_verification_diagnostic_orphans' AS invariant, COUNT(*) AS violations
+FROM `mail_log_verification_codes` mvc
+LEFT JOIN `mail_logs` ml ON ml.`id`=mvc.`mail_log_id`
+WHERE ml.`id` IS NULL;

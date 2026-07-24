@@ -3097,6 +3097,53 @@ table "mail_logs" {
     columns = [column.is_del, column.to_email, column.created_at]
   }
 }
+table "mail_log_verification_codes" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "mail_log_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "key_id" {
+    null = false
+    type = varchar(64)
+  }
+  column "code_enc" {
+    null = false
+    type = varchar(255)
+  }
+  column "expires_at" {
+    null = false
+    type = datetime
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime
+    default = sql("CURRENT_TIMESTAMP")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "uk_mail_log_verification_codes_mail_log" {
+    unique  = true
+    columns = [column.mail_log_id]
+  }
+  index "idx_mail_log_verification_codes_key_id_id" {
+    columns = [column.key_id, column.id]
+  }
+  foreign_key "fk_mail_log_verification_codes_mail_log" {
+    columns     = [column.mail_log_id]
+    ref_columns = [table.mail_logs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+}
 table "mail_templates" {
   schema = schema.admin
   column "id" {

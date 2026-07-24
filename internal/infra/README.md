@@ -111,6 +111,16 @@ Resources.QueueRedis # queue Redis，使用 QUEUE_REDIS_DB，默认 3
 
 它们共用 `REDIS_ADDR` / `REDIS_PASSWORD`，但 DB 分开。这个不是花活，是为了对齐旧 PHP 的 token 连接，避免把登录态和未来通用缓存/RBAC 缓存搅在一个 DB 里。
 
+## Root-secret derivations
+
+`APP_SECRET` is the sole current root. `APP_SECRET_PREVIOUS` is optional and
+contains at most one prior root during the documented rotation; it is not a
+separate deployment secret. `internal/infra/secretkey` derives the live JWT
+signing, refresh-token pepper, secretbox, and mail diagnostic purposes. The mail
+diagnostic box encrypts evidence for `internal/module/mail`; it never owns mail
+business policy, exposes plaintext to infrastructure logs, or replaces Auth's
+verification state.
+
 ## Lifecycle ownership
 
 资源生命周期属于 `internal/runtime.Resources`。

@@ -67,8 +67,8 @@ func TestLocalPermissionSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse local permission seed: %v", err)
 	}
-	if len(rows) != 131 {
-		t.Fatalf("permission seed row count=%d want 131", len(rows))
+	if len(rows) != 132 {
+		t.Fatalf("permission seed row count=%d want 132", len(rows))
 	}
 
 	ids := make(map[int64]struct{}, len(rows))
@@ -106,8 +106,19 @@ func TestLocalPermissionSeed(t *testing.T) {
 			t.Fatalf("permission %d references missing parent %d", row.id, row.parentID)
 		}
 	}
-	if len(codes) != 101 {
-		t.Fatalf("permission seed code count=%d want 101", len(codes))
+	if len(codes) != 102 {
+		t.Fatalf("permission seed code count=%d want 102", len(codes))
+	}
+
+	wantMailDiagnostic := permissionSeedRow{
+		id: 515, name: "查看邮件日志及验证码", path: "", icon: "", parentID: 506,
+		component: "", platform: "admin", typeID: 3, sort: 9,
+		code: "system_mail_logView", i18nKey: "", showMenu: 2, status: 1, isDel: 2,
+	}
+	if got, ok := rowsByID[wantMailDiagnostic.id]; !ok {
+		t.Fatal("mail diagnostic permission 515 is missing")
+	} else if got != wantMailDiagnostic {
+		t.Fatalf("mail diagnostic permission 515=%+v want %+v", got, wantMailDiagnostic)
 	}
 
 	restored := map[int64]permissionSeedRow{

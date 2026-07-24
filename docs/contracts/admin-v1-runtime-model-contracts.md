@@ -65,3 +65,12 @@ grant responses remain the exact schemas defined by the Admin Contract Bundle.
 
 Any route in a covered family that falls back to `SuccessEnvelope` or a generic
 request body is a contract regression and is rejected by backend contract tests.
+
+## Mail diagnostic reads
+
+Mail-log list and detail reads require `system_mail_logView`. Their verification
+diagnostic projection is owned by the Mail module and may return plaintext only
+to that authorized response over TLS; no ciphertext, key ID, or diagnostic
+payload is exposed by the contract. The required operation audit is payload-free.
+The persisted diagnostic record is encrypted evidence with an absolute expiry,
+not an Auth verification API or an alternate code store.

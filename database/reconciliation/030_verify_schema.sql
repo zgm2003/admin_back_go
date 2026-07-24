@@ -97,3 +97,63 @@ LEFT JOIN (
 WHERE actual.constraint_name IS NULL
   OR actual.constraint_type<>'CHECK'
   OR actual.normalized_clause<>required.clause;
+
+SELECT 'mail_verification_diagnostic_table' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT COUNT(*) AS table_count
+  FROM information_schema.tables
+  WHERE table_schema=DATABASE() AND table_name='mail_log_verification_codes'
+) actual
+WHERE actual.table_count<>1;
+
+SELECT 'mail_verification_diagnostic_columns' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT COUNT(*) AS column_count,
+    SUM(column_name IN ('id','mail_log_id','key_id','code_enc','expires_at','created_at')) AS allowed_column_count
+  FROM information_schema.columns
+  WHERE table_schema=DATABASE() AND table_name='mail_log_verification_codes'
+) actual
+WHERE actual.column_count<>6 OR actual.allowed_column_count<>6;
+
+SELECT 'mail_verification_diagnostic_column_shapes' AS invariant, COUNT(*) AS violations
+FROM information_schema.columns
+WHERE table_schema=DATABASE() AND table_name='mail_log_verification_codes' AND (
+  (column_name='id' AND (column_type<>'bigint unsigned' OR is_nullable<>'NO' OR extra<>'auto_increment' OR NOT (column_default <=> NULL))) OR
+  (column_name='mail_log_id' AND (column_type<>'bigint unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (column_name='key_id' AND (column_type<>'varchar(64)' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (column_name='code_enc' AND (column_type<>'varchar(255)' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (column_name='expires_at' AND (column_type<>'datetime' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (column_name='created_at' AND (column_type<>'datetime' OR is_nullable<>'NO' OR column_default<>'CURRENT_TIMESTAMP'))
+);
+
+SELECT 'mail_verification_diagnostic_indexes' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT COUNT(DISTINCT index_name) AS index_count,
+    SUM(index_name='PRIMARY' AND non_unique=0 AND columns_in_order='id') AS primary_key_count,
+    SUM(index_name='uk_mail_log_verification_codes_mail_log' AND non_unique=0 AND columns_in_order='mail_log_id') AS unique_key_count,
+    SUM(index_name='idx_mail_log_verification_codes_key_id_id' AND non_unique=1 AND columns_in_order='key_id,id') AS key_count
+  FROM (
+    SELECT index_name, MIN(non_unique) AS non_unique,
+      GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_in_order
+    FROM information_schema.statistics
+    WHERE table_schema=DATABASE() AND table_name='mail_log_verification_codes'
+    GROUP BY index_name
+  ) indexes
+) actual
+WHERE actual.index_count<>3 OR actual.primary_key_count<>1 OR actual.unique_key_count<>1 OR actual.key_count<>1;
+
+SELECT 'mail_verification_diagnostic_foreign_key' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT COUNT(*) AS foreign_key_count,
+    SUM(kcu.constraint_name='fk_mail_log_verification_codes_mail_log'
+      AND kcu.column_name='mail_log_id' AND kcu.referenced_table_name='mail_logs'
+      AND kcu.referenced_column_name='id' AND rc.update_rule='RESTRICT' AND rc.delete_rule='RESTRICT') AS expected_foreign_key_count
+    , MAX(rc.update_rule) AS on_update, MAX(rc.delete_rule) AS on_delete
+  FROM information_schema.key_column_usage kcu
+  LEFT JOIN information_schema.referential_constraints rc
+    ON rc.constraint_schema=kcu.constraint_schema AND rc.constraint_name=kcu.constraint_name
+  WHERE kcu.table_schema=DATABASE() AND kcu.table_name='mail_log_verification_codes'
+    AND kcu.referenced_table_name IS NOT NULL
+) actual
+WHERE actual.foreign_key_count<>1 OR actual.expected_foreign_key_count<>1
+  OR actual.on_update<>'RESTRICT' OR actual.on_delete<>'RESTRICT';

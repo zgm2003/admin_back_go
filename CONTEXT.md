@@ -33,6 +33,7 @@ isolation tests, and a new immutable Docker release.
 - **Runtime Module** — process lifecycle, capability assembly, dependency validation, health, startup, and shutdown for `admin-api` and `admin-worker`.
 - **Database Evolution Module** — schema fingerprinting, reconciliation, migration checksums, deployment locking, drift detection, data verification, and destructive-change gates.
 - **Session Lifecycle Module** — issue, authenticate, rotate, revoke, and enforce session policy atomically across MySQL and Redis adapters.
+- **Mail Diagnostic Evidence** — an Admin-owned, one-to-one encrypted verification-code snapshot attached to a mail log. It is diagnostic evidence, not an authentication authority or a second source of verification-code state.
 - **Route Policy Registry** — the complete classification of every active route as Public, Authenticated, or Permission-protected, including audit policy.
 - **Conversation Reply Command** — a durable, idempotent request to produce an AI reply after the user message and command are committed atomically.
 - **Realtime Delivery Module** — event publication, subscription state, delivery semantics, sequence/resume behavior, and client backpressure policy.
@@ -67,6 +68,17 @@ A canonical Product Platform value may remain in persisted records as validated 
 5. README and historical migration comments.
 
 When these disagree, stop and reconcile the higher-priority truth instead of adding compatibility guesses.
+
+## Mail diagnostic boundary
+
+`internal/module/mail` owns mail-log verification diagnostic evidence. Auth remains
+the verification authority and owns code issuance, validation, and the Redis
+deadline. The diagnostic child stores only encrypted evidence, its key ID, and the
+same absolute expiry; it is not copied into `mail_logs` and has no lifecycle flags.
+Plaintext is limited to authorized mail-log responses, required audit records are
+payload-free, and all browser transport uses TLS. `APP_SECRET` is the sole current
+root while `APP_SECRET_PREVIOUS` is the optional single previous root used only
+during the documented rotation and rekey procedure.
 
 ## Runtime contract gate
 

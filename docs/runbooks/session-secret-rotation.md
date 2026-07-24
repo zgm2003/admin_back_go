@@ -1,12 +1,12 @@
 # Session secret rotation
 
-`APP_SECRET` is a deployment-wide root secret. Rotate it only as an explicit Docker deployment operation. All API and Worker nodes in one deployment must use the same current/previous pair.
+`APP_SECRET` remains the sole current deployment-wide root secret. `APP_SECRET_PREVIOUS` is an optional single previous root, never a new deployment secret. Rotate it only as an explicit Docker deployment operation. All API and Worker nodes in one deployment must use the same current/previous pair.
 
 ## Preconditions
 
 1. Deploy this key-ID-capable release with the existing `APP_SECRET` and no `APP_SECRET_PREVIOUS`.
 2. Wait one maximum access-token TTL so pre-release JWTs without an explicit `kid` expire.
-3. Back up the database and inventory the encrypted AI, upload, mail, SMS, payment, and storage configuration values held in the deployment secret store.
+3. Back up the database and inventory the encrypted AI, upload, mail, SMS, payment, and storage configuration values held in the deployment secret store. Pair every backup with the matching secret generation and preserve that pairing as rotation evidence.
 4. Run:
 
    ```powershell
@@ -25,16 +25,18 @@ The rehearsal runs its old, dual-key, and new-only session nodes in Docker again
    APP_SECRET_PREVIOUS=<old-secret>
    ```
 
-3. Recreate API and Worker containers through the approved Docker deployment. Do not start host processes. Never use `docker compose down -v`.
-4. Verify every node is healthy and that:
+3. Drain and stop all old-current API and Worker writers before starting any new-current API or Worker process. Do not leave an old-current writer running after the dual-root env is staged.
+4. Run the explicit mail diagnostic rekey operation while the writers remain stopped. Record zero previous references and zero unknown references in its output before any new-current API or Worker starts.
+5. Recreate API and Worker containers through the approved Docker deployment. Do not start host processes. Never use `docker compose down -v`.
+6. Verify every node is healthy and that:
    - an access credential issued before the dual-key deployment still authenticates;
    - newly issued JWT headers contain the new current `kid`;
    - a newly issued Browser session can rotate its Cookie-held refresh credential;
    - the old refresh credential cannot rotate after the root-secret cutover.
-5. Sign in again under the new current key. Revoke every session created before the cutover through the Admin session-management surface. The refresh-token pepper intentionally has no previous-key fallback.
-6. `APP_SECRET` also derives the secretbox key. Re-enter every encrypted business credential from the deployment secret store so it is encrypted under the new current key; validate each affected provider before continuing. This release does not silently migrate or log plaintext credentials.
-7. Keep the dual JWT verification window no longer than the declared maximum access-token TTL. Confirm no required old-key access session remains.
-8. Remove `APP_SECRET_PREVIOUS` from every node, recreate API/Worker containers with Docker, and prove:
+7. Sign in again under the new current key. Revoke every session created before the cutover through the Admin session-management surface. The refresh-token pepper intentionally has no previous-key fallback.
+8. `APP_SECRET` also derives the secretbox key. Re-enter every encrypted business credential from the deployment secret store so it is encrypted under the new current key; validate each affected provider before continuing. This release does not silently migrate or log plaintext credentials.
+9. Keep the dual JWT verification window no longer than the declared maximum access-token TTL. Confirm no required old-key access session remains.
+10. Preserve the backup and rekey evidence before removing `APP_SECRET_PREVIOUS` from every node, recreate API/Worker containers with Docker, and prove:
    - current-key credentials still authenticate;
    - old-key access credentials fail;
    - old refresh credentials fail;

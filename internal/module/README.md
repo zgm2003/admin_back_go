@@ -82,3 +82,13 @@ service import gin
 repository 返回 HTTP 状态码
 model 返回业务错误文本
 ```
+
+## Mail diagnostic evidence
+
+`internal/module/mail` owns `mail_log_verification_codes` as a one-to-one child
+of `mail_logs`. It persists encrypted verification-code diagnostic evidence with
+the key ID and absolute expiry; Auth remains the only code issuance and
+verification authority. Plaintext is projected only for an authorized mail-log
+read, and its required audit record is payload-free. Repositories preserve the
+restrict parent relation and do not add status, soft-delete, or update lifecycle
+fields to this immutable child.

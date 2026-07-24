@@ -55,6 +55,191 @@ func TestCanonicalDatabaseBaselineIsPinnedAndConvergent(t *testing.T) {
 	}
 }
 
+func TestDatabaseBaselineIncludesMailVerificationDiagnostics(t *testing.T) {
+	root := backendRoot(t)
+	migrationPath := filepath.Join(root, "database", "migrations", "202607230101_mail_verification_code_diagnostics.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatalf("read mail verification diagnostic migration: %v", err)
+	}
+	exactMigration := `CREATE TABLE ` + "`mail_log_verification_codes`" + ` (
+  ` + "`id`" + ` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ` + "`mail_log_id`" + ` BIGINT UNSIGNED NOT NULL,
+  ` + "`key_id`" + ` VARCHAR(64) NOT NULL,
+  ` + "`code_enc`" + ` VARCHAR(255) NOT NULL,
+  ` + "`expires_at`" + ` DATETIME NOT NULL,
+  ` + "`created_at`" + ` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (` + "`id`" + `),
+  UNIQUE KEY ` + "`uk_mail_log_verification_codes_mail_log`" + ` (` + "`mail_log_id`" + `),
+  KEY ` + "`idx_mail_log_verification_codes_key_id_id`" + ` (` + "`key_id`" + `, ` + "`id`" + `),
+  CONSTRAINT ` + "`fk_mail_log_verification_codes_mail_log`" + `
+    FOREIGN KEY (` + "`mail_log_id`" + `) REFERENCES ` + "`mail_logs`" + ` (` + "`id`" + `)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT INTO ` + "`permissions`" + `
+(` + "`id`,`name`,`path`,`icon`,`parent_id`,`component`,`platform`,`type`,`sort`,`code`,`i18n_key`,`show_menu`,`status`,`is_del`" + `)
+VALUES (515,'查看邮件日志及验证码','','',506,NULL,'admin',3,9,'system_mail_logView','',2,1,2);`
+	if got := strings.TrimSpace(strings.ReplaceAll(string(migration), "\r\n", "\n")); got != exactMigration {
+		t.Fatalf("mail verification diagnostic migration must match the approved SQL exactly\ngot:\n%s", got)
+	}
+
+	normalizedMigration := strings.ToLower(strings.NewReplacer("`", "", "\r", " ", "\n", " ", "\t", " ").Replace(string(migration)))
+	for _, statement := range []string{
+		"insert into role_permissions", "update role_permissions", "delete from role_permissions",
+		"replace into role_permissions", "truncate table role_permissions",
+	} {
+		if strings.Contains(normalizedMigration, statement) {
+			t.Fatalf("mail verification diagnostic migration contains forbidden write %q", statement)
+		}
+	}
+
+	schema, err := os.ReadFile(filepath.Join(root, "database", "schema", "admin.hcl"))
+	if err != nil {
+		t.Fatalf("read canonical admin schema: %v", err)
+	}
+	table := hclTableBlock(t, string(schema), "mail_log_verification_codes")
+	for _, required := range []string{
+		`schema = schema.admin`, `column "id"`, `type           = bigint`, `unsigned       = true`, `auto_increment = true`,
+		`column "mail_log_id"`, `column "key_id"`, `type = varchar(64)`, `column "code_enc"`, `type = varchar(255)`,
+		`column "expires_at"`, `column "created_at"`, `default = sql("CURRENT_TIMESTAMP")`,
+		`columns = [column.id]`, `index "uk_mail_log_verification_codes_mail_log"`, `unique  = true`,
+		`columns = [column.mail_log_id]`, `index "idx_mail_log_verification_codes_key_id_id"`,
+		`columns = [column.key_id, column.id]`, `foreign_key "fk_mail_log_verification_codes_mail_log"`,
+		`columns     = [column.mail_log_id]`, `ref_columns = [table.mail_logs.column.id]`,
+		`on_update   = RESTRICT`, `on_delete   = RESTRICT`,
+	} {
+		if !strings.Contains(table, required) {
+			t.Errorf("canonical mail verification diagnostic table missing %q", required)
+		}
+	}
+	columns := regexp.MustCompile(`(?m)^  column "([^"]+)" \{$`).FindAllStringSubmatch(table, -1)
+	wantColumns := []string{"id", "mail_log_id", "key_id", "code_enc", "expires_at", "created_at"}
+	if len(columns) != len(wantColumns) {
+		t.Fatalf("mail verification diagnostic columns=%d want %d: %v", len(columns), len(wantColumns), columns)
+	}
+	for index, want := range wantColumns {
+		if columns[index][1] != want {
+			t.Fatalf("mail verification diagnostic column %d=%q want %q", index, columns[index][1], want)
+		}
+	}
+	for _, forbidden := range []string{`column "status"`, `column "updated_at"`, `column "is_del"`} {
+		if strings.Contains(table, forbidden) {
+			t.Fatalf("canonical mail verification diagnostic table contains forbidden %q", forbidden)
+		}
+	}
+
+	verifySchema, err := os.ReadFile(filepath.Join(root, "database", "reconciliation", "030_verify_schema.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyRelations, err := os.ReadFile(filepath.Join(root, "database", "reconciliation", "031_verify_relations.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"mail_verification_diagnostic_table", "mail_verification_diagnostic_columns",
+		"mail_verification_diagnostic_column_shapes", "mail_verification_diagnostic_indexes",
+		"mail_verification_diagnostic_foreign_key", "mail_log_verification_codes",
+		"uk_mail_log_verification_codes_mail_log", "idx_mail_log_verification_codes_key_id_id",
+		"fk_mail_log_verification_codes_mail_log", "on_update", "on_delete", "restrict",
+	} {
+		if !strings.Contains(strings.ToLower(string(verifySchema)), required) {
+			t.Errorf("schema reconciliation missing mail diagnostic invariant %q", required)
+		}
+	}
+	for _, required := range []string{
+		"mail_verification_diagnostic_orphans", "mail_log_verification_codes", "mail_logs", "mail_log_id",
+	} {
+		if !strings.Contains(strings.ToLower(string(verifyRelations)), required) {
+			t.Errorf("relation reconciliation missing mail diagnostic invariant %q", required)
+		}
+	}
+
+	seed, err := os.ReadFile(filepath.Join(root, "database", "seeds", "admin_permissions.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissionTuple := "(515, '查看邮件日志及验证码', '', '', 506, NULL, 'admin', 3, 9, 'system_mail_logView', '', 2, 1, 2)"
+	if strings.Count(string(seed), permissionTuple) != 1 || !strings.Contains(string(migration), "VALUES (515,'查看邮件日志及验证码','','',506,NULL,'admin',3,9,'system_mail_logView','',2,1,2);") {
+		t.Fatal("mail diagnostic permission 515 must have migration/seed parity")
+	}
+}
+
+func TestMailVerificationDiagnosticDocumentation(t *testing.T) {
+	root := backendRoot(t)
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{root}, path...)...))
+		if err != nil {
+			t.Fatalf("read %s: %v", filepath.Join(path...), err)
+		}
+		return strings.ToLower(string(body))
+	}
+
+	seedReadme := read("database", "seeds", "README.md")
+	for _, required := range []string{"132", "system_mail_logview", "does not assign permissions to any role"} {
+		if !strings.Contains(seedReadme, required) {
+			t.Errorf("permission seed documentation missing %q", required)
+		}
+	}
+
+	rotation := read("docs", "runbooks", "session-secret-rotation.md")
+	for _, required := range []string{
+		"drain", "stop", "old-current", "app_secret_previous", "mail diagnostic", "rekey",
+		"zero previous", "zero unknown", "before", "api", "worker", "evidence", "backup", "secret generation",
+	} {
+		if !strings.Contains(rotation, required) {
+			t.Errorf("session-secret rotation runbook missing %q", required)
+		}
+	}
+
+	architecture := read("docs", "architecture.md")
+	for _, required := range []string{
+		"mail diagnostic", "owns", "plaintext", "audit", "tls", "app_secret_previous",
+	} {
+		if !strings.Contains(architecture, required) {
+			t.Errorf("architecture documentation missing mail diagnostic boundary %q", required)
+		}
+	}
+
+	envExample := read("deploy", "docker-first", "admin-go.env.example")
+	for _, required := range []string{"jwt signing", "refresh-token pepper", "secretbox", "mail diagnostic"} {
+		if !strings.Contains(envExample, required) {
+			t.Errorf("Docker env example missing live APP_SECRET derivation %q", required)
+		}
+	}
+	if strings.Contains(envExample, "session-cache") {
+		t.Fatal("Docker env example must not claim an unused session-cache cryptographic derivation")
+	}
+	if strings.Contains(architecture, "session-cache key") || strings.Contains(architecture, "session-cache keys") {
+		t.Fatal("architecture documentation must not claim an unused session-cache cryptographic derivation")
+	}
+}
+
+func hclTableBlock(t *testing.T, schema string, name string) string {
+	t.Helper()
+	marker := `table "` + name + `" {`
+	start := strings.Index(schema, marker)
+	if start < 0 {
+		t.Fatalf("canonical schema missing %s", marker)
+	}
+	depth := 0
+	for index := start; index < len(schema); index++ {
+		switch schema[index] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return schema[start : index+1]
+			}
+		}
+	}
+	t.Fatalf("canonical schema table %q has unbalanced braces", name)
+	return ""
+}
+
 func TestEstablishBaselineValidatesHCLWithoutAtlasDevDatabase(t *testing.T) {
 	root := backendRoot(t)
 	establish := mustReadBaselineScript(t, root, "establish-baseline.ps1")

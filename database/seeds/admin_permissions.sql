@@ -124,6 +124,7 @@ INSERT INTO `permissions` (
 (512, '修改邮件模板状态', '', '', 506, NULL, 'admin', 3, 6, 'system_mail_templateStatus', '', 2, 1, 2),
 (513, '删除邮件模板', '', '', 506, NULL, 'admin', 3, 7, 'system_mail_templateDel', '', 2, 1, 2),
 (514, '删除邮件日志', '', '', 506, NULL, 'admin', 3, 8, 'system_mail_logDel', '', 2, 1, 2),
+(515, '查看邮件日志及验证码', '', '', 506, NULL, 'admin', 3, 9, 'system_mail_logView', '', 2, 1, 2),
 (530, '支付配置', '/payment/config', 'CreditCard', 437, 'payment/config', 'admin', 2, 10, 'payment_config_list', 'menu.payment_config', 1, 1, 2),
 (531, '新增支付配置', '', '', 530, '', 'admin', 3, 1, 'payment_config_add', '', 2, 1, 2),
 (532, '编辑支付配置', '', '', 530, '', 'admin', 3, 2, 'payment_config_edit', '', 2, 1, 2),
