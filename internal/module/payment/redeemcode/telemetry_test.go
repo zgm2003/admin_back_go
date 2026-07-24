@@ -49,7 +49,7 @@ func TestTelemetryRecordsControlledRedeemCodeMetrics(t *testing.T) {
 func TestTelemetryServiceRedeemRecordsUsedAndSuccess(t *testing.T) {
 	recorder := &captureRecorder{}
 	repository := &fakeRepository{redeemFact: validTelemetryRedemptionFact()}
-	service := NewService(repository, WithTelemetry(recorder))
+	service := NewService(repository, WithTelemetry(recorder), WithAttemptLimiter(newAllowAttemptLimiter()))
 
 	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
 	if appErr != nil || response == nil || response.Replayed {
@@ -67,7 +67,7 @@ func TestTelemetryServiceRedeemRecordsUsedAndSuccess(t *testing.T) {
 func TestTelemetryServiceRedeemRecordsExpiredUnavailable(t *testing.T) {
 	recorder := &captureRecorder{}
 	repository := &fakeRepository{redeemErr: ErrExpired}
-	service := NewService(repository, WithTelemetry(recorder))
+	service := NewService(repository, WithTelemetry(recorder), WithAttemptLimiter(newAllowAttemptLimiter()))
 
 	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
 	if response != nil || appErr == nil || appErr.Code != ErrorWalletUnavailable {
