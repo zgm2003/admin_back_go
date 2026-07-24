@@ -68,7 +68,8 @@ func TestRepositoryDebitTransactionAndBalanceUpdateAreAtomic(t *testing.T) {
 			AddRow(int64(1), int64(7), int64(1000), int64(1000), int64(0), enum.CommonNo, now, now))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
 		WillReturnResult(sqlmock.NewResult(9, 1))
-	expectRedeemCodeWalletUpdate(mock, 1100, 1600, 1).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET `balance_cents`=?,`total_consume_cents`=?,`updated_at`=? WHERE id = ? AND is_del = ?")).
+		WithArgs(int64(900), int64(100), sqlmock.AnyArg(), int64(1), enum.CommonNo).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
