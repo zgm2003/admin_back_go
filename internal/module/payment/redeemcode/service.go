@@ -465,7 +465,11 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 	response := redemptionResponse(fact)
 	// Once the repository has established a successful fact, keep that fact even if cleanup fails.
 	if releaseErr := release(); releaseErr != nil {
-		service.logger.Warn("redeem limiter cleanup failed", "operation", "redeem", "reason", "release")
+		logger := service.logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.Warn("redeem limiter cleanup failed", "operation", "redeem", "reason", "release")
 	}
 	return response, nil
 }
