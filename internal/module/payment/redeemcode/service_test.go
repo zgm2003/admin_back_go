@@ -1,11 +1,13 @@
 package redeemcode
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -292,7 +294,7 @@ func TestServiceRedeemMapsFactsAndStableDomainErrors(t *testing.T) {
 		Transaction: &wallet.Transaction{ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn, AmountCents: 250, BalanceBeforeCents: 100, BalanceAfterCents: 350, SourceType: wallet.SourceRedeemCode, SourceID: 8, IsDel: enum.CommonNo, CreatedAt: now},
 		Wallet:      &wallet.Wallet{ID: 4, UserID: 7, BalanceCents: 500, TotalRechargeCents: 400, TotalConsumeCents: 20, IsDel: enum.CommonNo},
 	}}
-	service := NewService(repository)
+	service := NewService(repository, WithAttemptLimiter(newAllowAttemptLimiter()))
 	response, appErr := service.Redeem(context.Background(), 7, "zhr 2345 6789 abcd efgh jkmn")
 	if appErr != nil || response.Amount != "2.50" || !response.Replayed || response.Transaction.TransactionNo != "WLT1" || response.Wallet.BalanceText != "5.00" {
 		t.Fatalf("response=%+v error=%+v", response, appErr)
@@ -313,6 +315,32 @@ func TestServiceRedeemMapsFactsAndStableDomainErrors(t *testing.T) {
 		if appErr == nil || appErr.Code != test.code {
 			t.Fatalf("Redeem(%v) error=%+v", test.err, appErr)
 		}
+	}
+}
+
+func TestServiceRedeemFailsClosedWithoutLimiter(t *testing.T) {
+	repository := &fakeRepository{redeemFn: func(context.Context, int64, string) (*RedemptionFact, error) {
+		t.Fatal("repository must not be called")
+		return nil, nil
+	}}
+	_, appErr := NewService(repository).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != ErrorWalletRateLimitUnavailable {
+		t.Fatalf("error=%+v", appErr)
+	}
+}
+
+func TestServiceRedeemLogsReleaseFailureWithoutSensitiveFields(t *testing.T) {
+	var logs bytes.Buffer
+	limiter := newAllowAttemptLimiter()
+	limiter.releaseFn = func(context.Context, AttemptLease) error { return errors.New("redis raw secret") }
+	service := NewService(&fakeRepository{redeemFact: validTelemetryRedemptionFact()}, WithAttemptLimiter(limiter), WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr != nil || response == nil {
+		t.Fatalf("response=%+v error=%+v", response, appErr)
+	}
+	line := logs.String()
+	if !strings.Contains(line, "operation=redeem") || !strings.Contains(line, "reason=release") || strings.Contains(line, "redis raw secret") || strings.Contains(line, "user_id") {
+		t.Fatalf("controlled log=%q", line)
 	}
 }
 
@@ -378,6 +406,73 @@ func TestServiceRedeemRateLimitRejectsBeforeRepository(t *testing.T) {
 	_, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
 	if appErr == nil || appErr.HTTPStatus != http.StatusTooManyRequests || appErr.Category != apperror.CategoryRateLimit || appErr.TemplateData["retry_after"] != 3 {
 		t.Fatalf("error=%+v", appErr)
+	}
+}
+
+func TestServiceRedeemFailureThresholdBoundary(t *testing.T) {
+	count := 0
+	repositoryCalls := 0
+	limiter := newAllowAttemptLimiter()
+	limiter.failureStateFn = func(context.Context, string, int64) (FailureState, error) {
+		return FailureState{Count: count, TTL: failureWindow}, nil
+	}
+	limiter.recordFailureFn = func(context.Context, string, int64) (FailureState, error) {
+		count++
+		return FailureState{Count: count, TTL: failureWindow}, nil
+	}
+	repository := &fakeRepository{redeemFn: func(context.Context, int64, string) (*RedemptionFact, error) {
+		repositoryCalls++
+		return nil, ErrUnavailable
+	}}
+	service := NewService(repository, WithAttemptLimiter(limiter))
+	for attempt := 1; attempt <= failureLimit; attempt++ {
+		_, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+		if appErr == nil || appErr.Code != ErrorWalletUnavailable || appErr.HTTPStatus != http.StatusBadRequest {
+			t.Fatalf("attempt %d error=%+v", attempt, appErr)
+		}
+	}
+	if count != failureLimit || repositoryCalls != failureLimit {
+		t.Fatalf("count=%d repositoryCalls=%d", count, repositoryCalls)
+	}
+	_, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.HTTPStatus != http.StatusTooManyRequests || repositoryCalls != failureLimit {
+		t.Fatalf("threshold error=%+v repositoryCalls=%d", appErr, repositoryCalls)
+	}
+}
+
+func TestServiceRedeemCancellationStillCleansUpWithIndependentContext(t *testing.T) {
+	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	entered := make(chan struct{})
+	recorded := make(chan bool, 1)
+	released := make(chan bool, 1)
+	limiter := newAllowAttemptLimiter()
+	limiter.recordFailureFn = func(ctx context.Context, _ string, _ int64) (FailureState, error) {
+		recorded <- ctx.Err() == nil
+		return FailureState{Count: 1, TTL: failureWindow}, nil
+	}
+	limiter.releaseFn = func(ctx context.Context, _ AttemptLease) error {
+		released <- ctx.Err() == nil
+		return nil
+	}
+	repository := &fakeRepository{redeemFn: func(ctx context.Context, _ int64, _ string) (*RedemptionFact, error) {
+		close(entered)
+		<-ctx.Done()
+		return nil, ErrUnavailable
+	}}
+	service := NewService(repository, WithAttemptLimiter(limiter))
+	done := make(chan *apperror.Error, 1)
+	go func() { _, appErr := service.Redeem(requestCtx, 7, "ZHR-2345-6789-ABCD-EFGH-JKMN"); done <- appErr }()
+	<-entered
+	cancel()
+	if appErr := <-done; appErr == nil || appErr.Code != ErrorWalletUnavailable {
+		t.Fatalf("error=%+v", appErr)
+	}
+	if ok := <-recorded; !ok {
+		t.Fatal("RecordFailure cleanup context was canceled")
+	}
+	if ok := <-released; !ok {
+		t.Fatal("Release cleanup context was canceled")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"regexp"
@@ -40,6 +41,7 @@ const (
 	ErrorWalletUnavailable           = "wallet.redeem.unavailable"
 	ErrorWalletDependencyUnavailable = "wallet.redeem.dependency_unavailable"
 	ErrorWalletIntegrityViolation    = "wallet.redeem.integrity_violation"
+	ErrorWalletRateLimitUnavailable  = "wallet.redeem.rate_limit_unavailable"
 
 	defaultPageSize        = 20
 	maxPageSize            = 100
@@ -64,6 +66,7 @@ type Service struct {
 	clock      clock.Clock
 	recorder   telemetry.Recorder
 	random     io.Reader
+	logger     *slog.Logger
 	metrics    metrics
 }
 
@@ -85,6 +88,10 @@ func WithAttemptLimiter(value AttemptLimiter) Option {
 	return func(service *Service) { service.limiter = value }
 }
 
+func WithLogger(value *slog.Logger) Option {
+	return func(service *Service) { service.logger = value }
+}
+
 func NewService(repository Repository, options ...Option) *Service {
 	service := &Service{repository: repository}
 	for _, option := range options {
@@ -100,6 +107,12 @@ func NewService(repository Repository, options ...Option) *Service {
 	}
 	if service.random == nil {
 		service.random = rand.Reader
+	}
+	if service.logger == nil {
+		service.logger = slog.Default()
+	}
+	if service.limiter == nil {
+		service.limiter = unavailableAttemptLimiter{}
 	}
 	service.metrics = newMetrics(service.recorder)
 	return service
@@ -321,10 +334,7 @@ func (service *Service) Export(ctx context.Context, input ExportInput) (*ExportR
 }
 
 func (service *Service) Redeem(ctx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
-	if service.limiter != nil {
-		return service.redeemLimited(ctx, userID, rawCode)
-	}
-	return service.redeemUnlocked(ctx, userID, rawCode)
+	return service.redeemLimited(ctx, userID, rawCode)
 }
 
 func (service *Service) redeemLimited(requestCtx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
@@ -336,6 +346,9 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 		}
 		if errors.Is(err, ErrAttemptLocked) {
 			return nil, walletRateLimited(1)
+		}
+		if errors.Is(err, errLimiterUnavailable) {
+			return nil, walletRateDependency(err)
 		}
 		return nil, walletDependency(err)
 	}
@@ -451,8 +464,27 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 	service.metrics.redemption(outcome, reason, elapsed)
 	response := redemptionResponse(fact)
 	// Once the repository has established a successful fact, keep that fact even if cleanup fails.
-	_ = release()
+	if releaseErr := release(); releaseErr != nil {
+		service.logger.Warn("redeem limiter cleanup failed", "operation", "redeem", "reason", "release")
+	}
 	return response, nil
+}
+
+var errLimiterUnavailable = errors.New("redeem limiter unavailable")
+
+type unavailableAttemptLimiter struct{}
+
+func (unavailableAttemptLimiter) Acquire(context.Context, string, int64) (AttemptLease, error) {
+	return AttemptLease{}, errLimiterUnavailable
+}
+func (unavailableAttemptLimiter) FailureState(context.Context, string, int64) (FailureState, error) {
+	return FailureState{}, errLimiterUnavailable
+}
+func (unavailableAttemptLimiter) RecordFailure(context.Context, string, int64) (FailureState, error) {
+	return FailureState{}, errLimiterUnavailable
+}
+func (unavailableAttemptLimiter) Release(context.Context, AttemptLease) error {
+	return errLimiterUnavailable
 }
 
 func failureRetryAfter(state FailureState) int {
@@ -771,6 +803,10 @@ func walletRateLimited(retryAfter int) *apperror.Error {
 		retryAfter = 1
 	}
 	return apperror.New(ErrorWalletUnavailable, apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, ErrorWalletUnavailable, map[string]any{"retry_after": retryAfter}, "兑换请求过于频繁")
+}
+
+func walletRateDependency(cause error) *apperror.Error {
+	return newAppError(ErrorWalletRateLimitUnavailable, apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "兑换限流服务暂不可用", cause)
 }
 
 func walletDependency(cause error) *apperror.Error {

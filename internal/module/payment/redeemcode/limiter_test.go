@@ -2,6 +2,7 @@ package redeemcode
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,23 @@ func TestLimiterRateLimitContract(t *testing.T) {
 	if !strings.Contains(attemptReleaseScript, "GET") || !strings.Contains(attemptReleaseScript, "DEL") || !strings.Contains(failureRecordScript, "PEXPIRE") || !strings.Contains(failureStateScript, "PTTL") {
 		t.Fatal("Lua contract is incomplete")
 	}
+	command := attemptAcquireArgs("attempt-key", "0123456789abcdef0123456789abcdef")
+	if fmt.Sprint(command) != "[SET attempt-key 0123456789abcdef0123456789abcdef NX PX 15000]" {
+		t.Fatalf("acquire command=%v", command)
+	}
+}
+
+func TestLimiterReleaseRejectsForgedNamespaceOrOwner(t *testing.T) {
+	limiter := NewRedisAttemptLimiter(nil)
+	for _, lease := range []AttemptLease{
+		{Key: "other:key", Platform: "admin", UserID: 42, Owner: "0123456789abcdef0123456789abcdef"},
+		{Key: "admin_go:wallet:redeem:v1:{admin:42}:attempt", Platform: "admin", UserID: 42, Owner: "forged"},
+		{Key: "admin_go:wallet:redeem:v1:{admin:42}:attempt", Platform: "admin", UserID: 0, Owner: "0123456789abcdef0123456789abcdef"},
+	} {
+		if err := limiter.Release(context.Background(), lease); err == nil {
+			t.Fatalf("forged lease accepted: %+v", lease)
+		}
+	}
 }
 
 func TestLimiterRejectsInvalidKeyParts(t *testing.T) {
@@ -50,6 +68,19 @@ type fakeAttemptLimiter struct {
 	failureStateFn  func(context.Context, string, int64) (FailureState, error)
 	recordFailureFn func(context.Context, string, int64) (FailureState, error)
 	releaseFn       func(context.Context, AttemptLease) error
+}
+
+func newAllowAttemptLimiter() *fakeAttemptLimiter {
+	return &fakeAttemptLimiter{
+		acquireFn: func(context.Context, string, int64) (AttemptLease, error) {
+			return AttemptLease{Key: "admin_go:wallet:redeem:v1:{admin:7}:attempt", Owner: "0123456789abcdef0123456789abcdef", Platform: "admin", UserID: 7}, nil
+		},
+		failureStateFn: func(context.Context, string, int64) (FailureState, error) { return FailureState{}, nil },
+		recordFailureFn: func(context.Context, string, int64) (FailureState, error) {
+			return FailureState{Count: 1, TTL: failureWindow}, nil
+		},
+		releaseFn: func(context.Context, AttemptLease) error { return nil },
+	}
 }
 
 func (fake *fakeAttemptLimiter) Acquire(ctx context.Context, platform string, userID int64) (AttemptLease, error) {

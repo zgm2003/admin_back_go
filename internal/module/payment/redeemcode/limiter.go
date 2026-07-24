@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ type FailureState struct {
 var (
 	ErrAttemptLocked = errors.New("redeem attempt is already in progress")
 	keyPartPattern   = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	ownerPattern     = regexp.MustCompile(`^[0-9a-f]{32}$`)
 )
 
 type AttemptLockedError struct{ RetryAfter int }
@@ -123,7 +125,17 @@ func (limiter *RedisAttemptLimiter) Acquire(ctx context.Context, platform string
 		return AttemptLease{}, fmt.Errorf("redeem limiter: owner: %w", err)
 	}
 	owner := hex.EncodeToString(ownerBytes)
-	acquired, err := limiter.client.SetNX(ctx, attemptKey, owner, attemptLockTTL).Result()
+	doer, ok := limiter.client.(interface {
+		Do(context.Context, ...interface{}) *redis.Cmd
+	})
+	if !ok {
+		return AttemptLease{}, errors.New("redeem limiter: redis client does not support SET PX")
+	}
+	result, err := doer.Do(ctx, attemptAcquireArgs(attemptKey, owner)...).Result()
+	acquired := err == nil && result != nil && strings.EqualFold(fmt.Sprint(result), "OK")
+	if errors.Is(err, redis.Nil) {
+		err = nil
+	}
 	if err != nil {
 		return AttemptLease{}, fmt.Errorf("redeem limiter: acquire: %w", err)
 	}
@@ -134,7 +146,11 @@ func (limiter *RedisAttemptLimiter) Acquire(ctx context.Context, platform string
 		}
 		return AttemptLease{}, &AttemptLockedError{RetryAfter: retryAfter(pttl)}
 	}
-	return AttemptLease{Key: attemptKey, Owner: owner, Platform: platform, UserID: userID}, nil
+	return AttemptLease{Key: attemptKey, Owner: owner, Platform: strings.TrimSpace(platform), UserID: userID}, nil
+}
+
+func attemptAcquireArgs(key, owner string) []interface{} {
+	return []interface{}{"SET", key, owner, "NX", "PX", strconv.FormatInt(attemptLockTTL.Milliseconds(), 10)}
 }
 
 func (limiter *RedisAttemptLimiter) FailureState(ctx context.Context, platform string, userID int64) (FailureState, error) {
@@ -178,11 +194,11 @@ func (limiter *RedisAttemptLimiter) evalFailure(ctx context.Context, script, key
 }
 
 func (limiter *RedisAttemptLimiter) Release(ctx context.Context, lease AttemptLease) error {
+	if err := validateAttemptLease(lease); err != nil {
+		return err
+	}
 	if limiter == nil || limiter.client == nil {
 		return errors.New("redeem limiter: redis client is not configured")
-	}
-	if strings.TrimSpace(lease.Key) == "" || strings.TrimSpace(lease.Owner) == "" {
-		return errors.New("redeem limiter: invalid lease")
 	}
 	result, err := limiter.client.Eval(ctx, attemptReleaseScript, []string{lease.Key}, lease.Owner).Int64()
 	if err != nil {
@@ -190,6 +206,14 @@ func (limiter *RedisAttemptLimiter) Release(ctx context.Context, lease AttemptLe
 	}
 	if result != 1 {
 		return errors.New("redeem limiter: lease lost")
+	}
+	return nil
+}
+
+func validateAttemptLease(lease AttemptLease) error {
+	attemptKey, _, keyErr := (&RedisAttemptLimiter{}).keys(lease.Platform, lease.UserID)
+	if keyErr != nil || lease.Key != attemptKey || !ownerPattern.MatchString(lease.Owner) {
+		return errors.New("redeem limiter: invalid lease")
 	}
 	return nil
 }
