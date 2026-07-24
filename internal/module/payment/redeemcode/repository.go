@@ -45,7 +45,7 @@ const (
 
 type GormRepository struct {
 	db                *gorm.DB
-	walletParticipant wallet.TransactionParticipant
+	walletParticipant wallet.RetryTransactionParticipant
 	clock             clock.Clock
 }
 
@@ -57,7 +57,8 @@ func NewGormRepository(client *database.Client, participant wallet.TransactionPa
 	if len(clocks) > 0 && clocks[0] != nil {
 		repositoryClock = clocks[0]
 	}
-	return &GormRepository{db: client.Gorm, walletParticipant: participant, clock: repositoryClock}
+	retryParticipant, _ := participant.(wallet.RetryTransactionParticipant)
+	return &GormRepository{db: client.Gorm, walletParticipant: retryParticipant, clock: repositoryClock}
 }
 
 func (repository *GormRepository) FindBatchByRequest(ctx context.Context, createdBy int64, requestID string) (*BatchWithCodes, error) {
@@ -344,16 +345,17 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if batch.ExpiresAt != nil && !batch.ExpiresAt.After(decisionTime) {
 			return ErrExpired
 		}
-		if creditIdentity == nil {
-			creditIdentity = wallet.NewRedeemCodeCreditIdentity(decisionTime)
-		}
-		currentWallet, transaction, creditErr := repository.walletParticipant.CreditRedeemCodeInTx(ctx, tx, wallet.RedeemCodeCreditInput{
+		creditInput := wallet.RedeemCodeCreditInput{
 			UserID: userID, CodeID: lockedCode.ID, AmountCents: batch.AmountCents, BatchNo: batch.BatchNo,
-		}, creditIdentity, decisionTime)
+		}
+		if creditIdentity == nil {
+			creditIdentity = wallet.NewRedeemCodeCreditIdentity(creditInput, decisionTime)
+		}
+		currentWallet, transaction, creditErr := repository.walletParticipant.CreditRedeemCodeWithIdentityInTx(ctx, tx, creditInput, creditIdentity, decisionTime)
 		if creditErr != nil {
 			return mapWalletError(creditErr)
 		}
-		if transaction == nil || transaction.TransactionNo != creditIdentity.TransactionNo() {
+		if transaction == nil || !creditIdentity.Matches(transaction.TransactionNo) {
 			return ErrIntegrityViolation
 		}
 		if !validWalletRedemptionFacts(currentWallet, transaction, batch, *lockedCode, userID) {

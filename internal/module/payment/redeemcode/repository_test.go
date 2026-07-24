@@ -21,6 +21,8 @@ import (
 )
 
 var _ Repository = (*GormRepository)(nil)
+var _ wallet.TransactionParticipant = (*fakeWalletParticipant)(nil)
+var _ wallet.RetryTransactionParticipant = (*fakeWalletParticipant)(nil)
 
 func TestRepositoryCreateBatchAndCodesUsesOneTransaction(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 123456000, time.UTC)
@@ -248,7 +250,7 @@ func TestRepositoryRedeemRejectsParticipantTransactionIdentityMismatch(t *testin
 	if !errors.Is(err, ErrIntegrityViolation) || fact != nil {
 		t.Fatalf("Redeem=(%+v,%v) want integrity violation", fact, err)
 	}
-	if participant.lastCreditIdentity == nil || participant.lastCreditIdentity.TransactionNo() == "" {
+	if participant.lastCreditIdentity == nil || participant.lastCreditIdentity.Matches("WLT-FORGED") {
 		t.Fatalf("participant did not receive initialized identity: %+v", participant)
 	}
 	assertSQLMock(t, mock)
@@ -420,7 +422,11 @@ func (participant *fakeWalletParticipant) FindRedeemCodeCreditInTx(context.Conte
 	return participant.findWallet, participant.findTransaction, participant.findErr
 }
 
-func (participant *fakeWalletParticipant) CreditRedeemCodeInTx(_ context.Context, _ *gorm.DB, input wallet.RedeemCodeCreditInput, identity *wallet.RedeemCodeCreditIdentity, now time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
+func (participant *fakeWalletParticipant) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, input wallet.RedeemCodeCreditInput, now time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
+	return participant.CreditRedeemCodeWithIdentityInTx(ctx, tx, input, wallet.NewRedeemCodeCreditIdentity(input, now), now)
+}
+
+func (participant *fakeWalletParticipant) CreditRedeemCodeWithIdentityInTx(_ context.Context, _ *gorm.DB, input wallet.RedeemCodeCreditInput, identity *wallet.RedeemCodeCreditIdentity, now time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
 	participant.creditCalls++
 	participant.lastCredit = input
 	participant.lastCreditIdentity = identity
