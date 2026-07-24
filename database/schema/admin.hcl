@@ -4386,6 +4386,180 @@ table "realtime_events" {
     columns = [column.event_id]
   }
 }
+table "redeem_code_batches" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    auto_increment = true
+  }
+  column "batch_no" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "request_id" {
+    null    = false
+    type    = varchar(128)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "request_fingerprint_version" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "request_fingerprint" {
+    null    = false
+    type    = char(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "amount_cents" {
+    null = false
+    type = bigint
+  }
+  column "quantity" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "expires_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "note" {
+    null    = false
+    type    = varchar(255)
+    default = ""
+  }
+  column "created_by" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_redeem_code_batches_created_by" {
+    columns     = [column.created_by]
+    ref_columns = [table.users.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_redeem_code_batches_created_at_id" {
+    columns = [column.created_at, column.id]
+  }
+  index "idx_redeem_code_batches_expires_at_id" {
+    columns = [column.expires_at, column.id]
+  }
+  index "uk_redeem_code_batches_batch_no" {
+    unique  = true
+    columns = [column.batch_no]
+  }
+  index "uk_redeem_code_batches_creator_request" {
+    unique  = true
+    columns = [column.created_by, column.request_id]
+  }
+  check "chk_redeem_code_batches_amount_cents" {
+    expr = "(`amount_cents` between 1 and 100000000)"
+  }
+  check "chk_redeem_code_batches_expiry" {
+    expr = "((`expires_at` is null) or (`expires_at` > `created_at`))"
+  }
+  check "chk_redeem_code_batches_quantity" {
+    expr = "(`quantity` between 1 and 1000)"
+  }
+}
+table "redeem_codes" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    auto_increment = true
+  }
+  column "batch_id" {
+    null = false
+    type = bigint
+  }
+  column "code" {
+    null    = false
+    type    = char(28)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "state" {
+    null = false
+    type = varchar(16)
+  }
+  column "used_by" {
+    null     = true
+    type     = int
+    unsigned = true
+  }
+  column "used_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_redeem_codes_batch" {
+    columns     = [column.batch_id]
+    ref_columns = [table.redeem_code_batches.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_redeem_codes_used_by" {
+    columns     = [column.used_by]
+    ref_columns = [table.users.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_redeem_codes_batch_state_id" {
+    columns = [column.batch_id, column.state, column.id]
+  }
+  index "idx_redeem_codes_state_id" {
+    columns = [column.state, column.id]
+  }
+  index "idx_redeem_codes_used_by_used_at_id" {
+    columns = [column.used_by, column.used_at, column.id]
+  }
+  index "uk_redeem_codes_code" {
+    unique  = true
+    columns = [column.code]
+  }
+  check "chk_redeem_codes_state" {
+    expr = "(`state` in (_utf8mb4'unused',_utf8mb4'used',_utf8mb4'voided'))"
+  }
+  check "chk_redeem_codes_usage" {
+    expr = "(((`state` = _utf8mb4'used') and (`used_by` is not null) and (`used_at` is not null)) or ((`state` in (_utf8mb4'unused',_utf8mb4'voided')) and (`used_by` is null) and (`used_at` is null)))"
+  }
+}
 table "role_permissions" {
   schema  = schema.admin
   comment = "role permission pivot"

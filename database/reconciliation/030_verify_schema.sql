@@ -157,3 +157,149 @@ FROM (
 ) actual
 WHERE actual.foreign_key_count<>1 OR actual.expected_foreign_key_count<>1
   OR actual.on_update<>'RESTRICT' OR actual.on_delete<>'RESTRICT';
+
+SELECT 'redeem_code_required_tables' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'redeem_code_batches' AS table_name
+  UNION ALL SELECT 'redeem_codes'
+) required
+LEFT JOIN information_schema.tables actual
+  ON actual.table_schema=DATABASE()
+ AND actual.table_name=required.table_name
+ AND actual.table_type='BASE TABLE'
+WHERE actual.table_name IS NULL;
+
+SELECT 'redeem_code_required_columns' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'redeem_code_batches' AS table_name, 'id' AS column_name
+  UNION ALL SELECT 'redeem_code_batches','batch_no'
+  UNION ALL SELECT 'redeem_code_batches','request_id'
+  UNION ALL SELECT 'redeem_code_batches','request_fingerprint_version'
+  UNION ALL SELECT 'redeem_code_batches','request_fingerprint'
+  UNION ALL SELECT 'redeem_code_batches','amount_cents'
+  UNION ALL SELECT 'redeem_code_batches','quantity'
+  UNION ALL SELECT 'redeem_code_batches','expires_at'
+  UNION ALL SELECT 'redeem_code_batches','note'
+  UNION ALL SELECT 'redeem_code_batches','created_by'
+  UNION ALL SELECT 'redeem_code_batches','created_at'
+  UNION ALL SELECT 'redeem_code_batches','updated_at'
+  UNION ALL SELECT 'redeem_codes','id'
+  UNION ALL SELECT 'redeem_codes','batch_id'
+  UNION ALL SELECT 'redeem_codes','code'
+  UNION ALL SELECT 'redeem_codes','state'
+  UNION ALL SELECT 'redeem_codes','used_by'
+  UNION ALL SELECT 'redeem_codes','used_at'
+  UNION ALL SELECT 'redeem_codes','created_at'
+  UNION ALL SELECT 'redeem_codes','updated_at'
+) required
+LEFT JOIN information_schema.columns actual
+  ON actual.table_schema=DATABASE()
+ AND actual.table_name=required.table_name
+ AND actual.column_name=required.column_name
+WHERE actual.column_name IS NULL;
+
+SELECT 'redeem_code_column_shapes' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT COUNT(*) AS column_count,
+    SUM(column_name IN (
+      'id','batch_no','request_id','request_fingerprint_version','request_fingerprint','amount_cents',
+      'quantity','expires_at','note','created_by','created_at','updated_at'
+    )) AS allowed_column_count
+  FROM information_schema.columns
+  WHERE table_schema=DATABASE() AND table_name='redeem_code_batches'
+  HAVING column_count<>12 OR allowed_column_count<>12
+  UNION ALL
+  SELECT COUNT(*) AS column_count,
+    SUM(column_name IN ('id','batch_id','code','state','used_by','used_at','created_at','updated_at')) AS allowed_column_count
+  FROM information_schema.columns
+  WHERE table_schema=DATABASE() AND table_name='redeem_codes'
+  HAVING column_count<>8 OR allowed_column_count<>8
+  UNION ALL
+  SELECT 1, 1
+  FROM information_schema.columns
+  WHERE table_schema=DATABASE() AND table_name='redeem_code_batches' AND (
+    (column_name='id' AND (column_type<>'bigint' OR is_nullable<>'NO' OR extra<>'auto_increment' OR NOT (column_default <=> NULL))) OR
+    (column_name='batch_no' AND (column_type<>'varchar(64)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='request_id' AND (column_type<>'varchar(128)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='request_fingerprint_version' AND (column_type<>'varchar(64)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='request_fingerprint' AND (column_type<>'char(64)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='amount_cents' AND (column_type<>'bigint' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='quantity' AND (column_type<>'int unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='expires_at' AND (column_type<>'datetime(6)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+    (column_name='note' AND (column_type<>'varchar(255)' OR is_nullable<>'NO' OR column_default<>'')) OR
+    (column_name='created_by' AND (column_type<>'int unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='created_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('','DEFAULT_GENERATED'))) OR
+    (column_name='updated_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('on update CURRENT_TIMESTAMP(6)','DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)')))
+  )
+  UNION ALL
+  SELECT 1, 1
+  FROM information_schema.columns
+  WHERE table_schema=DATABASE() AND table_name='redeem_codes' AND (
+    (column_name='id' AND (column_type<>'bigint' OR is_nullable<>'NO' OR extra<>'auto_increment' OR NOT (column_default <=> NULL))) OR
+    (column_name='batch_id' AND (column_type<>'bigint' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='code' AND (column_type<>'char(28)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='state' AND (column_type<>'varchar(16)' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+    (column_name='used_by' AND (column_type<>'int unsigned' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+    (column_name='used_at' AND (column_type<>'datetime(6)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+    (column_name='created_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('','DEFAULT_GENERATED'))) OR
+    (column_name='updated_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('on update CURRENT_TIMESTAMP(6)','DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)')))
+  )
+) invalid_columns;
+
+SELECT 'redeem_code_indexes' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'redeem_code_batches' AS table_name, 'PRIMARY' AS index_name, 0 AS non_unique, 'id' AS columns_in_order
+  UNION ALL SELECT 'redeem_code_batches','uk_redeem_code_batches_batch_no',0,'batch_no'
+  UNION ALL SELECT 'redeem_code_batches','uk_redeem_code_batches_creator_request',0,'created_by,request_id'
+  UNION ALL SELECT 'redeem_code_batches','idx_redeem_code_batches_created_at_id',1,'created_at,id'
+  UNION ALL SELECT 'redeem_code_batches','idx_redeem_code_batches_expires_at_id',1,'expires_at,id'
+  UNION ALL SELECT 'redeem_codes','PRIMARY',0,'id'
+  UNION ALL SELECT 'redeem_codes','uk_redeem_codes_code',0,'code'
+  UNION ALL SELECT 'redeem_codes','idx_redeem_codes_batch_state_id',1,'batch_id,state,id'
+  UNION ALL SELECT 'redeem_codes','idx_redeem_codes_state_id',1,'state,id'
+  UNION ALL SELECT 'redeem_codes','idx_redeem_codes_used_by_used_at_id',1,'used_by,used_at,id'
+) required
+LEFT JOIN (
+  SELECT table_name, index_name, MIN(non_unique) AS non_unique,
+    GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_in_order
+  FROM information_schema.statistics
+  WHERE table_schema=DATABASE() AND table_name IN ('redeem_code_batches','redeem_codes')
+  GROUP BY table_name,index_name
+) actual
+  ON actual.table_name=required.table_name
+ AND actual.index_name=required.index_name
+WHERE actual.index_name IS NULL
+   OR actual.non_unique<>required.non_unique
+   OR actual.columns_in_order<>required.columns_in_order;
+
+SELECT 'redeem_code_checks' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'redeem_code_batches' AS table_name, 'chk_redeem_code_batches_amount_cents' AS constraint_name,
+    'amount_centsbetween1and100000000' AS normalized_fragment
+  UNION ALL SELECT 'redeem_code_batches','chk_redeem_code_batches_quantity','quantitybetween1and1000'
+  UNION ALL SELECT 'redeem_code_batches','chk_redeem_code_batches_expiry','expires_atisnull'
+  UNION ALL SELECT 'redeem_code_batches','chk_redeem_code_batches_expiry','expires_at>created_at'
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_state','statein(''unused'',''used'',''voided'')'
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','state=''used'''
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_byisnotnull'
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_atisnotnull'
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','statein(''unused'',''voided'')'
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_byisnull'
+  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_atisnull'
+) required
+LEFT JOIN (
+  SELECT tc.table_name,tc.constraint_name,tc.constraint_type,
+    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+      cc.check_clause,'`',''),' ',''),'_utf8mb4',''),'_utf8mb3',''),'_utf8',''),'_gbk',''),CHAR(92),'')) AS normalized_clause
+  FROM information_schema.table_constraints tc
+  JOIN information_schema.check_constraints cc
+    ON cc.constraint_schema=tc.constraint_schema
+   AND cc.constraint_name=tc.constraint_name
+  WHERE tc.constraint_schema=DATABASE()
+    AND tc.table_name IN ('redeem_code_batches','redeem_codes')
+) actual
+  ON actual.table_name=required.table_name
+ AND actual.constraint_name=required.constraint_name
+WHERE actual.constraint_name IS NULL
+   OR actual.constraint_type<>'CHECK'
+   OR LOCATE(required.normalized_fragment,actual.normalized_clause)=0;

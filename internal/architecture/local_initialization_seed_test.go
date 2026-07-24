@@ -67,8 +67,8 @@ func TestLocalPermissionSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse local permission seed: %v", err)
 	}
-	if len(rows) != 132 {
-		t.Fatalf("permission seed row count=%d want 132", len(rows))
+	if len(rows) != 135 {
+		t.Fatalf("permission seed row count=%d want 135", len(rows))
 	}
 
 	ids := make(map[int64]struct{}, len(rows))
@@ -106,8 +106,23 @@ func TestLocalPermissionSeed(t *testing.T) {
 			t.Fatalf("permission %d references missing parent %d", row.id, row.parentID)
 		}
 	}
-	if len(codes) != 102 {
-		t.Fatalf("permission seed code count=%d want 102", len(codes))
+	if len(codes) != 105 {
+		t.Fatalf("permission seed code count=%d want 105", len(codes))
+	}
+
+	walletRedeemCodes := map[int64]permissionSeedRow{
+		657: {id: 657, name: "兑换码管理", path: "/payment/redeem-codes", icon: "Ticket", parentID: 437, component: "payment/redeem-codes", platform: "admin", typeID: 2, sort: 35, code: "payment_redeem_code_list", i18nKey: "menu.payment_redeem_codes", showMenu: 1, status: 1, isDel: 2},
+		658: {id: 658, name: "批量生成兑换码", path: "", icon: "", parentID: 657, component: "", platform: "admin", typeID: 3, sort: 1, code: "payment_redeem_code_generate", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
+		659: {id: 659, name: "作废兑换码", path: "", icon: "", parentID: 657, component: "", platform: "admin", typeID: 3, sort: 2, code: "payment_redeem_code_void", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
+	}
+	for id, want := range walletRedeemCodes {
+		got, ok := rowsByID[id]
+		if !ok {
+			t.Fatalf("wallet redeem-code permission %d is missing", id)
+		}
+		if got != want {
+			t.Fatalf("wallet redeem-code permission %d=%+v want %+v", id, got, want)
+		}
 	}
 
 	wantMailDiagnostic := permissionSeedRow{

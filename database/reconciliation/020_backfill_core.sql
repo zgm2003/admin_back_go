@@ -7,7 +7,7 @@ SELECT
   w.`balance_cents` AS `stored_balance_cents`,
   w.`total_recharge_cents` AS `stored_recharge_cents`,
   COALESCE(SUM(CASE WHEN t.`direction`='in' THEN t.`amount_cents` ELSE -t.`amount_cents` END), 0) AS `ledger_balance_cents`,
-  COALESCE(SUM(CASE WHEN t.`direction`='in' AND t.`source_type`='recharge' THEN t.`amount_cents` ELSE 0 END), 0) AS `ledger_recharge_cents`,
+  COALESCE(SUM(CASE WHEN t.`direction`='in' AND t.`source_type` IN ('recharge','redeem_code') THEN t.`amount_cents` ELSE 0 END), 0) AS `ledger_recharge_cents`,
   COALESCE(SUM(CASE WHEN t.`direction`='out' THEN t.`amount_cents` ELSE 0 END), 0) AS `ledger_consume_cents`
 FROM `user_wallets` w
 LEFT JOIN `wallet_transactions` t ON t.`wallet_id`=w.`id` AND t.`is_del`=2

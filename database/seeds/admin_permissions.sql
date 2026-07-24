@@ -146,6 +146,9 @@ INSERT INTO `permissions` (
 (585, '删除短信日志', '', '', 577, NULL, 'admin', 3, 8, 'system_sms_logDel', '', 2, 1, 2),
 (653, '收支明细', '/payment/ledger', 'Tickets', 437, 'payment/ledger', 'admin', 2, 20, 'payment_ledger_list', 'menu.payment_ledger', 1, 1, 2),
 (654, '用户钱包', '/payment/wallets', 'Wallet', 437, 'payment/wallets', 'admin', 2, 30, 'payment_wallet_list', 'menu.payment_wallets', 1, 1, 2),
-(656, '我的钱包', '/profile/wallet', 'Wallet', 0, 'profile/wallet', 'admin', 2, 90, 'profile_wallet', 'menu.profile_wallet', 2, 1, 2);
+(656, '我的钱包', '/profile/wallet', 'Wallet', 0, 'profile/wallet', 'admin', 2, 90, 'profile_wallet', 'menu.profile_wallet', 2, 1, 2),
+(657, '兑换码管理', '/payment/redeem-codes', 'Ticket', 437, 'payment/redeem-codes', 'admin', 2, 35, 'payment_redeem_code_list', 'menu.payment_redeem_codes', 1, 1, 2),
+(658, '批量生成兑换码', '', '', 657, NULL, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2),
+(659, '作废兑换码', '', '', 657, NULL, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2);
 
 COMMIT;

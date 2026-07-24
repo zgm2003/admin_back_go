@@ -178,7 +178,7 @@ func TestMailVerificationDiagnosticDocumentation(t *testing.T) {
 	}
 
 	seedReadme := read("database", "seeds", "README.md")
-	for _, required := range []string{"132", "system_mail_logview", "does not assign permissions to any role"} {
+	for _, required := range []string{"135", "system_mail_logview", "payment_redeem_code_list", "does not assign permissions to any role"} {
 		if !strings.Contains(seedReadme, required) {
 			t.Errorf("permission seed documentation missing %q", required)
 		}

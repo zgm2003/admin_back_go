@@ -152,3 +152,60 @@ SELECT 'mail_verification_diagnostic_orphans' AS invariant, COUNT(*) AS violatio
 FROM `mail_log_verification_codes` mvc
 LEFT JOIN `mail_logs` ml ON ml.`id`=mvc.`mail_log_id`
 WHERE ml.`id` IS NULL;
+
+SELECT 'redeem_code_foreign_keys' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'redeem_code_batches' AS table_name, 'fk_redeem_code_batches_created_by' AS constraint_name,
+    'created_by' AS column_name, 'users' AS referenced_table_name, 'id' AS referenced_column_name
+  UNION ALL
+  SELECT 'redeem_codes','fk_redeem_codes_batch','batch_id','redeem_code_batches','id'
+  UNION ALL
+  SELECT 'redeem_codes','fk_redeem_codes_used_by','used_by','users','id'
+) required
+LEFT JOIN (
+  SELECT kcu.table_name,kcu.constraint_name,kcu.column_name,kcu.referenced_table_name,kcu.referenced_column_name,
+    rc.update_rule,rc.delete_rule
+  FROM information_schema.key_column_usage kcu
+  JOIN information_schema.referential_constraints rc
+    ON rc.constraint_schema=kcu.constraint_schema
+   AND rc.table_name=kcu.table_name
+   AND rc.constraint_name=kcu.constraint_name
+  WHERE kcu.table_schema=DATABASE()
+    AND kcu.table_name IN ('redeem_code_batches','redeem_codes')
+    AND kcu.referenced_table_name IS NOT NULL
+) actual
+  ON actual.table_name=required.table_name
+ AND actual.constraint_name=required.constraint_name
+WHERE actual.constraint_name IS NULL
+   OR actual.column_name<>required.column_name
+   OR actual.referenced_table_name<>required.referenced_table_name
+   OR actual.referenced_column_name<>required.referenced_column_name
+   OR actual.update_rule<>'RESTRICT'
+   OR actual.delete_rule<>'RESTRICT';
+
+SELECT 'redeem_code_relationship_orphans' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT CONCAT('redeem_code_batch_creator:',batch_row.`id`) AS entity
+  FROM `redeem_code_batches` AS batch_row
+  LEFT JOIN `users` AS creator ON creator.`id`=batch_row.`created_by`
+  WHERE creator.`id` IS NULL
+  UNION ALL
+  SELECT CONCAT('redeem_code_batch:',code_row.`id`)
+  FROM `redeem_codes` AS code_row
+  LEFT JOIN `redeem_code_batches` AS batch_row ON batch_row.`id`=code_row.`batch_id`
+  WHERE batch_row.`id` IS NULL
+  UNION ALL
+  SELECT CONCAT('redeem_code_user:',code_row.`id`)
+  FROM `redeem_codes` AS code_row
+  LEFT JOIN `users` AS used_by_user ON used_by_user.`id`=code_row.`used_by`
+  WHERE code_row.`used_by` IS NOT NULL AND used_by_user.`id` IS NULL
+) orphan_rows;
+
+SELECT 'redeem_code_batch_quantity_mismatch' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT batch_row.`id`
+  FROM `redeem_code_batches` AS batch_row
+  LEFT JOIN `redeem_codes` AS code_row ON code_row.`batch_id`=batch_row.`id`
+  GROUP BY batch_row.`id`,batch_row.`quantity`
+  HAVING COUNT(code_row.`id`)<>batch_row.`quantity`
+) invalid_batches;
