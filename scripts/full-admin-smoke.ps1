@@ -456,7 +456,8 @@ function Wait-NewPayloadFreeMailOperationLog([string]$BaseURL, [hashtable]$Heade
         $requestMetadata = [string]$item.request_data | ConvertFrom-Json
         if ([string]$requestMetadata.module -cne 'mail' -or [string]$requestMetadata.action -cne $Action) { continue }
         $responseMetadata = [string]$item.response_data | ConvertFrom-Json
-        if (Test-HasProperty $requestMetadata 'payload' -or Test-HasProperty $responseMetadata 'payload') {
+        if ((Test-HasProperty $requestMetadata 'payload') -or
+            (Test-HasProperty $responseMetadata 'payload')) {
           throw 'mail diagnostic operation log retained a request or response payload'
         }
         if ([int]$item.is_success -ne 1) {

@@ -14,6 +14,7 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $runtimeEnv = Join-Path $repoRoot 'deploy\docker-first\admin-go.env'
 $platformScript = Join-Path $repoRoot 'scripts\docker-platform.ps1'
 $adminDevScript = Join-Path $repoRoot 'scripts\admin-dev.ps1'
+$adminDevCommonScript = Join-Path $repoRoot 'scripts\dev\admin-dev-common.ps1'
 $defaultDocker = 'E:\Docker\Docker\resources\bin\docker.exe'
 $docker = if (Test-Path -LiteralPath $defaultDocker -PathType Leaf) {
   $defaultDocker
@@ -22,19 +23,38 @@ else {
   (Get-Command docker.exe -ErrorAction Stop | Select-Object -First 1).Source
 }
 
-. (Join-Path $repoRoot 'scripts\dev\admin-dev-common.ps1')
+. $adminDevCommonScript
 . (Join-Path $repoRoot 'scripts\database\atlas-runtime-common.ps1')
 
 if (-not (Test-Path -LiteralPath $runtimeEnv -PathType Leaf)) {
   throw 'Docker runtime env is missing; run scripts/docker-platform.ps1 init first.'
 }
 
-$adminDevSource = [IO.File]::ReadAllText($adminDevScript, [Text.Encoding]::UTF8)
-foreach ($forbidden in @('mail-diagnostic-rekey', 'migrate apply', 'migrate set')) {
-  if ($adminDevSource.Contains($forbidden, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "admin-dev must not perform startup migration or rekey: $forbidden"
+function Assert-NoAdminDevDatabaseMutation {
+  param([Parameter(Mandatory = $true)][string[]]$Paths)
+
+  foreach ($path in $Paths) {
+    $tokens = $null
+    $parseErrors = $null
+    $sourceAst = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) {
+      throw 'admin-dev startup source has PowerShell parse errors'
+    }
+    $statements = $sourceAst.FindAll({
+      param($node)
+      $node -is [Management.Automation.Language.StatementAst]
+    }, $true)
+    foreach ($statement in $statements) {
+      $normalized = [regex]::Replace($statement.Extent.Text, '[^A-Za-z0-9-]', '').ToLowerInvariant()
+      if ($normalized.Contains('migrate', [StringComparison]::Ordinal) -or
+          $normalized.Contains('rekey', [StringComparison]::Ordinal)) {
+        throw 'admin-dev must not perform startup migration or rekey'
+      }
+    }
   }
 }
+
+Assert-NoAdminDevDatabaseMutation -Paths @($adminDevScript, $adminDevCommonScript)
 
 function New-RotationSecret {
   $bytes = New-Object byte[] 48
@@ -65,20 +85,110 @@ function Test-PathInsideRoot {
   return $Path.StartsWith($prefix, $comparison)
 }
 
-function Invoke-GoCapture {
-  param([Parameter(Mandatory = $true)][string[]]$Arguments)
+function Invoke-BoundedProcessCapture {
+  param(
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][string]$Operation,
+    [Parameter(Mandatory = $true)][ValidateRange(1, 3600)][int]$TimeoutSeconds,
+    [Parameter(Mandatory = $true)][string]$WorkingDirectory
+  )
 
-  Push-Location $script:RepoRoot
+  foreach ($argument in $Arguments) {
+    foreach ($sensitiveValue in @($script:SensitiveValues)) {
+      if (-not [string]::IsNullOrEmpty([string]$sensitiveValue) -and
+          ([string]$argument).Contains([string]$sensitiveValue, [StringComparison]::Ordinal)) {
+        throw 'rotation command arguments contain a sensitive runtime value'
+      }
+    }
+  }
+
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $Executable
+  $startInfo.WorkingDirectory = $WorkingDirectory
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  foreach ($argument in $Arguments) {
+    [void]$startInfo.ArgumentList.Add([string]$argument)
+  }
+
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
   try {
-    $output = @(& $script:GoExecutable @Arguments 2>&1 | ForEach-Object { $_.ToString() })
-    $exitCode = $LASTEXITCODE
-    $text = $output -join "`n"
+    try {
+      if (-not $process.Start()) { throw 'start returned false' }
+    }
+    catch {
+      throw "$Operation failed to start"
+    }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      try { $process.Kill($true) } catch { }
+      try { [void]$process.WaitForExit(5000) } catch { }
+      throw "$Operation timed out"
+    }
+    try {
+      $stdout = $stdoutTask.GetAwaiter().GetResult()
+      $stderr = $stderrTask.GetAwaiter().GetResult()
+    }
+    catch {
+      throw "$Operation output capture failed"
+    }
+    $text = if ([string]::IsNullOrEmpty($stdout)) {
+      $stderr
+    }
+    elseif ([string]::IsNullOrEmpty($stderr)) {
+      $stdout
+    }
+    else {
+      $stdout.TrimEnd([char[]]"`r`n") + "`n" + $stderr
+    }
     Assert-NoSensitiveOutput -Text $text
-    return [pscustomobject]@{ ExitCode = $exitCode; Lines = $output; Text = $text }
+    $stdoutLines = if ([string]::IsNullOrEmpty($stdout)) {
+      @()
+    }
+    else {
+      @($stdout.TrimEnd([char[]]"`r`n") -split "`r?`n")
+    }
+    $stderrLines = if ([string]::IsNullOrEmpty($stderr)) {
+      @()
+    }
+    else {
+      @($stderr.TrimEnd([char[]]"`r`n") -split "`r?`n")
+    }
+    return [pscustomobject]@{
+      ExitCode = [int]$process.ExitCode
+      StdOut = $stdout
+      StdErr = $stderr
+      StdOutLines = $stdoutLines
+      StdErrLines = $stderrLines
+      Lines = $stdoutLines
+      Text = $text
+    }
   }
   finally {
-    Pop-Location
+    $process.Dispose()
   }
+}
+
+function Invoke-GoCapture {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [ValidateRange(1, 3600)][int]$TimeoutSeconds = 300,
+    [string]$Operation = 'Go rotation command'
+  )
+
+  return Invoke-BoundedProcessCapture `
+    -Executable $script:GoExecutable `
+    -Arguments $Arguments `
+    -Operation $Operation `
+    -TimeoutSeconds $TimeoutSeconds `
+    -WorkingDirectory $script:RepoRoot
 }
 
 function Assert-NoSensitiveOutput {
@@ -97,14 +207,66 @@ function Get-SchemaFingerprint {
     [Parameter(Mandatory = $true)][string]$Database
   )
 
+  $fingerprintPath = Join-Path ([IO.Path]::GetTempPath()) ('admin-rotation-fingerprint-' + [guid]::NewGuid().ToString('N') + '.json')
   $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
+  $primaryFailure = $null
+  $cleanupFailure = $null
+  $fingerprint = $null
   try {
     $env:MYSQL_DSN = New-SchemaDSN -Settings $Settings -Database $Database
-    return Get-DatabaseFingerprintSHA -BackendRoot $script:RepoRoot -Settings $Settings -Database $Database
+    $gitCommand = Get-Command 'git.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $gitCommand) {
+      $gitCommand = Get-Command 'git' -ErrorAction Stop | Select-Object -First 1
+    }
+    $gitResult = Invoke-BoundedProcessCapture `
+      -Executable $gitCommand.Source `
+      -Arguments @('-C', $script:RepoRoot, 'rev-parse', 'HEAD') `
+      -Operation 'Git commit resolution' `
+      -TimeoutSeconds 30 `
+      -WorkingDirectory $script:RepoRoot
+    $commit = $gitResult.StdOut.Trim()
+    if ($gitResult.ExitCode -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') {
+      throw 'Git commit could not be resolved'
+    }
+    $gitResult = $null
+    $fingerprintResult = Invoke-GoCapture `
+      -Arguments @('run', './cmd/admin-db', 'fingerprint', '--schema', $Database, '--out', $fingerprintPath, '--commit', $commit) `
+      -TimeoutSeconds 180 `
+      -Operation 'schema fingerprint capture'
+    if ($fingerprintResult.ExitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace([string]$fingerprintResult.Text)) {
+      throw 'schema fingerprint capture failed'
+    }
+    $fingerprintResult = $null
+    $document = [IO.File]::ReadAllText($fingerprintPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    if ([string]$document.schema_sha256 -notmatch '^[0-9a-f]{64}$') {
+      throw 'schema fingerprint output was invalid'
+    }
+    $fingerprint = [string]$document.schema_sha256
+  }
+  catch {
+    $primaryFailure = $_
   }
   finally {
     [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
+    try {
+      if (Test-Path -LiteralPath $fingerprintPath -PathType Leaf) {
+        Remove-Item -LiteralPath $fingerprintPath -Force -ErrorAction Stop
+      }
+    }
+    catch {
+      $cleanupFailure = 'schema fingerprint temporary file cleanup failed'
+    }
   }
+  if ($null -ne $primaryFailure) {
+    if ($null -ne $cleanupFailure) {
+      throw "$($primaryFailure.Exception.Message); cleanup also failed: $cleanupFailure"
+    }
+    throw $primaryFailure
+  }
+  if ($null -ne $cleanupFailure) {
+    throw $cleanupFailure
+  }
+  return $fingerprint
 }
 
 function Invoke-DisposableSchemaBootstrap {
@@ -118,6 +280,8 @@ function Invoke-DisposableSchemaBootstrap {
   }
 
   $runtimeDirectory = ''
+  $primaryFailure = $null
+  $cleanupFailure = $null
   try {
     $runtimeDirectory = New-AtlasRuntimeConfig -Settings $Settings -Database $Database
     $schemaPath = Join-Path $script:RepoRoot 'database\schema\admin.hcl'
@@ -151,8 +315,25 @@ function Invoke-DisposableSchemaBootstrap {
     $schemaApplyOutput = $null
 
   }
+  catch {
+    $primaryFailure = $_
+  }
   finally {
-    Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
+    try {
+      Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
+    }
+    catch {
+      $cleanupFailure = 'disposable Atlas runtime config cleanup failed'
+    }
+  }
+  if ($null -ne $primaryFailure) {
+    if ($null -ne $cleanupFailure) {
+      throw "$($primaryFailure.Exception.Message); cleanup also failed: $cleanupFailure"
+    }
+    throw $primaryFailure
+  }
+  if ($null -ne $cleanupFailure) {
+    throw $cleanupFailure
   }
 }
 
@@ -165,6 +346,9 @@ function Invoke-LockedAtlasMigration {
   $beforeFingerprint = Get-SchemaFingerprint -Settings $Settings -Database $Database
   $runtimeDirectory = ''
   $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
+  $primaryFailure = $null
+  $cleanupFailure = $null
+  $migrationResult = $null
   try {
     $runtimeDirectory = New-AtlasRuntimeConfig -Settings $Settings -Database $Database
     $statusBefore = Invoke-AtlasContainer `
@@ -192,14 +376,17 @@ function Invoke-LockedAtlasMigration {
       '--to-version', '202607230101'
     )
     $env:MYSQL_DSN = New-SchemaDSN -Settings $Settings -Database $Database
-    $locked = Invoke-GoCapture -Arguments (@(
-      'run', './cmd/admin-db', 'lock-run',
-      '--schema', $Database,
-      '--name', 'admin:atlas:migrate',
-      '--timeout', '30s',
-      '--expected-fingerprint', $beforeFingerprint,
-      '--'
-    ) + @($script:DockerExecutable) + $dockerArguments)
+    $locked = Invoke-GoCapture `
+      -Arguments (@(
+        'run', './cmd/admin-db', 'lock-run',
+        '--schema', $Database,
+        '--name', 'admin:atlas:migrate',
+        '--timeout', '30s',
+        '--expected-fingerprint', $beforeFingerprint,
+        '--'
+      ) + @($script:DockerExecutable) + $dockerArguments) `
+      -TimeoutSeconds 900 `
+      -Operation 'locked Atlas migration'
     if ($locked.ExitCode -ne 0) { throw 'locked Atlas migration failed' }
     $locked = $null
 
@@ -220,27 +407,53 @@ function Invoke-LockedAtlasMigration {
     }
     $statusText = $null
     $afterFingerprint = Get-SchemaFingerprint -Settings $Settings -Database $Database
-    return [pscustomobject]@{ Status = 'ok'; Fingerprint = $afterFingerprint }
+    $migrationResult = [pscustomobject]@{ Status = 'ok'; Fingerprint = $afterFingerprint }
+  }
+  catch {
+    $primaryFailure = $_
   }
   finally {
     [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
-    Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
+    try {
+      Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
+    }
+    catch {
+      $cleanupFailure = 'locked Atlas runtime config cleanup failed'
+    }
   }
+  if ($null -ne $primaryFailure) {
+    if ($null -ne $cleanupFailure) {
+      throw "$($primaryFailure.Exception.Message); cleanup also failed: $cleanupFailure"
+    }
+    throw $primaryFailure
+  }
+  if ($null -ne $cleanupFailure) {
+    throw $cleanupFailure
+  }
+  return $migrationResult
 }
 
 function Invoke-InvariantGate {
   param(
     [Parameter(Mandatory = $true)][string]$Database,
-    [Parameter(Mandatory = $true)][string]$RelativePath
+    [Parameter(Mandatory = $true)][string]$RelativePath,
+    [Parameter(Mandatory = $true)][string[]]$ExpectedNames
   )
 
-  $result = Invoke-GoCapture -Arguments @('run', './cmd/admin-db', 'invariants', '--schema', $Database, '--file', $RelativePath)
-  if ($result.ExitCode -ne 0 -or $result.Lines.Count -eq 0) {
+  $result = Invoke-GoCapture `
+    -Arguments @('run', './cmd/admin-db', 'invariants', '--schema', $Database, '--file', $RelativePath) `
+    -TimeoutSeconds 180 `
+    -Operation 'database reconciliation invariant command'
+  if ($result.ExitCode -ne 0 -or $result.Lines.Count -ne $ExpectedNames.Count -or
+      -not [string]::IsNullOrWhiteSpace([string]$result.StdErr)) {
     throw 'database reconciliation invariant command failed'
   }
-  foreach ($line in $result.Lines) {
+  $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  for ($index = 0; $index -lt $ExpectedNames.Count; $index++) {
+    $line = $result.Lines[$index]
     $parts = [string]$line -split "`t", 2
-    if ($parts.Count -ne 2 -or $parts[1] -notmatch '^[0-9]+$' -or [uint64]$parts[1] -ne 0) {
+    if ($parts.Count -ne 2 -or $parts[0] -cne $ExpectedNames[$index] -or
+        -not $seen.Add($parts[0]) -or $parts[1] -notmatch '^[0-9]+$' -or [uint64]$parts[1] -ne 0) {
       throw 'database reconciliation invariant was non-zero or malformed'
     }
   }
@@ -254,18 +467,41 @@ function Invoke-MailDiagnosticRekey {
     [uint64]$ExpectedRekeyed = 0
   )
 
-  $result = Invoke-GoCapture -Arguments @('run', './cmd/admin-db', 'mail-diagnostic-rekey')
+  $result = Invoke-GoCapture `
+    -Arguments @('run', './cmd/admin-db', 'mail-diagnostic-rekey') `
+    -TimeoutSeconds 300 `
+    -Operation 'mail diagnostic rekey command'
   if (-not $ExpectSuccess) {
     if ($result.ExitCode -eq 0) { throw 'mail diagnostic rekey unexpectedly succeeded' }
+    $failureLines = @($result.StdErrLines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if (-not [string]::IsNullOrWhiteSpace([string]$result.StdOut) -or
+        $failureLines.Count -ne 2 -or
+        [string]$failureLines[0] -cne 'mail diagnostic rekey command: failed' -or
+        [string]$failureLines[1] -cne 'exit status 1') {
+      throw 'mail diagnostic rekey failure output violated the safe sentinel contract'
+    }
     return [pscustomobject]@{ ExitCode = $result.ExitCode; Scanned = 0; Rekeyed = 0; PreviousReferences = 0; UnknownReferences = 0 }
   }
-  if ($result.ExitCode -ne 0) { throw 'mail diagnostic rekey failed' }
+  if ($result.ExitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace([string]$result.StdErr)) {
+    throw 'mail diagnostic rekey failed'
+  }
 
   $values = @{}
+  $rekeyedRowIDs = [Collections.Generic.List[uint64]]::new()
+  $uniqueRekeyedRowIDs = [Collections.Generic.HashSet[uint64]]::new()
   foreach ($line in $result.Lines) {
     $parts = [string]$line -split "`t", 2
     if ($parts.Count -ne 2) { throw 'mail diagnostic rekey output was malformed' }
-    if ($parts[0] -eq 'rekeyed_row_id') { continue }
+    if ($parts[0] -ceq 'rekeyed_row_id') {
+      if ($parts[1] -notmatch '^[1-9][0-9]*$') { throw 'mail diagnostic rekey row id was malformed' }
+      $rowID = [uint64]$parts[1]
+      if (-not $uniqueRekeyedRowIDs.Add($rowID)) { throw 'mail diagnostic rekey repeated a row id' }
+      $rekeyedRowIDs.Add($rowID)
+      continue
+    }
+    if ($parts[0] -cnotin @('current_key_id', 'previous_key_id', 'scanned', 'rekeyed', 'previous_references', 'unknown_references')) {
+      throw 'mail diagnostic rekey output contained an unknown field'
+    }
     if ($values.ContainsKey($parts[0])) { throw 'mail diagnostic rekey output repeated a field' }
     $values[$parts[0]] = $parts[1]
   }
@@ -275,16 +511,35 @@ function Invoke-MailDiagnosticRekey {
   foreach ($field in @('scanned', 'rekeyed', 'previous_references', 'unknown_references')) {
     if ([string]$values[$field] -notmatch '^[0-9]+$') { throw 'mail diagnostic rekey count was malformed' }
   }
+  $keyIDPattern = '^mail-diagnostic-v1-[A-Za-z0-9_-]{22}$'
+  if ([string]$values.current_key_id -notmatch $keyIDPattern) {
+    throw 'mail diagnostic rekey current key id was malformed'
+  }
+  if ([string]::IsNullOrWhiteSpace($env:APP_SECRET_PREVIOUS)) {
+    if ([string]$values.previous_key_id -cne '') {
+      throw 'mail diagnostic rekey unexpectedly reported a previous key id'
+    }
+  }
+  elseif ([string]$values.previous_key_id -notmatch $keyIDPattern -or
+          [string]$values.previous_key_id -ceq [string]$values.current_key_id) {
+    throw 'mail diagnostic rekey previous key id was malformed or not distinct'
+  }
   if ([uint64]$values.scanned -ne $ExpectedScanned -or [uint64]$values.rekeyed -ne $ExpectedRekeyed -or
       [uint64]$values.previous_references -ne 0 -or [uint64]$values.unknown_references -ne 0) {
     throw 'mail diagnostic rekey counts did not satisfy the zero-reference contract'
   }
+  if ($rekeyedRowIDs.Count -ne $ExpectedRekeyed) {
+    throw 'mail diagnostic rekey row id count did not match the rekeyed count'
+  }
   return [pscustomobject]@{
     ExitCode = 0
+    CurrentKeyID = [string]$values.current_key_id
+    PreviousKeyID = [string]$values.previous_key_id
     Scanned = [uint64]$values.scanned
     Rekeyed = [uint64]$values.rekeyed
     PreviousReferences = [uint64]$values.previous_references
     UnknownReferences = [uint64]$values.unknown_references
+    RekeyedRowIDs = $rekeyedRowIDs.ToArray()
   }
 }
 
@@ -295,12 +550,13 @@ function Write-RekeyFixtureHelper {
 package main
 
 import (
-	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -311,7 +567,6 @@ import (
 )
 
 var schemaPattern = regexp.MustCompile(`^admin_rekey_[0-9a-f]{12}$`)
-var codePattern = regexp.MustCompile(`^[0-9]{6}$`)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -323,6 +578,19 @@ func main() {
 			fail()
 		}
 		runSchemaCommand(command, os.Args[2])
+		return
+	}
+	if command == "verify-current-pair" {
+		if len(os.Args) != 5 {
+			fail()
+		}
+		rekeyedRowID, err := strconv.ParseInt(os.Args[2], 10, 64)
+		if err != nil || rekeyedRowID <= 0 {
+			fail()
+		}
+		db, _ := openDisposable()
+		defer db.Close()
+		verifyCurrentPair(db, rekeyedRowID, os.Args[3], os.Args[4])
 		return
 	}
 	if len(os.Args) != 2 {
@@ -337,45 +605,25 @@ func main() {
 		clearFixtures(db)
 		current := mustRing(os.Getenv("APP_SECRET"))
 		previous := mustRing(os.Getenv("APP_SECRET_PREVIOUS"))
-		insertFixture(db, current.MailDiagnosticKeyID(), encrypt(current, newCode()))
-		insertFixture(db, previous.MailDiagnosticKeyID(), encrypt(previous, newCode()))
-	case "verify-current-pair":
-		current := mustRing(os.Getenv("APP_SECRET"))
-		rows, err := db.Query("SELECT key_id,code_enc FROM mail_log_verification_codes ORDER BY id")
-		if err != nil {
-			fail()
-		}
-		defer rows.Close()
-		count := 0
-		box := secretbox.New(current.MailDiagnosticKey())
-		for rows.Next() {
-			var keyID, ciphertext string
-			if rows.Scan(&keyID, &ciphertext) != nil || keyID != current.MailDiagnosticKeyID() {
-				fail()
-			}
-			plain, err := box.Decrypt(ciphertext)
-			if err != nil || !codePattern.MatchString(plain) {
-				fail()
-			}
-			count++
-		}
-		if rows.Err() != nil || count != 2 {
-			fail()
-		}
+		insertFixture(db, current.MailDiagnosticKeyID(), encrypt(current, fixtureCode("current")))
+		insertFixture(db, previous.MailDiagnosticKeyID(), encrypt(previous, fixtureCode("previous")))
 	case "stage-unknown":
 		clearFixtures(db)
 		current := mustRing(os.Getenv("APP_SECRET"))
-		unknown := randomBytes(16)
-		keyID := "mail-diagnostic-v1-" + base64.RawURLEncoding.EncodeToString(unknown)
-		for keyID == current.MailDiagnosticKeyID() {
-			unknown = randomBytes(16)
-			keyID = "mail-diagnostic-v1-" + base64.RawURLEncoding.EncodeToString(unknown)
+		keyID := fixtureUnknownKeyID()
+		if keyID == current.MailDiagnosticKeyID() {
+			fail()
 		}
-		insertFixture(db, keyID, encrypt(current, newCode()))
+		insertFixture(db, keyID, fixtureCiphertext("unknown"))
+	case "verify-unknown-unchanged":
+		verifySingleRow(db, fixtureUnknownKeyID(), fixtureCiphertext("unknown"))
 	case "stage-corrupt":
 		clearFixtures(db)
 		previous := mustRing(os.Getenv("APP_SECRET_PREVIOUS"))
-		insertFixture(db, previous.MailDiagnosticKeyID(), base64.StdEncoding.EncodeToString(randomBytes(32)))
+		insertFixture(db, previous.MailDiagnosticKeyID(), fixtureCiphertext("corrupt"))
+	case "verify-corrupt-unchanged":
+		previous := mustRing(os.Getenv("APP_SECRET_PREVIOUS"))
+		verifySingleRow(db, previous.MailDiagnosticKeyID(), fixtureCiphertext("corrupt"))
 	default:
 		fail()
 	}
@@ -466,20 +714,76 @@ func encrypt(ring *secretkey.KeyRing, plain string) string {
 	return ciphertext
 }
 
-func newCode() string {
-	raw := randomBytes(6)
-	for index := range raw {
-		raw[index] = '0' + raw[index]%10
-	}
-	return string(raw)
+func fixtureCode(label string) string {
+	digest := sha256.Sum256([]byte("mail-diagnostic-fixture-code:" + label))
+	value := (uint32(digest[0])<<24 | uint32(digest[1])<<16 | uint32(digest[2])<<8 | uint32(digest[3])) % 1000000
+	return fmt.Sprintf("%06d", value)
 }
 
-func randomBytes(length int) []byte {
-	value := make([]byte, length)
-	if _, err := rand.Read(value); err != nil {
+func fixtureUnknownKeyID() string {
+	digest := sha256.Sum256([]byte("mail-diagnostic-fixture-unknown-key"))
+	return "mail-diagnostic-v1-" + base64.RawURLEncoding.EncodeToString(digest[:16])
+}
+
+func fixtureCiphertext(label string) string {
+	digest := sha256.Sum256([]byte("mail-diagnostic-fixture-ciphertext:" + label))
+	return base64.StdEncoding.EncodeToString(digest[:])
+}
+
+func verifyCurrentPair(db *sql.DB, rekeyedRowID int64, reportedCurrentKeyID, reportedPreviousKeyID string) {
+	current := mustRing(os.Getenv("APP_SECRET"))
+	previous := mustRing(os.Getenv("APP_SECRET_PREVIOUS"))
+	if reportedCurrentKeyID != current.MailDiagnosticKeyID() || reportedPreviousKeyID != previous.MailDiagnosticKeyID() {
 		fail()
 	}
-	return value
+	rows, err := db.Query("SELECT id,key_id,code_enc FROM mail_log_verification_codes ORDER BY id")
+	if err != nil {
+		fail()
+	}
+	defer rows.Close()
+	expected := []string{fixtureCode("current"), fixtureCode("previous")}
+	box := secretbox.New(current.MailDiagnosticKey())
+	count := 0
+	for rows.Next() {
+		if count >= len(expected) {
+			fail()
+		}
+		var id int64
+		var keyID, ciphertext string
+		if rows.Scan(&id, &keyID, &ciphertext) != nil || keyID != current.MailDiagnosticKeyID() {
+			fail()
+		}
+		if (count == 0 && id == rekeyedRowID) || (count == 1 && id != rekeyedRowID) {
+			fail()
+		}
+		plain, decryptErr := box.Decrypt(ciphertext)
+		if decryptErr != nil || plain != expected[count] {
+			fail()
+		}
+		count++
+	}
+	if rows.Err() != nil || count != len(expected) {
+		fail()
+	}
+}
+
+func verifySingleRow(db *sql.DB, expectedKeyID, expectedCiphertext string) {
+	rows, err := db.Query("SELECT key_id,code_enc FROM mail_log_verification_codes ORDER BY id")
+	if err != nil {
+		fail()
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var keyID, ciphertext string
+		if rows.Scan(&keyID, &ciphertext) != nil || keyID != expectedKeyID || ciphertext != expectedCiphertext {
+			fail()
+		}
+		count++
+	}
+	if rows.Err() != nil || count != 1 {
+		fail()
+	}
 }
 
 func fail() {
@@ -493,7 +797,10 @@ func fail() {
 function Invoke-FixtureHelper {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-  $result = Invoke-GoCapture -Arguments (@('run', $script:FixtureHelper) + $Arguments)
+  $result = Invoke-GoCapture `
+    -Arguments (@('run', $script:FixtureHelper) + $Arguments) `
+    -TimeoutSeconds 180 `
+    -Operation 'mail diagnostic fixture helper'
   if ($result.ExitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace($result.Text)) {
     throw 'mail diagnostic fixture helper failed or wrote output'
   }
@@ -513,11 +820,15 @@ function Invoke-SessionRotationRace {
     'docker.m.daocloud.io/library/golang:1.26.5-bookworm',
     'go', 'test', './internal/module/auth', '-run', '^TestMultiNode', '-race', '-count=1', '-v'
   )
-  $output = @(& $script:DockerExecutable @arguments 2>&1 | ForEach-Object { $_.ToString() })
-  $exitCode = $LASTEXITCODE
-  Assert-NoSensitiveOutput -Text ($output -join "`n")
-  $output = $null
-  if ($exitCode -ne 0) { throw 'Docker session-secret rotation rehearsal failed' }
+  $result = Invoke-BoundedProcessCapture `
+    -Executable $script:DockerExecutable `
+    -Arguments $arguments `
+    -Operation 'Docker session-secret rotation rehearsal' `
+    -TimeoutSeconds 900 `
+    -WorkingDirectory $script:RepoRoot
+  if ($result.ExitCode -ne 0) { throw 'Docker session-secret rotation rehearsal failed' }
+  $exitCode = [int]$result.ExitCode
+  $result = $null
   return $exitCode
 }
 
@@ -531,23 +842,56 @@ if (-not (Test-PathInsideRoot -Path $tempRoot -Root $verifiedTempRoot) -or
   throw 'Refusing to create an unverified rotation rehearsal directory.'
 }
 
-$oldSecret = New-RotationSecret
-$newSecret = New-RotationSecret
 $secretEnv = Join-Path $tempRoot 'rotation.env'
 $fixtureHelper = Join-Path $tempRoot 'main.go'
 $script:FixtureHelper = $fixtureHelper
 $disposableSchema = 'admin_rekey_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $schemaCreated = $false
+$oldSecret = $null
+$newSecret = $null
 $persistentDSN = $null
 $persistentSecret = $null
+$persistentAtlasDSN = $null
+$disposableDSN = $null
+$disposableAtlasDSN = $null
 $containerEnvironment = $null
 $hostEnvironment = $null
+$persistentSettings = $null
+Set-Variable -Name disposableSettings -Value $null
+$summaryData = $null
+$primaryFailureMessage = $null
+$cleanupFailures = [Collections.Generic.List[string]]::new()
 $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
 $previousAppSecret = [Environment]::GetEnvironmentVariable('APP_SECRET', 'Process')
 $previousAppSecretPrevious = [Environment]::GetEnvironmentVariable('APP_SECRET_PREVIOUS', 'Process')
-$script:SensitiveValues = @($oldSecret, $newSecret, $previousDSN, $previousAppSecret, $previousAppSecretPrevious)
+$previousPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+$script:SensitiveValues = @($previousDSN, $previousAppSecret, $previousAppSecretPrevious)
+$schemaInvariantNames = @(
+  'required_tables',
+  'required_columns',
+  'required_column_shapes',
+  'required_indexes',
+  'required_constraints',
+  'mail_verification_diagnostic_table',
+  'mail_verification_diagnostic_columns',
+  'mail_verification_diagnostic_column_shapes',
+  'mail_verification_diagnostic_indexes',
+  'mail_verification_diagnostic_foreign_key'
+)
+$relationInvariantNames = @(
+  'rbac_relationship_orphans',
+  'payment_relationship_orphans',
+  'wallet_relationship_orphans',
+  'ai_relationship_orphans',
+  'notification_relationship_orphans',
+  'export_relationship_orphans',
+  'mail_verification_diagnostic_orphans'
+)
 
 try {
+  $oldSecret = New-RotationSecret
+  $newSecret = New-RotationSecret
+  $script:SensitiveValues += @($oldSecret, $newSecret)
   [IO.Directory]::CreateDirectory($tempRoot) | Out-Null
   Write-RekeyFixtureHelper -Path $fixtureHelper
   Write-RestrictedTextFile -Path $secretEnv -Content ((@(
@@ -556,8 +900,14 @@ try {
     'P04_ROTATION_NEW_SECRET=' + $newSecret
   ) -join "`n") + "`n")
 
-  & $platformScript -Action dev-state *> $null
-  if ($LASTEXITCODE -ne 0) { throw 'Docker state preparation failed' }
+  $platformResult = Invoke-BoundedProcessCapture `
+    -Executable (Join-Path $PSHOME 'pwsh.exe') `
+    -Arguments @('-NoProfile', '-File', $platformScript, '-Action', 'dev-state') `
+    -Operation 'Docker state preparation' `
+    -TimeoutSeconds 600 `
+    -WorkingDirectory $repoRoot
+  if ($platformResult.ExitCode -ne 0) { throw 'Docker state preparation failed' }
+  $platformResult = $null
 
   $requiredEnvironmentKeys = @('MYSQL_DSN', 'APP_SECRET', 'REDIS_ADDR', 'HTTP_ADDR', 'LOG_DIR', 'PAYMENT_CERT_BASE_DIR')
   $containerEnvironment = Read-AdminDevEnvironmentFile `
@@ -576,83 +926,105 @@ try {
   $env:APP_SECRET = $persistentSecret
   $env:APP_SECRET_PREVIOUS = $null
   $persistentSettings = Get-MySQLDSNSettings -Database 'admin'
-  try {
-    $persistentMigration = Invoke-LockedAtlasMigration -Settings $persistentSettings -Database 'admin'
-    $schemaInvariantCount = Invoke-InvariantGate -Database 'admin' -RelativePath 'database/reconciliation/030_verify_schema.sql'
-    $relationInvariantCount = Invoke-InvariantGate -Database 'admin' -RelativePath 'database/reconciliation/031_verify_relations.sql'
-    $persistentNoOp = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
+  $persistentAtlasDSN = Get-AtlasDatabaseURL -Settings $persistentSettings -Database 'admin'
+  $script:SensitiveValues += @($persistentSettings.Password, $persistentAtlasDSN)
 
-    Invoke-FixtureHelper -Arguments @('create-schema', $disposableSchema)
-    $schemaCreated = $true
-    $disposableSettings = [pscustomobject]@{
-      User = $persistentSettings.User
-      Password = $persistentSettings.Password
-      Host = $persistentSettings.Host
-      Port = $persistentSettings.Port
-      Query = $persistentSettings.Query
-    }
-    try {
-      $disposableDSN = New-SchemaDSN -Settings $disposableSettings -Database $disposableSchema
-      $script:SensitiveValues += $disposableDSN
-      $env:MYSQL_DSN = $disposableDSN
-      Invoke-DisposableSchemaBootstrap -Settings $disposableSettings -Database $disposableSchema
-      $disposableSchemaInvariantCount = Invoke-InvariantGate -Database $disposableSchema -RelativePath 'database/reconciliation/030_verify_schema.sql'
-      $disposableRelationInvariantCount = Invoke-InvariantGate -Database $disposableSchema -RelativePath 'database/reconciliation/031_verify_relations.sql'
+  $persistentMigration = Invoke-LockedAtlasMigration -Settings $persistentSettings -Database 'admin'
+  $schemaInvariantCount = Invoke-InvariantGate `
+    -Database 'admin' `
+    -RelativePath 'database/reconciliation/030_verify_schema.sql' `
+    -ExpectedNames $schemaInvariantNames
+  $relationInvariantCount = Invoke-InvariantGate `
+    -Database 'admin' `
+    -RelativePath 'database/reconciliation/031_verify_relations.sql' `
+    -ExpectedNames $relationInvariantNames
+  $persistentNoOp = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
 
-      $env:APP_SECRET = $newSecret
-      $env:APP_SECRET_PREVIOUS = $oldSecret
-      Invoke-FixtureHelper -Arguments @('stage-pair')
-      $conversion = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 1 -ExpectedRekeyed 1
-      Invoke-FixtureHelper -Arguments @('verify-current-pair')
-
-      $env:APP_SECRET_PREVIOUS = $null
-      $idempotent = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
-
-      $env:APP_SECRET_PREVIOUS = $oldSecret
-      Invoke-FixtureHelper -Arguments @('stage-unknown')
-      $unknown = Invoke-MailDiagnosticRekey -ExpectSuccess $false
-      Invoke-FixtureHelper -Arguments @('stage-corrupt')
-      $corrupt = Invoke-MailDiagnosticRekey -ExpectSuccess $false
-      Invoke-FixtureHelper -Arguments @('clear')
-    }
-    finally {
-      $disposableSettings.Password = $null
-      $env:MYSQL_DSN = $persistentDSN
-      $env:APP_SECRET = $persistentSecret
-      $env:APP_SECRET_PREVIOUS = $null
-    }
-
-    Invoke-FixtureHelper -Arguments @('drop-schema', $disposableSchema)
-    $schemaCreated = $false
-    Invoke-FixtureHelper -Arguments @('schema-absent', $disposableSchema)
-
-    $sessionRaceExit = Invoke-SessionRotationRace -SecretEnv $secretEnv
-    [ordered]@{
-      atlas_status = [string]$persistentMigration.Status
-      schema_sha256 = [string]$persistentMigration.Fingerprint
-      reconciliation_030_checks = [int]$schemaInvariantCount
-      reconciliation_031_checks = [int]$relationInvariantCount
-      persistent_rekey_scanned = [uint64]$persistentNoOp.Scanned
-      persistent_rekeyed = [uint64]$persistentNoOp.Rekeyed
-      disposable_reconciliation_030_checks = [int]$disposableSchemaInvariantCount
-      disposable_reconciliation_031_checks = [int]$disposableRelationInvariantCount
-      conversion_scanned = [uint64]$conversion.Scanned
-      conversion_rekeyed = [uint64]$conversion.Rekeyed
-      previous_references = [uint64]$conversion.PreviousReferences
-      unknown_references = [uint64]$conversion.UnknownReferences
-      idempotent_scanned = [uint64]$idempotent.Scanned
-      idempotent_rekeyed = [uint64]$idempotent.Rekeyed
-      unknown_exit_status = [int]$unknown.ExitCode
-      corrupt_exit_status = [int]$corrupt.ExitCode
-      session_rotation_exit_status = [int]$sessionRaceExit
-    } | ConvertTo-Json -Compress
+  $schemaCreated = $true
+  Invoke-FixtureHelper -Arguments @('create-schema', $disposableSchema)
+  $disposableSettings = [pscustomobject]@{
+    User = $persistentSettings.User
+    Password = $persistentSettings.Password
+    Host = $persistentSettings.Host
+    Port = $persistentSettings.Port
+    Query = $persistentSettings.Query
   }
-  finally {
-    $persistentSettings.Password = $null
+  $disposableDSN = New-SchemaDSN -Settings $disposableSettings -Database $disposableSchema
+  $disposableAtlasDSN = Get-AtlasDatabaseURL -Settings $disposableSettings -Database $disposableSchema
+  $script:SensitiveValues += @($disposableSettings.Password, $disposableDSN, $disposableAtlasDSN)
+  $env:MYSQL_DSN = $disposableDSN
+  Invoke-DisposableSchemaBootstrap -Settings $disposableSettings -Database $disposableSchema
+  $disposableSchemaInvariantCount = Invoke-InvariantGate `
+    -Database $disposableSchema `
+    -RelativePath 'database/reconciliation/030_verify_schema.sql' `
+    -ExpectedNames $schemaInvariantNames
+  $disposableRelationInvariantCount = Invoke-InvariantGate `
+    -Database $disposableSchema `
+    -RelativePath 'database/reconciliation/031_verify_relations.sql' `
+    -ExpectedNames $relationInvariantNames
+
+  $env:APP_SECRET = $newSecret
+  $env:APP_SECRET_PREVIOUS = $oldSecret
+  Invoke-FixtureHelper -Arguments @('stage-pair')
+  $conversion = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 1 -ExpectedRekeyed 1
+  Invoke-FixtureHelper -Arguments @(
+    'verify-current-pair',
+    [string]$conversion.RekeyedRowIDs[0],
+    [string]$conversion.CurrentKeyID,
+    [string]$conversion.PreviousKeyID
+  )
+
+  $env:APP_SECRET_PREVIOUS = $null
+  $idempotent = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
+
+  $env:APP_SECRET_PREVIOUS = $oldSecret
+  Invoke-FixtureHelper -Arguments @('stage-unknown')
+  $unknown = Invoke-MailDiagnosticRekey -ExpectSuccess $false
+  Invoke-FixtureHelper -Arguments @('verify-unknown-unchanged')
+  Invoke-FixtureHelper -Arguments @('stage-corrupt')
+  $corrupt = Invoke-MailDiagnosticRekey -ExpectSuccess $false
+  Invoke-FixtureHelper -Arguments @('verify-corrupt-unchanged')
+  Invoke-FixtureHelper -Arguments @('clear')
+
+  $env:MYSQL_DSN = $persistentDSN
+  $env:APP_SECRET = $persistentSecret
+  $env:APP_SECRET_PREVIOUS = $null
+  Invoke-FixtureHelper -Arguments @('drop-schema', $disposableSchema)
+  Invoke-FixtureHelper -Arguments @('schema-absent', $disposableSchema)
+  $schemaCreated = $false
+
+  $sessionRaceExit = Invoke-SessionRotationRace -SecretEnv $secretEnv
+  $summaryData = [ordered]@{
+    atlas_status = [string]$persistentMigration.Status
+    schema_sha256 = [string]$persistentMigration.Fingerprint
+    reconciliation_030_checks = [int]$schemaInvariantCount
+    reconciliation_031_checks = [int]$relationInvariantCount
+    persistent_rekey_scanned = [uint64]$persistentNoOp.Scanned
+    persistent_rekeyed = [uint64]$persistentNoOp.Rekeyed
+    disposable_reconciliation_030_checks = [int]$disposableSchemaInvariantCount
+    disposable_reconciliation_031_checks = [int]$disposableRelationInvariantCount
+    conversion_scanned = [uint64]$conversion.Scanned
+    conversion_rekeyed = [uint64]$conversion.Rekeyed
+    previous_references = [uint64]$conversion.PreviousReferences
+    unknown_references = [uint64]$conversion.UnknownReferences
+    idempotent_scanned = [uint64]$idempotent.Scanned
+    idempotent_rekeyed = [uint64]$idempotent.Rekeyed
+    unknown_exit_status = [int]$unknown.ExitCode
+    corrupt_exit_status = [int]$corrupt.ExitCode
+    session_rotation_exit_status = [int]$sessionRaceExit
+  }
+}
+catch {
+  $candidateMessage = [string]$_.Exception.Message
+  try {
+    Assert-NoSensitiveOutput -Text $candidateMessage
+    $primaryFailureMessage = $candidateMessage
+  }
+  catch {
+    $primaryFailureMessage = 'session secret rotation verification failed'
   }
 }
 finally {
-  $cleanupFailure = $null
   if ($schemaCreated -and -not [string]::IsNullOrWhiteSpace($persistentDSN) -and (Test-Path -LiteralPath $fixtureHelper -PathType Leaf)) {
     try {
       $env:MYSQL_DSN = $persistentDSN
@@ -660,20 +1032,27 @@ finally {
       $env:APP_SECRET_PREVIOUS = $null
       Invoke-FixtureHelper -Arguments @('drop-schema', $disposableSchema)
       Invoke-FixtureHelper -Arguments @('schema-absent', $disposableSchema)
+      $schemaCreated = $false
     }
     catch {
-      $cleanupFailure = 'failed to verify disposable rotation schema cleanup'
+      $cleanupFailures.Add('failed to verify disposable rotation schema cleanup')
     }
   }
-  [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
-  [Environment]::SetEnvironmentVariable('APP_SECRET', $previousAppSecret, 'Process')
-  [Environment]::SetEnvironmentVariable('APP_SECRET_PREVIOUS', $previousAppSecretPrevious, 'Process')
-  $oldSecret = $null
-  $newSecret = $null
-  $persistentSecret = $null
-  $persistentDSN = $null
-  $containerEnvironment = $null
-  $hostEnvironment = $null
+  foreach ($restoration in @(
+    @('MYSQL_DSN', $previousDSN),
+    @('APP_SECRET', $previousAppSecret),
+    @('APP_SECRET_PREVIOUS', $previousAppSecretPrevious),
+    @('Path', $previousPath)
+  )) {
+    try {
+      [Environment]::SetEnvironmentVariable([string]$restoration[0], $restoration[1], 'Process')
+    }
+    catch {
+      if (-not $cleanupFailures.Contains('failed to restore the rotation process environment')) {
+        $cleanupFailures.Add('failed to restore the rotation process environment')
+      }
+    }
+  }
   if (Test-Path -LiteralPath $tempRoot -PathType Container) {
     try {
       $resolvedDirectory = [IO.Path]::GetFullPath($tempRoot)
@@ -684,12 +1063,46 @@ finally {
       [IO.Directory]::Delete($resolvedDirectory, $true)
     }
     catch {
-      if ($null -eq $cleanupFailure) {
-        $cleanupFailure = 'failed to remove the verified rotation rehearsal directory'
-      }
+      $cleanupFailures.Add('failed to remove the verified rotation rehearsal directory')
     }
   }
-  if ($null -ne $cleanupFailure) {
-    throw $cleanupFailure
+  if ($null -ne $persistentSettings) {
+    $persistentSettings.Password = $null
   }
+  if ($null -ne $disposableSettings) {
+    $disposableSettings.Password = $null
+  }
+  $oldSecret = $null
+  $newSecret = $null
+  $persistentSecret = $null
+  $persistentDSN = $null
+  $persistentAtlasDSN = $null
+  $disposableDSN = $null
+  $disposableAtlasDSN = $null
+  $previousDSN = $null
+  $previousAppSecret = $null
+  $previousAppSecretPrevious = $null
+  $containerEnvironment = $null
+  $hostEnvironment = $null
+  $persistentSettings = $null
+  $disposableSettings = $null
+  $script:FixtureHelper = $null
+  $script:GoExecutable = $null
+  $script:SensitiveValues = @()
 }
+
+if ($null -ne $primaryFailureMessage) {
+  if ($cleanupFailures.Count -gt 0) {
+    throw ($primaryFailureMessage + '; cleanup also failed: ' + ($cleanupFailures -join '; '))
+  }
+  throw $primaryFailureMessage
+}
+if ($cleanupFailures.Count -gt 0) {
+  throw ('session secret rotation cleanup failed: ' + ($cleanupFailures -join '; '))
+}
+if ($null -eq $summaryData) {
+  throw 'session secret rotation completed without a summary'
+}
+$summaryJson = $summaryData | ConvertTo-Json -Compress
+Write-Output $summaryJson
+$summaryJson = $null
