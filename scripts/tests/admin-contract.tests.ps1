@@ -104,16 +104,29 @@ $startupGuardRoot = Join-Path ([IO.Path]::GetTempPath()) ('admin-startup-guard-'
 [IO.Directory]::CreateDirectory($startupGuardRoot) | Out-Null
 try {
   $safeStartupPath = Join-Path $startupGuardRoot 'safe.ps1'
-  $unsafeStartupPath = Join-Path $startupGuardRoot 'unsafe.ps1'
-  [IO.File]::WriteAllText($safeStartupPath, "& `$tool @('run', './cmd/admin-api')`n", [Text.UTF8Encoding]::new($false))
+  $unsafeMigrationPath = Join-Path $startupGuardRoot 'unsafe-migration.ps1'
+  $unsafeRekeyPath = Join-Path $startupGuardRoot 'unsafe-rekey.ps1'
   [IO.File]::WriteAllText(
-    $unsafeStartupPath,
-    "`$verb = 'mi' + 'grate'`n`$mode = 'ap' + 'ply'`n& `$tool `$verb `$mode`n",
+    $safeStartupPath,
+    "`$migrationMessage = 'rekey is disabled'`nfunction Test-RekeyDisabled {}`nWrite-Host 'migrate apply is disabled'`nTest-RekeyDisabled`n& `$tool @('run', './cmd/admin-api')`n",
+    [Text.UTF8Encoding]::new($false)
+  )
+  [IO.File]::WriteAllText(
+    $unsafeMigrationPath,
+    "& `$tool 'migrate' 'apply'`n",
+    [Text.UTF8Encoding]::new($false)
+  )
+  [IO.File]::WriteAllText(
+    $unsafeRekeyPath,
+    "& `$tool 'run' './cmd/admin-db' 'mail-diagnostic-rekey'`n",
     [Text.UTF8Encoding]::new($false)
   )
   Assert-NoAdminDevDatabaseMutation -Paths @($safeStartupPath)
   Assert-ThrowsMessage {
-    Assert-NoAdminDevDatabaseMutation -Paths @($unsafeStartupPath)
+    Assert-NoAdminDevDatabaseMutation -Paths @($unsafeMigrationPath)
+  } 'admin-dev must not perform startup migration or rekey'
+  Assert-ThrowsMessage {
+    Assert-NoAdminDevDatabaseMutation -Paths @($unsafeRekeyPath)
   } 'admin-dev must not perform startup migration or rekey'
 }
 finally {

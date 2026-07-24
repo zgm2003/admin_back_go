@@ -40,14 +40,37 @@ function Assert-NoAdminDevDatabaseMutation {
     if ($parseErrors.Count -ne 0) {
       throw 'admin-dev startup source has PowerShell parse errors'
     }
-    $statements = $sourceAst.FindAll({
+    $commands = $sourceAst.FindAll({
       param($node)
-      $node -is [Management.Automation.Language.StatementAst]
+      $node -is [Management.Automation.Language.CommandAst]
     }, $true)
-    foreach ($statement in $statements) {
-      $normalized = [regex]::Replace($statement.Extent.Text, '[^A-Za-z0-9-]', '').ToLowerInvariant()
-      if ($normalized.Contains('migrate', [StringComparison]::Ordinal) -or
-          $normalized.Contains('rekey', [StringComparison]::Ordinal)) {
+    foreach ($command in $commands) {
+      $commandName = [string]$command.GetCommandName()
+      $commandLeaf = if ([string]::IsNullOrWhiteSpace($commandName)) {
+        ''
+      }
+      else {
+        [IO.Path]::GetFileNameWithoutExtension($commandName).ToLowerInvariant()
+      }
+      $literalValues = @($command.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.StringConstantExpressionAst] -or
+          $node -is [Management.Automation.Language.ExpandableStringExpressionAst]
+      }, $true) | ForEach-Object { ([string]$_.Value).Trim().ToLowerInvariant() })
+      $directMutator = $commandLeaf -in @('invoke-lockedatlasmigration', 'invoke-maildiagnosticrekey')
+      $mutationCapable = [string]::IsNullOrWhiteSpace($commandName) -or $commandLeaf -in @(
+        'go',
+        'docker',
+        'atlas',
+        'admin-db',
+        'invoke-atlascontainer',
+        'pwsh',
+        'powershell'
+      )
+      $hasRekey = @($literalValues | Where-Object { $_ -ceq 'mail-diagnostic-rekey' }).Count -gt 0
+      $hasMigrate = @($literalValues | Where-Object { $_ -ceq 'migrate' }).Count -gt 0
+      $hasMutationVerb = @($literalValues | Where-Object { $_ -in @('apply', 'set') }).Count -gt 0
+      if ($directMutator -or ($mutationCapable -and ($hasRekey -or ($hasMigrate -and $hasMutationVerb)))) {
         throw 'admin-dev must not perform startup migration or rekey'
       }
     }
@@ -567,6 +590,7 @@ import (
 )
 
 var schemaPattern = regexp.MustCompile(`^admin_rekey_[0-9a-f]{12}$`)
+var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -593,7 +617,10 @@ func main() {
 		verifyCurrentPair(db, rekeyedRowID, os.Args[3], os.Args[4])
 		return
 	}
-	if len(os.Args) != 2 {
+	snapshotCommand := command == "stage-unknown" || command == "verify-unknown-unchanged" ||
+		command == "stage-corrupt" || command == "verify-corrupt-unchanged"
+	if (snapshotCommand && (len(os.Args) != 3 || strings.TrimSpace(os.Args[2]) == "")) ||
+		(!snapshotCommand && len(os.Args) != 2) {
 		fail()
 	}
 	db, parsed := openDisposable()
@@ -615,15 +642,17 @@ func main() {
 			fail()
 		}
 		insertFixture(db, keyID, fixtureCiphertext("unknown"))
+		writeFixtureSnapshot(db, os.Args[2])
 	case "verify-unknown-unchanged":
-		verifySingleRow(db, fixtureUnknownKeyID(), fixtureCiphertext("unknown"))
+		verifySingleRow(db, fixtureUnknownKeyID(), fixtureCiphertext("unknown"), os.Args[2])
 	case "stage-corrupt":
 		clearFixtures(db)
 		previous := mustRing(os.Getenv("APP_SECRET_PREVIOUS"))
 		insertFixture(db, previous.MailDiagnosticKeyID(), fixtureCiphertext("corrupt"))
+		writeFixtureSnapshot(db, os.Args[2])
 	case "verify-corrupt-unchanged":
 		previous := mustRing(os.Getenv("APP_SECRET_PREVIOUS"))
-		verifySingleRow(db, previous.MailDiagnosticKeyID(), fixtureCiphertext("corrupt"))
+		verifySingleRow(db, previous.MailDiagnosticKeyID(), fixtureCiphertext("corrupt"), os.Args[2])
 	default:
 		fail()
 	}
@@ -767,7 +796,7 @@ func verifyCurrentPair(db *sql.DB, rekeyedRowID int64, reportedCurrentKeyID, rep
 	}
 }
 
-func verifySingleRow(db *sql.DB, expectedKeyID, expectedCiphertext string) {
+func verifySingleRow(db *sql.DB, expectedKeyID, expectedCiphertext, snapshotPath string) {
 	rows, err := db.Query("SELECT key_id,code_enc FROM mail_log_verification_codes ORDER BY id")
 	if err != nil {
 		fail()
@@ -782,6 +811,52 @@ func verifySingleRow(db *sql.DB, expectedKeyID, expectedCiphertext string) {
 		count++
 	}
 	if rows.Err() != nil || count != 1 {
+		fail()
+	}
+	verifyFixtureSnapshot(db, snapshotPath)
+}
+
+func fixtureStateDigest(db *sql.DB) string {
+	rows, err := db.Query(`
+SELECT SHA2(CONCAT_WS(CHAR(31),
+  CAST(vc.id AS CHAR), CAST(vc.mail_log_id AS CHAR), vc.key_id, vc.code_enc,
+  DATE_FORMAT(vc.expires_at,'%Y-%m-%d %H:%i:%s.%f'), DATE_FORMAT(vc.created_at,'%Y-%m-%d %H:%i:%s.%f'),
+  CAST(ml.id AS CHAR), ml.scene, COALESCE(CAST(ml.template_id AS CHAR),'<null>'), ml.to_email, ml.subject,
+  ml.tencent_request_id, ml.tencent_message_id, CAST(ml.status AS CHAR), CAST(ml.is_del AS CHAR),
+  ml.error_code, ml.error_message, CAST(ml.duration_ms AS CHAR),
+  COALESCE(DATE_FORMAT(ml.sent_at,'%Y-%m-%d %H:%i:%s.%f'),'<null>'),
+  DATE_FORMAT(ml.created_at,'%Y-%m-%d %H:%i:%s.%f'), DATE_FORMAT(ml.updated_at,'%Y-%m-%d %H:%i:%s.%f')
+),256)
+FROM mail_log_verification_codes vc
+JOIN mail_logs ml ON ml.id=vc.mail_log_id
+ORDER BY vc.id`)
+	if err != nil {
+		fail()
+	}
+	defer rows.Close()
+	digest := ""
+	count := 0
+	for rows.Next() {
+		if count != 0 || rows.Scan(&digest) != nil {
+			fail()
+		}
+		count++
+	}
+	if rows.Err() != nil || count != 1 || !digestPattern.MatchString(digest) {
+		fail()
+	}
+	return digest
+}
+
+func writeFixtureSnapshot(db *sql.DB, path string) {
+	if err := os.WriteFile(path, []byte(fixtureStateDigest(db)+"\n"), 0600); err != nil {
+		fail()
+	}
+}
+
+func verifyFixtureSnapshot(db *sql.DB, path string) {
+	expected, err := os.ReadFile(path)
+	if err != nil || strings.TrimSpace(string(expected)) != fixtureStateDigest(db) {
 		fail()
 	}
 }
@@ -844,6 +919,7 @@ if (-not (Test-PathInsideRoot -Path $tempRoot -Root $verifiedTempRoot) -or
 
 $secretEnv = Join-Path $tempRoot 'rotation.env'
 $fixtureHelper = Join-Path $tempRoot 'main.go'
+$fixtureSnapshot = Join-Path $tempRoot 'fixture-state.sha256'
 $script:FixtureHelper = $fixtureHelper
 $disposableSchema = 'admin_rekey_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
 $schemaCreated = $false
@@ -978,13 +1054,14 @@ try {
   $idempotent = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
 
   $env:APP_SECRET_PREVIOUS = $oldSecret
-  Invoke-FixtureHelper -Arguments @('stage-unknown')
+  Invoke-FixtureHelper -Arguments @('stage-unknown', $fixtureSnapshot)
   $unknown = Invoke-MailDiagnosticRekey -ExpectSuccess $false
-  Invoke-FixtureHelper -Arguments @('verify-unknown-unchanged')
-  Invoke-FixtureHelper -Arguments @('stage-corrupt')
+  Invoke-FixtureHelper -Arguments @('verify-unknown-unchanged', $fixtureSnapshot)
+  Invoke-FixtureHelper -Arguments @('stage-corrupt', $fixtureSnapshot)
   $corrupt = Invoke-MailDiagnosticRekey -ExpectSuccess $false
-  Invoke-FixtureHelper -Arguments @('verify-corrupt-unchanged')
+  Invoke-FixtureHelper -Arguments @('verify-corrupt-unchanged', $fixtureSnapshot)
   Invoke-FixtureHelper -Arguments @('clear')
+  $null = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
 
   $env:MYSQL_DSN = $persistentDSN
   $env:APP_SECRET = $persistentSecret
