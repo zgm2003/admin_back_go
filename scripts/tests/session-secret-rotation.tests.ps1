@@ -224,6 +224,22 @@ function Assert-NoSensitiveOutput {
   }
 }
 
+function Assert-SchemaFingerprintCapture {
+  param(
+    [Parameter(Mandatory = $true)]$Result,
+    [Parameter(Mandatory = $true)][string]$ExpectedPath,
+    [Parameter(Mandatory = $true)][string]$ExpectedSHA256
+  )
+
+  if ($Result.ExitCode -ne 0 -or
+      -not [string]::IsNullOrWhiteSpace([string]$Result.StdErr) -or
+      $Result.StdOutLines.Count -ne 2 -or
+      [string]$Result.StdOutLines[0] -cne $ExpectedPath -or
+      [string]$Result.StdOutLines[1] -cne $ExpectedSHA256) {
+    throw 'schema fingerprint capture output was malformed'
+  }
+}
+
 function Get-SchemaFingerprint {
   param(
     [Parameter(Mandatory = $true)]$Settings,
@@ -256,14 +272,18 @@ function Get-SchemaFingerprint {
       -Arguments @('run', './cmd/admin-db', 'fingerprint', '--schema', $Database, '--out', $fingerprintPath, '--commit', $commit) `
       -TimeoutSeconds 180 `
       -Operation 'schema fingerprint capture'
-    if ($fingerprintResult.ExitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace([string]$fingerprintResult.Text)) {
+    if ($fingerprintResult.ExitCode -ne 0) {
       throw 'schema fingerprint capture failed'
     }
-    $fingerprintResult = $null
     $document = [IO.File]::ReadAllText($fingerprintPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
     if ([string]$document.schema_sha256 -notmatch '^[0-9a-f]{64}$') {
       throw 'schema fingerprint output was invalid'
     }
+    Assert-SchemaFingerprintCapture `
+      -Result $fingerprintResult `
+      -ExpectedPath $fingerprintPath `
+      -ExpectedSHA256 ([string]$document.schema_sha256)
+    $fingerprintResult = $null
     $fingerprint = [string]$document.schema_sha256
   }
   catch {

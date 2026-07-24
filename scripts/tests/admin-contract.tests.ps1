@@ -61,6 +61,12 @@ $rekeyParserAst = $rotationAst.Find({
     $node.Name -ceq 'Invoke-MailDiagnosticRekey'
 }, $true)
 Assert-True ($null -ne $rekeyParserAst) 'session rotation must define the mail diagnostic rekey parser'
+$fingerprintCaptureAst = $rotationAst.Find({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Assert-SchemaFingerprintCapture'
+}, $true)
+Assert-True ($null -ne $fingerprintCaptureAst) 'session rotation must define exact fingerprint output validation'
 
 Invoke-Expression $sensitiveAssertionAst.Extent.Text
 Invoke-Expression $boundedCaptureAst.Extent.Text
@@ -132,6 +138,30 @@ try {
 finally {
   Remove-Item -LiteralPath $startupGuardRoot -Recurse -Force
 }
+
+Invoke-Expression $fingerprintCaptureAst.Extent.Text
+$fingerprintOutputPath = 'C:\synthetic\fingerprint.json'
+$fingerprintSHA = ('a' * 64) -join ''
+$validFingerprintCapture = [pscustomobject]@{
+  ExitCode = 0
+  StdErr = ''
+  StdOutLines = @($fingerprintOutputPath, $fingerprintSHA)
+}
+Assert-SchemaFingerprintCapture `
+  -Result $validFingerprintCapture `
+  -ExpectedPath $fingerprintOutputPath `
+  -ExpectedSHA256 $fingerprintSHA
+$extraFingerprintOutput = [pscustomobject]@{
+  ExitCode = 0
+  StdErr = ''
+  StdOutLines = @($fingerprintOutputPath, $fingerprintSHA, 'unexpected')
+}
+Assert-ThrowsMessage {
+  Assert-SchemaFingerprintCapture `
+    -Result $extraFingerprintOutput `
+    -ExpectedPath $fingerprintOutputPath `
+    -ExpectedSHA256 $fingerprintSHA
+} 'schema fingerprint capture output was malformed'
 
 Invoke-Expression $rekeyParserAst.Extent.Text
 $script:RekeyCaptureResult = $null
