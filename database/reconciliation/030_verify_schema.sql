@@ -80,10 +80,10 @@ WHERE actual.index_name IS NULL
 
 SELECT 'required_constraints' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT 'authz_principal_versions' t, 'chk_authz_principal_platform' c, '(platform=''admin'')' clause UNION ALL
-  SELECT 'ai_reply_commands','chk_ai_reply_platform','(platform=''admin'')' UNION ALL
+  SELECT 'authz_principal_versions' t, 'chk_authz_principal_platform' c, '(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))' clause UNION ALL
+  SELECT 'ai_reply_commands','chk_ai_reply_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))' UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_state','(statein(''pending'',''claimed'',''running'',''succeeded'',''failed'',''canceled'',''outcome_unknown'',''timed_out''))' UNION ALL
-  SELECT 'ai_video_tasks','chk_ai_video_platform','(platformin(''admin'',''canvas''))'
+  SELECT 'ai_video_tasks','chk_ai_video_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))'
 ) required
 LEFT JOIN (
   SELECT tc.table_name, tc.constraint_name, tc.constraint_type,

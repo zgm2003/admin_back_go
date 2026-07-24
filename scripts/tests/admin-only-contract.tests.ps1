@@ -21,8 +21,10 @@ $constraintPath = Join-Path $root 'database\migrations\202607150203_admin_only_c
 $verifyRowsPath = Join-Path $root 'database\reconciliation\051_verify_admin_rows.sql'
 $verifySchemaPath = Join-Path $root 'database\reconciliation\052_verify_ai_contract.sql'
 $verifyFinalPath = Join-Path $root 'database\reconciliation\053_verify_admin_only.sql'
+$verifyCorePath = Join-Path $root 'database\reconciliation\030_verify_schema.sql'
 $preconditionsPath = Join-Path $root 'database\reconciliation\050_contract_preconditions.sql'
 $wrapperPath = Join-Path $root 'scripts\database\contract-admin-only.ps1'
+$rotationPath = Join-Path $root 'scripts\tests\session-secret-rotation.tests.ps1'
 
 $rows = Read-Required $rowPath
 $schema = Read-Required $schemaPath
@@ -31,7 +33,9 @@ $preconditions = Read-Required $preconditionsPath
 $verifyRows = Read-Required $verifyRowsPath
 $verifySchema = Read-Required $verifySchemaPath
 $verifyFinal = Read-Required $verifyFinalPath
+$verifyCore = Read-Required $verifyCorePath
 $wrapper = Read-Required $wrapperPath
+$rotation = Read-Required $rotationPath
 
 foreach ($needle in @(
   'DELETE FROM `ai_prompts`',
@@ -100,6 +104,22 @@ Assert-True (-not [regex]::IsMatch($clientSurface, 'permission\.`is_del`|grant_r
 $platformJoinPattern = 'platform_row\.`code`\s+COLLATE\s+utf8mb4_0900_ai_ci\s*=\s*row_data\.`platform`\s+COLLATE\s+utf8mb4_0900_ai_ci'
 Assert-True ([regex]::Matches($verifyFinal, $platformJoinPattern).Count -eq 12) 'verification SQL must normalize all platform provenance joins to one collation'
 
+foreach ($legacyClause in @(
+  "SELECT 'authz_principal_versions' t, 'chk_authz_principal_platform' c, '(platform=''admin'')' clause",
+  "SELECT 'ai_reply_commands','chk_ai_reply_platform','(platform=''admin'')'",
+  "SELECT 'ai_video_tasks','chk_ai_video_platform','(platformin(''admin'',''canvas''))'"
+)) {
+  Assert-True (-not $verifyCore.Contains($legacyClause, [StringComparison]::Ordinal)) "030 verification still freezes a retired platform clause: $legacyClause"
+}
+$canonicalPlatformClause = "'(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}`$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))'"
+foreach ($needle in @(
+  "SELECT 'authz_principal_versions' t, 'chk_authz_principal_platform' c, $canonicalPlatformClause clause",
+  "SELECT 'ai_reply_commands','chk_ai_reply_platform',$canonicalPlatformClause",
+  "SELECT 'ai_video_tasks','chk_ai_video_platform',$canonicalPlatformClause"
+)) {
+  Assert-Contains $verifyCore $needle "030 verification is missing canonical platform constraint row: $needle"
+}
+
 foreach ($needle in @(
   '[string]$ExpectedSourceFingerprint',
   '[string]$InputLock',
@@ -122,9 +142,48 @@ foreach ($needle in @(
 }
 Assert-True (-not [regex]::IsMatch($wrapper, '(?i)(Write-(Host|Output)|echo).*MYSQL_DSN')) 'wrapper may not print MYSQL_DSN'
 
+foreach ($needle in @(
+  'function Invoke-DisposableSchemaBootstrap',
+  'database\schema\admin.hcl',
+  'canonical schema must contain exactly one admin schema declaration',
+  'schema "admin" {',
+  'schema.$Database',
+  '\bschema\.admin\b',
+  "'schema', 'apply'",
+  "'--to', 'file:///runtime/admin.hcl'",
+  "'--auto-approve'",
+  'Remove-AtlasRuntimeConfig -Directory $runtimeDirectory'
+)) {
+  Assert-Contains $rotation $needle "session rotation bootstrap is missing $needle"
+}
+$bootstrapStart = $rotation.IndexOf('function Invoke-DisposableSchemaBootstrap', [StringComparison]::Ordinal)
+$bootstrapEnd = $rotation.IndexOf('function Invoke-InvariantGate', $bootstrapStart, [StringComparison]::Ordinal)
+Assert-True ($bootstrapStart -ge 0 -and $bootstrapEnd -gt $bootstrapStart) 'session rotation bootstrap function section is missing'
+$bootstrapFunction = $rotation.Substring($bootstrapStart, $bootstrapEnd - $bootstrapStart)
+Assert-Contains $bootstrapFunction 'try {' 'session rotation bootstrap must isolate runtime setup in try/finally'
+Assert-Contains $bootstrapFunction 'finally {' 'session rotation bootstrap must clean runtime config in finally'
+$schemaApplyIndex = $bootstrapFunction.IndexOf("'schema', 'apply'", [StringComparison]::Ordinal)
+Assert-True ($schemaApplyIndex -ge 0) 'disposable bootstrap must apply canonical schema'
+Assert-True (-not $bootstrapFunction.Contains("'migrate', 'set'", [StringComparison]::Ordinal)) 'disposable bootstrap must not create an Atlas migration ledger'
+$persistentStart = $rotation.IndexOf('$persistentMigration =', [StringComparison]::Ordinal)
+$disposableSetupStart = $rotation.IndexOf('$disposableSettings =', [StringComparison]::Ordinal)
+$disposableInvariantStart = $rotation.IndexOf('$disposableSchemaInvariantCount =', [StringComparison]::Ordinal)
+$bootstrapCall = 'Invoke-DisposableSchemaBootstrap -Settings $disposableSettings -Database $disposableSchema'
+$bootstrapCallIndex = $rotation.IndexOf($bootstrapCall, [StringComparison]::Ordinal)
+Assert-True ($persistentStart -ge 0 -and $disposableSetupStart -gt $persistentStart -and $disposableInvariantStart -gt $disposableSetupStart) 'session rotation disposable sections are missing'
+Assert-True ($bootstrapCallIndex -ge $disposableSetupStart -and $bootstrapCallIndex -lt $disposableInvariantStart) 'disposable invariants must follow canonical schema bootstrap'
+Assert-True (-not $rotation.Substring($disposableSetupStart, $disposableInvariantStart - $disposableSetupStart).Contains('Invoke-LockedAtlasMigration', [StringComparison]::Ordinal)) 'disposable schema must not replay Atlas migrations'
+Assert-True (-not $rotation.Substring($persistentStart, $disposableSetupStart - $persistentStart).Contains('Invoke-DisposableSchemaBootstrap', [StringComparison]::Ordinal)) 'persistent admin migration must not bootstrap disposable schema'
+Assert-True (-not $rotation.Contains('disposable_atlas_status', [StringComparison]::Ordinal)) 'session output must not claim disposable Atlas migration status'
+Assert-True (-not $rotation.Contains('disposable_schema_sha256', [StringComparison]::Ordinal)) 'session output must not claim disposable migration fingerprint'
+
 $tokens = $null
 $errors = $null
 [Management.Automation.Language.Parser]::ParseFile($wrapperPath, [ref]$tokens, [ref]$errors) | Out-Null
 Assert-True ($errors.Count -eq 0) 'contract wrapper has PowerShell syntax errors'
+$tokens = $null
+$errors = $null
+[Management.Automation.Language.Parser]::ParseFile($rotationPath, [ref]$tokens, [ref]$errors) | Out-Null
+Assert-True ($errors.Count -eq 0) 'session rotation test has PowerShell syntax errors'
 
 Write-Output 'admin-only contract assertions passed'

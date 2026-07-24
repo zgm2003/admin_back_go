@@ -107,6 +107,55 @@ function Get-SchemaFingerprint {
   }
 }
 
+function Invoke-DisposableSchemaBootstrap {
+  param(
+    [Parameter(Mandatory = $true)]$Settings,
+    [Parameter(Mandatory = $true)][string]$Database
+  )
+
+  if ($Database -notmatch '^admin_rekey_[0-9a-f]{12}$') {
+    throw 'refusing to bootstrap an unexpected disposable schema'
+  }
+
+  $runtimeDirectory = ''
+  try {
+    $runtimeDirectory = New-AtlasRuntimeConfig -Settings $Settings -Database $Database
+    $schemaPath = Join-Path $script:RepoRoot 'database\schema\admin.hcl'
+    if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
+      throw 'canonical admin.hcl is missing'
+    }
+    $canonicalSchema = [IO.File]::ReadAllText($schemaPath, [Text.Encoding]::UTF8)
+    if ([regex]::Matches($canonicalSchema, '(?m)^schema "admin" \{$').Count -ne 1) {
+      throw 'canonical schema must contain exactly one admin schema declaration'
+    }
+    $runtimeSchema = $canonicalSchema.Replace('schema "admin" {', 'schema "' + $Database + '" {')
+    $runtimeSchema = $runtimeSchema.Replace('schema.admin', "schema.$Database")
+    if ([regex]::IsMatch($runtimeSchema, '\bschema\.admin\b')) {
+      throw 'canonical schema reference rebinding was incomplete'
+    }
+    $runtimeSchemaPath = Join-Path $runtimeDirectory 'admin.hcl'
+    [IO.File]::WriteAllText($runtimeSchemaPath, $runtimeSchema, [Text.UTF8Encoding]::new($false))
+    $schemaApplyOutput = Invoke-AtlasContainer `
+      -DockerExecutable $script:DockerExecutable `
+      -BackendRoot $script:RepoRoot `
+      -RuntimeDirectory $runtimeDirectory `
+      -AtlasArguments @(
+        'schema', 'apply',
+        '--config', 'file:///runtime/atlas.hcl',
+        '--env', 'runtime',
+        '--to', 'file:///runtime/admin.hcl',
+        '--auto-approve'
+      ) `
+      -TimeoutSeconds 600
+    Assert-NoSensitiveOutput -Text $schemaApplyOutput
+    $schemaApplyOutput = $null
+
+  }
+  finally {
+    Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
+  }
+}
+
 function Invoke-LockedAtlasMigration {
   param(
     [Parameter(Mandatory = $true)]$Settings,
@@ -546,7 +595,7 @@ try {
       $disposableDSN = New-SchemaDSN -Settings $disposableSettings -Database $disposableSchema
       $script:SensitiveValues += $disposableDSN
       $env:MYSQL_DSN = $disposableDSN
-      $disposableMigration = Invoke-LockedAtlasMigration -Settings $disposableSettings -Database $disposableSchema
+      Invoke-DisposableSchemaBootstrap -Settings $disposableSettings -Database $disposableSchema
       $disposableSchemaInvariantCount = Invoke-InvariantGate -Database $disposableSchema -RelativePath 'database/reconciliation/030_verify_schema.sql'
       $disposableRelationInvariantCount = Invoke-InvariantGate -Database $disposableSchema -RelativePath 'database/reconciliation/031_verify_relations.sql'
 
@@ -585,8 +634,6 @@ try {
       reconciliation_031_checks = [int]$relationInvariantCount
       persistent_rekey_scanned = [uint64]$persistentNoOp.Scanned
       persistent_rekeyed = [uint64]$persistentNoOp.Rekeyed
-      disposable_atlas_status = [string]$disposableMigration.Status
-      disposable_schema_sha256 = [string]$disposableMigration.Fingerprint
       disposable_reconciliation_030_checks = [int]$disposableSchemaInvariantCount
       disposable_reconciliation_031_checks = [int]$disposableRelationInvariantCount
       conversion_scanned = [uint64]$conversion.Scanned
