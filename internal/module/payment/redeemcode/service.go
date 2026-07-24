@@ -60,6 +60,7 @@ type Repository interface {
 
 type Service struct {
 	repository Repository
+	limiter    AttemptLimiter
 	clock      clock.Clock
 	recorder   telemetry.Recorder
 	random     io.Reader
@@ -78,6 +79,10 @@ func WithTelemetry(value telemetry.Recorder) Option {
 
 func WithRandom(value io.Reader) Option {
 	return func(service *Service) { service.random = value }
+}
+
+func WithAttemptLimiter(value AttemptLimiter) Option {
+	return func(service *Service) { service.limiter = value }
 }
 
 func NewService(repository Repository, options ...Option) *Service {
@@ -316,6 +321,148 @@ func (service *Service) Export(ctx context.Context, input ExportInput) (*ExportR
 }
 
 func (service *Service) Redeem(ctx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
+	if service.limiter != nil {
+		return service.redeemLimited(ctx, userID, rawCode)
+	}
+	return service.redeemUnlocked(ctx, userID, rawCode)
+}
+
+func (service *Service) redeemLimited(requestCtx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
+	const platform = "admin"
+	lease, err := service.limiter.Acquire(requestCtx, platform, userID)
+	if err != nil {
+		if locked, ok := err.(*AttemptLockedError); ok {
+			return nil, walletRateLimited(locked.RetryAfter)
+		}
+		if errors.Is(err, ErrAttemptLocked) {
+			return nil, walletRateLimited(1)
+		}
+		return nil, walletDependency(err)
+	}
+
+	attemptCtx, cancel := context.WithTimeout(requestCtx, attemptTimeout)
+	defer cancel()
+	release := func() error {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(requestCtx), cleanupTimeout)
+		defer cleanupCancel()
+		return service.limiter.Release(cleanupCtx, lease)
+	}
+	state, err := service.limiter.FailureState(attemptCtx, platform, userID)
+	if err != nil {
+		_ = release()
+		return nil, walletDependency(err)
+	}
+	if state.Count >= failureLimit {
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletDependency(releaseErr)
+		}
+		return nil, walletRateLimited(failureRetryAfter(state))
+	}
+
+	markFailure := func() *apperror.Error {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(requestCtx), cleanupTimeout)
+		defer cleanupCancel()
+		if _, recordErr := service.limiter.RecordFailure(cleanupCtx, platform, userID); recordErr != nil {
+			_ = release()
+			return walletDependency(recordErr)
+		}
+		return nil
+	}
+
+	repository, appErr := service.requireRepository()
+	if appErr != nil {
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletDependency(releaseErr)
+		}
+		return nil, walletDependency(nil)
+	}
+	if strings.TrimSpace(rawCode) == "" {
+		if recordErr := markFailure(); recordErr != nil {
+			return nil, recordErr
+		}
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletDependency(releaseErr)
+		}
+		return nil, newAppError(ErrorWalletCodeRequired, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "请输入兑换码", nil)
+	}
+	code, normalizeErr := NormalizeCode(rawCode)
+	if normalizeErr != nil {
+		service.metrics.redemption("unavailable", "invalid", 0)
+		if recordErr := markFailure(); recordErr != nil {
+			return nil, recordErr
+		}
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletDependency(releaseErr)
+		}
+		return nil, walletUnavailable()
+	}
+
+	started := time.Now()
+	fact, redeemErr := repository.Redeem(attemptCtx, userID, code)
+	elapsed := time.Since(started)
+	if redeemErr != nil {
+		var responseErr *apperror.Error
+		switch {
+		case errors.Is(redeemErr, ErrExpired):
+			service.metrics.codes(1, StateExpired)
+			service.metrics.redemption("unavailable", "expired", elapsed)
+			responseErr = walletUnavailable()
+		case errors.Is(redeemErr, ErrUnavailable):
+			service.metrics.redemption("unavailable", "unavailable", elapsed)
+			responseErr = walletUnavailable()
+		case errors.Is(redeemErr, ErrSourceConflict):
+			service.metrics.conflict("redeem", "source_unique")
+			service.metrics.redemption("error", "source_unique", elapsed)
+			responseErr = walletIntegrity(nil)
+		case errors.Is(redeemErr, ErrOverflow):
+			service.metrics.redemption("rejected", "wallet_overflow", elapsed)
+			responseErr = walletIntegrity(nil)
+		case errors.Is(redeemErr, ErrIntegrityViolation):
+			service.metrics.redemption("error", "integrity", elapsed)
+			responseErr = walletIntegrity(nil)
+		default:
+			service.metrics.redemption("error", "dependency", elapsed)
+			responseErr = walletDependency(redeemErr)
+		}
+		if responseErr.Code == ErrorWalletUnavailable {
+			if recordErr := markFailure(); recordErr != nil {
+				return nil, recordErr
+			}
+		}
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletDependency(releaseErr)
+		}
+		return nil, responseErr
+	}
+	if !validRedemptionFact(fact, userID) {
+		service.metrics.redemption("error", "integrity", elapsed)
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletDependency(releaseErr)
+		}
+		return nil, walletIntegrity(nil)
+	}
+	outcome, reason := "ok", "created"
+	if fact.Replayed {
+		outcome, reason = "replayed", "replayed"
+	} else {
+		service.metrics.codes(1, StateUsed)
+		service.metrics.transition(1, StateUsed, "created")
+	}
+	service.metrics.redemption(outcome, reason, elapsed)
+	response := redemptionResponse(fact)
+	// Once the repository has established a successful fact, keep that fact even if cleanup fails.
+	_ = release()
+	return response, nil
+}
+
+func failureRetryAfter(state FailureState) int {
+	if state.RetryAfter > 0 {
+		return state.RetryAfter
+	}
+	return retryAfter(state.TTL)
+}
+
+func (service *Service) redeemUnlocked(ctx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
 	repository, appErr := service.requireRepository()
 	if appErr != nil {
 		return nil, walletDependency(nil)
@@ -617,6 +764,13 @@ func managementIntegrity(cause error) *apperror.Error {
 
 func walletUnavailable() *apperror.Error {
 	return newAppError(ErrorWalletUnavailable, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "兑换码不可用", nil)
+}
+
+func walletRateLimited(retryAfter int) *apperror.Error {
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	return apperror.New(ErrorWalletUnavailable, apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, ErrorWalletUnavailable, map[string]any{"retry_after": retryAfter}, "兑换请求过于频繁")
 }
 
 func walletDependency(cause error) *apperror.Error {

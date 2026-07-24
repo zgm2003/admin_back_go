@@ -316,6 +316,71 @@ func TestServiceRedeemMapsFactsAndStableDomainErrors(t *testing.T) {
 	}
 }
 
+func TestServiceRedeemRateLimitChecksBeforeRepositoryAndRecordsUserFailures(t *testing.T) {
+	var calls []string
+	limiter := &fakeAttemptLimiter{}
+	limiter.acquireFn = func(context.Context, string, int64) (AttemptLease, error) {
+		calls = append(calls, "acquire")
+		return AttemptLease{Owner: "owner"}, nil
+	}
+	limiter.failureStateFn = func(ctx context.Context, _ string, _ int64) (FailureState, error) {
+		calls = append(calls, "state")
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > attemptTimeout || time.Until(deadline) < attemptTimeout-time.Second {
+			t.Fatalf("attempt deadline=%v ok=%t", deadline, ok)
+		}
+		return FailureState{}, nil
+	}
+	limiter.recordFailureFn = func(ctx context.Context, _ string, _ int64) (FailureState, error) {
+		calls = append(calls, "record")
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("cleanup context has no deadline")
+		}
+		return FailureState{Count: 1, TTL: failureWindow}, nil
+	}
+	limiter.releaseFn = func(ctx context.Context, lease AttemptLease) error {
+		calls = append(calls, "release")
+		if lease.Owner != "owner" {
+			t.Fatalf("lease=%+v", lease)
+		}
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("cleanup context has no deadline")
+		}
+		return nil
+	}
+	repository := &fakeRepository{redeemErr: ErrUnavailable}
+	service := NewService(repository, WithAttemptLimiter(limiter))
+	_, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.Code != ErrorWalletUnavailable {
+		t.Fatalf("error=%+v", appErr)
+	}
+	if strings.Join(calls, ",") != "acquire,state,record,release" {
+		t.Fatalf("calls=%v", calls)
+	}
+}
+
+func TestServiceRedeemRateLimitRejectsBeforeRepository(t *testing.T) {
+	limiter := &fakeAttemptLimiter{
+		acquireFn: func(context.Context, string, int64) (AttemptLease, error) { return AttemptLease{Owner: "owner"}, nil },
+		failureStateFn: func(context.Context, string, int64) (FailureState, error) {
+			return FailureState{Count: failureLimit, TTL: 3 * time.Second}, nil
+		},
+		recordFailureFn: func(context.Context, string, int64) (FailureState, error) {
+			t.Fatal("RecordFailure called")
+			return FailureState{}, nil
+		},
+		releaseFn: func(context.Context, AttemptLease) error { return nil },
+	}
+	repository := &fakeRepository{redeemFn: func(context.Context, int64, string) (*RedemptionFact, error) {
+		t.Fatal("Redeem called")
+		return nil, nil
+	}}
+	service := NewService(repository, WithAttemptLimiter(limiter))
+	_, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.HTTPStatus != http.StatusTooManyRequests || appErr.Category != apperror.CategoryRateLimit || appErr.TemplateData["retry_after"] != 3 {
+		t.Fatalf("error=%+v", appErr)
+	}
+}
+
 type fakeRepository struct {
 	findFn       func(context.Context, int64, string) (*BatchWithCodes, error)
 	findResult   *BatchWithCodes
@@ -340,6 +405,7 @@ type fakeRepository struct {
 	voidIDs      []int64
 	redeemFact   *RedemptionFact
 	redeemErr    error
+	redeemFn     func(context.Context, int64, string) (*RedemptionFact, error)
 }
 
 func (repository *fakeRepository) FindBatchByRequest(ctx context.Context, userID int64, requestID string) (*BatchWithCodes, error) {
@@ -378,7 +444,10 @@ func (repository *fakeRepository) VoidCodes(_ context.Context, ids []int64, _ ti
 	return repository.voidCount, repository.voidErr
 }
 
-func (repository *fakeRepository) Redeem(context.Context, int64, string) (*RedemptionFact, error) {
+func (repository *fakeRepository) Redeem(ctx context.Context, userID int64, code string) (*RedemptionFact, error) {
+	if repository.redeemFn != nil {
+		return repository.redeemFn(ctx, userID, code)
+	}
 	return repository.redeemFact, repository.redeemErr
 }
 
