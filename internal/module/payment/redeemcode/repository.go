@@ -49,7 +49,7 @@ type GormRepository struct {
 	clock             clock.Clock
 }
 
-func NewGormRepository(client *database.Client, participant wallet.TransactionParticipant, clocks ...clock.Clock) *GormRepository {
+func NewGormRepository(client *database.Client, participant wallet.RetryTransactionParticipant, clocks ...clock.Clock) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
@@ -57,8 +57,7 @@ func NewGormRepository(client *database.Client, participant wallet.TransactionPa
 	if len(clocks) > 0 && clocks[0] != nil {
 		repositoryClock = clocks[0]
 	}
-	retryParticipant, _ := participant.(wallet.RetryTransactionParticipant)
-	return &GormRepository{db: client.Gorm, walletParticipant: retryParticipant, clock: repositoryClock}
+	return &GormRepository{db: client.Gorm, walletParticipant: participant, clock: repositoryClock}
 }
 
 func (repository *GormRepository) FindBatchByRequest(ctx context.Context, createdBy int64, requestID string) (*BatchWithCodes, error) {

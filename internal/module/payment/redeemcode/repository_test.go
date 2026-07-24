@@ -24,6 +24,29 @@ var _ Repository = (*GormRepository)(nil)
 var _ wallet.TransactionParticipant = (*fakeWalletParticipant)(nil)
 var _ wallet.RetryTransactionParticipant = (*fakeWalletParticipant)(nil)
 
+func TestNewGormRepositoryRequiresRetryTransactionParticipant(t *testing.T) {
+	var constructor func(*database.Client, wallet.RetryTransactionParticipant, ...clock.Clock) *GormRepository = NewGormRepository
+	if constructor == nil {
+		t.Fatal("NewGormRepository constructor is nil")
+	}
+}
+
+func TestNewGormRepositoryKeepsExplicitNilRetryParticipant(t *testing.T) {
+	configured, _, _, closeDB := newMockRedeemRepository(t, nil)
+	defer closeDB()
+	repository := NewGormRepository(&database.Client{Gorm: configured.db}, nil)
+	if repository == nil {
+		t.Fatal("NewGormRepository returned nil for configured database")
+	}
+	if repository.walletParticipant != nil {
+		t.Fatalf("walletParticipant=%#v want nil", repository.walletParticipant)
+	}
+	fact, err := repository.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if !errors.Is(err, ErrRepositoryNotConfigured) || fact != nil {
+		t.Fatalf("Redeem=(%#v,%v) want repository configuration error", fact, err)
+	}
+}
+
 func TestRepositoryCreateBatchAndCodesUsesOneTransaction(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 123456000, time.UTC)
 	repository, participant, mock, closeDB := newMockRedeemRepository(t, clock.Func(func() time.Time { return now }))
