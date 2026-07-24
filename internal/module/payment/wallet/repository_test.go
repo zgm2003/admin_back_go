@@ -337,9 +337,10 @@ func TestRepositoryRedeemCodeCreditRequiresOuterTransactionAndValidInput(t *test
 
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	valid := RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}
+	identity := NewRedeemCodeCreditIdentity(now)
 	for name, tx := range map[string]*gorm.DB{"nil": nil, "root": repo.db} {
 		t.Run(name, func(t *testing.T) {
-			wallet, transaction, err := repo.CreditRedeemCodeInTx(context.Background(), tx, valid, now)
+			wallet, transaction, err := repo.CreditRedeemCodeInTx(context.Background(), tx, valid, identity, now)
 			if !errors.Is(err, ErrRedeemCodeTransactionRequired) {
 				t.Fatalf("expected outer transaction requirement, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
 			}
@@ -365,11 +366,43 @@ func TestRepositoryRedeemCodeCreditRequiresOuterTransactionAndValidInput(t *test
 	assertMockExpectations(t, mock)
 }
 
+func TestRepositoryRedeemCodeCreditRejectsNilZeroAndForgedIdentity(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	constructed := NewRedeemCodeCreditIdentity(now)
+	copied := *constructed
+	tests := []struct {
+		name     string
+		identity *RedeemCodeCreditIdentity
+	}{
+		{name: "nil"},
+		{name: "zero", identity: &RedeemCodeCreditIdentity{}},
+		{name: "forged", identity: &RedeemCodeCreditIdentity{transactionNo: constructed.TransactionNo()}},
+		{name: "copied", identity: &copied},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo, mock, closeDB := newMockRepository(t)
+			defer closeDB()
+			mock.ExpectBegin()
+			mock.ExpectRollback()
+
+			wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{
+				UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001",
+			}, now, test.identity)
+			if !errors.Is(err, ErrRedeemCodeCreditIdentityInvalid) || wallet != nil || transaction != nil {
+				t.Fatalf("expected invalid identity sentinel, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
+			}
+			assertMockExpectations(t, mock)
+		})
+	}
+}
+
 func TestRepositoryRedeemCodeCreditLocksActiveWalletAndUpdatesRechargeTotals(t *testing.T) {
 	repo, mock, closeDB := newMockRepository(t)
 	defer closeDB()
 
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	identity := NewRedeemCodeCreditIdentity(now)
 	mock.ExpectBegin()
 	expectRedeemCodeSourceQuery(mock, 88, false).WillReturnError(gorm.ErrRecordNotFound)
 	expectWalletByUserQuery(mock, 7).WillReturnRows(redeemCodeWalletRows().
@@ -381,19 +414,52 @@ func TestRepositoryRedeemCodeCreditLocksActiveWalletAndUpdatesRechargeTotals(t *
 	mock.ExpectCommit()
 
 	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{
-		UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "  RCB202607240001  ", TransactionNo: "WLT-FIXED-REDEEM",
-	}, now)
+		UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "  RCB202607240001  ",
+	}, now, identity)
 	if err != nil {
 		t.Fatalf("CreditRedeemCodeInTx error=%v", err)
 	}
 	if wallet == nil || wallet.BalanceCents != 1100 || wallet.TotalRechargeCents != 1600 || wallet.TotalConsumeCents != 200 {
 		t.Fatalf("unexpected credited wallet=%#v", wallet)
 	}
-	if transaction == nil || transaction.TransactionNo != "WLT-FIXED-REDEEM" || transaction.Direction != DirectionIn || transaction.SourceType != SourceRedeemCode || transaction.SourceID != 88 || transaction.Remark != "RCB202607240001" {
+	if transaction == nil || transaction.TransactionNo != identity.TransactionNo() || transaction.Direction != DirectionIn || transaction.SourceType != SourceRedeemCode || transaction.SourceID != 88 || transaction.Remark != "RCB202607240001" {
 		t.Fatalf("unexpected redeem code transaction=%#v", transaction)
 	}
 	if transaction.BalanceBeforeCents != 1000 || transaction.BalanceAfterCents != 1100 || transaction.AmountCents != 100 {
 		t.Fatalf("unexpected redeem code balance history=%#v", transaction)
+	}
+	assertMockExpectations(t, mock)
+}
+
+func TestRepositoryRedeemCodeCreditRotatesSameIdentityAfterTransactionNumberCollision(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	identity := NewRedeemCodeCreditIdentity(now)
+	initialTransactionNo := identity.TransactionNo()
+	mock.ExpectBegin()
+	expectRedeemCodeSourceQuery(mock, 88, false).WillReturnError(gorm.ErrRecordNotFound)
+	expectWalletByUserQuery(mock, 7).WillReturnRows(redeemCodeWalletRows().
+		AddRow(int64(1), int64(7), int64(1000), int64(1500), int64(200), enum.CommonNo, now, now))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
+		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry for key 'uk_wallet_transaction_no'"))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
+		WillReturnResult(sqlmock.NewResult(9, 1))
+	expectRedeemCodeWalletUpdate(mock, 1100, 1600, 1).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{
+		UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001",
+	}, now, identity)
+	if err != nil || wallet == nil || transaction == nil {
+		t.Fatalf("CreditRedeemCodeInTx=(%#v,%#v,%v)", wallet, transaction, err)
+	}
+	if identity.TransactionNo() == initialTransactionNo {
+		t.Fatalf("identity transaction number was not rotated after collision: %q", initialTransactionNo)
+	}
+	if transaction.TransactionNo != identity.TransactionNo() {
+		t.Fatalf("transaction number=%q identity=%q", transaction.TransactionNo, identity.TransactionNo())
 	}
 	assertMockExpectations(t, mock)
 }
@@ -936,9 +1002,13 @@ func TestRepositoryRedeemCodeFactQueriesPreserveDependencyErrors(t *testing.T) {
 	})
 }
 
-func runRedeemCodeCreditInOuterTransaction(repo *GormRepository, input RedeemCodeCreditInput, now time.Time) (resultWallet *Wallet, resultTransaction *Transaction, resultErr error) {
+func runRedeemCodeCreditInOuterTransaction(repo *GormRepository, input RedeemCodeCreditInput, now time.Time, identities ...*RedeemCodeCreditIdentity) (resultWallet *Wallet, resultTransaction *Transaction, resultErr error) {
+	identity := NewRedeemCodeCreditIdentity(now)
+	if len(identities) > 0 {
+		identity = identities[0]
+	}
 	resultErr = repo.db.Transaction(func(tx *gorm.DB) error {
-		resultWallet, resultTransaction, resultErr = repo.CreditRedeemCodeInTx(context.Background(), tx, input, now)
+		resultWallet, resultTransaction, resultErr = repo.CreditRedeemCodeInTx(context.Background(), tx, input, identity, now)
 		return resultErr
 	})
 	return resultWallet, resultTransaction, resultErr

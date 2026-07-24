@@ -21,6 +21,7 @@ var ErrInsufficientBalance = errors.New("wallet insufficient balance")
 var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
 var ErrRedeemCodeTransactionRequired = errors.New("wallet redeem code outer transaction required")
 var ErrRedeemCodeInvalidInput = errors.New("wallet redeem code invalid input")
+var ErrRedeemCodeCreditIdentityInvalid = errors.New("wallet redeem code credit identity invalid")
 var ErrRedeemCodeWalletIntegrity = errors.New("wallet redeem code wallet integrity violation")
 var ErrRedeemCodeSourceExists = errors.New("wallet redeem code source already exists")
 var ErrRedeemCodeBalanceOverflow = errors.New("wallet redeem code balance overflow")
@@ -43,7 +44,7 @@ type Repository interface {
 
 type TransactionParticipant interface {
 	FindRedeemCodeCreditInTx(context.Context, *gorm.DB, int64, bool) (*Wallet, *Transaction, error)
-	CreditRedeemCodeInTx(context.Context, *gorm.DB, RedeemCodeCreditInput, time.Time) (*Wallet, *Transaction, error)
+	CreditRedeemCodeInTx(context.Context, *gorm.DB, RedeemCodeCreditInput, *RedeemCodeCreditIdentity, time.Time) (*Wallet, *Transaction, error)
 }
 
 type GormRepository struct{ db *gorm.DB }
@@ -179,15 +180,17 @@ func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.
 	return &wallet, transaction, nil
 }
 
-func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, input RedeemCodeCreditInput, now time.Time) (*Wallet, *Transaction, error) {
+func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, input RedeemCodeCreditInput, identity *RedeemCodeCreditIdentity, now time.Time) (*Wallet, *Transaction, error) {
 	if r == nil {
 		return nil, nil, ErrRepositoryNotConfigured
 	}
 	if err := requireRedeemCodeTransaction(tx); err != nil {
 		return nil, nil, err
 	}
+	if !identity.valid() {
+		return nil, nil, ErrRedeemCodeCreditIdentityInvalid
+	}
 	input.BatchNo = strings.TrimSpace(input.BatchNo)
-	input.TransactionNo = strings.TrimSpace(input.TransactionNo)
 	if input.UserID <= 0 || input.CodeID <= 0 || input.AmountCents <= 0 || input.BatchNo == "" {
 		return nil, nil, ErrRedeemCodeInvalidInput
 	}
@@ -220,12 +223,8 @@ func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, 
 	balanceAfter := wallet.BalanceCents + input.AmountCents
 	totalRechargeAfter := wallet.TotalRechargeCents + input.AmountCents
 
-	transactionNo := input.TransactionNo
-	if transactionNo == "" {
-		transactionNo = newTransactionNo(now)
-	}
 	transaction := Transaction{
-		TransactionNo:      transactionNo,
+		TransactionNo:      identity.TransactionNo(),
 		WalletID:           wallet.ID,
 		UserID:             input.UserID,
 		Direction:          DirectionIn,
@@ -237,7 +236,7 @@ func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, 
 		Remark:             input.BatchNo,
 		IsDel:              enum.CommonNo,
 	}
-	if err := createTransactionWithNumberRetry(tx, &transaction, now); err != nil {
+	if err := createTransactionWithNumberRetry(tx, &transaction, now, identity); err != nil {
 		if isDuplicateKeyFor(err, duplicateKeyWalletTransactionSource) {
 			return nil, nil, ErrRedeemCodeSourceExists
 		}
@@ -421,7 +420,7 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 			Remark:             input.Remark,
 			IsDel:              enum.CommonNo,
 		}
-		if err := createTransactionWithNumberRetry(tx, &txRow, now); err != nil {
+		if err := createTransactionWithNumberRetry(tx, &txRow, now, nil); err != nil {
 			if isDuplicateKeyFor(err, duplicateKeyWalletTransactionSource) {
 				existingWallet, existingTransaction, lookupErr := findMutationSource(tx, input.UserID, input.SourceType, input.SourceID, true)
 				if lookupErr != nil {
@@ -494,11 +493,16 @@ func findMutationSource(tx *gorm.DB, userID int64, sourceType string, sourceID i
 	return &wallet, &existing, nil
 }
 
-func createTransactionWithNumberRetry(tx *gorm.DB, row *Transaction, now time.Time) error {
+func createTransactionWithNumberRetry(tx *gorm.DB, row *Transaction, now time.Time, identity *RedeemCodeCreditIdentity) error {
 	var err error
 	for attempt := 0; attempt < maxTransactionNoInsertAttempts; attempt++ {
 		if attempt > 0 {
-			row.TransactionNo = newTransactionNo(now)
+			if identity == nil {
+				row.TransactionNo = newTransactionNo(now)
+			} else {
+				identity.rotate(now)
+				row.TransactionNo = identity.TransactionNo()
+			}
 		}
 		err = tx.Create(row).Error
 		if err == nil {

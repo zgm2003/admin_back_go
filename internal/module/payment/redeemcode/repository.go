@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
-	"admin_back_go/internal/module/payment/serialno"
 	"admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
@@ -294,7 +293,7 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 	}
 	ctx = nonNilContext(ctx)
 	var fact *RedemptionFact
-	var transactionNo string
+	var creditIdentity *wallet.RedeemCodeCreditIdentity
 	err = repository.withTransactionRetry(ctx, func(tx *gorm.DB) error {
 		lockedCode, err := findCodeForUpdate(tx, code)
 		if err != nil {
@@ -345,17 +344,17 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if batch.ExpiresAt != nil && !batch.ExpiresAt.After(decisionTime) {
 			return ErrExpired
 		}
-		if transactionNo == "" {
-			transactionNo = serialno.NewWalletTransactionNo(decisionTime)
+		if creditIdentity == nil {
+			creditIdentity = wallet.NewRedeemCodeCreditIdentity(decisionTime)
 		}
 		currentWallet, transaction, creditErr := repository.walletParticipant.CreditRedeemCodeInTx(ctx, tx, wallet.RedeemCodeCreditInput{
-			UserID: userID, CodeID: lockedCode.ID, AmountCents: batch.AmountCents, BatchNo: batch.BatchNo, TransactionNo: transactionNo,
-		}, decisionTime)
+			UserID: userID, CodeID: lockedCode.ID, AmountCents: batch.AmountCents, BatchNo: batch.BatchNo,
+		}, creditIdentity, decisionTime)
 		if creditErr != nil {
 			return mapWalletError(creditErr)
 		}
-		if transaction != nil && transaction.TransactionNo != "" {
-			transactionNo = transaction.TransactionNo
+		if transaction == nil || transaction.TransactionNo != creditIdentity.TransactionNo() {
+			return ErrIntegrityViolation
 		}
 		if !validWalletRedemptionFacts(currentWallet, transaction, batch, *lockedCode, userID) {
 			return ErrIntegrityViolation
@@ -593,7 +592,7 @@ func mapWalletError(err error) error {
 		return ErrSourceConflict
 	case errors.Is(err, wallet.ErrRedeemCodeBalanceOverflow), errors.Is(err, wallet.ErrRedeemCodeTotalRechargeOverflow):
 		return ErrOverflow
-	case errors.Is(err, wallet.ErrRedeemCodeWalletIntegrity), errors.Is(err, wallet.ErrRedeemCodeInvalidInput), errors.Is(err, wallet.ErrRedeemCodeTransactionRequired):
+	case errors.Is(err, wallet.ErrRedeemCodeWalletIntegrity), errors.Is(err, wallet.ErrRedeemCodeInvalidInput), errors.Is(err, wallet.ErrRedeemCodeCreditIdentityInvalid), errors.Is(err, wallet.ErrRedeemCodeTransactionRequired):
 		return ErrIntegrityViolation
 	default:
 		return err

@@ -115,11 +115,10 @@ type MutationInput struct {
 }
 
 type RedeemCodeCreditInput struct {
-	UserID        int64
-	CodeID        int64
-	AmountCents   int64
-	BatchNo       string
-	TransactionNo string
+	UserID      int64
+	CodeID      int64
+	AmountCents int64
+	BatchNo     string
 }
 
 type MutationResponse struct {
