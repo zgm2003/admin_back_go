@@ -151,18 +151,14 @@ func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.
 	}
 	tx = tx.WithContext(ctx)
 
-	var transaction Transaction
-	query := tx.Where("source_type = ? AND source_id = ?", SourceRedeemCode, codeID)
-	if lock {
-		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
-	}
-	if err := query.First(&transaction).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, nil
-		}
+	transaction, err := findRedeemCodeSourceFact(tx, codeID, lock)
+	if err != nil {
 		return nil, nil, err
 	}
-	if !validRedeemCodeTransactionFact(&transaction) || transaction.IsDel != enum.CommonNo {
+	if transaction == nil {
+		return nil, nil, nil
+	}
+	if transaction.IsDel != enum.CommonNo {
 		return nil, nil, ErrRedeemCodeWalletIntegrity
 	}
 
@@ -180,7 +176,7 @@ func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.
 	if !validRedeemCodeWalletFact(&wallet, transaction.UserID) || wallet.ID != transaction.WalletID || wallet.IsDel != enum.CommonNo {
 		return nil, nil, ErrRedeemCodeWalletIntegrity
 	}
-	return &wallet, &transaction, nil
+	return &wallet, transaction, nil
 }
 
 func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, input RedeemCodeCreditInput, now time.Time) (*Wallet, *Transaction, error) {
@@ -199,16 +195,15 @@ func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, 
 	}
 	tx = tx.WithContext(ctx)
 
-	var existing Transaction
-	err := tx.Where("source_type = ? AND source_id = ?", SourceRedeemCode, input.CodeID).First(&existing).Error
-	if err == nil {
-		if !validRedeemCodeTransactionFact(&existing) {
+	existing, err := findRedeemCodeSourceFact(tx, input.CodeID, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	if existing != nil {
+		if existing.IsDel != enum.CommonNo {
 			return nil, nil, ErrRedeemCodeWalletIntegrity
 		}
 		return nil, nil, ErrRedeemCodeSourceExists
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil, err
 	}
 
 	wallet, err := lockOrCreateRedeemCodeWalletForUpdate(tx, input.UserID)
@@ -326,13 +321,36 @@ func findRedeemCodeWalletByUserIDForUpdate(tx *gorm.DB, userID int64) (*Wallet, 
 	return &wallets[0], nil
 }
 
-func validRedeemCodeTransactionFact(transaction *Transaction) bool {
+func findRedeemCodeSourceFact(tx *gorm.DB, codeID int64, lock bool) (*Transaction, error) {
+	var transactions []Transaction
+	query := tx.Where("source_type = ? AND source_id = ?", SourceRedeemCode, codeID).
+		Order("id ASC").
+		Limit(2)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.Find(&transactions).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(transactions) == 0 {
+		return nil, nil
+	}
+	if len(transactions) != 1 || !validRedeemCodeTransactionFact(&transactions[0], codeID) {
+		return nil, ErrRedeemCodeWalletIntegrity
+	}
+	return &transactions[0], nil
+}
+
+func validRedeemCodeTransactionFact(transaction *Transaction, codeID int64) bool {
 	return transaction != nil &&
 		transaction.ID > 0 &&
 		transaction.WalletID > 0 &&
 		transaction.UserID > 0 &&
 		transaction.SourceType == SourceRedeemCode &&
-		transaction.SourceID > 0 &&
+		transaction.SourceID == codeID &&
 		validRedeemCodeLifecycle(transaction.IsDel)
 }
 

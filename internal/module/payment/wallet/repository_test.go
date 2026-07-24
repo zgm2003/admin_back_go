@@ -68,7 +68,7 @@ func TestRepositoryDebitTransactionAndBalanceUpdateAreAtomic(t *testing.T) {
 			AddRow(int64(1), int64(7), int64(1000), int64(1000), int64(0), enum.CommonNo, now, now))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
 		WillReturnResult(sqlmock.NewResult(9, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).
+	expectRedeemCodeWalletUpdate(mock, 1100, 1600, 1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -409,7 +409,7 @@ func TestRepositoryRedeemCodeCreditCreatesAndLocksWalletOnlyWhenNoWalletFactExis
 	expectWalletByIDQuery(mock, 1, true).WillReturnRows(redeemCodeWalletRows().
 		AddRow(int64(1), int64(7), int64(0), int64(0), int64(0), enum.CommonNo, now, now))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).WillReturnResult(sqlmock.NewResult(9, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectRedeemCodeWalletUpdate(mock, 100, 100, 1).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
@@ -483,19 +483,27 @@ func TestRepositoryRedeemCodeCreditClassifiesDuplicateSoftDeletedWalletRace(t *t
 }
 
 func TestRepositoryRedeemCodeCreditRejectsAnyExistingSourceFact(t *testing.T) {
-	for name, isDel := range map[string]int{"active": enum.CommonNo, "soft_deleted": enum.CommonYes} {
-		t.Run(name, func(t *testing.T) {
+	tests := []struct {
+		name    string
+		isDel   int
+		wantErr error
+	}{
+		{name: "active", isDel: enum.CommonNo, wantErr: ErrRedeemCodeSourceExists},
+		{name: "soft_deleted", isDel: enum.CommonYes, wantErr: ErrRedeemCodeWalletIntegrity},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			repo, mock, closeDB := newMockRepository(t)
 			defer closeDB()
 			now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 			mock.ExpectBegin()
 			expectRedeemCodeSourceQuery(mock, 88, false).WillReturnRows(redeemCodeTransactionRows().
-				AddRow(int64(9), "WLT20260724120000000001", int64(1), int64(7), DirectionIn, int64(100), int64(1000), int64(1100), SourceRedeemCode, int64(88), "RCB202607240001", isDel, now, now))
+				AddRow(int64(9), "WLT20260724120000000001", int64(1), int64(7), DirectionIn, int64(100), int64(1000), int64(1100), SourceRedeemCode, int64(88), "RCB202607240001", tt.isDel, now, now))
 			mock.ExpectRollback()
 
 			wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
-			if !errors.Is(err, ErrRedeemCodeSourceExists) {
-				t.Fatalf("expected existing source sentinel, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("expected existing source sentinel %v, wallet=%#v transaction=%#v err=%v", tt.wantErr, wallet, transaction, err)
 			}
 			assertMockExpectations(t, mock)
 		})
@@ -517,6 +525,23 @@ func TestRepositoryRedeemCodeCreditClassifiesDuplicateSourceRace(t *testing.T) {
 	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
 	if !errors.Is(err, ErrRedeemCodeSourceExists) {
 		t.Fatalf("expected duplicate source sentinel, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
+	}
+	assertMockExpectations(t, mock)
+}
+
+func TestRepositoryRedeemCodeCreditRejectsDuplicateSourceFacts(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	expectRedeemCodeSourceQuery(mock, 88, false).WillReturnRows(redeemCodeTransactionRows().
+		AddRow(int64(9), "WLT20260724120000000001", int64(1), int64(7), DirectionIn, int64(100), int64(1000), int64(1100), SourceRedeemCode, int64(88), "RCB202607240001", enum.CommonNo, now, now).
+		AddRow(int64(10), "WLT20260724120000000002", int64(1), int64(7), DirectionIn, int64(100), int64(1100), int64(1200), SourceRedeemCode, int64(88), "RCB202607240001", enum.CommonNo, now, now))
+	mock.ExpectRollback()
+
+	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
+	if !errors.Is(err, ErrRedeemCodeWalletIntegrity) || wallet != nil || transaction != nil {
+		t.Fatalf("expected duplicate source integrity sentinel, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
 	}
 	assertMockExpectations(t, mock)
 }
@@ -561,7 +586,7 @@ func TestRepositoryRedeemCodeCreditLeavesRollbackToOuterTransactionAfterWalletUp
 	expectWalletByUserQuery(mock, 7).WillReturnRows(redeemCodeWalletRows().
 		AddRow(int64(1), int64(7), int64(1000), int64(1500), int64(200), enum.CommonNo, now, now))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).WillReturnResult(sqlmock.NewResult(9, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).WillReturnError(updateErr)
+	expectRedeemCodeWalletUpdate(mock, 1100, 1600, 1).WillReturnError(updateErr)
 	mock.ExpectRollback()
 
 	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
@@ -582,7 +607,7 @@ func TestRepositoryRedeemCodeCreditRejectsUnexpectedWalletUpdateRowCount(t *test
 			expectWalletByUserQuery(mock, 7).WillReturnRows(redeemCodeWalletRows().
 				AddRow(int64(1), int64(7), int64(1000), int64(1500), int64(0), enum.CommonNo, now, now))
 			mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).WillReturnResult(sqlmock.NewResult(9, 1))
-			mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).WillReturnResult(sqlmock.NewResult(0, rowsAffected))
+			expectRedeemCodeWalletUpdate(mock, 1100, 1600, 1).WillReturnResult(sqlmock.NewResult(0, rowsAffected))
 			mock.ExpectRollback()
 
 			wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
@@ -622,7 +647,7 @@ func TestRepositoryFindRedeemCodeCreditInTxReturnsNilWhenNoFactExists(t *testing
 	repo, mock, closeDB := newMockRepository(t)
 	defer closeDB()
 	mock.ExpectBegin()
-	expectRedeemCodeSourceQuery(mock, 88, false).WillReturnError(gorm.ErrRecordNotFound)
+	expectRedeemCodeSourceQuery(mock, 88, false).WillReturnRows(redeemCodeTransactionRows())
 	mock.ExpectCommit()
 
 	wallet, transaction, err := runFindRedeemCodeCreditInOuterTransaction(repo, 88, false)
@@ -630,6 +655,40 @@ func TestRepositoryFindRedeemCodeCreditInTxReturnsNilWhenNoFactExists(t *testing
 		t.Fatalf("expected no redeem source fact, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
 	}
 	assertMockExpectations(t, mock)
+}
+
+func TestRepositoryFindRedeemCodeCreditInTxRejectsDuplicateAndMismatchedSourceFacts(t *testing.T) {
+	tests := []struct {
+		name string
+		rows *sqlmock.Rows
+	}{
+		{
+			name: "duplicate",
+			rows: redeemCodeTransactionRows().
+				AddRow(int64(9), "WLT20260724120000000001", int64(1), int64(7), DirectionIn, int64(100), int64(1000), int64(1100), SourceRedeemCode, int64(88), "RCB202607240001", enum.CommonNo, time.Now(), time.Now()).
+				AddRow(int64(10), "WLT20260724120000000002", int64(1), int64(7), DirectionIn, int64(100), int64(1100), int64(1200), SourceRedeemCode, int64(88), "RCB202607240001", enum.CommonNo, time.Now(), time.Now()),
+		},
+		{
+			name: "source_id_mismatch",
+			rows: redeemCodeTransactionRows().
+				AddRow(int64(9), "WLT20260724120000000001", int64(1), int64(7), DirectionIn, int64(100), int64(1000), int64(1100), SourceRedeemCode, int64(89), "RCB202607240001", enum.CommonNo, time.Now(), time.Now()),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock, closeDB := newMockRepository(t)
+			defer closeDB()
+			mock.ExpectBegin()
+			expectRedeemCodeSourceQuery(mock, 88, true).WillReturnRows(tt.rows)
+			mock.ExpectRollback()
+
+			wallet, transaction, err := runFindRedeemCodeCreditInOuterTransaction(repo, 88, true)
+			if !errors.Is(err, ErrRedeemCodeWalletIntegrity) || wallet != nil || transaction != nil {
+				t.Fatalf("expected source fact integrity sentinel, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
+			}
+			assertMockExpectations(t, mock)
+		})
+	}
 }
 
 func TestRepositoryFindRedeemCodeCreditInTxRejectsSoftDeletedTransaction(t *testing.T) {
@@ -721,7 +780,7 @@ func TestRepositoryRedeemCodeCreditDuplicateWalletRaceReturnsSingleActiveWinner(
 	expectWalletByUserQuery(mock, 7).WillReturnRows(redeemCodeWalletRows().
 		AddRow(int64(1), int64(7), int64(1000), int64(1500), int64(200), enum.CommonNo, now, now))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).WillReturnResult(sqlmock.NewResult(9, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectRedeemCodeWalletUpdate(mock, 1100, 1600, 1).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	wallet, transaction, err := runRedeemCodeCreditInOuterTransaction(repo, RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}, now)
@@ -893,11 +952,17 @@ func runFindRedeemCodeCreditInOuterTransaction(repo *GormRepository, codeID int6
 }
 
 func expectRedeemCodeSourceQuery(mock sqlmock.Sqlmock, codeID int64, lock bool) *sqlmock.ExpectedQuery {
-	query := "SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY `wallet_transactions`.`id` LIMIT ?"
+	query := "SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY id ASC LIMIT ?"
 	if lock {
 		query += " FOR UPDATE"
 	}
-	return mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs(SourceRedeemCode, int64(codeID), 1)
+	return mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs(SourceRedeemCode, int64(codeID), 2)
+}
+
+func expectRedeemCodeWalletUpdate(mock sqlmock.Sqlmock, balanceAfter int64, totalRechargeAfter int64, walletID int64) *sqlmock.ExpectedExec {
+	query := "UPDATE `user_wallets` SET `balance_cents`=?,`total_recharge_cents`=?,`updated_at`=? WHERE id = ? AND is_del = ?"
+	return mock.ExpectExec(regexp.QuoteMeta(query)).
+		WithArgs(balanceAfter, totalRechargeAfter, sqlmock.AnyArg(), walletID, enum.CommonNo)
 }
 
 func expectWalletByUserQuery(mock sqlmock.Sqlmock, userID int64) *sqlmock.ExpectedQuery {
