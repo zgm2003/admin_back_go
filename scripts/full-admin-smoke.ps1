@@ -6,7 +6,8 @@ param(
   [string]$Platform = 'admin',
   [string]$DeviceID = 'codex-full-smoke',
   [string]$Origin = 'http://localhost:5173',
-  [switch]$EnableAiProviderProbe
+  [switch]$EnableAiProviderProbe,
+  [switch]$ExpectMailDiagnosticAccess
 )
 
 $ErrorActionPreference = 'Stop'
@@ -281,7 +282,96 @@ function Get-MaxOperationLogID($Response) {
   return $maxID
 }
 
-function Invoke-JsonRequestAllowFailure([string]$Method, [string]$URL, [hashtable]$Headers, $Body) {
+function Get-HttpResponseHeaderMap($Response) {
+  $result = @{}
+  if ($null -eq $Response) { return $result }
+
+  $collections = @()
+  if ($null -ne $Response.Headers) { $collections += $Response.Headers }
+  if ($Response -is [System.Net.Http.HttpResponseMessage] -and $null -ne $Response.Content -and $null -ne $Response.Content.Headers) {
+    $collections += $Response.Content.Headers
+  }
+  foreach ($collection in $collections) {
+    if ($collection -is [System.Net.WebHeaderCollection]) {
+      foreach ($name in $collection.AllKeys) {
+        $result[$name] = [string]$collection[$name]
+      }
+      continue
+    }
+    foreach ($entry in $collection.GetEnumerator()) {
+      $value = if ($entry.Value -is [string]) { $entry.Value } else { @($entry.Value) -join ', ' }
+      $result[[string]$entry.Key] = [string]$value
+    }
+  }
+  return $result
+}
+
+function Get-HttpResponseStatusCode($Response) {
+  if ($null -eq $Response) { throw 'HTTP response is missing' }
+  return [int]$Response.StatusCode
+}
+
+function Invoke-JsonRequestAllowFailure(
+  [string]$Method,
+  [string]$URL,
+  [hashtable]$Headers,
+  $Body,
+  [switch]$CaptureHttpResponse,
+  [switch]$DiscardBody
+) {
+  if ($CaptureHttpResponse) {
+    $request = @{
+      Uri = $URL
+      Method = $Method
+      Headers = $Headers
+      UseBasicParsing = $true
+      TimeoutSec = 10
+    }
+    if ($null -ne $Body) {
+      $request.ContentType = 'application/json'
+      $request.Body = $Body | ConvertTo-Json -Depth 8
+    }
+
+    try {
+      $webResponse = Invoke-WebRequest @request
+      $parsedBody = $null
+      if (-not $DiscardBody) {
+        if ([string]::IsNullOrWhiteSpace([string]$webResponse.Content)) { throw 'HTTP response body is missing' }
+        $parsedBody = [string]$webResponse.Content | ConvertFrom-Json
+      }
+      return [pscustomobject]@{
+        StatusCode = Get-HttpResponseStatusCode $webResponse
+        Headers = Get-HttpResponseHeaderMap $webResponse
+        Body = $parsedBody
+      }
+    } catch {
+      $response = $_.Exception.Response
+      if ($null -eq $response) { throw }
+
+      $parsedBody = $null
+      if (-not $DiscardBody) {
+        $text = [string]$_.ErrorDetails.Message
+        if ([string]::IsNullOrWhiteSpace($text) -and $response -is [System.Net.Http.HttpResponseMessage]) {
+          $text = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        }
+        if ([string]::IsNullOrWhiteSpace($text) -and -not ($response -is [System.Net.Http.HttpResponseMessage])) {
+          $stream = $response.GetResponseStream()
+          if ($null -ne $stream) {
+            $reader = New-Object System.IO.StreamReader($stream)
+            try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+          }
+        }
+        if ([string]::IsNullOrWhiteSpace($text)) { throw 'HTTP response body is missing' }
+        $parsedBody = $text | ConvertFrom-Json
+      }
+      return [pscustomobject]@{
+        StatusCode = Get-HttpResponseStatusCode $response
+        Headers = Get-HttpResponseHeaderMap $response
+        Body = $parsedBody
+      }
+    }
+  }
+
   $jsonBody = $Body | ConvertTo-Json -Depth 8
 
   try {
@@ -351,6 +441,36 @@ function Wait-NewOperationLog([string]$BaseURL, [hashtable]$Headers, [string]$Ac
   }
 
   throw "operation log action=$Action was not written after id=$AfterID"
+}
+
+function Wait-NewPayloadFreeMailOperationLog([string]$BaseURL, [hashtable]$Headers, [string]$Action, [int64]$AfterID) {
+  for ($i = 0; $i -lt 20; $i++) {
+    $logs = Get-OperationLogList $BaseURL $Headers ''
+    Assert-ApiOK $logs 'mail diagnostic operation log list'
+
+    foreach ($item in (Get-ObjectArray $logs.data.list)) {
+      if ([int64]$item.id -le $AfterID) { continue }
+      $requestMetadata = $null
+      $responseMetadata = $null
+      try {
+        $requestMetadata = [string]$item.request_data | ConvertFrom-Json
+        if ([string]$requestMetadata.module -cne 'mail' -or [string]$requestMetadata.action -cne $Action) { continue }
+        $responseMetadata = [string]$item.response_data | ConvertFrom-Json
+        if (Test-HasProperty $requestMetadata 'payload' -or Test-HasProperty $responseMetadata 'payload') {
+          throw 'mail diagnostic operation log retained a request or response payload'
+        }
+        if ([int]$item.is_success -ne 1) {
+          throw 'mail diagnostic operation log did not record success'
+        }
+        return [int64]$item.id
+      } finally {
+        $requestMetadata = $null
+        $responseMetadata = $null
+      }
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  throw 'mail diagnostic operation log was not written'
 }
 
 function Test-QueueMonitorItemShape($Item) {
@@ -2280,21 +2400,26 @@ function Assert-MailTemplates($Response) {
 }
 
 function Assert-MailLogs($Response) {
-  Assert-ApiOK $Response 'mail logs'
+  if ($null -eq $Response -or [int]$Response.code -ne 0) {
+    throw 'mail logs request failed'
+  }
 
   if ($null -eq $Response.data.page -or $null -eq $Response.data.list) {
-    throw "mail logs missing page/list: $($Response | ConvertTo-Json -Depth 12)"
-  }
-  $json = $Response | ConvertTo-Json -Depth 20
-  foreach ($forbidden in @('secret_id_enc', 'secret_key_enc', 'template_data', 'verify_code')) {
-    if ($json -like "*$forbidden*") {
-      throw "mail logs leaked forbidden field ${forbidden}: $json"
-    }
+    throw 'mail logs missing page/list'
   }
   foreach ($item in (Get-ObjectArray $Response.data.list)) {
-    foreach ($field in @('id', 'scene', 'to_email', 'subject', 'status', 'tencent_request_id', 'tencent_message_id', 'error_code', 'error_message', 'duration_ms', 'created_at')) {
+    foreach ($forbidden in @('secret_id_enc', 'secret_key_enc', 'template_data', 'key_id', 'code_enc', 'ciphertext', 'provider', 'body')) {
+      if (Test-HasProperty $item $forbidden) {
+        throw "mail logs leaked forbidden field ${forbidden}"
+      }
+    }
+    foreach ($field in @(
+      'id', 'scene', 'to_email', 'subject', 'status', 'tencent_request_id', 'tencent_message_id',
+      'error_code', 'error_message', 'duration_ms', 'created_at',
+      'verification_code', 'verification_code_status', 'verification_code_expires_at'
+    )) {
       if (-not (Test-HasProperty $item $field)) {
-        throw "mail log item missing ${field}: $($item | ConvertTo-Json -Depth 12)"
+        throw "mail log item missing ${field}"
       }
     }
   }
@@ -2302,6 +2427,147 @@ function Assert-MailLogs($Response) {
   return [pscustomobject]@{
     ListCount = (Get-ObjectArray $Response.data.list).Count
     Total = [int64]$Response.data.page.total
+  }
+}
+
+function Invoke-MailDiagnosticSmoke(
+  [string]$BaseURL,
+  [hashtable]$Headers,
+  $ButtonCodes,
+  [switch]$ExpectMailDiagnosticAccess
+) {
+  $hasPublishedAccess = (Get-ObjectArray $ButtonCodes) -contains 'system_mail_logView'
+  if ($hasPublishedAccess -ne [bool]$ExpectMailDiagnosticAccess) {
+    throw 'mail diagnostic button visibility did not match the requested access mode'
+  }
+
+  $assertNoStore = {
+    param($Response, [string]$Label)
+    if ([string]$Response.Headers['Cache-Control'] -cne 'no-store, private' -or
+        [string]$Response.Headers['Pragma'] -cne 'no-cache') {
+      throw "$Label did not return required no-store headers"
+    }
+  }
+
+  $mailListResponse = $null
+  $mailDetailResponse = $null
+  $listOperationLogID = 0
+  $detailOperationLogID = 0
+  try {
+    if (-not $ExpectMailDiagnosticAccess) {
+      $mailListResponse = Invoke-JsonRequestAllowFailure `
+        'Get' `
+        "$BaseURL/api/admin/v1/mail/logs?current_page=1&page_size=20" `
+        $Headers `
+        $null `
+        -CaptureHttpResponse `
+        -DiscardBody
+      if ([int]$mailListResponse.StatusCode -ne 403) {
+        throw 'mail diagnostic list did not deny the default smoke account'
+      }
+      $mailListResponse = $null
+
+      $mailDetailResponse = Invoke-JsonRequestAllowFailure `
+        'Get' `
+        "$BaseURL/api/admin/v1/mail/logs/1" `
+        $Headers `
+        $null `
+        -CaptureHttpResponse `
+        -DiscardBody
+      if ([int]$mailDetailResponse.StatusCode -ne 403) {
+        throw 'mail diagnostic detail did not deny the default smoke account'
+      }
+      $mailDetailResponse = $null
+
+      return [pscustomobject]@{
+        Code = 0
+        ListStatus = 403
+        DetailStatus = 403
+        ListCount = 0
+        Total = 0
+        OperationLogCount = 0
+      }
+    }
+
+    $operationLogs = Get-OperationLogList $BaseURL $Headers ''
+    Assert-ApiOK $operationLogs 'mail diagnostic pre-list operation logs'
+    $beforeListOperationLogID = Get-MaxOperationLogID $operationLogs
+    $operationLogs = $null
+
+    $mailListResponse = Invoke-JsonRequestAllowFailure `
+      'Get' `
+      "$BaseURL/api/admin/v1/mail/logs?current_page=1&page_size=20" `
+      $Headers `
+      $null `
+      -CaptureHttpResponse
+    if ([int]$mailListResponse.StatusCode -ne 200) {
+      throw 'mail diagnostic authorized list did not return HTTP 200'
+    }
+    & $assertNoStore $mailListResponse 'mail diagnostic authorized list'
+    $listSummary = Assert-MailLogs $mailListResponse.Body
+    if ([int]$listSummary.ListCount -le 0) {
+      throw 'mail diagnostic authorized list is empty'
+    }
+
+    $listItem = $null
+    foreach ($candidate in (Get-ObjectArray $mailListResponse.Body.data.list)) {
+      if ([int64]$candidate.id -gt 0 -and
+          -not [string]::IsNullOrWhiteSpace([string]$candidate.verification_code) -and
+          -not [string]::IsNullOrWhiteSpace([string]$candidate.verification_code_status) -and
+          -not [string]::IsNullOrWhiteSpace([string]$candidate.verification_code_expires_at)) {
+        $listItem = $candidate
+        break
+      }
+    }
+    if ($null -eq $listItem) {
+      throw 'mail diagnostic authorized list has no non-empty verification tuple'
+    }
+    $listOperationLogID = Wait-NewPayloadFreeMailOperationLog $BaseURL $Headers 'list_logs' $beforeListOperationLogID
+
+    $operationLogs = Get-OperationLogList $BaseURL $Headers ''
+    Assert-ApiOK $operationLogs 'mail diagnostic pre-detail operation logs'
+    $beforeDetailOperationLogID = Get-MaxOperationLogID $operationLogs
+    $operationLogs = $null
+
+    $mailDetailResponse = Invoke-JsonRequestAllowFailure `
+      'Get' `
+      "$BaseURL/api/admin/v1/mail/logs/$([int64]$listItem.id)" `
+      $Headers `
+      $null `
+      -CaptureHttpResponse
+    if ([int]$mailDetailResponse.StatusCode -ne 200) {
+      throw 'mail diagnostic authorized detail did not return HTTP 200'
+    }
+    & $assertNoStore $mailDetailResponse 'mail diagnostic authorized detail'
+    $detailEnvelope = [pscustomobject]@{
+      code = $mailDetailResponse.Body.code
+      data = [pscustomobject]@{
+        page = [pscustomobject]@{ total = 1 }
+        list = @($mailDetailResponse.Body.data)
+      }
+    }
+    [void](Assert-MailLogs $detailEnvelope)
+    if ([int64]$mailDetailResponse.Body.data.id -ne [int64]$listItem.id -or
+        [string]$mailDetailResponse.Body.data.verification_code -cne [string]$listItem.verification_code -or
+        [string]$mailDetailResponse.Body.data.verification_code_status -cne [string]$listItem.verification_code_status -or
+        [string]$mailDetailResponse.Body.data.verification_code_expires_at -cne [string]$listItem.verification_code_expires_at) {
+      throw 'mail diagnostic list/detail verification tuple differs'
+    }
+    $detailOperationLogID = Wait-NewPayloadFreeMailOperationLog $BaseURL $Headers 'view_log' $beforeDetailOperationLogID
+
+    return [pscustomobject]@{
+      Code = [int]$mailListResponse.Body.code
+      ListStatus = [int]$mailListResponse.StatusCode
+      DetailStatus = [int]$mailDetailResponse.StatusCode
+      ListCount = [int]$listSummary.ListCount
+      Total = [int64]$listSummary.Total
+      OperationLogCount = @($listOperationLogID, $detailOperationLogID | Where-Object { $_ -gt 0 }).Count
+    }
+  } finally {
+    $listItem = $null
+    $detailEnvelope = $null
+    $mailListResponse = $null
+    $mailDetailResponse = $null
   }
 }
 
@@ -2624,10 +2890,11 @@ try {
     -TimeoutSec 10
   $mailTemplateSummary = Assert-MailTemplates $mailTemplates
 
-  $mailLogs = Invoke-RestMethod "$baseURL/api/admin/v1/mail/logs?current_page=1&page_size=20" `
+  $mailLogSummary = Invoke-MailDiagnosticSmoke `
+    -BaseURL $baseURL `
     -Headers $authHeaders `
-    -TimeoutSec 10
-  $mailLogSummary = Assert-MailLogs $mailLogs
+    -ButtonCodes $usersInit.data.buttonCodes `
+    -ExpectMailDiagnosticAccess:$ExpectMailDiagnosticAccess
 
   $smsPageInit = Invoke-RestMethod "$baseURL/api/admin/v1/sms/page-init" `
     -Headers $authHeaders `
@@ -3094,9 +3361,12 @@ try {
     mail_config_status = $mailConfigSummary.Status
     mail_template_list_code = $mailTemplates.code
     mail_template_list_count = $mailTemplateSummary.ListCount
-    mail_log_list_code = $mailLogs.code
+    mail_log_list_code = $mailLogSummary.Code
+    mail_log_list_http_status = $mailLogSummary.ListStatus
+    mail_log_detail_http_status = $mailLogSummary.DetailStatus
     mail_log_list_count = $mailLogSummary.ListCount
     mail_log_total = $mailLogSummary.Total
+    mail_log_operation_count = $mailLogSummary.OperationLogCount
     sms_page_init_code = $smsPageInit.code
     sms_scene_dict_count = $smsPageInitSummary.SceneCount
     sms_log_scene_dict_count = $smsPageInitSummary.LogSceneCount
