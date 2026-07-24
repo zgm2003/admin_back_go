@@ -68,6 +68,7 @@ $mailLogsAst = Get-RequiredFunctionAst -Name 'Assert-MailLogs'
 $mailLogsSource = $mailLogsAst.Extent.Text
 $smsLogsSource = (Get-RequiredFunctionAst -Name 'Assert-SmsLogs').Extent.Text
 $diagnosticSmokeSource = (Get-RequiredFunctionAst -Name 'Invoke-MailDiagnosticSmoke').Extent.Text
+$headerMapSource = (Get-RequiredFunctionAst -Name 'Get-HttpResponseHeaderMap').Extent.Text
 $scriptSource = [IO.File]::ReadAllText($scriptPath, [Text.Encoding]::UTF8)
 
 Assert-Contains $scriptSource '[switch]$ExpectMailDiagnosticAccess' 'full-admin-smoke must expose the explicit mail diagnostic access switch'
@@ -110,6 +111,16 @@ if ($mailLogsSource -match "(?s)forbidden.*'verify_code'") {
   throw 'Assert-MailLogs must not reject the approved mail diagnostic verification code'
 }
 Assert-Contains $smsLogsSource "'verify_code'" 'Assert-SmsLogs must continue rejecting verify_code'
+
+Invoke-Expression $headerMapSource
+$webHeaders = [System.Net.WebHeaderCollection]::new()
+$webHeaders['Cache-Control'] = 'no-store, private'
+$webHeaders['Pragma'] = 'no-cache'
+$headerMap = Get-HttpResponseHeaderMap ([pscustomobject]@{ Headers = $webHeaders })
+if ([string]$headerMap['Cache-Control'] -cne 'no-store, private' -or
+    [string]$headerMap['Pragma'] -cne 'no-cache') {
+  throw 'Get-HttpResponseHeaderMap did not preserve WebHeaderCollection values'
+}
 
 # Load only the function under test. The smoke script itself must never execute in this source test.
 function Assert-ApiOK($Response, [string]$Label) {

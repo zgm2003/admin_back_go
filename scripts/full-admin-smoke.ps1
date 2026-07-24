@@ -287,9 +287,9 @@ function Get-HttpResponseHeaderMap($Response) {
   if ($null -eq $Response) { return $result }
 
   $collections = @()
-  if ($null -ne $Response.Headers) { $collections += $Response.Headers }
+  if ($null -ne $Response.Headers) { $collections += ,$Response.Headers }
   if ($Response -is [System.Net.Http.HttpResponseMessage] -and $null -ne $Response.Content -and $null -ne $Response.Content.Headers) {
-    $collections += $Response.Content.Headers
+    $collections += ,$Response.Content.Headers
   }
   foreach ($collection in $collections) {
     if ($collection -is [System.Net.WebHeaderCollection]) {
