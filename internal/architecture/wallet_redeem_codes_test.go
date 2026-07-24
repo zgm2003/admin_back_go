@@ -237,6 +237,61 @@ func TestWalletRedeemCodeDatabaseContract(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("schema reconciliation rejects weakened facts", func(t *testing.T) {
+		verifySchema := readWalletRedeemCodeContractFile(t, root, "database", "reconciliation", "030_verify_schema.sql")
+
+		columnShapes := walletRedeemCodeInvariantStatement(t, verifySchema, "redeem_code_column_shapes")
+		seenDefaults := map[string]int{"note": 0, "created_at": 0, "updated_at": 0}
+		for _, rawLine := range strings.Split(strings.ToLower(strings.ReplaceAll(columnShapes, "`", "")), "\n") {
+			line := strings.TrimSpace(rawLine)
+			switch {
+			case strings.Contains(line, "column_name='note'"):
+				seenDefaults["note"]++
+				if !strings.Contains(line, "not (column_default <=> '')") {
+					t.Errorf("redeem_code_column_shapes note default mismatch is not null-safe: %s", line)
+				}
+			case strings.Contains(line, "column_name='created_at'"):
+				seenDefaults["created_at"]++
+				if !strings.Contains(line, "not (upper(column_default) <=> 'current_timestamp(6)')") {
+					t.Errorf("redeem_code_column_shapes created_at default mismatch is not null-safe: %s", line)
+				}
+			case strings.Contains(line, "column_name='updated_at'"):
+				seenDefaults["updated_at"]++
+				if !strings.Contains(line, "not (upper(column_default) <=> 'current_timestamp(6)')") {
+					t.Errorf("redeem_code_column_shapes updated_at default mismatch is not null-safe: %s", line)
+				}
+			}
+		}
+		for column, want := range map[string]int{"note": 1, "created_at": 2, "updated_at": 2} {
+			if got := seenDefaults[column]; got != want {
+				t.Errorf("redeem_code_column_shapes %s default checks=%d want %d", column, got, want)
+			}
+		}
+
+		checks := normalizeWalletRedeemCodeSQL(walletRedeemCodeInvariantStatement(t, verifySchema, "redeem_code_checks"))
+		for _, forbidden := range []string{"locate(", "normalized_fragment"} {
+			if strings.Contains(checks, forbidden) {
+				t.Errorf("redeem_code_checks still accepts partial clauses via %q", forbidden)
+			}
+		}
+		if !regexp.MustCompile(`if\(\s*count\(\*\)\s*=\s*5\s+and\s+sum\(`).MatchString(checks) ||
+			!regexp.MustCompile(`\)\s*=\s*5\s*,\s*0\s*,\s*1\s*\)`).MatchString(checks) {
+			t.Error("redeem_code_checks must require exactly five fully matching CHECK constraints")
+		}
+		canonicalChecks := []string{
+			"actual.table_name='redeem_code_batches' and actual.constraint_name='chk_redeem_code_batches_amount_cents' and actual.normalized_clause='(amount_centsbetween1and100000000)'",
+			"actual.table_name='redeem_code_batches' and actual.constraint_name='chk_redeem_code_batches_quantity' and actual.normalized_clause='(quantitybetween1and1000)'",
+			"actual.table_name='redeem_code_batches' and actual.constraint_name='chk_redeem_code_batches_expiry' and actual.normalized_clause='((expires_atisnull)or(expires_at>created_at))'",
+			"actual.table_name='redeem_codes' and actual.constraint_name='chk_redeem_codes_state' and actual.normalized_clause='(statein(''unused'',''used'',''voided''))'",
+			"actual.table_name='redeem_codes' and actual.constraint_name='chk_redeem_codes_usage' and actual.normalized_clause='(((state=''used'')and(used_byisnotnull)and(used_atisnotnull))or((statein(''unused'',''voided''))and(used_byisnull)and(used_atisnull)))'",
+		}
+		for _, canonical := range canonicalChecks {
+			if count := strings.Count(checks, canonical); count != 1 {
+				t.Errorf("redeem_code_checks canonical mapping %q count=%d want 1", canonical, count)
+			}
+		}
+	})
 }
 
 func readWalletRedeemCodeContractFile(t *testing.T, root string, path ...string) string {
@@ -289,4 +344,19 @@ func walletRedeemCodeInvariantBlock(t *testing.T, body string, name string) stri
 		return body[start : start+len(marker)+next]
 	}
 	return body[start:]
+}
+
+func walletRedeemCodeInvariantStatement(t *testing.T, body string, name string) string {
+	t.Helper()
+	lowerBody := strings.ToLower(body)
+	marker := "select '" + strings.ToLower(name) + "' as invariant"
+	start := strings.Index(lowerBody, marker)
+	if start < 0 {
+		t.Fatalf("reconciliation SQL missing invariant %q", name)
+	}
+	end := strings.Index(lowerBody[start:], ";")
+	if end < 0 {
+		t.Fatalf("reconciliation invariant %q has no statement terminator", name)
+	}
+	return body[start : start+end+1]
 }

@@ -226,10 +226,10 @@ FROM (
     (column_name='amount_cents' AND (column_type<>'bigint' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
     (column_name='quantity' AND (column_type<>'int unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
     (column_name='expires_at' AND (column_type<>'datetime(6)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
-    (column_name='note' AND (column_type<>'varchar(255)' OR is_nullable<>'NO' OR column_default<>'')) OR
+    (column_name='note' AND (column_type<>'varchar(255)' OR is_nullable<>'NO' OR NOT (column_default <=> ''))) OR
     (column_name='created_by' AND (column_type<>'int unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
-    (column_name='created_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('','DEFAULT_GENERATED'))) OR
-    (column_name='updated_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('on update CURRENT_TIMESTAMP(6)','DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)')))
+    (column_name='created_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR NOT (UPPER(column_default) <=> 'CURRENT_TIMESTAMP(6)') OR extra NOT IN ('','DEFAULT_GENERATED'))) OR
+    (column_name='updated_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR NOT (UPPER(column_default) <=> 'CURRENT_TIMESTAMP(6)') OR extra NOT IN ('on update CURRENT_TIMESTAMP(6)','DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)')))
   )
   UNION ALL
   SELECT 1, 1
@@ -241,8 +241,8 @@ FROM (
     (column_name='state' AND (column_type<>'varchar(16)' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
     (column_name='used_by' AND (column_type<>'int unsigned' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
     (column_name='used_at' AND (column_type<>'datetime(6)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
-    (column_name='created_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('','DEFAULT_GENERATED'))) OR
-    (column_name='updated_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR UPPER(column_default)<>'CURRENT_TIMESTAMP(6)' OR extra NOT IN ('on update CURRENT_TIMESTAMP(6)','DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)')))
+    (column_name='created_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR NOT (UPPER(column_default) <=> 'CURRENT_TIMESTAMP(6)') OR extra NOT IN ('','DEFAULT_GENERATED'))) OR
+    (column_name='updated_at' AND (column_type<>'datetime(6)' OR is_nullable<>'NO' OR NOT (UPPER(column_default) <=> 'CURRENT_TIMESTAMP(6)') OR extra NOT IN ('on update CURRENT_TIMESTAMP(6)','DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)')))
   )
 ) invalid_columns;
 
@@ -272,34 +272,56 @@ WHERE actual.index_name IS NULL
    OR actual.non_unique<>required.non_unique
    OR actual.columns_in_order<>required.columns_in_order;
 
-SELECT 'redeem_code_checks' AS invariant, COUNT(*) AS violations
+SELECT 'redeem_code_checks' AS invariant,
+  IF(
+    COUNT(*) = 5
+    AND SUM(
+      (actual.table_name='redeem_code_batches'
+        AND actual.constraint_name='chk_redeem_code_batches_amount_cents'
+        AND actual.normalized_clause='(amount_centsbetween1and100000000)')
+      OR (actual.table_name='redeem_code_batches'
+        AND actual.constraint_name='chk_redeem_code_batches_quantity'
+        AND actual.normalized_clause='(quantitybetween1and1000)')
+      OR (actual.table_name='redeem_code_batches'
+        AND actual.constraint_name='chk_redeem_code_batches_expiry'
+        AND actual.normalized_clause='((expires_atisnull)or(expires_at>created_at))')
+      OR (actual.table_name='redeem_codes'
+        AND actual.constraint_name='chk_redeem_codes_state'
+        AND actual.normalized_clause='(statein(''unused'',''used'',''voided''))')
+      OR (actual.table_name='redeem_codes'
+        AND actual.constraint_name='chk_redeem_codes_usage'
+        AND actual.normalized_clause='(((state=''used'')and(used_byisnotnull)and(used_atisnotnull))or((statein(''unused'',''voided''))and(used_byisnull)and(used_atisnull)))')
+    ) = 5,
+    0,
+    1
+  ) AS violations
 FROM (
-  SELECT 'redeem_code_batches' AS table_name, 'chk_redeem_code_batches_amount_cents' AS constraint_name,
-    'amount_centsbetween1and100000000' AS normalized_fragment
-  UNION ALL SELECT 'redeem_code_batches','chk_redeem_code_batches_quantity','quantitybetween1and1000'
-  UNION ALL SELECT 'redeem_code_batches','chk_redeem_code_batches_expiry','expires_atisnull'
-  UNION ALL SELECT 'redeem_code_batches','chk_redeem_code_batches_expiry','expires_at>created_at'
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_state','statein(''unused'',''used'',''voided'')'
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','state=''used'''
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_byisnotnull'
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_atisnotnull'
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','statein(''unused'',''voided'')'
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_byisnull'
-  UNION ALL SELECT 'redeem_codes','chk_redeem_codes_usage','used_atisnull'
-) required
-LEFT JOIN (
-  SELECT tc.table_name,tc.constraint_name,tc.constraint_type,
-    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-      cc.check_clause,'`',''),' ',''),'_utf8mb4',''),'_utf8mb3',''),'_utf8',''),'_gbk',''),CHAR(92),'')) AS normalized_clause
+  SELECT tc.table_name,tc.constraint_name,
+    REPLACE(
+      REPLACE(
+        REPLACE(
+          REPLACE(
+            REPLACE(
+              REPLACE(
+                LOWER(REGEXP_REPLACE(cc.check_clause, '[[:space:]`]+', '')),
+                '_utf8mb4', ''
+              ),
+              '_utf8mb3', ''
+            ),
+            '_utf8', ''
+          ),
+          '_gbk', ''
+        ),
+        '_ascii', ''
+      ),
+      CHAR(92), ''
+    ) AS normalized_clause
   FROM information_schema.table_constraints tc
   JOIN information_schema.check_constraints cc
     ON cc.constraint_schema=tc.constraint_schema
    AND cc.constraint_name=tc.constraint_name
   WHERE tc.constraint_schema=DATABASE()
     AND tc.table_name IN ('redeem_code_batches','redeem_codes')
+    AND tc.constraint_type='CHECK'
 ) actual
-  ON actual.table_name=required.table_name
- AND actual.constraint_name=required.constraint_name
-WHERE actual.constraint_name IS NULL
-   OR actual.constraint_type<>'CHECK'
-   OR LOCATE(required.normalized_fragment,actual.normalized_clause)=0;
+;
