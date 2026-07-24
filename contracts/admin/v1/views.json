@@ -1,5 +1,5 @@
 {
-  "schema_version": "admin-views-2026-07-15.2",
+  "schema_version": "admin-views-2026-07-15.3",
   "users_me": {
     "method": "GET",
     "path": "/api/admin/v1/users/me",
@@ -197,6 +197,7 @@
               "system_mail_configDel",
               "system_mail_configEdit",
               "system_mail_logDel",
+              "system_mail_logView",
               "system_mail_templateAdd",
               "system_mail_templateDel",
               "system_mail_templateEdit",

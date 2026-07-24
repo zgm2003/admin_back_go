@@ -4828,6 +4828,43 @@
           },
           "updated_at": {
             "type": "string"
+          },
+          "verification_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification_code_expires_at": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification_code_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sending",
+                  "not_expired",
+                  "expired",
+                  "send_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4844,7 +4881,10 @@
           "tencent_message_id",
           "tencent_request_id",
           "to_email",
-          "updated_at"
+          "updated_at",
+          "verification_code",
+          "verification_code_expires_at",
+          "verification_code_status"
         ],
         "type": "object"
       },
@@ -4943,6 +4983,12 @@
               "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
             },
             "type": "array"
+          },
+          "mail_verification_code_status_arr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -4953,7 +4999,8 @@
           "mail_log_scene_arr",
           "mail_log_status_arr",
           "mail_region_arr",
-          "mail_scene_arr"
+          "mail_scene_arr",
+          "mail_verification_code_status_arr"
         ],
         "type": "object"
       },
@@ -15125,7 +15172,7 @@
   "info": {
     "description": "Deterministic active Admin HTTP contract generated from the runtime route-policy registry.",
     "title": "Admin API",
-    "version": "admin-2026-07-15.2"
+    "version": "admin-2026-07-15.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -21689,11 +21736,17 @@
           "mail"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "system_mail_logView"
         },
         "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
+          "enabled": true,
+          "required": true,
+          "module": "mail",
+          "action": "list_logs",
+          "title": "查看邮件日志及验证码",
+          "skip_request_payload": true,
+          "skip_response_payload": true
         },
         "x-runtime-path": "/api/admin/v1/mail/logs"
       }
@@ -21802,11 +21855,17 @@
           "mail"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "system_mail_logView"
         },
         "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
+          "enabled": true,
+          "required": true,
+          "module": "mail",
+          "action": "view_log",
+          "title": "查看单条邮件日志及验证码",
+          "skip_request_payload": true,
+          "skip_response_payload": true
         },
         "x-runtime-path": "/api/admin/v1/mail/logs/:id"
       }

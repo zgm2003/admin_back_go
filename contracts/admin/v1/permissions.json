@@ -1,5 +1,5 @@
 {
-  "schema_version": "admin-permissions-2026-07-15.2",
+  "schema_version": "admin-permissions-2026-07-15.3",
   "permission_codes": [
     "ai_agent_add",
     "ai_agent_binding_add",
@@ -66,6 +66,7 @@
     "system_mail_configDel",
     "system_mail_configEdit",
     "system_mail_logDel",
+    "system_mail_logView",
     "system_mail_templateAdd",
     "system_mail_templateDel",
     "system_mail_templateEdit",
@@ -1416,11 +1417,17 @@
       "method": "GET",
       "path": "/api/admin/v1/mail/logs",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "system_mail_logView"
       },
       "audit": {
-        "enabled": false,
-        "reason": "read-only"
+        "enabled": true,
+        "required": true,
+        "module": "mail",
+        "action": "list_logs",
+        "title": "查看邮件日志及验证码",
+        "skip_request_payload": true,
+        "skip_response_payload": true
       }
     },
     {
@@ -1443,11 +1450,17 @@
       "method": "GET",
       "path": "/api/admin/v1/mail/logs/:id",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "system_mail_logView"
       },
       "audit": {
-        "enabled": false,
-        "reason": "read-only"
+        "enabled": true,
+        "required": true,
+        "module": "mail",
+        "action": "view_log",
+        "title": "查看单条邮件日志及验证码",
+        "skip_request_payload": true,
+        "skip_response_payload": true
       }
     },
     {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -218,6 +220,93 @@ func TestOpenAPIGeneratesExplicitEmptyListResponseAlternative(t *testing.T) {
 	if empty["type"] != "array" || empty["maxItems"] != 0 {
 		t.Fatalf("empty-list alternative=%#v", empty)
 	}
+}
+
+func TestOpenAPIPublishesMailDiagnosticLogContract(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/api/admin/v1/mail/logs", "/api/admin/v1/mail/logs/{id}"} {
+		operation := document.Paths[path]["get"]
+		if operation == nil {
+			t.Fatalf("missing GET %s", path)
+		}
+		access := operation["x-admin-access"].(map[string]any)
+		if access["kind"] != "permission" || access["permission_code"] != "system_mail_logView" {
+			t.Fatalf("GET %s access=%#v", path, access)
+		}
+		audit := operation["x-admin-audit"].(map[string]any)
+		if audit["required"] != true || audit["skip_request_payload"] != true || audit["skip_response_payload"] != true {
+			t.Fatalf("GET %s audit=%#v", path, audit)
+		}
+	}
+
+	logDTO := document.Components.Schemas["Go_internal_module_mail_LogDTO_Output"]
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "Go_internal_module_mail_LogDTO_Output",
+		"verification_code", "verification_code_status", "verification_code_expires_at")
+	for _, field := range []string{"verification_code", "verification_code_status", "verification_code_expires_at"} {
+		assertNullableProperty(t, logDTO, field)
+	}
+	properties := logDTO["properties"].(map[string]any)
+	diagnosticNames := make([]string, 0, 3)
+	for name := range properties {
+		if strings.HasPrefix(name, "verification_code") {
+			diagnosticNames = append(diagnosticNames, name)
+		}
+	}
+	sort.Strings(diagnosticNames)
+	if want := []string{"verification_code", "verification_code_expires_at", "verification_code_status"}; !reflect.DeepEqual(diagnosticNames, want) {
+		t.Fatalf("diagnostic properties=%v want=%v", diagnosticNames, want)
+	}
+	assertNullableStringProperty(t, properties["verification_code"].(map[string]any), nil)
+	assertNullableStringProperty(t, properties["verification_code_status"].(map[string]any), []string{"sending", "not_expired", "expired", "send_failed"})
+	expiresAt := assertNullableStringProperty(t, properties["verification_code_expires_at"].(map[string]any), nil)
+	if got := expiresAt["pattern"]; got != `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$` {
+		t.Fatalf("verification_code_expires_at pattern=%#v", got)
+	}
+	for _, forbidden := range []string{"key_id", "code_enc", "ciphertext", "template_data", "provider", "body"} {
+		if _, exists := properties[forbidden]; exists {
+			t.Fatalf("LogDTO exposes forbidden property %s", forbidden)
+		}
+	}
+}
+
+func assertNullableStringProperty(t *testing.T, property map[string]any, enum []string) map[string]any {
+	t.Helper()
+	variants, _ := property["anyOf"].([]any)
+	if len(variants) != 2 {
+		t.Fatalf("nullable property variants=%#v", property)
+	}
+	stringVariant, _ := variants[0].(map[string]any)
+	if stringVariant["type"] != "string" {
+		t.Fatalf("nullable property string variant=%#v", property)
+	}
+	if enum == nil {
+		if _, exists := stringVariant["enum"]; exists {
+			t.Fatalf("unexpected enum=%#v", stringVariant["enum"])
+		}
+		return stringVariant
+	}
+	if !equalJSONValues(stringVariant["enum"], stringSliceAsAny(enum)) {
+		t.Fatalf("enum=%#v want=%v", stringVariant["enum"], enum)
+	}
+	return stringVariant
+}
+
+func stringSliceAsAny(values []string) []any {
+	result := make([]any, len(values))
+	for index, value := range values {
+		result[index] = value
+	}
+	return result
 }
 
 func TestIdentityRoutesPublishRuntimeModelContracts(t *testing.T) {

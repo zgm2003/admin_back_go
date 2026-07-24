@@ -17,7 +17,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 	if document.SchemaVersion != PermissionSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.PermissionCodes), 101; got != want {
+	if got, want := len(document.PermissionCodes), 102; got != want {
 		t.Fatalf("permission codes=%d want=%d", got, want)
 	}
 	wantSorted := append([]string(nil), document.PermissionCodes...)
@@ -38,7 +38,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("retired client-version permission %q remains published", code)
 		}
 	}
-	for _, required := range []string{"ai_agent_add", "payment_recharge_add", "payment_recharge_list", "system_mail", "devTools_queueMonitor_list"} {
+	for _, required := range []string{"ai_agent_add", "payment_recharge_add", "payment_recharge_list", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
 		if _, exists := catalog[required]; !exists {
 			t.Fatalf("missing active permission code %q", required)
 		}
@@ -70,4 +70,35 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("runtime operation %q has no published policy", definition.OperationID)
 		}
 	}
+
+	for _, expected := range []struct {
+		path   string
+		action string
+		title  string
+	}{
+		{path: "/api/admin/v1/mail/logs", action: "list_logs", title: "查看邮件日志及验证码"},
+		{path: "/api/admin/v1/mail/logs/:id", action: "view_log", title: "查看单条邮件日志及验证码"},
+	} {
+		operation, exists := findOperationPolicy(document.Operations, "GET", expected.path)
+		if !exists {
+			t.Fatalf("missing GET %s", expected.path)
+		}
+		if operation.Access.Kind != "permission" || operation.Access.PermissionCode != "system_mail_logView" {
+			t.Fatalf("GET %s access=%#v", expected.path, operation.Access)
+		}
+		if !operation.Audit.Enabled || !operation.Audit.Required ||
+			operation.Audit.Module != "mail" || operation.Audit.Action != expected.action || operation.Audit.Title != expected.title ||
+			!operation.Audit.SkipRequestPayload || !operation.Audit.SkipResponsePayload {
+			t.Fatalf("GET %s audit=%#v", expected.path, operation.Audit)
+		}
+	}
+}
+
+func findOperationPolicy(operations []OperationPolicy, method string, path string) (OperationPolicy, bool) {
+	for _, operation := range operations {
+		if operation.Method == method && operation.Path == path {
+			return operation, true
+		}
+	}
+	return OperationPolicy{}, false
 }

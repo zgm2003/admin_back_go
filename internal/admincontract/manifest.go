@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	BundleVersion           = "admin-2026-07-15.2"
+	BundleVersion           = "admin-2026-07-15.3"
 	OpenAPIVersion          = "3.1.0"
-	PermissionSchemaVersion = "admin-permissions-2026-07-15.2"
-	ViewSchemaVersion       = "admin-views-2026-07-15.2"
+	PermissionSchemaVersion = "admin-permissions-2026-07-15.3"
+	ViewSchemaVersion       = "admin-views-2026-07-15.3"
 	RealtimeSchemaVersion   = "admin-realtime-2026-07-18.1"
 )
 

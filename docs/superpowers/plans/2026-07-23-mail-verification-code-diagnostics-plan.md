@@ -503,11 +503,12 @@ git commit -m "feat: define mail diagnostic schema and permission"
 **Files:**
 - Modify `internal/admincontract/manifest.go` and tests
 - Modify `internal/server/testdata/admin_route_policy_golden.json`
-- Regenerate `contracts/admin/v1/manifest.json`, `openapi.json`, `permissions.json`; verify views/realtime unchanged
+- Update `docs/contracts/admin-browser-auth-contract.md` activation markers
+- Regenerate `contracts/admin/v1/manifest.json`, `openapi.json`, `permissions.json`, `views.json`; verify realtime bytes unchanged
 
 - [ ] **Step 1: RED contract tests**
 
-Require catalog count 102 and `system_mail_logView`; both mail GET operations carry permission, required audit, skip flags, titles/actions. Require all three diagnostic properties in schema `required` while nullable; close status to four strings; reject key/cipher/template data from artifacts.
+Require catalog count 102 and `system_mail_logView`; both mail GET operations carry permission, required audit, skip flags, titles/actions. Require all three diagnostic properties in schema `required` while nullable; close status to exactly `sending`, `not_expired`, `expired`, `send_failed`; reject key/cipher/template data from artifacts.
 
 - [ ] **Step 2: Confirm RED**
 
@@ -515,7 +516,7 @@ Run `go test ./internal/admincontract ./internal/server -run "Test(PermissionsCa
 
 - [ ] **Step 3: Regenerate**
 
-Bump only bundle/permission versions. Regenerate route policy, then bundle using current committed backend revision:
+Bump bundle/permission/view versions, but not realtime. Regenerate route policy, then bundle using current committed backend revision:
 
 ```powershell
 $backendCommit = (git rev-parse HEAD).Trim()
@@ -526,7 +527,7 @@ pwsh -NoProfile -File scripts/generate-admin-contract.ps1 -BackendCommit $backen
 pwsh -NoProfile -File scripts/check-admin-contract.ps1 -BackendCommit $backendCommit
 ```
 
-Do not rewrite route list or unchanged views/realtime bytes.
+Do not rewrite the route list. `views.json` changes only for `system_mail_logView` in the users/me `buttonCodes` enum and its view schema version; realtime bytes remain unchanged.
 
 - [ ] **Step 4: GREEN**
 
@@ -535,7 +536,7 @@ Run `go test ./internal/admincontract ./internal/server ./internal/architecture 
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add internal/admincontract internal/server/testdata/admin_route_policy_golden.json contracts/admin/v1
+git add internal/admincontract internal/server/testdata/admin_route_policy_golden.json contracts/admin/v1 docs/contracts/admin-browser-auth-contract.md docs/superpowers/plans/2026-07-23-mail-verification-code-diagnostics-plan.md
 git commit -m "feat: publish mail diagnostic admin contract"
 ```
 

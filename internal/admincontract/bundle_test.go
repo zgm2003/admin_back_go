@@ -57,8 +57,8 @@ func TestBundlePublishesCurrentAdminPlatformKernel(t *testing.T) {
 		t.Fatalf("decode OpenAPI: %v", err)
 	}
 
-	t.Run("publishes bundle version 2", func(t *testing.T) {
-		if bundle.Manifest.BundleVersion != "admin-2026-07-15.2" {
+	t.Run("publishes bundle version 3", func(t *testing.T) {
+		if bundle.Manifest.BundleVersion != "admin-2026-07-15.3" {
 			t.Fatalf("bundle version=%q", bundle.Manifest.BundleVersion)
 		}
 	})

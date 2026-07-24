@@ -1113,11 +1113,17 @@
       "path": "/api/admin/v1/mail/logs",
       "operation_id": "get_api_admin_v1_mail_logs",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "system_mail_logView"
       },
       "audit": {
-        "enabled": false,
-        "reason": "read-only"
+        "enabled": true,
+        "required": true,
+        "module": "mail",
+        "action": "list_logs",
+        "title": "查看邮件日志及验证码",
+        "skip_request_payload": true,
+        "skip_response_payload": true
       }
     },
     {
@@ -1125,11 +1131,17 @@
       "path": "/api/admin/v1/mail/logs/:id",
       "operation_id": "get_api_admin_v1_mail_logs_id",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "system_mail_logView"
       },
       "audit": {
-        "enabled": false,
-        "reason": "read-only"
+        "enabled": true,
+        "required": true,
+        "module": "mail",
+        "action": "view_log",
+        "title": "查看单条邮件日志及验证码",
+        "skip_request_payload": true,
+        "skip_response_payload": true
       }
     },
     {

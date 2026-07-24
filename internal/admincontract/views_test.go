@@ -104,4 +104,7 @@ func TestUsersMeSchemaClosesButtonCodesToPublishedPermissionCatalog(t *testing.T
 	if !reflect.DeepEqual(got, permissions.PermissionCodes) {
 		t.Fatalf("button code enum does not match published permission catalog")
 	}
+	if !containsString(got, "system_mail_logView") {
+		t.Fatalf("button code enum does not publish system_mail_logView")
+	}
 }

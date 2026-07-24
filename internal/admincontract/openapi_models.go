@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	mailmodule "admin_back_go/internal/module/mail"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/enum"
 )
@@ -24,6 +25,17 @@ type modelSchemaKey struct {
 	Type reflect.Type
 	Mode modelSchemaMode
 }
+
+var (
+	mailDiagnosticLogDTOType                   = reflect.TypeOf(mailmodule.LogDTO{})
+	mailDiagnosticVerificationCodeStatusSchema = stringEnumSchema(
+		mailmodule.VerificationCodeStatusSending,
+		mailmodule.VerificationCodeStatusNotExpired,
+		mailmodule.VerificationCodeStatusExpired,
+		mailmodule.VerificationCodeStatusSendFailed,
+	)
+	mailDiagnosticTimestampSchema = schemaWith(stringSchema(), "pattern", `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
+)
 
 type modelSchemaBuilder struct {
 	schemas    map[string]any
@@ -319,7 +331,16 @@ func (builder *modelSchemaBuilder) structSchema(typeOf reflect.Type, mode modelS
 		}
 	}
 	sort.Strings(required)
+	applyModelOutputContractOverrides(typeOf, mode, properties)
 	return closedObjectSchema(required, properties), nil
+}
+
+func applyModelOutputContractOverrides(typeOf reflect.Type, mode modelSchemaMode, properties map[string]any) {
+	if mode != modelSchemaOutput || typeOf != mailDiagnosticLogDTOType {
+		return
+	}
+	properties["verification_code_status"] = nullableSchema(cloneStringAnyMap(mailDiagnosticVerificationCodeStatusSchema))
+	properties["verification_code_expires_at"] = nullableSchema(cloneStringAnyMap(mailDiagnosticTimestampSchema))
 }
 
 func modelJSONField(field reflect.StructField) (name string, omitEmpty bool, skip bool) {
