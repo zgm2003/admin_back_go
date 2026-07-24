@@ -3,6 +3,8 @@ package wallet
 import (
 	"context"
 	"errors"
+	"math"
+	"reflect"
 	"strings"
 	"time"
 
@@ -17,6 +19,12 @@ import (
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
 var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
+var ErrRedeemCodeTransactionRequired = errors.New("wallet redeem code outer transaction required")
+var ErrRedeemCodeInvalidInput = errors.New("wallet redeem code invalid input")
+var ErrRedeemCodeWalletIntegrity = errors.New("wallet redeem code wallet integrity violation")
+var ErrRedeemCodeSourceExists = errors.New("wallet redeem code source already exists")
+var ErrRedeemCodeBalanceOverflow = errors.New("wallet redeem code balance overflow")
+var ErrRedeemCodeTotalRechargeOverflow = errors.New("wallet redeem code total recharge overflow")
 
 const (
 	duplicateKeyWalletTransactionNo     = "uk_wallet_transaction_no"
@@ -31,6 +39,11 @@ type Repository interface {
 	ListWalletUsers(ctx context.Context, query WalletUserListQuery) ([]WalletWithUser, int64, error)
 	Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
 	Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
+}
+
+type TransactionParticipant interface {
+	FindRedeemCodeCreditInTx(context.Context, *gorm.DB, int64, bool) (*Wallet, *Transaction, error)
+	CreditRedeemCodeInTx(context.Context, *gorm.DB, RedeemCodeCreditInput, time.Time) (*Wallet, *Transaction, error)
 }
 
 type GormRepository struct{ db *gorm.DB }
@@ -121,6 +134,186 @@ func (r *GormRepository) Debit(ctx context.Context, input MutationInput, now tim
 
 func (r *GormRepository) Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
 	return r.applyMutation(ctx, input, DirectionIn, now)
+}
+
+func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.DB, codeID int64, lock bool) (*Wallet, *Transaction, error) {
+	if r == nil {
+		return nil, nil, ErrRepositoryNotConfigured
+	}
+	if err := requireRedeemCodeTransaction(tx); err != nil {
+		return nil, nil, err
+	}
+	if codeID <= 0 {
+		return nil, nil, ErrRedeemCodeInvalidInput
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx = tx.WithContext(ctx)
+
+	var transaction Transaction
+	query := tx.Where("source_type = ? AND source_id = ?", SourceRedeemCode, codeID)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.First(&transaction).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	if transaction.IsDel != enum.CommonNo {
+		return nil, nil, ErrRedeemCodeWalletIntegrity
+	}
+
+	var wallet Wallet
+	walletQuery := tx.Where("id = ?", transaction.WalletID)
+	if lock {
+		walletQuery = walletQuery.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := walletQuery.First(&wallet).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, ErrRedeemCodeWalletIntegrity
+		}
+		return nil, nil, err
+	}
+	if wallet.IsDel != enum.CommonNo {
+		return nil, nil, ErrRedeemCodeWalletIntegrity
+	}
+	return &wallet, &transaction, nil
+}
+
+func (r *GormRepository) CreditRedeemCodeInTx(ctx context.Context, tx *gorm.DB, input RedeemCodeCreditInput, now time.Time) (*Wallet, *Transaction, error) {
+	if r == nil {
+		return nil, nil, ErrRepositoryNotConfigured
+	}
+	if err := requireRedeemCodeTransaction(tx); err != nil {
+		return nil, nil, err
+	}
+	input.BatchNo = strings.TrimSpace(input.BatchNo)
+	if input.UserID <= 0 || input.CodeID <= 0 || input.AmountCents <= 0 || input.BatchNo == "" {
+		return nil, nil, ErrRedeemCodeInvalidInput
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx = tx.WithContext(ctx)
+
+	var existing Transaction
+	err := tx.Where("source_type = ? AND source_id = ?", SourceRedeemCode, input.CodeID).First(&existing).Error
+	if err == nil {
+		return nil, nil, ErrRedeemCodeSourceExists
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil, err
+	}
+
+	wallet, err := lockOrCreateRedeemCodeWalletForUpdate(tx, input.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if wallet.BalanceCents > math.MaxInt64-input.AmountCents {
+		return nil, nil, ErrRedeemCodeBalanceOverflow
+	}
+	if wallet.TotalRechargeCents > math.MaxInt64-input.AmountCents {
+		return nil, nil, ErrRedeemCodeTotalRechargeOverflow
+	}
+	balanceAfter := wallet.BalanceCents + input.AmountCents
+	totalRechargeAfter := wallet.TotalRechargeCents + input.AmountCents
+
+	transaction := Transaction{
+		TransactionNo:      newTransactionNo(now),
+		WalletID:           wallet.ID,
+		UserID:             input.UserID,
+		Direction:          DirectionIn,
+		AmountCents:        input.AmountCents,
+		BalanceBeforeCents: wallet.BalanceCents,
+		BalanceAfterCents:  balanceAfter,
+		SourceType:         SourceRedeemCode,
+		SourceID:           input.CodeID,
+		Remark:             input.BatchNo,
+		IsDel:              enum.CommonNo,
+	}
+	if err := createTransactionWithNumberRetry(tx, &transaction, now); err != nil {
+		if isDuplicateKeyFor(err, duplicateKeyWalletTransactionSource) {
+			return nil, nil, ErrRedeemCodeSourceExists
+		}
+		return nil, nil, err
+	}
+
+	result := tx.Model(&Wallet{}).
+		Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).
+		Updates(map[string]any{"balance_cents": balanceAfter, "total_recharge_cents": totalRechargeAfter})
+	if result.Error != nil {
+		return nil, nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, nil, ErrRedeemCodeWalletIntegrity
+	}
+	wallet.BalanceCents = balanceAfter
+	wallet.TotalRechargeCents = totalRechargeAfter
+	return wallet, &transaction, nil
+}
+
+func requireRedeemCodeTransaction(tx *gorm.DB) error {
+	if tx == nil || tx.Statement == nil || tx.Statement.ConnPool == nil || tx.Error != nil {
+		return ErrRedeemCodeTransactionRequired
+	}
+	committer, ok := tx.Statement.ConnPool.(gorm.TxCommitter)
+	if !ok || committer == nil {
+		return ErrRedeemCodeTransactionRequired
+	}
+	value := reflect.ValueOf(committer)
+	if (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) && value.IsNil() {
+		return ErrRedeemCodeTransactionRequired
+	}
+	return nil
+}
+
+func lockOrCreateRedeemCodeWalletForUpdate(tx *gorm.DB, userID int64) (*Wallet, error) {
+	wallet, err := findRedeemCodeWalletByUserIDForUpdate(tx, userID)
+	if err == nil {
+		return wallet, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	wallet = &Wallet{UserID: userID, IsDel: enum.CommonNo}
+	if err := tx.Create(wallet).Error; err != nil {
+		if isDuplicateKeyFor(err, duplicateKeyUserWalletUser) {
+			wallet, lookupErr := findRedeemCodeWalletByUserIDForUpdate(tx, userID)
+			if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return nil, ErrRedeemCodeWalletIntegrity
+			}
+			return wallet, lookupErr
+		}
+		return nil, err
+	}
+
+	var locked Wallet
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", wallet.ID).First(&locked).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRedeemCodeWalletIntegrity
+		}
+		return nil, err
+	}
+	if locked.IsDel != enum.CommonNo {
+		return nil, ErrRedeemCodeWalletIntegrity
+	}
+	return &locked, nil
+}
+
+func findRedeemCodeWalletByUserIDForUpdate(tx *gorm.DB, userID int64) (*Wallet, error) {
+	var wallet Wallet
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error
+	if err != nil {
+		return nil, err
+	}
+	if wallet.IsDel != enum.CommonNo {
+		return nil, ErrRedeemCodeWalletIntegrity
+	}
+	return &wallet, nil
 }
 
 func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput, direction string, now time.Time) (*Wallet, *Transaction, error) {

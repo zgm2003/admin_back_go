@@ -267,6 +267,8 @@ func sourceTypeText(value string) string {
 		return "AI 生成"
 	case SourceAIRefund:
 		return "AI 退款"
+	case SourceRedeemCode:
+		return "兑换码充值"
 	default:
 		return value
 	}
@@ -275,7 +277,7 @@ func sourceTypeText(value string) string {
 func walletDict() WalletDict {
 	return WalletDict{
 		DirectionArr:  []dict.Option[string]{{Label: "收入", Value: DirectionIn}, {Label: "支出", Value: DirectionOut}},
-		SourceTypeArr: []dict.Option[string]{{Label: "充值", Value: SourceRecharge}, {Label: "AI生成", Value: SourceAIGenerate}, {Label: "AI退款", Value: SourceAIRefund}},
+		SourceTypeArr: []dict.Option[string]{{Label: "充值", Value: SourceRecharge}, {Label: "AI生成", Value: SourceAIGenerate}, {Label: "AI退款", Value: SourceAIRefund}, {Label: "兑换码充值", Value: SourceRedeemCode}},
 	}
 }
 

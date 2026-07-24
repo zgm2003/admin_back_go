@@ -124,6 +124,25 @@ func TestServiceCreditRejectsRechargeSourceType(t *testing.T) {
 	}
 }
 
+func TestServiceCreditRejectsRedeemCodeSourceType(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceRedeemCode, SourceID: 88})
+	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" {
+		t.Fatalf("expected credit source_type invalid keyed error, got %v", appErr)
+	}
+	if repo.creditCalled {
+		t.Fatalf("generic wallet credit must not handle redeem codes")
+	}
+}
+
+func TestServiceRedeemCodeSourceTypeText(t *testing.T) {
+	if got := sourceTypeText(SourceRedeemCode); got != "兑换码充值" {
+		t.Fatalf("unexpected redeem code source text=%q", got)
+	}
+}
+
 func TestServiceCreditReturnsExistingTransactionForSameSource(t *testing.T) {
 	repo := &fakeRepo{
 		wallet:            Wallet{ID: 1, UserID: 7, BalanceCents: 1100, TotalRechargeCents: 1000, TotalConsumeCents: 100},
@@ -150,7 +169,7 @@ func TestWalletDictExposesOnlyCurrentContractSourceTypes(t *testing.T) {
 		}
 	}
 
-	want := []string{SourceRecharge, SourceAIGenerate, SourceAIRefund}
+	want := []string{SourceRecharge, SourceAIGenerate, SourceAIRefund, SourceRedeemCode}
 	if len(values) != len(want) {
 		t.Fatalf("unexpected source type count, got=%#v want=%#v", values, want)
 	}

@@ -9,6 +9,7 @@ const (
 	SourceRecharge   = "recharge"
 	SourceAIGenerate = "ai_generate"
 	SourceAIRefund   = "ai_refund"
+	SourceRedeemCode = "redeem_code"
 
 	defaultPageSize = 20
 	maxPageSize     = 100
@@ -111,6 +112,13 @@ type MutationInput struct {
 	SourceType  string
 	SourceID    int64
 	Remark      string
+}
+
+type RedeemCodeCreditInput struct {
+	UserID      int64
+	CodeID      int64
+	AmountCents int64
+	BatchNo     string
 }
 
 type MutationResponse struct {
