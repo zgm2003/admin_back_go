@@ -573,12 +573,16 @@ Expected: API tests PASS，并断言没有 code path/query 或手写 operation U
 - Create: `src/views/Main/payment/redeem-codes/index.vue`
 - Create: `src/views/Main/payment/redeem-codes/components/RedeemCodeGenerateDialog.vue`
 - Create: `src/views/Main/payment/redeem-codes/composables/useRedeemCodePage.ts`
+- Modify: `src/components/Table/index.ts`
+- Modify: `src/components/Table/src/index.vue`
 - Modify: `src/lib/browser/download.ts`
 - Modify: `tests/unit/browser/download.test.ts`
+- Modify: `src/i18n/locales/zh-CN/layout.ts`
 - Modify: `src/i18n/locales/zh-CN/payment.ts`
+- Modify: `src/i18n/locales/en-US/layout.ts`
 - Modify: `src/i18n/locales/en-US/payment.ts`
 - Modify: `src/i18n/locales/generated.ts`
-- Modify: `src/router/view-registry.ts`
+- Modify: `src/modules/routing/generated/local-views.ts`
 - Create: `tests/component/payment/RedeemCodePage.test.ts`
 
 - [ ] **Step 1: 写页面和下载 helper 失败测试**
@@ -621,7 +625,7 @@ npm test -- tests/component/payment/RedeemCodePage.test.ts tests/unit/browser/do
 npm run locale:check
 npm run routes:check
 git diff --check
-git add src/views/Main/payment/redeem-codes src/lib/browser/download.ts src/i18n src/router/view-registry.ts tests/component/payment/RedeemCodePage.test.ts tests/unit/browser/download.test.ts
+git add src/views/Main/payment/redeem-codes src/components/Table src/lib/browser/download.ts src/i18n src/modules/routing/generated/local-views.ts tests/component/payment/RedeemCodePage.test.ts tests/unit/browser/download.test.ts
 git commit -m "feat(payment): add redeem code management page"
 ```
 
