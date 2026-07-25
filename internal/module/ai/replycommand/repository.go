@@ -12,7 +12,10 @@ import (
 	"unicode/utf8"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/requestidentity"
+	airun "admin_back_go/internal/module/ai/run"
 	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
@@ -158,7 +161,11 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		return CreateReplyResult{}, ErrRepositoryNotConfigured
 	}
 	input.RequestID = strings.TrimSpace(input.RequestID)
-	if input.ConversationID <= 0 || input.UserID <= 0 || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 || input.RequestFingerprint == ([32]byte{}) || input.RequestIdentityStatus != requestidentity.IdentityStatusReplayable || input.RequestIdentityMarker != "" {
+	input.ModelID = strings.TrimSpace(input.ModelID)
+	input.ModelDisplayName = strings.TrimSpace(input.ModelDisplayName)
+	input.InputSnapshot = strings.TrimSpace(input.InputSnapshot)
+	pricingSnapshot, pricingErr := aigateway.ParsePricingSnapshot(input.PricingSnapshotJSON)
+	if input.ConversationID <= 0 || input.UserID <= 0 || input.AgentID <= 0 || input.ProviderID <= 0 || input.ModelID == "" || input.InputSnapshot == "" || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 || input.RequestFingerprint == ([32]byte{}) || input.RequestIdentityStatus != requestidentity.IdentityStatusReplayable || input.RequestIdentityMarker != "" || pricingErr != nil || pricingSnapshot.RequestedModelID != input.ModelID || int64(pricingSnapshot.EffectiveMaxOutputTokens) != input.EffectiveMaxTokens {
 		return CreateReplyResult{}, fmt.Errorf("%w: conversation_id, user_id and request_id are required and request_id is at most 128 characters", ErrCreateInputInvalid)
 	}
 	if ctx == nil {
@@ -178,9 +185,15 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 			if err := compareCommandFingerprint(existing, input.RequestFingerprint); err != nil {
 				return err
 			}
+			accepted, err := loadAcceptedRunCharge(tx, input.UserID, input.RequestID, true)
+			if err != nil {
+				return err
+			}
 			result = CreateReplyResult{
 				UserMessageID: existing.UserMessageID,
 				CommandID:     existing.ID,
+				RunID:         accepted.RunID,
+				ChargeID:      accepted.ChargeID,
 				RequestID:     existing.RequestID,
 				State:         existing.State,
 			}
@@ -237,6 +250,29 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		if err := tx.Create(&command).Error; err != nil {
 			return err
 		}
+		conversationID := input.ConversationID
+		userMessageID := message.ID
+		idempotency := key
+		run := airun.Run{
+			Platform: enum.PlatformAdmin, ConversationID: &conversationID, RequestID: input.RequestID,
+			RequestFingerprint: append([]byte(nil), input.RequestFingerprint[:]...), RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), RequestIdentityMarker: "",
+			IdempotencyKey: &idempotency, UserMessageID: &userMessageID, UserID: input.UserID, AgentID: input.AgentID, ProviderID: input.ProviderID,
+			ModelID: input.ModelID, ModelDisplayName: input.ModelDisplayName, InputSnapshot: input.InputSnapshot, PricingSnapshotJSON: strings.TrimSpace(input.PricingSnapshotJSON),
+			Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusPending), BillingReason: string(billing.BillingReasonPending), StartedAt: &now, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.Create(&run).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&airun.RunEvent{RunID: run.ID, Seq: 1, EventType: enum.AIRunEventStart, Message: enum.AIRunEventLabels[enum.AIRunEventStart], CreatedAt: now}).Error; err != nil {
+			return err
+		}
+		charge := billing.UsageCharge{
+			RunID: run.ID, UserID: input.UserID, Currency: "CNY", PricingVersion: pricingSnapshot.Version, MultiplierPPM: pricingSnapshot.MultiplierPPM,
+			Status: billing.ChargeStatusOpen, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.Create(&charge).Error; err != nil {
+			return err
+		}
 
 		updates := map[string]any{"last_message_at": now, "updated_at": now}
 		if err := tx.Model(&replyConversation{}).
@@ -254,6 +290,8 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		result = CreateReplyResult{
 			UserMessageID: message.ID,
 			CommandID:     command.ID,
+			RunID:         run.ID,
+			ChargeID:      charge.ID,
 			RequestID:     command.RequestID,
 			State:         command.State,
 		}
@@ -268,6 +306,26 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		return CreateReplyResult{}, err
 	}
 	return result, nil
+}
+
+func loadAcceptedRunCharge(db *gorm.DB, userID int64, requestID string, lock bool) (billing.AcceptedRun, error) {
+	query := db.Where("user_id = ? AND request_id = ?", userID, requestID)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var run airun.Run
+	if err := query.Select("id").First(&run).Error; err != nil {
+		return billing.AcceptedRun{}, err
+	}
+	chargeQuery := db.Where("run_id = ?", run.ID)
+	if lock {
+		chargeQuery = chargeQuery.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var charge billing.UsageCharge
+	if err := chargeQuery.Select("id").First(&charge).Error; err != nil {
+		return billing.AcceptedRun{}, err
+	}
+	return billing.AcceptedRun{RunID: run.ID, ChargeID: charge.ID}, nil
 }
 
 func (r *GormRepository) ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
@@ -449,6 +507,50 @@ func (r *GormRepository) Transition(ctx context.Context, commandID uint64, owner
 		Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, from).
 		Updates(updates)
 	return result.RowsAffected == 1, result.Error
+}
+
+func (r *GormRepository) ScheduleRetry(ctx context.Context, commandID uint64, owner string, token uint64, now time.Time, next time.Time, errorCode string, errorMessage string) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrRepositoryNotConfigured
+	}
+	owner = strings.TrimSpace(owner)
+	errorCode = strings.TrimSpace(errorCode)
+	errorMessage = strings.TrimSpace(errorMessage)
+	if commandID == 0 || owner == "" || token == 0 || next.IsZero() || errorCode == "" || errorMessage == "" {
+		return false, ErrCreateInputInvalid
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	var applied bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var command Command
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, StateRunning).First(&command).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		updates := map[string]any{"state": StatePending, "next_attempt_at": next, "last_error_code": errorCode, "last_error_message": errorMessage, "lease_owner": nil, "lease_expires_at": nil, "updated_at": now}
+		if err := tx.Model(&Command{}).Where("id = ? AND state = ? AND lease_owner = ? AND lease_token = ?", commandID, StateRunning, owner, token).Updates(updates).Error; err != nil {
+			return err
+		}
+		var run airun.Run
+		if err := tx.Where("user_id = ? AND request_id = ?", command.UserID, command.RequestID).First(&run).Error; err != nil {
+			return err
+		}
+		var maxSeq uint
+		if err := tx.Model(&airun.RunEvent{}).Where("run_id = ?", run.ID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&airun.RunEvent{RunID: run.ID, Seq: maxSeq + 1, EventType: enum.AIRunEventRetryScheduled, Message: enum.AIRunEventLabels[enum.AIRunEventRetryScheduled], CreatedAt: now}).Error; err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
 }
 
 func (r *GormRepository) transitionWithTerminalEvent(ctx context.Context, commandID uint64, owner string, token uint64, from State, to State, updates map[string]any) (bool, error) {
@@ -669,7 +771,11 @@ func (r *GormRepository) loadCreateReplay(ctx context.Context, input CreateReply
 	if err := compareCommandFingerprint(command, input.RequestFingerprint); err != nil {
 		return nil, err
 	}
-	return &CreateReplyResult{UserMessageID: command.UserMessageID, CommandID: command.ID, RequestID: command.RequestID, State: command.State}, nil
+	accepted, err := loadAcceptedRunCharge(r.db.WithContext(ctx), input.UserID, input.RequestID, false)
+	if err != nil {
+		return nil, err
+	}
+	return &CreateReplyResult{UserMessageID: command.UserMessageID, CommandID: command.ID, RunID: accepted.RunID, ChargeID: accepted.ChargeID, RequestID: command.RequestID, State: command.State}, nil
 }
 
 func titleFromContent(content string) string {

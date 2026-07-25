@@ -74,11 +74,15 @@ type CancelResponse struct {
 }
 
 type AgentRuntime struct {
-	AgentID         int64
-	ModelID         string
-	MaxOutputTokens int64
-	Status          int
-	ScenesJSON      string
+	AgentID              int64
+	ProviderID           int64
+	ModelID              string
+	ModelDisplayName     string
+	EngineType           string
+	BillingMultiplierPPM int64
+	MaxOutputTokens      int64
+	Status               int
+	ScenesJSON           string
 }
 
 type Repository interface {

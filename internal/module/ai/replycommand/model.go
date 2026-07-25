@@ -58,9 +58,16 @@ func (Command) TableName() string { return "ai_reply_commands" }
 type CreateReplyInput struct {
 	ConversationID        int64
 	UserID                int64
+	AgentID               int64
+	ProviderID            int64
+	ModelID               string
+	ModelDisplayName      string
 	RequestID             string
 	Content               string
 	MetaJSON              *string
+	InputSnapshot         string
+	PricingSnapshotJSON   string
+	EffectiveMaxTokens    int64
 	RequestFingerprint    [32]byte
 	RequestIdentityStatus requestidentity.IdentityStatus
 	RequestIdentityMarker string
@@ -69,6 +76,8 @@ type CreateReplyInput struct {
 type CreateReplyResult struct {
 	UserMessageID int64
 	CommandID     uint64
+	RunID         int64
+	ChargeID      int64
 	RequestID     string
 	State         State
 }

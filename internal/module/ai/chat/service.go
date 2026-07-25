@@ -99,6 +99,20 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if conversation == nil {
 		return nil, apperror.NotFound("AI会话不存在")
 	}
+	paidReply := input.CommandID > 0
+	var acceptedRun *airun.Run
+	if paidReply {
+		acceptedRun, err = repo.AcceptedRunForReply(ctx, input.UserID, strings.TrimSpace(input.RequestID))
+		if err != nil {
+			return nil, err
+		}
+		if err := validateAcceptedReplyRun(acceptedRun, input); err != nil {
+			return nil, err
+		}
+		if input.AgentID == 0 {
+			input.AgentID = acceptedRun.AgentID
+		}
+	}
 	if input.AgentID == 0 {
 		input.AgentID = int64(conversation.AgentID)
 	}
@@ -112,6 +126,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if agent == nil || agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
 		msg := "该智能体不支持对话场景"
 		return nil, apperror.BadRequest(msg)
+	}
+	if paidReply && (int64(agent.ProviderID) != acceptedRun.ProviderID || strings.TrimSpace(agent.ModelID) != strings.TrimSpace(acceptedRun.ModelID)) {
+		return nil, apperror.Internal("AI运行配置与接受快照不一致")
 	}
 	if err := s.publishStart(input.DeliveryContext, input); err != nil {
 		return nil, err
@@ -135,31 +152,33 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if appErr != nil {
 		return nil, appErr
 	}
-	if s.runRecorder == nil {
+	if !paidReply && s.runRecorder == nil {
 		msg := "AI运行记录服务未配置"
 		return nil, apperror.Internal(msg)
 	}
 	startedAt := s.now()
-	conversationID := input.ConversationID
-	userMessageID := input.UserMessageID
-	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
-		Platform:         enum.PlatformAdmin,
-		IdempotencyKey:   replyRunIdempotencyKey(input.CommandID),
-		ConversationID:   &conversationID,
-		UserMessageID:    &userMessageID,
-		RequestID:        input.RequestID,
-		UserID:           input.UserID,
-		AgentID:          input.AgentID,
-		ProviderID:       int64(agent.ProviderID),
-		ModelID:          agent.ModelID,
-		ModelDisplayName: agent.ModelDisplayName,
-		InputSnapshot:    inputSnapshot,
-		StartedAt:        startedAt,
-	})
-	if err != nil {
-		return nil, err
+	runID := int64(0)
+	if paidReply {
+		runID = acceptedRun.ID
+		if acceptedRun.StartedAt != nil && !acceptedRun.StartedAt.IsZero() {
+			startedAt = *acceptedRun.StartedAt
+		}
+	} else {
+		conversationID := input.ConversationID
+		userMessageID := input.UserMessageID
+		runID, err = s.runRecorder.Start(ctx, airun.StartInput{
+			Platform: enum.PlatformAdmin, ConversationID: &conversationID, UserMessageID: &userMessageID,
+			RequestID: input.RequestID, UserID: input.UserID, AgentID: input.AgentID, ProviderID: int64(agent.ProviderID),
+			ModelID: agent.ModelID, ModelDisplayName: agent.ModelDisplayName, InputSnapshot: inputSnapshot, StartedAt: startedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	finishRun := func(status string, msg string, cause error) {
+		if paidReply {
+			return
+		}
 		finishedAt := s.now()
 		finishInput := airun.FailInput{RunID: runID, Message: msg, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}
 		switch status {
@@ -286,11 +305,23 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	finishedAt := s.now()
 	assistantMessageID := assistantID
 	tokens := resultTokens(result)
-	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
-		s.logger.WarnContext(context.WithoutCancel(ctx), "AI run completion recording failed after durable reply commit",
-			"command_id", input.CommandID, "run_id", runID, "assistant_message_id", assistantID, "error", err)
+	if !paidReply {
+		if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
+			s.logger.WarnContext(context.WithoutCancel(ctx), "AI run completion recording failed after durable reply commit",
+				"command_id", input.CommandID, "run_id", runID, "assistant_message_id", assistantID, "error", err)
+		}
 	}
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
+}
+
+func validateAcceptedReplyRun(run *airun.Run, input ConversationReplyInput) error {
+	if run == nil || run.ID <= 0 || run.ConversationID == nil || *run.ConversationID != input.ConversationID || run.UserMessageID == nil || *run.UserMessageID != input.UserMessageID || run.UserID != input.UserID || strings.TrimSpace(run.RequestID) != strings.TrimSpace(input.RequestID) || run.AgentID <= 0 || run.ProviderID <= 0 || strings.TrimSpace(run.ModelID) == "" || run.Status != enum.AIRunStatusRunning {
+		return apperror.Internal("AI回复任务缺少可执行的计费运行")
+	}
+	if run.BillingStatus != "pending" && run.BillingStatus != "held" {
+		return apperror.Internal("AI回复任务计费状态不可执行")
+	}
+	return nil
 }
 
 func replyRunIdempotencyKey(commandID uint64) string {

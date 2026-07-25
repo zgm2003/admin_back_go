@@ -120,8 +120,21 @@ func (c *Client) TestConnection(ctx context.Context, input infraai.TestConnectio
 }
 
 func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+	prepared, err := c.PrepareChat(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return c.streamPreparedChat(ctx, infraai.PreparedChatRequest{Body: prepared, IdempotencyKey: input.IdempotencyKey}, sink, false)
+}
+
+func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]byte, error) {
 	if c == nil {
 		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 	}
 	if strings.TrimSpace(input.Content) == "" {
 		if len(inputAttachments(input.Inputs)) == 0 {
@@ -148,12 +161,34 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 	if maxTokens, ok := inputInt(input.Inputs, "max_tokens"); ok {
 		body.MaxTokens = &maxTokens
 	}
-	req, err := c.newRequest(ctx, http.MethodPost, "/chat/completions", body)
+	prepared, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("encode OpenAI chat completion request: %w", err)
+	}
+	return prepared, nil
+}
+
+func (c *Client) StreamPreparedChat(ctx context.Context, input infraai.PreparedChatRequest, sink infraai.EventSink) (*infraai.ChatResult, error) {
+	return c.streamPreparedChat(ctx, input, sink, true)
+}
+
+func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedChatRequest, sink infraai.EventSink, requireKey bool) (*infraai.ChatResult, error) {
+	if c == nil {
+		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
+	}
+	if len(input.Body) == 0 || !json.Valid(input.Body) {
+		return nil, fmt.Errorf("%w: invalid prepared chat request", infraai.ErrInvalidConfig)
+	}
+	key := strings.TrimSpace(input.IdempotencyKey)
+	if requireKey && key == "" {
+		return nil, fmt.Errorf("%w: missing prepared chat idempotency key", infraai.ErrInvalidConfig)
+	}
+	req, err := c.newJSONRequest(ctx, http.MethodPost, "/chat/completions", input.Body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	if key := strings.TrimSpace(input.IdempotencyKey); key != "" {
+	if key != "" {
 		req.Header.Set("Idempotency-Key", key)
 	}
 	streamClient := c.streamHTTPClient
@@ -351,6 +386,18 @@ func (c *Client) GenerateAudio(ctx context.Context, input infraai.AudioInput) (*
 }
 
 func (c *Client) newRequest(ctx context.Context, method string, endpoint string, body any) (*http.Request, error) {
+	var data []byte
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("encode OpenAI request: %w", err)
+		}
+		data = encoded
+	}
+	return c.newJSONRequest(ctx, method, endpoint, data)
+}
+
+func (c *Client) newJSONRequest(ctx context.Context, method string, endpoint string, body []byte) (*http.Request, error) {
 	baseURL, err := normalizeBaseURL(c.baseURL)
 	if err != nil {
 		return nil, err
@@ -360,11 +407,7 @@ func (c *Client) newRequest(ctx context.Context, method string, endpoint string,
 	}
 	var reader io.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("encode OpenAI request: %w", err)
-		}
-		reader = bytes.NewReader(data)
+		reader = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint, reader)
 	if err != nil {

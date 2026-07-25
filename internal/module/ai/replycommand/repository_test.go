@@ -40,10 +40,16 @@ func TestCreateReplyReplayLocksCanonicalCommandBeforeConversation(t *testing.T) 
 		WithArgs(int64(7), "request-1", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "request_id", "request_fingerprint", "request_identity_status", "user_message_id", "state"}).
 			AddRow(41, "request-1", input.RequestFingerprint[:], requestidentity.IdentityStatusReplayable, 51, StatePending))
+	mock.ExpectQuery("SELECT .* FROM `ai_runs`").
+		WithArgs(int64(7), "request-1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(61))
+	mock.ExpectQuery("SELECT .* FROM `ai_usage_charges`").
+		WithArgs(int64(61), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(71))
 	mock.ExpectCommit()
 
 	result, err := repository.CreateReply(context.Background(), input)
-	if err != nil || result.CommandID != 41 || result.UserMessageID != 51 {
+	if err != nil || result.CommandID != 41 || result.UserMessageID != 51 || result.RunID != 61 || result.ChargeID != 71 {
 		t.Fatalf("replay=%+v err=%v now=%v", result, err, now)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -172,7 +178,12 @@ func testCreateReplyInput(conversationID, userID int64, requestID, content strin
 	if err != nil {
 		panic(err)
 	}
-	return CreateReplyInput{ConversationID: conversationID, UserID: userID, RequestID: requestID, Content: content, RequestFingerprint: fingerprint, RequestIdentityStatus: requestidentity.IdentityStatusReplayable}
+	return CreateReplyInput{
+		ConversationID: conversationID, UserID: userID, AgentID: 1, ProviderID: 2,
+		ModelID: "test-model", ModelDisplayName: "Test Model", RequestID: requestID, Content: content, InputSnapshot: content,
+		PricingSnapshotJSON: `{"version":"test-v1","billable":true,"catalog_vendor":"test-vendor","transport_engine":"openai","requested_model_id":"test-model","canonical_model_id":"test-model","catalog_max_output_tokens":8192,"effective_max_output_tokens":4096,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-25","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`,
+		EffectiveMaxTokens:  4096, RequestFingerprint: fingerprint, RequestIdentityStatus: requestidentity.IdentityStatusReplayable,
+	}
 }
 
 type replyFixture struct {

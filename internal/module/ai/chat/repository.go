@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/requestidentity"
+	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -39,6 +40,22 @@ func (r *GormRepository) ConversationForReply(ctx context.Context, id int64, use
 	err := r.db.WithContext(ctx).
 		Where("id = ? AND user_id = ? AND is_del = ?", id, userID, enum.CommonNo).
 		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &row, err
+}
+
+func (r *GormRepository) AcceptedRunForReply(ctx context.Context, userID int64, requestID string) (*airun.Run, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	requestID = strings.TrimSpace(requestID)
+	if userID <= 0 || requestID == "" {
+		return nil, ErrInvalidRunBillingIdentity
+	}
+	var row airun.Run
+	err := r.db.WithContext(ctx).Where("user_id = ? AND request_id = ?", userID, requestID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -289,6 +306,8 @@ func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
 			a.provider_id AS provider_id,
 			a.model_id AS model_id,
 			a.model_display_name AS model_display_name,
+			a.billing_multiplier_ppm AS billing_multiplier_ppm,
+			a.max_output_tokens AS max_output_tokens,
 			a.system_prompt AS system_prompt,
 			a.scenes_json AS scenes_json,
 			a.status AS agent_status,

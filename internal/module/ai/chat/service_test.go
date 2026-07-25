@@ -21,6 +21,7 @@ import (
 type fakeRepository struct {
 	conversation *Conversation
 	agent        *AgentEngineConfig
+	acceptedRun  *airun.Run
 	agentID      uint64
 	history      []MessageHistory
 	assistant    AssistantPublication
@@ -103,6 +104,17 @@ func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*
 }
 func (f *fakeRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
 	return f.history, nil
+}
+func (f *fakeRepository) AcceptedRunForReply(_ context.Context, _ int64, requestID string) (*airun.Run, error) {
+	if f.acceptedRun != nil {
+		return f.acceptedRun, nil
+	}
+	conversationID, userMessageID := int64(3), int64(9)
+	providerID, modelID := int64(2), "gpt-5.4"
+	if f.agent != nil {
+		providerID, modelID = int64(f.agent.ProviderID), f.agent.ModelID
+	}
+	return &airun.Run{ID: 100, ConversationID: &conversationID, UserMessageID: &userMessageID, RequestID: requestID, UserID: 7, AgentID: 5, ProviderID: providerID, ModelID: modelID, Status: enum.AIRunStatusRunning, BillingStatus: "pending", BillingReason: "pending"}, nil
 }
 func (f *fakeRepository) PublishAssistant(_ context.Context, input AssistantPublication) (int64, bool, error) {
 	f.assistant = input
@@ -492,7 +504,8 @@ func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsA
 	pub := &fakePublisher{}
 	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{}, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	attempts := &fakeProviderAttemptRecorder{}
+	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -502,11 +515,14 @@ func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsA
 	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
-	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.RequestID != "rid" || recorder.started.ModelID != "gpt-5.4" || recorder.started.ModelDisplayName != "GPT-5.4" || recorder.started.ConversationID == nil || *recorder.started.ConversationID != 3 || recorder.started.UserMessageID == nil || *recorder.started.UserMessageID != 9 {
-		t.Fatalf("run was not started correctly: %#v", recorder.started)
+	if recorder.started != (airun.StartInput{}) {
+		t.Fatalf("paid reply reopened its accepted run: %#v", recorder.started)
 	}
-	if recorder.completed.RunID != 100 || recorder.completed.AssistantMessageID == nil || *recorder.completed.AssistantMessageID != 22 {
-		t.Fatalf("run was not completed correctly: %#v", recorder.completed)
+	if recorder.completed != (airun.CompleteInput{}) {
+		t.Fatalf("paid reply bypassed the billing finalizer: %#v", recorder.completed)
+	}
+	if attempts.prepared.RunID != 100 || attempts.finished.RunID != 100 {
+		t.Fatalf("attempt did not reuse accepted run: prepared=%+v finished=%+v", attempts.prepared, attempts.finished)
 	}
 	if len(pub.pubs) != 2 || pub.pubs[0].Envelope.Type != EventAIResponseStart || pub.pubs[1].Envelope.Type != EventAIResponseDelta {
 		t.Fatalf("unexpected publications: %#v", pub.pubs)
@@ -915,8 +931,8 @@ func TestExecuteDurableConversationReplyDoesNotPublishUncommittedFailure(t *test
 			t.Fatalf("durable terminal event was published outside command transaction: %#v", pub.pubs)
 		}
 	}
-	if recorder.failed.RunID != 100 || recorder.failed.Message == "" {
-		t.Fatalf("run failure not persisted: %#v", recorder.failed)
+	if recorder.failed != (airun.FailInput{}) {
+		t.Fatalf("paid run was terminalized outside the finalizer: %#v", recorder.failed)
 	}
 }
 

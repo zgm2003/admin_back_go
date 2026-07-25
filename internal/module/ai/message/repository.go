@@ -58,8 +58,12 @@ func (r *GormRepository) AgentForConversation(ctx context.Context, conversationI
 	}
 	var row AgentRuntime
 	err := r.db.WithContext(ctx).Table("ai_conversations c").
-		Select("a.id AS agent_id, a.model_id AS model_id, a.max_output_tokens AS max_output_tokens, a.status AS status, a.scenes_json AS scenes_json").
+		Select(`a.id AS agent_id, a.provider_id AS provider_id, a.model_id AS model_id,
+			a.model_display_name AS model_display_name, e.engine_type AS engine_type,
+			a.billing_multiplier_ppm AS billing_multiplier_ppm, a.max_output_tokens AS max_output_tokens,
+			a.status AS status, a.scenes_json AS scenes_json`).
 		Joins("JOIN ai_agents a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
+		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("c.id = ? AND c.user_id = ? AND c.is_del = ?", conversationID, userID, enum.CommonNo).
 		Limit(1).
 		Scan(&row).Error

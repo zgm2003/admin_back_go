@@ -31,6 +31,25 @@ func TestInstrumentedEngineRecordsFirstByteTotalAndTokensWithoutProviderPayload(
 	})
 }
 
+func TestInstrumentEnginePreservesPreparedChatDispatch(t *testing.T) {
+	delegate := preparedTelemetryEngine{}
+	wrapped := InstrumentEngine("openai", "chat", &delegate, telemetry.Noop())
+	prepared, ok := wrapped.(PreparedChatEngine)
+	if !ok {
+		t.Fatal("instrumented engine dropped PreparedChatEngine capability")
+	}
+	body, err := prepared.PrepareChat(context.Background(), ChatInput{Content: "hello"})
+	if err != nil || string(body) != `{"prepared":true}` {
+		t.Fatalf("prepared body=%q err=%v", body, err)
+	}
+	if _, err := prepared.StreamPreparedChat(context.Background(), PreparedChatRequest{Body: body, IdempotencyKey: "attempt-key"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if delegate.key != "attempt-key" || string(delegate.body) != string(body) {
+		t.Fatalf("prepared dispatch body=%q key=%q", delegate.body, delegate.key)
+	}
+}
+
 func TestInstrumentedProviderModalitiesRecordOnlyBoundedMetadata(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -103,6 +122,29 @@ func (function EventSinkFunc) Emit(ctx context.Context, event Event) error {
 }
 
 type fakeTelemetryEngine struct{}
+
+type preparedTelemetryEngine struct {
+	body []byte
+	key  string
+}
+
+func (preparedTelemetryEngine) TestConnection(context.Context, TestConnectionInput) (*TestConnectionResult, error) {
+	return &TestConnectionResult{OK: true}, nil
+}
+
+func (preparedTelemetryEngine) StreamChat(context.Context, ChatInput, EventSink) (*ChatResult, error) {
+	return &ChatResult{}, nil
+}
+
+func (e *preparedTelemetryEngine) PrepareChat(context.Context, ChatInput) ([]byte, error) {
+	return []byte(`{"prepared":true}`), nil
+}
+
+func (e *preparedTelemetryEngine) StreamPreparedChat(_ context.Context, input PreparedChatRequest, _ EventSink) (*ChatResult, error) {
+	e.body = append([]byte(nil), input.Body...)
+	e.key = input.IdempotencyKey
+	return &ChatResult{}, nil
+}
 
 func (fakeTelemetryEngine) TestConnection(context.Context, TestConnectionInput) (*TestConnectionResult, error) {
 	return &TestConnectionResult{OK: true, Status: "200 OK"}, nil

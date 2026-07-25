@@ -31,6 +31,10 @@ type RunnerRepository interface {
 	Transition(context.Context, uint64, string, uint64, State, State, map[string]any) (bool, error)
 }
 
+type RetryScheduler interface {
+	ScheduleRetry(context.Context, uint64, string, uint64, time.Time, time.Time, string, string) (bool, error)
+}
+
 type ReplyExecutor interface {
 	ExecuteConversationReply(context.Context, aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error)
 }
@@ -287,6 +291,18 @@ func (r *Runner) finishFailure(ctx context.Context, claim *Claim, cause error) e
 		values["finished_at"] = r.now()
 	} else {
 		values["next_attempt_at"] = r.now().Add(retryBackoff(command.AttemptCount))
+	}
+	if to == StatePending {
+		if scheduler, ok := r.repository.(RetryScheduler); ok {
+			ok, scheduleErr := scheduler.ScheduleRetry(ctx, command.ID, claim.Owner, claim.FencingToken, r.now(), values["next_attempt_at"].(time.Time), code, message)
+			if scheduleErr != nil {
+				return errors.Join(cause, scheduleErr)
+			}
+			if !ok {
+				return errors.Join(cause, ErrLeaseLost)
+			}
+			return cause
+		}
 	}
 	ok, err := r.repository.Transition(ctx, command.ID, claim.Owner, claim.FencingToken, StateRunning, to, values)
 	if err != nil {

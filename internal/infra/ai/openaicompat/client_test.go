@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -358,6 +359,40 @@ func TestClientStreamChatSendsProviderAttemptIdempotencyKey(t *testing.T) {
 	}
 	if key != "attempt-key-9" || result.ProviderRequestID != "provider-request-7" {
 		t.Fatalf("key=%q provider_request_id=%q", key, result.ProviderRequestID)
+	}
+}
+
+func TestClientPreparedChatDispatchesPersistedBytesAndKeyVerbatim(t *testing.T) {
+	var rawBody []byte
+	var gotKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		gotKey = r.Header.Get("Idempotency-Key")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second})
+	prepared, err := client.PrepareChat(context.Background(), infraai.ChatInput{Content: "hello", Inputs: map[string]any{"model_id": "gpt-test"}})
+	if err != nil {
+		t.Fatalf("PrepareChat: %v", err)
+	}
+	// The persisted bytes are the source of truth; dispatch must not rebuild
+	// them from a second ChatInput.
+	persisted := append([]byte(nil), prepared...)
+	result, err := client.StreamPreparedChat(context.Background(), infraai.PreparedChatRequest{Body: persisted, IdempotencyKey: "attempt-key-11"}, nil)
+	if err != nil {
+		t.Fatalf("StreamPreparedChat: %v", err)
+	}
+	if result == nil || result.Answer != "ok" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !bytes.Equal(rawBody, persisted) {
+		t.Fatalf("provider body changed: got %q want %q", rawBody, persisted)
+	}
+	if gotKey != "attempt-key-11" {
+		t.Fatalf("idempotency key=%q", gotKey)
 	}
 }
 

@@ -246,3 +246,18 @@ type Engine interface {
 	TestConnection(ctx context.Context, input TestConnectionInput) (*TestConnectionResult, error)
 	StreamChat(ctx context.Context, input ChatInput, sink EventSink) (*ChatResult, error)
 }
+
+// PreparedChatRequest is the exact credential-free request body persisted by
+// the billing gateway before a paid provider call is dispatched.
+type PreparedChatRequest struct {
+	Body           []byte
+	IdempotencyKey string
+}
+
+// PreparedChatEngine extends Engine for paid dispatch. Implementations must
+// send Body verbatim; they must not rebuild it from ChatInput during recovery.
+type PreparedChatEngine interface {
+	Engine
+	PrepareChat(context.Context, ChatInput) ([]byte, error)
+	StreamPreparedChat(context.Context, PreparedChatRequest, EventSink) (*ChatResult, error)
+}

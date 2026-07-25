@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/apperror"
@@ -98,19 +100,34 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
-	if agent == nil || agent.Status != enum.CommonYes || strings.TrimSpace(agent.ModelID) == "" || agent.MaxOutputTokens <= 0 || !agentSupportsChat(agent.ScenesJSON) {
+	if agent == nil || agent.Status != enum.CommonYes || agent.ProviderID <= 0 || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens <= 0 || !agentSupportsChat(agent.ScenesJSON) {
 		return nil, apperror.BadRequest("该智能体不支持对话场景")
+	}
+	pricingSnapshotJSON, effectiveMaxOutputTokens, err := pricingSnapshotForSend(*agent, runtimeParams)
+	if err != nil {
+		return nil, apperror.BadRequest("该智能体缺少可用的官方模型价格")
 	}
 	fingerprint, err := buildSendFingerprint(userID, input.ConversationID, content, attachments, runtimeParams, *agent)
 	if err != nil {
 		return nil, apperror.BadRequest("AI消息请求身份无效")
 	}
+	inputSnapshot, err := sendInputSnapshot(content, attachments, runtimeParams)
+	if err != nil {
+		return nil, apperror.BadRequest("AI消息输入快照无效")
+	}
 	created, err := repo.CreateReply(ctx, replycommand.CreateReplyInput{
 		ConversationID:        input.ConversationID,
 		UserID:                userID,
+		AgentID:               agent.AgentID,
+		ProviderID:            agent.ProviderID,
+		ModelID:               strings.TrimSpace(agent.ModelID),
+		ModelDisplayName:      strings.TrimSpace(agent.ModelDisplayName),
 		RequestID:             requestID,
 		Content:               content,
 		MetaJSON:              metaJSONForSend(attachments, runtimeParams),
+		InputSnapshot:         inputSnapshot,
+		PricingSnapshotJSON:   pricingSnapshotJSON,
+		EffectiveMaxTokens:    effectiveMaxOutputTokens,
 		RequestFingerprint:    fingerprint,
 		RequestIdentityStatus: requestidentity.IdentityStatusReplayable,
 	})
@@ -130,6 +147,54 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		RequestID:      created.RequestID,
 		State:          created.State,
 	}, nil
+}
+
+func pricingSnapshotForSend(agent AgentRuntime, runtimeParams map[string]float64) (string, int64, error) {
+	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+	if err != nil {
+		return "", 0, err
+	}
+	effective := agent.MaxOutputTokens
+	if requested, ok := runtimeParams["max_tokens"]; ok {
+		effective = int64(requested)
+	}
+	if effective <= 0 || effective > agent.MaxOutputTokens || effective > model.MaxOutputTokens || effective > int64(^uint(0)>>1) {
+		return "", 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	snapshot := aigateway.PricingSnapshot{
+		Version:                  model.Version,
+		Billable:                 true,
+		CatalogVendor:            model.CatalogVendor,
+		TransportEngine:          strings.TrimSpace(agent.EngineType),
+		RequestedModelID:         strings.TrimSpace(agent.ModelID),
+		CanonicalModelID:         model.ModelID,
+		CatalogMaxOutputTokens:   model.MaxOutputTokens,
+		EffectiveMaxOutputTokens: int(effective),
+		MultiplierPPM:            agent.BillingMultiplierPPM,
+		SourceURL:                model.SourceURL,
+		RetrievedAt:              model.RetrievedAt,
+		Rates:                    append([]pricing.Rate(nil), model.Rates...),
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", 0, err
+	}
+	return string(raw), effective, nil
+}
+
+func sendInputSnapshot(content string, attachments []Attachment, runtimeParams map[string]float64) (string, error) {
+	if len(attachments) == 0 && len(runtimeParams) == 0 {
+		return content, nil
+	}
+	raw, err := json.Marshal(struct {
+		Content       string             `json:"content"`
+		Attachments   []Attachment       `json:"attachments,omitempty"`
+		RuntimeParams map[string]float64 `json:"runtime_params,omitempty"`
+	}{Content: content, Attachments: attachments, RuntimeParams: runtimeParams})
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error) {

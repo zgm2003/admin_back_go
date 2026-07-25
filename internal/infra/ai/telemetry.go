@@ -12,7 +12,11 @@ func InstrumentEngine(provider string, modality string, delegate Engine, recorde
 	if delegate == nil {
 		return nil
 	}
-	return &instrumentedEngine{provider: provider, modality: modality, delegate: delegate, recorder: providerRecorder(recorder)}
+	base := &instrumentedEngine{provider: provider, modality: modality, delegate: delegate, recorder: providerRecorder(recorder)}
+	if prepared, ok := delegate.(PreparedChatEngine); ok {
+		return &instrumentedPreparedEngine{instrumentedEngine: base, prepared: prepared}
+	}
+	return base
 }
 
 func InstrumentImageEngine(provider string, delegate ImageEngine, recorder telemetry.Recorder) ImageEngine {
@@ -41,6 +45,36 @@ type instrumentedEngine struct {
 	modality string
 	delegate Engine
 	recorder telemetry.Recorder
+}
+
+type instrumentedPreparedEngine struct {
+	*instrumentedEngine
+	prepared PreparedChatEngine
+}
+
+func (engine *instrumentedPreparedEngine) PrepareChat(ctx context.Context, input ChatInput) ([]byte, error) {
+	return engine.prepared.PrepareChat(ctx, input)
+}
+
+func (engine *instrumentedPreparedEngine) StreamPreparedChat(ctx context.Context, input PreparedChatRequest, sink EventSink) (result *ChatResult, err error) {
+	startedAt := time.Now()
+	if sink != nil {
+		downstream := sink
+		var firstByte sync.Once
+		sink = providerEventSinkFunc(func(ctx context.Context, event Event) error {
+			firstByte.Do(func() {
+				engine.recorder.Observe("provider.first_byte_seconds", time.Since(startedAt).Seconds(), providerAttributes(engine.provider, engine.modality, "ok"))
+			})
+			return downstream.Emit(ctx, event)
+		})
+	}
+	result, err = engine.prepared.StreamPreparedChat(ctx, input, sink)
+	var tokens *providerTokens
+	if result != nil {
+		tokens = &providerTokens{prompt: result.PromptTokens, completion: result.CompletionTokens, total: result.TotalTokens}
+	}
+	recordProviderCompletion(engine.recorder, engine.provider, engine.modality, startedAt, err, tokens)
+	return result, err
 }
 
 func (engine *instrumentedEngine) TestConnection(ctx context.Context, input TestConnectionInput) (result *TestConnectionResult, err error) {
@@ -172,8 +206,9 @@ func providerRecorder(recorder telemetry.Recorder) telemetry.Recorder {
 }
 
 var (
-	_ Engine      = (*instrumentedEngine)(nil)
-	_ ImageEngine = (*instrumentedImageEngine)(nil)
-	_ VideoEngine = (*instrumentedVideoEngine)(nil)
-	_ AudioEngine = (*instrumentedAudioEngine)(nil)
+	_ Engine             = (*instrumentedEngine)(nil)
+	_ PreparedChatEngine = (*instrumentedPreparedEngine)(nil)
+	_ ImageEngine        = (*instrumentedImageEngine)(nil)
+	_ VideoEngine        = (*instrumentedVideoEngine)(nil)
+	_ AudioEngine        = (*instrumentedAudioEngine)(nil)
 )

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 )
@@ -103,9 +104,9 @@ func TestListRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
 func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
-		agent:        &AgentRuntime{AgentID: 5, ModelID: "gpt-test", MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+		agent:        validMessageAgent(),
 	}
-	res, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid"})
+	res, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid", RuntimeParams: map[string]float64{"max_tokens": 2048}})
 	if appErr != nil {
 		t.Fatalf("Send returned error: %v", appErr)
 	}
@@ -115,18 +116,31 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	if repo.replyInput.Content != "hello" || repo.replyInput.ConversationID != 3 || repo.replyInput.UserID != 7 || repo.replyInput.RequestID != "rid" {
 		t.Fatalf("unexpected durable reply input: %#v", repo.replyInput)
 	}
-	if repo.replyInput.MetaJSON != nil {
-		t.Fatalf("empty metadata must be stored as nil, got %#v", repo.replyInput.MetaJSON)
+	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "max_tokens") {
+		t.Fatalf("runtime parameters must be stored in metadata, got %#v", repo.replyInput.MetaJSON)
 	}
 	if repo.replyInput.RequestFingerprint == ([32]byte{}) || repo.replyInput.RequestIdentityStatus != "replayable" || repo.replyInput.RequestIdentityMarker != "" {
 		t.Fatalf("missing canonical request identity: %#v", repo.replyInput)
+	}
+	if repo.replyInput.AgentID != 5 || repo.replyInput.ProviderID != 9 || repo.replyInput.ModelID != "gpt-4.1-mini" || repo.replyInput.ModelDisplayName != "GPT-4.1 mini" {
+		t.Fatalf("missing immutable run identity: %#v", repo.replyInput)
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(repo.replyInput.PricingSnapshotJSON)
+	if err != nil {
+		t.Fatalf("invalid pricing snapshot: %v", err)
+	}
+	if snapshot.MultiplierPPM != 1_250_000 || snapshot.EffectiveMaxOutputTokens != 2048 || snapshot.TransportEngine != "openai" {
+		t.Fatalf("pricing snapshot=%+v", snapshot)
+	}
+	if strings.TrimSpace(repo.replyInput.InputSnapshot) == "" {
+		t.Fatal("input snapshot was not accepted with the paid run")
 	}
 }
 
 func TestSendWakesCommittedCommandAndDoesNotFailWhenWakeupFails(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
-		agent:        &AgentRuntime{AgentID: 5, ModelID: "gpt-test", MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+		agent:        validMessageAgent(),
 	}
 	waker := &fakeReplyWaker{err: errors.New("redis unavailable")}
 	res, appErr := NewService(repo, WithReplyWaker(waker)).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
@@ -141,7 +155,7 @@ func TestSendWakesCommittedCommandAndDoesNotFailWhenWakeupFails(t *testing.T) {
 func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
-		agent:        &AgentRuntime{AgentID: 5, ModelID: "gpt-test", MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+		agent:        validMessageAgent(),
 	}
 	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: []Attachment{{Type: "image", URL: "https://example.test/a.png", Name: "a.png", Size: 10}}})
 	if appErr != nil {
@@ -149,6 +163,13 @@ func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 	}
 	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "attachments") || !strings.Contains(*repo.replyInput.MetaJSON, "https://example.test/a.png") {
 		t.Fatalf("missing attachment meta json: %#v", repo.replyInput.MetaJSON)
+	}
+}
+
+func validMessageAgent() *AgentRuntime {
+	return &AgentRuntime{
+		AgentID: 5, ProviderID: 9, ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT-4.1 mini", EngineType: "openai",
+		BillingMultiplierPPM: 1_250_000, MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`,
 	}
 }
 

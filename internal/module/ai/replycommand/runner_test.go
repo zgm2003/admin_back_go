@@ -9,6 +9,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/shared/apperror"
 )
 
 func TestRunnerClaimsTransitionsAndCompletesCommand(t *testing.T) {
@@ -152,6 +153,23 @@ func TestRunnerMovesAmbiguousProviderFailureToOutcomeUnknownWithoutRetry(t *test
 	}
 }
 
+func TestRunnerSchedulesRetryWithDurableRunEvent(t *testing.T) {
+	now := time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
+	repository := &retryRunnerRepository{fakeRunnerRepository: fakeRunnerRepository{claim: &Claim{Command: Command{ID: 47, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "request-retry", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3}, Owner: "worker-a", FencingToken: 2}, renewal: Renewal{Alive: true}}}
+	executor := &fakeReplyExecutor{err: apperror.New("ai.provider.failed", apperror.CategoryDependency, 503, apperror.Retryable, "", nil, "provider temporarily unavailable")}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || err == nil {
+		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+	if repository.retryCommandID != 47 || repository.retryCode != "ai.provider.failed" || repository.retryNext != now.Add(time.Second) {
+		t.Fatalf("retry schedule=%+v", repository)
+	}
+	if len(repository.transitions) != 1 {
+		t.Fatalf("retry path fell back to ordinary transition: %+v", repository.transitions)
+	}
+}
+
 func TestRunnerRechecksDurableCancelAfterAssistantPublicationIsRejected(t *testing.T) {
 	now := time.Now()
 	repository := &fakeRunnerRepository{claim: &Claim{
@@ -192,6 +210,18 @@ type fakeRunnerRepository struct {
 	renewIndex  int
 	renewed     chan int
 	transitions []stateTransition
+}
+
+type retryRunnerRepository struct {
+	fakeRunnerRepository
+	retryCommandID uint64
+	retryCode      string
+	retryNext      time.Time
+}
+
+func (r *retryRunnerRepository) ScheduleRetry(_ context.Context, commandID uint64, _ string, _ uint64, _ time.Time, next time.Time, code string, _ string) (bool, error) {
+	r.retryCommandID, r.retryNext, r.retryCode = commandID, next, code
+	return true, nil
 }
 
 func (f *fakeRunnerRepository) ClaimNext(context.Context, string, time.Time, time.Duration) (*Claim, error) {
