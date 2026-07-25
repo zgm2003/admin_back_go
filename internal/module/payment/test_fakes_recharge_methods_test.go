@@ -80,7 +80,7 @@ func (r *fakeOrderRepo) UpdateRechargePaying(ctx context.Context, id int64) erro
 	return nil
 }
 func (r *fakeOrderRepo) UpdateRechargeFailed(ctx context.Context, id int64, reason string) error {
-	if r.recharge == nil || r.recharge.ID != id || (r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusFailed && r.recharge.Status != rechargeStatusPaying) {
+	if r.recharge == nil || r.recharge.ID != id || (r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusFailed) {
 		return ErrPaymentStateChanged
 	}
 	r.recharge.Status = rechargeStatusFailed

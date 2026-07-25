@@ -22,7 +22,7 @@ var (
 	orderFailedCASStatuses    = []string{orderStatusPending, orderStatusFailed}
 	orderClosedCASStatuses    = []string{orderStatusPending, orderStatusFailed, orderStatusPaying}
 	rechargePayingCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed}
-	rechargeFailedCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed, rechargeStatusPaying}
+	rechargeFailedCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed}
 	rechargeClosedCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed, rechargeStatusPaying}
 )
 
@@ -182,8 +182,7 @@ func (s *Service) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *a
 		ExpiredAt:   row.ExpiredAt,
 	})
 	if err != nil {
-		_ = repo.UpdateOrderFailed(ctx, row.ID, err.Error())
-		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
+		return s.payOrderFailureResponse(ctx, repo, row.ID, err)
 	}
 	payURL := ""
 	if result != nil {
@@ -191,8 +190,7 @@ func (s *Service) PayOrder(ctx context.Context, id int64) (*OrderPayResponse, *a
 	}
 	if payURL == "" {
 		err := fmt.Errorf("alipay: empty pay url")
-		_ = repo.UpdateOrderFailed(ctx, row.ID, err.Error())
-		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", err)
+		return s.payOrderFailureResponse(ctx, repo, row.ID, err)
 	}
 	if err := repo.UpdateOrderPaying(ctx, row.ID, payURL); err != nil {
 		if errors.Is(err, ErrPaymentStateChanged) {
@@ -352,6 +350,16 @@ func (s *Service) payOrderChangedResponse(ctx context.Context, id int64) (*Order
 		return &OrderPayResponse{ID: latest.ID, OrderNo: latest.OrderNo, Status: latest.Status, PayURL: latest.PayURL}, nil
 	}
 	return nil, apperror.BadRequest("支付订单状态已变化，请刷新后重试")
+}
+
+func (s *Service) payOrderFailureResponse(ctx context.Context, repo Repository, id int64, payErr error) (*OrderPayResponse, *apperror.Error) {
+	if err := repo.UpdateOrderFailed(ctx, id, payErr.Error()); err != nil {
+		if errors.Is(err, ErrPaymentStateChanged) {
+			return s.payOrderChangedResponse(ctx, id)
+		}
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新支付订单失败状态失败", err)
+	}
+	return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "拉起支付宝支付失败", payErr)
 }
 
 func (s *Service) enabledConfigByCode(ctx context.Context, code string) (*Config, *apperror.Error) {

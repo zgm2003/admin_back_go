@@ -3,6 +3,7 @@ package payment
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -106,6 +107,51 @@ func TestPayOrderStoresFailureReasonWhenGatewayFails(t *testing.T) {
 	}
 	if repo.order.Status != orderStatusFailed || !strings.Contains(repo.order.FailureReason, "gateway down") {
 		t.Fatalf("expected failed order, got %#v", repo.order)
+	}
+}
+
+func TestPayOrderFailureCASMissConvergesToPersistedPayingURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		gateway *fakeOrderGateway
+	}{
+		{name: "gateway error", gateway: &fakeOrderGateway{payErr: errors.New("gateway down")}},
+		{name: "empty pay URL", gateway: &fakeOrderGateway{payResult: &gateway.PayResult{PayURL: " \t "}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeOrderRepoWithOrder(orderStatusPending)
+			persistedURL := "https://pay.example.test/winner"
+			repo.beforeUpdateOrderFailed = func() {
+				repo.order.Status = orderStatusPaying
+				repo.order.PayURL = persistedURL
+				repo.order.FailureReason = ""
+			}
+			service := newOrderService(repo, tt.gateway)
+
+			result, appErr := service.PayOrder(context.Background(), repo.order.ID)
+			if appErr != nil || result == nil || result.Status != orderStatusPaying || result.PayURL != persistedURL {
+				t.Fatalf("late payment failure must converge to persisted URL, result=%#v err=%v", result, appErr)
+			}
+			if repo.order.Status != orderStatusPaying || repo.order.PayURL != persistedURL || repo.order.FailureReason != "" {
+				t.Fatalf("late payment failure changed winning order fact: %#v", repo.order)
+			}
+		})
+	}
+}
+
+func TestPayOrderFailureUpdateErrorReturnsInternalError(t *testing.T) {
+	repo := newFakeOrderRepoWithOrder(orderStatusPending)
+	dbErr := errors.New("update order failed")
+	repo.updateOrderFailedErr = dbErr
+	service := newOrderService(repo, &fakeOrderGateway{payErr: errors.New("gateway down")})
+
+	result, appErr := service.PayOrder(context.Background(), repo.order.ID)
+	if result != nil || appErr == nil || appErr.HTTPStatus != http.StatusInternalServerError || !errors.Is(appErr, dbErr) {
+		t.Fatalf("order failure write error must surface as internal, result=%#v err=%v", result, appErr)
+	}
+	if repo.order.Status != orderStatusPending {
+		t.Fatalf("failed write must not mutate order: %#v", repo.order)
 	}
 }
 
@@ -353,9 +399,11 @@ func newOrderService(repo *fakeOrderRepo, gw *fakeOrderGateway) *Service {
 func fixedOrderNow() time.Time { return time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC) }
 
 type fakeOrderRepo struct {
-	config   *Config
-	order    *Order
-	recharge *Recharge
+	config                  *Config
+	order                   *Order
+	recharge                *Recharge
+	beforeUpdateOrderFailed func()
+	updateOrderFailedErr    error
 }
 
 func newFakeOrderRepo() *fakeOrderRepo { return &fakeOrderRepo{} }
@@ -434,8 +482,8 @@ func (r *fakeOrderRepo) CreateOrder(ctx context.Context, order Order) (int64, er
 	return order.ID, nil
 }
 func (r *fakeOrderRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL string) error {
-	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
-		return nil
+	if r.order == nil || r.order.ID != id || (r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed) {
+		return ErrPaymentStateChanged
 	}
 	r.order.Status = orderStatusPaying
 	r.order.PayURL = payURL
@@ -443,8 +491,15 @@ func (r *fakeOrderRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL 
 	return nil
 }
 func (r *fakeOrderRepo) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
-	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
-		return nil
+	if r.beforeUpdateOrderFailed != nil {
+		r.beforeUpdateOrderFailed()
+		r.beforeUpdateOrderFailed = nil
+	}
+	if r.updateOrderFailedErr != nil {
+		return r.updateOrderFailedErr
+	}
+	if r.order == nil || r.order.ID != id || (r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed) {
+		return ErrPaymentStateChanged
 	}
 	r.order.Status = orderStatusFailed
 	r.order.FailureReason = reason

@@ -159,7 +159,7 @@ func TestGormRepositoryRechargePayingAndFailedUpdatesUseOpenStateCAS(t *testing.
 		{name: "paying", statusArgs: 2, update: func(repo *GormRepository) error {
 			return repo.UpdateRechargePaying(context.Background(), 10)
 		}},
-		{name: "failed", statusArgs: 3, update: func(repo *GormRepository) error {
+		{name: "failed", statusArgs: 2, update: func(repo *GormRepository) error {
 			return repo.UpdateRechargeFailed(context.Background(), 10, "gateway down")
 		}},
 	}
@@ -188,7 +188,7 @@ func TestGormRepositoryRechargePayingAndFailedCASMissReturnsStateChanged(t *test
 		{name: "paying", statusArgs: 2, update: func(repo *GormRepository) error {
 			return repo.UpdateRechargePaying(context.Background(), 10)
 		}},
-		{name: "failed", statusArgs: 3, update: func(repo *GormRepository) error {
+		{name: "failed", statusArgs: 2, update: func(repo *GormRepository) error {
 			return repo.UpdateRechargeFailed(context.Background(), 10, "gateway down")
 		}},
 	}
