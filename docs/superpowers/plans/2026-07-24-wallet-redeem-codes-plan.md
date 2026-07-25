@@ -443,12 +443,12 @@ POST  /api/admin/v1/wallet/redemptions
 | --- | --- | --- |
 | page-init/list | `payment_redeem_code_list` | `NoAudit("read-only")` |
 | lookup | `payment_redeem_code_list` | `NoAudit("read-only exact lookup")` |
-| export | `payment_redeem_code_list` | best-effort `payment_redeem_code/export`，请求只含非码值筛选，跳过响应 payload |
-| generate | `payment_redeem_code_generate` | required `payment_redeem_code/generate`，跳过响应 payload |
-| void | `payment_redeem_code_void` | required `payment_redeem_code/void` |
-| wallet redemption | `Authenticated()` | required `wallet/redeem`，跳过请求 payload |
+| export | `payment_redeem_code_list` | best-effort `payment_redeem_code/export`，跳过请求/响应 payload |
+| generate | `payment_redeem_code_generate` | required `payment_redeem_code/generate`，跳过请求/响应 payload |
+| void | `payment_redeem_code_void` | required `payment_redeem_code/void`，跳过请求 payload |
+| wallet redemption | `Authenticated()` | required `wallet/redeem`，跳过请求/响应 payload |
 
-export 必须是 `Enabled=true, Required=false, SkipResponsePayload=true`：当前 required-audit writer 即使跳过 payload 仍会暂存完整 HTTP body，超过 1 MiB 就把响应改写为 500；有界 CSV 不能走这条 staging 路径。generate/void/wallet redemption 继续 required，其中 generate 响应把 batch 元数据只返回一次、codes 使用最小数组结构，测试锁定 1000 码响应不超过当前 required-audit 1 MiB 上限。
+export 必须是 `Enabled=true, Required=false, SkipRequestPayload=true, SkipResponsePayload=true`：当前 required-audit writer 即使跳过响应 payload 仍会暂存完整 HTTP body，超过 1 MiB 就把响应改写为 500；有界 CSV 不能走这条 staging 路径。operation-log middleware 在 handler 校验前读取原始请求体，攻击者可以给任意 JSON 附加未知 `code` 字段，因此 generate、void 和 wallet redemption 也必须 `SkipRequestPayload=true`，不能依赖 handler 拒绝后再脱敏。generate/void/wallet redemption 继续 required，wallet redemption 和 generate 还必须跳过响应 payload；generate 响应把 batch 元数据只返回一次、codes 使用最小数组结构，测试锁定 1000 码响应不超过当前 required-audit 1 MiB 上限。
 
 handler 测试还要锁定请求体边界：code-only lookup/redemption 在 JSON 绑定前使用 1 KiB 上限，generate/export/void 使用 64 KiB 上限。超过上限或畸形 JSON 返回 400，不能调用 service/limiter，也不计试码失败；`{"code":"..."}` 可正常解析但 code 超过 128 bytes 时必须进入 service，在 attempt lock 内计为用户失败。测试不得把超长 code 打进失败消息或日志断言输出。
 
@@ -462,7 +462,7 @@ Expected: FAIL，报告 transport、graph capability 或 route golden 缺失。
 
 - [ ] **Step 3: 实现协议映射和安全响应**
 
-handler 从 `middleware.AuthIdentity` 取得 `UserID` 和 `Platform`，不接受请求里的 user ID。管理端生成使用当前管理员 ID；完整码精确查询只绑定 JSON body。所有 JSON handler 在 `ShouldBindJSON` 前用 `http.MaxBytesReader` 包装 body：code-only lookup/redemption 上限 1 KiB，generate/export/void 上限 64 KiB；上限错误使用不回显 body 的受控 400。wallet redemption 的 transport 超限/畸形 JSON 映射为 `wallet.redeem.unavailable` 但不进入 limiter，管理端则映射为 `payment.redeem_code.request_invalid`；可解析 DTO 的 code 长度/格式校验仍留在 service。
+handler 从 `middleware.AuthIdentity` 取得 `UserID` 和 `Platform`，不接受请求里的 user ID。管理端生成使用当前管理员 ID；完整码精确查询只绑定 JSON body，普通 list 对 query key 使用显式白名单并拒绝重复值，任何 `code`、码片段或未知 key 都返回受控 400。所有 JSON handler 先用 `http.MaxBytesReader` 有界读取，再使用局部 `json.Decoder` 严格解码唯一的顶层 object：拒绝未知字段、尾随 JSON/垃圾、顶层 `null`/标量/数组以及显式 `code:null`。code-only lookup/redemption 上限 1 KiB，generate/export/void 上限 64 KiB；上限或 JSON shape 错误使用不回显 body 的受控 400。wallet redemption 的 transport 错误映射为 `wallet.redeem.unavailable` 但不进入 limiter，管理端则映射为 `payment.redeem_code.request_invalid`；可解析 object 中缺失 code、空字符串和格式错误仍留给 service，在 attempt lock 内计数。
 
 `POST /wallet/redemptions` 的稳定错误严格使用 spec 的六个 code，并在 `wallet.yaml` 提供中英文 MessageID；不能用只设置 MessageID 的 `BadRequestKey`/`InternalKey` 代替稳定机器码。service 使用 `apperror.New`/`apperror.Wrap`，令 `Error.Code` 与 `MessageID` 都等于对应的 `wallet.redeem.*` 值，并锁定 category/HTTP/retry：`code_required` 与 `unavailable` 为 validation/400/permanent，`rate_limited` 为 rate_limit/429/retryable，两个 `*_unavailable` 为 dependency/503/retryable，`integrity_violation` 为 internal/500/permanent。handler 测试必须解码响应并逐项断言 `error.code/category/retryable`，不能只断言 HTTP 或 `msg`。管理端生成、查询、导出和作废同样使用 `payment.redeem_code.*` 稳定管理错误，不能误压成用户兑换错误。429 的 `Retry-After` 由 limiter 返回的秒数生成，不读取用户输入。包含完整码的 list、lookup、export、generate 响应统一设置：
 

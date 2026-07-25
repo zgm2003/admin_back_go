@@ -367,7 +367,7 @@ CSV 复用 `internal/module/export` 的通用 writer，输出 UTF-8 BOM、正确
 - 日志、指标、trace、错误响应和操作审计禁止记录完整码；
 - 数据库唯一约束错误必须映射为受控错误，不能把含完整码的驱动原始错误直接写入日志或响应；
 - 需要关联时只记录兑换码 ID、批次 ID，不记录完整码或其摘要；
-- 后台生成、导出和作废操作审计，但审计 payload 不保存完整码或完整 CSV；生成、作废和用户兑换使用 required audit，导出使用 `SkipResponsePayload` 的普通审计，因为当前 required-audit writer 会暂存完整响应并在 1 MiB 时失败，不能让合法的有界 CSV 被中间件改写成 500；
+- 后台生成、导出和作废操作审计，但审计 payload 不保存完整码或完整 CSV。当前 operation-log middleware 会在 handler 校验前读取原始请求体，因此 export、generate、void 和用户兑换均必须 `SkipRequestPayload`，只保留操作者、会话、平台、路由、动作、状态和延迟等受控审计元数据；generate、void 和用户兑换使用 required audit，导出使用同时跳过请求/响应 payload 的普通审计。generate 还必须跳过包含完整码的响应，用户兑换跳过请求和响应；导出不能使用 required-audit writer，因为该 writer 即使跳过响应 payload 仍会暂存完整响应并在 1 MiB 时失败，不能让合法的有界 CSV 被中间件改写成 500；
 - 指标标签禁止 user ID、code、batch number 等高基数身份；
 - 管理员复制和导出权限不会自动扩散给其他角色。
 
