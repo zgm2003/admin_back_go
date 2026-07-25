@@ -445,6 +445,8 @@ func TestCaptureHoldReplayRejectsInvalidPersistedSummary(t *testing.T) {
 		remark string
 	}{
 		{name: "blank", remark: ""},
+		{name: "ASCII whitespace only", remark: "   "},
+		{name: "Unicode whitespace only", remark: " \u2003 "},
 		{name: "over 255 runes", remark: strings.Repeat("中", 256)},
 		{name: "control character", remark: "ok\nno"},
 	}
@@ -987,7 +989,7 @@ func expectNoTerminalAIGenerateLedger(mock sqlmock.Sqlmock) {
 }
 
 func TestCaptureHoldRejectsInvalidSummary(t *testing.T) {
-	for _, summary := range []string{"", strings.Repeat("a", 256), "ok\nno"} {
+	for _, summary := range []string{"", "   ", " \u2003 ", strings.Repeat("a", 256), "ok\nno"} {
 		if err := validateHoldSummary(summary); err != ErrHoldSummaryInvalid {
 			t.Fatalf("summary %q error = %v", summary, err)
 		}

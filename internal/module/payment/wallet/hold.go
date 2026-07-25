@@ -223,7 +223,7 @@ func (r *GormRepository) CaptureHoldInTx(ctx context.Context, tx *gorm.DB, in Ca
 }
 
 func validateHoldSummary(summary string) error {
-	if summary == "" || utf8.RuneCountInString(summary) > 255 || strings.IndexFunc(summary, unicode.IsControl) >= 0 {
+	if strings.TrimSpace(summary) == "" || utf8.RuneCountInString(summary) > 255 || strings.IndexFunc(summary, unicode.IsControl) >= 0 {
 		return ErrHoldSummaryInvalid
 	}
 	return nil
