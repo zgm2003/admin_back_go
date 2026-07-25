@@ -3,8 +3,10 @@
 **原始复核日期：** 2026-07-24
 **闭环日期：** 2026-07-25
 **审查对象：** `2026-07-24-ai-chat-consumer-pricing-wallet-design.md`
-**结论：** 技术架构复核通过；进入 implementation plan 前仍须由用户确认 `PD-05` 至 `PD-08`
+**结论：** 已归档。技术架构复核通过，产品决策已收敛，可以进入分阶段 implementation plan
 **文档定位：** 历史复核证据，不是需求 Spec，不能单独作为 implementation plan 或实现依据。
+
+> **2026-07-25 最终决策覆盖：** `PD-05`、`PD-06` 的跨实例 billing block 已从精简后的阶段 A 移除；`PD-07` 已确定失败 attempt 不向用户收费；`PD-08` 不在阶段 A 改写对象清理策略，删除和损坏均不退款。主 Spec 同时取消长期截止/自动对账和 `uncertain`：usage 不完整或 dispatched 结果未知时直接本地 release，unknown 不访问上游、不重发。下文表格保留的是二次复核当时的历史状态，不得覆盖当前主 Spec。
 
 ## 已确认关闭
 
