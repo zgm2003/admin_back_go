@@ -2,6 +2,7 @@ package aigateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 
@@ -21,6 +22,7 @@ type testReserve struct {
 	activeCalls int
 	err         error
 	activeErr   error
+	facts       *LockedBillingFacts
 }
 
 type testTx struct{}
@@ -42,8 +44,8 @@ type testRunStore struct{}
 func (testRunStore) LoadRun(_ context.Context, runID int64) (RunSnapshot, error) {
 	return RunSnapshot{RunID: runID, UserID: 7, RequestID: "r2", RequestFingerprint: [32]byte{2}}, nil
 }
-func (testRunStore) LockRunAndCharge(context.Context, Transaction, int64) (RunSnapshot, error) {
-	return RunSnapshot{}, nil
+func (testRunStore) LockRunAndCharge(_ context.Context, _ Transaction, runID int64) (LockedRunCharge, error) {
+	return LockedRunCharge{Run: RunSnapshot{RunID: runID}}, nil
 }
 func (testRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
 	return [32]byte{}, nil
@@ -54,60 +56,102 @@ type persistedFingerprintRunStore struct{ fingerprint [32]byte }
 func (s persistedFingerprintRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) {
 	return RunSnapshot{}, nil
 }
-func (s persistedFingerprintRunStore) LockRunAndCharge(context.Context, Transaction, int64) (RunSnapshot, error) {
-	return RunSnapshot{}, nil
+func (s persistedFingerprintRunStore) LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error) {
+	return LockedRunCharge{}, nil
 }
 func (s persistedFingerprintRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
 	return s.fingerprint, nil
 }
 
 type testAttemptStore struct {
-	attempt   ProviderAttempt
-	state     string
-	recordErr error
+	attempt       ProviderAttempt
+	state         string
+	terminal      DispatchResult
+	recordErr     error
+	preparedReads int
 }
 
 type testProvider struct{ calls int }
 
 func (p *testProvider) Dispatch(context.Context, ProviderAttempt) (DispatchResult, error) {
 	p.calls++
-	return DispatchResult{DispatchState: "dispatched", TerminalState: "succeeded", Usage: completeUsageForGatewayTest()}, nil
+	return DispatchResult{ProviderRequestID: "provider-request-1", ResponseSHA256: sha256.Sum256([]byte("provider-response")), DispatchState: "dispatched", TerminalState: "succeeded", Usage: completeUsageForGatewayTest()}, nil
 }
 
 func completeUsageForGatewayTest() infraai.UsageSnapshot {
 	return infraai.UsageSnapshot{Status: infraai.UsageStatusComplete, Items: []infraai.UsageItem{{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1}}}
 }
 
-func (s *testAttemptStore) PutPrepared(_ context.Context, _ Transaction, attempt ProviderAttempt) error {
-	s.attempt = cloneAttempt(attempt)
-	s.state = "prepared"
-	return nil
+func (s *testAttemptStore) PutPrepared(_ context.Context, _ Transaction, attempt ProviderAttempt) (PreparedWriteResult, error) {
+	if s.state == "" {
+		s.attempt = cloneAttempt(attempt)
+		s.state = "prepared"
+		return PreparedWriteResult{Attempt: cloneAttempt(s.attempt), Inserted: true}, nil
+	}
+	if s.state == "prepared" && sameAttemptEvidence(s.attempt, attempt) {
+		return PreparedWriteResult{Attempt: cloneAttempt(s.attempt)}, nil
+	}
+	return PreparedWriteResult{}, ErrNotFound
 }
-func (s *testAttemptStore) GetPrepared(context.Context, int64, uint32) (ProviderAttempt, error) {
+func (s *testAttemptStore) GetPreparedForUpdate(context.Context, Transaction, int64, uint32) (ProviderAttempt, error) {
+	s.preparedReads++
 	if s.state != "prepared" {
 		return ProviderAttempt{}, ErrNotFound
 	}
 	return cloneAttempt(s.attempt), nil
 }
-func (s *testAttemptStore) MarkDispatched(context.Context, Transaction, int64, uint32) error {
+func (s *testAttemptStore) MarkDispatched(context.Context, Transaction, int64, uint32) (bool, error) {
+	if s.state != "prepared" {
+		return false, nil
+	}
 	s.state = "dispatched"
-	return nil
+	return true, nil
 }
-func (s *testAttemptStore) RecordOutcome(context.Context, Transaction, int64, uint32, DispatchResult) error {
-	return s.recordErr
+func (s *testAttemptStore) GetDispatchedForUpdate(context.Context, Transaction, int64, uint32) (ProviderAttempt, error) {
+	if s.state != "dispatched" {
+		return ProviderAttempt{}, ErrNotFound
+	}
+	return cloneAttempt(s.attempt), nil
+}
+func (s *testAttemptStore) GetTerminalOutcome(context.Context, Transaction, int64, uint32) (DispatchResult, error) {
+	if !validTerminalState(s.state) {
+		return DispatchResult{}, ErrNotFound
+	}
+	return s.terminal, nil
+}
+func (s *testAttemptStore) RecordTerminalOutcome(_ context.Context, _ Transaction, _ int64, _ uint32, result DispatchResult) (TerminalOutcomeWriteResult, error) {
+	if s.recordErr != nil {
+		return TerminalOutcomeWriteResult{}, s.recordErr
+	}
+	if s.state != "dispatched" {
+		return TerminalOutcomeWriteResult{}, ErrNotFound
+	}
+	s.state = result.TerminalState
+	s.terminal = result
+	return TerminalOutcomeWriteResult{Outcome: result}, nil
 }
 
 func testGatewayDependencies(reserve *testReserve, attempts *testAttemptStore) Dependencies {
 	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, Reserve: reserve, Attempts: attempts, Owner: testOwner{}}
 }
 
-func (r *testReserve) ReserveOrTopUp(context.Context, Transaction, int64, int64) error {
+func (r *testReserve) ReserveOrTopUp(_ context.Context, _ Transaction, runID int64, target int64) (LockedBillingFacts, error) {
 	r.calls++
-	return r.err
+	if r.facts != nil {
+		return *r.facts, r.err
+	}
+	return lockedFacts(runID, target), r.err
 }
-func (r *testReserve) EnsureActiveHold(context.Context, Transaction, int64, int64) error {
+func (r *testReserve) EnsureActiveHold(_ context.Context, _ Transaction, runID int64, target int64) (LockedBillingFacts, error) {
 	r.activeCalls++
-	return r.activeErr
+	if r.facts != nil {
+		return *r.facts, r.activeErr
+	}
+	return lockedFacts(runID, target), r.activeErr
+}
+
+func lockedFacts(runID, target int64) LockedBillingFacts {
+	return LockedBillingFacts{RunID: runID, ChargeHeldUnits: target, ChargeHeldAuditMax: target, HoldTargetUnits: target, HoldActive: true}
 }
 
 func TestGatewayRejectsFingerprintConflictBeforeProvider(t *testing.T) {
@@ -267,6 +311,31 @@ func TestGatewayInsufficientBalanceCreatesNoAttempt(t *testing.T) {
 	}
 }
 
+func TestGatewayRejectsReserveFactsThatDoNotMatchTheHoldTarget(t *testing.T) {
+	facts := LockedBillingFacts{RunID: 16, ChargeHeldUnits: 9, ChargeHeldAuditMax: 9, HoldTargetUnits: 8, HoldActive: true}
+	store := &testAttemptStore{}
+	gateway := New(testGatewayDependencies(&testReserve{facts: &facts}, store))
+	call := PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: QuoteEvidence{TargetHoldUnits: 8}}
+	_, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 16, AttemptNo: 1, NewCall: &call})
+	if err == nil {
+		t.Fatal("inconsistent locked billing facts must be rejected")
+	}
+	if store.state != "" {
+		t.Fatal("inconsistent reserve facts must not persist a prepared attempt")
+	}
+}
+
+func TestGatewayRecoveryUsesPreparedReadForUpdate(t *testing.T) {
+	attempt := ProviderAttempt{RunID: 17, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	if _, err := New(testGatewayDependencies(&testReserve{}, store)).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 17, AttemptNo: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if store.preparedReads != 1 {
+		t.Fatalf("prepared strict reads=%d, want 1", store.preparedReads)
+	}
+}
+
 func TestGatewayReturnsProviderAndOutcomePersistenceErrors(t *testing.T) {
 	providerErr := errors.New("provider connection reset")
 	recordErr := errors.New("attempt outcome write failed")
@@ -276,6 +345,36 @@ func TestGatewayReturnsProviderAndOutcomePersistenceErrors(t *testing.T) {
 	_, err := New(deps).Dispatch(context.Background(), attempt)
 	if !errors.Is(err, providerErr) || !errors.Is(err, recordErr) {
 		t.Fatalf("err=%v, want joined provider and persistence errors", err)
+	}
+}
+
+func TestGatewayRejectsNonTerminalOutcome(t *testing.T) {
+	attempt := ProviderAttempt{RunID: 15, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	store := &testAttemptStore{attempt: attempt, state: "dispatched"}
+	err := New(testGatewayDependencies(&testReserve{}, store)).RecordOutcome(context.Background(), attempt, DispatchResult{
+		DispatchState: infraai.DispatchStateDispatched,
+		TerminalState: "dispatched",
+		Usage:         completeUsageForGatewayTest(),
+	})
+	if err == nil {
+		t.Fatal("non-terminal outcome must be rejected")
+	}
+}
+
+func TestGatewayTerminalOutcomeReplayRequiresIdenticalEvidence(t *testing.T) {
+	attempt := ProviderAttempt{RunID: 18, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	store := &testAttemptStore{attempt: attempt, state: "dispatched"}
+	gateway := New(testGatewayDependencies(&testReserve{}, store))
+	result := DispatchResult{ProviderRequestID: "provider-request-18", ResponseSHA256: sha256.Sum256([]byte("response-18")), DispatchState: infraai.DispatchStateDispatched, TerminalState: "succeeded", Usage: completeUsageForGatewayTest()}
+	if err := gateway.RecordOutcome(context.Background(), attempt, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.RecordOutcome(context.Background(), attempt, result); err != nil {
+		t.Fatalf("identical terminal replay failed: %v", err)
+	}
+	result.ProviderRequestID = "provider-request-different"
+	if err := gateway.RecordOutcome(context.Background(), attempt, result); err == nil {
+		t.Fatal("different terminal evidence must conflict")
 	}
 }
 
@@ -298,8 +397,8 @@ type immutableRunStore struct{ snapshot RunSnapshot }
 func (s immutableRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) {
 	return s.snapshot, nil
 }
-func (s immutableRunStore) LockRunAndCharge(context.Context, Transaction, int64) (RunSnapshot, error) {
-	return s.snapshot, nil
+func (s immutableRunStore) LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error) {
+	return LockedRunCharge{Run: s.snapshot}, nil
 }
 func (s immutableRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
 	return s.snapshot.RequestFingerprint, nil

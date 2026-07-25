@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,10 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	var requestBody map[string]any
@@ -175,6 +180,33 @@ func TestClientGenerateImagesRejectsSyntheticMediaUsage(t *testing.T) {
 	}
 	if result.UsageStatus != infraai.UsageStatusUnavailable || len(result.Usage.Items) != 0 {
 		t.Fatalf("unattributed image total was billed as usage: %#v", result)
+	}
+}
+
+func TestClientGenerateImagesClassifiesProviderFailureEvidence(t *testing.T) {
+	input := infraai.ImageInput{Model: "gpt-image-2", Prompt: "draw"}
+	preHeader := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("dial refused")
+	})}
+	_, err := New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", HTTPClient: preHeader}).GenerateImages(context.Background(), input)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeNotDispatched {
+		t.Fatalf("transport outcome=%q ok=%v err=%v", outcome, ok, err)
+	}
+
+	rejected := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request", Header: http.Header{"X-Request-Id": []string{"image-request-4"}}, Body: io.NopCloser(strings.NewReader(`{"error":"invalid"}`))}, nil
+	})}
+	_, err = New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", HTTPClient: rejected}).GenerateImages(context.Background(), input)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeRejected || infraai.ProviderRequestIDFromError(err) != "image-request-4" {
+		t.Fatalf("rejected outcome=%q id=%q ok=%v err=%v", outcome, infraai.ProviderRequestIDFromError(err), ok, err)
+	}
+
+	malformed := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"X-Request-Id": []string{"image-request-5"}}, Body: io.NopCloser(strings.NewReader(`{"data":`))}, nil
+	})}
+	_, err = New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", HTTPClient: malformed}).GenerateImages(context.Background(), input)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeUnknown || infraai.ProviderRequestIDFromError(err) != "image-request-5" {
+		t.Fatalf("malformed outcome=%q id=%q ok=%v err=%v", outcome, infraai.ProviderRequestIDFromError(err), ok, err)
 	}
 }
 

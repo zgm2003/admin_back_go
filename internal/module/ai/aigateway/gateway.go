@@ -77,14 +77,22 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		g.record("recover_prepared")
 		var recovered ProviderAttempt
 		err := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
-			if _, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID); err != nil {
-				return err
-			}
-			attempt, err := g.deps.Attempts.GetPrepared(ctx, input.RunID, input.AttemptNo)
+			locked, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID)
 			if err != nil {
 				return err
 			}
-			if err := g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, attempt.Quote.TargetHoldUnits); err != nil {
+			if err := validateLockedRunCharge(input.RunID, locked); err != nil {
+				return err
+			}
+			attempt, err := g.deps.Attempts.GetPreparedForUpdate(ctx, tx, input.RunID, input.AttemptNo)
+			if err != nil {
+				return err
+			}
+			facts, err := g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, attempt.Quote.TargetHoldUnits)
+			if err != nil {
+				return err
+			}
+			if err := validateBillingFacts(input.RunID, attempt.Quote.TargetHoldUnits, locked.ChargeHeldAuditMax, facts); err != nil {
 				return err
 			}
 			recovered = cloneAttempt(attempt)
@@ -104,24 +112,29 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 	}
 	g.record("lock_run")
 	g.record("lock_charge")
-	reserve := func(tx Transaction) error {
+	reserve := func(tx Transaction, locked LockedRunCharge, target int64) error {
 		g.record("reserve_wallet_hold")
-		if g.deps.Reserve == nil {
-			return nil
+		facts, err := g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, target)
+		if err != nil {
+			return err
 		}
-		return g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, call.Quote.TargetHoldUnits)
+		return validateBillingFacts(input.RunID, target, locked.ChargeHeldAuditMax, facts)
 	}
 	var prepared ProviderAttempt
 	attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: attemptKey(input.RunID, input.AttemptNo), PreparedRequest: append([]byte(nil), call.RequestBody...), RequestSHA256: call.RequestSHA256, Quote: call.Quote}
 	txErr := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
-		if _, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID); err != nil {
+		locked, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID)
+		if err != nil {
 			return err
 		}
-		if existing, err := g.deps.Attempts.GetPrepared(ctx, input.RunID, input.AttemptNo); err == nil {
+		if err := validateLockedRunCharge(input.RunID, locked); err != nil {
+			return err
+		}
+		if existing, err := g.deps.Attempts.GetPreparedForUpdate(ctx, tx, input.RunID, input.AttemptNo); err == nil {
 			if !sameAttemptEvidence(existing, attempt) {
 				return gatewayError(ErrCodeDuplicateAttempt, "attempt evidence differs from persisted evidence", 409)
 			}
-			if err := reserve(tx); err != nil {
+			if err := reserve(tx, locked, existing.Quote.TargetHoldUnits); err != nil {
 				return err
 			}
 			prepared = cloneAttempt(existing)
@@ -129,14 +142,18 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if err := reserve(tx); err != nil {
+		if err := reserve(tx, locked, attempt.Quote.TargetHoldUnits); err != nil {
 			return err
 		}
 		g.record("persist_prepared")
-		if err := g.deps.Attempts.PutPrepared(ctx, tx, attempt); err != nil {
+		write, err := g.deps.Attempts.PutPrepared(ctx, tx, attempt)
+		if err != nil {
 			return err
 		}
-		prepared = cloneAttempt(attempt)
+		if !sameAttemptEvidence(write.Attempt, attempt) {
+			return gatewayError(ErrCodeDuplicateAttempt, "prepared write evidence differs from requested evidence", 409)
+		}
+		prepared = cloneAttempt(write.Attempt)
 		return nil
 	})
 	if txErr != nil {
@@ -154,23 +171,38 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 	}
 	g.record("mark_dispatched")
 	err := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
-		if _, err := g.deps.Runs.LockRunAndCharge(ctx, tx, attempt.RunID); err != nil {
+		locked, err := g.deps.Runs.LockRunAndCharge(ctx, tx, attempt.RunID)
+		if err != nil {
 			return err
 		}
-		persisted, err := g.deps.Attempts.GetPrepared(ctx, attempt.RunID, attempt.AttemptNo)
+		if err := validateLockedRunCharge(attempt.RunID, locked); err != nil {
+			return err
+		}
+		persisted, err := g.deps.Attempts.GetPreparedForUpdate(ctx, tx, attempt.RunID, attempt.AttemptNo)
 		if err != nil {
 			return gatewayError(ErrCodePreparedMissing, "prepared attempt does not exist", 409)
 		}
 		if !sameAttemptEvidence(persisted, attempt) {
 			return gatewayError(ErrCodeDuplicateAttempt, "provider attempt evidence differs from persisted attempt", 409)
 		}
-		if err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, persisted.Quote.TargetHoldUnits); err != nil {
+		facts, err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, persisted.Quote.TargetHoldUnits)
+		if err != nil {
+			return err
+		}
+		if err := validateBillingFacts(attempt.RunID, persisted.Quote.TargetHoldUnits, locked.ChargeHeldAuditMax, facts); err != nil {
 			return err
 		}
 		if err := g.deps.Owner.EnsureRunnable(ctx, tx, attempt.RunID); err != nil {
 			return err
 		}
-		return g.deps.Attempts.MarkDispatched(ctx, tx, attempt.RunID, attempt.AttemptNo)
+		changed, err := g.deps.Attempts.MarkDispatched(ctx, tx, attempt.RunID, attempt.AttemptNo)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return gatewayError(ErrCodePreparedMissing, "prepared attempt was not transitioned to dispatched", 409)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -184,23 +216,15 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 	}
 	g.record("provider_dispatch")
 	if g.deps.Provider == nil {
-		return DispatchResult{DispatchState: infraai.DispatchStateUnknown, TerminalState: "unknown"}, ErrNotConfigured
+		return DispatchResult{}, ErrNotConfigured
 	}
 	result, err := g.deps.Provider.Dispatch(ctx, attempt)
 	if err != nil {
-		if result.DispatchState == "" {
-			result.DispatchState = infraai.DispatchStateUnknown
-		}
-		if result.TerminalState == "" {
-			result.TerminalState = "unknown"
-		}
+		result = terminalResultForProviderError(result, err)
 		if recordErr := g.RecordOutcome(ctx, attempt, result); recordErr != nil {
 			return result, errors.Join(err, recordErr)
 		}
 		return result, err
-	}
-	if result.DispatchState == "" {
-		result.DispatchState = infraai.DispatchStateDispatched
 	}
 	if err := g.RecordOutcome(ctx, attempt, result); err != nil {
 		return DispatchResult{}, err
@@ -213,12 +237,132 @@ func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, re
 		return ErrNotConfigured
 	}
 	g.record("record_outcome")
+	if err := validateTerminalOutcome(result); err != nil {
+		return err
+	}
 	if err := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
-		return g.deps.Attempts.RecordOutcome(ctx, tx, attempt.RunID, attempt.AttemptNo, result)
+		persisted, err := g.deps.Attempts.GetDispatchedForUpdate(ctx, tx, attempt.RunID, attempt.AttemptNo)
+		if err != nil {
+			if !errors.Is(err, ErrNotFound) {
+				return err
+			}
+			terminal, terminalErr := g.deps.Attempts.GetTerminalOutcome(ctx, tx, attempt.RunID, attempt.AttemptNo)
+			if terminalErr != nil {
+				if !errors.Is(terminalErr, ErrNotFound) {
+					return terminalErr
+				}
+				return gatewayError(ErrCodeInvalidOutcome, "dispatched attempt does not exist", 409)
+			}
+			if !sameTerminalEvidence(terminal, result) {
+				return gatewayError(ErrCodeDuplicateAttempt, "terminal outcome differs from persisted outcome", 409)
+			}
+			return nil
+		}
+		if !sameAttemptEvidence(persisted, attempt) {
+			return gatewayError(ErrCodeDuplicateAttempt, "provider attempt evidence differs from persisted attempt", 409)
+		}
+		write, err := g.deps.Attempts.RecordTerminalOutcome(ctx, tx, attempt.RunID, attempt.AttemptNo, result)
+		if err != nil {
+			return err
+		}
+		if !sameTerminalEvidence(write.Outcome, result) {
+			return gatewayError(ErrCodeDuplicateAttempt, "terminal outcome write differs from requested outcome", 409)
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
 	return nil
+}
+
+func validateLockedRunCharge(runID int64, locked LockedRunCharge) error {
+	if locked.Run.RunID != runID || locked.ChargeHeldAuditMax < 0 {
+		return gatewayError(ErrCodeInvalidPrepared, "locked run and charge facts are inconsistent", 409)
+	}
+	return nil
+}
+
+func validateBillingFacts(runID, target, minimumAudit int64, facts LockedBillingFacts) error {
+	if facts.RunID != runID || facts.HoldTargetUnits != target || facts.ChargeHeldUnits != target || !facts.HoldActive || facts.ChargeHeldAuditMax < facts.ChargeHeldUnits || facts.ChargeHeldAuditMax < minimumAudit {
+		return gatewayError(ErrCodeInvalidPrepared, "locked charge and hold facts are inconsistent", 409)
+	}
+	return nil
+}
+
+func terminalResultForProviderError(result DispatchResult, err error) DispatchResult {
+	if result.ProviderRequestID == "" {
+		result.ProviderRequestID = infraai.ProviderRequestIDFromError(err)
+	}
+	result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	switch outcome, ok := infraai.ProviderOutcomeFromError(err); {
+	case ok && outcome == infraai.ProviderOutcomeNotDispatched:
+		result.DispatchState = infraai.DispatchStateNotDispatched
+		result.TerminalState = "failed"
+	case ok && outcome == infraai.ProviderOutcomeRejected:
+		result.DispatchState = infraai.DispatchStateDispatched
+		result.TerminalState = "failed"
+	default:
+		result.DispatchState = infraai.DispatchStateUnknown
+		result.TerminalState = "outcome_unknown"
+	}
+	return result
+}
+
+func validateTerminalOutcome(result DispatchResult) error {
+	if !validTerminalState(result.TerminalState) || !validDispatchState(result.DispatchState) {
+		return gatewayError(ErrCodeInvalidOutcome, "terminal and dispatch states are required", 400)
+	}
+	if err := result.Usage.Validate(); err != nil {
+		return gatewayError(ErrCodeInvalidOutcome, err.Error(), 400)
+	}
+	hasResponseHash := result.ResponseSHA256 != ([32]byte{})
+	if hasResponseHash && result.DispatchState == infraai.DispatchStateNotDispatched {
+		return gatewayError(ErrCodeInvalidOutcome, "not-dispatched outcome cannot have response evidence", 400)
+	}
+	if result.Usage.ResponseSHA256 != ([32]byte{}) && hasResponseHash && result.Usage.ResponseSHA256 != result.ResponseSHA256 {
+		return gatewayError(ErrCodeInvalidOutcome, "usage and response hashes differ", 409)
+	}
+	switch result.TerminalState {
+	case "succeeded":
+		if result.DispatchState != infraai.DispatchStateDispatched || !result.Usage.Complete() || strings.TrimSpace(result.ProviderRequestID) == "" || !hasResponseHash {
+			return gatewayError(ErrCodeInvalidOutcome, "succeeded outcome requires dispatched complete provider evidence", 400)
+		}
+	case "failed", "canceled":
+		if result.Usage.Complete() || result.Usage.Status != infraai.UsageStatusUnavailable {
+			return gatewayError(ErrCodeInvalidOutcome, "failed or canceled outcome cannot contain billable usage", 400)
+		}
+	case "outcome_unknown":
+		if result.DispatchState != infraai.DispatchStateUnknown || result.Usage.Complete() || result.Usage.Status != infraai.UsageStatusUnavailable {
+			return gatewayError(ErrCodeInvalidOutcome, "unknown outcome requires unknown dispatch and unavailable usage", 400)
+		}
+	}
+	return nil
+}
+
+func validTerminalState(state string) bool {
+	switch strings.TrimSpace(state) {
+	case "succeeded", "failed", "canceled", "outcome_unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func validDispatchState(state string) bool {
+	switch strings.TrimSpace(state) {
+	case infraai.DispatchStateNotDispatched, infraai.DispatchStateDispatched, infraai.DispatchStateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func sameTerminalEvidence(left, right DispatchResult) bool {
+	return left.ProviderRequestID == right.ProviderRequestID &&
+		left.ResponseSHA256 == right.ResponseSHA256 &&
+		left.DispatchState == right.DispatchState &&
+		left.TerminalState == right.TerminalState &&
+		reflect.DeepEqual(left.Usage, right.Usage)
 }
 
 func (g *Gateway) Finalize(ctx context.Context, input FinalizeInput) error {

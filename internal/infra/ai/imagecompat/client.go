@@ -90,22 +90,22 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeNotDispatched, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
 	}
 	defer resp.Body.Close()
 	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
 	if !isSuccessStatus(resp.StatusCode) {
 		body, err := readLimitedResponseBody(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("read OpenAI image response: %w", err)
+			return nil, infraai.NewProviderError(infraai.ProviderOutcomeRejected, providerRequestID, fmt.Errorf("read OpenAI image response: %w", err))
 		}
 		if err := c.requireSuccess(resp, body); err != nil {
-			return nil, err
+			return nil, infraai.NewProviderError(infraai.ProviderOutcomeRejected, providerRequestID, err)
 		}
 	}
 	result, err := decodeImageResponse(resp.Body, imageMime(input.OutputFormat))
 	if err != nil {
-		return nil, err
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, err)
 	}
 	result.ProviderRequestID = providerRequestID
 	result.DispatchState = infraai.DispatchStateDispatched

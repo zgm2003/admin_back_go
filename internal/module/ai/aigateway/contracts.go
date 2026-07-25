@@ -50,6 +50,7 @@ type ProviderAttempt struct {
 
 type DispatchResult struct {
 	ProviderRequestID string
+	ResponseSHA256    [32]byte
 	DispatchState     string
 	TerminalState     string
 	Usage             infraai.UsageSnapshot
@@ -80,18 +81,59 @@ type TransactionRunner interface {
 	WithinTransaction(context.Context, func(Transaction) error) error
 }
 
+// LockedRunCharge is the authoritative run and charge state read with the
+// transaction's lock. ChargeHeldAuditMax is the monotonic audit maximum before
+// the reserve participant brings the active hold to its target.
+type LockedRunCharge struct {
+	Run                RunSnapshot
+	ChargeHeldAuditMax int64
+}
+
+// LockedBillingFacts is returned only after reserve/hold work has completed in
+// the supplied transaction. The gateway validates this instead of trusting a
+// no-result mutation or a RowsAffected side channel.
+type LockedBillingFacts struct {
+	RunID              int64
+	ChargeHeldUnits    int64
+	ChargeHeldAuditMax int64
+	HoldTargetUnits    int64
+	HoldActive         bool
+}
+
 type ReserveParticipant interface {
-	ReserveOrTopUp(context.Context, Transaction, int64, int64) error
-	// EnsureActiveHold must verify the persisted owner-scoped Hold is active
-	// and has at least requiredUnits while using the supplied transaction.
-	EnsureActiveHold(context.Context, Transaction, int64, int64) error
+	// ReserveOrTopUp must atomically create or replay the target hold. Returned
+	// facts express the operation's affected-row/idempotent result and are
+	// verified by Gateway before prepared evidence is persisted.
+	ReserveOrTopUp(context.Context, Transaction, int64, int64) (LockedBillingFacts, error)
+	// EnsureActiveHold returns the locked owner-scoped hold facts; it must not
+	// merely report success from an unverified update.
+	EnsureActiveHold(context.Context, Transaction, int64, int64) (LockedBillingFacts, error)
+}
+
+type PreparedWriteResult struct {
+	Attempt  ProviderAttempt
+	Inserted bool
+}
+
+type TerminalOutcomeWriteResult struct {
+	Outcome  DispatchResult
+	Replayed bool
 }
 
 type AttemptStore interface {
-	PutPrepared(context.Context, Transaction, ProviderAttempt) error
-	GetPrepared(context.Context, int64, uint32) (ProviderAttempt, error)
-	MarkDispatched(context.Context, Transaction, int64, uint32) error
-	RecordOutcome(context.Context, Transaction, int64, uint32, DispatchResult) error
+	// PutPrepared must atomically insert or replay exactly equal evidence. An
+	// implementation reports whether it inserted a row rather than hiding
+	// RowsAffected/idempotent replay behavior behind a nil error.
+	PutPrepared(context.Context, Transaction, ProviderAttempt) (PreparedWriteResult, error)
+	GetPreparedForUpdate(context.Context, Transaction, int64, uint32) (ProviderAttempt, error)
+	// MarkDispatched returns false when the locked prepared row was not
+	// transitioned, including an idempotent/stale replay.
+	MarkDispatched(context.Context, Transaction, int64, uint32) (bool, error)
+	GetDispatchedForUpdate(context.Context, Transaction, int64, uint32) (ProviderAttempt, error)
+	GetTerminalOutcome(context.Context, Transaction, int64, uint32) (DispatchResult, error)
+	// RecordTerminalOutcome atomically writes a terminal row or returns its
+	// exactly equal terminal evidence with Replayed set.
+	RecordTerminalOutcome(context.Context, Transaction, int64, uint32, DispatchResult) (TerminalOutcomeWriteResult, error)
 }
 
 // OwnerGuard verifies the command/task lease and absence of cancel intent in
@@ -106,7 +148,7 @@ type Provider interface {
 
 type RunStore interface {
 	LoadRun(context.Context, int64) (RunSnapshot, error)
-	LockRunAndCharge(context.Context, Transaction, int64) (RunSnapshot, error)
+	LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error)
 	RequestFingerprint(context.Context, int64, string) ([32]byte, error)
 }
 
@@ -152,6 +194,7 @@ const (
 	ErrCodePreparedMissing     = "ai.billing.prepared_attempt_missing"
 	ErrCodeInvalidPrepared     = "ai.billing.invalid_prepared_call"
 	ErrCodeDuplicateAttempt    = "ai.billing.duplicate_attempt"
+	ErrCodeInvalidOutcome      = "ai.billing.invalid_terminal_outcome"
 )
 
 var (
