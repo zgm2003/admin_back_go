@@ -509,6 +509,7 @@ Expected: 针对性 transport/composition/route tests PASS。此提交 SHA 是 T
 - Modify: `contracts/admin/v1/openapi.json`
 - Modify: `contracts/admin/v1/permissions.json`
 - Modify: `contracts/admin/v1/views.json`
+- Modify: `docs/contracts/admin-browser-auth-contract.md`
 
 **Frontend Files:**
 - Modify: `contracts/backend/admin/lock.json`
@@ -539,7 +540,7 @@ Expected: manifest 的 `backend_commit` 等于 `$backendCommit`，OpenAPI 出现
 - [ ] **Step 2: 提交后端 contract bundle**
 
 ```powershell
-git add contracts/admin/v1
+git add contracts/admin/v1 docs/contracts/admin-browser-auth-contract.md
 git commit -m "chore(contract): publish wallet redemption APIs"
 ```
 

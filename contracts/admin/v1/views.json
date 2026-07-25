@@ -91,6 +91,7 @@
                 "payment/config",
                 "payment/ledger",
                 "payment/recharge",
+                "payment/redeem-codes",
                 "payment/wallets",
                 "permission/authPlatform",
                 "permission/permission",
@@ -394,6 +395,17 @@
         "payment_recharge_add",
         "payment_recharge_list",
         "payment_recharge_pay"
+      ]
+    },
+    {
+      "path": "/payment/redeem-codes",
+      "view_key": "payment/redeem-codes",
+      "i18n_key": "menu.payment_redeem_codes",
+      "show_menu": 1,
+      "permission_codes": [
+        "payment_redeem_code_generate",
+        "payment_redeem_code_list",
+        "payment_redeem_code_void"
       ]
     },
     {
