@@ -4,7 +4,7 @@
 **状态：** 待用户最终审核；第 2.4 节产品决策确认前不进入 implementation plan
 **取代：** `2026-07-24-ai-official-pricing-wallet-settlement-design.md` 与 `2026-07-24-ai-chat-consumer-interactions-design.md`
 
-> **2026-07-24 技术审查修订：** 本文已经统一取消、普通重试、计费明细、用户删除、媒体存储、执行所有权、Run Event 和钱包迁移语义。第 2.4 节仍有八项产品政策等待用户确认；这些条目不是默认值，也不能在实施计划中被擅自补全。
+> **2026-07-25 技术审查修订：** 本文已经统一取消、普通重试冻结上界、计费明细、用户删除、媒体存储、执行所有权、Run Event 和钱包迁移语义。技术架构阻断项已经关闭；第 2.4 节仍有八项产品政策等待用户确认，这些条目不是默认值，也不能在实施计划中被擅自补全。
 
 ## 1. 目的
 
@@ -444,11 +444,23 @@ release  -> 只减少 held_units
 
 冻结、补充、捕获和释放都锁定钱包行并保持幂等。钱包规则只存在于 `wallet` 模块，`usagecharge` 和 AI 服务不得复制余额算法。
 
-Token 请求临时冻结按普通输入、缓存写入、缓存读取中的最高适用价格估算；最终只按真实互斥分类扣款并释放差额。每个请求必须有最大输出 Token，未提供时使用产品上限与目录模型上限中的较小值；工具调用轮次、工具输出和每轮模型输出都必须有产品硬上限。能够形成整次安全上界时，首次冻结直接覆盖全部允许轮次；无法形成整次上界时才允许按轮次补充同一冻结。
+Token 请求临时冻结按普通输入、缓存写入、缓存读取中的最高适用价格估算；最终只按真实互斥分类扣款并释放差额。每个请求必须有最大输出 Token，未提供时使用产品上限与目录模型上限中的较小值；工具调用轮次、工具输出和每轮模型输出都必须有产品硬上限。
+
+每次新的真实供应商调用都必须先满足同一个冻结充足性不变量：
+
+```text
+本次派发所需冻结总额
+  = 之前所有仍可能向用户收费的完整实际用量金额
+  + 本次待派发调用的保守费用上界
+```
+
+普通重试不在首次执行时冻结全部 `max_attempts` 的最坏总额；Runner 在每个新 `attempt_no` 派发前，把同一个 Charge 对应的 Hold 补充到上述累计目标。`PD-07` 未确认或某个失败 attempt 尚未完成最终收费分类时，其完整实际用量按“仍可能收费”计入冻结目标，这只是防止透支的预占，不代表最终一定扣款。先前 attempt 用量不完整时禁止进入普通重试，除非供应商权威证据证明该 attempt 未执行或没有可计费用量，此时它对累计目标贡献为零。
+
+能够对一次业务执行波次及其全部允许工具轮次形成安全上界时，首次冻结可覆盖该波次，后续每轮只校验现有 Hold 是否充足；无法形成整次上界时，必须在每个工具轮次的真实调用前按同一公式补充。当前 Hold 已达到目标时不重复增加；不足时只 top-up 差额。任何 reserve/top-up 失败都不得持久化新的 `dispatched` 事实或发送网络字节。
 
 目录为模型绑定受控冻结估算 profile。估算器接收最终序列化供应商请求并返回保守输入上界，禁止使用通用字符数随意猜测。缺少经过测试的估算 profile 或输出上限时，模型不能进入 billing-ready。
 
-按轮次补充冻结时，必须在每次追加模型调用前完成。余额不足则停止下一次供应商调用，并由统一 finalizer 按此前已经发生且能够准确取得的实际用量结算；Run/任务失败且不交付半成品，不能释放全部冻结后把此前供应商成本变成免费调用，也绝不先调用再透支。
+按轮次或普通重试补充冻结时，必须在每次追加模型调用前完成。余额不足则停止下一次供应商调用，并由统一 finalizer 按此前已经发生且能够准确取得的实际用量和 `PD-07` 结算政策终结；Run/任务失败且不交付半成品，不能释放全部冻结后把此前可能应收费的供应商成本变成免费调用，也绝不先调用再透支。
 
 冻结的 `expires_at` 是下一次恢复扫描时间，不是自动归还时间；权威硬上限由账单的 `resolution_deadline_at` 表达。恢复 Worker 只有在证明失败、取消、形成可恢复结果候选或到达硬上限后，才能通过统一 finalizer 改变资金状态，不能仅靠一个过期扫描器直接修改钱包。
 
@@ -521,7 +533,7 @@ outcome_unknown -> success | failed | canceled | timeout
 outcome_unknown -> running（仅当对账证明上次请求未执行且允许重试）
 ```
 
-普通可重试失败不终结 Run：命令回到 `pending`，Run 保持 `running`，并追加一次幂等的 `retry_scheduled` Run Event。下一次真实供应商调用使用新的 `attempt_no`；只有供应商明确保证幂等重放时才复用原 provider idempotency key。重试等待期间 Charge 与非零 Hold 保持非终态，不能先 `released` 后复活账单。首次执行时快照 `max_attempts`，重新 claim 和重启不得重置已消耗次数。达到 `max_attempts`、不可重试错误或恢复硬截止后，统一 finalizer 才终结 Command、Run、Charge、Hold 和 durable failed/canceled event；`resolution_deadline_at` 不因重试或重启延长。各 attempt 的原始用量全部保留，最终是否把失败 attempt 纳入用户扣款由 `PD-07` 决定。
+普通可重试失败不终结 Run：命令回到 `pending`，Run 保持 `running`，并追加一次幂等的 `retry_scheduled` Run Event。下一次真实供应商调用使用新的 `attempt_no`；只有供应商明确保证幂等重放时才复用原 provider idempotency key。重试等待期间 Charge 与非零 Hold 保持非终态，不能先 `released` 后复活账单。每个新 `attempt_no` 都必须在 `dispatched` 前按第 9.3 节累计公式重新报价并 reserve/top-up 同一个 Hold；补充失败时不得派发。首次执行时快照 `max_attempts`，重新 claim 和重启不得重置已消耗次数。达到 `max_attempts`、不可重试错误或恢复硬截止后，统一 finalizer 才终结 Command、Run、Charge、Hold 和 durable failed/canceled event；`resolution_deadline_at` 不因重试或重启延长。各 attempt 的原始用量全部保留，最终是否把失败 attempt 纳入用户扣款由 `PD-07` 决定。
 
 进入 `outcome_unknown` 时追加同名 Run 事件但不写 `finished_at`。恢复重试时仍复用同一 Run，并追加新的 `start` 事件；只有最终状态才写 `finished_at`。所有状态条件更新、时间字段、Token/用量汇总、assistant 绑定和有序 Run Event 必须由同一个事务参与接口原子完成。通用 stale-run 清理必须排除有关联活动命令、`outcome_unknown` 命令或 `uncertain` 账单的 Run。
 
@@ -672,7 +684,7 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 - 每次响应都保存供应商请求 ID、响应哈希、经过校验的归一化原始用量、完整性和用量指纹；失败、取消与 `outcome_unknown` 也保存明确状态，不能因为业务没有结果就丢弃供应商返回的 usage；
 - `prepared` 且没有 `dispatched_at` 可以由当前合法执行 owner 使用原 key 派发；任何已经带 `dispatched_at` 的尝试都视为“可能已到达供应商”；
 - 恢复只能复用同一调用身份。只有供应商文档明确保证该 key 的幂等重放，或权威查询证明上次没有执行时才可再次发送；否则保持不确定并最终按本设计终结，禁止换新 key 盲目重发；
-- 已证明未形成成功结果的普通可重试错误把业务任务重新排队，但原 Run、Charge、价格/倍率快照、Hold 和首次 `resolution_deadline_at` 保持不变；下一次真实供应商调用分配新的 `attempt_no`，Run 原子追加 `retry_scheduled` 事件。
+- 已证明未形成成功结果的普通可重试错误把业务任务重新排队，但原 Run、Charge、价格/倍率快照、Hold 和首次 `resolution_deadline_at` 保持不变；下一次真实供应商调用分配新的 `attempt_no`，Run 原子追加 `retry_scheduled` 事件，并在 `dispatched` 前按“此前仍可能收费的完整实际用量金额 + 下一次调用保守上界”补充同一个 Hold。补充失败不得派发。
 
 聊天现有 command lease/fencing token 继续保护尝试写入；其他任务必须提供等价的 claim/lease 或单次 compare-and-swap 状态保护，不能仅凭 Run ID 绕过执行所有权。
 
@@ -728,7 +740,7 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 - delta 不持久化、不增加未读数；
 - start/delta 的实时投递失败不改变命令、Run 或账单状态，也不能中断已经获准的供应商调用；最终 durable 事件和 HTTP 查询负责权威恢复；
 - 前端必须把 delta 视为临时内容；收到 failed、canceled、timed_out 或权威恢复结果后清除临时内容，不能把未完成 delta 留成一条本地成功回复；
-- 工具调用后准备下一次模型请求前，先持久化并归一化已完成调用的原始用量；首次冻结未覆盖整次上界时，再补充同一冻结；
+- 工具调用后准备下一次模型请求前，先持久化并归一化已完成调用的原始用量；首次冻结未覆盖整次上界时，按第 9.3 节累计目标补充同一冻结，并在补充成功后才写下一次 `dispatched`；
 - 补充冻结失败时不发送下一次供应商请求；本次 Run 按失败 finalizer 终结，并按此前完整合法的实际用量结算，绝不捕获半成品估算费用；
 - 页面切换后继续按 `conversation_id + request_id` 保存流式会话状态，断线时以权威查询恢复。
 
@@ -738,21 +750,22 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 
 1. 驱动校验并归一化每次调用用量；
 2. 在短事务中完成最终 provider-attempt、归一化原始用量、用量指纹和完成候选；此时不写最终用户扣款明细；
-3. 用量完整时计算一次精确总费用；用量不完整但内容有效时只能准备 `unbilled` 候选和第 5.6 节异常事实，禁止按估算金额结算；
-4. 聊天 finalizer 锁定命令、候选、账单和钱包，在同一 MySQL 事务中完成以下事实：
-   - 用量完整且扣款大于零：先在 finalizer 内一次性插入不可变 `ai_usage_charge_items`，capture 精确金额、释放差额、写一条钱包流水、账单设为 `settled`；
-   - 用量完整且扣款为零：插入零实际扣款的明细、释放全部冻结、不写零金额流水、账单设为 `settled`；
-   - 用量不完整：只为已经验证的已知用量项插入实际扣款为零的明细，缺失分类不造行、不猜数量或金额；释放全部冻结、账单设为 `unbilled`，并写入持久化异常事实；是否提升为 active block 遵循 `PD-05`；
-   - 未收到有效取消胜出信号时，插入可见 assistant message，绑定 reply command 与 `ai_run.assistant_message_id`，将回复命令设为 `succeeded`、Run 设为成功，原子追加 Run success event 和 durable `ai.response.completed.v1`；
-   - 收到已胜出的取消请求时，绝不插入 assistant message 或未读，只将候选设为 `discarded`，命令和 Run 设为 `canceled`，原子追加 Run canceled event；完整用量仍按实际金额 `settled`，无用量时 `released`，用量不完整时保持 `uncertain` 等待恢复；
-   - 成功发布或确认丢弃后，将完成候选设为 `finalized`/`discarded` 并清空候选正文。
-5. 事务提交后才 best-effort 实时推送完成事件。
+3. 聊天 finalizer 锁定命令、候选、账单和钱包，先在锁内判定取消/完成竞态赢家，再按以下优先级提交唯一组合：
+   - 取消未胜出且用量完整：在 finalizer 内一次性插入不可变 `ai_usage_charge_items`；扣款大于零时 capture 精确金额、释放差额并写一条钱包流水，扣款为零时释放全部冻结且不写零金额流水；账单均设为 `settled`；
+   - 取消未胜出且内容有效但用量不完整：只为已经验证的已知用量项插入实际扣款为零的明细，缺失分类不造行、不猜数量或金额；释放全部冻结、账单设为 `unbilled`，并写入持久化异常事实；是否提升为 active block 遵循 `PD-05`；
+   - 取消请求胜出且用量完整：按完整实际用量将账单设为 `settled` 并释放差额，已有候选设为 `discarded`，命令和 Run 设为 `canceled`，原子追加 Run canceled event；扣款为零仍使用零金额 `settled`，不是 `released`；
+   - 取消请求胜出且供应商权威证明未执行或没有可计费用量：释放冻结、账单设为 `released`，已有候选设为 `discarded`，命令和 Run 设为 `canceled`，原子追加 Run canceled event；
+   - 取消请求胜出、用量不完整且尚未到 `resolution_deadline_at`：不写最终 `ai_usage_charge_items`，账单设为或保持 `uncertain`，继续保留 Hold；已有候选设为 `discarded` 并清空正文，命令和 Run 必须设为 `outcome_unknown`，保留 `cancel_requested_at`，只追加 outcome-unknown Run Event，不得提前追加取消终态事件；
+   - 取消请求胜出、到达 `resolution_deadline_at` 仍无完整可靠用量：只为已验证的已知用量项写零实际扣款明细，释放冻结、账单设为 `unbilled`，命令和 Run 设为 `canceled`，追加 Run canceled event；
+4. 取消未胜出的两个分支才允许发布内容：插入可见 assistant message，绑定 reply command 与 `ai_run.assistant_message_id`，将回复命令设为 `succeeded`、Run 设为成功，原子追加 Run success event 和 durable `ai.response.completed.v1`；取消胜出的所有分支都不得插入 assistant message 或增加未读。
+5. 成功发布或确认丢弃时，将完成候选设为 `finalized`/`discarded` 并清空候选正文；取消待对账分支虽然资金尚未终结，但内容已经确定永不发布，因此也立即 `discarded` 并清空正文，后续只恢复 usage/账单事实。
+6. 事务提交后才 best-effort 实时推送对应的权威状态事件。
 
 禁止继续采用“先发布成功消息，再 best-effort 记录 Run 或扣钱包”的顺序，也禁止未定义的钱包/业务状态撕裂；第 11.5 节明确列出的“用户取消胜出、内容不发布、完整实际用量 `settled`”是合法组合，不得被监控误判为事务失败。事务参与接口由各模块 owner 提供，finalizer 不直接跨模块写表。
 
-finalizer 暂时失败时保留冻结，并从持久化候选重试相同完成事实，不重复调用供应商。数据库死锁、超时或短暂不可用属于可重试 finalizer 故障，必须回滚整个事务，不能被解释成“补充冻结失败”而提前改变资金事实。若恢复时已经越过持久化的 `resolution_deadline_at`，完整且验证通过的候选才能按不捕获估算金额的规则完成；用量不完整的有效候选进入 `unbilled`，根据取消是否胜出决定发布或丢弃；没有可靠候选则把业务置为对应 `canceled/failed` 终态、账单置为 `unbilled` 并释放冻结。若供应商已经响应、但完成候选尚未成功落库时进程崩溃，则进入不确定恢复；最终只能根据供应商查询或其他持久化证据取得真实用量和结果，否则释放且不扣估算金额，不能盲目重发。
+finalizer 暂时失败时保留冻结，并从持久化候选重试相同完成事实，不重复调用供应商。数据库死锁、超时或短暂不可用属于可重试 finalizer 故障，必须回滚整个事务，不能被解释成“补充冻结失败”而提前改变资金事实。取消已胜出且用量不完整时，在持久化的 `resolution_deadline_at` 之前只能保持 `outcome_unknown/uncertain`，不得提前 `unbilled/released`。到达截止后：完整可靠用量仍按实际金额 `settled`；有效内容但用量不完整时进入 `unbilled`，未取消则免费发布、取消已胜出则保持丢弃并进入取消终态；没有可靠候选时把业务置为对应取消/失败终态、账单置为 `unbilled` 并释放冻结。若供应商已经响应、但完成候选尚未成功落库时进程崩溃，则进入不确定恢复；最终只能根据供应商查询或其他持久化证据取得真实用量和结果，否则在截止后释放且不扣估算金额，不能盲目重发。
 
-不可重试失败、耗尽重试、取消和超时也使用单一终态 finalizer：在同一事务内根据已持久化的真实用量决定 `settled`/`released`/`uncertain`/`unbilled`，按最终状态插入计费明细，更新 command 与 Run，丢弃并清空已有完成候选，追加对应 durable failed/canceled/timed_out 事件。普通可重试错误在达到终止条件前不得走这个终态 finalizer。禁止由 chat service、Run recorder 和 wallet 各自 best-effort 写终态。
+不可重试失败、耗尽重试、取消和超时也使用同一个 finalizer：在同一事务内根据已持久化的真实用量决定 `settled`/`released`/`unbilled` 终态，或进入 `outcome_unknown/uncertain` 中间态。只有金额终态才插入最终计费明细并追加对应 durable 失败/取消/超时终态事件；`uncertain` 不得伪装成终态或提前写取消终态事件。普通可重试错误在达到终止条件前不得走终态分支。禁止由 chat service、Run recorder 和 wallet 各自 best-effort 写终态。
 
 ### 11.5 停止、失败和结果不确定
 
@@ -778,7 +791,7 @@ finalizer 暂时失败时保留冻结，并从持久化候选重试相同完成�
 
 `outcome_unknown` 不能通过“停止生成”伪装成已取消，因为服务端无法证明供应商没有成功。该状态下隐藏或禁用停止操作，阻止发送、编辑、重新生成和删除，等待对账进入明确终态。前端按钮只是体验层，Service 和事务查询必须再次校验。
 
-停止与完成并发时由命令租约、fencing token、行锁和一次终态转换决定唯一赢家：停止请求先写入 `cancel_requested_at` 时，Worker 必须尝试供应商取消/停止流式接收并继续取得最终 usage 或权威任务状态，不能立即把已派发命令改成免费 `canceled`。取消 finalizer 胜出后拒绝发布内容，但对完整合法用量照常结算；用量不完整则保持 `outcome_unknown/uncertain` 到对账截止。完成事务先提交时返回既有成功结果，迟到停止不能撤销已结算事实。
+停止与完成并发时由命令租约、fencing token、行锁和一次终态转换决定唯一赢家：停止请求先写入 `cancel_requested_at` 时，Worker 必须尝试供应商取消/停止流式接收并继续取得最终 usage 或权威任务状态，不能立即把已派发命令改成免费取消终态。取消 finalizer 胜出后拒绝发布内容，但对完整合法用量照常结算；用量不完整则保持 `outcome_unknown/uncertain` 到对账截止。完成事务先提交时返回既有成功结果，迟到停止不能撤销已结算事实。
 
 现有停止接口继续使用：
 
@@ -1086,8 +1099,11 @@ HTTP 接收事务
 
 Runner 执行
   -> claim/续租任务并取得 fencing token
-  -> 创建或恢复 Run / Charge / Hold
+  -> 创建或恢复 Run / Charge
   -> 检查 pricing、active billing block、媒体 storage readiness
+  -> 构造本次最终供应商请求并计算保守费用上界
+  -> 按累计冻结目标 reserve 或 top-up 同一个 Hold
+  -> 创建或恢复本次 provider-attempt prepared
   -> 持久化 provider-attempt dispatched
   -> 使用独立于 HTTP 的有界 task context 调用供应商
 
@@ -1107,7 +1123,7 @@ Runner 执行
   -> 提交后 best-effort 实时推送
 ```
 
-普通重试、用户取消、`outcome_unknown`、finalizer 重试和绝对截止恢复都回到这条路径。HTTP 请求 context 只控制等待和响应写入，不拥有供应商执行；同一任务在任意时刻只能有一个有效 lease/fencing owner。
+普通重试、用户取消、`outcome_unknown`、finalizer 重试和绝对截止恢复都回到这条路径。任何新 `attempt_no` 或工具轮次只有在 pricing/block/storage 检查、报价和同一 Hold 的 reserve/top-up 全部成功后才能进入 `dispatched`；恢复本地 candidate/finalizer 不重新报价或调用供应商。HTTP 请求 context 只控制等待和响应写入，不拥有供应商执行；同一任务在任意时刻只能有一个有效 lease/fencing owner。
 
 幂等重放的 HTTP 规则固定为：
 
@@ -1295,10 +1311,10 @@ Runner 执行
 - 官方零价与整单向下取整为零时不创建零金额 hold/流水，但账单仍幂等 `settled`；
 - 缓存字段缺失与显式 0、OpenAI inclusive cached tokens、缓存读写拆分和工具轮次汇总；
 - 未知模型/档位、计量能力或余额不足时不调用供应商；
-- 冻结、补充、捕获、释放和并发幂等；`PD-02`/`PD-03` 确认退款政策后再覆盖对应退款分支；
+- 冻结、累计补充、捕获、释放和并发幂等；每个新的真实调用都在 `dispatched` 前覆盖“此前仍可能收费的完整实际用量 + 本次保守上界”，`PD-02`/`PD-03` 确认退款政策后再覆盖对应退款分支；
 - 估算上限意外不足时仅在余额足够时补充；余额不足不部分扣款、不透支；估算不足、计量不完整、未知单位/档位和金额指纹漂移都持久化异常，`PD-05`/`PD-06` 确认后再验证 block 阈值与解除路径；
 - 账单、回复命令和停止/完成竞态状态机；派发后取消取得完整 usage 时业务 `canceled` 但账单 `settled`，取得不完整 usage 时保持待对账；
-- 普通可重试失败复用同一 Run、Charge、Hold 和截止时间，追加 `retry_scheduled` Run Event，新的真实调用使用下一 `attempt_no`；
+- 普通可重试失败复用同一 Run、Charge、Hold 和截止时间，追加 `retry_scheduled` Run Event，新的真实调用使用下一 `attempt_no`，且 top-up 失败时没有新的 `dispatched` 或供应商调用；
 - provider 结果候选落库后 finalizer 重试不重复调用供应商；最终计费明细只在 finalizer 中形成，并与 Run 状态、Run Event、钱包和候选终态原子提交；
 - outcome-unknown 对账期间不允许历史改写且不伪装取消；
 - `PD-04` 确认后的各模态恢复期限、绝对截止时间不可被重启延长、到期资金释放以及迟到结果丢弃；
@@ -1335,7 +1351,7 @@ Runner 执行
 7. 可用余额不足时不调用供应商，并给用户明确充值入口。
 8. 同一客户端 `request_id` 重试后仍只有一个业务任务、一个 Run 身份和一张账单；非零 `settled` 费用最多一次有效冻结捕获和一条扣款流水，零金额不写零 hold/流水，`unbilled` 不写扣款；同 ID 不同请求返回冲突。
 9. 失败、取消、超时或超过不确定恢复上限时都不捕获估算金额，也不无限冻结用户余额；取消后取得完整合法用量时允许业务 `canceled` 与账单按实际用量 `settled` 同时成立，失败尝试是否收费遵循 `PD-07`。
-10. 发送、编辑和重新生成在 Worker 调用前完成价格快照与冻结，成功结果统一原子完成。
+10. 发送、编辑、重新生成、普通重试和工具轮次都在每次 Worker 真实调用前完成价格检查、报价及充足冻结；成功结果统一原子完成。
 11. 编辑只改变文字；附件和运行参数不变；新 Run 使用当前模型与倍率。
 12. 编辑和重新生成产生新消息、命令、Run 和账单，旧审计与财务事实不变。
 13. 用户可默认按问答对选择，也可只删除任意一条；删除不影响旧 Run、点赞或账单。
