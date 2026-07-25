@@ -11,7 +11,7 @@ import (
 
 type replyAttemptRepository interface {
 	PrepareAttempt(context.Context, replycommand.PrepareAttemptInput) (*replycommand.Attempt, bool, error)
-	MarkAttemptDispatched(context.Context, uint64, uint64, string, uint64, time.Time) (bool, error)
+	MarkAttemptDispatchedForRun(context.Context, int64, uint64, uint64, string, uint64, time.Time) (bool, error)
 	FinishAttempt(context.Context, replycommand.FinishAttemptInput) (bool, error)
 }
 
@@ -20,18 +20,18 @@ type replyAttemptRecorder struct {
 }
 
 func (r replyAttemptRecorder) PrepareProviderAttempt(ctx context.Context, input aichat.ProviderAttemptPrepareInput) (*aichat.ProviderAttemptRef, error) {
-	attempt, ok, err := r.repository.PrepareAttempt(ctx, replycommand.PrepareAttemptInput{CommandID: input.CommandID, Owner: input.Owner, Token: input.Token, Now: input.Now})
+	attempt, ok, err := r.repository.PrepareAttempt(ctx, replycommand.PrepareAttemptInput{RunID: input.RunID, CommandID: input.CommandID, Owner: input.Owner, Token: input.Token, Now: input.Now})
 	if err != nil {
 		return nil, err
 	}
 	if !ok || attempt == nil {
 		return nil, replycommand.ErrLeaseLost
 	}
-	return &aichat.ProviderAttemptRef{ID: attempt.ID, IdempotencyKey: attempt.IdempotencyKey}, nil
+	return &aichat.ProviderAttemptRef{ID: attempt.ID, RunID: attempt.RunID, AttemptNo: attempt.AttemptNo, IdempotencyKey: attempt.IdempotencyKey, PreparedRequestJSON: attempt.PreparedRequestJSON, QuoteJSON: attempt.QuoteJSON}, nil
 }
 
 func (r replyAttemptRecorder) MarkProviderAttemptDispatched(ctx context.Context, input aichat.ProviderAttemptMarkInput) error {
-	ok, err := r.repository.MarkAttemptDispatched(ctx, input.AttemptID, input.CommandID, input.Owner, input.Token, input.Now)
+	ok, err := r.repository.MarkAttemptDispatchedForRun(ctx, input.RunID, input.AttemptID, input.CommandID, input.Owner, input.Token, input.Now)
 	if err != nil {
 		return err
 	}
@@ -47,15 +47,20 @@ func (r replyAttemptRecorder) FinishProviderAttempt(ctx context.Context, input a
 		return err
 	}
 	ok, err := r.repository.FinishAttempt(ctx, replycommand.FinishAttemptInput{
-		AttemptID:         input.AttemptID,
-		CommandID:         input.CommandID,
-		Owner:             input.Owner,
-		Token:             input.Token,
-		State:             state,
-		ProviderRequestID: input.ProviderRequestID,
-		ResponseSHA256:    input.ResponseSHA256,
-		ErrorCode:         input.ErrorCode,
-		Now:               input.Now,
+		RunID:               input.RunID,
+		AttemptID:           input.AttemptID,
+		CommandID:           input.CommandID,
+		Owner:               input.Owner,
+		Token:               input.Token,
+		State:               state,
+		ProviderRequestID:   input.ProviderRequestID,
+		ResponseSHA256:      input.ResponseSHA256,
+		ErrorCode:           input.ErrorCode,
+		DispatchState:       input.DispatchState,
+		UsageJSON:           input.UsageJSON,
+		UsageStatus:         input.UsageStatus,
+		ResultCandidateJSON: input.ResultCandidateJSON,
+		Now:                 input.Now,
 	})
 	if err != nil {
 		return err

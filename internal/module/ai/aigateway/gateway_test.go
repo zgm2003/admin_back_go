@@ -10,7 +10,7 @@ import (
 
 type testAssembler struct{ calls int }
 
-func (a *testAssembler) AssembleAndQuote(context.Context, RunRequest) (PreparedCall, error) {
+func (a *testAssembler) AssembleAndQuote(context.Context, RunSnapshot, RunRequest) (PreparedCall, error) {
 	a.calls++
 	body := []byte(`{"model":"gpt-test","max_tokens":10}`)
 	return PreparedCall{RequestBody: body, Quote: QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, TargetHoldUnits: 25}}, nil
@@ -32,6 +32,10 @@ type testTransactionRunner struct{}
 func (testTransactionRunner) WithinTransaction(_ context.Context, fn func(Transaction) error) error {
 	return fn(testTx{})
 }
+
+type testOwner struct{ err error }
+
+func (o testOwner) EnsureRunnable(context.Context, Transaction, int64) error { return o.err }
 
 type testRunStore struct{}
 
@@ -94,7 +98,7 @@ func (s *testAttemptStore) RecordOutcome(context.Context, Transaction, int64, ui
 }
 
 func testGatewayDependencies(reserve *testReserve, attempts *testAttemptStore) Dependencies {
-	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, Reserve: reserve, Attempts: attempts}
+	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, Reserve: reserve, Attempts: attempts, Owner: testOwner{}}
 }
 
 func (r *testReserve) ReserveOrTopUp(context.Context, Transaction, int64, int64) error {
@@ -108,7 +112,7 @@ func (r *testReserve) EnsureActiveHold(context.Context, Transaction, int64, int6
 
 func TestGatewayRejectsFingerprintConflictBeforeProvider(t *testing.T) {
 	assembler := &testAssembler{}
-	gateway := New(Dependencies{Assembler: assembler})
+	gateway := New(Dependencies{Assembler: assembler, Runs: immutableRunStore{snapshot: RunSnapshot{RunID: 1, UserID: 7, RequestID: "r1", RequestFingerprint: [32]byte{1}}}})
 	request := RunRequest{RunID: 1, UserID: 7, RequestID: "r1", RequestFingerprint: [32]byte{1}}
 	if _, err := gateway.AssembleAndQuote(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -258,7 +262,7 @@ func TestGatewayInsufficientBalanceCreatesNoAttempt(t *testing.T) {
 	if !errors.As(err, &typed) || typed.Code != ErrCodeInsufficientBalance {
 		t.Fatalf("err=%v, want insufficient balance", err)
 	}
-	if len(gateway.attempts) != 0 {
+	if store := gateway.deps.Attempts.(*testAttemptStore); store.state != "" {
 		t.Fatal("insufficient reserve persisted an attempt")
 	}
 }

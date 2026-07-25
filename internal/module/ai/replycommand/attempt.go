@@ -227,7 +227,20 @@ func (r *GormRepository) GetPreparedAttempt(ctx context.Context, runID int64, at
 	return &attempt, nil
 }
 
+// MarkAttemptDispatched is retained for legacy command-only callers. New paid
+// execution must use MarkAttemptDispatchedForRun.
 func (r *GormRepository) MarkAttemptDispatched(ctx context.Context, attemptID uint64, commandID uint64, owner string, token uint64, now time.Time) (bool, error) {
+	return r.markAttemptDispatched(ctx, 0, attemptID, commandID, owner, token, now)
+}
+
+func (r *GormRepository) MarkAttemptDispatchedForRun(ctx context.Context, runID int64, attemptID uint64, commandID uint64, owner string, token uint64, now time.Time) (bool, error) {
+	if runID <= 0 {
+		return false, ErrCreateInputInvalid
+	}
+	return r.markAttemptDispatched(ctx, runID, attemptID, commandID, owner, token, now)
+}
+
+func (r *GormRepository) markAttemptDispatched(ctx context.Context, runID int64, attemptID uint64, commandID uint64, owner string, token uint64, now time.Time) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
@@ -238,8 +251,12 @@ func (r *GormRepository) MarkAttemptDispatched(ctx context.Context, attemptID ui
 	if now.IsZero() {
 		now = time.Now()
 	}
-	result := r.db.WithContext(ctx).Model(&Attempt{}).
-		Where("id = ? AND command_id = ? AND state = ?", attemptID, commandID, AttemptPrepared).
+	query := r.db.WithContext(ctx).Model(&Attempt{}).
+		Where("id = ? AND command_id = ? AND state = ?", attemptID, commandID, AttemptPrepared)
+	if runID > 0 {
+		query = query.Where("run_id = ?", runID)
+	}
+	result := query.
 		Where("EXISTS (SELECT 1 FROM ai_reply_commands c WHERE c.id = ? AND c.lease_owner = ? AND c.lease_token = ? AND c.state = ? AND c.cancel_requested_at IS NULL AND c.lease_expires_at > ?)", commandID, owner, token, StateRunning, now).
 		Updates(map[string]any{"state": AttemptDispatched, "dispatch_state": "dispatched", "dispatched_at": now, "updated_at": now})
 	return result.RowsAffected == 1, result.Error
@@ -259,14 +276,14 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 		input.Now = time.Now()
 	}
 	input.DispatchState = strings.TrimSpace(input.DispatchState)
-	if input.DispatchState == "" {
-		if input.State == AttemptOutcomeUnknown {
-			input.DispatchState = "unknown"
-		} else {
-			input.DispatchState = "dispatched"
-		}
-	}
 	if input.DispatchState != "not_dispatched" && input.DispatchState != "dispatched" && input.DispatchState != "unknown" {
+		return false, ErrCreateInputInvalid
+	}
+	input.UsageStatus = strings.TrimSpace(input.UsageStatus)
+	if input.UsageStatus != "reported" && input.UsageStatus != "complete" && input.UsageStatus != "unavailable" {
+		return false, ErrCreateInputInvalid
+	}
+	if !json.Valid([]byte(input.UsageJSON)) {
 		return false, ErrCreateInputInvalid
 	}
 	updates := map[string]any{
@@ -274,18 +291,12 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 		"provider_request_id":   strings.TrimSpace(input.ProviderRequestID),
 		"response_sha256":       strings.TrimSpace(input.ResponseSHA256),
 		"error_code":            strings.TrimSpace(input.ErrorCode),
-		"usage_json":            strings.TrimSpace(input.UsageJSON),
-		"usage_status":          strings.TrimSpace(input.UsageStatus),
+		"usage_json":            input.UsageJSON,
+		"usage_status":          input.UsageStatus,
 		"dispatch_state":        input.DispatchState,
 		"result_candidate_json": input.ResultCandidateJSON,
 		"finished_at":           input.Now,
 		"updated_at":            input.Now,
-	}
-	if updates["usage_json"] == "" {
-		updates["usage_json"] = `{"status":"unavailable"}`
-	}
-	if updates["usage_status"] == "" {
-		updates["usage_status"] = "unavailable"
 	}
 	query := r.db.WithContext(ctx).Model(&Attempt{}).
 		Where("id = ? AND run_id = ? AND state = ?", input.AttemptID, input.RunID, AttemptDispatched)

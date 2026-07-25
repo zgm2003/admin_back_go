@@ -162,6 +162,22 @@ func TestClientGenerateImagesFailsClosedForOmittedUsageCountsAndCapturesEvidence
 	}
 }
 
+func TestClientGenerateImagesRejectsSyntheticMediaUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":1}}`))
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{Model: "gpt-image-2", Prompt: "draw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.UsageStatus != infraai.UsageStatusUnavailable || len(result.Usage.Items) != 0 {
+		t.Fatalf("unattributed image total was billed as usage: %#v", result)
+	}
+}
+
 func TestClientGenerateImagesSendsEditMultipartRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/images/edits" {

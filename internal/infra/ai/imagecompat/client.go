@@ -370,7 +370,7 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: int64(inputTokens)})
 			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: int64(outputTokens)})
 			if inputTokens == 0 && outputTokens == 0 && totalTokens > 0 {
-				items = []infraai.UsageItem{{Category: infraai.UsageCategoryMedia, Unit: "token", Quantity: int64(totalTokens)}}
+				return result, nil
 			}
 			if usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, raw, items); err == nil {
 				result.Usage = usage

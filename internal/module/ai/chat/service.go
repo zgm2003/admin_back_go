@@ -2,7 +2,6 @@ package aichat
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -456,6 +455,9 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 	} else {
 		finish.State = ProviderAttemptFailed
 		finish.ErrorCode = "ai.provider_failed"
+		finish.DispatchState = infraai.DispatchStateUnknown
+		finish.UsageStatus = infraai.UsageStatusUnavailable
+		finish.UsageJSON = `{"status":"unavailable"}`
 		finish.ProviderRequestID = infraai.ProviderRequestIDFromError(providerErr)
 		if errors.Is(context.Cause(ctx), infraai.ErrCanceled) {
 			finish.State = ProviderAttemptCanceled
@@ -472,12 +474,10 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 }
 
 func providerAttemptResponseHash(result *infraai.ChatResult) string {
-	payload, err := json.Marshal(result)
-	if err != nil {
+	if result == nil || result.ResponseSHA256 == ([32]byte{}) {
 		return ""
 	}
-	sum := sha256.Sum256(payload)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(result.ResponseSHA256[:])
 }
 
 type tokenResult struct {

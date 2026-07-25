@@ -44,6 +44,7 @@ type ProviderAttempt struct {
 	AttemptNo       uint32
 	IdempotencyKey  string
 	PreparedRequest []byte
+	RequestSHA256   [32]byte
 	Quote           QuoteEvidence
 }
 
@@ -52,7 +53,6 @@ type DispatchResult struct {
 	DispatchState     string
 	TerminalState     string
 	Usage             infraai.UsageSnapshot
-	UsageComplete     bool
 }
 
 type RunSnapshot struct {
@@ -69,7 +69,7 @@ type RunSnapshot struct {
 }
 
 type Assembler interface {
-	AssembleAndQuote(context.Context, RunRequest) (PreparedCall, error)
+	AssembleAndQuote(context.Context, RunSnapshot, RunRequest) (PreparedCall, error)
 }
 
 // Transaction is deliberately opaque. Implementations must pass the same
@@ -92,6 +92,12 @@ type AttemptStore interface {
 	GetPrepared(context.Context, int64, uint32) (ProviderAttempt, error)
 	MarkDispatched(context.Context, Transaction, int64, uint32) error
 	RecordOutcome(context.Context, Transaction, int64, uint32, DispatchResult) error
+}
+
+// OwnerGuard verifies the command/task lease and absence of cancel intent in
+// the same transaction that transitions an attempt to dispatched.
+type OwnerGuard interface {
+	EnsureRunnable(context.Context, Transaction, int64) error
 }
 
 type Provider interface {
@@ -128,6 +134,7 @@ type Dependencies struct {
 	Reserve      ReserveParticipant
 	Attempts     AttemptStore
 	Provider     Provider
+	Owner        OwnerGuard
 	Finalizer    Finalizer
 }
 

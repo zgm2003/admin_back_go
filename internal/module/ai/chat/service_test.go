@@ -168,7 +168,7 @@ func (e *attemptCaptureEngine) TestConnection(context.Context, infraai.TestConne
 
 func (e *attemptCaptureEngine) StreamChat(_ context.Context, input infraai.ChatInput, _ infraai.EventSink) (*infraai.ChatResult, error) {
 	e.input = input
-	return &infraai.ChatResult{Answer: "ok", UsageStatus: infraai.UsageStatusUnavailable, ProviderRequestID: "provider-request-1"}, nil
+	return &infraai.ChatResult{Answer: "ok", UsageStatus: infraai.UsageStatusUnavailable, ProviderRequestID: "provider-request-1", ResponseSHA256: [32]byte{1}}, nil
 }
 
 func (f *fakeAssistantPublisher) PublishAssistant(_ context.Context, input AssistantPublication) (int64, bool, error) {
