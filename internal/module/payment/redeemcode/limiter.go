@@ -67,34 +67,47 @@ return 0
 `
 
 const failureRecordScript = `
-local count = redis.call("INCR", KEYS[1])
+local current = redis.call("GET", KEYS[1])
+if current ~= false and not string.match(current, "^%d+$") then
+  return redis.error_reply("redeem failure counter is corrupt")
+end
+redis.call("INCR", KEYS[1])
 local ttl = redis.call("PTTL", KEYS[1])
-if ttl < 0 then
+if ttl < 0 or ttl > tonumber(ARGV[1]) then
   redis.call("PEXPIRE", KEYS[1], ARGV[1])
   ttl = redis.call("PTTL", KEYS[1])
 end
-return {count, ttl}
+return {redis.call("GET", KEYS[1]), ttl}
 `
 
 const failureStateScript = `
-if redis.call("EXISTS", KEYS[1]) == 0 then
+local current = redis.call("GET", KEYS[1])
+if current == false then
   return {0, 0}
 end
-local count = tonumber(redis.call("GET", KEYS[1])) or 0
+if not string.match(current, "^%d+$") then
+  return redis.error_reply("redeem failure counter is corrupt")
+end
 local ttl = redis.call("PTTL", KEYS[1])
-if ttl < 0 then
+if ttl < 0 or ttl > tonumber(ARGV[1]) then
   redis.call("PEXPIRE", KEYS[1], ARGV[1])
   ttl = redis.call("PTTL", KEYS[1])
 end
-return {count, ttl}
+return {current, ttl}
 `
 
+type redisLimiterClient interface {
+	Do(context.Context, ...interface{}) *redis.Cmd
+	PTTL(context.Context, string) *redis.DurationCmd
+	Eval(context.Context, string, []string, ...interface{}) *redis.Cmd
+}
+
 type RedisAttemptLimiter struct {
-	client redis.Cmdable
+	client redisLimiterClient
 	random io.Reader
 }
 
-func NewRedisAttemptLimiter(client redis.Cmdable) *RedisAttemptLimiter {
+func NewRedisAttemptLimiter(client redisLimiterClient) *RedisAttemptLimiter {
 	return &RedisAttemptLimiter{client: client, random: rand.Reader}
 }
 
@@ -125,13 +138,7 @@ func (limiter *RedisAttemptLimiter) Acquire(ctx context.Context, platform string
 		return AttemptLease{}, fmt.Errorf("redeem limiter: owner: %w", err)
 	}
 	owner := hex.EncodeToString(ownerBytes)
-	doer, ok := limiter.client.(interface {
-		Do(context.Context, ...interface{}) *redis.Cmd
-	})
-	if !ok {
-		return AttemptLease{}, errors.New("redeem limiter: redis client does not support SET PX")
-	}
-	result, err := doer.Do(ctx, attemptAcquireArgs(attemptKey, owner)...).Result()
+	result, err := limiter.client.Do(ctx, attemptAcquireArgs(attemptKey, owner)...).Result()
 	acquired := err == nil && result != nil && strings.EqualFold(fmt.Sprint(result), "OK")
 	if errors.Is(err, redis.Nil) {
 		err = nil
@@ -185,7 +192,9 @@ func (limiter *RedisAttemptLimiter) evalFailure(ctx context.Context, script, key
 	}
 	count, ok := redisInt64(values[0])
 	ttlMillis, ttlOK := redisInt64(values[1])
-	if !ok || !ttlOK || ttlMillis < 0 {
+	maxInt := int64(^uint(0) >> 1)
+	maxTTL := int64(failureWindow / time.Millisecond)
+	if !ok || !ttlOK || count < 0 || count > maxInt || ttlMillis < 0 || ttlMillis > maxTTL {
 		return FailureState{}, errors.New("redeem limiter: invalid failure state values")
 	}
 	state := FailureState{Count: int(count), TTL: time.Duration(ttlMillis) * time.Millisecond}
@@ -236,12 +245,28 @@ func redisInt64(value interface{}) (int64, bool) {
 	case int:
 		return int64(value), true
 	case string:
-		var parsed int64
-		_, err := fmt.Sscan(value, &parsed)
-		return parsed, err == nil
+		return parseRedisDecimal(value)
+	case []byte:
+		return parseRedisDecimal(string(value))
 	default:
 		return 0, false
 	}
 }
 
-var _ AttemptLimiter = (*RedisAttemptLimiter)(nil)
+func parseRedisDecimal(value string) (int64, bool) {
+	if value == "" {
+		return 0, false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] < '0' || value[index] > '9' {
+			return 0, false
+		}
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	return parsed, err == nil
+}
+
+var (
+	_ AttemptLimiter     = (*RedisAttemptLimiter)(nil)
+	_ redisLimiterClient = (*redis.Client)(nil)
+)

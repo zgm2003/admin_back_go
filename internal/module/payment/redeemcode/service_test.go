@@ -325,7 +325,7 @@ func TestServiceRedeemFailsClosedWithoutLimiter(t *testing.T) {
 		return nil, nil
 	}}
 	_, appErr := NewService(repository).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
-	if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != ErrorWalletRateLimitUnavailable {
+	if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != ErrorWalletRateLimitUnavailable || appErr.Category != apperror.CategoryDependency || appErr.Retry != apperror.Retryable {
 		t.Fatalf("error=%+v", appErr)
 	}
 }
@@ -533,27 +533,29 @@ func TestServiceRedeemSuccessAndReplayDoNotRecordFailure(t *testing.T) {
 
 func TestServiceRedeemLimiterAndDependencyFailuresDoNotRecord(t *testing.T) {
 	tests := []struct {
-		name       string
-		configure  func(*fakeAttemptLimiter)
-		repository *fakeRepository
-		wantCode   string
+		name         string
+		configure    func(*fakeAttemptLimiter)
+		repository   *fakeRepository
+		wantCode     string
+		wantCategory apperror.Category
+		wantRetry    apperror.RetryClass
 	}{
 		{name: "acquire", configure: func(l *fakeAttemptLimiter) {
 			l.acquireFn = func(context.Context, string, int64) (AttemptLease, error) {
 				return AttemptLease{}, errors.New("redis down")
 			}
-		}, repository: &fakeRepository{}, wantCode: ErrorWalletDependencyUnavailable},
+		}, repository: &fakeRepository{}, wantCode: ErrorWalletRateLimitUnavailable, wantCategory: apperror.CategoryDependency, wantRetry: apperror.Retryable},
 		{name: "state", configure: func(l *fakeAttemptLimiter) {
 			l.failureStateFn = func(context.Context, string, int64) (FailureState, error) {
 				return FailureState{}, errors.New("redis down")
 			}
-		}, repository: &fakeRepository{}, wantCode: ErrorWalletDependencyUnavailable},
-		{name: "mysql", configure: func(l *fakeAttemptLimiter) {}, repository: &fakeRepository{redeemErr: errors.New("mysql down")}, wantCode: ErrorWalletDependencyUnavailable},
+		}, repository: &fakeRepository{}, wantCode: ErrorWalletRateLimitUnavailable, wantCategory: apperror.CategoryDependency, wantRetry: apperror.Retryable},
+		{name: "mysql", configure: func(l *fakeAttemptLimiter) {}, repository: &fakeRepository{redeemErr: errors.New("mysql down")}, wantCode: ErrorWalletDependencyUnavailable, wantCategory: apperror.CategoryDependency, wantRetry: apperror.Retryable},
 		{name: "record", configure: func(l *fakeAttemptLimiter) {
 			l.recordFailureFn = func(context.Context, string, int64) (FailureState, error) {
 				return FailureState{}, errors.New("redis down")
 			}
-		}, repository: &fakeRepository{redeemErr: ErrUnavailable}, wantCode: ErrorWalletDependencyUnavailable},
+		}, repository: &fakeRepository{redeemErr: ErrUnavailable}, wantCode: ErrorWalletRateLimitUnavailable, wantCategory: apperror.CategoryDependency, wantRetry: apperror.Retryable},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -577,7 +579,7 @@ func TestServiceRedeemLimiterAndDependencyFailuresDoNotRecord(t *testing.T) {
 			if test.name == "record" {
 				wantRecords = 1
 			}
-			if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != test.wantCode || records != wantRecords {
+			if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != test.wantCode || appErr.Category != test.wantCategory || appErr.Retry != test.wantRetry || records != wantRecords {
 				t.Fatalf("error=%+v records=%d", appErr, records)
 			}
 		})
@@ -588,7 +590,7 @@ func TestServiceRedeemUserFailureReleaseFailureFailsClosed(t *testing.T) {
 	limiter := newAllowAttemptLimiter()
 	limiter.releaseFn = func(context.Context, AttemptLease) error { return errors.New("redis down") }
 	_, appErr := NewService(&fakeRepository{redeemErr: ErrUnavailable}, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
-	if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != ErrorWalletDependencyUnavailable {
+	if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != ErrorWalletRateLimitUnavailable || appErr.Category != apperror.CategoryDependency || appErr.Retry != apperror.Retryable {
 		t.Fatalf("error=%+v", appErr)
 	}
 }
@@ -604,6 +606,21 @@ func TestServiceRedeemLockedReturnsIntegerRetryAfterWithoutRepository(t *testing
 	}}
 	_, appErr := NewService(repository, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
 	if appErr == nil || appErr.HTTPStatus != http.StatusTooManyRequests || appErr.TemplateData["retry_after"] != 2 {
+		t.Fatalf("error=%+v", appErr)
+	}
+}
+
+func TestServiceRedeemPreservesWrappedLockRetryAfter(t *testing.T) {
+	limiter := newAllowAttemptLimiter()
+	limiter.acquireFn = func(context.Context, string, int64) (AttemptLease, error) {
+		return AttemptLease{}, fmt.Errorf("acquire: %w", &AttemptLockedError{RetryAfter: 4})
+	}
+	repository := &fakeRepository{redeemFn: func(context.Context, int64, string) (*RedemptionFact, error) {
+		t.Fatal("repository called")
+		return nil, nil
+	}}
+	_, appErr := NewService(repository, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.HTTPStatus != http.StatusTooManyRequests || appErr.TemplateData["retry_after"] != 4 {
 		t.Fatalf("error=%+v", appErr)
 	}
 }

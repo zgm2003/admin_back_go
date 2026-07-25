@@ -341,7 +341,8 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 	const platform = "admin"
 	lease, err := service.limiter.Acquire(requestCtx, platform, userID)
 	if err != nil {
-		if locked, ok := err.(*AttemptLockedError); ok {
+		var locked *AttemptLockedError
+		if errors.As(err, &locked) {
 			return nil, walletRateLimited(locked.RetryAfter)
 		}
 		if errors.Is(err, ErrAttemptLocked) {
@@ -350,7 +351,7 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 		if errors.Is(err, errLimiterUnavailable) {
 			return nil, walletRateDependency(err)
 		}
-		return nil, walletDependency(err)
+		return nil, walletRateDependency(err)
 	}
 
 	attemptCtx, cancel := context.WithTimeout(requestCtx, attemptTimeout)
@@ -363,11 +364,11 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 	state, err := service.limiter.FailureState(attemptCtx, platform, userID)
 	if err != nil {
 		_ = release()
-		return nil, walletDependency(err)
+		return nil, walletRateDependency(err)
 	}
 	if state.Count >= failureLimit {
 		if releaseErr := release(); releaseErr != nil {
-			return nil, walletDependency(releaseErr)
+			return nil, walletRateDependency(releaseErr)
 		}
 		return nil, walletRateLimited(failureRetryAfter(state))
 	}
@@ -377,7 +378,7 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 		defer cleanupCancel()
 		if _, recordErr := service.limiter.RecordFailure(cleanupCtx, platform, userID); recordErr != nil {
 			_ = release()
-			return walletDependency(recordErr)
+			return walletRateDependency(recordErr)
 		}
 		return nil
 	}
@@ -385,7 +386,7 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 	repository, appErr := service.requireRepository()
 	if appErr != nil {
 		if releaseErr := release(); releaseErr != nil {
-			return nil, walletDependency(releaseErr)
+			return nil, walletRateDependency(releaseErr)
 		}
 		return nil, walletDependency(nil)
 	}
@@ -394,7 +395,7 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 			return nil, recordErr
 		}
 		if releaseErr := release(); releaseErr != nil {
-			return nil, walletDependency(releaseErr)
+			return nil, walletRateDependency(releaseErr)
 		}
 		return nil, newAppError(ErrorWalletCodeRequired, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "请输入兑换码", nil)
 	}
@@ -405,7 +406,7 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 			return nil, recordErr
 		}
 		if releaseErr := release(); releaseErr != nil {
-			return nil, walletDependency(releaseErr)
+			return nil, walletRateDependency(releaseErr)
 		}
 		return nil, walletUnavailable()
 	}
@@ -443,14 +444,14 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 			}
 		}
 		if releaseErr := release(); releaseErr != nil {
-			return nil, walletDependency(releaseErr)
+			return nil, walletRateDependency(releaseErr)
 		}
 		return nil, responseErr
 	}
 	if !validRedemptionFact(fact, userID) {
 		service.metrics.redemption("error", "integrity", elapsed)
 		if releaseErr := release(); releaseErr != nil {
-			return nil, walletDependency(releaseErr)
+			return nil, walletRateDependency(releaseErr)
 		}
 		return nil, walletIntegrity(nil)
 	}
@@ -496,62 +497,6 @@ func failureRetryAfter(state FailureState) int {
 		return state.RetryAfter
 	}
 	return retryAfter(state.TTL)
-}
-
-func (service *Service) redeemUnlocked(ctx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
-	repository, appErr := service.requireRepository()
-	if appErr != nil {
-		return nil, walletDependency(nil)
-	}
-	if strings.TrimSpace(rawCode) == "" {
-		return nil, newAppError(ErrorWalletCodeRequired, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "请输入兑换码", nil)
-	}
-	code, err := NormalizeCode(rawCode)
-	if err != nil {
-		service.metrics.redemption("unavailable", "invalid", 0)
-		return nil, walletUnavailable()
-	}
-	started := time.Now()
-	fact, err := repository.Redeem(ctx, userID, code)
-	elapsed := time.Since(started)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrExpired):
-			service.metrics.codes(1, StateExpired)
-			service.metrics.redemption("unavailable", "expired", elapsed)
-			return nil, walletUnavailable()
-		case errors.Is(err, ErrUnavailable):
-			service.metrics.redemption("unavailable", "unavailable", elapsed)
-			return nil, walletUnavailable()
-		case errors.Is(err, ErrSourceConflict):
-			service.metrics.conflict("redeem", "source_unique")
-			service.metrics.redemption("error", "source_unique", elapsed)
-			return nil, walletIntegrity(nil)
-		case errors.Is(err, ErrOverflow):
-			service.metrics.redemption("rejected", "wallet_overflow", elapsed)
-			return nil, walletIntegrity(nil)
-		case errors.Is(err, ErrIntegrityViolation):
-			service.metrics.redemption("error", "integrity", elapsed)
-			return nil, walletIntegrity(nil)
-		default:
-			service.metrics.redemption("error", "dependency", elapsed)
-			return nil, walletDependency(err)
-		}
-	}
-	if !validRedemptionFact(fact, userID) {
-		service.metrics.redemption("error", "integrity", elapsed)
-		return nil, walletIntegrity(nil)
-	}
-	outcome := "ok"
-	reason := "created"
-	if fact.Replayed {
-		outcome, reason = "replayed", "replayed"
-	} else {
-		service.metrics.codes(1, StateUsed)
-		service.metrics.transition(1, StateUsed, "created")
-	}
-	service.metrics.redemption(outcome, reason, elapsed)
-	return redemptionResponse(fact), nil
 }
 
 type normalizedGenerate struct {
