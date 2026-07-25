@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/money"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -233,20 +235,14 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 			First(&recharge).Error; err != nil {
 			return err
 		}
-		wallet, err := lockWalletForUpdate(tx, recharge.UserID)
+		units, err := money.CentsToUnits(recharge.AmountCents)
 		if err != nil {
-			return err
-		}
-		var existing int64
-		if err := tx.Model(&WalletTransaction{}).
-			Where("source_type = ? AND source_id = ? AND is_del = ?", walletSourceRecharge, recharge.ID, enum.CommonNo).
-			Count(&existing).Error; err != nil {
 			return err
 		}
 		if recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed {
 			return ErrPaymentStateChanged
 		}
-		if existing > 0 || recharge.CreditedAt != nil || recharge.Status == rechargeStatusCredited {
+		if recharge.CreditedAt != nil || recharge.Status == rechargeStatusCredited {
 			if recharge.Status != rechargeStatusCredited {
 				updates := map[string]any{
 					"status":         rechargeStatusCredited,
@@ -266,51 +262,30 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 				recharge.Status = rechargeStatusCredited
 				recharge.FailureReason = ""
 			}
-			creditedWallet = *wallet
 			creditedRecharge = recharge
 			return nil
 		}
-		if recharge.Status != rechargeStatusPending && recharge.Status != rechargeStatusPaying && recharge.Status != rechargeStatusPaid {
+		if r.walletParticipant == nil {
+			return ErrRepositoryNotConfigured
+		}
+		wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: recharge.UserID, RechargeID: recharge.ID, AmountUnits: units, Remark: "支付宝充值"})
+		if err != nil {
+			return err
+		}
+		if wallet != nil {
+			creditedWallet = Wallet{ID: wallet.ID, UserID: wallet.UserID, BalanceUnits: wallet.BalanceUnits, TotalRechargeUnits: wallet.TotalRechargeUnits, TotalConsumeUnits: wallet.TotalConsumeUnits, HeldUnits: wallet.HeldUnits, IsDel: wallet.IsDel, CreatedAt: wallet.CreatedAt, UpdatedAt: wallet.UpdatedAt}
+		}
+		if transaction == nil {
 			return ErrPaymentStateChanged
 		}
-		before := wallet.BalanceCents
-		after := before + recharge.AmountCents
-		txRow := WalletTransaction{
-			TransactionNo:      newWalletTransactionNo(now),
-			WalletID:           wallet.ID,
-			UserID:             recharge.UserID,
-			Direction:          walletDirectionIn,
-			AmountCents:        recharge.AmountCents,
-			BalanceBeforeCents: before,
-			BalanceAfterCents:  after,
-			SourceType:         walletSourceRecharge,
-			SourceID:           recharge.ID,
-			Remark:             "支付宝充值",
-			IsDel:              enum.CommonNo,
-		}
-		if err := createWalletTransactionWithNumberRetry(tx, &txRow, now); err != nil {
-			return err
-		}
-		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{
-			"balance_cents":        after,
-			"total_recharge_cents": wallet.TotalRechargeCents + recharge.AmountCents,
-		}).Error; err != nil {
-			return err
-		}
 		if err := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(map[string]any{
-			"status":         rechargeStatusCredited,
-			"paid_at":        paidAt,
-			"credited_at":    now,
-			"failure_reason": "",
+			"status": rechargeStatusCredited, "paid_at": paidAt, "credited_at": now, "failure_reason": "",
 		}).Error; err != nil {
 			return err
 		}
-		wallet.BalanceCents = after
-		wallet.TotalRechargeCents += recharge.AmountCents
 		recharge.Status = rechargeStatusCredited
 		recharge.PaidAt = &paidAt
 		recharge.CreditedAt = &now
-		creditedWallet = *wallet
 		creditedRecharge = recharge
 		return nil
 	})

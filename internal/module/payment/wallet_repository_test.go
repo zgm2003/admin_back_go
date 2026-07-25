@@ -25,7 +25,7 @@ func TestGetOrCreateWalletReturnsExistingOnDuplicateUserWallet(t *testing.T) {
 		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry '7' for key 'uk_user_wallet_user'"))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ?")).
 		WithArgs(int64(7), enum.CommonNo, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_cents", "total_recharge_cents", "total_consume_cents", "is_del", "created_at", "updated_at"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_units", "total_recharge_units", "total_consume_units", "is_del", "created_at", "updated_at"}).
 			AddRow(int64(1), int64(7), int64(0), int64(0), int64(0), enum.CommonNo, now, now))
 
 	wallet, err := repo.GetOrCreateWallet(context.Background(), 7)

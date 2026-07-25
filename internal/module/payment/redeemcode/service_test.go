@@ -294,12 +294,12 @@ func TestServiceRedeemMapsFactsAndStableDomainErrors(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{redeemFact: &RedemptionFact{
 		AmountCents: 250, Replayed: true,
-		Transaction: &wallet.Transaction{ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn, AmountCents: 250, BalanceBeforeCents: 100, BalanceAfterCents: 350, SourceType: wallet.SourceRedeemCode, SourceID: 8, IsDel: enum.CommonNo, CreatedAt: now},
-		Wallet:      &wallet.Wallet{ID: 4, UserID: 7, BalanceCents: 500, TotalRechargeCents: 400, TotalConsumeCents: 20, IsDel: enum.CommonNo},
+		Transaction: &wallet.Transaction{ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn, AmountUnits: 250_000_000, BalanceBeforeUnits: 100_000_000, BalanceAfterUnits: 350_000_000, SourceType: wallet.SourceRedeemCode, SourceID: 8, IsDel: enum.CommonNo, CreatedAt: now},
+		Wallet:      &wallet.Wallet{ID: 4, UserID: 7, BalanceUnits: 500_000_000, TotalRechargeUnits: 400_000_000, TotalConsumeUnits: 20_000_000, IsDel: enum.CommonNo},
 	}}
 	service := NewService(repository, WithAttemptLimiter(newAllowAttemptLimiter()))
 	response, appErr := service.Redeem(context.Background(), 7, "admin", "zhr 2345 6789 abcd efgh jkmn")
-	if appErr != nil || response.Amount != "2.50" || !response.Replayed || response.Transaction.TransactionNo != "WLT1" || response.Wallet.BalanceText != "5.00" {
+	if appErr != nil || response.Amount != "2.5" || !response.Replayed || response.Transaction.TransactionNo != "WLT1" || response.Wallet.Balance != "5" {
 		t.Fatalf("response=%+v error=%+v", response, appErr)
 	}
 

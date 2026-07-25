@@ -6,9 +6,6 @@ import "time"
 type Wallet struct {
 	ID                 int64     `gorm:"column:id;primaryKey"`
 	UserID             int64     `gorm:"column:user_id"`
-	BalanceCents       int64     `gorm:"column:balance_cents"`
-	TotalRechargeCents int64     `gorm:"column:total_recharge_cents"`
-	TotalConsumeCents  int64     `gorm:"column:total_consume_cents"`
 	BalanceUnits       int64     `gorm:"column:balance_units"`
 	TotalRechargeUnits int64     `gorm:"column:total_recharge_units"`
 	TotalConsumeUnits  int64     `gorm:"column:total_consume_units"`
@@ -20,7 +17,7 @@ type Wallet struct {
 
 func (Wallet) TableName() string { return "user_wallets" }
 
-// Transaction maps wallet_transactions. AmountCents is always positive;
+// Transaction maps wallet_transactions. AmountUnits is always positive;
 // Direction tells whether the money moves in or out.
 type Transaction struct {
 	ID                 int64     `gorm:"column:id;primaryKey"`
@@ -28,9 +25,6 @@ type Transaction struct {
 	WalletID           int64     `gorm:"column:wallet_id"`
 	UserID             int64     `gorm:"column:user_id"`
 	Direction          string    `gorm:"column:direction"`
-	AmountCents        int64     `gorm:"column:amount_cents"`
-	BalanceBeforeCents int64     `gorm:"column:balance_before_cents"`
-	BalanceAfterCents  int64     `gorm:"column:balance_after_cents"`
 	AmountUnits        int64     `gorm:"column:amount_units"`
 	BalanceBeforeUnits int64     `gorm:"column:balance_before_units"`
 	BalanceAfterUnits  int64     `gorm:"column:balance_after_units"`
@@ -59,3 +53,18 @@ type TransactionWithUser struct {
 	Phone    string `gorm:"column:phone"`
 	Email    string `gorm:"column:email"`
 }
+
+// Hold is the immutable Run-level reservation state.
+type Hold struct {
+	ID            int64     `gorm:"column:id;primaryKey"`
+	WalletID      int64     `gorm:"column:wallet_id"`
+	UserID        int64     `gorm:"column:user_id"`
+	RunID         int64     `gorm:"column:run_id"`
+	HeldUnits     int64     `gorm:"column:held_units"`
+	CapturedUnits int64     `gorm:"column:captured_units"`
+	Status        string    `gorm:"column:status"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
+}
+
+func (Hold) TableName() string { return "wallet_holds" }

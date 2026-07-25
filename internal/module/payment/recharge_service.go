@@ -9,6 +9,7 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/money"
 )
 
 const defaultRechargeRecentLimit = 5
@@ -319,13 +320,20 @@ func walletSummary(wallet *Wallet) WalletSummary {
 		return WalletSummary{}
 	}
 	return WalletSummary{
-		BalanceCents:       wallet.BalanceCents,
-		BalanceText:        amountText(wallet.BalanceCents),
-		TotalRechargeCents: wallet.TotalRechargeCents,
-		TotalRechargeText:  amountText(wallet.TotalRechargeCents),
-		TotalConsumeCents:  wallet.TotalConsumeCents,
-		TotalConsumeText:   amountText(wallet.TotalConsumeCents),
+		Balance:          formatWalletUnits(wallet.BalanceUnits),
+		AvailableBalance: formatWalletAvailable(wallet.BalanceUnits, wallet.HeldUnits),
+		HeldAmount:       formatWalletUnits(wallet.HeldUnits),
+		TotalRecharge:    formatWalletUnits(wallet.TotalRechargeUnits),
+		TotalConsume:     formatWalletUnits(wallet.TotalConsumeUnits),
 	}
+}
+
+func formatWalletUnits(units int64) string { value, _ := money.FormatRMBUnits(units); return value }
+func formatWalletAvailable(balance, held int64) string {
+	if balance < held {
+		return ""
+	}
+	return formatWalletUnits(balance - held)
 }
 
 func rechargeListItems(rows []RechargeWithOrder) []RechargeListItem {

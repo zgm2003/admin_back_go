@@ -131,10 +131,10 @@ func validTelemetryRedemptionFact() *RedemptionFact {
 		AmountCents: 100,
 		Transaction: &wallet.Transaction{
 			ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn,
-			AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100,
+			AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000,
 			SourceType: wallet.SourceRedeemCode, SourceID: 20, Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: now,
 		},
-		Wallet: &wallet.Wallet{ID: 4, UserID: 7, BalanceCents: 100, TotalRechargeCents: 100, IsDel: enum.CommonNo},
+		Wallet: &wallet.Wallet{ID: 4, UserID: 7, BalanceUnits: 100_000_000, TotalRechargeUnits: 100_000_000, IsDel: enum.CommonNo},
 	}
 }
 

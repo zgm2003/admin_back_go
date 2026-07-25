@@ -15,7 +15,7 @@ func TestServiceSummaryCreatesZeroWallet(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("Summary error=%v", appErr)
 	}
-	if result.BalanceCents != 0 || result.TotalRechargeCents != 0 || result.TotalConsumeCents != 0 {
+	if result.Balance != "0" || result.TotalRecharge != "0" || result.TotalConsume != "0" {
 		t.Fatalf("unexpected summary=%#v", result)
 	}
 	if repo.wallet.UserID != 7 {
@@ -27,7 +27,7 @@ func TestServiceDebitRejectsInvalidAmount(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountCents: 0, SourceType: SourceAIGenerate, SourceID: 88})
+	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 0, SourceType: SourceAIGenerate, SourceID: 88})
 	if appErr == nil || appErr.MessageID != "wallet.debit.amount.invalid" {
 		t.Fatalf("expected debit amount invalid keyed error, got %v", appErr)
 	}
@@ -40,7 +40,7 @@ func TestServiceDebitRejectsInvalidSourceType(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: "manual", SourceID: 88})
+	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: "manual", SourceID: 88})
 	if appErr == nil || appErr.MessageID != "wallet.debit.source_type.invalid" {
 		t.Fatalf("expected debit source_type invalid keyed error, got %v", appErr)
 	}
@@ -53,7 +53,7 @@ func TestServiceDebitRejectsInsufficientBalanceWithoutTransaction(t *testing.T) 
 	repo := &fakeRepo{debitErr: ErrInsufficientBalance}
 	service := NewService(repo)
 
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceAIGenerate, SourceID: 88})
+	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88})
 	if appErr == nil || appErr.MessageID != "wallet.debit.insufficient_balance" {
 		t.Fatalf("expected debit insufficient balance keyed error, got %v", appErr)
 	}
@@ -68,19 +68,19 @@ func TestServiceDebitRejectsInsufficientBalanceWithoutTransaction(t *testing.T) 
 func TestServiceDebitWritesAIGenerateOutTransaction(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepo{
-		wallet:           Wallet{ID: 1, UserID: 7, BalanceCents: 900, TotalRechargeCents: 1000, TotalConsumeCents: 100},
-		debitTransaction: Transaction{ID: 9, TransactionNo: "WLT20260530120000000001", WalletID: 1, UserID: 7, Direction: DirectionOut, AmountCents: 100, BalanceBeforeCents: 1000, BalanceAfterCents: 900, SourceType: SourceAIGenerate, SourceID: 88, Remark: "billing", CreatedAt: now},
+		wallet:           Wallet{ID: 1, UserID: 7, BalanceUnits: 900, TotalRechargeUnits: 1000, TotalConsumeUnits: 100},
+		debitTransaction: Transaction{ID: 9, TransactionNo: "WLT20260530120000000001", WalletID: 1, UserID: 7, Direction: DirectionOut, AmountUnits: 100, BalanceBeforeUnits: 1000, BalanceAfterUnits: 900, SourceType: SourceAIGenerate, SourceID: 88, Remark: "billing", CreatedAt: now},
 	}
 	service := NewService(repo)
 
-	result, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceAIGenerate, SourceID: 88, Remark: " billing "})
+	result, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88, Remark: " billing "})
 	if appErr != nil {
 		t.Fatalf("Debit error=%v", appErr)
 	}
 	if result.Transaction.Direction != DirectionOut || result.Transaction.SourceType != SourceAIGenerate || result.Transaction.SourceID != 88 {
 		t.Fatalf("expected ai_generate debit out transaction, got %#v", result.Transaction)
 	}
-	if result.Wallet.BalanceCents != 900 || result.Wallet.TotalConsumeCents != 100 {
+	if result.Wallet.Balance != "0.000009" || result.Wallet.TotalConsume != "0.000001" {
 		t.Fatalf("unexpected wallet=%#v", result.Wallet)
 	}
 	if repo.debitInput.Remark != "billing" {
@@ -88,26 +88,13 @@ func TestServiceDebitWritesAIGenerateOutTransaction(t *testing.T) {
 	}
 }
 
-func TestServiceCreditWritesAIRefundInTransaction(t *testing.T) {
-	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	repo := &fakeRepo{
-		wallet:            Wallet{ID: 1, UserID: 7, BalanceCents: 1100, TotalRechargeCents: 1000, TotalConsumeCents: 100},
-		creditTransaction: Transaction{ID: 10, TransactionNo: "WLT20260530120000000002", WalletID: 1, UserID: 7, Direction: DirectionIn, AmountCents: 100, BalanceBeforeCents: 1000, BalanceAfterCents: 1100, SourceType: SourceAIRefund, SourceID: 88, Remark: "refund", CreatedAt: now},
-	}
+func TestServiceCreditRejectsUnsupportedSource(t *testing.T) {
+	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	result, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceAIRefund, SourceID: 88, Remark: " refund "})
-	if appErr != nil {
-		t.Fatalf("Credit error=%v", appErr)
-	}
-	if result.Transaction.Direction != DirectionIn || result.Transaction.SourceType != SourceAIRefund || result.Transaction.SourceID != 88 {
-		t.Fatalf("expected ai_refund credit in transaction, got %#v", result.Transaction)
-	}
-	if result.Wallet.BalanceCents != 1100 || result.Wallet.TotalConsumeCents != 100 {
-		t.Fatalf("credit must not decrement total_consume_cents, wallet=%#v", result.Wallet)
-	}
-	if repo.creditInput.Remark != "refund" {
-		t.Fatalf("expected trimmed remark, got %q", repo.creditInput.Remark)
+	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: "unsupported", SourceID: 88})
+	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" || repo.creditCalled {
+		t.Fatalf("unsupported credit must be rejected, appErr=%v called=%v", appErr, repo.creditCalled)
 	}
 }
 
@@ -115,7 +102,7 @@ func TestServiceCreditRejectsRechargeSourceType(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceRecharge, SourceID: 88})
+	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceRecharge, SourceID: 88})
 	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" {
 		t.Fatalf("expected credit source_type invalid keyed error, got %v", appErr)
 	}
@@ -128,7 +115,7 @@ func TestServiceCreditRejectsRedeemCodeSourceType(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceRedeemCode, SourceID: 88})
+	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceRedeemCode, SourceID: 88})
 	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" {
 		t.Fatalf("expected credit source_type invalid keyed error, got %v", appErr)
 	}
@@ -143,22 +130,6 @@ func TestServiceRedeemCodeSourceTypeText(t *testing.T) {
 	}
 }
 
-func TestServiceCreditReturnsExistingTransactionForSameSource(t *testing.T) {
-	repo := &fakeRepo{
-		wallet:            Wallet{ID: 1, UserID: 7, BalanceCents: 1100, TotalRechargeCents: 1000, TotalConsumeCents: 100},
-		creditTransaction: Transaction{ID: 10, TransactionNo: "WLT20260530120000000002", WalletID: 1, UserID: 7, Direction: DirectionIn, AmountCents: 100, BalanceBeforeCents: 1000, BalanceAfterCents: 1100, SourceType: SourceAIRefund, SourceID: 88, Remark: "already refunded"},
-	}
-	service := NewService(repo)
-
-	result, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountCents: 100, SourceType: SourceAIRefund, SourceID: 88})
-	if appErr != nil {
-		t.Fatalf("Credit error=%v", appErr)
-	}
-	if result.Transaction.ID != 10 || result.Transaction.SourceType != SourceAIRefund || result.Transaction.SourceID != 88 {
-		t.Fatalf("expected existing same-source credit transaction, got %#v", result.Transaction)
-	}
-}
-
 func TestWalletDictExposesOnlyCurrentContractSourceTypes(t *testing.T) {
 	dict := walletDict()
 	values := make([]string, 0, len(dict.SourceTypeArr))
@@ -169,7 +140,7 @@ func TestWalletDictExposesOnlyCurrentContractSourceTypes(t *testing.T) {
 		}
 	}
 
-	want := []string{SourceRecharge, SourceAIGenerate, SourceAIRefund, SourceRedeemCode}
+	want := []string{SourceRecharge, SourceAIGenerate, "unsupported", SourceRedeemCode}
 	if len(values) != len(want) {
 		t.Fatalf("unexpected source type count, got=%#v want=%#v", values, want)
 	}
@@ -184,7 +155,7 @@ func TestServiceMutationRejectsSameSourceOwnedByAnotherUser(t *testing.T) {
 	repo := &fakeRepo{debitErr: ErrMutationSourceOwnerMismatch}
 	service := NewService(repo)
 
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 8, AmountCents: 100, SourceType: SourceAIGenerate, SourceID: 88})
+	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 8, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88})
 	if appErr == nil || appErr.MessageID != "wallet.mutation.source_id.owner_mismatch" {
 		t.Fatalf("expected mutation source owner mismatch keyed error, got %v", appErr)
 	}
@@ -192,8 +163,8 @@ func TestServiceMutationRejectsSameSourceOwnedByAnotherUser(t *testing.T) {
 
 func TestServiceListsNormalizeFilters(t *testing.T) {
 	repo := &fakeRepo{
-		transactions: []TransactionWithUser{{Transaction: Transaction{ID: 1, Direction: DirectionIn, SourceType: SourceRecharge, AmountCents: 1234, CreatedAt: time.Date(2026, 5, 21, 1, 2, 3, 0, time.UTC)}, Username: "u1", Phone: "15671628271"}},
-		wallets:      []WalletWithUser{{Wallet: Wallet{ID: 2, UserID: 7, BalanceCents: 1234, UpdatedAt: time.Date(2026, 5, 21, 1, 2, 3, 0, time.UTC)}, Username: "u1", Phone: "15671628271"}},
+		transactions: []TransactionWithUser{{Transaction: Transaction{ID: 1, Direction: DirectionIn, SourceType: SourceRecharge, AmountUnits: 1234, CreatedAt: time.Date(2026, 5, 21, 1, 2, 3, 0, time.UTC)}, Username: "u1", Phone: "15671628271"}},
+		wallets:      []WalletWithUser{{Wallet: Wallet{ID: 2, UserID: 7, BalanceUnits: 1234, UpdatedAt: time.Date(2026, 5, 21, 1, 2, 3, 0, time.UTC)}, Username: "u1", Phone: "15671628271"}},
 	}
 	service := NewService(repo)
 
@@ -201,7 +172,7 @@ func TestServiceListsNormalizeFilters(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("Transactions error=%v", appErr)
 	}
-	if txs.Page.CurrentPage != 1 || txs.Page.PageSize != maxPageSize || txs.List[0].AmountText != "12.34" || repo.transactionQuery.Keyword != "u" {
+	if txs.Page.CurrentPage != 1 || txs.Page.PageSize != maxPageSize || txs.List[0].Amount != "0.00001234" || repo.transactionQuery.Keyword != "u" {
 		t.Fatalf("unexpected transaction list=%#v query=%#v", txs, repo.transactionQuery)
 	}
 

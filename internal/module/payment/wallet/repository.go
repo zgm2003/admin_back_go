@@ -18,6 +18,7 @@ import (
 
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
+var ErrInvalidMutationAmount = errors.New("wallet mutation amount invalid")
 var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
 var ErrRedeemCodeTransactionRequired = errors.New("wallet redeem code outer transaction required")
 var ErrRedeemCodeInvalidInput = errors.New("wallet redeem code invalid input")
@@ -47,12 +48,37 @@ type TransactionParticipant interface {
 	CreditRedeemCodeInTx(context.Context, *gorm.DB, RedeemCodeCreditInput, time.Time) (*Wallet, *Transaction, error)
 }
 
+type RechargeTransactionParticipant interface {
+	CreditRechargeInTx(context.Context, *gorm.DB, CreditRechargeInput) (*Wallet, *Transaction, error)
+}
+
+type PaymentParticipant interface {
+	RechargeTransactionParticipant
+	GetOrCreateWallet(context.Context, int64) (*Wallet, error)
+	GetWallet(context.Context, int64) (*Wallet, error)
+}
+
+type HoldParticipant interface {
+	ReserveHoldInTx(context.Context, *gorm.DB, ReserveHoldInput) (*Hold, error)
+	TopUpHoldInTx(context.Context, *gorm.DB, TopUpHoldInput) (*Hold, error)
+	CaptureHoldInTx(context.Context, *gorm.DB, CaptureHoldInput) (*Wallet, *Transaction, error)
+	ReleaseHoldInTx(context.Context, *gorm.DB, ReleaseHoldInput) (*Hold, error)
+}
+
 type RetryTransactionParticipant interface {
 	TransactionParticipant
 	CreditRedeemCodeWithIdentityInTx(context.Context, *gorm.DB, RedeemCodeCreditInput, *RedeemCodeCreditIdentity, time.Time) (*Wallet, *Transaction, error)
 }
 
 type GormRepository struct{ db *gorm.DB }
+
+// NewGormRepositoryFromDB binds the wallet participant to an existing process transaction source.
+func NewGormRepositoryFromDB(db *gorm.DB) *GormRepository {
+	if db == nil {
+		return nil
+	}
+	return &GormRepository{db: db}
+}
 
 func NewGormRepository(client *database.Client) *GormRepository {
 	if client == nil || client.Gorm == nil {
@@ -66,6 +92,18 @@ func (r *GormRepository) GetOrCreateWallet(ctx context.Context, userID int64) (*
 		return nil, ErrRepositoryNotConfigured
 	}
 	return getOrCreateWallet(ctx, r.db, userID)
+}
+
+func (r *GormRepository) GetWallet(ctx context.Context, userID int64) (*Wallet, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var wallet Wallet
+	err := r.db.WithContext(ctx).Where("user_id = ? AND is_del = ?", userID, enum.CommonNo).First(&wallet).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &wallet, err
 }
 
 func (r *GormRepository) ListTransactions(ctx context.Context, query TransactionListQuery) ([]TransactionWithUser, int64, error) {
@@ -201,7 +239,7 @@ func (r *GormRepository) CreditRedeemCodeWithIdentityInTx(ctx context.Context, t
 		return nil, nil, ErrRedeemCodeCreditIdentityInvalid
 	}
 	input = normalizeRedeemCodeCreditInput(input)
-	if input.UserID <= 0 || input.CodeID <= 0 || input.AmountCents <= 0 || input.BatchNo == "" {
+	if input.UserID <= 0 || input.CodeID <= 0 || input.AmountUnits <= 0 || input.BatchNo == "" {
 		return nil, nil, ErrRedeemCodeInvalidInput
 	}
 	if ctx == nil {
@@ -224,23 +262,23 @@ func (r *GormRepository) CreditRedeemCodeWithIdentityInTx(ctx context.Context, t
 	if err != nil {
 		return nil, nil, err
 	}
-	if wallet.BalanceCents > math.MaxInt64-input.AmountCents {
+	if wallet.BalanceUnits > math.MaxInt64-input.AmountUnits {
 		return nil, nil, ErrRedeemCodeBalanceOverflow
 	}
-	if wallet.TotalRechargeCents > math.MaxInt64-input.AmountCents {
+	if wallet.TotalRechargeUnits > math.MaxInt64-input.AmountUnits {
 		return nil, nil, ErrRedeemCodeTotalRechargeOverflow
 	}
-	balanceAfter := wallet.BalanceCents + input.AmountCents
-	totalRechargeAfter := wallet.TotalRechargeCents + input.AmountCents
+	balanceAfter := wallet.BalanceUnits + input.AmountUnits
+	totalRechargeAfter := wallet.TotalRechargeUnits + input.AmountUnits
 
 	transaction := Transaction{
 		TransactionNo:      identity.TransactionNo(),
 		WalletID:           wallet.ID,
 		UserID:             input.UserID,
 		Direction:          DirectionIn,
-		AmountCents:        input.AmountCents,
-		BalanceBeforeCents: wallet.BalanceCents,
-		BalanceAfterCents:  balanceAfter,
+		AmountUnits:        input.AmountUnits,
+		BalanceBeforeUnits: wallet.BalanceUnits,
+		BalanceAfterUnits:  balanceAfter,
 		SourceType:         SourceRedeemCode,
 		SourceID:           input.CodeID,
 		Remark:             input.BatchNo,
@@ -255,15 +293,15 @@ func (r *GormRepository) CreditRedeemCodeWithIdentityInTx(ctx context.Context, t
 
 	result := tx.Model(&Wallet{}).
 		Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).
-		Updates(map[string]any{"balance_cents": balanceAfter, "total_recharge_cents": totalRechargeAfter})
+		Updates(map[string]any{"balance_units": balanceAfter, "total_recharge_units": totalRechargeAfter})
 	if result.Error != nil {
 		return nil, nil, result.Error
 	}
 	if result.RowsAffected != 1 {
 		return nil, nil, ErrRedeemCodeWalletIntegrity
 	}
-	wallet.BalanceCents = balanceAfter
-	wallet.TotalRechargeCents = totalRechargeAfter
+	wallet.BalanceUnits = balanceAfter
+	wallet.TotalRechargeUnits = totalRechargeAfter
 	return wallet, &transaction, nil
 }
 
@@ -384,6 +422,9 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 	if r == nil || r.db == nil {
 		return nil, nil, ErrRepositoryNotConfigured
 	}
+	if input.UserID <= 0 || input.AmountUnits <= 0 || input.SourceID <= 0 {
+		return nil, nil, ErrInvalidMutationAmount
+	}
 	var resultWallet Wallet
 	var resultTransaction Transaction
 	var domainErr error
@@ -406,15 +447,15 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 		if err != nil {
 			return err
 		}
-		before := wallet.BalanceCents
-		after := before + input.AmountCents
+		before := wallet.BalanceUnits
+		after := before + input.AmountUnits
 		if direction == DirectionOut {
-			if before < input.AmountCents {
+			if before < input.AmountUnits {
 				resultWallet = *wallet
 				domainErr = ErrInsufficientBalance
 				return nil
 			}
-			after = before - input.AmountCents
+			after = before - input.AmountUnits
 		}
 
 		txRow := Transaction{
@@ -422,9 +463,9 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 			WalletID:           wallet.ID,
 			UserID:             input.UserID,
 			Direction:          direction,
-			AmountCents:        input.AmountCents,
-			BalanceBeforeCents: before,
-			BalanceAfterCents:  after,
+			AmountUnits:        input.AmountUnits,
+			BalanceBeforeUnits: before,
+			BalanceAfterUnits:  after,
 			SourceType:         input.SourceType,
 			SourceID:           input.SourceID,
 			Remark:             input.Remark,
@@ -449,16 +490,16 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 			return err
 		}
 
-		updates := map[string]any{"balance_cents": after}
+		updates := map[string]any{"balance_units": after}
 		if direction == DirectionOut {
-			updates["total_consume_cents"] = wallet.TotalConsumeCents + input.AmountCents
+			updates["total_consume_units"] = wallet.TotalConsumeUnits + input.AmountUnits
 		}
 		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(updates).Error; err != nil {
 			return err
 		}
-		wallet.BalanceCents = after
+		wallet.BalanceUnits = after
 		if direction == DirectionOut {
-			wallet.TotalConsumeCents += input.AmountCents
+			wallet.TotalConsumeUnits += input.AmountUnits
 		}
 		resultWallet = *wallet
 		resultTransaction = txRow

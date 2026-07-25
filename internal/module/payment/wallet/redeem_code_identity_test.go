@@ -12,7 +12,7 @@ func TestRedeemCodeCreditInputHasOriginalFourPublicFields(t *testing.T) {
 	if typeOfInput.NumField() != 4 {
 		t.Fatalf("RedeemCodeCreditInput field count=%d want 4", typeOfInput.NumField())
 	}
-	want := []string{"UserID", "CodeID", "AmountCents", "BatchNo"}
+	want := []string{"UserID", "CodeID", "AmountUnits", "BatchNo"}
 	for index, name := range want {
 		field := typeOfInput.Field(index)
 		if field.Name != name || field.PkgPath != "" {
@@ -22,7 +22,7 @@ func TestRedeemCodeCreditInputHasOriginalFourPublicFields(t *testing.T) {
 }
 
 func TestNewRedeemCodeCreditIdentityIsOpaqueAndInitialized(t *testing.T) {
-	input := RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "  RCB202607240001  "}
+	input := RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountUnits: 100, BatchNo: "  RCB202607240001  "}
 	identity := NewRedeemCodeCreditIdentity(input, time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC))
 	if identity == nil || identity.TransactionNo() == "" {
 		t.Fatalf("constructor returned uninitialized identity=%#v", identity)
@@ -49,7 +49,7 @@ func TestNewRedeemCodeCreditIdentityIsOpaqueAndInitialized(t *testing.T) {
 }
 
 func TestRedeemCodeCreditIdentityRejectsStructuralCopyAndSupportsConcurrentReads(t *testing.T) {
-	input := RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountCents: 100, BatchNo: "RCB202607240001"}
+	input := RedeemCodeCreditInput{UserID: 7, CodeID: 88, AmountUnits: 100, BatchNo: "RCB202607240001"}
 	identity := NewRedeemCodeCreditIdentity(input, time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC))
 	transactionNo := identity.TransactionNo()
 	copied := *identity

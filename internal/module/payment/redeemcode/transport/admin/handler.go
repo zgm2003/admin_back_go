@@ -219,9 +219,7 @@ func redemptionView(result *redeemcode.RedemptionResponse) any {
 		Amount: result.Amount, Wallet: result.Wallet, Replayed: result.Replayed,
 		Transaction: redemptionTransaction{
 			TransactionNo: transaction.TransactionNo, Direction: transaction.Direction, DirectionText: transaction.DirectionText,
-			AmountCents: transaction.AmountCents, AmountText: transaction.AmountText,
-			BalanceBeforeCents: transaction.BalanceBeforeCents, BalanceBeforeText: transaction.BalanceBeforeText,
-			BalanceAfterCents: transaction.BalanceAfterCents, BalanceAfterText: transaction.BalanceAfterText,
+			Amount: transaction.Amount, BalanceBefore: transaction.BalanceBefore, BalanceAfter: transaction.BalanceAfter,
 			SourceType: transaction.SourceType, SourceTypeText: transaction.SourceTypeText, CreatedAt: transaction.CreatedAt,
 		},
 	}

@@ -210,9 +210,9 @@ func TestRepositoryRedeemOwnUsedCodeReplaysBeforeExpiry(t *testing.T) {
 	fakeClock := &countingClock{times: []time.Time{now}}
 	repository, participant, mock, closeDB := newMockRedeemRepository(t, fakeClock)
 	defer closeDB()
-	participant.findWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceCents: 999, TotalRechargeCents: 100, IsDel: enum.CommonNo}
+	participant.findWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceUnits: 999, TotalRechargeUnits: 100_000_000, IsDel: enum.CommonNo}
 	participant.findTransaction = &wallet.Transaction{ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 8, Direction: wallet.DirectionIn,
-		AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100, SourceType: wallet.SourceRedeemCode, SourceID: 20,
+		AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000, SourceType: wallet.SourceRedeemCode, SourceID: 20,
 		Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: usedAt}
 	mock.ExpectBegin()
 	expectCodeForUpdate(mock, "ZHR-2345-6789-ABCD-EFGH-JKMN").WillReturnRows(codeRows().
@@ -221,7 +221,7 @@ func TestRepositoryRedeemOwnUsedCodeReplaysBeforeExpiry(t *testing.T) {
 		strings.Repeat("a", 64), int64(100), 1, expires, "", int64(7), usedAt, usedAt))
 	mock.ExpectCommit()
 	fact, err := repository.Redeem(context.Background(), 8, "ZHR-2345-6789-ABCD-EFGH-JKMN")
-	if err != nil || fact == nil || !fact.Replayed || fact.Wallet.BalanceCents != 999 || participant.findCalls != 1 || participant.creditCalls != 0 {
+	if err != nil || fact == nil || !fact.Replayed || fact.Wallet.BalanceUnits != 999 || participant.findCalls != 1 || participant.creditCalls != 0 {
 		t.Fatalf("Redeem=(%+v,%v) participant=%+v", fact, err, participant)
 	}
 	if fakeClock.calls != 0 {
@@ -235,9 +235,9 @@ func TestRepositoryRedeemCreditsWalletThenMarksCodeUsed(t *testing.T) {
 	expires := now.Add(time.Hour)
 	repository, participant, mock, closeDB := newMockRedeemRepository(t, clock.Func(func() time.Time { return now }))
 	defer closeDB()
-	participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceCents: 100, TotalRechargeCents: 100, IsDel: enum.CommonNo}
+	participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceUnits: 100_000_000, TotalRechargeUnits: 100_000_000, IsDel: enum.CommonNo}
 	participant.creditTransaction = &wallet.Transaction{ID: 9, WalletID: 4, UserID: 8, Direction: wallet.DirectionIn,
-		AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100, SourceType: wallet.SourceRedeemCode, SourceID: 20,
+		AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000, SourceType: wallet.SourceRedeemCode, SourceID: 20,
 		Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: now}
 	mock.ExpectBegin()
 	expectCodeForUpdate(mock, "ZHR-2345-6789-ABCD-EFGH-JKMN").WillReturnRows(codeRows().
@@ -258,9 +258,9 @@ func TestRepositoryRedeemRejectsParticipantTransactionIdentityMismatch(t *testin
 	expires := now.Add(time.Hour)
 	repository, participant, mock, closeDB := newMockRedeemRepository(t, clock.Func(func() time.Time { return now }))
 	defer closeDB()
-	participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceCents: 100, TotalRechargeCents: 100, IsDel: enum.CommonNo}
+	participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceUnits: 100_000_000, TotalRechargeUnits: 100_000_000, IsDel: enum.CommonNo}
 	participant.creditTransaction = &wallet.Transaction{ID: 9, TransactionNo: "WLT-FORGED", WalletID: 4, UserID: 8, Direction: wallet.DirectionIn,
-		AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100, SourceType: wallet.SourceRedeemCode, SourceID: 20,
+		AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000, SourceType: wallet.SourceRedeemCode, SourceID: 20,
 		Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: now}
 	mock.ExpectBegin()
 	expectCodeForUpdate(mock, "ZHR-2345-6789-ABCD-EFGH-JKMN").WillReturnRows(codeRows().
@@ -326,10 +326,10 @@ func TestRepositoryRedeemRetriesMySQLDeadlockAndLockTimeoutWithStableFundsIdenti
 			fakeClock := &countingClock{times: []time.Time{firstDecision, secondDecision}}
 			repository, participant, mock, closeDB := newMockRedeemRepository(t, fakeClock)
 			defer closeDB()
-			participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceCents: 100, TotalRechargeCents: 100, IsDel: enum.CommonNo}
+			participant.creditWallet = &wallet.Wallet{ID: 4, UserID: 8, BalanceUnits: 100_000_000, TotalRechargeUnits: 100_000_000, IsDel: enum.CommonNo}
 			participant.creditTransaction = &wallet.Transaction{
 				ID: 9, WalletID: 4, UserID: 8, Direction: wallet.DirectionIn,
-				AmountCents: 100, BalanceBeforeCents: 0, BalanceAfterCents: 100,
+				AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000,
 				SourceType: wallet.SourceRedeemCode, SourceID: 20, Remark: "RCB1", IsDel: enum.CommonNo, CreatedAt: secondDecision,
 			}
 			participant.creditFn = func(call int, input wallet.RedeemCodeCreditInput, identity *wallet.RedeemCodeCreditIdentity, _ time.Time) (*wallet.Wallet, *wallet.Transaction, error) {
@@ -365,7 +365,7 @@ func TestRepositoryRedeemRetriesMySQLDeadlockAndLockTimeoutWithStableFundsIdenti
 				t.Fatalf("credit calls=%d inputs=%+v times=%+v", participant.creditCalls, participant.creditInputs, participant.creditTimes)
 			}
 			for attempt, input := range participant.creditInputs {
-				if input.UserID != 8 || input.CodeID != 20 || input.AmountCents != 100 || input.BatchNo != "RCB1" {
+				if input.UserID != 8 || input.CodeID != 20 || input.AmountUnits != 100_000_000 || input.BatchNo != "RCB1" {
 					t.Fatalf("attempt %d changed funds identity: %+v", attempt+1, input)
 				}
 			}
@@ -383,7 +383,7 @@ func TestRepositoryRedeemRetriesMySQLDeadlockAndLockTimeoutWithStableFundsIdenti
 				!participant.creditTimes[1].Equal(secondDecision.UTC().Truncate(time.Microsecond)) {
 				t.Fatalf("decision times=%v", participant.creditTimes)
 			}
-			if fact.Transaction.SourceType != wallet.SourceRedeemCode || fact.Transaction.SourceID != 20 || fact.Transaction.AmountCents != 100 {
+			if fact.Transaction.SourceType != wallet.SourceRedeemCode || fact.Transaction.SourceID != 20 || fact.Transaction.AmountUnits != 100_000_000 {
 				t.Fatalf("committed funds identity=%+v", fact.Transaction)
 			}
 			assertSQLMock(t, mock)

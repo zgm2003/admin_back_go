@@ -8,7 +8,7 @@ import (
 type redeemCodeCreditBinding struct {
 	userID      int64
 	codeID      int64
-	amountCents int64
+	amountUnits int64
 	batchNo     string
 }
 
@@ -21,7 +21,7 @@ type RedeemCodeCreditIdentity struct {
 func NewRedeemCodeCreditIdentity(input RedeemCodeCreditInput, now time.Time) *RedeemCodeCreditIdentity {
 	input = normalizeRedeemCodeCreditInput(input)
 	identity := &RedeemCodeCreditIdentity{binding: redeemCodeCreditBinding{
-		userID: input.UserID, codeID: input.CodeID, amountCents: input.AmountCents, batchNo: input.BatchNo,
+		userID: input.UserID, codeID: input.CodeID, amountUnits: input.AmountUnits, batchNo: input.BatchNo,
 	}}
 	for index := range identity.transactionNos {
 		identity.transactionNos[index] = newTransactionNo(now)
@@ -72,7 +72,7 @@ func (identity *RedeemCodeCreditIdentity) matchesInput(input RedeemCodeCreditInp
 	}
 	input = normalizeRedeemCodeCreditInput(input)
 	return identity.binding == (redeemCodeCreditBinding{
-		userID: input.UserID, codeID: input.CodeID, amountCents: input.AmountCents, batchNo: input.BatchNo,
+		userID: input.UserID, codeID: input.CodeID, amountUnits: input.AmountUnits, batchNo: input.BatchNo,
 	})
 }
 

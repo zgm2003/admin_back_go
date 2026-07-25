@@ -79,8 +79,8 @@ func TestHandlerRedemptionResponseExcludesBatchAndIdentityFields(t *testing.T) {
 	router, service := newRedeemCodeTestRouter()
 	service.redeemResponse = &redeemcode.RedemptionResponse{
 		Amount: "2.50", Replayed: true,
-		Transaction: wallet.TransactionItem{ID: 9, TransactionNo: "WLT1", UserID: 7, Username: "admin", Account: "secret", Direction: wallet.DirectionIn, AmountCents: 250, AmountText: "2.50", BalanceBeforeCents: 100, BalanceBeforeText: "1.00", BalanceAfterCents: 350, BalanceAfterText: "3.50", SourceType: wallet.SourceRedeemCode, SourceID: 88, Remark: "RCB-SECRET", CreatedAt: "2026-07-25T00:00:00.000000Z"},
-		Wallet:      wallet.SummaryResponse{BalanceCents: 350, BalanceText: "3.50"},
+		Transaction: wallet.TransactionItem{ID: 9, TransactionNo: "WLT1", UserID: 7, Username: "admin", Account: "secret", Direction: wallet.DirectionIn, Amount: "2.50", BalanceBefore: "1.00", BalanceAfter: "3.50", SourceType: wallet.SourceRedeemCode, SourceID: 88, Remark: "RCB-SECRET", CreatedAt: "2026-07-25T00:00:00.000000Z"},
+		Wallet:      wallet.SummaryResponse{Balance: "3.50"},
 	}
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/wallet/redemptions", bytes.NewBufferString(`{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}`))

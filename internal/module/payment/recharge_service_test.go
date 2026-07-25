@@ -93,7 +93,7 @@ func TestCreateRechargeRejectsInvalidInputs(t *testing.T) {
 func TestSyncRechargeReturnsCreditedWithoutCreditingAgain(t *testing.T) {
 	repo := newFakeRechargeRepo()
 	now := fixedRechargeNow()
-	repo.wallet = &Wallet{ID: 1, UserID: 7, BalanceCents: 1000, TotalRechargeCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, BalanceUnits: 1000, TotalRechargeUnits: 1000, IsDel: enum.CommonNo}
 	repo.order = &Order{ID: 1, OrderNo: "PAY20260515100000000000", Status: orderStatusPaid, IsDel: enum.CommonNo}
 	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusCredited, AmountCents: 1000, PaidAt: &now, CreditedAt: &now, IsDel: enum.CommonNo}
 	service := newRechargeService(repo, &fakeOrderGateway{})
@@ -432,8 +432,8 @@ func (r *fakeRechargeRepo) CreditRecharge(ctx context.Context, rechargeID int64,
 		return r.wallet, r.recharge, nil
 	}
 	r.creditCount++
-	r.wallet.BalanceCents += r.recharge.AmountCents
-	r.wallet.TotalRechargeCents += r.recharge.AmountCents
+	r.wallet.BalanceUnits += r.recharge.AmountCents
+	r.wallet.TotalRechargeUnits += r.recharge.AmountCents
 	r.recharge.Status = rechargeStatusCredited
 	r.recharge.PaidAt = &paidAt
 	r.recharge.CreditedAt = &now

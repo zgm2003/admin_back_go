@@ -25,6 +25,7 @@ import (
 	exporttask "admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
 	paymentmodule "admin_back_go/internal/module/payment"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/telemetry"
@@ -297,8 +298,9 @@ func registerWorkerHandlers(
 		ObjectWriter:  providers.ObjectWriter,
 		RunRecorder:   aiRunRecorder,
 	})
+	walletRepository := walletmodule.NewGormRepository(resources.DB)
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
-		Repository:   paymentmodule.NewGormRepository(resources.DB),
+		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),
 		Gateway:      providers.PaymentGateway,
 		Secretbox:    providers.Secretbox,
 		CertResolver: providers.PaymentCertResolver,

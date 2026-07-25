@@ -7,14 +7,16 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
 )
 
 const (
-	defaultPageSize = 20
-	maxPageSize     = 100
+	defaultPageSize            = 20
+	maxPageSize                = 100
+	duplicateKeyUserWalletUser = "uk_user_wallet_user"
 )
 
 type Repository interface {
@@ -58,14 +60,43 @@ type Repository interface {
 }
 
 type GormRepository struct {
-	db *gorm.DB
+	db                *gorm.DB
+	walletParticipant walletmodule.PaymentParticipant
 }
 
-func NewGormRepository(client *database.Client) *GormRepository {
+// Deprecated aliases retained for source compatibility; payment/wallet owns persistence.
+type Wallet = walletmodule.Wallet
+type WalletTransaction = walletmodule.Transaction
+
+func NewGormRepository(client *database.Client, participants ...walletmodule.PaymentParticipant) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm}
+	var participant walletmodule.PaymentParticipant
+	if len(participants) > 0 {
+		participant = participants[0]
+	}
+	return &GormRepository{db: client.Gorm, walletParticipant: participant}
+}
+
+func (r *GormRepository) GetWallet(ctx context.Context, userID int64) (*Wallet, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if r.walletParticipant != nil {
+		return r.walletParticipant.GetWallet(ctx, userID)
+	}
+	return nil, ErrRepositoryNotConfigured
+}
+
+func (r *GormRepository) GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if r.walletParticipant != nil {
+		return r.walletParticipant.GetOrCreateWallet(ctx, userID)
+	}
+	return nil, ErrRepositoryNotConfigured
 }
 
 func (r *GormRepository) ListConfigs(ctx context.Context, query ConfigListQuery) ([]Config, int64, error) {

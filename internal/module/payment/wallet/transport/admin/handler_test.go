@@ -178,7 +178,7 @@ type fakeHTTPService struct {
 
 func (f *fakeHTTPService) Summary(ctx context.Context, userID int64) (*walletmodule.SummaryResponse, *apperror.Error) {
 	f.summaryUserID = userID
-	return &walletmodule.SummaryResponse{BalanceCents: 0, BalanceText: "0.00"}, nil
+	return &walletmodule.SummaryResponse{Balance: "0"}, nil
 }
 func (f *fakeHTTPService) Transactions(ctx context.Context, query walletmodule.TransactionListQuery) (*walletmodule.TransactionListResponse, *apperror.Error) {
 	f.transactionsQuery = query

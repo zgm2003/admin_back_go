@@ -8,8 +8,11 @@ const (
 
 	SourceRecharge   = "recharge"
 	SourceAIGenerate = "ai_generate"
-	SourceAIRefund   = "ai_refund"
 	SourceRedeemCode = "redeem_code"
+
+	HoldActive   = "active"
+	HoldCaptured = "captured"
+	HoldReleased = "released"
 
 	defaultPageSize = 20
 	maxPageSize     = 100
@@ -23,12 +26,11 @@ type Page struct {
 }
 
 type SummaryResponse struct {
-	BalanceCents       int64  `json:"balance_cents"`
-	BalanceText        string `json:"balance_text"`
-	TotalRechargeCents int64  `json:"total_recharge_cents"`
-	TotalRechargeText  string `json:"total_recharge_text"`
-	TotalConsumeCents  int64  `json:"total_consume_cents"`
-	TotalConsumeText   string `json:"total_consume_text"`
+	Balance          string `json:"balance"`
+	AvailableBalance string `json:"available_balance"`
+	HeldAmount       string `json:"held_amount"`
+	TotalRecharge    string `json:"total_recharge"`
+	TotalConsume     string `json:"total_consume"`
 }
 
 type WalletUsersPageInitResponse struct{}
@@ -59,24 +61,21 @@ type TransactionListResponse struct {
 }
 
 type TransactionItem struct {
-	ID                 int64  `json:"id"`
-	TransactionNo      string `json:"transaction_no"`
-	UserID             int64  `json:"user_id"`
-	Username           string `json:"username"`
-	Account            string `json:"account"`
-	Direction          string `json:"direction"`
-	DirectionText      string `json:"direction_text"`
-	AmountCents        int64  `json:"amount_cents"`
-	AmountText         string `json:"amount_text"`
-	BalanceBeforeCents int64  `json:"balance_before_cents"`
-	BalanceBeforeText  string `json:"balance_before_text"`
-	BalanceAfterCents  int64  `json:"balance_after_cents"`
-	BalanceAfterText   string `json:"balance_after_text"`
-	SourceType         string `json:"source_type"`
-	SourceTypeText     string `json:"source_type_text"`
-	SourceID           int64  `json:"source_id"`
-	Remark             string `json:"remark"`
-	CreatedAt          string `json:"created_at"`
+	ID             int64  `json:"id"`
+	TransactionNo  string `json:"transaction_no"`
+	UserID         int64  `json:"user_id"`
+	Username       string `json:"username"`
+	Account        string `json:"account"`
+	Direction      string `json:"direction"`
+	DirectionText  string `json:"direction_text"`
+	Amount         string `json:"amount"`
+	BalanceBefore  string `json:"balance_before"`
+	BalanceAfter   string `json:"balance_after"`
+	SourceType     string `json:"source_type"`
+	SourceTypeText string `json:"source_type_text"`
+	SourceID       int64  `json:"source_id"`
+	Remark         string `json:"remark"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type WalletUserListQuery struct {
@@ -92,32 +91,43 @@ type WalletUserListResponse struct {
 }
 
 type WalletUserItem struct {
-	ID                 int64  `json:"id"`
-	WalletID           int64  `json:"wallet_id"`
-	UserID             int64  `json:"user_id"`
-	Username           string `json:"username"`
-	Account            string `json:"account"`
-	BalanceCents       int64  `json:"balance_cents"`
-	BalanceText        string `json:"balance_text"`
-	TotalRechargeCents int64  `json:"total_recharge_cents"`
-	TotalRechargeText  string `json:"total_recharge_text"`
-	TotalConsumeCents  int64  `json:"total_consume_cents"`
-	TotalConsumeText   string `json:"total_consume_text"`
-	UpdatedAt          string `json:"updated_at"`
+	ID               int64  `json:"id"`
+	WalletID         int64  `json:"wallet_id"`
+	UserID           int64  `json:"user_id"`
+	Username         string `json:"username"`
+	Account          string `json:"account"`
+	Balance          string `json:"balance"`
+	TotalRecharge    string `json:"total_recharge"`
+	TotalConsume     string `json:"total_consume"`
+	AvailableBalance string `json:"available_balance"`
+	HeldAmount       string `json:"held_amount"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 type MutationInput struct {
 	UserID      int64
-	AmountCents int64
+	AmountUnits int64
 	SourceType  string
 	SourceID    int64
 	Remark      string
 }
 
+type ReserveHoldInput struct{ UserID, RunID, AmountUnits int64 }
+type TopUpHoldInput struct{ UserID, RunID, AmountUnits int64 }
+type CaptureHoldInput struct {
+	UserID, RunID, ActualUnits int64
+	SourceSummary              string
+}
+type ReleaseHoldInput struct{ UserID, RunID int64 }
+type CreditRechargeInput struct {
+	UserID, RechargeID, AmountUnits int64
+	Remark                          string
+}
+
 type RedeemCodeCreditInput struct {
 	UserID      int64
 	CodeID      int64
-	AmountCents int64
+	AmountUnits int64
 	BatchNo     string
 }
 

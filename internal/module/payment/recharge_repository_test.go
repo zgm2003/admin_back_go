@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -30,16 +31,16 @@ func TestGormRepositoryCreditRechargeRetriesDuplicateTransactionNo(t *testing.T)
 			AddRow(int64(10), "RCG20260530115900000001", int64(7), "recharge_5", "¥5", int64(500), int64(20), rechargeStatusPaid, nil, nil, "", enum.CommonNo, now, now))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(7), enum.CommonNo, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_cents", "total_recharge_cents", "total_consume_cents", "is_del", "created_at", "updated_at"}).
-			AddRow(int64(1), int64(7), int64(1000), int64(1000), int64(0), enum.CommonNo, now, now))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ?")).
-		WithArgs(walletSourceRecharge, int64(10), enum.CommonNo).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_units", "total_recharge_units", "total_consume_units", "held_units", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(7), int64(1000*1000000), int64(1000*1000000), int64(0), int64(0), enum.CommonNo, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
+		WithArgs(walletSourceRecharge, int64(10), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
 		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry 'WLT20260530120000000000123000001' for key 'uk_wallet_transaction_no'"))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
 		WillReturnResult(sqlmock.NewResult(99, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET")).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `user_wallets` SET `balance_units`=?,`total_recharge_units`=?,`updated_at`=? WHERE id = ? AND is_del = ?")).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `payment_recharges` SET")).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -49,7 +50,7 @@ func TestGormRepositoryCreditRechargeRetriesDuplicateTransactionNo(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected duplicate transaction_no to retry, got err=%v", err)
 	}
-	if wallet == nil || wallet.BalanceCents != 1500 || wallet.TotalRechargeCents != 1500 {
+	if wallet == nil || wallet.BalanceUnits != 1500*1000000 || wallet.TotalRechargeUnits != 1500*1000000 {
 		t.Fatalf("expected credited wallet after retry, got %#v", wallet)
 	}
 	if recharge == nil || recharge.Status != rechargeStatusCredited || recharge.CreditedAt == nil {
@@ -115,7 +116,7 @@ func newPaymentMockRepository(t *testing.T) (*GormRepository, sqlmock.Sqlmock, f
 		t.Fatalf("open gorm mock db: %v", err)
 	}
 	client := &database.Client{Gorm: db, SQL: sqlDB}
-	return NewGormRepository(client), mock, func() { _ = sqlDB.Close() }
+	return NewGormRepository(client, walletmodule.NewGormRepository(client)), mock, func() { _ = sqlDB.Close() }
 }
 
 func assertPaymentMockExpectations(t *testing.T, mock sqlmock.Sqlmock) {

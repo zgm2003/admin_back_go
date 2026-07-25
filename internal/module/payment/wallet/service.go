@@ -3,12 +3,12 @@ package wallet
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/money"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -106,7 +106,7 @@ func (s *Service) mutate(ctx context.Context, input MutationInput, direction str
 	if input.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
-	if input.AmountCents <= 0 {
+	if input.AmountUnits <= 0 {
 		return nil, apperror.BadRequestKey(prefix+".amount.invalid", nil, "钱包变动金额必须大于0")
 	}
 	if !validMutationSource(direction, input.SourceType) {
@@ -141,7 +141,7 @@ func validMutationSource(direction string, sourceType string) bool {
 	case DirectionOut:
 		return sourceType == SourceAIGenerate
 	case DirectionIn:
-		return sourceType == SourceAIRefund
+		return false
 	default:
 		return false
 	}
@@ -189,53 +189,49 @@ func summaryResponse(wallet *Wallet) *SummaryResponse {
 	if wallet == nil {
 		return &SummaryResponse{}
 	}
-	return &SummaryResponse{
-		BalanceCents:       wallet.BalanceCents,
-		BalanceText:        amountText(wallet.BalanceCents),
-		TotalRechargeCents: wallet.TotalRechargeCents,
-		TotalRechargeText:  amountText(wallet.TotalRechargeCents),
-		TotalConsumeCents:  wallet.TotalConsumeCents,
-		TotalConsumeText:   amountText(wallet.TotalConsumeCents),
+	result := &SummaryResponse{
+		Balance:       formatUnits(wallet.BalanceUnits),
+		HeldAmount:    formatUnits(wallet.HeldUnits),
+		TotalRecharge: formatUnits(wallet.TotalRechargeUnits),
+		TotalConsume:  formatUnits(wallet.TotalConsumeUnits),
 	}
+	result.AvailableBalance = formatAvailable(wallet.BalanceUnits, wallet.HeldUnits)
+	return result
 }
 
 func transactionItem(row TransactionWithUser) TransactionItem {
 	return TransactionItem{
-		ID:                 row.ID,
-		TransactionNo:      row.TransactionNo,
-		UserID:             row.UserID,
-		Username:           row.Username,
-		Account:            accountText(row.Username, row.Phone, row.Email),
-		Direction:          row.Direction,
-		DirectionText:      directionText(row.Direction),
-		AmountCents:        row.AmountCents,
-		AmountText:         amountText(row.AmountCents),
-		BalanceBeforeCents: row.BalanceBeforeCents,
-		BalanceBeforeText:  amountText(row.BalanceBeforeCents),
-		BalanceAfterCents:  row.BalanceAfterCents,
-		BalanceAfterText:   amountText(row.BalanceAfterCents),
-		SourceType:         row.SourceType,
-		SourceTypeText:     sourceTypeText(row.SourceType),
-		SourceID:           row.SourceID,
-		Remark:             row.Remark,
-		CreatedAt:          formatTime(row.CreatedAt),
+		ID:             row.ID,
+		TransactionNo:  row.TransactionNo,
+		UserID:         row.UserID,
+		Username:       row.Username,
+		Account:        accountText(row.Username, row.Phone, row.Email),
+		Direction:      row.Direction,
+		DirectionText:  directionText(row.Direction),
+		Amount:         formatUnits(row.AmountUnits),
+		BalanceBefore:  formatUnits(row.BalanceBeforeUnits),
+		BalanceAfter:   formatUnits(row.BalanceAfterUnits),
+		SourceType:     row.SourceType,
+		SourceTypeText: sourceTypeText(row.SourceType),
+		SourceID:       row.SourceID,
+		Remark:         row.Remark,
+		CreatedAt:      formatTime(row.CreatedAt),
 	}
 }
 
 func walletUserItem(row WalletWithUser) WalletUserItem {
 	return WalletUserItem{
-		ID:                 row.ID,
-		WalletID:           row.ID,
-		UserID:             row.UserID,
-		Username:           row.Username,
-		Account:            accountText(row.Username, row.Phone, row.Email),
-		BalanceCents:       row.BalanceCents,
-		BalanceText:        amountText(row.BalanceCents),
-		TotalRechargeCents: row.TotalRechargeCents,
-		TotalRechargeText:  amountText(row.TotalRechargeCents),
-		TotalConsumeCents:  row.TotalConsumeCents,
-		TotalConsumeText:   amountText(row.TotalConsumeCents),
-		UpdatedAt:          formatTime(row.UpdatedAt),
+		ID:               row.ID,
+		WalletID:         row.ID,
+		UserID:           row.UserID,
+		Username:         row.Username,
+		Account:          accountText(row.Username, row.Phone, row.Email),
+		Balance:          formatUnits(row.BalanceUnits),
+		AvailableBalance: formatAvailable(row.BalanceUnits, row.HeldUnits),
+		HeldAmount:       formatUnits(row.HeldUnits),
+		TotalRecharge:    formatUnits(row.TotalRechargeUnits),
+		TotalConsume:     formatUnits(row.TotalConsumeUnits),
+		UpdatedAt:        formatTime(row.UpdatedAt),
 	}
 }
 
@@ -265,8 +261,6 @@ func sourceTypeText(value string) string {
 		return "充值"
 	case SourceAIGenerate:
 		return "AI 生成"
-	case SourceAIRefund:
-		return "AI 退款"
 	case SourceRedeemCode:
 		return "兑换码充值"
 	default:
@@ -277,17 +271,20 @@ func sourceTypeText(value string) string {
 func walletDict() WalletDict {
 	return WalletDict{
 		DirectionArr:  []dict.Option[string]{{Label: "收入", Value: DirectionIn}, {Label: "支出", Value: DirectionOut}},
-		SourceTypeArr: []dict.Option[string]{{Label: "充值", Value: SourceRecharge}, {Label: "AI生成", Value: SourceAIGenerate}, {Label: "AI退款", Value: SourceAIRefund}, {Label: "兑换码充值", Value: SourceRedeemCode}},
+		SourceTypeArr: []dict.Option[string]{{Label: "充值", Value: SourceRecharge}, {Label: "AI生成", Value: SourceAIGenerate}, {Label: "兑换码充值", Value: SourceRedeemCode}},
 	}
 }
 
-func amountText(cents int64) string {
-	sign := ""
-	if cents < 0 {
-		sign = "-"
-		cents = -cents
+func formatUnits(units int64) string {
+	value, _ := money.FormatRMBUnits(units)
+	return value
+}
+
+func formatAvailable(balance, held int64) string {
+	if balance < held {
+		return ""
 	}
-	return fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
+	return formatUnits(balance - held)
 }
 
 func formatTime(value time.Time) string {

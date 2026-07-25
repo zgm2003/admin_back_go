@@ -26,6 +26,7 @@ import (
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/money"
 	"admin_back_go/internal/telemetry"
 )
 
@@ -652,33 +653,47 @@ func validRedemptionFact(fact *RedemptionFact, userID int64) bool {
 	}
 	transaction := fact.Transaction
 	currentWallet := fact.Wallet
+	units, err := money.CentsToUnits(fact.AmountCents)
+	if err != nil {
+		return false
+	}
 	if transaction.ID <= 0 || transaction.WalletID <= 0 || transaction.UserID != userID || transaction.Direction != wallet.DirectionIn ||
-		transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID <= 0 || transaction.AmountCents != fact.AmountCents ||
+		transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID <= 0 || transaction.AmountUnits != units ||
 		transaction.IsDel != enum.CommonNo || currentWallet.ID != transaction.WalletID || currentWallet.UserID != userID || currentWallet.IsDel != enum.CommonNo {
 		return false
 	}
-	return transaction.BalanceBeforeCents <= math.MaxInt64-transaction.AmountCents &&
-		transaction.BalanceBeforeCents+transaction.AmountCents == transaction.BalanceAfterCents
+	return transaction.BalanceBeforeUnits <= math.MaxInt64-units &&
+		transaction.BalanceBeforeUnits+units == transaction.BalanceAfterUnits
 }
 
 func redemptionResponse(fact *RedemptionFact) *RedemptionResponse {
 	transaction := fact.Transaction
 	currentWallet := fact.Wallet
+	units, _ := money.CentsToUnits(fact.AmountCents)
+	amount, _ := money.FormatRMBUnits(units)
+	before, _ := money.FormatRMBUnits(transaction.BalanceBeforeUnits)
+	after, _ := money.FormatRMBUnits(transaction.BalanceAfterUnits)
+	amountUnits, _ := money.FormatRMBUnits(transaction.AmountUnits)
+	balance, _ := money.FormatRMBUnits(currentWallet.BalanceUnits)
+	totalRecharge, _ := money.FormatRMBUnits(currentWallet.TotalRechargeUnits)
+	totalConsume, _ := money.FormatRMBUnits(currentWallet.TotalConsumeUnits)
+	available := ""
+	if currentWallet.BalanceUnits >= currentWallet.HeldUnits {
+		available, _ = money.FormatRMBUnits(currentWallet.BalanceUnits - currentWallet.HeldUnits)
+	}
+	held, _ := money.FormatRMBUnits(currentWallet.HeldUnits)
 	return &RedemptionResponse{
-		Amount: amountText(fact.AmountCents), Replayed: fact.Replayed,
+		Amount: amount, Replayed: fact.Replayed,
 		Transaction: wallet.TransactionItem{
 			ID: transaction.ID, TransactionNo: transaction.TransactionNo, UserID: transaction.UserID,
-			Direction: transaction.Direction, DirectionText: "收入", AmountCents: transaction.AmountCents,
-			AmountText: amountText(transaction.AmountCents), BalanceBeforeCents: transaction.BalanceBeforeCents,
-			BalanceBeforeText: amountText(transaction.BalanceBeforeCents), BalanceAfterCents: transaction.BalanceAfterCents,
-			BalanceAfterText: amountText(transaction.BalanceAfterCents), SourceType: transaction.SourceType,
+			Direction: transaction.Direction, DirectionText: "收入", Amount: amountUnits,
+			BalanceBefore: before, BalanceAfter: after, SourceType: transaction.SourceType,
 			SourceTypeText: "兑换码充值", SourceID: transaction.SourceID, Remark: transaction.Remark,
 			CreatedAt: formatTime(transaction.CreatedAt),
 		},
 		Wallet: wallet.SummaryResponse{
-			BalanceCents: currentWallet.BalanceCents, BalanceText: amountText(currentWallet.BalanceCents),
-			TotalRechargeCents: currentWallet.TotalRechargeCents, TotalRechargeText: amountText(currentWallet.TotalRechargeCents),
-			TotalConsumeCents: currentWallet.TotalConsumeCents, TotalConsumeText: amountText(currentWallet.TotalConsumeCents),
+			Balance: balance, AvailableBalance: available, HeldAmount: held,
+			TotalRecharge: totalRecharge, TotalConsume: totalConsume,
 		},
 	}
 }

@@ -28,7 +28,7 @@ func TestFinalizeOrderPaidCreditsRechargeOnce(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("duplicate FinalizeOrderPaid error=%v", appErr)
 	}
-	if !result.AlreadyPaid || !result.RechargeCredited || repo.creditCount != 1 || repo.wallet.BalanceCents != 1000 {
+	if !result.AlreadyPaid || !result.RechargeCredited || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000 {
 		t.Fatalf("duplicate finalize must be idempotent result=%#v wallet=%#v creditCount=%d", result, repo.wallet, repo.creditCount)
 	}
 }
@@ -59,7 +59,7 @@ func TestFinalizeOrderPaidDoesNotCreditWhenOrderPaidCASMisses(t *testing.T) {
 	if appErr == nil {
 		t.Fatalf("expected state conflict, got result=%#v", result)
 	}
-	if repo.creditCount != 0 || repo.wallet.BalanceCents != 0 {
+	if repo.creditCount != 0 || repo.wallet.BalanceUnits != 0 {
 		t.Fatalf("CAS miss must not credit wallet, wallet=%#v creditCount=%d", repo.wallet, repo.creditCount)
 	}
 	if repo.order.Status != orderStatusClosed || repo.recharge.Status != rechargeStatusClosed {
@@ -75,8 +75,8 @@ func TestFinalizeOrderPaidDoesNotDowngradeCreditedRechargeOnStaleSnapshot(t *tes
 	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
 	repo.beforeUpdateRechargePaid = func(paidAt time.Time) {
 		creditedAt := now.Add(-time.Millisecond)
-		repo.wallet.BalanceCents += repo.recharge.AmountCents
-		repo.wallet.TotalRechargeCents += repo.recharge.AmountCents
+		repo.wallet.BalanceUnits += repo.recharge.AmountCents
+		repo.wallet.TotalRechargeUnits += repo.recharge.AmountCents
 		repo.recharge.Status = rechargeStatusCredited
 		repo.recharge.PaidAt = &paidAt
 		repo.recharge.CreditedAt = &creditedAt
@@ -91,7 +91,7 @@ func TestFinalizeOrderPaidDoesNotDowngradeCreditedRechargeOnStaleSnapshot(t *tes
 	if repo.recharge.Status != rechargeStatusCredited || repo.recharge.CreditedAt == nil {
 		t.Fatalf("stale finalizer must not downgrade credited recharge, result=%#v recharge=%#v", result, repo.recharge)
 	}
-	if repo.wallet.BalanceCents != 1000 || repo.creditCount != 1 {
+	if repo.wallet.BalanceUnits != 1000 || repo.creditCount != 1 {
 		t.Fatalf("stale finalizer must not double credit wallet=%#v creditCount=%d", repo.wallet, repo.creditCount)
 	}
 	if !result.RechargeCredited {
@@ -114,7 +114,7 @@ func TestFinalizeOrderPaidDoesNotCreditRechargeClosedAfterStaleSnapshot(t *testi
 	if appErr == nil {
 		t.Fatalf("expected closed recharge conflict, got result=%#v", result)
 	}
-	if repo.recharge.Status != rechargeStatusClosed || repo.creditCount != 0 || repo.wallet.BalanceCents != 0 {
+	if repo.recharge.Status != rechargeStatusClosed || repo.creditCount != 0 || repo.wallet.BalanceUnits != 0 {
 		t.Fatalf("stale finalizer must not reopen or credit closed recharge, recharge=%#v wallet=%#v creditCount=%d", repo.recharge, repo.wallet, repo.creditCount)
 	}
 }

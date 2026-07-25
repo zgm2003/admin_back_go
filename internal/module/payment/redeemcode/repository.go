@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/money"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -344,8 +345,12 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if batch.ExpiresAt != nil && !batch.ExpiresAt.After(decisionTime) {
 			return ErrExpired
 		}
+		amountUnits, conversionErr := money.CentsToUnits(batch.AmountCents)
+		if conversionErr != nil {
+			return conversionErr
+		}
 		creditInput := wallet.RedeemCodeCreditInput{
-			UserID: userID, CodeID: lockedCode.ID, AmountCents: batch.AmountCents, BatchNo: batch.BatchNo,
+			UserID: userID, CodeID: lockedCode.ID, AmountUnits: amountUnits, BatchNo: batch.BatchNo,
 		}
 		if creditIdentity == nil {
 			creditIdentity = wallet.NewRedeemCodeCreditIdentity(creditInput, decisionTime)
@@ -578,13 +583,17 @@ func validWalletRedemptionFacts(currentWallet *wallet.Wallet, transaction *walle
 	if currentWallet == nil || transaction == nil || currentWallet.ID <= 0 || currentWallet.UserID != userID || currentWallet.IsDel != enum.CommonNo {
 		return false
 	}
-	if transaction.ID <= 0 || transaction.TransactionNo == "" || transaction.WalletID != currentWallet.ID || transaction.UserID != userID || transaction.IsDel != enum.CommonNo ||
-		transaction.Direction != wallet.DirectionIn || transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID != code.ID ||
-		transaction.AmountCents != batch.AmountCents || transaction.Remark != batch.BatchNo || transaction.BalanceBeforeCents < 0 {
+	amountUnits, err := money.CentsToUnits(batch.AmountCents)
+	if err != nil {
 		return false
 	}
-	return transaction.BalanceBeforeCents <= math.MaxInt64-transaction.AmountCents &&
-		transaction.BalanceBeforeCents+transaction.AmountCents == transaction.BalanceAfterCents
+	if transaction.ID <= 0 || transaction.TransactionNo == "" || transaction.WalletID != currentWallet.ID || transaction.UserID != userID || transaction.IsDel != enum.CommonNo ||
+		transaction.Direction != wallet.DirectionIn || transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID != code.ID ||
+		transaction.AmountUnits != amountUnits || transaction.Remark != batch.BatchNo || transaction.BalanceBeforeUnits < 0 {
+		return false
+	}
+	return transaction.BalanceBeforeUnits <= math.MaxInt64-transaction.AmountUnits &&
+		transaction.BalanceBeforeUnits+transaction.AmountUnits == transaction.BalanceAfterUnits
 }
 
 func mapWalletError(err error) error {

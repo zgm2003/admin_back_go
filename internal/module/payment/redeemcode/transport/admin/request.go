@@ -82,12 +82,9 @@ type redemptionTransaction struct {
 	TransactionNo      string `json:"transaction_no"`
 	Direction          string `json:"direction"`
 	DirectionText      string `json:"direction_text"`
-	AmountCents        int64  `json:"amount_cents"`
-	AmountText         string `json:"amount_text"`
-	BalanceBeforeCents int64  `json:"balance_before_cents"`
-	BalanceBeforeText  string `json:"balance_before_text"`
-	BalanceAfterCents  int64  `json:"balance_after_cents"`
-	BalanceAfterText   string `json:"balance_after_text"`
+	Amount             string `json:"amount"`
+	BalanceBefore      string `json:"balance_before"`
+	BalanceAfter       string `json:"balance_after"`
 	SourceType         string `json:"source_type"`
 	SourceTypeText     string `json:"source_type_text"`
 	CreatedAt          string `json:"created_at"`
