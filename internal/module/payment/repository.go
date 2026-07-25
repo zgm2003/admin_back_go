@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	defaultPageSize            = 20
-	maxPageSize                = 100
-	duplicateKeyUserWalletUser = "uk_user_wallet_user"
+	defaultPageSize = 20
+	maxPageSize     = 100
 )
 
 type Repository interface {
@@ -37,7 +36,6 @@ type Repository interface {
 	CreateOrder(ctx context.Context, order Order) (int64, error)
 	UpdateOrderPaying(ctx context.Context, id int64, payURL string) error
 	UpdateOrderFailed(ctx context.Context, id int64, reason string) error
-	UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error
 	UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error
 	GetOrderByNo(ctx context.Context, orderNo string) (*Order, error)
 	ListPendingPayingOrders(ctx context.Context, cutoff time.Time, limit int) ([]Order, error)
@@ -51,10 +49,8 @@ type Repository interface {
 	CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error)
 	UpdateRechargePaying(ctx context.Context, id int64) error
 	UpdateRechargeFailed(ctx context.Context, id int64, reason string) error
-	UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error
 	UpdateRechargeClosed(ctx context.Context, id int64) error
-	CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error)
-	FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*Order, *Wallet, *Recharge, error)
+	FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*PaidOrderFinalization, error)
 	CreateCallbackEvent(ctx context.Context, event CallbackEvent) (int64, error)
 	UpdateCallbackEventProcessed(ctx context.Context, id int64, signatureValid int, status string, message string, processedAt time.Time) error
 	FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error)
@@ -66,7 +62,6 @@ type GormRepository struct {
 }
 
 type Wallet = walletmodule.Wallet
-type WalletTransaction = walletmodule.Transaction
 
 func NewGormRepository(client *database.Client, participant walletmodule.PaymentParticipant) *GormRepository {
 	if client == nil || client.Gorm == nil || participant == nil {

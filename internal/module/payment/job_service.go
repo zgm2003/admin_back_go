@@ -206,18 +206,14 @@ func (s *Service) closeExpiredOrder(ctx context.Context, row Order) (paymentJobO
 }
 
 func (s *Service) creditUncreditedPaidRecharge(ctx context.Context, row RechargeWithOrder) (paymentJobOutcome, error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return "", appErr
-	}
 	paidAt := s.now()
 	if row.PaidAt != nil {
 		paidAt = *row.PaidAt
 	} else if row.OrderPaidAt != nil {
 		paidAt = *row.OrderPaidAt
 	}
-	if _, _, err := repo.CreditRecharge(ctx, row.ID, paidAt, s.now()); err != nil {
-		return "", err
+	if _, appErr := s.FinalizeOrderPaid(ctx, row.PaymentOrderID, row.AlipayTradeNo, paidAt, finalizeSourceCronSync); appErr != nil {
+		return "", appErr
 	}
 	return paymentJobOutcomePaid, nil
 }

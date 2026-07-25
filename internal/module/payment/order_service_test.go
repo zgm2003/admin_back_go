@@ -450,16 +450,6 @@ func (r *fakeOrderRepo) UpdateOrderFailed(ctx context.Context, id int64, reason 
 	r.order.FailureReason = reason
 	return nil
 }
-func (r *fakeOrderRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
-	if r.order.Status != orderStatusPending && r.order.Status != orderStatusPaying && r.order.Status != orderStatusPaid {
-		return nil
-	}
-	r.order.Status = orderStatusPaid
-	r.order.AlipayTradeNo = tradeNo
-	r.order.PaidAt = &paidAt
-	r.order.FailureReason = ""
-	return nil
-}
 func (r *fakeOrderRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
 	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed && r.order.Status != orderStatusPaying {
 		return nil

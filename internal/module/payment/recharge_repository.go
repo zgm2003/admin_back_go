@@ -3,6 +3,7 @@ package payment
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -10,14 +11,8 @@ import (
 	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/money"
 
-	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-)
-
-const (
-	duplicateKeyWalletTransactionNo = "uk_wallet_transaction_no"
-	maxWalletTransactionNoAttempts  = 3
 )
 
 func (r *GormRepository) ListRechargePackages(ctx context.Context) ([]RechargePackage, error) {
@@ -204,20 +199,6 @@ func (r *GormRepository) UpdateRechargeFailed(ctx context.Context, id int64, rea
 	return rechargeUpdateResult(result)
 }
 
-func (r *GormRepository) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
-	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
-	}
-	result := r.db.WithContext(ctx).Model(&Recharge{}).
-		Where("id = ? AND is_del = ? AND status IN ? AND credited_at IS NULL", id, enum.CommonNo, rechargePaidCASStatuses).
-		Updates(map[string]any{
-			"status":         rechargeStatusPaid,
-			"paid_at":        paidAt,
-			"failure_reason": "",
-		})
-	return rechargeUpdateResult(result)
-}
-
 func (r *GormRepository) UpdateRechargeClosed(ctx context.Context, id int64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
@@ -236,214 +217,187 @@ func rechargeUpdateResult(result *gorm.DB) error {
 	return nil
 }
 
-func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
-	if r == nil || r.db == nil {
-		return nil, nil, ErrRepositoryNotConfigured
-	}
-	var creditedWallet Wallet
-	var creditedRecharge Recharge
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var recharge Recharge
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND is_del = ?", rechargeID, enum.CommonNo).
-			First(&recharge).Error; err != nil {
-			return err
-		}
-		units, err := money.CentsToUnits(recharge.AmountCents)
-		if err != nil {
-			return err
-		}
-		if recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed {
-			return ErrPaymentStateChanged
-		}
-		if r.walletParticipant == nil {
-			return ErrRepositoryNotConfigured
-		}
-		if recharge.CreditedAt != nil || recharge.Status == rechargeStatusCredited {
-			wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: recharge.UserID, RechargeID: recharge.ID, AmountUnits: units, Remark: "支付宝充值"})
-			if err != nil {
-				return err
-			}
-			if wallet == nil || transaction == nil {
-				return ErrPaymentStateChanged
-			}
-			creditedWallet = Wallet{ID: wallet.ID, UserID: wallet.UserID, BalanceUnits: wallet.BalanceUnits, TotalRechargeUnits: wallet.TotalRechargeUnits, TotalConsumeUnits: wallet.TotalConsumeUnits, HeldUnits: wallet.HeldUnits, IsDel: wallet.IsDel, CreatedAt: wallet.CreatedAt, UpdatedAt: wallet.UpdatedAt}
-			if recharge.Status != rechargeStatusCredited {
-				updates := map[string]any{
-					"status":         rechargeStatusCredited,
-					"failure_reason": "",
-				}
-				if recharge.PaidAt == nil {
-					updates["paid_at"] = paidAt
-					recharge.PaidAt = &paidAt
-				}
-				if recharge.CreditedAt == nil {
-					updates["credited_at"] = now
-					recharge.CreditedAt = &now
-				}
-				result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(updates)
-				if result.Error != nil {
-					return result.Error
-				}
-				if result.RowsAffected != 1 {
-					return ErrPaymentStateChanged
-				}
-				recharge.Status = rechargeStatusCredited
-				recharge.FailureReason = ""
-			}
-			creditedRecharge = recharge
-			return nil
-		}
-		wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: recharge.UserID, RechargeID: recharge.ID, AmountUnits: units, Remark: "支付宝充值"})
-		if err != nil {
-			return err
-		}
-		if wallet != nil {
-			creditedWallet = Wallet{ID: wallet.ID, UserID: wallet.UserID, BalanceUnits: wallet.BalanceUnits, TotalRechargeUnits: wallet.TotalRechargeUnits, TotalConsumeUnits: wallet.TotalConsumeUnits, HeldUnits: wallet.HeldUnits, IsDel: wallet.IsDel, CreatedAt: wallet.CreatedAt, UpdatedAt: wallet.UpdatedAt}
-		}
-		if transaction == nil {
-			return ErrPaymentStateChanged
-		}
-		result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(map[string]any{
-			"status": rechargeStatusCredited, "paid_at": paidAt, "credited_at": now, "failure_reason": "",
-		})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return ErrPaymentStateChanged
-		}
-		recharge.Status = rechargeStatusCredited
-		recharge.PaidAt = &paidAt
-		recharge.CreditedAt = &now
-		creditedRecharge = recharge
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return &creditedWallet, &creditedRecharge, nil
-}
-
-func (r *GormRepository) FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*Order, *Wallet, *Recharge, error) {
+func (r *GormRepository) FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*PaidOrderFinalization, error) {
 	if r == nil || r.db == nil || r.walletParticipant == nil {
-		return nil, nil, nil, ErrRepositoryNotConfigured
+		return nil, ErrRepositoryNotConfigured
 	}
-	var order Order
-	var recharge *Recharge
-	var resultWallet *Wallet
+	if orderID <= 0 || paidAt.IsZero() || now.IsZero() {
+		return nil, ErrPaymentStateChanged
+	}
+	var fact PaidOrderFinalization
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND is_del = ?", orderID, enum.CommonNo).First(&order).Error; err != nil {
+		var order Order
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrPaymentOrderNotFound
+			}
 			return err
 		}
+		orderAlreadyPaid, err := validateOrderForPaidFinalization(&order, orderID, tradeNo)
+		if err != nil {
+			return err
+		}
+
 		var row Recharge
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_order_id = ? AND is_del = ?", order.ID, enum.CommonNo).First(&row).Error
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_order_id = ?", order.ID).First(&row).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if order.Status == orderStatusPaid {
-				return nil
+			if !orderAlreadyPaid {
+				if err := markOrderPaidInTx(tx, &order, tradeNo, paidAt); err != nil {
+					return err
+				}
 			}
-			result := tx.Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", order.ID, enum.CommonNo, []string{orderStatusPending, orderStatusPaying}).Updates(map[string]any{"status": orderStatusPaid, "paid_at": paidAt, "alipay_trade_no": strings.TrimSpace(tradeNo)})
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return ErrPaymentStateChanged
-			}
-			order.Status = orderStatusPaid
-			order.PaidAt = &paidAt
+			fact = PaidOrderFinalization{Order: &order, OrderPaid: !orderAlreadyPaid, OrderAlreadyPaid: orderAlreadyPaid, RawOrder: true}
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if row.AmountCents != order.AmountCents || row.PaymentOrderID != order.ID || row.Status == rechargeStatusClosed || row.Status == rechargeStatusFailed {
-			return ErrPaymentStateChanged
+		rechargeAlreadyCredited, err := validateRechargeForPaidFinalization(&row, &order, orderAlreadyPaid)
+		if err != nil {
+			return err
 		}
 		units, err := money.CentsToUnits(row.AmountCents)
 		if err != nil {
 			return err
 		}
-		if order.Status != orderStatusPaid {
-			result := tx.Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", order.ID, enum.CommonNo, []string{orderStatusPending, orderStatusPaying}).Updates(map[string]any{"status": orderStatusPaid, "paid_at": paidAt, "alipay_trade_no": strings.TrimSpace(tradeNo)})
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return ErrPaymentStateChanged
-			}
-			order.Status = orderStatusPaid
-			order.PaidAt = &paidAt
-		}
-		if row.Status == rechargeStatusCredited || row.CreditedAt != nil {
-			wallet, _, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"})
-			if err != nil {
+		if !orderAlreadyPaid {
+			if err := markOrderPaidInTx(tx, &order, tradeNo, paidAt); err != nil {
 				return err
 			}
-			resultWallet = (*Wallet)(wallet)
-			recharge = &row
-			return nil
 		}
-		if row.Status != rechargeStatusPaid {
-			result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ? AND credited_at IS NULL", row.ID, enum.CommonNo, []string{rechargeStatusPending, rechargeStatusPaying}).Updates(map[string]any{"status": rechargeStatusPaid, "paid_at": paidAt})
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return ErrPaymentStateChanged
-			}
-			row.Status = rechargeStatusPaid
-			row.PaidAt = &paidAt
-		}
-		wallet, _, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"})
+		wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"})
 		if err != nil {
 			return err
 		}
-		resultWallet = (*Wallet)(wallet)
-		result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ? AND status = ? AND credited_at IS NULL", row.ID, enum.CommonNo, rechargeStatusPaid).Updates(map[string]any{"status": rechargeStatusCredited, "credited_at": now})
-		if result.Error != nil {
-			return result.Error
+		if err := validateRechargeCreditParticipantFact(wallet, transaction, &row, units); err != nil {
+			return err
 		}
-		if result.RowsAffected != 1 {
-			return ErrPaymentStateChanged
+		if !rechargeAlreadyCredited {
+			settledAt := paidAt
+			if order.PaidAt != nil {
+				settledAt = *order.PaidAt
+			}
+			if err := markRechargeCreditedInTx(tx, &row, settledAt, now); err != nil {
+				return err
+			}
 		}
-		row.Status = rechargeStatusCredited
-		row.CreditedAt = &now
-		recharge = &row
+		fact = PaidOrderFinalization{
+			Order:                   &order,
+			Recharge:                &row,
+			Wallet:                  wallet,
+			OrderPaid:               !orderAlreadyPaid,
+			OrderAlreadyPaid:        orderAlreadyPaid,
+			RechargeCredited:        !rechargeAlreadyCredited,
+			RechargeAlreadyCredited: rechargeAlreadyCredited,
+		}
 		return nil
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
-	return &order, resultWallet, recharge, nil
+	return &fact, nil
 }
 
-func createWalletTransactionWithNumberRetry(tx *gorm.DB, row *WalletTransaction, now time.Time) error {
-	var err error
-	for attempt := 0; attempt < maxWalletTransactionNoAttempts; attempt++ {
-		if attempt > 0 {
-			row.TransactionNo = newWalletTransactionNo(now)
-		}
-		err = tx.Create(row).Error
-		if err == nil {
-			return nil
-		}
-		if !isDuplicateKeyFor(err, duplicateKeyWalletTransactionNo) {
-			return err
-		}
+func validateOrderForPaidFinalization(order *Order, orderID int64, tradeNo string) (bool, error) {
+	if order == nil || order.ID <= 0 || order.ID != orderID || order.IsDel != enum.CommonNo || order.AmountCents <= 0 {
+		return false, ErrPaymentStateChanged
 	}
-	return err
+	switch order.Status {
+	case orderStatusPending, orderStatusPaying:
+		if order.PaidAt != nil || order.ClosedAt != nil {
+			return false, ErrPaymentStateChanged
+		}
+		return false, nil
+	case orderStatusPaid:
+		if order.PaidAt == nil || order.ClosedAt != nil {
+			return false, ErrPaymentStateChanged
+		}
+		incomingTradeNo := strings.TrimSpace(tradeNo)
+		existingTradeNo := strings.TrimSpace(order.AlipayTradeNo)
+		if incomingTradeNo != "" && existingTradeNo != "" && incomingTradeNo != existingTradeNo {
+			return false, ErrPaymentStateChanged
+		}
+		return true, nil
+	default:
+		return false, ErrPaymentStateChanged
+	}
 }
 
-func isDuplicateKeyFor(err error, key string) bool {
-	if err == nil {
-		return false
+func validateRechargeForPaidFinalization(recharge *Recharge, order *Order, orderAlreadyPaid bool) (bool, error) {
+	if recharge == nil || order == nil || recharge.ID <= 0 || recharge.UserID <= 0 || recharge.PaymentOrderID != order.ID ||
+		recharge.AmountCents <= 0 || recharge.AmountCents != order.AmountCents || recharge.IsDel != enum.CommonNo {
+		return false, ErrPaymentStateChanged
 	}
-	var mysqlErr *mysqlDriver.MySQLError
-	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
-		return strings.Contains(mysqlErr.Message, key)
+	switch recharge.Status {
+	case rechargeStatusPending, rechargeStatusPaying:
+		if recharge.PaidAt != nil || recharge.CreditedAt != nil {
+			return false, ErrPaymentStateChanged
+		}
+		return false, nil
+	case rechargeStatusPaid:
+		if !orderAlreadyPaid || recharge.PaidAt == nil || recharge.CreditedAt != nil {
+			return false, ErrPaymentStateChanged
+		}
+		return false, nil
+	case rechargeStatusCredited:
+		if !orderAlreadyPaid || recharge.PaidAt == nil || recharge.CreditedAt == nil {
+			return false, ErrPaymentStateChanged
+		}
+		return true, nil
+	default:
+		return false, ErrPaymentStateChanged
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "Duplicate entry") && strings.Contains(msg, key)
+}
+
+func markOrderPaidInTx(tx *gorm.DB, order *Order, tradeNo string, paidAt time.Time) error {
+	resolvedTradeNo := resultTradeNoFromStrings(tradeNo, order.AlipayTradeNo)
+	result := tx.Model(&Order{}).
+		Where("id = ? AND is_del = ? AND status = ? AND paid_at IS NULL AND closed_at IS NULL", order.ID, enum.CommonNo, order.Status).
+		Updates(map[string]any{"status": orderStatusPaid, "paid_at": paidAt, "alipay_trade_no": resolvedTradeNo})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrPaymentStateChanged
+	}
+	order.Status = orderStatusPaid
+	order.PaidAt = &paidAt
+	order.AlipayTradeNo = resolvedTradeNo
+	return nil
+}
+
+func markRechargeCreditedInTx(tx *gorm.DB, recharge *Recharge, paidAt, creditedAt time.Time) error {
+	query := tx.Model(&Recharge{}).
+		Where("id = ? AND payment_order_id = ? AND user_id = ? AND amount_cents = ? AND is_del = ? AND status = ?", recharge.ID, recharge.PaymentOrderID, recharge.UserID, recharge.AmountCents, enum.CommonNo, recharge.Status)
+	if recharge.PaidAt == nil {
+		query = query.Where("paid_at IS NULL AND credited_at IS NULL")
+	} else {
+		query = query.Where("paid_at = ? AND credited_at IS NULL", *recharge.PaidAt)
+	}
+	result := query.Updates(map[string]any{"status": rechargeStatusCredited, "paid_at": paidAt, "credited_at": creditedAt, "failure_reason": ""})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrPaymentStateChanged
+	}
+	recharge.Status = rechargeStatusCredited
+	recharge.PaidAt = &paidAt
+	recharge.CreditedAt = &creditedAt
+	recharge.FailureReason = ""
+	return nil
+}
+
+func validateRechargeCreditParticipantFact(wallet *walletmodule.Wallet, transaction *walletmodule.Transaction, recharge *Recharge, units int64) error {
+	if wallet == nil || transaction == nil || recharge == nil || wallet.ID <= 0 || wallet.UserID != recharge.UserID || wallet.IsDel != enum.CommonNo ||
+		transaction.ID <= 0 || strings.TrimSpace(transaction.TransactionNo) == "" || transaction.WalletID != wallet.ID || transaction.UserID != recharge.UserID ||
+		transaction.Direction != walletmodule.DirectionIn || transaction.AmountUnits != units || transaction.SourceType != walletmodule.SourceRecharge ||
+		transaction.SourceID != recharge.ID || transaction.IsDel != enum.CommonNo || transaction.BalanceBeforeUnits < 0 ||
+		transaction.BalanceBeforeUnits > math.MaxInt64-units || transaction.BalanceAfterUnits != transaction.BalanceBeforeUnits+units ||
+		wallet.BalanceUnits < 0 || wallet.TotalRechargeUnits < units || wallet.HeldUnits < 0 || wallet.HeldUnits > wallet.BalanceUnits {
+		return ErrPaymentStateChanged
+	}
+	return nil
 }
 
 func rechargeJoinQuery(db *gorm.DB) *gorm.DB {

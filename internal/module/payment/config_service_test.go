@@ -252,9 +252,6 @@ func (r *fakeConfigRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL
 func (r *fakeConfigRepo) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
 	return nil
 }
-func (r *fakeConfigRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
-	return nil
-}
 func (r *fakeConfigRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
 	return nil
 }

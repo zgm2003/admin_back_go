@@ -46,18 +46,10 @@ func TestRechargeNumbersKeepMillisecondDistinct(t *testing.T) {
 	if newPaymentRechargeNo(base) == newPaymentRechargeNo(base.Add(time.Millisecond)) {
 		t.Fatalf("recharge numbers must differ across millisecond-separated timestamps: %s", newPaymentRechargeNo(base))
 	}
-	if newWalletTransactionNo(base) == newWalletTransactionNo(base.Add(time.Millisecond)) {
-		t.Fatalf("wallet transaction numbers must differ across millisecond-separated timestamps: %s", newWalletTransactionNo(base))
-	}
 	firstRecharge := newPaymentRechargeNo(base)
 	secondRecharge := newPaymentRechargeNo(base)
 	if firstRecharge == secondRecharge {
 		t.Fatalf("recharge numbers must differ across repeated calls at the same timestamp")
-	}
-	firstTransaction := newWalletTransactionNo(base)
-	secondTransaction := newWalletTransactionNo(base)
-	if firstTransaction == secondTransaction {
-		t.Fatalf("wallet transaction numbers must differ across repeated calls at the same timestamp")
 	}
 }
 
@@ -104,6 +96,44 @@ func TestSyncRechargeReturnsCreditedWithoutCreditingAgain(t *testing.T) {
 	}
 	if result.Status != rechargeStatusCredited || repo.creditCount != 0 {
 		t.Fatalf("credited sync must be idempotent, result=%#v creditCount=%d", result, repo.creditCount)
+	}
+}
+
+func TestSyncRechargeFinalizesPaidRechargeThroughAtomicEntry(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	paidAt := fixedRechargeNow().Add(-time.Minute)
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260515100000000000", AmountCents: 1000, Status: orderStatusPaid, PaidAt: &paidAt, AlipayTradeNo: "202605152200", IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPaid, AmountCents: 1000, PaidAt: &paidAt, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.SyncRecharge(context.Background(), 7, 1)
+	if appErr != nil {
+		t.Fatalf("SyncRecharge error=%v", appErr)
+	}
+	if result.Status != rechargeStatusCredited || repo.finalizeCount != 1 || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 {
+		t.Fatalf("sync must use atomic finalizer exactly once, result=%#v finalize=%d credit=%d wallet=%#v", result, repo.finalizeCount, repo.creditCount, repo.wallet)
+	}
+}
+
+func TestSyncRechargeStaleReplayAfterCallbackDoesNotDoubleCredit(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	paidAt := fixedRechargeNow().Add(-time.Minute)
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260515100000000000", AmountCents: 1000, Status: orderStatusPaid, PaidAt: &paidAt, AlipayTradeNo: "202605152200", IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPaid, AmountCents: 1000, PaidAt: &paidAt, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+	stale := repo.withOrder()
+
+	if _, appErr := service.FinalizeOrderPaid(context.Background(), 1, "202605152200", paidAt, finalizeSourceCallback); appErr != nil {
+		t.Fatalf("callback finalization error=%v", appErr)
+	}
+	result, appErr := service.syncRechargeRow(context.Background(), stale)
+	if appErr != nil {
+		t.Fatalf("stale sync replay error=%v", appErr)
+	}
+	if result.Status != rechargeStatusCredited || repo.finalizeCount != 2 || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 {
+		t.Fatalf("callback/sync race must converge, result=%#v finalize=%d credit=%d wallet=%#v", result, repo.finalizeCount, repo.creditCount, repo.wallet)
 	}
 }
 
@@ -154,7 +184,8 @@ type fakeRechargeRepo struct {
 	callbackCreateErr         error
 	rejectInvalidCallbackJSON bool
 	creditCount               int
-	beforeUpdateRechargePaid  func(paidAt time.Time)
+	finalizeCount             int
+	beforeFinalizePaidOrder   func(paidAt time.Time)
 }
 
 func newFakeRechargeRepo() *fakeRechargeRepo {
@@ -317,19 +348,6 @@ func (r *fakeRechargeRepo) UpdateOrderFailed(ctx context.Context, id int64, reas
 	r.order.FailureReason = reason
 	return nil
 }
-func (r *fakeRechargeRepo) UpdateOrderPaid(ctx context.Context, id int64, tradeNo string, paidAt time.Time) error {
-	order := r.findOrderRef(id)
-	if order == nil {
-		return nil
-	}
-	if order.Status != orderStatusPending && order.Status != orderStatusPaying && order.Status != orderStatusPaid {
-		return nil
-	}
-	order.Status = orderStatusPaid
-	order.AlipayTradeNo = tradeNo
-	order.PaidAt = &paidAt
-	return nil
-}
 func (r *fakeRechargeRepo) UpdateOrderClosed(ctx context.Context, id int64, closedAt time.Time) error {
 	order := r.findOrderRef(id)
 	if order == nil {
@@ -393,21 +411,6 @@ func (r *fakeRechargeRepo) UpdateRechargeFailed(ctx context.Context, id int64, r
 	r.recharge.FailureReason = reason
 	return nil
 }
-func (r *fakeRechargeRepo) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
-	if r.beforeUpdateRechargePaid != nil {
-		r.beforeUpdateRechargePaid(paidAt)
-		r.beforeUpdateRechargePaid = nil
-	}
-	if r.recharge.Status == rechargeStatusCredited || r.recharge.CreditedAt != nil {
-		return nil
-	}
-	if r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusPaying && r.recharge.Status != rechargeStatusPaid {
-		return nil
-	}
-	r.recharge.Status = rechargeStatusPaid
-	r.recharge.PaidAt = &paidAt
-	return nil
-}
 func (r *fakeRechargeRepo) UpdateRechargeClosed(ctx context.Context, id int64) error {
 	if !canCloseLinkedRecharge(r.recharge.Status) {
 		return nil
@@ -415,33 +418,68 @@ func (r *fakeRechargeRepo) UpdateRechargeClosed(ctx context.Context, id int64) e
 	r.recharge.Status = rechargeStatusClosed
 	return nil
 }
-func (r *fakeRechargeRepo) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
-	if r.recharge == nil {
-		for _, row := range r.rechargeByOrder {
-			if row.ID == rechargeID {
-				r.recharge = row
-				break
-			}
-		}
-	}
-	if r.recharge.Status == rechargeStatusClosed || r.recharge.Status == rechargeStatusFailed {
-		return nil, nil, ErrPaymentStateChanged
-	}
-	if r.recharge.Status == rechargeStatusCredited || r.recharge.CreditedAt != nil {
-		r.recharge.Status = rechargeStatusCredited
-		return r.wallet, r.recharge, nil
-	}
-	r.creditCount++
-	r.wallet.BalanceUnits += r.recharge.AmountCents
-	r.wallet.TotalRechargeUnits += r.recharge.AmountCents
-	r.recharge.Status = rechargeStatusCredited
-	r.recharge.PaidAt = &paidAt
-	r.recharge.CreditedAt = &now
-	return r.wallet, r.recharge, nil
-}
 
-func (r *fakeRechargeRepo) FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*Order, *Wallet, *Recharge, error) {
-	return r.order, r.wallet, r.recharge, nil
+func (r *fakeRechargeRepo) FinalizePaidOrder(_ context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*PaidOrderFinalization, error) {
+	r.finalizeCount++
+	order := r.findOrderRef(orderID)
+	if order == nil {
+		return nil, ErrPaymentOrderNotFound
+	}
+	if order.Status != orderStatusPending && order.Status != orderStatusPaying && order.Status != orderStatusPaid {
+		return nil, ErrPaymentStateChanged
+	}
+	if r.beforeFinalizePaidOrder != nil {
+		r.beforeFinalizePaidOrder(paidAt)
+		r.beforeFinalizePaidOrder = nil
+	}
+	alreadyPaid := order.Status == orderStatusPaid
+	recharge := r.recharge
+	if recharge == nil || recharge.PaymentOrderID != orderID {
+		recharge = r.rechargeByOrder[orderID]
+	}
+	if recharge == nil {
+		if !alreadyPaid {
+			order.Status = orderStatusPaid
+			order.AlipayTradeNo = tradeNo
+			order.PaidAt = &paidAt
+		}
+		return &PaidOrderFinalization{Order: order, OrderPaid: !alreadyPaid, OrderAlreadyPaid: alreadyPaid, RawOrder: true}, nil
+	}
+	if recharge.PaymentOrderID != order.ID || recharge.AmountCents != order.AmountCents || recharge.UserID <= 0 {
+		return nil, ErrPaymentStateChanged
+	}
+	credited := recharge.Status == rechargeStatusCredited && recharge.CreditedAt != nil
+	if (recharge.Status == rechargeStatusCredited) != (recharge.CreditedAt != nil) || recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed ||
+		(recharge.Status == rechargeStatusCredited && (!alreadyPaid || recharge.PaidAt == nil)) ||
+		(recharge.Status == rechargeStatusPaid && (!alreadyPaid || recharge.PaidAt == nil)) ||
+		((recharge.Status == rechargeStatusPending || recharge.Status == rechargeStatusPaying) && recharge.PaidAt != nil) {
+		return nil, ErrPaymentStateChanged
+	}
+	if !alreadyPaid {
+		order.Status = orderStatusPaid
+		order.AlipayTradeNo = tradeNo
+		order.PaidAt = &paidAt
+	}
+	if !credited {
+		if r.wallet == nil || r.wallet.UserID != recharge.UserID {
+			return nil, ErrPaymentStateChanged
+		}
+		units := recharge.AmountCents * 1_000_000
+		r.creditCount++
+		r.wallet.BalanceUnits += units
+		r.wallet.TotalRechargeUnits += units
+		recharge.Status, recharge.PaidAt, recharge.CreditedAt = rechargeStatusCredited, &paidAt, &now
+	}
+	r.recharge = recharge
+	return &PaidOrderFinalization{
+		Order:                   order,
+		Recharge:                recharge,
+		Wallet:                  r.wallet,
+		OrderPaid:               !alreadyPaid,
+		OrderAlreadyPaid:        alreadyPaid,
+		RechargeCredited:        !credited,
+		RechargeAlreadyCredited: credited,
+	}, nil
 }
 func (r *fakeRechargeRepo) FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error) {
 	var selected *Config

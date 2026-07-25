@@ -299,7 +299,7 @@ func (r *GormRepository) CreditRechargeInTx(ctx context.Context, tx *gorm.DB, in
 		return nil, nil, err
 	}
 	var existing Transaction
-	err = tx.Where("source_type = ? AND source_id = ? AND is_del = ?", SourceRecharge, in.RechargeID, enum.CommonNo).First(&existing).Error
+	err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_type = ? AND source_id = ? AND is_del = ?", SourceRecharge, in.RechargeID, enum.CommonNo).First(&existing).Error
 	if err == nil {
 		if existing.UserID != in.UserID || existing.WalletID != wallet.ID || existing.Direction != DirectionIn || existing.AmountUnits != in.AmountUnits {
 			return nil, nil, ErrMutationSourceOwnerMismatch

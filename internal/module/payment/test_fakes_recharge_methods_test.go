@@ -36,15 +36,9 @@ func (r *fakeConfigRepo) UpdateRechargePaying(ctx context.Context, id int64) err
 func (r *fakeConfigRepo) UpdateRechargeFailed(ctx context.Context, id int64, reason string) error {
 	return nil
 }
-func (r *fakeConfigRepo) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
-	return nil
-}
 func (r *fakeConfigRepo) UpdateRechargeClosed(ctx context.Context, id int64) error { return nil }
-func (r *fakeConfigRepo) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
-	return &Wallet{ID: 1, UserID: 1, IsDel: 2}, &Recharge{ID: rechargeID, Status: rechargeStatusCredited, PaidAt: &paidAt, CreditedAt: &now}, nil
-}
-func (r *fakeConfigRepo) FinalizePaidOrder(context.Context, int64, string, time.Time, time.Time) (*Order, *Wallet, *Recharge, error) {
-	return nil, nil, nil, nil
+func (r *fakeConfigRepo) FinalizePaidOrder(context.Context, int64, string, time.Time, time.Time) (*PaidOrderFinalization, error) {
+	return nil, ErrPaymentOrderNotFound
 }
 func (r *fakeConfigRepo) FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error) {
 	return r.config, nil
@@ -81,9 +75,6 @@ func (r *fakeOrderRepo) UpdateRechargePaying(ctx context.Context, id int64) erro
 func (r *fakeOrderRepo) UpdateRechargeFailed(ctx context.Context, id int64, reason string) error {
 	return nil
 }
-func (r *fakeOrderRepo) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
-	return nil
-}
 func (r *fakeOrderRepo) UpdateRechargeClosed(ctx context.Context, id int64) error {
 	if r.recharge != nil && r.recharge.ID == id {
 		if !canCloseLinkedRecharge(r.recharge.Status) {
@@ -93,11 +84,16 @@ func (r *fakeOrderRepo) UpdateRechargeClosed(ctx context.Context, id int64) erro
 	}
 	return nil
 }
-func (r *fakeOrderRepo) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
-	return &Wallet{ID: 1, UserID: 1, IsDel: 2}, &Recharge{ID: rechargeID, Status: rechargeStatusCredited, PaidAt: &paidAt, CreditedAt: &now}, nil
-}
-func (r *fakeOrderRepo) FinalizePaidOrder(context.Context, int64, string, time.Time, time.Time) (*Order, *Wallet, *Recharge, error) {
-	return nil, nil, nil, nil
+func (r *fakeOrderRepo) FinalizePaidOrder(_ context.Context, id int64, _ string, paidAt time.Time, _ time.Time) (*PaidOrderFinalization, error) {
+	if r.order == nil || r.order.ID != id {
+		return nil, ErrPaymentOrderNotFound
+	}
+	if r.order.Status != orderStatusPending && r.order.Status != orderStatusPaying && r.order.Status != orderStatusPaid {
+		return nil, ErrPaymentStateChanged
+	}
+	alreadyPaid := r.order.Status == orderStatusPaid
+	r.order.Status, r.order.PaidAt = orderStatusPaid, &paidAt
+	return &PaidOrderFinalization{Order: r.order, Recharge: r.recharge, OrderPaid: !alreadyPaid, OrderAlreadyPaid: alreadyPaid, RawOrder: r.recharge == nil}, nil
 }
 func (r *fakeOrderRepo) FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error) {
 	return r.config, nil

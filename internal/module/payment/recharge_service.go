@@ -453,10 +453,6 @@ func newPaymentRechargeNo(now time.Time) string {
 	return newPaymentSerialNo("RCG", now)
 }
 
-func newWalletTransactionNo(now time.Time) string {
-	return newPaymentSerialNo("WLT", now)
-}
-
 func rechargeReturnURL(base string, rechargeNo string) string {
 	base = strings.TrimSpace(base)
 	if rechargeNo == "" {

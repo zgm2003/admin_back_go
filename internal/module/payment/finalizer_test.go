@@ -20,7 +20,10 @@ func TestFinalizeOrderPaidCreditsRechargeOnce(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("FinalizeOrderPaid error=%v", appErr)
 	}
-	if !result.OrderPaid || !result.RechargeCredited || repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited || repo.creditCount != 1 {
+	if result.AlreadyPaid {
+		t.Fatalf("first finalization must not be reported as an already-paid replay: %#v", result)
+	}
+	if !result.OrderPaid || result.AlreadyPaid || !result.RechargeCredited || result.RechargeAlreadyCredited || result.RawOrder || repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited || repo.creditCount != 1 || repo.finalizeCount != 1 {
 		t.Fatalf("unexpected first finalize result=%#v order=%#v recharge=%#v creditCount=%d", result, repo.order, repo.recharge, repo.creditCount)
 	}
 
@@ -28,7 +31,7 @@ func TestFinalizeOrderPaidCreditsRechargeOnce(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("duplicate FinalizeOrderPaid error=%v", appErr)
 	}
-	if !result.AlreadyPaid || !result.RechargeCredited || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000 {
+	if result.OrderPaid || !result.AlreadyPaid || result.RechargeCredited || !result.RechargeAlreadyCredited || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 || repo.finalizeCount != 2 {
 		t.Fatalf("duplicate finalize must be idempotent result=%#v wallet=%#v creditCount=%d", result, repo.wallet, repo.creditCount)
 	}
 }
@@ -41,7 +44,7 @@ func TestFinalizeOrderPaidAllowsRawOrderWithoutRecharge(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("FinalizeOrderPaid raw order error=%v", appErr)
 	}
-	if !result.OrderPaid || result.RechargeCredited || repo.order.Status != orderStatusPaid {
+	if !result.OrderPaid || result.AlreadyPaid || result.RechargeCredited || !result.RawOrder || repo.order.Status != orderStatusPaid {
 		t.Fatalf("unexpected raw finalize result=%#v order=%#v", result, repo.order)
 	}
 }
@@ -73,10 +76,12 @@ func TestFinalizeOrderPaidDoesNotDowngradeCreditedRechargeOnStaleSnapshot(t *tes
 	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
 	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
 	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
-	repo.beforeUpdateRechargePaid = func(paidAt time.Time) {
+	repo.beforeFinalizePaidOrder = func(paidAt time.Time) {
 		creditedAt := now.Add(-time.Millisecond)
-		repo.wallet.BalanceUnits += repo.recharge.AmountCents
-		repo.wallet.TotalRechargeUnits += repo.recharge.AmountCents
+		repo.order.Status = orderStatusPaid
+		repo.order.PaidAt = &paidAt
+		repo.wallet.BalanceUnits += repo.recharge.AmountCents * 1_000_000
+		repo.wallet.TotalRechargeUnits += repo.recharge.AmountCents * 1_000_000
 		repo.recharge.Status = rechargeStatusCredited
 		repo.recharge.PaidAt = &paidAt
 		repo.recharge.CreditedAt = &creditedAt
@@ -91,11 +96,11 @@ func TestFinalizeOrderPaidDoesNotDowngradeCreditedRechargeOnStaleSnapshot(t *tes
 	if repo.recharge.Status != rechargeStatusCredited || repo.recharge.CreditedAt == nil {
 		t.Fatalf("stale finalizer must not downgrade credited recharge, result=%#v recharge=%#v", result, repo.recharge)
 	}
-	if repo.wallet.BalanceUnits != 1000 || repo.creditCount != 1 {
+	if repo.wallet.BalanceUnits != 1000*1_000_000 || repo.creditCount != 1 {
 		t.Fatalf("stale finalizer must not double credit wallet=%#v creditCount=%d", repo.wallet, repo.creditCount)
 	}
-	if !result.RechargeCredited {
-		t.Fatalf("stale finalizer should observe credited recharge, result=%#v", result)
+	if result.RechargeCredited || !result.RechargeAlreadyCredited {
+		t.Fatalf("stale finalizer should report a credited replay, result=%#v", result)
 	}
 }
 
@@ -105,7 +110,7 @@ func TestFinalizeOrderPaidDoesNotCreditRechargeClosedAfterStaleSnapshot(t *testi
 	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
 	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
 	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
-	repo.beforeUpdateRechargePaid = func(paidAt time.Time) {
+	repo.beforeFinalizePaidOrder = func(paidAt time.Time) {
 		repo.recharge.Status = rechargeStatusClosed
 	}
 	service := newRechargeService(repo, &fakeOrderGateway{})

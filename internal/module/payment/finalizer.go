@@ -18,12 +18,27 @@ const (
 )
 
 type FinalizePaidResult struct {
-	OrderID          int64
-	RechargeID       int64
-	OrderPaid        bool
-	AlreadyPaid      bool
-	RechargeCredited bool
-	Source           string
+	OrderID                 int64
+	RechargeID              int64
+	OrderPaid               bool
+	AlreadyPaid             bool
+	RechargeCredited        bool
+	RechargeAlreadyCredited bool
+	RawOrder                bool
+	Source                  string
+}
+
+// PaidOrderFinalization is the committed fact returned by the atomic
+// order/recharge/wallet settlement transaction.
+type PaidOrderFinalization struct {
+	Order                   *Order
+	Recharge                *Recharge
+	Wallet                  *Wallet
+	OrderPaid               bool
+	OrderAlreadyPaid        bool
+	RechargeCredited        bool
+	RechargeAlreadyCredited bool
+	RawOrder                bool
 }
 
 func (s *Service) FinalizeOrderPaid(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, source string) (*FinalizePaidResult, *apperror.Error) {
@@ -42,67 +57,32 @@ func (s *Service) FinalizeOrderPaid(ctx context.Context, orderID int64, tradeNo 
 		source = finalizeSourceSync
 	}
 
-	order, err := repo.GetOrder(ctx, orderID)
+	fact, err := repo.FinalizePaidOrder(ctx, orderID, tradeNo, paidAt, s.now())
 	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", err)
-	}
-	if order == nil {
-		return nil, apperror.NotFound("支付订单不存在")
-	}
-
-	result := &FinalizePaidResult{OrderID: order.ID, Source: source}
-	if order.Status == orderStatusPaid {
-		result.AlreadyPaid = true
-	} else {
-		latest, changed, appErr := finalizeOrderPaidState(ctx, repo, order, tradeNo, paidAt)
-		if appErr != nil {
-			return nil, appErr
+		if errors.Is(err, ErrPaymentOrderNotFound) {
+			return nil, apperror.NotFound("支付订单不存在")
 		}
-		order = latest
-		result.OrderPaid = changed
-		result.AlreadyPaid = !changed
-	}
-
-	recharge, err := repo.GetRechargeByOrderID(ctx, order.ID)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值单失败", err)
-	}
-	if recharge == nil {
-		return result, nil
-	}
-	result.RechargeID = recharge.ID
-	if recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed {
-		return nil, apperror.BadRequest("充值单状态已变化，不能入账")
-	}
-	if recharge.Status != rechargeStatusCredited && recharge.Status != rechargeStatusPaid {
-		if err := repo.UpdateRechargePaid(ctx, recharge.ID, paidAt); err != nil {
-			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新充值支付状态失败", err)
-		}
-	}
-	if _, credited, err := repo.CreditRecharge(ctx, recharge.ID, paidAt, s.now()); err != nil {
 		if errors.Is(err, ErrPaymentStateChanged) {
 			return nil, apperror.BadRequest("充值单状态已变化，不能入账")
 		}
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "充值入账失败", err)
-	} else if credited != nil && credited.Status == rechargeStatusCredited {
-		result.RechargeCredited = true
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "支付终结失败", err)
+	}
+	if fact == nil || fact.Order == nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "支付终结失败", ErrPaymentStateChanged)
+	}
+	result := &FinalizePaidResult{
+		OrderID:                 fact.Order.ID,
+		OrderPaid:               fact.OrderPaid,
+		AlreadyPaid:             fact.OrderAlreadyPaid,
+		RechargeCredited:        fact.RechargeCredited,
+		RechargeAlreadyCredited: fact.RechargeAlreadyCredited,
+		RawOrder:                fact.RawOrder,
+		Source:                  source,
+	}
+	if fact.Recharge != nil {
+		result.RechargeID = fact.Recharge.ID
 	}
 	return result, nil
-}
-
-func finalizeOrderPaidState(ctx context.Context, repo Repository, order *Order, tradeNo string, paidAt time.Time) (*Order, bool, *apperror.Error) {
-	err := repo.UpdateOrderPaid(ctx, order.ID, resultTradeNoFromStrings(tradeNo, order.AlipayTradeNo), paidAt)
-	if err != nil && !errors.Is(err, ErrPaymentStateChanged) {
-		return nil, false, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "保存支付订单成功状态失败", err)
-	}
-	latest, lookupErr := repo.GetOrder(ctx, order.ID)
-	if lookupErr != nil {
-		return nil, false, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询支付订单失败", lookupErr)
-	}
-	if latest == nil || latest.Status != orderStatusPaid {
-		return nil, false, apperror.BadRequest("支付订单状态已变化，不能入账")
-	}
-	return latest, err == nil, nil
 }
 
 func resultTradeNoFromStrings(values ...string) string {

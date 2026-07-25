@@ -20,9 +20,7 @@ var (
 	orderOpenStatuses         = []string{orderStatusPending, orderStatusPaying}
 	orderPayingCASStatuses    = []string{orderStatusPending, orderStatusFailed}
 	orderFailedCASStatuses    = []string{orderStatusPending, orderStatusFailed}
-	orderPaidCASStatuses      = []string{orderStatusPending, orderStatusPaying, orderStatusPaid}
 	orderClosedCASStatuses    = []string{orderStatusPending, orderStatusFailed, orderStatusPaying}
-	rechargePaidCASStatuses   = []string{rechargeStatusPending, rechargeStatusPaying, rechargeStatusPaid}
 	rechargeClosedCASStatuses = []string{rechargeStatusPending, rechargeStatusFailed, rechargeStatusPaying}
 )
 

@@ -47,7 +47,7 @@ func TestSyncPendingOrdersCreditsPaidAndContinuesAfterFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SyncPendingOrders error=%v", err)
 	}
-	if result.Scanned != 2 || result.Paid != 1 || result.Failed != 1 || repo.creditCount != 1 {
+	if result.Scanned != 2 || result.Paid != 1 || result.Failed != 1 || repo.creditCount != 1 || repo.finalizeCount != 1 {
 		t.Fatalf("unexpected result=%#v creditCount=%d", result, repo.creditCount)
 	}
 }
@@ -70,11 +70,32 @@ func TestSyncPendingOrdersCreditsPreviouslyPaidUncreditedRecharge(t *testing.T) 
 	if err != nil {
 		t.Fatalf("SyncPendingOrders error=%v", err)
 	}
-	if result.Scanned != 1 || result.Paid != 1 || result.Failed != 0 || repo.creditCount != 1 {
+	if result.Scanned != 1 || result.Paid != 1 || result.Failed != 0 || repo.creditCount != 1 || repo.finalizeCount != 1 {
 		t.Fatalf("expected paid uncredited recharge to be compensated, result=%#v creditCount=%d", result, repo.creditCount)
 	}
 	if repo.rechargeByOrder[1].Status != rechargeStatusCredited || repo.rechargeByOrder[1].CreditedAt == nil {
 		t.Fatalf("expected credited recharge, got %#v", repo.rechargeByOrder[1])
+	}
+}
+
+func TestCreditUncreditedPaidRechargeStaleReplayUsesAtomicFinalizer(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	paidAt := fixedRechargeNow().Add(-time.Minute)
+	repo.batchOrders = []Order{{ID: 1, OrderNo: "PAY20260521000000000001", AmountCents: 1000, Status: orderStatusPaid, PaidAt: &paidAt, AlipayTradeNo: "202605212200", IsDel: enum.CommonNo}}
+	repo.order = &repo.batchOrders[0]
+	repo.rechargeByOrder = map[int64]*Recharge{1: {ID: 10, RechargeNo: "RCG1", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPaid, AmountCents: 1000, PaidAt: &paidAt, IsDel: enum.CommonNo}}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+	stale := RechargeWithOrder{Recharge: *repo.rechargeByOrder[1], AlipayTradeNo: repo.order.AlipayTradeNo, OrderPaidAt: repo.order.PaidAt}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		outcome, err := service.creditUncreditedPaidRecharge(context.Background(), stale)
+		if err != nil || outcome != paymentJobOutcomePaid {
+			t.Fatalf("cron replay attempt %d outcome=%q err=%v", attempt+1, outcome, err)
+		}
+	}
+	if repo.finalizeCount != 2 || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 {
+		t.Fatalf("cron stale replay must converge through atomic finalizer, finalize=%d credit=%d wallet=%#v", repo.finalizeCount, repo.creditCount, repo.wallet)
 	}
 }
 
@@ -98,7 +119,7 @@ func TestCloseExpiredOrdersClosesPendingAndFinalizesPaidPaying(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseExpiredOrders error=%v", err)
 	}
-	if result.Scanned != 2 || result.Closed != 1 || result.Paid != 1 || repo.creditCount != 1 {
+	if result.Scanned != 2 || result.Closed != 1 || result.Paid != 1 || repo.creditCount != 1 || repo.finalizeCount != 1 {
 		t.Fatalf("unexpected result=%#v creditCount=%d", result, repo.creditCount)
 	}
 }

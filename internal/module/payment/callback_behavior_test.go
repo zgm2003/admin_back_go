@@ -36,6 +36,26 @@ func TestHandleAlipayCallbackSuccessFinalizesRechargeAndAudits(t *testing.T) {
 	}
 }
 
+func TestHandleAlipayCallbackCreditedReplayUsesAtomicFinalizer(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	gw := &fakeOrderGateway{notifyPayload: &gateway.NotifyPayload{NotifyID: "notify-1", OutTradeNo: repo.order.OrderNo, TradeNo: "202605212200", TradeStatus: "TRADE_SUCCESS", AppID: repo.configs[0].AppID, TotalAmountCents: 1000}}
+	service := newRechargeService(repo, gw)
+
+	for attempt := 0; attempt < 2; attempt++ {
+		result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
+		if appErr != nil || result == nil || result.Text != callbackResultSuccess {
+			t.Fatalf("callback attempt %d result=%#v err=%v", attempt+1, result, appErr)
+		}
+	}
+	if repo.finalizeCount != 2 || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 {
+		t.Fatalf("callback replay must converge through one atomic credit, finalize=%d credit=%d wallet=%#v", repo.finalizeCount, repo.creditCount, repo.wallet)
+	}
+}
+
 func TestHandleAlipayCallbackUsesDisabledBoundConfigForExistingOrder(t *testing.T) {
 	repo := newFakeRechargeRepo()
 	cfg := enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})

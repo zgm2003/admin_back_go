@@ -81,7 +81,7 @@ func TestServiceCreditRejectsRechargeSourceType(t *testing.T) {
 		t.Fatalf("expected credit source_type invalid keyed error, got %v", appErr)
 	}
 	if repo.creditCalled {
-		t.Fatalf("generic wallet credit must not handle recharge; recharge uses payment CreditRecharge")
+		t.Fatalf("generic wallet credit must not handle recharge; recharge uses payment atomic finalization")
 	}
 }
 
