@@ -50,25 +50,26 @@ type UsageChargeItem struct {
 func (UsageChargeItem) TableName() string { return "ai_usage_charge_items" }
 
 type ProviderAttempt struct {
-	ID                    int64        `gorm:"column:id;primaryKey"`
-	RunID                 int64        `gorm:"column:run_id"`
-	CommandID             *int64       `gorm:"column:command_id"`
-	AttemptNo             uint         `gorm:"column:attempt_no"`
-	IdempotencyKey        string       `gorm:"column:idempotency_key"`
-	State                 AttemptState `gorm:"column:state"`
-	PreparedRequestJSON   string       `gorm:"column:prepared_request_json"`
-	PreparedRequestSHA256 []byte       `gorm:"column:prepared_request_sha256"`
-	QuoteJSON             string       `gorm:"column:quote_json"`
-	UsageJSON             string       `gorm:"column:usage_json"`
-	UsageStatus           UsageStatus  `gorm:"column:usage_status"`
-	ResultCandidateJSON   *string      `gorm:"column:result_candidate_json"`
-	ProviderRequestID     string       `gorm:"column:provider_request_id"`
-	ResponseSHA256        string       `gorm:"column:response_sha256"`
-	ErrorCode             string       `gorm:"column:error_code"`
-	DispatchedAt          *time.Time   `gorm:"column:dispatched_at"`
-	FinishedAt            *time.Time   `gorm:"column:finished_at"`
-	CreatedAt             time.Time    `gorm:"column:created_at"`
-	UpdatedAt             time.Time    `gorm:"column:updated_at"`
+	ID                    int64         `gorm:"column:id;primaryKey"`
+	RunID                 int64         `gorm:"column:run_id"`
+	CommandID             *int64        `gorm:"column:command_id"`
+	AttemptNo             uint          `gorm:"column:attempt_no"`
+	IdempotencyKey        string        `gorm:"column:idempotency_key"`
+	State                 AttemptState  `gorm:"column:state"`
+	PreparedRequestJSON   string        `gorm:"column:prepared_request_json"`
+	PreparedRequestSHA256 []byte        `gorm:"column:prepared_request_sha256"`
+	QuoteJSON             string        `gorm:"column:quote_json"`
+	UsageJSON             string        `gorm:"column:usage_json"`
+	UsageStatus           UsageStatus   `gorm:"column:usage_status"`
+	DispatchState         DispatchState `gorm:"column:dispatch_state"`
+	ResultCandidateJSON   *string       `gorm:"column:result_candidate_json"`
+	ProviderRequestID     string        `gorm:"column:provider_request_id"`
+	ResponseSHA256        string        `gorm:"column:response_sha256"`
+	ErrorCode             string        `gorm:"column:error_code"`
+	DispatchedAt          *time.Time    `gorm:"column:dispatched_at"`
+	FinishedAt            *time.Time    `gorm:"column:finished_at"`
+	CreatedAt             time.Time     `gorm:"column:created_at"`
+	UpdatedAt             time.Time     `gorm:"column:updated_at"`
 }
 
 func (ProviderAttempt) TableName() string { return "ai_provider_attempts" }

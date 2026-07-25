@@ -3,6 +3,7 @@ package imagecompat
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -92,6 +93,7 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
 	}
 	defer resp.Body.Close()
+	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
 	if !isSuccessStatus(resp.StatusCode) {
 		body, err := readLimitedResponseBody(resp.Body)
 		if err != nil {
@@ -101,7 +103,14 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 			return nil, err
 		}
 	}
-	return decodeImageResponse(resp.Body, imageMime(input.OutputFormat))
+	result, err := decodeImageResponse(resp.Body, imageMime(input.OutputFormat))
+	if err != nil {
+		return nil, err
+	}
+	result.ProviderRequestID = providerRequestID
+	result.DispatchState = infraai.DispatchStateDispatched
+	result.ResponseSHA256 = sha256.Sum256(result.RawResponse)
+	return result, nil
 }
 
 func (c *Client) newGenerationRequest(ctx context.Context, input infraai.ImageInput) (*http.Request, error) {
@@ -293,9 +302,9 @@ type imageResponse struct {
 	Moderation        string `json:"moderation"`
 	N                 int    `json:"n"`
 	Usage             *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
+		InputTokens  *int `json:"input_tokens"`
+		OutputTokens *int `json:"output_tokens"`
+		TotalTokens  *int `json:"total_tokens"`
 	} `json:"usage"`
 }
 
@@ -347,21 +356,27 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 		UsageStatus:  infraai.UsageStatusUnavailable,
 	}
 	if payload.Usage != nil {
-		result.PromptTokens = payload.Usage.InputTokens
-		result.CompletionTokens = payload.Usage.OutputTokens
-		result.TotalTokens = payload.Usage.TotalTokens
-		result.UsageStatus = infraai.UsageStatusReported
-		if payload.Usage.InputTokens < 0 || payload.Usage.OutputTokens < 0 || payload.Usage.TotalTokens < 0 || ((payload.Usage.InputTokens != 0 || payload.Usage.OutputTokens != 0) && payload.Usage.TotalTokens != payload.Usage.InputTokens+payload.Usage.OutputTokens) {
+		if payload.Usage.InputTokens == nil || payload.Usage.OutputTokens == nil || payload.Usage.TotalTokens == nil {
+			return result, nil
+		}
+		inputTokens, outputTokens, totalTokens := *payload.Usage.InputTokens, *payload.Usage.OutputTokens, *payload.Usage.TotalTokens
+		result.PromptTokens = inputTokens
+		result.CompletionTokens = outputTokens
+		result.TotalTokens = totalTokens
+		if inputTokens < 0 || outputTokens < 0 || totalTokens < 0 || ((inputTokens != 0 || outputTokens != 0) && totalTokens != inputTokens+outputTokens) {
 			result.UsageStatus = infraai.UsageStatusUnavailable
 		} else {
 			items := make([]infraai.UsageItem, 0, 2)
-			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: int64(payload.Usage.InputTokens)})
-			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: int64(payload.Usage.OutputTokens)})
-			if payload.Usage.InputTokens == 0 && payload.Usage.OutputTokens == 0 && payload.Usage.TotalTokens > 0 {
-				items = []infraai.UsageItem{{Category: infraai.UsageCategoryMedia, Unit: "token", Quantity: int64(payload.Usage.TotalTokens)}}
+			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: int64(inputTokens)})
+			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: int64(outputTokens)})
+			if inputTokens == 0 && outputTokens == 0 && totalTokens > 0 {
+				items = []infraai.UsageItem{{Category: infraai.UsageCategoryMedia, Unit: "token", Quantity: int64(totalTokens)}}
 			}
-			result.Usage, _ = infraai.NewUsageSnapshot(infraai.UsageStatusReported, raw, items)
-			result.ResponseSHA256 = result.Usage.ResponseSHA256
+			if usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, raw, items); err == nil {
+				result.Usage = usage
+				result.UsageStatus = infraai.UsageStatusReported
+				result.ResponseSHA256 = result.Usage.ResponseSHA256
+			}
 		}
 	}
 	return result, nil

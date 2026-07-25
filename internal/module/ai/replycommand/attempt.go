@@ -1,6 +1,7 @@
 package replycommand
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -28,7 +29,7 @@ const (
 type Attempt struct {
 	ID                    uint64       `gorm:"column:id;primaryKey"`
 	RunID                 int64        `gorm:"column:run_id"`
-	CommandID             uint64       `gorm:"column:command_id"`
+	CommandID             *uint64      `gorm:"column:command_id"`
 	AttemptNo             uint         `gorm:"column:attempt_no"`
 	IdempotencyKey        string       `gorm:"column:idempotency_key"`
 	State                 AttemptState `gorm:"column:state"`
@@ -37,6 +38,7 @@ type Attempt struct {
 	QuoteJSON             string       `gorm:"column:quote_json"`
 	UsageJSON             string       `gorm:"column:usage_json"`
 	UsageStatus           string       `gorm:"column:usage_status"`
+	DispatchState         string       `gorm:"column:dispatch_state"`
 	ResultCandidateJSON   *string      `gorm:"column:result_candidate_json"`
 	ProviderRequestID     string       `gorm:"column:provider_request_id"`
 	ResponseSHA256        string       `gorm:"column:response_sha256"`
@@ -84,7 +86,7 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 		return nil, false, ErrRepositoryNotConfigured
 	}
 	input.Owner = strings.TrimSpace(input.Owner)
-	if input.CommandID == 0 || input.Owner == "" || input.Token == 0 {
+	if input.RunID <= 0 || input.Owner == "" || input.Token == 0 {
 		return nil, false, ErrCreateInputInvalid
 	}
 	if ctx == nil {
@@ -93,18 +95,32 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 	if input.Now.IsZero() {
 		input.Now = time.Now()
 	}
+	if input.PreparedRequestJSON != "" {
+		if !json.Valid([]byte(input.PreparedRequestJSON)) {
+			return nil, false, errors.New("prepared request must be valid JSON")
+		}
+		digest := sha256.Sum256([]byte(input.PreparedRequestJSON))
+		if input.PreparedRequestSHA256 != ([32]byte{}) && input.PreparedRequestSHA256 != digest {
+			return nil, false, errors.New("prepared request hash mismatch")
+		}
+	}
+	if input.QuoteJSON != "" && !json.Valid([]byte(input.QuoteJSON)) {
+		return nil, false, errors.New("quote evidence must be valid JSON")
+	}
 	var attempt *Attempt
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var command Command
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("id").
-			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL AND lease_expires_at > ?", input.CommandID, input.Owner, input.Token, StateRunning, input.Now).
-			First(&command).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
+		if input.CommandID > 0 {
+			var command Command
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Select("id").
+				Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL AND lease_expires_at > ?", input.CommandID, input.Owner, input.Token, StateRunning, input.Now).
+				First(&command).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 		}
 		var maxAttempt uint
 		attemptQuery := tx.Model(&Attempt{}).Where("command_id = ?", input.CommandID)
@@ -120,6 +136,18 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 				query = query.Where("command_id = ?", input.CommandID)
 			}
 			if err := query.First(&existing).Error; err == nil {
+				if input.PreparedRequestJSON != "" && existing.PreparedRequestJSON != input.PreparedRequestJSON {
+					return errors.New("prepared attempt evidence conflicts with existing row")
+				}
+				if input.PreparedRequestSHA256 != ([32]byte{}) && !bytes.Equal(existing.PreparedRequestSHA256, input.PreparedRequestSHA256[:]) {
+					return errors.New("prepared attempt hash conflicts with existing row")
+				}
+				if input.QuoteJSON != "" && existing.QuoteJSON != input.QuoteJSON {
+					return errors.New("prepared attempt quote conflicts with existing row")
+				}
+				if input.IdempotencyKey != "" && existing.IdempotencyKey != input.IdempotencyKey {
+					return errors.New("prepared attempt idempotency key conflicts with existing row")
+				}
 				attempt = &existing
 				return nil
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -129,7 +157,14 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 		if err := attemptQuery.Select("COALESCE(MAX(attempt_no), 0)").Scan(&maxAttempt).Error; err != nil {
 			return err
 		}
-		prepared := strings.TrimSpace(input.PreparedRequestJSON)
+		attemptNo := maxAttempt + 1
+		if input.AttemptNo > 0 {
+			if input.AttemptNo != attemptNo {
+				return errors.New("attempt number is not the next run attempt")
+			}
+			attemptNo = input.AttemptNo
+		}
+		prepared := input.PreparedRequestJSON
 		if prepared == "" {
 			prepared = `{"version":"legacy_unavailable_v1","replayable":false}`
 		}
@@ -143,15 +178,17 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 		}
 		key := strings.TrimSpace(input.IdempotencyKey)
 		if key == "" {
-			key = providerAttemptKey(uint64(input.RunID), maxAttempt+1)
-			if input.RunID == 0 {
-				key = providerAttemptKey(input.CommandID, maxAttempt+1)
-			}
+			key = providerAttemptKey(uint64(input.RunID), attemptNo)
+		}
+		var commandID *uint64
+		if input.CommandID > 0 {
+			value := input.CommandID
+			commandID = &value
 		}
 		row := &Attempt{
 			RunID:                 input.RunID,
-			CommandID:             input.CommandID,
-			AttemptNo:             maxAttempt + 1,
+			CommandID:             commandID,
+			AttemptNo:             attemptNo,
 			IdempotencyKey:        key,
 			State:                 AttemptPrepared,
 			PreparedRequestJSON:   prepared,
@@ -204,7 +241,7 @@ func (r *GormRepository) MarkAttemptDispatched(ctx context.Context, attemptID ui
 	result := r.db.WithContext(ctx).Model(&Attempt{}).
 		Where("id = ? AND command_id = ? AND state = ?", attemptID, commandID, AttemptPrepared).
 		Where("EXISTS (SELECT 1 FROM ai_reply_commands c WHERE c.id = ? AND c.lease_owner = ? AND c.lease_token = ? AND c.state = ? AND c.cancel_requested_at IS NULL AND c.lease_expires_at > ?)", commandID, owner, token, StateRunning, now).
-		Updates(map[string]any{"state": AttemptDispatched, "dispatched_at": now, "updated_at": now})
+		Updates(map[string]any{"state": AttemptDispatched, "dispatch_state": "dispatched", "dispatched_at": now, "updated_at": now})
 	return result.RowsAffected == 1, result.Error
 }
 
@@ -212,11 +249,25 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
-	if input.AttemptID == 0 || input.CommandID == 0 || !terminalAttemptState(input.State) {
+	if input.RunID <= 0 || input.AttemptID == 0 || !terminalAttemptState(input.State) {
+		return false, ErrCreateInputInvalid
+	}
+	if input.CommandID > 0 && (strings.TrimSpace(input.Owner) == "" || input.Token == 0) {
 		return false, ErrCreateInputInvalid
 	}
 	if input.Now.IsZero() {
 		input.Now = time.Now()
+	}
+	input.DispatchState = strings.TrimSpace(input.DispatchState)
+	if input.DispatchState == "" {
+		if input.State == AttemptOutcomeUnknown {
+			input.DispatchState = "unknown"
+		} else {
+			input.DispatchState = "dispatched"
+		}
+	}
+	if input.DispatchState != "not_dispatched" && input.DispatchState != "dispatched" && input.DispatchState != "unknown" {
+		return false, ErrCreateInputInvalid
 	}
 	updates := map[string]any{
 		"state":                 input.State,
@@ -225,6 +276,7 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 		"error_code":            strings.TrimSpace(input.ErrorCode),
 		"usage_json":            strings.TrimSpace(input.UsageJSON),
 		"usage_status":          strings.TrimSpace(input.UsageStatus),
+		"dispatch_state":        input.DispatchState,
 		"result_candidate_json": input.ResultCandidateJSON,
 		"finished_at":           input.Now,
 		"updated_at":            input.Now,
@@ -236,11 +288,10 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 		updates["usage_status"] = "unavailable"
 	}
 	query := r.db.WithContext(ctx).Model(&Attempt{}).
-		Where("id = ? AND state IN ?", input.AttemptID, []AttemptState{AttemptPrepared, AttemptDispatched})
-	if input.RunID > 0 {
-		query = query.Where("run_id = ?", input.RunID)
-	} else {
+		Where("id = ? AND run_id = ? AND state = ?", input.AttemptID, input.RunID, AttemptDispatched)
+	if input.CommandID > 0 {
 		query = query.Where("command_id = ?", input.CommandID)
+		query = query.Where("EXISTS (SELECT 1 FROM ai_reply_commands c WHERE c.id = ? AND c.lease_owner = ? AND c.lease_token = ? AND c.state = ? AND c.cancel_requested_at IS NULL AND c.lease_expires_at > ?)", input.CommandID, strings.TrimSpace(input.Owner), input.Token, StateRunning, input.Now)
 	}
 	result := query.
 		Updates(updates)

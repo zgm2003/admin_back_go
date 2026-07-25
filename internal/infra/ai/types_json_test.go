@@ -15,3 +15,10 @@ func TestConnectionResultUsesDocumentedJSONNames(t *testing.T) {
 		t.Fatalf("payload=%s, want %s", payload, want)
 	}
 }
+
+func TestUsageSnapshotReportedWithoutItemsIsNotComplete(t *testing.T) {
+	snapshot := UsageSnapshot{Status: UsageStatusReported}
+	if snapshot.Complete() {
+		t.Fatal("reported usage without items must fail closed")
+	}
+}

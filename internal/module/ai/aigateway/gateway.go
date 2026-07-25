@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,15 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 	if err := requireRunID(req.RunID); err != nil || req.UserID <= 0 || req.RequestID == "" {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "run and request identity are required", 400)
 	}
+	if g.deps.Runs != nil {
+		persisted, err := g.deps.Runs.RequestFingerprint(ctx, req.RunID, req.RequestID)
+		if err != nil {
+			return PreparedCall{}, err
+		}
+		if persisted != ([32]byte{}) && persisted != req.RequestFingerprint {
+			return PreparedCall{}, gatewayError(ErrCodeFingerprintConflict, "request fingerprint conflicts with persisted run", 409)
+		}
+	}
 	key := fmt.Sprintf("%d:%s", req.UserID, req.RequestID)
 	g.mu.Lock()
 	if previous, ok := g.requests[key]; ok && previous != req.RequestFingerprint {
@@ -83,20 +93,43 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 	key := attemptKey(input.RunID, input.AttemptNo)
 	if input.NewCall == nil {
 		g.record("recover_prepared")
+		var attempt ProviderAttempt
 		if g.deps.Attempts != nil {
-			attempt, err := g.deps.Attempts.GetPrepared(ctx, input.RunID, input.AttemptNo)
+			var err error
+			attempt, err = g.deps.Attempts.GetPrepared(ctx, input.RunID, input.AttemptNo)
 			if err != nil {
 				return ProviderAttempt{}, err
 			}
-			return attempt, nil
+			if g.deps.Transactions != nil {
+				err = g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
+					if g.deps.Runs != nil {
+						if _, lockErr := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID); lockErr != nil {
+							return lockErr
+						}
+					}
+					if g.deps.Reserve != nil {
+						return g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, attempt.Quote.TargetHoldUnits)
+					}
+					return nil
+				})
+			} else if g.deps.Reserve != nil {
+				err = g.deps.Reserve.ReserveOrTopUp(ctx, nil, input.RunID, attempt.Quote.TargetHoldUnits)
+			}
+			if err != nil {
+				if isInsufficient(err) {
+					return ProviderAttempt{}, gatewayError(ErrCodeInsufficientBalance, err.Error(), 409)
+				}
+				return ProviderAttempt{}, err
+			}
+			g.mu.Lock()
+			g.attempts[key] = &storedAttempt{ProviderAttempt: cloneAttempt(attempt), State: "prepared"}
+			g.mu.Unlock()
+			return cloneAttempt(attempt), nil
 		}
-		g.mu.Lock()
-		stored, ok := g.attempts[key]
-		g.mu.Unlock()
-		if !ok || stored.State != "prepared" {
-			return ProviderAttempt{}, gatewayError(ErrCodePreparedMissing, "prepared attempt does not exist", 409)
-		}
-		return cloneAttempt(stored.ProviderAttempt), nil
+		return ProviderAttempt{}, ErrNotConfigured
+	}
+	if g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Attempts == nil {
+		return ProviderAttempt{}, ErrNotConfigured
 	}
 	call, err := canonicalPrepared(*input.NewCall)
 	if err != nil {
@@ -104,7 +137,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 	}
 	g.mu.Lock()
 	if existing, ok := g.attempts[key]; ok {
-		if !bytes.Equal(existing.PreparedRequest, call.RequestBody) || existing.Quote.TargetHoldUnits != call.Quote.TargetHoldUnits || existing.Quote.PricingVersion != call.Quote.PricingVersion {
+		if !bytes.Equal(existing.PreparedRequest, call.RequestBody) || !equalQuoteEvidence(existing.Quote, call.Quote) {
 			g.mu.Unlock()
 			return ProviderAttempt{}, gatewayError(ErrCodeDuplicateAttempt, "attempt evidence differs from persisted evidence", 409)
 		}
@@ -127,6 +160,11 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 	attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: key, PreparedRequest: append([]byte(nil), call.RequestBody...), Quote: call.Quote}
 	if g.deps.Transactions != nil {
 		txErr = g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
+			if g.deps.Runs != nil {
+				if _, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID); err != nil {
+					return err
+				}
+			}
 			if err := reserve(tx); err != nil {
 				return err
 			}
@@ -156,34 +194,29 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 }
 
 func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) error {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Attempts == nil {
+		return ErrNotConfigured
+	}
 	key := attemptKey(attempt.RunID, attempt.AttemptNo)
-	g.mu.Lock()
-	stored, ok := g.attempts[key]
-	if !ok {
-		g.mu.Unlock()
+	persisted, err := g.deps.Attempts.GetPrepared(ctx, attempt.RunID, attempt.AttemptNo)
+	if err != nil {
 		return gatewayError(ErrCodePreparedMissing, "prepared attempt does not exist", 409)
 	}
-	if stored.State != "prepared" {
-		g.mu.Unlock()
-		return nil
+	if !sameAttemptEvidence(persisted, attempt) {
+		return gatewayError(ErrCodeDuplicateAttempt, "provider attempt evidence differs from persisted attempt", 409)
 	}
-	g.mu.Unlock()
 	g.record("mark_dispatched")
-	if g.deps.Attempts != nil {
-		var err error
-		if g.deps.Transactions != nil {
-			err = g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
-				return g.deps.Attempts.MarkDispatched(ctx, tx, attempt.RunID, attempt.AttemptNo)
-			})
-		} else {
-			err = g.deps.Attempts.MarkDispatched(ctx, nil, attempt.RunID, attempt.AttemptNo)
-		}
-		if err != nil {
+	err = g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
+		if _, err := g.deps.Runs.LockRunAndCharge(ctx, tx, attempt.RunID); err != nil {
 			return err
 		}
+		return g.deps.Attempts.MarkDispatched(ctx, tx, attempt.RunID, attempt.AttemptNo)
+	})
+	if err != nil {
+		return err
 	}
 	g.mu.Lock()
-	stored.State = "dispatched"
+	g.attempts[key] = &storedAttempt{ProviderAttempt: cloneAttempt(persisted), State: "dispatched"}
 	g.mu.Unlock()
 	return nil
 }
@@ -218,29 +251,24 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 }
 
 func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, result DispatchResult) error {
-	key := attemptKey(attempt.RunID, attempt.AttemptNo)
-	g.mu.Lock()
-	stored, ok := g.attempts[key]
-	if !ok {
-		g.mu.Unlock()
-		return ErrNotFound
+	if g == nil || g.deps.Transactions == nil || g.deps.Attempts == nil {
+		return ErrNotConfigured
 	}
+	g.record("record_outcome")
+	if err := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
+		return g.deps.Attempts.RecordOutcome(ctx, tx, attempt.RunID, attempt.AttemptNo, result)
+	}); err != nil {
+		return err
+	}
+	g.mu.Lock()
 	copyResult := result
-	stored.Result = &copyResult
+	stored := &storedAttempt{ProviderAttempt: cloneAttempt(attempt), Result: &copyResult}
 	if result.TerminalState != "" {
 		stored.State = result.TerminalState
 	}
+	g.attempts[attemptKey(attempt.RunID, attempt.AttemptNo)] = stored
 	g.mu.Unlock()
-	g.record("record_outcome")
-	if g.deps.Attempts == nil {
-		return nil
-	}
-	if g.deps.Transactions != nil {
-		return g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
-			return g.deps.Attempts.RecordOutcome(ctx, tx, attempt.RunID, attempt.AttemptNo, result)
-		})
-	}
-	return g.deps.Attempts.RecordOutcome(ctx, nil, attempt.RunID, attempt.AttemptNo, result)
+	return nil
 }
 
 func (g *Gateway) Finalize(ctx context.Context, input FinalizeInput) error {
@@ -270,6 +298,20 @@ func cloneAttempt(a ProviderAttempt) ProviderAttempt {
 	a.PreparedRequest = append([]byte(nil), a.PreparedRequest...)
 	a.Quote.UpperBoundItems = append([]billing.UsageItem(nil), a.Quote.UpperBoundItems...)
 	return a
+}
+
+func equalQuoteEvidence(left, right QuoteEvidence) bool {
+	return left.PricingVersion == right.PricingVersion &&
+		left.EffectiveMaxOutputTokens == right.EffectiveMaxOutputTokens &&
+		left.TargetHoldUnits == right.TargetHoldUnits &&
+		reflect.DeepEqual(left.UpperBoundItems, right.UpperBoundItems)
+}
+
+func sameAttemptEvidence(left, right ProviderAttempt) bool {
+	return left.RunID == right.RunID && left.AttemptNo == right.AttemptNo &&
+		left.IdempotencyKey == right.IdempotencyKey &&
+		bytes.Equal(left.PreparedRequest, right.PreparedRequest) &&
+		equalQuoteEvidence(left.Quote, right.Quote)
 }
 
 func isInsufficient(err error) bool {

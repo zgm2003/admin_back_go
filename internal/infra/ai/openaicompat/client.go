@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -180,6 +181,7 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, err)
 	}
 	result.ProviderRequestID = providerRequestID
+	result.DispatchState = infraai.DispatchStateDispatched
 	return result, nil
 }
 
@@ -457,6 +459,8 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	var answer strings.Builder
 	result := &infraai.ChatResult{}
+	streamDigest := sha256.New()
+	hasStreamData := false
 	for scanner.Scan() {
 		if touch != nil {
 			touch()
@@ -477,11 +481,14 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 		if data == "" {
 			continue
 		}
+		_, _ = io.WriteString(streamDigest, data+"\n")
+		hasStreamData = true
 		if data == "[DONE]" {
 			if result.UsageStatus == "" {
 				result.UsageStatus = infraai.UsageStatusUnavailable
 				result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 			}
+			setStreamResponseHash(result, streamDigest, hasStreamData)
 			return result, nil
 		}
 		var chunk chatCompletionStreamChunk
@@ -489,14 +496,18 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			return nil, fmt.Errorf("decode OpenAI chat completion stream chunk: %w", err)
 		}
 		if chunk.Usage != nil {
-			result.PromptTokens = chunk.Usage.PromptTokens
-			result.CompletionTokens = chunk.Usage.CompletionTokens
-			result.TotalTokens = chunk.Usage.TotalTokens
-			result.UsageStatus = infraai.UsageStatusReported
+			result.PromptTokens = usageInt(chunk.Usage.PromptTokens)
+			result.CompletionTokens = usageInt(chunk.Usage.CompletionTokens)
+			result.TotalTokens = usageInt(chunk.Usage.TotalTokens)
 			result.Usage = tokenUsageSnapshot(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, chunk.Usage.TotalTokens, chunk.Usage.PromptDetails)
 			result.Usage.RawProviderJSON = append([]byte(nil), data...)
 			result.Usage.ResponseSHA256 = sha256.Sum256([]byte(data))
 			result.ResponseSHA256 = result.Usage.ResponseSHA256
+			if result.Usage.Complete() {
+				result.UsageStatus = infraai.UsageStatusReported
+			} else {
+				result.UsageStatus = infraai.UsageStatusUnavailable
+			}
 		}
 		for _, choice := range chunk.Choices {
 			for _, call := range choice.Delta.ToolCalls {
@@ -522,7 +533,15 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 		result.UsageStatus = infraai.UsageStatusUnavailable
 		result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 	}
+	setStreamResponseHash(result, streamDigest, hasStreamData)
 	return result, nil
+}
+
+func setStreamResponseHash(result *infraai.ChatResult, digest hash.Hash, hasData bool) {
+	if result == nil || !hasData || digest == nil {
+		return
+	}
+	copy(result.ResponseSHA256[:], digest.Sum(nil))
 }
 
 type chatCompletionRequest struct {
@@ -593,40 +612,55 @@ type chatCompletionStreamChunk struct {
 		} `json:"delta"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int                 `json:"prompt_tokens"`
-		CompletionTokens int                 `json:"completion_tokens"`
-		TotalTokens      int                 `json:"total_tokens"`
+		PromptTokens     *int                `json:"prompt_tokens"`
+		CompletionTokens *int                `json:"completion_tokens"`
+		TotalTokens      *int                `json:"total_tokens"`
 		PromptDetails    *promptTokenDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
 }
 
 type promptTokenDetails struct {
-	CachedTokens             int `json:"cached_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CachedTokens             *int `json:"cached_tokens"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
 }
 
-func tokenUsageSnapshot(prompt, completion, total int, details *promptTokenDetails) infraai.UsageSnapshot {
+func usageInt(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func tokenUsageSnapshot(promptValue, completionValue, totalValue *int, details *promptTokenDetails) infraai.UsageSnapshot {
+	if promptValue == nil || completionValue == nil || totalValue == nil {
+		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
+	prompt, completion, total := *promptValue, *completionValue, *totalValue
 	if prompt < 0 || completion < 0 || total < 0 || total != prompt+completion {
 		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 	}
 	read, write := 0, 0
+	hasRead, hasWrite := false, false
 	if details != nil {
-		if details.CachedTokens > 0 && details.CacheReadInputTokens > 0 {
+		cached, explicitRead := usageInt(details.CachedTokens), usageInt(details.CacheReadInputTokens)
+		if cached > 0 && explicitRead > 0 {
 			return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 		}
-		read = details.CachedTokens + details.CacheReadInputTokens
-		write = details.CacheCreationInputTokens
+		read = cached + explicitRead
+		write = usageInt(details.CacheCreationInputTokens)
+		hasRead = details.CachedTokens != nil || details.CacheReadInputTokens != nil
+		hasWrite = details.CacheCreationInputTokens != nil
 	}
 	if read < 0 || write < 0 || read+write > prompt {
 		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 	}
 	items := []infraai.UsageItem{{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: int64(prompt - read - write)}, {Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: int64(completion)}}
 	if details != nil {
-		if read > 0 || details.CachedTokens == 0 {
+		if hasRead {
 			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryCacheRead, Unit: "token", Quantity: int64(read)})
 		}
-		if write > 0 {
+		if hasWrite {
 			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryCacheWrite, Unit: "token", Quantity: int64(write)})
 		}
 	}

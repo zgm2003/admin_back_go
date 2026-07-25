@@ -192,6 +192,36 @@ func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 	}
 }
 
+func TestClientStreamChatMarksMalformedUsageUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3,\"total_tokens\":99}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.UsageStatus != infraai.UsageStatusUnavailable || result.Usage.Complete() {
+		t.Fatalf("malformed usage was accepted: status=%q usage=%+v", result.UsageStatus, result.Usage)
+	}
+}
+
+func TestClientStreamChatDoesNotTreatOmittedUsageCountsAsZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.UsageStatus != infraai.UsageStatusUnavailable || result.Usage.Complete() {
+		t.Fatalf("omitted usage was accepted as zero: status=%q usage=%+v", result.UsageStatus, result.Usage)
+	}
+}
+
 func TestClientStreamChatSendsOpenAIChatCompletionAndEmitsDelta(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

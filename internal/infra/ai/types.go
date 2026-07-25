@@ -67,18 +67,28 @@ type CapabilityProvider interface {
 }
 
 func (s UsageSnapshot) Complete() bool {
-	return s.Status == UsageStatusReported || s.Status == UsageStatusComplete
+	if s.Status != UsageStatusReported && s.Status != UsageStatusComplete {
+		return false
+	}
+	return validateUsageItems(s.Items) == nil
 }
 
 func (s UsageSnapshot) Validate() error {
 	if s.Status == UsageStatusUnavailable {
 		return nil
 	}
-	if !s.Complete() {
+	if s.Status != UsageStatusReported && s.Status != UsageStatusComplete {
 		return fmt.Errorf("unknown usage status %q", s.Status)
 	}
-	seen := make(map[string]struct{}, len(s.Items))
-	for _, item := range s.Items {
+	return validateUsageItems(s.Items)
+}
+
+func validateUsageItems(items []UsageItem) error {
+	if len(items) == 0 {
+		return errors.New("complete usage requires at least one item")
+	}
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
 		if err := item.Validate(); err != nil {
 			return err
 		}

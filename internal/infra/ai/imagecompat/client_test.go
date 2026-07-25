@@ -2,6 +2,7 @@ package imagecompat
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -129,8 +130,35 @@ func TestClientGenerateImagesParsesCompleteJSONBeforeConnectionClose(t *testing.
 	if len(result.Images) != 1 || result.Images[0].B64JSON != "aW1hZ2U=" {
 		t.Fatalf("unexpected parsed image result: %#v", result)
 	}
-	if result.UsageStatus != infraai.UsageStatusReported || result.TotalTokens != 1 {
-		t.Fatalf("usage object from early-close response not parsed: %#v", result)
+	if result.UsageStatus != infraai.UsageStatusUnavailable {
+		t.Fatalf("incomplete usage object must fail closed: %#v", result)
+	}
+}
+
+func TestClientGenerateImagesFailsClosedForOmittedUsageCountsAndCapturesEvidence(t *testing.T) {
+	body := []byte(`{"data":[{"b64_json":"aW1hZ2U="}],"usage":{}}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "image-request-123")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).GenerateImages(context.Background(), infraai.ImageInput{
+		Model:  "gpt-image-2",
+		Prompt: "draw a cat",
+	})
+	if err != nil {
+		t.Fatalf("GenerateImages returned error: %v", err)
+	}
+	if result.UsageStatus != infraai.UsageStatusUnavailable || len(result.Usage.Items) != 0 {
+		t.Fatalf("omitted image usage counts must remain unavailable: %#v", result)
+	}
+	if result.ProviderRequestID != "image-request-123" || result.DispatchState != infraai.DispatchStateDispatched {
+		t.Fatalf("missing successful dispatch evidence: %#v", result)
+	}
+	if want := sha256.Sum256(body); result.ResponseSHA256 != want {
+		t.Fatalf("response hash = %x, want %x", result.ResponseSHA256, want)
 	}
 }
 
