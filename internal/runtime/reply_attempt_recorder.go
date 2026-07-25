@@ -10,7 +10,7 @@ import (
 )
 
 type replyAttemptRepository interface {
-	PrepareAttempt(context.Context, replycommand.PrepareAttemptInput) (*replycommand.Attempt, bool, error)
+	PrepareLegacyAttempt(context.Context, replycommand.PrepareAttemptInput) (*replycommand.Attempt, bool, error)
 	MarkAttemptDispatchedForRun(context.Context, int64, uint64, uint64, string, uint64, time.Time) (bool, error)
 	FinishAttempt(context.Context, replycommand.FinishAttemptInput) (bool, error)
 }
@@ -20,7 +20,7 @@ type replyAttemptRecorder struct {
 }
 
 func (r replyAttemptRecorder) PrepareProviderAttempt(ctx context.Context, input aichat.ProviderAttemptPrepareInput) (*aichat.ProviderAttemptRef, error) {
-	attempt, ok, err := r.repository.PrepareAttempt(ctx, replycommand.PrepareAttemptInput{RunID: input.RunID, CommandID: input.CommandID, Owner: input.Owner, Token: input.Token, Now: input.Now})
+	attempt, ok, err := r.repository.PrepareLegacyAttempt(ctx, replycommand.PrepareAttemptInput{RunID: input.RunID, CommandID: input.CommandID, Owner: input.Owner, Token: input.Token, Now: input.Now})
 	if err != nil {
 		return nil, err
 	}

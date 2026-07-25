@@ -15,7 +15,7 @@ type fakeReplyAttemptRepository struct {
 	finished replycommand.FinishAttemptInput
 }
 
-func (f *fakeReplyAttemptRepository) PrepareAttempt(_ context.Context, input replycommand.PrepareAttemptInput) (*replycommand.Attempt, bool, error) {
+func (f *fakeReplyAttemptRepository) PrepareLegacyAttempt(_ context.Context, input replycommand.PrepareAttemptInput) (*replycommand.Attempt, bool, error) {
 	f.prepared = input
 	return &replycommand.Attempt{ID: 91, RunID: input.RunID, IdempotencyKey: "attempt-key"}, true, nil
 }

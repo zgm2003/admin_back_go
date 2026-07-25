@@ -27,6 +27,13 @@ type captureSink struct {
 	events []infraai.Event
 }
 
+func TestCompatibleClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T) {
+	capabilities := New(Config{}).Capabilities()
+	if capabilities.SafeInputUpperBoundStrategy != "" {
+		t.Fatalf("compatible transport claimed tokenizer strategy %q", capabilities.SafeInputUpperBoundStrategy)
+	}
+}
+
 func (s *captureSink) Emit(ctx context.Context, event infraai.Event) error {
 	s.events = append(s.events, event)
 	return nil
@@ -304,7 +311,7 @@ func TestClientStreamChatClassifiesPreHeaderAndPostHeaderFailures(t *testing.T) 
 		return nil, errors.New("dial refused")
 	})}
 	_, err := New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", StreamHTTPClient: preHeader}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "gpt-test"}}, nil)
-	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeNotDispatched {
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeUnknown {
 		t.Fatalf("pre-header outcome=%q ok=%v err=%v", outcome, ok, err)
 	}
 
@@ -320,6 +327,15 @@ func TestClientStreamChatClassifiesPreHeaderAndPostHeaderFailures(t *testing.T) 
 	outcome, ok := infraai.ProviderOutcomeFromError(err)
 	if !ok || outcome != infraai.ProviderOutcomeUnknown || infraai.ProviderRequestIDFromError(err) != "provider-request-8" {
 		t.Fatalf("post-header outcome=%q request_id=%q ok=%v err=%v", outcome, infraai.ProviderRequestIDFromError(err), ok, err)
+	}
+}
+
+func TestTokenUsageRejectsUndocumentedCacheAggregateAndSubset(t *testing.T) {
+	prompt, completion, total := 10, 1, 11
+	cached, explicitRead := 0, 2
+	usage := tokenUsageSnapshot(&prompt, &completion, &total, &promptTokenDetails{CachedTokens: &cached, CacheReadInputTokens: &explicitRead})
+	if usage.Status != infraai.UsageStatusUnavailable {
+		t.Fatalf("undocumented cache aggregate/subset relation was accepted: %+v", usage)
 	}
 }
 

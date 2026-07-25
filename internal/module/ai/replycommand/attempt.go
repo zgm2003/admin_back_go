@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	infraai "admin_back_go/internal/infra/ai"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -81,7 +84,23 @@ type FinishAttemptInput struct {
 	Now                 time.Time
 }
 
-func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemptInput) (*Attempt, bool, error) {
+// PrepareLegacyAttempt is the only API allowed to synthesize explicit
+// non-replayable/unpriced legacy evidence.
+func (r *GormRepository) PrepareLegacyAttempt(ctx context.Context, input PrepareAttemptInput) (*Attempt, bool, error) {
+	return r.prepareAttempt(ctx, input, true, nil)
+}
+
+// PreparePaidAttemptInTransaction participates in the caller's transaction;
+// it never opens a nested transaction and therefore can commit Hold and
+// prepared evidence atomically in the Gateway lock order.
+func (r *GormRepository) PreparePaidAttemptInTransaction(ctx context.Context, tx *gorm.DB, input PrepareAttemptInput) (*Attempt, bool, error) {
+	if err := requireAttemptTransaction(tx); err != nil {
+		return nil, false, err
+	}
+	return r.prepareAttempt(ctx, input, false, tx)
+}
+
+func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemptInput, legacy bool, outerTx *gorm.DB) (*Attempt, bool, error) {
 	if r == nil || r.db == nil {
 		return nil, false, ErrRepositoryNotConfigured
 	}
@@ -94,6 +113,27 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 	}
 	if input.Now.IsZero() {
 		input.Now = time.Now()
+	}
+	if !legacy && (input.AttemptNo == 0 || input.PreparedRequestJSON == "" || input.PreparedRequestSHA256 == ([32]byte{}) || strings.TrimSpace(input.QuoteJSON) == "" || strings.TrimSpace(input.IdempotencyKey) == "") {
+		return nil, false, errors.New("paid attempt requires exact prepared request, hash, quote, and attempt number")
+	}
+	if legacy {
+		if input.PreparedRequestJSON == "" {
+			input.PreparedRequestJSON = `{"version":"legacy_unavailable_v1","replayable":false}`
+		}
+		if strings.TrimSpace(input.QuoteJSON) == "" {
+			input.QuoteJSON = `{"version":"legacy_unpriced_v1","billable":false}`
+		}
+	}
+	if input.PreparedRequestSHA256 == ([32]byte{}) && input.PreparedRequestJSON != "" {
+		input.PreparedRequestSHA256 = sha256.Sum256([]byte(input.PreparedRequestJSON))
+	}
+	if input.AttemptNo > 0 && strings.TrimSpace(input.IdempotencyKey) == "" {
+		identity := input.RunID
+		if identity == 0 {
+			identity = int64(input.CommandID)
+		}
+		input.IdempotencyKey = providerAttemptKey(uint64(identity), input.AttemptNo)
 	}
 	if input.PreparedRequestJSON != "" {
 		if !json.Valid([]byte(input.PreparedRequestJSON)) {
@@ -108,7 +148,7 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 		return nil, false, errors.New("quote evidence must be valid JSON")
 	}
 	var attempt *Attempt
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	apply := func(tx *gorm.DB) error {
 		if input.CommandID > 0 {
 			var command Command
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -136,13 +176,13 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 				query = query.Where("command_id = ?", input.CommandID)
 			}
 			if err := query.First(&existing).Error; err == nil {
-				if input.PreparedRequestJSON != "" && existing.PreparedRequestJSON != input.PreparedRequestJSON {
+				if existing.PreparedRequestJSON != input.PreparedRequestJSON {
 					return errors.New("prepared attempt evidence conflicts with existing row")
 				}
-				if input.PreparedRequestSHA256 != ([32]byte{}) && !bytes.Equal(existing.PreparedRequestSHA256, input.PreparedRequestSHA256[:]) {
+				if !bytes.Equal(existing.PreparedRequestSHA256, input.PreparedRequestSHA256[:]) {
 					return errors.New("prepared attempt hash conflicts with existing row")
 				}
-				if input.QuoteJSON != "" && existing.QuoteJSON != input.QuoteJSON {
+				if existing.QuoteJSON != input.QuoteJSON {
 					return errors.New("prepared attempt quote conflicts with existing row")
 				}
 				if input.IdempotencyKey != "" && existing.IdempotencyKey != input.IdempotencyKey {
@@ -165,20 +205,18 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 			attemptNo = input.AttemptNo
 		}
 		prepared := input.PreparedRequestJSON
-		if prepared == "" {
-			prepared = `{"version":"legacy_unavailable_v1","replayable":false}`
-		}
 		preparedHash := input.PreparedRequestSHA256
 		if preparedHash == ([32]byte{}) {
 			preparedHash = sha256.Sum256([]byte(prepared))
 		}
 		quote := strings.TrimSpace(input.QuoteJSON)
-		if quote == "" {
-			quote = `{"version":"legacy_unpriced_v1","billable":false}`
-		}
 		key := strings.TrimSpace(input.IdempotencyKey)
 		if key == "" {
-			key = providerAttemptKey(uint64(input.RunID), attemptNo)
+			identity := input.RunID
+			if identity == 0 {
+				identity = int64(input.CommandID)
+			}
+			key = providerAttemptKey(uint64(identity), attemptNo)
 		}
 		var commandID *uint64
 		if input.CommandID > 0 {
@@ -202,11 +240,32 @@ func (r *GormRepository) PrepareAttempt(ctx context.Context, input PrepareAttemp
 		}
 		attempt = row
 		return nil
-	})
+	}
+	var err error
+	if outerTx != nil {
+		err = apply(outerTx.WithContext(ctx))
+	} else {
+		err = r.db.WithContext(ctx).Transaction(apply)
+	}
 	if err != nil {
 		return nil, false, err
 	}
 	return attempt, attempt != nil, nil
+}
+
+func requireAttemptTransaction(tx *gorm.DB) error {
+	if tx == nil || tx.Statement == nil || tx.Statement.ConnPool == nil || tx.Error != nil {
+		return ErrAttemptTransactionRequired
+	}
+	committer, ok := tx.Statement.ConnPool.(gorm.TxCommitter)
+	if !ok || committer == nil {
+		return ErrAttemptTransactionRequired
+	}
+	value := reflect.ValueOf(committer)
+	if (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) && value.IsNil() {
+		return ErrAttemptTransactionRequired
+	}
+	return nil
 }
 
 func (r *GormRepository) GetPreparedAttempt(ctx context.Context, runID int64, attemptNo uint) (*Attempt, error) {
@@ -275,16 +334,8 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 	if input.Now.IsZero() {
 		input.Now = time.Now()
 	}
-	input.DispatchState = strings.TrimSpace(input.DispatchState)
-	if input.DispatchState != "not_dispatched" && input.DispatchState != "dispatched" && input.DispatchState != "unknown" {
-		return false, ErrCreateInputInvalid
-	}
-	input.UsageStatus = strings.TrimSpace(input.UsageStatus)
-	if input.UsageStatus != "reported" && input.UsageStatus != "complete" && input.UsageStatus != "unavailable" {
-		return false, ErrCreateInputInvalid
-	}
-	if !json.Valid([]byte(input.UsageJSON)) {
-		return false, ErrCreateInputInvalid
+	if err := normalizeFinishAttemptEvidence(&input); err != nil {
+		return false, errors.Join(ErrCreateInputInvalid, err)
 	}
 	updates := map[string]any{
 		"state":                 input.State,
@@ -306,7 +357,134 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 	}
 	result := query.
 		Updates(updates)
-	return result.RowsAffected == 1, result.Error
+	if result.Error != nil || result.RowsAffected == 1 {
+		return result.RowsAffected == 1, result.Error
+	}
+
+	var persisted Attempt
+	replayQuery := r.db.WithContext(ctx).Where("id = ? AND run_id = ?", input.AttemptID, input.RunID)
+	if input.CommandID > 0 {
+		replayQuery = replayQuery.Where("command_id = ?", input.CommandID)
+	}
+	if err := replayQuery.First(&persisted).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !terminalAttemptState(persisted.State) {
+		return false, nil
+	}
+	persistedEvidence := finishAttemptInputFromRow(persisted)
+	if err := normalizeFinishAttemptEvidence(&persistedEvidence); err != nil {
+		return false, errors.Join(ErrAttemptTerminalConflict, err)
+	}
+	if !sameFinishAttemptEvidence(input, persistedEvidence) {
+		return false, ErrAttemptTerminalConflict
+	}
+	return true, nil
+}
+
+func normalizeFinishAttemptEvidence(input *FinishAttemptInput) error {
+	if input == nil || input.RunID <= 0 || input.AttemptID == 0 || !terminalAttemptState(input.State) {
+		return errors.New("terminal attempt identity and state are required")
+	}
+	input.ProviderRequestID = strings.TrimSpace(input.ProviderRequestID)
+	input.ResponseSHA256 = strings.ToLower(strings.TrimSpace(input.ResponseSHA256))
+	input.ErrorCode = strings.TrimSpace(input.ErrorCode)
+	input.DispatchState = strings.TrimSpace(input.DispatchState)
+	input.UsageStatus = strings.TrimSpace(input.UsageStatus)
+	if input.ResponseSHA256 != "" {
+		digest, err := hex.DecodeString(input.ResponseSHA256)
+		if err != nil || len(digest) != sha256.Size {
+			return errors.New("response hash must be a 64-character SHA-256 hex digest")
+		}
+	}
+	if input.ResultCandidateJSON != nil {
+		if strings.TrimSpace(*input.ResultCandidateJSON) == "" || !json.Valid([]byte(*input.ResultCandidateJSON)) {
+			return errors.New("result candidate must be valid non-empty JSON")
+		}
+	}
+	var usage infraai.UsageSnapshot
+	if !json.Valid([]byte(input.UsageJSON)) || json.Unmarshal([]byte(input.UsageJSON), &usage) != nil {
+		return errors.New("usage evidence must be a valid usage snapshot")
+	}
+	if err := usage.Validate(); err != nil {
+		return err
+	}
+	usageComplete := usage.Complete()
+	switch input.UsageStatus {
+	case "complete":
+		if !usageComplete || len(usage.RawProviderJSON) == 0 || usage.ResponseSHA256 == ([32]byte{}) || sha256.Sum256(usage.RawProviderJSON) != usage.ResponseSHA256 {
+			return errors.New("complete usage requires normalized items and matching raw provider evidence")
+		}
+	case "unavailable":
+		if usage.Status != infraai.UsageStatusUnavailable || usageComplete {
+			return errors.New("unavailable usage status does not match usage evidence")
+		}
+	default:
+		return errors.New("usage status must be complete or unavailable")
+	}
+	hasResponseHash := input.ResponseSHA256 != ""
+	if hasResponseHash && input.DispatchState == infraai.DispatchStateNotDispatched {
+		return errors.New("not-dispatched outcome cannot contain response evidence")
+	}
+	switch input.State {
+	case AttemptSucceeded:
+		if input.DispatchState != infraai.DispatchStateDispatched || input.UsageStatus != "complete" || input.ProviderRequestID == "" || !hasResponseHash {
+			return errors.New("succeeded outcome requires dispatched complete provider evidence")
+		}
+	case AttemptFailed, AttemptCanceled:
+		if input.DispatchState != infraai.DispatchStateNotDispatched && input.DispatchState != infraai.DispatchStateDispatched {
+			return errors.New("failed or canceled outcome has an invalid dispatch state")
+		}
+		if input.DispatchState == infraai.DispatchStateNotDispatched && input.UsageStatus == "complete" {
+			return errors.New("not-dispatched outcome cannot contain complete usage")
+		}
+		if input.DispatchState == infraai.DispatchStateDispatched && input.UsageStatus == "complete" && (input.ProviderRequestID == "" || !hasResponseHash) {
+			return errors.New("complete failed or canceled usage requires provider response evidence")
+		}
+	case AttemptOutcomeUnknown:
+		if input.DispatchState != infraai.DispatchStateUnknown || input.UsageStatus != "unavailable" {
+			return errors.New("unknown outcome requires unknown dispatch and unavailable usage")
+		}
+	default:
+		return errors.New("attempt state is not terminal")
+	}
+	return nil
+}
+
+func finishAttemptInputFromRow(attempt Attempt) FinishAttemptInput {
+	return FinishAttemptInput{
+		RunID:               attempt.RunID,
+		AttemptID:           attempt.ID,
+		State:               attempt.State,
+		ProviderRequestID:   attempt.ProviderRequestID,
+		ResponseSHA256:      attempt.ResponseSHA256,
+		ErrorCode:           attempt.ErrorCode,
+		DispatchState:       attempt.DispatchState,
+		UsageJSON:           attempt.UsageJSON,
+		UsageStatus:         attempt.UsageStatus,
+		ResultCandidateJSON: attempt.ResultCandidateJSON,
+	}
+}
+
+func sameFinishAttemptEvidence(left, right FinishAttemptInput) bool {
+	return left.State == right.State &&
+		left.ProviderRequestID == right.ProviderRequestID &&
+		left.ResponseSHA256 == right.ResponseSHA256 &&
+		left.ErrorCode == right.ErrorCode &&
+		left.DispatchState == right.DispatchState &&
+		left.UsageJSON == right.UsageJSON &&
+		left.UsageStatus == right.UsageStatus &&
+		sameOptionalJSON(left.ResultCandidateJSON, right.ResultCandidateJSON)
+}
+
+func sameOptionalJSON(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 // MarshalPreparedEvidence returns the canonical request body and quote without

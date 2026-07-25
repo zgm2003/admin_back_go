@@ -9,25 +9,28 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/requestidentity"
 )
 
 type RunRequest struct {
-	UserID             int64
-	RunID              int64
-	RequestID          string
-	RequestFingerprint [32]byte
-	Modality           string
-	Input              []byte
+	UserID    int64
+	RunID     int64
+	RequestID string
+	Identity  requestidentity.Input
 }
 
 type PreparedCall struct {
-	RequestBody   []byte
-	RequestSHA256 [32]byte
-	Quote         QuoteEvidence
+	RequestBody         []byte
+	RequestSHA256       [32]byte
+	Quote               QuoteEvidence
+	assemblyRunID       int64
+	assemblyFingerprint [32]byte
+	assemblySeal        [32]byte
 }
 
 type QuoteEvidence struct {
 	PricingVersion           string              `json:"pricing_version"`
+	RequestFingerprint       [32]byte            `json:"request_fingerprint"`
 	EffectiveMaxOutputTokens int                 `json:"effective_max_output_tokens"`
 	UpperBoundItems          []billing.UsageItem `json:"upper_bound_items"`
 	TargetHoldUnits          int64               `json:"target_hold_units"`
@@ -73,6 +76,12 @@ type Assembler interface {
 	AssembleAndQuote(context.Context, RunSnapshot, RunRequest) (PreparedCall, error)
 }
 
+// QuoteValidator binds quote evidence to the locked immutable pricing
+// snapshot. Both new calls and recovery must pass the same validator.
+type QuoteValidator interface {
+	ValidateQuote(context.Context, RunSnapshot, QuoteEvidence) error
+}
+
 // Transaction is deliberately opaque. Implementations must pass the same
 // transaction to wallet and attempt participants; they must not nest one.
 type Transaction interface{ BillingTx() }
@@ -87,6 +96,7 @@ type TransactionRunner interface {
 type LockedRunCharge struct {
 	Run                RunSnapshot
 	ChargeHeldAuditMax int64
+	HoldTargetUnits    int64
 }
 
 // LockedBillingFacts is returned only after reserve/hold work has completed in
@@ -108,6 +118,10 @@ type ReserveParticipant interface {
 	// EnsureActiveHold returns the locked owner-scoped hold facts; it must not
 	// merely report success from an unverified update.
 	EnsureActiveHold(context.Context, Transaction, int64, int64) (LockedBillingFacts, error)
+}
+
+type ReserveFailureRecorder interface {
+	RecordReserveFailure(context.Context, Transaction, int64, FinalizationTrigger) error
 }
 
 type PreparedWriteResult struct {
@@ -142,7 +156,15 @@ type OwnerGuard interface {
 	EnsureRunnable(context.Context, Transaction, int64) error
 }
 
+type PreparedUpperBoundProof struct {
+	RequestSHA256 [32]byte
+	Strategy      string
+	Items         []billing.UsageItem
+}
+
 type Provider interface {
+	infraai.CapabilityProvider
+	ProvePreparedUpperBound(context.Context, ProviderAttempt) (PreparedUpperBoundProof, error)
 	Dispatch(context.Context, ProviderAttempt) (DispatchResult, error)
 }
 
@@ -162,9 +184,11 @@ type Finalizer interface {
 
 type Dependencies struct {
 	Assembler    Assembler
+	Quotes       QuoteValidator
 	Transactions TransactionRunner
 	Runs         RunStore
 	Reserve      ReserveParticipant
+	Failures     ReserveFailureRecorder
 	Attempts     AttemptStore
 	Provider     Provider
 	Owner        OwnerGuard
@@ -207,8 +231,8 @@ func canonicalPrepared(call PreparedCall) (PreparedCall, error) {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared request hash mismatch", 409)
 	}
 	call.RequestSHA256 = hash
-	if call.Quote.TargetHoldUnits < 0 || call.Quote.EffectiveMaxOutputTokens < 0 {
-		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote contains negative values", 400)
+	if call.Quote.TargetHoldUnits <= 0 || call.Quote.EffectiveMaxOutputTokens <= 0 || call.Quote.PricingVersion == "" || len(call.Quote.UpperBoundItems) == 0 {
+		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote must contain version, capacity, usage, and positive hold", 400)
 	}
 	for _, item := range call.Quote.UpperBoundItems {
 		if err := item.Validate(); err != nil {

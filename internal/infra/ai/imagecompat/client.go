@@ -56,9 +56,8 @@ func New(config Config) *Client {
 
 func (c *Client) Capabilities() infraai.CapabilityMetadata {
 	return infraai.CapabilityMetadata{
-		SupportedUsageKeys:          []string{"usage.input_tokens", "usage.output_tokens", "usage.total_tokens"},
-		SafeInputUpperBoundStrategy: "serialized_utf8_bytes_plus_framing",
-		SupportsIdempotencyHeader:   true,
+		SupportedUsageKeys:        []string{"usage.input_tokens", "usage.output_tokens", "usage.total_tokens"},
+		SupportsIdempotencyHeader: true,
 	}
 }
 
@@ -90,7 +89,7 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, infraai.NewProviderError(infraai.ProviderOutcomeNotDispatched, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
 	}
 	defer resp.Body.Close()
 	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
@@ -354,6 +353,7 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 		ActualParams: actualParams(payload),
 		RawResponse:  raw,
 		UsageStatus:  infraai.UsageStatusUnavailable,
+		Usage:        infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable},
 	}
 	if payload.Usage != nil {
 		if payload.Usage.InputTokens == nil || payload.Usage.OutputTokens == nil || payload.Usage.TotalTokens == nil {

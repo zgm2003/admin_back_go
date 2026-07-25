@@ -72,9 +72,8 @@ func New(config Config) *Client {
 
 func (c *Client) Capabilities() infraai.CapabilityMetadata {
 	return infraai.CapabilityMetadata{
-		SupportedUsageKeys:          []string{"prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details.cached_tokens", "prompt_tokens_details.cache_creation_input_tokens", "prompt_tokens_details.cache_read_input_tokens"},
-		SafeInputUpperBoundStrategy: "serialized_utf8_bytes_plus_framing",
-		SupportsIdempotencyHeader:   true,
+		SupportedUsageKeys:        []string{"prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details.cached_tokens", "prompt_tokens_details.cache_creation_input_tokens", "prompt_tokens_details.cache_read_input_tokens"},
+		SupportsIdempotencyHeader: true,
 	}
 }
 
@@ -162,7 +161,7 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 	}
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, infraai.NewProviderError(infraai.ProviderOutcomeNotDispatched, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
+		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
 	}
 	defer resp.Body.Close()
 	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
@@ -644,7 +643,7 @@ func tokenUsageSnapshot(promptValue, completionValue, totalValue *int, details *
 	hasRead, hasWrite := false, false
 	if details != nil {
 		cached, explicitRead := usageInt(details.CachedTokens), usageInt(details.CacheReadInputTokens)
-		if cached > 0 && explicitRead > 0 {
+		if details.CachedTokens != nil && details.CacheReadInputTokens != nil {
 			return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 		}
 		read = cached + explicitRead

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/requestidentity"
 )
 
 type testAssembler struct{ calls int }
@@ -14,7 +16,40 @@ type testAssembler struct{ calls int }
 func (a *testAssembler) AssembleAndQuote(context.Context, RunSnapshot, RunRequest) (PreparedCall, error) {
 	a.calls++
 	body := []byte(`{"model":"gpt-test","max_tokens":10}`)
-	return PreparedCall{RequestBody: body, Quote: QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, TargetHoldUnits: 25}}, nil
+	return PreparedCall{RequestBody: body, Quote: validQuote(25)}, nil
+}
+
+func validQuote(target int64) QuoteEvidence {
+	return QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, TargetHoldUnits: target, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}}
+}
+
+func requestIdentity(text string) requestidentity.Input {
+	return requestidentity.Input{UserID: 7, Operation: "generate", Modality: "text", AgentID: 1, ModelID: "model", NormalizedText: text, Options: requestidentity.GenerationOptions{MaxOutputTokens: 10}}
+}
+
+func requestFingerprint(identity requestidentity.Input) [32]byte {
+	fingerprint, err := requestidentity.Fingerprint(identity)
+	if err != nil {
+		panic(err)
+	}
+	return fingerprint
+}
+
+func sealTestCall(runID int64, fingerprint [32]byte, call PreparedCall) PreparedCall {
+	call.Quote.RequestFingerprint = fingerprint
+	canonical, err := canonicalPrepared(call)
+	if err != nil {
+		panic(err)
+	}
+	canonical.assemblyRunID = runID
+	canonical.assemblyFingerprint = fingerprint
+	canonical.assemblySeal = preparedAssemblySeal(canonical, runID, fingerprint)
+	return canonical
+}
+
+func validAttempt(runID int64, attemptNo uint32, target int64) ProviderAttempt {
+	body := []byte(`{"model":"x"}`)
+	return ProviderAttempt{RunID: runID, AttemptNo: attemptNo, IdempotencyKey: attemptKey(runID, attemptNo), PreparedRequest: body, RequestSHA256: sha256.Sum256(body), Quote: validQuote(target)}
 }
 
 type testReserve struct {
@@ -23,6 +58,17 @@ type testReserve struct {
 	err         error
 	activeErr   error
 	facts       *LockedBillingFacts
+}
+
+type testReserveFailures struct {
+	trigger FinalizationTrigger
+	calls   int
+}
+
+func (r *testReserveFailures) RecordReserveFailure(_ context.Context, _ Transaction, _ int64, trigger FinalizationTrigger) error {
+	r.calls++
+	r.trigger = trigger
+	return nil
 }
 
 type testTx struct{}
@@ -39,13 +85,32 @@ type testOwner struct{ err error }
 
 func (o testOwner) EnsureRunnable(context.Context, Transaction, int64) error { return o.err }
 
-type testRunStore struct{}
+type testQuoteValidator struct{ err error }
+
+func (v testQuoteValidator) ValidateQuote(_ context.Context, run RunSnapshot, quote QuoteEvidence) error {
+	if v.err != nil {
+		return v.err
+	}
+	if quote.RequestFingerprint != run.RequestFingerprint {
+		return errors.New("quote fingerprint differs from locked run")
+	}
+	return nil
+}
+
+type testRunStore struct {
+	holdTarget     int64
+	zeroHoldTarget bool
+}
 
 func (testRunStore) LoadRun(_ context.Context, runID int64) (RunSnapshot, error) {
 	return RunSnapshot{RunID: runID, UserID: 7, RequestID: "r2", RequestFingerprint: [32]byte{2}}, nil
 }
-func (testRunStore) LockRunAndCharge(_ context.Context, _ Transaction, runID int64) (LockedRunCharge, error) {
-	return LockedRunCharge{Run: RunSnapshot{RunID: runID}}, nil
+func (s testRunStore) LockRunAndCharge(_ context.Context, _ Transaction, runID int64) (LockedRunCharge, error) {
+	target := s.holdTarget
+	if target == 0 && !s.zeroHoldTarget {
+		target = 25
+	}
+	return LockedRunCharge{Run: RunSnapshot{RunID: runID}, HoldTargetUnits: target}, nil
 }
 func (testRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
 	return [32]byte{}, nil
@@ -71,15 +136,47 @@ type testAttemptStore struct {
 	preparedReads int
 }
 
-type testProvider struct{ calls int }
+type testProvider struct {
+	calls        int
+	proofItems   []billing.UsageItem
+	proofHash    [32]byte
+	proofErr     error
+	capabilities infraai.CapabilityMetadata
+}
 
 func (p *testProvider) Dispatch(context.Context, ProviderAttempt) (DispatchResult, error) {
 	p.calls++
 	return DispatchResult{ProviderRequestID: "provider-request-1", ResponseSHA256: sha256.Sum256([]byte("provider-response")), DispatchState: "dispatched", TerminalState: "succeeded", Usage: completeUsageForGatewayTest()}, nil
 }
 
+func (p *testProvider) Capabilities() infraai.CapabilityMetadata {
+	if p.capabilities.SafeInputUpperBoundStrategy != "" || p.capabilities.SupportsIdempotencyHeader || len(p.capabilities.SupportedUsageKeys) != 0 || p.capabilities.SupportsCancelTask {
+		return p.capabilities
+	}
+	return infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageKeys: []string{"usage"}, SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1"}
+}
+
+func (p *testProvider) ProvePreparedUpperBound(_ context.Context, attempt ProviderAttempt) (PreparedUpperBoundProof, error) {
+	if p.proofErr != nil {
+		return PreparedUpperBoundProof{}, p.proofErr
+	}
+	items := p.proofItems
+	if items == nil {
+		items = attempt.Quote.UpperBoundItems
+	}
+	hash := p.proofHash
+	if hash == ([32]byte{}) {
+		hash = attempt.RequestSHA256
+	}
+	return PreparedUpperBoundProof{RequestSHA256: hash, Strategy: p.Capabilities().SafeInputUpperBoundStrategy, Items: append([]billing.UsageItem(nil), items...)}, nil
+}
+
 func completeUsageForGatewayTest() infraai.UsageSnapshot {
-	return infraai.UsageSnapshot{Status: infraai.UsageStatusComplete, Items: []infraai.UsageItem{{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1}}}
+	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusComplete, []byte(`{"output_tokens":1}`), []infraai.UsageItem{{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1}})
+	if err != nil {
+		panic(err)
+	}
+	return usage
 }
 
 func (s *testAttemptStore) PutPrepared(_ context.Context, _ Transaction, attempt ProviderAttempt) (PreparedWriteResult, error) {
@@ -132,7 +229,7 @@ func (s *testAttemptStore) RecordTerminalOutcome(_ context.Context, _ Transactio
 }
 
 func testGatewayDependencies(reserve *testReserve, attempts *testAttemptStore) Dependencies {
-	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, Reserve: reserve, Attempts: attempts, Owner: testOwner{}}
+	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, Reserve: reserve, Failures: &testReserveFailures{}, Attempts: attempts, Owner: testOwner{}, Quotes: testQuoteValidator{}}
 }
 
 func (r *testReserve) ReserveOrTopUp(_ context.Context, _ Transaction, runID int64, target int64) (LockedBillingFacts, error) {
@@ -155,13 +252,15 @@ func lockedFacts(runID, target int64) LockedBillingFacts {
 }
 
 func TestGatewayRejectsFingerprintConflictBeforeProvider(t *testing.T) {
+	identity := requestIdentity("one")
+	fingerprint := requestFingerprint(identity)
 	assembler := &testAssembler{}
-	gateway := New(Dependencies{Assembler: assembler, Runs: immutableRunStore{snapshot: RunSnapshot{RunID: 1, UserID: 7, RequestID: "r1", RequestFingerprint: [32]byte{1}}}})
-	request := RunRequest{RunID: 1, UserID: 7, RequestID: "r1", RequestFingerprint: [32]byte{1}}
+	gateway := New(Dependencies{Assembler: assembler, Quotes: testQuoteValidator{}, Runs: immutableRunStore{snapshot: RunSnapshot{RunID: 1, UserID: 7, RequestID: "r1", RequestFingerprint: fingerprint}}})
+	request := RunRequest{RunID: 1, UserID: 7, RequestID: "r1", Identity: identity}
 	if _, err := gateway.AssembleAndQuote(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
-	request.RequestFingerprint = [32]byte{2}
+	request.Identity.NormalizedText = "two"
 	var got *Error
 	if _, err := gateway.AssembleAndQuote(context.Background(), request); !errors.As(err, &got) || got.Code != ErrCodeFingerprintConflict {
 		t.Fatalf("err=%v, want fingerprint conflict", err)
@@ -171,10 +270,77 @@ func TestGatewayRejectsFingerprintConflictBeforeProvider(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectsPersistentFingerprintConflictAfterRestart(t *testing.T) {
+func TestGatewayRejectsFingerprintNotDerivedFromActualInput(t *testing.T) {
+	identity := requestIdentity("actual")
+	wrong := requestFingerprint(requestIdentity("other"))
 	assembler := &testAssembler{}
-	gateway := New(Dependencies{Assembler: assembler, Runs: persistedFingerprintRunStore{fingerprint: [32]byte{1}}})
-	_, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 1, UserID: 7, RequestID: "r1", RequestFingerprint: [32]byte{2}})
+	gateway := New(Dependencies{Assembler: assembler, Quotes: testQuoteValidator{}, Runs: immutableRunStore{snapshot: RunSnapshot{RunID: 30, UserID: 7, RequestID: "r30", RequestFingerprint: wrong}}})
+	_, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 30, UserID: 7, RequestID: "r30", Identity: identity})
+	if err == nil || assembler.calls != 0 {
+		t.Fatalf("unbound request fingerprint reached assembler: err=%v calls=%d", err, assembler.calls)
+	}
+}
+
+func TestGatewayRejectsFabricatedIncompletePreparedCall(t *testing.T) {
+	store := &testAttemptStore{}
+	call := PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(5)}
+	_, err := New(testGatewayDependencies(&testReserve{}, store)).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 31, AttemptNo: 1, NewCall: &call})
+	if err == nil || store.state != "" {
+		t.Fatalf("fabricated prepared call persisted: err=%v state=%q", err, store.state)
+	}
+}
+
+func TestGatewayRejectsTamperedAssembledCall(t *testing.T) {
+	identity := requestIdentity("tamper")
+	fingerprint := requestFingerprint(identity)
+	runs := immutableRunStore{snapshot: RunSnapshot{RunID: 33, UserID: 7, RequestID: "r33", RequestFingerprint: fingerprint}}
+	deps := testGatewayDependencies(&testReserve{}, &testAttemptStore{})
+	deps.Assembler = &testAssembler{}
+	deps.Runs = runs
+	gateway := New(deps)
+	call, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 33, UserID: 7, RequestID: "r33", Identity: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call.Quote.TargetHoldUnits++
+	if _, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 33, AttemptNo: 1, NewCall: &call}); err == nil {
+		t.Fatal("tampered assembled call must be rejected")
+	}
+}
+
+func TestGatewayRecoveryRejectsInvalidPersistedAttemptEvidence(t *testing.T) {
+	body := []byte(`{"model":"x"}`)
+	attempt := ProviderAttempt{RunID: 34, AttemptNo: 1, IdempotencyKey: "forged-key", PreparedRequest: body, RequestSHA256: sha256.Sum256(body), Quote: validQuote(5)}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	if _, err := New(testGatewayDependencies(&testReserve{}, store)).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 34, AttemptNo: 1}); err == nil {
+		t.Fatal("invalid persisted idempotency key must block recovery")
+	}
+}
+
+func TestGatewayReservesBeforeAttemptLock(t *testing.T) {
+	call := sealTestCall(35, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(5)})
+	gateway := New(testGatewayDependencies(&testReserve{}, &testAttemptStore{}))
+	_, _ = gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 35, AttemptNo: 1, NewCall: &call})
+	trace := gateway.OperationTrace()
+	reserveAt, attemptAt := -1, -1
+	for i, step := range trace {
+		if step == "reserve_wallet_hold" {
+			reserveAt = i
+		}
+		if step == "lock_attempt" {
+			attemptAt = i
+		}
+	}
+	if reserveAt < 0 || attemptAt < 0 || reserveAt > attemptAt {
+		t.Fatalf("invalid lock order: %v", trace)
+	}
+}
+
+func TestGatewayRejectsPersistentFingerprintConflictAfterRestart(t *testing.T) {
+	identity := requestIdentity("replay")
+	assembler := &testAssembler{}
+	gateway := New(Dependencies{Assembler: assembler, Quotes: testQuoteValidator{}, Runs: persistedFingerprintRunStore{fingerprint: [32]byte{1}}})
+	_, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 1, UserID: 7, RequestID: "r1", Identity: identity})
 	var got *Error
 	if !errors.As(err, &got) || got.Code != ErrCodeFingerprintConflict {
 		t.Fatalf("err=%v, want persisted fingerprint conflict", err)
@@ -191,7 +357,11 @@ func TestGatewayReservePersistsBeforeDispatchAndRecoversBytes(t *testing.T) {
 	deps := testGatewayDependencies(reserve, store)
 	deps.Assembler = assembler
 	gateway := New(deps)
-	call, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 2, UserID: 7, RequestID: "r2", RequestFingerprint: [32]byte{2}})
+	identity := requestIdentity("reserve")
+	fingerprint := requestFingerprint(identity)
+	deps.Runs = immutableRunStore{snapshot: RunSnapshot{RunID: 2, UserID: 7, RequestID: "r2", RequestFingerprint: fingerprint}}
+	gateway = New(deps)
+	call, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 2, UserID: 7, RequestID: "r2", Identity: identity})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +377,9 @@ func TestGatewayReservePersistsBeforeDispatchAndRecoversBytes(t *testing.T) {
 	}
 	// A fresh gateway with the same persisted evidence simulates a worker restart.
 	recoveryStore := &testAttemptStore{attempt: attempt, state: "prepared"}
-	prepared := New(testGatewayDependencies(&testReserve{}, recoveryStore))
+	recoveryDeps := testGatewayDependencies(&testReserve{}, recoveryStore)
+	recoveryDeps.Runs = immutableRunStore{snapshot: RunSnapshot{RunID: 2, RequestFingerprint: fingerprint}}
+	prepared := New(recoveryDeps)
 	recovered, err := prepared.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 2, AttemptNo: 1})
 	if err != nil || string(recovered.PreparedRequest) != string(attempt.PreparedRequest) || recovered.IdempotencyKey != attempt.IdempotencyKey {
 		t.Fatalf("recovered=%+v err=%v", recovered, err)
@@ -219,7 +391,7 @@ func TestGatewayReservePersistsBeforeDispatchAndRecoversBytes(t *testing.T) {
 
 func TestGatewayPersistedPreparedRecoveryCanBeDispatched(t *testing.T) {
 	store := &testAttemptStore{
-		attempt: ProviderAttempt{RunID: 8, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)},
+		attempt: validAttempt(8, 1, 5),
 		state:   "prepared",
 	}
 	gateway := New(testGatewayDependencies(&testReserve{}, store))
@@ -232,9 +404,23 @@ func TestGatewayPersistedPreparedRecoveryCanBeDispatched(t *testing.T) {
 	}
 }
 
+func TestGatewayMarkDispatchedRejectsTamperedQuoteFingerprint(t *testing.T) {
+	persisted := validAttempt(39, 1, 5)
+	tampered := cloneAttempt(persisted)
+	tampered.Quote.RequestFingerprint = [32]byte{1}
+	store := &testAttemptStore{attempt: persisted, state: "prepared"}
+
+	if err := New(testGatewayDependencies(&testReserve{}, store)).MarkDispatched(context.Background(), tampered); err == nil {
+		t.Fatal("tampered quote fingerprint was accepted")
+	}
+	if store.state != "prepared" {
+		t.Fatalf("tampered quote fingerprint advanced attempt state to %q", store.state)
+	}
+}
+
 func TestGatewayDoesNotDispatchAnAlreadyDispatchedAttemptAgain(t *testing.T) {
 	provider := &testProvider{}
-	attempt := ProviderAttempt{RunID: 9, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	attempt := validAttempt(9, 1, 5)
 	deps := testGatewayDependencies(&testReserve{}, &testAttemptStore{attempt: attempt, state: "prepared"})
 	deps.Provider = provider
 	gateway := New(deps)
@@ -249,8 +435,97 @@ func TestGatewayDoesNotDispatchAnAlreadyDispatchedAttemptAgain(t *testing.T) {
 	}
 }
 
+func TestGatewayRejectsMissingProviderBeforeDispatchedCommit(t *testing.T) {
+	attempt := validAttempt(32, 1, 5)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	_, err := New(testGatewayDependencies(&testReserve{}, store)).Dispatch(context.Background(), attempt)
+	if !errors.Is(err, ErrNotConfigured) || store.state != "prepared" {
+		t.Fatalf("missing provider committed dispatch: err=%v state=%q", err, store.state)
+	}
+}
+
+func TestGatewayRejectsProviderProofExceedingQuotedUsageBeforeDispatch(t *testing.T) {
+	attempt := validAttempt(36, 1, 5)
+	provider := &testProvider{proofItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 2}}}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err == nil {
+		t.Fatal("provider proof exceeding the quote was dispatched")
+	}
+	if provider.calls != 0 || store.state != "prepared" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
+func TestGatewayRejectsProviderWithoutSafeUpperBoundStrategyBeforeDispatch(t *testing.T) {
+	attempt := validAttempt(40, 1, 5)
+	provider := &testProvider{capabilities: infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageKeys: []string{"usage"}}}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err == nil {
+		t.Fatal("provider without a safe upper-bound strategy was dispatched")
+	}
+	if provider.calls != 0 || store.state != "prepared" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
+func TestGatewayRejectsUpperBoundProofForDifferentPreparedRequest(t *testing.T) {
+	attempt := validAttempt(41, 1, 5)
+	provider := &testProvider{proofHash: sha256.Sum256([]byte("different-request"))}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err == nil {
+		t.Fatal("upper-bound proof for a different request was dispatched")
+	}
+	if provider.calls != 0 || store.state != "prepared" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
+func TestGatewayAcceptsMediaUsageProofBeforeDispatch(t *testing.T) {
+	body := []byte(`{"prompt":"image"}`)
+	attempt := ProviderAttempt{
+		RunID:           37,
+		AttemptNo:       1,
+		IdempotencyKey:  attemptKey(37, 1),
+		PreparedRequest: body,
+		RequestSHA256:   sha256.Sum256(body),
+		Quote:           QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 1, TargetHoldUnits: 5, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}},
+	}
+	provider := &testProvider{proofItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || store.state != "succeeded" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
+func TestGatewayRejectsMissingPreparedUsageProofBeforeDispatch(t *testing.T) {
+	attempt := validAttempt(38, 1, 5)
+	provider := &testProvider{proofItems: []billing.UsageItem{}}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err == nil {
+		t.Fatal("missing prepared usage proof was dispatched")
+	}
+	if provider.calls != 0 || store.state != "prepared" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
 func TestGatewayRequiresActiveHoldBeforeDispatch(t *testing.T) {
-	attempt := ProviderAttempt{RunID: 13, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`), Quote: QuoteEvidence{TargetHoldUnits: 9}}
+	attempt := validAttempt(13, 1, 9)
 	reserve := &testReserve{activeErr: errors.New("hold inactive")}
 	gateway := New(testGatewayDependencies(reserve, &testAttemptStore{attempt: attempt, state: "prepared"}))
 	if err := gateway.MarkDispatched(context.Background(), attempt); err == nil {
@@ -285,7 +560,7 @@ func (f *captureFinalizer) Finalize(_ context.Context, request FinalizeRequest) 
 
 func TestGatewayRejectsReplayWithDifferentQuoteEvidence(t *testing.T) {
 	gateway := New(testGatewayDependencies(&testReserve{}, &testAttemptStore{}))
-	first := PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 16, TargetHoldUnits: 10}}
+	first := sealTestCall(10, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(10)})
 	if _, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 10, AttemptNo: 1, NewCall: &first}); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +575,7 @@ func TestGatewayInsufficientBalanceCreatesNoAttempt(t *testing.T) {
 	reserve := &testReserve{err: errors.New("insufficient balance")}
 	gateway := New(testGatewayDependencies(reserve, &testAttemptStore{}))
 	body := []byte(`{"model":"gpt-test"}`)
-	call := PreparedCall{RequestBody: body, Quote: QuoteEvidence{TargetHoldUnits: 10}}
+	call := sealTestCall(3, [32]byte{}, PreparedCall{RequestBody: body, Quote: validQuote(10)})
 	_, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 3, AttemptNo: 1, NewCall: &call})
 	var typed *Error
 	if !errors.As(err, &typed) || typed.Code != ErrCodeInsufficientBalance {
@@ -308,6 +583,32 @@ func TestGatewayInsufficientBalanceCreatesNoAttempt(t *testing.T) {
 	}
 	if store := gateway.deps.Attempts.(*testAttemptStore); store.state != "" {
 		t.Fatal("insufficient reserve persisted an attempt")
+	}
+	failures := gateway.deps.Failures.(*testReserveFailures)
+	if failures.calls != 1 || failures.trigger != TriggerContinuationTopUpInsufficient {
+		t.Fatalf("reserve failure trigger was not persisted: %+v", failures)
+	}
+}
+
+func TestGatewayInitialInsufficientBalanceCreatesNoAttempt(t *testing.T) {
+	reserve := &testReserve{err: errors.New("insufficient balance")}
+	store := &testAttemptStore{}
+	deps := testGatewayDependencies(reserve, store)
+	deps.Runs = testRunStore{zeroHoldTarget: true}
+	gateway := New(deps)
+	call := sealTestCall(42, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"gpt-test"}`), Quote: validQuote(10)})
+
+	_, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 42, AttemptNo: 1, NewCall: &call})
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != ErrCodeInsufficientBalance {
+		t.Fatalf("err=%v, want insufficient balance", err)
+	}
+	if store.state != "" {
+		t.Fatal("initial insufficient reserve persisted an attempt")
+	}
+	failures := deps.Failures.(*testReserveFailures)
+	if failures.calls != 1 || failures.trigger != TriggerInitialInsufficient {
+		t.Fatalf("reserve failure trigger was not persisted: %+v", failures)
 	}
 }
 
@@ -326,7 +627,7 @@ func TestGatewayRejectsReserveFactsThatDoNotMatchTheHoldTarget(t *testing.T) {
 }
 
 func TestGatewayRecoveryUsesPreparedReadForUpdate(t *testing.T) {
-	attempt := ProviderAttempt{RunID: 17, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	attempt := validAttempt(17, 1, 5)
 	store := &testAttemptStore{attempt: attempt, state: "prepared"}
 	if _, err := New(testGatewayDependencies(&testReserve{}, store)).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 17, AttemptNo: 1}); err != nil {
 		t.Fatal(err)
@@ -339,7 +640,7 @@ func TestGatewayRecoveryUsesPreparedReadForUpdate(t *testing.T) {
 func TestGatewayReturnsProviderAndOutcomePersistenceErrors(t *testing.T) {
 	providerErr := errors.New("provider connection reset")
 	recordErr := errors.New("attempt outcome write failed")
-	attempt := ProviderAttempt{RunID: 11, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	attempt := validAttempt(11, 1, 5)
 	deps := testGatewayDependencies(&testReserve{}, &testAttemptStore{attempt: attempt, state: "prepared", recordErr: recordErr})
 	deps.Provider = providerError{err: providerErr}
 	_, err := New(deps).Dispatch(context.Background(), attempt)
@@ -349,7 +650,7 @@ func TestGatewayReturnsProviderAndOutcomePersistenceErrors(t *testing.T) {
 }
 
 func TestGatewayRejectsNonTerminalOutcome(t *testing.T) {
-	attempt := ProviderAttempt{RunID: 15, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	attempt := validAttempt(15, 1, 5)
 	store := &testAttemptStore{attempt: attempt, state: "dispatched"}
 	err := New(testGatewayDependencies(&testReserve{}, store)).RecordOutcome(context.Background(), attempt, DispatchResult{
 		DispatchState: infraai.DispatchStateDispatched,
@@ -361,8 +662,44 @@ func TestGatewayRejectsNonTerminalOutcome(t *testing.T) {
 	}
 }
 
+func TestGatewayRejectsSucceededOutcomeWithoutRawUsageEvidence(t *testing.T) {
+	attempt := validAttempt(19, 1, 5)
+	store := &testAttemptStore{attempt: attempt, state: "dispatched"}
+	result := DispatchResult{ProviderRequestID: "provider-request-19", ResponseSHA256: sha256.Sum256([]byte("response")), DispatchState: infraai.DispatchStateDispatched, TerminalState: "succeeded", Usage: infraai.UsageSnapshot{Status: infraai.UsageStatusComplete, Items: []infraai.UsageItem{{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1}}}}
+	if err := New(testGatewayDependencies(&testReserve{}, store)).RecordOutcome(context.Background(), attempt, result); err == nil {
+		t.Fatal("normalized usage without raw provider evidence must be rejected")
+	}
+}
+
+func TestGatewayAcceptsCanceledAfterDispatchWithCompleteRawUsage(t *testing.T) {
+	attempt := validAttempt(20, 1, 5)
+	store := &testAttemptStore{attempt: attempt, state: "dispatched"}
+	result := DispatchResult{ProviderRequestID: "provider-request-20", ResponseSHA256: sha256.Sum256([]byte("response")), DispatchState: infraai.DispatchStateDispatched, TerminalState: "canceled", Usage: completeUsageForGatewayTest()}
+	if err := New(testGatewayDependencies(&testReserve{}, store)).RecordOutcome(context.Background(), attempt, result); err != nil {
+		t.Fatal(err)
+	}
+	if store.terminal.Usage.Status != infraai.UsageStatusComplete || len(store.terminal.Usage.RawProviderJSON) == 0 {
+		t.Fatalf("canceled audit usage was not persisted: %+v", store.terminal)
+	}
+}
+
+func TestGatewayRejectsInvalidTerminalEvidenceCombinations(t *testing.T) {
+	complete := completeUsageForGatewayTest()
+	tests := []DispatchResult{
+		{DispatchState: infraai.DispatchStateUnknown, TerminalState: "failed", Usage: infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}},
+		{DispatchState: infraai.DispatchStateNotDispatched, TerminalState: "failed", Usage: complete},
+		{DispatchState: infraai.DispatchStateUnknown, TerminalState: "outcome_unknown", Usage: complete},
+		{DispatchState: infraai.DispatchStateDispatched, TerminalState: "canceled", Usage: complete},
+	}
+	for i, result := range tests {
+		if err := validateTerminalOutcome(result); err == nil {
+			t.Fatalf("case %d accepted invalid terminal evidence: %+v", i, result)
+		}
+	}
+}
+
 func TestGatewayTerminalOutcomeReplayRequiresIdenticalEvidence(t *testing.T) {
-	attempt := ProviderAttempt{RunID: 18, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	attempt := validAttempt(18, 1, 5)
 	store := &testAttemptStore{attempt: attempt, state: "dispatched"}
 	gateway := New(testGatewayDependencies(&testReserve{}, store))
 	result := DispatchResult{ProviderRequestID: "provider-request-18", ResponseSHA256: sha256.Sum256([]byte("response-18")), DispatchState: infraai.DispatchStateDispatched, TerminalState: "succeeded", Usage: completeUsageForGatewayTest()}
@@ -379,10 +716,12 @@ func TestGatewayTerminalOutcomeReplayRequiresIdenticalEvidence(t *testing.T) {
 }
 
 func TestGatewayAssembleValidatesPersistedRunIdentityBeforeAssembler(t *testing.T) {
+	identity := requestIdentity("identity")
+	fingerprint := requestFingerprint(identity)
 	assembler := &testAssembler{}
-	store := immutableRunStore{snapshot: RunSnapshot{RunID: 12, UserID: 7, RequestID: "stored-request", RequestFingerprint: [32]byte{1}}}
-	gateway := New(Dependencies{Assembler: assembler, Runs: store})
-	_, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 12, UserID: 7, RequestID: "caller-request", RequestFingerprint: [32]byte{1}})
+	store := immutableRunStore{snapshot: RunSnapshot{RunID: 12, UserID: 7, RequestID: "stored-request", RequestFingerprint: fingerprint}}
+	gateway := New(Dependencies{Assembler: assembler, Quotes: testQuoteValidator{}, Runs: store})
+	_, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 12, UserID: 7, RequestID: "caller-request", Identity: identity})
 	var typed *Error
 	if !errors.As(err, &typed) || typed.Code != ErrCodeFingerprintConflict {
 		t.Fatalf("err=%v, want persisted identity conflict", err)
@@ -398,7 +737,7 @@ func (s immutableRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) 
 	return s.snapshot, nil
 }
 func (s immutableRunStore) LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error) {
-	return LockedRunCharge{Run: s.snapshot}, nil
+	return LockedRunCharge{Run: s.snapshot, HoldTargetUnits: 25}, nil
 }
 func (s immutableRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
 	return s.snapshot.RequestFingerprint, nil
@@ -408,4 +747,12 @@ type providerError struct{ err error }
 
 func (p providerError) Dispatch(context.Context, ProviderAttempt) (DispatchResult, error) {
 	return DispatchResult{}, p.err
+}
+
+func (p providerError) Capabilities() infraai.CapabilityMetadata {
+	return infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageKeys: []string{"usage"}, SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1"}
+}
+
+func (p providerError) ProvePreparedUpperBound(_ context.Context, attempt ProviderAttempt) (PreparedUpperBoundProof, error) {
+	return PreparedUpperBoundProof{RequestSHA256: attempt.RequestSHA256, Strategy: p.Capabilities().SafeInputUpperBoundStrategy, Items: append([]billing.UsageItem(nil), attempt.Quote.UpperBoundItems...)}, nil
 }

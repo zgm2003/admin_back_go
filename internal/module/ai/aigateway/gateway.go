@@ -13,6 +13,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/requestidentity"
 )
 
 type Gateway struct {
@@ -47,14 +48,21 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 	if err := requireRunID(req.RunID); err != nil || req.UserID <= 0 || req.RequestID == "" {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "run and request identity are required", 400)
 	}
-	if g.deps.Runs == nil || g.deps.Assembler == nil {
+	if g.deps.Runs == nil || g.deps.Assembler == nil || g.deps.Quotes == nil {
 		return PreparedCall{}, ErrNotConfigured
+	}
+	fingerprint, err := requestidentity.Fingerprint(req.Identity)
+	if err != nil {
+		return PreparedCall{}, err
+	}
+	if req.Identity.UserID != req.UserID {
+		return PreparedCall{}, gatewayError(ErrCodeFingerprintConflict, "canonical request identity has a different user", 409)
 	}
 	persisted, err := g.deps.Runs.LoadRun(ctx, req.RunID)
 	if err != nil {
 		return PreparedCall{}, err
 	}
-	if persisted.RunID != req.RunID || persisted.UserID != req.UserID || persisted.RequestID != req.RequestID || persisted.RequestFingerprint != req.RequestFingerprint {
+	if persisted.RunID != req.RunID || persisted.UserID != req.UserID || persisted.RequestID != req.RequestID || persisted.RequestFingerprint != fingerprint {
 		return PreparedCall{}, gatewayError(ErrCodeFingerprintConflict, "request fingerprint conflicts with persisted run", 409)
 	}
 	g.record("load_immutable_config")
@@ -63,11 +71,22 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 	if err != nil {
 		return PreparedCall{}, err
 	}
-	return canonicalPrepared(call)
+	call, err = canonicalPrepared(call)
+	if err != nil {
+		return PreparedCall{}, err
+	}
+	call.Quote.RequestFingerprint = persisted.RequestFingerprint
+	if err := g.deps.Quotes.ValidateQuote(ctx, persisted, call.Quote); err != nil {
+		return PreparedCall{}, err
+	}
+	call.assemblyRunID = persisted.RunID
+	call.assemblyFingerprint = persisted.RequestFingerprint
+	call.assemblySeal = preparedAssemblySeal(call, persisted.RunID, persisted.RequestFingerprint)
+	return call, nil
 }
 
 func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepareInput) (ProviderAttempt, error) {
-	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Attempts == nil {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Failures == nil || g.deps.Attempts == nil || g.deps.Quotes == nil {
 		return ProviderAttempt{}, ErrNotConfigured
 	}
 	if err := requireRunID(input.RunID); err != nil || input.AttemptNo == 0 {
@@ -76,6 +95,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 	if input.NewCall == nil {
 		g.record("recover_prepared")
 		var recovered ProviderAttempt
+		var reserveFailure error
 		err := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
 			locked, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID)
 			if err != nil {
@@ -84,16 +104,36 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 			if err := validateLockedRunCharge(input.RunID, locked); err != nil {
 				return err
 			}
+			if locked.HoldTargetUnits <= 0 {
+				return gatewayError(ErrCodePreparedMissing, "locked charge has no recoverable hold target", 409)
+			}
+			facts, err := g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, locked.HoldTargetUnits)
+			if err != nil {
+				if isInsufficient(err) {
+					if recordErr := g.deps.Failures.RecordReserveFailure(ctx, tx, input.RunID, TriggerContinuationTopUpInsufficient); recordErr != nil {
+						return recordErr
+					}
+					reserveFailure = err
+					return nil
+				}
+				return err
+			}
+			if err := validateBillingFacts(input.RunID, locked.HoldTargetUnits, locked.ChargeHeldAuditMax, facts); err != nil {
+				return err
+			}
+			g.record("lock_attempt")
 			attempt, err := g.deps.Attempts.GetPreparedForUpdate(ctx, tx, input.RunID, input.AttemptNo)
 			if err != nil {
 				return err
 			}
-			facts, err := g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, attempt.Quote.TargetHoldUnits)
-			if err != nil {
+			if err := validatePersistedAttempt(locked, input.AttemptNo, attempt); err != nil {
 				return err
 			}
-			if err := validateBillingFacts(input.RunID, attempt.Quote.TargetHoldUnits, locked.ChargeHeldAuditMax, facts); err != nil {
+			if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, attempt.Quote); err != nil {
 				return err
+			}
+			if attempt.Quote.TargetHoldUnits > locked.HoldTargetUnits {
+				return gatewayError(ErrCodeInvalidPrepared, "prepared quote exceeds authoritative hold target", 409)
 			}
 			recovered = cloneAttempt(attempt)
 			return nil
@@ -104,6 +144,9 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 			}
 			return ProviderAttempt{}, err
 		}
+		if reserveFailure != nil {
+			return ProviderAttempt{}, gatewayError(ErrCodeInsufficientBalance, reserveFailure.Error(), 409)
+		}
 		return recovered, nil
 	}
 	call, err := canonicalPrepared(*input.NewCall)
@@ -112,13 +155,25 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 	}
 	g.record("lock_run")
 	g.record("lock_charge")
-	reserve := func(tx Transaction, locked LockedRunCharge, target int64) error {
+	var reserveFailure error
+	reserve := func(tx Transaction, locked LockedRunCharge, target int64) (bool, error) {
 		g.record("reserve_wallet_hold")
 		facts, err := g.deps.Reserve.ReserveOrTopUp(ctx, tx, input.RunID, target)
 		if err != nil {
-			return err
+			if isInsufficient(err) {
+				trigger := TriggerInitialInsufficient
+				if locked.HoldTargetUnits > 0 {
+					trigger = TriggerContinuationTopUpInsufficient
+				}
+				if recordErr := g.deps.Failures.RecordReserveFailure(ctx, tx, input.RunID, trigger); recordErr != nil {
+					return false, recordErr
+				}
+				reserveFailure = err
+				return true, nil
+			}
+			return false, err
 		}
-		return validateBillingFacts(input.RunID, target, locked.ChargeHeldAuditMax, facts)
+		return false, validateBillingFacts(input.RunID, target, locked.ChargeHeldAuditMax, facts)
 	}
 	var prepared ProviderAttempt
 	attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: attemptKey(input.RunID, input.AttemptNo), PreparedRequest: append([]byte(nil), call.RequestBody...), RequestSHA256: call.RequestSHA256, Quote: call.Quote}
@@ -130,19 +185,31 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		if err := validateLockedRunCharge(input.RunID, locked); err != nil {
 			return err
 		}
+		if !validPreparedAssembly(call, locked.Run) {
+			return gatewayError(ErrCodeInvalidPrepared, "prepared call was not produced for the locked run", 409)
+		}
+		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.Quote); err != nil {
+			return err
+		}
+		target := call.Quote.TargetHoldUnits
+		if locked.HoldTargetUnits > target {
+			target = locked.HoldTargetUnits
+		}
+		stop, err := reserve(tx, locked, target)
+		if err != nil {
+			return err
+		}
+		if stop {
+			return nil
+		}
+		g.record("lock_attempt")
 		if existing, err := g.deps.Attempts.GetPreparedForUpdate(ctx, tx, input.RunID, input.AttemptNo); err == nil {
 			if !sameAttemptEvidence(existing, attempt) {
 				return gatewayError(ErrCodeDuplicateAttempt, "attempt evidence differs from persisted evidence", 409)
 			}
-			if err := reserve(tx, locked, existing.Quote.TargetHoldUnits); err != nil {
-				return err
-			}
 			prepared = cloneAttempt(existing)
 			return nil
 		} else if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		if err := reserve(tx, locked, attempt.Quote.TargetHoldUnits); err != nil {
 			return err
 		}
 		g.record("persist_prepared")
@@ -162,6 +229,9 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		}
 		return ProviderAttempt{}, txErr
 	}
+	if reserveFailure != nil {
+		return ProviderAttempt{}, gatewayError(ErrCodeInsufficientBalance, reserveFailure.Error(), 409)
+	}
 	return prepared, nil
 }
 
@@ -178,19 +248,30 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 		if err := validateLockedRunCharge(attempt.RunID, locked); err != nil {
 			return err
 		}
+		target := attempt.Quote.TargetHoldUnits
+		if locked.HoldTargetUnits > target {
+			target = locked.HoldTargetUnits
+		}
+		facts, err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, target)
+		if err != nil {
+			return err
+		}
+		if err := validateBillingFacts(attempt.RunID, target, locked.ChargeHeldAuditMax, facts); err != nil {
+			return err
+		}
+		g.record("lock_attempt")
 		persisted, err := g.deps.Attempts.GetPreparedForUpdate(ctx, tx, attempt.RunID, attempt.AttemptNo)
 		if err != nil {
 			return gatewayError(ErrCodePreparedMissing, "prepared attempt does not exist", 409)
 		}
+		if err := validatePersistedAttempt(locked, attempt.AttemptNo, persisted); err != nil {
+			return err
+		}
 		if !sameAttemptEvidence(persisted, attempt) {
 			return gatewayError(ErrCodeDuplicateAttempt, "provider attempt evidence differs from persisted attempt", 409)
 		}
-		facts, err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, persisted.Quote.TargetHoldUnits)
-		if err != nil {
-			return err
-		}
-		if err := validateBillingFacts(attempt.RunID, persisted.Quote.TargetHoldUnits, locked.ChargeHeldAuditMax, facts); err != nil {
-			return err
+		if persisted.Quote.TargetHoldUnits > target {
+			return gatewayError(ErrCodeInvalidPrepared, "prepared quote exceeds active hold target", 409)
 		}
 		if err := g.deps.Owner.EnsureRunnable(ctx, tx, attempt.RunID); err != nil {
 			return err
@@ -211,13 +292,27 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 }
 
 func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (DispatchResult, error) {
+	if g == nil || g.deps.Provider == nil {
+		return DispatchResult{}, ErrNotConfigured
+	}
+	capabilities := g.deps.Provider.Capabilities()
+	if !capabilities.SupportsIdempotencyHeader || len(capabilities.SupportedUsageKeys) == 0 || strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) == "" {
+		return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "provider lacks required idempotency or upper-bound usage capability", 409)
+	}
+	if len(attempt.PreparedRequest) == 0 || attempt.RequestSHA256 == ([32]byte{}) || sha256.Sum256(attempt.PreparedRequest) != attempt.RequestSHA256 {
+		return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "provider attempt request evidence is invalid", 409)
+	}
+	proof, err := g.deps.Provider.ProvePreparedUpperBound(ctx, attempt)
+	if err != nil {
+		return DispatchResult{}, err
+	}
+	if err := validatePreparedUpperBoundProof(attempt, capabilities, proof); err != nil {
+		return DispatchResult{}, err
+	}
 	if err := g.MarkDispatched(ctx, attempt); err != nil {
 		return DispatchResult{}, err
 	}
 	g.record("provider_dispatch")
-	if g.deps.Provider == nil {
-		return DispatchResult{}, ErrNotConfigured
-	}
 	result, err := g.deps.Provider.Dispatch(ctx, attempt)
 	if err != nil {
 		result = terminalResultForProviderError(result, err)
@@ -230,6 +325,46 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 		return DispatchResult{}, err
 	}
 	return result, nil
+}
+
+func validatePreparedUpperBoundProof(attempt ProviderAttempt, capabilities infraai.CapabilityMetadata, proof PreparedUpperBoundProof) error {
+	strategy := strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy)
+	if proof.RequestSHA256 == ([32]byte{}) || proof.RequestSHA256 != attempt.RequestSHA256 || strings.TrimSpace(proof.Strategy) != strategy || strategy == "" || len(proof.Items) == 0 || len(attempt.Quote.UpperBoundItems) == 0 {
+		return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof is missing or belongs to another request", 409)
+	}
+	quoted := make(map[string]billing.UsageItem, len(attempt.Quote.UpperBoundItems))
+	for _, rawItem := range attempt.Quote.UpperBoundItems {
+		item, err := rawItem.Normalized()
+		if err != nil {
+			return gatewayError(ErrCodeInvalidPrepared, "quote upper-bound usage is invalid", 409)
+		}
+		identity := usageItemIdentity(item)
+		if _, exists := quoted[identity]; exists {
+			return gatewayError(ErrCodeInvalidPrepared, "quote upper-bound usage is duplicated", 409)
+		}
+		quoted[identity] = item
+	}
+	seenProof := make(map[string]struct{}, len(proof.Items))
+	for _, rawItem := range proof.Items {
+		item, err := rawItem.Normalized()
+		if err != nil {
+			return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof contains invalid usage", 409)
+		}
+		identity := usageItemIdentity(item)
+		if _, exists := seenProof[identity]; exists {
+			return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof contains duplicate usage", 409)
+		}
+		seenProof[identity] = struct{}{}
+		quotedItem, exists := quoted[identity]
+		if !exists || quotedItem.Quantity < item.Quantity {
+			return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof exceeds quoted usage", 409)
+		}
+	}
+	return nil
+}
+
+func usageItemIdentity(item billing.UsageItem) string {
+	return string(item.Category) + "\x00" + item.Unit + "\x00" + item.TierKey
 }
 
 func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, result DispatchResult) error {
@@ -293,7 +428,9 @@ func terminalResultForProviderError(result DispatchResult, err error) DispatchRe
 	if result.ProviderRequestID == "" {
 		result.ProviderRequestID = infraai.ProviderRequestIDFromError(err)
 	}
-	result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	if result.Usage.Status == "" {
+		result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
 	switch outcome, ok := infraai.ProviderOutcomeFromError(err); {
 	case ok && outcome == infraai.ProviderOutcomeNotDispatched:
 		result.DispatchState = infraai.DispatchStateNotDispatched
@@ -315,12 +452,12 @@ func validateTerminalOutcome(result DispatchResult) error {
 	if err := result.Usage.Validate(); err != nil {
 		return gatewayError(ErrCodeInvalidOutcome, err.Error(), 400)
 	}
+	if err := validateRawUsageEvidence(result.Usage); err != nil {
+		return err
+	}
 	hasResponseHash := result.ResponseSHA256 != ([32]byte{})
 	if hasResponseHash && result.DispatchState == infraai.DispatchStateNotDispatched {
 		return gatewayError(ErrCodeInvalidOutcome, "not-dispatched outcome cannot have response evidence", 400)
-	}
-	if result.Usage.ResponseSHA256 != ([32]byte{}) && hasResponseHash && result.Usage.ResponseSHA256 != result.ResponseSHA256 {
-		return gatewayError(ErrCodeInvalidOutcome, "usage and response hashes differ", 409)
 	}
 	switch result.TerminalState {
 	case "succeeded":
@@ -328,13 +465,32 @@ func validateTerminalOutcome(result DispatchResult) error {
 			return gatewayError(ErrCodeInvalidOutcome, "succeeded outcome requires dispatched complete provider evidence", 400)
 		}
 	case "failed", "canceled":
-		if result.Usage.Complete() || result.Usage.Status != infraai.UsageStatusUnavailable {
-			return gatewayError(ErrCodeInvalidOutcome, "failed or canceled outcome cannot contain billable usage", 400)
+		if result.Usage.Status == "" {
+			return gatewayError(ErrCodeInvalidOutcome, "failed or canceled outcome requires explicit usage audit status", 400)
+		}
+		if result.DispatchState == infraai.DispatchStateUnknown {
+			return gatewayError(ErrCodeInvalidOutcome, "unknown dispatch must use outcome_unknown terminal state", 400)
+		}
+		if result.DispatchState == infraai.DispatchStateNotDispatched && result.Usage.Complete() {
+			return gatewayError(ErrCodeInvalidOutcome, "not-dispatched outcome cannot contain complete usage", 400)
+		}
+		if result.DispatchState == infraai.DispatchStateDispatched && result.Usage.Complete() && (strings.TrimSpace(result.ProviderRequestID) == "" || !hasResponseHash) {
+			return gatewayError(ErrCodeInvalidOutcome, "complete failed or canceled usage requires provider response evidence", 400)
 		}
 	case "outcome_unknown":
-		if result.DispatchState != infraai.DispatchStateUnknown || result.Usage.Complete() || result.Usage.Status != infraai.UsageStatusUnavailable {
+		if result.DispatchState != infraai.DispatchStateUnknown || result.Usage.Status != infraai.UsageStatusUnavailable || result.Usage.Complete() {
 			return gatewayError(ErrCodeInvalidOutcome, "unknown outcome requires unknown dispatch and unavailable usage", 400)
 		}
+	}
+	return nil
+}
+
+func validateRawUsageEvidence(usage infraai.UsageSnapshot) error {
+	if !usage.Complete() {
+		return nil
+	}
+	if len(usage.RawProviderJSON) == 0 || usage.ResponseSHA256 == ([32]byte{}) || sha256.Sum256(usage.RawProviderJSON) != usage.ResponseSHA256 {
+		return gatewayError(ErrCodeInvalidOutcome, "complete usage requires raw provider bytes and their hash", 409)
 	}
 	return nil
 }
@@ -388,8 +544,38 @@ func cloneAttempt(a ProviderAttempt) ProviderAttempt {
 	return a
 }
 
+func preparedAssemblySeal(call PreparedCall, runID int64, fingerprint [32]byte) [32]byte {
+	digest := sha256.New()
+	_, _ = fmt.Fprintf(digest, "%d\x00", runID)
+	_, _ = digest.Write(fingerprint[:])
+	_, _ = digest.Write(call.RequestSHA256[:])
+	_, _ = digest.Write([]byte(quoteJSON(call.Quote)))
+	var seal [32]byte
+	copy(seal[:], digest.Sum(nil))
+	return seal
+}
+
+func validPreparedAssembly(call PreparedCall, run RunSnapshot) bool {
+	return call.assemblyRunID == run.RunID &&
+		call.assemblyFingerprint == run.RequestFingerprint &&
+		call.assemblySeal != ([32]byte{}) &&
+		call.assemblySeal == preparedAssemblySeal(call, run.RunID, run.RequestFingerprint)
+}
+
+func validatePersistedAttempt(locked LockedRunCharge, attemptNo uint32, attempt ProviderAttempt) error {
+	canonical, err := canonicalPrepared(PreparedCall{RequestBody: attempt.PreparedRequest, RequestSHA256: attempt.RequestSHA256, Quote: attempt.Quote})
+	if err != nil {
+		return err
+	}
+	if attempt.RunID != locked.Run.RunID || attempt.AttemptNo != attemptNo || attempt.IdempotencyKey != attemptKey(locked.Run.RunID, attemptNo) || attempt.RequestSHA256 != canonical.RequestSHA256 || attempt.Quote.RequestFingerprint != locked.Run.RequestFingerprint {
+		return gatewayError(ErrCodeInvalidPrepared, "persisted attempt evidence does not match the locked run", 409)
+	}
+	return nil
+}
+
 func equalQuoteEvidence(left, right QuoteEvidence) bool {
-	return left.PricingVersion == right.PricingVersion &&
+	return left.RequestFingerprint == right.RequestFingerprint &&
+		left.PricingVersion == right.PricingVersion &&
 		left.EffectiveMaxOutputTokens == right.EffectiveMaxOutputTokens &&
 		left.TargetHoldUnits == right.TargetHoldUnits &&
 		reflect.DeepEqual(left.UpperBoundItems, right.UpperBoundItems)

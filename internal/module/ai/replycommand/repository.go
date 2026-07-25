@@ -20,12 +20,14 @@ import (
 )
 
 var (
-	ErrRepositoryNotConfigured = errors.New("reply command repository not configured")
-	ErrConversationUnavailable = errors.New("owned active conversation not found")
-	ErrCreateInputInvalid      = errors.New("reply command create input is invalid")
-	ErrReplyCommandNotFound    = errors.New("reply command not found")
-	ErrAttemptNotFound         = errors.New("provider attempt not found")
-	errPublishLeaseLost        = errors.New("assistant publication lease lost")
+	ErrRepositoryNotConfigured    = errors.New("reply command repository not configured")
+	ErrConversationUnavailable    = errors.New("owned active conversation not found")
+	ErrCreateInputInvalid         = errors.New("reply command create input is invalid")
+	ErrReplyCommandNotFound       = errors.New("reply command not found")
+	ErrAttemptNotFound            = errors.New("provider attempt not found")
+	ErrAttemptTransactionRequired = errors.New("provider attempt requires an active outer transaction")
+	ErrAttemptTerminalConflict    = errors.New("provider attempt terminal evidence conflicts with persisted evidence")
+	errPublishLeaseLost           = errors.New("assistant publication lease lost")
 )
 
 const defaultMaxAttempts = 3
@@ -38,7 +40,7 @@ type Repository interface {
 	Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error)
 	Transition(context.Context, uint64, string, uint64, State, State, map[string]any) (bool, error)
 	PublishAssistant(context.Context, PublishAssistantInput) (int64, bool, error)
-	PrepareAttempt(context.Context, PrepareAttemptInput) (*Attempt, bool, error)
+	PrepareLegacyAttempt(context.Context, PrepareAttemptInput) (*Attempt, bool, error)
 	MarkAttemptDispatched(context.Context, uint64, uint64, string, uint64, time.Time) (bool, error)
 	FinishAttempt(context.Context, FinishAttemptInput) (bool, error)
 }

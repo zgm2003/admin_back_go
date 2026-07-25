@@ -19,6 +19,13 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
+func TestCompatibleImageClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T) {
+	capabilities := New(Config{}).Capabilities()
+	if capabilities.SafeInputUpperBoundStrategy != "" {
+		t.Fatalf("compatible transport claimed tokenizer strategy %q", capabilities.SafeInputUpperBoundStrategy)
+	}
+}
+
 func TestClientGenerateImagesSendsGenerationRequestAndParsesB64(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +188,9 @@ func TestClientGenerateImagesRejectsSyntheticMediaUsage(t *testing.T) {
 	if result.UsageStatus != infraai.UsageStatusUnavailable || len(result.Usage.Items) != 0 {
 		t.Fatalf("unattributed image total was billed as usage: %#v", result)
 	}
+	if result.Usage.Status != infraai.UsageStatusUnavailable {
+		t.Fatalf("canonical usage snapshot status=%q, want unavailable", result.Usage.Status)
+	}
 }
 
 func TestClientGenerateImagesClassifiesProviderFailureEvidence(t *testing.T) {
@@ -189,7 +199,7 @@ func TestClientGenerateImagesClassifiesProviderFailureEvidence(t *testing.T) {
 		return nil, errors.New("dial refused")
 	})}
 	_, err := New(Config{BaseURL: "https://provider.test", APIKey: "sk-test", HTTPClient: preHeader}).GenerateImages(context.Background(), input)
-	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeNotDispatched {
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeUnknown {
 		t.Fatalf("transport outcome=%q ok=%v err=%v", outcome, ok, err)
 	}
 
