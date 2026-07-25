@@ -151,7 +151,7 @@ func TestCaptureAndReleaseRejectInvalidActiveHoldFacts(t *testing.T) {
 		{
 			name: "capture zero held", held: 0, captured: 0,
 			call: func(repo *GormRepository, tx *gorm.DB) error {
-				_, _, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 0, SourceSummary: "summary"})
+				_, _, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 1, SourceSummary: "summary"})
 				return err
 			},
 		},
@@ -165,7 +165,7 @@ func TestCaptureAndReleaseRejectInvalidActiveHoldFacts(t *testing.T) {
 		{
 			name: "capture negative held", held: -5, captured: 0,
 			call: func(repo *GormRepository, tx *gorm.DB) error {
-				_, _, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 0, SourceSummary: "summary"})
+				_, _, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 1, SourceSummary: "summary"})
 				return err
 			},
 		},
@@ -355,52 +355,48 @@ func TestTopUpHoldSuccessAndInsufficientAvailableBalance(t *testing.T) {
 	})
 }
 
-func TestCaptureHoldSuccessAndZeroCapture(t *testing.T) {
-	tests := []struct {
-		name          string
-		actual        int64
-		balanceAfter  int64
-		consumeAfter  int64
-		expectLedger  bool
-		transactionID int64
-	}{
-		{name: "positive capture", actual: 20, balanceAfter: 80, consumeAfter: 20, expectLedger: true, transactionID: 10},
-		{name: "zero capture", actual: 0, balanceAfter: 100, consumeAfter: 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo, mock, closeDB := newMockRepository(t)
-			defer closeDB()
-			now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-			mock.ExpectBegin()
-			expectHoldWalletAndAggregate(mock, now, 100, 50, 50)
-			expectHoldRunLock(mock, now, 30, 0, HoldActive)
-			if tt.expectLedger {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).WillReturnResult(sqlmock.NewResult(tt.transactionID, 1))
-			}
-			expectCaptureWalletUpdate(mock, tt.balanceAfter, 20, tt.consumeAfter, 1)
-			expectTerminalHoldUpdate(mock, tt.actual, HoldCaptured, 1)
-			expectActiveHoldAggregate(mock, 20)
-			mock.ExpectRollback()
+func TestCaptureHoldSuccess(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	expectHoldWalletAndAggregate(mock, now, 100, 50, 50)
+	expectHoldRunLock(mock, now, 30, 0, HoldActive)
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).WillReturnResult(sqlmock.NewResult(10, 1))
+	expectCaptureWalletUpdate(mock, 80, 20, 20, 1)
+	expectTerminalHoldUpdate(mock, 20, HoldCaptured, 1)
+	expectActiveHoldAggregate(mock, 20)
+	mock.ExpectRollback()
 
-			tx := repo.db.Begin()
-			wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: tt.actual, SourceSummary: "persisted run summary"})
-			if err != nil || wallet == nil || wallet.BalanceUnits != tt.balanceAfter || wallet.HeldUnits != 20 || wallet.TotalConsumeUnits != tt.consumeAfter {
-				t.Fatalf("capture wallet=(%#v,%v)", wallet, err)
-			}
-			if tt.expectLedger {
-				if ledger == nil || ledger.ID != tt.transactionID || ledger.SourceType != SourceAIGenerate || ledger.SourceID != 88 || ledger.AmountUnits != tt.actual || ledger.Remark != "persisted run summary" {
-					t.Fatalf("capture ledger=%#v", ledger)
-				}
-			} else if ledger != nil {
-				t.Fatalf("zero capture must not create ledger: %#v", ledger)
-			}
-			if err := tx.Rollback().Error; err != nil {
-				t.Fatalf("rollback: %v", err)
-			}
-			assertMockExpectations(t, mock)
-		})
+	tx := repo.db.Begin()
+	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 20, SourceSummary: "persisted run summary"})
+	if err != nil || wallet == nil || wallet.BalanceUnits != 80 || wallet.HeldUnits != 20 || wallet.TotalConsumeUnits != 20 {
+		t.Fatalf("capture wallet=(%#v,%v)", wallet, err)
 	}
+	if ledger == nil || ledger.ID != 10 || ledger.SourceType != SourceAIGenerate || ledger.SourceID != 88 || ledger.AmountUnits != 20 || ledger.Remark != "persisted run summary" {
+		t.Fatalf("capture ledger=%#v", ledger)
+	}
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	assertMockExpectations(t, mock)
+}
+
+func TestCaptureHoldRejectsZeroActualUnitsWithoutMutation(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	tx := repo.db.Begin()
+	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 0, SourceSummary: "summary"})
+	if !errors.Is(err, ErrHoldInvalidInput) || wallet != nil || ledger != nil {
+		t.Fatalf("zero capture must fail before mutation, wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
+	}
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	assertMockExpectations(t, mock)
 }
 
 func TestCaptureHoldReplayReturnsOriginalLedgerWithoutSummaryRewrite(t *testing.T) {
@@ -421,6 +417,58 @@ func TestCaptureHoldReplayReturnsOriginalLedgerWithoutSummaryRewrite(t *testing.
 		t.Fatalf("rollback: %v", err)
 	}
 	assertMockExpectations(t, mock)
+}
+
+func TestCaptureHoldReplayRejectsZeroCapturedUnits(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	expectNoTerminalAIGenerateLedger(mock)
+	mock.ExpectRollback()
+
+	tx := repo.db.Begin()
+	hold := &Hold{ID: 9, WalletID: 1, UserID: 7, RunID: 88, CapturedUnits: 0, Status: HoldCaptured}
+	wallet := &Wallet{ID: 1, UserID: 7}
+	ledger, err := validateCapturedHoldFact(tx, hold, wallet, 7)
+	if !errors.Is(err, ErrHoldIntegrity) || ledger != nil {
+		t.Fatalf("zero-unit captured fact must fail closed, ledger=%#v err=%v", ledger, err)
+	}
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	assertMockExpectations(t, mock)
+}
+
+func TestCaptureHoldReplayRejectsInvalidPersistedSummary(t *testing.T) {
+	tests := []struct {
+		name   string
+		remark string
+	}{
+		{name: "blank", remark: ""},
+		{name: "over 255 runes", remark: strings.Repeat("中", 256)},
+		{name: "control character", remark: "ok\nno"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock, closeDB := newMockRepository(t)
+			defer closeDB()
+			now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+			mock.ExpectBegin()
+			expectCaptureTerminalWalletAndHold(mock, now, HoldCaptured, 20)
+			expectTerminalAIGenerateLedgerWithRemark(mock, now, 20, tt.remark)
+			mock.ExpectRollback()
+
+			tx := repo.db.Begin()
+			wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 20, SourceSummary: "valid incoming summary must be ignored"})
+			if !errors.Is(err, ErrHoldIntegrity) || wallet != nil || ledger != nil {
+				t.Fatalf("invalid persisted summary must fail closed, wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
+			}
+			if err := tx.Rollback().Error; err != nil {
+				t.Fatalf("rollback: %v", err)
+			}
+			assertMockExpectations(t, mock)
+		})
+	}
 }
 
 func TestReleaseHoldSuccessAndReplay(t *testing.T) {
@@ -910,7 +958,7 @@ func TestCaptureHoldRejectsReleasedTerminalState(t *testing.T) {
 	expectCaptureTerminalWalletAndHold(mock, now, HoldReleased, 0)
 	mock.ExpectCommit()
 	tx := repo.db.Begin()
-	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 0, SourceSummary: "new summary"})
+	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 1, SourceSummary: "new summary"})
 	if !errors.Is(err, ErrHoldIntegrity) || wallet != nil || ledger != nil {
 		t.Fatalf("capture must reject released terminal state, wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
 	}
@@ -927,7 +975,11 @@ func expectCaptureTerminalWalletAndHold(mock sqlmock.Sqlmock, now time.Time, sta
 }
 
 func expectTerminalAIGenerateLedger(mock sqlmock.Sqlmock, now time.Time, amount int64) {
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY id ASC LIMIT ? FOR UPDATE")).WithArgs(SourceAIGenerate, int64(88), 2).WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).AddRow(int64(10), "WLT", int64(1), int64(7), DirectionOut, amount, int64(100), int64(100-amount), SourceAIGenerate, int64(88), "saved", enum.CommonNo, now, now))
+	expectTerminalAIGenerateLedgerWithRemark(mock, now, amount, "saved")
+}
+
+func expectTerminalAIGenerateLedgerWithRemark(mock sqlmock.Sqlmock, now time.Time, amount int64, remark string) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY id ASC LIMIT ? FOR UPDATE")).WithArgs(SourceAIGenerate, int64(88), 2).WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).AddRow(int64(10), "WLT", int64(1), int64(7), DirectionOut, amount, int64(100), int64(100-amount), SourceAIGenerate, int64(88), remark, enum.CommonNo, now, now))
 }
 
 func expectNoTerminalAIGenerateLedger(mock sqlmock.Sqlmock) {

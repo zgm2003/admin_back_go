@@ -140,7 +140,7 @@ func (r *GormRepository) CaptureHoldInTx(ctx context.Context, tx *gorm.DB, in Ca
 	if err := requireHoldTransaction(tx); err != nil {
 		return nil, nil, err
 	}
-	if in.UserID <= 0 || in.RunID <= 0 || in.ActualUnits < 0 {
+	if in.UserID <= 0 || in.RunID <= 0 || in.ActualUnits <= 0 {
 		return nil, nil, ErrHoldInvalidInput
 	}
 	summary := strings.TrimSpace(in.SourceSummary)
@@ -486,20 +486,17 @@ func validateCapturedHoldFact(tx *gorm.DB, hold *Hold, wallet *Wallet, userID in
 	if err != nil {
 		return nil, err
 	}
-	if hold.HeldUnits != 0 {
+	if hold.HeldUnits != 0 || hold.CapturedUnits <= 0 {
 		return nil, ErrHoldIntegrity
-	}
-	if hold.CapturedUnits == 0 {
-		if len(transactions) != 0 {
-			return nil, ErrHoldIntegrity
-		}
-		return nil, nil
 	}
 	if len(transactions) != 1 {
 		return nil, ErrHoldIntegrity
 	}
 	transaction := transactions[0]
 	if transaction.IsDel != enum.CommonNo || transaction.WalletID != wallet.ID || transaction.UserID != userID || transaction.Direction != DirectionOut || transaction.SourceType != SourceAIGenerate || transaction.SourceID != hold.RunID || transaction.AmountUnits != hold.CapturedUnits || transaction.BalanceBeforeUnits < transaction.AmountUnits || transaction.BalanceBeforeUnits-transaction.AmountUnits != transaction.BalanceAfterUnits {
+		return nil, ErrHoldIntegrity
+	}
+	if err := validateHoldSummary(transaction.Remark); err != nil {
 		return nil, ErrHoldIntegrity
 	}
 	return &transaction, nil
