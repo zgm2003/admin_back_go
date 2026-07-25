@@ -58,6 +58,23 @@ func TestBuildUsesSingleVerificationClock(t *testing.T) {
 	}
 }
 
+func TestBuildWiresRedeemCodesWithSharedWalletRepositoryClockAndTelemetry(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"walletRepository := walletmodule.NewGormRepository(resources.DB)",
+		"walletService := walletmodule.NewService(walletRepository)",
+		"redeemcode.NewGormRepository(resources.DB, walletRepository, sharedClock)",
+		"redeemcode.NewRedisAttemptLimiter(resources.Redis.Redis)",
+		"redeemcode.WithClock(sharedClock)",
+		"redeemcode.WithTelemetry(recorder)",
+		"RedeemCodes: redeemCodeService",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("admin redeem code composition missing %q", want)
+		}
+	}
+}
+
 func compactAdminBuild(t *testing.T) string {
 	t.Helper()
 	body, err := os.ReadFile("build.go")

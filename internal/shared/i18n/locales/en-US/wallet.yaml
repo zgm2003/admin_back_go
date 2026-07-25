@@ -15,3 +15,9 @@ wallet.credit.source_type.invalid: Invalid credit source type
 wallet.credit.source_id.invalid: Credit source ID must be greater than 0
 wallet.mutation.source_id.owner_mismatch: Wallet mutation source is already owned by another user
 wallet.mutation.failed: Failed to mutate wallet balance
+wallet.redeem.code_required: Redeem code is required
+wallet.redeem.unavailable: Redeem code is unavailable
+wallet.redeem.rate_limited: Too many redeem attempts
+wallet.redeem.rate_limit_unavailable: Redeem rate limit service is unavailable
+wallet.redeem.dependency_unavailable: Redeem service is temporarily unavailable
+wallet.redeem.integrity_violation: Redeem transaction integrity violation

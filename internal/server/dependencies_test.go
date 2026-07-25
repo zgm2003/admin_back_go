@@ -24,6 +24,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	operationlogadmin "admin_back_go/internal/module/operationlog/transport/admin"
 	"admin_back_go/internal/module/payment"
+	redeemcodeadmin "admin_back_go/internal/module/payment/redeemcode/transport/admin"
 	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
 	queuemonitoradmin "admin_back_go/internal/module/queuemonitor/transport/admin"
@@ -79,6 +80,7 @@ type testDependencies struct {
 	SmsService              smsadmin.HTTPService
 	PaymentService          payment.HTTPService
 	WalletService           walletadmin.HTTPService
+	RedeemCodeService       redeemcodeadmin.HTTPService
 	PermissionService       permissionadmin.ManagementService
 	QueueMonitorService     queuemonitoradmin.HTTPService
 	QueueMonitorUI          http.Handler
@@ -140,8 +142,9 @@ func (deps testDependencies) grouped() Dependencies {
 				UploadTokens:      deps.UploadTokenService,
 			},
 			Commerce: platformadmin.CommerceGraph{
-				Payment: deps.PaymentService,
-				Wallet:  deps.WalletService,
+				Payment:     deps.PaymentService,
+				Wallet:      deps.WalletService,
+				RedeemCodes: deps.RedeemCodeService,
 			},
 			AI: platformadmin.AIGraph{
 				Agents:        deps.AiAgentService,

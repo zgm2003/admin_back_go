@@ -1,3 +1,10 @@
 payment.callback.amount.invalid: Invalid Alipay callback amount
 payment.job.linked_recharge.query_failed: Failed to query the recharge linked to the payment order
 payment.job.linked_recharge.close_failed: Failed to close the recharge linked to the payment order
+payment.redeem_code.request_invalid: Invalid redeem code request
+payment.redeem_code.request_conflict: Redeem code request conflicts with an existing batch
+payment.redeem_code.void_conflict: Redeem codes cannot be voided
+payment.redeem_code.export_too_large: Redeem code export exceeds the allowed size
+payment.redeem_code.dependency_unavailable: Redeem code service is temporarily unavailable
+payment.redeem_code.integrity_violation: Redeem code data integrity violation
+payment.redeem_code.service_missing: Redeem code service is not configured

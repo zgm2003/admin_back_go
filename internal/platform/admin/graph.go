@@ -21,6 +21,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	operationlogadmin "admin_back_go/internal/module/operationlog/transport/admin"
 	"admin_back_go/internal/module/payment"
+	redeemcodeadmin "admin_back_go/internal/module/payment/redeemcode/transport/admin"
 	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
 	permissionadmin "admin_back_go/internal/module/permission/transport/admin"
 	queuemonitoradmin "admin_back_go/internal/module/queuemonitor/transport/admin"
@@ -72,8 +73,9 @@ type CommunicationsGraph struct {
 }
 
 type CommerceGraph struct {
-	Payment payment.HTTPService
-	Wallet  walletadmin.HTTPService
+	Payment     payment.HTTPService
+	Wallet      walletadmin.HTTPService
+	RedeemCodes redeemcodeadmin.HTTPService
 }
 
 type AIGraph struct {
@@ -115,6 +117,7 @@ func (g Graph) Validate() error {
 		{name: "communications.upload_tokens", value: g.Communications.UploadTokens},
 		{name: "commerce.payment", value: g.Commerce.Payment},
 		{name: "commerce.wallet", value: g.Commerce.Wallet},
+		{name: "commerce.redeem_codes", value: g.Commerce.RedeemCodes},
 		{name: "ai.agents", value: g.AI.Agents},
 		{name: "ai.chat", value: g.AI.Chat},
 		{name: "ai.conversations", value: g.AI.Conversations},

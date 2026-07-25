@@ -1,3 +1,10 @@
 payment.callback.amount.invalid: 无效的支付宝回调金额
 payment.job.linked_recharge.query_failed: 查询支付订单关联充值单失败
 payment.job.linked_recharge.close_failed: 关闭支付订单关联充值单失败
+payment.redeem_code.request_invalid: 兑换码请求参数错误
+payment.redeem_code.request_conflict: 兑换码请求与已有批次冲突
+payment.redeem_code.void_conflict: 兑换码无法作废
+payment.redeem_code.export_too_large: 兑换码导出结果超过上限
+payment.redeem_code.dependency_unavailable: 兑换码服务暂不可用
+payment.redeem_code.integrity_violation: 兑换码数据完整性异常
+payment.redeem_code.service_missing: 兑换码服务未配置

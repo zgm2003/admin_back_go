@@ -100,6 +100,8 @@ GET /api/admin/v1/payment/ledger/page-init
 GET /api/admin/v1/payment/recharges
 GET /api/admin/v1/payment/recharges/:id
 GET /api/admin/v1/payment/recharges/page-init
+GET /api/admin/v1/payment/redeem-codes
+GET /api/admin/v1/payment/redeem-codes/page-init
 GET /api/admin/v1/payment/wallets
 GET /api/admin/v1/payment/wallets/page-init
 GET /api/admin/v1/permissions
@@ -158,6 +160,7 @@ PATCH /api/admin/v1/notification-tasks/:id/cancel
 PATCH /api/admin/v1/notifications/:id/read
 PATCH /api/admin/v1/notifications/read
 PATCH /api/admin/v1/payment/configs/:id/status
+PATCH /api/admin/v1/payment/redeem-codes
 PATCH /api/admin/v1/permissions/:id/status
 PATCH /api/admin/v1/queue-monitor-ui
 PATCH /api/admin/v1/queue-monitor-ui/*path
@@ -202,6 +205,9 @@ POST /api/admin/v1/payment/configs
 POST /api/admin/v1/payment/configs/:id/test
 POST /api/admin/v1/payment/recharges
 POST /api/admin/v1/payment/recharges/:id/pay
+POST /api/admin/v1/payment/redeem-code-batches
+POST /api/admin/v1/payment/redeem-code-exports
+POST /api/admin/v1/payment/redeem-code-lookups
 POST /api/admin/v1/permissions
 POST /api/admin/v1/queue-monitor-ui
 POST /api/admin/v1/queue-monitor-ui/*path
@@ -214,6 +220,7 @@ POST /api/admin/v1/upload-rules
 POST /api/admin/v1/upload-settings
 POST /api/admin/v1/upload-tokens
 POST /api/admin/v1/users/export
+POST /api/admin/v1/wallet/redemptions
 POST /api/payment/callbacks/alipay
 PUT /api/admin/v1/ai-agents/:id
 PUT /api/admin/v1/ai-agents/:id/knowledge-bases

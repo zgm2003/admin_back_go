@@ -42,6 +42,7 @@ import (
 	notificationtask "admin_back_go/internal/module/notification/task"
 	"admin_back_go/internal/module/operationlog"
 	paymentmodule "admin_back_go/internal/module/payment"
+	redeemcode "admin_back_go/internal/module/payment/redeemcode"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/module/queuemonitor"
@@ -156,7 +157,15 @@ func Build(input BuildInput) (*BuildResult, error) {
 	}))
 	systemSettingRepository := systemsetting.NewGormRepository(resources.DB, resources.Redis)
 	systemSettingService := systemsetting.NewService(systemSettingRepository)
-	walletService := walletmodule.NewService(walletmodule.NewGormRepository(resources.DB))
+	walletRepository := walletmodule.NewGormRepository(resources.DB)
+	walletService := walletmodule.NewService(walletRepository)
+	redeemCodeService := redeemcode.NewService(
+		redeemcode.NewGormRepository(resources.DB, walletRepository, sharedClock),
+		redeemcode.WithAttemptLimiter(redeemcode.NewRedisAttemptLimiter(resources.Redis.Redis)),
+		redeemcode.WithClock(sharedClock),
+		redeemcode.WithTelemetry(recorder),
+		redeemcode.WithLogger(logger),
+	)
 	uploadConfigService := uploadconfig.NewService(uploadconfig.NewGormRepository(resources.DB), &providers.Secretbox)
 	mailService := mail.NewServiceWithDependencies(mail.ServiceDependencies{
 		Repository:    mail.NewGormRepository(resources.DB),
@@ -327,7 +336,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			UploadConfig:      uploadConfigService,
 			UploadTokens:      uploadTokenService,
 		},
-		Commerce: CommerceGraph{Payment: paymentService, Wallet: walletService},
+		Commerce: CommerceGraph{Payment: paymentService, Wallet: walletService, RedeemCodes: redeemCodeService},
 		AI: AIGraph{
 			Agents:        aiAgentService,
 			Chat:          aiChatService,

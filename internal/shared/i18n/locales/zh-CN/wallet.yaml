@@ -15,3 +15,9 @@ wallet.credit.source_type.invalid: 入账来源类型无效
 wallet.credit.source_id.invalid: 入账来源ID必须大于0
 wallet.mutation.source_id.owner_mismatch: 资金变动来源已被其他用户使用
 wallet.mutation.failed: 钱包资金变动失败
+wallet.redeem.code_required: 请输入兑换码
+wallet.redeem.unavailable: 兑换码不可用
+wallet.redeem.rate_limited: 兑换请求过于频繁
+wallet.redeem.rate_limit_unavailable: 兑换限流服务暂不可用
+wallet.redeem.dependency_unavailable: 兑换服务暂不可用
+wallet.redeem.integrity_violation: 兑换事实完整性异常

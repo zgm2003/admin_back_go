@@ -2,6 +2,7 @@ package server
 
 import (
 	authplatformadmin "admin_back_go/internal/module/auth_platform/transport/admin"
+	redeemcodeadmin "admin_back_go/internal/module/payment/redeemcode/transport/admin"
 	paymentadmin "admin_back_go/internal/module/payment/transport/admin"
 	paymentcallback "admin_back_go/internal/module/payment/transport/callback"
 	walletadmin "admin_back_go/internal/module/payment/wallet/transport/admin"
@@ -17,6 +18,7 @@ func registerAdminCommerceRBACRoutes(router *gin.Engine, deps Dependencies) {
 	paymentcallback.RegisterRoutes(router, commerce.Payment, deps.Core.RouteRegistry)
 	paymentadmin.RegisterRoutes(router, commerce.Payment, deps.Core.RouteRegistry)
 	walletadmin.RegisterRoutes(router, commerce.Wallet, deps.Core.RouteRegistry)
+	redeemcodeadmin.RegisterRoutes(router, commerce.RedeemCodes, deps.Core.RouteRegistry)
 	permissionadmin.RegisterRoutes(router, identity.Permissions, deps.Core.RouteRegistry)
 	roleadmin.RegisterRoutes(router, identity.Roles, deps.Core.RouteRegistry)
 	authplatformadmin.RegisterRoutes(router, identity.AuthPlatforms, deps.Core.RouteRegistry)
