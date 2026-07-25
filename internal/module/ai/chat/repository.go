@@ -105,6 +105,10 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 }
 
 func runFromCreateRecord(input CreateRunRecord, startedAt time.Time) (Run, error) {
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		return Run{}, fmt.Errorf("%w: request id", ErrInvalidRunBillingIdentity)
+	}
 	identityStatus := strings.TrimSpace(input.RequestIdentityStatus)
 	identityMarker := strings.TrimSpace(input.RequestIdentityMarker)
 	if identityStatus == "" {
@@ -123,12 +127,16 @@ func runFromCreateRecord(input CreateRunRecord, startedAt time.Time) (Run, error
 	if pricingSnapshotJSON == "" || !json.Valid([]byte(pricingSnapshotJSON)) {
 		return Run{}, fmt.Errorf("%w: pricing snapshot JSON", ErrInvalidRunBillingIdentity)
 	}
-	if hasDisallowedPricingMarker(pricingSnapshotJSON) {
+	var pricingFields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(pricingSnapshotJSON), &pricingFields); err != nil || pricingFields == nil {
+		return Run{}, fmt.Errorf("%w: pricing snapshot object", ErrInvalidRunBillingIdentity)
+	}
+	if hasDisallowedPricingMarker(pricingFields) {
 		return Run{}, fmt.Errorf("%w: non-billable pricing snapshot", ErrInvalidRunBillingIdentity)
 	}
 	return Run{
 		ConversationID:        input.ConversationID,
-		RequestID:             strings.TrimSpace(input.RequestID),
+		RequestID:             requestID,
 		RequestFingerprint:    append([]byte(nil), input.RequestFingerprint[:]...),
 		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable),
 		RequestIdentityMarker: "",
@@ -146,11 +154,7 @@ func runFromCreateRecord(input CreateRunRecord, startedAt time.Time) (Run, error
 	}, nil
 }
 
-func hasDisallowedPricingMarker(snapshot string) bool {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(snapshot), &fields); err != nil || fields == nil {
-		return false
-	}
+func hasDisallowedPricingMarker(fields map[string]json.RawMessage) bool {
 	if rawVersion, ok := fields["version"]; ok {
 		var version string
 		if json.Unmarshal(rawVersion, &version) == nil && strings.TrimSpace(version) == "legacy_unpriced_v1" {

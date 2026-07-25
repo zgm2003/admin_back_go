@@ -103,6 +103,9 @@ func TestCreateRunRecordDefaultsReplayableIdentity(t *testing.T) {
 
 func TestCreateRunRejectsInvalidBillingIdentityBeforeDatabaseAccess(t *testing.T) {
 	tests := map[string]func(*CreateRunRecord){
+		"empty request id": func(input *CreateRunRecord) {
+			input.RequestID = "  "
+		},
 		"zero fingerprint": func(input *CreateRunRecord) {
 			input.RequestFingerprint = [32]byte{}
 		},
@@ -111,6 +114,12 @@ func TestCreateRunRejectsInvalidBillingIdentityBeforeDatabaseAccess(t *testing.T
 		},
 		"invalid pricing": func(input *CreateRunRecord) {
 			input.PricingSnapshotJSON = "{"
+		},
+		"null pricing": func(input *CreateRunRecord) {
+			input.PricingSnapshotJSON = "null"
+		},
+		"array pricing": func(input *CreateRunRecord) {
+			input.PricingSnapshotJSON = "[]"
 		},
 		"legacy identity status": func(input *CreateRunRecord) {
 			input.RequestIdentityStatus = "legacy_non_replayable"
