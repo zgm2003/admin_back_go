@@ -36,6 +36,18 @@ func TestLimiterRateLimitContract(t *testing.T) {
 	if fmt.Sprint(command) != "[SET attempt-key 0123456789abcdef0123456789abcdef NX PX 15000]" {
 		t.Fatalf("acquire command=%v", command)
 	}
+	if !strings.Contains(failureRecordScript, "KEYS[1]") || !strings.Contains(failureStateScript, "KEYS[1]") || strings.Contains(failureRecordScript+failureStateScript, "KEYS[2]") {
+		t.Fatal("failure scripts must be single-key atomic operations")
+	}
+	if !strings.Contains(failureRecordScript, "local ttl = redis.call(\"PTTL\"") || !strings.Contains(failureRecordScript, "if ttl < 0 then\n  redis.call(\"PEXPIRE\"") {
+		t.Fatal("failure record must preserve an existing TTL and only restore an anomalous one")
+	}
+	if !strings.Contains(failureStateScript, "if ttl < 0 then\n  redis.call(\"PEXPIRE\"") || !strings.Contains(failureStateScript, "ARGV[1]") {
+		t.Fatal("failure state must restore a missing TTL to its fixed window")
+	}
+	if failureLimit != 10 || failureWindow.Milliseconds() != 600000 || attemptLockTTL.Milliseconds() != 15000 {
+		t.Fatalf("literal limiter contract changed: limit=%d failureMs=%d lockMs=%d", failureLimit, failureWindow.Milliseconds(), attemptLockTTL.Milliseconds())
+	}
 }
 
 func TestLimiterReleaseRejectsForgedNamespaceOrOwner(t *testing.T) {

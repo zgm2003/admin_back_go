@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -473,6 +474,137 @@ func TestServiceRedeemCancellationStillCleansUpWithIndependentContext(t *testing
 	}
 	if ok := <-released; !ok {
 		t.Fatal("Release cleanup context was canceled")
+	}
+}
+
+func TestServiceRedeemInvalidInputsRecordFailureInsideLease(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		code string
+		want string
+	}{
+		{name: "empty", code: "   ", want: ErrorWalletCodeRequired},
+		{name: "malformed", code: "not-a-code", want: ErrorWalletUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls []string
+			limiter := &fakeAttemptLimiter{
+				acquireFn: func(context.Context, string, int64) (AttemptLease, error) {
+					calls = append(calls, "acquire")
+					return AttemptLease{Owner: "owner"}, nil
+				},
+				failureStateFn: func(context.Context, string, int64) (FailureState, error) {
+					calls = append(calls, "state")
+					return FailureState{}, nil
+				},
+				recordFailureFn: func(context.Context, string, int64) (FailureState, error) {
+					calls = append(calls, "record")
+					return FailureState{Count: 1, TTL: 10 * time.Minute}, nil
+				},
+				releaseFn: func(context.Context, AttemptLease) error { calls = append(calls, "release"); return nil },
+			}
+			repository := &fakeRepository{redeemFn: func(context.Context, int64, string) (*RedemptionFact, error) {
+				t.Fatal("repository called for invalid input")
+				return nil, nil
+			}}
+			_, appErr := NewService(repository, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, test.code)
+			if appErr == nil || appErr.Code != test.want || strings.Join(calls, ",") != "acquire,state,record,release" {
+				t.Fatalf("error=%+v calls=%v", appErr, calls)
+			}
+		})
+	}
+}
+
+func TestServiceRedeemSuccessAndReplayDoNotRecordFailure(t *testing.T) {
+	for _, replayed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replayed=%t", replayed), func(t *testing.T) {
+			records := 0
+			limiter := newAllowAttemptLimiter()
+			limiter.recordFailureFn = func(context.Context, string, int64) (FailureState, error) { records++; return FailureState{}, nil }
+			fact := validTelemetryRedemptionFact()
+			fact.Replayed = replayed
+			response, appErr := NewService(&fakeRepository{redeemFact: fact}, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+			if appErr != nil || response == nil || response.Replayed != replayed || records != 0 {
+				t.Fatalf("response=%+v error=%+v records=%d", response, appErr, records)
+			}
+		})
+	}
+}
+
+func TestServiceRedeemLimiterAndDependencyFailuresDoNotRecord(t *testing.T) {
+	tests := []struct {
+		name       string
+		configure  func(*fakeAttemptLimiter)
+		repository *fakeRepository
+		wantCode   string
+	}{
+		{name: "acquire", configure: func(l *fakeAttemptLimiter) {
+			l.acquireFn = func(context.Context, string, int64) (AttemptLease, error) {
+				return AttemptLease{}, errors.New("redis down")
+			}
+		}, repository: &fakeRepository{}, wantCode: ErrorWalletDependencyUnavailable},
+		{name: "state", configure: func(l *fakeAttemptLimiter) {
+			l.failureStateFn = func(context.Context, string, int64) (FailureState, error) {
+				return FailureState{}, errors.New("redis down")
+			}
+		}, repository: &fakeRepository{}, wantCode: ErrorWalletDependencyUnavailable},
+		{name: "mysql", configure: func(l *fakeAttemptLimiter) {}, repository: &fakeRepository{redeemErr: errors.New("mysql down")}, wantCode: ErrorWalletDependencyUnavailable},
+		{name: "record", configure: func(l *fakeAttemptLimiter) {
+			l.recordFailureFn = func(context.Context, string, int64) (FailureState, error) {
+				return FailureState{}, errors.New("redis down")
+			}
+		}, repository: &fakeRepository{redeemErr: ErrUnavailable}, wantCode: ErrorWalletDependencyUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			records := 0
+			limiter := newAllowAttemptLimiter()
+			originalRecord := limiter.recordFailureFn
+			limiter.recordFailureFn = func(ctx context.Context, platform string, userID int64) (FailureState, error) {
+				records++
+				return originalRecord(ctx, platform, userID)
+			}
+			test.configure(limiter)
+			if test.name == "record" {
+				failure := limiter.recordFailureFn
+				limiter.recordFailureFn = func(ctx context.Context, platform string, userID int64) (FailureState, error) {
+					records++
+					return failure(ctx, platform, userID)
+				}
+			}
+			_, appErr := NewService(test.repository, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+			wantRecords := 0
+			if test.name == "record" {
+				wantRecords = 1
+			}
+			if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != test.wantCode || records != wantRecords {
+				t.Fatalf("error=%+v records=%d", appErr, records)
+			}
+		})
+	}
+}
+
+func TestServiceRedeemUserFailureReleaseFailureFailsClosed(t *testing.T) {
+	limiter := newAllowAttemptLimiter()
+	limiter.releaseFn = func(context.Context, AttemptLease) error { return errors.New("redis down") }
+	_, appErr := NewService(&fakeRepository{redeemErr: ErrUnavailable}, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Code != ErrorWalletDependencyUnavailable {
+		t.Fatalf("error=%+v", appErr)
+	}
+}
+
+func TestServiceRedeemLockedReturnsIntegerRetryAfterWithoutRepository(t *testing.T) {
+	limiter := newAllowAttemptLimiter()
+	limiter.acquireFn = func(context.Context, string, int64) (AttemptLease, error) {
+		return AttemptLease{}, &AttemptLockedError{RetryAfter: 2}
+	}
+	repository := &fakeRepository{redeemFn: func(context.Context, int64, string) (*RedemptionFact, error) {
+		t.Fatal("repository called")
+		return nil, nil
+	}}
+	_, appErr := NewService(repository, WithAttemptLimiter(limiter)).Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	if appErr == nil || appErr.HTTPStatus != http.StatusTooManyRequests || appErr.TemplateData["retry_after"] != 2 {
+		t.Fatalf("error=%+v", appErr)
 	}
 }
 
