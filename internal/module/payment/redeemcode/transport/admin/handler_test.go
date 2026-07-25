@@ -58,6 +58,23 @@ func TestHandlerRedeemUsesMiddlewareIdentityAndWritesLimiterRetryAfter(t *testin
 	assertErrorMeta(t, recorder, "wallet.redeem.rate_limited", "rate_limit", true)
 }
 
+func TestRedeemHandlerMapsMissingServiceToDependencyUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+	})
+	RegisterRoutes(router, nil)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/wallet/redemptions", bytes.NewBufferString(`{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertErrorMeta(t, recorder, "wallet.redeem.dependency_unavailable", "dependency", true)
+}
+
 func TestHandlerRedemptionResponseExcludesBatchAndIdentityFields(t *testing.T) {
 	router, service := newRedeemCodeTestRouter()
 	service.redeemResponse = &redeemcode.RedemptionResponse{
@@ -211,6 +228,74 @@ func TestRedeemHandlersRejectUnknownJSONFieldsBeforeService(t *testing.T) {
 	}
 }
 
+func TestRedeemHandlersRejectNonObjectJSONBeforeService(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		code   string
+	}{
+		{name: "lookup null", method: http.MethodPost, path: "/api/admin/v1/payment/redeem-code-lookups", body: "null", code: "payment.redeem_code.request_invalid"},
+		{name: "export array", method: http.MethodPost, path: "/api/admin/v1/payment/redeem-code-exports", body: "[]", code: "payment.redeem_code.request_invalid"},
+		{name: "generate scalar", method: http.MethodPost, path: "/api/admin/v1/payment/redeem-code-batches", body: `"value"`, code: "payment.redeem_code.request_invalid"},
+		{name: "void empty", method: http.MethodPatch, path: "/api/admin/v1/payment/redeem-codes", body: "", code: "payment.redeem_code.request_invalid"},
+		{name: "redemption null", method: http.MethodPost, path: "/api/admin/v1/wallet/redemptions", body: "null", code: "wallet.redeem.unavailable"},
+		{name: "redemption array", method: http.MethodPost, path: "/api/admin/v1/wallet/redemptions", body: "[]", code: "wallet.redeem.unavailable"},
+		{name: "redemption scalar", method: http.MethodPost, path: "/api/admin/v1/wallet/redemptions", body: `"value"`, code: "wallet.redeem.unavailable"},
+		{name: "redemption empty", method: http.MethodPost, path: "/api/admin/v1/wallet/redemptions", body: "", code: "wallet.redeem.unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router, service := newRedeemCodeTestRouter()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || service.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.calls, recorder.Body.String())
+			}
+			assertErrorMeta(t, recorder, test.code, "validation", false)
+		})
+	}
+}
+
+func TestLookupAndRedemptionRejectNullCodeButPassEmptyCodeToService(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		body     string
+		code     string
+		wantCall bool
+	}{
+		{name: "lookup null code", path: "/api/admin/v1/payment/redeem-code-lookups", body: `{"code":null}`, code: "payment.redeem_code.request_invalid"},
+		{name: "redemption null code", path: "/api/admin/v1/wallet/redemptions", body: `{"code":null}`, code: "wallet.redeem.unavailable"},
+		{name: "lookup omitted code", path: "/api/admin/v1/payment/redeem-code-lookups", body: `{}`, wantCall: true},
+		{name: "lookup empty code", path: "/api/admin/v1/payment/redeem-code-lookups", body: `{"code":""}`, wantCall: true},
+		{name: "redemption omitted code", path: "/api/admin/v1/wallet/redemptions", body: `{}`, wantCall: true},
+		{name: "redemption empty code", path: "/api/admin/v1/wallet/redemptions", body: `{"code":""}`, wantCall: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router, service := newRedeemCodeTestRouter()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, test.path, bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			if test.wantCall {
+				if recorder.Code != http.StatusOK || service.calls != 1 || service.lookupCode != "" || service.redeemCode != "" {
+					t.Fatalf("status=%d calls=%d lookup=%q redemption=%q", recorder.Code, service.calls, service.lookupCode, service.redeemCode)
+				}
+				return
+			}
+			if recorder.Code != http.StatusBadRequest || service.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.calls, recorder.Body.String())
+			}
+			assertErrorMeta(t, recorder, test.code, "validation", false)
+		})
+	}
+}
+
 func TestRedeemCodeResponsesDisableCaching(t *testing.T) {
 	tests := []struct{ method, path, body string }{
 		{http.MethodGet, "/api/admin/v1/payment/redeem-codes", ""},
@@ -326,6 +411,7 @@ type fakeHTTPService struct {
 	calls            int
 	generatedBy      int64
 	generateInput    redeemcode.GenerateBatchInput
+	lookupCode       string
 	redeemedBy       int64
 	redeemedPlatform string
 	redeemCode       string
@@ -344,6 +430,7 @@ func (service *fakeHTTPService) List(context.Context, redeemcode.ListQuery) (*re
 }
 func (service *fakeHTTPService) Lookup(_ context.Context, input redeemcode.LookupInput) (*redeemcode.LookupResponse, *apperror.Error) {
 	service.calls++
+	service.lookupCode = input.Code
 	return &redeemcode.LookupResponse{}, nil
 }
 func (service *fakeHTTPService) Export(context.Context, redeemcode.ExportInput) (*redeemcode.ExportResponse, *apperror.Error) {

@@ -74,7 +74,7 @@ func (h *Handler) Lookup(c *gin.Context) {
 		response.Error(c, managementRequestInvalid())
 		return
 	}
-	result, err := h.requireService().Lookup(c.Request.Context(), redeemcode.LookupInput{Code: request.Code})
+	result, err := h.requireService().Lookup(c.Request.Context(), redeemcode.LookupInput{Code: string(request.Code)})
 	writeResult(c, result, err, true)
 }
 
@@ -128,7 +128,7 @@ func (h *Handler) Redeem(c *gin.Context) {
 		response.Error(c, walletUnavailable())
 		return
 	}
-	result, err := h.requireService().Redeem(c.Request.Context(), identity.UserID, identity.Platform, request.Code)
+	result, err := h.requireService().Redeem(c.Request.Context(), identity.UserID, identity.Platform, string(request.Code))
 	if err != nil {
 		err = canonicalWalletError(err)
 		if retry := retryAfterSeconds(err); retry > 0 {
@@ -154,6 +154,10 @@ func bindJSON(c *gin.Context, limit int64, target any) bool {
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, limit))
 	if err != nil {
+		return false
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -238,6 +242,8 @@ func canonicalWalletError(err *apperror.Error) *apperror.Error {
 	switch {
 	case err.Code == redeemcode.ErrorWalletCodeRequired:
 		return apperror.New(redeemcode.ErrorWalletCodeRequired, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, redeemcode.ErrorWalletCodeRequired, nil, "请输入兑换码")
+	case err.Code == redeemcode.ErrorServiceMissing:
+		return apperror.New(redeemcode.ErrorWalletDependencyUnavailable, apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, redeemcode.ErrorWalletDependencyUnavailable, nil, "兑换服务暂不可用")
 	case err.Category == apperror.CategoryRateLimit:
 		return apperror.New(redeemcode.ErrorWalletRateLimited, apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, redeemcode.ErrorWalletRateLimited, err.TemplateData, "兑换请求过于频繁")
 	case err.Code == redeemcode.ErrorWalletRateLimitUnavailable:

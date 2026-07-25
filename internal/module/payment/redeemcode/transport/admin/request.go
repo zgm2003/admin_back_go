@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"admin_back_go/internal/module/payment/wallet"
@@ -22,7 +25,7 @@ type listRequest struct {
 }
 
 type lookupRequest struct {
-	Code string `json:"code"`
+	Code nonNullString `json:"code"`
 }
 
 type exportRequest struct {
@@ -51,7 +54,21 @@ type voidRequest struct {
 }
 
 type redemptionRequest struct {
-	Code string `json:"code"`
+	Code nonNullString `json:"code"`
+}
+
+type nonNullString string
+
+func (value *nonNullString) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("value must be a string")
+	}
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*value = nonNullString(decoded)
+	return nil
 }
 
 type redemptionResponse struct {
