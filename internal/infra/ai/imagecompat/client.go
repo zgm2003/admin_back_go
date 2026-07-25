@@ -56,7 +56,10 @@ func New(config Config) *Client {
 
 func (c *Client) Capabilities() infraai.CapabilityMetadata {
 	return infraai.CapabilityMetadata{
-		SupportedUsageKeys:        []string{"usage.input_tokens", "usage.output_tokens", "usage.total_tokens"},
+		SupportedUsageIdentities: []infraai.UsageIdentity{
+			{Category: infraai.UsageCategoryInput, Unit: "token"},
+			{Category: infraai.UsageCategoryOutput, Unit: "token"},
+		},
 		SupportsIdempotencyHeader: true,
 	}
 }

@@ -601,6 +601,89 @@ func TestExecuteConversationReplyRecordsAmbiguousProviderOutcome(t *testing.T) {
 	}
 }
 
+func TestStreamChatWithAttemptMapsProviderErrorsToStrictTerminalEvidence(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name              string
+		providerErr       error
+		localCancel       bool
+		wantState         ProviderAttemptState
+		wantDispatchState string
+		wantErrorCode     string
+		wantProviderID    string
+	}{
+		{
+			name:              "rejected request was dispatched",
+			providerErr:       infraai.NewProviderError(infraai.ProviderOutcomeRejected, "provider-rejected", errors.New("rejected")),
+			wantState:         ProviderAttemptFailed,
+			wantDispatchState: infraai.DispatchStateDispatched,
+			wantErrorCode:     "ai.provider_failed",
+			wantProviderID:    "provider-rejected",
+		},
+		{
+			name:              "request was not dispatched",
+			providerErr:       infraai.NewProviderError(infraai.ProviderOutcomeNotDispatched, "", errors.New("dial failed")),
+			wantState:         ProviderAttemptFailed,
+			wantDispatchState: infraai.DispatchStateNotDispatched,
+			wantErrorCode:     "ai.provider_failed",
+		},
+		{
+			name:              "provider outcome is unknown",
+			providerErr:       infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "provider-unknown", errors.New("stream disconnected")),
+			wantState:         ProviderAttemptOutcomeUnknown,
+			wantDispatchState: infraai.DispatchStateUnknown,
+			wantErrorCode:     "ai.provider_outcome_unknown",
+			wantProviderID:    "provider-unknown",
+		},
+		{
+			name:              "unclassified error is unknown",
+			providerErr:       errors.New("legacy provider error"),
+			wantState:         ProviderAttemptOutcomeUnknown,
+			wantDispatchState: infraai.DispatchStateUnknown,
+			wantErrorCode:     "ai.provider_outcome_unknown",
+		},
+		{
+			name:              "local cancellation before dispatch",
+			providerErr:       infraai.NewProviderError(infraai.ProviderOutcomeNotDispatched, "", context.Canceled),
+			localCancel:       true,
+			wantState:         ProviderAttemptCanceled,
+			wantDispatchState: infraai.DispatchStateNotDispatched,
+			wantErrorCode:     "ai.provider_canceled",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.localCancel {
+				canceledCtx, cancel := context.WithCancelCause(ctx)
+				cancel(infraai.ErrCanceled)
+				ctx = canceledCtx
+			}
+			attempts := &fakeProviderAttemptRecorder{}
+			service := &Service{attemptRecorder: attempts, now: func() time.Time { return now }}
+
+			_, err := service.streamChatWithAttempt(ctx, 100, ConversationReplyInput{
+				CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 7,
+			}, &fakeEngine{err: tc.providerErr}, infraai.ChatInput{}, nil)
+
+			if !errors.Is(err, tc.providerErr) {
+				t.Fatalf("err=%v, want provider error %v", err, tc.providerErr)
+			}
+			if strings.Join(attempts.events, ",") != "prepared,dispatched,finished" {
+				t.Fatalf("attempt events=%v", attempts.events)
+			}
+			finished := attempts.finished
+			if finished.State != tc.wantState || finished.DispatchState != tc.wantDispatchState || finished.ErrorCode != tc.wantErrorCode || finished.ProviderRequestID != tc.wantProviderID {
+				t.Fatalf("finished=%+v", finished)
+			}
+			if finished.UsageStatus != infraai.UsageStatusUnavailable || finished.UsageJSON != `{"status":"unavailable"}` {
+				t.Fatalf("usage evidence=%+v", finished)
+			}
+		})
+	}
+}
+
 func TestExecuteConversationReplyDerivesAgentFromOwnedConversation(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{

@@ -5,8 +5,15 @@ import (
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/database"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/ai/replycommand"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type fakeReplyAttemptRepository struct {
@@ -47,5 +54,60 @@ func TestReplyAttemptRecorderMapsLifecycleWithoutFieldFallback(t *testing.T) {
 	}
 	if repository.prepared.RunID != 100 || repository.marked.RunID != 100 || repository.finished.RunID != 100 || repository.finished.State != replycommand.AttemptOutcomeUnknown || repository.finished.ProviderRequestID != "provider-request-1" || repository.finished.ResponseSHA256 != "hash" || repository.finished.UsageStatus != "unavailable" || repository.finished.DispatchState != "unknown" {
 		t.Fatalf("prepared=%+v marked=%+v finished=%+v", repository.prepared, repository.marked, repository.finished)
+	}
+}
+
+func TestReplyAttemptRecorderPassesMappedFailuresThroughStrictRepository(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := replyAttemptRecorder{repository: replycommand.NewGormRepository(&database.Client{Gorm: gormDB, SQL: sqlDB})}
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name          string
+		state         aichat.ProviderAttemptState
+		dispatchState string
+		errorCode     string
+	}{
+		{name: "rejected", state: aichat.ProviderAttemptFailed, dispatchState: infraai.DispatchStateDispatched, errorCode: "ai.provider_failed"},
+		{name: "not dispatched", state: aichat.ProviderAttemptFailed, dispatchState: infraai.DispatchStateNotDispatched, errorCode: "ai.provider_failed"},
+		{name: "local cancel before dispatch", state: aichat.ProviderAttemptCanceled, dispatchState: infraai.DispatchStateNotDispatched, errorCode: "ai.provider_canceled"},
+		{name: "unknown", state: aichat.ProviderAttemptOutcomeUnknown, dispatchState: infraai.DispatchStateUnknown, errorCode: "ai.provider_outcome_unknown"},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock.ExpectBegin()
+			mock.ExpectExec("UPDATE .*ai_provider_attempts.*").WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectCommit()
+			err := recorder.FinishProviderAttempt(context.Background(), aichat.ProviderAttemptFinishInput{
+				RunID:         100,
+				AttemptID:     uint64(91 + i),
+				CommandID:     41,
+				Owner:         "worker-a",
+				Token:         7,
+				State:         tc.state,
+				ErrorCode:     tc.errorCode,
+				DispatchState: tc.dispatchState,
+				UsageJSON:     `{"status":"unavailable"}`,
+				UsageStatus:   infraai.UsageStatusUnavailable,
+				Now:           now,
+			})
+			if err != nil {
+				t.Fatalf("finish mapped terminal evidence: %v", err)
+			}
+		})
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

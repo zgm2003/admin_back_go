@@ -2,12 +2,14 @@ package openaicompat
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,16 +29,35 @@ type captureSink struct {
 	events []infraai.Event
 }
 
+type failingDeliverySink struct {
+	calls int
+	err   error
+}
+
 func TestCompatibleClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T) {
 	capabilities := New(Config{}).Capabilities()
 	if capabilities.SafeInputUpperBoundStrategy != "" {
 		t.Fatalf("compatible transport claimed tokenizer strategy %q", capabilities.SafeInputUpperBoundStrategy)
+	}
+	wantUsage := []infraai.UsageIdentity{
+		{Category: infraai.UsageCategoryInput, Unit: "token"},
+		{Category: infraai.UsageCategoryOutput, Unit: "token"},
+		{Category: infraai.UsageCategoryCacheRead, Unit: "token"},
+		{Category: infraai.UsageCategoryCacheWrite, Unit: "token"},
+	}
+	if !reflect.DeepEqual(capabilities.SupportedUsageIdentities, wantUsage) {
+		t.Fatalf("supported usage identities=%+v, want %+v", capabilities.SupportedUsageIdentities, wantUsage)
 	}
 }
 
 func (s *captureSink) Emit(ctx context.Context, event infraai.Event) error {
 	s.events = append(s.events, event)
 	return nil
+}
+
+func (s *failingDeliverySink) Emit(context.Context, infraai.Event) error {
+	s.calls++
+	return s.err
 }
 
 func TestClientVideoLifecycleUsesOpenAICompatibleEndpoints(t *testing.T) {
@@ -196,6 +217,40 @@ func TestClientStreamChatParsesSSEChunksAndEmitsEveryDelta(t *testing.T) {
 	}
 	if len(sink.events) != 2 || sink.events[0].DeltaText != "你" || sink.events[1].DeltaText != "好" {
 		t.Fatalf("unexpected sink events: %#v", sink.events)
+	}
+}
+
+func TestClientStreamChatDrainsUsageAfterSinkDeliveryFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("X-Request-Id", "provider-request-drained")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":2,\"total_tokens\":4}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	deliveryErr := errors.New("websocket delivery failed")
+	sink := &failingDeliverySink{err: deliveryErr}
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
+		Content: "hi",
+		Inputs:  map[string]any{"model_id": "gpt-5.4"},
+	}, sink)
+	if err != nil {
+		t.Fatalf("StreamChat returned sink delivery error instead of draining: %v", err)
+	}
+	if sink.calls != 1 {
+		t.Fatalf("sink calls=%d, want only the first failed delivery", sink.calls)
+	}
+	if result.Answer != "你好" || result.ProviderRequestID != "provider-request-drained" || result.DispatchState != infraai.DispatchStateDispatched {
+		t.Fatalf("drained result=%+v", result)
+	}
+	if result.PromptTokens != 2 || result.CompletionTokens != 2 || result.TotalTokens != 4 || result.UsageStatus != infraai.UsageStatusReported || !result.Usage.Complete() {
+		t.Fatalf("drained usage=%+v result=%+v", result.Usage, result)
+	}
+	if len(result.Usage.RawProviderJSON) == 0 || sha256.Sum256(result.Usage.RawProviderJSON) != result.Usage.ResponseSHA256 || result.ResponseSHA256 == ([32]byte{}) {
+		t.Fatalf("missing drained provider evidence: usage=%+v response_hash=%x", result.Usage, result.ResponseSHA256)
 	}
 }
 

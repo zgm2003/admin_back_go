@@ -72,7 +72,12 @@ func New(config Config) *Client {
 
 func (c *Client) Capabilities() infraai.CapabilityMetadata {
 	return infraai.CapabilityMetadata{
-		SupportedUsageKeys:        []string{"prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details.cached_tokens", "prompt_tokens_details.cache_creation_input_tokens", "prompt_tokens_details.cache_read_input_tokens"},
+		SupportedUsageIdentities: []infraai.UsageIdentity{
+			{Category: infraai.UsageCategoryInput, Unit: "token"},
+			{Category: infraai.UsageCategoryOutput, Unit: "token"},
+			{Category: infraai.UsageCategoryCacheRead, Unit: "token"},
+			{Category: infraai.UsageCategoryCacheWrite, Unit: "token"},
+		},
 		SupportsIdempotencyHeader: true,
 	}
 }
@@ -460,6 +465,7 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 	result := &infraai.ChatResult{}
 	streamDigest := sha256.New()
 	hasStreamData := false
+	deliveryEnabled := sink != nil
 	for scanner.Scan() {
 		if touch != nil {
 			touch()
@@ -518,9 +524,9 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			}
 			answer.WriteString(delta)
 			result.Answer = strings.TrimSpace(answer.String())
-			if sink != nil {
+			if deliveryEnabled {
 				if err := sink.Emit(ctx, infraai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
-					return nil, err
+					deliveryEnabled = false
 				}
 			}
 		}

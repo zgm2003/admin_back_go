@@ -62,7 +62,10 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 	if err != nil {
 		return PreparedCall{}, err
 	}
-	if persisted.RunID != req.RunID || persisted.UserID != req.UserID || persisted.RequestID != req.RequestID || persisted.RequestFingerprint != fingerprint {
+	if persisted.RunID != req.RunID || persisted.UserID != req.UserID || persisted.RequestID != req.RequestID {
+		return PreparedCall{}, gatewayError(ErrCodeFingerprintConflict, "request fingerprint conflicts with persisted run", 409)
+	}
+	if err := requestidentity.CompareForReplay(requestidentity.IdentityStatusReplayable, persisted.RequestFingerprint, fingerprint); err != nil {
 		return PreparedCall{}, gatewayError(ErrCodeFingerprintConflict, "request fingerprint conflicts with persisted run", 409)
 	}
 	g.record("load_immutable_config")
@@ -296,7 +299,7 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 		return DispatchResult{}, ErrNotConfigured
 	}
 	capabilities := g.deps.Provider.Capabilities()
-	if !capabilities.SupportsIdempotencyHeader || len(capabilities.SupportedUsageKeys) == 0 || strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) == "" {
+	if !capabilities.SupportsIdempotencyHeader || len(capabilities.SupportedUsageIdentities) == 0 || strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) == "" {
 		return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "provider lacks required idempotency or upper-bound usage capability", 409)
 	}
 	if len(attempt.PreparedRequest) == 0 || attempt.RequestSHA256 == ([32]byte{}) || sha256.Sum256(attempt.PreparedRequest) != attempt.RequestSHA256 {
@@ -332,6 +335,10 @@ func validatePreparedUpperBoundProof(attempt ProviderAttempt, capabilities infra
 	if proof.RequestSHA256 == ([32]byte{}) || proof.RequestSHA256 != attempt.RequestSHA256 || strings.TrimSpace(proof.Strategy) != strategy || strategy == "" || len(proof.Items) == 0 || len(attempt.Quote.UpperBoundItems) == 0 {
 		return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof is missing or belongs to another request", 409)
 	}
+	supported, err := supportedUsageIdentitySet(capabilities.SupportedUsageIdentities)
+	if err != nil {
+		return err
+	}
 	quoted := make(map[string]billing.UsageItem, len(attempt.Quote.UpperBoundItems))
 	for _, rawItem := range attempt.Quote.UpperBoundItems {
 		item, err := rawItem.Normalized()
@@ -341,6 +348,9 @@ func validatePreparedUpperBoundProof(attempt ProviderAttempt, capabilities infra
 		identity := usageItemIdentity(item)
 		if _, exists := quoted[identity]; exists {
 			return gatewayError(ErrCodeInvalidPrepared, "quote upper-bound usage is duplicated", 409)
+		}
+		if _, exists := supported[identity]; !exists {
+			return gatewayError(ErrCodeInvalidPrepared, "quote usage is not declared by provider capability", 409)
 		}
 		quoted[identity] = item
 	}
@@ -354,17 +364,43 @@ func validatePreparedUpperBoundProof(attempt ProviderAttempt, capabilities infra
 		if _, exists := seenProof[identity]; exists {
 			return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof contains duplicate usage", 409)
 		}
+		if _, exists := supported[identity]; !exists {
+			return gatewayError(ErrCodeInvalidPrepared, "provider proof usage is not declared by provider capability", 409)
+		}
 		seenProof[identity] = struct{}{}
 		quotedItem, exists := quoted[identity]
 		if !exists || quotedItem.Quantity < item.Quantity {
 			return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof exceeds quoted usage", 409)
 		}
 	}
+	if len(seenProof) != len(quoted) {
+		return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof is missing quoted usage", 409)
+	}
 	return nil
 }
 
+func supportedUsageIdentitySet(identities []infraai.UsageIdentity) (map[string]struct{}, error) {
+	supported := make(map[string]struct{}, len(identities))
+	for _, rawIdentity := range identities {
+		identity, err := rawIdentity.Normalized()
+		if err != nil {
+			return nil, gatewayError(ErrCodeInvalidPrepared, "provider usage capability is invalid", 409)
+		}
+		key := usageIdentity(identity.Category, identity.Unit, identity.TierKey)
+		if _, exists := supported[key]; exists {
+			return nil, gatewayError(ErrCodeInvalidPrepared, "provider usage capability is duplicated", 409)
+		}
+		supported[key] = struct{}{}
+	}
+	return supported, nil
+}
+
 func usageItemIdentity(item billing.UsageItem) string {
-	return string(item.Category) + "\x00" + item.Unit + "\x00" + item.TierKey
+	return usageIdentity(string(item.Category), item.Unit, item.TierKey)
+}
+
+func usageIdentity(category, unit, tierKey string) string {
+	return category + "\x00" + unit + "\x00" + tierKey
 }
 
 func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, result DispatchResult) error {

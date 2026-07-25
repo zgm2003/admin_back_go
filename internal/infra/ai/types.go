@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type EngineType string
@@ -55,11 +56,27 @@ type UsageSnapshot struct {
 	ResponseSHA256  [32]byte        `json:"response_sha256,omitempty"`
 }
 
+type UsageIdentity struct {
+	Category string `json:"category"`
+	Unit     string `json:"unit"`
+	TierKey  string `json:"tier_key,omitempty"`
+}
+
+func (identity UsageIdentity) Normalized() (UsageIdentity, error) {
+	identity.Category = strings.TrimSpace(identity.Category)
+	identity.Unit = strings.TrimSpace(identity.Unit)
+	identity.TierKey = strings.TrimSpace(identity.TierKey)
+	if err := validateUsageItems([]UsageItem{{Category: identity.Category, Unit: identity.Unit, TierKey: identity.TierKey}}); err != nil {
+		return UsageIdentity{}, err
+	}
+	return identity, nil
+}
+
 type CapabilityMetadata struct {
-	SupportedUsageKeys          []string `json:"supported_usage_keys"`
-	SafeInputUpperBoundStrategy string   `json:"safe_input_upper_bound_strategy"`
-	SupportsIdempotencyHeader   bool     `json:"supports_idempotency_header"`
-	SupportsCancelTask          bool     `json:"supports_cancel_task"`
+	SupportedUsageIdentities    []UsageIdentity `json:"supported_usage_identities"`
+	SafeInputUpperBoundStrategy string          `json:"safe_input_upper_bound_strategy"`
+	SupportsIdempotencyHeader   bool            `json:"supports_idempotency_header"`
+	SupportsCancelTask          bool            `json:"supports_cancel_task"`
 }
 
 type CapabilityProvider interface {

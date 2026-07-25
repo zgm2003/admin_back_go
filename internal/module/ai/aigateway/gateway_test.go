@@ -112,20 +112,14 @@ func (s testRunStore) LockRunAndCharge(_ context.Context, _ Transaction, runID i
 	}
 	return LockedRunCharge{Run: RunSnapshot{RunID: runID}, HoldTargetUnits: target}, nil
 }
-func (testRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
-	return [32]byte{}, nil
-}
 
 type persistedFingerprintRunStore struct{ fingerprint [32]byte }
 
-func (s persistedFingerprintRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) {
-	return RunSnapshot{}, nil
+func (s persistedFingerprintRunStore) LoadRun(_ context.Context, runID int64) (RunSnapshot, error) {
+	return RunSnapshot{RunID: runID, UserID: 7, RequestID: "r1", RequestFingerprint: s.fingerprint}, nil
 }
 func (s persistedFingerprintRunStore) LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error) {
 	return LockedRunCharge{}, nil
-}
-func (s persistedFingerprintRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
-	return s.fingerprint, nil
 }
 
 type testAttemptStore struct {
@@ -150,10 +144,10 @@ func (p *testProvider) Dispatch(context.Context, ProviderAttempt) (DispatchResul
 }
 
 func (p *testProvider) Capabilities() infraai.CapabilityMetadata {
-	if p.capabilities.SafeInputUpperBoundStrategy != "" || p.capabilities.SupportsIdempotencyHeader || len(p.capabilities.SupportedUsageKeys) != 0 || p.capabilities.SupportsCancelTask {
+	if p.capabilities.SafeInputUpperBoundStrategy != "" || p.capabilities.SupportsIdempotencyHeader || len(p.capabilities.SupportedUsageIdentities) != 0 || p.capabilities.SupportsCancelTask {
 		return p.capabilities
 	}
-	return infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageKeys: []string{"usage"}, SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1"}
+	return infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageIdentities: []infraai.UsageIdentity{{Category: infraai.UsageCategoryInput, Unit: "token"}}, SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1"}
 }
 
 func (p *testProvider) ProvePreparedUpperBound(_ context.Context, attempt ProviderAttempt) (PreparedUpperBoundProof, error) {
@@ -458,9 +452,74 @@ func TestGatewayRejectsProviderProofExceedingQuotedUsageBeforeDispatch(t *testin
 	}
 }
 
+func TestGatewayAcceptsProviderProofBelowQuotedQuantity(t *testing.T) {
+	attempt := validAttempt(44, 1, 5)
+	attempt.Quote.UpperBoundItems[0].Quantity = 5
+	provider := &testProvider{proofItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 3}}}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || store.state != "succeeded" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
+func TestGatewayRejectsProviderProofMissingQuotedIdentityBeforeDispatch(t *testing.T) {
+	attempt := validAttempt(42, 1, 5)
+	attempt.Quote.UpperBoundItems = append(attempt.Quote.UpperBoundItems, billing.UsageItem{
+		Category: billing.UsageCategoryOutputText,
+		Unit:     "token",
+		Quantity: 2,
+	})
+	provider := &testProvider{
+		proofItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
+		capabilities: infraai.CapabilityMetadata{
+			SupportsIdempotencyHeader: true,
+			SupportedUsageIdentities: []infraai.UsageIdentity{
+				{Category: infraai.UsageCategoryInput, Unit: "token"},
+				{Category: infraai.UsageCategoryOutput, Unit: "token"},
+			},
+			SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1",
+		},
+	}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err == nil {
+		t.Fatal("provider proof missing a quoted usage identity was dispatched")
+	}
+	if provider.calls != 0 || store.state != "prepared" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
+func TestGatewayRejectsUsageIdentityMissingFromProviderCapabilityBeforeDispatch(t *testing.T) {
+	attempt := validAttempt(43, 1, 5)
+	provider := &testProvider{capabilities: infraai.CapabilityMetadata{
+		SupportsIdempotencyHeader:   true,
+		SupportedUsageIdentities:    []infraai.UsageIdentity{{Category: infraai.UsageCategoryOutput, Unit: "token"}},
+		SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1",
+	}}
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err == nil {
+		t.Fatal("usage identity missing from provider capability was dispatched")
+	}
+	if provider.calls != 0 || store.state != "prepared" {
+		t.Fatalf("provider_calls=%d state=%q", provider.calls, store.state)
+	}
+}
+
 func TestGatewayRejectsProviderWithoutSafeUpperBoundStrategyBeforeDispatch(t *testing.T) {
 	attempt := validAttempt(40, 1, 5)
-	provider := &testProvider{capabilities: infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageKeys: []string{"usage"}}}
+	provider := &testProvider{capabilities: infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageIdentities: []infraai.UsageIdentity{{Category: infraai.UsageCategoryInput, Unit: "token"}}}}
 	store := &testAttemptStore{attempt: attempt, state: "prepared"}
 	deps := testGatewayDependencies(&testReserve{}, store)
 	deps.Provider = provider
@@ -498,7 +557,14 @@ func TestGatewayAcceptsMediaUsageProofBeforeDispatch(t *testing.T) {
 		RequestSHA256:   sha256.Sum256(body),
 		Quote:           QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 1, TargetHoldUnits: 5, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}},
 	}
-	provider := &testProvider{proofItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}}
+	provider := &testProvider{
+		proofItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}},
+		capabilities: infraai.CapabilityMetadata{
+			SupportsIdempotencyHeader:   true,
+			SupportedUsageIdentities:    []infraai.UsageIdentity{{Category: infraai.UsageCategoryMedia, Unit: "image"}},
+			SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1",
+		},
+	}
 	store := &testAttemptStore{attempt: attempt, state: "prepared"}
 	deps := testGatewayDependencies(&testReserve{}, store)
 	deps.Provider = provider
@@ -739,9 +805,6 @@ func (s immutableRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) 
 func (s immutableRunStore) LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error) {
 	return LockedRunCharge{Run: s.snapshot, HoldTargetUnits: 25}, nil
 }
-func (s immutableRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
-	return s.snapshot.RequestFingerprint, nil
-}
 
 type providerError struct{ err error }
 
@@ -750,7 +813,7 @@ func (p providerError) Dispatch(context.Context, ProviderAttempt) (DispatchResul
 }
 
 func (p providerError) Capabilities() infraai.CapabilityMetadata {
-	return infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageKeys: []string{"usage"}, SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1"}
+	return infraai.CapabilityMetadata{SupportsIdempotencyHeader: true, SupportedUsageIdentities: []infraai.UsageIdentity{{Category: infraai.UsageCategoryInput, Unit: "token"}}, SafeInputUpperBoundStrategy: "test_prepared_usage_items_v1"}
 }
 
 func (p providerError) ProvePreparedUpperBound(_ context.Context, attempt ProviderAttempt) (PreparedUpperBoundProof, error) {

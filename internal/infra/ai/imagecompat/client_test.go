@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,13 @@ func TestCompatibleImageClientDoesNotClaimTokenizerUpperBoundCapability(t *testi
 	capabilities := New(Config{}).Capabilities()
 	if capabilities.SafeInputUpperBoundStrategy != "" {
 		t.Fatalf("compatible transport claimed tokenizer strategy %q", capabilities.SafeInputUpperBoundStrategy)
+	}
+	wantUsage := []infraai.UsageIdentity{
+		{Category: infraai.UsageCategoryInput, Unit: "token"},
+		{Category: infraai.UsageCategoryOutput, Unit: "token"},
+	}
+	if !reflect.DeepEqual(capabilities.SupportedUsageIdentities, wantUsage) {
+		t.Fatalf("supported usage identities=%+v, want %+v", capabilities.SupportedUsageIdentities, wantUsage)
 	}
 }
 

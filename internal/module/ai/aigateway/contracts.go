@@ -171,7 +171,6 @@ type Provider interface {
 type RunStore interface {
 	LoadRun(context.Context, int64) (RunSnapshot, error)
 	LockRunAndCharge(context.Context, Transaction, int64) (LockedRunCharge, error)
-	RequestFingerprint(context.Context, int64, string) ([32]byte, error)
 }
 
 // FinalizeRequest intentionally carries no mutable billing, run, pricing or

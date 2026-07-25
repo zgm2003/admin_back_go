@@ -453,18 +453,27 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 			}
 		}
 	} else {
-		finish.State = ProviderAttemptFailed
-		finish.ErrorCode = "ai.provider_failed"
+		finish.State = ProviderAttemptOutcomeUnknown
+		finish.ErrorCode = "ai.provider_outcome_unknown"
 		finish.DispatchState = infraai.DispatchStateUnknown
 		finish.UsageStatus = infraai.UsageStatusUnavailable
 		finish.UsageJSON = `{"status":"unavailable"}`
 		finish.ProviderRequestID = infraai.ProviderRequestIDFromError(providerErr)
-		if errors.Is(context.Cause(ctx), infraai.ErrCanceled) {
-			finish.State = ProviderAttemptCanceled
-			finish.ErrorCode = "ai.provider_canceled"
-		} else if outcome, ok := infraai.ProviderOutcomeFromError(providerErr); ok && outcome == infraai.ProviderOutcomeUnknown {
-			finish.State = ProviderAttemptOutcomeUnknown
-			finish.ErrorCode = "ai.provider_outcome_unknown"
+		if outcome, ok := infraai.ProviderOutcomeFromError(providerErr); ok {
+			switch outcome {
+			case infraai.ProviderOutcomeNotDispatched:
+				finish.State = ProviderAttemptFailed
+				finish.ErrorCode = "ai.provider_failed"
+				finish.DispatchState = infraai.DispatchStateNotDispatched
+				if errors.Is(context.Cause(ctx), infraai.ErrCanceled) {
+					finish.State = ProviderAttemptCanceled
+					finish.ErrorCode = "ai.provider_canceled"
+				}
+			case infraai.ProviderOutcomeRejected:
+				finish.State = ProviderAttemptFailed
+				finish.ErrorCode = "ai.provider_failed"
+				finish.DispatchState = infraai.DispatchStateDispatched
+			}
 		}
 	}
 	if finishErr := s.attemptRecorder.FinishProviderAttempt(context.WithoutCancel(ctx), finish); finishErr != nil {
