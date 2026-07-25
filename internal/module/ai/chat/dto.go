@@ -37,17 +37,19 @@ type RunTimeoutResult struct {
 }
 
 type CreateRunRecord struct {
-	ConversationID      int64
-	RequestID           string
-	RequestFingerprint  [32]byte
-	UserMessageID       int64
-	UserID              int64
-	AgentID             int64
-	ProviderID          int64
-	ModelID             string
-	ModelDisplayName    string
-	PricingSnapshotJSON string
-	StartedAt           time.Time
+	ConversationID        int64
+	RequestID             string
+	RequestFingerprint    [32]byte
+	RequestIdentityStatus string
+	RequestIdentityMarker string
+	UserMessageID         int64
+	UserID                int64
+	AgentID               int64
+	ProviderID            int64
+	ModelID               string
+	ModelDisplayName      string
+	PricingSnapshotJSON   string
+	StartedAt             time.Time
 }
 
 type CompleteRunRecord struct {

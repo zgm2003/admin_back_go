@@ -107,6 +107,18 @@ FROM (
   JOIN `ai_billing_migration_metadata` AS metadata ON metadata.`migration_key` = 'legacy_cutover_v1'
   WHERE task.`request_identity_status` = 'legacy_non_replayable'
     AND task.`created_at` >= metadata.`legacy_cutover_at`
+  UNION ALL
+  SELECT attempt.`id`
+  FROM `ai_provider_attempts` AS attempt
+  JOIN `ai_runs` AS run_row ON run_row.`id` = attempt.`run_id`
+  JOIN `ai_billing_migration_metadata` AS metadata ON metadata.`migration_key` = 'legacy_cutover_v1'
+  WHERE attempt.`created_at` >= metadata.`legacy_cutover_at`
+    AND (
+      run_row.`request_identity_status` = 'legacy_non_replayable'
+      OR attempt.`prepared_request_json` = '{"version":"legacy_unavailable_v1","replayable":false}'
+      OR attempt.`quote_json` = '{"version":"legacy_unpriced_v1","billable":false}'
+      OR attempt.`usage_json` = '{"status":"unavailable","items":[]}'
+    )
 ) AS child_legacy_identity_after_cutover;
 
 INSERT INTO `_ai_billing_contract_guard`
@@ -121,6 +133,8 @@ FROM (
   SELECT `id` FROM `ai_image_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `last_error_code` IS NULL
   UNION ALL
   SELECT `id` FROM `ai_video_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `last_error_code` IS NULL OR `storage_provider` IS NULL OR `storage_key` IS NULL OR `content_type` IS NULL
+  UNION ALL
+  SELECT `id` FROM `ai_audio_tasks` WHERE `request_id` = '' OR OCTET_LENGTH(`request_fingerprint`) <> 32 OR `request_identity_status` <> 'replayable' OR `request_identity_marker` <> '' OR `run_id` = 0
 ) AS incomplete_billing_identity;
 
 INSERT INTO `_ai_billing_contract_guard`
@@ -153,6 +167,16 @@ FROM (
   WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
      OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
      OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+  UNION ALL
+  SELECT task.`id` FROM `ai_audio_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
+  WHERE task.`request_identity_status` <> 'replayable'
+     OR task.`request_identity_marker` <> ''
+     OR run_row.`id` IS NULL
+     OR run_row.`request_identity_status` <> 'replayable'
+     OR run_row.`request_identity_marker` <> ''
+     OR task.`request_fingerprint` <> run_row.`request_fingerprint`
+     OR task.`user_id` <> run_row.`user_id`
+     OR BINARY task.`request_id` <> BINARY run_row.`request_id`
 ) AS invalid_request_identity_markers;
 
 INSERT INTO `_ai_billing_contract_guard`
@@ -176,6 +200,7 @@ FROM (
   UNION ALL SELECT `user_id`, BINARY `request_id` FROM `ai_text_tasks` GROUP BY `user_id`, BINARY `request_id` HAVING COUNT(*) <> 1
   UNION ALL SELECT `user_id`, BINARY `request_id` FROM `ai_image_tasks` GROUP BY `user_id`, BINARY `request_id` HAVING COUNT(*) <> 1
   UNION ALL SELECT `user_id`, BINARY `request_id` FROM `ai_video_tasks` GROUP BY `user_id`, BINARY `request_id` HAVING COUNT(*) <> 1
+  UNION ALL SELECT `user_id`, BINARY `request_id` FROM `ai_audio_tasks` GROUP BY `user_id`, BINARY `request_id` HAVING COUNT(*) <> 1
 ) AS duplicate_canonical_identity;
 
 INSERT INTO `_ai_billing_contract_guard`
@@ -184,6 +209,7 @@ FROM (
   SELECT task.`id` FROM `ai_text_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id` WHERE run_row.`id` IS NULL
   UNION ALL SELECT task.`id` FROM `ai_image_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id` WHERE run_row.`id` IS NULL
   UNION ALL SELECT task.`id` FROM `ai_video_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id` WHERE run_row.`id` IS NULL
+  UNION ALL SELECT task.`id` FROM `ai_audio_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id` WHERE run_row.`id` IS NULL
   UNION ALL SELECT attempt.`id` FROM `ai_provider_attempts` AS attempt LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = attempt.`run_id` WHERE run_row.`id` IS NULL
 ) AS orphan_run_owners;
 

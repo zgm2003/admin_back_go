@@ -61,6 +61,50 @@ func TestRunningRunUpdateDBUsesCompareAndSetStatus(t *testing.T) {
 	}
 }
 
+func TestCreateRunRecordMapsBillingIdentityFacts(t *testing.T) {
+	startedAt := time.Date(2026, 7, 25, 20, 0, 0, 0, time.UTC)
+	fingerprint := [32]byte{1, 2, 3}
+	run := runFromCreateRecord(CreateRunRecord{
+		ConversationID:        7,
+		RequestID:             " request-9 ",
+		RequestFingerprint:    fingerprint,
+		RequestIdentityStatus: "replayable",
+		RequestIdentityMarker: "",
+		UserMessageID:         11,
+		UserID:                13,
+		AgentID:               17,
+		ProviderID:            19,
+		ModelID:               " model-1 ",
+		ModelDisplayName:      " Model One ",
+		PricingSnapshotJSON:   `{"version":"pricing-v1"}`,
+		StartedAt:             startedAt,
+	}, startedAt)
+
+	if run.RequestID != "request-9" || string(run.RequestFingerprint) != string(fingerprint[:]) {
+		t.Fatalf("request identity=%+v", run)
+	}
+	if run.RequestIdentityStatus != "replayable" || run.RequestIdentityMarker != "" {
+		t.Fatalf("identity marker=%+v", run)
+	}
+	if run.PricingSnapshotJSON != `{"version":"pricing-v1"}` || run.BillingStatus != "pending" || run.BillingReason != "pending" {
+		t.Fatalf("billing facts=%+v", run)
+	}
+}
+
+func TestCreateRunRecordDefaultsReplayableIdentity(t *testing.T) {
+	run := runFromCreateRecord(CreateRunRecord{}, time.Now())
+	if run.RequestIdentityStatus != "replayable" || run.RequestIdentityMarker != "" {
+		t.Fatalf("request identity status=%q marker=%q", run.RequestIdentityStatus, run.RequestIdentityMarker)
+	}
+	legacy := runFromCreateRecord(CreateRunRecord{
+		RequestIdentityStatus: " legacy_non_replayable ",
+		RequestIdentityMarker: " legacy-marker ",
+	}, time.Now())
+	if legacy.RequestIdentityStatus != "legacy_non_replayable" || legacy.RequestIdentityMarker != "legacy-marker" {
+		t.Fatalf("legacy request identity status=%q marker=%q", legacy.RequestIdentityStatus, legacy.RequestIdentityMarker)
+	}
+}
+
 func dryRunGormDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	sqlDB, err := sql.Open("mysql", "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8mb4&parseTime=True&loc=Local")

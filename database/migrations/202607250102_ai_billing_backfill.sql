@@ -252,6 +252,11 @@ FROM (
   SELECT task.`id` FROM `ai_video_tasks` AS task
   WHERE task.`request_identity_status` = 'legacy_non_replayable'
     AND task.`created_at` >= @ai_billing_legacy_cutover_at
+  UNION ALL
+  SELECT attempt.`id` FROM `ai_provider_attempts` AS attempt
+  JOIN `ai_runs` AS run_row ON run_row.`id` = attempt.`run_id`
+  WHERE run_row.`request_identity_status` = 'legacy_non_replayable'
+    AND attempt.`created_at` >= @ai_billing_legacy_cutover_at
 ) AS child_legacy_identity_after_cutover;
 
 INSERT INTO `_ai_billing_backfill_guard`

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -82,18 +83,7 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 	if startedAt.IsZero() {
 		startedAt = time.Now()
 	}
-	run := Run{
-		ConversationID:   input.ConversationID,
-		RequestID:        strings.TrimSpace(input.RequestID),
-		UserMessageID:    input.UserMessageID,
-		UserID:           input.UserID,
-		AgentID:          input.AgentID,
-		ProviderID:       input.ProviderID,
-		ModelID:          strings.TrimSpace(input.ModelID),
-		ModelDisplayName: strings.TrimSpace(input.ModelDisplayName),
-		Status:           enum.AIRunStatusRunning,
-		StartedAt:        &startedAt,
-	}
+	run := runFromCreateRecord(input, startedAt)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&run).Error; err != nil {
 			return err
@@ -104,6 +94,33 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 		return 0, err
 	}
 	return run.ID, nil
+}
+
+func runFromCreateRecord(input CreateRunRecord, startedAt time.Time) Run {
+	identityStatus := strings.TrimSpace(input.RequestIdentityStatus)
+	identityMarker := strings.TrimSpace(input.RequestIdentityMarker)
+	if identityStatus == "" {
+		identityStatus = string(requestidentity.IdentityStatusReplayable)
+		identityMarker = ""
+	}
+	return Run{
+		ConversationID:        input.ConversationID,
+		RequestID:             strings.TrimSpace(input.RequestID),
+		RequestFingerprint:    append([]byte(nil), input.RequestFingerprint[:]...),
+		RequestIdentityStatus: identityStatus,
+		RequestIdentityMarker: identityMarker,
+		UserMessageID:         input.UserMessageID,
+		UserID:                input.UserID,
+		AgentID:               input.AgentID,
+		ProviderID:            input.ProviderID,
+		ModelID:               strings.TrimSpace(input.ModelID),
+		ModelDisplayName:      strings.TrimSpace(input.ModelDisplayName),
+		PricingSnapshotJSON:   strings.TrimSpace(input.PricingSnapshotJSON),
+		Status:                enum.AIRunStatusRunning,
+		BillingStatus:         "pending",
+		BillingReason:         "pending",
+		StartedAt:             &startedAt,
+	}
 }
 
 func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRunRecord) error {

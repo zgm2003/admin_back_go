@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -21,21 +22,7 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 	if key := strings.TrimSpace(input.IdempotencyKey); key != "" {
 		idempotencyKey = &key
 	}
-	run := Run{
-		Platform:         input.Platform,
-		IdempotencyKey:   idempotencyKey,
-		ConversationID:   input.ConversationID,
-		RequestID:        input.RequestID,
-		UserMessageID:    input.UserMessageID,
-		UserID:           input.UserID,
-		AgentID:          input.AgentID,
-		ProviderID:       input.ProviderID,
-		ModelID:          input.ModelID,
-		ModelDisplayName: input.ModelDisplayName,
-		InputSnapshot:    input.InputSnapshot,
-		Status:           enum.AIRunStatusRunning,
-		StartedAt:        &startedAt,
-	}
+	run := runFromStartRecord(input, startedAt, idempotencyKey)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if idempotencyKey != nil {
 			var existing Run
@@ -78,6 +65,26 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 		return 0, err
 	}
 	return run.ID, nil
+}
+
+func runFromStartRecord(input StartRecord, startedAt time.Time, idempotencyKey *string) Run {
+	return Run{
+		Platform:              input.Platform,
+		IdempotencyKey:        idempotencyKey,
+		ConversationID:        input.ConversationID,
+		RequestID:             input.RequestID,
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable),
+		RequestIdentityMarker: "",
+		UserMessageID:         input.UserMessageID,
+		UserID:                input.UserID,
+		AgentID:               input.AgentID,
+		ProviderID:            input.ProviderID,
+		ModelID:               input.ModelID,
+		ModelDisplayName:      input.ModelDisplayName,
+		InputSnapshot:         input.InputSnapshot,
+		Status:                enum.AIRunStatusRunning,
+		StartedAt:             &startedAt,
+	}
 }
 
 func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRecord) error {

@@ -39,6 +39,13 @@ func TestRecorderPreservesExplicitIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestRecorderRunUsesReplayableRequestIdentity(t *testing.T) {
+	run := runFromStartRecord(StartRecord{RequestID: "request-1"}, time.Now(), nil)
+	if run.RequestIdentityStatus != "replayable" || run.RequestIdentityMarker != "" {
+		t.Fatalf("request identity status=%q marker=%q", run.RequestIdentityStatus, run.RequestIdentityMarker)
+	}
+}
+
 func TestRecorderRejectsMissingRequestID(t *testing.T) {
 	svc := NewRecorder(&fakeRecorderRepository{}, time.Now)
 	_, err := svc.Start(context.Background(), StartInput{Platform: enum.PlatformAdmin, UserID: 1, AgentID: 1, ProviderID: 1, ModelID: "m", InputSnapshot: "cat"})

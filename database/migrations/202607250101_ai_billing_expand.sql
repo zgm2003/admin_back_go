@@ -1,13 +1,4 @@
 -- Expand AI billing facts only after all legacy paid writers are stopped.
-CREATE TABLE `ai_billing_migration_metadata` (
-  `migration_key` VARCHAR(64) NOT NULL,
-  `legacy_cutover_at` DATETIME(6) NOT NULL,
-  `marker_version` VARCHAR(64) NOT NULL,
-  `marker_sha256` BINARY(32) NOT NULL,
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`migration_key`)
-);
-
 DROP TEMPORARY TABLE IF EXISTS `_ai_billing_expand_guard`;
 CREATE TEMPORARY TABLE `_ai_billing_expand_guard` (
   `violations` BIGINT NOT NULL,
@@ -73,6 +64,15 @@ FROM (
   UNION ALL
   SELECT file_row.`id` FROM `ai_image_files` AS file_row LEFT JOIN `ai_image_tasks` AS task ON task.`id` = file_row.`task_id` WHERE task.`id` IS NULL
 ) AS orphan_ai_facts;
+
+CREATE TABLE `ai_billing_migration_metadata` (
+  `migration_key` VARCHAR(64) NOT NULL,
+  `legacy_cutover_at` DATETIME(6) NOT NULL,
+  `marker_version` VARCHAR(64) NOT NULL,
+  `marker_sha256` BINARY(32) NOT NULL,
+  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`migration_key`)
+);
 
 ALTER TABLE `ai_agents`
   ADD COLUMN `billing_multiplier_ppm` BIGINT UNSIGNED NOT NULL DEFAULT 1000000 AFTER `model_display_name`,
@@ -155,7 +155,11 @@ CREATE TABLE `wallet_holds` (
   CONSTRAINT `fk_wallet_holds_wallet` FOREIGN KEY (`wallet_id`) REFERENCES `user_wallets` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT `fk_wallet_holds_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT `chk_wallet_holds_status` CHECK (`status` IN ('active', 'captured', 'released')),
-  CONSTRAINT `chk_wallet_holds_units` CHECK (`held_units` >= 0 AND `captured_units` >= 0 AND `captured_units` <= `held_units`)
+  CONSTRAINT `chk_wallet_holds_units` CHECK (
+    (`status` = 'active' AND `held_units` > 0 AND `captured_units` = 0)
+    OR (`status` = 'captured' AND `held_units` = 0 AND `captured_units` >= 0)
+    OR (`status` = 'released' AND `held_units` = 0 AND `captured_units` = 0)
+  )
 );
 
 CREATE TABLE `ai_usage_charges` (
@@ -207,6 +211,8 @@ CREATE TABLE `ai_audio_tasks` (
   `user_id` BIGINT UNSIGNED NOT NULL,
   `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   `request_fingerprint` BINARY(32) NOT NULL,
+  `request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable',
+  `request_identity_marker` VARCHAR(64) NOT NULL DEFAULT '',
   `run_id` BIGINT UNSIGNED NOT NULL,
   `agent_id` BIGINT UNSIGNED NOT NULL,
   `agent_name_snapshot` VARCHAR(128) NOT NULL DEFAULT '',
@@ -230,7 +236,9 @@ CREATE TABLE `ai_audio_tasks` (
   KEY `idx_ai_audio_tasks_run` (`run_id`),
   KEY `idx_ai_audio_tasks_status_created` (`status`, `created_at`, `id`),
   CONSTRAINT `fk_ai_audio_tasks_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-  CONSTRAINT `chk_ai_audio_tasks_status` CHECK (`status` IN ('pending', 'running', 'success', 'failed', 'canceled', 'outcome_unknown'))
+  CONSTRAINT `chk_ai_audio_tasks_platform` CHECK ((`platform` REGEXP '^[a-z][a-z0-9_]{1,48}$') AND (`platform` NOT IN ('app', 'canvas')) AND (`platform` <> 'all')),
+  CONSTRAINT `chk_ai_audio_tasks_status` CHECK (`status` IN ('pending', 'running', 'success', 'failed', 'canceled', 'outcome_unknown')),
+  CONSTRAINT `chk_ai_audio_tasks_request_identity` CHECK (`request_identity_status` = 'replayable' AND `request_identity_marker` = '')
 );
 
 DROP TEMPORARY TABLE `_ai_billing_expand_guard`;

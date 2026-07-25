@@ -2628,6 +2628,16 @@ table "ai_audio_tasks" {
     null = false
     type = binary(32)
   }
+  column "request_identity_status" {
+    null    = false
+    type    = varchar(24)
+    default = "replayable"
+  }
+  column "request_identity_marker" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
   column "run_id" {
     null     = false
     type     = bigint
@@ -2740,6 +2750,9 @@ table "ai_audio_tasks" {
   check "chk_ai_audio_tasks_status" {
     expr = "(`status` in (_utf8mb4'pending',_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown'))"
   }
+  check "chk_ai_audio_tasks_request_identity" {
+    expr = "((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4''))"
+  }
 }
 table "wallet_holds" {
   schema  = schema.admin
@@ -2815,7 +2828,7 @@ table "wallet_holds" {
     expr = "(`status` in (_utf8mb4'active',_utf8mb4'captured',_utf8mb4'released'))"
   }
   check "chk_wallet_holds_units" {
-    expr = "((`held_units` >= 0) and (`captured_units` >= 0) and (`captured_units` <= `held_units`))"
+    expr = "(((`status` = _utf8mb4'active') and (`held_units` > 0) and (`captured_units` = 0)) or ((`status` = _utf8mb4'captured') and (`held_units` = 0) and (`captured_units` >= 0)) or ((`status` = _utf8mb4'released') and (`held_units` = 0) and (`captured_units` = 0)))"
   }
 }
 table "ai_usage_charges" {
