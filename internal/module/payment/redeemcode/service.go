@@ -662,7 +662,7 @@ func validRedemptionFact(fact *RedemptionFact, userID int64) bool {
 	currentWallet := fact.Wallet
 	units := fact.AmountUnits
 	if units <= 0 {
-		units = transaction.AmountUnits
+		return false
 	}
 	if transaction.ID <= 0 || transaction.WalletID <= 0 || transaction.UserID != userID || transaction.Direction != wallet.DirectionIn ||
 		transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID <= 0 || transaction.AmountUnits != units ||
@@ -679,7 +679,7 @@ func redemptionResponse(fact *RedemptionFact) (*RedemptionResponse, error) {
 	format := money.FormatRMBUnits
 	units := fact.AmountUnits
 	if units <= 0 {
-		units = transaction.AmountUnits
+		return nil, wallet.ErrWalletInvariant
 	}
 	amount, err := format(units)
 	if err != nil {

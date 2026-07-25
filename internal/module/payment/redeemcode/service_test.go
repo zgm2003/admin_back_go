@@ -293,7 +293,7 @@ func TestExportIsBoundedAndReturnsSynchronousCSV(t *testing.T) {
 func TestServiceRedeemMapsFactsAndStableDomainErrors(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{redeemFact: &RedemptionFact{
-		AmountCents: 250, Replayed: true,
+		AmountCents: 250, AmountUnits: 250_000_000, Replayed: true,
 		Transaction: &wallet.Transaction{ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn, AmountUnits: 250_000_000, BalanceBeforeUnits: 100_000_000, BalanceAfterUnits: 350_000_000, SourceType: wallet.SourceRedeemCode, SourceID: 8, IsDel: enum.CommonNo, CreatedAt: now},
 		Wallet:      &wallet.Wallet{ID: 4, UserID: 7, BalanceUnits: 500_000_000, TotalRechargeUnits: 400_000_000, TotalConsumeUnits: 20_000_000, IsDel: enum.CommonNo},
 	}}
@@ -318,6 +318,18 @@ func TestServiceRedeemMapsFactsAndStableDomainErrors(t *testing.T) {
 		if appErr == nil || appErr.Code != test.code {
 			t.Fatalf("Redeem(%v) error=%+v", test.err, appErr)
 		}
+	}
+}
+
+func TestValidRedemptionFactRejectsMissingAmountUnits(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	fact := &RedemptionFact{
+		AmountCents: 100,
+		Transaction: &wallet.Transaction{ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn, AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000, SourceType: wallet.SourceRedeemCode, SourceID: 8, IsDel: enum.CommonNo, CreatedAt: now},
+		Wallet:      &wallet.Wallet{ID: 4, UserID: 7, BalanceUnits: 100_000_000, TotalRechargeUnits: 100_000_000, IsDel: enum.CommonNo},
+	}
+	if validRedemptionFact(fact, 7) {
+		t.Fatal("missing AmountUnits must not be inferred from the transaction")
 	}
 }
 

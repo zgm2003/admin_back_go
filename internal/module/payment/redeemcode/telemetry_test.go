@@ -128,7 +128,7 @@ func (recorder *captureRecorder) Start(ctx context.Context, _ string, _ telemetr
 func validTelemetryRedemptionFact() *RedemptionFact {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	return &RedemptionFact{
-		AmountCents: 100,
+		AmountCents: 100, AmountUnits: 100_000_000,
 		Transaction: &wallet.Transaction{
 			ID: 9, TransactionNo: "WLT1", WalletID: 4, UserID: 7, Direction: wallet.DirectionIn,
 			AmountUnits: 100_000_000, BalanceBeforeUnits: 0, BalanceAfterUnits: 100_000_000,
