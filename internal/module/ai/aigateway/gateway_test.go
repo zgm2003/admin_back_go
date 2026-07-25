@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
@@ -89,6 +90,7 @@ func validAttempt(runID int64, attemptNo uint32, target int64) ProviderAttempt {
 type testReserve struct {
 	calls       int
 	activeCalls int
+	targets     []int64
 	err         error
 	activeErr   error
 	facts       *LockedBillingFacts
@@ -153,6 +155,19 @@ func (v *trackingQuoteValidator) ValidateQuote(_ context.Context, run RunSnapsho
 type testRunStore struct {
 	holdTarget     int64
 	zeroHoldTarget bool
+}
+
+type testPriorUsagePricer struct {
+	units           int64
+	err             error
+	calls           int
+	beforeAttemptNo uint32
+}
+
+func (p *testPriorUsagePricer) PricePriorSucceededUsage(_ context.Context, _ Transaction, _ RunSnapshot, beforeAttemptNo uint32) (int64, error) {
+	p.calls++
+	p.beforeAttemptNo = beforeAttemptNo
+	return p.units, p.err
 }
 
 func (testRunStore) LoadRun(_ context.Context, runID int64) (RunSnapshot, error) {
@@ -278,15 +293,93 @@ func (s *testAttemptStore) RecordTerminalOutcome(_ context.Context, _ Transactio
 }
 
 func testGatewayDependencies(reserve *testReserve, attempts *testAttemptStore) Dependencies {
-	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, Reserve: reserve, Failures: &testReserveFailures{}, Attempts: attempts, Owner: testOwner{}, Quotes: testQuoteValidator{}}
+	return Dependencies{Transactions: testTransactionRunner{}, Runs: testRunStore{}, PriorUsage: &testPriorUsagePricer{}, Reserve: reserve, Failures: &testReserveFailures{}, Attempts: attempts, Owner: testOwner{}, Quotes: testQuoteValidator{}}
 }
 
 func (r *testReserve) ReserveOrTopUp(_ context.Context, _ Transaction, runID int64, target int64) (LockedBillingFacts, error) {
 	r.calls++
+	r.targets = append(r.targets, target)
 	if r.facts != nil {
 		return *r.facts, r.err
 	}
 	return lockedFacts(runID, target), r.err
+}
+
+func TestGatewayReserveTargetsPriorBillableUsagePlusCurrentUpperBound(t *testing.T) {
+	reserve := &testReserve{}
+	store := &testAttemptStore{}
+	deps := testGatewayDependencies(reserve, store)
+	deps.Runs = testRunStore{holdTarget: 10}
+	priorUsage := &testPriorUsagePricer{units: 8}
+	deps.PriorUsage = priorUsage
+	fingerprint := [32]byte{}
+	call := sealTestCall(50, fingerprint, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(10)})
+
+	if _, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 50, AttemptNo: 2, NewCall: &call}); err != nil {
+		t.Fatal(err)
+	}
+	if len(reserve.targets) != 1 || reserve.targets[0] != 18 {
+		t.Fatalf("reserve targets=%v, want [18]", reserve.targets)
+	}
+	if priorUsage.calls != 1 || priorUsage.beforeAttemptNo != 2 {
+		t.Fatalf("prior usage calls=%d before_attempt_no=%d", priorUsage.calls, priorUsage.beforeAttemptNo)
+	}
+}
+
+func TestGatewayRecoveryRejectsPreparedAttemptWithoutCumulativeHold(t *testing.T) {
+	store := &testAttemptStore{attempt: validAttempt(51, 2, 10), state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Runs = testRunStore{holdTarget: 10}
+	deps.PriorUsage = &testPriorUsagePricer{units: 8}
+
+	if _, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 51, AttemptNo: 2}); err == nil {
+		t.Fatal("underfunded cumulative prepared attempt was recovered")
+	}
+}
+
+func TestGatewayMarkDispatchedRejectsHoldThatOmitsPriorBillableUsage(t *testing.T) {
+	attempt := validAttempt(52, 2, 10)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Runs = testRunStore{holdTarget: 10}
+	deps.PriorUsage = &testPriorUsagePricer{units: 8}
+
+	if err := New(deps).MarkDispatched(context.Background(), attempt); err == nil {
+		t.Fatal("underfunded cumulative attempt was marked dispatched")
+	}
+	if store.state != "prepared" {
+		t.Fatalf("underfunded attempt state=%q", store.state)
+	}
+}
+
+func TestGatewayReserveRejectsCumulativeHoldOverflow(t *testing.T) {
+	reserve := &testReserve{}
+	deps := testGatewayDependencies(reserve, &testAttemptStore{})
+	deps.Runs = testRunStore{holdTarget: math.MaxInt64}
+	deps.PriorUsage = &testPriorUsagePricer{units: math.MaxInt64}
+	call := sealTestCall(53, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(1)})
+
+	if _, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 53, AttemptNo: 2, NewCall: &call}); err == nil {
+		t.Fatal("overflowing cumulative hold target was accepted")
+	}
+	if reserve.calls != 0 {
+		t.Fatalf("overflowing target reached reserve: calls=%d", reserve.calls)
+	}
+}
+
+func TestGatewayReserveStopsBeforeWalletWhenPriorUsageIsNotPriceable(t *testing.T) {
+	reserve := &testReserve{}
+	store := &testAttemptStore{}
+	deps := testGatewayDependencies(reserve, store)
+	deps.PriorUsage = &testPriorUsagePricer{err: ErrUsageIncomplete}
+	call := sealTestCall(54, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(10)})
+
+	if _, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 54, AttemptNo: 2, NewCall: &call}); !errors.Is(err, ErrUsageIncomplete) {
+		t.Fatalf("err=%v, want ErrUsageIncomplete", err)
+	}
+	if reserve.calls != 0 || store.state != "" {
+		t.Fatalf("unpriceable prior usage reached reserve/attempt: reserve_calls=%d state=%q", reserve.calls, store.state)
+	}
 }
 func (r *testReserve) EnsureActiveHold(_ context.Context, _ Transaction, runID int64, target int64) (LockedBillingFacts, error) {
 	r.activeCalls++

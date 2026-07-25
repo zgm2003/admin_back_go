@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -89,7 +90,7 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 }
 
 func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepareInput) (ProviderAttempt, error) {
-	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Failures == nil || g.deps.Attempts == nil || g.deps.Quotes == nil {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.PriorUsage == nil || g.deps.Reserve == nil || g.deps.Failures == nil || g.deps.Attempts == nil || g.deps.Quotes == nil {
 		return ProviderAttempt{}, ErrNotConfigured
 	}
 	if err := requireRunID(input.RunID); err != nil || input.AttemptNo == 0 {
@@ -105,6 +106,13 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 				return err
 			}
 			if err := validateLockedRunCharge(input.RunID, locked); err != nil {
+				return err
+			}
+			priorBillableUnits, err := g.deps.PriorUsage.PricePriorSucceededUsage(ctx, tx, locked.Run, input.AttemptNo)
+			if err != nil {
+				return err
+			}
+			if err := validatePriorBillableUnits(priorBillableUnits, locked.HoldTargetUnits); err != nil {
 				return err
 			}
 			if locked.HoldTargetUnits <= 0 {
@@ -135,8 +143,12 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 			if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, attempt.RequestSHA256, attempt.Quote); err != nil {
 				return err
 			}
-			if attempt.Quote.TargetHoldUnits > locked.HoldTargetUnits {
-				return gatewayError(ErrCodeInvalidPrepared, "prepared quote exceeds authoritative hold target", 409)
+			requiredTarget, err := cumulativeHoldTarget(priorBillableUnits, attempt.Quote.TargetHoldUnits)
+			if err != nil {
+				return err
+			}
+			if requiredTarget > locked.HoldTargetUnits {
+				return gatewayError(ErrCodeInvalidPrepared, "prepared quote and prior usage exceed authoritative hold target", 409)
 			}
 			recovered = cloneAttempt(attempt)
 			return nil
@@ -188,13 +200,23 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		if err := validateLockedRunCharge(input.RunID, locked); err != nil {
 			return err
 		}
+		priorBillableUnits, err := g.deps.PriorUsage.PricePriorSucceededUsage(ctx, tx, locked.Run, input.AttemptNo)
+		if err != nil {
+			return err
+		}
+		if err := validatePriorBillableUnits(priorBillableUnits, locked.HoldTargetUnits); err != nil {
+			return err
+		}
 		if !validPreparedAssembly(call, locked.Run) {
 			return gatewayError(ErrCodeInvalidPrepared, "prepared call was not produced for the locked run", 409)
 		}
 		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.RequestSHA256, call.Quote); err != nil {
 			return err
 		}
-		target := call.Quote.TargetHoldUnits
+		target, err := cumulativeHoldTarget(priorBillableUnits, call.Quote.TargetHoldUnits)
+		if err != nil {
+			return err
+		}
 		if locked.HoldTargetUnits > target {
 			target = locked.HoldTargetUnits
 		}
@@ -239,7 +261,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 }
 
 func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) error {
-	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Attempts == nil || g.deps.Quotes == nil || g.deps.Owner == nil {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.PriorUsage == nil || g.deps.Reserve == nil || g.deps.Attempts == nil || g.deps.Quotes == nil || g.deps.Owner == nil {
 		return ErrNotConfigured
 	}
 	g.record("mark_dispatched")
@@ -251,15 +273,21 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 		if err := validateLockedRunCharge(attempt.RunID, locked); err != nil {
 			return err
 		}
-		target := attempt.Quote.TargetHoldUnits
-		if locked.HoldTargetUnits > target {
-			target = locked.HoldTargetUnits
-		}
-		facts, err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, target)
+		priorBillableUnits, err := g.deps.PriorUsage.PricePriorSucceededUsage(ctx, tx, locked.Run, attempt.AttemptNo)
 		if err != nil {
 			return err
 		}
-		if err := validateBillingFacts(attempt.RunID, target, locked.ChargeHeldAuditMax, facts); err != nil {
+		if err := validatePriorBillableUnits(priorBillableUnits, locked.HoldTargetUnits); err != nil {
+			return err
+		}
+		if locked.HoldTargetUnits <= 0 {
+			return gatewayError(ErrCodeInvalidPrepared, "locked charge has no active hold target", 409)
+		}
+		facts, err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, locked.HoldTargetUnits)
+		if err != nil {
+			return err
+		}
+		if err := validateBillingFacts(attempt.RunID, locked.HoldTargetUnits, locked.ChargeHeldAuditMax, facts); err != nil {
 			return err
 		}
 		g.record("lock_attempt")
@@ -276,8 +304,12 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 		if !sameAttemptEvidence(persisted, attempt) {
 			return gatewayError(ErrCodeDuplicateAttempt, "provider attempt evidence differs from persisted attempt", 409)
 		}
-		if persisted.Quote.TargetHoldUnits > target {
-			return gatewayError(ErrCodeInvalidPrepared, "prepared quote exceeds active hold target", 409)
+		requiredTarget, err := cumulativeHoldTarget(priorBillableUnits, persisted.Quote.TargetHoldUnits)
+		if err != nil {
+			return err
+		}
+		if requiredTarget > locked.HoldTargetUnits {
+			return gatewayError(ErrCodeInvalidPrepared, "prepared quote and prior usage exceed active hold target", 409)
 		}
 		if err := g.deps.Owner.EnsureRunnable(ctx, tx, attempt.RunID); err != nil {
 			return err
@@ -450,10 +482,24 @@ func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, re
 }
 
 func validateLockedRunCharge(runID int64, locked LockedRunCharge) error {
-	if locked.Run.RunID != runID || locked.ChargeHeldAuditMax < 0 {
+	if locked.Run.RunID != runID || locked.ChargeHeldAuditMax < 0 || locked.HoldTargetUnits < 0 {
 		return gatewayError(ErrCodeInvalidPrepared, "locked run and charge facts are inconsistent", 409)
 	}
 	return nil
+}
+
+func validatePriorBillableUnits(priorBillableUnits, currentHoldTarget int64) error {
+	if priorBillableUnits < 0 || priorBillableUnits > currentHoldTarget {
+		return gatewayError(ErrCodeInvalidPrepared, "prior billable usage exceeds authoritative hold facts", 409)
+	}
+	return nil
+}
+
+func cumulativeHoldTarget(priorBillableUnits, currentCallMaxUnits int64) (int64, error) {
+	if priorBillableUnits < 0 || currentCallMaxUnits <= 0 || priorBillableUnits > math.MaxInt64-currentCallMaxUnits {
+		return 0, gatewayError(ErrCodeInvalidPrepared, "cumulative hold target is invalid or overflows", 409)
+	}
+	return priorBillableUnits + currentCallMaxUnits, nil
 }
 
 func validateBillingFacts(runID, target, minimumAudit int64, facts LockedBillingFacts) error {

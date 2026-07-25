@@ -101,6 +101,15 @@ type LockedRunCharge struct {
 	HoldTargetUnits    int64
 }
 
+// PriorUsagePricer returns a conservative money-unit ceiling calculated once
+// across complete paid succeeded attempts before beforeAttemptNo. It excludes
+// failed, legacy, current, and later attempts and fails when prior chargeable
+// usage is incomplete. The implementation reads through the supplied
+// transaction after Run and Charge have been locked.
+type PriorUsagePricer interface {
+	PricePriorSucceededUsage(context.Context, Transaction, RunSnapshot, uint32) (int64, error)
+}
+
 // LockedBillingFacts is returned only after reserve/hold work has completed in
 // the supplied transaction. The gateway validates this instead of trusting a
 // no-result mutation or a RowsAffected side channel.
@@ -188,6 +197,7 @@ type Dependencies struct {
 	Quotes       QuoteValidator
 	Transactions TransactionRunner
 	Runs         RunStore
+	PriorUsage   PriorUsagePricer
 	Reserve      ReserveParticipant
 	Failures     ReserveFailureRecorder
 	Attempts     AttemptStore
