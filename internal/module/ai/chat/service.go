@@ -85,6 +85,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if input.ConversationID <= 0 || input.UserID <= 0 || input.UserMessageID <= 0 || strings.TrimSpace(input.RequestID) == "" {
 		return nil, apperror.BadRequest("AI对话回复任务参数错误")
 	}
+	if input.DeliveryContext == nil {
+		input.DeliveryContext = ctx
+	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
@@ -110,7 +113,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		msg := "该智能体不支持对话场景"
 		return nil, apperror.BadRequest(msg)
 	}
-	if err := s.publishStart(ctx, input); err != nil {
+	if err := s.publishStart(input.DeliveryContext, input); err != nil {
 		return nil, err
 	}
 	engine, appErr := s.engineForAgent(ctx, *agent)
@@ -181,7 +184,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			userContent = strings.TrimSpace(knowledge.Context) + "\n\n用户问题：\n" + userContent
 		}
 	}
-	sink := &conversationEventSink{service: s, input: input}
+	sink := newDrainSink(input.DeliveryContext, &conversationEventSink{service: s, input: input})
 	chatInput := infraai.ChatInput{
 		AgentID: uint64(input.AgentID),
 		RunID:   uint64(runID),
@@ -202,6 +205,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		finishRun(statusFromError(ctx, err), msg, err)
 		return nil, err
 	}
+	if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
+		return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
+	}
 	if toolCalls := resultToolCalls(result); len(toolCalls) > 0 {
 		if appErr := validateRunUsageStatus(result); appErr != nil {
 			msg := appErr.Message
@@ -215,6 +221,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			finishRun(enum.AIRunStatusFailed, msg, toolErr)
 			return nil, toolErr
 		}
+		if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
+			return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
+		}
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
 		result, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
@@ -222,6 +231,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			msg := err.Error()
 			finishRun(statusFromError(ctx, err), msg, err)
 			return nil, err
+		}
+		if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
+			return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
 		}
 		if appErr := validateRunUsageStatus(result); appErr != nil {
 			msg := appErr.Message
@@ -243,7 +255,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
 		answer = "AI没有返回内容"
-		if err := s.publishDelta(ctx, input, answer); err != nil {
+		if err := s.publishDelta(input.DeliveryContext, input, answer); err != nil {
 			return nil, err
 		}
 	}
@@ -251,6 +263,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		msg := appErr.Message
 		finishRun(enum.AIRunStatusFailed, msg, appErr)
 		return nil, appErr
+	}
+	if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
+		return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
 	}
 	if s.assistantPublisher == nil {
 		msg := "AI助手消息发布器未配置"
@@ -441,16 +456,31 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 		finish.ResponseSHA256 = providerAttemptResponseHash(result)
 		if result != nil {
 			finish.ProviderRequestID = result.ProviderRequestID
-			finish.UsageStatus = result.UsageStatus
+			finish.DispatchState = result.DispatchState
+			if finish.DispatchState == "" {
+				finish.DispatchState = infraai.DispatchStateDispatched
+			}
+			usage := result.Usage
 			if result.Usage.Complete() {
-				finish.UsageStatus = "complete"
+				finish.UsageStatus = infraai.UsageStatusComplete
 			} else {
 				finish.UsageStatus = infraai.UsageStatusUnavailable
+				usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 			}
-			finish.DispatchState = result.DispatchState
-			if usageJSON, marshalErr := json.Marshal(result.Usage); marshalErr == nil {
-				finish.UsageJSON = string(usageJSON)
+			usageJSON, marshalErr := json.Marshal(usage)
+			if marshalErr != nil {
+				return nil, marshalErr
 			}
+			finish.UsageJSON = string(usageJSON)
+			candidateJSON, marshalErr := marshalChatResultCandidate(result)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			finish.ResultCandidateJSON = candidateJSON
+		}
+		if deliveryStopped(input.DeliveryContext) {
+			finish.State = ProviderAttemptCanceled
+			finish.ErrorCode = "ai.user_stopped"
 		}
 	} else {
 		finish.State = ProviderAttemptOutcomeUnknown
@@ -480,6 +510,32 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, finish.ProviderRequestID, errors.Join(providerErr, finishErr))
 	}
 	return result, providerErr
+}
+
+type chatResultCandidate struct {
+	Version   string             `json:"version"`
+	Answer    string             `json:"answer,omitempty"`
+	ToolCalls []infraai.ToolCall `json:"tool_calls,omitempty"`
+}
+
+func marshalChatResultCandidate(result *infraai.ChatResult) (*string, error) {
+	if result == nil {
+		return nil, nil
+	}
+	answer := strings.TrimSpace(result.Answer)
+	if answer == "" && len(result.ToolCalls) == 0 {
+		answer = "AI没有返回内容"
+	}
+	raw, err := json.Marshal(chatResultCandidate{
+		Version:   "ai_chat_result_v1",
+		Answer:    answer,
+		ToolCalls: result.ToolCalls,
+	})
+	if err != nil {
+		return nil, err
+	}
+	value := string(raw)
+	return &value, nil
 }
 
 func providerAttemptResponseHash(result *infraai.ChatResult) string {

@@ -112,11 +112,13 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 		return ErrLeaseLost
 	}
 
-	runCtx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
+	drainCtx, cancelDrain := context.WithCancelCause(ctx)
+	defer cancelDrain(nil)
+	deliveryCtx, cancelDelivery := context.WithCancelCause(drainCtx)
+	defer cancelDelivery(nil)
 	var cancelSignal <-chan struct{}
 	if r.cancelSubscriber != nil {
-		subscription, subscribeErr := r.cancelSubscriber.SubscribeCancel(runCtx, command.ID)
+		subscription, subscribeErr := r.cancelSubscriber.SubscribeCancel(drainCtx, command.ID)
 		if subscribeErr != nil {
 			r.logger.WarnContext(ctx, "reply cancel subscription unavailable", "command_id", command.ID, "error", subscribeErr)
 		} else if subscription != nil {
@@ -128,7 +130,7 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 			}()
 		}
 	}
-	initialRenewal, err := r.repository.Renew(context.WithoutCancel(runCtx), command.ID, claim.Owner, claim.FencingToken, r.now().Add(r.leaseTTL))
+	initialRenewal, err := r.repository.Renew(context.WithoutCancel(drainCtx), command.ID, claim.Owner, claim.FencingToken, r.now().Add(r.leaseTTL))
 	if err != nil {
 		return err
 	}
@@ -152,29 +154,34 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		renew := func() bool {
-			renewal, err := r.repository.Renew(context.WithoutCancel(runCtx), command.ID, claim.Owner, claim.FencingToken, r.now().Add(r.leaseTTL))
+			renewal, err := r.repository.Renew(context.WithoutCancel(drainCtx), command.ID, claim.Owner, claim.FencingToken, r.now().Add(r.leaseTTL))
 			if err != nil {
 				renewErr.Store(err)
 			}
 			if err != nil || !renewal.Alive {
 				leaseLost.Store(true)
-				cancel(ErrLeaseLost)
+				cancelDrain(ErrLeaseLost)
 				return false
 			}
 			if renewal.CancelRequested {
 				cancelRequested.Store(true)
-				cancel(infraai.ErrCanceled)
-				return false
+				cancelDelivery(infraai.ErrCanceled)
 			}
 			return true
 		}
+		signal := cancelSignal
 		for {
 			select {
 			case <-stopRenew:
 				return
-			case <-runCtx.Done():
+			case <-drainCtx.Done():
 				return
-			case <-cancelSignal:
+			case _, ok := <-signal:
+				if !ok {
+					signal = nil
+					continue
+				}
+				signal = nil
 				if !renew() {
 					return
 				}
@@ -186,14 +193,15 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 		}
 	}()
 
-	result, executeErr := r.executor.ExecuteConversationReply(runCtx, aichat.ConversationReplyInput{
-		CommandID:      command.ID,
-		LeaseOwner:     claim.Owner,
-		LeaseToken:     claim.FencingToken,
-		ConversationID: command.ConversationID,
-		UserID:         command.UserID,
-		UserMessageID:  command.UserMessageID,
-		RequestID:      command.RequestID,
+	result, executeErr := r.executor.ExecuteConversationReply(drainCtx, aichat.ConversationReplyInput{
+		CommandID:       command.ID,
+		LeaseOwner:      claim.Owner,
+		LeaseToken:      claim.FencingToken,
+		DeliveryContext: deliveryCtx,
+		ConversationID:  command.ConversationID,
+		UserID:          command.UserID,
+		UserMessageID:   command.UserMessageID,
+		RequestID:       command.RequestID,
 	})
 	close(stopRenew)
 	<-renewDone
@@ -203,6 +211,9 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 		}
 		return ErrLeaseLost
 	}
+	if result != nil && result.DeliveryStopped {
+		cancelRequested.Store(true)
+	}
 	if cancelRequested.Load() {
 		return r.finishCancellation(context.WithoutCancel(ctx), claim)
 	}
@@ -210,6 +221,16 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 		return err
 	}
 	if executeErr != nil {
+		renewal, renewErr := r.repository.Renew(context.WithoutCancel(ctx), command.ID, claim.Owner, claim.FencingToken, r.now().Add(r.leaseTTL))
+		if renewErr != nil {
+			return errors.Join(executeErr, renewErr)
+		}
+		if !renewal.Alive {
+			return errors.Join(executeErr, ErrLeaseLost)
+		}
+		if renewal.CancelRequested {
+			return r.finishCancellation(context.WithoutCancel(ctx), claim)
+		}
 		return r.finishFailure(ctx, claim, executeErr)
 	}
 	if result == nil || result.AssistantMessageID <= 0 {

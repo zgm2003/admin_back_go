@@ -12,19 +12,21 @@ import (
 )
 
 type ConversationReplyInput struct {
-	CommandID      uint64
-	LeaseOwner     string
-	LeaseToken     uint64
-	ConversationID int64
-	UserID         int64
-	AgentID        int64
-	UserMessageID  int64
-	RequestID      string
+	CommandID       uint64
+	LeaseOwner      string
+	LeaseToken      uint64
+	DeliveryContext context.Context
+	ConversationID  int64
+	UserID          int64
+	AgentID         int64
+	UserMessageID   int64
+	RequestID       string
 }
 
 type ConversationReplyResult struct {
 	ConversationID     int64
 	AssistantMessageID int64
+	DeliveryStopped    bool
 }
 
 type RunTimeoutInput struct {

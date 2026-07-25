@@ -367,7 +367,7 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 		Where("id = ? AND run_id = ? AND state = ?", input.AttemptID, input.RunID, AttemptDispatched)
 	if input.CommandID > 0 {
 		query = query.Where("command_id = ?", input.CommandID)
-		query = query.Where("EXISTS (SELECT 1 FROM ai_reply_commands c WHERE c.id = ? AND c.lease_owner = ? AND c.lease_token = ? AND c.state = ? AND c.cancel_requested_at IS NULL AND c.lease_expires_at > ?)", input.CommandID, strings.TrimSpace(input.Owner), input.Token, StateRunning, input.Now)
+		query = query.Where("EXISTS (SELECT 1 FROM ai_reply_commands c WHERE c.id = ? AND c.lease_owner = ? AND c.lease_token = ? AND c.state = ? AND c.lease_expires_at > ?)", input.CommandID, strings.TrimSpace(input.Owner), input.Token, StateRunning, input.Now)
 	}
 	result := query.
 		Updates(updates)

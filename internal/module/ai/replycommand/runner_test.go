@@ -77,37 +77,60 @@ func TestRunnerTerminalizesDurableCancellation(t *testing.T) {
 	}
 }
 
-func TestRunnerUsesCancelSignalWithoutWaitingForRenewInterval(t *testing.T) {
+func TestRunnerCancelStopsDeliveryButKeepsDrainAndLeaseAlive(t *testing.T) {
 	now := time.Now()
+	renewed := make(chan int, 8)
 	repository := &fakeRunnerRepository{claim: &Claim{
 		Command: Command{ID: 44, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "request-4", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
-		Owner:   "worker-a", FencingToken: 1, LeaseExpiresAt: now.Add(time.Minute),
-	}, renewals: []Renewal{{Alive: true}, {Alive: true, CancelRequested: true}}}
+		Owner:   "worker-a", FencingToken: 1, LeaseExpiresAt: now.Add(30 * time.Millisecond),
+	}, renewals: []Renewal{{Alive: true}, {Alive: true, CancelRequested: true}}, renewal: Renewal{Alive: true, CancelRequested: true}, renewed: renewed}
 	signal := make(chan struct{}, 1)
 	signal <- struct{}{}
-	executor := &fakeReplyExecutor{blockUntilCanceled: true}
+	allowDrainFinish := make(chan struct{})
+	executor := &fakeReplyExecutor{
+		waitForDeliveryStop: true,
+		releaseAfterStop:    allowDrainFinish,
+	}
 	runner := NewRunner(RunnerOptions{
 		Repository:       repository,
 		Executor:         executor,
 		Owner:            "worker-a",
-		LeaseTTL:         time.Minute,
+		LeaseTTL:         30 * time.Millisecond,
 		Now:              time.Now,
 		CancelSubscriber: fakeCancelSubscriber{subscription: &fakeCancelSubscription{signal: signal}},
 	})
 
-	started := time.Now()
-	worked, err := runner.RunOnce(context.Background())
-	if err != nil || !worked {
-		t.Fatalf("RunOnce worked=%v err=%v", worked, err)
+	type outcome struct {
+		worked bool
+		err    error
 	}
-	if time.Since(started) > time.Second {
-		t.Fatalf("cancel signal waited for lease renewal: %s", time.Since(started))
+	done := make(chan outcome, 1)
+	go func() {
+		worked, err := runner.RunOnce(context.Background())
+		done <- outcome{worked: worked, err: err}
+	}()
+
+	deadline := time.After(time.Second)
+	for calls := 0; calls < 3; {
+		select {
+		case calls = <-renewed:
+		case <-deadline:
+			t.Fatalf("lease was not renewed while draining: calls=%d", calls)
+		}
+	}
+	close(allowDrainFinish)
+	result := <-done
+	if result.err != nil || !result.worked {
+		t.Fatalf("RunOnce worked=%v err=%v", result.worked, result.err)
 	}
 	if len(repository.transitions) != 2 || repository.transitions[1].to != StateCanceled {
 		t.Fatalf("transitions=%+v", repository.transitions)
 	}
-	if !errors.Is(executor.cancelCause, infraai.ErrCanceled) {
-		t.Fatalf("cancel cause=%v", executor.cancelCause)
+	if !errors.Is(executor.deliveryCause, infraai.ErrCanceled) {
+		t.Fatalf("delivery cause=%v", executor.deliveryCause)
+	}
+	if executor.drainCanceledBeforeRelease {
+		t.Fatalf("user stop canceled provider drain: cause=%v", executor.cancelCause)
 	}
 }
 
@@ -125,6 +148,24 @@ func TestRunnerMovesAmbiguousProviderFailureToOutcomeUnknownWithoutRetry(t *test
 		t.Fatalf("RunOnce worked=%v err=%v", worked, err)
 	}
 	if len(repository.transitions) != 2 || repository.transitions[1].from != StateRunning || repository.transitions[1].to != StateOutcomeUnknown || repository.transitions[1].values["last_error_code"] != "ai.provider_outcome_unknown" {
+		t.Fatalf("transitions=%+v", repository.transitions)
+	}
+}
+
+func TestRunnerRechecksDurableCancelAfterAssistantPublicationIsRejected(t *testing.T) {
+	now := time.Now()
+	repository := &fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 46, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "request-6", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
+		Owner:   "worker-a", FencingToken: 1, LeaseExpiresAt: now.Add(time.Minute),
+	}, renewals: []Renewal{{Alive: true}, {Alive: true, CancelRequested: true}}}
+	executor := &fakeReplyExecutor{err: aichat.ErrAssistantPublicationRejected}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Owner: "worker-a", LeaseTTL: time.Minute, Now: time.Now})
+
+	worked, err := runner.RunOnce(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("RunOnce worked=%v err=%v", worked, err)
+	}
+	if len(repository.transitions) != 2 || repository.transitions[1].from != StateRunning || repository.transitions[1].to != StateCanceled {
 		t.Fatalf("transitions=%+v", repository.transitions)
 	}
 }
@@ -149,6 +190,7 @@ type fakeRunnerRepository struct {
 	renewal     Renewal
 	renewals    []Renewal
 	renewIndex  int
+	renewed     chan int
 	transitions []stateTransition
 }
 
@@ -159,9 +201,18 @@ func (f *fakeRunnerRepository) ClaimByID(context.Context, uint64, string, time.T
 	return f.claim, nil
 }
 func (f *fakeRunnerRepository) Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error) {
-	if f.renewIndex < len(f.renewals) {
-		result := f.renewals[f.renewIndex]
-		f.renewIndex++
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.renewIndex++
+	call := f.renewIndex
+	if f.renewed != nil {
+		select {
+		case f.renewed <- call:
+		default:
+		}
+	}
+	if call <= len(f.renewals) {
+		result := f.renewals[call-1]
 		return result, nil
 	}
 	return f.renewal, nil
@@ -178,12 +229,16 @@ func (f *fakeRunnerRepository) Transition(_ context.Context, _ uint64, _ string,
 }
 
 type fakeReplyExecutor struct {
-	input              aichat.ConversationReplyInput
-	result             *aichat.ConversationReplyResult
-	err                error
-	blockUntilCanceled bool
-	calls              int
-	cancelCause        error
+	input                      aichat.ConversationReplyInput
+	result                     *aichat.ConversationReplyResult
+	err                        error
+	blockUntilCanceled         bool
+	waitForDeliveryStop        bool
+	releaseAfterStop           <-chan struct{}
+	calls                      int
+	cancelCause                error
+	deliveryCause              error
+	drainCanceledBeforeRelease bool
 }
 
 func (f *fakeReplyExecutor) ExecuteConversationReply(ctx context.Context, input aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error) {
@@ -193,6 +248,18 @@ func (f *fakeReplyExecutor) ExecuteConversationReply(ctx context.Context, input 
 		<-ctx.Done()
 		f.cancelCause = context.Cause(ctx)
 		return nil, ctx.Err()
+	}
+	if f.waitForDeliveryStop {
+		<-input.DeliveryContext.Done()
+		f.deliveryCause = context.Cause(input.DeliveryContext)
+		select {
+		case <-ctx.Done():
+			f.drainCanceledBeforeRelease = true
+			f.cancelCause = context.Cause(ctx)
+			return nil, ctx.Err()
+		case <-f.releaseAfterStop:
+			return nil, nil
+		}
 	}
 	return f.result, f.err
 }

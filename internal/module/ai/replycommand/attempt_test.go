@@ -161,6 +161,31 @@ func TestFinishAttemptAcceptsIdenticalTerminalReplayAndRejectsConflict(t *testin
 	}
 }
 
+func TestFinishAttemptPersistsDrainedEvidenceAfterDurableCancellation(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	input := validFinishAttemptInput(t)
+	input.CommandID = 41
+	input.Owner = "worker-a"
+	input.Token = 7
+	input.State = AttemptCanceled
+	input.ErrorCode = "ai.user_stopped"
+	candidate := `{"version":"ai_chat_result_v1","answer":"drained"}`
+	input.ResultCandidateJSON = &candidate
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`^UPDATE ` + "`ai_provider_attempts`" + ` SET .*WHERE \(id = \? AND run_id = \? AND state = \?\) AND command_id = \? AND \(EXISTS \(SELECT 1 FROM ai_reply_commands c WHERE c.id = \? AND c.lease_owner = \? AND c.lease_token = \? AND c.state = \? AND c.lease_expires_at > \?\)\)$`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if ok, err := repository.FinishAttempt(context.Background(), input); err != nil || !ok {
+		t.Fatalf("finish drained attempt ok=%v err=%v", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func validFinishAttemptInput(t *testing.T) FinishAttemptInput {
 	t.Helper()
 	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusComplete, []byte(`{"output_tokens":1}`), []infraai.UsageItem{{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1}})

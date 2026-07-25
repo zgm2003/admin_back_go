@@ -80,6 +80,30 @@ func TestTransitionRejectsNonCanonicalMachineCodeBeforeDatabaseAccess(t *testing
 	}
 }
 
+func TestRenewExtendsLeaseAfterDurableCancellation(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	canceledAt := now.Add(-time.Second)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`^UPDATE `+"`ai_reply_commands`"+` SET `+"`lease_expires_at`"+`=\?,`+"`updated_at`"+`=\? WHERE id = \? AND lease_owner = \? AND lease_token = \? AND state IN \(\?,\?\)$`).
+		WithArgs(now.Add(time.Minute), sqlmock.AnyArg(), uint64(41), "worker-a", uint64(7), StateClaimed, StateRunning).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WithArgs(uint64(41), "worker-a", uint64(7), StateClaimed, StateRunning, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "cancel_requested_at"}).AddRow(41, canceledAt))
+	mock.ExpectCommit()
+
+	renewal, err := repository.Renew(context.Background(), 41, "worker-a", 7, now.Add(time.Minute))
+	if err != nil || !renewal.Alive || !renewal.CancelRequested {
+		t.Fatalf("renewal=%+v err=%v", renewal, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 	db := openReplyIntegrationDB(t)
 	fixture := createReplyFixture(t, db)

@@ -2,6 +2,7 @@ package aichat
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -129,6 +130,14 @@ type fakePublisher struct {
 	pubs []infrarealtime.Publication
 }
 
+type failingEventSink struct {
+	err error
+}
+
+func (s failingEventSink) Emit(context.Context, infraai.Event) error {
+	return s.err
+}
+
 type fakeAssistantPublisher struct {
 	input AssistantPublication
 }
@@ -195,6 +204,15 @@ func TestConversationEventSinkDoesNotGuessDeltaFromPayload(t *testing.T) {
 	}
 	if len(publisher.pubs) != 0 {
 		t.Fatalf("payload-only provider event was guessed into realtime: %#v", publisher.pubs)
+	}
+}
+
+func TestDrainSinkPropagatesPublisherCancellationWhileDeliveryIsActive(t *testing.T) {
+	want := infraai.ErrCanceled
+	sink := newDrainSink(context.Background(), failingEventSink{err: want})
+
+	if err := sink.Emit(context.Background(), infraai.Event{Type: "delta", DeltaText: "visible"}); !errors.Is(err, want) {
+		t.Fatalf("Emit error=%v, want %v", err, want)
 	}
 }
 
@@ -272,6 +290,42 @@ func (canceledEngine) TestConnection(ctx context.Context, input infraai.TestConn
 
 func (canceledEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	return nil, context.Canceled
+}
+
+type stopThenDrainEngine struct {
+	stopDelivery  context.CancelCauseFunc
+	drainCanceled bool
+}
+
+func (e *stopThenDrainEngine) TestConnection(context.Context, infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
+	return &infraai.TestConnectionResult{OK: true}, nil
+}
+
+func (e *stopThenDrainEngine) StreamChat(ctx context.Context, _ infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+	if err := sink.Emit(ctx, infraai.Event{Type: "delta", DeltaText: "停止前"}); err != nil {
+		return nil, err
+	}
+	e.stopDelivery(infraai.ErrCanceled)
+	if ctx.Err() != nil {
+		e.drainCanceled = true
+	}
+	if err := sink.Emit(ctx, infraai.Event{Type: "delta", DeltaText: "停止后"}); err != nil {
+		return nil, err
+	}
+	rawUsage := []byte(`{"prompt_tokens":4,"completion_tokens":8}`)
+	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusComplete, rawUsage, []infraai.UsageItem{
+		{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 4},
+		{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 8},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &infraai.ChatResult{
+		Answer: "停止后完整回答", PromptTokens: 4, CompletionTokens: 8, TotalTokens: 12,
+		UsageStatus: infraai.UsageStatusReported, Usage: usage,
+		ProviderRequestID: "provider-drained", DispatchState: infraai.DispatchStateDispatched,
+		ResponseSHA256: sha256.Sum256([]byte("provider-response")),
+	}, nil
 }
 
 func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
@@ -739,6 +793,73 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 	}
 	if len(deltas) != 2 || deltas[0] != "你" || deltas[1] != "好" {
 		t.Fatalf("unexpected deltas: %#v", deltas)
+	}
+}
+
+func TestExecuteConversationReplyStopsDeliveryButDrainsUsageAndCandidate(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	deliveryCtx, stopDelivery := context.WithCancelCause(context.Background())
+	engine := &stopThenDrainEngine{stopDelivery: stopDelivery}
+	attempts := &fakeProviderAttemptRecorder{}
+	publisher := &fakePublisher{}
+	recorder := &fakeRunRecorder{nextID: 100}
+
+	result, err := NewService(Dependencies{
+		Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: publisher,
+		RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, DeliveryContext: deliveryCtx,
+		ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid-drain",
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteConversationReply returned error: %v", err)
+	}
+	if result == nil || !result.DeliveryStopped || result.AssistantMessageID != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	if engine.drainCanceled {
+		t.Fatal("delivery stop canceled provider drain context")
+	}
+	var deltas []string
+	for _, publication := range publisher.pubs {
+		if publication.Envelope.Type != EventAIResponseDelta {
+			continue
+		}
+		var payload DeltaPayload
+		if err := json.Unmarshal(publication.Envelope.Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		deltas = append(deltas, payload.Delta)
+	}
+	if len(deltas) != 1 || deltas[0] != "停止前" {
+		t.Fatalf("delivered deltas=%v", deltas)
+	}
+	if repo.assistant.Content != "" || recorder.completed.RunID != 0 || recorder.canceled.RunID != 0 {
+		t.Fatalf("canceled delivery published terminal state: assistant=%+v complete=%+v canceled=%+v", repo.assistant, recorder.completed, recorder.canceled)
+	}
+	finished := attempts.finished
+	if finished.State != ProviderAttemptCanceled || finished.DispatchState != infraai.DispatchStateDispatched || finished.UsageStatus != infraai.UsageStatusComplete || finished.ErrorCode != "ai.user_stopped" {
+		t.Fatalf("finished attempt=%+v", finished)
+	}
+	var usage infraai.UsageSnapshot
+	if err := json.Unmarshal([]byte(finished.UsageJSON), &usage); err != nil || !usage.Complete() {
+		t.Fatalf("usage=%+v err=%v", usage, err)
+	}
+	if finished.ResultCandidateJSON == nil {
+		t.Fatal("result candidate was not persisted")
+	}
+	var candidate struct {
+		Version string `json:"version"`
+		Answer  string `json:"answer"`
+	}
+	if err := json.Unmarshal([]byte(*finished.ResultCandidateJSON), &candidate); err != nil || candidate.Version != "ai_chat_result_v1" || candidate.Answer != "停止后完整回答" {
+		t.Fatalf("candidate=%+v raw=%v err=%v", candidate, finished.ResultCandidateJSON, err)
 	}
 }
 

@@ -379,13 +379,12 @@ func (r *GormRepository) Renew(ctx context.Context, commandID uint64, owner stri
 	var renewal Renewal
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&Command{}).
-			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state IN ? AND cancel_requested_at IS NULL", commandID, owner, token, []State{StateClaimed, StateRunning}).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state IN ?", commandID, owner, token, []State{StateClaimed, StateRunning}).
 			Updates(map[string]any{"lease_expires_at": leaseExpiresAt, "updated_at": time.Now()})
 		if result.Error != nil {
 			return result.Error
 		}
-		if result.RowsAffected == 1 {
-			renewal.Alive = true
+		if result.RowsAffected != 1 {
 			return nil
 		}
 		var command Command
