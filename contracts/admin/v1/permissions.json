@@ -46,6 +46,9 @@
     "payment_recharge_add",
     "payment_recharge_list",
     "payment_recharge_pay",
+    "payment_redeem_code_generate",
+    "payment_redeem_code_list",
+    "payment_redeem_code_void",
     "payment_wallet_list",
     "permission_authPlatform_add",
     "permission_authPlatform_del",
@@ -1992,6 +1995,97 @@
       }
     },
     {
+      "operation_id": "post_api_admin_v1_payment_redeem_code_batches",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/redeem-code-batches",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_redeem_code_generate"
+      },
+      "audit": {
+        "enabled": true,
+        "required": true,
+        "module": "payment_redeem_code",
+        "action": "generate",
+        "title": "生成兑换码",
+        "skip_request_payload": true,
+        "skip_response_payload": true
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_redeem_code_exports",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/redeem-code-exports",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_redeem_code_list"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "payment_redeem_code",
+        "action": "export",
+        "title": "导出兑换码",
+        "skip_request_payload": true,
+        "skip_response_payload": true
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_payment_redeem_code_lookups",
+      "method": "POST",
+      "path": "/api/admin/v1/payment/redeem-code-lookups",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_redeem_code_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only exact lookup"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_redeem_codes",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/redeem-codes",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_redeem_code_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "patch_api_admin_v1_payment_redeem_codes",
+      "method": "PATCH",
+      "path": "/api/admin/v1/payment/redeem-codes",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_redeem_code_void"
+      },
+      "audit": {
+        "enabled": true,
+        "required": true,
+        "module": "payment_redeem_code",
+        "action": "void",
+        "title": "作废兑换码",
+        "skip_request_payload": true
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_payment_redeem_codes_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/payment/redeem-codes/page-init",
+      "access": {
+        "kind": "permission",
+        "permission_code": "payment_redeem_code_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
       "operation_id": "get_api_admin_v1_payment_wallets",
       "method": "GET",
       "path": "/api/admin/v1/payment/wallets",
@@ -3384,6 +3478,23 @@
       "audit": {
         "enabled": false,
         "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_wallet_redemptions",
+      "method": "POST",
+      "path": "/api/admin/v1/wallet/redemptions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "required": true,
+        "module": "wallet",
+        "action": "redeem",
+        "title": "兑换码充值",
+        "skip_request_payload": true,
+        "skip_response_payload": true
       }
     },
     {

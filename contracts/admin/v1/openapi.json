@@ -5966,6 +5966,354 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_payment_redeemcode_CodeItem_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "amount_cents": {
+            "type": "integer"
+          },
+          "batch_id": {
+            "type": "integer"
+          },
+          "batch_no": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "integer"
+          },
+          "creator_username": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "used_account": {
+            "type": "string"
+          },
+          "used_at": {
+            "type": "string"
+          },
+          "used_by": {
+            "type": "integer"
+          },
+          "used_username": {
+            "type": "string"
+          },
+          "wallet_transaction_no": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "amount_cents",
+          "batch_id",
+          "batch_no",
+          "code",
+          "created_at",
+          "created_by",
+          "creator_username",
+          "expires_at",
+          "id",
+          "note",
+          "state",
+          "used_account",
+          "used_at",
+          "used_by",
+          "used_username",
+          "wallet_transaction_no"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_ExportResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "row_count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "content",
+          "filename",
+          "row_count"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_GenerateBatchResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "batch": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_GeneratedBatchItem_Output"
+          },
+          "codes": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_GeneratedCodeItem_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "batch",
+          "codes"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_GeneratedBatchItem_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "batch_no": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "integer"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "batch_no",
+          "created_at",
+          "created_by",
+          "expires_at",
+          "id",
+          "note",
+          "quantity",
+          "replayed",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_GeneratedCodeItem_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "id"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_ListResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_CodeItem_Output"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_Page_Output"
+          }
+        },
+        "required": [
+          "list",
+          "page"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_LookupResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_CodeItem_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "item"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_PageInitResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "states"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_Page_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "current_page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_page",
+          "page_size",
+          "total",
+          "total_page"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_VoidResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "voided": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "voided"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_transport_admin_redemptionResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_transport_admin_redemptionTransaction_Output"
+          },
+          "wallet": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_wallet_SummaryResponse_Output"
+          }
+        },
+        "required": [
+          "amount",
+          "replayed",
+          "transaction",
+          "wallet"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_payment_redeemcode_transport_admin_redemptionTransaction_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_cents": {
+            "type": "integer"
+          },
+          "amount_text": {
+            "type": "string"
+          },
+          "balance_after_cents": {
+            "type": "integer"
+          },
+          "balance_after_text": {
+            "type": "string"
+          },
+          "balance_before_cents": {
+            "type": "integer"
+          },
+          "balance_before_text": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "direction_text": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string"
+          },
+          "source_type_text": {
+            "type": "string"
+          },
+          "transaction_no": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_cents",
+          "amount_text",
+          "balance_after_cents",
+          "balance_after_text",
+          "balance_before_cents",
+          "balance_before_text",
+          "created_at",
+          "direction",
+          "direction_text",
+          "source_type",
+          "source_type_text",
+          "transaction_no"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_payment_wallet_LedgerPageInitResponse_Output": {
         "additionalProperties": false,
         "properties": {
@@ -10368,6 +10716,48 @@
         ],
         "type": "object"
       },
+      "get_api_admin_v1_payment_redeem_codes_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_ListResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "get_api_admin_v1_payment_redeem_codes_page_init_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_PageInitResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "get_api_admin_v1_payment_wallets_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -11367,6 +11757,39 @@
           },
           "data": {
             "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "patch_api_admin_v1_payment_redeem_codes_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "patch_api_admin_v1_payment_redeem_codes_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_VoidResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -13022,6 +13445,175 @@
         ],
         "type": "object"
       },
+      "post_api_admin_v1_payment_redeem_code_batches_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "post_api_admin_v1_payment_redeem_code_batches_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_GenerateBatchResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "post_api_admin_v1_payment_redeem_code_exports_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_no": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "integer"
+          },
+          "created_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "used_by": {
+            "type": "integer"
+          },
+          "used_user": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "post_api_admin_v1_payment_redeem_code_exports_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_ExportResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "post_api_admin_v1_payment_redeem_code_lookups_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "post_api_admin_v1_payment_redeem_code_lookups_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_LookupResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "post_api_admin_v1_permissions_Request": {
         "additionalProperties": false,
         "properties": {
@@ -13551,6 +14143,36 @@
           },
           "data": {
             "$ref": "#/components/schemas/Go_internal_module_uploadtoken_CreateResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "post_api_admin_v1_wallet_redemptions_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "post_api_admin_v1_wallet_redemptions_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_payment_redeemcode_transport_admin_redemptionResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -24345,6 +24967,441 @@
         "x-runtime-path": "/api/admin/v1/payment/recharges/:id/pay"
       }
     },
+    "/api/admin/v1/payment/redeem-code-batches": {
+      "post": {
+        "operationId": "post_api_admin_v1_payment_redeem_code_batches",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/post_api_admin_v1_payment_redeem_code_batches_Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/post_api_admin_v1_payment_redeem_code_batches_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/payment/redeem-code-batches",
+        "tags": [
+          "payment"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "payment_redeem_code_generate"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "required": true,
+          "module": "payment_redeem_code",
+          "action": "generate",
+          "title": "生成兑换码",
+          "skip_request_payload": true,
+          "skip_response_payload": true
+        },
+        "x-runtime-path": "/api/admin/v1/payment/redeem-code-batches"
+      }
+    },
+    "/api/admin/v1/payment/redeem-code-exports": {
+      "post": {
+        "operationId": "post_api_admin_v1_payment_redeem_code_exports",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/post_api_admin_v1_payment_redeem_code_exports_Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/post_api_admin_v1_payment_redeem_code_exports_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/payment/redeem-code-exports",
+        "tags": [
+          "payment"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "payment_redeem_code_list"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "module": "payment_redeem_code",
+          "action": "export",
+          "title": "导出兑换码",
+          "skip_request_payload": true,
+          "skip_response_payload": true
+        },
+        "x-runtime-path": "/api/admin/v1/payment/redeem-code-exports"
+      }
+    },
+    "/api/admin/v1/payment/redeem-code-lookups": {
+      "post": {
+        "operationId": "post_api_admin_v1_payment_redeem_code_lookups",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/post_api_admin_v1_payment_redeem_code_lookups_Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/post_api_admin_v1_payment_redeem_code_lookups_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/payment/redeem-code-lookups",
+        "tags": [
+          "payment"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "payment_redeem_code_list"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only exact lookup"
+        },
+        "x-runtime-path": "/api/admin/v1/payment/redeem-code-lookups"
+      }
+    },
+    "/api/admin/v1/payment/redeem-codes": {
+      "get": {
+        "operationId": "get_api_admin_v1_payment_redeem_codes",
+        "parameters": [
+          {
+            "description": "",
+            "in": "query",
+            "name": "batch_no",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "created_by",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "created_from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "created_to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "current_page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "expires_from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "expires_to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "note",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "used_by",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "used_user",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/get_api_admin_v1_payment_redeem_codes_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/payment/redeem-codes",
+        "tags": [
+          "payment"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "payment_redeem_code_list"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only"
+        },
+        "x-runtime-path": "/api/admin/v1/payment/redeem-codes"
+      },
+      "patch": {
+        "operationId": "patch_api_admin_v1_payment_redeem_codes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/patch_api_admin_v1_payment_redeem_codes_Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/patch_api_admin_v1_payment_redeem_codes_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "PATCH /api/admin/v1/payment/redeem-codes",
+        "tags": [
+          "payment"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "payment_redeem_code_void"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "required": true,
+          "module": "payment_redeem_code",
+          "action": "void",
+          "title": "作废兑换码",
+          "skip_request_payload": true
+        },
+        "x-runtime-path": "/api/admin/v1/payment/redeem-codes"
+      }
+    },
+    "/api/admin/v1/payment/redeem-codes/page-init": {
+      "get": {
+        "operationId": "get_api_admin_v1_payment_redeem_codes_page_init",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/get_api_admin_v1_payment_redeem_codes_page_init_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/payment/redeem-codes/page-init",
+        "tags": [
+          "payment"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "payment_redeem_code_list"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only"
+        },
+        "x-runtime-path": "/api/admin/v1/payment/redeem-codes/page-init"
+      }
+    },
     "/api/admin/v1/payment/wallets": {
       "get": {
         "operationId": "get_api_admin_v1_payment_wallets",
@@ -30521,6 +31578,65 @@
           "title": "修改用户状态"
         },
         "x-runtime-path": "/api/admin/v1/users/:id/status"
+      }
+    },
+    "/api/admin/v1/wallet/redemptions": {
+      "post": {
+        "operationId": "post_api_admin_v1_wallet_redemptions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/post_api_admin_v1_wallet_redemptions_Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/post_api_admin_v1_wallet_redemptions_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/wallet/redemptions",
+        "tags": [
+          "wallet"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "required": true,
+          "module": "wallet",
+          "action": "redeem",
+          "title": "兑换码充值",
+          "skip_request_payload": true,
+          "skip_response_payload": true
+        },
+        "x-runtime-path": "/api/admin/v1/wallet/redemptions"
       }
     },
     "/api/admin/v1/wallet/summary": {
