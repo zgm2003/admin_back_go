@@ -548,6 +548,30 @@ func TestExecuteConversationReplyPersistsProviderAttemptAroundNetworkCall(t *tes
 	}
 }
 
+func TestExecuteConversationReplyDoesNotCompleteIncompleteReportedUsage(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
+	}
+	attempts := &fakeProviderAttemptRecorder{}
+	_, err := NewService(Dependencies{
+		Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts,
+		Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100},
+		EngineFactory: &fakeEngineFactory{engine: &fakeEngine{result: &infraai.ChatResult{Answer: "ok", UsageStatus: infraai.UsageStatusReported}}}, Secretbox: box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 7,
+		ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "rid-reported",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts.finished.UsageStatus != infraai.UsageStatusUnavailable {
+		t.Fatalf("incomplete reported usage was upgraded: %+v", attempts.finished)
+	}
+}
+
 func TestExecuteConversationReplyRecordsAmbiguousProviderOutcome(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{

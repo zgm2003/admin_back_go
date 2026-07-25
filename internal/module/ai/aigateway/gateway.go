@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -55,11 +56,11 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "run and request identity are required", 400)
 	}
 	if g.deps.Runs != nil {
-		persisted, err := g.deps.Runs.RequestFingerprint(ctx, req.RunID, req.RequestID)
+		persisted, err := g.deps.Runs.LoadRun(ctx, req.RunID)
 		if err != nil {
 			return PreparedCall{}, err
 		}
-		if persisted != ([32]byte{}) && persisted != req.RequestFingerprint {
+		if persisted.RunID != req.RunID || persisted.UserID != req.UserID || persisted.RequestID != req.RequestID || persisted.RequestFingerprint != req.RequestFingerprint {
 			return PreparedCall{}, gatewayError(ErrCodeFingerprintConflict, "request fingerprint conflicts with persisted run", 409)
 		}
 	}
@@ -194,7 +195,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 }
 
 func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) error {
-	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Attempts == nil {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Attempts == nil {
 		return ErrNotConfigured
 	}
 	key := attemptKey(attempt.RunID, attempt.AttemptNo)
@@ -208,6 +209,9 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 	g.record("mark_dispatched")
 	err = g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
 		if _, err := g.deps.Runs.LockRunAndCharge(ctx, tx, attempt.RunID); err != nil {
+			return err
+		}
+		if err := g.deps.Reserve.EnsureActiveHold(ctx, tx, attempt.RunID, persisted.Quote.TargetHoldUnits); err != nil {
 			return err
 		}
 		return g.deps.Attempts.MarkDispatched(ctx, tx, attempt.RunID, attempt.AttemptNo)
@@ -237,7 +241,9 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 		if result.TerminalState == "" {
 			result.TerminalState = "unknown"
 		}
-		_ = g.RecordOutcome(ctx, attempt, result)
+		if recordErr := g.RecordOutcome(ctx, attempt, result); recordErr != nil {
+			return result, errors.Join(err, recordErr)
+		}
 		return result, err
 	}
 	if result.DispatchState == "" {
@@ -277,12 +283,6 @@ func (g *Gateway) Finalize(ctx context.Context, input FinalizeInput) error {
 	}
 	g.record("finalize_lock_run")
 	g.record("finalize_lock_charge")
-	if input.ActualUnits < 0 || input.HoldUnits < 0 {
-		return fmt.Errorf("negative settlement units")
-	}
-	if input.ActualUnits > input.HoldUnits {
-		return gatewayError("ai.billing.unbilled_over_hold", "actual usage exceeds hold", 409)
-	}
 	if g.deps.Finalizer == nil {
 		return nil
 	}

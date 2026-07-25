@@ -22,3 +22,13 @@ func TestUsageSnapshotReportedWithoutItemsIsNotComplete(t *testing.T) {
 		t.Fatal("reported usage without items must fail closed")
 	}
 }
+
+func TestUsageSnapshotAllowsExplicitZeroQuantity(t *testing.T) {
+	snapshot, err := NewUsageSnapshot(UsageStatusReported, []byte(`{"usage":{"input_tokens":0}}`), []UsageItem{{Category: UsageCategoryInput, Unit: "token", Quantity: 0}})
+	if err != nil {
+		t.Fatalf("explicit zero usage item rejected: %v", err)
+	}
+	if !snapshot.Complete() {
+		t.Fatalf("explicit zero usage item is not complete: %+v", snapshot)
+	}
+}

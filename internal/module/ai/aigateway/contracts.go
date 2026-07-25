@@ -82,6 +82,9 @@ type TransactionRunner interface {
 
 type ReserveParticipant interface {
 	ReserveOrTopUp(context.Context, Transaction, int64, int64) error
+	// EnsureActiveHold must verify the persisted owner-scoped Hold is active
+	// and has at least requiredUnits while using the supplied transaction.
+	EnsureActiveHold(context.Context, Transaction, int64, int64) error
 }
 
 type AttemptStore interface {

@@ -27,12 +27,13 @@ type SettlementFacts struct {
 }
 
 type FinalizationStore interface {
-	LoadAttemptOutcomes(context.Context, int64) ([]AttemptOutcome, error)
-	LoadSettlementFacts(context.Context, int64) (SettlementFacts, error)
-	// CaptureAndRelease and Release must atomically enforce terminal Run/Charge
-	// idempotency and return whether this call applied a new transition.
-	CaptureAndRelease(context.Context, FinalizeInput) (bool, error)
-	Release(context.Context, FinalizeInput) (bool, error)
+	// WithLockedSettlement must use one transaction and acquire locks in this
+	// order: Run, Charge, wallet, Hold. It must read attempt outcomes and
+	// settlement facts under those locks, invoke decide, then atomically apply
+	// the resulting terminal transition and idempotency fence. A settled input
+	// with ActualUnits > 0 captures and releases the Hold; every other terminal
+	// result releases it without a capture.
+	WithLockedSettlement(context.Context, int64, func([]AttemptOutcome, SettlementFacts) (FinalizeInput, error)) (bool, error)
 }
 
 type RunFinalizer struct {
@@ -47,81 +48,86 @@ func (f *RunFinalizer) Finalize(ctx context.Context, input FinalizeInput) error 
 	if f == nil || f.store == nil {
 		return ErrNotConfigured
 	}
-	outcomes, err := f.store.LoadAttemptOutcomes(ctx, input.RunID)
-	if err != nil {
-		return err
-	}
-	facts, err := f.store.LoadSettlementFacts(ctx, input.RunID)
-	if err != nil {
-		return err
-	}
-	if facts.ActualUnits < 0 || facts.HoldUnits < 0 {
-		return fmt.Errorf("negative persisted settlement units")
-	}
-	input.ActualUnits = facts.ActualUnits
-	input.HoldUnits = facts.HoldUnits
-	input.Items = append([]billing.UsageChargeItem(nil), facts.Items...)
-	complete, reason := completeUsage(outcomes, input.RunStatus)
-	if !complete {
-		input.BillingStatus = billing.BillingStatusUnbilled
-		if reason == string(billing.BillingReasonReleasedProviderFailed) || reason == string(billing.BillingReasonReleasedOutcomeUnknown) {
-			input.BillingStatus = billing.BillingStatusReleased
+	_, err := f.store.WithLockedSettlement(ctx, input.RunID, func(outcomes []AttemptOutcome, facts SettlementFacts) (FinalizeInput, error) {
+		if facts.ActualUnits < 0 || facts.HoldUnits < 0 {
+			return FinalizeInput{}, fmt.Errorf("negative persisted settlement units")
 		}
-		input.BillingReason = billing.BillingReason(reason)
-		_, err := f.store.Release(ctx, input)
-		return err
-	}
-	if input.ActualUnits > input.HoldUnits {
-		input.BillingStatus = billing.BillingStatusUnbilled
-		input.BillingReason = billing.BillingReasonUnbilledOverHold
-		_, err := f.store.Release(ctx, input)
-		return err
-	}
-	if input.ActualUnits == 0 {
+		input.ActualUnits = facts.ActualUnits
+		input.HoldUnits = facts.HoldUnits
+		input.Items = append([]billing.UsageChargeItem(nil), facts.Items...)
+		complete, reason := completeUsage(outcomes)
+		if !complete {
+			input.BillingStatus = billing.BillingStatusUnbilled
+			if reason == billing.BillingReasonReleasedBeforeDispatch || reason == billing.BillingReasonReleasedProviderFailed || reason == billing.BillingReasonReleasedOutcomeUnknown {
+				input.BillingStatus = billing.BillingStatusReleased
+			}
+			input.BillingReason = reason
+			return input, nil
+		}
+		if input.ActualUnits > input.HoldUnits {
+			input.BillingStatus = billing.BillingStatusUnbilled
+			input.BillingReason = billing.BillingReasonUnbilledOverHold
+			return input, nil
+		}
 		input.BillingStatus = billing.BillingStatusSettled
 		input.BillingReason = billing.BillingReasonSettledCompleteUsage
-		// There is no wallet capture to record for a zero-value settlement;
-		// release only the reservation while persisting the settled Run/Charge.
-		_, err := f.store.Release(ctx, input)
-		return err
-	}
-	input.BillingStatus = billing.BillingStatusSettled
-	input.BillingReason = billing.BillingReasonSettledCompleteUsage
-	_, err = f.store.CaptureAndRelease(ctx, input)
+		return input, nil
+	})
 	return err
 }
 
-func completeUsage(outcomes []AttemptOutcome, runStatus string) (bool, string) {
-	if len(outcomes) == 0 && strings.TrimSpace(runStatus) == "failed" {
-		return false, string(billing.BillingReasonReleasedProviderFailed)
+func completeUsage(outcomes []AttemptOutcome) (bool, billing.BillingReason) {
+	if len(outcomes) == 0 {
+		return false, billing.BillingReasonUnbilledUsageIncomplete
 	}
-	hasBillable := false
-	hasFailed := false
+	hasSucceeded := false
+	hasProviderFailure := false
+	hasBeforeDispatchFailure := false
 	for _, outcome := range outcomes {
 		switch strings.TrimSpace(outcome.State) {
 		case string(billing.AttemptStateFailed):
-			// Failed attempts are audit-only and never block a later success.
-			hasFailed = true
-			continue
-		case string(billing.AttemptStateSucceeded):
-			hasBillable = true
-			if !outcome.UsageComplete && !outcome.Usage.Complete() {
-				return false, string(billing.BillingReasonUnbilledUsageIncomplete)
+			switch billing.DispatchState(strings.TrimSpace(outcome.DispatchState)) {
+			case billing.DispatchStateDispatched:
+				hasProviderFailure = true
+			case billing.DispatchStateNotDispatched:
+				hasBeforeDispatchFailure = true
+			case billing.DispatchStateUnknown:
+				return false, billing.BillingReasonReleasedOutcomeUnknown
+			default:
+				return false, billing.BillingReasonUnbilledUsageIncomplete
 			}
-		case string(billing.AttemptStateDispatched), string(billing.AttemptStateCanceled):
-			if strings.TrimSpace(runStatus) == "canceled" && (!outcome.UsageComplete && !outcome.Usage.Complete()) {
-				return false, string(billing.BillingReasonUnbilledUsageIncomplete)
+		case string(billing.AttemptStateSucceeded):
+			hasSucceeded = true
+			if !outcome.Usage.Complete() {
+				return false, billing.BillingReasonUnbilledUsageIncomplete
+			}
+		case string(billing.AttemptStateDispatched):
+			return false, billing.BillingReasonUnbilledUsageIncomplete
+		case string(billing.AttemptStateCanceled):
+			switch billing.DispatchState(strings.TrimSpace(outcome.DispatchState)) {
+			case billing.DispatchStateNotDispatched:
+				hasBeforeDispatchFailure = true
+			case billing.DispatchStateUnknown:
+				return false, billing.BillingReasonReleasedOutcomeUnknown
+			default:
+				return false, billing.BillingReasonUnbilledUsageIncomplete
 			}
 		case string(billing.AttemptStateOutcomeUnknown):
-			return false, string(billing.BillingReasonReleasedOutcomeUnknown)
+			return false, billing.BillingReasonReleasedOutcomeUnknown
 		default:
-			return false, string(billing.BillingReasonUnbilledUsageIncomplete)
+			return false, billing.BillingReasonUnbilledUsageIncomplete
 		}
 	}
-	if !hasBillable && hasFailed {
-		return false, string(billing.BillingReasonReleasedProviderFailed)
+	if hasSucceeded {
+		return true, billing.BillingReasonSettledCompleteUsage
 	}
-	return true, string(billing.BillingReasonSettledCompleteUsage)
+	if hasProviderFailure {
+		return false, billing.BillingReasonReleasedProviderFailed
+	}
+	if hasBeforeDispatchFailure {
+		return false, billing.BillingReasonReleasedBeforeDispatch
+	}
+	return false, billing.BillingReasonUnbilledUsageIncomplete
 }
 
 func LedgerSummary(agentID int64, displayName, modelID string) string {

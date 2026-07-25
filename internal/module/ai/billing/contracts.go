@@ -79,7 +79,7 @@ const (
 	DispatchStateUnknown       DispatchState = "unknown"
 )
 
-var ErrInvalidUsageItem = errors.New("usage item category, unit and positive quantity are required")
+var ErrInvalidUsageItem = errors.New("usage item category, unit and non-negative quantity are required")
 
 type UsageItem struct {
 	Category UsageCategory `json:"category"`
@@ -96,7 +96,7 @@ func (item UsageItem) Validate() error {
 func (item UsageItem) Normalized() (UsageItem, error) {
 	item.Unit = strings.TrimSpace(item.Unit)
 	item.TierKey = strings.TrimSpace(item.TierKey)
-	if !validUsageCategory(item.Category) || item.Unit == "" || item.Quantity <= 0 {
+	if !validUsageCategory(item.Category) || item.Unit == "" || item.Quantity < 0 {
 		return UsageItem{}, ErrInvalidUsageItem
 	}
 	return item, nil

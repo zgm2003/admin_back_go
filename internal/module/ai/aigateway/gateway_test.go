@@ -17,8 +17,10 @@ func (a *testAssembler) AssembleAndQuote(context.Context, RunRequest) (PreparedC
 }
 
 type testReserve struct {
-	calls int
-	err   error
+	calls       int
+	activeCalls int
+	err         error
+	activeErr   error
 }
 
 type testTx struct{}
@@ -33,7 +35,9 @@ func (testTransactionRunner) WithinTransaction(_ context.Context, fn func(Transa
 
 type testRunStore struct{}
 
-func (testRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) { return RunSnapshot{}, nil }
+func (testRunStore) LoadRun(_ context.Context, runID int64) (RunSnapshot, error) {
+	return RunSnapshot{RunID: runID, UserID: 7, RequestID: "r2", RequestFingerprint: [32]byte{2}}, nil
+}
 func (testRunStore) LockRunAndCharge(context.Context, Transaction, int64) (RunSnapshot, error) {
 	return RunSnapshot{}, nil
 }
@@ -54,8 +58,9 @@ func (s persistedFingerprintRunStore) RequestFingerprint(context.Context, int64,
 }
 
 type testAttemptStore struct {
-	attempt ProviderAttempt
-	state   string
+	attempt   ProviderAttempt
+	state     string
+	recordErr error
 }
 
 type testProvider struct{ calls int }
@@ -85,7 +90,7 @@ func (s *testAttemptStore) MarkDispatched(context.Context, Transaction, int64, u
 	return nil
 }
 func (s *testAttemptStore) RecordOutcome(context.Context, Transaction, int64, uint32, DispatchResult) error {
-	return nil
+	return s.recordErr
 }
 
 func testGatewayDependencies(reserve *testReserve, attempts *testAttemptStore) Dependencies {
@@ -95,6 +100,10 @@ func testGatewayDependencies(reserve *testReserve, attempts *testAttemptStore) D
 func (r *testReserve) ReserveOrTopUp(context.Context, Transaction, int64, int64) error {
 	r.calls++
 	return r.err
+}
+func (r *testReserve) EnsureActiveHold(context.Context, Transaction, int64, int64) error {
+	r.activeCalls++
+	return r.activeErr
 }
 
 func TestGatewayRejectsFingerprintConflictBeforeProvider(t *testing.T) {
@@ -192,6 +201,40 @@ func TestGatewayDoesNotDispatchAnAlreadyDispatchedAttemptAgain(t *testing.T) {
 	}
 }
 
+func TestGatewayRequiresActiveHoldBeforeDispatch(t *testing.T) {
+	attempt := ProviderAttempt{RunID: 13, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`), Quote: QuoteEvidence{TargetHoldUnits: 9}}
+	reserve := &testReserve{activeErr: errors.New("hold inactive")}
+	gateway := New(testGatewayDependencies(reserve, &testAttemptStore{attempt: attempt, state: "prepared"}))
+	if err := gateway.MarkDispatched(context.Background(), attempt); err == nil {
+		t.Fatal("expected inactive hold to block dispatch")
+	}
+	if reserve.activeCalls != 1 {
+		t.Fatalf("active hold checks=%d, want 1", reserve.activeCalls)
+	}
+}
+
+func TestGatewayFinalizeDefersSettlementAmountsToFinalizer(t *testing.T) {
+	finalizer := &captureFinalizer{}
+	err := New(Dependencies{Finalizer: finalizer}).Finalize(context.Background(), FinalizeInput{RunID: 14, ActualUnits: -1, HoldUnits: 0})
+	if err != nil {
+		t.Fatalf("gateway rejected caller amounts before finalizer: %v", err)
+	}
+	if finalizer.calls != 1 || finalizer.input.ActualUnits != -1 {
+		t.Fatalf("finalizer was not given original input: %+v", finalizer)
+	}
+}
+
+type captureFinalizer struct {
+	calls int
+	input FinalizeInput
+}
+
+func (f *captureFinalizer) Finalize(_ context.Context, input FinalizeInput) error {
+	f.calls++
+	f.input = input
+	return nil
+}
+
 func TestGatewayRejectsReplayWithDifferentQuoteEvidence(t *testing.T) {
 	gateway := New(testGatewayDependencies(&testReserve{}, &testAttemptStore{}))
 	first := PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 16, TargetHoldUnits: 10}}
@@ -218,4 +261,48 @@ func TestGatewayInsufficientBalanceCreatesNoAttempt(t *testing.T) {
 	if len(gateway.attempts) != 0 {
 		t.Fatal("insufficient reserve persisted an attempt")
 	}
+}
+
+func TestGatewayReturnsProviderAndOutcomePersistenceErrors(t *testing.T) {
+	providerErr := errors.New("provider connection reset")
+	recordErr := errors.New("attempt outcome write failed")
+	attempt := ProviderAttempt{RunID: 11, AttemptNo: 1, IdempotencyKey: "key", PreparedRequest: []byte(`{"model":"x"}`)}
+	deps := testGatewayDependencies(&testReserve{}, &testAttemptStore{attempt: attempt, state: "prepared", recordErr: recordErr})
+	deps.Provider = providerError{err: providerErr}
+	_, err := New(deps).Dispatch(context.Background(), attempt)
+	if !errors.Is(err, providerErr) || !errors.Is(err, recordErr) {
+		t.Fatalf("err=%v, want joined provider and persistence errors", err)
+	}
+}
+
+func TestGatewayAssembleValidatesPersistedRunIdentityBeforeAssembler(t *testing.T) {
+	assembler := &testAssembler{}
+	store := immutableRunStore{snapshot: RunSnapshot{RunID: 12, UserID: 7, RequestID: "stored-request", RequestFingerprint: [32]byte{1}}}
+	gateway := New(Dependencies{Assembler: assembler, Runs: store})
+	_, err := gateway.AssembleAndQuote(context.Background(), RunRequest{RunID: 12, UserID: 7, RequestID: "caller-request", RequestFingerprint: [32]byte{1}})
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != ErrCodeFingerprintConflict {
+		t.Fatalf("err=%v, want persisted identity conflict", err)
+	}
+	if assembler.calls != 0 {
+		t.Fatalf("assembler calls=%d, want 0", assembler.calls)
+	}
+}
+
+type immutableRunStore struct{ snapshot RunSnapshot }
+
+func (s immutableRunStore) LoadRun(context.Context, int64) (RunSnapshot, error) {
+	return s.snapshot, nil
+}
+func (s immutableRunStore) LockRunAndCharge(context.Context, Transaction, int64) (RunSnapshot, error) {
+	return s.snapshot, nil
+}
+func (s immutableRunStore) RequestFingerprint(context.Context, int64, string) ([32]byte, error) {
+	return s.snapshot.RequestFingerprint, nil
+}
+
+type providerError struct{ err error }
+
+func (p providerError) Dispatch(context.Context, ProviderAttempt) (DispatchResult, error) {
+	return DispatchResult{}, p.err
 }

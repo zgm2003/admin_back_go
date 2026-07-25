@@ -5,12 +5,16 @@ import (
 	"testing"
 )
 
-func TestUsageItemValidationRejectsZeroAndNegativeQuantity(t *testing.T) {
-	for _, quantity := range []int64{0, -1} {
+func TestUsageItemValidationAcceptsZeroAndRejectsNegativeQuantity(t *testing.T) {
+	for _, quantity := range []int64{0, 1} {
 		item := UsageItem{Category: UsageCategoryInputText, Unit: "token", Quantity: quantity}
-		if err := item.Validate(); !errors.Is(err, ErrInvalidUsageItem) {
+		if err := item.Validate(); err != nil {
 			t.Fatalf("quantity=%d error=%v", quantity, err)
 		}
+	}
+	item := UsageItem{Category: UsageCategoryInputText, Unit: "token", Quantity: -1}
+	if err := item.Validate(); !errors.Is(err, ErrInvalidUsageItem) {
+		t.Fatalf("negative quantity error=%v", err)
 	}
 }
 

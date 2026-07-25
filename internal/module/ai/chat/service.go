@@ -443,8 +443,10 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 		if result != nil {
 			finish.ProviderRequestID = result.ProviderRequestID
 			finish.UsageStatus = result.UsageStatus
-			if finish.UsageStatus == infraai.UsageStatusReported {
+			if result.Usage.Complete() {
 				finish.UsageStatus = "complete"
+			} else {
+				finish.UsageStatus = infraai.UsageStatusUnavailable
 			}
 			finish.DispatchState = result.DispatchState
 			if usageJSON, marshalErr := json.Marshal(result.Usage); marshalErr == nil {
