@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/requestidentity"
 	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
@@ -60,10 +61,22 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		now = time.Now()
 	}
 	var command Command
-	var durableEvent *modulerealtime.Event
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var conversation replyConversation
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND request_id = ?", userID, requestID).
+			First(&command).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrReplyCommandNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if command.ConversationID != conversationID {
+			return ErrReplyCommandNotFound
+		}
+
+		var conversation replyConversation
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND user_id = ? AND is_del = ?", conversationID, userID, enum.CommonNo).
 			First(&conversation).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -72,58 +85,20 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		if err != nil {
 			return err
 		}
-		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("conversation_id = ? AND user_id = ? AND request_id = ?", conversationID, userID, requestID).
-			First(&command).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrReplyCommandNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if terminalState(command.State) || command.State == StateOutcomeUnknown {
+		if terminalState(command.State) || command.State == StateOutcomeUnknown || command.CancelRequestedAt != nil {
 			return nil
 		}
 
 		updates := map[string]any{"cancel_requested_at": now, "updated_at": now}
 		command.CancelRequestedAt = &now
-		if command.State == StatePending {
-			updates["state"] = StateCanceled
-			updates["finished_at"] = now
-			updates["lease_owner"] = nil
-			updates["lease_expires_at"] = nil
-			command.State = StateCanceled
-			command.FinishedAt = &now
-			command.LeaseOwner = nil
-			command.LeaseExpiresAt = nil
-		}
 		if err := tx.Model(&Command{}).Where("id = ?", command.ID).Updates(updates).Error; err != nil {
 			return err
-		}
-		if command.State == StateCanceled && r.eventSink != nil {
-			var err error
-			durableEvent, err = r.eventSink.AppendTx(ctx, tx, modulerealtime.AppendInput{
-				Type:      modulerealtime.TypeAIResponseCanceledV1,
-				RequestID: command.RequestID,
-				UserID:    command.UserID,
-				Payload: modulerealtime.AIResponseCanceledPayload{
-					ConversationID: command.ConversationID,
-					RequestID:      command.RequestID,
-				},
-				OccurredAt: now,
-			})
-			if err != nil {
-				return err
-			}
 		}
 		command.UpdatedAt = now
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if durableEvent != nil {
-		r.eventSink.PublishBestEffort(ctx, durableEvent)
 	}
 	return &command, nil
 }
@@ -183,7 +158,7 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		return CreateReplyResult{}, ErrRepositoryNotConfigured
 	}
 	input.RequestID = strings.TrimSpace(input.RequestID)
-	if input.ConversationID <= 0 || input.UserID <= 0 || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {
+	if input.ConversationID <= 0 || input.UserID <= 0 || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 || input.RequestFingerprint == ([32]byte{}) || input.RequestIdentityStatus != requestidentity.IdentityStatusReplayable || input.RequestIdentityMarker != "" {
 		return CreateReplyResult{}, fmt.Errorf("%w: conversation_id, user_id and request_id are required and request_id is at most 128 characters", ErrCreateInputInvalid)
 	}
 	if ctx == nil {
@@ -195,21 +170,14 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 	}
 	var result CreateReplyResult
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var conversation replyConversation
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND user_id = ? AND is_del = ?", input.ConversationID, input.UserID, enum.CommonNo).
-			First(&conversation).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrConversationUnavailable
-		}
-		if err != nil {
-			return err
-		}
-
 		var existing Command
-		err = tx.Where("conversation_id = ? AND request_id = ?", input.ConversationID, input.RequestID).
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND request_id = ?", input.UserID, input.RequestID).
 			First(&existing).Error
 		if err == nil {
+			if err := compareCommandFingerprint(existing, input.RequestFingerprint); err != nil {
+				return err
+			}
 			result = CreateReplyResult{
 				UserMessageID: existing.UserMessageID,
 				CommandID:     existing.ID,
@@ -222,6 +190,16 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 			return err
 		}
 
+		var conversation replyConversation
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND user_id = ? AND is_del = ?", input.ConversationID, input.UserID, enum.CommonNo).
+			First(&conversation).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrConversationUnavailable
+		}
+		if err != nil {
+			return err
+		}
 		message := replyMessage{
 			ConversationID: input.ConversationID,
 			Role:           enum.AIMessageRoleUser,
@@ -236,22 +214,25 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 			return err
 		}
 
-		key := idempotencyKey(input.ConversationID, input.RequestID)
+		key := idempotencyKey(input.UserID, input.RequestID)
 		if r.idempotencyKey != nil {
-			key = r.idempotencyKey(input.ConversationID, input.RequestID)
+			key = r.idempotencyKey(input.UserID, input.RequestID)
 		}
 		command := Command{
-			RequestID:      input.RequestID,
-			IdempotencyKey: key,
-			Platform:       enum.PlatformAdmin,
-			UserID:         input.UserID,
-			ConversationID: input.ConversationID,
-			UserMessageID:  message.ID,
-			State:          StatePending,
-			MaxAttempts:    defaultMaxAttempts,
-			NextAttemptAt:  now,
-			CreatedAt:      now,
-			UpdatedAt:      now,
+			RequestID:             input.RequestID,
+			RequestFingerprint:    append([]byte(nil), input.RequestFingerprint[:]...),
+			RequestIdentityStatus: string(input.RequestIdentityStatus),
+			RequestIdentityMarker: input.RequestIdentityMarker,
+			IdempotencyKey:        key,
+			Platform:              enum.PlatformAdmin,
+			UserID:                input.UserID,
+			ConversationID:        input.ConversationID,
+			UserMessageID:         message.ID,
+			State:                 StatePending,
+			MaxAttempts:           defaultMaxAttempts,
+			NextAttemptAt:         now,
+			CreatedAt:             now,
+			UpdatedAt:             now,
 		}
 		if err := tx.Create(&command).Error; err != nil {
 			return err
@@ -279,6 +260,11 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		return nil
 	})
 	if err != nil {
+		if replay, replayErr := r.loadCreateReplay(ctx, input); replayErr == nil && replay != nil {
+			return *replay, nil
+		} else if replayErr != nil {
+			return CreateReplyResult{}, replayErr
+		}
 		return CreateReplyResult{}, err
 	}
 	return result, nil
@@ -310,7 +296,6 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 	var claimed *Claim
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("cancel_requested_at IS NULL").
 			Where("attempt_count < max_attempts").
 			Where("(state = ? AND next_attempt_at <= ?) OR (state IN ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)", StatePending, now, []State{StateClaimed, StateRunning}, now)
 		if commandID > 0 {
@@ -449,6 +434,10 @@ func (r *GormRepository) Transition(ctx context.Context, commandID uint64, owner
 		}
 	}
 	if to == StateFailed || to == StateTimedOut {
+		code, ok := updates["last_error_code"].(string)
+		if !ok || strings.TrimSpace(code) == "" || code != strings.TrimSpace(code) {
+			return false, ErrCreateInputInvalid
+		}
 		message, ok := updates["last_error_message"].(string)
 		if !ok || strings.TrimSpace(message) == "" {
 			return false, ErrCreateInputInvalid
@@ -500,11 +489,23 @@ func (r *GormRepository) transitionWithTerminalEvent(ctx context.Context, comman
 			}
 		} else {
 			message, _ := updates["last_error_message"].(string)
+			errorCode, _ := updates["last_error_code"].(string)
+			var walletPath *string
+			var rechargePath *string
+			if strings.TrimSpace(errorCode) == "ai.billing.insufficient_balance" {
+				wallet := "/profile/wallet"
+				recharge := "/payment/recharge"
+				walletPath = &wallet
+				rechargePath = &recharge
+			}
 			eventInput.Type = modulerealtime.TypeAIResponseFailedV1
 			eventInput.Payload = modulerealtime.AIResponseFailedPayload{
 				ConversationID: command.ConversationID,
 				RequestID:      command.RequestID,
 				Msg:            strings.TrimSpace(message),
+				ErrorCode:      strings.TrimSpace(errorCode),
+				WalletPath:     walletPath,
+				RechargePath:   rechargePath,
 			}
 		}
 		durableEvent, err = r.eventSink.AppendTx(ctx, tx, eventInput)
@@ -643,9 +644,33 @@ func terminalState(state State) bool {
 	}
 }
 
-func idempotencyKey(conversationID int64, requestID string) string {
-	sum := sha256.Sum256([]byte("admin-reply:" + strconv.FormatInt(conversationID, 10) + ":" + strings.TrimSpace(requestID)))
+func idempotencyKey(userID int64, requestID string) string {
+	sum := sha256.Sum256([]byte("admin-reply:" + strconv.FormatInt(userID, 10) + ":" + strings.TrimSpace(requestID)))
 	return hex.EncodeToString(sum[:])
+}
+
+func compareCommandFingerprint(command Command, incoming [32]byte) error {
+	if len(command.RequestFingerprint) != sha256.Size {
+		return requestidentity.ErrRequestIdentityNotReplayable
+	}
+	var stored [sha256.Size]byte
+	copy(stored[:], command.RequestFingerprint)
+	return requestidentity.CompareForReplay(requestidentity.IdentityStatus(command.RequestIdentityStatus), stored, incoming)
+}
+
+func (r *GormRepository) loadCreateReplay(ctx context.Context, input CreateReplyInput) (*CreateReplyResult, error) {
+	var command Command
+	err := r.db.WithContext(ctx).Where("user_id = ? AND request_id = ?", input.UserID, input.RequestID).First(&command).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := compareCommandFingerprint(command, input.RequestFingerprint); err != nil {
+		return nil, err
+	}
+	return &CreateReplyResult{UserMessageID: command.UserMessageID, CommandID: command.ID, RequestID: command.RequestID, State: command.State}, nil
 }
 
 func titleFromContent(content string) string {

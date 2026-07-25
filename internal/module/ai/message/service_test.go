@@ -103,7 +103,7 @@ func TestListRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
 func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
-		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+		agent:        &AgentRuntime{AgentID: 5, ModelID: "gpt-test", MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
 	}
 	res, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid"})
 	if appErr != nil {
@@ -118,12 +118,15 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	if repo.replyInput.MetaJSON != nil {
 		t.Fatalf("empty metadata must be stored as nil, got %#v", repo.replyInput.MetaJSON)
 	}
+	if repo.replyInput.RequestFingerprint == ([32]byte{}) || repo.replyInput.RequestIdentityStatus != "replayable" || repo.replyInput.RequestIdentityMarker != "" {
+		t.Fatalf("missing canonical request identity: %#v", repo.replyInput)
+	}
 }
 
 func TestSendWakesCommittedCommandAndDoesNotFailWhenWakeupFails(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
-		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+		agent:        &AgentRuntime{AgentID: 5, ModelID: "gpt-test", MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
 	}
 	waker := &fakeReplyWaker{err: errors.New("redis unavailable")}
 	res, appErr := NewService(repo, WithReplyWaker(waker)).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
@@ -138,7 +141,7 @@ func TestSendWakesCommittedCommandAndDoesNotFailWhenWakeupFails(t *testing.T) {
 func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
-		agent:        &AgentRuntime{AgentID: 5, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
+		agent:        &AgentRuntime{AgentID: 5, ModelID: "gpt-test", MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`},
 	}
 	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: []Attachment{{Type: "image", URL: "https://example.test/a.png", Name: "a.png", Size: 10}}})
 	if appErr != nil {
@@ -156,7 +159,7 @@ func TestCancelRequiresOwnedConversation(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("Cancel returned error: %v", appErr)
 	}
-	if res.ConversationID != 3 || res.RequestID != "rid" || res.Status != "canceled" {
+	if res.ConversationID != 3 || res.RequestID != "rid" || res.Status != "stopping" {
 		t.Fatalf("unexpected cancel response: %#v", res)
 	}
 	if repo.cancelConversationID != 3 || repo.cancelUserID != 7 || repo.cancelRequestID != "rid" || publisher.commandID != 99 {

@@ -22,6 +22,7 @@ type IdentityStatus string
 
 const (
 	FingerprintVersion                               = "v1"
+	ErrorCodeFingerprintConflict                     = "ai.billing.request_fingerprint_conflict"
 	IdentityStatusReplayable          IdentityStatus = "replayable"
 	IdentityStatusLegacyNonReplayable IdentityStatus = "legacy_non_replayable"
 )
@@ -53,6 +54,32 @@ type Input struct {
 	Options         GenerationOptions
 	ConversationID  int64
 	SourceMessageID int64
+}
+
+type ChatFingerprintInput struct {
+	UserID          int64
+	ConversationID  int64
+	SourceMessageID int64
+	AgentID         int64
+	ModelID         string
+	Text            string
+	Attachments     []AttachmentIdentity
+	Options         GenerationOptions
+}
+
+func BuildChatFingerprint(input ChatFingerprintInput) ([32]byte, error) {
+	return BuildFingerprint(Input{
+		UserID:          input.UserID,
+		Operation:       "chat.reply",
+		Modality:        "chat",
+		AgentID:         input.AgentID,
+		ModelID:         input.ModelID,
+		NormalizedText:  input.Text,
+		Attachments:     input.Attachments,
+		Options:         input.Options,
+		ConversationID:  input.ConversationID,
+		SourceMessageID: input.SourceMessageID,
+	})
 }
 
 func (Input) MarshalJSON() ([]byte, error) {

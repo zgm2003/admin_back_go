@@ -22,7 +22,7 @@ func TestOutcomeUnknownReconciliationUsesLocalTruthOrFailsWithoutResend(t *testi
 	repository.now = func() time.Time { return now }
 
 	createUnknown := func(requestID string) CreateReplyResult {
-		created, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: requestID, Content: requestID})
+		created, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, requestID, requestID))
 		if err != nil {
 			t.Fatal(err)
 		}

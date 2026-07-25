@@ -24,7 +24,7 @@ func TestResumeAICompletionIsAtomicAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	requestID := fmt.Sprintf("resume-completed-%d", now.UnixNano())
-	created, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: requestID, Content: "hello"})
+	created, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, requestID, "hello"))
 	if err != nil {
 		t.Fatalf("CreateReply: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestResumeAIFailureIsCommittedWithTerminalTransition(t *testing.T) {
 	repository := NewGormRepository(db, WithDurableEventSink(eventSink))
 	ctx := context.Background()
 	requestID := fmt.Sprintf("resume-failed-%d", time.Now().UnixNano())
-	created, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: requestID, Content: "hello"})
+	created, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, requestID, "hello"))
 	if err != nil {
 		t.Fatalf("CreateReply: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestResumeAICancellationIsCommittedExactlyOnceForPendingAndRunning(t *testi
 	now := time.Now().UTC()
 
 	pendingRequestID := fmt.Sprintf("resume-canceled-pending-%d", now.UnixNano())
-	pending, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: pendingRequestID, Content: "pending"})
+	pending, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, pendingRequestID, "pending"))
 	if err != nil {
 		t.Fatalf("create pending reply: %v", err)
 	}
@@ -142,10 +142,20 @@ func TestResumeAICancellationIsCommittedExactlyOnceForPendingAndRunning(t *testi
 	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, pendingRequestID, now.Add(time.Second)); err != nil {
 		t.Fatalf("repeat pending cancel: %v", err)
 	}
+	claimPending, err := repository.ClaimByID(ctx, pending.CommandID, "worker-pending", now.Add(2*time.Second), time.Minute)
+	if err != nil || claimPending == nil {
+		t.Fatalf("claim canceled pending reply=%#v err=%v", claimPending, err)
+	}
+	if ok, err := repository.Transition(ctx, pending.CommandID, claimPending.Owner, claimPending.FencingToken, StateClaimed, StateRunning, map[string]any{"started_at": now.Add(2 * time.Second)}); err != nil || !ok {
+		t.Fatalf("start canceled pending reply ok=%v err=%v", ok, err)
+	}
+	if ok, err := repository.Transition(ctx, pending.CommandID, claimPending.Owner, claimPending.FencingToken, StateRunning, StateCanceled, map[string]any{"finished_at": now.Add(3 * time.Second)}); err != nil || !ok {
+		t.Fatalf("finish canceled pending reply ok=%v err=%v", ok, err)
+	}
 	assertSingleCanceledEvent(t, db.Gorm, eventRepository, fixture.userID, fixture.conversationID, pendingRequestID)
 
 	runningRequestID := fmt.Sprintf("resume-canceled-running-%d", now.UnixNano())
-	running, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: runningRequestID, Content: "running"})
+	running, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, runningRequestID, "running"))
 	if err != nil {
 		t.Fatalf("create running reply: %v", err)
 	}
@@ -179,26 +189,24 @@ func (failingCanceledEventSink) AppendTx(context.Context, *gorm.DB, modulerealti
 
 func (failingCanceledEventSink) PublishBestEffort(context.Context, *modulerealtime.Event) {}
 
-func TestPendingCancellationRollsBackWhenDurableEventFails(t *testing.T) {
+func TestCancelIntentDoesNotDependOnTerminalEventSink(t *testing.T) {
 	db := openReplyIntegrationDB(t)
 	fixture := createReplyFixture(t, db)
 	repository := NewGormRepository(db, WithDurableEventSink(failingCanceledEventSink{}))
 	requestID := fmt.Sprintf("cancel-rollback-%d", time.Now().UnixNano())
-	created, err := repository.CreateReply(context.Background(), CreateReplyInput{
-		ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: requestID, Content: "pending",
-	})
+	created, err := repository.CreateReply(context.Background(), testCreateReplyInput(fixture.conversationID, fixture.userID, requestID, "pending"))
 	if err != nil {
 		t.Fatalf("create reply: %v", err)
 	}
-	if _, err := repository.RequestCancel(context.Background(), fixture.conversationID, fixture.userID, requestID, time.Now()); err == nil {
-		t.Fatal("pending cancellation unexpectedly committed without its event")
+	if _, err := repository.RequestCancel(context.Background(), fixture.conversationID, fixture.userID, requestID, time.Now()); err != nil {
+		t.Fatalf("persist cancel intent: %v", err)
 	}
 	var command Command
 	if err := db.Gorm.First(&command, "id = ?", created.CommandID).Error; err != nil {
 		t.Fatalf("reload command: %v", err)
 	}
-	if command.State != StatePending || command.CancelRequestedAt != nil || command.FinishedAt != nil {
-		t.Fatalf("cancellation transaction was not rolled back: %#v", command)
+	if command.State != StatePending || command.CancelRequestedAt == nil || command.FinishedAt != nil {
+		t.Fatalf("cancel intent was not persisted independently: %#v", command)
 	}
 }
 

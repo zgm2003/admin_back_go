@@ -175,6 +175,9 @@ func (r *GormRepository) ResolveOutcomeUnknown(ctx context.Context, input Reconc
 	if input.State == StateFailed && strings.TrimSpace(input.ErrorMessage) == "" {
 		return false, ErrCreateInputInvalid
 	}
+	if input.State == StateFailed && strings.TrimSpace(input.ErrorCode) == "" {
+		return false, ErrCreateInputInvalid
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -254,9 +257,17 @@ func (r *GormRepository) ResolveOutcomeUnknown(ctx context.Context, input Reconc
 				}
 			} else {
 				message := strings.TrimSpace(input.ErrorMessage)
+				var walletPath *string
+				var rechargePath *string
+				if strings.TrimSpace(input.ErrorCode) == "ai.billing.insufficient_balance" {
+					wallet := "/profile/wallet"
+					recharge := "/payment/recharge"
+					walletPath = &wallet
+					rechargePath = &recharge
+				}
 				eventInput.Type = modulerealtime.TypeAIResponseFailedV1
 				eventInput.Payload = modulerealtime.AIResponseFailedPayload{
-					ConversationID: command.ConversationID, RequestID: command.RequestID, Msg: message,
+					ConversationID: command.ConversationID, RequestID: command.RequestID, Msg: message, ErrorCode: strings.TrimSpace(input.ErrorCode), WalletPath: walletPath, RechargePath: rechargePath,
 				}
 			}
 			var err error

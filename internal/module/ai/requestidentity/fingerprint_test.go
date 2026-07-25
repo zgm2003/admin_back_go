@@ -153,6 +153,29 @@ func TestBuildChatFingerprintIncludesConversationAndSourceMessage(t *testing.T) 
 	}
 }
 
+func TestBuildChatFingerprintOwnsCanonicalChatOperation(t *testing.T) {
+	input := ChatFingerprintInput{
+		UserID: 42, ConversationID: 19, AgentID: 7, ModelID: "gpt-4o", Text: "hello\r\nworld",
+		Attachments: []AttachmentIdentity{{StorageProvider: "url", StorageKey: "https://example.test/b.png"}, {StorageProvider: "url", StorageKey: "https://example.test/a.png"}},
+		Options:     GenerationOptions{MaxOutputTokens: 4096, Extra: map[string]string{"temperature": "0.7"}},
+	}
+	got, err := BuildChatFingerprint(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := BuildFingerprint(Input{
+		UserID: 42, Operation: "chat.reply", Modality: "chat", AgentID: 7, ModelID: "gpt-4o", NormalizedText: "hello\nworld", ConversationID: 19,
+		Attachments: []AttachmentIdentity{{StorageProvider: "url", StorageKey: "https://example.test/a.png"}, {StorageProvider: "url", StorageKey: "https://example.test/b.png"}},
+		Options:     GenerationOptions{MaxOutputTokens: 4096, Extra: map[string]string{"temperature": "0.7"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("chat fingerprint=%x want=%x", got, want)
+	}
+}
+
 func TestBuildFingerprintRejectsBlankOperationModalityAndInvalidIDs(t *testing.T) {
 	tests := []struct {
 		name   string

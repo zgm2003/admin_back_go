@@ -45,7 +45,7 @@ func TestRequestCancelIsDurableAndIdempotentForPendingAndRunningCommands(t *test
 	now := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 	repository.now = func() time.Time { return now }
 
-	pending, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: "cancel-pending", Content: "pending"})
+	pending, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, "cancel-pending", "pending"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,15 +53,16 @@ func TestRequestCancelIsDurableAndIdempotentForPendingAndRunningCommands(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if canceled.ID != pending.CommandID || canceled.State != StateCanceled || canceled.CancelRequestedAt == nil || canceled.FinishedAt == nil {
+	if canceled.ID != pending.CommandID || canceled.State != StatePending || canceled.CancelRequestedAt == nil || canceled.FinishedAt != nil {
 		t.Fatalf("pending cancel=%+v", canceled)
 	}
+	firstRequestedAt := *canceled.CancelRequestedAt
 	again, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, "cancel-pending", now.Add(2*time.Second))
-	if err != nil || again.ID != canceled.ID || again.State != StateCanceled {
+	if err != nil || again.ID != canceled.ID || again.State != StatePending || again.CancelRequestedAt == nil || !again.CancelRequestedAt.Equal(firstRequestedAt) {
 		t.Fatalf("idempotent cancel=%+v err=%v", again, err)
 	}
 
-	running, err := repository.CreateReply(ctx, CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: "cancel-running", Content: "running"})
+	running, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, "cancel-running", "running"))
 	if err != nil {
 		t.Fatal(err)
 	}

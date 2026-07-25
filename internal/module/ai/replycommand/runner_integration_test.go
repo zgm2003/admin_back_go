@@ -25,7 +25,7 @@ func TestRunnerRestartPollsCommittedCommandAndDuplicateWakeIsNoop(t *testing.T) 
 	db := openReplyIntegrationDB(t)
 	fixture := createReplyFixture(t, db)
 	repository := NewGormRepository(db)
-	created, err := repository.CreateReply(context.Background(), CreateReplyInput{ConversationID: fixture.conversationID, UserID: fixture.userID, RequestID: "restart-request", Content: "hello"})
+	created, err := repository.CreateReply(context.Background(), testCreateReplyInput(fixture.conversationID, fixture.userID, "restart-request", "hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +52,7 @@ func TestClaimLeaseFencingAndIdempotentAssistantPublication(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
 	repository.now = func() time.Time { return now }
-	created, err := repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      "lease-request",
-		Content:        "hello",
-	})
+	created, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, "lease-request", "hello"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,8 @@ package replycommand
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,17 +12,71 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/requestidentity"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 const durableWorkIntegrationEnv = "ADMIN_DURABLE_WORK_INTEGRATION"
 
-func TestIdempotencyKeyIsStableAndConversationScoped(t *testing.T) {
+func TestIdempotencyKeyIsStableAndUserScoped(t *testing.T) {
 	first := idempotencyKey(31, "request-7")
 	if len(first) != 64 || first != idempotencyKey(31, "request-7") {
 		t.Fatalf("unstable key %q", first)
 	}
 	if first == idempotencyKey(32, "request-7") || first == idempotencyKey(31, "request-8") {
-		t.Fatal("idempotency key did not scope conversation and request")
+		t.Fatal("idempotency key did not scope user and request")
+	}
+}
+
+func TestCreateReplyReplayLocksCanonicalCommandBeforeConversation(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	input := testCreateReplyInput(3, 7, "request-1", "hello")
+	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WithArgs(int64(7), "request-1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "request_id", "request_fingerprint", "request_identity_status", "user_message_id", "state"}).
+			AddRow(41, "request-1", input.RequestFingerprint[:], requestidentity.IdentityStatusReplayable, 51, StatePending))
+	mock.ExpectCommit()
+
+	result, err := repository.CreateReply(context.Background(), input)
+	if err != nil || result.CommandID != 41 || result.UserMessageID != 51 {
+		t.Fatalf("replay=%+v err=%v now=%v", result, err, now)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCreateReplyRejectsNonEmptyIdentityMarkerBeforeDatabaseAccess(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	input := testCreateReplyInput(3, 7, "request-1", "hello")
+	input.RequestIdentityMarker = " "
+
+	if _, err := repository.CreateReply(context.Background(), input); !errors.Is(err, ErrCreateInputInvalid) {
+		t.Fatalf("whitespace request identity marker error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTransitionRejectsNonCanonicalMachineCodeBeforeDatabaseAccess(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+
+	ok, err := repository.Transition(context.Background(), 41, "worker-a", 1, StateRunning, StateFailed, map[string]any{
+		"finished_at": time.Now(), "last_error_code": " ai.reply_failed ", "last_error_message": "provider failed",
+	})
+	if ok || !errors.Is(err, ErrCreateInputInvalid) {
+		t.Fatalf("transition ok=%v err=%v", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -31,36 +87,22 @@ func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 	ctx := context.Background()
 
 	invalidJSON := "{"
-	_, err := repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      "message-insert-failure",
-		Content:        "message must roll back",
-		MetaJSON:       &invalidJSON,
-	})
+	invalidInput := testCreateReplyInput(fixture.conversationID, fixture.userID, "message-insert-failure", "message must roll back")
+	invalidInput.MetaJSON = &invalidJSON
+	_, err := repository.CreateReply(ctx, invalidInput)
 	if err == nil {
 		t.Fatal("expected invalid message JSON to fail")
 	}
 	assertReplyRows(t, db, fixture.conversationID, "message-insert-failure", "message must roll back", 0, 0)
 
 	maxRequestID := strings.Repeat("界", 128)
-	if _, err := repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      maxRequestID,
-		Content:        "128 character request ID",
-	}); err != nil {
+	if _, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, maxRequestID, "128 character request ID")); err != nil {
 		t.Fatalf("128-character request_id was rejected: %v", err)
 	}
 	assertReplyRows(t, db, fixture.conversationID, maxRequestID, "128 character request ID", 1, 1)
 
 	tooLongRequestID := strings.Repeat("界", 129)
-	_, err = repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      tooLongRequestID,
-		Content:        "command failure must roll back message",
-	})
+	_, err = repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, tooLongRequestID, "command failure must roll back message"))
 	if err == nil {
 		t.Fatal("expected oversized command request_id to fail")
 	}
@@ -69,24 +111,14 @@ func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 	collisionKey := fmt.Sprintf("p05-collision-%d", time.Now().UnixNano())
 	insertCommandKeyBlocker(t, db, fixture, collisionKey)
 	repository.idempotencyKey = func(int64, string) string { return collisionKey }
-	_, err = repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      "command-insert-failure",
-		Content:        "unique command failure must roll back message",
-	})
+	_, err = repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, "command-insert-failure", "unique command failure must roll back message"))
 	if err == nil {
 		t.Fatal("expected command unique identity conflict to fail")
 	}
 	assertReplyRows(t, db, fixture.conversationID, "command-insert-failure", "unique command failure must roll back message", 0, 0)
 	repository.idempotencyKey = idempotencyKey
 
-	created, err := repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      "request-1",
-		Content:        "original content",
-	})
+	created, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, "request-1", "original content"))
 	if err != nil {
 		t.Fatalf("CreateReply: %v", err)
 	}
@@ -94,12 +126,7 @@ func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 		t.Fatalf("unexpected create result: %+v", created)
 	}
 
-	duplicate, err := repository.CreateReply(ctx, CreateReplyInput{
-		ConversationID: fixture.conversationID,
-		UserID:         fixture.userID,
-		RequestID:      "request-1",
-		Content:        "duplicate content must not be inserted",
-	})
+	duplicate, err := repository.CreateReply(ctx, testCreateReplyInput(fixture.conversationID, fixture.userID, "request-1", "original content"))
 	if err != nil {
 		t.Fatalf("duplicate CreateReply: %v", err)
 	}
@@ -107,7 +134,21 @@ func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 		t.Fatalf("duplicate did not return original identity: created=%+v duplicate=%+v", created, duplicate)
 	}
 	assertReplyRows(t, db, fixture.conversationID, "request-1", "original content", 1, 1)
-	assertReplyRows(t, db, fixture.conversationID, "request-1", "duplicate content must not be inserted", 1, 0)
+	mismatch := testCreateReplyInput(fixture.conversationID, fixture.userID, "request-1", "different content")
+	if _, err := repository.CreateReply(ctx, mismatch); !errors.Is(err, requestidentity.ErrRequestIdentityConflict) {
+		t.Fatalf("mismatched replay error=%v", err)
+	}
+	assertReplyRows(t, db, fixture.conversationID, "request-1", "different content", 1, 0)
+}
+
+func testCreateReplyInput(conversationID, userID int64, requestID, content string) CreateReplyInput {
+	fingerprint, err := requestidentity.BuildChatFingerprint(requestidentity.ChatFingerprintInput{
+		UserID: userID, ConversationID: conversationID, AgentID: 1, ModelID: "test-model", Text: content, Options: requestidentity.GenerationOptions{MaxOutputTokens: 4096},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return CreateReplyInput{ConversationID: conversationID, UserID: userID, RequestID: requestID, Content: content, RequestFingerprint: fingerprint, RequestIdentityStatus: requestidentity.IdentityStatusReplayable}
 }
 
 type replyFixture struct {
@@ -184,11 +225,12 @@ func assertReplyRows(t *testing.T, db *database.Client, conversationID int64, re
 
 func insertCommandKeyBlocker(t *testing.T, db *database.Client, fixture replyFixture, key string) {
 	t.Helper()
+	fingerprint := sha256.Sum256([]byte("reply-command-idempotency-blocker:" + key))
 	_, err := db.SQL.ExecContext(context.Background(), `
 INSERT INTO ai_reply_commands
-  (request_id, idempotency_key, platform, user_id, conversation_id, user_message_id, state, max_attempts, next_attempt_at)
+  (request_id, request_fingerprint, request_identity_status, request_identity_marker, idempotency_key, platform, user_id, conversation_id, user_message_id, state, max_attempts, next_attempt_at)
 VALUES
-	(?, ?, 'admin', ?, ?, ?, 'failed', 3, CURRENT_TIMESTAMP(6))`, "blocker", key, fixture.userID, fixture.conversationID, -time.Now().UnixNano())
+	(?, ?, 'replayable', '', ?, 'admin', ?, ?, ?, 'failed', 3, CURRENT_TIMESTAMP(6))`, "blocker", fingerprint[:], key, fixture.userID, fixture.conversationID, -time.Now().UnixNano())
 	if err != nil {
 		t.Fatalf("reserve command idempotency key: %v", err)
 	}

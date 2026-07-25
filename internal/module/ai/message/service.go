@@ -3,12 +3,15 @@ package aimessage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"admin_back_go/internal/module/ai/replycommand"
+	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -95,17 +98,26 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
-	if agent == nil || agent.Status != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
+	if agent == nil || agent.Status != enum.CommonYes || strings.TrimSpace(agent.ModelID) == "" || agent.MaxOutputTokens <= 0 || !agentSupportsChat(agent.ScenesJSON) {
 		return nil, apperror.BadRequest("该智能体不支持对话场景")
 	}
+	fingerprint, err := buildSendFingerprint(userID, input.ConversationID, content, attachments, runtimeParams, *agent)
+	if err != nil {
+		return nil, apperror.BadRequest("AI消息请求身份无效")
+	}
 	created, err := repo.CreateReply(ctx, replycommand.CreateReplyInput{
-		ConversationID: input.ConversationID,
-		UserID:         userID,
-		RequestID:      requestID,
-		Content:        content,
-		MetaJSON:       metaJSONForSend(attachments, runtimeParams),
+		ConversationID:        input.ConversationID,
+		UserID:                userID,
+		RequestID:             requestID,
+		Content:               content,
+		MetaJSON:              metaJSONForSend(attachments, runtimeParams),
+		RequestFingerprint:    fingerprint,
+		RequestIdentityStatus: requestidentity.IdentityStatusReplayable,
 	})
 	if err != nil {
+		if errors.Is(err, requestidentity.ErrRequestIdentityConflict) || errors.Is(err, requestidentity.ErrRequestIdentityNotReplayable) {
+			return nil, apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "request_id与原请求内容冲突", err)
+		}
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "提交AI回复任务失败", err)
 	}
 	if s.replyWaker != nil {
@@ -139,7 +151,28 @@ func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (
 	if s.cancelPublisher != nil {
 		_ = s.cancelPublisher.PublishCancel(ctx, command.ID)
 	}
-	return &CancelResponse{ConversationID: input.ConversationID, RequestID: requestID, Status: "canceled"}, nil
+	return &CancelResponse{ConversationID: input.ConversationID, RequestID: requestID, Status: "stopping"}, nil
+}
+
+func buildSendFingerprint(userID, conversationID int64, content string, attachments []Attachment, runtimeParams map[string]float64, agent AgentRuntime) ([32]byte, error) {
+	identities := make([]requestidentity.AttachmentIdentity, 0, len(attachments))
+	for _, attachment := range attachments {
+		identities = append(identities, requestidentity.AttachmentIdentity{StorageProvider: "url", StorageKey: attachment.URL})
+	}
+	options := requestidentity.GenerationOptions{MaxOutputTokens: agent.MaxOutputTokens, Extra: map[string]string{}}
+	for key, value := range runtimeParams {
+		if key == "max_tokens" {
+			options.MaxOutputTokens = int64(value)
+			continue
+		}
+		options.Extra[key] = strconv.FormatFloat(value, 'f', -1, 64)
+	}
+	if len(options.Extra) == 0 {
+		options.Extra = nil
+	}
+	return requestidentity.BuildChatFingerprint(requestidentity.ChatFingerprintInput{
+		UserID: userID, ConversationID: conversationID, AgentID: agent.AgentID, ModelID: agent.ModelID, Text: content, Attachments: identities, Options: options,
+	})
 }
 
 func metaJSONForSend(attachments []Attachment, runtimeParams map[string]float64) *string {

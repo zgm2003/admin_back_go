@@ -218,7 +218,7 @@ func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
 const (
 	ErrCodeInsufficientBalance = "ai.billing.insufficient_balance"
-	ErrCodeFingerprintConflict = "ai.billing.request_fingerprint_conflict"
+	ErrCodeFingerprintConflict = requestidentity.ErrorCodeFingerprintConflict
 	ErrCodePreparedMissing     = "ai.billing.prepared_attempt_missing"
 	ErrCodeInvalidPrepared     = "ai.billing.invalid_prepared_call"
 	ErrCodeDuplicateAttempt    = "ai.billing.duplicate_attempt"

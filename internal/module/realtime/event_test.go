@@ -104,6 +104,53 @@ func TestConfirmedRecoveryEventsUseExactPayloadAndDurability(t *testing.T) {
 	}
 }
 
+func TestAIResponseFailedPayloadRequiresMachineCodeAndExplicitWalletPaths(t *testing.T) {
+	registry := DefaultRegistry()
+	now := time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC)
+	eventID, err := infrarealtime.NewEventID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := registry.NewDurable(eventID, TypeAIResponseFailedV1, "request-1", 1, AIResponseFailedPayload{
+		ConversationID: 3, RequestID: "request-1", Msg: "failed",
+	}, now); !errors.Is(err, ErrEventPayloadInvalid) {
+		t.Fatalf("blank machine code accepted: %v", err)
+	}
+	if _, err := registry.NewDurable(eventID, TypeAIResponseFailedV1, "request-1", 1, AIResponseFailedPayload{
+		ConversationID: 3, RequestID: "request-1", Msg: "failed", ErrorCode: " ai.reply_failed ",
+	}, now); !errors.Is(err, ErrEventPayloadInvalid) {
+		t.Fatalf("machine code with surrounding whitespace accepted: %v", err)
+	}
+
+	walletPath := "/profile/wallet"
+	rechargePath := "/payment/recharge"
+	envelope, err := registry.NewDurable(eventID, TypeAIResponseFailedV1, "request-1", 1, AIResponseFailedPayload{
+		ConversationID: 3,
+		RequestID:      "request-1",
+		Msg:            "balance is insufficient",
+		ErrorCode:      "ai.billing.insufficient_balance",
+		WalletPath:     &walletPath,
+		RechargePath:   &rechargePath,
+	}, now)
+	if err != nil {
+		t.Fatalf("valid billing failure rejected: %v", err)
+	}
+	if got := string(envelope.Data); got != `{"conversation_id":3,"request_id":"request-1","msg":"balance is insufficient","error_code":"ai.billing.insufficient_balance","wallet_path":"/profile/wallet","recharge_path":"/payment/recharge"}` {
+		t.Fatalf("billing failure payload=%s", got)
+	}
+
+	nonBilling, err := registry.NewDurable(eventID, TypeAIResponseFailedV1, "request-2", 2, AIResponseFailedPayload{
+		ConversationID: 3, RequestID: "request-2", Msg: "provider failed", ErrorCode: "ai.reply_failed",
+	}, now)
+	if err != nil {
+		t.Fatalf("valid non-billing failure rejected: %v", err)
+	}
+	if got := string(nonBilling.Data); got != `{"conversation_id":3,"request_id":"request-2","msg":"provider failed","error_code":"ai.reply_failed","wallet_path":null,"recharge_path":null}` {
+		t.Fatalf("non-billing failure payload=%s", got)
+	}
+}
+
 func TestEnvelopeRegistryUsesJSONCharacterLengths(t *testing.T) {
 	registry := DefaultRegistry()
 	requestID := strings.Repeat("界", 128)

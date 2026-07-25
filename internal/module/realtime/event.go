@@ -352,9 +352,12 @@ func (p *AIResponseCompletedPayload) Validate() error {
 }
 
 type AIResponseFailedPayload struct {
-	ConversationID int64  `json:"conversation_id"`
-	RequestID      string `json:"request_id"`
-	Msg            string `json:"msg"`
+	ConversationID int64   `json:"conversation_id"`
+	RequestID      string  `json:"request_id"`
+	Msg            string  `json:"msg"`
+	ErrorCode      string  `json:"error_code"`
+	WalletPath     *string `json:"wallet_path"`
+	RechargePath   *string `json:"recharge_path"`
 }
 
 type AIResponseCanceledPayload struct {
@@ -370,8 +373,16 @@ func (p *AIResponseCanceledPayload) Validate() error {
 }
 
 func (p *AIResponseFailedPayload) Validate() error {
-	if p.ConversationID <= 0 || !validRequestID(p.RequestID) || strings.TrimSpace(p.Msg) == "" || len([]rune(p.Msg)) > 1024 {
+	errorCode := strings.TrimSpace(p.ErrorCode)
+	if p.ConversationID <= 0 || !validRequestID(p.RequestID) || strings.TrimSpace(p.Msg) == "" || len([]rune(p.Msg)) > 1024 || errorCode == "" || p.ErrorCode != errorCode || len([]rune(p.ErrorCode)) > 128 {
 		return errors.New("invalid AI failed payload")
+	}
+	if p.ErrorCode == "ai.billing.insufficient_balance" {
+		if p.WalletPath == nil || *p.WalletPath != "/profile/wallet" || p.RechargePath == nil || *p.RechargePath != "/payment/recharge" {
+			return errors.New("invalid AI billing failure paths")
+		}
+	} else if p.WalletPath != nil || p.RechargePath != nil {
+		return errors.New("non-billing AI failure must not expose wallet paths")
 	}
 	return nil
 }
