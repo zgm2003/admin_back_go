@@ -365,7 +365,7 @@ func sameTerminalEvidence(left, right DispatchResult) bool {
 		reflect.DeepEqual(left.Usage, right.Usage)
 }
 
-func (g *Gateway) Finalize(ctx context.Context, input FinalizeInput) error {
+func (g *Gateway) Finalize(ctx context.Context, request FinalizeRequest) error {
 	if g == nil {
 		return ErrNotConfigured
 	}
@@ -374,7 +374,7 @@ func (g *Gateway) Finalize(ctx context.Context, input FinalizeInput) error {
 	if g.deps.Finalizer == nil {
 		return ErrNotConfigured
 	}
-	return g.deps.Finalizer.Finalize(ctx, input)
+	return g.deps.Finalizer.Finalize(ctx, request)
 }
 
 func attemptKey(runID int64, attemptNo uint32) string {

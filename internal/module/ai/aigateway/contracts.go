@@ -152,21 +152,12 @@ type RunStore interface {
 	RequestFingerprint(context.Context, int64, string) ([32]byte, error)
 }
 
-type FinalizeInput struct {
-	RunID         int64
-	RunStatus     string
-	BillingStatus billing.BillingStatus
-	BillingReason billing.BillingReason
-	ActualUnits   int64
-	HoldUnits     int64
-	Items         []billing.UsageChargeItem
-	AgentID       int64
-	Model         string
-	ModelDisplay  string
-}
+// FinalizeRequest intentionally carries no mutable billing, run, pricing or
+// candidate facts. Finalization reads every such fact from its locked store.
+type FinalizeRequest struct{ RunID int64 }
 
 type Finalizer interface {
-	Finalize(context.Context, FinalizeInput) error
+	Finalize(context.Context, FinalizeRequest) error
 }
 
 type Dependencies struct {

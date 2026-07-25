@@ -257,20 +257,3 @@ type AttemptEvidenceRecorder interface {
 	RecordDispatched(context.Context, Tx, DispatchEvidence) error
 	RecordOutcome(context.Context, Tx, OutcomeEvidence) error
 }
-
-type FinalizeInput struct {
-	RunID         int64
-	RunStatus     string
-	BillingStatus BillingStatus
-	BillingReason BillingReason
-	HoldStatus    HoldStatus
-	ChargeStatus  ChargeStatus
-	ActualUnits   int64
-	Items         []UsageChargeItem
-	EventType     string
-	FinalizedAt   time.Time
-}
-
-type FinalizerParticipant interface {
-	FinalizeRunChargeHold(context.Context, Tx, FinalizeInput) error
-}

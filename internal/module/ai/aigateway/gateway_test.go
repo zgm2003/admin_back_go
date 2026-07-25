@@ -261,25 +261,25 @@ func TestGatewayRequiresActiveHoldBeforeDispatch(t *testing.T) {
 	}
 }
 
-func TestGatewayFinalizeDefersSettlementAmountsToFinalizer(t *testing.T) {
+func TestGatewayFinalizePassesOnlyRunIdentityToFinalizer(t *testing.T) {
 	finalizer := &captureFinalizer{}
-	err := New(Dependencies{Finalizer: finalizer}).Finalize(context.Background(), FinalizeInput{RunID: 14, ActualUnits: -1, HoldUnits: 0})
+	err := New(Dependencies{Finalizer: finalizer}).Finalize(context.Background(), FinalizeRequest{RunID: 14})
 	if err != nil {
-		t.Fatalf("gateway rejected caller amounts before finalizer: %v", err)
+		t.Fatalf("gateway finalization failed: %v", err)
 	}
-	if finalizer.calls != 1 || finalizer.input.ActualUnits != -1 {
-		t.Fatalf("finalizer was not given original input: %+v", finalizer)
+	if finalizer.calls != 1 || finalizer.request.RunID != 14 {
+		t.Fatalf("finalizer was not given run identity: %+v", finalizer)
 	}
 }
 
 type captureFinalizer struct {
-	calls int
-	input FinalizeInput
+	calls   int
+	request FinalizeRequest
 }
 
-func (f *captureFinalizer) Finalize(_ context.Context, input FinalizeInput) error {
+func (f *captureFinalizer) Finalize(_ context.Context, request FinalizeRequest) error {
 	f.calls++
-	f.input = input
+	f.request = request
 	return nil
 }
 
