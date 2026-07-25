@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,6 +66,14 @@ func New(config Config) *Client {
 		streamHTTPClient:  streamHTTPClient,
 		timeout:           timeout,
 		streamIdleTimeout: streamIdleTimeout,
+	}
+}
+
+func (c *Client) Capabilities() infraai.CapabilityMetadata {
+	return infraai.CapabilityMetadata{
+		SupportedUsageKeys:          []string{"prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details.cached_tokens", "prompt_tokens_details.cache_creation_input_tokens", "prompt_tokens_details.cache_read_input_tokens"},
+		SafeInputUpperBoundStrategy: "serialized_utf8_bytes_plus_framing",
+		SupportsIdempotencyHeader:   true,
 	}
 }
 
@@ -471,6 +480,7 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 		if data == "[DONE]" {
 			if result.UsageStatus == "" {
 				result.UsageStatus = infraai.UsageStatusUnavailable
+				result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 			}
 			return result, nil
 		}
@@ -483,6 +493,10 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			result.CompletionTokens = chunk.Usage.CompletionTokens
 			result.TotalTokens = chunk.Usage.TotalTokens
 			result.UsageStatus = infraai.UsageStatusReported
+			result.Usage = tokenUsageSnapshot(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, chunk.Usage.TotalTokens, chunk.Usage.PromptDetails)
+			result.Usage.RawProviderJSON = append([]byte(nil), data...)
+			result.Usage.ResponseSHA256 = sha256.Sum256([]byte(data))
+			result.ResponseSHA256 = result.Usage.ResponseSHA256
 		}
 		for _, choice := range chunk.Choices {
 			for _, call := range choice.Delta.ToolCalls {
@@ -506,6 +520,7 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 	}
 	if result.UsageStatus == "" {
 		result.UsageStatus = infraai.UsageStatusUnavailable
+		result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 	}
 	return result, nil
 }
@@ -578,10 +593,48 @@ type chatCompletionStreamChunk struct {
 		} `json:"delta"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
+		PromptTokens     int                 `json:"prompt_tokens"`
+		CompletionTokens int                 `json:"completion_tokens"`
+		TotalTokens      int                 `json:"total_tokens"`
+		PromptDetails    *promptTokenDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
+}
+
+type promptTokenDetails struct {
+	CachedTokens             int `json:"cached_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func tokenUsageSnapshot(prompt, completion, total int, details *promptTokenDetails) infraai.UsageSnapshot {
+	if prompt < 0 || completion < 0 || total < 0 || total != prompt+completion {
+		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
+	read, write := 0, 0
+	if details != nil {
+		if details.CachedTokens > 0 && details.CacheReadInputTokens > 0 {
+			return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+		}
+		read = details.CachedTokens + details.CacheReadInputTokens
+		write = details.CacheCreationInputTokens
+	}
+	if read < 0 || write < 0 || read+write > prompt {
+		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
+	items := []infraai.UsageItem{{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: int64(prompt - read - write)}, {Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: int64(completion)}}
+	if details != nil {
+		if read > 0 || details.CachedTokens == 0 {
+			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryCacheRead, Unit: "token", Quantity: int64(read)})
+		}
+		if write > 0 {
+			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryCacheWrite, Unit: "token", Quantity: int64(write)})
+		}
+	}
+	snapshot, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, nil, items)
+	if err != nil {
+		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
+	return snapshot
 }
 
 type chatStreamToolCall struct {

@@ -9,6 +9,7 @@ type ImageAsset struct {
 }
 
 type ImageInput struct {
+	IdempotencyKey    string
 	Model             string
 	Prompt            string
 	Size              string
@@ -29,13 +30,17 @@ type GeneratedImage struct {
 }
 
 type ImageResult struct {
-	Images           []GeneratedImage
-	ActualParams     map[string]any
-	RawResponse      []byte
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
-	UsageStatus      string
+	Images            []GeneratedImage
+	ActualParams      map[string]any
+	RawResponse       []byte
+	PromptTokens      int
+	CompletionTokens  int
+	TotalTokens       int
+	UsageStatus       string
+	Usage             UsageSnapshot `json:"usage"`
+	DispatchState     string        `json:"dispatch_state"`
+	ProviderRequestID string        `json:"provider_request_id,omitempty"`
+	ResponseSHA256    [32]byte      `json:"response_sha256,omitempty"`
 }
 
 type ImageEngine interface {

@@ -51,6 +51,11 @@ func (e *FakeEngine) StreamChat(ctx context.Context, input ChatInput, sink Event
 		CompletionTokens:     1,
 		TotalTokens:          2,
 		UsageStatus:          UsageStatusReported,
+		Usage: UsageSnapshot{Status: UsageStatusReported, Items: []UsageItem{
+			{Category: UsageCategoryInput, Unit: "token", Quantity: 1},
+			{Category: UsageCategoryOutput, Unit: "token", Quantity: 1},
+		}},
+		DispatchState: DispatchStateDispatched,
 	}, nil
 }
 

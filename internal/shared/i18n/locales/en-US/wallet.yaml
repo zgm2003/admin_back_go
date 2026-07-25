@@ -21,3 +21,4 @@ wallet.redeem.rate_limited: Too many redeem attempts
 wallet.redeem.rate_limit_unavailable: Redeem rate limit service is unavailable
 wallet.redeem.dependency_unavailable: Redeem service is temporarily unavailable
 wallet.redeem.integrity_violation: Redeem transaction integrity violation
+ai.billing.insufficient_balance: Insufficient balance; please recharge first

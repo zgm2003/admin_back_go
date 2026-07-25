@@ -197,7 +197,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, appErr
 	}
 	chatInput.Tools = toolDefinitions(runtimeTools)
-	result, err := s.streamChatWithAttempt(ctx, input, engine, chatInput, sink)
+	result, err := s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
 	if err != nil {
 		msg := err.Error()
 		finishRun(statusFromError(ctx, err), msg, err)
@@ -218,7 +218,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
-		result, err = s.streamChatWithAttempt(ctx, input, engine, chatInput, sink)
+		result, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
 		if err != nil {
 			msg := err.Error()
 			finishRun(statusFromError(ctx, err), msg, err)
@@ -396,7 +396,7 @@ func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (
 	return &TextCompletionResponse{ID: fmt.Sprintf("text-completion-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
 }
 
-func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	if input.CommandID == 0 {
 		return engine.StreamChat(ctx, chatInput, sink)
 	}
@@ -404,6 +404,7 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationR
 		return nil, ErrProviderAttemptRecorderMissing
 	}
 	attempt, err := s.attemptRecorder.PrepareProviderAttempt(ctx, ProviderAttemptPrepareInput{
+		RunID:     runID,
 		CommandID: input.CommandID,
 		Owner:     input.LeaseOwner,
 		Token:     input.LeaseToken,
@@ -416,6 +417,7 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationR
 		return nil, ErrProviderAttemptInvalid
 	}
 	if err := s.attemptRecorder.MarkProviderAttemptDispatched(ctx, ProviderAttemptMarkInput{
+		RunID:     runID,
 		AttemptID: attempt.ID,
 		CommandID: input.CommandID,
 		Owner:     input.LeaseOwner,
@@ -429,6 +431,7 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationR
 	result, providerErr := engine.StreamChat(ctx, chatInput, sink)
 	finish := ProviderAttemptFinishInput{
 		AttemptID: attempt.ID,
+		RunID:     runID,
 		CommandID: input.CommandID,
 		Owner:     input.LeaseOwner,
 		Token:     input.LeaseToken,
@@ -439,6 +442,14 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, input ConversationR
 		finish.ResponseSHA256 = providerAttemptResponseHash(result)
 		if result != nil {
 			finish.ProviderRequestID = result.ProviderRequestID
+			finish.UsageStatus = result.UsageStatus
+			if finish.UsageStatus == infraai.UsageStatusReported {
+				finish.UsageStatus = "complete"
+			}
+			finish.DispatchState = result.DispatchState
+			if usageJSON, marshalErr := json.Marshal(result.Usage); marshalErr == nil {
+				finish.UsageJSON = string(usageJSON)
+			}
 		}
 	} else {
 		finish.State = ProviderAttemptFailed

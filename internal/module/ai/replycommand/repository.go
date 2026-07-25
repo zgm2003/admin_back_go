@@ -24,6 +24,7 @@ var (
 	ErrConversationUnavailable = errors.New("owned active conversation not found")
 	ErrCreateInputInvalid      = errors.New("reply command create input is invalid")
 	ErrReplyCommandNotFound    = errors.New("reply command not found")
+	ErrAttemptNotFound         = errors.New("provider attempt not found")
 	errPublishLeaseLost        = errors.New("assistant publication lease lost")
 )
 

@@ -21,3 +21,4 @@ wallet.redeem.rate_limited: 兑换请求过于频繁
 wallet.redeem.rate_limit_unavailable: 兑换限流服务暂不可用
 wallet.redeem.dependency_unavailable: 兑换服务暂不可用
 wallet.redeem.integrity_violation: 兑换事实完整性异常
+ai.billing.insufficient_balance: 余额不足，请先充值

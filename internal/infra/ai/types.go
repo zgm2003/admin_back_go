@@ -1,6 +1,12 @@
 package ai
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
 
 type EngineType string
 
@@ -10,8 +16,89 @@ const (
 
 const (
 	UsageStatusReported    = "reported"
+	UsageStatusComplete    = "complete"
 	UsageStatusUnavailable = "unavailable"
 )
+
+const (
+	UsageCategoryInput      = "input"
+	UsageCategoryOutput     = "output"
+	UsageCategoryCacheRead  = "cache_read"
+	UsageCategoryCacheWrite = "cache_write"
+	UsageCategoryMedia      = "media"
+
+	DispatchStateNotDispatched = "not_dispatched"
+	DispatchStateDispatched    = "dispatched"
+	DispatchStateUnknown       = "unknown"
+)
+
+// UsageItem is the provider-neutral, integer usage unit consumed by pricing.
+// Zero is valid only when the provider explicitly reports that item.
+type UsageItem struct {
+	Category string `json:"category"`
+	Unit     string `json:"unit"`
+	TierKey  string `json:"tier_key,omitempty"`
+	Quantity int64  `json:"quantity"`
+}
+
+func (item UsageItem) Validate() error {
+	if item.Category == "" || item.Unit == "" || item.Quantity < 0 {
+		return errors.New("usage item category, unit and non-negative quantity are required")
+	}
+	return nil
+}
+
+type UsageSnapshot struct {
+	Status          string          `json:"status"`
+	RawProviderJSON json.RawMessage `json:"raw_provider_json,omitempty"`
+	Items           []UsageItem     `json:"items,omitempty"`
+	ResponseSHA256  [32]byte        `json:"response_sha256,omitempty"`
+}
+
+type CapabilityMetadata struct {
+	SupportedUsageKeys          []string `json:"supported_usage_keys"`
+	SafeInputUpperBoundStrategy string   `json:"safe_input_upper_bound_strategy"`
+	SupportsIdempotencyHeader   bool     `json:"supports_idempotency_header"`
+	SupportsCancelTask          bool     `json:"supports_cancel_task"`
+}
+
+type CapabilityProvider interface {
+	Capabilities() CapabilityMetadata
+}
+
+func (s UsageSnapshot) Complete() bool {
+	return s.Status == UsageStatusReported || s.Status == UsageStatusComplete
+}
+
+func (s UsageSnapshot) Validate() error {
+	if s.Status == UsageStatusUnavailable {
+		return nil
+	}
+	if !s.Complete() {
+		return fmt.Errorf("unknown usage status %q", s.Status)
+	}
+	seen := make(map[string]struct{}, len(s.Items))
+	for _, item := range s.Items {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		if item.Category != UsageCategoryInput && item.Category != UsageCategoryOutput && item.Category != UsageCategoryCacheRead && item.Category != UsageCategoryCacheWrite && item.Category != UsageCategoryMedia {
+			return fmt.Errorf("unsupported usage category %q", item.Category)
+		}
+		key := item.Category + "|" + item.Unit + "|" + item.TierKey
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("duplicate usage item %q", key)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func NewUsageSnapshot(status string, raw []byte, items []UsageItem) (UsageSnapshot, error) {
+	s := UsageSnapshot{Status: status, RawProviderJSON: append([]byte(nil), raw...), Items: append([]UsageItem(nil), items...)}
+	s.ResponseSHA256 = sha256.Sum256(raw)
+	return s, s.Validate()
+}
 
 type TestConnectionInput struct {
 	EngineType EngineType
@@ -71,7 +158,9 @@ type ChatResult struct {
 	CompletionTokens     int
 	TotalTokens          int
 	UsageStatus          string
-	Cost                 float64
+	Usage                UsageSnapshot `json:"usage"`
+	DispatchState        string        `json:"dispatch_state"`
+	ResponseSHA256       [32]byte      `json:"response_sha256,omitempty"`
 	LatencyMs            int
 }
 

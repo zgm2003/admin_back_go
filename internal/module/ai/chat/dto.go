@@ -92,6 +92,7 @@ const (
 )
 
 type ProviderAttemptPrepareInput struct {
+	RunID     int64
 	CommandID uint64
 	Owner     string
 	Token     uint64
@@ -99,11 +100,16 @@ type ProviderAttemptPrepareInput struct {
 }
 
 type ProviderAttemptRef struct {
-	ID             uint64
-	IdempotencyKey string
+	ID                  uint64
+	RunID               int64
+	AttemptNo           uint
+	IdempotencyKey      string
+	PreparedRequestJSON string
+	QuoteJSON           string
 }
 
 type ProviderAttemptMarkInput struct {
+	RunID     int64
 	AttemptID uint64
 	CommandID uint64
 	Owner     string
@@ -112,15 +118,20 @@ type ProviderAttemptMarkInput struct {
 }
 
 type ProviderAttemptFinishInput struct {
-	AttemptID         uint64
-	CommandID         uint64
-	Owner             string
-	Token             uint64
-	State             ProviderAttemptState
-	ProviderRequestID string
-	ResponseSHA256    string
-	ErrorCode         string
-	Now               time.Time
+	AttemptID           uint64
+	RunID               int64
+	CommandID           uint64
+	Owner               string
+	Token               uint64
+	State               ProviderAttemptState
+	ProviderRequestID   string
+	ResponseSHA256      string
+	ErrorCode           string
+	DispatchState       string
+	UsageJSON           string
+	UsageStatus         string
+	ResultCandidateJSON *string
+	Now                 time.Time
 }
 
 type ProviderAttemptRecorder interface {

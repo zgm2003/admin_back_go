@@ -53,6 +53,14 @@ func New(config Config) *Client {
 	}
 }
 
+func (c *Client) Capabilities() infraai.CapabilityMetadata {
+	return infraai.CapabilityMetadata{
+		SupportedUsageKeys:          []string{"usage.input_tokens", "usage.output_tokens", "usage.total_tokens"},
+		SafeInputUpperBoundStrategy: "serialized_utf8_bytes_plus_framing",
+		SupportsIdempotencyHeader:   true,
+	}
+}
+
 func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (*infraai.ImageResult, error) {
 	if c == nil {
 		return nil, fmt.Errorf("%w: OpenAI image client is nil", infraai.ErrInvalidConfig)
@@ -75,6 +83,9 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 	}
 	if err != nil {
 		return nil, err
+	}
+	if key := strings.TrimSpace(input.IdempotencyKey); key != "" {
+		req.Header.Set("Idempotency-Key", key)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -340,6 +351,18 @@ func imageResultFromPayload(payload imageResponse, raw []byte, fallbackMime stri
 		result.CompletionTokens = payload.Usage.OutputTokens
 		result.TotalTokens = payload.Usage.TotalTokens
 		result.UsageStatus = infraai.UsageStatusReported
+		if payload.Usage.InputTokens < 0 || payload.Usage.OutputTokens < 0 || payload.Usage.TotalTokens < 0 || ((payload.Usage.InputTokens != 0 || payload.Usage.OutputTokens != 0) && payload.Usage.TotalTokens != payload.Usage.InputTokens+payload.Usage.OutputTokens) {
+			result.UsageStatus = infraai.UsageStatusUnavailable
+		} else {
+			items := make([]infraai.UsageItem, 0, 2)
+			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: int64(payload.Usage.InputTokens)})
+			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: int64(payload.Usage.OutputTokens)})
+			if payload.Usage.InputTokens == 0 && payload.Usage.OutputTokens == 0 && payload.Usage.TotalTokens > 0 {
+				items = []infraai.UsageItem{{Category: infraai.UsageCategoryMedia, Unit: "token", Quantity: int64(payload.Usage.TotalTokens)}}
+			}
+			result.Usage, _ = infraai.NewUsageSnapshot(infraai.UsageStatusReported, raw, items)
+			result.ResponseSHA256 = result.Usage.ResponseSHA256
+		}
 	}
 	return result, nil
 }
