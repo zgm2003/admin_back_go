@@ -17,15 +17,6 @@ SET @ai_billing_permissions_preexisting = (
 INSERT INTO `_ai_run_permission_guard`
 SELECT IF(COALESCE(@ai_billing_permissions_preexisting, 0) = 0, 0, 1);
 
-INSERT INTO `ai_billing_migration_metadata` (
-  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
-  `phase`, `phase_started_at`, `phase_completed_at`
-)
-VALUES (
-  'ai_billing_permissions_v1', CURRENT_TIMESTAMP(6), 'ai_billing_permissions_v1',
-  UNHEX(SHA2('ai_billing_permissions_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
-);
-
 INSERT INTO `_ai_run_permission_guard`
 SELECT IF(
   COUNT(*) = 1
@@ -66,6 +57,17 @@ SELECT IF(
 )
 FROM `permissions` AS permission
 WHERE permission.`id` = 920 OR permission.`code` = 'ai_run_list';
+
+-- All read-only permission guards passed; journal before the transaction that
+-- mutates the permission row.
+INSERT INTO `ai_billing_migration_metadata` (
+  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
+  `phase`, `phase_started_at`, `phase_completed_at`
+)
+VALUES (
+  'ai_billing_permissions_v1', CURRENT_TIMESTAMP(6), 'ai_billing_permissions_v1',
+  UNHEX(SHA2('ai_billing_permissions_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
+);
 
 START TRANSACTION;
 

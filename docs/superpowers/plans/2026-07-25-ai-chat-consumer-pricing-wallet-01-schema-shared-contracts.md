@@ -67,7 +67,7 @@ Extend the event check/index to allow `retry_scheduled`, `usage_recorded`, `outc
 
 - [x] **Step 1: Write the expand migration**
 
-Create new tables and initially nullable columns only. Before any write, abort if there are active legacy paid workloads (`ai_reply_commands` in `pending|claimed|running`, or text/image/video tasks in a non-terminal state), negative cents, duplicate wallet users, duplicate `(source_type, source_id)`, duplicate canonical `(user_id, request_id)` identities, or orphan AI foreign keys. The migration must not create a backup database. Do not add `NOT NULL request_fingerprint`, `NOT NULL run_id`, unit-column constraints or new unique indexes to populated tables until backfill validation succeeds.
+Create new tables and initially nullable columns only. Before any write, abort if there are active legacy paid workloads (`ai_reply_commands` in `pending|claimed|running`, `ai_provider_attempts` in `prepared|dispatched`, or text/image/video tasks in a non-terminal state), negative cents, duplicate wallet users, duplicate `(source_type, source_id)`, duplicate canonical `(user_id, request_id)` identities, or orphan AI foreign keys. The migration must not create a backup database. Do not add `NOT NULL request_fingerprint`, `NOT NULL run_id`, unit-column constraints or new unique indexes to populated tables until backfill validation succeeds.
 
 Because MySQL DDL implicitly commits, create/update `ai_billing_migration_metadata`
 phase rows before each stage's first DDL. A stage writes `started` before work and

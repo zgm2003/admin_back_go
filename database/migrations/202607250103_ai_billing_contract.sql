@@ -22,15 +22,6 @@ SET @ai_billing_contract_preexisting = (
 INSERT INTO `_ai_billing_contract_guard`
 SELECT IF(COALESCE(@ai_billing_contract_preexisting, 0) = 0, 0, 1);
 
-INSERT INTO `ai_billing_migration_metadata` (
-  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
-  `phase`, `phase_started_at`, `phase_completed_at`
-)
-VALUES (
-  'ai_billing_contract_v1', CURRENT_TIMESTAMP(6), 'ai_billing_contract_v1',
-  UNHEX(SHA2('ai_billing_contract_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
-);
-
 INSERT INTO `_ai_billing_contract_guard`
 SELECT IF(COALESCE(@ai_billing_units_only_verified, 0) = 1, 0, 1);
 
@@ -235,6 +226,17 @@ FROM (
   UNION ALL SELECT task.`id` FROM `ai_audio_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id` WHERE run_row.`id` IS NULL
   UNION ALL SELECT attempt.`id` FROM `ai_provider_attempts` AS attempt LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = attempt.`run_id` WHERE run_row.`id` IS NULL
 ) AS orphan_run_owners;
+
+-- All read-only contract guards passed.  The next statement is destructive
+-- DDL, so persist the started boundary immediately before it.
+INSERT INTO `ai_billing_migration_metadata` (
+  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
+  `phase`, `phase_started_at`, `phase_completed_at`
+)
+VALUES (
+  'ai_billing_contract_v1', CURRENT_TIMESTAMP(6), 'ai_billing_contract_v1',
+  UNHEX(SHA2('ai_billing_contract_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
+);
 
 ALTER TABLE `ai_runs`
   MODIFY COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,

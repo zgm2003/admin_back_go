@@ -21,15 +21,6 @@ SET @ai_billing_backfill_preexisting = (
 INSERT INTO `_ai_billing_backfill_guard`
 SELECT IF(COALESCE(@ai_billing_backfill_preexisting, 0) = 0, 0, 1);
 
-INSERT INTO `ai_billing_migration_metadata` (
-  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
-  `phase`, `phase_started_at`, `phase_completed_at`
-)
-VALUES (
-  'ai_billing_backfill_v1', CURRENT_TIMESTAMP(6), 'ai_billing_backfill_v1',
-  UNHEX(SHA2('ai_billing_backfill_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
-);
-
 -- Capture one durable boundary before writing any legacy identity marker. The
 -- second-level precision is deliberate: legacy created_at columns are second
 -- precision, so rows created at the boundary are rejected conservatively.
@@ -128,6 +119,17 @@ FROM (
   GROUP BY task.`id`
   HAVING COUNT(run_row.`id`) <> 1
 ) AS unmapped_paid_tasks;
+
+-- All read-only preflight guards passed.  The next section locks writers and
+-- mutates units, so journal the durable started boundary immediately before it.
+INSERT INTO `ai_billing_migration_metadata` (
+  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
+  `phase`, `phase_started_at`, `phase_completed_at`
+)
+VALUES (
+  'ai_billing_backfill_v1', CURRENT_TIMESTAMP(6), 'ai_billing_backfill_v1',
+  UNHEX(SHA2('ai_billing_backfill_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
+);
 
 -- Wallet writers are locked across both conversion and conservation checks.
 SET @ai_billing_previous_autocommit = @@autocommit;
