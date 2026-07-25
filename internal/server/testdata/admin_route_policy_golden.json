@@ -2121,7 +2121,8 @@
         "required": true,
         "module": "payment_redeem_code",
         "action": "void",
-        "title": "作废兑换码"
+        "title": "作废兑换码",
+        "skip_request_payload": true
       }
     },
     {
@@ -2772,6 +2773,7 @@
         "module": "payment_redeem_code",
         "action": "generate",
         "title": "生成兑换码",
+        "skip_request_payload": true,
         "skip_response_payload": true
       }
     },
@@ -2788,6 +2790,7 @@
         "module": "payment_redeem_code",
         "action": "export",
         "title": "导出兑换码",
+        "skip_request_payload": true,
         "skip_response_payload": true
       }
     },

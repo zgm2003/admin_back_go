@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -111,6 +112,23 @@ func NewRedisAttemptLimiter(client redisLimiterClient) *RedisAttemptLimiter {
 	return &RedisAttemptLimiter{client: client, random: rand.Reader}
 }
 
+func (limiter *RedisAttemptLimiter) configured() bool {
+	return limiter != nil && !isNilLimiterClient(limiter.client)
+}
+
+func isNilLimiterClient(client redisLimiterClient) bool {
+	if client == nil {
+		return true
+	}
+	value := reflect.ValueOf(client)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
 func (limiter *RedisAttemptLimiter) keys(platform string, userID int64) (string, string, error) {
 	platform = strings.TrimSpace(platform)
 	if !keyPartPattern.MatchString(platform) || userID <= 0 {
@@ -122,8 +140,8 @@ func (limiter *RedisAttemptLimiter) keys(platform string, userID int64) (string,
 }
 
 func (limiter *RedisAttemptLimiter) Acquire(ctx context.Context, platform string, userID int64) (AttemptLease, error) {
-	if limiter == nil || limiter.client == nil {
-		return AttemptLease{}, errors.New("redeem limiter: redis client is not configured")
+	if !limiter.configured() {
+		return AttemptLease{}, errLimiterUnavailable
 	}
 	attemptKey, _, err := limiter.keys(platform, userID)
 	if err != nil {
@@ -161,8 +179,8 @@ func attemptAcquireArgs(key, owner string) []interface{} {
 }
 
 func (limiter *RedisAttemptLimiter) FailureState(ctx context.Context, platform string, userID int64) (FailureState, error) {
-	if limiter == nil || limiter.client == nil {
-		return FailureState{}, errors.New("redeem limiter: redis client is not configured")
+	if !limiter.configured() {
+		return FailureState{}, errLimiterUnavailable
 	}
 	_, failureKey, err := limiter.keys(platform, userID)
 	if err != nil {
@@ -172,8 +190,8 @@ func (limiter *RedisAttemptLimiter) FailureState(ctx context.Context, platform s
 }
 
 func (limiter *RedisAttemptLimiter) RecordFailure(ctx context.Context, platform string, userID int64) (FailureState, error) {
-	if limiter == nil || limiter.client == nil {
-		return FailureState{}, errors.New("redeem limiter: redis client is not configured")
+	if !limiter.configured() {
+		return FailureState{}, errLimiterUnavailable
 	}
 	_, failureKey, err := limiter.keys(platform, userID)
 	if err != nil {
@@ -203,11 +221,11 @@ func (limiter *RedisAttemptLimiter) evalFailure(ctx context.Context, script, key
 }
 
 func (limiter *RedisAttemptLimiter) Release(ctx context.Context, lease AttemptLease) error {
+	if !limiter.configured() {
+		return errLimiterUnavailable
+	}
 	if err := validateAttemptLease(lease); err != nil {
 		return err
-	}
-	if limiter == nil || limiter.client == nil {
-		return errors.New("redeem limiter: redis client is not configured")
 	}
 	result, err := limiter.client.Eval(ctx, attemptReleaseScript, []string{lease.Key}, lease.Owner).Int64()
 	if err != nil {

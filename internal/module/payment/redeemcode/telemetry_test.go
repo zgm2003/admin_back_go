@@ -51,7 +51,7 @@ func TestTelemetryServiceRedeemRecordsUsedAndSuccess(t *testing.T) {
 	repository := &fakeRepository{redeemFact: validTelemetryRedemptionFact()}
 	service := NewService(repository, WithTelemetry(recorder), WithAttemptLimiter(newAllowAttemptLimiter()))
 
-	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	response, appErr := service.Redeem(context.Background(), 7, "admin", "ZHR-2345-6789-ABCD-EFGH-JKMN")
 	if appErr != nil || response == nil || response.Replayed {
 		t.Fatalf("Redeem=(%+v,%+v)", response, appErr)
 	}
@@ -69,7 +69,7 @@ func TestTelemetryServiceRedeemRecordsExpiredUnavailable(t *testing.T) {
 	repository := &fakeRepository{redeemErr: ErrExpired}
 	service := NewService(repository, WithTelemetry(recorder), WithAttemptLimiter(newAllowAttemptLimiter()))
 
-	response, appErr := service.Redeem(context.Background(), 7, "ZHR-2345-6789-ABCD-EFGH-JKMN")
+	response, appErr := service.Redeem(context.Background(), 7, "admin", "ZHR-2345-6789-ABCD-EFGH-JKMN")
 	if response != nil || appErr == nil || appErr.Code != ErrorWalletUnavailable {
 		t.Fatalf("Redeem=(%+v,%+v)", response, appErr)
 	}

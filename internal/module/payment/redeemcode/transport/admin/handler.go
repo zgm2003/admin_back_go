@@ -1,7 +1,10 @@
 package admin
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -18,6 +21,12 @@ const (
 	sensitiveBodyLimit  = 1 << 10
 )
 
+var listQueryKeys = map[string]struct{}{
+	"current_page": {}, "page_size": {}, "batch_no": {}, "state": {},
+	"used_by": {}, "used_user": {}, "created_by": {}, "note": {},
+	"created_from": {}, "created_to": {}, "expires_from": {}, "expires_to": {},
+}
+
 type HTTPService interface {
 	PageInit(context.Context) (*redeemcode.PageInitResponse, *apperror.Error)
 	List(context.Context, redeemcode.ListQuery) (*redeemcode.ListResponse, *apperror.Error)
@@ -25,7 +34,7 @@ type HTTPService interface {
 	Export(context.Context, redeemcode.ExportInput) (*redeemcode.ExportResponse, *apperror.Error)
 	GenerateBatch(context.Context, int64, redeemcode.GenerateBatchInput) (*redeemcode.GenerateBatchResponse, *apperror.Error)
 	Void(context.Context, redeemcode.VoidInput) (*redeemcode.VoidResponse, *apperror.Error)
-	Redeem(context.Context, int64, string) (*redeemcode.RedemptionResponse, *apperror.Error)
+	Redeem(context.Context, int64, string, string) (*redeemcode.RedemptionResponse, *apperror.Error)
 }
 
 type Handler struct{ service HTTPService }
@@ -39,12 +48,24 @@ func (h *Handler) PageInit(c *gin.Context) {
 
 func (h *Handler) List(c *gin.Context) {
 	var request listRequest
-	if c.ShouldBindQuery(&request) != nil {
+	if !validListQueryKeys(c) || c.ShouldBindQuery(&request) != nil {
 		response.Error(c, managementRequestInvalid())
 		return
 	}
 	result, err := h.requireService().List(c.Request.Context(), listQuery(request))
 	writeResult(c, result, err, true)
+}
+
+func validListQueryKeys(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	for key, values := range c.Request.URL.Query() {
+		if _, allowed := listQueryKeys[key]; !allowed || len(values) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) Lookup(c *gin.Context) {
@@ -107,7 +128,7 @@ func (h *Handler) Redeem(c *gin.Context) {
 		response.Error(c, walletUnavailable())
 		return
 	}
-	result, err := h.requireService().Redeem(c.Request.Context(), identity.UserID, request.Code)
+	result, err := h.requireService().Redeem(c.Request.Context(), identity.UserID, identity.Platform, request.Code)
 	if err != nil {
 		err = canonicalWalletError(err)
 		if retry := retryAfterSeconds(err); retry > 0 {
@@ -131,8 +152,17 @@ func bindJSON(c *gin.Context, limit int64, target any) bool {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return false
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
-	return c.ShouldBindJSON(target) == nil
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, limit))
+	if err != nil {
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(target) != nil {
+		return false
+	}
+	var trailing any
+	return decoder.Decode(&trailing) == io.EOF
 }
 
 func currentIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {
@@ -209,7 +239,7 @@ func canonicalWalletError(err *apperror.Error) *apperror.Error {
 	case err.Code == redeemcode.ErrorWalletCodeRequired:
 		return apperror.New(redeemcode.ErrorWalletCodeRequired, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, redeemcode.ErrorWalletCodeRequired, nil, "请输入兑换码")
 	case err.Category == apperror.CategoryRateLimit:
-		return apperror.New("wallet.redeem.rate_limited", apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, "wallet.redeem.rate_limited", err.TemplateData, "兑换请求过于频繁")
+		return apperror.New(redeemcode.ErrorWalletRateLimited, apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, redeemcode.ErrorWalletRateLimited, err.TemplateData, "兑换请求过于频繁")
 	case err.Code == redeemcode.ErrorWalletRateLimitUnavailable:
 		return apperror.New(redeemcode.ErrorWalletRateLimitUnavailable, apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, redeemcode.ErrorWalletRateLimitUnavailable, nil, "兑换限流服务暂不可用")
 	case err.Code == redeemcode.ErrorWalletDependencyUnavailable:
@@ -272,7 +302,7 @@ func (missingService) Void(context.Context, redeemcode.VoidInput) (*redeemcode.V
 	return nil, missingServiceError()
 }
 
-func (missingService) Redeem(context.Context, int64, string) (*redeemcode.RedemptionResponse, *apperror.Error) {
+func (missingService) Redeem(context.Context, int64, string, string) (*redeemcode.RedemptionResponse, *apperror.Error) {
 	return nil, missingServiceError()
 }
 

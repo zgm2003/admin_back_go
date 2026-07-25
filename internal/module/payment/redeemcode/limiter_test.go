@@ -77,6 +77,33 @@ func TestLimiterReleaseRejectsForgedNamespaceOrOwner(t *testing.T) {
 	}
 }
 
+func TestLimiterTypedNilClientFailsClosedWithoutPanic(t *testing.T) {
+	var client *redis.Client
+	limiter := NewRedisAttemptLimiter(client)
+	lease := AttemptLease{Key: "admin_go:wallet:redeem:v1:{admin:7}:attempt", Owner: "0123456789abcdef0123456789abcdef", Platform: "admin", UserID: 7}
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{name: "acquire", call: func() error { _, err := limiter.Acquire(context.Background(), "admin", 7); return err }},
+		{name: "failure state", call: func() error { _, err := limiter.FailureState(context.Background(), "admin", 7); return err }},
+		{name: "record failure", call: func() error { _, err := limiter.RecordFailure(context.Background(), "admin", 7); return err }},
+		{name: "release", call: func() error { return limiter.Release(context.Background(), lease) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("panic=%v", recovered)
+				}
+			}()
+			if err := test.call(); err == nil {
+				t.Fatal("error=nil")
+			}
+		})
+	}
+}
+
 func TestLimiterRejectsInvalidKeyParts(t *testing.T) {
 	limiter := &RedisAttemptLimiter{}
 	for _, test := range []struct {

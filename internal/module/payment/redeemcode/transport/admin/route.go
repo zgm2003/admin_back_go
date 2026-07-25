@@ -29,17 +29,17 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, registries ...*admi
 	}, handler.Lookup)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost, Path: "/api/admin/v1/payment/redeem-code-exports",
-		Access: adminroute.Permission("payment_redeem_code_list"), Audit: audit("payment_redeem_code", "export", "导出兑换码", false, false, true),
+		Access: adminroute.Permission("payment_redeem_code_list"), Audit: audit("payment_redeem_code", "export", "导出兑换码", false, true, true),
 		Contract: &adminroute.HTTPContract{Request: exportRequest{}, Response: redeemcode.ExportResponse{}},
 	}, handler.Export)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost, Path: "/api/admin/v1/payment/redeem-code-batches",
-		Access: adminroute.Permission("payment_redeem_code_generate"), Audit: audit("payment_redeem_code", "generate", "生成兑换码", true, false, true),
+		Access: adminroute.Permission("payment_redeem_code_generate"), Audit: audit("payment_redeem_code", "generate", "生成兑换码", true, true, true),
 		Contract: &adminroute.HTTPContract{Request: generateBatchRequest{}, Response: redeemcode.GenerateBatchResponse{}},
 	}, handler.GenerateBatch)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPatch, Path: "/api/admin/v1/payment/redeem-codes",
-		Access: adminroute.Permission("payment_redeem_code_void"), Audit: audit("payment_redeem_code", "void", "作废兑换码", true, false, false),
+		Access: adminroute.Permission("payment_redeem_code_void"), Audit: audit("payment_redeem_code", "void", "作废兑换码", true, true, false),
 		Contract: &adminroute.HTTPContract{Request: voidRequest{}, Response: redeemcode.VoidResponse{}},
 	}, handler.Void)
 	routes.Handle(adminroute.Definition{

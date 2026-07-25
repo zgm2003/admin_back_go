@@ -39,6 +39,7 @@ const (
 	ErrorServiceMissing              = "payment.redeem_code.service_missing"
 	ErrorWalletCodeRequired          = "wallet.redeem.code_required"
 	ErrorWalletUnavailable           = "wallet.redeem.unavailable"
+	ErrorWalletRateLimited           = "wallet.redeem.rate_limited"
 	ErrorWalletDependencyUnavailable = "wallet.redeem.dependency_unavailable"
 	ErrorWalletIntegrityViolation    = "wallet.redeem.integrity_violation"
 	ErrorWalletRateLimitUnavailable  = "wallet.redeem.rate_limit_unavailable"
@@ -333,12 +334,11 @@ func (service *Service) Export(ctx context.Context, input ExportInput) (*ExportR
 	return &ExportResponse{Filename: "redeem-codes-" + now.Format("20060102") + ".csv", Content: string(body), RowCount: len(items)}, nil
 }
 
-func (service *Service) Redeem(ctx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
-	return service.redeemLimited(ctx, userID, rawCode)
+func (service *Service) Redeem(ctx context.Context, userID int64, platform string, rawCode string) (*RedemptionResponse, *apperror.Error) {
+	return service.redeemLimited(ctx, userID, platform, rawCode)
 }
 
-func (service *Service) redeemLimited(requestCtx context.Context, userID int64, rawCode string) (*RedemptionResponse, *apperror.Error) {
-	const platform = "admin"
+func (service *Service) redeemLimited(requestCtx context.Context, userID int64, platform string, rawCode string) (*RedemptionResponse, *apperror.Error) {
 	lease, err := service.limiter.Acquire(requestCtx, platform, userID)
 	if err != nil {
 		var locked *AttemptLockedError
@@ -751,7 +751,7 @@ func walletRateLimited(retryAfter int) *apperror.Error {
 	if retryAfter < 1 {
 		retryAfter = 1
 	}
-	return apperror.New(ErrorWalletUnavailable, apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, ErrorWalletUnavailable, map[string]any{"retry_after": retryAfter}, "兑换请求过于频繁")
+	return apperror.New(ErrorWalletRateLimited, apperror.CategoryRateLimit, http.StatusTooManyRequests, apperror.Retryable, ErrorWalletRateLimited, map[string]any{"retry_after": retryAfter}, "兑换请求过于频繁")
 }
 
 func walletRateDependency(cause error) *apperror.Error {

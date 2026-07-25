@@ -49,8 +49,8 @@ func TestHandlerRedeemUsesMiddlewareIdentityAndWritesLimiterRetryAfter(t *testin
 	if recorder.Code != http.StatusTooManyRequests {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.redeemedBy != 7 || service.redeemCode != "ZHR-2345-6789-ABCD-EFGH-JKMN" {
-		t.Fatalf("redeem identity/input = %d/%q", service.redeemedBy, service.redeemCode)
+	if service.redeemedBy != 7 || service.redeemedPlatform != "admin" || service.redeemCode != "ZHR-2345-6789-ABCD-EFGH-JKMN" {
+		t.Fatalf("redeem identity/input = %d/%q/%q", service.redeemedBy, service.redeemedPlatform, service.redeemCode)
 	}
 	if got := recorder.Header().Get("Retry-After"); got != "17" {
 		t.Fatalf("Retry-After=%q", got)
@@ -154,6 +154,63 @@ func TestHandlerRejectsOversizedOrMalformedBodiesBeforeService(t *testing.T) {
 	}
 }
 
+func TestRedeemHandlersRejectTrailingJSONAndOversizedTrailingContentBeforeService(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+		code string
+	}{
+		{name: "lookup trailing JSON", path: "/api/admin/v1/payment/redeem-code-lookups", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}{"code":"other"}`, code: "payment.redeem_code.request_invalid"},
+		{name: "lookup trailing garbage", path: "/api/admin/v1/payment/redeem-code-lookups", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"} trailing`, code: "payment.redeem_code.request_invalid"},
+		{name: "redemption trailing JSON", path: "/api/admin/v1/wallet/redemptions", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}{"code":"other"}`, code: "wallet.redeem.unavailable"},
+		{name: "lookup oversized trailing whitespace", path: "/api/admin/v1/payment/redeem-code-lookups", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}` + string(bytes.Repeat([]byte(" "), sensitiveBodyLimit)), code: "payment.redeem_code.request_invalid"},
+		{name: "redemption oversized trailing whitespace", path: "/api/admin/v1/wallet/redemptions", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}` + string(bytes.Repeat([]byte(" "), sensitiveBodyLimit)), code: "wallet.redeem.unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router, service := newRedeemCodeTestRouter()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, test.path, bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || service.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.calls, recorder.Body.String())
+			}
+			assertErrorMeta(t, recorder, test.code, "validation", false)
+		})
+	}
+}
+
+func TestRedeemHandlersRejectUnknownJSONFieldsBeforeService(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		code   string
+	}{
+		{name: "lookup", method: http.MethodPost, path: "/api/admin/v1/payment/redeem-code-lookups", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN","unexpected":true}`, code: "payment.redeem_code.request_invalid"},
+		{name: "export code", method: http.MethodPost, path: "/api/admin/v1/payment/redeem-code-exports", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}`, code: "payment.redeem_code.request_invalid"},
+		{name: "generate code", method: http.MethodPost, path: "/api/admin/v1/payment/redeem-code-batches", body: `{"request_id":"request-unknown","amount":"1.00","quantity":1,"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}`, code: "payment.redeem_code.request_invalid"},
+		{name: "void code", method: http.MethodPatch, path: "/api/admin/v1/payment/redeem-codes", body: `{"ids":[1],"code":"ZHR-2345-6789-ABCD-EFGH-JKMN"}`, code: "payment.redeem_code.request_invalid"},
+		{name: "redemption identity", method: http.MethodPost, path: "/api/admin/v1/wallet/redemptions", body: `{"code":"ZHR-2345-6789-ABCD-EFGH-JKMN","user_id":99,"platform":"untrusted"}`, code: "wallet.redeem.unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router, service := newRedeemCodeTestRouter()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || service.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.calls, recorder.Body.String())
+			}
+			assertErrorMeta(t, recorder, test.code, "validation", false)
+		})
+	}
+}
+
 func TestRedeemCodeResponsesDisableCaching(t *testing.T) {
 	tests := []struct{ method, path, body string }{
 		{http.MethodGet, "/api/admin/v1/payment/redeem-codes", ""},
@@ -173,6 +230,34 @@ func TestRedeemCodeResponsesDisableCaching(t *testing.T) {
 	}
 }
 
+func TestRedeemCodeListRejectsUnknownOrAmbiguousQueryKeysBeforeService(t *testing.T) {
+	fullCode := "ZHR-2345-6789-ABCD-EFGH-JKMN"
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "full code", query: "?code=" + fullCode},
+		{name: "code fragment", query: "?code_fragment=ZHR-2345"},
+		{name: "unknown key", query: "?unexpected=1"},
+		{name: "duplicate key", query: "?state=used&state=voided"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router, service := newRedeemCodeTestRouter()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/payment/redeem-codes"+test.query, nil)
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || service.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, service.calls, recorder.Body.String())
+			}
+			if bytes.Contains(recorder.Body.Bytes(), []byte(fullCode)) {
+				t.Fatalf("full code leaked in error body=%s", recorder.Body.String())
+			}
+			assertErrorMeta(t, recorder, "payment.redeem_code.request_invalid", "validation", false)
+		})
+	}
+}
+
 func TestRegisterRoutesDefinesRedeemAccessAndAuditContracts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -186,25 +271,25 @@ func TestRegisterRoutesDefinesRedeemAccessAndAuditContracts(t *testing.T) {
 	if len(definitions) != 7 {
 		t.Fatalf("route count=%d", len(definitions))
 	}
-	assertRoutePolicy(t, definitions, http.MethodGet, "/api/admin/v1/payment/redeem-codes/page-init", "payment_redeem_code_list", false, false, false, "read-only")
-	assertRoutePolicy(t, definitions, http.MethodGet, "/api/admin/v1/payment/redeem-codes", "payment_redeem_code_list", false, false, false, "read-only")
-	assertRoutePolicy(t, definitions, http.MethodPost, "/api/admin/v1/payment/redeem-code-lookups", "payment_redeem_code_list", false, false, false, "read-only exact lookup")
-	assertRoutePolicy(t, definitions, http.MethodPost, "/api/admin/v1/payment/redeem-code-exports", "payment_redeem_code_list", true, false, true, "")
-	assertRoutePolicy(t, definitions, http.MethodPost, "/api/admin/v1/payment/redeem-code-batches", "payment_redeem_code_generate", true, true, true, "")
-	assertRoutePolicy(t, definitions, http.MethodPatch, "/api/admin/v1/payment/redeem-codes", "payment_redeem_code_void", true, true, false, "")
+	assertRoutePolicy(t, definitions, http.MethodGet, "/api/admin/v1/payment/redeem-codes/page-init", "payment_redeem_code_list", false, false, false, false, "read-only")
+	assertRoutePolicy(t, definitions, http.MethodGet, "/api/admin/v1/payment/redeem-codes", "payment_redeem_code_list", false, false, false, false, "read-only")
+	assertRoutePolicy(t, definitions, http.MethodPost, "/api/admin/v1/payment/redeem-code-lookups", "payment_redeem_code_list", false, false, false, false, "read-only exact lookup")
+	assertRoutePolicy(t, definitions, http.MethodPost, "/api/admin/v1/payment/redeem-code-exports", "payment_redeem_code_list", true, false, true, true, "")
+	assertRoutePolicy(t, definitions, http.MethodPost, "/api/admin/v1/payment/redeem-code-batches", "payment_redeem_code_generate", true, true, true, true, "")
+	assertRoutePolicy(t, definitions, http.MethodPatch, "/api/admin/v1/payment/redeem-codes", "payment_redeem_code_void", true, true, true, false, "")
 	redemption := definitions[http.MethodPost+" /api/admin/v1/wallet/redemptions"]
 	if redemption.Access.Kind != adminroute.AccessAuthenticated || !redemption.Audit.Enabled || !redemption.Audit.Required || !redemption.Audit.SkipRequestPayload || !redemption.Audit.SkipResponsePayload {
 		t.Fatalf("redemption policy=%+v", redemption)
 	}
 }
 
-func assertRoutePolicy(t *testing.T, definitions map[string]adminroute.Definition, method, path, permission string, auditEnabled, required, skipResponse bool, reason string) {
+func assertRoutePolicy(t *testing.T, definitions map[string]adminroute.Definition, method, path, permission string, auditEnabled, required, skipRequest, skipResponse bool, reason string) {
 	t.Helper()
 	definition, ok := definitions[method+" "+path]
 	if !ok {
 		t.Fatalf("missing route %s %s", method, path)
 	}
-	if definition.Access.Kind != adminroute.AccessPermission || definition.Access.PermissionCode != permission || definition.Audit.Enabled != auditEnabled || definition.Audit.Required != required || definition.Audit.SkipResponsePayload != skipResponse || definition.Audit.Reason != reason {
+	if definition.Access.Kind != adminroute.AccessPermission || definition.Access.PermissionCode != permission || definition.Audit.Enabled != auditEnabled || definition.Audit.Required != required || definition.Audit.SkipRequestPayload != skipRequest || definition.Audit.SkipResponsePayload != skipResponse || definition.Audit.Reason != reason {
 		t.Fatalf("policy %s %s = %+v", method, path, definition)
 	}
 }
@@ -242,6 +327,7 @@ type fakeHTTPService struct {
 	generatedBy      int64
 	generateInput    redeemcode.GenerateBatchInput
 	redeemedBy       int64
+	redeemedPlatform string
 	redeemCode       string
 	redeemErr        *apperror.Error
 	redeemResponse   *redeemcode.RedemptionResponse
@@ -276,8 +362,9 @@ func (service *fakeHTTPService) Void(context.Context, redeemcode.VoidInput) (*re
 	service.calls++
 	return &redeemcode.VoidResponse{}, nil
 }
-func (service *fakeHTTPService) Redeem(_ context.Context, userID int64, code string) (*redeemcode.RedemptionResponse, *apperror.Error) {
+func (service *fakeHTTPService) Redeem(_ context.Context, userID int64, platform, code string) (*redeemcode.RedemptionResponse, *apperror.Error) {
 	service.calls++
 	service.redeemedBy, service.redeemCode = userID, code
+	service.redeemedPlatform = platform
 	return service.redeemResponse, service.redeemErr
 }
