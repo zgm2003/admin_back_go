@@ -64,17 +64,12 @@ type GormRepository struct {
 	walletParticipant walletmodule.PaymentParticipant
 }
 
-// Deprecated aliases retained for source compatibility; payment/wallet owns persistence.
 type Wallet = walletmodule.Wallet
 type WalletTransaction = walletmodule.Transaction
 
-func NewGormRepository(client *database.Client, participants ...walletmodule.PaymentParticipant) *GormRepository {
-	if client == nil || client.Gorm == nil {
+func NewGormRepository(client *database.Client, participant walletmodule.PaymentParticipant) *GormRepository {
+	if client == nil || client.Gorm == nil || participant == nil {
 		return nil
-	}
-	var participant walletmodule.PaymentParticipant
-	if len(participants) > 0 {
-		participant = participants[0]
 	}
 	return &GormRepository{db: client.Gorm, walletParticipant: participant}
 }

@@ -8,7 +8,10 @@ import (
 )
 
 func TestSummaryUsesCanonicalMoneyUnitStrings(t *testing.T) {
-	response := summaryResponse(&Wallet{BalanceUnits: money.UnitsPerRMB + 1_000_000, HeldUnits: 1_000_000, TotalRechargeUnits: 2_000_000, TotalConsumeUnits: 1_000_000})
+	response, err := summaryResponse(&Wallet{BalanceUnits: money.UnitsPerRMB + 1_000_000, HeldUnits: 1_000_000, TotalRechargeUnits: 2_000_000, TotalConsumeUnits: 1_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if response.Balance != "1.01" || response.AvailableBalance != "1" || response.HeldAmount != "0.01" || response.TotalRecharge != "0.02" || response.TotalConsume != "0.01" {
 		t.Fatalf("unexpected summary: %+v", response)
 	}
@@ -22,8 +25,8 @@ func TestSummaryUsesCanonicalMoneyUnitStrings(t *testing.T) {
 }
 
 func TestSummaryRejectsNegativeAvailableUnits(t *testing.T) {
-	response := summaryResponse(&Wallet{BalanceUnits: 1, HeldUnits: 2})
-	if response.AvailableBalance != "" {
-		t.Fatalf("expected invalid available amount to be empty, got %q", response.AvailableBalance)
+	response, err := summaryResponse(&Wallet{BalanceUnits: 1, HeldUnits: 2})
+	if response != nil || err == nil {
+		t.Fatalf("expected invalid available amount to return an error, response=%#v err=%v", response, err)
 	}
 }

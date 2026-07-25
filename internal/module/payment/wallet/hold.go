@@ -50,6 +50,9 @@ func (r *GormRepository) reserveHold(ctx context.Context, tx *gorm.DB, userID, r
 	if err != nil {
 		return nil, err
 	}
+	if wallet.HeldUnits < 0 || wallet.BalanceUnits < wallet.HeldUnits {
+		return nil, ErrHoldIntegrity
+	}
 	if err := assertActiveHoldTotal(tx, wallet.ID, wallet.HeldUnits); err != nil {
 		return nil, err
 	}
@@ -85,8 +88,12 @@ func (r *GormRepository) reserveHold(ctx context.Context, tx *gorm.DB, userID, r
 	}
 	if hold.ID == 0 {
 		hold.HeldUnits = target
-		if err := tx.Create(hold).Error; err != nil {
-			return nil, err
+		result := tx.Create(hold)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if result.RowsAffected != 1 {
+			return nil, ErrHoldIntegrity
 		}
 	} else {
 		hold.HeldUnits += delta
@@ -148,23 +155,11 @@ func (r *GormRepository) CaptureHoldInTx(ctx context.Context, tx *gorm.DB, in Ca
 		return nil, nil, ErrHoldOwnerMismatch
 	}
 	if hold.Status != HoldActive {
-		if hold.Status != HoldCaptured {
-			return wallet, nil, nil
+		ledger, terminalErr := validateTerminalHoldFact(tx, hold, wallet, in.UserID)
+		if terminalErr != nil {
+			return nil, nil, terminalErr
 		}
-		var existing Transaction
-		if err := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", SourceAIGenerate, in.RunID, enum.CommonNo).First(&existing).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, err
-		}
-		if existing.ID == 0 {
-			if hold.CapturedUnits != 0 {
-				return nil, nil, ErrHoldIntegrity
-			}
-			return wallet, nil, nil
-		}
-		if existing.WalletID != wallet.ID || existing.UserID != in.UserID || existing.Direction != DirectionOut || existing.AmountUnits != hold.CapturedUnits {
-			return nil, nil, ErrHoldIntegrity
-		}
-		return wallet, &existing, nil
+		return wallet, ledger, nil
 	}
 	if err := validateHoldSummary(summary); err != nil {
 		return nil, nil, err
@@ -249,6 +244,9 @@ func (r *GormRepository) ReleaseHoldInTx(ctx context.Context, tx *gorm.DB, in Re
 		return nil, ErrHoldOwnerMismatch
 	}
 	if hold.Status != HoldActive {
+		if _, err := validateTerminalHoldFact(tx, hold, wallet, in.UserID); err != nil {
+			return nil, err
+		}
 		return hold, nil
 	}
 	if wallet.HeldUnits < hold.HeldUnits {
@@ -313,8 +311,12 @@ func (r *GormRepository) CreditRechargeInTx(ctx context.Context, tx *gorm.DB, in
 	if err := createTransactionWithNumberRetry(tx, row, time.Now()); err != nil {
 		return nil, nil, err
 	}
-	if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{"balance_units": after, "total_recharge_units": wallet.TotalRechargeUnits + in.AmountUnits}).Error; err != nil {
-		return nil, nil, err
+	result := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{"balance_units": after, "total_recharge_units": wallet.TotalRechargeUnits + in.AmountUnits})
+	if result.Error != nil {
+		return nil, nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, nil, ErrHoldIntegrity
 	}
 	wallet.BalanceUnits, wallet.TotalRechargeUnits = after, wallet.TotalRechargeUnits+in.AmountUnits
 	return wallet, row, nil
@@ -355,11 +357,39 @@ func lockHoldByRun(tx *gorm.DB, runID int64) (*Hold, error) {
 
 func assertActiveHoldTotal(tx *gorm.DB, walletID, heldUnits int64) error {
 	var row struct{ Total int64 }
-	if err := tx.Model(&Hold{}).Select("COALESCE(SUM(held_units), 0) AS total").Where("wallet_id = ? AND status = ?", walletID, HoldActive).Scan(&row).Error; err != nil {
+	if err := tx.Raw("SELECT COALESCE(SUM(held_units), 0) AS total FROM wallet_holds WHERE wallet_id = ? AND status = ? FOR UPDATE", walletID, HoldActive).Scan(&row).Error; err != nil {
 		return err
 	}
 	if row.Total != heldUnits {
 		return ErrHoldIntegrity
 	}
 	return nil
+}
+
+func validateTerminalHoldFact(tx *gorm.DB, hold *Hold, wallet *Wallet, userID int64) (*Transaction, error) {
+	if hold == nil || wallet == nil || hold.UserID != userID || hold.WalletID != wallet.ID {
+		return nil, ErrHoldOwnerMismatch
+	}
+	var transactions []Transaction
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_type = ? AND source_id = ?", SourceAIGenerate, hold.RunID).Order("id ASC").Limit(2).Find(&transactions).Error; err != nil {
+		return nil, err
+	}
+	switch hold.Status {
+	case HoldCaptured:
+		if hold.HeldUnits != 0 || len(transactions) != 1 {
+			return nil, ErrHoldIntegrity
+		}
+		transaction := transactions[0]
+		if transaction.IsDel != enum.CommonNo || transaction.WalletID != wallet.ID || transaction.UserID != userID || transaction.Direction != DirectionOut || transaction.AmountUnits != hold.CapturedUnits {
+			return nil, ErrHoldIntegrity
+		}
+		return &transaction, nil
+	case HoldReleased:
+		if hold.HeldUnits != 0 || hold.CapturedUnits != 0 || len(transactions) != 0 {
+			return nil, ErrHoldIntegrity
+		}
+		return nil, nil
+	default:
+		return nil, ErrHoldIntegrity
+	}
 }

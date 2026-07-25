@@ -27,17 +27,11 @@ type RechargePageInitDict struct {
 }
 
 type WalletSummary struct {
-	Balance            string `json:"balance"`
-	AvailableBalance   string `json:"available_balance"`
-	HeldAmount         string `json:"held_amount"`
-	TotalRecharge      string `json:"total_recharge"`
-	TotalConsume       string `json:"total_consume"`
-	BalanceCents       int64  `json:"-"`
-	BalanceText        string `json:"-"`
-	TotalRechargeCents int64  `json:"-"`
-	TotalRechargeText  string `json:"-"`
-	TotalConsumeCents  int64  `json:"-"`
-	TotalConsumeText   string `json:"-"`
+	Balance          string `json:"balance"`
+	AvailableBalance string `json:"available_balance"`
+	HeldAmount       string `json:"held_amount"`
+	TotalRecharge    string `json:"total_recharge"`
+	TotalConsume     string `json:"total_consume"`
 }
 
 type RechargePackageItem struct {

@@ -63,6 +63,7 @@ func TestBuildWiresRedeemCodesWithSharedWalletRepositoryClockAndTelemetry(t *tes
 	for _, want := range []string{
 		"walletRepository := walletmodule.NewGormRepository(resources.DB)",
 		"walletService := walletmodule.NewService(walletRepository)",
+		"paymentmodule.NewGormRepository(resources.DB, walletRepository)",
 		"redeemcode.NewGormRepository(resources.DB, walletRepository, sharedClock)",
 		"redeemcode.NewRedisAttemptLimiter(resources.Redis.Redis)",
 		"redeemcode.WithClock(sharedClock)",
@@ -72,6 +73,13 @@ func TestBuildWiresRedeemCodesWithSharedWalletRepositoryClockAndTelemetry(t *tes
 		if !strings.Contains(compact, want) {
 			t.Fatalf("admin redeem code composition missing %q", want)
 		}
+	}
+}
+
+func TestBuildRequiresWalletParticipantForPaymentComposition(t *testing.T) {
+	compact := compactAdminBuild(t)
+	if strings.Contains(compact, "paymentmodule.NewGormRepository(resources.DB)") {
+		t.Fatal("payment repository must not be constructed without the wallet participant")
 	}
 }
 

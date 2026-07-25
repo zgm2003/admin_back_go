@@ -41,7 +41,11 @@ func (s *Service) Summary(ctx context.Context, userID int64) (*SummaryResponse, 
 	if err != nil {
 		return nil, wrapInternal("wallet.summary.query_failed", "查询钱包失败", err)
 	}
-	return summaryResponse(wallet), nil
+	response, err := summaryResponse(wallet)
+	if err != nil {
+		return nil, wrapInternal("wallet.summary.invalid", "钱包余额数据无效", err)
+	}
+	return response, nil
 }
 
 func (s *Service) Transactions(ctx context.Context, query TransactionListQuery) (*TransactionListResponse, *apperror.Error) {
@@ -71,7 +75,11 @@ func (s *Service) WalletUsers(ctx context.Context, query WalletUserListQuery) (*
 	}
 	items := make([]WalletUserItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, walletUserItem(row))
+		item, itemErr := walletUserItem(row)
+		if itemErr != nil {
+			return nil, wrapInternal("wallet.users.invalid", "钱包余额数据无效", itemErr)
+		}
+		items = append(items, item)
 	}
 	return &WalletUserListResponse{List: items, Page: Page{CurrentPage: current, PageSize: size, TotalPage: totalPage(total, size), Total: total}}, nil
 }
@@ -133,13 +141,21 @@ func (s *Service) mutate(ctx context.Context, input MutationInput, direction str
 		}
 		return nil, wrapInternal("wallet.mutation.failed", "钱包资金变动失败", err)
 	}
-	return &MutationResponse{Transaction: transactionItem(TransactionWithUser{Transaction: *tx}), Wallet: *summaryResponse(wallet)}, nil
+	transaction, err := transactionItem(TransactionWithUser{Transaction: *tx})
+	if err != nil {
+		return nil, wrapInternal("wallet.mutation.invalid", "钱包余额数据无效", err)
+	}
+	summary, err := summaryResponse(wallet)
+	if err != nil {
+		return nil, wrapInternal("wallet.mutation.invalid", "钱包余额数据无效", err)
+	}
+	return &MutationResponse{Transaction: transaction, Wallet: *summary}, nil
 }
 
 func validMutationSource(direction string, sourceType string) bool {
 	switch direction {
 	case DirectionOut:
-		return sourceType == SourceAIGenerate
+		return false
 	case DirectionIn:
 		return false
 	default:
@@ -161,7 +177,11 @@ func (s *Service) listTransactions(ctx context.Context, query TransactionListQue
 	}
 	items := make([]TransactionItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, transactionItem(row))
+		item, itemErr := transactionItem(row)
+		if itemErr != nil {
+			return nil, wrapInternal("wallet.transactions.invalid", "钱包余额数据无效", itemErr)
+		}
+		items = append(items, item)
 	}
 	return &TransactionListResponse{List: items, Page: Page{CurrentPage: current, PageSize: size, TotalPage: totalPage(total, size), Total: total}}, nil
 }
@@ -185,54 +205,97 @@ func normalizeTransactionQuery(query TransactionListQuery) TransactionListQuery 
 	return query
 }
 
-func summaryResponse(wallet *Wallet) *SummaryResponse {
+func summaryResponse(wallet *Wallet) (*SummaryResponse, error) {
 	if wallet == nil {
-		return &SummaryResponse{}
+		return &SummaryResponse{}, nil
+	}
+	balance, err := formatUnits(wallet.BalanceUnits)
+	if err != nil {
+		return nil, err
+	}
+	held, err := formatUnits(wallet.HeldUnits)
+	if err != nil {
+		return nil, err
+	}
+	totalRecharge, err := formatUnits(wallet.TotalRechargeUnits)
+	if err != nil {
+		return nil, err
+	}
+	totalConsume, err := formatUnits(wallet.TotalConsumeUnits)
+	if err != nil {
+		return nil, err
+	}
+	available, err := formatAvailable(wallet.BalanceUnits, wallet.HeldUnits)
+	if err != nil {
+		return nil, err
 	}
 	result := &SummaryResponse{
-		Balance:       formatUnits(wallet.BalanceUnits),
-		HeldAmount:    formatUnits(wallet.HeldUnits),
-		TotalRecharge: formatUnits(wallet.TotalRechargeUnits),
-		TotalConsume:  formatUnits(wallet.TotalConsumeUnits),
+		Balance: balance, HeldAmount: held, TotalRecharge: totalRecharge, TotalConsume: totalConsume,
 	}
-	result.AvailableBalance = formatAvailable(wallet.BalanceUnits, wallet.HeldUnits)
-	return result
+	result.AvailableBalance = available
+	return result, nil
 }
 
-func transactionItem(row TransactionWithUser) TransactionItem {
+func transactionItem(row TransactionWithUser) (TransactionItem, error) {
+	amount, err := formatUnits(row.AmountUnits)
+	if err != nil {
+		return TransactionItem{}, err
+	}
+	before, err := formatUnits(row.BalanceBeforeUnits)
+	if err != nil {
+		return TransactionItem{}, err
+	}
+	after, err := formatUnits(row.BalanceAfterUnits)
+	if err != nil {
+		return TransactionItem{}, err
+	}
 	return TransactionItem{
-		ID:             row.ID,
-		TransactionNo:  row.TransactionNo,
-		UserID:         row.UserID,
-		Username:       row.Username,
-		Account:        accountText(row.Username, row.Phone, row.Email),
-		Direction:      row.Direction,
-		DirectionText:  directionText(row.Direction),
-		Amount:         formatUnits(row.AmountUnits),
-		BalanceBefore:  formatUnits(row.BalanceBeforeUnits),
-		BalanceAfter:   formatUnits(row.BalanceAfterUnits),
+		ID:            row.ID,
+		TransactionNo: row.TransactionNo,
+		UserID:        row.UserID,
+		Username:      row.Username,
+		Account:       accountText(row.Username, row.Phone, row.Email),
+		Direction:     row.Direction,
+		DirectionText: directionText(row.Direction),
+		Amount:        amount, BalanceBefore: before, BalanceAfter: after,
 		SourceType:     row.SourceType,
 		SourceTypeText: sourceTypeText(row.SourceType),
 		SourceID:       row.SourceID,
 		Remark:         row.Remark,
 		CreatedAt:      formatTime(row.CreatedAt),
-	}
+	}, nil
 }
 
-func walletUserItem(row WalletWithUser) WalletUserItem {
-	return WalletUserItem{
-		ID:               row.ID,
-		WalletID:         row.ID,
-		UserID:           row.UserID,
-		Username:         row.Username,
-		Account:          accountText(row.Username, row.Phone, row.Email),
-		Balance:          formatUnits(row.BalanceUnits),
-		AvailableBalance: formatAvailable(row.BalanceUnits, row.HeldUnits),
-		HeldAmount:       formatUnits(row.HeldUnits),
-		TotalRecharge:    formatUnits(row.TotalRechargeUnits),
-		TotalConsume:     formatUnits(row.TotalConsumeUnits),
-		UpdatedAt:        formatTime(row.UpdatedAt),
+func walletUserItem(row WalletWithUser) (WalletUserItem, error) {
+	balance, err := formatUnits(row.BalanceUnits)
+	if err != nil {
+		return WalletUserItem{}, err
 	}
+	available, err := formatAvailable(row.BalanceUnits, row.HeldUnits)
+	if err != nil {
+		return WalletUserItem{}, err
+	}
+	held, err := formatUnits(row.HeldUnits)
+	if err != nil {
+		return WalletUserItem{}, err
+	}
+	totalRecharge, err := formatUnits(row.TotalRechargeUnits)
+	if err != nil {
+		return WalletUserItem{}, err
+	}
+	totalConsume, err := formatUnits(row.TotalConsumeUnits)
+	if err != nil {
+		return WalletUserItem{}, err
+	}
+	return WalletUserItem{
+		ID:       row.ID,
+		WalletID: row.ID,
+		UserID:   row.UserID,
+		Username: row.Username,
+		Account:  accountText(row.Username, row.Phone, row.Email),
+		Balance:  balance, AvailableBalance: available, HeldAmount: held, TotalRecharge: totalRecharge, TotalConsume: totalConsume,
+		UpdatedAt: formatTime(row.UpdatedAt),
+	}, nil
 }
 
 func accountText(username, phone, email string) string {
@@ -275,14 +338,13 @@ func walletDict() WalletDict {
 	}
 }
 
-func formatUnits(units int64) string {
-	value, _ := money.FormatRMBUnits(units)
-	return value
+func formatUnits(units int64) (string, error) {
+	return money.FormatRMBUnits(units)
 }
 
-func formatAvailable(balance, held int64) string {
+func formatAvailable(balance, held int64) (string, error) {
 	if balance < held {
-		return ""
+		return "", ErrWalletInvariant
 	}
 	return formatUnits(balance - held)
 }

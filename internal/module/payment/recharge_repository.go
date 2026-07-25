@@ -186,40 +186,54 @@ func (r *GormRepository) UpdateRechargePaying(ctx context.Context, id int64) err
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
 		"status":         rechargeStatusPaying,
 		"failure_reason": "",
-	}).Error
+	})
+	return rechargeUpdateResult(result)
 }
 
 func (r *GormRepository) UpdateRechargeFailed(ctx context.Context, id int64, reason string) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
 		"status":         rechargeStatusFailed,
 		"failure_reason": trimMax(reason, 255),
-	}).Error
+	})
+	return rechargeUpdateResult(result)
 }
 
 func (r *GormRepository) UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Recharge{}).
+	result := r.db.WithContext(ctx).Model(&Recharge{}).
 		Where("id = ? AND is_del = ? AND status IN ? AND credited_at IS NULL", id, enum.CommonNo, rechargePaidCASStatuses).
 		Updates(map[string]any{
 			"status":         rechargeStatusPaid,
 			"paid_at":        paidAt,
 			"failure_reason": "",
-		}).Error
+		})
+	return rechargeUpdateResult(result)
 }
 
 func (r *GormRepository) UpdateRechargeClosed(ctx context.Context, id int64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, rechargeClosedCASStatuses).Update("status", rechargeStatusClosed).Error
+	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, rechargeClosedCASStatuses).Update("status", rechargeStatusClosed)
+	return rechargeUpdateResult(result)
+}
+
+func rechargeUpdateResult(result *gorm.DB) error {
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrPaymentStateChanged
+	}
+	return nil
 }
 
 func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error) {
@@ -242,7 +256,18 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 		if recharge.Status == rechargeStatusClosed || recharge.Status == rechargeStatusFailed {
 			return ErrPaymentStateChanged
 		}
+		if r.walletParticipant == nil {
+			return ErrRepositoryNotConfigured
+		}
 		if recharge.CreditedAt != nil || recharge.Status == rechargeStatusCredited {
+			wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: recharge.UserID, RechargeID: recharge.ID, AmountUnits: units, Remark: "支付宝充值"})
+			if err != nil {
+				return err
+			}
+			if wallet == nil || transaction == nil {
+				return ErrPaymentStateChanged
+			}
+			creditedWallet = Wallet{ID: wallet.ID, UserID: wallet.UserID, BalanceUnits: wallet.BalanceUnits, TotalRechargeUnits: wallet.TotalRechargeUnits, TotalConsumeUnits: wallet.TotalConsumeUnits, HeldUnits: wallet.HeldUnits, IsDel: wallet.IsDel, CreatedAt: wallet.CreatedAt, UpdatedAt: wallet.UpdatedAt}
 			if recharge.Status != rechargeStatusCredited {
 				updates := map[string]any{
 					"status":         rechargeStatusCredited,
@@ -256,17 +281,18 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 					updates["credited_at"] = now
 					recharge.CreditedAt = &now
 				}
-				if err := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(updates).Error; err != nil {
-					return err
+				result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(updates)
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return ErrPaymentStateChanged
 				}
 				recharge.Status = rechargeStatusCredited
 				recharge.FailureReason = ""
 			}
 			creditedRecharge = recharge
 			return nil
-		}
-		if r.walletParticipant == nil {
-			return ErrRepositoryNotConfigured
 		}
 		wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: recharge.UserID, RechargeID: recharge.ID, AmountUnits: units, Remark: "支付宝充值"})
 		if err != nil {
@@ -278,10 +304,14 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 		if transaction == nil {
 			return ErrPaymentStateChanged
 		}
-		if err := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(map[string]any{
+		result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ?", recharge.ID, enum.CommonNo).Updates(map[string]any{
 			"status": rechargeStatusCredited, "paid_at": paidAt, "credited_at": now, "failure_reason": "",
-		}).Error; err != nil {
-			return err
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrPaymentStateChanged
 		}
 		recharge.Status = rechargeStatusCredited
 		recharge.PaidAt = &paidAt

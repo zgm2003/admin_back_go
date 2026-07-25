@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	walletmodule "admin_back_go/internal/module/payment/wallet"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -38,8 +39,12 @@ func (s *Service) RechargePageInit(ctx context.Context, userID int64) (*Recharge
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
 	}
+	summary, err := walletSummary(wallet)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "钱包余额数据无效", err)
+	}
 	return &RechargePageInitResponse{
-		Wallet:        walletSummary(wallet),
+		Wallet:        summary,
 		Packages:      rechargePackageItems(packages),
 		PaymentMethod: RechargePaymentMethod{Provider: providerAlipay, Label: providerText(providerAlipay), Enabled: len(packages) > 0 && payConfig != nil},
 		Dict:          RechargePageInitDict{StatusArr: rechargeStatusOptions()},
@@ -182,7 +187,11 @@ func (s *Service) CloseRecharge(ctx context.Context, userID int64, id int64) (*R
 	if walletErr != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", walletErr)
 	}
-	return rechargeStatusResponse(*latest, wallet), nil
+	response, err := rechargeStatusResponse(*latest, wallet)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "钱包余额数据无效", err)
+	}
+	return response, nil
 }
 
 func (s *Service) payRechargeRow(ctx context.Context, row RechargeWithOrder) (*RechargePayResponse, *apperror.Error) {
@@ -226,10 +235,10 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
 	}
 	if row.Status == rechargeStatusCredited {
-		return rechargeStatusResponse(row, wallet), nil
+		return rechargeStatusReply(row, wallet)
 	}
 	if row.Status == rechargeStatusClosed {
-		return rechargeStatusResponse(row, wallet), nil
+		return rechargeStatusReply(row, wallet)
 	}
 	if row.OrderStatus == orderStatusPaying {
 		if _, appErr := s.SyncOrder(ctx, row.PaymentOrderID); appErr != nil {
@@ -246,10 +255,10 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "关闭充值单失败", err)
 		}
 		row.Status = rechargeStatusClosed
-		return rechargeStatusResponse(row, wallet), nil
+		return rechargeStatusReply(row, wallet)
 	}
 	if row.OrderStatus != orderStatusPaid {
-		return rechargeStatusResponse(row, wallet), nil
+		return rechargeStatusReply(row, wallet)
 	}
 	paidAt := s.now()
 	if row.OrderPaidAt != nil {
@@ -267,7 +276,7 @@ func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询用户钱包失败", err)
 	}
-	return rechargeStatusResponse(row, wallet), nil
+	return rechargeStatusReply(row, wallet)
 }
 
 func (s *Service) rechargeByID(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, *apperror.Error) {
@@ -315,23 +324,37 @@ func rechargePackageItems(rows []RechargePackage) []RechargePackageItem {
 	return items
 }
 
-func walletSummary(wallet *Wallet) WalletSummary {
+func walletSummary(wallet *Wallet) (WalletSummary, error) {
 	if wallet == nil {
-		return WalletSummary{}
+		return WalletSummary{}, nil
 	}
-	return WalletSummary{
-		Balance:          formatWalletUnits(wallet.BalanceUnits),
-		AvailableBalance: formatWalletAvailable(wallet.BalanceUnits, wallet.HeldUnits),
-		HeldAmount:       formatWalletUnits(wallet.HeldUnits),
-		TotalRecharge:    formatWalletUnits(wallet.TotalRechargeUnits),
-		TotalConsume:     formatWalletUnits(wallet.TotalConsumeUnits),
+	balance, err := formatWalletUnits(wallet.BalanceUnits)
+	if err != nil {
+		return WalletSummary{}, err
 	}
+	available, err := formatWalletAvailable(wallet.BalanceUnits, wallet.HeldUnits)
+	if err != nil {
+		return WalletSummary{}, err
+	}
+	held, err := formatWalletUnits(wallet.HeldUnits)
+	if err != nil {
+		return WalletSummary{}, err
+	}
+	totalRecharge, err := formatWalletUnits(wallet.TotalRechargeUnits)
+	if err != nil {
+		return WalletSummary{}, err
+	}
+	totalConsume, err := formatWalletUnits(wallet.TotalConsumeUnits)
+	if err != nil {
+		return WalletSummary{}, err
+	}
+	return WalletSummary{Balance: balance, AvailableBalance: available, HeldAmount: held, TotalRecharge: totalRecharge, TotalConsume: totalConsume}, nil
 }
 
-func formatWalletUnits(units int64) string { value, _ := money.FormatRMBUnits(units); return value }
-func formatWalletAvailable(balance, held int64) string {
+func formatWalletUnits(units int64) (string, error) { return money.FormatRMBUnits(units) }
+func formatWalletAvailable(balance, held int64) (string, error) {
 	if balance < held {
-		return ""
+		return "", walletmodule.ErrWalletInvariant
 	}
 	return formatWalletUnits(balance - held)
 }
@@ -381,17 +404,29 @@ func rechargePayResponse(row RechargeWithOrder) *RechargePayResponse {
 	}
 }
 
-func rechargeStatusResponse(row RechargeWithOrder, wallet *Wallet) *RechargeStatusResponse {
+func rechargeStatusResponse(row RechargeWithOrder, wallet *Wallet) (*RechargeStatusResponse, error) {
+	summary, err := walletSummary(wallet)
+	if err != nil {
+		return nil, err
+	}
 	return &RechargeStatusResponse{
 		ID:            row.ID,
 		RechargeNo:    row.RechargeNo,
 		Status:        row.Status,
 		StatusText:    rechargeStatusText(row.Status),
-		Wallet:        walletSummary(wallet),
+		Wallet:        summary,
 		PaidAt:        formatPtrTime(row.PaidAt),
 		CreditedAt:    formatPtrTime(row.CreditedAt),
 		FailureReason: row.FailureReason,
+	}, nil
+}
+
+func rechargeStatusReply(row RechargeWithOrder, wallet *Wallet) (*RechargeStatusResponse, *apperror.Error) {
+	response, err := rechargeStatusResponse(row, wallet)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "钱包余额数据无效", err)
 	}
+	return response, nil
 }
 
 func rechargeStatusOptions() []dict.Option[string] {

@@ -59,6 +59,35 @@ func TestGormRepositoryCreditRechargeRetriesDuplicateTransactionNo(t *testing.T)
 	assertPaymentMockExpectations(t, mock)
 }
 
+func TestGormRepositoryCreditRechargeReplayLoadsVerifiedWalletFact(t *testing.T) {
+	repo, mock, closeDB := newPaymentMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	paidAt := now.Add(-time.Minute)
+	units := int64(500 * 1000000)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `payment_recharges` WHERE id = ? AND is_del = ? ORDER BY `payment_recharges`.`id` LIMIT ? FOR UPDATE")).
+		WithArgs(int64(10), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "recharge_no", "user_id", "package_code", "package_name", "amount_cents", "payment_order_id", "status", "paid_at", "credited_at", "failure_reason", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(10), "RCG20260726115900000001", int64(7), "recharge_5", "¥5", int64(500), int64(20), rechargeStatusCredited, paidAt, now, "", enum.CommonNo, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
+		WithArgs(int64(7), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_units", "total_recharge_units", "total_consume_units", "held_units", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(7), units, units, int64(0), int64(0), enum.CommonNo, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
+		WithArgs(walletSourceRecharge, int64(10), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(9), "WLT20260726120000000001", int64(1), int64(7), walletDirectionIn, units, int64(0), units, walletSourceRecharge, int64(10), "支付宝充值", enum.CommonNo, now, now))
+	mock.ExpectCommit()
+
+	wallet, recharge, err := repo.CreditRecharge(context.Background(), 10, paidAt, now)
+	if err != nil || wallet == nil || wallet.ID != 1 || wallet.BalanceUnits != units || recharge == nil || recharge.Status != rechargeStatusCredited {
+		t.Fatalf("replay must return verified wallet and recharge facts, wallet=%#v recharge=%#v err=%v", wallet, recharge, err)
+	}
+	assertPaymentMockExpectations(t, mock)
+}
+
 func TestGormRepositoryListUncreditedPaidRechargesFindsPaidOrdersWithoutWalletCredit(t *testing.T) {
 	repo, mock, closeDB := newPaymentMockRepository(t)
 	defer closeDB()
@@ -94,8 +123,8 @@ func TestGormRepositoryUpdateRechargePaidDoesNotMatchCreditedRows(t *testing.T) 
 	mock.ExpectExec("UPDATE `payment_recharges` SET .*WHERE id = \\? AND is_del = \\? AND status IN \\(\\?,\\?,\\?\\) AND credited_at IS NULL").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	if err := repo.UpdateRechargePaid(context.Background(), 10, paidAt); err != nil {
-		t.Fatalf("credited-row CAS miss should stay idempotent, got err=%v", err)
+	if err := repo.UpdateRechargePaid(context.Background(), 10, paidAt); !errors.Is(err, ErrPaymentStateChanged) {
+		t.Fatalf("credited-row CAS miss must fail closed, got err=%v", err)
 	}
 	assertPaymentMockExpectations(t, mock)
 }

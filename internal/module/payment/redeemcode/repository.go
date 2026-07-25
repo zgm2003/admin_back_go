@@ -313,6 +313,10 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if !validImmutableBatch(batch) {
 			return ErrIntegrityViolation
 		}
+		amountUnits, conversionErr := money.CentsToUnits(batch.AmountCents)
+		if conversionErr != nil {
+			return conversionErr
+		}
 
 		switch lockedCode.State {
 		case StateUsed:
@@ -326,10 +330,10 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 			if findErr != nil {
 				return mapWalletError(findErr)
 			}
-			if !validWalletRedemptionFacts(currentWallet, transaction, batch, *lockedCode, userID) {
+			if !validWalletRedemptionFacts(currentWallet, transaction, amountUnits, batch, *lockedCode, userID) {
 				return ErrIntegrityViolation
 			}
-			fact = &RedemptionFact{AmountCents: batch.AmountCents, Wallet: currentWallet, Transaction: transaction, Replayed: true}
+			fact = &RedemptionFact{AmountCents: batch.AmountCents, AmountUnits: amountUnits, Wallet: currentWallet, Transaction: transaction, Replayed: true}
 			return nil
 		case StateVoided:
 			return ErrUnavailable
@@ -345,10 +349,6 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if batch.ExpiresAt != nil && !batch.ExpiresAt.After(decisionTime) {
 			return ErrExpired
 		}
-		amountUnits, conversionErr := money.CentsToUnits(batch.AmountCents)
-		if conversionErr != nil {
-			return conversionErr
-		}
 		creditInput := wallet.RedeemCodeCreditInput{
 			UserID: userID, CodeID: lockedCode.ID, AmountUnits: amountUnits, BatchNo: batch.BatchNo,
 		}
@@ -362,7 +362,7 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if transaction == nil || !creditIdentity.Matches(transaction.TransactionNo) {
 			return ErrIntegrityViolation
 		}
-		if !validWalletRedemptionFacts(currentWallet, transaction, batch, *lockedCode, userID) {
+		if !validWalletRedemptionFacts(currentWallet, transaction, amountUnits, batch, *lockedCode, userID) {
 			return ErrIntegrityViolation
 		}
 		update := tx.Model(&Code{}).
@@ -374,7 +374,7 @@ func (repository *GormRepository) Redeem(ctx context.Context, userID int64, code
 		if update.RowsAffected != 1 {
 			return ErrIntegrityViolation
 		}
-		fact = &RedemptionFact{AmountCents: batch.AmountCents, Wallet: currentWallet, Transaction: transaction}
+		fact = &RedemptionFact{AmountCents: batch.AmountCents, AmountUnits: amountUnits, Wallet: currentWallet, Transaction: transaction}
 		return nil
 	})
 	if err != nil {
@@ -579,12 +579,8 @@ func validRepositoryListQuery(query ListQuery) bool {
 	}
 }
 
-func validWalletRedemptionFacts(currentWallet *wallet.Wallet, transaction *wallet.Transaction, batch Batch, code Code, userID int64) bool {
+func validWalletRedemptionFacts(currentWallet *wallet.Wallet, transaction *wallet.Transaction, amountUnits int64, batch Batch, code Code, userID int64) bool {
 	if currentWallet == nil || transaction == nil || currentWallet.ID <= 0 || currentWallet.UserID != userID || currentWallet.IsDel != enum.CommonNo {
-		return false
-	}
-	amountUnits, err := money.CentsToUnits(batch.AmountCents)
-	if err != nil {
 		return false
 	}
 	if transaction.ID <= 0 || transaction.TransactionNo == "" || transaction.WalletID != currentWallet.ID || transaction.UserID != userID || transaction.IsDel != enum.CommonNo ||

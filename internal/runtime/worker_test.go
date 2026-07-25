@@ -266,6 +266,17 @@ func TestWorkerReplyRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
+func TestWorkerBuildsPaymentWithItsSharedWalletParticipant(t *testing.T) {
+	body, err := os.ReadFile("worker.go")
+	if err != nil {
+		t.Fatalf("read worker composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	if !strings.Contains(compact, "walletRepository := walletmodule.NewGormRepository(resources.DB)") || !strings.Contains(compact, "paymentmodule.NewGormRepository(resources.DB, walletRepository)") {
+		t.Fatal("worker payment composition must inject the shared wallet participant")
+	}
+}
+
 func TestWorkerDoesNotConsumeMailDiagnosticWriteOrRekeyCapabilities(t *testing.T) {
 	body, err := os.ReadFile("worker.go")
 	if err != nil {

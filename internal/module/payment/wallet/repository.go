@@ -19,6 +19,8 @@ import (
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
 var ErrInsufficientBalance = errors.New("wallet insufficient balance")
 var ErrInvalidMutationAmount = errors.New("wallet mutation amount invalid")
+var ErrAIGenerateDebitForbidden = errors.New("wallet AI generation debit must capture a hold")
+var ErrWalletInvariant = errors.New("wallet balance invariant violation")
 var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
 var ErrRedeemCodeTransactionRequired = errors.New("wallet redeem code outer transaction required")
 var ErrRedeemCodeInvalidInput = errors.New("wallet redeem code invalid input")
@@ -173,6 +175,9 @@ func (r *GormRepository) ListWalletUsers(ctx context.Context, query WalletUserLi
 }
 
 func (r *GormRepository) Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
+	if input.SourceType == SourceAIGenerate {
+		return nil, nil, ErrAIGenerateDebitForbidden
+	}
 	return r.applyMutation(ctx, input, DirectionOut, now)
 }
 
@@ -450,9 +455,17 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 		before := wallet.BalanceUnits
 		after := before + input.AmountUnits
 		if direction == DirectionOut {
-			if before < input.AmountUnits {
+			if wallet.HeldUnits < 0 || before < wallet.HeldUnits {
+				domainErr = ErrWalletInvariant
+				return nil
+			}
+			if input.AmountUnits > before-wallet.HeldUnits {
 				resultWallet = *wallet
 				domainErr = ErrInsufficientBalance
+				return nil
+			}
+			if wallet.TotalConsumeUnits > math.MaxInt64-input.AmountUnits {
+				domainErr = ErrWalletInvariant
 				return nil
 			}
 			after = before - input.AmountUnits
@@ -494,8 +507,12 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 		if direction == DirectionOut {
 			updates["total_consume_units"] = wallet.TotalConsumeUnits + input.AmountUnits
 		}
-		if err := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(updates).Error; err != nil {
-			return err
+		update := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(updates)
+		if update.Error != nil {
+			return update.Error
+		}
+		if update.RowsAffected != 1 {
+			return ErrWalletInvariant
 		}
 		wallet.BalanceUnits = after
 		if direction == DirectionOut {
@@ -509,7 +526,7 @@ func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput,
 		return nil, nil, err
 	}
 	if domainErr != nil {
-		if errors.Is(domainErr, ErrInsufficientBalance) {
+		if errors.Is(domainErr, ErrInsufficientBalance) || errors.Is(domainErr, ErrWalletInvariant) {
 			return &resultWallet, nil, domainErr
 		}
 		return nil, nil, domainErr

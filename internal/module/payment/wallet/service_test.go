@@ -49,42 +49,16 @@ func TestServiceDebitRejectsInvalidSourceType(t *testing.T) {
 	}
 }
 
-func TestServiceDebitRejectsInsufficientBalanceWithoutTransaction(t *testing.T) {
-	repo := &fakeRepo{debitErr: ErrInsufficientBalance}
+func TestServiceDebitRejectsAIGenerateSource(t *testing.T) {
+	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.debit.insufficient_balance" {
-		t.Fatalf("expected debit insufficient balance keyed error, got %v", appErr)
+	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88, Remark: " billing "})
+	if appErr == nil || appErr.MessageID != "wallet.debit.source_type.invalid" {
+		t.Fatalf("generic AI debit must be rejected, got %v", appErr)
 	}
-	if !repo.debitCalled {
-		t.Fatalf("valid debit must call repository")
-	}
-	if repo.debitReturnedTransaction {
-		t.Fatalf("insufficient balance must not write or return a transaction")
-	}
-}
-
-func TestServiceDebitWritesAIGenerateOutTransaction(t *testing.T) {
-	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	repo := &fakeRepo{
-		wallet:           Wallet{ID: 1, UserID: 7, BalanceUnits: 900, TotalRechargeUnits: 1000, TotalConsumeUnits: 100},
-		debitTransaction: Transaction{ID: 9, TransactionNo: "WLT20260530120000000001", WalletID: 1, UserID: 7, Direction: DirectionOut, AmountUnits: 100, BalanceBeforeUnits: 1000, BalanceAfterUnits: 900, SourceType: SourceAIGenerate, SourceID: 88, Remark: "billing", CreatedAt: now},
-	}
-	service := NewService(repo)
-
-	result, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88, Remark: " billing "})
-	if appErr != nil {
-		t.Fatalf("Debit error=%v", appErr)
-	}
-	if result.Transaction.Direction != DirectionOut || result.Transaction.SourceType != SourceAIGenerate || result.Transaction.SourceID != 88 {
-		t.Fatalf("expected ai_generate debit out transaction, got %#v", result.Transaction)
-	}
-	if result.Wallet.Balance != "0.000009" || result.Wallet.TotalConsume != "0.000001" {
-		t.Fatalf("unexpected wallet=%#v", result.Wallet)
-	}
-	if repo.debitInput.Remark != "billing" {
-		t.Fatalf("expected trimmed remark, got %q", repo.debitInput.Remark)
+	if repo.debitCalled {
+		t.Fatal("AI generation must be captured through a hold, not generic Debit")
 	}
 }
 
@@ -140,7 +114,7 @@ func TestWalletDictExposesOnlyCurrentContractSourceTypes(t *testing.T) {
 		}
 	}
 
-	want := []string{SourceRecharge, SourceAIGenerate, "unsupported", SourceRedeemCode}
+	want := []string{SourceRecharge, SourceAIGenerate, SourceRedeemCode}
 	if len(values) != len(want) {
 		t.Fatalf("unexpected source type count, got=%#v want=%#v", values, want)
 	}
@@ -148,16 +122,6 @@ func TestWalletDictExposesOnlyCurrentContractSourceTypes(t *testing.T) {
 		if values[i] != want[i] {
 			t.Fatalf("unexpected source type order, got=%#v want=%#v", values, want)
 		}
-	}
-}
-
-func TestServiceMutationRejectsSameSourceOwnedByAnotherUser(t *testing.T) {
-	repo := &fakeRepo{debitErr: ErrMutationSourceOwnerMismatch}
-	service := NewService(repo)
-
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 8, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.mutation.source_id.owner_mismatch" {
-		t.Fatalf("expected mutation source owner mismatch keyed error, got %v", appErr)
 	}
 }
 

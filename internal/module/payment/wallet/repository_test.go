@@ -22,6 +22,30 @@ import (
 var _ TransactionParticipant = (*GormRepository)(nil)
 var _ RetryTransactionParticipant = (*GormRepository)(nil)
 
+const testManualDebit = "manual_debit"
+
+func TestRepositoryDebitRejectsAmountAboveAvailableBalance(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
+		WithArgs("manual_debit", int64(88), enum.CommonNo, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
+		WithArgs(int64(7), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_units", "total_recharge_units", "total_consume_units", "held_units", "is_del", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(7), int64(100), int64(100), int64(0), int64(80), enum.CommonNo, now, now))
+	mock.ExpectCommit()
+
+	wallet, transaction, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 30, SourceType: "manual_debit", SourceID: 88}, now)
+	if !errors.Is(err, ErrInsufficientBalance) || transaction != nil || wallet == nil || wallet.HeldUnits != 80 {
+		t.Fatalf("debit above available balance must fail without ledger mutation, wallet=%#v transaction=%#v err=%v", wallet, transaction, err)
+	}
+	assertMockExpectations(t, mock)
+}
+
 func TestTransactionParticipantKeepsOriginalRedeemCodeCreditContract(t *testing.T) {
 	var participant TransactionParticipant = (*GormRepository)(nil)
 	var credit func(context.Context, *gorm.DB, RedeemCodeCreditInput, time.Time) (*Wallet, *Transaction, error) = participant.CreditRedeemCodeInTx
@@ -37,7 +61,7 @@ func TestRepositoryDebitLocksOrCreatesWalletInsideTransaction(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(7), enum.CommonNo, 1).
@@ -50,7 +74,7 @@ func TestRepositoryDebitLocksOrCreatesWalletInsideTransaction(t *testing.T) {
 			AddRow(int64(1), int64(7), int64(0), int64(0), int64(0), enum.CommonNo, now, now))
 	mock.ExpectCommit()
 
-	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88}, now)
+	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: testManualDebit, SourceID: 88}, now)
 	if !errors.Is(err, ErrInsufficientBalance) {
 		t.Fatalf("expected insufficient balance after locked wallet create, wallet=%#v tx=%#v err=%v", wallet, tx, err)
 	}
@@ -70,7 +94,7 @@ func TestRepositoryDebitTransactionAndBalanceUpdateAreAtomic(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(7), enum.CommonNo, 1).
@@ -83,11 +107,11 @@ func TestRepositoryDebitTransactionAndBalanceUpdateAreAtomic(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88, Remark: "billing"}, now)
+	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: testManualDebit, SourceID: 88, Remark: "billing"}, now)
 	if err != nil {
 		t.Fatalf("Debit error=%v", err)
 	}
-	if tx == nil || tx.Direction != DirectionOut || tx.SourceType != SourceAIGenerate || tx.SourceID != 88 || tx.BalanceAfterUnits != 900 {
+	if tx == nil || tx.Direction != DirectionOut || tx.SourceType != testManualDebit || tx.SourceID != 88 || tx.BalanceAfterUnits != 900 {
 		t.Fatalf("expected ai_generate out transaction, got %#v", tx)
 	}
 	if wallet == nil || wallet.BalanceUnits != 900 || wallet.TotalConsumeUnits != 100 {
@@ -132,12 +156,12 @@ func TestRepositoryMutationDuplicateSourceOwnedByAnotherUserReturnsOwnerMismatch
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
-			AddRow(int64(9), "WLT20260530120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), SourceAIGenerate, int64(88), "owner-a", enum.CommonNo, now, now))
+			AddRow(int64(9), "WLT20260530120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), testManualDebit, int64(88), "owner-a", enum.CommonNo, now, now))
 	mock.ExpectCommit()
 
-	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 8, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88}, now)
+	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 8, AmountUnits: 100, SourceType: testManualDebit, SourceID: 88}, now)
 	if !errors.Is(err, ErrMutationSourceOwnerMismatch) {
 		t.Fatalf("expected source owner mismatch, got wallet=%#v tx=%#v err=%v", wallet, tx, err)
 	}
@@ -154,7 +178,7 @@ func TestRepositoryDebitDuplicateSourceRaceReturnsExistingSameUserTransaction(t 
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(7), enum.CommonNo, 1).
@@ -163,20 +187,20 @@ func TestRepositoryDebitDuplicateSourceRaceReturnsExistingSameUserTransaction(t 
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
 		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry 'ai_generate-88' for key 'uk_wallet_transaction_source'"))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ? FOR UPDATE")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
-			AddRow(int64(9), "WLT20260530120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), SourceAIGenerate, int64(88), "race winner", enum.CommonNo, now, now))
+			AddRow(int64(9), "WLT20260530120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), testManualDebit, int64(88), "race winner", enum.CommonNo, now, now))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(1), enum.CommonNo, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "balance_units", "total_recharge_units", "total_consume_units", "is_del", "created_at", "updated_at"}).
 			AddRow(int64(1), int64(7), int64(900), int64(1000), int64(100), enum.CommonNo, now, now))
 	mock.ExpectCommit()
 
-	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88}, now)
+	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: testManualDebit, SourceID: 88}, now)
 	if err != nil {
 		t.Fatalf("expected duplicate source race to return existing transaction, got err=%v", err)
 	}
-	if tx == nil || tx.ID != 9 || tx.UserID != 7 || tx.SourceType != SourceAIGenerate || tx.SourceID != 88 {
+	if tx == nil || tx.ID != 9 || tx.UserID != 7 || tx.SourceType != testManualDebit || tx.SourceID != 88 {
 		t.Fatalf("expected existing same-user transaction after duplicate source race, got %#v", tx)
 	}
 	if wallet == nil || wallet.ID != 1 || wallet.BalanceUnits != 900 || wallet.TotalConsumeUnits != 100 {
@@ -192,7 +216,7 @@ func TestRepositoryDebitDuplicateSourceRaceOwnedByAnotherUserReturnsOwnerMismatc
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(8), enum.CommonNo, 1).
@@ -201,12 +225,12 @@ func TestRepositoryDebitDuplicateSourceRaceOwnedByAnotherUserReturnsOwnerMismatc
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `wallet_transactions`")).
 		WillReturnError(errors.New("Error 1062 (23000): Duplicate entry 'ai_generate-88' for key 'uk_wallet_transaction_source'"))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ? FOR UPDATE")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
-			AddRow(int64(9), "WLT20260530120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), SourceAIGenerate, int64(88), "race winner", enum.CommonNo, now, now))
+			AddRow(int64(9), "WLT20260530120000000001", int64(1), int64(7), DirectionOut, int64(100), int64(1000), int64(900), testManualDebit, int64(88), "race winner", enum.CommonNo, now, now))
 	mock.ExpectCommit()
 
-	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 8, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88}, now)
+	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 8, AmountUnits: 100, SourceType: testManualDebit, SourceID: 88}, now)
 	if !errors.Is(err, ErrMutationSourceOwnerMismatch) {
 		t.Fatalf("expected source owner mismatch after duplicate source race, got wallet=%#v tx=%#v err=%v", wallet, tx, err)
 	}
@@ -255,7 +279,7 @@ func TestRepositoryDebitRetriesDuplicateTransactionNo(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 0, 123, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? AND is_del = ? ORDER BY `wallet_transactions`.`id` LIMIT ?")).
-		WithArgs(SourceAIGenerate, int64(88), enum.CommonNo, 1).
+		WithArgs(testManualDebit, int64(88), enum.CommonNo, 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(7), enum.CommonNo, 1).
@@ -269,7 +293,7 @@ func TestRepositoryDebitRetriesDuplicateTransactionNo(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88}, now)
+	wallet, tx, err := repo.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: testManualDebit, SourceID: 88}, now)
 	if err != nil {
 		t.Fatalf("expected duplicate transaction_no to retry, got err=%v", err)
 	}

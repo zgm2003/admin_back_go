@@ -74,6 +74,7 @@ type CodeView struct {
 
 type RedemptionFact struct {
 	AmountCents int64
+	AmountUnits int64
 	Transaction *wallet.Transaction
 	Wallet      *wallet.Wallet
 	Replayed    bool

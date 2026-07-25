@@ -464,7 +464,14 @@ func (service *Service) redeemLimited(requestCtx context.Context, userID int64, 
 		service.metrics.transition(1, StateUsed, "created")
 	}
 	service.metrics.redemption(outcome, reason, elapsed)
-	response := redemptionResponse(fact)
+	response, responseErr := redemptionResponse(fact)
+	if responseErr != nil {
+		service.metrics.redemption("error", "integrity", elapsed)
+		if releaseErr := release(); releaseErr != nil {
+			return nil, walletRateDependency(releaseErr)
+		}
+		return nil, walletIntegrity(responseErr)
+	}
 	// Once the repository has established a successful fact, keep that fact even if cleanup fails.
 	if releaseErr := release(); releaseErr != nil {
 		logger := service.logger
@@ -653,9 +660,9 @@ func validRedemptionFact(fact *RedemptionFact, userID int64) bool {
 	}
 	transaction := fact.Transaction
 	currentWallet := fact.Wallet
-	units, err := money.CentsToUnits(fact.AmountCents)
-	if err != nil {
-		return false
+	units := fact.AmountUnits
+	if units <= 0 {
+		units = transaction.AmountUnits
 	}
 	if transaction.ID <= 0 || transaction.WalletID <= 0 || transaction.UserID != userID || transaction.Direction != wallet.DirectionIn ||
 		transaction.SourceType != wallet.SourceRedeemCode || transaction.SourceID <= 0 || transaction.AmountUnits != units ||
@@ -666,22 +673,53 @@ func validRedemptionFact(fact *RedemptionFact, userID int64) bool {
 		transaction.BalanceBeforeUnits+units == transaction.BalanceAfterUnits
 }
 
-func redemptionResponse(fact *RedemptionFact) *RedemptionResponse {
+func redemptionResponse(fact *RedemptionFact) (*RedemptionResponse, error) {
 	transaction := fact.Transaction
 	currentWallet := fact.Wallet
-	units, _ := money.CentsToUnits(fact.AmountCents)
-	amount, _ := money.FormatRMBUnits(units)
-	before, _ := money.FormatRMBUnits(transaction.BalanceBeforeUnits)
-	after, _ := money.FormatRMBUnits(transaction.BalanceAfterUnits)
-	amountUnits, _ := money.FormatRMBUnits(transaction.AmountUnits)
-	balance, _ := money.FormatRMBUnits(currentWallet.BalanceUnits)
-	totalRecharge, _ := money.FormatRMBUnits(currentWallet.TotalRechargeUnits)
-	totalConsume, _ := money.FormatRMBUnits(currentWallet.TotalConsumeUnits)
-	available := ""
-	if currentWallet.BalanceUnits >= currentWallet.HeldUnits {
-		available, _ = money.FormatRMBUnits(currentWallet.BalanceUnits - currentWallet.HeldUnits)
+	format := money.FormatRMBUnits
+	units := fact.AmountUnits
+	if units <= 0 {
+		units = transaction.AmountUnits
 	}
-	held, _ := money.FormatRMBUnits(currentWallet.HeldUnits)
+	amount, err := format(units)
+	if err != nil {
+		return nil, err
+	}
+	before, err := format(transaction.BalanceBeforeUnits)
+	if err != nil {
+		return nil, err
+	}
+	after, err := format(transaction.BalanceAfterUnits)
+	if err != nil {
+		return nil, err
+	}
+	amountUnits, err := format(transaction.AmountUnits)
+	if err != nil {
+		return nil, err
+	}
+	balance, err := format(currentWallet.BalanceUnits)
+	if err != nil {
+		return nil, err
+	}
+	totalRecharge, err := format(currentWallet.TotalRechargeUnits)
+	if err != nil {
+		return nil, err
+	}
+	totalConsume, err := format(currentWallet.TotalConsumeUnits)
+	if err != nil {
+		return nil, err
+	}
+	if currentWallet.BalanceUnits < currentWallet.HeldUnits {
+		return nil, wallet.ErrWalletInvariant
+	}
+	available, err := format(currentWallet.BalanceUnits - currentWallet.HeldUnits)
+	if err != nil {
+		return nil, err
+	}
+	held, err := format(currentWallet.HeldUnits)
+	if err != nil {
+		return nil, err
+	}
 	return &RedemptionResponse{
 		Amount: amount, Replayed: fact.Replayed,
 		Transaction: wallet.TransactionItem{
@@ -695,7 +733,7 @@ func redemptionResponse(fact *RedemptionFact) *RedemptionResponse {
 			Balance: balance, AvailableBalance: available, HeldAmount: held,
 			TotalRecharge: totalRecharge, TotalConsume: totalConsume,
 		},
-	}
+	}, nil
 }
 
 func (service *Service) requireRepository() (Repository, *apperror.Error) {
