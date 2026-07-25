@@ -3,6 +3,7 @@ package aigateway
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -21,6 +22,11 @@ func (a *testAssembler) AssembleAndQuote(context.Context, RunSnapshot, RunReques
 
 func validQuote(target int64) QuoteEvidence {
 	return QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, TargetHoldUnits: target, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}}
+}
+
+func quoteWithPreparedRequestHash(quote QuoteEvidence, hash [32]byte) QuoteEvidence {
+	quote.PreparedRequestSHA256 = hash
+	return quote
 }
 
 func requestIdentity(text string) requestidentity.Input {
@@ -47,9 +53,37 @@ func sealTestCall(runID int64, fingerprint [32]byte, call PreparedCall) Prepared
 	return canonical
 }
 
+func TestCanonicalPreparedBindsQuoteToExactRequest(t *testing.T) {
+	body := []byte(`{"model":"gpt-test"}`)
+	canonical, err := canonicalPrepared(PreparedCall{RequestBody: body, Quote: validQuote(5)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		PreparedRequestSHA256 [32]byte `json:"prepared_request_sha256"`
+	}
+	if err := json.Unmarshal([]byte(quoteJSON(canonical.Quote)), &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if want := sha256.Sum256(body); evidence.PreparedRequestSHA256 != want {
+		t.Fatalf("quote request hash=%x, want %x", evidence.PreparedRequestSHA256, want)
+	}
+}
+
+func TestCanonicalPreparedRejectsQuoteBoundToDifferentRequest(t *testing.T) {
+	body := []byte(`{"model":"gpt-test"}`)
+	quote := quoteWithPreparedRequestHash(validQuote(5), sha256.Sum256([]byte(`{"model":"other"}`)))
+	if _, err := canonicalPrepared(PreparedCall{RequestBody: body, Quote: quote}); err == nil {
+		t.Fatal("prepared call accepted quote bound to different request bytes")
+	}
+}
+
 func validAttempt(runID int64, attemptNo uint32, target int64) ProviderAttempt {
 	body := []byte(`{"model":"x"}`)
-	return ProviderAttempt{RunID: runID, AttemptNo: attemptNo, IdempotencyKey: attemptKey(runID, attemptNo), PreparedRequest: body, RequestSHA256: sha256.Sum256(body), Quote: validQuote(target)}
+	hash := sha256.Sum256(body)
+	quote := validQuote(target)
+	quote.PreparedRequestSHA256 = hash
+	return ProviderAttempt{RunID: runID, AttemptNo: attemptNo, IdempotencyKey: attemptKey(runID, attemptNo), PreparedRequest: body, RequestSHA256: hash, Quote: quote}
 }
 
 type testReserve struct {
@@ -87,14 +121,33 @@ func (o testOwner) EnsureRunnable(context.Context, Transaction, int64) error { r
 
 type testQuoteValidator struct{ err error }
 
-func (v testQuoteValidator) ValidateQuote(_ context.Context, run RunSnapshot, quote QuoteEvidence) error {
+func (v testQuoteValidator) ValidateQuote(_ context.Context, run RunSnapshot, preparedRequestSHA256 [32]byte, quote QuoteEvidence) error {
 	if v.err != nil {
 		return v.err
 	}
 	if quote.RequestFingerprint != run.RequestFingerprint {
 		return errors.New("quote fingerprint differs from locked run")
 	}
+	if preparedRequestSHA256 == ([32]byte{}) || quote.PreparedRequestSHA256 != preparedRequestSHA256 {
+		return errors.New("quote request hash differs from prepared request")
+	}
 	return nil
+}
+
+type trackingQuoteValidator struct {
+	calls int
+	run   RunSnapshot
+	hash  [32]byte
+	quote QuoteEvidence
+	err   error
+}
+
+func (v *trackingQuoteValidator) ValidateQuote(_ context.Context, run RunSnapshot, preparedRequestSHA256 [32]byte, quote QuoteEvidence) error {
+	v.calls++
+	v.run = run
+	v.hash = preparedRequestSHA256
+	v.quote = quote
+	return v.err
 }
 
 type testRunStore struct {
@@ -128,6 +181,7 @@ type testAttemptStore struct {
 	terminal      DispatchResult
 	recordErr     error
 	preparedReads int
+	markCalls     int
 }
 
 type testProvider struct {
@@ -192,6 +246,7 @@ func (s *testAttemptStore) GetPreparedForUpdate(context.Context, Transaction, in
 	return cloneAttempt(s.attempt), nil
 }
 func (s *testAttemptStore) MarkDispatched(context.Context, Transaction, int64, uint32) (bool, error) {
+	s.markCalls++
 	if s.state != "prepared" {
 		return false, nil
 	}
@@ -311,6 +366,16 @@ func TestGatewayRecoveryRejectsInvalidPersistedAttemptEvidence(t *testing.T) {
 	}
 }
 
+func TestGatewayRecoveryRejectsQuoteBoundToDifferentPreparedRequest(t *testing.T) {
+	attempt := validAttempt(48, 1, 5)
+	attempt.Quote = quoteWithPreparedRequestHash(attempt.Quote, sha256.Sum256([]byte(`{"model":"other"}`)))
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+
+	if _, err := New(testGatewayDependencies(&testReserve{}, store)).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 48, AttemptNo: 1}); err == nil {
+		t.Fatal("persisted quote bound to different request bytes was recovered")
+	}
+}
+
 func TestGatewayReservesBeforeAttemptLock(t *testing.T) {
 	call := sealTestCall(35, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(5)})
 	gateway := New(testGatewayDependencies(&testReserve{}, &testAttemptStore{}))
@@ -409,6 +474,53 @@ func TestGatewayMarkDispatchedRejectsTamperedQuoteFingerprint(t *testing.T) {
 	}
 	if store.state != "prepared" {
 		t.Fatalf("tampered quote fingerprint advanced attempt state to %q", store.state)
+	}
+}
+
+func TestGatewayMarkDispatchedRevalidatesLockedPersistedQuote(t *testing.T) {
+	attempt := validAttempt(45, 1, 5)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	validator := &trackingQuoteValidator{}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Quotes = validator
+
+	if err := New(deps).MarkDispatched(context.Background(), attempt); err != nil {
+		t.Fatal(err)
+	}
+	if validator.calls != 1 || validator.run.RunID != attempt.RunID || validator.hash != store.attempt.RequestSHA256 || !equalQuoteEvidence(validator.quote, store.attempt.Quote) {
+		t.Fatalf("validator calls=%d run=%+v hash=%x quote=%+v", validator.calls, validator.run, validator.hash, validator.quote)
+	}
+	if store.markCalls != 1 || store.state != "dispatched" {
+		t.Fatalf("mark_calls=%d state=%q", store.markCalls, store.state)
+	}
+}
+
+func TestGatewayMarkDispatchedRejectsPersistedQuoteBeforeTransition(t *testing.T) {
+	attempt := validAttempt(46, 1, 5)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	validator := &trackingQuoteValidator{err: errors.New("persisted quote is invalid")}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Quotes = validator
+
+	if err := New(deps).MarkDispatched(context.Background(), attempt); !errors.Is(err, validator.err) {
+		t.Fatalf("err=%v, want validator error", err)
+	}
+	if validator.calls != 1 || store.markCalls != 0 || store.state != "prepared" {
+		t.Fatalf("validator_calls=%d mark_calls=%d state=%q", validator.calls, store.markCalls, store.state)
+	}
+}
+
+func TestGatewayMarkDispatchedRequiresQuoteValidator(t *testing.T) {
+	attempt := validAttempt(47, 1, 5)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Quotes = nil
+
+	if err := New(deps).MarkDispatched(context.Background(), attempt); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("err=%v, want ErrNotConfigured", err)
+	}
+	if store.markCalls != 0 || store.state != "prepared" {
+		t.Fatalf("mark_calls=%d state=%q", store.markCalls, store.state)
 	}
 }
 
@@ -549,13 +661,14 @@ func TestGatewayRejectsUpperBoundProofForDifferentPreparedRequest(t *testing.T) 
 
 func TestGatewayAcceptsMediaUsageProofBeforeDispatch(t *testing.T) {
 	body := []byte(`{"prompt":"image"}`)
+	requestHash := sha256.Sum256(body)
 	attempt := ProviderAttempt{
 		RunID:           37,
 		AttemptNo:       1,
 		IdempotencyKey:  attemptKey(37, 1),
 		PreparedRequest: body,
-		RequestSHA256:   sha256.Sum256(body),
-		Quote:           QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 1, TargetHoldUnits: 5, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}},
+		RequestSHA256:   requestHash,
+		Quote:           QuoteEvidence{PricingVersion: "v1", PreparedRequestSHA256: requestHash, EffectiveMaxOutputTokens: 1, TargetHoldUnits: 5, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}},
 	}
 	provider := &testProvider{
 		proofItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}},
@@ -634,6 +747,21 @@ func TestGatewayRejectsReplayWithDifferentQuoteEvidence(t *testing.T) {
 	replay.Quote.EffectiveMaxOutputTokens = 17
 	if _, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 10, AttemptNo: 1, NewCall: &replay}); err == nil {
 		t.Fatal("replay with changed quote evidence must be rejected")
+	}
+}
+
+func TestGatewayRejectsReplayWithDifferentPreparedRequestUsingOldQuote(t *testing.T) {
+	gateway := New(testGatewayDependencies(&testReserve{}, &testAttemptStore{}))
+	first := sealTestCall(49, [32]byte{}, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(10)})
+	if _, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 49, AttemptNo: 1, NewCall: &first}); err != nil {
+		t.Fatal(err)
+	}
+
+	replay := first
+	replay.RequestBody = []byte(`{"model":"other"}`)
+	replay.RequestSHA256 = sha256.Sum256(replay.RequestBody)
+	if _, err := gateway.ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 49, AttemptNo: 1, NewCall: &replay}); err == nil {
+		t.Fatal("replay changed prepared request while reusing old quote")
 	}
 }
 

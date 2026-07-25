@@ -40,7 +40,7 @@ type Repository interface {
 	Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error)
 	Transition(context.Context, uint64, string, uint64, State, State, map[string]any) (bool, error)
 	PublishAssistant(context.Context, PublishAssistantInput) (int64, bool, error)
-	PrepareLegacyAttempt(context.Context, PrepareAttemptInput) (*Attempt, bool, error)
+	PrepareLegacyAttempt(context.Context, LegacyPrepareAttemptInput) (*Attempt, bool, error)
 	MarkAttemptDispatched(context.Context, uint64, uint64, string, uint64, time.Time) (bool, error)
 	FinishAttempt(context.Context, FinishAttemptInput) (bool, error)
 }

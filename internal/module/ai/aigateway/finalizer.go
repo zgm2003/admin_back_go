@@ -17,6 +17,7 @@ var (
 )
 
 type FinalizationTrigger string
+type AttemptEvidenceKind string
 
 const (
 	TriggerSuccess                       FinalizationTrigger = "success"
@@ -28,9 +29,15 @@ const (
 	TriggerOutcomeUnknown                FinalizationTrigger = "outcome_unknown"
 )
 
+const (
+	AttemptEvidencePaid             AttemptEvidenceKind = "paid"
+	AttemptEvidenceLegacyUnbillable AttemptEvidenceKind = "legacy_unbillable"
+)
+
 type FinalizationCharge struct {
 	ID           int64
 	RunID        int64
+	UserID       int64
 	HeldUnits    int64
 	HeldAuditMax int64
 	ActualUnits  int64
@@ -50,7 +57,9 @@ type FinalizationHold struct {
 
 type FinalizationAttempt struct {
 	ID                int64
+	RunID             int64
 	AttemptNo         uint32
+	EvidenceKind      AttemptEvidenceKind
 	State             billing.AttemptState
 	DispatchState     billing.DispatchState
 	Usage             infraai.UsageSnapshot
@@ -205,6 +214,9 @@ func (f *RunFinalizer) decide(ctx context.Context, facts FinalizationFacts) (Set
 	case TriggerInitialInsufficient:
 		return releaseDecision(facts, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedInsufficientBalance), nil
 	case TriggerContinuationTopUpInsufficient:
+		if hasLegacyChargeableAttempt(facts) {
+			return unbilledDecision(facts, "failed", SettlementCandidateDiscard), nil
+		}
 		if len(billableAttempts(facts)) == 0 {
 			return releaseDecision(facts, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedInsufficientBalance), nil
 		}
@@ -215,14 +227,17 @@ func (f *RunFinalizer) decide(ctx context.Context, facts FinalizationFacts) (Set
 }
 
 func (f *RunFinalizer) priceOrUnbilled(ctx context.Context, facts FinalizationFacts, runStatus string, candidate SettlementCandidateAction) (SettlementDecision, error) {
+	if hasLegacyChargeableAttempt(facts) {
+		return unbilledDecision(facts, unbilledRunStatus(runStatus), SettlementCandidateDiscard), nil
+	}
 	billable := billableAttempts(facts)
 	if len(billable) == 0 {
-		return unbilledDecision(facts, runStatus, candidate), nil
+		return unbilledDecision(facts, unbilledRunStatus(runStatus), SettlementCandidateDiscard), nil
 	}
 	quote, err := f.pricer.PriceSettlement(ctx, SettlementPricingInput{Run: facts.Run, Attempts: billable})
 	if err != nil {
 		if errors.Is(err, ErrUsageIncomplete) {
-			return unbilledDecision(facts, runStatus, candidate), nil
+			return unbilledDecision(facts, unbilledRunStatus(runStatus), SettlementCandidateDiscard), nil
 		}
 		return SettlementDecision{}, err
 	}
@@ -251,6 +266,13 @@ func (f *RunFinalizer) priceOrUnbilled(ctx context.Context, facts FinalizationFa
 		EventType:       "ai.billing.settled",
 		LedgerSummary:   LedgerSummary(facts.Run.AgentID, facts.Run.ModelDisplayName, facts.Run.ModelID),
 	}, nil
+}
+
+func unbilledRunStatus(runStatus string) string {
+	if runStatus == "canceled" {
+		return runStatus
+	}
+	return "failed"
 }
 
 func candidateBelongsToBillableAttempt(candidate FinalizationCandidate, billable []BillableAttempt) bool {
@@ -311,7 +333,7 @@ func overHoldDecision(facts FinalizationFacts, runStatus string, quote Settlemen
 }
 
 func validateFinalizationFacts(runID int64, facts FinalizationFacts) error {
-	if runID <= 0 || facts.Run.RunID != runID || facts.Run.UserID <= 0 || facts.Charge.ID <= 0 || facts.Charge.RunID != runID || facts.Charge.Status != billing.ChargeStatusOpen || facts.Charge.ActualUnits != 0 {
+	if runID <= 0 || facts.Run.RunID != runID || facts.Run.UserID <= 0 || facts.Charge.ID <= 0 || facts.Charge.RunID != runID || facts.Charge.UserID != facts.Run.UserID || facts.Charge.Status != billing.ChargeStatusOpen || facts.Charge.ActualUnits != 0 {
 		return errors.New("locked run, charge, and hold facts are inconsistent")
 	}
 	initialWithoutHold := facts.Trigger == TriggerInitialInsufficient && facts.Hold.ID == 0
@@ -331,7 +353,7 @@ func validateFinalizationAttempts(facts FinalizationFacts) error {
 	byID := make(map[int64]FinalizationAttempt, len(facts.Attempts))
 	byNumber := make(map[uint32]struct{}, len(facts.Attempts))
 	for _, attempt := range facts.Attempts {
-		if attempt.ID <= 0 || attempt.AttemptNo == 0 {
+		if attempt.ID <= 0 || attempt.RunID != facts.Run.RunID || attempt.AttemptNo == 0 {
 			return errors.New("finalization attempt identity is invalid")
 		}
 		if _, exists := byID[attempt.ID]; exists {
@@ -346,9 +368,22 @@ func validateFinalizationAttempts(facts FinalizationFacts) error {
 		byID[attempt.ID] = attempt
 		byNumber[attempt.AttemptNo] = struct{}{}
 	}
+	var current FinalizationAttempt
 	if facts.CurrentAttemptID != 0 {
-		if _, exists := byID[facts.CurrentAttemptID]; !exists {
+		var exists bool
+		current, exists = byID[facts.CurrentAttemptID]
+		if !exists {
 			return errors.New("current finalization attempt does not exist")
+		}
+	}
+	switch facts.Trigger {
+	case TriggerProviderFailed:
+		if facts.CurrentAttemptID == 0 || current.State != billing.AttemptStateFailed {
+			return errors.New("provider failed trigger does not match the current terminal attempt")
+		}
+	case TriggerOutcomeUnknown:
+		if facts.CurrentAttemptID == 0 || current.State != billing.AttemptStateOutcomeUnknown {
+			return errors.New("outcome unknown trigger does not match the current terminal attempt")
 		}
 	}
 	candidatePresent := facts.Candidate.AttemptID != 0 || strings.TrimSpace(facts.Candidate.JSON) != ""
@@ -376,6 +411,9 @@ func validateFinalizationAttempts(facts FinalizationFacts) error {
 }
 
 func validateFinalizationAttempt(attempt FinalizationAttempt) error {
+	if attempt.EvidenceKind != AttemptEvidencePaid && attempt.EvidenceKind != AttemptEvidenceLegacyUnbillable {
+		return errors.New("finalization attempt evidence kind is invalid")
+	}
 	if err := attempt.Usage.Validate(); err != nil {
 		return err
 	}
@@ -469,6 +507,9 @@ func hasSuccessfulResultWithoutBlockingTerminal(attempts []FinalizationAttempt) 
 func billableAttempts(facts FinalizationFacts) []BillableAttempt {
 	billable := make([]BillableAttempt, 0, len(facts.Attempts))
 	for _, attempt := range facts.Attempts {
+		if attempt.EvidenceKind != AttemptEvidencePaid {
+			continue
+		}
 		if attempt.State == billing.AttemptStateSucceeded {
 			billable = append(billable, BillableAttempt{ID: attempt.ID, AttemptNo: attempt.AttemptNo, Usage: attempt.Usage})
 			continue
@@ -478,6 +519,21 @@ func billableAttempts(facts FinalizationFacts) []BillableAttempt {
 		}
 	}
 	return billable
+}
+
+func hasLegacyChargeableAttempt(facts FinalizationFacts) bool {
+	for _, attempt := range facts.Attempts {
+		if attempt.EvidenceKind != AttemptEvidenceLegacyUnbillable {
+			continue
+		}
+		if attempt.State == billing.AttemptStateSucceeded {
+			return true
+		}
+		if attempt.ID == facts.StoppedAttemptID && attempt.State == billing.AttemptStateCanceled && attempt.DispatchState == billing.DispatchStateDispatched {
+			return true
+		}
+	}
+	return false
 }
 
 func validTrigger(trigger FinalizationTrigger) bool {

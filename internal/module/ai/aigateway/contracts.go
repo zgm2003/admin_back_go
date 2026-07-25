@@ -31,6 +31,7 @@ type PreparedCall struct {
 type QuoteEvidence struct {
 	PricingVersion           string              `json:"pricing_version"`
 	RequestFingerprint       [32]byte            `json:"request_fingerprint"`
+	PreparedRequestSHA256    [32]byte            `json:"prepared_request_sha256"`
 	EffectiveMaxOutputTokens int                 `json:"effective_max_output_tokens"`
 	UpperBoundItems          []billing.UsageItem `json:"upper_bound_items"`
 	TargetHoldUnits          int64               `json:"target_hold_units"`
@@ -76,10 +77,11 @@ type Assembler interface {
 	AssembleAndQuote(context.Context, RunSnapshot, RunRequest) (PreparedCall, error)
 }
 
-// QuoteValidator binds quote evidence to the locked immutable pricing
-// snapshot. Both new calls and recovery must pass the same validator.
+// QuoteValidator binds quote evidence to both the exact prepared request and
+// the locked immutable pricing snapshot. New calls and recovery use the same
+// validator.
 type QuoteValidator interface {
-	ValidateQuote(context.Context, RunSnapshot, QuoteEvidence) error
+	ValidateQuote(context.Context, RunSnapshot, [32]byte, QuoteEvidence) error
 }
 
 // Transaction is deliberately opaque. Implementations must pass the same
@@ -230,6 +232,10 @@ func canonicalPrepared(call PreparedCall) (PreparedCall, error) {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared request hash mismatch", 409)
 	}
 	call.RequestSHA256 = hash
+	if call.Quote.PreparedRequestSHA256 != ([32]byte{}) && call.Quote.PreparedRequestSHA256 != hash {
+		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote request hash mismatch", 409)
+	}
+	call.Quote.PreparedRequestSHA256 = hash
 	if call.Quote.TargetHoldUnits <= 0 || call.Quote.EffectiveMaxOutputTokens <= 0 || call.Quote.PricingVersion == "" || len(call.Quote.UpperBoundItems) == 0 {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote must contain version, capacity, usage, and positive hold", 400)
 	}

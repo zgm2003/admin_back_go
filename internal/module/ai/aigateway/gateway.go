@@ -79,7 +79,7 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 		return PreparedCall{}, err
 	}
 	call.Quote.RequestFingerprint = persisted.RequestFingerprint
-	if err := g.deps.Quotes.ValidateQuote(ctx, persisted, call.Quote); err != nil {
+	if err := g.deps.Quotes.ValidateQuote(ctx, persisted, call.RequestSHA256, call.Quote); err != nil {
 		return PreparedCall{}, err
 	}
 	call.assemblyRunID = persisted.RunID
@@ -132,7 +132,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 			if err := validatePersistedAttempt(locked, input.AttemptNo, attempt); err != nil {
 				return err
 			}
-			if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, attempt.Quote); err != nil {
+			if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, attempt.RequestSHA256, attempt.Quote); err != nil {
 				return err
 			}
 			if attempt.Quote.TargetHoldUnits > locked.HoldTargetUnits {
@@ -191,7 +191,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		if !validPreparedAssembly(call, locked.Run) {
 			return gatewayError(ErrCodeInvalidPrepared, "prepared call was not produced for the locked run", 409)
 		}
-		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.Quote); err != nil {
+		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.RequestSHA256, call.Quote); err != nil {
 			return err
 		}
 		target := call.Quote.TargetHoldUnits
@@ -239,7 +239,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 }
 
 func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) error {
-	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Attempts == nil || g.deps.Owner == nil {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Reserve == nil || g.deps.Attempts == nil || g.deps.Quotes == nil || g.deps.Owner == nil {
 		return ErrNotConfigured
 	}
 	g.record("mark_dispatched")
@@ -268,6 +268,9 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 			return gatewayError(ErrCodePreparedMissing, "prepared attempt does not exist", 409)
 		}
 		if err := validatePersistedAttempt(locked, attempt.AttemptNo, persisted); err != nil {
+			return err
+		}
+		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, persisted.RequestSHA256, persisted.Quote); err != nil {
 			return err
 		}
 		if !sameAttemptEvidence(persisted, attempt) {
@@ -603,7 +606,7 @@ func validatePersistedAttempt(locked LockedRunCharge, attemptNo uint32, attempt 
 	if err != nil {
 		return err
 	}
-	if attempt.RunID != locked.Run.RunID || attempt.AttemptNo != attemptNo || attempt.IdempotencyKey != attemptKey(locked.Run.RunID, attemptNo) || attempt.RequestSHA256 != canonical.RequestSHA256 || attempt.Quote.RequestFingerprint != locked.Run.RequestFingerprint {
+	if attempt.RunID != locked.Run.RunID || attempt.AttemptNo != attemptNo || attempt.IdempotencyKey != attemptKey(locked.Run.RunID, attemptNo) || attempt.RequestSHA256 != canonical.RequestSHA256 || attempt.Quote.PreparedRequestSHA256 == ([32]byte{}) || attempt.Quote.PreparedRequestSHA256 != attempt.RequestSHA256 || attempt.Quote.RequestFingerprint != locked.Run.RequestFingerprint {
 		return gatewayError(ErrCodeInvalidPrepared, "persisted attempt evidence does not match the locked run", 409)
 	}
 	return nil
@@ -611,6 +614,7 @@ func validatePersistedAttempt(locked LockedRunCharge, attemptNo uint32, attempt 
 
 func equalQuoteEvidence(left, right QuoteEvidence) bool {
 	return left.RequestFingerprint == right.RequestFingerprint &&
+		left.PreparedRequestSHA256 == right.PreparedRequestSHA256 &&
 		left.PricingVersion == right.PricingVersion &&
 		left.EffectiveMaxOutputTokens == right.EffectiveMaxOutputTokens &&
 		left.TargetHoldUnits == right.TargetHoldUnits &&

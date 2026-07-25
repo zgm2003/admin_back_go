@@ -27,14 +27,14 @@ func TestProviderAttemptPersistsBeforeDispatchAndRequiresCurrentFence(t *testing
 		t.Fatalf("running transition ok=%v err=%v", ok, err)
 	}
 
-	if attempt, ok, err := repository.PrepareLegacyAttempt(ctx, PrepareAttemptInput{CommandID: created.CommandID, Owner: "stale-worker", Token: claim.FencingToken, Now: now}); err != nil || ok || attempt != nil {
+	if attempt, ok, err := repository.PrepareLegacyAttempt(ctx, LegacyPrepareAttemptInput{CommandID: created.CommandID, Owner: "stale-worker", Token: claim.FencingToken, Now: now}); err != nil || ok || attempt != nil {
 		t.Fatalf("stale attempt=%+v ok=%v err=%v", attempt, ok, err)
 	}
-	first, ok, err := repository.PrepareLegacyAttempt(ctx, PrepareAttemptInput{CommandID: created.CommandID, Owner: claim.Owner, Token: claim.FencingToken, Now: now})
+	first, ok, err := repository.PrepareLegacyAttempt(ctx, LegacyPrepareAttemptInput{CommandID: created.CommandID, Owner: claim.Owner, Token: claim.FencingToken, Now: now})
 	if err != nil || !ok || first == nil || first.ID == 0 || first.AttemptNo != 1 || first.State != AttemptPrepared || len(first.IdempotencyKey) != 64 {
 		t.Fatalf("first attempt=%+v ok=%v err=%v", first, ok, err)
 	}
-	second, ok, err := repository.PrepareLegacyAttempt(ctx, PrepareAttemptInput{CommandID: created.CommandID, Owner: claim.Owner, Token: claim.FencingToken, Now: now.Add(time.Second)})
+	second, ok, err := repository.PrepareLegacyAttempt(ctx, LegacyPrepareAttemptInput{CommandID: created.CommandID, Owner: claim.Owner, Token: claim.FencingToken, Now: now.Add(time.Second)})
 	if err != nil || !ok || second == nil || second.AttemptNo != 2 || second.IdempotencyKey == first.IdempotencyKey {
 		t.Fatalf("second attempt=%+v ok=%v err=%v", second, ok, err)
 	}
@@ -101,7 +101,7 @@ func TestExpiredDispatchedAttemptBecomesOutcomeUnknownInsteadOfBlindRetry(t *tes
 	if ok, err := repository.Transition(ctx, created.CommandID, claim.Owner, claim.FencingToken, StateClaimed, StateRunning, nil); err != nil || !ok {
 		t.Fatalf("running ok=%v err=%v", ok, err)
 	}
-	attempt, ok, err := repository.PrepareLegacyAttempt(ctx, PrepareAttemptInput{CommandID: created.CommandID, Owner: claim.Owner, Token: claim.FencingToken, Now: now})
+	attempt, ok, err := repository.PrepareLegacyAttempt(ctx, LegacyPrepareAttemptInput{CommandID: created.CommandID, Owner: claim.Owner, Token: claim.FencingToken, Now: now})
 	if err != nil || !ok {
 		t.Fatalf("attempt=%+v ok=%v err=%v", attempt, ok, err)
 	}

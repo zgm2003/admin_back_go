@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -18,6 +19,50 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestPrepareLegacyAttemptUsesDedicatedInput(t *testing.T) {
+	method, ok := reflect.TypeOf((*GormRepository)(nil)).MethodByName("PrepareLegacyAttempt")
+	if !ok {
+		t.Fatal("PrepareLegacyAttempt is missing")
+	}
+	if got := method.Type.In(2).Name(); got != "LegacyPrepareAttemptInput" {
+		t.Fatalf("legacy prepare input type=%q, want LegacyPrepareAttemptInput", got)
+	}
+	inputType := method.Type.In(2)
+	for _, paidField := range []string{"AttemptNo", "IdempotencyKey", "PreparedRequestJSON", "PreparedRequestSHA256", "QuoteJSON"} {
+		if _, exists := inputType.FieldByName(paidField); exists {
+			t.Fatalf("legacy prepare input exposes paid field %s", paidField)
+		}
+	}
+}
+
+func TestLegacyAttemptUsesExactDurableV1Markers(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(41))
+	mock.ExpectQuery(`SELECT COALESCE\(MAX\(attempt_no\), 0\) FROM ` + "`ai_provider_attempts`" + ` WHERE run_id = \?`).
+		WithArgs(int64(100)).
+		WillReturnRows(sqlmock.NewRows([]string{"COALESCE(MAX(attempt_no), 0)"}).AddRow(0))
+	mock.ExpectExec("INSERT INTO `ai_provider_attempts`").WillReturnResult(sqlmock.NewResult(91, 1))
+	mock.ExpectCommit()
+
+	attempt, ok, err := repository.PrepareLegacyAttempt(context.Background(), LegacyPrepareAttemptInput{RunID: 100, CommandID: 41, Owner: "worker-a", Token: 7, Now: now})
+	if err != nil || !ok || attempt == nil {
+		t.Fatalf("attempt=%+v ok=%v err=%v", attempt, ok, err)
+	}
+	if want := `{"version":"legacy_unavailable_v1","replayable":false}`; attempt.PreparedRequestJSON != want {
+		t.Fatalf("prepared request marker=%s, want %s", attempt.PreparedRequestJSON, want)
+	}
+	if want := `{"version":"legacy_unpriced_v1","billable":false}`; attempt.QuoteJSON != want {
+		t.Fatalf("quote marker=%s, want %s", attempt.QuoteJSON, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestPreparePaidAttemptInTransactionRejectsNilAndRootHandles(t *testing.T) {
 	repository, root, mock, closeDB := newAttemptMockRepository(t)

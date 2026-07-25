@@ -17,12 +17,12 @@ import (
 )
 
 type fakeReplyAttemptRepository struct {
-	prepared replycommand.PrepareAttemptInput
+	prepared replycommand.LegacyPrepareAttemptInput
 	marked   replycommand.Attempt
 	finished replycommand.FinishAttemptInput
 }
 
-func (f *fakeReplyAttemptRepository) PrepareLegacyAttempt(_ context.Context, input replycommand.PrepareAttemptInput) (*replycommand.Attempt, bool, error) {
+func (f *fakeReplyAttemptRepository) PrepareLegacyAttempt(_ context.Context, input replycommand.LegacyPrepareAttemptInput) (*replycommand.Attempt, bool, error) {
 	f.prepared = input
 	return &replycommand.Attempt{ID: 91, RunID: input.RunID, IdempotencyKey: "attempt-key"}, true, nil
 }
@@ -43,7 +43,7 @@ func TestReplyAttemptRecorderMapsLifecycleWithoutFieldFallback(t *testing.T) {
 	recorder := replyAttemptRecorder{repository: repository}
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	attempt, err := recorder.PrepareProviderAttempt(context.Background(), aichat.ProviderAttemptPrepareInput{RunID: 100, CommandID: 41, Owner: "worker-a", Token: 7, Now: now})
-	if err != nil || attempt.ID != 91 || attempt.IdempotencyKey != "attempt-key" {
+	if err != nil || attempt.ID != 91 || attempt.IdempotencyKey != "attempt-key" || attempt.EvidenceKind != aichat.ProviderAttemptEvidenceLegacyUnbillable {
 		t.Fatalf("attempt=%+v err=%v", attempt, err)
 	}
 	if err := recorder.MarkProviderAttemptDispatched(context.Background(), aichat.ProviderAttemptMarkInput{RunID: 100, AttemptID: 91, CommandID: 41, Owner: "worker-a", Token: 7, Now: now}); err != nil {

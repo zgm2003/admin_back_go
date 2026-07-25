@@ -66,11 +66,11 @@ func usableUsage() infraai.UsageSnapshot {
 }
 
 func succeededAttempt(id int64, no uint32) FinalizationAttempt {
-	return FinalizationAttempt{ID: id, AttemptNo: no, State: billing.AttemptStateSucceeded, DispatchState: billing.DispatchStateDispatched, ProviderRequestID: "provider-request", ResponseSHA256: sha256.Sum256([]byte("provider-response")), Usage: completeUsageForGatewayTest()}
+	return FinalizationAttempt{ID: id, AttemptNo: no, EvidenceKind: AttemptEvidencePaid, State: billing.AttemptStateSucceeded, DispatchState: billing.DispatchStateDispatched, ProviderRequestID: "provider-request", ResponseSHA256: sha256.Sum256([]byte("provider-response")), Usage: completeUsageForGatewayTest()}
 }
 
 func stoppedAttempt(id int64, no uint32) FinalizationAttempt {
-	return FinalizationAttempt{ID: id, AttemptNo: no, State: billing.AttemptStateCanceled, DispatchState: billing.DispatchStateDispatched, ProviderRequestID: "provider-request", ResponseSHA256: sha256.Sum256([]byte("provider-response")), Usage: completeUsageForGatewayTest()}
+	return FinalizationAttempt{ID: id, AttemptNo: no, EvidenceKind: AttemptEvidencePaid, State: billing.AttemptStateCanceled, DispatchState: billing.DispatchStateDispatched, ProviderRequestID: "provider-request", ResponseSHA256: sha256.Sum256([]byte("provider-response")), Usage: completeUsageForGatewayTest()}
 }
 
 func pricedItem(attemptID int64, amount int64) billing.UsageChargeItem {
@@ -78,6 +78,12 @@ func pricedItem(attemptID int64, amount int64) billing.UsageChargeItem {
 }
 
 func finalizationFacts(trigger FinalizationTrigger, attempts ...FinalizationAttempt) FinalizationFacts {
+	for index := range attempts {
+		attempts[index].RunID = 44
+		if attempts[index].EvidenceKind == "" {
+			attempts[index].EvidenceKind = AttemptEvidencePaid
+		}
+	}
 	currentAttemptID := int64(0)
 	candidate := FinalizationCandidate{}
 	if len(attempts) > 0 {
@@ -86,7 +92,7 @@ func finalizationFacts(trigger FinalizationTrigger, attempts ...FinalizationAtte
 	}
 	facts := FinalizationFacts{
 		Run:              RunSnapshot{RunID: 44, UserID: 9, PricingSnapshotJSON: `{"catalog":"persisted"}`, BillingStatus: billing.BillingStatusHeld, BillingReason: billing.BillingReasonHeld, AgentID: 7, ModelID: "model-7", ModelDisplayName: "Model Seven"},
-		Charge:           FinalizationCharge{ID: 101, RunID: 44, HeldUnits: 5, HeldAuditMax: 5, Status: billing.ChargeStatusOpen},
+		Charge:           FinalizationCharge{ID: 101, RunID: 44, UserID: 9, HeldUnits: 5, HeldAuditMax: 5, Status: billing.ChargeStatusOpen},
 		Hold:             FinalizationHold{ID: 102, WalletID: 103, RunID: 44, UserID: 9, HeldUnits: 5, HeldAuditMax: 5, Status: billing.HoldStatusActive},
 		Trigger:          trigger,
 		Attempts:         attempts,
@@ -128,6 +134,7 @@ func TestRunFinalizerDecisionMatrix(t *testing.T) {
 		priceCalls int
 	}{
 		{"success", TriggerSuccess, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{ActualUnits: 3, Items: []billing.UsageChargeItem{pricedItem(1, 3)}}, nil, "success", billing.BillingStatusSettled, billing.BillingReasonSettledCompleteUsage, SettlementMoneyCapture, SettlementCandidatePublish, 1},
+		{"success incomplete", TriggerSuccess, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{}, ErrUsageIncomplete, "failed", billing.BillingStatusUnbilled, billing.BillingReasonUnbilledUsageIncomplete, SettlementMoneyRelease, SettlementCandidateDiscard, 1},
 		{"user stop before dispatch", TriggerUserStopBeforeDispatch, []FinalizationAttempt{{ID: 1, AttemptNo: 1, State: billing.AttemptStateCanceled, DispatchState: billing.DispatchStateNotDispatched, Usage: usableUsage()}}, SettlementQuote{}, nil, "canceled", billing.BillingStatusReleased, billing.BillingReasonReleasedBeforeDispatch, SettlementMoneyRelease, SettlementCandidateDiscard, 0},
 		{"user stop complete", TriggerUserStop, []FinalizationAttempt{succeededAttempt(1, 1), succeededAttempt(2, 2)}, SettlementQuote{ActualUnits: 3, Items: []billing.UsageChargeItem{pricedItem(1, 1), pricedItem(2, 2)}}, nil, "canceled", billing.BillingStatusSettled, billing.BillingReasonSettledCompleteUsage, SettlementMoneyCapture, SettlementCandidateDiscard, 1},
 		{"user stop incomplete", TriggerUserStop, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{}, ErrUsageIncomplete, "canceled", billing.BillingStatusUnbilled, billing.BillingReasonUnbilledUsageIncomplete, SettlementMoneyRelease, SettlementCandidateDiscard, 1},
@@ -257,6 +264,69 @@ func TestRunFinalizerRejectsInvalidLockedFactGraph(t *testing.T) {
 				t.Fatalf("invalid fact graph finalized: err=%v decision=%+v", err, store.last)
 			}
 		})
+	}
+}
+
+func TestRunFinalizerRejectsChargeOwnedByAnotherUser(t *testing.T) {
+	facts := finalizationFacts(TriggerSuccess, succeededAttempt(1, 1))
+	facts.Charge.UserID = facts.Run.UserID + 1
+	store := &finalizerStore{facts: facts}
+
+	err := NewFinalizer(store, &finalizerPricer{quote: SettlementQuote{ActualUnits: 1, Items: []billing.UsageChargeItem{pricedItem(1, 1)}}}).Finalize(context.Background(), FinalizeRequest{RunID: 44})
+	if err == nil || store.terminal {
+		t.Fatalf("cross-user charge finalized: err=%v decision=%+v", err, store.last)
+	}
+}
+
+func TestRunFinalizerRejectsAttemptOwnedByAnotherRun(t *testing.T) {
+	facts := finalizationFacts(TriggerSuccess, succeededAttempt(1, 1))
+	facts.Attempts[0].RunID = facts.Run.RunID + 1
+	store := &finalizerStore{facts: facts}
+
+	err := NewFinalizer(store, &finalizerPricer{quote: SettlementQuote{ActualUnits: 1, Items: []billing.UsageChargeItem{pricedItem(1, 1)}}}).Finalize(context.Background(), FinalizeRequest{RunID: 44})
+	if err == nil || store.terminal {
+		t.Fatalf("cross-run attempt finalized: err=%v decision=%+v", err, store.last)
+	}
+}
+
+func TestRunFinalizerRejectsProviderFailedTriggerForNonFailedCurrentAttempt(t *testing.T) {
+	facts := finalizationFacts(TriggerProviderFailed, succeededAttempt(1, 1))
+	store := &finalizerStore{facts: facts}
+
+	err := NewFinalizer(store, &finalizerPricer{}).Finalize(context.Background(), FinalizeRequest{RunID: 44})
+	if err == nil || store.terminal {
+		t.Fatalf("provider_failed accepted non-failed current attempt: err=%v decision=%+v", err, store.last)
+	}
+}
+
+func TestRunFinalizerRejectsOutcomeUnknownTriggerForKnownCurrentAttempt(t *testing.T) {
+	facts := finalizationFacts(TriggerOutcomeUnknown, succeededAttempt(1, 1))
+	store := &finalizerStore{facts: facts}
+
+	err := NewFinalizer(store, &finalizerPricer{}).Finalize(context.Background(), FinalizeRequest{RunID: 44})
+	if err == nil || store.terminal {
+		t.Fatalf("outcome_unknown accepted known current attempt: err=%v decision=%+v", err, store.last)
+	}
+}
+
+func TestRunFinalizerDoesNotBillOrPublishLegacyAttempt(t *testing.T) {
+	facts := finalizationFacts(TriggerSuccess, succeededAttempt(1, 1))
+	facts.Attempts[0].EvidenceKind = AttemptEvidenceLegacyUnbillable
+	store := &finalizerStore{facts: facts}
+	pricer := &finalizerPricer{quote: SettlementQuote{ActualUnits: 1, Items: []billing.UsageChargeItem{pricedItem(1, 1)}}}
+
+	err := NewFinalizer(store, pricer).Finalize(context.Background(), FinalizeRequest{RunID: 44})
+	if err != nil {
+		t.Fatalf("Finalize() error = %v", err)
+	}
+	if pricer.calls != 0 {
+		t.Fatalf("legacy attempt reached pricer: calls=%d", pricer.calls)
+	}
+	if store.last.BillingStatus != billing.BillingStatusUnbilled || store.last.MoneyAction != SettlementMoneyRelease || store.last.CandidateAction != SettlementCandidateDiscard {
+		t.Fatalf("legacy attempt decision = %+v", store.last)
+	}
+	if store.last.RunStatus != "failed" {
+		t.Fatalf("legacy attempt run status = %q", store.last.RunStatus)
 	}
 }
 

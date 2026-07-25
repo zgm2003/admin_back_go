@@ -99,6 +99,13 @@ type ProviderAttemptPrepareInput struct {
 	Now       time.Time
 }
 
+type ProviderAttemptEvidenceKind string
+
+const (
+	ProviderAttemptEvidencePaid             ProviderAttemptEvidenceKind = "paid"
+	ProviderAttemptEvidenceLegacyUnbillable ProviderAttemptEvidenceKind = "legacy_unbillable"
+)
+
 type ProviderAttemptRef struct {
 	ID                  uint64
 	RunID               int64
@@ -106,6 +113,7 @@ type ProviderAttemptRef struct {
 	IdempotencyKey      string
 	PreparedRequestJSON string
 	QuoteJSON           string
+	EvidenceKind        ProviderAttemptEvidenceKind
 }
 
 type ProviderAttemptMarkInput struct {

@@ -67,6 +67,14 @@ type PrepareAttemptInput struct {
 	QuoteJSON             string
 }
 
+type LegacyPrepareAttemptInput struct {
+	RunID     int64
+	CommandID uint64
+	Owner     string
+	Token     uint64
+	Now       time.Time
+}
+
 type FinishAttemptInput struct {
 	RunID               int64
 	AttemptID           uint64
@@ -86,8 +94,14 @@ type FinishAttemptInput struct {
 
 // PrepareLegacyAttempt is the only API allowed to synthesize explicit
 // non-replayable/unpriced legacy evidence.
-func (r *GormRepository) PrepareLegacyAttempt(ctx context.Context, input PrepareAttemptInput) (*Attempt, bool, error) {
-	return r.prepareAttempt(ctx, input, true, nil)
+func (r *GormRepository) PrepareLegacyAttempt(ctx context.Context, input LegacyPrepareAttemptInput) (*Attempt, bool, error) {
+	return r.prepareAttempt(ctx, PrepareAttemptInput{
+		RunID:     input.RunID,
+		CommandID: input.CommandID,
+		Owner:     input.Owner,
+		Token:     input.Token,
+		Now:       input.Now,
+	}, true, nil)
 }
 
 // PreparePaidAttemptInTransaction participates in the caller's transaction;

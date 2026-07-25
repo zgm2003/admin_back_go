@@ -2,6 +2,7 @@ package aigateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"testing"
 
@@ -16,6 +17,7 @@ func TestPersistedQuoteValidatorBindsQuoteToLockedPricingSnapshot(t *testing.T) 
 	quote := QuoteEvidence{
 		PricingVersion:           snapshot.Version,
 		RequestFingerprint:       fingerprint,
+		PreparedRequestSHA256:    sha256.Sum256([]byte(`{"model":"test"}`)),
 		EffectiveMaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
 		UpperBoundItems: []billing.UsageItem{
 			{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 2},
@@ -24,7 +26,7 @@ func TestPersistedQuoteValidatorBindsQuoteToLockedPricingSnapshot(t *testing.T) 
 		TargetHoldUnits: 34,
 	}
 	validator := PersistedQuoteValidator{}
-	if err := validator.ValidateQuote(context.Background(), run, quote); err != nil {
+	if err := validator.ValidateQuote(context.Background(), run, quote.PreparedRequestSHA256, quote); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +49,7 @@ func TestPersistedQuoteValidatorBindsQuoteToLockedPricingSnapshot(t *testing.T) 
 			candidate := quote
 			candidate.UpperBoundItems = append([]billing.UsageItem(nil), quote.UpperBoundItems...)
 			tc.mutate(&lockedRun, &candidate)
-			if err := validator.ValidateQuote(context.Background(), lockedRun, candidate); err == nil {
+			if err := validator.ValidateQuote(context.Background(), lockedRun, quote.PreparedRequestSHA256, candidate); err == nil {
 				t.Fatalf("quote was accepted: run=%+v quote=%+v", lockedRun, candidate)
 			}
 		})
@@ -61,6 +63,7 @@ func TestPersistedQuoteValidatorRejectsVisuallyValidQuoteFromDifferentSnapshot(t
 	quote := QuoteEvidence{
 		PricingVersion:           snapshot.Version,
 		RequestFingerprint:       fingerprint,
+		PreparedRequestSHA256:    sha256.Sum256([]byte(`{"model":"test"}`)),
 		EffectiveMaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
 		UpperBoundItems:          []billing.UsageItem{{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10}},
 		TargetHoldUnits:          30,
@@ -70,8 +73,27 @@ func TestPersistedQuoteValidatorRejectsVisuallyValidQuoteFromDifferentSnapshot(t
 	other.Rates = append([]pricing.Rate(nil), snapshot.Rates...)
 	other.Rates[1].PriceUnits = 4
 	run.PricingSnapshotJSON = mustPricingSnapshotJSON(t, other)
-	if err := (PersistedQuoteValidator{}).ValidateQuote(context.Background(), run, quote); err == nil {
+	if err := (PersistedQuoteValidator{}).ValidateQuote(context.Background(), run, quote.PreparedRequestSHA256, quote); err == nil {
 		t.Fatal("quote calculated from a different rate snapshot was accepted")
+	}
+}
+
+func TestPersistedQuoteValidatorRejectsQuoteForDifferentPreparedRequest(t *testing.T) {
+	fingerprint := [32]byte{9}
+	snapshot := validPricingSnapshot()
+	run := RunSnapshot{RunID: 46, UserID: 9, ModelID: snapshot.RequestedModelID, RequestFingerprint: fingerprint, PricingSnapshotJSON: mustPricingSnapshotJSON(t, snapshot)}
+	quote := QuoteEvidence{
+		PricingVersion:           snapshot.Version,
+		RequestFingerprint:       fingerprint,
+		EffectiveMaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
+		UpperBoundItems:          []billing.UsageItem{{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10}},
+		TargetHoldUnits:          30,
+	}
+	requestHash := sha256.Sum256([]byte(`{"model":"expected"}`))
+	quote = quoteWithPreparedRequestHash(quote, sha256.Sum256([]byte(`{"model":"other"}`)))
+
+	if err := (PersistedQuoteValidator{}).ValidateQuote(context.Background(), run, requestHash, quote); err == nil {
+		t.Fatal("validator accepted quote bound to different prepared request")
 	}
 }
 
