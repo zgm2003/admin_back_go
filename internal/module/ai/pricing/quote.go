@@ -28,6 +28,7 @@ func Quote(price ModelPrice, lines []QuoteLine, multiplierPPM int64) (QuoteResul
 		rateByKey[key] = rate
 	}
 	seenIDs := make(map[string]struct{}, len(lines))
+	seenIdentities := make(map[string]struct{}, len(lines))
 	exact := make([]exactLine, 0, len(lines))
 	total := new(big.Rat)
 	for index, line := range lines {
@@ -47,6 +48,15 @@ func Quote(price ModelPrice, lines []QuoteLine, multiplierPPM int64) (QuoteResul
 			return QuoteResult{}, ErrUnsupportedUsage
 		}
 		key := rateKey(category, item.Unit, item.TierKey)
+		attemptID := strings.TrimSpace(line.AttemptID)
+		if attemptID == "" {
+			attemptID = line.Key
+		}
+		identity := attemptID + "\x00" + key
+		if _, exists := seenIdentities[identity]; exists {
+			return QuoteResult{}, ErrDuplicateLine
+		}
+		seenIdentities[identity] = struct{}{}
 		rate, ok := rateByKey[key]
 		if !ok {
 			if category == MediaUnits {
@@ -60,7 +70,7 @@ func Quote(price ModelPrice, lines []QuoteLine, multiplierPPM int64) (QuoteResul
 		)
 		value.Mul(value, new(big.Rat).SetFrac(big.NewInt(multiplierPPM), big.NewInt(multiplierScale)))
 		total.Add(total, value)
-		exact = append(exact, exactLine{index: index, key: line.Key, rate: rate, value: value})
+		exact = append(exact, exactLine{index: index, key: line.Key, attemptID: attemptID, category: category, tierKey: item.TierKey, unit: item.Unit, rate: rate, value: value})
 	}
 	if len(exact) == 0 {
 		return QuoteResult{}, nil

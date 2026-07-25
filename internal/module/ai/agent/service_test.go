@@ -487,3 +487,30 @@ func TestUpdatePreservesBillingConfigurationWhenProviderChanges(t *testing.T) {
 		t.Fatalf("billing fields were reset: %#v", repo.updates[0])
 	}
 }
+
+func TestPageInitModelOptionsExposeBillingDefaults(t *testing.T) {
+	repo := &fakeAIAgentRepository{
+		connections:      []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+	}
+	result, appErr := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil).PageInit(context.Background())
+	if appErr != nil || result == nil || len(result.Dict.ModelOptions) != 1 {
+		t.Fatalf("page init failed: %#v %v", result, appErr)
+	}
+	option := result.Dict.ModelOptions[0]
+	if option.BillingMultiplier != "1" || option.MaxOutputTokens != 4096 {
+		t.Fatalf("missing billing defaults: %#v", option)
+	}
+}
+
+func TestCreateRejectsUnsafeOutputUpperBound(t *testing.T) {
+	repo := &fakeAIAgentRepository{
+		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "custom-model", Status: enum.CommonYes}}},
+	}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "a", ModelID: "custom-model", MaxOutputTokens: 1 << 31, Status: enum.CommonYes})
+	if appErr == nil {
+		t.Fatal("unsafe output upper bound should be rejected")
+	}
+}

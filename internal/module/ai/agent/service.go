@@ -70,7 +70,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 			if label == "" {
 				label = model.ModelID
 			}
-			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName}
+			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1", MaxOutputTokens: 4096}
 			if catalogModel, resolveErr := pricing.Default.Resolve(model.ModelID); resolveErr == nil {
 				option.CatalogVersion, option.CatalogVendor, option.CatalogModelID = catalogModel.Version, catalogModel.CatalogVendor, catalogModel.ModelID
 				option.CatalogRates = catalogRates(catalogModel)
@@ -78,7 +78,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 			modelOptions = append(modelOptions, option)
 		}
 	}
-	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions}}, nil
+	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions, BillingMultiplierDefault: "1", MaxOutputTokensDefault: 4096}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -479,6 +479,9 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	}
 	if input.MaxOutputTokens < 0 || maxOutput <= 0 {
 		return normalizedFields{}, apperror.BadRequest("max_output_tokens必须为正数")
+	}
+	if maxOutput > pricing.MaxSafeOutputTokens {
+		return normalizedFields{}, apperror.BadRequest("max_output_tokens超过安全上限")
 	}
 	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, maxOutputTokens: maxOutput}, nil
 }

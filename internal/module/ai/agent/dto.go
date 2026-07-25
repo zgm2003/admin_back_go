@@ -13,10 +13,12 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	SceneArr        []dict.Option[string] `json:"scene_arr"`
-	CommonStatusArr []dict.Option[int]    `json:"common_status_arr"`
-	ProviderOptions []EngineOption        `json:"provider_options"`
-	ModelOptions    []ModelOption         `json:"provider_model_options"`
+	SceneArr                 []dict.Option[string] `json:"scene_arr"`
+	CommonStatusArr          []dict.Option[int]    `json:"common_status_arr"`
+	ProviderOptions          []EngineOption        `json:"provider_options"`
+	ModelOptions             []ModelOption         `json:"provider_model_options"`
+	BillingMultiplierDefault string                `json:"billing_multiplier_default"`
+	MaxOutputTokensDefault   int                   `json:"max_output_tokens_default"`
 }
 
 type EngineOption struct {
@@ -26,15 +28,17 @@ type EngineOption struct {
 }
 
 type ModelOption struct {
-	Label          string           `json:"label"`
-	Value          string           `json:"value"`
-	ProviderID     uint64           `json:"provider_id"`
-	ModelID        string           `json:"model_id"`
-	DisplayName    string           `json:"display_name"`
-	CatalogVersion string           `json:"catalog_version,omitempty"`
-	CatalogVendor  string           `json:"catalog_vendor,omitempty"`
-	CatalogModelID string           `json:"catalog_model_id,omitempty"`
-	CatalogRates   []CatalogRateDTO `json:"catalog_rates,omitempty"`
+	Label             string           `json:"label"`
+	Value             string           `json:"value"`
+	ProviderID        uint64           `json:"provider_id"`
+	ModelID           string           `json:"model_id"`
+	DisplayName       string           `json:"display_name"`
+	BillingMultiplier string           `json:"billing_multiplier"`
+	MaxOutputTokens   int              `json:"max_output_tokens"`
+	CatalogVersion    string           `json:"catalog_version,omitempty"`
+	CatalogVendor     string           `json:"catalog_vendor,omitempty"`
+	CatalogModelID    string           `json:"catalog_model_id,omitempty"`
+	CatalogRates      []CatalogRateDTO `json:"catalog_rates,omitempty"`
 }
 
 type ListQuery struct {

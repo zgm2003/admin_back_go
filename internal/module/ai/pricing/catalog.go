@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"net/url"
 	"strings"
 )
+
+const MaxSafeOutputTokens int64 = math.MaxInt32
 
 type Category string
 
@@ -69,13 +73,25 @@ func NewCatalog(models []ModelPrice) *Catalog {
 
 func NewCatalogChecked(models []ModelPrice) (*Catalog, error) {
 	c := &Catalog{models: make([]ModelPrice, len(models)), byID: make(map[string]ModelPrice), aliases: make(map[string][]ModelPrice)}
-	copy(c.models, models)
+	for i := range models {
+		c.models[i] = cloneModel(models[i])
+	}
 	for i := range c.models {
 		model := c.models[i]
 		model.ModelID = strings.TrimSpace(model.ModelID)
 		model.CatalogVendor = strings.TrimSpace(model.CatalogVendor)
 		if strings.TrimSpace(model.ModelID) == "" || strings.TrimSpace(model.CatalogVendor) == "" {
 			return nil, fmt.Errorf("%w: missing model identity", ErrInvalidCatalog)
+		}
+		if strings.TrimSpace(model.Version) == "" || strings.TrimSpace(model.SourceURL) == "" || strings.TrimSpace(model.RetrievedAt) == "" {
+			return nil, fmt.Errorf("%w: missing audit metadata", ErrInvalidCatalog)
+		}
+		source, err := url.Parse(model.SourceURL)
+		if err != nil || (source.Scheme != "http" && source.Scheme != "https") || source.Host == "" {
+			return nil, fmt.Errorf("%w: invalid source url", ErrInvalidCatalog)
+		}
+		if model.MaxOutputTokens <= 0 || model.MaxOutputTokens > MaxSafeOutputTokens {
+			return nil, ErrUnsafeTokenUpperBound
 		}
 		if _, exists := c.byID[model.ModelID]; exists {
 			return nil, fmt.Errorf("%w: duplicate canonical model", ErrInvalidCatalog)
@@ -101,6 +117,7 @@ func NewCatalogChecked(models []ModelPrice) (*Catalog, error) {
 		c.byID[model.ModelID] = model
 	}
 	for _, model := range c.models {
+		seenAliases := map[string]struct{}{}
 		for _, alias := range model.Aliases {
 			alias = strings.TrimSpace(alias)
 			if alias == "" || alias == model.ModelID {
@@ -109,6 +126,10 @@ func NewCatalogChecked(models []ModelPrice) (*Catalog, error) {
 			if _, canonical := c.byID[alias]; canonical {
 				return nil, fmt.Errorf("%w: alias conflicts with canonical model", ErrInvalidCatalog)
 			}
+			if _, duplicate := seenAliases[alias]; duplicate {
+				return nil, fmt.Errorf("%w: duplicate alias", ErrInvalidCatalog)
+			}
+			seenAliases[alias] = struct{}{}
 			c.aliases[alias] = append(c.aliases[alias], model)
 		}
 	}

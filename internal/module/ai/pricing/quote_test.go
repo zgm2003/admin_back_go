@@ -31,6 +31,21 @@ func TestQuoteRoundsOnceAndAllocatesDeterministically(t *testing.T) {
 	}
 }
 
+func TestQuoteTieBreakUsesAttemptCategoryTierUnitBeforeLineKey(t *testing.T) {
+	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 3}}}
+	lines := []QuoteLine{
+		{Key: "z", AttemptID: "attempt-b", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
+		{Key: "a", AttemptID: "attempt-a", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
+	}
+	got, err := Quote(price, lines, 1000000)
+	if err != nil || got.AmountUnits != 1 {
+		t.Fatalf("quote = %#v, %v", got, err)
+	}
+	if got.Lines[0].AmountUnits != 0 || got.Lines[1].AmountUnits != 1 {
+		t.Fatalf("attempt tuple should win tie: %#v", got.Lines)
+	}
+}
+
 func TestQuoteRejectsUnsupportedAndDuplicateLines(t *testing.T) {
 	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1}}}
 	line := QuoteLine{Key: "same", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}

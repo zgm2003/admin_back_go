@@ -8,12 +8,14 @@ import (
 )
 
 type QuoteLine struct {
-	Key  string            `json:"key"`
-	Item billing.UsageItem `json:"item"`
+	Key       string            `json:"key"`
+	AttemptID string            `json:"attempt_id,omitempty"`
+	Item      billing.UsageItem `json:"item"`
 }
 
 type QuoteLineResult struct {
 	Key         string `json:"key"`
+	AttemptID   string `json:"attempt_id,omitempty"`
 	Rate        Rate   `json:"rate"`
 	AmountUnits int64  `json:"amount_units"`
 }
@@ -24,10 +26,14 @@ type QuoteResult struct {
 }
 
 type exactLine struct {
-	index int
-	key   string
-	rate  Rate
-	value *big.Rat
+	index     int
+	key       string
+	attemptID string
+	category  Category
+	tierKey   string
+	unit      string
+	rate      Rate
+	value     *big.Rat
 }
 
 func categoryForUsage(category billing.UsageCategory) (Category, bool) {
@@ -52,7 +58,7 @@ func allocate(lines []exactLine, total int64) []QuoteLineResult {
 	var floors int64
 	for i, line := range lines {
 		floor := new(big.Int).Quo(line.value.Num(), line.value.Denom())
-		result[i] = QuoteLineResult{Key: line.key, Rate: line.rate, AmountUnits: floor.Int64()}
+		result[i] = QuoteLineResult{Key: line.key, AttemptID: line.attemptID, Rate: line.rate, AmountUnits: floor.Int64()}
 		floors += floor.Int64()
 	}
 	remaining := total - floors
@@ -65,6 +71,18 @@ func allocate(lines []exactLine, total int64) []QuoteLineResult {
 			crossRight := new(big.Int).Mul(right, order[i].value.Denom())
 			if crossLeft.Cmp(crossRight) != 0 {
 				return crossLeft.Cmp(crossRight) > 0
+			}
+			if order[i].attemptID != order[j].attemptID {
+				return order[i].attemptID < order[j].attemptID
+			}
+			if order[i].category != order[j].category {
+				return order[i].category < order[j].category
+			}
+			if order[i].tierKey != order[j].tierKey {
+				return order[i].tierKey < order[j].tierKey
+			}
+			if order[i].unit != order[j].unit {
+				return order[i].unit < order[j].unit
 			}
 			return order[i].key < order[j].key
 		})
