@@ -153,8 +153,14 @@ func validateInput(input Input) error {
 		}
 	}
 	for index, attachment := range input.Attachments {
-		if index > 0 && attachment == input.Attachments[index-1] {
-			return fmt.Errorf("duplicate attachment identity at index %d", index)
+		if index > 0 {
+			previous := input.Attachments[index-1]
+			if attachment.StorageProvider == previous.StorageProvider && attachment.StorageKey == previous.StorageKey {
+				if attachment.SHA256 == previous.SHA256 {
+					return fmt.Errorf("duplicate attachment object identity at index %d", index)
+				}
+				return fmt.Errorf("conflicting attachment object identity at index %d", index)
+			}
 		}
 		if attachment.StorageProvider == "" {
 			return fmt.Errorf("attachments[%d].storage_provider must not be blank", index)
@@ -237,7 +243,7 @@ func normalizeInput(input Input) (Input, error) {
 func normalizeText(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	value = strings.ReplaceAll(value, "\r", "\n")
-	return strings.TrimSpace(value)
+	return value
 }
 
 func CompareForReplay(status IdentityStatus, stored, incoming [32]byte) error {

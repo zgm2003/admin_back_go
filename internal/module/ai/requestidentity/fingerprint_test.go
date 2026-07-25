@@ -8,18 +8,18 @@ import (
 	"testing"
 )
 
-func TestBuildFingerprintNormalizesTextOptionsAndAttachmentOrder(t *testing.T) {
+func TestBuildFingerprintNormalizesLineEndingsOptionsAndAttachmentOrder(t *testing.T) {
 	firstInput := Input{
 		UserID:         42,
 		Operation:      " generate ",
 		Modality:       " text ",
 		AgentID:        7,
 		ModelID:        " gpt-4o ",
-		NormalizedText: "\u2003hello\r\nworld\u00a0",
+		NormalizedText: "hello\r\nworld",
 		Attachments: []AttachmentIdentity{
 			{StorageProvider: " s3 ", StorageKey: " users/42/a.txt ", SHA256: strings.Repeat("c", 64)},
 			{StorageProvider: " cos ", StorageKey: " users/42/z.txt ", SHA256: strings.Repeat("B", 64)},
-			{StorageProvider: "cos", StorageKey: "users/42/z.txt", SHA256: strings.Repeat("a", 64)},
+			{StorageProvider: "cos", StorageKey: "users/42/m.txt", SHA256: strings.Repeat("a", 64)},
 			{StorageProvider: "cos", StorageKey: "users/42/a.txt", SHA256: strings.Repeat("b", 64)},
 		},
 		Options: GenerationOptions{
@@ -39,7 +39,7 @@ func TestBuildFingerprintNormalizesTextOptionsAndAttachmentOrder(t *testing.T) {
 		NormalizedText: "hello\nworld",
 		Attachments: []AttachmentIdentity{
 			{StorageProvider: "cos", StorageKey: "users/42/a.txt", SHA256: strings.Repeat("b", 64)},
-			{StorageProvider: "cos", StorageKey: "users/42/z.txt", SHA256: strings.Repeat("a", 64)},
+			{StorageProvider: "cos", StorageKey: "users/42/m.txt", SHA256: strings.Repeat("a", 64)},
 			{StorageProvider: "cos", StorageKey: "users/42/z.txt", SHA256: strings.Repeat("b", 64)},
 			{StorageProvider: "s3", StorageKey: "users/42/a.txt", SHA256: strings.Repeat("c", 64)},
 		},
@@ -64,7 +64,7 @@ func TestBuildFingerprintNormalizesTextOptionsAndAttachmentOrder(t *testing.T) {
 		t.Fatalf("equivalent canonical inputs changed fingerprint: %x != %x", first, second)
 	}
 	carriageReturnInput := firstInput
-	carriageReturnInput.NormalizedText = "\u2003hello\rworld\u00a0"
+	carriageReturnInput.NormalizedText = "hello\rworld"
 	carriageReturnFingerprint, err := BuildFingerprint(carriageReturnInput)
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +74,37 @@ func TestBuildFingerprintNormalizesTextOptionsAndAttachmentOrder(t *testing.T) {
 	}
 	if firstInput.Attachments[0].StorageProvider != " s3 " || firstInput.Options.Extra[" quality "] != " high " {
 		t.Fatal("fingerprint construction mutated caller-owned input")
+	}
+}
+
+func TestBuildFingerprintPreservesLeadingAndTrailingTextWhitespace(t *testing.T) {
+	base := validFingerprintInput()
+	want, err := BuildFingerprint(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		text string
+	}{
+		{name: "leading ASCII space", text: " hello"},
+		{name: "trailing ASCII space", text: "hello "},
+		{name: "leading Unicode space", text: "\u2003hello"},
+		{name: "trailing Unicode space", text: "hello\u00a0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := base
+			input.NormalizedText = test.text
+			got, err := BuildFingerprint(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == want {
+				t.Fatal("leading or trailing text whitespace did not change fingerprint")
+			}
+		})
 	}
 }
 
@@ -270,8 +301,8 @@ func TestBuildFingerprintRejectsNormalizedDuplicateAttachmentsAndOptionKeys(t *t
 			{StorageProvider: "cos", StorageKey: "objects/a", SHA256: strings.Repeat("a", 64)},
 			{StorageProvider: "cos", StorageKey: "objects/a", SHA256: strings.Repeat("b", 64)},
 		}
-		if _, err := BuildFingerprint(input); err != nil {
-			t.Fatalf("distinct attachment tuples rejected: %v", err)
+		if _, err := BuildFingerprint(input); err == nil {
+			t.Fatal("conflicting attachment object identity was accepted")
 		}
 	})
 }
