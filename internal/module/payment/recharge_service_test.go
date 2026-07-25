@@ -439,6 +439,10 @@ func (r *fakeRechargeRepo) CreditRecharge(ctx context.Context, rechargeID int64,
 	r.recharge.CreditedAt = &now
 	return r.wallet, r.recharge, nil
 }
+
+func (r *fakeRechargeRepo) FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*Order, *Wallet, *Recharge, error) {
+	return r.order, r.wallet, r.recharge, nil
+}
 func (r *fakeRechargeRepo) FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error) {
 	var selected *Config
 	for idx := range r.configs {

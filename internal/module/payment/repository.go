@@ -54,6 +54,7 @@ type Repository interface {
 	UpdateRechargePaid(ctx context.Context, id int64, paidAt time.Time) error
 	UpdateRechargeClosed(ctx context.Context, id int64) error
 	CreditRecharge(ctx context.Context, rechargeID int64, paidAt time.Time, now time.Time) (*Wallet, *Recharge, error)
+	FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*Order, *Wallet, *Recharge, error)
 	CreateCallbackEvent(ctx context.Context, event CallbackEvent) (int64, error)
 	UpdateCallbackEventProcessed(ctx context.Context, id int64, signatureValid int, status string, message string, processedAt time.Time) error
 	FirstEnabledConfigForPay(ctx context.Context, provider string, payMethod string) (*Config, error)

@@ -325,6 +325,98 @@ func (r *GormRepository) CreditRecharge(ctx context.Context, rechargeID int64, p
 	return &creditedWallet, &creditedRecharge, nil
 }
 
+func (r *GormRepository) FinalizePaidOrder(ctx context.Context, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*Order, *Wallet, *Recharge, error) {
+	if r == nil || r.db == nil || r.walletParticipant == nil {
+		return nil, nil, nil, ErrRepositoryNotConfigured
+	}
+	var order Order
+	var recharge *Recharge
+	var resultWallet *Wallet
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND is_del = ?", orderID, enum.CommonNo).First(&order).Error; err != nil {
+			return err
+		}
+		var row Recharge
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_order_id = ? AND is_del = ?", order.ID, enum.CommonNo).First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if order.Status == orderStatusPaid {
+				return nil
+			}
+			result := tx.Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", order.ID, enum.CommonNo, []string{orderStatusPending, orderStatusPaying}).Updates(map[string]any{"status": orderStatusPaid, "paid_at": paidAt, "alipay_trade_no": strings.TrimSpace(tradeNo)})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrPaymentStateChanged
+			}
+			order.Status = orderStatusPaid
+			order.PaidAt = &paidAt
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if row.AmountCents != order.AmountCents || row.PaymentOrderID != order.ID || row.Status == rechargeStatusClosed || row.Status == rechargeStatusFailed {
+			return ErrPaymentStateChanged
+		}
+		units, err := money.CentsToUnits(row.AmountCents)
+		if err != nil {
+			return err
+		}
+		if order.Status != orderStatusPaid {
+			result := tx.Model(&Order{}).Where("id = ? AND is_del = ? AND status IN ?", order.ID, enum.CommonNo, []string{orderStatusPending, orderStatusPaying}).Updates(map[string]any{"status": orderStatusPaid, "paid_at": paidAt, "alipay_trade_no": strings.TrimSpace(tradeNo)})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrPaymentStateChanged
+			}
+			order.Status = orderStatusPaid
+			order.PaidAt = &paidAt
+		}
+		if row.Status == rechargeStatusCredited || row.CreditedAt != nil {
+			wallet, _, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"})
+			if err != nil {
+				return err
+			}
+			resultWallet = (*Wallet)(wallet)
+			recharge = &row
+			return nil
+		}
+		if row.Status != rechargeStatusPaid {
+			result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ? AND credited_at IS NULL", row.ID, enum.CommonNo, []string{rechargeStatusPending, rechargeStatusPaying}).Updates(map[string]any{"status": rechargeStatusPaid, "paid_at": paidAt})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrPaymentStateChanged
+			}
+			row.Status = rechargeStatusPaid
+			row.PaidAt = &paidAt
+		}
+		wallet, _, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"})
+		if err != nil {
+			return err
+		}
+		resultWallet = (*Wallet)(wallet)
+		result := tx.Model(&Recharge{}).Where("id = ? AND is_del = ? AND status = ? AND credited_at IS NULL", row.ID, enum.CommonNo, rechargeStatusPaid).Updates(map[string]any{"status": rechargeStatusCredited, "credited_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrPaymentStateChanged
+		}
+		row.Status = rechargeStatusCredited
+		row.CreditedAt = &now
+		recharge = &row
+		return nil
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &order, resultWallet, recharge, nil
+}
+
 func createWalletTransactionWithNumberRetry(tx *gorm.DB, row *WalletTransaction, now time.Time) error {
 	var err error
 	for attempt := 0; attempt < maxWalletTransactionNoAttempts; attempt++ {
