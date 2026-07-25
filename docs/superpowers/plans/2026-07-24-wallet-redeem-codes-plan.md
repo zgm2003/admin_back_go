@@ -518,6 +518,8 @@ Expected: 针对性 transport/composition/route tests PASS。此提交 SHA 是 T
 - Modify: `contracts/backend/admin/v1/views.json`
 - Modify: `src/modules/http/generated/admin.ts`
 - Modify: `src/modules/http/generated/operations.ts`
+- Modify: `src/modules/routing/generated/permissions.ts`
+- Modify: `src/modules/routing/generated/views.ts`
 - Create: `src/api/payment/redeem-codes.ts`
 - Modify: `src/api/wallet/index.ts`
 - Create: `tests/shared/payment/redeem-code-api.test.ts`
@@ -558,7 +560,7 @@ API adapter 只从 `AdminOperationInput` 和 generated `components` 派生类型
 npm test -- tests/shared/payment/redeem-code-api.test.ts tests/shared/wallet/wallet-redemption-api.test.ts
 npm run contract:check
 git diff --check
-git add contracts/backend/admin src/modules/http/generated src/api/payment/redeem-codes.ts src/api/wallet/index.ts tests/shared/payment/redeem-code-api.test.ts tests/shared/wallet/wallet-redemption-api.test.ts
+git add contracts/backend/admin src/modules/http/generated src/modules/routing/generated/permissions.ts src/modules/routing/generated/views.ts src/api/payment/redeem-codes.ts src/api/wallet/index.ts tests/shared/payment/redeem-code-api.test.ts tests/shared/wallet/wallet-redemption-api.test.ts
 git commit -m "feat(api): add wallet redeem code clients"
 ```
 
