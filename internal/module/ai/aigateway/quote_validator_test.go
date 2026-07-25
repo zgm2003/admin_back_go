@@ -23,7 +23,8 @@ func TestPersistedQuoteValidatorBindsQuoteToLockedPricingSnapshot(t *testing.T) 
 			{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 2},
 			{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10},
 		},
-		TargetHoldUnits: 34,
+		CurrentCallMaxUnits: 34,
+		TargetHoldUnits:     34,
 	}
 	validator := PersistedQuoteValidator{}
 	if err := validator.ValidateQuote(context.Background(), run, quote.PreparedRequestSHA256, quote); err != nil {
@@ -37,6 +38,8 @@ func TestPersistedQuoteValidatorBindsQuoteToLockedPricingSnapshot(t *testing.T) 
 		{name: "request fingerprint", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.RequestFingerprint[0]++ }},
 		{name: "pricing version", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.PricingVersion = "other" }},
 		{name: "effective output cap", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.EffectiveMaxOutputTokens++ }},
+		{name: "current call maximum", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.CurrentCallMaxUnits++ }},
+		{name: "prior billable units", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.PriorBillableUnits++ }},
 		{name: "target hold", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.TargetHoldUnits++ }},
 		{name: "model binding", mutate: func(r *RunSnapshot, _ *QuoteEvidence) { r.ModelID = "other-model" }},
 		{name: "unsupported upper-bound item", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.UpperBoundItems[0].Unit = "character" }},
@@ -66,6 +69,7 @@ func TestPersistedQuoteValidatorRejectsVisuallyValidQuoteFromDifferentSnapshot(t
 		PreparedRequestSHA256:    sha256.Sum256([]byte(`{"model":"test"}`)),
 		EffectiveMaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
 		UpperBoundItems:          []billing.UsageItem{{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10}},
+		CurrentCallMaxUnits:      30,
 		TargetHoldUnits:          30,
 	}
 
@@ -87,6 +91,7 @@ func TestPersistedQuoteValidatorRejectsQuoteForDifferentPreparedRequest(t *testi
 		RequestFingerprint:       fingerprint,
 		EffectiveMaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
 		UpperBoundItems:          []billing.UsageItem{{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10}},
+		CurrentCallMaxUnits:      30,
 		TargetHoldUnits:          30,
 	}
 	requestHash := sha256.Sum256([]byte(`{"model":"expected"}`))

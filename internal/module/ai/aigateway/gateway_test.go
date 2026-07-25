@@ -22,7 +22,7 @@ func (a *testAssembler) AssembleAndQuote(context.Context, RunSnapshot, RunReques
 }
 
 func validQuote(target int64) QuoteEvidence {
-	return QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, TargetHoldUnits: target, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}}
+	return QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, CurrentCallMaxUnits: target, TargetHoldUnits: target, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}}
 }
 
 func quoteWithPreparedRequestHash(quote QuoteEvidence, hash [32]byte) QuoteEvidence {
@@ -315,7 +315,8 @@ func TestGatewayReserveTargetsPriorBillableUsagePlusCurrentUpperBound(t *testing
 	fingerprint := [32]byte{}
 	call := sealTestCall(50, fingerprint, PreparedCall{RequestBody: []byte(`{"model":"x"}`), Quote: validQuote(10)})
 
-	if _, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 50, AttemptNo: 2, NewCall: &call}); err != nil {
+	attempt, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 50, AttemptNo: 2, NewCall: &call})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(reserve.targets) != 1 || reserve.targets[0] != 18 {
@@ -323,6 +324,32 @@ func TestGatewayReserveTargetsPriorBillableUsagePlusCurrentUpperBound(t *testing
 	}
 	if priorUsage.calls != 1 || priorUsage.beforeAttemptNo != 2 {
 		t.Fatalf("prior usage calls=%d before_attempt_no=%d", priorUsage.calls, priorUsage.beforeAttemptNo)
+	}
+	if attempt.Quote.CurrentCallMaxUnits != 10 || attempt.Quote.PriorBillableUnits != 8 || attempt.Quote.TargetHoldUnits != 18 {
+		t.Fatalf("persisted cumulative quote=%+v", attempt.Quote)
+	}
+}
+
+func cumulativeAttempt(runID int64, attemptNo uint32, currentCallMax, priorBillable int64) ProviderAttempt {
+	attempt := validAttempt(runID, attemptNo, currentCallMax)
+	attempt.Quote.PriorBillableUnits = priorBillable
+	attempt.Quote.TargetHoldUnits = priorBillable + currentCallMax
+	return attempt
+}
+
+func TestGatewayRecoversPersistedCumulativeQuoteWithoutDoubleAddingPriorUsage(t *testing.T) {
+	attempt := cumulativeAttempt(55, 2, 10, 8)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Runs = testRunStore{holdTarget: 18}
+	deps.PriorUsage = &testPriorUsagePricer{units: 8}
+
+	recovered, err := New(deps).ReserveAndPrepare(context.Background(), ReserveAndPrepareInput{RunID: 55, AttemptNo: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameAttemptEvidence(recovered, attempt) {
+		t.Fatalf("recovered=%+v, want %+v", recovered, attempt)
 	}
 }
 
@@ -349,6 +376,21 @@ func TestGatewayMarkDispatchedRejectsHoldThatOmitsPriorBillableUsage(t *testing.
 	}
 	if store.state != "prepared" {
 		t.Fatalf("underfunded attempt state=%q", store.state)
+	}
+}
+
+func TestGatewayMarkDispatchedRejectsPersistedPriorUsageThatDiffersFromLockedReprice(t *testing.T) {
+	attempt := cumulativeAttempt(56, 2, 10, 7)
+	store := &testAttemptStore{attempt: attempt, state: "prepared"}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Runs = testRunStore{holdTarget: 18}
+	deps.PriorUsage = &testPriorUsagePricer{units: 8}
+
+	if err := New(deps).MarkDispatched(context.Background(), attempt); err == nil {
+		t.Fatal("stale persisted prior usage was marked dispatched")
+	}
+	if store.state != "prepared" {
+		t.Fatalf("stale prior usage advanced state=%q", store.state)
 	}
 }
 
@@ -761,7 +803,7 @@ func TestGatewayAcceptsMediaUsageProofBeforeDispatch(t *testing.T) {
 		IdempotencyKey:  attemptKey(37, 1),
 		PreparedRequest: body,
 		RequestSHA256:   requestHash,
-		Quote:           QuoteEvidence{PricingVersion: "v1", PreparedRequestSHA256: requestHash, EffectiveMaxOutputTokens: 1, TargetHoldUnits: 5, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}},
+		Quote:           QuoteEvidence{PricingVersion: "v1", PreparedRequestSHA256: requestHash, EffectiveMaxOutputTokens: 1, CurrentCallMaxUnits: 5, TargetHoldUnits: 5, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}}},
 	}
 	provider := &testProvider{
 		proofItems: []billing.UsageItem{{Category: billing.UsageCategoryMedia, Unit: "image", Quantity: 1}},

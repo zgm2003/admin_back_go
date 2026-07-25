@@ -102,8 +102,12 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	if err != nil {
 		return gatewayError(ErrCodeInvalidPrepared, err.Error(), 409)
 	}
-	if run.RunID <= 0 || run.UserID <= 0 || strings.TrimSpace(run.ModelID) != snapshot.RequestedModelID || preparedRequestSHA256 == ([32]byte{}) || quote.PreparedRequestSHA256 != preparedRequestSHA256 || quote.RequestFingerprint != run.RequestFingerprint || strings.TrimSpace(quote.PricingVersion) != snapshot.Version || quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens || quote.TargetHoldUnits <= 0 || len(quote.UpperBoundItems) == 0 {
+	if run.RunID <= 0 || run.UserID <= 0 || strings.TrimSpace(run.ModelID) != snapshot.RequestedModelID || preparedRequestSHA256 == ([32]byte{}) || quote.PreparedRequestSHA256 != preparedRequestSHA256 || quote.RequestFingerprint != run.RequestFingerprint || strings.TrimSpace(quote.PricingVersion) != snapshot.Version || quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens || quote.CurrentCallMaxUnits <= 0 || quote.PriorBillableUnits < 0 || quote.TargetHoldUnits <= 0 || len(quote.UpperBoundItems) == 0 {
 		return gatewayError(ErrCodeInvalidPrepared, "quote does not match the locked pricing snapshot", 409)
+	}
+	target, err := cumulativeHoldTarget(quote.PriorBillableUnits, quote.CurrentCallMaxUnits)
+	if err != nil || target != quote.TargetHoldUnits {
+		return gatewayError(ErrCodeInvalidPrepared, "quote cumulative hold evidence is inconsistent", 409)
 	}
 	lines := make([]pricing.QuoteLine, len(quote.UpperBoundItems))
 	seen := make(map[string]struct{}, len(quote.UpperBoundItems))
@@ -126,8 +130,8 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	if err != nil {
 		return gatewayError(ErrCodeInvalidPrepared, fmt.Sprintf("quote is not priceable from the locked snapshot: %v", err), 409)
 	}
-	if recomputed.AmountUnits != quote.TargetHoldUnits {
-		return gatewayError(ErrCodeInvalidPrepared, "quote hold target differs from locked snapshot pricing", 409)
+	if recomputed.AmountUnits != quote.CurrentCallMaxUnits {
+		return gatewayError(ErrCodeInvalidPrepared, "quote current call maximum differs from locked snapshot pricing", 409)
 	}
 	return nil
 }

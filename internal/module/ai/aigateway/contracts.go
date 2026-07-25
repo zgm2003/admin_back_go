@@ -34,6 +34,8 @@ type QuoteEvidence struct {
 	PreparedRequestSHA256    [32]byte            `json:"prepared_request_sha256"`
 	EffectiveMaxOutputTokens int                 `json:"effective_max_output_tokens"`
 	UpperBoundItems          []billing.UsageItem `json:"upper_bound_items"`
+	CurrentCallMaxUnits      int64               `json:"current_call_max_units"`
+	PriorBillableUnits       int64               `json:"prior_billable_units"`
 	TargetHoldUnits          int64               `json:"target_hold_units"`
 }
 
@@ -246,8 +248,12 @@ func canonicalPrepared(call PreparedCall) (PreparedCall, error) {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote request hash mismatch", 409)
 	}
 	call.Quote.PreparedRequestSHA256 = hash
-	if call.Quote.TargetHoldUnits <= 0 || call.Quote.EffectiveMaxOutputTokens <= 0 || call.Quote.PricingVersion == "" || len(call.Quote.UpperBoundItems) == 0 {
+	if call.Quote.CurrentCallMaxUnits <= 0 || call.Quote.PriorBillableUnits < 0 || call.Quote.TargetHoldUnits <= 0 || call.Quote.EffectiveMaxOutputTokens <= 0 || call.Quote.PricingVersion == "" || len(call.Quote.UpperBoundItems) == 0 {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote must contain version, capacity, usage, and positive hold", 400)
+	}
+	target, err := cumulativeHoldTarget(call.Quote.PriorBillableUnits, call.Quote.CurrentCallMaxUnits)
+	if err != nil || target != call.Quote.TargetHoldUnits {
+		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote cumulative hold evidence is inconsistent", 409)
 	}
 	for _, item := range call.Quote.UpperBoundItems {
 		if err := item.Validate(); err != nil {

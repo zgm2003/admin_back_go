@@ -143,11 +143,10 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 			if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, attempt.RequestSHA256, attempt.Quote); err != nil {
 				return err
 			}
-			requiredTarget, err := cumulativeHoldTarget(priorBillableUnits, attempt.Quote.TargetHoldUnits)
-			if err != nil {
-				return err
+			if attempt.Quote.PriorBillableUnits != priorBillableUnits {
+				return gatewayError(ErrCodeInvalidPrepared, "prepared quote prior usage differs from authoritative usage", 409)
 			}
-			if requiredTarget > locked.HoldTargetUnits {
+			if attempt.Quote.TargetHoldUnits > locked.HoldTargetUnits {
 				return gatewayError(ErrCodeInvalidPrepared, "prepared quote and prior usage exceed authoritative hold target", 409)
 			}
 			recovered = cloneAttempt(attempt)
@@ -191,7 +190,6 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		return false, validateBillingFacts(input.RunID, target, locked.ChargeHeldAuditMax, facts)
 	}
 	var prepared ProviderAttempt
-	attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: attemptKey(input.RunID, input.AttemptNo), PreparedRequest: append([]byte(nil), call.RequestBody...), RequestSHA256: call.RequestSHA256, Quote: call.Quote}
 	txErr := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
 		locked, err := g.deps.Runs.LockRunAndCharge(ctx, tx, input.RunID)
 		if err != nil {
@@ -213,10 +211,16 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.RequestSHA256, call.Quote); err != nil {
 			return err
 		}
-		target, err := cumulativeHoldTarget(priorBillableUnits, call.Quote.TargetHoldUnits)
+		call.Quote.PriorBillableUnits = priorBillableUnits
+		target, err := cumulativeHoldTarget(priorBillableUnits, call.Quote.CurrentCallMaxUnits)
 		if err != nil {
 			return err
 		}
+		call.Quote.TargetHoldUnits = target
+		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.RequestSHA256, call.Quote); err != nil {
+			return err
+		}
+		attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: attemptKey(input.RunID, input.AttemptNo), PreparedRequest: append([]byte(nil), call.RequestBody...), RequestSHA256: call.RequestSHA256, Quote: call.Quote}
 		if locked.HoldTargetUnits > target {
 			target = locked.HoldTargetUnits
 		}
@@ -304,11 +308,10 @@ func (g *Gateway) MarkDispatched(ctx context.Context, attempt ProviderAttempt) e
 		if !sameAttemptEvidence(persisted, attempt) {
 			return gatewayError(ErrCodeDuplicateAttempt, "provider attempt evidence differs from persisted attempt", 409)
 		}
-		requiredTarget, err := cumulativeHoldTarget(priorBillableUnits, persisted.Quote.TargetHoldUnits)
-		if err != nil {
-			return err
+		if persisted.Quote.PriorBillableUnits != priorBillableUnits {
+			return gatewayError(ErrCodeInvalidPrepared, "prepared quote prior usage differs from authoritative usage", 409)
 		}
-		if requiredTarget > locked.HoldTargetUnits {
+		if persisted.Quote.TargetHoldUnits > locked.HoldTargetUnits {
 			return gatewayError(ErrCodeInvalidPrepared, "prepared quote and prior usage exceed active hold target", 409)
 		}
 		if err := g.deps.Owner.EnsureRunnable(ctx, tx, attempt.RunID); err != nil {
@@ -663,6 +666,8 @@ func equalQuoteEvidence(left, right QuoteEvidence) bool {
 		left.PreparedRequestSHA256 == right.PreparedRequestSHA256 &&
 		left.PricingVersion == right.PricingVersion &&
 		left.EffectiveMaxOutputTokens == right.EffectiveMaxOutputTokens &&
+		left.CurrentCallMaxUnits == right.CurrentCallMaxUnits &&
+		left.PriorBillableUnits == right.PriorBillableUnits &&
 		left.TargetHoldUnits == right.TargetHoldUnits &&
 		reflect.DeepEqual(left.UpperBoundItems, right.UpperBoundItems)
 }
