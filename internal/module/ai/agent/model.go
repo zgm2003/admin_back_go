@@ -3,18 +3,20 @@ package aiagent
 import "time"
 
 type Agent struct {
-	ID               uint64    `gorm:"column:id;primaryKey"`
-	ProviderID       uint64    `gorm:"column:provider_id"`
-	Name             string    `gorm:"column:name"`
-	ModelID          string    `gorm:"column:model_id"`
-	ModelDisplayName string    `gorm:"column:model_display_name"`
-	ScenesJSON       string    `gorm:"column:scenes_json"`
-	SystemPrompt     string    `gorm:"column:system_prompt"`
-	Avatar           string    `gorm:"column:avatar"`
-	Status           int       `gorm:"column:status"`
-	IsDel            int       `gorm:"column:is_del"`
-	CreatedAt        time.Time `gorm:"column:created_at"`
-	UpdatedAt        time.Time `gorm:"column:updated_at"`
+	ID                   uint64    `gorm:"column:id;primaryKey"`
+	ProviderID           uint64    `gorm:"column:provider_id"`
+	Name                 string    `gorm:"column:name"`
+	ModelID              string    `gorm:"column:model_id"`
+	ModelDisplayName     string    `gorm:"column:model_display_name"`
+	ScenesJSON           string    `gorm:"column:scenes_json"`
+	SystemPrompt         string    `gorm:"column:system_prompt"`
+	Avatar               string    `gorm:"column:avatar"`
+	BillingMultiplierPPM int64     `gorm:"column:billing_multiplier_ppm"`
+	MaxOutputTokens      int64     `gorm:"column:max_output_tokens"`
+	Status               int       `gorm:"column:status"`
+	IsDel                int       `gorm:"column:is_del"`
+	CreatedAt            time.Time `gorm:"column:created_at"`
+	UpdatedAt            time.Time `gorm:"column:updated_at"`
 }
 
 func (Agent) TableName() string { return "ai_agents" }

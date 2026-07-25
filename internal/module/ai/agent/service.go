@@ -5,15 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	sharedmoney "admin_back_go/internal/shared/money"
 )
 
 const (
@@ -66,7 +70,12 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 			if label == "" {
 				label = model.ModelID
 			}
-			modelOptions = append(modelOptions, ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName})
+			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName}
+			if catalogModel, resolveErr := pricing.Default.Resolve(model.ModelID); resolveErr == nil {
+				option.CatalogVersion, option.CatalogVendor, option.CatalogModelID = catalogModel.Version, catalogModel.CatalogVendor, catalogModel.ModelID
+				option.CatalogRates = catalogRates(catalogModel)
+			}
+			modelOptions = append(modelOptions, option)
 		}
 	}
 	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions}}, nil
@@ -152,6 +161,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 		return 0, appErr
 	}
 	row.ModelDisplayName = model.DisplayName
+	if appErr := validateCatalogOutput(row.ModelID, row.MaxOutputTokens); appErr != nil {
+		return 0, appErr
+	}
 	id, err := repo.Create(ctx, row)
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI智能体失败", err)
@@ -174,6 +186,12 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if row == nil {
 		return apperror.NotFound("AI智能体不存在")
 	}
+	if strings.TrimSpace(input.BillingMultiplier) == "" {
+		input.BillingMultiplier = formatMultiplier(defaultMultiplier(row.BillingMultiplierPPM))
+	}
+	if input.MaxOutputTokens == 0 {
+		input.MaxOutputTokens = int(defaultMaxOutput(row.MaxOutputTokens))
+	}
 	fields, appErr := normalizeMutationFields(input)
 	if appErr != nil {
 		return appErr
@@ -186,6 +204,9 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 		return appErr
 	}
 	fields.modelDisplayName = model.DisplayName
+	if appErr := validateCatalogOutput(fields.modelID, fields.maxOutputTokens); appErr != nil {
+		return appErr
+	}
 	updateFields := updateFieldsMap(fields)
 	if err := repo.Update(ctx, id, updateFields); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "编辑AI智能体失败", err)
@@ -367,26 +388,30 @@ func normalizeCreateInput(input CreateInput) (Agent, *apperror.Error) {
 		return Agent{}, appErr
 	}
 	return Agent{
-		ProviderID:   fields.providerID,
-		Name:         fields.name,
-		ModelID:      fields.modelID,
-		ScenesJSON:   fields.scenesJSON,
-		SystemPrompt: fields.systemPrompt,
-		Avatar:       fields.avatar,
-		Status:       fields.status,
-		IsDel:        enum.CommonNo,
+		ProviderID:           fields.providerID,
+		Name:                 fields.name,
+		ModelID:              fields.modelID,
+		ScenesJSON:           fields.scenesJSON,
+		SystemPrompt:         fields.systemPrompt,
+		Avatar:               fields.avatar,
+		Status:               fields.status,
+		IsDel:                enum.CommonNo,
+		BillingMultiplierPPM: fields.billingMultiplierPPM,
+		MaxOutputTokens:      fields.maxOutputTokens,
 	}, nil
 }
 
 func updateFieldsMap(fields normalizedFields) map[string]any {
 	out := map[string]any{
-		"provider_id":   fields.providerID,
-		"name":          fields.name,
-		"model_id":      fields.modelID,
-		"scenes_json":   fields.scenesJSON,
-		"system_prompt": fields.systemPrompt,
-		"avatar":        fields.avatar,
-		"status":        fields.status,
+		"provider_id":            fields.providerID,
+		"name":                   fields.name,
+		"model_id":               fields.modelID,
+		"scenes_json":            fields.scenesJSON,
+		"system_prompt":          fields.systemPrompt,
+		"avatar":                 fields.avatar,
+		"status":                 fields.status,
+		"billing_multiplier_ppm": fields.billingMultiplierPPM,
+		"max_output_tokens":      fields.maxOutputTokens,
 	}
 	if fields.modelDisplayName != "" {
 		out["model_display_name"] = fields.modelDisplayName
@@ -395,14 +420,16 @@ func updateFieldsMap(fields normalizedFields) map[string]any {
 }
 
 type normalizedFields struct {
-	providerID       uint64
-	name             string
-	modelID          string
-	modelDisplayName string
-	scenesJSON       string
-	systemPrompt     string
-	avatar           string
-	status           int
+	providerID           uint64
+	name                 string
+	modelID              string
+	modelDisplayName     string
+	scenesJSON           string
+	systemPrompt         string
+	avatar               string
+	status               int
+	billingMultiplierPPM int64
+	maxOutputTokens      int64
 }
 
 func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Error) {
@@ -442,12 +469,124 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if !enum.IsCommonStatus(status) {
 		return normalizedFields{}, apperror.BadRequest("无效的状态")
 	}
-	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status}, nil
+	multiplier, err := parseBillingMultiplier(input.BillingMultiplier)
+	if err != nil {
+		return normalizedFields{}, apperror.BadRequest("billing_multiplier必须是大于0且最多6位小数的十进制数")
+	}
+	maxOutput := int64(input.MaxOutputTokens)
+	if input.MaxOutputTokens == 0 {
+		maxOutput = 4096
+	}
+	if input.MaxOutputTokens < 0 || maxOutput <= 0 {
+		return normalizedFields{}, apperror.BadRequest("max_output_tokens必须为正数")
+	}
+	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, maxOutputTokens: maxOutput}, nil
 }
 
 func agentDTO(row AgentWithProvider) AgentDTO {
 	scenes := decodeScenes(row.ScenesJSON)
-	return AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	multiplier := defaultMultiplier(row.BillingMultiplierPPM)
+	maxOutput := defaultMaxOutput(row.MaxOutputTokens)
+	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier), MaxOutputTokens: int(maxOutput)}
+	if model, err := pricing.Default.Resolve(row.ModelID); err == nil {
+		dto.CatalogVersion, dto.CatalogVendor, dto.CatalogModelID = model.Version, model.CatalogVendor, model.ModelID
+		dto.CatalogRates = catalogRates(model)
+	}
+	return dto
+}
+
+func catalogRates(model pricing.ModelPrice) []CatalogRateDTO {
+	rates := make([]CatalogRateDTO, 0, len(model.Rates))
+	for _, rate := range model.Rates {
+		formatted, formatErr := sharedmoney.FormatRMBUnits(rate.PriceUnits)
+		if formatErr == nil {
+			rates = append(rates, CatalogRateDTO{Category: string(rate.Category), Unit: rate.Unit, TierKey: rate.TierKey, Price: formatted, UnitScale: rate.UnitScale})
+		}
+	}
+	return rates
+}
+
+func validateCatalogOutput(modelID string, maxOutput int64) *apperror.Error {
+	model, err := pricing.Default.Resolve(modelID)
+	if err != nil {
+		return nil
+	}
+	if model.MaxOutputTokens > 0 && maxOutput > model.MaxOutputTokens {
+		return apperror.BadRequest("max_output_tokens超过官方模型上限")
+	}
+	return nil
+}
+
+func defaultMultiplier(value int64) int64 {
+	if value <= 0 {
+		return 1000000
+	}
+	return value
+}
+func defaultMaxOutput(value int64) int64 {
+	if value <= 0 {
+		return 4096
+	}
+	return value
+}
+
+func parseBillingMultiplier(input string) (int64, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return 1000000, nil
+	}
+	if strings.HasPrefix(input, "+") {
+		input = input[1:]
+	}
+	if strings.HasPrefix(input, "-") || input == "" {
+		return 0, pricing.ErrInvalidMultiplier
+	}
+	parts := strings.Split(input, ".")
+	if len(parts) > 2 || parts[0] == "" || !allDigits(parts[0]) {
+		return 0, pricing.ErrInvalidMultiplier
+	}
+	frac := ""
+	if len(parts) == 2 {
+		frac = parts[1]
+		if len(frac) > 6 || !allDigits(frac) {
+			return 0, pricing.ErrInvalidMultiplier
+		}
+	}
+	frac += strings.Repeat("0", 6-len(frac))
+	integer, ok := new(big.Int).SetString(parts[0], 10)
+	if !ok {
+		return 0, pricing.ErrInvalidMultiplier
+	}
+	value := new(big.Int).Mul(integer, big.NewInt(1000000))
+	if frac != "" {
+		f, ok := new(big.Int).SetString(frac, 10)
+		if !ok {
+			return 0, pricing.ErrInvalidMultiplier
+		}
+		value.Add(value, f)
+	}
+	if value.Sign() <= 0 || !value.IsInt64() {
+		return 0, pricing.ErrInvalidMultiplier
+	}
+	return value.Int64(), nil
+}
+
+func allDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+func formatMultiplier(ppm int64) string {
+	if ppm%1000000 == 0 {
+		return strconv.FormatInt(ppm/1000000, 10)
+	}
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%d.%06d", ppm/1000000, ppm%1000000), "0"), ".")
 }
 
 func providerModelDTO(row ProviderModel) ProviderModelDTO {

@@ -454,3 +454,36 @@ func TestTestReturnsUpstreamError(t *testing.T) {
 		t.Fatalf("expected wrapped upstream error, got %#v", appErr)
 	}
 }
+
+func TestCreateValidatesBillingMultiplierAndOutputCap(t *testing.T) {
+	repo := &fakeAIAgentRepository{
+		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+	}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	for _, value := range []string{"0", "-1", "1.1234567"} {
+		_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "a", ModelID: "gpt-4.1-mini", BillingMultiplier: value, MaxOutputTokens: 1, Status: enum.CommonYes})
+		if appErr == nil {
+			t.Fatalf("multiplier %q should be rejected", value)
+		}
+	}
+	_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "a", ModelID: "gpt-4.1-mini", BillingMultiplier: "1.25", MaxOutputTokens: 0, Status: enum.CommonYes})
+	if appErr != nil || repo.created == nil || repo.created.BillingMultiplierPPM != 1250000 || repo.created.MaxOutputTokens != 4096 {
+		t.Fatalf("valid multiplier/default cap not persisted: row=%#v err=%v", repo.created, appErr)
+	}
+}
+
+func TestUpdatePreservesBillingConfigurationWhenProviderChanges(t *testing.T) {
+	repo := &fakeAIAgentRepository{
+		rawByID:          map[uint64]Agent{5: {ID: 5, BillingMultiplierPPM: 1250000, MaxOutputTokens: 8192, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+	}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	if appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "a", ModelID: "gpt-4.1-mini", Status: enum.CommonYes}); appErr != nil {
+		t.Fatalf("update failed: %v", appErr)
+	}
+	if repo.updates[0]["billing_multiplier_ppm"] != int64(1250000) || repo.updates[0]["max_output_tokens"] != int64(8192) {
+		t.Fatalf("billing fields were reset: %#v", repo.updates[0])
+	}
+}

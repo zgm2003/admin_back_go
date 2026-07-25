@@ -26,11 +26,15 @@ type EngineOption struct {
 }
 
 type ModelOption struct {
-	Label       string `json:"label"`
-	Value       string `json:"value"`
-	ProviderID  uint64 `json:"provider_id"`
-	ModelID     string `json:"model_id"`
-	DisplayName string `json:"display_name"`
+	Label          string           `json:"label"`
+	Value          string           `json:"value"`
+	ProviderID     uint64           `json:"provider_id"`
+	ModelID        string           `json:"model_id"`
+	DisplayName    string           `json:"display_name"`
+	CatalogVersion string           `json:"catalog_version,omitempty"`
+	CatalogVendor  string           `json:"catalog_vendor,omitempty"`
+	CatalogModelID string           `json:"catalog_model_id,omitempty"`
+	CatalogRates   []CatalogRateDTO `json:"catalog_rates,omitempty"`
 }
 
 type ListQuery struct {
@@ -59,31 +63,47 @@ type DetailResponse struct {
 }
 
 type AgentDTO struct {
-	ID               uint64   `json:"id"`
-	ProviderID       uint64   `json:"provider_id"`
-	ProviderName     string   `json:"provider_name"`
-	EngineType       string   `json:"engine_type"`
-	Name             string   `json:"name"`
-	ModelID          string   `json:"model_id"`
-	ModelDisplayName string   `json:"model_display_name"`
-	Scenes           []string `json:"scenes"`
-	SceneNames       []string `json:"scene_names"`
-	SystemPrompt     string   `json:"system_prompt"`
-	Avatar           string   `json:"avatar"`
-	Status           int      `json:"status"`
-	StatusName       string   `json:"status_name"`
-	CreatedAt        string   `json:"created_at"`
-	UpdatedAt        string   `json:"updated_at"`
+	ID                uint64           `json:"id"`
+	ProviderID        uint64           `json:"provider_id"`
+	ProviderName      string           `json:"provider_name"`
+	EngineType        string           `json:"engine_type"`
+	Name              string           `json:"name"`
+	ModelID           string           `json:"model_id"`
+	ModelDisplayName  string           `json:"model_display_name"`
+	Scenes            []string         `json:"scenes"`
+	SceneNames        []string         `json:"scene_names"`
+	SystemPrompt      string           `json:"system_prompt"`
+	Avatar            string           `json:"avatar"`
+	Status            int              `json:"status"`
+	StatusName        string           `json:"status_name"`
+	CreatedAt         string           `json:"created_at"`
+	UpdatedAt         string           `json:"updated_at"`
+	BillingMultiplier string           `json:"billing_multiplier"`
+	MaxOutputTokens   int              `json:"max_output_tokens"`
+	CatalogVersion    string           `json:"catalog_version,omitempty"`
+	CatalogVendor     string           `json:"catalog_vendor,omitempty"`
+	CatalogModelID    string           `json:"catalog_model_id,omitempty"`
+	CatalogRates      []CatalogRateDTO `json:"catalog_rates,omitempty"`
+}
+
+type CatalogRateDTO struct {
+	Category  string `json:"category"`
+	Unit      string `json:"unit"`
+	TierKey   string `json:"tier_key"`
+	Price     string `json:"price"`
+	UnitScale int64  `json:"unit_scale"`
 }
 
 type CreateInput struct {
-	ProviderID   uint64
-	Name         string
-	ModelID      string
-	Scenes       []string
-	SystemPrompt string
-	Avatar       string
-	Status       int
+	ProviderID        uint64
+	Name              string
+	ModelID           string
+	Scenes            []string
+	SystemPrompt      string
+	Avatar            string
+	Status            int
+	BillingMultiplier string
+	MaxOutputTokens   int
 }
 
 type UpdateInput = CreateInput

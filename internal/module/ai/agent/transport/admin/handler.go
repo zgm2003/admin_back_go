@@ -162,13 +162,15 @@ func routeID(c *gin.Context, message string) (uint64, bool) {
 
 func createInput(req mutationRequest) aiagentmodule.CreateInput {
 	return aiagentmodule.CreateInput{
-		ProviderID:   req.ProviderID,
-		Name:         req.Name,
-		ModelID:      req.ModelID,
-		Scenes:       req.Scenes,
-		SystemPrompt: req.SystemPrompt,
-		Avatar:       req.Avatar,
-		Status:       req.Status,
+		ProviderID:        req.ProviderID,
+		Name:              req.Name,
+		ModelID:           req.ModelID,
+		Scenes:            req.Scenes,
+		SystemPrompt:      req.SystemPrompt,
+		Avatar:            req.Avatar,
+		Status:            req.Status,
+		BillingMultiplier: req.BillingMultiplier,
+		MaxOutputTokens:   req.MaxOutputTokens,
 	}
 }
 

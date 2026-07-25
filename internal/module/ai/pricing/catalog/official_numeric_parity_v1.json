@@ -1,0 +1,57 @@
+{
+  "version": "official_numeric_parity_v1",
+  "models": [
+    {
+      "version": "official_numeric_parity_v1",
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4.1",
+      "aliases": ["gpt-4.1-latest"],
+      "max_output_tokens": 32768,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4.1",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":200000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":800000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "version": "official_numeric_parity_v1",
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4o",
+      "aliases": [],
+      "max_output_tokens": 16384,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4o",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":250000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":1000000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "version": "official_numeric_parity_v1",
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4o-mini",
+      "aliases": [],
+      "max_output_tokens": 16384,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4o-mini",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":15000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":60000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "version": "official_numeric_parity_v1",
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4.1-mini",
+      "aliases": [],
+      "max_output_tokens": 16384,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4.1-mini",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":40000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":160000000,"unit_scale":1000000}
+      ]
+    }
+  ]
+}
