@@ -35,7 +35,7 @@ func TestLocalPermissionSeed(t *testing.T) {
 		t.Fatalf("read local permission seed: %v", err)
 	}
 	seed := string(body)
-	normalized := strings.ToLower(strings.NewReplacer("`", "", "\r", " ", "\n", " ", "\t", " ").Replace(seed))
+	normalized := strings.Join(strings.Fields(strings.ToLower(strings.NewReplacer("`", "", "\r", " ", "\n", " ", "\t", " ").Replace(seed))), " ")
 	for _, table := range []string{"users", "roles", "role_permissions"} {
 		for _, statement := range []string{
 			"insert into " + table,
@@ -111,9 +111,9 @@ func TestLocalPermissionSeed(t *testing.T) {
 	}
 
 	walletRedeemCodes := map[int64]permissionSeedRow{
-		657: {id: 657, name: "兑换码管理", path: "/payment/redeem-codes", icon: "Ticket", parentID: 437, component: "payment/redeem-codes", platform: "admin", typeID: 2, sort: 35, code: "payment_redeem_code_list", i18nKey: "menu.payment_redeem_codes", showMenu: 1, status: 1, isDel: 2},
-		658: {id: 658, name: "批量生成兑换码", path: "", icon: "", parentID: 657, component: "", platform: "admin", typeID: 3, sort: 1, code: "payment_redeem_code_generate", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
-		659: {id: 659, name: "作废兑换码", path: "", icon: "", parentID: 657, component: "", platform: "admin", typeID: 3, sort: 2, code: "payment_redeem_code_void", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
+		912: {id: 912, name: "兑换码管理", path: "/payment/redeem-codes", icon: "Ticket", parentID: 437, component: "payment/redeem-codes", platform: "admin", typeID: 2, sort: 35, code: "payment_redeem_code_list", i18nKey: "menu.payment_redeem_codes", showMenu: 1, status: 1, isDel: 2},
+		913: {id: 913, name: "批量生成兑换码", path: "", icon: "", parentID: 912, component: "", platform: "admin", typeID: 3, sort: 1, code: "payment_redeem_code_generate", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
+		914: {id: 914, name: "作废兑换码", path: "", icon: "", parentID: 912, component: "", platform: "admin", typeID: 3, sort: 2, code: "payment_redeem_code_void", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
 	}
 	for id, want := range walletRedeemCodes {
 		got, ok := rowsByID[id]

@@ -87,9 +87,9 @@ redeem_codes:
 
 ```go
 expected := map[int64]permissionSeedRow{
-    657: {id: 657, name: "兑换码管理", path: "/payment/redeem-codes", icon: "Ticket", parentID: 437, component: "payment/redeem-codes", platform: "admin", typeID: 2, sort: 35, code: "payment_redeem_code_list", i18nKey: "menu.payment_redeem_codes", showMenu: 1, status: 1, isDel: 2},
-    658: {id: 658, name: "批量生成兑换码", parentID: 657, platform: "admin", typeID: 3, sort: 1, code: "payment_redeem_code_generate", showMenu: 2, status: 1, isDel: 2},
-    659: {id: 659, name: "作废兑换码", parentID: 657, platform: "admin", typeID: 3, sort: 2, code: "payment_redeem_code_void", showMenu: 2, status: 1, isDel: 2},
+    912: {id: 912, name: "兑换码管理", path: "/payment/redeem-codes", icon: "Ticket", parentID: 437, component: "payment/redeem-codes", platform: "admin", typeID: 2, sort: 35, code: "payment_redeem_code_list", i18nKey: "menu.payment_redeem_codes", showMenu: 1, status: 1, isDel: 2},
+    913: {id: 913, name: "批量生成兑换码", parentID: 912, platform: "admin", typeID: 3, sort: 1, code: "payment_redeem_code_generate", showMenu: 2, status: 1, isDel: 2},
+    914: {id: 914, name: "作废兑换码", parentID: 912, platform: "admin", typeID: 3, sort: 2, code: "payment_redeem_code_void", showMenu: 2, status: 1, isDel: 2},
 }
 ```
 
@@ -101,18 +101,17 @@ Seed 断言从 132/102 调整为 135 行/105 个非空唯一 code，且 seed 仍
 go test ./internal/architecture -run 'Test(WalletRedeemCodeDatabaseContract|LocalPermissionSeed|DatabaseBaseline|Reconciliation)' -count=1
 ```
 
-Expected: FAIL，至少报告新迁移、新表、权限 657-659 或 `redeem_code` 资金来源尚不存在。
+Expected: FAIL，至少报告新迁移、新表、权限 912-914 或 `redeem_code` 资金来源尚不存在。
 
 - [ ] **Step 3: 写迁移、HCL、seed 和 reconciliation**
 
 迁移按以下顺序执行：
 
 1. `202607240101_wallet_redeem_codes.sql` 只负责 schema。先用临时 guard 校验两个目标表均不存在、被引用主键类型与预期一致；preflight 通过后创建两张表、检查约束、索引和 RESTRICT 外键。该 revision 不写 `permissions`、`role_permissions` 或 principal version，也不宣称 MySQL DDL 可由事务回滚。
-2. `202607240102_wallet_redeem_code_permissions.sql` 只负责权限 DML。复用 `202607150201_admin_only_rows.sql` 的临时 guard 表模式：开头 `DROP TEMPORARY TABLE IF EXISTS`，再创建带 `CHECK (violations = 0)` 的 `_wallet_redeem_code_permission_guard`；preflight 校验两张兑换码表已存在、`roles.id=1 AND is_del=2`、Admin `payment` 父权限 437、权限 ID/code 657-659 占用情况和 principal version 溢出。`roles` 没有 `status` 条件。
-3. 开启权限 DML 事务并锁定、二次校验上述权限事实；657-659 未被占用时创建，已是完全相同的 active 事实时保持不变，已是完全相同的逻辑删除事实时恢复，任何 ID/code 交叉占用或字段不一致都失败。
-4. 向 role ID 1 幂等授予权限 437、657、658、659；只恢复同一 `(role_id, permission_id)` 行，不向其他角色授权。
-5. 为 `users.role_id=1 AND status=1 AND is_del=2` 补齐 `authz_principal_versions(platform='admin')`，再把这些 principal version 统一加一；版本溢出前置失败。
-6. 在提交前通过同一 guard 验证三条权限、四条授权和目标 principal version 均成立；提交后删除临时 guard 表。由于 schema 与权限使用不同 Atlas revision，授权事务失败时只需重试 `202607240102`，不会被已经提交的建表 DDL 卡住。
+2. `202607240102_wallet_redeem_code_permissions.sql` 只负责权限定义 DML。复用 `202607150201_admin_only_rows.sql` 的临时 guard 表模式：开头 `DROP TEMPORARY TABLE IF EXISTS`，再创建带 `CHECK (violations = 0)` 的 `_wallet_redeem_code_permission_guard`；preflight 校验两张兑换码表已存在、Admin `payment` 父权限 437，以及权限 ID/code 912-914 的占用情况。
+3. 开启权限 DML 事务并锁定、二次校验上述权限事实；912-914 未被占用时创建，已是完全相同的 active 事实时保持不变，已是完全相同的逻辑删除事实时恢复，任何 ID/code 交叉占用或字段不一致都失败。
+4. 在提交前通过同一 guard 验证三条权限完整且有效；提交后删除临时 guard 表。
+5. 迁移禁止写 `roles`、`role_permissions`、`users` 和 `authz_principal_versions`。部署后由管理员通过角色管理页面手工挂载，沿用在线 RBAC mutation 的版本递增与 Redis 发布流程。
 
 资金累计口径统一改为：
 
@@ -535,7 +534,7 @@ $backendCommit = (git rev-parse HEAD).Trim()
 pwsh -NoProfile -File scripts/generate-admin-contract.ps1 -BackendCommit $backendCommit
 ```
 
-Expected: manifest 的 `backend_commit` 等于 `$backendCommit`，OpenAPI 出现七个 operation，permissions/views 出现 657-659 和 `payment/redeem-codes`。
+Expected: manifest 的 `backend_commit` 等于 `$backendCommit`，OpenAPI 出现七个 operation，permissions/views 出现三个兑换码权限 code 和 `payment/redeem-codes`。
 
 - [ ] **Step 2: 提交后端 contract bundle**
 

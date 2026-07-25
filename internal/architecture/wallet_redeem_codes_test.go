@@ -77,27 +77,24 @@ func TestWalletRedeemCodeDatabaseContract(t *testing.T) {
 			"drop temporary table if exists _wallet_redeem_code_permission_guard",
 			"create temporary table _wallet_redeem_code_permission_guard", "check (violations = 0)",
 			"information_schema.tables", "redeem_code_batches", "redeem_codes",
-			"role_row.id = 1", "role_row.is_del = 2", "permission.id = 437", "permission.code = 'payment'",
+			"permission.id = 437", "permission.code = 'payment'",
 			"permission.platform = 'admin'", "permission.type = 1", "permission.is_del = 2",
-			"permission.id in (657, 658, 659)",
+			"permission.id in (912, 913, 914)",
 			"permission.code in ('payment_redeem_code_list', 'payment_redeem_code_generate', 'payment_redeem_code_void')",
-			"18446744073709551615", "start transaction", "for update",
-			"(657, '兑换码管理', '/payment/redeem-codes', 'ticket', 437, 'payment/redeem-codes', 'admin', 2, 35, 'payment_redeem_code_list', 'menu.payment_redeem_codes', 1, 1, 2)",
-			"(658, '批量生成兑换码', '', '', 657, null, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2)",
-			"(659, '作废兑换码', '', '', 657, null, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2)",
-			"insert into role_permissions (role_id, permission_id, is_del)",
-			"select 1, permission.id, 2", "permission.id in (437, 657, 658, 659)",
-			"insert into authz_principal_versions (user_id, platform, version, updated_at)",
-			"user_row.role_id = 1", "user_row.status = 1", "user_row.is_del = 2",
-			"principal_version.version = principal_version.version + 1", "principal_version.platform = 'admin'",
+			"start transaction", "for update",
+			"(912, '兑换码管理', '/payment/redeem-codes', 'ticket', 437, 'payment/redeem-codes', 'admin', 2, 35, 'payment_redeem_code_list', 'menu.payment_redeem_codes', 1, 1, 2)",
+			"(913, '批量生成兑换码', '', '', 912, null, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2)",
+			"(914, '作废兑换码', '', '', 912, null, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2)",
 			"commit", "drop temporary table _wallet_redeem_code_permission_guard",
 		} {
 			if !strings.Contains(normalized, required) {
 				t.Errorf("wallet redeem-code permission migration missing %q", required)
 			}
 		}
-		if strings.Contains(normalized, "role_row.status") {
-			t.Fatal("administrator role preflight must not require a roles.status column")
+		for _, forbidden := range []string{"role_permissions", "authz_principal_versions", "insert into roles", "update roles", "delete from roles"} {
+			if strings.Contains(normalized, forbidden) {
+				t.Fatalf("permission migration must leave manual RBAC assignment untouched: %q", forbidden)
+			}
 		}
 		for _, forbidden := range []string{"create table redeem_code_batches", "create table redeem_codes", "alter table redeem_code_batches", "alter table redeem_codes"} {
 			if strings.Contains(normalized, forbidden) {
@@ -159,9 +156,9 @@ func TestWalletRedeemCodeDatabaseContract(t *testing.T) {
 	t.Run("permissions and reconciliation", func(t *testing.T) {
 		seed := readWalletRedeemCodeContractFile(t, root, "database", "seeds", "admin_permissions.sql")
 		for _, tuple := range []string{
-			"(657, '兑换码管理', '/payment/redeem-codes', 'Ticket', 437, 'payment/redeem-codes', 'admin', 2, 35, 'payment_redeem_code_list', 'menu.payment_redeem_codes', 1, 1, 2)",
-			"(658, '批量生成兑换码', '', '', 657, NULL, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2)",
-			"(659, '作废兑换码', '', '', 657, NULL, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2)",
+			"(912, '兑换码管理', '/payment/redeem-codes', 'Ticket', 437, 'payment/redeem-codes', 'admin', 2, 35, 'payment_redeem_code_list', 'menu.payment_redeem_codes', 1, 1, 2)",
+			"(913, '批量生成兑换码', '', '', 912, NULL, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2)",
+			"(914, '作废兑换码', '', '', 912, NULL, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2)",
 		} {
 			if strings.Count(seed, tuple) != 1 {
 				t.Errorf("permission seed must contain exactly one %q", tuple)

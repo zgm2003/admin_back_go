@@ -1,4 +1,4 @@
-h1:v4k/NmtlurnsfDWCZKix5kWjKIc04i3w8oLSsX+2enw=
+h1:DqCCTb62MpDiMge3lzeXCOf1ujTK42w+ZUxT+jxMD+s=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -8,4 +8,4 @@ h1:v4k/NmtlurnsfDWCZKix5kWjKIc04i3w8oLSsX+2enw=
 202607220101_auth_platform_session_policy.sql h1:VG94YieSLCPCbb65MEmTM6cUQsxRMn8uetggMidqZV8=
 202607230101_mail_verification_code_diagnostics.sql h1:+L8oMQ0P+n6DWon8NRE4OmokKHmZ/s/Ik6NqJfvXFKw=
 202607240101_wallet_redeem_codes.sql h1:i5SG7j+F+M25ph5EhqJ25CIZ1DWZAbH8ZxXl7bWsx1g=
-202607240102_wallet_redeem_code_permissions.sql h1:tOELZCFj9fcM4Vmd/8bjYoAw+KDDpxb+ACakKbbg6PI=
+202607240102_wallet_redeem_code_permissions.sql h1:3bMFM0/r3/xD6aEUP7sLq67rIwHbwP6VFcGzgiOSfZg=
