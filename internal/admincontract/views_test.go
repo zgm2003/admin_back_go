@@ -17,7 +17,7 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	if document.SchemaVersion != ViewSchemaVersion {
 		t.Fatalf("schema_version=%q", document.SchemaVersion)
 	}
-	if got, want := len(document.Views), 33; got != want {
+	if got, want := len(document.Views), 34; got != want {
 		t.Fatalf("views=%d want=%d", got, want)
 	}
 	if document.UsersMe.Method != "GET" || document.UsersMe.Path != "/api/admin/v1/users/me" {
@@ -58,6 +58,7 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 		"component/form",
 		"component/upload",
 		"payment/recharge",
+		"payment/redeem-codes",
 		"system/queueMonitor",
 		"user/userManager",
 	} {
@@ -65,6 +66,31 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 			t.Fatalf("missing active Admin view %q", required)
 		}
 	}
+}
+
+func TestViewsPublishPaymentRedeemCodeManagement(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document ViewsDocument
+	if err := json.Unmarshal(bundle.Artifacts["views.json"], &document); err != nil {
+		t.Fatalf("decode views: %v", err)
+	}
+
+	want := View{
+		Path:            "/payment/redeem-codes",
+		ViewKey:         "payment/redeem-codes",
+		I18nKey:         "menu.payment_redeem_codes",
+		ShowMenu:        1,
+		PermissionCodes: []string{"payment_redeem_code_generate", "payment_redeem_code_list", "payment_redeem_code_void"},
+	}
+	for _, view := range document.Views {
+		if view.ViewKey == want.ViewKey {
+			if !reflect.DeepEqual(view, want) {
+				t.Fatalf("redeem code view=%#v want=%#v", view, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing redeem code view %q", want.ViewKey)
 }
 
 func TestUsersMeSchemaClosesButtonCodesToPublishedPermissionCatalog(t *testing.T) {

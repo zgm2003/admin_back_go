@@ -41,6 +41,7 @@ func buildViewsDocument() ViewsDocument {
 		{Path: "/payment/config", ViewKey: "payment/config", I18nKey: "menu.payment_config", ShowMenu: 1, PermissionCodes: []string{"payment_config_list"}},
 		{Path: "/payment/ledger", ViewKey: "payment/ledger", I18nKey: "menu.payment_ledger", ShowMenu: 1, PermissionCodes: []string{"payment_ledger_list"}},
 		{Path: "/payment/recharge", ViewKey: "payment/recharge", I18nKey: "menu.payment_recharge", ShowMenu: 2, PermissionCodes: []string{"payment_recharge_add", "payment_recharge_list", "payment_recharge_pay"}},
+		{Path: "/payment/redeem-codes", ViewKey: "payment/redeem-codes", I18nKey: "menu.payment_redeem_codes", ShowMenu: 1, PermissionCodes: []string{"payment_redeem_code_generate", "payment_redeem_code_list", "payment_redeem_code_void"}},
 		{Path: "/payment/wallets", ViewKey: "payment/wallets", I18nKey: "menu.payment_wallets", ShowMenu: 1, PermissionCodes: []string{"payment_wallet_list"}},
 		{Path: "/permission/authPlatform", ViewKey: "permission/authPlatform", I18nKey: "menu.permission_authPlatform", ShowMenu: 1},
 		{Path: "/permission/permission", ViewKey: "permission/permission", I18nKey: "menu.permission_permission", ShowMenu: 1},
