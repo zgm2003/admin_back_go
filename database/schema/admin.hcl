@@ -239,6 +239,18 @@ table "ai_agents" {
     type    = varchar(191)
     default = ""
   }
+  column "billing_multiplier_ppm" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    default  = 1000000
+  }
+  column "max_output_tokens" {
+    null     = false
+    type     = int
+    unsigned = true
+    default  = 4096
+  }
   column "scenes_json" {
     null = true
     type = json
@@ -545,6 +557,21 @@ table "ai_image_tasks" {
     type     = bigint
     unsigned = true
   }
+  column "request_id" {
+    null    = false
+    type    = varchar(128)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "request_fingerprint" {
+    null = false
+    type = binary(32)
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
   column "agent_id" {
     null     = false
     type     = bigint
@@ -619,6 +646,11 @@ table "ai_image_tasks" {
     type    = varchar(1000)
     default = ""
   }
+  column "last_error_code" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
   column "actual_params_json" {
     null = true
     type = json
@@ -660,6 +692,12 @@ table "ai_image_tasks" {
   primary_key {
     columns = [column.id]
   }
+  foreign_key "fk_ai_image_tasks_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
   index "idx_ai_image_tasks_agent_created" {
     columns = [column.agent_id, column.created_at]
   }
@@ -668,6 +706,13 @@ table "ai_image_tasks" {
   }
   index "idx_ai_image_tasks_platform_user_created" {
     columns = [column.platform, column.user_id, column.created_at]
+  }
+  index "idx_ai_image_tasks_run" {
+    columns = [column.run_id]
+  }
+  index "uk_ai_image_tasks_user_request" {
+    unique  = true
+    columns = [column.user_id, column.request_id]
   }
   check "chk_ai_image_tasks_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
@@ -1318,6 +1363,11 @@ table "ai_provider_attempts" {
     auto_increment = true
   }
   column "command_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "run_id" {
     null     = false
     type     = bigint
     unsigned = true
@@ -1334,6 +1384,31 @@ table "ai_provider_attempts" {
   column "state" {
     null = false
     type = varchar(24)
+  }
+  column "prepared_request_json" {
+    null = false
+    type = mediumtext
+  }
+  column "prepared_request_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "quote_json" {
+    null = false
+    type = mediumtext
+  }
+  column "usage_json" {
+    null = false
+    type = mediumtext
+  }
+  column "usage_status" {
+    null    = false
+    type    = varchar(16)
+    default = "unavailable"
+  }
+  column "result_candidate_json" {
+    null = true
+    type = mediumtext
   }
   column "provider_request_id" {
     null    = false
@@ -1372,16 +1447,31 @@ table "ai_provider_attempts" {
   primary_key {
     columns = [column.id]
   }
+  foreign_key "fk_ai_provider_attempts_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
   index "idx_ai_attempt_state" {
     columns = [column.state, column.id]
   }
-  index "uk_ai_attempt_command_no" {
-    unique  = true
+  index "idx_ai_attempt_command" {
     columns = [column.command_id, column.attempt_no]
+  }
+  index "uk_ai_attempt_run_no" {
+    unique  = true
+    columns = [column.run_id, column.attempt_no]
   }
   index "uk_ai_attempt_key" {
     unique  = true
     columns = [column.idempotency_key]
+  }
+  check "chk_ai_provider_attempts_state" {
+    expr = "(`state` in (_utf8mb4'prepared',_utf8mb4'dispatched',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown'))"
+  }
+  check "chk_ai_provider_attempts_usage_status" {
+    expr = "(`usage_status` in (_utf8mb4'complete',_utf8mb4'unavailable'))"
   }
 }
 table "ai_provider_models" {
@@ -1537,8 +1627,14 @@ table "ai_reply_commands" {
     auto_increment = true
   }
   column "request_id" {
+    null    = false
+    type    = varchar(128)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "request_fingerprint" {
     null = false
-    type = varchar(128)
+    type = binary(32)
   }
   column "idempotency_key" {
     null = false
@@ -1651,9 +1747,9 @@ table "ai_reply_commands" {
     unique  = true
     columns = [column.user_message_id]
   }
-  index "uk_ai_reply_request" {
+  index "uk_ai_reply_user_request" {
     unique  = true
-    columns = [column.conversation_id, column.request_id]
+    columns = [column.user_id, column.request_id]
   }
   check "chk_ai_reply_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
@@ -1687,7 +1783,7 @@ table "ai_run_events" {
   column "event_type" {
     null    = false
     type    = varchar(32)
-    comment = "start/completed/failed/canceled/timeout"
+    comment = "durable Run and billing event type"
   }
   column "message" {
     null    = false
@@ -1721,7 +1817,7 @@ table "ai_run_events" {
     columns = [column.run_id, column.seq]
   }
   check "chk_ai_run_events_type" {
-    expr = "(`event_type` in (_utf8mb4'start',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout'))"
+    expr = "(`event_type` in (_utf8mb4'start',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout',_utf8mb4'retry_scheduled',_utf8mb4'usage_recorded',_utf8mb4'outcome_unknown',_utf8mb4'settled',_utf8mb4'released',_utf8mb4'unbilled'))"
   }
 }
 table "ai_runs" {
@@ -1747,7 +1843,14 @@ table "ai_runs" {
   column "request_id" {
     null    = false
     type    = varchar(128)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
     comment = "client request identifier"
+  }
+  column "request_fingerprint" {
+    null    = false
+    type    = binary(32)
+    comment = "SHA-256 of canonical typed request identity"
   }
   column "user_message_id" {
     null     = true
@@ -1794,6 +1897,11 @@ table "ai_runs" {
     null = false
     type = mediumtext
   }
+  column "pricing_snapshot_json" {
+    null    = false
+    type    = mediumtext
+    comment = "immutable Run acceptance pricing configuration"
+  }
   column "idempotency_key" {
     null = true
     type = varchar(128)
@@ -1801,7 +1909,17 @@ table "ai_runs" {
   column "status" {
     null    = false
     type    = varchar(16)
-    comment = "queued/running/success/failed/canceled/timeout"
+    comment = "running/success/failed/canceled/timeout/outcome_unknown"
+  }
+  column "billing_status" {
+    null    = false
+    type    = varchar(16)
+    comment = "pending/held/settled/released/unbilled"
+  }
+  column "billing_reason" {
+    null    = false
+    type    = varchar(32)
+    comment = "stable billing terminal or progress reason"
   }
   column "prompt_tokens" {
     null     = false
@@ -1904,9 +2022,9 @@ table "ai_runs" {
   index "idx_ai_runs_user_created" {
     columns = [column.user_id, column.created_at, column.id]
   }
-  index "uk_ai_runs_conversation_request" {
+  index "uk_ai_runs_user_request" {
     unique  = true
-    columns = [column.conversation_id, column.request_id]
+    columns = [column.user_id, column.request_id]
   }
   index "uk_ai_runs_idempotency" {
     unique  = true
@@ -1920,7 +2038,13 @@ table "ai_runs" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
   check "chk_ai_runs_status" {
-    expr = "(`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout'))"
+    expr = "(`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout',_utf8mb4'outcome_unknown'))"
+  }
+  check "chk_ai_runs_billing_status" {
+    expr = "(`billing_status` in (_utf8mb4'pending',_utf8mb4'held',_utf8mb4'settled',_utf8mb4'released',_utf8mb4'unbilled'))"
+  }
+  check "chk_ai_runs_billing_reason" {
+    expr = "(`billing_reason` in (_utf8mb4'pending',_utf8mb4'held',_utf8mb4'settled_complete_usage',_utf8mb4'released_before_dispatch',_utf8mb4'released_insufficient_balance',_utf8mb4'released_provider_failed',_utf8mb4'released_outcome_unknown',_utf8mb4'unbilled_usage_incomplete',_utf8mb4'unbilled_over_hold',_utf8mb4'legacy_unpriced'))"
   }
 }
 table "ai_text_tasks" {
@@ -1940,6 +2064,26 @@ table "ai_text_tasks" {
     null     = false
     type     = bigint
     unsigned = true
+  }
+  column "request_id" {
+    null    = false
+    type    = varchar(128)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "request_fingerprint" {
+    null = false
+    type = binary(32)
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "kind" {
+    null    = false
+    type    = varchar(16)
+    default = "text"
   }
   column "agent_id" {
     null     = false
@@ -1971,6 +2115,11 @@ table "ai_text_tasks" {
     null = true
     type = varchar(1024)
   }
+  column "last_error_code" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
   column "started_at" {
     null = true
     type = datetime
@@ -1995,11 +2144,27 @@ table "ai_text_tasks" {
   primary_key {
     columns = [column.id]
   }
+  foreign_key "fk_ai_text_tasks_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_text_tasks_run" {
+    columns = [column.run_id]
+  }
   index "idx_ai_text_tasks_status_created" {
     columns = [column.status, column.created_at, column.id]
   }
   index "idx_ai_text_tasks_user_created" {
     columns = [column.user_id, column.created_at, column.id]
+  }
+  index "uk_ai_text_tasks_user_request" {
+    unique  = true
+    columns = [column.user_id, column.request_id]
+  }
+  check "chk_ai_text_tasks_kind" {
+    expr = "(`kind` in (_utf8mb4'text',_utf8mb4'tool_draft'))"
   }
   check "chk_ai_text_tasks_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
@@ -2237,6 +2402,16 @@ table "ai_video_tasks" {
     null = false
     type = bigint
   }
+  column "request_id" {
+    null    = false
+    type    = varchar(128)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "request_fingerprint" {
+    null = false
+    type = binary(32)
+  }
   column "agent_id" {
     null = false
     type = bigint
@@ -2277,7 +2452,7 @@ table "ai_video_tasks" {
   column "run_id" {
     null    = false
     type    = bigint
-    default = 0
+    unsigned = true
   }
   column "status" {
     null = false
@@ -2286,6 +2461,26 @@ table "ai_video_tasks" {
   column "error_message" {
     null    = false
     type    = varchar(1024)
+    default = ""
+  }
+  column "last_error_code" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
+  column "storage_provider" {
+    null    = false
+    type    = varchar(32)
+    default = ""
+  }
+  column "storage_key" {
+    null    = false
+    type    = varchar(1024)
+    default = ""
+  }
+  column "content_type" {
+    null    = false
+    type    = varchar(128)
     default = ""
   }
   column "is_del" {
@@ -2312,6 +2507,12 @@ table "ai_video_tasks" {
   primary_key {
     columns = [column.id]
   }
+  foreign_key "fk_ai_video_tasks_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
   index "idx_ai_video_provider_task" {
     columns = [column.provider_id, column.provider_task_id]
   }
@@ -2321,8 +2522,403 @@ table "ai_video_tasks" {
   index "idx_ai_video_user_created" {
     columns = [column.user_id, column.is_del, column.created_at, column.id]
   }
+  index "idx_ai_video_tasks_run" {
+    columns = [column.run_id]
+  }
+  index "uk_ai_video_tasks_user_request" {
+    unique  = true
+    columns = [column.user_id, column.request_id]
+  }
   check "chk_ai_video_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
+  }
+}
+table "ai_audio_tasks" {
+  schema  = schema.admin
+  comment = "Durable paid AI audio generation tasks"
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "platform" {
+    null = false
+    type = varchar(32)
+  }
+  column "user_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "request_id" {
+    null    = false
+    type    = varchar(128)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "request_fingerprint" {
+    null = false
+    type = binary(32)
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "agent_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "agent_name_snapshot" {
+    null    = false
+    type    = varchar(128)
+    default = ""
+  }
+  column "provider_id_snapshot" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "provider_name_snapshot" {
+    null    = false
+    type    = varchar(128)
+    default = ""
+  }
+  column "model_id_snapshot" {
+    null = false
+    type = varchar(191)
+  }
+  column "model_display_name_snapshot" {
+    null    = false
+    type    = varchar(191)
+    default = ""
+  }
+  column "normalized_request_json" {
+    null = false
+    type = mediumtext
+  }
+  column "status" {
+    null    = false
+    type    = varchar(24)
+    default = "pending"
+  }
+  column "storage_provider" {
+    null    = false
+    type    = varchar(32)
+    default = ""
+  }
+  column "storage_key" {
+    null    = false
+    type    = varchar(1024)
+    default = ""
+  }
+  column "content_type" {
+    null    = false
+    type    = varchar(128)
+    default = ""
+  }
+  column "last_error_code" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
+  column "error_message" {
+    null    = false
+    type    = varchar(1024)
+    default = ""
+  }
+  column "started_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "finished_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_audio_tasks_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_audio_tasks_run" {
+    columns = [column.run_id]
+  }
+  index "idx_ai_audio_tasks_status_created" {
+    columns = [column.status, column.created_at, column.id]
+  }
+  index "uk_ai_audio_tasks_user_request" {
+    unique  = true
+    columns = [column.user_id, column.request_id]
+  }
+  check "chk_ai_audio_tasks_platform" {
+    expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
+  }
+  check "chk_ai_audio_tasks_status" {
+    expr = "(`status` in (_utf8mb4'pending',_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown'))"
+  }
+}
+table "wallet_holds" {
+  schema  = schema.admin
+  comment = "Run-level wallet reservations"
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "wallet_id" {
+    null = false
+    type = bigint
+  }
+  column "user_id" {
+    null = false
+    type = bigint
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "held_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "captured_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "status" {
+    null    = false
+    type    = varchar(16)
+    default = "active"
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_wallet_holds_wallet" {
+    columns     = [column.wallet_id]
+    ref_columns = [table.user_wallets.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_wallet_holds_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_wallet_holds_wallet_status" {
+    columns = [column.wallet_id, column.status]
+  }
+  index "uk_wallet_holds_run" {
+    unique  = true
+    columns = [column.run_id]
+  }
+  check "chk_wallet_holds_status" {
+    expr = "(`status` in (_utf8mb4'active',_utf8mb4'captured',_utf8mb4'released'))"
+  }
+  check "chk_wallet_holds_units" {
+    expr = "((`held_units` >= 0) and (`captured_units` >= 0) and (`captured_units` <= `held_units`))"
+  }
+}
+table "ai_usage_charges" {
+  schema  = schema.admin
+  comment = "Immutable Run-level AI usage charges"
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "user_id" {
+    null = false
+    type = bigint
+  }
+  column "currency" {
+    null    = false
+    type    = char(3)
+    default = "CNY"
+  }
+  column "pricing_version" {
+    null = false
+    type = varchar(64)
+  }
+  column "multiplier_ppm" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "held_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "actual_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "status" {
+    null    = false
+    type    = varchar(16)
+    default = "open"
+  }
+  column "finalized_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_usage_charges_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_usage_charges_user_created" {
+    columns = [column.user_id, column.created_at, column.id]
+  }
+  index "uk_ai_usage_charges_run" {
+    unique  = true
+    columns = [column.run_id]
+  }
+  check "chk_ai_usage_charges_status" {
+    expr = "(`status` in (_utf8mb4'open',_utf8mb4'settled',_utf8mb4'released',_utf8mb4'unbilled'))"
+  }
+  check "chk_ai_usage_charges_currency" {
+    expr = "(`currency` = _utf8mb4'CNY')"
+  }
+  check "chk_ai_usage_charges_units" {
+    expr = "((`held_units` >= 0) and (`actual_units` >= 0))"
+  }
+}
+table "ai_usage_charge_items" {
+  schema  = schema.admin
+  comment = "Immutable categorized usage charge lines"
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "charge_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "attempt_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "category" {
+    null = false
+    type = varchar(32)
+  }
+  column "tier_key" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
+  column "quantity" {
+    null = false
+    type = bigint
+  }
+  column "unit" {
+    null = false
+    type = varchar(32)
+  }
+  column "unit_price_units" {
+    null = false
+    type = bigint
+  }
+  column "unit_scale" {
+    null = false
+    type = bigint
+  }
+  column "amount_units" {
+    null = false
+    type = bigint
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_usage_charge_items_charge" {
+    columns     = [column.charge_id]
+    ref_columns = [table.ai_usage_charges.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_usage_charge_items_attempt" {
+    columns     = [column.attempt_id]
+    ref_columns = [table.ai_provider_attempts.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_usage_charge_items_attempt" {
+    columns = [column.attempt_id]
+  }
+  index "uk_ai_usage_charge_item_identity" {
+    unique  = true
+    columns = [column.charge_id, column.attempt_id, column.category, column.tier_key, column.unit]
+  }
+  check "chk_ai_usage_charge_items_category" {
+    expr = "(`category` in (_utf8mb4'input',_utf8mb4'output',_utf8mb4'cache_read',_utf8mb4'cache_write',_utf8mb4'media'))"
+  }
+  check "chk_ai_usage_charge_items_units" {
+    expr = "((`quantity` > 0) and (`unit_price_units` >= 0) and (`unit_scale` > 0) and (`amount_units` >= 0))"
   }
 }
 table "atlas_schema_revisions" {
@@ -5475,6 +6071,26 @@ table "user_wallets" {
     default = 0
     comment = "累计消费金额，单位分"
   }
+  column "balance_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "total_recharge_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "total_consume_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "held_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
   column "is_del" {
     null    = false
     type    = tinyint
@@ -5503,6 +6119,9 @@ table "user_wallets" {
   index "uk_user_wallet_user" {
     unique  = true
     columns = [column.user_id]
+  }
+  check "chk_user_wallet_units_nonnegative" {
+    expr = "((`balance_units` >= 0) and (`total_recharge_units` >= 0) and (`total_consume_units` >= 0) and (`held_units` >= 0) and (`held_units` <= `balance_units`))"
   }
 }
 table "users" {
@@ -5734,6 +6353,18 @@ table "wallet_transactions" {
     null = false
     type = bigint
   }
+  column "amount_units" {
+    null = false
+    type = bigint
+  }
+  column "balance_before_units" {
+    null = false
+    type = bigint
+  }
+  column "balance_after_units" {
+    null = false
+    type = bigint
+  }
   column "source_type" {
     null = false
     type = varchar(32)
@@ -5788,6 +6419,9 @@ table "wallet_transactions" {
   index "uk_wallet_transaction_source" {
     unique  = true
     columns = [column.source_type, column.source_id]
+  }
+  check "chk_wallet_transaction_units_nonnegative" {
+    expr = "((`amount_units` >= 0) and (`balance_before_units` >= 0) and (`balance_after_units` >= 0))"
   }
 }
 schema "admin" {

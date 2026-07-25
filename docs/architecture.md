@@ -2,6 +2,16 @@
 
 ## Runtime and Admin contract boundary
 
+## Money and AI billing ownership
+
+`internal/shared/money` is the only cross-module money primitive. It owns the
+checked integer representation (`money_units`) and canonical RMB string
+formatting, but no wallet mutation, pricing rules, persistence, or HTTP policy.
+The payment module exclusively owns balance and ledger mutation. The pricing
+module exclusively owns quote arithmetic. Payment, pricing, and AI Run DTOs may
+depend on the shared money primitive; they must not depend on each other's
+internal models to exchange amounts.
+
 `cmd/admin-api` and `cmd/admin-worker` are thin signal-owning entries. Process
 composition, resource ownership, startup order, health, and reverse shutdown
 belong to `internal/runtime`. Each constructor takes a process-owned

@@ -9,6 +9,29 @@ INSERT INTO `_admin_permission_seed_guard` (`value`) VALUES (1);
 INSERT INTO `_admin_permission_seed_guard` (`value`)
 SELECT 1 FROM `permissions` LIMIT 1;
 
+CREATE TEMPORARY TABLE `_ai_run_permission_seed_guard` (
+  `violations` BIGINT NOT NULL,
+  CHECK (`violations` = 0)
+);
+
+INSERT INTO `_ai_run_permission_seed_guard`
+SELECT IF(
+  COUNT(*) = COALESCE(SUM(
+    `id` = 920
+    AND BINARY `code` = BINARY 'ai_run_list'
+    AND `parent_id` = 50
+    AND `type` = 3
+    AND `status` = 1
+    AND `is_del` IN (1, 2)
+  ), 0),
+  0,
+  1
+)
+FROM `permissions`
+WHERE `id` = 920 OR `code` = 'ai_run_list';
+
+DROP TEMPORARY TABLE `_ai_run_permission_seed_guard`;
+
 DROP TEMPORARY TABLE `_admin_permission_seed_guard`;
 
 INSERT INTO `permissions` (
@@ -149,6 +172,7 @@ INSERT INTO `permissions` (
 (656, '我的钱包', '/profile/wallet', 'Wallet', 0, 'profile/wallet', 'admin', 2, 90, 'profile_wallet', 'menu.profile_wallet', 2, 1, 2),
 (912, '兑换码管理', '/payment/redeem-codes', 'Ticket', 437, 'payment/redeem-codes', 'admin', 2, 35, 'payment_redeem_code_list', 'menu.payment_redeem_codes', 1, 1, 2),
 (913, '批量生成兑换码', '', '', 912, NULL, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2),
-(914, '作废兑换码', '', '', 912, NULL, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2);
+(914, '作废兑换码', '', '', 912, NULL, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2),
+(920, '查看运行记录', '', '', 50, NULL, 'admin', 3, 1, 'ai_run_list', '', 2, 1, 2);
 
 COMMIT;

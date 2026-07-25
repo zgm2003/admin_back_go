@@ -37,15 +37,17 @@ type RunTimeoutResult struct {
 }
 
 type CreateRunRecord struct {
-	ConversationID   int64
-	RequestID        string
-	UserMessageID    int64
-	UserID           int64
-	AgentID          int64
-	ProviderID       int64
-	ModelID          string
-	ModelDisplayName string
-	StartedAt        time.Time
+	ConversationID      int64
+	RequestID           string
+	RequestFingerprint  [32]byte
+	UserMessageID       int64
+	UserID              int64
+	AgentID             int64
+	ProviderID          int64
+	ModelID             string
+	ModelDisplayName    string
+	PricingSnapshotJSON string
+	StartedAt           time.Time
 }
 
 type CompleteRunRecord struct {
@@ -136,18 +138,20 @@ type EngineFactory interface {
 }
 
 type AgentEngineConfig struct {
-	AgentID          uint64
-	AgentName        string
-	ModelID          string
-	ModelDisplayName string
-	SystemPrompt     string
-	ScenesJSON       string
-	ProviderID       uint64
-	EngineType       string
-	EngineBaseURL    string
-	EngineAPIKeyEnc  string
-	AgentStatus      int
-	EngineStatus     int
+	AgentID              uint64
+	AgentName            string
+	ModelID              string
+	ModelDisplayName     string
+	SystemPrompt         string
+	ScenesJSON           string
+	ProviderID           uint64
+	EngineType           string
+	EngineBaseURL        string
+	EngineAPIKeyEnc      string
+	AgentStatus          int
+	EngineStatus         int
+	BillingMultiplierPPM int64
+	MaxOutputTokens      uint
 }
 
 type MessageHistory struct {
