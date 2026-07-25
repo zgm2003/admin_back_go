@@ -14,6 +14,8 @@ type ChargeStatus string
 type UsageStatus string
 type UsageCategory string
 type AttemptState string
+type DispatchState string
+type SHA256Digest [32]byte
 
 const (
 	BillingStatusPending  BillingStatus = "pending"
@@ -69,6 +71,12 @@ const (
 	AttemptStateFailed         AttemptState = "failed"
 	AttemptStateCanceled       AttemptState = "canceled"
 	AttemptStateOutcomeUnknown AttemptState = "outcome_unknown"
+)
+
+const (
+	DispatchStateNotDispatched DispatchState = "not_dispatched"
+	DispatchStateDispatched    DispatchState = "dispatched"
+	DispatchStateUnknown       DispatchState = "unknown"
 )
 
 var ErrInvalidUsageItem = errors.New("usage item category, unit and positive quantity are required")
@@ -146,13 +154,15 @@ type AtomicRunner interface {
 }
 
 type RunAcceptance struct {
-	UserID              int64
-	RequestID           string
-	RequestFingerprint  [32]byte
-	PricingSnapshotJSON string
-	BillingStatus       BillingStatus
-	BillingReason       BillingReason
-	AcceptedAt          time.Time
+	UserID                int64
+	RequestID             string
+	RequestFingerprint    [32]byte
+	RequestIdentityStatus string
+	RequestIdentityMarker string
+	PricingSnapshotJSON   string
+	BillingStatus         BillingStatus
+	BillingReason         BillingReason
+	AcceptedAt            time.Time
 }
 
 type AcceptedRun struct {
@@ -196,7 +206,10 @@ type DispatchEvidence struct {
 
 type OutcomeEvidence struct {
 	AttemptID           int64
+	DispatchState       DispatchState
 	State               AttemptState
+	ProviderRequestID   string
+	ResponseSHA256      SHA256Digest
 	UsageStatus         UsageStatus
 	UsageJSON           string
 	ResultCandidateJSON *string

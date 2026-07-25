@@ -45,3 +45,17 @@ func TestAttemptTransitionsRejectDispatchWithoutPreparation(t *testing.T) {
 		t.Fatal("failed -> dispatched must be invalid")
 	}
 }
+
+func TestOutcomeEvidenceCarriesNonSecretProviderFacts(t *testing.T) {
+	wantHash := SHA256Digest{1, 2, 3}
+	evidence := OutcomeEvidence{
+		AttemptID:         9,
+		DispatchState:     DispatchStateDispatched,
+		State:             AttemptStateSucceeded,
+		ProviderRequestID: "provider-request-7",
+		ResponseSHA256:    wantHash,
+	}
+	if evidence.DispatchState != DispatchStateDispatched || evidence.ProviderRequestID != "provider-request-7" || evidence.ResponseSHA256 != wantHash {
+		t.Fatalf("outcome evidence=%+v", evidence)
+	}
+}

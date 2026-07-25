@@ -567,6 +567,16 @@ table "ai_image_tasks" {
     null = false
     type = binary(32)
   }
+  column "request_identity_status" {
+    null    = false
+    type    = varchar(24)
+    default = "replayable"
+  }
+  column "request_identity_marker" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
   column "run_id" {
     null     = false
     type     = bigint
@@ -716,6 +726,9 @@ table "ai_image_tasks" {
   }
   check "chk_ai_image_tasks_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
+  }
+  check "chk_ai_image_tasks_request_identity" {
+    expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
   }
 }
 table "ai_knowledge_bases" {
@@ -1636,6 +1649,16 @@ table "ai_reply_commands" {
     null = false
     type = binary(32)
   }
+  column "request_identity_status" {
+    null    = false
+    type    = varchar(24)
+    default = "replayable"
+  }
+  column "request_identity_marker" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
   column "idempotency_key" {
     null = false
     type = varchar(128)
@@ -1757,6 +1780,9 @@ table "ai_reply_commands" {
   check "chk_ai_reply_state" {
     expr = "(`state` in (_utf8mb4'pending',_utf8mb4'claimed',_utf8mb4'running',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown',_utf8mb4'timed_out'))"
   }
+  check "chk_ai_reply_request_identity" {
+    expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
+  }
 }
 table "ai_run_events" {
   schema  = schema.admin
@@ -1851,6 +1877,18 @@ table "ai_runs" {
     null    = false
     type    = binary(32)
     comment = "SHA-256 of canonical typed request identity"
+  }
+  column "request_identity_status" {
+    null    = false
+    type    = varchar(24)
+    default = "replayable"
+    comment = "replayable or validated legacy_non_replayable"
+  }
+  column "request_identity_marker" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+    comment = "stable legacy identity marker; never a canonical replay tuple"
   }
   column "user_message_id" {
     null     = true
@@ -2046,6 +2084,9 @@ table "ai_runs" {
   check "chk_ai_runs_billing_reason" {
     expr = "(`billing_reason` in (_utf8mb4'pending',_utf8mb4'held',_utf8mb4'settled_complete_usage',_utf8mb4'released_before_dispatch',_utf8mb4'released_insufficient_balance',_utf8mb4'released_provider_failed',_utf8mb4'released_outcome_unknown',_utf8mb4'unbilled_usage_incomplete',_utf8mb4'unbilled_over_hold',_utf8mb4'legacy_unpriced'))"
   }
+  check "chk_ai_runs_request_identity" {
+    expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
+  }
 }
 table "ai_text_tasks" {
   schema  = schema.admin
@@ -2074,6 +2115,16 @@ table "ai_text_tasks" {
   column "request_fingerprint" {
     null = false
     type = binary(32)
+  }
+  column "request_identity_status" {
+    null    = false
+    type    = varchar(24)
+    default = "replayable"
+  }
+  column "request_identity_marker" {
+    null    = false
+    type    = varchar(64)
+    default = ""
   }
   column "run_id" {
     null     = false
@@ -2171,6 +2222,9 @@ table "ai_text_tasks" {
   }
   check "chk_ai_text_tasks_status" {
     expr = "(`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed'))"
+  }
+  check "chk_ai_text_tasks_request_identity" {
+    expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
   }
 }
 table "ai_tool_calls" {
@@ -2412,6 +2466,16 @@ table "ai_video_tasks" {
     null = false
     type = binary(32)
   }
+  column "request_identity_status" {
+    null    = false
+    type    = varchar(24)
+    default = "replayable"
+  }
+  column "request_identity_marker" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
   column "agent_id" {
     null = false
     type = bigint
@@ -2531,6 +2595,9 @@ table "ai_video_tasks" {
   }
   check "chk_ai_video_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
+  }
+  check "chk_ai_video_tasks_request_identity" {
+    expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
   }
 }
 table "ai_audio_tasks" {
@@ -6055,22 +6122,6 @@ table "user_wallets" {
     null = false
     type = bigint
   }
-  column "balance_cents" {
-    null    = false
-    type    = bigint
-    default = 0
-  }
-  column "total_recharge_cents" {
-    null    = false
-    type    = bigint
-    default = 0
-  }
-  column "total_consume_cents" {
-    null    = false
-    type    = bigint
-    default = 0
-    comment = "累计消费金额，单位分"
-  }
   column "balance_units" {
     null    = false
     type    = bigint
@@ -6341,18 +6392,6 @@ table "wallet_transactions" {
     null = false
     type = varchar(16)
   }
-  column "amount_cents" {
-    null = false
-    type = bigint
-  }
-  column "balance_before_cents" {
-    null = false
-    type = bigint
-  }
-  column "balance_after_cents" {
-    null = false
-    type = bigint
-  }
   column "amount_units" {
     null = false
     type = bigint
@@ -6422,6 +6461,34 @@ table "wallet_transactions" {
   }
   check "chk_wallet_transaction_units_nonnegative" {
     expr = "((`amount_units` >= 0) and (`balance_before_units` >= 0) and (`balance_after_units` >= 0))"
+  }
+}
+table "ai_billing_migration_metadata" {
+  schema  = schema.admin
+  comment = "Persistent validation boundary for AI billing legacy identity backfill"
+  column "migration_key" {
+    null = false
+    type = varchar(64)
+  }
+  column "legacy_cutover_at" {
+    null = false
+    type = datetime(6)
+  }
+  column "marker_version" {
+    null = false
+    type = varchar(64)
+  }
+  column "marker_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.migration_key]
   }
 }
 schema "admin" {

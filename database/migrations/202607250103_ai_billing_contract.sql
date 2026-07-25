@@ -1,7 +1,6 @@
 -- Invoke this destructive contract revision only after the deployed binary has
 -- been verified to read/write wallet units exclusively in the maintenance window:
 --   SET @ai_billing_units_only_verified = 1;
-SET @ai_billing_contract_started_at = CURRENT_TIMESTAMP(6);
 
 DROP TEMPORARY TABLE IF EXISTS `_ai_billing_contract_guard`;
 CREATE TEMPORARY TABLE `_ai_billing_contract_guard` (
@@ -11,6 +10,14 @@ CREATE TEMPORARY TABLE `_ai_billing_contract_guard` (
 
 INSERT INTO `_ai_billing_contract_guard`
 SELECT IF(COALESCE(@ai_billing_units_only_verified, 0) = 1, 0, 1);
+
+INSERT INTO `_ai_billing_contract_guard`
+SELECT IF(COUNT(*) = 1, 0, 1)
+FROM `ai_billing_migration_metadata`
+WHERE `migration_key` = 'legacy_cutover_v1'
+  AND `marker_version` = 'legacy_non_replayable_v1'
+  AND `marker_sha256` = UNHEX(SHA2('legacy_non_replayable_v1', 256))
+  AND `legacy_cutover_at` <= CURRENT_TIMESTAMP(0);
 
 INSERT INTO `_ai_billing_contract_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
@@ -48,21 +55,118 @@ FROM `ai_runs`
 WHERE `request_fingerprint` IS NULL OR OCTET_LENGTH(`request_fingerprint`) <> 32
    OR `pricing_snapshot_json` IS NULL OR JSON_VALID(`pricing_snapshot_json`) = 0
    OR `billing_status` IS NULL OR `billing_reason` IS NULL
-   OR (`created_at` >= @ai_billing_contract_started_at AND `pricing_snapshot_json` = '{"version":"legacy_unpriced_v1","billable":false}');
+   OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL
+   OR (`request_identity_status` = 'replayable' AND `request_identity_marker` <> '')
+   OR (`request_identity_status` = 'legacy_non_replayable' AND (
+     `request_identity_marker` <> CONCAT('legacy_non_replayable_v1:ai_runs:', `id`)
+     OR `request_fingerprint` <> UNHEX(SHA2(`request_identity_marker`, 256))
+     OR `pricing_snapshot_json` <> '{"version":"legacy_unpriced_v1","billable":false}'
+     OR `billing_status` <> 'unbilled'
+     OR `billing_reason` <> 'legacy_unpriced'
+   ))
+   OR `request_identity_status` NOT IN ('replayable', 'legacy_non_replayable');
+
+-- Any Run carrying a legacy marker at or after the durable cutover proves that
+-- a writer crossed the maintenance boundary and aborts before destructive DDL.
+INSERT INTO `_ai_billing_contract_guard`
+SELECT IF(COUNT(*) = 0, 0, 1)
+FROM `ai_runs` AS run_row
+JOIN `ai_billing_migration_metadata` AS metadata
+  ON metadata.`migration_key` = 'legacy_cutover_v1'
+WHERE run_row.`created_at` >= metadata.`legacy_cutover_at`
+  AND (
+    run_row.`request_identity_status` = 'legacy_non_replayable'
+    OR run_row.`request_identity_marker` LIKE 'legacy_non_replayable_v1:%'
+    OR run_row.`pricing_snapshot_json` = '{"version":"legacy_unpriced_v1","billable":false}'
+    OR run_row.`billing_reason` = 'legacy_unpriced'
+  );
 
 INSERT INTO `_ai_billing_contract_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
 FROM (
-  SELECT `id` FROM `ai_reply_commands` WHERE `request_fingerprint` IS NULL OR OCTET_LENGTH(`request_fingerprint`) <> 32
+  SELECT command_row.`id`
+  FROM `ai_reply_commands` AS command_row
+  JOIN `ai_billing_migration_metadata` AS metadata ON metadata.`migration_key` = 'legacy_cutover_v1'
+  WHERE command_row.`request_identity_status` = 'legacy_non_replayable'
+    AND command_row.`created_at` >= metadata.`legacy_cutover_at`
+  UNION ALL
+  SELECT task.`id`
+  FROM `ai_text_tasks` AS task
+  JOIN `ai_billing_migration_metadata` AS metadata ON metadata.`migration_key` = 'legacy_cutover_v1'
+  WHERE task.`request_identity_status` = 'legacy_non_replayable'
+    AND task.`created_at` >= metadata.`legacy_cutover_at`
+  UNION ALL
+  SELECT task.`id`
+  FROM `ai_image_tasks` AS task
+  JOIN `ai_billing_migration_metadata` AS metadata ON metadata.`migration_key` = 'legacy_cutover_v1'
+  WHERE task.`request_identity_status` = 'legacy_non_replayable'
+    AND task.`created_at` >= metadata.`legacy_cutover_at`
+  UNION ALL
+  SELECT task.`id`
+  FROM `ai_video_tasks` AS task
+  JOIN `ai_billing_migration_metadata` AS metadata ON metadata.`migration_key` = 'legacy_cutover_v1'
+  WHERE task.`request_identity_status` = 'legacy_non_replayable'
+    AND task.`created_at` >= metadata.`legacy_cutover_at`
+) AS child_legacy_identity_after_cutover;
+
+INSERT INTO `_ai_billing_contract_guard`
+SELECT IF(COUNT(*) = 0, 0, 1)
+FROM (
+  SELECT `id` FROM `ai_reply_commands` WHERE `request_fingerprint` IS NULL OR OCTET_LENGTH(`request_fingerprint`) <> 32 OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL
   UNION ALL
   SELECT `id` FROM `ai_provider_attempts` WHERE `run_id` IS NULL OR `run_id` = 0 OR `prepared_request_json` IS NULL OR `prepared_request_sha256` IS NULL OR `quote_json` IS NULL OR `usage_json` IS NULL OR `usage_status` IS NULL
   UNION ALL
-  SELECT `id` FROM `ai_text_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `kind` IS NULL OR `last_error_code` IS NULL
+  SELECT `id` FROM `ai_text_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `kind` IS NULL OR `last_error_code` IS NULL
   UNION ALL
-  SELECT `id` FROM `ai_image_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `last_error_code` IS NULL
+  SELECT `id` FROM `ai_image_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `last_error_code` IS NULL
   UNION ALL
-  SELECT `id` FROM `ai_video_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `last_error_code` IS NULL OR `storage_provider` IS NULL OR `storage_key` IS NULL OR `content_type` IS NULL
+  SELECT `id` FROM `ai_video_tasks` WHERE `request_id` IS NULL OR `request_id` = '' OR `request_fingerprint` IS NULL OR `request_identity_status` IS NULL OR `request_identity_marker` IS NULL OR `run_id` IS NULL OR `run_id` = 0 OR `last_error_code` IS NULL OR `storage_provider` IS NULL OR `storage_key` IS NULL OR `content_type` IS NULL
 ) AS incomplete_billing_identity;
+
+INSERT INTO `_ai_billing_contract_guard`
+SELECT IF(COUNT(*) = 0, 0, 1)
+FROM (
+  SELECT command_row.`id`
+  FROM `ai_reply_commands` AS command_row
+  LEFT JOIN `ai_runs` AS run_row
+    ON run_row.`user_id` = command_row.`user_id`
+   AND BINARY run_row.`request_id` = BINARY command_row.`request_id`
+  WHERE command_row.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
+     OR (command_row.`request_identity_status` = 'replayable' AND command_row.`request_identity_marker` <> '')
+     OR (command_row.`request_identity_status` = 'legacy_non_replayable' AND (
+       run_row.`id` IS NULL OR run_row.`request_identity_status` <> 'legacy_non_replayable'
+       OR command_row.`request_identity_marker` <> run_row.`request_identity_marker`
+       OR command_row.`request_fingerprint` <> run_row.`request_fingerprint`
+     ))
+  UNION ALL
+  SELECT task.`id` FROM `ai_text_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
+  WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
+     OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
+     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+  UNION ALL
+  SELECT task.`id` FROM `ai_image_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
+  WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
+     OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
+     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+  UNION ALL
+  SELECT task.`id` FROM `ai_video_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
+  WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
+     OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
+     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+) AS invalid_request_identity_markers;
+
+INSERT INTO `_ai_billing_contract_guard`
+SELECT IF(COUNT(*) = 0, 0, 1)
+FROM `ai_provider_attempts` AS attempt
+JOIN `ai_runs` AS run_row ON run_row.`id` = attempt.`run_id`
+WHERE run_row.`request_identity_status` = 'legacy_non_replayable'
+  AND (
+    attempt.`prepared_request_json` <> '{"version":"legacy_unavailable_v1","replayable":false}'
+    OR attempt.`prepared_request_sha256` <> UNHEX(SHA2('{"version":"legacy_unavailable_v1","replayable":false}', 256))
+    OR attempt.`quote_json` <> '{"version":"legacy_unpriced_v1","billable":false}'
+    OR attempt.`usage_json` <> '{"status":"unavailable","items":[]}'
+    OR attempt.`usage_status` <> 'unavailable'
+  );
 
 INSERT INTO `_ai_billing_contract_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
@@ -86,6 +190,8 @@ FROM (
 ALTER TABLE `ai_runs`
   MODIFY COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   MODIFY COLUMN `request_fingerprint` BINARY(32) NOT NULL,
+  MODIFY COLUMN `request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable',
+  MODIFY COLUMN `request_identity_marker` VARCHAR(64) NOT NULL DEFAULT '',
   MODIFY COLUMN `pricing_snapshot_json` MEDIUMTEXT NOT NULL,
   MODIFY COLUMN `billing_status` VARCHAR(16) NOT NULL,
   MODIFY COLUMN `billing_reason` VARCHAR(32) NOT NULL,
@@ -94,13 +200,17 @@ ALTER TABLE `ai_runs`
   DROP CHECK `chk_ai_runs_status`,
   ADD CONSTRAINT `chk_ai_runs_status` CHECK (`status` IN ('running', 'success', 'failed', 'canceled', 'timeout', 'outcome_unknown')),
   ADD CONSTRAINT `chk_ai_runs_billing_status` CHECK (`billing_status` IN ('pending', 'held', 'settled', 'released', 'unbilled')),
-  ADD CONSTRAINT `chk_ai_runs_billing_reason` CHECK (`billing_reason` IN ('pending', 'held', 'settled_complete_usage', 'released_before_dispatch', 'released_insufficient_balance', 'released_provider_failed', 'released_outcome_unknown', 'unbilled_usage_incomplete', 'unbilled_over_hold', 'legacy_unpriced'));
+  ADD CONSTRAINT `chk_ai_runs_billing_reason` CHECK (`billing_reason` IN ('pending', 'held', 'settled_complete_usage', 'released_before_dispatch', 'released_insufficient_balance', 'released_provider_failed', 'released_outcome_unknown', 'unbilled_usage_incomplete', 'unbilled_over_hold', 'legacy_unpriced')),
+  ADD CONSTRAINT `chk_ai_runs_request_identity` CHECK ((`request_identity_status` = 'replayable' AND `request_identity_marker` = '') OR (`request_identity_status` = 'legacy_non_replayable' AND `request_identity_marker` LIKE 'legacy_non_replayable_v1:ai_runs:%'));
 
 ALTER TABLE `ai_reply_commands`
   MODIFY COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   MODIFY COLUMN `request_fingerprint` BINARY(32) NOT NULL,
+  MODIFY COLUMN `request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable',
+  MODIFY COLUMN `request_identity_marker` VARCHAR(64) NOT NULL DEFAULT '',
   DROP INDEX `uk_ai_reply_request`,
-  ADD UNIQUE KEY `uk_ai_reply_user_request` (`user_id`, `request_id`);
+  ADD UNIQUE KEY `uk_ai_reply_user_request` (`user_id`, `request_id`),
+  ADD CONSTRAINT `chk_ai_reply_request_identity` CHECK ((`request_identity_status` = 'replayable' AND `request_identity_marker` = '') OR (`request_identity_status` = 'legacy_non_replayable' AND `request_identity_marker` LIKE 'legacy_non_replayable_v1:ai_runs:%'));
 
 ALTER TABLE `ai_provider_attempts`
   MODIFY COLUMN `run_id` BIGINT UNSIGNED NOT NULL,
@@ -119,26 +229,34 @@ ALTER TABLE `ai_provider_attempts`
 ALTER TABLE `ai_text_tasks`
   MODIFY COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   MODIFY COLUMN `request_fingerprint` BINARY(32) NOT NULL,
+  MODIFY COLUMN `request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable',
+  MODIFY COLUMN `request_identity_marker` VARCHAR(64) NOT NULL DEFAULT '',
   MODIFY COLUMN `run_id` BIGINT UNSIGNED NOT NULL,
   MODIFY COLUMN `kind` VARCHAR(16) NOT NULL DEFAULT 'text',
   MODIFY COLUMN `last_error_code` VARCHAR(64) NOT NULL DEFAULT '',
   ADD UNIQUE KEY `uk_ai_text_tasks_user_request` (`user_id`, `request_id`),
   ADD KEY `idx_ai_text_tasks_run` (`run_id`),
   ADD CONSTRAINT `fk_ai_text_tasks_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-  ADD CONSTRAINT `chk_ai_text_tasks_kind` CHECK (`kind` IN ('text', 'tool_draft'));
+  ADD CONSTRAINT `chk_ai_text_tasks_kind` CHECK (`kind` IN ('text', 'tool_draft')),
+  ADD CONSTRAINT `chk_ai_text_tasks_request_identity` CHECK ((`request_identity_status` = 'replayable' AND `request_identity_marker` = '') OR (`request_identity_status` = 'legacy_non_replayable' AND `request_identity_marker` LIKE 'legacy_non_replayable_v1:ai_runs:%'));
 
 ALTER TABLE `ai_image_tasks`
   MODIFY COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   MODIFY COLUMN `request_fingerprint` BINARY(32) NOT NULL,
+  MODIFY COLUMN `request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable',
+  MODIFY COLUMN `request_identity_marker` VARCHAR(64) NOT NULL DEFAULT '',
   MODIFY COLUMN `run_id` BIGINT UNSIGNED NOT NULL,
   MODIFY COLUMN `last_error_code` VARCHAR(64) NOT NULL DEFAULT '',
   ADD UNIQUE KEY `uk_ai_image_tasks_user_request` (`user_id`, `request_id`),
   ADD KEY `idx_ai_image_tasks_run` (`run_id`),
-  ADD CONSTRAINT `fk_ai_image_tasks_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+  ADD CONSTRAINT `fk_ai_image_tasks_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  ADD CONSTRAINT `chk_ai_image_tasks_request_identity` CHECK ((`request_identity_status` = 'replayable' AND `request_identity_marker` = '') OR (`request_identity_status` = 'legacy_non_replayable' AND `request_identity_marker` LIKE 'legacy_non_replayable_v1:ai_runs:%'));
 
 ALTER TABLE `ai_video_tasks`
   MODIFY COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   MODIFY COLUMN `request_fingerprint` BINARY(32) NOT NULL,
+  MODIFY COLUMN `request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable',
+  MODIFY COLUMN `request_identity_marker` VARCHAR(64) NOT NULL DEFAULT '',
   MODIFY COLUMN `run_id` BIGINT UNSIGNED NOT NULL,
   MODIFY COLUMN `last_error_code` VARCHAR(64) NOT NULL DEFAULT '',
   MODIFY COLUMN `storage_provider` VARCHAR(32) NOT NULL DEFAULT '',
@@ -146,7 +264,8 @@ ALTER TABLE `ai_video_tasks`
   MODIFY COLUMN `content_type` VARCHAR(128) NOT NULL DEFAULT '',
   ADD UNIQUE KEY `uk_ai_video_tasks_user_request` (`user_id`, `request_id`),
   ADD KEY `idx_ai_video_tasks_run` (`run_id`),
-  ADD CONSTRAINT `fk_ai_video_tasks_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+  ADD CONSTRAINT `fk_ai_video_tasks_run` FOREIGN KEY (`run_id`) REFERENCES `ai_runs` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  ADD CONSTRAINT `chk_ai_video_tasks_request_identity` CHECK ((`request_identity_status` = 'replayable' AND `request_identity_marker` = '') OR (`request_identity_status` = 'legacy_non_replayable' AND `request_identity_marker` LIKE 'legacy_non_replayable_v1:ai_runs:%'));
 
 ALTER TABLE `ai_run_events`
   DROP CHECK `chk_ai_run_events_type`,

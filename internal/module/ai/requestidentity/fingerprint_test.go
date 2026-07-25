@@ -54,10 +54,17 @@ func TestFingerprintChangesWithContentOrOptions(t *testing.T) {
 
 func TestCompareReplayRejectsDifferentFingerprint(t *testing.T) {
 	want := [32]byte{1}
-	if err := CompareForReplay(want, want); err != nil {
+	if err := CompareForReplay(IdentityStatusReplayable, want, want); err != nil {
 		t.Fatalf("equal fingerprint rejected: %v", err)
 	}
-	if err := CompareForReplay(want, [32]byte{2}); !errors.Is(err, ErrRequestIdentityConflict) {
+	if err := CompareForReplay(IdentityStatusReplayable, want, [32]byte{2}); !errors.Is(err, ErrRequestIdentityConflict) {
 		t.Fatalf("different fingerprint error=%v", err)
+	}
+}
+
+func TestCompareReplayRejectsLegacyNonReplayableIdentity(t *testing.T) {
+	legacyMarkerHash := [32]byte{1}
+	if err := CompareForReplay(IdentityStatusLegacyNonReplayable, legacyMarkerHash, legacyMarkerHash); !errors.Is(err, ErrRequestIdentityNotReplayable) {
+		t.Fatalf("legacy marker replay error=%v", err)
 	}
 }

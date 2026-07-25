@@ -1,4 +1,13 @@
 -- Expand AI billing facts only after all legacy paid writers are stopped.
+CREATE TABLE `ai_billing_migration_metadata` (
+  `migration_key` VARCHAR(64) NOT NULL,
+  `legacy_cutover_at` DATETIME(6) NOT NULL,
+  `marker_version` VARCHAR(64) NOT NULL,
+  `marker_sha256` BINARY(32) NOT NULL,
+  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`migration_key`)
+);
+
 DROP TEMPORARY TABLE IF EXISTS `_ai_billing_expand_guard`;
 CREATE TEMPORARY TABLE `_ai_billing_expand_guard` (
   `violations` BIGINT NOT NULL,
@@ -71,12 +80,16 @@ ALTER TABLE `ai_agents`
 
 ALTER TABLE `ai_runs`
   ADD COLUMN `request_fingerprint` BINARY(32) NULL AFTER `request_id`,
+  ADD COLUMN `request_identity_status` VARCHAR(24) NULL DEFAULT 'replayable' AFTER `request_fingerprint`,
+  ADD COLUMN `request_identity_marker` VARCHAR(64) NULL DEFAULT '' AFTER `request_identity_status`,
   ADD COLUMN `pricing_snapshot_json` MEDIUMTEXT NULL AFTER `input_snapshot`,
   ADD COLUMN `billing_status` VARCHAR(16) NULL AFTER `status`,
   ADD COLUMN `billing_reason` VARCHAR(32) NULL AFTER `billing_status`;
 
 ALTER TABLE `ai_reply_commands`
-  ADD COLUMN `request_fingerprint` BINARY(32) NULL AFTER `request_id`;
+  ADD COLUMN `request_fingerprint` BINARY(32) NULL AFTER `request_id`,
+  ADD COLUMN `request_identity_status` VARCHAR(24) NULL DEFAULT 'replayable' AFTER `request_fingerprint`,
+  ADD COLUMN `request_identity_marker` VARCHAR(64) NULL DEFAULT '' AFTER `request_identity_status`;
 
 ALTER TABLE `ai_provider_attempts`
   ADD COLUMN `run_id` BIGINT UNSIGNED NULL AFTER `id`,
@@ -102,6 +115,8 @@ ALTER TABLE `wallet_transactions`
 ALTER TABLE `ai_text_tasks`
   ADD COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL AFTER `user_id`,
   ADD COLUMN `request_fingerprint` BINARY(32) NULL AFTER `request_id`,
+  ADD COLUMN `request_identity_status` VARCHAR(24) NULL DEFAULT 'replayable' AFTER `request_fingerprint`,
+  ADD COLUMN `request_identity_marker` VARCHAR(64) NULL DEFAULT '' AFTER `request_identity_status`,
   ADD COLUMN `run_id` BIGINT UNSIGNED NULL AFTER `request_fingerprint`,
   ADD COLUMN `kind` VARCHAR(16) NULL DEFAULT 'text' AFTER `run_id`,
   ADD COLUMN `last_error_code` VARCHAR(64) NULL DEFAULT '' AFTER `error_message`;
@@ -109,12 +124,16 @@ ALTER TABLE `ai_text_tasks`
 ALTER TABLE `ai_image_tasks`
   ADD COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL AFTER `user_id`,
   ADD COLUMN `request_fingerprint` BINARY(32) NULL AFTER `request_id`,
+  ADD COLUMN `request_identity_status` VARCHAR(24) NULL DEFAULT 'replayable' AFTER `request_fingerprint`,
+  ADD COLUMN `request_identity_marker` VARCHAR(64) NULL DEFAULT '' AFTER `request_identity_status`,
   ADD COLUMN `run_id` BIGINT UNSIGNED NULL AFTER `request_fingerprint`,
   ADD COLUMN `last_error_code` VARCHAR(64) NULL DEFAULT '' AFTER `error_message`;
 
 ALTER TABLE `ai_video_tasks`
   ADD COLUMN `request_id` VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL AFTER `user_id`,
   ADD COLUMN `request_fingerprint` BINARY(32) NULL AFTER `request_id`,
+  ADD COLUMN `request_identity_status` VARCHAR(24) NULL DEFAULT 'replayable' AFTER `request_fingerprint`,
+  ADD COLUMN `request_identity_marker` VARCHAR(64) NULL DEFAULT '' AFTER `request_identity_status`,
   ADD COLUMN `last_error_code` VARCHAR(64) NULL DEFAULT '' AFTER `error_message`,
   ADD COLUMN `storage_provider` VARCHAR(32) NULL DEFAULT '' AFTER `last_error_code`,
   ADD COLUMN `storage_key` VARCHAR(1024) NULL DEFAULT '' AFTER `storage_provider`,

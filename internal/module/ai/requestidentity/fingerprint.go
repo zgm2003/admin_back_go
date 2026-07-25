@@ -7,7 +7,17 @@ import (
 	"errors"
 )
 
-var ErrRequestIdentityConflict = errors.New("canonical request identity fingerprint conflict")
+var (
+	ErrRequestIdentityConflict      = errors.New("canonical request identity fingerprint conflict")
+	ErrRequestIdentityNotReplayable = errors.New("request identity is a validated non-replayable legacy marker")
+)
+
+type IdentityStatus string
+
+const (
+	IdentityStatusReplayable          IdentityStatus = "replayable"
+	IdentityStatusLegacyNonReplayable IdentityStatus = "legacy_non_replayable"
+)
 
 type AttachmentIdentity struct {
 	StorageProvider string `json:"storage_provider"`
@@ -44,7 +54,10 @@ func Fingerprint(input Input) ([32]byte, error) {
 	return sha256.Sum256(encoded), nil
 }
 
-func CompareForReplay(stored, incoming [32]byte) error {
+func CompareForReplay(status IdentityStatus, stored, incoming [32]byte) error {
+	if status != IdentityStatusReplayable {
+		return ErrRequestIdentityNotReplayable
+	}
 	if subtle.ConstantTimeCompare(stored[:], incoming[:]) != 1 {
 		return ErrRequestIdentityConflict
 	}
