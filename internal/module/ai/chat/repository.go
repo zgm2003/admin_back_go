@@ -2,7 +2,9 @@ package aichat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,7 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrRepositoryNotConfigured = errors.New("aichat repository not configured")
+var (
+	ErrRepositoryNotConfigured   = errors.New("aichat repository not configured")
+	ErrInvalidRunBillingIdentity = errors.New("invalid new AI run billing identity")
+)
 
 type GormRepository struct {
 	db *gorm.DB
@@ -83,8 +88,11 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 	if startedAt.IsZero() {
 		startedAt = time.Now()
 	}
-	run := runFromCreateRecord(input, startedAt)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	run, err := runFromCreateRecord(input, startedAt)
+	if err != nil {
+		return 0, err
+	}
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&run).Error; err != nil {
 			return err
 		}
@@ -96,31 +104,66 @@ func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (
 	return run.ID, nil
 }
 
-func runFromCreateRecord(input CreateRunRecord, startedAt time.Time) Run {
+func runFromCreateRecord(input CreateRunRecord, startedAt time.Time) (Run, error) {
 	identityStatus := strings.TrimSpace(input.RequestIdentityStatus)
 	identityMarker := strings.TrimSpace(input.RequestIdentityMarker)
 	if identityStatus == "" {
 		identityStatus = string(requestidentity.IdentityStatusReplayable)
-		identityMarker = ""
+	}
+	if identityStatus != string(requestidentity.IdentityStatusReplayable) {
+		return Run{}, fmt.Errorf("%w: request identity status", ErrInvalidRunBillingIdentity)
+	}
+	if identityMarker != "" {
+		return Run{}, fmt.Errorf("%w: request identity marker", ErrInvalidRunBillingIdentity)
+	}
+	if input.RequestFingerprint == ([32]byte{}) {
+		return Run{}, fmt.Errorf("%w: request fingerprint", ErrInvalidRunBillingIdentity)
+	}
+	pricingSnapshotJSON := strings.TrimSpace(input.PricingSnapshotJSON)
+	if pricingSnapshotJSON == "" || !json.Valid([]byte(pricingSnapshotJSON)) {
+		return Run{}, fmt.Errorf("%w: pricing snapshot JSON", ErrInvalidRunBillingIdentity)
+	}
+	if hasDisallowedPricingMarker(pricingSnapshotJSON) {
+		return Run{}, fmt.Errorf("%w: non-billable pricing snapshot", ErrInvalidRunBillingIdentity)
 	}
 	return Run{
 		ConversationID:        input.ConversationID,
 		RequestID:             strings.TrimSpace(input.RequestID),
 		RequestFingerprint:    append([]byte(nil), input.RequestFingerprint[:]...),
-		RequestIdentityStatus: identityStatus,
-		RequestIdentityMarker: identityMarker,
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable),
+		RequestIdentityMarker: "",
 		UserMessageID:         input.UserMessageID,
 		UserID:                input.UserID,
 		AgentID:               input.AgentID,
 		ProviderID:            input.ProviderID,
 		ModelID:               strings.TrimSpace(input.ModelID),
 		ModelDisplayName:      strings.TrimSpace(input.ModelDisplayName),
-		PricingSnapshotJSON:   strings.TrimSpace(input.PricingSnapshotJSON),
+		PricingSnapshotJSON:   pricingSnapshotJSON,
 		Status:                enum.AIRunStatusRunning,
 		BillingStatus:         "pending",
 		BillingReason:         "pending",
 		StartedAt:             &startedAt,
+	}, nil
+}
+
+func hasDisallowedPricingMarker(snapshot string) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(snapshot), &fields); err != nil || fields == nil {
+		return false
 	}
+	if rawVersion, ok := fields["version"]; ok {
+		var version string
+		if json.Unmarshal(rawVersion, &version) == nil && strings.TrimSpace(version) == "legacy_unpriced_v1" {
+			return true
+		}
+	}
+	if rawBillable, ok := fields["billable"]; ok {
+		var billable bool
+		if json.Unmarshal(rawBillable, &billable) == nil && !billable {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *GormRepository) CompleteRun(ctx context.Context, input CompleteRunRecord) error {
