@@ -1419,6 +1419,11 @@ table "ai_provider_attempts" {
     type    = varchar(16)
     default = "unavailable"
   }
+  column "dispatch_state" {
+    null    = false
+    type    = varchar(16)
+    default = "not_dispatched"
+  }
   column "result_candidate_json" {
     null = true
     type = mediumtext
@@ -1485,6 +1490,9 @@ table "ai_provider_attempts" {
   }
   check "chk_ai_provider_attempts_usage_status" {
     expr = "(`usage_status` in (_utf8mb4'complete',_utf8mb4'unavailable'))"
+  }
+  check "chk_ai_provider_attempts_dispatch_state" {
+    expr = "(`dispatch_state` in (_utf8mb4'not_dispatched',_utf8mb4'dispatched',_utf8mb4'unknown'))"
   }
 }
 table "ai_provider_models" {

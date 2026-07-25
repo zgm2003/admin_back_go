@@ -1,6 +1,6 @@
 # AI Billing Migration Recovery
 
-AI billing 的 expand/backfill/contract/permissions 脚本运行在维护窗口，且
+AI billing 的 expand/backfill/contract/permissions/dispatch-state 脚本运行在维护窗口，且
 MySQL 的 `ALTER TABLE` 会隐式提交。每个阶段都会在
 `ai_billing_migration_metadata` 写入 `phase=started`，只有该阶段全部校验和
 DDL 完成后才写入 `phase=complete`。
@@ -9,7 +9,7 @@ DDL 完成后才写入 `phase=complete`。
 
 1. 停止所有旧的 AI paid writers，并确认 Plan 05/06/07 的 durable Run 写入路径
    已上线；不能用旧 `RunRecorder.Start` 创建新的计费 Run。
-2. 依次执行 expand、backfill、contract、permissions，不能跳阶段。
+2. 依次执行 expand、backfill、contract、permissions、dispatch-state，不能跳阶段。
 3. contract 只在已部署二进制通过 units-only 校验后设置会话变量：
 
 ```sql

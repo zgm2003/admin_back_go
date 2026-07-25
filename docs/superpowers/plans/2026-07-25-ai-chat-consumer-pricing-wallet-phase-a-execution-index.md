@@ -78,8 +78,8 @@ Plan 07 最后修改 runtime、权限、编译后契约和前端 generated contr
 
 ### Migration cutover gate
 
-`202607250101` 至 `202607250104` 只能在 Plan 05、06、07 合并并部署后，于
-维护窗口按 expand -> backfill -> contract -> permissions 顺序执行。contract
+`202607250101` 至 `202607250105` 只能在 Plan 05、06、07 合并并部署后，于
+维护窗口按 expand -> backfill -> contract -> permissions -> dispatch-state 顺序执行。contract
 之前必须证明所有 paid Run writer 已经走 Gateway acceptance/finalizer：旧的
 `RunRecorder.Start`、旧 task `Start` 和 command-owned attempt writer 不得再创建
 新 Run；新写入必须包含真实 request fingerprint、pricing snapshot、billing

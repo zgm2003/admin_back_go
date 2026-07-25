@@ -47,6 +47,38 @@ func TestAIBillingWave0WalletHoldConstraintMatchesTerminalStates(t *testing.T) {
 	}
 }
 
+func TestAIBillingWave0AttemptDispatchStateIsDurable(t *testing.T) {
+	root := backendRoot(t)
+	schema := readAIBillingWave0File(t, root, "database", "schema", "admin.hcl")
+	migration := readAIBillingWave0File(t, root, "database", "migrations", "202607250105_ai_provider_attempt_dispatch_state.sql")
+	attempts := hclTableBlock(t, schema, "ai_provider_attempts")
+
+	for _, required := range []string{
+		`column "dispatch_state"`,
+		`default = "not_dispatched"`,
+		`check "chk_ai_provider_attempts_dispatch_state"`,
+		`'not_dispatched'`,
+		`'dispatched'`,
+		`'unknown'`,
+	} {
+		if !strings.Contains(attempts, required) {
+			t.Errorf("canonical ai_provider_attempts missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"ADD COLUMN `dispatch_state` VARCHAR(16) NOT NULL DEFAULT 'not_dispatched'",
+		"WHEN `state` = 'prepared' AND `dispatched_at` IS NULL THEN 'not_dispatched'",
+		"WHEN `state` = 'outcome_unknown' THEN 'unknown'",
+		"WHEN `dispatched_at` IS NOT NULL THEN 'dispatched'",
+		"ELSE 'unknown'",
+		"chk_ai_provider_attempts_dispatch_state",
+	} {
+		if !strings.Contains(migration, required) {
+			t.Errorf("dispatch-state migration missing %q", required)
+		}
+	}
+}
+
 func TestAIBillingWave0ExpandGuardsBeforePersistentDDL(t *testing.T) {
 	root := backendRoot(t)
 	expand := readAIBillingWave0File(t, root, "database", "migrations", "202607250101_ai_billing_expand.sql")
