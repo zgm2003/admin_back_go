@@ -99,7 +99,10 @@ FROM (
   FROM `ai_text_tasks` AS task
   LEFT JOIN `ai_runs` AS run_row
     ON run_row.`user_id` = task.`user_id`
-   AND BINARY run_row.`request_id` = BINARY CONCAT('text-completion-', task.`id`)
+   AND BINARY run_row.`request_id` IN (
+     BINARY CONCAT('text-completion-', task.`id`),
+     BINARY CONCAT('ai_text_task_', task.`id`)
+   )
   GROUP BY task.`id`
   HAVING COUNT(run_row.`id`) <> 1
   UNION ALL
@@ -219,7 +222,10 @@ SET attempt.`run_id` = run_row.`id`,
 UPDATE `ai_text_tasks` AS task
 JOIN `ai_runs` AS run_row
   ON run_row.`user_id` = task.`user_id`
- AND BINARY run_row.`request_id` = BINARY CONCAT('text-completion-', task.`id`)
+ AND BINARY run_row.`request_id` IN (
+   BINARY CONCAT('text-completion-', task.`id`),
+   BINARY CONCAT('ai_text_task_', task.`id`)
+ )
 SET task.`request_id` = run_row.`request_id`,
     task.`request_fingerprint` = run_row.`request_fingerprint`,
     task.`request_identity_status` = run_row.`request_identity_status`,
