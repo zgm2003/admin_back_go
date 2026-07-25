@@ -5,6 +5,37 @@ CREATE TEMPORARY TABLE `_ai_billing_expand_guard` (
   CHECK (`violations` = 0)
 );
 
+-- MySQL DDL implicitly commits.  Journal the phase before the first ALTER so
+-- a mid-script failure leaves a durable "started" marker; a rerun must stop
+-- for operator inspection instead of guessing which ALTERs already committed.
+CREATE TABLE IF NOT EXISTS `ai_billing_migration_metadata` (
+  `migration_key` VARCHAR(64) NOT NULL,
+  `legacy_cutover_at` DATETIME(6) NOT NULL,
+  `marker_version` VARCHAR(64) NOT NULL,
+  `marker_sha256` BINARY(32) NOT NULL,
+  `phase` VARCHAR(32) NOT NULL DEFAULT 'not_started',
+  `phase_started_at` DATETIME(6) NULL,
+  `phase_completed_at` DATETIME(6) NULL,
+  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`migration_key`)
+);
+
+SET @ai_billing_expand_preexisting = (
+  SELECT COUNT(*) FROM `ai_billing_migration_metadata`
+  WHERE `migration_key` = 'ai_billing_expand_v1'
+);
+INSERT INTO `_ai_billing_expand_guard`
+SELECT IF(COALESCE(@ai_billing_expand_preexisting, 0) = 0, 0, 1);
+
+INSERT INTO `ai_billing_migration_metadata` (
+  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
+  `phase`, `phase_started_at`, `phase_completed_at`
+)
+VALUES (
+  'ai_billing_expand_v1', CURRENT_TIMESTAMP(6), 'ai_billing_expand_v1',
+  UNHEX(SHA2('ai_billing_expand_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
+);
+
 INSERT INTO `_ai_billing_expand_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
 FROM (
@@ -64,15 +95,6 @@ FROM (
   UNION ALL
   SELECT file_row.`id` FROM `ai_image_files` AS file_row LEFT JOIN `ai_image_tasks` AS task ON task.`id` = file_row.`task_id` WHERE task.`id` IS NULL
 ) AS orphan_ai_facts;
-
-CREATE TABLE `ai_billing_migration_metadata` (
-  `migration_key` VARCHAR(64) NOT NULL,
-  `legacy_cutover_at` DATETIME(6) NOT NULL,
-  `marker_version` VARCHAR(64) NOT NULL,
-  `marker_sha256` BINARY(32) NOT NULL,
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`migration_key`)
-);
 
 ALTER TABLE `ai_agents`
   ADD COLUMN `billing_multiplier_ppm` BIGINT UNSIGNED NOT NULL DEFAULT 1000000 AFTER `model_display_name`,
@@ -240,5 +262,9 @@ CREATE TABLE `ai_audio_tasks` (
   CONSTRAINT `chk_ai_audio_tasks_status` CHECK (`status` IN ('pending', 'running', 'success', 'failed', 'canceled', 'outcome_unknown')),
   CONSTRAINT `chk_ai_audio_tasks_request_identity` CHECK (`request_identity_status` = 'replayable' AND `request_identity_marker` = '')
 );
+
+UPDATE `ai_billing_migration_metadata`
+SET `phase` = 'complete', `phase_completed_at` = CURRENT_TIMESTAMP(6)
+WHERE `migration_key` = 'ai_billing_expand_v1' AND `phase` = 'started';
 
 DROP TEMPORARY TABLE `_ai_billing_expand_guard`;

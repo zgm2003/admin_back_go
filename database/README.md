@@ -15,6 +15,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/database/atlas.p
 
 The wrapper runs without network access and mounts the repository read-only. Docker is an external verification requirement; environments without Docker must rely on the protected database-verification workflow for this gate.
 
+AI billing 的四阶段迁移还必须遵循
+[`docs/database/ai-billing-migration-recovery.md`](../docs/database/ai-billing-migration-recovery.md)。
+`ai_billing_migration_metadata.phase=started` 表示上一次执行可能已由 MySQL 隐式
+提交部分 DDL；此时禁止盲目重跑或删除 journal 行，必须先按恢复手册核对并使用
+新的纠正 migration 收口。
+
 Real dumps, recovery artifacts, MySQL option files, and `deploy/docker-first/admin-go.env` must remain outside Git.
 
 ## Verified recovery artifact

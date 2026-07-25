@@ -69,6 +69,12 @@ Extend the event check/index to allow `retry_scheduled`, `usage_recorded`, `outc
 
 Create new tables and initially nullable columns only. Before any write, abort if there are active legacy paid workloads (`ai_reply_commands` in `pending|claimed|running`, or text/image/video tasks in a non-terminal state), negative cents, duplicate wallet users, duplicate `(source_type, source_id)`, duplicate canonical `(user_id, request_id)` identities, or orphan AI foreign keys. The migration must not create a backup database. Do not add `NOT NULL request_fingerprint`, `NOT NULL run_id`, unit-column constraints or new unique indexes to populated tables until backfill validation succeeds.
 
+Because MySQL DDL implicitly commits, create/update `ai_billing_migration_metadata`
+phase rows before each stage's first DDL. A stage writes `started` before work and
+`complete` only after every guard and DDL succeeds; a rerun that sees `started` must
+abort and follow `docs/database/ai-billing-migration-recovery.md` rather than replay
+unknown ALTER statements.
+
 - [x] **Step 2: Write the backfill validation**
 
 Convert every wallet/transaction cents value with checked arithmetic `units = cents * 1000000`; reject `cents < 0` and `cents > 9223372036854`. Within the maintenance window, lock every wallet writer, backfill both wallet and transaction unit columns, and verify each transaction satisfies `before + in - out = after` plus per-wallet totals. Historical terminal Runs are explicitly non-billable: set `billing_status='unbilled'`, `billing_reason='legacy_unpriced'` and `pricing_snapshot_json` to a validated marker such as `{"version":"legacy_unpriced_v1","billable":false}`; never manufacture historical charges. Set legacy attempt `usage_status='unavailable'`, a canonical unavailable `usage_json`, and explicit validated legacy markers for `prepared_request_json`, its hash and `quote_json`; historical attempts remain non-replayable/non-billable because their exact outbound request and categorized quote cannot be reconstructed. Persist one `legacy_cutover_v1` timestamp and marker version, write each historical Run a stable `legacy_non_replayable_v1:<table>:<id>` identity whose fingerprint is only a hash of that marker, and copy that identity to commands/tasks. Never treat that marker as a canonical replay tuple. Map each paid task and each legacy attempt to exactly one Run through stored user/conversation/task/request identities, and abort on every zero or multiple match.

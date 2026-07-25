@@ -76,6 +76,18 @@ Plan 07 最后修改 runtime、权限、编译后契约和前端 generated contr
 7. 聊天停止只关闭 delivery sink；后台继续读同一流。没有完整 usage 时最终释放，不能把 `canceled` 直接当免费终态。
 8. 任何迁移前先停钱包写入者并执行前置校验；应用启动不执行迁移，不创建备份数据库。
 
+### Migration cutover gate
+
+`202607250101` 至 `202607250104` 只能在 Plan 05、06、07 合并并部署后，于
+维护窗口按 expand -> backfill -> contract -> permissions 顺序执行。contract
+之前必须证明所有 paid Run writer 已经走 Gateway acceptance/finalizer：旧的
+`RunRecorder.Start`、旧 task `Start` 和 command-owned attempt writer 不得再创建
+新 Run；新写入必须包含真实 request fingerprint、pricing snapshot、billing
+status/reason、Run owner 和 attempt evidence。`ai_billing_migration_metadata.phase`
+是半执行恢复闸门；任何 `started` 阶段都必须按
+`docs/database/ai-billing-migration-recovery.md` 人工核对，不能盲目重跑或强行标记
+完成。
+
 ## Acceptance Gates
 
 - 余额不足、未定价、无安全输入上界：上游零调用；首次余额不足固定收尾为 `failed + released + released_insufficient_balance`，同步 task-wait 入口返回 HTTP `409`，已接受 chat 命令发布同 machine code 的 durable failed event。
@@ -90,6 +102,9 @@ Plan 07 最后修改 runtime、权限、编译后契约和前端 generated contr
 - 图片/视频只有文档化取消 API 和完整 usage 时结算；音频无权威 usage 时 fail closed。
 - 已结算结果没有 AI 退款路径，`SourceAIRefund` 及残留被删除。
 - 新权限仅为 `ai_run_list`：只注册定义，由管理员手动挂载，不写 `role_permissions`。
+- Plan 03/05 必须共同证明 Agent runtime projection 读取并持久化
+  `billing_multiplier_ppm`、`max_output_tokens`；Plan 05/06 必须共同证明 chat/media
+  Run acceptance 写入真实 fingerprint/pricing/billing 四组必填事实。
 
 ## Verification Budget
 

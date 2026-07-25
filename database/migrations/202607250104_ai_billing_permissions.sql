@@ -6,6 +6,27 @@ CREATE TEMPORARY TABLE `_ai_run_permission_guard` (
 );
 
 INSERT INTO `_ai_run_permission_guard`
+SELECT IF(COUNT(*) = 1, 0, 1)
+FROM `ai_billing_migration_metadata`
+WHERE `migration_key` = 'ai_billing_contract_v1' AND `phase` = 'complete';
+
+SET @ai_billing_permissions_preexisting = (
+  SELECT COUNT(*) FROM `ai_billing_migration_metadata`
+  WHERE `migration_key` = 'ai_billing_permissions_v1'
+);
+INSERT INTO `_ai_run_permission_guard`
+SELECT IF(COALESCE(@ai_billing_permissions_preexisting, 0) = 0, 0, 1);
+
+INSERT INTO `ai_billing_migration_metadata` (
+  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
+  `phase`, `phase_started_at`, `phase_completed_at`
+)
+VALUES (
+  'ai_billing_permissions_v1', CURRENT_TIMESTAMP(6), 'ai_billing_permissions_v1',
+  UNHEX(SHA2('ai_billing_permissions_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
+);
+
+INSERT INTO `_ai_run_permission_guard`
 SELECT IF(
   COUNT(*) = 1
   AND SUM(
@@ -105,6 +126,10 @@ SELECT IF(
 )
 FROM `permissions` AS permission
 WHERE permission.`id` = 920 OR permission.`code` = 'ai_run_list';
+
+UPDATE `ai_billing_migration_metadata`
+SET `phase` = 'complete', `phase_completed_at` = CURRENT_TIMESTAMP(6)
+WHERE `migration_key` = 'ai_billing_permissions_v1' AND `phase` = 'started';
 
 COMMIT;
 DROP TEMPORARY TABLE `_ai_run_permission_guard`;

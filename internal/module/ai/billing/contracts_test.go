@@ -37,6 +37,18 @@ func TestBillingStatusTransitionsRejectInvalidMoves(t *testing.T) {
 	}
 }
 
+func TestStateTransitionsRejectUnknownStateSelfTransitions(t *testing.T) {
+	if CanTransitionBillingStatus(BillingStatus("unknown"), BillingStatus("unknown")) {
+		t.Fatal("unknown billing state must not become idempotently valid")
+	}
+	if CanTransitionHoldStatus(HoldStatus("unknown"), HoldStatus("unknown")) {
+		t.Fatal("unknown hold state must not become idempotently valid")
+	}
+	if CanTransitionAttemptState(AttemptState("unknown"), AttemptState("unknown")) {
+		t.Fatal("unknown attempt state must not become idempotently valid")
+	}
+}
+
 func TestAttemptTransitionsRejectDispatchWithoutPreparation(t *testing.T) {
 	if !CanTransitionAttemptState(AttemptStatePrepared, AttemptStateDispatched) {
 		t.Fatal("prepared -> dispatched must be valid")

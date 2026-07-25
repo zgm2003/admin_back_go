@@ -32,6 +32,13 @@
 
 During `CreateReply`, calculate the shared typed fingerprint before inserting the user message/command. The same canonical `(user_id, request_id)` with an equal fingerprint returns the original command without a second message, Run or attempt; a different fingerprint returns the shared conflict error that the handler maps to HTTP `409`. `conversation_id` remains part of the fingerprint payload, but is not the database idempotency scope.
 
+The shared fingerprint builder is the only normalization entry point: it trims and
+validates operation/modality/IDs, applies a documented whitespace rule to text,
+canonicalizes option maps, and sorts attachment identities by their semantic tuple.
+It includes `conversation_id` and `source_message_id` for chat edit/regenerate while
+keeping `(user_id, request_id)` as the database lookup scope. Callers must not assemble
+an ad-hoc `requestidentity.Input` and rely on map/attachment order by convention.
+
 - [ ] **Step 3: Define state outcomes**
 
 Use exactly: stop before dispatch -> Run `canceled`, Charge `released`, reason `released_before_dispatch`; dispatched + complete usage after a user stop -> Run `canceled`, Charge `settled`, reason `settled_complete_usage`; the same stream ends without complete usage -> Run `canceled`, Charge `unbilled`, reason `unbilled_usage_incomplete`, and release; connection/process/lease outcome cannot be known -> Run `outcome_unknown`, Charge `released`, reason `released_outcome_unknown`. The canonical Phase A state machine has no `uncertain` state.
@@ -111,6 +118,13 @@ Cover retry while Hold remains active, first-attempt reserve insufficiency, cont
 - [ ] **Step 1: Add one transaction participant**
 
 Expose a transaction callback entered without any command/task row lock. It acquires `Run -> Charge -> wallet -> Hold`, revalidates the expected attempt/business state, and only then invokes the chat participant to conditionally bind or discard the stored candidate. The same commit inserts immutable usage items after the once-rounded amount is known and writes Run state plus sequenced `ai_run_events`. For a user stop, that commit also appends `ai.response.canceled.v1`; no request handler or pre-finalizer path may publish the terminal event. A stale participant state aborts and retries the finalizer; it never reverses lock order or calls the provider.
+
+Before the contract migration, replace the duplicate `chat.Run` read/write model with
+the canonical `airun.Run` projection (or add a compile-time field/type parity test and
+explicit nullable projections). The old `RunRecorder.Start` path must no longer create
+new paid Runs; every chat Run acceptance writes the real fingerprint, pricing snapshot,
+`billing_status` and `billing_reason`, and selects the agent's persisted
+`billing_multiplier_ppm`/`max_output_tokens`.
 
 - [ ] **Step 2: Keep result and finance states separate**
 

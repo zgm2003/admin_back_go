@@ -112,6 +112,9 @@ func validUsageCategory(category UsageCategory) bool {
 }
 
 func CanTransitionBillingStatus(from, to BillingStatus) bool {
+	if !validBillingStatus(from) || !validBillingStatus(to) {
+		return false
+	}
 	if from == to {
 		return true
 	}
@@ -126,10 +129,16 @@ func CanTransitionBillingStatus(from, to BillingStatus) bool {
 }
 
 func CanTransitionHoldStatus(from, to HoldStatus) bool {
+	if !validHoldStatus(from) || !validHoldStatus(to) {
+		return false
+	}
 	return from == to || (from == HoldStatusActive && (to == HoldStatusCaptured || to == HoldStatusReleased))
 }
 
 func CanTransitionAttemptState(from, to AttemptState) bool {
+	if !validAttemptState(from) || !validAttemptState(to) {
+		return false
+	}
 	if from == to {
 		return true
 	}
@@ -138,6 +147,33 @@ func CanTransitionAttemptState(from, to AttemptState) bool {
 		return to == AttemptStateDispatched || to == AttemptStateCanceled
 	case AttemptStateDispatched:
 		return to == AttemptStateSucceeded || to == AttemptStateFailed || to == AttemptStateCanceled || to == AttemptStateOutcomeUnknown
+	default:
+		return false
+	}
+}
+
+func validBillingStatus(status BillingStatus) bool {
+	switch status {
+	case BillingStatusPending, BillingStatusHeld, BillingStatusSettled, BillingStatusReleased, BillingStatusUnbilled:
+		return true
+	default:
+		return false
+	}
+}
+
+func validHoldStatus(status HoldStatus) bool {
+	switch status {
+	case HoldStatusActive, HoldStatusCaptured, HoldStatusReleased:
+		return true
+	default:
+		return false
+	}
+}
+
+func validAttemptState(state AttemptState) bool {
+	switch state {
+	case AttemptStatePrepared, AttemptStateDispatched, AttemptStateSucceeded, AttemptStateFailed, AttemptStateCanceled, AttemptStateOutcomeUnknown:
+		return true
 	default:
 		return false
 	}

@@ -74,6 +74,12 @@ Map the validated multiplier to `billing_multiplier_ppm` and `max_output_tokens`
 
 Expose the catalog version, resolved `catalog_vendor`, canonical model ID/base rates and the agent multiplier in the existing agent detail/page-init response. Format each non-negative `PriceUnits` through Plan 01's `sharedmoney.FormatRMBUnits`; `pricing/quote.go` remains responsible only for exact quote/allocation math and must not implement another API decimal formatter. `engine_type` remains transport information and is never shown as the official price owner. Do not add an admin mutation for base price and do not add supplier/model multiplier fields.
 
+The agent runtime projection used by chat/Gateway must select the persisted
+`billing_multiplier_ppm` and `max_output_tokens` alongside the provider snapshot. Plan 03
+owns the agent CRUD/read contract and its validation; Plan 05/06 own the runtime
+projection/acceptance wiring and must add an integration assertion before contract
+migration that no Run can be accepted without the two resolved values.
+
 - [ ] **Step 4: Test validation and snapshot source**
 
 Test `"1"`, `"1.25"`, `"0.000001"`, too many decimals, zero, negative, max output bounds, and preserving values on provider/model update. Run `go test ./internal/module/ai/agent -run 'Test.*Billing|Test.*Create|Test.*Update'`.

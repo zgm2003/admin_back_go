@@ -6495,6 +6495,19 @@ table "ai_billing_migration_metadata" {
     null = false
     type = binary(32)
   }
+  column "phase" {
+    null    = false
+    type    = varchar(32)
+    default = "not_started"
+  }
+  column "phase_started_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "phase_completed_at" {
+    null = true
+    type = datetime(6)
+  }
   column "created_at" {
     null    = false
     type    = datetime(6)

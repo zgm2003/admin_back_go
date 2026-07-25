@@ -6,6 +6,30 @@ CREATE TEMPORARY TABLE `_ai_billing_backfill_guard` (
   CHECK (`violations` = 0)
 );
 
+-- Backfill is resumable only at a phase boundary.  If the previous run
+-- stopped after a write, the durable marker makes this script fail closed;
+-- an operator must inspect the rows and explicitly record a corrective phase.
+INSERT INTO `_ai_billing_backfill_guard`
+SELECT IF(COUNT(*) = 1, 0, 1)
+FROM `ai_billing_migration_metadata`
+WHERE `migration_key` = 'ai_billing_expand_v1' AND `phase` = 'complete';
+
+SET @ai_billing_backfill_preexisting = (
+  SELECT COUNT(*) FROM `ai_billing_migration_metadata`
+  WHERE `migration_key` = 'ai_billing_backfill_v1'
+);
+INSERT INTO `_ai_billing_backfill_guard`
+SELECT IF(COALESCE(@ai_billing_backfill_preexisting, 0) = 0, 0, 1);
+
+INSERT INTO `ai_billing_migration_metadata` (
+  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
+  `phase`, `phase_started_at`, `phase_completed_at`
+)
+VALUES (
+  'ai_billing_backfill_v1', CURRENT_TIMESTAMP(6), 'ai_billing_backfill_v1',
+  UNHEX(SHA2('ai_billing_backfill_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
+);
+
 -- Capture one durable boundary before writing any legacy identity marker. The
 -- second-level precision is deliberate: legacy created_at columns are second
 -- precision, so rows created at the boundary are rejected conservatively.
@@ -297,6 +321,13 @@ FROM (
   WHERE task.`request_id` IS NULL OR task.`request_fingerprint` IS NULL OR task.`run_id` IS NULL OR task.`run_id` = 0
      OR task.`request_fingerprint` <> run_row.`request_fingerprint` OR task.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker`
 ) AS incomplete_task_identity;
+
+UPDATE `ai_billing_migration_metadata`
+SET `phase` = 'complete', `phase_completed_at` = CURRENT_TIMESTAMP(6)
+WHERE `migration_key` = 'ai_billing_backfill_v1' AND `phase` = 'started';
+UPDATE `ai_billing_migration_metadata`
+SET `phase` = 'complete', `phase_completed_at` = CURRENT_TIMESTAMP(6)
+WHERE `migration_key` = 'legacy_cutover_v1' AND `phase` = 'not_started';
 
 COMMIT;
 DROP TEMPORARY TABLE `_ai_billing_backfill_guard`;

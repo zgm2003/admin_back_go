@@ -51,6 +51,12 @@ Run package tests that issue the same request twice and assert one Run, one atte
 
 Require `request_id` on tool-draft generation at the Admin request boundary. The handler submits one durable `ai_text_tasks(kind=tool_draft)` task and waits for that same task's terminal result; its HTTP context owns only the wait and never the Worker/provider context. A stored insufficient-balance terminal maps to HTTP `409` with exact `wallet_path`/`recharge_path` via `response.ErrorWithData`; a disconnected retry with the same ID waits for or returns the same task/result. Preserve the existing successful draft response shape and distinct configuration/price machine codes. Handlers never call wallet or provider directly.
 
+This task also owns the non-chat migration gate: the legacy text/image/video/audio
+`Start` writers must be removed or routed through Gateway Run acceptance before the
+contract migration. Each accepted task must carry the real fingerprint, immutable
+pricing snapshot, billing status/reason, agent multiplier and effective output cap;
+legacy marker values are valid only for the historical backfill.
+
 ### Task 2: Integrate text and tool generation with Gateway
 
 **Files:**
