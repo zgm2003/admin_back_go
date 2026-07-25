@@ -76,9 +76,6 @@ func TestReleaseHoldRejectsCapturedTerminalStateWithoutLedgerFact(t *testing.T) 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_holds` WHERE run_id = ? ORDER BY `wallet_holds`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(88), 1).
 		WillReturnRows(holdRows(now, 9, 1, 7, 88, 0, 30, HoldCaptured))
-	mock.ExpectQuery(`SELECT \* FROM \`+"`wallet_transactions`"+` WHERE source_type = \? AND source_id = \? ORDER BY id ASC LIMIT \? FOR UPDATE`).
-		WithArgs(SourceAIGenerate, int64(88), 2).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectCommit()
 
 	tx := repo.db.Begin()
@@ -107,7 +104,7 @@ func TestReleaseHoldRejectsReleasedTerminalStateWithAIGenerateLedger(t *testing.
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_holds` WHERE run_id = ? ORDER BY `wallet_holds`.`id` LIMIT ? FOR UPDATE")).
 		WithArgs(int64(88), 1).
 		WillReturnRows(holdRows(now, 9, 1, 7, 88, 0, 0, HoldReleased))
-	mock.ExpectQuery(`SELECT \* FROM \`+"`wallet_transactions`"+` WHERE source_type = \? AND source_id = \? ORDER BY id ASC LIMIT \? FOR UPDATE`).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY id ASC LIMIT ? FOR UPDATE")).
 		WithArgs(SourceAIGenerate, int64(88), 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).
 			AddRow(int64(10), "WLT", int64(1), int64(7), DirectionOut, int64(30), int64(100), int64(70), SourceAIGenerate, int64(88), "AI", enum.CommonNo, now, now))
@@ -122,6 +119,56 @@ func TestReleaseHoldRejectsReleasedTerminalStateWithAIGenerateLedger(t *testing.
 		t.Fatalf("commit: %v", err)
 	}
 	assertMockExpectations(t, mock)
+}
+
+func TestCaptureHoldRejectsCapturedReplayWithDifferentAmount(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	expectCaptureTerminalWalletAndHold(mock, now, HoldCaptured, 30)
+	mock.ExpectCommit()
+	tx := repo.db.Begin()
+	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 20, SourceSummary: "new summary"})
+	if !errors.Is(err, ErrHoldIntegrity) || wallet != nil || ledger != nil {
+		t.Fatalf("captured replay must match captured amount, wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	assertMockExpectations(t, mock)
+}
+
+func TestCaptureHoldRejectsReleasedTerminalState(t *testing.T) {
+	repo, mock, closeDB := newMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	expectCaptureTerminalWalletAndHold(mock, now, HoldReleased, 0)
+	mock.ExpectCommit()
+	tx := repo.db.Begin()
+	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 0, SourceSummary: "new summary"})
+	if !errors.Is(err, ErrHoldIntegrity) || wallet != nil || ledger != nil {
+		t.Fatalf("capture must reject released terminal state, wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	assertMockExpectations(t, mock)
+}
+
+func expectCaptureTerminalWalletAndHold(mock sqlmock.Sqlmock, now time.Time, status string, captured int64) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `user_wallets` WHERE user_id = ? AND is_del = ? ORDER BY `user_wallets`.`id` LIMIT ? FOR UPDATE")).WithArgs(int64(7), enum.CommonNo, 1).WillReturnRows(walletRowsWithHeld(now, 1, 7, 100, 0))
+	mock.ExpectQuery(`SELECT COALESCE\(SUM\(held_units\), 0\) AS total FROM wallet_holds WHERE wallet_id = \? AND status = \? FOR UPDATE`).WithArgs(int64(1), HoldActive).WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(int64(0)))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_holds` WHERE run_id = ? ORDER BY `wallet_holds`.`id` LIMIT ? FOR UPDATE")).WithArgs(int64(88), 1).WillReturnRows(holdRows(now, 9, 1, 7, 88, 0, captured, status))
+}
+
+func expectTerminalAIGenerateLedger(mock sqlmock.Sqlmock, now time.Time, amount int64) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY id ASC LIMIT ? FOR UPDATE")).WithArgs(SourceAIGenerate, int64(88), 2).WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "wallet_id", "user_id", "direction", "amount_units", "balance_before_units", "balance_after_units", "source_type", "source_id", "remark", "is_del", "created_at", "updated_at"}).AddRow(int64(10), "WLT", int64(1), int64(7), DirectionOut, amount, int64(100), int64(100-amount), SourceAIGenerate, int64(88), "saved", enum.CommonNo, now, now))
+}
+
+func expectNoTerminalAIGenerateLedger(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `wallet_transactions` WHERE source_type = ? AND source_id = ? ORDER BY id ASC LIMIT ? FOR UPDATE")).WithArgs(SourceAIGenerate, int64(88), 2).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 }
 
 func TestCaptureHoldRejectsInvalidSummary(t *testing.T) {
