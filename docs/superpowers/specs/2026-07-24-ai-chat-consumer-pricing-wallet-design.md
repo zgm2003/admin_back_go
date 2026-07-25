@@ -2,9 +2,12 @@
 
 **日期：** 2026-07-24
 **状态：** 待用户最终审核；`PD-05` 至 `PD-08` 确认前不进入 implementation plan
+**唯一规范性 Spec：** 本文是本需求唯一可用于 implementation plan 和实现的需求、状态机与验收依据。
 **取代：** `2026-07-24-ai-official-pricing-wallet-settlement-design.md` 与 `2026-07-24-ai-chat-consumer-interactions-design.md`
 
 > **2026-07-25 技术审查修订：** 本文已经统一取消、普通重试冻结上界、计费明细、用户删除、媒体存储、执行所有权、Run Event、钱包迁移以及上游对账证据语义。已确认成功结果不设 TTL、没有 AI 退款、并固化各模态恢复截止时间；第 2.4 节仅保留尚未确认的 `PD-05` 至 `PD-08`，这些条目不是默认值，也不能在 implementation plan 中被擅自补全。
+
+> 两份 `*-spec-review.md` 文件仅保存历史审查证据；它们不构成并列 Spec，若与本文有任何表述差异，始终以本文为准。
 
 ## 1. 目的
 

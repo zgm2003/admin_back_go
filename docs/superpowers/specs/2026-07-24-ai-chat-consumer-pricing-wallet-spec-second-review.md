@@ -4,6 +4,7 @@
 **闭环日期：** 2026-07-25
 **审查对象：** `2026-07-24-ai-chat-consumer-pricing-wallet-design.md`
 **结论：** 技术架构复核通过；进入 implementation plan 前仍须由用户确认 `PD-05` 至 `PD-08`
+**文档定位：** 历史复核证据，不是需求 Spec，不能单独作为 implementation plan 或实现依据。
 
 ## 已确认关闭
 

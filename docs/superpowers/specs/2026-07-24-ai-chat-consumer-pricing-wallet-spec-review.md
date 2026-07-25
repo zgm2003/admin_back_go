@@ -3,6 +3,7 @@
 **日期：** 2026-07-24
 **审查对象：** `docs/superpowers/specs/2026-07-24-ai-chat-consumer-pricing-wallet-design.md`
 **原始审查结论：** Request changes，当时禁止进入 implementation plan
+**文档定位：** 历史审查证据，不是需求 Spec，不能单独作为 implementation plan 或实现依据。
 
 > **2026-07-25 后续决策更新：** 本文保留首次细审的历史问题与整改依据，不是当前产品契约。主 Spec 已确认 `PD-01` 至 `PD-04`：成功结果无 TTL；平台永久损坏和部分输出损坏均不产生 AI 退款；对话、文本、工具、音频的绝对恢复截止为 15 分钟，图片为 1 小时，视频为 6 小时。本文中历史性的退款建议已被该无退款政策取代；当前仅 `PD-05` 至 `PD-08` 仍待用户确认。
 
