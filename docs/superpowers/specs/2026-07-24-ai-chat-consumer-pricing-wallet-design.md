@@ -1,11 +1,11 @@
 # AI 消费者对话交互、官方数值定价与钱包结算设计
 
 **日期：** 2026-07-24
-**状态：** 待用户最终审核；`PD-06` 至 `PD-08` 确认前不进入 implementation plan
+**状态：** 待用户最终审核；`PD-07`、`PD-08` 确认前不进入 implementation plan
 **唯一规范性 Spec：** 本文是本需求唯一可用于 implementation plan 和实现的需求、状态机与验收依据。
 **取代：** `2026-07-24-ai-official-pricing-wallet-settlement-design.md` 与 `2026-07-24-ai-chat-consumer-interactions-design.md`
 
-> **2026-07-25 技术审查修订：** 本文已经统一取消、普通重试冻结上界、计费明细、用户删除、媒体存储、执行所有权、Run Event、钱包迁移以及上游对账证据语义。已确认成功结果不设 TTL、没有 AI 退款、并固化各模态恢复截止时间和计费完整性异常的首次暂停规则；第 2.4 节仅保留尚未确认的 `PD-06` 至 `PD-08`，这些条目不是默认值，也不能在 implementation plan 中被擅自补全。
+> **2026-07-25 技术审查修订：** 本文已经统一取消、普通重试冻结上界、计费明细、用户删除、媒体存储、执行所有权、Run Event、钱包迁移以及上游对账证据语义。已确认成功结果不设 TTL、没有 AI 退款、并固化各模态恢复截止时间、计费完整性异常的首次暂停规则和 RBAC 审计式人工恢复；第 2.4 节仅保留尚未确认的 `PD-07`、`PD-08`，这些条目不是默认值，也不能在 implementation plan 中被擅自补全。
 
 > 两份 `*-spec-review.md` 文件仅保存历史审查证据；它们不构成并列 Spec，若与本文有任何表述差异，始终以本文为准。
 
@@ -78,7 +78,7 @@
 
 ### 2.4 已确认与待确认的产品决策
 
-以下五项已经由用户确认，implementation plan 和实现不得反向引入默认 TTL、AI 退款、可重启延长的恢复窗口或计费完整性异常后的继续派发：
+以下六项已经由用户确认，implementation plan 和实现不得反向引入默认 TTL、AI 退款、可重启延长的恢复窗口、计费完整性异常后的继续派发或自动解除 block：
 
 | ID | 已确认决策 | 固定规则 |
 | --- | --- | --- |
@@ -87,12 +87,12 @@
 | `PD-03` | 多图部分输出永久损坏也不退款 | 已成功输出和原始账单保持不可变；损坏只影响结果可用性 |
 | `PD-04` | 首次派发时固化绝对恢复截止时间 | 对话、文本、工具、音频 15 分钟；图片 1 小时；视频 6 小时；重试和重启不得延长 |
 | `PD-05` | 计费完整性异常首次即暂停 | 已取得有效上游结果但必要 usage 缺失/非法，或报价、金额、用量指纹发生完整性冲突时，立即暂停该智能体供应商绑定、模型和模态组合的新派发；单次进程/网络导致的 `outcome_unknown` 只处理该请求，不暂停组合 |
+| `PD-06` | 管理员受控恢复 block | 仅具备 `ai_pricing_unblock` 权限的管理员可显式恢复，必须填写原因并保留追加式审计；重启、缓存刷新、目录/倍率/profile 更新均不能自动恢复 |
 
-以下决策尚未得到用户批准。它们不是默认行为；用户确认前，后续 implementation plan 不得实现依赖这些政策的受控解除或失败尝试收费分支。
+以下决策尚未得到用户批准。它们不是默认行为；用户确认前，后续 implementation plan 不得实现依赖这些政策的失败尝试收费分支。
 
 | ID | 待确认决策 | 已确定的技术边界 |
 | --- | --- | --- |
-| `PD-06` | block 通过 safety revision、Admin 审批还是其他受控方式解除 | 解除必须审计、不能通过重启或普通目录刷新绕过 |
 | `PD-07` | 供应商明确失败但返回完整可计费用量时，该失败尝试是否向用户收费 | 每次真实调用的原始用量都必须保存；未确认前不得把“必须计量”解释成“必须扣款” |
 | `PD-08` | 用户主动删除付费媒体后，对象立即清理、保留审计期还是长期保留 | 用户删除不退款，同一 `request_id` 返回原任务的已删除终态且不得重新生成 |
 
@@ -261,7 +261,7 @@ WebSocket 不是未读、钱包或完成状态的真相源：
 价格解析时必须生成两种身份：
 
 - `billing_profile_digest`：规范模型、模态/档位、实际采用的价格项、用量归一化 profile、估算器与金额算法实现版本、输入/输出硬上限的规范 SHA-256，用于账单快照和金额指纹；
-- `billing_safety_key`：智能体供应商绑定身份、规范模型、模态/档位和显式 `billing_safety_revision` 的规范 SHA-256，用于跨目录版本的运行安全 block。价格目录、倍率、用量/估算 profile 只进入 `billing_profile_digest`，不能通过普通配置变更生成可绕过旧 block 的新 key。
+- `billing_safety_key`：智能体供应商绑定身份、规范模型和模态/档位的规范 SHA-256，用于跨目录版本的运行安全 block。价格目录、倍率、用量/估算 profile 只进入 `billing_profile_digest`，不能通过普通配置变更生成可绕过旧 block 的新 key。
 
 已取得有效供应商响应、终止流事件或权威任务状态后，运行中出现以下任一情况，都构成计费完整性异常，不能只在当前进程打印日志后继续接单：
 
@@ -276,7 +276,7 @@ WebSocket 不是未读、钱包或完成状态的真相源：
 billing_safety_key
 ```
 
-记录同时保存触发时的 `billing_profile_digest`、目录摘要、规范模型、模态、profile key、首次/最近违规 Run 与账单、受控原因、测算金额、冻结金额和 `blocked_at`。finalizer 在完成该次 `settled`、`released` 或 `unbilled` 的同一数据库事务内幂等写入异常事实，并在首次计费完整性异常时立即提升该 `billing_safety_key` 为跨实例 active block。已派发请求仍按原恢复/结算路径结束；但所有实例在下一次供应商调用前都必须读取同一份持久化 readiness 结果，命中 active block 时不得再派发网络请求。仅进程/网络导致且尚未取得有效上游结果的 `outcome_unknown` 不触发 active block，只保留该请求的有界对账。该表不是价格覆盖表，不允许修改单价或倍率；重启、缓存刷新、目录/倍率/profile 的普通更新都不能绕过已生效的 block。最终 schema 必须保留旧异常的审计事实，并能表达由 `PD-06` 决定的受控解除或新的 `billing_safety_revision`。
+记录同时保存触发时的 `billing_profile_digest`、目录摘要、规范模型、模态、profile key、首次/最近违规 Run 与账单、受控原因、测算金额、冻结金额和 `blocked_at`。finalizer 在完成该次 `settled`、`released` 或 `unbilled` 的同一数据库事务内幂等写入异常事实，并在首次计费完整性异常时立即提升该 `billing_safety_key` 为跨实例 active block。已派发请求仍按原恢复/结算路径结束；但所有实例在下一次供应商调用前都必须读取同一份持久化 readiness 结果，命中 active block 时不得再派发网络请求。仅进程/网络导致且尚未取得有效上游结果的 `outcome_unknown` 不触发 active block，只保留该请求的有界对账。该表不是价格覆盖表，不允许修改单价或倍率；重启、缓存刷新、目录/倍率/profile 的普通更新都不能绕过已生效的 block。恢复只能由第 15.2 节定义的受权管理员操作完成。
 
 ### 5.7 上游 `base_url + api_key` 与逐请求对账证据
 
@@ -317,7 +317,7 @@ contracts/ai-pricing/v1/catalog.schema.json
 - `official_numeric_parity_v1` 计价策略；
 - 官方来源 URL；
 - 模型厂商、规范模型 key 和显式别名；
-- 支持模态、计量能力、用量归一化 profile、冻结估算 profile 和显式 `billing_safety_revision`；
+- 支持模态、计量能力、用量归一化 profile 和冻结估算 profile；
 - 带生效时间的结构化价格项。
 
 运行时不能修改目录。官方价格变化通过新目录版本和应用发布生效。每笔账单快照目录版本、摘要、官方原始币种/数值、人民币基准数值和来源，后续目录更新不能改变历史费用。
@@ -723,12 +723,14 @@ legacy（仅 `request_id_source=legacy` 的迁移终态）
 - 目录摘要、规范模型、模态和估算 profile key；
 - 智能体 ID 与供应商绑定身份，确保 block 精确作用于该智能体的该上游模型路线；
 - `billing_profile_digest`；
-- `billing_safety_key` 与触发时的 safety revision；
+- `billing_safety_key`；
 - 首次/最近触发的 Run 与账单 ID；
 - 冻结金额、完整测算金额、原因和触发次数；
 - 异常首次/最近时间、触发计数，以及 active/resolved 审计字段；不使用软删除掩盖历史。
 
-唯一聚合身份为 `billing_safety_key`。已取得有效上游结果后的计费完整性异常首次出现即为 active block；仅进程/网络导致的 `outcome_unknown` 仍记录异常事实，但不等同于 active block。active 判定必须由 `pricing` 模块单点提供、跨实例一致且 fail closed，不能在数据库异常、进程重启、缓存失效、目录/倍率/profile 普通更新时绕过。解除渠道由 `PD-06` 决定；历史异常、block 和解除动作都必须保留审计。
+唯一聚合身份为 `billing_safety_key`。已取得有效上游结果后的计费完整性异常首次出现即为 active block；仅进程/网络导致的 `outcome_unknown` 仍记录异常事实，但不等同于 active block。active 判定必须由 `pricing` 模块单点提供、跨实例一致且 fail closed，不能在数据库异常、进程重启、缓存失效、目录/倍率/profile 普通更新时绕过。只有 `ai_pricing_unblock` 的显式管理员操作才能将 active block 变为 resolved；历史异常、block 和解除动作都必须保留审计。
+
+新增追加式 `ai_billing_profile_block_events`，每次 `blocked` 或 `unblocked` 都保存 block ID、动作、受控原因、关联 Run/账单、操作者管理员 ID（系统自动 block 为空）和时间。管理员恢复对同一 active block 执行条件状态转换 `active -> resolved`，必须提供非空原因；重复请求返回当前 resolved 状态但不得重复追加事件，也不能修改 `billing_safety_key`、价格、倍率或原始异常事实。后续新的计费完整性异常会再次原子转为 active 并追加新的 `blocked` 事件。
 
 ## 11. 对话请求、运行与结算生命周期
 
@@ -1022,13 +1024,13 @@ PUT /api/admin/v1/ai-runs/:id/user-feedback
 - 只读 billing-ready 状态；
 - 当前模型和场景所需的只读基础价格项。
 
-选择供应商模型后刷新价格预览。billing-ready 同时要求目录能力完整且当前 `billing_safety_key` 没有 active block；缺少价格、估算、计量能力或命中 block 时，表单不能启用该智能体，已启用智能体的后续运行也必须在供应商调用前 fail closed。block 至少只读展示原因、状态、触发时间和审计身份；是否提供受控解除入口由 `PD-06` 决定，任何入口都不能绕过权限和审计。
+选择供应商模型后刷新价格预览。billing-ready 同时要求目录能力完整且当前 `billing_safety_key` 没有 active block；缺少价格、估算、计量能力或命中 block 时，表单不能启用该智能体，已启用智能体的后续运行也必须在供应商调用前 fail closed。block 至少展示原因、状态、触发时间和审计身份；仅具备 `ai_pricing_unblock` 的管理员可执行恢复，任何入口都不能绕过权限和审计。
 
 ### 15.2 只读价格目录
 
 新增 `/ai/pricing` 页面，展示模型、模态、单位/档位、官方来源数值、人民币基准值、来源 URL、目录版本、核验时间和只读 billing safety 状态。
 
-页面与读取接口使用 `ai_pricing_list` 权限。不存在价格新增、编辑或删除接口。智能体表单价格预览随已有 page-init/detail 返回；拥有 `ai_agent_add` 或 `ai_agent_edit` 的管理员不需要额外价格目录权限才能编辑智能体。
+页面与读取接口使用 `ai_pricing_list` 权限。不存在价格新增、编辑或删除接口。恢复 active block 使用 `PATCH /api/admin/v1/ai-pricing/blocks/:block_id`，请求体只能表达 `state=resolved` 和非空 `reason`，并要求 `ai_pricing_unblock`；智能体表单价格预览随已有 page-init/detail 返回；拥有 `ai_agent_add` 或 `ai_agent_edit` 的管理员不需要额外价格目录权限才能编辑智能体。
 
 ### 15.3 Run 与钱包详情
 
@@ -1050,7 +1052,7 @@ AI Run 详情统一增加：
 - 钱包 `/wallet/summary`、`/wallet/transactions` 继续是当前用户自助接口；平台钱包和总流水继续使用既有 `payment_wallet_list`、`payment_ledger_list`；
 - 自助响应不能暴露其他用户、内部供应商凭据或平台级统计，管理端响应也不能绕过其既有权限边界。
 
-新增 `ai_pricing_list` 和 `ai_run_list` 权限定义并进入 route metadata 与 Admin Contract Bundle，但不自动赋予角色，也不写 `role_permissions`。
+新增 `ai_pricing_list`、`ai_pricing_unblock` 和 `ai_run_list` 权限定义并进入 route metadata 与 Admin Contract Bundle，但不自动赋予角色，也不写 `role_permissions`。
 
 发布时先注册权限定义并保持相关新管理页面关闭；由用户通过现有 RBAC 权限管理显式授予目标管理员角色后，再恢复价格目录和 Run 管理页面。部署脚本、迁移和应用启动都不得替用户自动授权，也不能假设已有角色天然拥有新 code。
 
@@ -1200,7 +1202,7 @@ Runner 执行
 - 日志与操作审计不记录 API key、完整提示词、附件 URL 或模型回复正文；
 - 软删除不得级联修改 Run、回复命令、运行事件或财务记录。
 
-消息发送/停止、编辑、重新生成、删除、已读游标和当前用户点赞继续使用现有 `Authenticated()` 自助访问策略并在 service 做资源所有权校验，不为 ToC 消息按钮新增 RBAC 权限。只读价格管理页使用 `ai_pricing_list`，平台 Run 监控使用 `ai_run_list`；三者不能混为一套授权规则。
+消息发送/停止、编辑、重新生成、删除、已读游标和当前用户点赞继续使用现有 `Authenticated()` 自助访问策略并在 service 做资源所有权校验，不为 ToC 消息按钮新增 RBAC 权限。只读价格管理页使用 `ai_pricing_list`，受控恢复使用独立的 `ai_pricing_unblock`，平台 Run 监控使用 `ai_run_list`；四者不能混为一套授权规则。
 
 ### 18.3 可观测性
 
@@ -1235,7 +1237,7 @@ Runner 执行
 2. 增加智能体倍率、会话已读游标、回复命令意图字段、Run 点赞/不确定状态与事件、消息查询索引和聊天完成候选，并把 `ai_reply_commands.request_id` 显式迁移为第 10.9 节的 binary collation；
 3. 将 `ai_provider_attempts` 扩展为 Run 级所有者。现有聊天尝试只允许通过 `ai_runs.idempotency_key = CONCAT('reply-command:', command_id)` 回填，并交叉校验 command/run 的 platform、user、conversation、user message 与 request ID；零条、多条或任一身份不一致都使迁移失败，禁止按时间邻近猜 Run；
 4. 为 text/image/video task 增加显式 binary-collation `request_id`、Run 绑定、业务/结果状态、`user_deleted` 和结果候选字段，新增 tool/audio task 及不可变 storage location 版本；对象结果字段按第 10.10 节回填，不能把 provider 临时 URL 伪装成平台持久化结果；
-5. 增加账单、最终计费明细、钱包冻结、计费异常/block、按 `PD-04` 固化的恢复截止时间、`PD-05` 固定的首次暂停约束和索引；`PD-06` 未确认前不得伪造解除渠道；
+5. 增加账单、最终计费明细、钱包冻结、计费异常/block 及其追加式审计事件、按 `PD-04` 固化的恢复截止时间、`PD-05` 固定的首次暂停约束和 `PD-06` 固定的管理员恢复权限/约束和索引；
 6. 校验并嵌入价格目录，现有智能体倍率回填 `1.0`；未知模型不猜目录映射，未定价或不可计量模型保持 billing-unready。
 
 **阶段 C：Backfill 与全量校验**
@@ -1254,7 +1256,7 @@ Runner 执行
 
 **阶段 E：权限与恢复流量**
 
-1. 注册但不授权 `ai_pricing_list`、`ai_run_list`，不写 `role_permissions`；
+1. 注册但不授权 `ai_pricing_list`、`ai_pricing_unblock`、`ai_run_list`，不写 `role_permissions`；
 2. 用户通过现有 RBAC 权限管理手动授予目标管理员角色，并确认相关菜单/接口授权后，才开放价格目录和 Run 管理页面；
 3. 完成最终迁移摘要核对后恢复 API、Worker 和支付回调入口。任何阶段失败都保持入口关闭，不允许旧写入者与 units 新写入者同时运行。
 
@@ -1272,8 +1274,8 @@ Runner 执行
 - 迁移完成后不存在 `request_id_source=legacy` 却使用 `result_state=none/staged` 的终态任务，也不存在新客户端 `success` 与非 `finalized/user_deleted/unavailable` 结果状态组合；`legacy` 任务不被新 Worker、计费或客户端幂等重放读取；
 - 每个旧会话的 `last_read_message_id` 回填为迁移时最新的当前可见 AI 消息 ID，无可见 AI 消息时才为 0，避免上线瞬间把全部历史回复误报为未读；迁移后只由用户阅读动作单调推进；
 - 旧 AI 计费表继续不存在；
-- 计费异常/block 表初始为空；首次计费完整性异常的 active 判定不存在跨实例绕过路径，解除渠道等待 `PD-06`；
-- `ai_pricing_list`、`ai_run_list` 权限定义存在，但没有自动新增任何角色权限关系；
+- 计费异常/block 及其事件表初始为空；首次计费完整性异常的 active 判定不存在跨实例绕过路径，恢复只允许带原因的 `ai_pricing_unblock` 操作；
+- `ai_pricing_list`、`ai_pricing_unblock`、`ai_run_list` 权限定义存在，但没有自动新增任何角色权限关系；
 - 每个新媒体结果都保存可解析的不可变 `storage_location_id`，配置切换后仍能定位旧对象；
 - `success/finalized` 结果没有 TTL 清理任务或对象存储生命周期规则；`user_deleted` 对象的物理清理时机仍等待 `PD-08`；
 - 维护窗口内旧钱包写入者全部停止，溢出校验先于任何 units 回填，钱包和流水全部回填校验后才删除 cents，恢复入口后只有 money-units 新版本能够写入。
@@ -1338,7 +1340,7 @@ Runner 执行
 - 缓存字段缺失与显式 0、OpenAI inclusive cached tokens、缓存读写拆分和工具轮次汇总；
 - 未知模型/档位、计量能力或余额不足时不调用供应商；
 - 冻结、累计补充、捕获、释放和并发幂等；每个新的真实调用都在 `dispatched` 前覆盖“此前仍可能收费的完整实际用量 + 本次保守上界”，用户删除或结果永久损坏均不产生 AI 退款分支；
-- 估算上限意外不足时仅在余额足够时补充；余额不足不部分扣款、不透支；估算不足、已取得有效上游结果后的计量不完整、未知单位/档位和金额指纹漂移都持久化异常并首次立即 block；进程/网络 `outcome_unknown` 只走请求级对账；解除路径等待 `PD-06`；
+- 估算上限意外不足时仅在余额足够时补充；余额不足不部分扣款、不透支；估算不足、已取得有效上游结果后的计量不完整、未知单位/档位和金额指纹漂移都持久化异常并首次立即 block；进程/网络 `outcome_unknown` 只走请求级对账；恢复只允许带原因的 `ai_pricing_unblock` 操作；
 - 账单、回复命令和停止/完成竞态状态机；派发后取消取得完整 usage 时业务 `canceled` 但账单 `settled`，取得不完整 usage 时保持待对账；
 - 普通可重试失败复用同一 Run、Charge、Hold 和截止时间，追加 `retry_scheduled` Run Event，新的真实调用使用下一 `attempt_no`，且 top-up 失败时没有新的 `dispatched` 或供应商调用；
 - provider 结果候选落库后 finalizer 重试不重复调用供应商；最终计费明细只在 finalizer 中形成，并与 Run 状态、Run Event、钱包和候选终态原子提交；
@@ -1365,7 +1367,7 @@ Runner 执行
 - cents 到 units 的非负/溢出前置校验、钱包与流水同步 expand/backfill/validate/contract、维护窗口单写者切换，以及 provider-attempt 通过 `reply-command:<id>` 精确回填 Run；
 - 历史任务只能在完整证明新结果契约时回填 `finalized`，其余使用不可重放的 `legacy`，且不存在迁移后的 `success + none/staged`；
 - 智能体价格预览、缓存明细、高精度金额和权限显示；
-- `ai_run_list`/`ai_pricing_list` 管理权限与当前用户自助所有权接口分离，且迁移不自动授权；
+- `ai_run_list`/`ai_pricing_list`/`ai_pricing_unblock` 管理权限与当前用户自助所有权接口分离，且迁移不自动授权；
 - 收银台移除最近充值但充值记录保持正常。
 
 ## 23. 验收标准
@@ -1394,10 +1396,10 @@ Runner 执行
 22. 所有真实供应商调用都有 Run 级 attempt 身份；不确定结果不得换 key 盲目重发。
 23. `staged` 对象不能被用户读取，finalizer 只发布带不可变 storage location 快照的已验证私有对象；用户删除进入 `user_deleted` 且不重新生成，成功结果无 TTL，永久损坏不退款，物理对象清理时机等待 `PD-08`。
 24. 每个冻结都有首次派发时固化且不可被重启延长的绝对恢复上限：对话、文本、工具和音频 15 分钟，图片 1 小时，视频 6 小时；超过上限后不扣估算金额、不无限占用余额，迟到结果也不反转终态。
-25. 任一估算上限突破、已取得有效上游结果后的计量不完整、未知单位/档位或金额指纹漂移都会形成跨实例异常事实，并在首次出现时立即 block 精确 `billing_safety_key`；进程/网络 `outcome_unknown` 仅请求级对账。受控解除按 `PD-06` 执行，不能被进程重启、缓存刷新或普通目录/倍率/profile 更新绕过。
+25. 任一估算上限突破、已取得有效上游结果后的计量不完整、未知单位/档位或金额指纹漂移都会形成跨实例异常事实，并在首次出现时立即 block 精确 `billing_safety_key`；进程/网络 `outcome_unknown` 仅请求级对账。解除只允许带原因且有 `ai_pricing_unblock` 权限的管理员操作，不能被进程重启、缓存刷新或普通目录/倍率/profile 更新绕过。
 26. 后续价格、模型或倍率变化不能修改历史账单快照或同一请求的首次执行结果。
 27. 收银台不再出现最近充值，充值记录与继续支付不受影响。
 28. 旧 AI 计费表继续不存在，且没有新增密钥/环境变量、自动角色授权或已退役 Admin/Canvas AI transport。
 29. 实施只自动执行短而针对性的测试，长脚本明确交由用户手动运行。
 30. 钱包单位切换在停止全部旧写入者的维护窗口内按 expand/backfill/validate/contract 完成；任何 cents 值溢出风险都在 units 回填前失败，钱包与流水全部校验后才删除旧列，发布后不存在 cents/units 混写或双写。
-31. `PD-06` 至 `PD-08` 在进入相应 implementation plan 前逐项确认；未确认项不能由实现者选取默认政策。
+31. `PD-07`、`PD-08` 在进入相应 implementation plan 前逐项确认；未确认项不能由实现者选取默认政策。
