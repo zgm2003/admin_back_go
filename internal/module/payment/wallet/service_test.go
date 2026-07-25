@@ -2,7 +2,6 @@ package wallet
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
@@ -20,81 +19,6 @@ func TestServiceSummaryCreatesZeroWallet(t *testing.T) {
 	}
 	if repo.wallet.UserID != 7 {
 		t.Fatalf("expected wallet user id 7, got %#v", repo.wallet)
-	}
-}
-
-func TestServiceDebitRejectsInvalidAmount(t *testing.T) {
-	repo := &fakeRepo{}
-	service := NewService(repo)
-
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 0, SourceType: SourceAIGenerate, SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.debit.amount.invalid" {
-		t.Fatalf("expected debit amount invalid keyed error, got %v", appErr)
-	}
-	if repo.debitCalled {
-		t.Fatalf("invalid amount must not call repository")
-	}
-}
-
-func TestServiceDebitRejectsInvalidSourceType(t *testing.T) {
-	repo := &fakeRepo{}
-	service := NewService(repo)
-
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: "manual", SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.debit.source_type.invalid" {
-		t.Fatalf("expected debit source_type invalid keyed error, got %v", appErr)
-	}
-	if repo.debitCalled {
-		t.Fatalf("invalid source_type must not call repository")
-	}
-}
-
-func TestServiceDebitRejectsAIGenerateSource(t *testing.T) {
-	repo := &fakeRepo{}
-	service := NewService(repo)
-
-	_, appErr := service.Debit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceAIGenerate, SourceID: 88, Remark: " billing "})
-	if appErr == nil || appErr.MessageID != "wallet.debit.source_type.invalid" {
-		t.Fatalf("generic AI debit must be rejected, got %v", appErr)
-	}
-	if repo.debitCalled {
-		t.Fatal("AI generation must be captured through a hold, not generic Debit")
-	}
-}
-
-func TestServiceCreditRejectsUnsupportedSource(t *testing.T) {
-	repo := &fakeRepo{}
-	service := NewService(repo)
-
-	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: "unsupported", SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" || repo.creditCalled {
-		t.Fatalf("unsupported credit must be rejected, appErr=%v called=%v", appErr, repo.creditCalled)
-	}
-}
-
-func TestServiceCreditRejectsRechargeSourceType(t *testing.T) {
-	repo := &fakeRepo{}
-	service := NewService(repo)
-
-	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceRecharge, SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" {
-		t.Fatalf("expected credit source_type invalid keyed error, got %v", appErr)
-	}
-	if repo.creditCalled {
-		t.Fatalf("generic wallet credit must not handle recharge; recharge uses payment atomic finalization")
-	}
-}
-
-func TestServiceCreditRejectsRedeemCodeSourceType(t *testing.T) {
-	repo := &fakeRepo{}
-	service := NewService(repo)
-
-	_, appErr := service.Credit(context.Background(), MutationInput{UserID: 7, AmountUnits: 100, SourceType: SourceRedeemCode, SourceID: 88})
-	if appErr == nil || appErr.MessageID != "wallet.credit.source_type.invalid" {
-		t.Fatalf("expected credit source_type invalid keyed error, got %v", appErr)
-	}
-	if repo.creditCalled {
-		t.Fatalf("generic wallet credit must not handle redeem codes")
 	}
 }
 
@@ -150,20 +74,11 @@ func TestServiceListsNormalizeFilters(t *testing.T) {
 }
 
 type fakeRepo struct {
-	wallet                   Wallet
-	debitTransaction         Transaction
-	creditTransaction        Transaction
-	transactions             []TransactionWithUser
-	wallets                  []WalletWithUser
-	debitErr                 error
-	creditErr                error
-	debitInput               MutationInput
-	creditInput              MutationInput
-	debitCalled              bool
-	creditCalled             bool
-	debitReturnedTransaction bool
-	transactionQuery         TransactionListQuery
-	walletUserQuery          WalletUserListQuery
+	wallet           Wallet
+	transactions     []TransactionWithUser
+	wallets          []WalletWithUser
+	transactionQuery TransactionListQuery
+	walletUserQuery  WalletUserListQuery
 }
 
 func (f *fakeRepo) GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error) {
@@ -181,29 +96,4 @@ func (f *fakeRepo) ListTransactions(ctx context.Context, query TransactionListQu
 func (f *fakeRepo) ListWalletUsers(ctx context.Context, query WalletUserListQuery) ([]WalletWithUser, int64, error) {
 	f.walletUserQuery = query
 	return f.wallets, int64(len(f.wallets)), nil
-}
-
-func (f *fakeRepo) Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
-	f.debitCalled = true
-	f.debitInput = input
-	if f.debitErr != nil {
-		return nil, nil, f.debitErr
-	}
-	if f.debitTransaction.ID == 0 {
-		return nil, nil, errors.New("missing fake debit transaction")
-	}
-	f.debitReturnedTransaction = true
-	return &f.wallet, &f.debitTransaction, nil
-}
-
-func (f *fakeRepo) Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
-	f.creditCalled = true
-	f.creditInput = input
-	if f.creditErr != nil {
-		return nil, nil, f.creditErr
-	}
-	if f.creditTransaction.ID == 0 {
-		return nil, nil, errors.New("missing fake credit transaction")
-	}
-	return &f.wallet, &f.creditTransaction, nil
 }

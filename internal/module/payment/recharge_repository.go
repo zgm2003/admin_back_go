@@ -181,7 +181,7 @@ func (r *GormRepository) UpdateRechargePaying(ctx context.Context, id int64) err
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, rechargePayingCASStatuses).Updates(map[string]any{
 		"status":         rechargeStatusPaying,
 		"failure_reason": "",
 	})
@@ -192,7 +192,7 @@ func (r *GormRepository) UpdateRechargeFailed(ctx context.Context, id int64, rea
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
-	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ?", id, enum.CommonNo).Updates(map[string]any{
+	result := r.db.WithContext(ctx).Model(&Recharge{}).Where("id = ? AND is_del = ? AND status IN ?", id, enum.CommonNo, rechargeFailedCASStatuses).Updates(map[string]any{
 		"status":         rechargeStatusFailed,
 		"failure_reason": trimMax(reason, 255),
 	})
@@ -265,11 +265,17 @@ func (r *GormRepository) FinalizePaidOrder(ctx context.Context, orderID int64, t
 				return err
 			}
 		}
-		wallet, transaction, err := r.walletParticipant.CreditRechargeInTx(ctx, tx, walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"})
+		creditInput := walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"}
+		var creditFact *walletmodule.RechargeCreditFact
+		if rechargeAlreadyCredited {
+			creditFact, err = r.walletParticipant.FindRechargeCreditInTx(ctx, tx, creditInput)
+		} else {
+			creditFact, err = r.walletParticipant.CreditRechargeInTx(ctx, tx, creditInput)
+		}
 		if err != nil {
 			return err
 		}
-		if err := validateRechargeCreditParticipantFact(wallet, transaction, &row, units); err != nil {
+		if err := validateRechargeCreditParticipantFact(creditFact, &row, units, rechargeAlreadyCredited); err != nil {
 			return err
 		}
 		if !rechargeAlreadyCredited {
@@ -284,7 +290,7 @@ func (r *GormRepository) FinalizePaidOrder(ctx context.Context, orderID int64, t
 		fact = PaidOrderFinalization{
 			Order:                   &order,
 			Recharge:                &row,
-			Wallet:                  wallet,
+			Wallet:                  creditFact.Wallet,
 			OrderPaid:               !orderAlreadyPaid,
 			OrderAlreadyPaid:        orderAlreadyPaid,
 			RechargeCredited:        !rechargeAlreadyCredited,
@@ -388,8 +394,17 @@ func markRechargeCreditedInTx(tx *gorm.DB, recharge *Recharge, paidAt, creditedA
 	return nil
 }
 
-func validateRechargeCreditParticipantFact(wallet *walletmodule.Wallet, transaction *walletmodule.Transaction, recharge *Recharge, units int64) error {
-	if wallet == nil || transaction == nil || recharge == nil || wallet.ID <= 0 || wallet.UserID != recharge.UserID || wallet.IsDel != enum.CommonNo ||
+func validateRechargeCreditParticipantFact(fact *walletmodule.RechargeCreditFact, recharge *Recharge, units int64, replay bool) error {
+	if fact == nil || recharge == nil {
+		return ErrPaymentStateChanged
+	}
+	wallet := fact.Wallet
+	transaction := fact.Transaction
+	expectedDisposition := walletmodule.RechargeCreditCreated
+	if replay {
+		expectedDisposition = walletmodule.RechargeCreditReplayed
+	}
+	if fact.Disposition != expectedDisposition || wallet == nil || transaction == nil || wallet.ID <= 0 || wallet.UserID != recharge.UserID || wallet.IsDel != enum.CommonNo ||
 		transaction.ID <= 0 || strings.TrimSpace(transaction.TransactionNo) == "" || transaction.WalletID != wallet.ID || transaction.UserID != recharge.UserID ||
 		transaction.Direction != walletmodule.DirectionIn || transaction.AmountUnits != units || transaction.SourceType != walletmodule.SourceRecharge ||
 		transaction.SourceID != recharge.ID || transaction.IsDel != enum.CommonNo || transaction.BalanceBeforeUnits < 0 ||

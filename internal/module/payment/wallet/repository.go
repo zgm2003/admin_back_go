@@ -17,11 +17,8 @@ import (
 )
 
 var ErrRepositoryNotConfigured = errors.New("wallet repository not configured")
-var ErrInsufficientBalance = errors.New("wallet insufficient balance")
-var ErrInvalidMutationAmount = errors.New("wallet mutation amount invalid")
-var ErrAIGenerateDebitForbidden = errors.New("wallet AI generation debit must capture a hold")
 var ErrWalletInvariant = errors.New("wallet balance invariant violation")
-var ErrMutationSourceOwnerMismatch = errors.New("wallet mutation source owner mismatch")
+var ErrRechargeCreditIntegrity = errors.New("wallet recharge credit integrity violation")
 var ErrRedeemCodeTransactionRequired = errors.New("wallet redeem code outer transaction required")
 var ErrRedeemCodeInvalidInput = errors.New("wallet redeem code invalid input")
 var ErrRedeemCodeCreditIdentityInvalid = errors.New("wallet redeem code credit identity invalid")
@@ -41,8 +38,6 @@ type Repository interface {
 	GetOrCreateWallet(ctx context.Context, userID int64) (*Wallet, error)
 	ListTransactions(ctx context.Context, query TransactionListQuery) ([]TransactionWithUser, int64, error)
 	ListWalletUsers(ctx context.Context, query WalletUserListQuery) ([]WalletWithUser, int64, error)
-	Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
-	Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error)
 }
 
 type TransactionParticipant interface {
@@ -51,7 +46,8 @@ type TransactionParticipant interface {
 }
 
 type RechargeTransactionParticipant interface {
-	CreditRechargeInTx(context.Context, *gorm.DB, CreditRechargeInput) (*Wallet, *Transaction, error)
+	FindRechargeCreditInTx(context.Context, *gorm.DB, CreditRechargeInput) (*RechargeCreditFact, error)
+	CreditRechargeInTx(context.Context, *gorm.DB, CreditRechargeInput) (*RechargeCreditFact, error)
 }
 
 type PaymentParticipant interface {
@@ -172,17 +168,6 @@ func (r *GormRepository) ListWalletUsers(ctx context.Context, query WalletUserLi
 	var rows []WalletWithUser
 	err := db.Order("w.updated_at desc, w.id desc").Limit(limit).Offset(offset).Find(&rows).Error
 	return rows, total, err
-}
-
-func (r *GormRepository) Debit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
-	if input.SourceType == SourceAIGenerate {
-		return nil, nil, ErrAIGenerateDebitForbidden
-	}
-	return r.applyMutation(ctx, input, DirectionOut, now)
-}
-
-func (r *GormRepository) Credit(ctx context.Context, input MutationInput, now time.Time) (*Wallet, *Transaction, error) {
-	return r.applyMutation(ctx, input, DirectionIn, now)
 }
 
 func (r *GormRepository) FindRedeemCodeCreditInTx(ctx context.Context, tx *gorm.DB, codeID int64, lock bool) (*Wallet, *Transaction, error) {
@@ -421,144 +406,6 @@ func validRedeemCodeWalletFact(wallet *Wallet, userID int64) bool {
 
 func validRedeemCodeLifecycle(isDel int) bool {
 	return isDel == enum.CommonYes || isDel == enum.CommonNo
-}
-
-func (r *GormRepository) applyMutation(ctx context.Context, input MutationInput, direction string, now time.Time) (*Wallet, *Transaction, error) {
-	if r == nil || r.db == nil {
-		return nil, nil, ErrRepositoryNotConfigured
-	}
-	if input.UserID <= 0 || input.AmountUnits <= 0 || input.SourceID <= 0 {
-		return nil, nil, ErrInvalidMutationAmount
-	}
-	var resultWallet Wallet
-	var resultTransaction Transaction
-	var domainErr error
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existingWallet, existingTransaction, err := findMutationSource(tx, input.UserID, input.SourceType, input.SourceID, false)
-		if err != nil {
-			if errors.Is(err, ErrMutationSourceOwnerMismatch) {
-				domainErr = err
-				return nil
-			}
-			return err
-		}
-		if existingTransaction != nil {
-			resultWallet = *existingWallet
-			resultTransaction = *existingTransaction
-			return nil
-		}
-
-		wallet, err := lockOrCreateWalletForUpdate(tx, input.UserID)
-		if err != nil {
-			return err
-		}
-		before := wallet.BalanceUnits
-		after := before + input.AmountUnits
-		if direction == DirectionOut {
-			if wallet.HeldUnits < 0 || before < wallet.HeldUnits {
-				domainErr = ErrWalletInvariant
-				return nil
-			}
-			if input.AmountUnits > before-wallet.HeldUnits {
-				resultWallet = *wallet
-				domainErr = ErrInsufficientBalance
-				return nil
-			}
-			if wallet.TotalConsumeUnits > math.MaxInt64-input.AmountUnits {
-				domainErr = ErrWalletInvariant
-				return nil
-			}
-			after = before - input.AmountUnits
-		}
-
-		txRow := Transaction{
-			TransactionNo:      newTransactionNo(now),
-			WalletID:           wallet.ID,
-			UserID:             input.UserID,
-			Direction:          direction,
-			AmountUnits:        input.AmountUnits,
-			BalanceBeforeUnits: before,
-			BalanceAfterUnits:  after,
-			SourceType:         input.SourceType,
-			SourceID:           input.SourceID,
-			Remark:             input.Remark,
-			IsDel:              enum.CommonNo,
-		}
-		if err := createTransactionWithNumberRetry(tx, &txRow, now); err != nil {
-			if isDuplicateKeyFor(err, duplicateKeyWalletTransactionSource) {
-				existingWallet, existingTransaction, lookupErr := findMutationSource(tx, input.UserID, input.SourceType, input.SourceID, true)
-				if lookupErr != nil {
-					if errors.Is(lookupErr, ErrMutationSourceOwnerMismatch) {
-						domainErr = lookupErr
-						return nil
-					}
-					return lookupErr
-				}
-				if existingTransaction != nil {
-					resultWallet = *existingWallet
-					resultTransaction = *existingTransaction
-					return nil
-				}
-			}
-			return err
-		}
-
-		updates := map[string]any{"balance_units": after}
-		if direction == DirectionOut {
-			updates["total_consume_units"] = wallet.TotalConsumeUnits + input.AmountUnits
-		}
-		update := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(updates)
-		if update.Error != nil {
-			return update.Error
-		}
-		if update.RowsAffected != 1 {
-			return ErrWalletInvariant
-		}
-		wallet.BalanceUnits = after
-		if direction == DirectionOut {
-			wallet.TotalConsumeUnits += input.AmountUnits
-		}
-		resultWallet = *wallet
-		resultTransaction = txRow
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	if domainErr != nil {
-		if errors.Is(domainErr, ErrInsufficientBalance) || errors.Is(domainErr, ErrWalletInvariant) {
-			return &resultWallet, nil, domainErr
-		}
-		return nil, nil, domainErr
-	}
-	return &resultWallet, &resultTransaction, nil
-}
-
-func findMutationSource(tx *gorm.DB, userID int64, sourceType string, sourceID int64, lock bool) (*Wallet, *Transaction, error) {
-	var existing Transaction
-	query := tx.Where("source_type = ? AND source_id = ? AND is_del = ?", sourceType, sourceID, enum.CommonNo)
-	if lock {
-		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
-	}
-	err := query.First(&existing).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	if existing.UserID != userID {
-		return nil, nil, ErrMutationSourceOwnerMismatch
-	}
-	var wallet Wallet
-	walletQuery := tx.Where("id = ? AND is_del = ?", existing.WalletID, enum.CommonNo)
-	if lock {
-		walletQuery = walletQuery.Clauses(clause.Locking{Strength: "UPDATE"})
-	}
-	if err := walletQuery.First(&wallet).Error; err != nil {
-		return nil, nil, err
-	}
-	return &wallet, &existing, nil
 }
 
 func createTransactionWithNumberRetry(tx *gorm.DB, row *Transaction, now time.Time) error {

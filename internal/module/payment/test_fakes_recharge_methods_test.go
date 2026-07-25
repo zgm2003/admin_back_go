@@ -71,8 +71,20 @@ func (r *fakeOrderRepo) GetRecharge(ctx context.Context, userID int64, id int64)
 func (r *fakeOrderRepo) CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error) {
 	return RechargeWithOrder{}, nil
 }
-func (r *fakeOrderRepo) UpdateRechargePaying(ctx context.Context, id int64) error { return nil }
+func (r *fakeOrderRepo) UpdateRechargePaying(ctx context.Context, id int64) error {
+	if r.recharge == nil || r.recharge.ID != id || (r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusFailed) {
+		return ErrPaymentStateChanged
+	}
+	r.recharge.Status = rechargeStatusPaying
+	r.recharge.FailureReason = ""
+	return nil
+}
 func (r *fakeOrderRepo) UpdateRechargeFailed(ctx context.Context, id int64, reason string) error {
+	if r.recharge == nil || r.recharge.ID != id || (r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusFailed && r.recharge.Status != rechargeStatusPaying) {
+		return ErrPaymentStateChanged
+	}
+	r.recharge.Status = rechargeStatusFailed
+	r.recharge.FailureReason = reason
 	return nil
 }
 func (r *fakeOrderRepo) UpdateRechargeClosed(ctx context.Context, id int64) error {

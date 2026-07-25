@@ -2,7 +2,6 @@ package wallet
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -15,18 +14,10 @@ const timeLayout = "2006-01-02 15:04:05"
 
 type Service struct {
 	repository Repository
-	now        func() time.Time
 }
 
 func NewService(repository Repository) *Service {
-	return NewServiceWithNow(repository, time.Now)
-}
-
-func NewServiceWithNow(repository Repository, now func() time.Time) *Service {
-	if now == nil {
-		now = time.Now
-	}
-	return &Service{repository: repository, now: now}
+	return &Service{repository: repository}
 }
 
 func (s *Service) Summary(ctx context.Context, userID int64) (*SummaryResponse, *apperror.Error) {
@@ -91,76 +82,6 @@ func (s *Service) LedgerPageInit(ctx context.Context) (*LedgerPageInitResponse, 
 
 func (s *Service) Ledger(ctx context.Context, query TransactionListQuery) (*TransactionListResponse, *apperror.Error) {
 	return s.listTransactions(ctx, normalizeTransactionQuery(query))
-}
-
-func (s *Service) Debit(ctx context.Context, input MutationInput) (*MutationResponse, *apperror.Error) {
-	return s.mutate(ctx, input, DirectionOut)
-}
-
-func (s *Service) Credit(ctx context.Context, input MutationInput) (*MutationResponse, *apperror.Error) {
-	return s.mutate(ctx, input, DirectionIn)
-}
-
-func (s *Service) mutate(ctx context.Context, input MutationInput, direction string) (*MutationResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	input.Remark = strings.TrimSpace(input.Remark)
-	prefix := "wallet.credit"
-	if direction == DirectionOut {
-		prefix = "wallet.debit"
-	}
-	if input.UserID <= 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
-	}
-	if input.AmountUnits <= 0 {
-		return nil, apperror.BadRequestKey(prefix+".amount.invalid", nil, "钱包变动金额必须大于0")
-	}
-	if !validMutationSource(direction, input.SourceType) {
-		return nil, apperror.BadRequestKey(prefix+".source_type.invalid", nil, "钱包变动来源类型无效")
-	}
-	if input.SourceID <= 0 {
-		return nil, apperror.BadRequestKey(prefix+".source_id.invalid", nil, "钱包变动来源ID必须大于0")
-	}
-
-	var wallet *Wallet
-	var tx *Transaction
-	var err error
-	if direction == DirectionOut {
-		wallet, tx, err = repo.Debit(ctx, input, s.now())
-	} else {
-		wallet, tx, err = repo.Credit(ctx, input, s.now())
-	}
-	if err != nil {
-		if errors.Is(err, ErrInsufficientBalance) {
-			return nil, apperror.BadRequestKey("wallet.debit.insufficient_balance", nil, "余额不足")
-		}
-		if errors.Is(err, ErrMutationSourceOwnerMismatch) {
-			return nil, apperror.BadRequestKey("wallet.mutation.source_id.owner_mismatch", nil, "资金变动来源已被其他用户使用")
-		}
-		return nil, wrapInternal("wallet.mutation.failed", "钱包资金变动失败", err)
-	}
-	transaction, err := transactionItem(TransactionWithUser{Transaction: *tx})
-	if err != nil {
-		return nil, wrapInternal("wallet.mutation.invalid", "钱包余额数据无效", err)
-	}
-	summary, err := summaryResponse(wallet)
-	if err != nil {
-		return nil, wrapInternal("wallet.mutation.invalid", "钱包余额数据无效", err)
-	}
-	return &MutationResponse{Transaction: transaction, Wallet: *summary}, nil
-}
-
-func validMutationSource(direction string, sourceType string) bool {
-	switch direction {
-	case DirectionOut:
-		return false
-	case DirectionIn:
-		return false
-	default:
-		return false
-	}
 }
 
 func (s *Service) listTransactions(ctx context.Context, query TransactionListQuery) (*TransactionListResponse, *apperror.Error) {

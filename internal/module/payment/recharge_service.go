@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -207,7 +208,12 @@ func (s *Service) payRechargeRow(ctx context.Context, row RechargeWithOrder) (*R
 	}
 	result, appErr := s.PayOrder(ctx, row.PaymentOrderID)
 	if appErr != nil {
-		_ = repo.UpdateRechargeFailed(ctx, row.ID, appErr.Message)
+		if err := repo.UpdateRechargeFailed(ctx, row.ID, appErr.Message); err != nil {
+			if errors.Is(err, ErrPaymentStateChanged) {
+				return s.rechargePayChangedResponse(ctx, row.UserID, row.ID)
+			}
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新充值失败状态失败", err)
+		}
 		return nil, appErr
 	}
 	if result.Status == orderStatusClosed {
@@ -217,12 +223,23 @@ func (s *Service) payRechargeRow(ctx context.Context, row RechargeWithOrder) (*R
 		return rechargePayResponse(row), nil
 	}
 	if err := repo.UpdateRechargePaying(ctx, row.ID); err != nil {
+		if errors.Is(err, ErrPaymentStateChanged) {
+			return s.rechargePayChangedResponse(ctx, row.UserID, row.ID)
+		}
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "更新充值支付状态失败", err)
 	}
 	row.Status = rechargeStatusPaying
 	row.OrderStatus = result.Status
 	row.PayURL = result.PayURL
 	return rechargePayResponse(row), nil
+}
+
+func (s *Service) rechargePayChangedResponse(ctx context.Context, userID, id int64) (*RechargePayResponse, *apperror.Error) {
+	latest, appErr := s.rechargeByID(ctx, userID, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	return rechargePayResponse(*latest), nil
 }
 
 func (s *Service) syncRechargeRow(ctx context.Context, row RechargeWithOrder) (*RechargeStatusResponse, *apperror.Error) {

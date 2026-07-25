@@ -14,6 +14,9 @@ const (
 	HoldCaptured = "captured"
 	HoldReleased = "released"
 
+	RechargeCreditCreated  RechargeCreditDisposition = "created"
+	RechargeCreditReplayed RechargeCreditDisposition = "replayed"
+
 	defaultPageSize = 20
 	maxPageSize     = 100
 )
@@ -104,14 +107,6 @@ type WalletUserItem struct {
 	UpdatedAt        string `json:"updated_at"`
 }
 
-type MutationInput struct {
-	UserID      int64
-	AmountUnits int64
-	SourceType  string
-	SourceID    int64
-	Remark      string
-}
-
 type ReserveHoldInput struct{ UserID, RunID, AmountUnits int64 }
 type TopUpHoldInput struct{ UserID, RunID, AmountUnits int64 }
 type CaptureHoldInput struct {
@@ -124,14 +119,17 @@ type CreditRechargeInput struct {
 	Remark                          string
 }
 
+type RechargeCreditDisposition string
+
+type RechargeCreditFact struct {
+	Wallet      *Wallet
+	Transaction *Transaction
+	Disposition RechargeCreditDisposition
+}
+
 type RedeemCodeCreditInput struct {
 	UserID      int64
 	CodeID      int64
 	AmountUnits int64
 	BatchNo     string
-}
-
-type MutationResponse struct {
-	Transaction TransactionItem `json:"transaction"`
-	Wallet      SummaryResponse `json:"wallet"`
 }

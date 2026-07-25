@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -137,6 +138,95 @@ func TestSyncRechargeStaleReplayAfterCallbackDoesNotDoubleCredit(t *testing.T) {
 	}
 }
 
+func TestPayRechargeStaleThreadConvergesAfterCallbackCredit(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{*enabledOrderConfig()}
+	repo.order = &Order{
+		ID: 1, OrderNo: "PAY20260515100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay,
+		PayMethod: enum.PaymentMethodWeb, Subject: "余额充值", AmountCents: 1000, Status: orderStatusPending,
+		ReturnURL: "https://example.test/payment/recharge", ExpiredAt: fixedRechargeNow().Add(time.Hour), IsDel: enum.CommonNo,
+	}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPending, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.beforeUpdateOrderPaying = func() {
+		paidAt := fixedRechargeNow().Add(-time.Second)
+		creditedAt := fixedRechargeNow()
+		repo.order.Status = orderStatusPaid
+		repo.order.PaidAt = &paidAt
+		repo.order.AlipayTradeNo = "202605152200"
+		repo.recharge.Status = rechargeStatusCredited
+		repo.recharge.PaidAt = &paidAt
+		repo.recharge.CreditedAt = &creditedAt
+		repo.wallet.BalanceUnits = 1000 * 1_000_000
+		repo.wallet.TotalRechargeUnits = 1000 * 1_000_000
+		repo.creditCount++
+	}
+	service := newRechargeService(repo, &fakeOrderGateway{payResult: &gateway.PayResult{PayURL: "https://pay.example.test"}})
+
+	result, appErr := service.PayRecharge(context.Background(), 7, 1)
+	if appErr != nil || result == nil || result.Status != rechargeStatusCredited {
+		t.Fatalf("stale pay thread must converge to credited fact, result=%#v err=%v", result, appErr)
+	}
+	if repo.recharge.Status != rechargeStatusCredited || repo.recharge.CreditedAt == nil || repo.creditCount != 1 {
+		t.Fatalf("stale pay thread must not downgrade or re-credit, recharge=%#v credits=%d", repo.recharge, repo.creditCount)
+	}
+}
+
+func TestPayRechargePayingWithoutURLConvergesAfterRechargeCASMiss(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{*enabledOrderConfig()}
+	repo.order = &Order{
+		ID: 1, OrderNo: "PAY20260515100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay,
+		PayMethod: enum.PaymentMethodWeb, Subject: "余额充值", AmountCents: 1000, Status: orderStatusPending,
+		ReturnURL: "https://example.test/payment/recharge", ExpiredAt: fixedRechargeNow().Add(time.Hour), IsDel: enum.CommonNo,
+	}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{payResult: &gateway.PayResult{PayURL: "https://pay.example.test/reentry"}})
+
+	result, appErr := service.PayRecharge(context.Background(), 7, 1)
+	if appErr != nil {
+		t.Fatalf("paying recharge reentry error=%v", appErr)
+	}
+	if result == nil || result.Status != rechargeStatusPaying || result.PayURL != "https://pay.example.test/reentry" {
+		t.Fatalf("recharge CAS miss must reload current payment fact, result=%#v", result)
+	}
+	if repo.recharge.Status != rechargeStatusPaying || repo.order.Status != orderStatusPaying || repo.order.PayURL != result.PayURL {
+		t.Fatalf("reentry must preserve paying recharge and expose persisted order URL, recharge=%#v order=%#v", repo.recharge, repo.order)
+	}
+}
+
+func TestPayRechargeGatewayFailureConvergesAfterCallbackCredit(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{*enabledOrderConfig()}
+	repo.order = &Order{
+		ID: 1, OrderNo: "PAY20260515100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay,
+		PayMethod: enum.PaymentMethodWeb, Subject: "余额充值", AmountCents: 1000, Status: orderStatusPending,
+		ReturnURL: "https://example.test/payment/recharge", ExpiredAt: fixedRechargeNow().Add(time.Hour), IsDel: enum.CommonNo,
+	}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260515100000000000", UserID: 7, PaymentOrderID: 1, Status: rechargeStatusPending, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.beforeUpdateOrderFailed = func() {
+		paidAt := fixedRechargeNow().Add(-time.Second)
+		creditedAt := fixedRechargeNow()
+		repo.order.Status = orderStatusPaid
+		repo.order.PaidAt = &paidAt
+		repo.order.AlipayTradeNo = "202605152200"
+		repo.recharge.Status = rechargeStatusCredited
+		repo.recharge.PaidAt = &paidAt
+		repo.recharge.CreditedAt = &creditedAt
+		repo.wallet.BalanceUnits = 1000 * 1_000_000
+		repo.wallet.TotalRechargeUnits = 1000 * 1_000_000
+		repo.creditCount++
+	}
+	service := newRechargeService(repo, &fakeOrderGateway{payErr: errors.New("gateway down")})
+
+	result, appErr := service.PayRecharge(context.Background(), 7, 1)
+	if appErr != nil || result == nil || result.Status != rechargeStatusCredited {
+		t.Fatalf("gateway failure thread must converge to callback credit, result=%#v err=%v", result, appErr)
+	}
+	if repo.recharge.Status != rechargeStatusCredited || repo.order.Status != orderStatusPaid || repo.creditCount != 1 {
+		t.Fatalf("gateway failure must not overwrite callback terminal facts, recharge=%#v order=%#v credits=%d", repo.recharge, repo.order, repo.creditCount)
+	}
+}
+
 func TestCloseRechargeRejectsCredited(t *testing.T) {
 	repo := newFakeRechargeRepo()
 	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
@@ -186,6 +276,8 @@ type fakeRechargeRepo struct {
 	creditCount               int
 	finalizeCount             int
 	beforeFinalizePaidOrder   func(paidAt time.Time)
+	beforeUpdateOrderPaying   func()
+	beforeUpdateOrderFailed   func()
 }
 
 func newFakeRechargeRepo() *fakeRechargeRepo {
@@ -333,14 +425,22 @@ func (r *fakeRechargeRepo) CreateOrder(ctx context.Context, order Order) (int64,
 	return order.ID, nil
 }
 func (r *fakeRechargeRepo) UpdateOrderPaying(ctx context.Context, id int64, payURL string) error {
+	if r.beforeUpdateOrderPaying != nil {
+		r.beforeUpdateOrderPaying()
+		r.beforeUpdateOrderPaying = nil
+	}
 	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
-		return nil
+		return ErrPaymentStateChanged
 	}
 	r.order.Status = orderStatusPaying
 	r.order.PayURL = payURL
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateOrderFailed(ctx context.Context, id int64, reason string) error {
+	if r.beforeUpdateOrderFailed != nil {
+		r.beforeUpdateOrderFailed()
+		r.beforeUpdateOrderFailed = nil
+	}
 	if r.order.Status != orderStatusPending && r.order.Status != orderStatusFailed {
 		return nil
 	}
@@ -402,11 +502,17 @@ func (r *fakeRechargeRepo) CreateRechargeWithOrder(ctx context.Context, recharge
 	return r.withOrder(), nil
 }
 func (r *fakeRechargeRepo) UpdateRechargePaying(ctx context.Context, id int64) error {
+	if r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusFailed {
+		return ErrPaymentStateChanged
+	}
 	r.recharge.Status = rechargeStatusPaying
 	r.recharge.FailureReason = ""
 	return nil
 }
 func (r *fakeRechargeRepo) UpdateRechargeFailed(ctx context.Context, id int64, reason string) error {
+	if r.recharge.Status != rechargeStatusPending && r.recharge.Status != rechargeStatusFailed && r.recharge.Status != rechargeStatusPaying {
+		return ErrPaymentStateChanged
+	}
 	r.recharge.Status = rechargeStatusFailed
 	r.recharge.FailureReason = reason
 	return nil

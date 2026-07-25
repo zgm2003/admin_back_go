@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"reflect"
 	"strings"
 	"time"
 	"unicode"
@@ -65,7 +66,20 @@ func (r *GormRepository) reserveHold(ctx context.Context, tx *gorm.DB, userID, r
 			return nil, ErrHoldOwnerMismatch
 		}
 		if hold.Status != HoldActive {
-			return hold, nil
+			switch hold.Status {
+			case HoldCaptured:
+				if _, err := validateCapturedHoldFact(tx, hold, wallet, userID); err != nil {
+					return nil, err
+				}
+			case HoldReleased:
+				if err := validateReleasedHoldFact(tx, hold, wallet, userID); err != nil {
+					return nil, err
+				}
+			}
+			return nil, ErrHoldIntegrity
+		}
+		if err := validateActiveHoldFact(hold, wallet, userID); err != nil {
+			return nil, err
 		}
 		if target <= hold.HeldUnits {
 			return hold, nil
@@ -164,6 +178,9 @@ func (r *GormRepository) CaptureHoldInTx(ctx context.Context, tx *gorm.DB, in Ca
 		}
 		return wallet, ledger, nil
 	}
+	if err := validateActiveHoldFact(hold, wallet, in.UserID); err != nil {
+		return nil, nil, err
+	}
 	if err := validateHoldSummary(summary); err != nil {
 		return nil, nil, err
 	}
@@ -255,6 +272,9 @@ func (r *GormRepository) ReleaseHoldInTx(ctx context.Context, tx *gorm.DB, in Re
 		}
 		return hold, nil
 	}
+	if err := validateActiveHoldFact(hold, wallet, in.UserID); err != nil {
+		return nil, err
+	}
 	if wallet.HeldUnits < hold.HeldUnits {
 		return nil, ErrHoldUnderflow
 	}
@@ -280,15 +300,49 @@ func (r *GormRepository) ReleaseHoldInTx(ctx context.Context, tx *gorm.DB, in Re
 	return hold, nil
 }
 
-func (r *GormRepository) CreditRechargeInTx(ctx context.Context, tx *gorm.DB, in CreditRechargeInput) (*Wallet, *Transaction, error) {
+func (r *GormRepository) FindRechargeCreditInTx(ctx context.Context, tx *gorm.DB, in CreditRechargeInput) (*RechargeCreditFact, error) {
 	if r == nil || r.db == nil {
-		return nil, nil, ErrRepositoryNotConfigured
+		return nil, ErrRepositoryNotConfigured
 	}
 	if err := requireHoldTransaction(tx); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if in.UserID <= 0 || in.RechargeID <= 0 || in.AmountUnits <= 0 {
-		return nil, nil, ErrHoldInvalidInput
+		return nil, ErrHoldInvalidInput
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx = tx.WithContext(ctx)
+	wallet, err := lockWalletForUpdateUnits(tx, in.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRechargeCreditIntegrity
+		}
+		return nil, err
+	}
+	existing, err := findRechargeCreditTransactionForUpdate(tx, in.RechargeID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, ErrRechargeCreditIntegrity
+	}
+	if err := validateRechargeCreditFact(wallet, existing, in); err != nil {
+		return nil, err
+	}
+	return &RechargeCreditFact{Wallet: wallet, Transaction: existing, Disposition: RechargeCreditReplayed}, nil
+}
+
+func (r *GormRepository) CreditRechargeInTx(ctx context.Context, tx *gorm.DB, in CreditRechargeInput) (*RechargeCreditFact, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if err := requireHoldTransaction(tx); err != nil {
+		return nil, err
+	}
+	if in.UserID <= 0 || in.RechargeID <= 0 || in.AmountUnits <= 0 {
+		return nil, ErrHoldInvalidInput
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -296,36 +350,66 @@ func (r *GormRepository) CreditRechargeInTx(ctx context.Context, tx *gorm.DB, in
 	tx = tx.WithContext(ctx)
 	wallet, err := lockOrCreateWalletForUpdateUnits(tx, in.UserID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	var existing Transaction
-	err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_type = ? AND source_id = ? AND is_del = ?", SourceRecharge, in.RechargeID, enum.CommonNo).First(&existing).Error
-	if err == nil {
-		if existing.UserID != in.UserID || existing.WalletID != wallet.ID || existing.Direction != DirectionIn || existing.AmountUnits != in.AmountUnits {
-			return nil, nil, ErrMutationSourceOwnerMismatch
+	existing, err := findRechargeCreditTransactionForUpdate(tx, in.RechargeID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		if err := validateRechargeCreditFact(wallet, existing, in); err != nil {
+			return nil, err
 		}
-		return wallet, &existing, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil, err
+		return &RechargeCreditFact{Wallet: wallet, Transaction: existing, Disposition: RechargeCreditReplayed}, nil
 	}
 	if wallet.BalanceUnits > math.MaxInt64-in.AmountUnits || wallet.TotalRechargeUnits > math.MaxInt64-in.AmountUnits {
-		return nil, nil, ErrHoldIntegrity
+		return nil, ErrHoldIntegrity
 	}
 	after := wallet.BalanceUnits + in.AmountUnits
 	row := &Transaction{TransactionNo: newTransactionNo(time.Now()), WalletID: wallet.ID, UserID: in.UserID, Direction: DirectionIn, AmountUnits: in.AmountUnits, BalanceBeforeUnits: wallet.BalanceUnits, BalanceAfterUnits: after, SourceType: SourceRecharge, SourceID: in.RechargeID, Remark: strings.TrimSpace(in.Remark), IsDel: enum.CommonNo}
 	if err := createTransactionWithNumberRetry(tx, row, time.Now()); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	result := tx.Model(&Wallet{}).Where("id = ? AND is_del = ?", wallet.ID, enum.CommonNo).Updates(map[string]any{"balance_units": after, "total_recharge_units": wallet.TotalRechargeUnits + in.AmountUnits})
 	if result.Error != nil {
-		return nil, nil, result.Error
+		return nil, result.Error
 	}
 	if result.RowsAffected != 1 {
-		return nil, nil, ErrHoldIntegrity
+		return nil, ErrHoldIntegrity
 	}
 	wallet.BalanceUnits, wallet.TotalRechargeUnits = after, wallet.TotalRechargeUnits+in.AmountUnits
-	return wallet, row, nil
+	return &RechargeCreditFact{Wallet: wallet, Transaction: row, Disposition: RechargeCreditCreated}, nil
+}
+
+func findRechargeCreditTransactionForUpdate(tx *gorm.DB, rechargeID int64) (*Transaction, error) {
+	var transactions []Transaction
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("source_type = ? AND source_id = ?", SourceRecharge, rechargeID).
+		Order("id ASC").
+		Limit(2).
+		Find(&transactions).Error; err != nil {
+		return nil, err
+	}
+	if len(transactions) == 0 {
+		return nil, nil
+	}
+	if len(transactions) != 1 {
+		return nil, ErrRechargeCreditIntegrity
+	}
+	return &transactions[0], nil
+}
+
+func validateRechargeCreditFact(wallet *Wallet, transaction *Transaction, in CreditRechargeInput) error {
+	if wallet == nil || transaction == nil || wallet.ID <= 0 || wallet.UserID != in.UserID || wallet.IsDel != enum.CommonNo ||
+		wallet.BalanceUnits < 0 || wallet.TotalRechargeUnits < in.AmountUnits || wallet.HeldUnits < 0 || wallet.HeldUnits > wallet.BalanceUnits ||
+		transaction.ID <= 0 || strings.TrimSpace(transaction.TransactionNo) == "" || transaction.IsDel != enum.CommonNo ||
+		transaction.WalletID != wallet.ID || transaction.UserID != in.UserID || transaction.Direction != DirectionIn ||
+		transaction.AmountUnits != in.AmountUnits || transaction.SourceType != SourceRecharge || transaction.SourceID != in.RechargeID ||
+		transaction.BalanceBeforeUnits < 0 || transaction.BalanceBeforeUnits > math.MaxInt64-in.AmountUnits ||
+		transaction.BalanceAfterUnits != transaction.BalanceBeforeUnits+in.AmountUnits {
+		return ErrRechargeCreditIntegrity
+	}
+	return nil
 }
 
 func requireHoldTransaction(tx *gorm.DB) error {
@@ -334,6 +418,10 @@ func requireHoldTransaction(tx *gorm.DB) error {
 	}
 	committer, ok := tx.Statement.ConnPool.(gorm.TxCommitter)
 	if !ok || committer == nil {
+		return ErrHoldTransactionRequired
+	}
+	value := reflect.ValueOf(committer)
+	if (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) && value.IsNil() {
 		return ErrHoldTransactionRequired
 	}
 	return nil
@@ -378,6 +466,16 @@ func terminalAIGenerateTransactions(tx *gorm.DB, hold *Hold) ([]Transaction, err
 		return nil, err
 	}
 	return transactions, nil
+}
+
+func validateActiveHoldFact(hold *Hold, wallet *Wallet, userID int64) error {
+	if hold == nil || wallet == nil || hold.UserID != userID || hold.WalletID != wallet.ID {
+		return ErrHoldOwnerMismatch
+	}
+	if hold.Status != HoldActive || hold.HeldUnits <= 0 || hold.CapturedUnits != 0 {
+		return ErrHoldIntegrity
+	}
+	return nil
 }
 
 func validateCapturedHoldFact(tx *gorm.DB, hold *Hold, wallet *Wallet, userID int64) (*Transaction, error) {
