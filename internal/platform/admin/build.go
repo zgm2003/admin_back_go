@@ -76,7 +76,6 @@ type ProviderSet struct {
 	AIConnectionTester aiprovider.ProviderTester
 	AIChatFactory      aichat.EngineFactory
 	AIImageFactory     aiimage.ImageEngineFactory
-	AIToolFactory      aitool.EngineFactory
 	AIVideoFactory     aivideo.EngineFactory
 	AIAudioFactory     aiaudio.EngineFactory
 
@@ -185,12 +184,15 @@ func Build(input BuildInput) (*BuildResult, error) {
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
+	aiTextService := aitext.NewService(aitext.ServiceDependencies{
+		Store: aiTextTasks,
+		Waker: aitext.NewWakeupEnqueuer(input.Queue),
+	})
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
 	aiToolService := aitool.NewService(
 		aiToolRepository,
 		aitool.DefaultExecutors(aiToolRepository),
-		aitool.WithSecretbox(providers.Secretbox),
-		aitool.WithEngineFactory(providers.AIToolFactory),
+		aitool.WithDraftTaskService(aiTextService),
 	)
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
@@ -268,7 +270,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		ToolRuntime:      aiToolService,
 		KnowledgeRuntime: knowledgeRuntimeAdapter{service: aiKnowledgeService},
 		RunRecorder:      aiRunRecorder,
-		TextTasks:        aiTextTasks,
+		TextGeneration:   aiTextService,
 		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
 		Logger:           logger,
 	})

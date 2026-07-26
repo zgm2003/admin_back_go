@@ -195,7 +195,7 @@ func rateKey(category Category, unit, tier string) string {
 	return string(category) + "\x00" + unit + "\x00" + tier
 }
 
-//go:embed catalog/official_numeric_parity_v1.json
+//go:embed catalog/official_numeric_parity_v2.json
 var catalogJSON []byte
 
 var Default *Catalog

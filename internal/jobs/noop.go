@@ -14,6 +14,7 @@ import (
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/ai/replycommand"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
@@ -35,6 +36,7 @@ type Dependencies struct {
 	Logger                   *slog.Logger
 	AuthRepository           auth.Repository
 	AIChatService            aichat.JobService
+	AITextService            aitext.JobService
 	AIReplyRunner            replycommand.JobRunner
 	AiImageService           aiimage.JobService
 	ExportTaskService        exporttask.JobService
@@ -99,6 +101,7 @@ func NewRegistry(deps Dependencies) (*taskqueue.Registry, error) {
 		func() error { return auth.RegisterLoginLogTask(registry, deps.AuthRepository, logger) },
 		func() error { return replycommand.RegisterTaskDefinition(registry, deps.AIReplyRunner) },
 		func() error { return aichat.RegisterTaskDefinitions(registry, deps.AIChatService, logger) },
+		func() error { return aitext.RegisterTaskDefinitions(registry, deps.AITextService, logger) },
 		func() error { return aiimage.RegisterTaskDefinitions(registry, deps.AiImageService, logger) },
 		func() error { return exporttask.RegisterTaskDefinitions(registry, deps.ExportTaskService, logger) },
 		func() error {

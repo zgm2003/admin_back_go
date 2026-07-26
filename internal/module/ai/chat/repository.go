@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
@@ -296,6 +297,7 @@ func runningRunUpdateDB(db *gorm.DB, runID int64) *gorm.DB {
 
 func staleRunningRunsDB(db *gorm.DB, staleBefore time.Time) *gorm.DB {
 	return db.Where("status = ? AND started_at IS NOT NULL AND started_at < ?", enum.AIRunStatusRunning, staleBefore).
+		Where("NOT EXISTS (SELECT 1 FROM usage_charges c WHERE c.run_id = ai_runs.id AND c.status = ?)", billing.ChargeStatusOpen).
 		Order("started_at ASC, id ASC")
 }
 

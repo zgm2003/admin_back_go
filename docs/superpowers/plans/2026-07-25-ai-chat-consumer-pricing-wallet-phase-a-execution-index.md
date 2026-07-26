@@ -19,6 +19,8 @@
 
 ## Plan Files
 
+- [x] Plan 06：文本、工具草稿与图片任务级 Gateway 结算已完成定向验证。
+
 | Wave | Plan | Ownership | Depends on |
 | --- | --- | --- | --- |
 | 0 | `2026-07-25-ai-chat-consumer-pricing-wallet-01-schema-shared-contracts.md` | Atlas schema、迁移、跨模块状态/接口契约 | none |
@@ -26,7 +28,7 @@
 | 1 | `2026-07-25-ai-chat-consumer-pricing-wallet-03-pricing-agent-config.md` | 官方目录、整单一次取整/明细分摊、智能体倍率和最大输出 | 01 |
 | 1 | `2026-07-25-ai-chat-consumer-pricing-wallet-04-aigateway-provider-usage.md` | Gateway、provider adapter、分类 usage、幂等 attempt | 01 |
 | 2 | `2026-07-25-ai-chat-consumer-pricing-wallet-05-chat-drain-settlement.md` | 聊天 Runner、取消 drain、重试、unknown、统一 finalizer | 02、03、04 |
-| 2 | `2026-07-25-ai-chat-consumer-pricing-wallet-06-media-settlement.md` | 文本/工具/图片/视频/音频的任务级 Gateway 接入 | 02、03、04 |
+| 2 | `2026-07-25-ai-chat-consumer-pricing-wallet-06-media-settlement.md` | 文本/工具/图片的任务级 Gateway 接入；视频、音频明确不做 | 02、03、04 |
 | 3 | `2026-07-25-ai-chat-consumer-pricing-wallet-07-runtime-contract-frontend.md` | runtime 装配、Admin 权限/契约、前端停止状态与展示 | 05、06 |
 
 ## Dependency Waves
@@ -61,7 +63,7 @@ Plan 07 最后修改 runtime、权限、编译后契约和前端 generated contr
 | `replycommand/attempt.go`、attempt persistence adapter | Plan 04 then 05 | Plan 04 完成 Run 级迁移，Plan 05 只接 Runner/finalizer |
 | `internal/module/ai/replycommand/*`、`chat/*` 其余文件 | Plan 05 | 只处理聊天 durable execution 和 delivery/drain |
 | `internal/module/realtime/event.go` 的 AI failed payload | Plan 05 | 为已接受 chat 命令发布余额不足 machine code；Plan 07 只生成契约 |
-| `internal/module/ai/image/*`、`video/*`、`audio/*`、`tool/*`、`text/*` | Plan 06 | 只做任务型 Gateway 接入和结果存储 |
+| `internal/module/ai/image/*`、`tool/*`、`text/*` | Plan 06 | 只做任务型 Gateway 接入和结果存储；不修改 `video/*`、`audio/*` |
 | `internal/platform/admin/build.go`、`internal/runtime/worker.go` | Plan 02 then Plan 07 | Plan 02 只接入 payment wallet participant；Plan 07 在依赖合并后完成 AI Gateway/worker 装配 |
 | Run 详情源、`contracts/admin/v1/*`、`admin_front_ts/src` | Plan 07 | 后端先发布字段，再从编译产物同步；工具生成也必须提供稳定 `request_id` |
 
@@ -99,7 +101,7 @@ status/reason、Run owner 和 attempt evidence。`ai_billing_migration_metadata.
 - 报价先精确汇总全部 rational item、乘 PPM 后整单只向上取整一次；明细最大余数分摊后严格等于总额；aggregate input 与 cache subset 必须先拆成互斥分类。
 - 余额不足返回 `ai.billing.insufficient_balance` 和 `/profile/wallet`、`/payment/recharge`，且没有新 attempt/provider call；continuation top-up 失败只结算此前完整 succeeded usage。
 - 停止 HTTP 响应只返回 `status="stopping"`；此后不再发送 delta，但 drain 能读完 usage。完整 usage 可收费且正文不发布，finalizer 提交后才发布 durable canceled 终态。
-- 图片/视频只有文档化取消 API 和完整 usage 时结算；音频无权威 usage 时 fail closed。
+- 图片只有文档化取消 API 和完整 usage 时结算；视频、音频不进入本阶段及当前产品范围。
 - 已结算结果没有 AI 退款路径，`SourceAIRefund` 及残留被删除。
 - 新权限仅为 `ai_run_list`：只注册定义，由管理员手动挂载，不写 `role_permissions`。
 - Plan 03/05 必须共同证明 Agent runtime projection 读取并持久化

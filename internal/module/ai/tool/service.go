@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"sort"
 	"strings"
 	"time"
 
-	infraai "admin_back_go/internal/infra/ai"
-	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/pricing"
+	"admin_back_go/internal/module/ai/requestidentity"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -24,24 +25,17 @@ const sceneAgentGenerate = "agent_generate"
 const unregisteredToolWarning = "该工具编码暂未注册服务端实现，已默认禁用"
 
 type Service struct {
-	repository    Repository
-	executors     map[string]Executor
-	secretbox     secretbox.Box
-	engineFactory EngineFactory
-	now           func() time.Time
+	repository Repository
+	executors  map[string]Executor
+	draftTasks DraftTaskService
+	now        func() time.Time
 }
 
 type Option func(*Service)
 
-func WithSecretbox(box secretbox.Box) Option {
+func WithDraftTaskService(tasks DraftTaskService) Option {
 	return func(s *Service) {
-		s.secretbox = box
-	}
-}
-
-func WithEngineFactory(factory EngineFactory) Option {
-	return func(s *Service) {
-		s.engineFactory = factory
+		s.draftTasks = tasks
 	}
 }
 
@@ -92,25 +86,51 @@ func (s *Service) GeneratePageInit(ctx context.Context) (*GeneratePageInitRespon
 }
 
 func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (*GenerateDraftResponse, *apperror.Error) {
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" || len([]rune(requestID)) > 128 {
+		return nil, apperror.New(aitext.ErrorCodeRequestInvalid, apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "request_id不能为空")
+	}
 	if input.AgentID == 0 {
 		return nil, apperror.BadRequest("AI生成智能体不能为空")
 	}
 	if input.UserID == 0 {
 		return nil, apperror.Unauthorized("Token无效或已过期")
 	}
-	requirement := strings.TrimSpace(input.Requirement)
+	if input.UserID > math.MaxInt64 {
+		return nil, apperror.Unauthorized("Token无效或已过期")
+	}
+	requirement := normalizeDraftText(input.Requirement)
 	if requirement == "" {
 		return nil, apperror.BadRequest("工具需求描述不能为空")
 	}
 	if len([]rune(requirement)) > 4000 {
 		return nil, apperror.BadRequest("工具需求描述不能超过4000个字符")
 	}
-	codeHint := strings.TrimSpace(input.CodeHint)
+	codeHint := normalizeDraftText(input.CodeHint)
 	if len([]rune(codeHint)) > 64 {
 		return nil, apperror.BadRequest("工具编码提示不能超过64个字符")
 	}
 	if codeHint != "" && !validToolCode(codeHint) {
 		return nil, apperror.BadRequest("工具编码提示只能使用小写字母、数字、下划线，长度3到64")
+	}
+	fingerprintText, err := json.Marshal(struct {
+		Requirement string `json:"requirement"`
+		CodeHint    string `json:"code_hint,omitempty"`
+	}{Requirement: requirement, CodeHint: codeHint})
+	if err != nil {
+		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryInternal, 500, "生成AI工具请求身份失败", err)
+	}
+	if s != nil && s.draftTasks != nil {
+		result, found, replayErr := s.draftTasks.ReplayAndWait(ctx, aitext.ReplayInput{
+			UserID: int64(input.UserID), RequestID: requestID, AgentID: input.AgentID,
+			Operation: "tool.generate_draft", Modality: "text", NormalizedText: string(fingerprintText),
+		})
+		if replayErr != nil {
+			return nil, replayErr
+		}
+		if found {
+			return s.generateDraftResponse(result)
+		}
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -124,47 +144,64 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 		return nil, apperror.NotFound("AI生成智能体不存在或未启用")
 	}
 	if strings.TrimSpace(agent.SystemPrompt) == "" {
-		return nil, apperror.BadRequest("AI生成智能体系统提示词未配置")
+		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体系统提示词未配置", nil)
 	}
-	engine, appErr := s.engineForGenerateAgent(ctx, *agent)
+	if agent.AgentID == 0 || agent.ProviderID == 0 || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens <= 0 {
+		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体计费配置无效", nil)
+	}
+	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := toolDraftPricingSnapshot(*agent)
 	if appErr != nil {
 		return nil, appErr
 	}
-	result, err := engine.StreamChat(ctx, infraai.ChatInput{
-		AgentID: input.AgentID,
-		UserID:  input.UserID,
-		UserKey: fmt.Sprintf("admin:%d", input.UserID),
-		Content: buildToolGenerateUserPrompt(requirement, codeHint),
-		Inputs: map[string]any{
-			"model_id":      agent.ModelID,
-			"system_prompt": agent.SystemPrompt,
-		},
-	}, discardEventSink{})
+	fingerprint, err := requestidentity.BuildFingerprint(requestidentity.Input{
+		UserID: int64(input.UserID), Operation: "tool.generate_draft", Modality: "text",
+		AgentID: int64(agent.AgentID), ModelID: agent.ModelID, NormalizedText: string(fingerprintText),
+		Options: requestidentity.GenerationOptions{MaxOutputTokens: effectiveMaxOutputTokens},
+	})
 	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI生成工具草稿失败", err)
+		return nil, toolGenerationError(aitext.ErrorCodeRequestInvalid, apperror.CategoryValidation, 400, "AI工具请求身份无效", err)
 	}
-	if result == nil || strings.TrimSpace(result.Answer) == "" {
-		return nil, apperror.Internal("AI生成工具草稿为空")
+	providerPrompt := buildToolGenerateUserPrompt(requirement, codeHint)
+	inputSnapshot, err := aitext.EncodeProviderInputSnapshot(aitext.ProviderInputSnapshot{
+		Operation: "tool.generate_draft", Modality: "text", NormalizedText: string(fingerprintText),
+		MaxOutputTokens: effectiveMaxOutputTokens, Prompt: providerPrompt, SystemPrompt: strings.TrimSpace(agent.SystemPrompt),
+	})
+	if err != nil {
+		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryInternal, 500, "生成AI工具输入快照失败", err)
 	}
-	response, appErr := decodeGenerateDraftResponse(result.Answer)
+	if s == nil || s.draftTasks == nil {
+		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryInternal, 500, "AI工具生成任务服务未配置", nil)
+	}
+	result, appErr := s.draftTasks.SubmitAndWait(ctx, aitext.AcceptInput{
+		Platform: enum.PlatformAdmin, UserID: int64(input.UserID), RequestID: requestID, RequestFingerprint: fingerprint,
+		Kind: aitext.KindToolDraft, AgentID: agent.AgentID, ProviderID: agent.ProviderID,
+		ModelID: strings.TrimSpace(agent.ModelID), ModelDisplayName: strings.TrimSpace(agent.ModelDisplayName),
+		Prompt: providerPrompt, InputSnapshot: inputSnapshot, PricingSnapshotJSON: pricingSnapshotJSON,
+		EffectiveMaxOutputTokens: effectiveMaxOutputTokens,
+	})
 	if appErr != nil {
 		return nil, appErr
 	}
-	response.Usage = generateUsage(result)
+	return s.generateDraftResponse(result)
+}
+
+func (s *Service) generateDraftResponse(result *aitext.Result) (*GenerateDraftResponse, *apperror.Error) {
+	if result == nil || strings.TrimSpace(result.Answer) == "" {
+		return nil, toolGenerationError(aitext.ErrorCodeProviderFailed, apperror.CategoryDependency, 502, "AI生成工具草稿为空", nil)
+	}
+	normalized, appErr := NormalizeGenerateDraftCandidate(result.Answer)
+	if appErr != nil {
+		return nil, appErr
+	}
+	response, appErr := decodeGenerateDraftResponse(normalized)
+	if appErr != nil {
+		return nil, appErr
+	}
+	response.Usage = generateUsageFromTask(result)
 	if !response.OK {
-		response.Draft = nil
-		response.Warnings = trimStringList(response.Warnings)
-		response.ClarifyingQuestions = trimStringList(response.ClarifyingQuestions)
 		return response, nil
 	}
-	draft, appErr := s.normalizeGeneratedDraft(response.Draft)
-	if appErr != nil {
-		return nil, appErr
-	}
-	response.Draft = draft
-	response.Warnings = trimStringList(response.Warnings)
-	response.ClarifyingQuestions = trimStringList(response.ClarifyingQuestions)
-	if !s.executorRegistered(draft.Code) {
+	if !s.executorRegistered(response.Draft.Code) {
 		response.Draft.Status = enum.CommonNo
 		if !containsString(response.Warnings, unregisteredToolWarning) {
 			response.Warnings = append(response.Warnings, unregisteredToolWarning)
@@ -413,32 +450,7 @@ func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	return s.repository, nil
 }
 
-func (s *Service) engineForGenerateAgent(ctx context.Context, agent GenerateAgentConfig) (infraai.Engine, *apperror.Error) {
-	if agent.AgentID == 0 || agent.ProviderID == 0 {
-		return nil, apperror.BadRequest("AI生成智能体或供应商未配置")
-	}
-	apiKeyEnc := strings.TrimSpace(agent.EngineAPIKeyEnc)
-	if apiKeyEnc == "" {
-		return nil, apperror.BadRequest("AI供应商API Key未配置")
-	}
-	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "解密AI供应商API Key失败", err)
-	}
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequest("AI供应商API Key未配置")
-	}
-	if s.engineFactory == nil {
-		return nil, apperror.Internal("AI工具生成引擎工厂未配置")
-	}
-	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI工具生成引擎失败", err)
-	}
-	return engine, nil
-}
-
-func (s *Service) normalizeGeneratedDraft(draft *GeneratedToolDraft) (*GeneratedToolDraft, *apperror.Error) {
+func normalizeGeneratedDraft(draft *GeneratedToolDraft) (*GeneratedToolDraft, *apperror.Error) {
 	if draft == nil {
 		return nil, apperror.BadRequest("AI生成结果缺少工具草稿")
 	}
@@ -692,6 +704,31 @@ func decodeGenerateDraftResponse(raw string) (*GenerateDraftResponse, *apperror.
 	return &response, nil
 }
 
+// NormalizeGenerateDraftCandidate validates and canonicalizes provider output
+// before the Gateway can publish or settle it as a usable tool draft.
+func NormalizeGenerateDraftCandidate(raw string) (string, *apperror.Error) {
+	response, appErr := decodeGenerateDraftResponse(raw)
+	if appErr != nil {
+		return "", appErr
+	}
+	if response.OK {
+		draft, appErr := normalizeGeneratedDraft(response.Draft)
+		if appErr != nil {
+			return "", appErr
+		}
+		response.Draft = draft
+	} else {
+		response.Draft = nil
+	}
+	response.Warnings = trimStringList(response.Warnings)
+	response.ClarifyingQuestions = trimStringList(response.ClarifyingQuestions)
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return "", apperror.LegacyWrap(apperror.CodeInternal, 500, "规范化AI工具草稿失败", err)
+	}
+	return string(encoded), nil
+}
+
 func buildToolGenerateUserPrompt(requirement string, codeHint string) string {
 	builder := strings.Builder{}
 	builder.WriteString("管理员要新增一个AI工具，请根据下面需求生成工具草稿。\n\n")
@@ -705,11 +742,43 @@ func buildToolGenerateUserPrompt(requirement string, codeHint string) string {
 	return builder.String()
 }
 
-func generateUsage(result *infraai.ChatResult) *GenerateUsage {
+func generateUsageFromTask(result *aitext.Result) *GenerateUsage {
 	if result == nil || (result.PromptTokens == 0 && result.CompletionTokens == 0 && result.TotalTokens == 0) {
 		return nil
 	}
 	return &GenerateUsage{PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens}
+}
+
+func toolDraftPricingSnapshot(agent GenerateAgentConfig) (string, int64, *apperror.Error) {
+	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+	if err != nil {
+		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, "该智能体缺少可用的官方模型价格", err)
+	}
+	if agent.MaxOutputTokens <= 0 || agent.MaxOutputTokens > model.MaxOutputTokens || agent.MaxOutputTokens > int64(^uint(0)>>1) {
+		return "", 0, toolGenerationError(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, "AI生成输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
+	}
+	snapshot := aigateway.PricingSnapshot{
+		Version: model.Version, Billable: true, CatalogVendor: model.CatalogVendor,
+		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
+		CanonicalModelID: model.ModelID, CatalogMaxOutputTokens: model.MaxOutputTokens,
+		EffectiveMaxOutputTokens: int(agent.MaxOutputTokens), MultiplierPPM: agent.BillingMultiplierPPM,
+		SourceURL: model.SourceURL, RetrievedAt: model.RetrievedAt, Rates: append([]pricing.Rate(nil), model.Rates...),
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, "生成AI模型价格快照失败", err)
+	}
+	return string(raw), agent.MaxOutputTokens, nil
+}
+
+func toolGenerationError(code string, category apperror.Category, status int, message string, cause error) *apperror.Error {
+	return apperror.Wrap(code, category, status, apperror.Permanent, "", nil, message, cause)
+}
+
+func normalizeDraftText(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.TrimSpace(value)
 }
 
 func validToolCode(value string) bool {
@@ -759,10 +828,6 @@ func containsString(values []string, target string) bool {
 	}
 	return false
 }
-
-type discardEventSink struct{}
-
-func (discardEventSink) Emit(ctx context.Context, event infraai.Event) error { return nil }
 
 func statusText(value int) string {
 	for _, item := range dict.CommonStatusOptions() {

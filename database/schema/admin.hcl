@@ -651,6 +651,20 @@ table "ai_image_tasks" {
     type    = varchar(16)
     default = "pending"
   }
+  column "lease_owner" {
+    null = true
+    type = varchar(128)
+  }
+  column "lease_token" {
+    null    = false
+    type    = bigint
+    unsigned = true
+    default = 0
+  }
+  column "lease_expires_at" {
+    null = true
+    type = datetime(6)
+  }
   column "error_message" {
     null    = false
     type    = varchar(1000)
@@ -720,6 +734,9 @@ table "ai_image_tasks" {
   index "idx_ai_image_tasks_run" {
     columns = [column.run_id]
   }
+  index "idx_ai_image_tasks_lease" {
+    columns = [column.status, column.lease_expires_at, column.id]
+  }
   index "uk_ai_image_tasks_user_request" {
     unique  = true
     columns = [column.user_id, column.request_id]
@@ -729,6 +746,9 @@ table "ai_image_tasks" {
   }
   check "chk_ai_image_tasks_request_identity" {
     expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
+  }
+  check "chk_ai_image_tasks_lease" {
+    expr = "(((`lease_owner` is null) and (`lease_expires_at` is null)) or ((`lease_owner` is not null) and (`lease_token` > 0) and (`lease_expires_at` is not null)))"
   }
 }
 table "ai_knowledge_bases" {

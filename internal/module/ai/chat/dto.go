@@ -273,14 +273,18 @@ type Repository interface {
 
 type RunRecorder = airun.Recorder
 
-type TextTaskStore = aitext.Store
+type TextGeneration interface {
+	ReplayAndWait(context.Context, aitext.ReplayInput) (*aitext.Result, bool, *apperror.Error)
+	SubmitAndWait(context.Context, aitext.AcceptInput) (*aitext.Result, *apperror.Error)
+}
 
 type TextCompletionInput struct {
-	Platform string
-	UserID   int64
-	AgentID  int64
-	ModelID  string
-	Message  string
+	Platform  string
+	RequestID string
+	UserID    int64
+	AgentID   int64
+	ModelID   string
+	Message   string
 }
 
 type TextCompletionResponse struct {

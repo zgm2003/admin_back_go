@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,17 +14,23 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/pricing"
+	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
@@ -53,6 +60,13 @@ const (
 	defaultOutputFormat = "png"
 	defaultModeration   = "auto"
 	defaultN            = 1
+	maxN                = 15
+	defaultTaskLeaseTTL = 30 * time.Second
+
+	gptImage2MinPixels = int64(655_360)
+	gptImage2MaxPixels = int64(8_294_400)
+	gptImage2MaxEdge   = int64(3_840)
+	gptImage2MaxAspect = int64(3)
 )
 
 const serviceTimeLayout = "2006-01-02 15:04:05"
@@ -72,9 +86,11 @@ type Service struct {
 	engineFactory ImageEngineFactory
 	objectReader  storagecos.ObjectReader
 	objectWriter  storagecos.ObjectWriter
-	runRecorder   airun.Recorder
+	executor      TaskExecutor
 	now           func() time.Time
 	random        func([]byte) (int, error)
+	leaseOwner    string
+	leaseTTL      time.Duration
 }
 
 type Dependencies struct {
@@ -85,8 +101,15 @@ type Dependencies struct {
 	ObjectReader  storagecos.ObjectReader
 	ObjectWriter  storagecos.ObjectWriter
 	RunRecorder   airun.Recorder
+	Executor      TaskExecutor
 	Now           func() time.Time
 	Random        func([]byte) (int, error)
+	LeaseOwner    string
+	LeaseTTL      time.Duration
+}
+
+type TaskExecutor interface {
+	ExecuteImageTask(context.Context, uint64) (string, error)
 }
 
 type ImageEngineConfig struct {
@@ -115,7 +138,49 @@ func NewService(deps Dependencies) *Service {
 	if deps.Random == nil {
 		deps.Random = rand.Read
 	}
-	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, runRecorder: deps.RunRecorder, now: deps.Now, random: deps.Random}
+	if deps.LeaseTTL <= 0 {
+		deps.LeaseTTL = defaultTaskLeaseTTL
+	}
+	if strings.TrimSpace(deps.LeaseOwner) == "" {
+		deps.LeaseOwner = newImageLeaseOwner(deps.Random)
+	}
+	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, executor: deps.Executor, now: deps.Now, random: deps.Random, leaseOwner: strings.TrimSpace(deps.LeaseOwner), leaseTTL: deps.LeaseTTL}
+}
+
+var ErrTaskLeaseLost = errors.New("AI image task lease lost")
+
+type TaskLease struct {
+	Task      ImageTask
+	Owner     string
+	Token     uint64
+	ExpiresAt time.Time
+}
+
+type imageTaskLeaseContextKey struct{}
+
+func WithTaskLease(ctx context.Context, lease TaskLease) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, imageTaskLeaseContextKey{}, lease)
+}
+
+func TaskLeaseFromContext(ctx context.Context) (TaskLease, bool) {
+	if ctx == nil {
+		return TaskLease{}, false
+	}
+	lease, ok := ctx.Value(imageTaskLeaseContextKey{}).(TaskLease)
+	return lease, ok && lease.Task.ID != 0 && strings.TrimSpace(lease.Owner) != "" && lease.Token != 0
+}
+
+func newImageLeaseOwner(random func([]byte) (int, error)) string {
+	var value [8]byte
+	if random != nil {
+		if count, err := random(value[:]); err == nil && count == len(value) {
+			return "ai-image-" + hex.EncodeToString(value[:])
+		}
+	}
+	return fmt.Sprintf("ai-image-%d", time.Now().UnixNano())
 }
 
 func (s *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
@@ -199,7 +264,18 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
+	replayed, appErr := s.findAcceptedImageReplay(ctx, repo, normalized)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if replayed != nil {
+		return s.enqueueAcceptedImageTask(ctx, *replayed)
+	}
 	agent, appErr := s.validImageAgent(ctx, repo, normalized.AgentID, capability.SceneImageGenerate)
+	if appErr != nil {
+		return nil, appErr
+	}
+	pricingSnapshotJSON, effectiveOutputTokens, appErr := imagePricingSnapshot(*agent, normalized)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -208,36 +284,248 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
-	task := ImageTask{Platform: normalized.Platform, UserID: normalized.UserID, AgentID: normalized.AgentID, AgentNameSnapshot: agent.AgentName, ProviderIDSnapshot: agent.ProviderID, ProviderNameSnapshot: agent.ProviderName, ModelIDSnapshot: agent.ModelID, ModelDisplayNameSnapshot: agent.ModelDisplayName, Prompt: normalized.Prompt, Size: normalized.Size, Quality: normalized.Quality, OutputFormat: normalized.OutputFormat, OutputCompression: normalized.OutputCompression, Moderation: normalized.Moderation, N: normalized.N, Status: StatusPending, IsFavorite: enum.CommonNo, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}
-	id, err := repo.CreateTaskWithFiles(ctx, task, files)
+	inputSnapshot, snapshot, appErr := imageProviderInputSnapshot(normalized, agent.ModelID, effectiveOutputTokens)
+	if appErr != nil {
+		return nil, appErr
+	}
+	fingerprint, err := imageRequestFingerprint(normalized.UserID, normalized.AgentID, snapshot)
 	if err != nil {
+		return nil, apperror.Wrap("aiimage.request.invalid", apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "", nil, "图片请求身份无效", err)
+	}
+	task := ImageTask{Platform: normalized.Platform, UserID: normalized.UserID, RequestID: normalized.RequestID, RequestFingerprint: append([]byte(nil), fingerprint[:]...), RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), AgentID: normalized.AgentID, AgentNameSnapshot: agent.AgentName, ProviderIDSnapshot: agent.ProviderID, ProviderNameSnapshot: agent.ProviderName, ModelIDSnapshot: agent.ModelID, ModelDisplayNameSnapshot: agent.ModelDisplayName, Prompt: normalized.Prompt, Size: normalized.Size, Quality: normalized.Quality, OutputFormat: normalized.OutputFormat, OutputCompression: normalized.OutputCompression, Moderation: normalized.Moderation, N: normalized.N, Status: StatusPending, IsFavorite: enum.CommonNo, IsDel: enum.CommonNo, CreatedAt: now, UpdatedAt: now}
+	accepted, err := repo.AcceptTaskWithFiles(context.WithoutCancel(ctx), AcceptTaskInput{Task: task, Files: files, InputSnapshot: inputSnapshot, PricingSnapshotJSON: pricingSnapshotJSON, EffectiveOutputTokens: effectiveOutputTokens, AcceptedAt: now})
+	if err != nil {
+		if errors.Is(err, requestidentity.ErrRequestIdentityConflict) || errors.Is(err, requestidentity.ErrRequestIdentityNotReplayable) {
+			return nil, apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "request_id与原请求内容冲突", err)
+		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.create_failed", nil, "创建图片任务失败", err)
 	}
-	task.ID = id
-	queueTask, err := NewGenerateTask(GeneratePayload{Platform: normalized.Platform, TaskID: id, UserID: normalized.UserID})
+	if accepted == nil || accepted.ID == 0 || accepted.RunID <= 0 {
+		return nil, apperror.InternalKey("aiimage.task.accept_invalid", nil, "图片任务接受结果无效")
+	}
+	return s.enqueueAcceptedImageTask(ctx, *accepted)
+}
+
+func (s *Service) findAcceptedImageReplay(ctx context.Context, repo Repository, input CreateInput) (*ImageTask, *apperror.Error) {
+	replay, err := repo.FindAcceptedTaskByRequestID(ctx, input.UserID, input.RequestID)
+	if err != nil {
+		if errors.Is(err, requestidentity.ErrRequestIdentityConflict) || errors.Is(err, requestidentity.ErrRequestIdentityNotReplayable) {
+			return nil, imageRequestConflict(err)
+		}
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.replay_query_failed", nil, "查询图片请求重放事实失败", err)
+	}
+	if replay == nil {
+		return nil, nil
+	}
+	persistedInput, err := DecodeProviderInputSnapshot(replay.InputSnapshot)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.replay_snapshot_invalid", nil, "图片请求重放快照无效", err)
+	}
+	persistedPricing, err := aigateway.ParsePricingSnapshot(replay.PricingSnapshotJSON)
+	if err != nil || persistedInput.Model != persistedPricing.RequestedModelID ||
+		persistedInput.MaxOutputTokens != int64(persistedPricing.EffectiveMaxOutputTokens) ||
+		replay.Task.ModelIDSnapshot != persistedInput.Model {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.task.replay_snapshot_invalid", nil, "图片请求重放快照无效", requestidentity.ErrRequestIdentityNotReplayable)
+	}
+	_, candidate, appErr := imageProviderInputSnapshot(input, persistedInput.Model, persistedInput.MaxOutputTokens)
+	if appErr != nil {
+		return nil, appErr
+	}
+	fingerprint, err := imageRequestFingerprint(input.UserID, input.AgentID, candidate)
+	if err != nil {
+		return nil, imageRequestConflict(err)
+	}
+	if err := compareImageFingerprint(replay.Task, fingerprint[:]); err != nil {
+		return nil, imageRequestConflict(err)
+	}
+	task := replay.Task
+	return &task, nil
+}
+
+func imageRequestConflict(err error) *apperror.Error {
+	return apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "request_id与原请求内容冲突", err)
+}
+
+func (s *Service) enqueueAcceptedImageTask(ctx context.Context, task ImageTask) (*CreateTaskResponse, *apperror.Error) {
+	queueTask, err := NewGenerateTask(GeneratePayload{Platform: task.Platform, TaskID: task.ID, UserID: task.UserID})
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.create_failed", nil, "创建图片队列任务失败", err)
 	}
-	if _, err := s.enqueuer.Enqueue(ctx, queueTask); err != nil {
-		_ = repo.FinishTaskFailed(context.Background(), normalized.Platform, normalized.UserID, id, "图片生成任务入队失败", 0, s.now())
+	if _, err := s.enqueuer.Enqueue(context.WithoutCancel(ctx), queueTask); err != nil && !taskqueue.IsDuplicateTask(err) {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.queue_task.enqueue_failed", nil, "图片生成任务入队失败", err)
 	}
 	return &CreateTaskResponse{Task: taskDTO(task)}, nil
 }
 
-func (s *Service) CreateWithUploadedFiles(ctx context.Context, input CreateWithUploadedFilesInput) (*CreateTaskResponse, *apperror.Error) {
-	if appErr := validateTaskPlatform(input.CreateInput.Platform); appErr != nil {
-		return nil, appErr
+func imagePricingSnapshot(agent AgentRuntime, input CreateInput) (string, int64, *apperror.Error) {
+	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+	if err != nil {
+		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "该图片智能体缺少可用的官方模型价格", err)
 	}
+	effective, err := gptImage2OutputTokenUpperBound(input.Size, input.Quality, input.N)
+	if err != nil || effective > model.MaxOutputTokens || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens == 0 ||
+		uint64(agent.MaxOutputTokens) > uint64(math.MaxInt64) || int64(agent.MaxOutputTokens) > model.MaxOutputTokens ||
+		effective > int64(agent.MaxOutputTokens) {
+		return "", 0, apperror.Wrap("ai.billing.unsafe_upper_bound", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "图片生成输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
+	}
+	snapshot := aigateway.PricingSnapshot{
+		Version: model.Version, Billable: true, CatalogVendor: model.CatalogVendor, TransportEngine: strings.TrimSpace(agent.EngineType),
+		RequestedModelID: strings.TrimSpace(agent.ModelID), CanonicalModelID: model.ModelID, CatalogMaxOutputTokens: model.MaxOutputTokens,
+		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM, SourceURL: model.SourceURL,
+		RetrievedAt: model.RetrievedAt, Rates: append([]pricing.Rate(nil), model.Rates...),
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Permanent, "", nil, "生成图片价格快照失败", err)
+	}
+	return string(raw), effective, nil
+}
+
+// Formula and size constraints mirror OpenAI's audited gpt-image-2 calculator.
+// https://developers.openai.com/api/docs/guides/image-generation#gpt-image-2-output-tokens
+func gptImage2OutputTokenUpperBound(size, quality string, count int) (int64, error) {
+	if count <= 0 || count > maxN {
+		return 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	qualityBase := int64(0)
+	switch strings.TrimSpace(quality) {
+	case "low":
+		qualityBase = 16
+	case "medium":
+		qualityBase = 48
+	case "high", "auto":
+		qualityBase = 96
+	default:
+		return 0, pricing.ErrUnsafeTokenUpperBound
+	}
+
+	var perImage int64
+	if strings.TrimSpace(size) == "auto" {
+		perImage = ceilPositive(qualityBase*qualityBase*(2_000_000+gptImage2MaxPixels), 4_000_000)
+	} else {
+		width, height, err := parseGPTImage2Size(size)
+		if err != nil {
+			return 0, err
+		}
+		longEdge, shortEdge := width, height
+		if longEdge < shortEdge {
+			longEdge, shortEdge = shortEdge, longEdge
+		}
+		scaledBase := (qualityBase*shortEdge + longEdge/2) / longEdge
+		latentTokens := qualityBase * scaledBase
+		perImage = ceilPositive(latentTokens*(2_000_000+width*height), 4_000_000)
+	}
+	if perImage <= 0 || perImage > math.MaxInt64/int64(count) {
+		return 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	return perImage * int64(count), nil
+}
+
+func parseGPTImage2Size(size string) (int64, int64, error) {
+	widthRaw, heightRaw, ok := strings.Cut(strings.TrimSpace(size), "x")
+	if !ok {
+		return 0, 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	width, err := strconv.ParseInt(widthRaw, 10, 64)
+	if err != nil {
+		return 0, 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	height, err := strconv.ParseInt(heightRaw, 10, 64)
+	if err != nil || width <= 0 || height <= 0 || width%16 != 0 || height%16 != 0 || width > gptImage2MaxEdge || height > gptImage2MaxEdge {
+		return 0, 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	pixels := width * height
+	longEdge, shortEdge := width, height
+	if longEdge < shortEdge {
+		longEdge, shortEdge = shortEdge, longEdge
+	}
+	if pixels < gptImage2MinPixels || pixels > gptImage2MaxPixels || longEdge > shortEdge*gptImage2MaxAspect {
+		return 0, 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	return width, height, nil
+}
+
+func ceilPositive(numerator, denominator int64) int64 {
+	return (numerator + denominator - 1) / denominator
+}
+
+func imageProviderInputSnapshot(input CreateInput, model string, maxOutputTokens int64) (string, ProviderInputSnapshot, *apperror.Error) {
+	attachments := make([]AttachmentSnapshot, 0, len(input.InputFiles)+1)
+	appendAttachment := func(file ImageFileInput, role string, sortOrder, relatedSortOrder int) *apperror.Error {
+		provider := strings.TrimSpace(file.StorageProvider)
+		key := strings.TrimSpace(file.StorageKey)
+		digest := strings.ToLower(strings.TrimSpace(file.SHA256))
+		if provider != StorageProviderCOS || key == "" || file.SizeBytes <= 0 || len(digest) != 64 {
+			return apperror.BadRequestKey("aiimage.asset.identity.invalid", nil, "图片附件必须包含稳定COS对象、大小和SHA-256摘要")
+		}
+		if decoded, err := hex.DecodeString(digest); err != nil || len(decoded) != 32 {
+			return apperror.BadRequestKey("aiimage.asset.identity.invalid", nil, "图片附件SHA-256摘要无效")
+		}
+		attachments = append(attachments, AttachmentSnapshot{Role: role, SortOrder: sortOrder, StorageProvider: provider, StorageKey: key, SHA256: digest, MimeType: strings.TrimSpace(file.MimeType), SizeBytes: file.SizeBytes, RelatedSortOrder: relatedSortOrder})
+		return nil
+	}
+	for index, file := range input.InputFiles {
+		if appErr := appendAttachment(file, FileRoleInput, index+1, 0); appErr != nil {
+			return "", ProviderInputSnapshot{}, appErr
+		}
+	}
+	if input.MaskFile != nil {
+		if appErr := appendAttachment(input.MaskFile.ImageFileInput, FileRoleMask, 1, input.MaskFile.RelatedSortOrder); appErr != nil {
+			return "", ProviderInputSnapshot{}, appErr
+		}
+	}
+	snapshot := ProviderInputSnapshot{Operation: "image.generate", Modality: "image", Model: model, Prompt: input.Prompt, Size: input.Size, Quality: input.Quality, OutputFormat: input.OutputFormat, OutputCompression: input.OutputCompression, Moderation: input.Moderation, N: input.N, MaxOutputTokens: maxOutputTokens, Attachments: attachments}
+	raw, err := EncodeProviderInputSnapshot(snapshot)
+	if err != nil {
+		return "", ProviderInputSnapshot{}, apperror.Wrap("aiimage.request.invalid", apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "", nil, "图片请求快照无效", err)
+	}
+	decoded, err := DecodeProviderInputSnapshot(raw)
+	if err != nil {
+		return "", ProviderInputSnapshot{}, apperror.Wrap("aiimage.request.invalid", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Permanent, "", nil, "图片请求快照无效", err)
+	}
+	return raw, decoded, nil
+}
+
+func (s *Service) CreateWithUploadedFiles(ctx context.Context, input CreateWithUploadedFilesInput) (*CreateTaskResponse, *apperror.Error) {
 	if len(input.Files) == 0 {
 		return s.Create(ctx, input.CreateInput)
 	}
-	uploaded, appErr := s.storeUploadedFiles(ctx, input.CreateInput.UserID, input.Files)
+	if s == nil || s.enqueuer == nil {
+		return nil, apperror.InternalKey("aiimage.queue_missing", nil, "图片生成队列未配置")
+	}
+	normalized, appErr := s.normalizeCreateInput(input.CreateInput)
 	if appErr != nil {
 		return nil, appErr
 	}
-	input.CreateInput.InputFiles = append(input.CreateInput.InputFiles, uploaded...)
-	return s.Create(ctx, input.CreateInput)
+	prepared, appErr := prepareUploadedFiles(normalized.UserID, normalized.RequestID, input.Files)
+	if appErr != nil {
+		return nil, appErr
+	}
+	baseFileCount := len(normalized.InputFiles)
+	for _, upload := range prepared {
+		normalized.InputFiles = append(normalized.InputFiles, upload.File)
+	}
+	normalized, appErr = s.normalizeCreateInput(normalized)
+	if appErr != nil {
+		return nil, appErr
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	replayed, appErr := s.findAcceptedImageReplay(ctx, repo, normalized)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if replayed != nil {
+		return s.enqueueAcceptedImageTask(ctx, *replayed)
+	}
+	uploaded, appErr := s.storePreparedUploadedFiles(ctx, repo, prepared)
+	if appErr != nil {
+		return nil, appErr
+	}
+	copy(normalized.InputFiles[baseFileCount:], uploaded)
+	return s.Create(ctx, normalized)
 }
 
 func (s *Service) Delete(ctx context.Context, userID uint64, taskID uint64, platform string) *apperror.Error {
@@ -272,85 +560,100 @@ func (s *Service) ExecuteGenerate(ctx context.Context, input GenerateInput) (*Ge
 	if appErr != nil {
 		return nil, appErr
 	}
-	startedAt := s.now()
-	claimed, err := repo.ClaimTask(ctx, input.Platform, input.UserID, input.TaskID, startedAt)
+	if s.executor == nil {
+		return nil, apperror.InternalKey("aiimage.executor_missing", nil, "AI图片持久化执行器未配置")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	claim, err := repo.ClaimTaskLease(ctx, input.Platform, input.UserID, input.TaskID, s.leaseOwner, s.now(), s.leaseTTL)
 	if err != nil {
 		return nil, fmt.Errorf("claim ai image task: %w", err)
 	}
-	if !claimed {
+	if claim == nil {
 		task, loadErr := repo.GetTaskForWorker(ctx, input.Platform, input.UserID, input.TaskID)
 		if loadErr != nil {
-			return nil, fmt.Errorf("load unclaimed ai image task: %w", loadErr)
+			return nil, fmt.Errorf("load ai image task: %w", loadErr)
 		}
-		status := "unclaimed"
-		if task != nil {
-			status = task.Status
+		if task == nil {
+			return nil, errors.New("ai image task does not exist")
 		}
-		return &GenerateResult{TaskID: input.TaskID, Status: status}, nil
+		return &GenerateResult{TaskID: task.ID, Status: task.Status}, nil
 	}
-	task, err := repo.GetTaskForWorker(ctx, input.Platform, input.UserID, input.TaskID)
+	task := &claim.Task
+	if task.ID != input.TaskID || task.UserID != input.UserID || task.Platform != input.Platform ||
+		task.RunID <= 0 || strings.TrimSpace(task.RequestID) == "" || len(task.RequestFingerprint) != sha256.Size ||
+		requestidentity.IdentityStatus(task.RequestIdentityStatus) != requestidentity.IdentityStatusReplayable {
+		return nil, errors.New("ai image task execution identity is invalid")
+	}
+	if task.Status == StatusSuccess || task.Status == StatusFailed {
+		return &GenerateResult{TaskID: task.ID, Status: task.Status}, nil
+	}
+	runCtx, stopRenewal := s.startTaskLeaseRenewal(ctx, repo, claim)
+	status, err := s.executor.ExecuteImageTask(WithTaskLease(runCtx, *claim), task.ID)
+	leaseLost, renewErr := stopRenewal()
+	if leaseLost {
+		return nil, errors.Join(ErrTaskLeaseLost, renewErr)
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if errors.Is(err, ErrTaskLeaseLost) {
+		return nil, err
+	}
 	if err != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "读取图片任务失败", err)
+		return nil, err
 	}
-	if task == nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片任务不存在", nil)
+	return &GenerateResult{TaskID: task.ID, Status: status}, nil
+}
+
+func (s *Service) startTaskLeaseRenewal(ctx context.Context, repo Repository, claim *TaskLease) (context.Context, func() (bool, error)) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if appErr := validateTaskPlatform(task.Platform); appErr != nil || task.Platform != input.Platform {
-		if appErr == nil {
-			appErr = apperror.BadRequestKey("aiimage.platform.invalid", nil, "无效的图片任务平台")
+	runCtx, cancelRun := context.WithCancelCause(ctx)
+	renewCtx, cancelRenew := context.WithCancel(ctx)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var leaseLost bool
+	var renewalErr error
+	go func() {
+		defer close(done)
+		interval := s.leaseTTL / 3
+		if interval < time.Millisecond {
+			interval = time.Millisecond
 		}
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, appErr.Message, appErr)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				now := s.now()
+				alive, err := repo.RenewTaskLease(renewCtx, claim.Task.ID, claim.Owner, claim.Token, now, now.Add(s.leaseTTL))
+				if err != nil || !alive {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					leaseLost, renewalErr = true, err
+					cancelRun(ErrTaskLeaseLost)
+					return
+				}
+			}
+		}
+	}()
+	return runCtx, func() (bool, error) {
+		close(stop)
+		cancelRenew()
+		<-done
+		cancelRun(nil)
+		return leaseLost, renewalErr
 	}
-	if s.runRecorder == nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "图片运行记录服务未配置", nil)
-	}
-	runID, err := s.runRecorder.Start(ctx, airun.StartInput{Platform: task.Platform, RequestID: fmt.Sprintf("ai_image_task_%d", task.ID), UserID: int64(task.UserID), AgentID: int64(task.AgentID), ProviderID: int64(task.ProviderIDSnapshot), ModelID: task.ModelIDSnapshot, ModelDisplayName: task.ModelDisplayNameSnapshot, InputSnapshot: task.Prompt, StartedAt: startedAt})
-	if err != nil {
-		return s.finishGenerateFailed(context.Background(), repo, input, startedAt, "创建图片运行记录失败", err)
-	}
-	agent, appErr := s.validImageAgent(ctx, repo, task.AgentID, capability.SceneImageGenerate)
-	if appErr != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
-	}
-	files, err := repo.LoadTaskFiles(ctx, task.ID)
-	if err != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "读取图片任务文件失败", err)
-	}
-	assets, appErr := s.engineAssets(ctx, repo, files)
-	if appErr != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
-	}
-	apiKey, appErr := s.decryptProviderKey(agent.APIKeyEnc)
-	if appErr != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
-	}
-	engine := s.imageEngine(ImageEngineConfig{EngineType: agent.EngineType, BaseURL: agent.BaseURL, APIKey: apiKey, Timeout: 10 * time.Minute})
-	if engine == nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成引擎未配置", nil)
-	}
-	result, err := engine.GenerateImages(ctx, infraai.ImageInput{Model: task.ModelIDSnapshot, Prompt: task.Prompt, Size: task.Size, Quality: task.Quality, OutputFormat: task.OutputFormat, OutputCompression: task.OutputCompression, Moderation: task.Moderation, N: task.N, InputAssets: assets.inputs, MaskAsset: assets.mask})
-	if err != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成失败", err)
-	}
-	if result == nil || len(result.Images) == 0 {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, "图片生成结果为空", nil)
-	}
-	if appErr := validateImageRunUsageStatus(result); appErr != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
-	}
-	if appErr := s.persistOutputs(ctx, repo, *task, result); appErr != nil {
-		return s.finishGenerateFailedWithRun(context.Background(), repo, input, runID, startedAt, appErr.Message, appErr)
-	}
-	finishedAt := s.now()
-	actualParamsJSON := jsonString(result.ActualParams)
-	rawResponseJSON := sanitizeRawResponse(result.RawResponse)
-	if err := repo.FinishTaskSuccess(ctx, task.Platform, task.UserID, task.ID, actualParamsJSON, rawResponseJSON, elapsedMS(startedAt, finishedAt), finishedAt); err != nil {
-		return nil, fmt.Errorf("finish ai image task success: %w", err)
-	}
-	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens, FinishedAt: finishedAt, DurationMS: uint(elapsedMS(startedAt, finishedAt))}); err != nil {
-		return nil, fmt.Errorf("finish ai image run success: %w", err)
-	}
-	return &GenerateResult{TaskID: task.ID, Status: StatusSuccess}, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -368,6 +671,7 @@ func validateTaskPlatform(platform string) *apperror.Error {
 }
 
 func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
+	input.RequestID = strings.TrimSpace(input.RequestID)
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	input.Platform = strings.TrimSpace(input.Platform)
 	input.Size = strings.TrimSpace(input.Size)
@@ -376,6 +680,9 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	input.Moderation = strings.TrimSpace(input.Moderation)
 	if input.UserID == 0 {
 		return CreateInput{}, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+	}
+	if input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {
+		return CreateInput{}, apperror.BadRequestKey("aiimage.request_id.invalid", nil, "request_id不能为空且不能超过128个字符")
 	}
 	if input.AgentID == 0 {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.agent.required", nil, "图片智能体不能为空")
@@ -419,7 +726,6 @@ func (s *Service) normalizeCreateInput(input CreateInput) (CreateInput, *apperro
 	if input.N <= 0 {
 		input.N = defaultN
 	}
-	maxN := 15
 	if input.N > maxN {
 		return CreateInput{}, apperror.BadRequestKey("aiimage.n.too_many", nil, "单次生成图片数量超出限制")
 	}
@@ -594,43 +900,53 @@ func (s *Service) readCOSFile(ctx context.Context, cfg *cosRuntimeConfig, file I
 	return infraai.ImageAsset{Name: path.Base(file.StorageKey), MimeType: mimeType, Data: result.Body}, nil
 }
 
-func (s *Service) storeUploadedFiles(ctx context.Context, userID uint64, uploads []UploadedFileInput) ([]ImageFileInput, *apperror.Error) {
-	if userID == 0 {
-		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
+type preparedUploadedFile struct {
+	File ImageFileInput
+	Body []byte
+}
+
+func prepareUploadedFiles(userID uint64, requestID string, uploads []UploadedFileInput) ([]preparedUploadedFile, *apperror.Error) {
+	files := make([]preparedUploadedFile, 0, len(uploads))
+	requestNamespace := sha256.Sum256([]byte(fmt.Sprintf("ai-image-input:v1\x00%d\x00%s", userID, strings.TrimSpace(requestID))))
+	for index, upload := range uploads {
+		body := append([]byte(nil), upload.Body...)
+		if len(body) == 0 {
+			return nil, apperror.BadRequestKey("aiimage.upload.empty", nil, "上传图片不能为空")
+		}
+		mimeType := strings.ToLower(strings.TrimSpace(upload.MimeType))
+		if mimeType == "" {
+			mimeType = http.DetectContentType(body)
+		}
+		if !strings.HasPrefix(mimeType, "image/") {
+			return nil, apperror.BadRequestKey("aiimage.upload.mime.invalid", nil, "上传图片MIME类型不合法")
+		}
+		digest := sha256.Sum256(body)
+		digestHex := hex.EncodeToString(digest[:])
+		key := fmt.Sprintf("ai-image-inputs/v1/%s/%02d-%s%s", hex.EncodeToString(requestNamespace[:]), index+1, digestHex, extensionForMime(mimeType))
+		files = append(files, preparedUploadedFile{
+			File: ImageFileInput{StorageProvider: StorageProviderCOS, StorageKey: key, MimeType: mimeType, SizeBytes: int64(len(body)), SHA256: digestHex},
+			Body: body,
+		})
 	}
+	return files, nil
+}
+
+func (s *Service) storePreparedUploadedFiles(ctx context.Context, repo Repository, uploads []preparedUploadedFile) ([]ImageFileInput, *apperror.Error) {
 	if s == nil || s.objectWriter == nil {
 		return nil, apperror.InternalKey("aiimage.cos_writer.missing", nil, "COS写入器未配置")
-	}
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
 	}
 	cfg, appErr := s.loadCOSConfig(ctx, repo)
 	if appErr != nil {
 		return nil, appErr
 	}
-	now := s.now()
 	files := make([]ImageFileInput, 0, len(uploads))
-	for index, upload := range uploads {
-		body := upload.Body
-		if len(body) == 0 {
-			return nil, apperror.BadRequestKey("aiimage.upload.empty", nil, "上传图片不能为空")
-		}
-		mimeType := strings.TrimSpace(upload.MimeType)
-		if mimeType == "" {
-			mimeType = http.DetectContentType(body)
-		}
-		if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
-			return nil, apperror.BadRequestKey("aiimage.upload.mime.invalid", nil, "上传图片MIME类型不合法")
-		}
-		key, err := s.inputKey(userID, index, mimeType, now)
-		if err != nil {
-			return nil, apperror.InternalKey("aiimage.input_key.build_failed", nil, "参考图存储路径失败")
-		}
-		if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: key, Body: body, ContentType: mimeType}); err != nil {
+	for _, upload := range uploads {
+		file := upload.File
+		if err := s.objectWriter.Put(ctx, storagecos.PutInput{SecretID: cfg.SecretID, SecretKey: cfg.SecretKey, Bucket: cfg.Bucket, Region: cfg.Region, Endpoint: cfg.Endpoint, Key: file.StorageKey, Body: upload.Body, ContentType: file.MimeType}); err != nil {
 			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiimage.input.upload_failed", nil, "上传参考图失败", err)
 		}
-		files = append(files, ImageFileInput{StorageProvider: StorageProviderCOS, StorageKey: key, StorageURL: publicCOSURL(*cfg, key), MimeType: mimeType, SizeBytes: int64(len(body))})
+		file.StorageURL = publicCOSURL(*cfg, file.StorageKey)
+		files = append(files, file)
 	}
 	return files, nil
 }
@@ -729,37 +1045,6 @@ func (s *Service) outputKey(taskID uint64, index int, mimeType string, now time.
 	return fmt.Sprintf("ai-images/%04d/%02d/%02d/%d-%02d-%s%s", now.Year(), int(now.Month()), now.Day(), taskID, index+1, hex.EncodeToString(randBytes), extensionForMime(mimeType)), nil
 }
 
-func (s *Service) inputKey(userID uint64, index int, mimeType string, now time.Time) (string, error) {
-	randBytes := make([]byte, 6)
-	if _, err := s.random(randBytes); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("ai-image-inputs/%04d/%02d/%02d/%d-%02d-%s%s", now.Year(), int(now.Month()), now.Day(), userID, index+1, hex.EncodeToString(randBytes), extensionForMime(mimeType)), nil
-}
-
-func (s *Service) finishGenerateFailed(ctx context.Context, repo Repository, input GenerateInput, startedAt time.Time, message string, cause error) (*GenerateResult, error) {
-	if err := s.finishFailed(ctx, repo, input, startedAt, message, cause); err != nil {
-		return nil, err
-	}
-	return &GenerateResult{TaskID: input.TaskID, Status: StatusFailed}, nil
-}
-func (s *Service) finishGenerateFailedWithRun(ctx context.Context, repo Repository, input GenerateInput, runID int64, startedAt time.Time, message string, cause error) (*GenerateResult, error) {
-	finishedAt := s.now()
-	duration := uint(elapsedMS(startedAt, finishedAt))
-	failInput := airun.FailInput{RunID: runID, Message: trimErrorMessage(message, cause), FinishedAt: finishedAt, DurationMS: duration}
-	switch statusFromImageError(ctx, cause) {
-	case enum.AIRunStatusCanceled:
-		_ = s.runRecorder.Cancel(context.Background(), airun.CancelInput(failInput))
-	case enum.AIRunStatusTimeout:
-		_ = s.runRecorder.Timeout(context.Background(), airun.TimeoutInput(failInput))
-	default:
-		_ = s.runRecorder.Fail(context.Background(), failInput)
-	}
-	if err := repo.FinishTaskFailed(ctx, input.Platform, input.UserID, input.TaskID, failInput.Message, int(duration), finishedAt); err != nil {
-		return nil, fmt.Errorf("finish ai image task failed state: %w", err)
-	}
-	return &GenerateResult{TaskID: input.TaskID, Status: StatusFailed}, nil
-}
 func (s *Service) finishFailed(ctx context.Context, repo Repository, input GenerateInput, startedAt time.Time, message string, cause error) error {
 	message = trimErrorMessage(message, cause)
 	finishedAt := s.now()

@@ -154,7 +154,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, errors.New("worker runtime queue graph is incomplete")
 			}
 			publisher := realtimePublisherForWorker(cfg, resources, recorder)
-			replyRunner, replyReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
+			replyRunner, replyReconciler, textReconciler, imageReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
 			if err != nil {
 				return nil, err
 			}
@@ -167,8 +167,21 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				_ = runnerCleanup(context.WithoutCancel(ctx))
 				return nil, err
 			}
+			textReconcilerCleanup, err := startReplyCommandPoller(ctx, textReconciler, time.Second, 1, logger)
+			if err != nil {
+				_ = reconcilerCleanup(context.WithoutCancel(ctx))
+				_ = runnerCleanup(context.WithoutCancel(ctx))
+				return nil, err
+			}
+			imageReconcilerCleanup, err := startReplyCommandPoller(ctx, imageReconciler, time.Second, 1, logger)
+			if err != nil {
+				_ = textReconcilerCleanup(context.WithoutCancel(ctx))
+				_ = reconcilerCleanup(context.WithoutCancel(ctx))
+				_ = runnerCleanup(context.WithoutCancel(ctx))
+				return nil, err
+			}
 			return func(ctx context.Context) error {
-				return errors.Join(reconcilerCleanup(ctx), runnerCleanup(ctx))
+				return errors.Join(imageReconcilerCleanup(ctx), textReconcilerCleanup(ctx), reconcilerCleanup(ctx), runnerCleanup(ctx))
 			}, nil
 		},
 		startQueue: func(ctx context.Context) (CleanupFunc, error) {
@@ -236,7 +249,7 @@ func registerWorkerHandlers(
 	realtimePublisher infrarealtime.Publisher,
 	queueClient *taskqueue.Client,
 	queueMux *taskqueue.Mux,
-) (*replycommand.Runner, *replycommand.Reconciler, error) {
+) (*replycommand.Runner, *replycommand.Reconciler, *aitext.Reconciler, *aiimage.Reconciler, error) {
 	realtimeEventRepository := modulerealtime.NewGormRepository(resources.DB, modulerealtime.DefaultRegistry())
 	realtimeEventSink := modulerealtime.NewDurableEventSink(realtimeEventRepository, realtimePublisher, logger)
 	realtimeRetentionService := modulerealtime.NewRetentionService(realtimeEventRepository)
@@ -251,7 +264,7 @@ func registerWorkerHandlers(
 		Provider: user.NewExportDataProvider(user.NewGormRepository(resources.DB)),
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	exportTaskService := exporttask.NewService(
 		exporttask.NewGormRepository(resources.DB),
@@ -275,8 +288,14 @@ func registerWorkerHandlers(
 	walletRepository := walletmodule.NewGormRepository(resources.DB)
 	paidChatExecutor := newPaidChatAttemptExecutor(resources.DB, walletRepository, replyRepository, realtimeEventSink)
 	if paidChatExecutor == nil {
-		return nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
+		return nil, nil, nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
 	}
+	paidTextExecutor := newPaidTextTaskExecutor(resources.DB, walletRepository, aiTextTasks, providers.AIChatFactory, providers.AIToolFactory, providers.Secretbox)
+	if paidTextExecutor == nil {
+		return nil, nil, nil, nil, errors.New("worker paid AI text Gateway dependencies are incomplete")
+	}
+	textWaker := aitext.NewWakeupEnqueuer(queueClient)
+	aiTextService := aitext.NewService(aitext.ServiceDependencies{Store: aiTextTasks, Waker: textWaker, Executor: paidTextExecutor})
 	aiChatService := aichat.NewService(aichat.Dependencies{
 		Repository:          aichat.NewGormRepository(resources.DB),
 		AssistantPublisher:  replyAssistantPublisher{repository: replyRepository},
@@ -285,7 +304,7 @@ func registerWorkerHandlers(
 		Secretbox:           providers.Secretbox,
 		EngineFactory:       providers.AIChatFactory,
 		RunRecorder:         aiRunRecorder,
-		TextTasks:           aiTextTasks,
+		TextGeneration:      aiTextService,
 		RunStaleTimeout:     positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 		Logger:              logger,
 	})
@@ -296,13 +315,21 @@ func registerWorkerHandlers(
 		CancelSubscriber: replycommand.NewRedisCancelSubscriber(resources.Redis),
 		Logger:           logger,
 	})
+	imageRepository := aiimage.NewGormRepository(resources.DB)
+	paidImageExecutor := newPaidImageTaskExecutor(resources.DB, walletRepository, imageRepository, providers.AIImageFactory, providers.Secretbox, providers.ObjectReader, providers.ObjectWriter)
+	if paidImageExecutor == nil {
+		return nil, nil, nil, nil, errors.New("worker paid AI image Gateway dependencies are incomplete")
+	}
+	imageWaker := aiimage.NewWakeupEnqueuer(queueClient)
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
-		Repository:    aiimage.NewGormRepository(resources.DB),
+		Repository:    imageRepository,
+		Enqueuer:      queueClient,
 		Secretbox:     providers.Secretbox,
 		EngineFactory: providers.AIImageFactory,
 		ObjectReader:  providers.ObjectReader,
 		ObjectWriter:  providers.ObjectWriter,
 		RunRecorder:   aiRunRecorder,
+		Executor:      paidImageExecutor,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),
@@ -314,6 +341,7 @@ func registerWorkerHandlers(
 	registry, err := jobs.NewRegistry(jobs.Dependencies{
 		Logger:                   logger,
 		AIChatService:            aiChatService,
+		AITextService:            aiTextService,
 		AIReplyRunner:            replyRunner,
 		AiImageService:           aiImageService,
 		AuthRepository:           auth.NewGormRepository(resources.DB),
@@ -323,12 +351,16 @@ func registerWorkerHandlers(
 		RealtimeRetentionService: realtimeRetentionService,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if err := queueMux.RegisterRegistry(registry); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return replyRunner, replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository, Finalizer: paidChatExecutor}), nil
+	return replyRunner,
+		replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository, Finalizer: paidChatExecutor}),
+		aitext.NewReconciler(aiTextTasks, textWaker, max(25, cfg.Queue.Concurrency)),
+		aiimage.NewReconciler(imageRepository, imageWaker, max(25, cfg.Queue.Concurrency)),
+		nil
 }
 
 func newWorkerRuntimeWithHooks(hooks workerHooks) *WorkerRuntime {

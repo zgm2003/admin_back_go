@@ -3,10 +3,12 @@ package aitool
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
 
-	infraai "admin_back_go/internal/infra/ai"
-	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/requestidentity"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -31,6 +33,7 @@ type fakeRepository struct {
 	userCounts       UserCount
 	started          *StartToolCallInput
 	finished         *FinishToolCallInput
+	generateLookups  int
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Tool, int64, error) {
@@ -74,6 +77,7 @@ func (f *fakeRepository) ListGenerateAgents(ctx context.Context) ([]GenerateAgen
 	return f.generateAgents, nil
 }
 func (f *fakeRepository) GetGenerateAgentConfig(ctx context.Context, agentID uint64) (*GenerateAgentConfig, error) {
+	f.generateLookups++
 	if f.generateAgent == nil || f.generateAgent.AgentID != agentID {
 		return nil, nil
 	}
@@ -104,34 +108,66 @@ func (f *fakeRepository) FinishToolCall(ctx context.Context, input FinishToolCal
 }
 func (f *fakeRepository) CountUsers(ctx context.Context) (UserCount, error) { return f.userCounts, nil }
 
-type fakeGenerateEngineFactory struct {
-	input  EngineConfig
-	engine infraai.Engine
+type fakeDraftTaskService struct {
+	inputs     []aitext.AcceptInput
+	accepted   map[string]aitext.AcceptInput
+	dispatches int
+	result     *aitext.Result
+	appErr     *apperror.Error
 }
 
-func (f *fakeGenerateEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (infraai.Engine, error) {
-	f.input = input
-	if f.engine != nil {
-		return f.engine, nil
+func (f *fakeDraftTaskService) ReplayAndWait(_ context.Context, input aitext.ReplayInput) (*aitext.Result, bool, *apperror.Error) {
+	accepted, ok := f.accepted[input.RequestID]
+	if !ok {
+		return nil, false, nil
 	}
-	return infraai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":[],"clarifying_questions":["请补充需求"]}`), nil
-}
-
-func generateAgentConfig(t *testing.T, box secretbox.Box) GenerateAgentConfig {
-	t.Helper()
-	cipher, err := box.Encrypt("plain-provider-key")
+	fingerprint, err := requestidentity.BuildFingerprint(requestidentity.Input{
+		UserID: input.UserID, Operation: input.Operation, Modality: input.Modality, AgentID: int64(input.AgentID),
+		ModelID: accepted.ModelID, NormalizedText: input.NormalizedText,
+		Options: requestidentity.GenerationOptions{MaxOutputTokens: accepted.EffectiveMaxOutputTokens},
+	})
 	if err != nil {
-		t.Fatalf("encrypt test api key: %v", err)
+		return nil, true, apperror.Wrap(aitext.ErrorCodeRequestInvalid, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "", nil, "request_id无效", err)
 	}
+	if fingerprint != accepted.RequestFingerprint {
+		return nil, true, apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "request_id冲突", requestidentity.ErrRequestIdentityConflict)
+	}
+	return f.resultFor(input.RequestID), true, nil
+}
+
+func (f *fakeDraftTaskService) SubmitAndWait(_ context.Context, input aitext.AcceptInput) (*aitext.Result, *apperror.Error) {
+	f.inputs = append(f.inputs, input)
+	if f.appErr != nil {
+		return nil, f.appErr
+	}
+	if f.accepted == nil {
+		f.accepted = map[string]aitext.AcceptInput{}
+	}
+	if stored, ok := f.accepted[input.RequestID]; ok {
+		if stored.RequestFingerprint != input.RequestFingerprint {
+			return nil, apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "request_id冲突", requestidentity.ErrRequestIdentityConflict)
+		}
+	} else {
+		f.accepted[input.RequestID] = input
+		f.dispatches++
+	}
+	return f.resultFor(input.RequestID), nil
+}
+
+func (f *fakeDraftTaskService) resultFor(requestID string) *aitext.Result {
+	if f.result != nil {
+		copy := *f.result
+		return &copy
+	}
+	return &aitext.Result{TaskID: 41, RunID: 51, RequestID: requestID, Kind: aitext.KindToolDraft, Answer: `{"ok":false,"draft":null,"warnings":[],"clarifying_questions":["请补充需求"]}`}
+}
+
+func generateAgentConfig(t *testing.T) GenerateAgentConfig {
+	t.Helper()
 	return GenerateAgentConfig{
-		AgentID:         5,
-		AgentName:       "工具生成",
-		ModelID:         "gpt-test",
-		SystemPrompt:    "只输出工具草稿JSON",
-		ProviderID:      2,
-		EngineType:      string(infraai.EngineTypeOpenAI),
-		EngineBaseURL:   "https://api.openai.test/v1",
-		EngineAPIKeyEnc: cipher,
+		AgentID: 5, AgentName: "工具生成", ModelID: "gpt-4.1", ModelDisplayName: "GPT-4.1",
+		SystemPrompt: "只输出工具草稿JSON", ProviderID: 2, EngineType: "openai",
+		BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 1024,
 	}
 }
 
@@ -210,7 +246,7 @@ func TestGeneratePageInitListsAgentGenerateOptions(t *testing.T) {
 
 func TestGenerateDraftRejectsMissingAgentGenerateAgent(t *testing.T) {
 	repo := &fakeRepository{}
-	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 99, UserID: 7, Requirement: "生成查询用户数工具"})
+	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 99, UserID: 7, Requirement: "生成查询用户数工具"})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeNotFound {
 		t.Fatalf("missing generate agent should be rejected, got %#v", appErr)
 	}
@@ -218,41 +254,69 @@ func TestGenerateDraftRejectsMissingAgentGenerateAgent(t *testing.T) {
 
 func TestGenerateDraftRejectsBlankRequirement(t *testing.T) {
 	repo := &fakeRepository{}
-	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "   "})
+	_, appErr := NewService(repo, DefaultExecutors(repo)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "   "})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest {
 		t.Fatalf("blank requirement should be rejected, got %#v", appErr)
 	}
 }
 
-func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
-	box := secretbox.New([]byte("12345678901234567890123456789012"))
+func TestGenerateDraftRejectsBlankRequestIDBeforeAgentLookup(t *testing.T) {
 	repo := &fakeRepository{}
-	agent := generateAgentConfig(t, box)
+	_, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(&fakeDraftTaskService{})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成工具"})
+	if appErr == nil || appErr.Code != aitext.ErrorCodeRequestInvalid {
+		t.Fatalf("blank request_id should be rejected, got %#v", appErr)
+	}
+	if repo.generateLookups != 0 {
+		t.Fatalf("agent loaded before request_id validation: %d", repo.generateLookups)
+	}
+}
+
+func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
-	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回后台用户数量统计，不返回个人信息。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
-	factory := &fakeGenerateEngineFactory{engine: engine}
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(factory)).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具", CodeHint: "admin_user_count"})
+	tasks := &fakeDraftTaskService{result: &aitext.Result{TaskID: 41, RunID: 51, RequestID: "request-1", Kind: aitext.KindToolDraft, Answer: `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回后台用户数量统计，不返回个人信息。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`, PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18}}
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具", CodeHint: "admin_user_count"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
 	if !got.OK || got.Draft == nil || got.Draft.Code != "admin_user_count" || got.Draft.Status != enum.CommonYes {
 		t.Fatalf("unexpected draft: %#v", got)
 	}
-	if factory.input.APIKey != "plain-provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
-		t.Fatalf("engine config not built from active provider: %#v", factory.input)
+	if got.Usage == nil || got.Usage.TotalTokens != 18 {
+		t.Fatalf("usage should be returned from durable run: %#v", got.Usage)
 	}
-	if got.Usage == nil || got.Usage.TotalTokens != 2 {
-		t.Fatalf("usage should be returned from engine result: %#v", got.Usage)
+	if len(tasks.inputs) != 1 || tasks.inputs[0].Kind != aitext.KindToolDraft {
+		t.Fatalf("durable task input mismatch: %#v", tasks.inputs)
+	}
+}
+
+func TestNormalizeGenerateDraftCandidateRejectsInvalidDraftBeforeSettlement(t *testing.T) {
+	for _, raw := range []string{
+		`not-json`,
+		`{"ok":true,"draft":{"name":"broken","code":"BAD CODE","description":"invalid","parameters_json":{},"result_schema_json":{},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`,
+	} {
+		if normalized, appErr := NormalizeGenerateDraftCandidate(raw); appErr == nil || normalized != "" {
+			t.Fatalf("invalid candidate normalized=%q error=%#v", normalized, appErr)
+		}
+	}
+
+	raw := `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`
+	normalized, appErr := NormalizeGenerateDraftCandidate(raw)
+	if appErr != nil || normalized == "" {
+		t.Fatalf("valid candidate normalized=%q error=%v", normalized, appErr)
+	}
+	if !strings.Contains(normalized, `"required":[]`) {
+		t.Fatalf("candidate was not normalized before settlement: %s", normalized)
 	}
 }
 
 func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
-	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
-	agent := generateAgentConfig(t, box)
+	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
-	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具"})
+	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`}}
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft should accept JSON Schema without required: %v", appErr)
 	}
@@ -262,12 +326,11 @@ func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
 }
 
 func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testing.T) {
-	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
-	agent := generateAgentConfig(t, box)
+	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
-	engine := infraai.NewFakeEngine(`{"ok":false,"draft":null,"warnings":["需求不足，暂不生成工具草稿"],"clarifying_questions":["请说明入参和返回字段？"]}`)
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "做个工具"})
+	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":false,"draft":null,"warnings":["需求不足，暂不生成工具草稿"],"clarifying_questions":["请说明入参和返回字段？"]}`}}
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "做个工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
@@ -277,12 +340,11 @@ func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testin
 }
 
 func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
-	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
-	agent := generateAgentConfig(t, box)
+	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
-	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"未来工具","code":"future_tool","description":"未来服务端实现后才能启用。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成未来工具"})
+	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":true,"draft":{"name":"未来工具","code":"future_tool","description":"未来服务端实现后才能启用。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`}}
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成未来工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
@@ -292,17 +354,114 @@ func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
 }
 
 func TestGenerateDraftCanReturnEnabledWhenExecutorRegistered(t *testing.T) {
-	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	repo := &fakeRepository{}
-	agent := generateAgentConfig(t, box)
+	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
-	engine := infraai.NewFakeEngine(`{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`)
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithSecretbox(box), WithEngineFactory(&fakeGenerateEngineFactory{engine: engine})).GenerateDraft(context.Background(), GenerateDraftInput{AgentID: 5, UserID: 7, Requirement: "生成已实现工具"})
+	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`}}
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成已实现工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
 	if got.Draft == nil || got.Draft.Status != enum.CommonYes || len(got.Warnings) != 0 {
 		t.Fatalf("registered generated tool should stay enabled: %#v", got)
+	}
+}
+
+func TestGenerateDraftNormalizesFingerprintAndConflictsBeforeSecondDispatch(t *testing.T) {
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t)
+	repo.generateAgent = &agent
+	tasks := &fakeDraftTaskService{}
+	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks))
+
+	_, firstErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-replay", AgentID: 5, UserID: 7, Requirement: "  查询用户数\r\n", CodeHint: " admin_user_count "})
+	_, replayErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-replay", AgentID: 5, UserID: 7, Requirement: "查询用户数\n", CodeHint: "admin_user_count"})
+	if firstErr != nil || replayErr != nil {
+		t.Fatalf("normalized replay errors: first=%v replay=%v", firstErr, replayErr)
+	}
+	_, conflictErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-replay", AgentID: 5, UserID: 7, Requirement: "查询订单数", CodeHint: "admin_user_count"})
+	if conflictErr == nil || conflictErr.Code != requestidentity.ErrorCodeFingerprintConflict || conflictErr.HTTPStatus != http.StatusConflict {
+		t.Fatalf("different fingerprint error = %#v", conflictErr)
+	}
+	if tasks.dispatches != 1 {
+		t.Fatalf("provider-equivalent durable dispatches = %d, want 1", tasks.dispatches)
+	}
+}
+
+func TestGenerateDraftReplaysPersistedResultAfterAgentBecomesUnavailable(t *testing.T) {
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t)
+	repo.generateAgent = &agent
+	tasks := &fakeDraftTaskService{}
+	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks))
+	input := GenerateDraftInput{RequestID: "request-durable-replay", AgentID: 5, UserID: 7, Requirement: "查询用户数", CodeHint: "admin_user_count"}
+
+	first, firstErr := service.GenerateDraft(context.Background(), input)
+	if firstErr != nil || first == nil {
+		t.Fatalf("first result=%#v error=%v", first, firstErr)
+	}
+	repo.generateAgent = nil
+	replay, replayErr := service.GenerateDraft(context.Background(), input)
+
+	if replayErr != nil || replay == nil {
+		t.Fatalf("durable replay result=%#v error=%v", replay, replayErr)
+	}
+	if repo.generateLookups != 1 {
+		t.Fatalf("durable replay reloaded mutable agent: lookups=%d", repo.generateLookups)
+	}
+	if tasks.dispatches != 1 {
+		t.Fatalf("durable replay dispatched again: %d", tasks.dispatches)
+	}
+}
+
+func TestGenerateDraftRejectsPersistedFingerprintConflictBeforeUnavailableAgentLookup(t *testing.T) {
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t)
+	repo.generateAgent = &agent
+	tasks := &fakeDraftTaskService{}
+	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks))
+
+	_, firstErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-durable-conflict", AgentID: 5, UserID: 7, Requirement: "查询用户数"})
+	if firstErr != nil {
+		t.Fatalf("first error=%v", firstErr)
+	}
+	repo.generateAgent = nil
+	_, conflictErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-durable-conflict", AgentID: 5, UserID: 7, Requirement: "查询订单数"})
+
+	if conflictErr == nil || conflictErr.Code != requestidentity.ErrorCodeFingerprintConflict || conflictErr.HTTPStatus != http.StatusConflict {
+		t.Fatalf("persisted conflict error=%#v", conflictErr)
+	}
+	if repo.generateLookups != 1 {
+		t.Fatalf("conflict reached mutable agent lookup: %d", repo.generateLookups)
+	}
+	if tasks.dispatches != 1 {
+		t.Fatalf("conflict dispatched new work: %d", tasks.dispatches)
+	}
+}
+
+func TestGenerateDraftUsesDistinctStablePriceAndUpperBoundCodes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*GenerateAgentConfig)
+		code   string
+	}{
+		{name: "missing price", mutate: func(agent *GenerateAgentConfig) { agent.ModelID = "private-unpriced-model" }, code: aitext.ErrorCodePriceUnavailable},
+		{name: "unsafe output cap", mutate: func(agent *GenerateAgentConfig) { agent.MaxOutputTokens = 40_000 }, code: aitext.ErrorCodeUnsafeUpperBound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepository{}
+			agent := generateAgentConfig(t)
+			tc.mutate(&agent)
+			repo.generateAgent = &agent
+			tasks := &fakeDraftTaskService{}
+			_, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成工具"})
+			if appErr == nil || appErr.Code != tc.code {
+				t.Fatalf("error = %#v, want %s", appErr, tc.code)
+			}
+			if tasks.dispatches != 0 {
+				t.Fatalf("invalid pricing dispatched durable worker: %d", tasks.dispatches)
+			}
+		})
 	}
 }
 

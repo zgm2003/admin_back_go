@@ -167,8 +167,11 @@ func (r *GormRepository) GetGenerateAgentConfig(ctx context.Context, agentID uin
 		Select(`a.id AS agent_id,
 			a.name AS agent_name,
 			a.model_id AS model_id,
+			a.model_display_name AS model_display_name,
 			a.system_prompt AS system_prompt,
 			a.provider_id AS provider_id,
+			a.billing_multiplier_ppm AS billing_multiplier_ppm,
+			a.max_output_tokens AS max_output_tokens,
 			p.engine_type AS engine_type,
 			p.base_url AS engine_base_url,
 			p.api_key_enc AS engine_api_key_enc`).

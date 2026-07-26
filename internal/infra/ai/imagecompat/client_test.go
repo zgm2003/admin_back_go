@@ -1,10 +1,12 @@
 package imagecompat
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,10 +22,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
-func TestCompatibleImageClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T) {
+func TestCompatibleImageClientClaimsLogicalRequestAndAttachmentByteUpperBound(t *testing.T) {
 	capabilities := New(Config{}).Capabilities()
-	if capabilities.SafeInputUpperBoundStrategy != "" {
-		t.Fatalf("compatible transport claimed tokenizer strategy %q", capabilities.SafeInputUpperBoundStrategy)
+	if capabilities.SafeInputUpperBoundStrategy != infraai.SafeImageUpperBoundStrategyLogicalAndAttachmentBytesV1 {
+		t.Fatalf("compatible transport upper-bound strategy=%q", capabilities.SafeInputUpperBoundStrategy)
 	}
 	wantUsage := []infraai.UsageIdentity{
 		{Category: infraai.UsageCategoryInput, Unit: "token"},
@@ -282,6 +284,57 @@ func TestClientGenerateImagesSendsEditMultipartRequest(t *testing.T) {
 	}
 	if len(result.Images) != 1 || result.Images[0].URL != "https://cdn.example/out.jpg" || result.Images[0].MimeType != "image/jpeg" {
 		t.Fatalf("unexpected parsed URL result: %#v", result)
+	}
+}
+
+func TestPreparedImageRecoverySendsPersistedWireBytesAndAttemptKey(t *testing.T) {
+	var observedBodies [][]byte
+	var observedKeys []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observedBodies = append(observedBodies, append([]byte(nil), body...))
+		observedKeys = append(observedKeys, r.Header.Get("Idempotency-Key"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"url":"https://cdn.example/out.png"}]}`))
+	}))
+	defer server.Close()
+
+	logical := infraai.ImageInput{Model: "gpt-image-2", Prompt: "draw it", Size: "1024x1024", Quality: "high", OutputFormat: "png", Moderation: "auto", N: 1}
+	client := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second})
+	prepared, err := client.PrepareImageRequest(logical)
+	if err != nil {
+		t.Fatalf("PrepareImageRequest: %v", err)
+	}
+	persisted := append([]byte(nil), prepared...)
+	for i := 0; i < 2; i++ {
+		_, err := client.GeneratePreparedImages(context.Background(), infraai.PreparedImageRequest{
+			Body: prepared, IdempotencyKey: "ai-run-7-attempt-1",
+		})
+		if err != nil {
+			t.Fatalf("GeneratePreparedImages recovery %d: %v", i, err)
+		}
+	}
+	if !bytes.Equal(prepared, persisted) {
+		t.Fatal("prepared logical request bytes were mutated")
+	}
+	if len(observedBodies) != 2 || !bytes.Equal(observedBodies[0], prepared) || !bytes.Equal(observedBodies[1], prepared) ||
+		len(observedKeys) != 2 || observedKeys[0] != "ai-run-7-attempt-1" || observedKeys[1] != observedKeys[0] {
+		t.Fatalf("prepared=%q bodies=%q keys=%#v", prepared, observedBodies, observedKeys)
+	}
+}
+
+func TestPrepareImageRequestRejectsMultipartEditsWithoutPersistableWireEvidence(t *testing.T) {
+	body := []byte("immutable-image")
+	digest := sha256.Sum256(body)
+	_, err := New(Config{}).PrepareImageRequest(infraai.ImageInput{
+		Model: "gpt-image-2", Prompt: "edit it", N: 1,
+		InputAssets: []infraai.ImageAsset{{Name: "source.png", MimeType: "image/png", StorageProvider: "cos", StorageKey: "inputs/source.png", SHA256: fmt.Sprintf("%x", digest), SizeBytes: int64(len(body)), Data: body}},
+	})
+	if !errors.Is(err, infraai.ErrInvalidConfig) {
+		t.Fatalf("prepared multipart edit error=%v, want fail closed", err)
 	}
 }
 

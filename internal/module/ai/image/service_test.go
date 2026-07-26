@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -17,7 +17,9 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
+	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
@@ -31,6 +33,8 @@ type fakeImageRepository struct {
 	createdFiles    TaskFileSet
 	appendedFiles   []ImageFile
 	claimTask       bool
+	leaseClaim      bool
+	renewLost       bool
 	nextTaskID      uint64
 	deletePlatform  string
 	failedID        uint64
@@ -40,8 +44,12 @@ type fakeImageRepository struct {
 	successRaw      *string
 	listAgentsScene string
 	listCalls       int
+	loadAgentCalls  int
 	workerPlatform  string
 	uploadConfig    *UploadConfig
+	accepted        map[string]ImageTask
+	acceptInputs    []AcceptTaskInput
+	acceptedGraphs  int
 }
 
 func (f *fakeImageRepository) ListImageAgents(_ context.Context, scene string) ([]AgentOption, error) {
@@ -83,11 +91,26 @@ func (f *fakeImageRepository) CreateTaskWithFiles(_ context.Context, task ImageT
 	}
 	return f.nextTaskID, nil
 }
+func (f *fakeImageRepository) FindAcceptedTaskByRequestID(_ context.Context, userID uint64, requestID string) (*AcceptedTaskReplay, error) {
+	key := fmt.Sprintf("%d:%s", userID, strings.TrimSpace(requestID))
+	task, ok := f.accepted[key]
+	if !ok {
+		return nil, nil
+	}
+	for index := len(f.acceptInputs) - 1; index >= 0; index-- {
+		accepted := f.acceptInputs[index]
+		if accepted.Task.UserID == userID && accepted.Task.RequestID == strings.TrimSpace(requestID) {
+			return &AcceptedTaskReplay{Task: task, InputSnapshot: accepted.InputSnapshot, PricingSnapshotJSON: accepted.PricingSnapshotJSON}, nil
+		}
+	}
+	return nil, requestidentity.ErrRequestIdentityNotReplayable
+}
 func (f *fakeImageRepository) DeleteTask(_ context.Context, _ uint64, _ uint64, platform string) error {
 	f.deletePlatform = platform
 	return nil
 }
 func (f *fakeImageRepository) LoadAgentRuntime(_ context.Context, agentID uint64) (*AgentRuntime, error) {
+	f.loadAgentCalls++
 	if f.agent == nil || f.agent.AgentID != agentID {
 		return nil, nil
 	}
@@ -97,6 +120,17 @@ func (f *fakeImageRepository) LoadAgentRuntime(_ context.Context, agentID uint64
 func (f *fakeImageRepository) ClaimTask(_ context.Context, platform string, _ uint64, _ uint64, _ time.Time) (bool, error) {
 	f.workerPlatform = platform
 	return f.claimTask, nil
+}
+func (f *fakeImageRepository) ClaimTaskLease(_ context.Context, platform string, _ uint64, taskID uint64, owner string, now time.Time, ttl time.Duration) (*TaskLease, error) {
+	f.workerPlatform = platform
+	if !f.leaseClaim || f.task == nil {
+		return nil, nil
+	}
+	task := *f.task
+	return &TaskLease{Task: task, Owner: owner, Token: 1, ExpiresAt: now.Add(ttl)}, nil
+}
+func (f *fakeImageRepository) RenewTaskLease(context.Context, uint64, string, uint64, time.Time, time.Time) (bool, error) {
+	return !f.renewLost, nil
 }
 func (f *fakeImageRepository) AppendTaskFiles(_ context.Context, files []ImageFile) error {
 	f.appendedFiles = append(f.appendedFiles, files...)
@@ -142,10 +176,14 @@ type fakeImageEngine struct {
 	err    error
 }
 
-type fakeObjectWriter struct{ input storagecos.PutInput }
+type fakeObjectWriter struct {
+	input  storagecos.PutInput
+	inputs []storagecos.PutInput
+}
 
 func (f *fakeObjectWriter) Put(_ context.Context, input storagecos.PutInput) error {
 	f.input = input
+	f.inputs = append(f.inputs, input)
 	return nil
 }
 
@@ -208,6 +246,158 @@ func TestPageInitListsGenerationImageGenerateAgentsOnly(t *testing.T) {
 	}
 }
 
+type fakeImageTaskExecutor struct {
+	taskID      uint64
+	ctxCanceled bool
+	status      string
+	err         error
+	block       bool
+}
+
+func (f *fakeImageTaskExecutor) ExecuteImageTask(ctx context.Context, taskID uint64) (string, error) {
+	f.taskID = taskID
+	f.ctxCanceled = ctx.Err() != nil
+	if f.block {
+		<-ctx.Done()
+		f.ctxCanceled = true
+		return "", ctx.Err()
+	}
+	return f.status, f.err
+}
+func (f *fakeImageRepository) AcceptTaskWithFiles(_ context.Context, input AcceptTaskInput) (*ImageTask, error) {
+	f.acceptInputs = append(f.acceptInputs, input)
+	if f.accepted == nil {
+		f.accepted = make(map[string]ImageTask)
+	}
+	key := fmt.Sprintf("%d:%s", input.Task.UserID, input.Task.RequestID)
+	if existing, ok := f.accepted[key]; ok {
+		if !bytes.Equal(existing.RequestFingerprint, input.Task.RequestFingerprint) {
+			return nil, requestidentity.ErrRequestIdentityConflict
+		}
+		row := existing
+		return &row, nil
+	}
+	if f.nextTaskID == 0 {
+		f.nextTaskID = 900
+	}
+	input.Task.ID = f.nextTaskID
+	input.Task.RunID = int64(f.nextTaskID + 1000)
+	f.accepted[key] = input.Task
+	f.createdTask = input.Task
+	f.createdFiles = input.Files
+	f.acceptedGraphs++
+	row := input.Task
+	return &row, nil
+}
+
+func TestCreateRequiresRequestIDBeforeRepositoryOrQueue(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
+	enqueuer := &fakeImageEnqueuer{}
+	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
+
+	_, appErr := service.Create(context.Background(), CreateInput{
+		UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw a cat",
+	})
+
+	if appErr == nil || appErr.HTTPStatus != 400 {
+		t.Fatalf("blank request_id error=%#v, want HTTP 400", appErr)
+	}
+	if repo.createdTask.ID != 0 {
+		t.Fatalf("blank request_id persisted task %#v", repo.createdTask)
+	}
+	if len(enqueuer.tasks) != 0 {
+		t.Fatalf("blank request_id enqueued tasks %#v", enqueuer.tasks)
+	}
+}
+
+func TestCreateReplaysCanonicalRequestAndRejectsFingerprintConflictBeforeQueue(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
+	enqueuer := &fakeImageEnqueuer{}
+	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
+	input := CreateInput{
+		UserID: 9, RequestID: " image-request-1 ", AgentID: 1, Platform: enum.PlatformAdmin,
+		Prompt: "  draw a cat  ", Size: "1024x1024", Quality: "high", N: 1,
+	}
+
+	first, appErr := service.Create(context.Background(), input)
+	if appErr != nil {
+		t.Fatalf("first create error=%#v", appErr)
+	}
+	repo.agent.AgentStatus = enum.CommonNo
+	replay := input
+	replay.RequestID = "image-request-1"
+	replay.Prompt = "draw a cat"
+	second, appErr := service.Create(context.Background(), replay)
+	if appErr != nil {
+		t.Fatalf("replay error=%#v", appErr)
+	}
+	if first.Task.ID != second.Task.ID || repo.acceptedGraphs != 1 {
+		t.Fatalf("replay created a different graph: first=%d second=%d graphs=%d", first.Task.ID, second.Task.ID, repo.acceptedGraphs)
+	}
+	if repo.loadAgentCalls != 1 {
+		t.Fatalf("replay consulted mutable agent runtime %d times", repo.loadAgentCalls)
+	}
+	queuedBeforeConflict := len(enqueuer.tasks)
+	conflict := replay
+	conflict.Quality = "low"
+	_, appErr = service.Create(context.Background(), conflict)
+	if appErr == nil || appErr.HTTPStatus != 409 || appErr.Code != requestidentity.ErrorCodeFingerprintConflict {
+		t.Fatalf("fingerprint conflict error=%#v, want stable HTTP 409", appErr)
+	}
+	if repo.acceptedGraphs != 1 || len(enqueuer.tasks) != queuedBeforeConflict {
+		t.Fatalf("conflict crossed durable/queue boundary: graphs=%d queue=%d before=%d", repo.acceptedGraphs, len(enqueuer.tasks), queuedBeforeConflict)
+	}
+	if len(repo.acceptInputs) != 1 || len(repo.acceptInputs[0].Task.RequestFingerprint) != 32 {
+		t.Fatalf("service did not pass canonical fingerprint: %#v", repo.acceptInputs)
+	}
+}
+
+func TestCreateWithUploadedFilesReplaysBeforeUploadOrMutableAgentLookup(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77, uploadConfig: testUploadConfig(t, box)}
+	writer := &fakeObjectWriter{}
+	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, ObjectWriter: writer, Now: fixedImageNow(), Random: fixedImageRandom})
+	input := CreateWithUploadedFilesInput{
+		CreateInput: CreateInput{UserID: 9, RequestID: "image-upload-replay", AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"},
+		Files:       []UploadedFileInput{{FileName: "reference.png", MimeType: "image/png", Body: []byte("same-image-bytes")}},
+	}
+
+	first, appErr := service.CreateWithUploadedFiles(context.Background(), input)
+	if appErr != nil {
+		t.Fatalf("first create error=%#v", appErr)
+	}
+	repo.agent.AgentStatus = enum.CommonNo
+	second, appErr := service.CreateWithUploadedFiles(context.Background(), input)
+	if appErr != nil {
+		t.Fatalf("replay error=%#v", appErr)
+	}
+	if first.Task.ID != second.Task.ID || len(writer.inputs) != 1 || repo.loadAgentCalls != 1 {
+		t.Fatalf("replay task=%d/%d uploads=%d agent_lookups=%d", first.Task.ID, second.Task.ID, len(writer.inputs), repo.loadAgentCalls)
+	}
+}
+
+func TestCreateWithUploadedFilesRejectsChangedBytesBeforeUpload(t *testing.T) {
+	box := testImageSecretBox()
+	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77, uploadConfig: testUploadConfig(t, box)}
+	writer := &fakeObjectWriter{}
+	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, ObjectWriter: writer, Now: fixedImageNow(), Random: fixedImageRandom})
+	input := CreateWithUploadedFilesInput{
+		CreateInput: CreateInput{UserID: 9, RequestID: "image-upload-conflict", AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"},
+		Files:       []UploadedFileInput{{FileName: "reference.png", MimeType: "image/png", Body: []byte("original-image-bytes")}},
+	}
+	if _, appErr := service.CreateWithUploadedFiles(context.Background(), input); appErr != nil {
+		t.Fatalf("first create error=%#v", appErr)
+	}
+
+	input.Files[0].Body = []byte("changed-image-bytes")
+	_, appErr := service.CreateWithUploadedFiles(context.Background(), input)
+	if appErr == nil || appErr.HTTPStatus != 409 || len(writer.inputs) != 1 {
+		t.Fatalf("conflict error=%#v uploads=%d, want HTTP 409 before second upload", appErr, len(writer.inputs))
+	}
+}
+
 func TestCreateEnqueuesGenerationTaskWithTaskOwnedFiles(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
@@ -215,9 +405,9 @@ func TestCreateEnqueuesGenerationTaskWithTaskOwnedFiles(t *testing.T) {
 	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
 
 	result, appErr := service.Create(context.Background(), CreateInput{
-		UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "  draw a cat  ",
-		InputFiles: []ImageFileInput{{StorageProvider: StorageProviderCOS, StorageKey: "inputs/ref.png", StorageURL: "https://cos.test/ref.png", MimeType: "image/png"}},
-		MaskFile:   &MaskFileInput{ImageFileInput: ImageFileInput{StorageProvider: StorageProviderCOS, StorageKey: "inputs/mask.png", StorageURL: "https://cos.test/mask.png", MimeType: "image/png"}, RelatedSortOrder: 1},
+		UserID: 9, RequestID: "image-create-1", AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "  draw a cat  ",
+		InputFiles: []ImageFileInput{{StorageProvider: StorageProviderCOS, StorageKey: "inputs/ref.png", StorageURL: "https://cos.test/ref.png", MimeType: "image/png", SizeBytes: 10, SHA256: strings.Repeat("a", 64)}},
+		MaskFile:   &MaskFileInput{ImageFileInput: ImageFileInput{StorageProvider: StorageProviderCOS, StorageKey: "inputs/mask.png", StorageURL: "https://cos.test/mask.png", MimeType: "image/png", SizeBytes: 12, SHA256: strings.Repeat("b", 64)}, RelatedSortOrder: 1},
 	})
 
 	if appErr != nil {
@@ -248,7 +438,7 @@ func TestCreateAcceptsGenerationWideAndPortraitImageSizes(t *testing.T) {
 			service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, Now: fixedImageNow()})
 
 			_, appErr := service.Create(context.Background(), CreateInput{
-				UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw", Size: size,
+				UserID: 9, RequestID: "image-size-" + size, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw", Size: size,
 			})
 
 			if appErr != nil {
@@ -261,12 +451,60 @@ func TestCreateAcceptsGenerationWideAndPortraitImageSizes(t *testing.T) {
 	}
 }
 
+func TestGPTImage2OutputTokenUpperBoundBindsFinalSizeQualityAndCount(t *testing.T) {
+	tests := []struct {
+		name    string
+		size    string
+		quality string
+		count   int
+		want    int64
+	}{
+		{name: "square low", size: "1024x1024", quality: "low", count: 1, want: 196},
+		{name: "square medium", size: "1024x1024", quality: "medium", count: 1, want: 1756},
+		{name: "square high", size: "1024x1024", quality: "high", count: 1, want: 7024},
+		{name: "landscape high", size: "1536x1024", quality: "high", count: 1, want: 5488},
+		{name: "portrait high", size: "1024x1536", quality: "high", count: 1, want: 5488},
+		{name: "count is linear", size: "1024x1024", quality: "high", count: 15, want: 105360},
+		{name: "auto quality reserves high", size: "1024x1024", quality: "auto", count: 1, want: 7024},
+		{name: "auto size reserves global maximum", size: "auto", quality: "high", count: 1, want: 23719},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := gptImage2OutputTokenUpperBound(test.size, test.quality, test.count)
+			if err != nil || got != test.want {
+				t.Fatalf("bound=%d err=%v, want %d", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestImagePricingSnapshotUsesRequestBoundAndRejectsSmallerAgentCap(t *testing.T) {
+	agent := AgentRuntime{
+		ModelID: RequiredModelID, EngineType: string(infraai.EngineTypeOpenAI),
+		BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 105360,
+	}
+	request := CreateInput{Size: "1024x1024", Quality: "high", N: 15}
+	raw, effective, appErr := imagePricingSnapshot(agent, request)
+	if appErr != nil || effective != 105360 {
+		t.Fatalf("effective=%d error=%#v", effective, appErr)
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(raw)
+	if err != nil || int64(snapshot.EffectiveMaxOutputTokens) != effective {
+		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
+	}
+
+	agent.MaxOutputTokens = uint(effective - 1)
+	if _, _, appErr = imagePricingSnapshot(agent, request); appErr == nil || appErr.HTTPStatus != 409 {
+		t.Fatalf("smaller agent cap error=%#v, want HTTP 409", appErr)
+	}
+}
+
 func TestCreateRejectsUnregisteredImagePlatform(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box)}
 	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box})
 
-	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, AgentID: 1, Platform: "partner_portal", Prompt: "draw"})
+	_, appErr := service.Create(context.Background(), CreateInput{UserID: 9, RequestID: "image-invalid-platform", AgentID: 1, Platform: "partner_portal", Prompt: "draw"})
 
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "aiimage.platform.invalid" {
 		t.Fatalf("expected unregistered image platform to be rejected, got %#v", appErr)
@@ -318,100 +556,42 @@ func TestDeleteUsesPlatformFilter(t *testing.T) {
 	}
 }
 
-func TestExecuteGenerateRecordsGenerationImageRun(t *testing.T) {
-	box := testImageSecretBox()
+func TestExecuteGeneratePropagatesQueueCancellationToExecutor(t *testing.T) {
 	task := validPendingTask()
-	recorder := &recordingRunRecorder{}
-	engine := &fakeImageEngine{result: &infraai.ImageResult{
-		Images:       []infraai.GeneratedImage{{URL: "https://cdn.test/out.png", MimeType: "image/png"}},
-		ActualParams: map[string]any{"size": "1024x1024"},
-		RawResponse:  []byte(`{"data":[{"b64_json":"SECRET_IMAGE_BYTES"}]}`),
-		UsageStatus:  infraai.UsageStatusReported,
-		PromptTokens: 11, CompletionTokens: 13, TotalTokens: 24,
-	}}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true}
-	service := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: &fakeImageEngineFactory{engine: engine}, RunRecorder: recorder, Now: fixedImageNow()})
+	task.RunID = 600
+	task.RequestID = "image-request-600"
+	task.RequestFingerprint = bytes.Repeat([]byte{1}, 32)
+	task.RequestIdentityStatus = string(requestidentity.IdentityStatusReplayable)
+	repo := &fakeImageRepository{task: &task, leaseClaim: true}
+	executor := &fakeImageTaskExecutor{status: StatusSuccess}
+	service := NewService(Dependencies{Repository: repo, Executor: executor, Now: fixedImageNow()})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{Platform: enum.PlatformAdmin, TaskID: task.ID, UserID: task.UserID})
+	result, err := service.ExecuteGenerate(ctx, GenerateInput{Platform: enum.PlatformAdmin, TaskID: task.ID, UserID: task.UserID})
 
-	if err != nil || result == nil || result.Status != StatusSuccess {
-		t.Fatalf("expected success, result=%#v err=%v", result, err)
+	if !errors.Is(err, context.Canceled) || result != nil {
+		t.Fatalf("result=%#v err=%v", result, err)
 	}
-	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.RequestID != "ai_image_task_88" || recorder.started.InputSnapshot != task.Prompt {
-		t.Fatalf("generation image run mismatch: %#v", recorder.started)
-	}
-	if repo.workerPlatform != enum.PlatformAdmin {
-		t.Fatalf("worker repository calls lost platform provenance: %q", repo.workerPlatform)
-	}
-	if recorder.completed.RunID != 600 || recorder.completed.TotalTokens != 24 {
-		t.Fatalf("image run not completed with token counts: %#v", recorder.completed)
-	}
-	if len(repo.appendedFiles) != 1 || repo.appendedFiles[0].Role != FileRoleOutput || repo.appendedFiles[0].StorageProvider != StorageProviderRemoteURL {
-		t.Fatalf("output file mismatch: %#v", repo.appendedFiles)
-	}
-	if repo.successJSON == nil || !json.Valid([]byte(*repo.successJSON)) || !strings.Contains(*repo.successJSON, "1024x1024") {
-		t.Fatalf("actual params were not stored as JSON: %#v", repo.successJSON)
-	}
-	if repo.successRaw == nil || strings.Contains(*repo.successRaw, "SECRET_IMAGE_BYTES") || !strings.Contains(*repo.successRaw, "[omitted]") {
-		t.Fatalf("raw response must omit b64_json: %#v", repo.successRaw)
+	if executor.taskID != task.ID || !executor.ctxCanceled {
+		t.Fatalf("executor task=%d ctxCanceled=%v", executor.taskID, executor.ctxCanceled)
 	}
 }
 
-func TestExecuteGeneratePersistsOutputImageDimensions(t *testing.T) {
-	box := testImageSecretBox()
+func TestExecuteGenerateLeaseLossCancelsProviderExecutor(t *testing.T) {
 	task := validPendingTask()
-	body := testPNGBase64(t, 2, 3)
-	writer := &fakeObjectWriter{}
-	engine := &fakeImageEngine{result: &infraai.ImageResult{
-		Images:      []infraai.GeneratedImage{{B64JSON: body, MimeType: "image/png"}},
-		UsageStatus: infraai.UsageStatusUnavailable,
-	}}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true, uploadConfig: testUploadConfig(t, box)}
-	service := NewService(Dependencies{
-		Repository:    repo,
-		Secretbox:     box,
-		EngineFactory: &fakeImageEngineFactory{engine: engine},
-		ObjectWriter:  writer,
-		RunRecorder:   &recordingRunRecorder{},
-		Now:           fixedImageNow(),
-		Random:        fixedImageRandom,
-	})
+	task.RunID = 601
+	task.RequestID = "image-request-601"
+	task.RequestFingerprint = bytes.Repeat([]byte{2}, 32)
+	task.RequestIdentityStatus = string(requestidentity.IdentityStatusReplayable)
+	repo := &fakeImageRepository{task: &task, leaseClaim: true, renewLost: true}
+	executor := &fakeImageTaskExecutor{block: true}
+	service := NewService(Dependencies{Repository: repo, Executor: executor, Now: time.Now, LeaseTTL: 3 * time.Millisecond})
 
 	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{Platform: enum.PlatformAdmin, TaskID: task.ID, UserID: task.UserID})
 
-	if err != nil || result == nil || result.Status != StatusSuccess {
-		t.Fatalf("expected success, result=%#v err=%v", result, err)
-	}
-	if len(repo.appendedFiles) != 1 {
-		t.Fatalf("expected one output file, got %#v", repo.appendedFiles)
-	}
-	output := repo.appendedFiles[0]
-	if output.Width != 2 || output.Height != 3 || output.SizeBytes <= 0 {
-		t.Fatalf("output file must persist real image metadata, got width=%d height=%d size=%d", output.Width, output.Height, output.SizeBytes)
-	}
-	if len(writer.input.Body) == 0 || writer.input.ContentType != "image/png" {
-		t.Fatalf("generated image body was not uploaded: %#v", writer.input)
-	}
-}
-
-func TestExecuteGenerateMarksTaskFailedWithoutNilResult(t *testing.T) {
-	box := testImageSecretBox()
-	task := validPendingTask()
-	engine := &fakeImageEngine{err: errors.New("upstream boom")}
-	factory := &fakeImageEngineFactory{engine: engine}
-	repo := &fakeImageRepository{agent: validImageAgent(t, box), task: &task, claimTask: true}
-	service := NewService(Dependencies{Repository: repo, Secretbox: box, EngineFactory: factory, RunRecorder: &recordingRunRecorder{}, Now: fixedImageNow()})
-
-	result, err := service.ExecuteGenerate(context.Background(), GenerateInput{Platform: enum.PlatformAdmin, TaskID: task.ID, UserID: task.UserID})
-
-	if err != nil {
-		t.Fatalf("expected persisted provider failure to be non-retryable, got %v", err)
-	}
-	if result == nil || result.Status != StatusFailed || repo.failedID != task.ID || !strings.Contains(repo.failedMsg, "upstream boom") {
-		t.Fatalf("failure was not persisted correctly: result=%#v id=%d message=%q", result, repo.failedID, repo.failedMsg)
-	}
-	if factory.config.APIKey != "sk-test" || engine.input.Model != RequiredModelID {
-		t.Fatalf("engine config/input mismatch: config=%#v input=%#v", factory.config, engine.input)
+	if result != nil || !errors.Is(err, ErrTaskLeaseLost) || !executor.ctxCanceled {
+		t.Fatalf("result=%#v err=%v executor=%#v", result, err, executor)
 	}
 }
 
@@ -460,7 +640,7 @@ func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 	if err != nil {
 		t.Fatalf("encrypt api key: %v", err)
 	}
-	return &AgentRuntime{AgentID: 1, AgentName: "图片助手", ScenesJSON: `["image_generate"]`, AgentStatus: enum.CommonYes, ProviderID: 8, ProviderName: "OpenAI", EngineType: string(infraai.EngineTypeOpenAI), BaseURL: "https://api.openai.test/v1", APIKeyEnc: apiKey, ProviderStatus: enum.CommonYes, ModelID: RequiredModelID, ModelDisplayName: "GPT Image 2", ModelStatus: enum.CommonYes}
+	return &AgentRuntime{AgentID: 1, AgentName: "图片助手", ScenesJSON: `["image_generate"]`, AgentStatus: enum.CommonYes, ProviderID: 8, ProviderName: "OpenAI", EngineType: string(infraai.EngineTypeOpenAI), BaseURL: "https://api.openai.test/v1", APIKeyEnc: apiKey, ProviderStatus: enum.CommonYes, ModelID: RequiredModelID, ModelDisplayName: "GPT Image 2", ModelStatus: enum.CommonYes, BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 32_768}
 }
 
 func validPendingTask() ImageTask {

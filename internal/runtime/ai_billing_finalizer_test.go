@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
@@ -394,7 +395,8 @@ func TestBuildChatFinalizationFactsPreservesPaidEvidenceAndCurrentCandidate(t *t
 	run := airun.Run{
 		ID: 44, UserID: 9, AgentID: 7, RequestID: "request-1", RequestFingerprint: make([]byte, sha256.Size),
 		RequestIdentityStatus: "replayable", PricingSnapshotJSON: testPricingSnapshotJSON(),
-		ModelID: "model-7", ModelDisplayName: "Model Seven", BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld),
+		ModelID: "model-7", ModelDisplayName: "Model Seven", Status: enum.AIRunStatusRunning,
+		BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld),
 	}
 	charge := billing.UsageCharge{ID: 101, RunID: 44, UserID: 9, HeldUnits: 12, Status: billing.ChargeStatusOpen}
 	hold := &walletmodule.Hold{ID: 102, WalletID: 103, RunID: 44, UserID: 9, HeldUnits: 12, Status: walletmodule.HoldActive}

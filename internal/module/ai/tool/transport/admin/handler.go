@@ -47,7 +47,11 @@ func (h *Handler) GenerateDraft(c *gin.Context) {
 		response.Error(c, apperror.Unauthorized("Token无效或已过期"))
 		return
 	}
-	result, appErr := h.requireService().GenerateDraft(c.Request.Context(), aitoolmodule.GenerateDraftInput{AgentID: req.AgentID, UserID: uint64(identity.UserID), Requirement: req.Requirement, CodeHint: req.CodeHint})
+	result, appErr := h.requireService().GenerateDraft(c.Request.Context(), aitoolmodule.GenerateDraftInput{RequestID: req.RequestID, AgentID: req.AgentID, UserID: uint64(identity.UserID), Requirement: req.Requirement, CodeHint: req.CodeHint})
+	if appErr != nil && appErr.Code == aitoolmodule.ErrorCodeInsufficientBalance {
+		response.ErrorWithData(c, appErr, gin.H{"wallet_path": "/profile/wallet", "recharge_path": "/payment/recharge"})
+		return
+	}
 	writeResult(c, result, appErr)
 }
 

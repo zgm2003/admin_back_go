@@ -104,6 +104,7 @@ type ImageFileInput struct {
 	Width           int
 	Height          int
 	SizeBytes       int64
+	SHA256          string
 }
 
 type MaskFileInput struct {
@@ -113,6 +114,7 @@ type MaskFileInput struct {
 
 type CreateInput struct {
 	UserID            uint64
+	RequestID         string
 	AgentID           uint64
 	Platform          string
 	Prompt            string

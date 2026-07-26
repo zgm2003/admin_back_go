@@ -6,6 +6,11 @@ type ImageTask struct {
 	ID                       uint64     `gorm:"column:id"`
 	Platform                 string     `gorm:"column:platform"`
 	UserID                   uint64     `gorm:"column:user_id"`
+	RequestID                string     `gorm:"column:request_id"`
+	RequestFingerprint       []byte     `gorm:"column:request_fingerprint"`
+	RequestIdentityStatus    string     `gorm:"column:request_identity_status"`
+	RequestIdentityMarker    string     `gorm:"column:request_identity_marker"`
+	RunID                    int64      `gorm:"column:run_id"`
 	AgentID                  uint64     `gorm:"column:agent_id"`
 	AgentNameSnapshot        string     `gorm:"column:agent_name_snapshot"`
 	ProviderIDSnapshot       uint64     `gorm:"column:provider_id_snapshot"`
@@ -20,7 +25,11 @@ type ImageTask struct {
 	Moderation               string     `gorm:"column:moderation"`
 	N                        int        `gorm:"column:n"`
 	Status                   string     `gorm:"column:status"`
+	LeaseOwner               *string    `gorm:"column:lease_owner"`
+	LeaseToken               uint64     `gorm:"column:lease_token"`
+	LeaseExpiresAt           *time.Time `gorm:"column:lease_expires_at"`
 	ErrorMessage             string     `gorm:"column:error_message"`
+	LastErrorCode            string     `gorm:"column:last_error_code"`
 	ActualParamsJSON         *string    `gorm:"column:actual_params_json"`
 	RawResponseJSON          *string    `gorm:"column:raw_response_json"`
 	IsFavorite               int        `gorm:"column:is_favorite"`
@@ -64,19 +73,21 @@ type MaskImageFile struct {
 }
 
 type AgentRuntime struct {
-	AgentID          uint64 `gorm:"column:agent_id"`
-	AgentName        string `gorm:"column:agent_name"`
-	ScenesJSON       string `gorm:"column:scenes_json"`
-	AgentStatus      int    `gorm:"column:agent_status"`
-	ProviderID       uint64 `gorm:"column:provider_id"`
-	ProviderName     string `gorm:"column:provider_name"`
-	EngineType       string `gorm:"column:engine_type"`
-	BaseURL          string `gorm:"column:base_url"`
-	APIKeyEnc        string `gorm:"column:api_key_enc"`
-	ProviderStatus   int    `gorm:"column:provider_status"`
-	ModelID          string `gorm:"column:model_id"`
-	ModelDisplayName string `gorm:"column:model_display_name"`
-	ModelStatus      int    `gorm:"column:model_status"`
+	AgentID              uint64 `gorm:"column:agent_id"`
+	AgentName            string `gorm:"column:agent_name"`
+	ScenesJSON           string `gorm:"column:scenes_json"`
+	AgentStatus          int    `gorm:"column:agent_status"`
+	ProviderID           uint64 `gorm:"column:provider_id"`
+	ProviderName         string `gorm:"column:provider_name"`
+	EngineType           string `gorm:"column:engine_type"`
+	BaseURL              string `gorm:"column:base_url"`
+	APIKeyEnc            string `gorm:"column:api_key_enc"`
+	ProviderStatus       int    `gorm:"column:provider_status"`
+	ModelID              string `gorm:"column:model_id"`
+	ModelDisplayName     string `gorm:"column:model_display_name"`
+	ModelStatus          int    `gorm:"column:model_status"`
+	BillingMultiplierPPM int64  `gorm:"column:billing_multiplier_ppm"`
+	MaxOutputTokens      uint   `gorm:"column:max_output_tokens"`
 }
 
 type UploadConfig struct {

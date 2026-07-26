@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -32,6 +33,7 @@ func TestStaleRunningRunsDBFiltersOnlyOldRunningRows(t *testing.T) {
 		"status = ?",
 		"started_at IS NOT NULL",
 		"started_at < ?",
+		"NOT EXISTS (SELECT 1 FROM usage_charges c WHERE c.run_id = ai_runs.id AND c.status = ?)",
 		"ORDER BY started_at ASC, id ASC",
 		"LIMIT ?",
 	} {
@@ -39,7 +41,7 @@ func TestStaleRunningRunsDBFiltersOnlyOldRunningRows(t *testing.T) {
 			t.Fatalf("stale running query missing %q: %s", want, sqlText)
 		}
 	}
-	if len(stmt.Vars) != 3 || stmt.Vars[0] != enum.AIRunStatusRunning || !stmt.Vars[1].(time.Time).Equal(staleBefore) {
+	if len(stmt.Vars) != 4 || stmt.Vars[0] != enum.AIRunStatusRunning || !stmt.Vars[1].(time.Time).Equal(staleBefore) || stmt.Vars[2] != billing.ChargeStatusOpen {
 		t.Fatalf("unexpected stale query vars: %#v", stmt.Vars)
 	}
 }

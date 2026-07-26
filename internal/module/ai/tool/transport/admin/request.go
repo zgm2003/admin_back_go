@@ -23,6 +23,7 @@ type mutationRequest struct {
 }
 
 type generateDraftRequest struct {
+	RequestID   string `json:"request_id" binding:"required,max=128"`
 	AgentID     uint64 `json:"agent_id" binding:"required,gt=0"`
 	Requirement string `json:"requirement" binding:"required,max=4000"`
 	CodeHint    string `json:"code_hint" binding:"omitempty,max=64"`

@@ -58,7 +58,7 @@ func TestAIRunSourceFieldCleanupMigrationShape(t *testing.T) {
 	}
 }
 
-func TestAIChatBootstrapWiresUnifiedRunRecorder(t *testing.T) {
+func TestAIChatBootstrapWiresUnifiedRunRecorderAndDurableTextGeneration(t *testing.T) {
 	for _, path := range []string{"../../internal/platform/admin/build.go", "../../internal/runtime/worker.go"} {
 		body, err := os.ReadFile(path)
 		if err != nil {
@@ -68,6 +68,7 @@ func TestAIChatBootstrapWiresUnifiedRunRecorder(t *testing.T) {
 		for _, want := range []string{
 			"aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)",
 			"aiTextTasks := aitext.NewGormStore(resources.DB)",
+			"aiTextService := aitext.NewService",
 		} {
 			if !strings.Contains(source, want) {
 				t.Fatalf("%s missing %q", path, want)
@@ -76,8 +77,47 @@ func TestAIChatBootstrapWiresUnifiedRunRecorder(t *testing.T) {
 		if !strings.Contains(source, "RunRecorder:") || !strings.Contains(source, "aiRunRecorder") {
 			t.Fatalf("%s missing AI run recorder wiring", path)
 		}
-		if !strings.Contains(source, "TextTasks:") || !strings.Contains(source, "aiTextTasks") {
-			t.Fatalf("%s missing Canvas text task store wiring", path)
+		if !strings.Contains(source, "TextGeneration:") || !strings.Contains(source, "aiTextService") {
+			t.Fatalf("%s missing durable AI text generation wiring", path)
+		}
+		if strings.Contains(source, "TextTasks:") {
+			t.Fatalf("%s still wires the obsolete legacy text task writer", path)
+		}
+	}
+}
+
+func TestAITextStoreDoesNotExposeLegacyDirectWriters(t *testing.T) {
+	body, err := os.ReadFile("../../internal/module/ai/text/store.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(body)
+	for _, forbidden := range []string{
+		"type Store interface",
+		"func (s *GormStore) Create(",
+		"func (s *GormStore) Complete(",
+		"func (s *GormStore) Fail(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("AI text store still exposes legacy direct writer %q", forbidden)
+		}
+	}
+}
+
+func TestWorkerWiresPaidImageExecutorAndRecoveryReconciler(t *testing.T) {
+	body, err := os.ReadFile("../../internal/runtime/worker.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(body)
+	for _, required := range []string{
+		"paidImageExecutor := newPaidImageTaskExecutor",
+		"Executor:      paidImageExecutor",
+		"imageReconciler",
+		"aiimage.NewReconciler",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("worker missing paid image runtime wiring %q", required)
 		}
 	}
 }

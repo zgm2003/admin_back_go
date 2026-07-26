@@ -60,11 +60,69 @@ func (c *Client) Capabilities() infraai.CapabilityMetadata {
 			{Category: infraai.UsageCategoryInput, Unit: "token"},
 			{Category: infraai.UsageCategoryOutput, Unit: "token"},
 		},
-		SupportsIdempotencyHeader: true,
+		SafeInputUpperBoundStrategy: infraai.SafeImageUpperBoundStrategyLogicalAndAttachmentBytesV1,
+		SupportsIdempotencyHeader:   true,
 	}
 }
 
 func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (*infraai.ImageResult, error) {
+	return c.generateImages(ctx, input)
+}
+
+func (c *Client) PrepareImageRequest(input infraai.ImageInput) ([]byte, error) {
+	input = normalizeInput(input)
+	if len(input.InputAssets) > 0 || input.MaskAsset != nil {
+		return nil, fmt.Errorf("%w: prepared image edits require persistable multipart wire evidence", infraai.ErrInvalidConfig)
+	}
+	if input.Model == "" || input.Prompt == "" || input.N <= 0 {
+		return nil, fmt.Errorf("%w: prepared image request is invalid", infraai.ErrInvalidConfig)
+	}
+	return json.Marshal(imageRequest{
+		Model: input.Model, Prompt: input.Prompt, Size: input.Size, Quality: input.Quality,
+		OutputFormat: input.OutputFormat, OutputCompression: input.OutputCompression, Moderation: input.Moderation, N: input.N,
+	})
+}
+
+func (c *Client) GeneratePreparedImages(ctx context.Context, request infraai.PreparedImageRequest) (*infraai.ImageResult, error) {
+	if c == nil {
+		return nil, fmt.Errorf("%w: OpenAI image client is nil", infraai.ErrInvalidConfig)
+	}
+	payload, err := decodePreparedWireImageRequest(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := c.newRawRequest(ctx, http.MethodPost, "/images/generations", bytes.NewReader(request.Body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := strings.TrimSpace(request.IdempotencyKey); key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+	return c.executeImageRequest(req, imageMime(payload.OutputFormat))
+}
+
+func decodePreparedWireImageRequest(body []byte) (imageRequest, error) {
+	if len(body) == 0 {
+		return imageRequest{}, fmt.Errorf("%w: prepared image request is empty", infraai.ErrInvalidConfig)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var payload imageRequest
+	if err := decoder.Decode(&payload); err != nil {
+		return imageRequest{}, fmt.Errorf("%w: decode prepared image request: %v", infraai.ErrInvalidConfig, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return imageRequest{}, fmt.Errorf("%w: prepared image request has trailing data", infraai.ErrInvalidConfig)
+	}
+	if strings.TrimSpace(payload.Model) == "" || strings.TrimSpace(payload.Prompt) == "" || payload.N <= 0 {
+		return imageRequest{}, fmt.Errorf("%w: prepared image request is invalid", infraai.ErrInvalidConfig)
+	}
+	return payload, nil
+}
+
+func (c *Client) generateImages(ctx context.Context, input infraai.ImageInput) (*infraai.ImageResult, error) {
 	if c == nil {
 		return nil, fmt.Errorf("%w: OpenAI image client is nil", infraai.ErrInvalidConfig)
 	}
@@ -90,6 +148,10 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 	if key := strings.TrimSpace(input.IdempotencyKey); key != "" {
 		req.Header.Set("Idempotency-Key", key)
 	}
+	return c.executeImageRequest(req, imageMime(input.OutputFormat))
+}
+
+func (c *Client) executeImageRequest(req *http.Request, outputMime string) (*infraai.ImageResult, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
@@ -105,7 +167,7 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 			return nil, infraai.NewProviderError(infraai.ProviderOutcomeRejected, providerRequestID, err)
 		}
 	}
-	result, err := decodeImageResponse(resp.Body, imageMime(input.OutputFormat))
+	result, err := decodeImageResponse(resp.Body, outputMime)
 	if err != nil {
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, err)
 	}
@@ -114,6 +176,8 @@ func (c *Client) GenerateImages(ctx context.Context, input infraai.ImageInput) (
 	result.ResponseSHA256 = sha256.Sum256(result.RawResponse)
 	return result, nil
 }
+
+var _ infraai.PreparedImageEngine = (*Client)(nil)
 
 func (c *Client) newGenerationRequest(ctx context.Context, input infraai.ImageInput) (*http.Request, error) {
 	body := imageRequest{

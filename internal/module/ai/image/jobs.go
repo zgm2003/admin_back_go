@@ -13,7 +13,10 @@ import (
 	"admin_back_go/internal/shared/enum"
 )
 
-const TypeGenerateV1 = "ai:image-generate:v1"
+const (
+	TypeGenerateV1  = "ai:image-generate:v1"
+	GenerateTimeout = 10 * time.Minute
+)
 
 type GeneratePayload struct {
 	Platform string `json:"platform"`
@@ -60,10 +63,11 @@ func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, l
 		logger = slog.Default()
 	}
 	return registry.Register(taskqueue.Definition{
-		Type:     TypeGenerateV1,
-		Queue:    taskqueue.QueueLow,
-		Timeout:  10 * time.Minute,
-		MaxRetry: 2,
+		Type:      TypeGenerateV1,
+		Queue:     taskqueue.QueueLow,
+		Timeout:   GenerateTimeout,
+		MaxRetry:  2,
+		UniqueTTL: GenerateTimeout,
 		Decode: func(data []byte) (any, *apperror.Error) {
 			payload, err := DecodeGeneratePayload(data)
 			if err != nil {
@@ -90,6 +94,27 @@ func RegisterTaskDefinitions(registry *taskqueue.Registry, service JobService, l
 			return nil
 		},
 	})
+}
+
+type WakeupEnqueuer struct{ queue taskqueue.Enqueuer }
+
+func NewWakeupEnqueuer(queue taskqueue.Enqueuer) *WakeupEnqueuer {
+	return &WakeupEnqueuer{queue: queue}
+}
+
+func (waker *WakeupEnqueuer) WakeImageTask(ctx context.Context, task ImageTask) error {
+	if waker == nil || waker.queue == nil {
+		return taskqueue.ErrClientNotReady
+	}
+	queued, err := NewGenerateTask(GeneratePayload{Platform: task.Platform, TaskID: task.ID, UserID: task.UserID})
+	if err != nil {
+		return err
+	}
+	_, err = waker.queue.Enqueue(ctx, queued)
+	if taskqueue.IsDuplicateTask(err) {
+		return nil
+	}
+	return err
 }
 
 func RegisterHandlers(mux *taskqueue.Mux, service JobService, logger *slog.Logger) {

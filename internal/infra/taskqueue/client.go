@@ -24,6 +24,10 @@ var (
 	ErrRegistryRequired     = errors.New("task registry is required")
 )
 
+func IsDuplicateTask(err error) bool {
+	return errors.Is(err, asynq.ErrDuplicateTask)
+}
+
 // Task is the project-owned queue contract. Business code should build this
 // type instead of importing Asynq directly.
 type Task struct {

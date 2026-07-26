@@ -41,6 +41,39 @@ func TestEmbeddedCatalogHasAuditableSources(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCatalogIncludesReviewedMediaRates(t *testing.T) {
+	image, err := Default.Resolve("gpt-image-2")
+	if err != nil {
+		t.Fatalf("resolve gpt-image-2: %v", err)
+	}
+	assertCatalogRate(t, image, InputTokens, "token", "", 500000000, 1000000)
+	assertCatalogRate(t, image, OutputTokens, "token", "", 3000000000, 1000000)
+	if image.MaxOutputTokens != 355785 {
+		t.Fatalf("gpt-image-2 request output bound=%d, want 355785", image.MaxOutputTokens)
+	}
+
+	video, err := Default.Resolve("sora-2-pro")
+	if err != nil {
+		t.Fatalf("resolve sora-2-pro: %v", err)
+	}
+	assertCatalogRate(t, video, MediaUnits, "second", "720p", 30000000, 1)
+	assertCatalogRate(t, video, MediaUnits, "second", "1024p", 50000000, 1)
+	assertCatalogRate(t, video, MediaUnits, "second", "1080p", 70000000, 1)
+}
+
+func assertCatalogRate(t *testing.T, model ModelPrice, category Category, unit, tier string, priceUnits, unitScale int64) {
+	t.Helper()
+	for _, rate := range model.Rates {
+		if rate.Category == category && rate.Unit == unit && rate.TierKey == tier {
+			if rate.PriceUnits != priceUnits || rate.UnitScale != unitScale {
+				t.Fatalf("rate %s/%s/%s = %#v", category, unit, tier, rate)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing rate %s/%s/%s in %#v", category, unit, tier, model)
+}
+
 func TestCatalogRejectsUnsafeOutputBoundAndMissingAuditMetadata(t *testing.T) {
 	base := ModelPrice{Version: "v1", CatalogVendor: "openai", ModelID: "m", MaxOutputTokens: 1, SourceURL: "https://example.test", RetrievedAt: "2026-07-25", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1}}}
 	for _, model := range []ModelPrice{

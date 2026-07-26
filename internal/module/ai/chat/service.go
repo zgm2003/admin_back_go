@@ -7,16 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -47,7 +50,7 @@ type Dependencies struct {
 	ToolRuntime         ToolRuntime
 	KnowledgeRuntime    KnowledgeRuntime
 	RunRecorder         RunRecorder
-	TextTasks           TextTaskStore
+	TextGeneration      TextGeneration
 	RunStaleTimeout     time.Duration
 	Now                 func() time.Time
 	Logger              *slog.Logger
@@ -64,7 +67,7 @@ type Service struct {
 	toolRuntime         ToolRuntime
 	knowledgeRuntime    KnowledgeRuntime
 	runRecorder         RunRecorder
-	textTasks           TextTaskStore
+	textGeneration      TextGeneration
 	runStaleTimeout     time.Duration
 	now                 func() time.Time
 	logger              *slog.Logger
@@ -83,7 +86,7 @@ func NewService(deps Dependencies) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -380,16 +383,33 @@ func replyRunIdempotencyKey(commandID uint64) string {
 
 func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (*TextCompletionResponse, *apperror.Error) {
 	input.Platform = strings.TrimSpace(input.Platform)
+	input.RequestID = strings.TrimSpace(input.RequestID)
 	input.Message = strings.TrimSpace(input.Message)
 	input.ModelID = strings.TrimSpace(input.ModelID)
 	if !enum.IsRegisteredPlatform(input.Platform) {
 		return nil, apperror.BadRequestKey("aitext.platform.invalid", nil, "无效的文本生成平台")
+	}
+	if input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {
+		return nil, apperror.New(aitext.ErrorCodeRequestInvalid, apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "request_id不能为空")
 	}
 	if input.UserID <= 0 {
 		return nil, apperror.UnauthorizedKey("auth.token.invalid_or_expired", nil, "Token无效或已过期")
 	}
 	if input.AgentID <= 0 || input.Message == "" {
 		return nil, apperror.BadRequestKey("aitext.request.invalid", nil, "文本生成参数错误")
+	}
+	if s == nil || s.textGeneration == nil {
+		return nil, apperror.New(aitext.ErrorCodeConfiguration, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "AI文本任务服务未配置")
+	}
+	replay, found, replayErr := s.textGeneration.ReplayAndWait(ctx, aitext.ReplayInput{
+		UserID: int64(input.UserID), RequestID: input.RequestID, AgentID: uint64(input.AgentID),
+		Operation: "text.generate", Modality: "text", NormalizedText: input.Message,
+	})
+	if replayErr != nil {
+		return nil, replayErr
+	}
+	if found {
+		return textCompletionResult(replay)
 	}
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
@@ -405,87 +425,70 @@ func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (
 	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsTextGeneration(agent.ScenesJSON) {
 		return nil, apperror.BadRequestKey("aitext.agent_unavailable", nil, "该智能体不支持文本生成")
 	}
-	engine, appErr := s.textCompletionEngine(ctx, *agent)
+	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := textCompletionPricingSnapshot(*agent)
 	if appErr != nil {
 		return nil, appErr
 	}
-	if s.textTasks == nil {
-		return nil, apperror.InternalKey("aitext.text_task_store_missing", nil, "AI文本任务仓储未配置")
-	}
-	if s.runRecorder == nil {
-		return nil, apperror.InternalKey("aitext.run_recorder_missing", nil, "AI文本运行记录服务未配置")
-	}
-	startedAt := s.now()
-	textTaskID, err := s.textTasks.Create(ctx, aitext.CreateInput{
-		Platform:   input.Platform,
-		UserID:     input.UserID,
-		AgentID:    agent.AgentID,
-		ProviderID: agent.ProviderID,
-		ModelID:    agent.ModelID,
-		Prompt:     input.Message,
-		Status:     aitext.StatusRunning,
-		StartedAt:  startedAt,
-		CreatedAt:  startedAt,
-		UpdatedAt:  startedAt,
+	normalizedText := input.Message
+	fingerprint, err := requestidentity.BuildFingerprint(requestidentity.Input{
+		UserID: int64(input.UserID), Operation: "text.generate", Modality: "text", AgentID: int64(agent.AgentID),
+		ModelID: strings.TrimSpace(agent.ModelID), NormalizedText: normalizedText,
+		Options: requestidentity.GenerationOptions{MaxOutputTokens: effectiveMaxOutputTokens},
 	})
 	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.text_task_failed", nil, "创建AI文本任务失败", err)
+		return nil, apperror.Wrap(aitext.ErrorCodeRequestInvalid, apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "AI文本请求身份无效", err)
 	}
-	runID, err := s.runRecorder.Start(ctx, airun.StartInput{
-		Platform:         input.Platform,
-		RequestID:        "text-completion-" + strconv.FormatUint(textTaskID, 10),
-		UserID:           input.UserID,
-		AgentID:          int64(agent.AgentID),
-		ProviderID:       int64(agent.ProviderID),
-		ModelID:          agent.ModelID,
-		ModelDisplayName: agent.ModelDisplayName,
-		InputSnapshot:    input.Message,
-		StartedAt:        startedAt,
+	inputSnapshot, err := aitext.EncodeProviderInputSnapshot(aitext.ProviderInputSnapshot{
+		Operation: "text.generate", Modality: "text", NormalizedText: normalizedText,
+		MaxOutputTokens: effectiveMaxOutputTokens, Prompt: input.Message, SystemPrompt: strings.TrimSpace(agent.SystemPrompt),
 	})
 	if err != nil {
-		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "创建AI文本运行记录失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.run_start_failed", nil, "创建AI文本运行记录失败", err)
+		return nil, apperror.Wrap(aitext.ErrorCodeConfiguration, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "生成AI文本输入快照失败", err)
 	}
-	result, err := engine.StreamChat(ctx, infraai.ChatInput{
-		AgentID: agent.AgentID,
-		UserID:  uint64(input.UserID),
-		UserKey: platformUserKey(input.Platform, input.UserID),
-		Content: input.Message,
-		Inputs:  textCompletionInputs(*agent),
-	}, discardEventSink{})
-	if err != nil {
-		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "AI文本生成失败", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "AI文本生成失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.provider_failed", nil, "AI文本生成失败", err)
-	}
-	answer := ""
-	if result != nil {
-		answer = strings.TrimSpace(result.Answer)
-	}
-	if answer == "" {
-		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: "AI文本生成结果为空", FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "AI文本生成结果为空", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.BadRequestKey("aitext.empty_result", nil, "AI文本生成结果为空")
-	}
-	if appErr := validateRunUsageStatus(result); appErr != nil {
-		finishedAt := s.now()
-		_ = s.textTasks.Fail(context.Background(), aitext.FailInput{ID: textTaskID, ErrorMessage: appErr.Message, FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)})
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: appErr.Message, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
+	result, appErr := s.textGeneration.SubmitAndWait(ctx, aitext.AcceptInput{
+		Platform: enum.PlatformAdmin, UserID: input.UserID, RequestID: input.RequestID, RequestFingerprint: fingerprint,
+		Kind: aitext.KindText, AgentID: agent.AgentID, ProviderID: agent.ProviderID,
+		ModelID: strings.TrimSpace(agent.ModelID), ModelDisplayName: strings.TrimSpace(agent.ModelDisplayName),
+		Prompt: input.Message, InputSnapshot: inputSnapshot, PricingSnapshotJSON: pricingSnapshotJSON,
+		EffectiveMaxOutputTokens: effectiveMaxOutputTokens,
+	})
+	if appErr != nil {
 		return nil, appErr
 	}
-	tokens := resultTokens(result)
-	finishedAt := s.now()
-	if err := s.textTasks.Complete(ctx, aitext.CompleteInput{ID: textTaskID, Answer: answer, FinishedAt: finishedAt, ElapsedMS: durationMS(startedAt, finishedAt)}); err != nil {
-		_ = s.runRecorder.Fail(context.Background(), airun.FailInput{RunID: runID, Message: "更新AI文本任务失败", FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)})
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.text_task_complete_failed", nil, "更新AI文本任务失败", err)
+	return textCompletionResult(result)
+}
+
+func textCompletionResult(result *aitext.Result) (*TextCompletionResponse, *apperror.Error) {
+	if result == nil || result.TaskID == 0 || result.Kind != aitext.KindText || strings.TrimSpace(result.Answer) == "" {
+		return nil, apperror.BadRequestKey("aitext.empty_result", nil, "AI文本生成结果为空")
 	}
-	if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.run_complete_failed", nil, "更新AI文本运行记录失败", err)
+	return &TextCompletionResponse{ID: fmt.Sprintf("text-completion-%d", result.TaskID), Object: "chat.completion", Content: strings.TrimSpace(result.Answer)}, nil
+}
+
+func textCompletionPricingSnapshot(agent AgentEngineConfig) (string, int64, *apperror.Error) {
+	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+	if err != nil {
+		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的官方模型价格", err)
 	}
-	return &TextCompletionResponse{ID: fmt.Sprintf("text-completion-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
+	if agent.BillingMultiplierPPM <= 0 || strings.TrimSpace(agent.EngineType) == "" {
+		return "", 0, apperror.New(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "AI文本计费配置无效")
+	}
+	if agent.MaxOutputTokens == 0 || uint64(agent.MaxOutputTokens) > uint64(math.MaxInt64) || int64(agent.MaxOutputTokens) > model.MaxOutputTokens {
+		return "", 0, apperror.Wrap(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "AI文本输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
+	}
+	effective := int64(agent.MaxOutputTokens)
+	snapshot := aigateway.PricingSnapshot{
+		Version: model.Version, Billable: true, CatalogVendor: model.CatalogVendor,
+		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
+		CanonicalModelID: model.ModelID, CatalogMaxOutputTokens: model.MaxOutputTokens,
+		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM,
+		SourceURL: model.SourceURL, RetrievedAt: model.RetrievedAt, Rates: append([]pricing.Rate(nil), model.Rates...),
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "生成AI模型价格快照失败", err)
+	}
+	return string(raw), effective, nil
 }
 
 func finalizedConversationReply(input ConversationReplyInput, result *PaidChatAttemptResult) *ConversationReplyResult {
@@ -831,34 +834,6 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	return engine, nil
 }
 
-func (s *Service) textCompletionEngine(ctx context.Context, agent AgentEngineConfig) (infraai.Engine, *apperror.Error) {
-	if agent.AgentID == 0 || agent.ProviderID == 0 {
-		return nil, apperror.BadRequestKey("aitext.agent_unavailable", nil, "该智能体不支持文本生成")
-	}
-	apiKeyEnc := strings.TrimSpace(agent.EngineAPIKeyEnc)
-	if apiKeyEnc == "" {
-		return nil, apperror.BadRequestKey("aitext.provider_key_missing", nil, "AI供应商API Key未配置")
-	}
-	apiKey, err := s.secretbox.Decrypt(apiKeyEnc)
-	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.provider_key_decrypt_failed", nil, "解密AI供应商API Key失败", err)
-	}
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, apperror.BadRequestKey("aitext.provider_key_missing", nil, "AI供应商API Key未配置")
-	}
-	if s.engineFactory == nil {
-		return nil, apperror.InternalKey("aitext.engine_missing", nil, "AI引擎工厂未配置")
-	}
-	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
-	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aitext.engine_create_failed", nil, "创建AI引擎失败", err)
-	}
-	if engine == nil {
-		return nil, apperror.InternalKey("aitext.engine_missing", nil, "AI引擎未配置")
-	}
-	return engine, nil
-}
-
 func (s *Service) publishStart(ctx context.Context, input ConversationReplyInput) error {
 	event, err := BuildStartEvent(StartPayload{ConversationID: input.ConversationID, RequestID: input.RequestID, UserMessageID: input.UserMessageID, AgentID: input.AgentID})
 	if err != nil {
@@ -899,24 +874,6 @@ func (s *conversationEventSink) Emit(ctx context.Context, event infraai.Event) e
 	}
 	// Terminal state belongs exclusively to the fenced replycommand
 	// transition, which persists the event in the same transaction.
-	return nil
-}
-
-func textCompletionInputs(agent AgentEngineConfig) map[string]any {
-	inputs := map[string]any{"model_id": agent.ModelID}
-	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
-		inputs["system_prompt"] = systemPrompt
-	}
-	return inputs
-}
-
-func platformUserKey(platform string, userID int64) string {
-	return fmt.Sprintf("%s:%d", strings.TrimSpace(platform), userID)
-}
-
-type discardEventSink struct{}
-
-func (discardEventSink) Emit(ctx context.Context, event infraai.Event) error {
 	return nil
 }
 

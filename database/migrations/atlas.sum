@@ -1,4 +1,4 @@
-h1:R3jfXVE6BWQEvgaCzufqB6V4NTEOo8C5qQnt8QH13dQ=
+h1:jLAeftiOUrzG1hL9DANV9rYntepesjJEJvHT9yxb6WU=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -14,3 +14,4 @@ h1:R3jfXVE6BWQEvgaCzufqB6V4NTEOo8C5qQnt8QH13dQ=
 202607250103_ai_billing_contract.sql h1:wcJIqG8sc6U6ic99nD4H1YATo7ih9ETSW4da6tkelQQ=
 202607250104_ai_billing_permissions.sql h1:KSbiku2TtSMcIMnhsWQWU62B08fkbnbzYkd6xdrk1Gg=
 202607250105_ai_provider_attempt_dispatch_state.sql h1:gm+SvKPMqlngZPAYHpefeVI/lR8SdQQSe7U5h40hZFs=
+202607260101_ai_image_task_leases.sql h1:JpdSRI838ckmIOC/jH2LAsKjVFN+9w5xINRx7+lgZPA=

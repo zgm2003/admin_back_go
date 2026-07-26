@@ -1,0 +1,89 @@
+{
+  "version": "official_numeric_parity_v2",
+  "models": [
+    {
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4.1",
+      "aliases": ["gpt-4.1-latest"],
+      "max_output_tokens": 32768,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4.1",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":200000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":800000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4o",
+      "aliases": [],
+      "max_output_tokens": 16384,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4o",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":250000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":1000000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4o-mini",
+      "aliases": [],
+      "max_output_tokens": 16384,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4o-mini",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":15000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":60000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_id": "gpt-4.1-mini",
+      "aliases": [],
+      "max_output_tokens": 16384,
+      "source_url": "https://platform.openai.com/docs/models/gpt-4.1-mini",
+      "retrieved_at": "2026-07-25",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":40000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":160000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_id": "gpt-image-2",
+      "aliases": [],
+      "max_output_tokens": 355785,
+      "source_url": "https://developers.openai.com/api/docs/pricing#image-generation",
+      "retrieved_at": "2026-07-26",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price_units":500000000,"unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price_units":3000000000,"unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_id": "sora-2",
+      "aliases": [],
+      "max_output_tokens": 4096,
+      "source_url": "https://developers.openai.com/api/docs/pricing#video",
+      "retrieved_at": "2026-07-26",
+      "rates": [
+        {"category":"media","unit":"second","tier_key":"720p","price_units":10000000,"unit_scale":1}
+      ]
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_id": "sora-2-pro",
+      "aliases": [],
+      "max_output_tokens": 4096,
+      "source_url": "https://developers.openai.com/api/docs/pricing#video",
+      "retrieved_at": "2026-07-26",
+      "rates": [
+        {"category":"media","unit":"second","tier_key":"720p","price_units":30000000,"unit_scale":1},
+        {"category":"media","unit":"second","tier_key":"1024p","price_units":50000000,"unit_scale":1},
+        {"category":"media","unit":"second","tier_key":"1080p","price_units":70000000,"unit_scale":1}
+      ]
+    }
+  ]
+}

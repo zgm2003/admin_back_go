@@ -22,6 +22,7 @@ import (
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
+	aitext "admin_back_go/internal/module/ai/text"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
 	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/apperror"
@@ -617,7 +618,7 @@ func (store gormGatewayRunStore) LockRunAndCharge(ctx context.Context, transacti
 }
 
 func gatewayRunSnapshot(row airun.Run) (aigateway.RunSnapshot, error) {
-	if row.ID <= 0 || row.UserID <= 0 || strings.TrimSpace(row.RequestID) == "" || len(row.RequestFingerprint) != sha256.Size {
+	if row.ID <= 0 || row.UserID <= 0 || strings.TrimSpace(row.RequestID) == "" || len(row.RequestFingerprint) != sha256.Size || row.Status != enum.AIRunStatusRunning {
 		return aigateway.RunSnapshot{}, errors.New("AI Run billing snapshot is incomplete")
 	}
 	var fingerprint [sha256.Size]byte
@@ -878,6 +879,7 @@ type gormGatewayAttemptStore struct {
 	db         *gorm.DB
 	repository *replycommand.GormRepository
 	commandID  uint64
+	textTaskID uint64
 	owner      string
 	token      uint64
 }
@@ -887,23 +889,49 @@ func (store gormGatewayAttemptStore) PutPrepared(ctx context.Context, transactio
 	if err != nil {
 		return aigateway.PreparedWriteResult{}, err
 	}
-	if store.repository == nil || store.commandID == 0 || strings.TrimSpace(store.owner) == "" || store.token == 0 {
-		return aigateway.PreparedWriteResult{}, aigateway.ErrNotConfigured
-	}
 	quoteJSON, err := json.Marshal(attempt.Quote)
 	if err != nil {
 		return aigateway.PreparedWriteResult{}, err
 	}
-	row, ok, err := store.repository.PreparePaidAttemptInTransaction(ctx, tx, replycommand.PrepareAttemptInput{
-		RunID: attempt.RunID, CommandID: store.commandID, AttemptNo: uint(attempt.AttemptNo),
-		Owner: store.owner, Token: store.token, Now: time.Now(), IdempotencyKey: attempt.IdempotencyKey,
-		PreparedRequestJSON: string(attempt.PreparedRequest), PreparedRequestSHA256: attempt.RequestSHA256, QuoteJSON: string(quoteJSON),
-	})
-	if err != nil {
-		return aigateway.PreparedWriteResult{}, err
-	}
-	if !ok || row == nil {
-		return aigateway.PreparedWriteResult{}, replycommand.ErrLeaseLost
+	var row *replycommand.Attempt
+	if store.commandID > 0 {
+		if store.repository == nil || strings.TrimSpace(store.owner) == "" || store.token == 0 {
+			return aigateway.PreparedWriteResult{}, aigateway.ErrNotConfigured
+		}
+		prepared, ok, prepareErr := store.repository.PreparePaidAttemptInTransaction(ctx, tx, replycommand.PrepareAttemptInput{
+			RunID: attempt.RunID, CommandID: store.commandID, AttemptNo: uint(attempt.AttemptNo),
+			Owner: store.owner, Token: store.token, Now: time.Now(), IdempotencyKey: attempt.IdempotencyKey,
+			PreparedRequestJSON: string(attempt.PreparedRequest), PreparedRequestSHA256: attempt.RequestSHA256, QuoteJSON: string(quoteJSON),
+		})
+		if prepareErr != nil {
+			return aigateway.PreparedWriteResult{}, prepareErr
+		}
+		if !ok || prepared == nil {
+			return aigateway.PreparedWriteResult{}, replycommand.ErrLeaseLost
+		}
+		row = prepared
+	} else {
+		if store.textTaskID == 0 {
+			return aigateway.PreparedWriteResult{}, aigateway.ErrNotConfigured
+		}
+		var task aitext.TextTask
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND run_id = ? AND status = ?", store.textTaskID, attempt.RunID, aitext.StatusRunning).
+			First(&task).Error; err != nil {
+			return aigateway.PreparedWriteResult{}, err
+		}
+		now := time.Now()
+		prepared := &replycommand.Attempt{
+			RunID: attempt.RunID, CommandID: nil, AttemptNo: uint(attempt.AttemptNo),
+			IdempotencyKey: attempt.IdempotencyKey, State: replycommand.AttemptPrepared,
+			PreparedRequestJSON: string(attempt.PreparedRequest), PreparedRequestSHA256: append([]byte(nil), attempt.RequestSHA256[:]...),
+			QuoteJSON: string(quoteJSON), UsageJSON: `{"status":"unavailable"}`, UsageStatus: string(billing.UsageStatusUnavailable),
+			DispatchState: infraai.DispatchStateNotDispatched, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := tx.WithContext(ctx).Create(prepared).Error; err != nil {
+			return aigateway.PreparedWriteResult{}, err
+		}
+		row = prepared
 	}
 	persisted, err := gatewayAttemptFromRow(*row)
 	if err != nil {

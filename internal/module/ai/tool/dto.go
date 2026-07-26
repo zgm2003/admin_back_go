@@ -6,6 +6,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 )
@@ -13,6 +14,8 @@ import (
 type JSONObject = map[string]any
 
 const (
+	ErrorCodeInsufficientBalance = aitext.ErrorCodeInsufficientBalance
+
 	RiskLow    = "low"
 	RiskMedium = "medium"
 	RiskHigh   = "high"
@@ -96,6 +99,7 @@ type GenerateAgentOption struct {
 }
 
 type GenerateDraftInput struct {
+	RequestID   string
 	AgentID     uint64
 	UserID      uint64
 	Requirement string
@@ -128,14 +132,22 @@ type GenerateUsage struct {
 }
 
 type GenerateAgentConfig struct {
-	AgentID         uint64
-	AgentName       string
-	ModelID         string
-	SystemPrompt    string
-	ProviderID      uint64
-	EngineType      string
-	EngineBaseURL   string
-	EngineAPIKeyEnc string
+	AgentID              uint64
+	AgentName            string
+	ModelID              string
+	ModelDisplayName     string
+	SystemPrompt         string
+	ProviderID           uint64
+	EngineType           string
+	EngineBaseURL        string
+	EngineAPIKeyEnc      string
+	BillingMultiplierPPM int64
+	MaxOutputTokens      int64
+}
+
+type DraftTaskService interface {
+	ReplayAndWait(context.Context, aitext.ReplayInput) (*aitext.Result, bool, *apperror.Error)
+	SubmitAndWait(context.Context, aitext.AcceptInput) (*aitext.Result, *apperror.Error)
 }
 
 type EngineConfig struct {

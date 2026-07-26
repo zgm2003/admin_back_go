@@ -3,9 +3,13 @@ package ai
 import "context"
 
 type ImageAsset struct {
-	Name     string
-	MimeType string
-	Data     []byte
+	Name            string
+	MimeType        string
+	StorageProvider string
+	StorageKey      string
+	SHA256          string
+	SizeBytes       int64
+	Data            []byte
 }
 
 type ImageInput struct {
@@ -45,4 +49,20 @@ type ImageResult struct {
 
 type ImageEngine interface {
 	GenerateImages(ctx context.Context, input ImageInput) (*ImageResult, error)
+}
+
+const SafeImageUpperBoundStrategyLogicalAndAttachmentBytesV1 = "logical_request_and_attachment_bytes_v1"
+
+type PreparedImageRequest struct {
+	Body           []byte
+	IdempotencyKey string
+	InputAssets    []ImageAsset
+	MaskAsset      *ImageAsset
+}
+
+type PreparedImageEngine interface {
+	ImageEngine
+	CapabilityProvider
+	PrepareImageRequest(ImageInput) ([]byte, error)
+	GeneratePreparedImages(context.Context, PreparedImageRequest) (*ImageResult, error)
 }

@@ -152,7 +152,6 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 				AIConnectionTester:  providers.AIConnectionTester,
 				AIChatFactory:       providers.AIChatFactory,
 				AIImageFactory:      providers.AIImageFactory,
-				AIToolFactory:       providers.AIToolFactory,
 				AIVideoFactory:      providers.AIVideoFactory,
 				AIAudioFactory:      providers.AIAudioFactory,
 				ObjectReader:        providers.ObjectReader,

@@ -33,29 +33,31 @@ type fakeRepository struct {
 	staleBefore  time.Time
 }
 
-type fakeTextTaskStore struct {
-	nextID    uint64
-	created   aitext.CreateInput
-	completed aitext.CompleteInput
-	failed    aitext.FailInput
+type fakeDurableTextService struct {
+	replayInput  aitext.ReplayInput
+	replayResult *aitext.Result
+	replayFound  bool
+	replayErr    *apperror.Error
+	submitInput  aitext.AcceptInput
+	submitResult *aitext.Result
+	submitErr    *apperror.Error
+	replayCalls  int
+	submitCalls  int
 }
 
-func (f *fakeTextTaskStore) Create(ctx context.Context, input aitext.CreateInput) (uint64, error) {
-	f.created = input
-	if f.nextID == 0 {
-		return 1, nil
+func (f *fakeDurableTextService) ReplayAndWait(_ context.Context, input aitext.ReplayInput) (*aitext.Result, bool, *apperror.Error) {
+	f.replayCalls++
+	f.replayInput = input
+	return f.replayResult, f.replayFound, f.replayErr
+}
+
+func (f *fakeDurableTextService) SubmitAndWait(_ context.Context, input aitext.AcceptInput) (*aitext.Result, *apperror.Error) {
+	f.submitCalls++
+	f.submitInput = input
+	if f.submitResult == nil && f.submitErr == nil {
+		return &aitext.Result{TaskID: 77, RunID: 99, RequestID: input.RequestID, Kind: aitext.KindText, Answer: "ok"}, nil
 	}
-	return f.nextID, nil
-}
-
-func (f *fakeTextTaskStore) Complete(ctx context.Context, input aitext.CompleteInput) error {
-	f.completed = input
-	return nil
-}
-
-func (f *fakeTextTaskStore) Fail(ctx context.Context, input aitext.FailInput) error {
-	f.failed = input
-	return nil
+	return f.submitResult, f.submitErr
 }
 
 type fakeRunRecorder struct {
@@ -411,93 +413,85 @@ func validGenerationTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	return &AgentEngineConfig{
-		AgentID:          8,
-		AgentName:        "Generation文本助手",
-		ProviderID:       2,
-		ModelID:          "gpt-4.1-mini",
-		ModelDisplayName: "GPT 4.1 Mini",
-		SystemPrompt:     "用中文回答",
-		ScenesJSON:       `["text_generate"]`,
-		EngineType:       string(infraai.EngineTypeOpenAI),
-		EngineBaseURL:    "https://api.openai.test/v1",
-		EngineAPIKeyEnc:  cipher,
-		AgentStatus:      enum.CommonYes,
-		EngineStatus:     enum.CommonYes,
+		AgentID:              8,
+		AgentName:            "Generation文本助手",
+		ProviderID:           2,
+		ModelID:              "gpt-4.1-mini",
+		ModelDisplayName:     "GPT 4.1 Mini",
+		SystemPrompt:         "用中文回答",
+		ScenesJSON:           `["text_generate"]`,
+		EngineType:           string(infraai.EngineTypeOpenAI),
+		EngineBaseURL:        "https://api.openai.test/v1",
+		EngineAPIKeyEnc:      cipher,
+		AgentStatus:          enum.CommonYes,
+		EngineStatus:         enum.CommonYes,
+		BillingMultiplierPPM: 1_000_000,
+		MaxOutputTokens:      1024,
 	}, box
 }
 
-func TestCompleteTextUsesGenerationTextAgentAndDoesNotPersistConversation(t *testing.T) {
-	agent, box := validGenerationTextAgentConfig(t)
+func TestCompleteTextSubmitsDurableGatewayTaskWithoutDirectProviderCall(t *testing.T) {
+	agent, _ := validGenerationTextAgentConfig(t)
 	repo := &fakeRepository{agent: agent}
-	engine := &captureEngine{}
-	factory := &fakeEngineFactory{engine: engine}
+	textService := &fakeDurableTextService{submitResult: &aitext.Result{TaskID: 77, RunID: 99, RequestID: "request-1", Kind: aitext.KindText, Answer: "看到了图片"}}
+	factory := &fakeEngineFactory{engine: &captureEngine{}}
 	pub := &fakePublisher{}
-	now := time.Date(2026, 6, 4, 12, 0, 0, 123, time.UTC)
 
 	res, appErr := NewService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: repo,
 		Publisher:          pub,
-		TextTasks:          &fakeTextTaskStore{},
-		RunRecorder:        &fakeRunRecorder{},
+		TextGeneration:     textService,
 		EngineFactory:      factory,
-		Secretbox:          box,
-		Now:                func() time.Time { return now },
-	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello text "})
+	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-1", UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello text "})
 
 	if appErr != nil {
 		t.Fatalf("CompleteText returned error: %#v", appErr)
 	}
-	if res == nil || res.ID != "text-completion-1780574400000000123" || res.Object != "chat.completion" || res.Content != "看到了图片" {
+	if res == nil || res.ID != "text-completion-77" || res.Object != "chat.completion" || res.Content != "看到了图片" {
 		t.Fatalf("unexpected response: %#v", res)
 	}
 	if repo.agentID != 8 {
 		t.Fatalf("expected runtime agent id 8, got %d", repo.agentID)
 	}
-	if engine.input.UserID != 7 || engine.input.AgentID != 8 || engine.input.UserKey != "admin:7" || engine.input.Content != "hello text" {
-		t.Fatalf("unexpected engine input: %#v", engine.input)
+	if textService.replayCalls != 1 || textService.submitCalls != 1 {
+		t.Fatalf("durable text calls: replay=%d submit=%d", textService.replayCalls, textService.submitCalls)
 	}
-	if engine.input.Inputs["model_id"] != "gpt-4.1-mini" || engine.input.Inputs["system_prompt"] != "用中文回答" {
-		t.Fatalf("agent model/system prompt not used: %#v", engine.input.Inputs)
+	if textService.submitInput.RequestID != "request-1" || textService.submitInput.Kind != aitext.KindText || textService.submitInput.AgentID != 8 || textService.submitInput.ModelID != "gpt-4.1-mini" || textService.submitInput.RequestFingerprint == ([32]byte{}) || textService.submitInput.PricingSnapshotJSON == "" || textService.submitInput.InputSnapshot == "" {
+		t.Fatalf("durable text acceptance input=%#v", textService.submitInput)
 	}
 	if repo.createdRun.ConversationID != 0 || repo.createdRun.UserMessageID != 0 || repo.assistant.Content != "" || len(pub.pubs) != 0 {
 		t.Fatalf("stateless completion must not persist or publish: repo=%#v pubs=%#v", repo, pub.pubs)
 	}
-	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
-		t.Fatalf("unexpected engine config: %#v", factory.input)
+	if factory.input != (EngineConfig{}) {
+		t.Fatalf("HTTP text path called provider factory directly: %#v", factory.input)
 	}
 }
 
-func TestCompleteTextRecordsRun(t *testing.T) {
-	agent, box := validGenerationTextAgentConfig(t)
-	repo := &fakeRepository{agent: agent}
-	textTasks := &fakeTextTaskStore{nextID: 77}
-	recorder := &fakeRunRecorder{nextID: 99}
-	engine := &fakeEngine{result: &infraai.ChatResult{Answer: "ok", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5, UsageStatus: infraai.UsageStatusReported}}
-	service := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, TextTasks: textTasks, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, Now: func() time.Time {
-		return time.Date(2026, 6, 7, 3, 4, 5, 0, time.UTC)
-	}})
+func TestCompleteTextReplaysBeforeCurrentAgentLookup(t *testing.T) {
+	textService := &fakeDurableTextService{
+		replayFound:  true,
+		replayResult: &aitext.Result{TaskID: 77, RunID: 99, RequestID: "request-replay", Kind: aitext.KindText, Answer: "persisted answer"},
+	}
+	repo := &fakeRepository{}
 
-	res, appErr := service.CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Message: "draw a cat"})
+	res, appErr := NewService(Dependencies{Repository: repo, TextGeneration: textService}).CompleteText(
+		context.Background(),
+		TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-replay", UserID: 7, AgentID: 8, Message: "same input"},
+	)
 
-	if appErr != nil || res == nil || res.Content != "ok" {
-		t.Fatalf("completion failed res=%#v err=%v", res, appErr)
+	if appErr != nil || res == nil || res.Content != "persisted answer" {
+		t.Fatalf("durable replay result=%#v error=%v", res, appErr)
 	}
-	if textTasks.created.Prompt != "draw a cat" || textTasks.created.Platform != enum.PlatformAdmin || textTasks.completed.Answer != "ok" {
-		t.Fatalf("text task not recorded: created=%#v completed=%#v", textTasks.created, textTasks.completed)
-	}
-	if recorder.started.Platform != enum.PlatformAdmin || recorder.started.RequestID != "text-completion-77" || recorder.started.InputSnapshot != "draw a cat" || recorder.started.UserID != 7 || recorder.started.AgentID != 8 {
-		t.Fatalf("run not started: %#v", recorder.started)
-	}
-	if recorder.completed.RunID != 99 || recorder.completed.TotalTokens != 5 {
-		t.Fatalf("run not completed: %#v", recorder.completed)
+	if repo.agentID != 0 || textService.submitCalls != 0 {
+		t.Fatalf("replay consulted mutable agent or submitted new work: agent=%d submits=%d", repo.agentID, textService.submitCalls)
 	}
 }
 
 func TestCompleteTextRejectsMissingOrUnregisteredPlatformBeforeRepository(t *testing.T) {
 	for _, platform := range []string{"", "partner_portal"} {
 		repo := &fakeRepository{}
-		_, appErr := NewService(Dependencies{Repository: repo}).CompleteText(context.Background(), TextCompletionInput{Platform: platform, UserID: 7, AgentID: 8, Message: "hello"})
+		_, appErr := NewService(Dependencies{Repository: repo}).CompleteText(context.Background(), TextCompletionInput{Platform: platform, RequestID: "request-1", UserID: 7, AgentID: 8, Message: "hello"})
 		if appErr == nil || appErr.MessageID != "aitext.platform.invalid" {
 			t.Fatalf("expected platform %q to be rejected, got %#v", platform, appErr)
 		}
@@ -508,26 +502,24 @@ func TestCompleteTextRejectsMissingOrUnregisteredPlatformBeforeRepository(t *tes
 }
 
 func TestCompleteTextRejectsNonGenerationTextScene(t *testing.T) {
-	agent, box := validAgentConfig(t)
+	agent, _ := validAgentConfig(t)
 	_, appErr := NewService(Dependencies{
-		Repository:    &fakeRepository{agent: agent},
-		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")},
-		Secretbox:     box,
-	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 5, Message: "hi"})
+		Repository:     &fakeRepository{agent: agent},
+		TextGeneration: &fakeDurableTextService{},
+	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-1", UserID: 7, AgentID: 5, Message: "hi"})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "aitext.agent_unavailable" {
 		t.Fatalf("expected generation text scene rejection, got %#v", appErr)
 	}
 }
 
-func TestCompleteTextRejectsEmptyProviderAnswer(t *testing.T) {
-	agent, box := validGenerationTextAgentConfig(t)
+func TestCompleteTextRejectsEmptySettledAnswer(t *testing.T) {
+	agent, _ := validGenerationTextAgentConfig(t)
 	_, appErr := NewService(Dependencies{
-		Repository:    &fakeRepository{agent: agent},
-		TextTasks:     &fakeTextTaskStore{},
-		RunRecorder:   &fakeRunRecorder{},
-		EngineFactory: &fakeEngineFactory{engine: &blankEngine{}},
-		Secretbox:     box,
-	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, UserID: 7, AgentID: 8, Message: "hi"})
+		Repository: &fakeRepository{agent: agent},
+		TextGeneration: &fakeDurableTextService{submitResult: &aitext.Result{
+			TaskID: 77, RunID: 99, RequestID: "request-1", Kind: aitext.KindText,
+		}},
+	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-1", UserID: 7, AgentID: 8, Message: "hi"})
 	if appErr == nil || appErr.MessageID != "aitext.empty_result" {
 		t.Fatalf("expected empty result error, got %#v", appErr)
 	}

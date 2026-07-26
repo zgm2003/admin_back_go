@@ -2405,11 +2405,11 @@ func TestRouterInstallsAIConfigRESTRoutes(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tools/generate-draft", strings.NewReader(`{"agent_id":5,"requirement":"生成查询当前用户量工具","code_hint":"admin_user_count"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-tools/generate-draft", strings.NewReader(`{"request_id":"router-request-1","agent_id":5,"requirement":"生成查询当前用户量工具","code_hint":"admin_user_count"}`))
 	request.Header.Set("Authorization", "Bearer access-token")
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || toolService.generateInput.AgentID != 5 || toolService.generateInput.UserID != 9 || toolService.generateInput.CodeHint != "admin_user_count" {
+	if recorder.Code != http.StatusOK || toolService.generateInput.RequestID != "router-request-1" || toolService.generateInput.AgentID != 5 || toolService.generateInput.UserID != 9 || toolService.generateInput.CodeHint != "admin_user_count" {
 		t.Fatalf("expected AI tool generate-draft route, code=%d body=%s input=%#v", recorder.Code, recorder.Body.String(), toolService.generateInput)
 	}
 

@@ -13,6 +13,7 @@ import (
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/ai/replycommand"
+	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/export"
 	notificationtask "admin_back_go/internal/module/notification/task"
@@ -29,6 +30,7 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		replycommand.TypeReplyCommandV1,
 		aiimage.TypeGenerateV1,
 		aichat.TypeRunTimeoutV1,
+		aitext.TypeGenerateV1,
 		auth.TypeAuthLoginLogV1,
 		exporttask.TypeCleanupExpiredV1,
 		exporttask.TypeRunV1,
@@ -55,7 +57,8 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		{auth.TypeAuthLoginLogV1, taskqueue.QueueCritical, 3, 30 * time.Second, 0},
 		{replycommand.TypeReplyCommandV1, taskqueue.QueueDefault, 0, 15 * time.Minute, time.Second},
 		{aichat.TypeRunTimeoutV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
-		{aiimage.TypeGenerateV1, taskqueue.QueueLow, 2, 10 * time.Minute, 0},
+		{aitext.TypeGenerateV1, taskqueue.QueueDefault, 6, 15 * time.Minute, 15 * time.Minute},
+		{aiimage.TypeGenerateV1, taskqueue.QueueLow, 2, aiimage.GenerateTimeout, aiimage.GenerateTimeout},
 		{exporttask.TypeRunV1, taskqueue.QueueLow, 3, 5 * time.Minute, 0},
 		{exporttask.TypeCleanupExpiredV1, taskqueue.QueueLow, 3, time.Minute, 5 * time.Minute},
 		{notificationtask.TypeDispatchDueV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
