@@ -37,8 +37,8 @@ type failingDeliverySink struct {
 
 func TestCompatibleClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T) {
 	capabilities := New(Config{}).Capabilities()
-	if capabilities.SafeInputUpperBoundStrategy != "" {
-		t.Fatalf("compatible transport claimed tokenizer strategy %q", capabilities.SafeInputUpperBoundStrategy)
+	if capabilities.SafeInputUpperBoundStrategy != infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1 {
+		t.Fatalf("compatible transport strategy=%q", capabilities.SafeInputUpperBoundStrategy)
 	}
 	wantUsage := []infraai.UsageIdentity{
 		{Category: infraai.UsageCategoryInput, Unit: "token"},

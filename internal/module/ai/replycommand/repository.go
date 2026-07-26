@@ -354,7 +354,7 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 	var claimed *Claim
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("attempt_count < max_attempts").
+			Where("attempt_count < max_attempts OR cancel_requested_at IS NOT NULL OR ((last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message IN ?)) OR EXISTS (SELECT 1 FROM ai_provider_attempts pa WHERE pa.command_id = ai_reply_commands.id AND pa.state = ?) OR (state IN ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)", ErrCodeFinalizationRetry, FinalizationRetryMarker, "ai.provider_failed", "provider_failed", "ai.local_failed", "local_failure", "ai.provider_pre_dispatch_failed", "pre_dispatch_failed", "ai.billing.insufficient_balance", []string{"initial_insufficient", "continuation_topup_insufficient"}, AttemptPrepared, []State{StateClaimed, StateRunning}, now).
 			Where("(state = ? AND next_attempt_at <= ?) OR (state IN ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)", StatePending, now, []State{StateClaimed, StateRunning}, now)
 		if commandID > 0 {
 			query = query.Where("id = ?", commandID)
@@ -367,13 +367,16 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 		if err != nil {
 			return err
 		}
-		if command.State == StateClaimed || command.State == StateRunning {
+		skipAttemptIncrement := command.RequiresFinalizationOnly()
+		// Always inspect the latest durable attempt: a prepared request must be
+		// replayed without consuming another provider attempt even below the cap.
+		{
 			var latestAttempt Attempt
 			attemptErr := tx.Where("command_id = ?", command.ID).Order("attempt_no DESC").First(&latestAttempt).Error
 			if attemptErr != nil && !errors.Is(attemptErr, gorm.ErrRecordNotFound) {
 				return attemptErr
 			}
-			if attemptErr == nil && ambiguousAttemptState(latestAttempt.State) {
+			if (command.State == StateClaimed || command.State == StateRunning) && attemptErr == nil && ambiguousAttemptState(latestAttempt.State) {
 				result := tx.Model(&Command{}).
 					Where("id = ? AND lease_token = ? AND state IN ?", command.ID, command.LeaseToken, []State{StateClaimed, StateRunning}).
 					Updates(map[string]any{
@@ -390,15 +393,29 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 				}
 				return nil
 			}
+			if attemptErr == nil {
+				switch latestAttempt.State {
+				case AttemptSucceeded:
+					// Runner's Finalizer probe decides whether this is a final answer,
+					// unbilled evidence, or a tool continuation. Do not overwrite the
+					// candidate with a generic finalization marker here.
+					skipAttemptIncrement = true
+				case AttemptPrepared:
+					// The exact prepared request is replayed; it is not another provider attempt.
+					skipAttemptIncrement = true
+				}
+			}
 		}
 		nextToken := command.LeaseToken + 1
 		updates := map[string]any{
 			"state":            StateClaimed,
-			"attempt_count":    gorm.Expr("attempt_count + 1"),
 			"lease_owner":      owner,
 			"lease_token":      nextToken,
 			"lease_expires_at": leaseExpiresAt,
 			"updated_at":       now,
+		}
+		if !skipAttemptIncrement {
+			updates["attempt_count"] = gorm.Expr("attempt_count + 1")
 		}
 		result := tx.Model(&Command{}).
 			Where("id = ? AND lease_token = ?", command.ID, command.LeaseToken).
@@ -410,7 +427,9 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 			return nil
 		}
 		command.State = StateClaimed
-		command.AttemptCount++
+		if !skipAttemptIncrement {
+			command.AttemptCount++
+		}
 		command.LeaseOwner = &owner
 		command.LeaseToken = nextToken
 		command.LeaseExpiresAt = &leaseExpiresAt
@@ -548,6 +567,50 @@ func (r *GormRepository) ScheduleRetry(ctx context.Context, commandID uint64, ow
 			return err
 		}
 		applied = true
+		return nil
+	})
+	return applied, err
+}
+
+// ScheduleFinalizationRetry preserves the durable terminal marker. The next
+// claim must re-enter settlement rather than issue a fresh provider request.
+func (r *GormRepository) ScheduleFinalizationRetry(ctx context.Context, commandID uint64, owner string, token uint64, now time.Time, next time.Time) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrRepositoryNotConfigured
+	}
+	owner = strings.TrimSpace(owner)
+	if commandID == 0 || owner == "" || token == 0 || next.IsZero() {
+		return false, ErrCreateInputInvalid
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	var applied bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var command Command
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, StateRunning).
+			First(&command).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		marker := command
+		marker.CancelRequestedAt = nil
+		updates := map[string]any{"state": StatePending, "next_attempt_at": next, "lease_owner": nil, "lease_expires_at": nil, "updated_at": now}
+		if !marker.RequiresFinalizationOnly() {
+			updates["last_error_code"] = ErrCodeFinalizationRetry
+			updates["last_error_message"] = FinalizationRetryMarker
+		}
+		result := tx.Model(&Command{}).
+			Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ?", commandID, owner, token, StateRunning).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		applied = result.RowsAffected == 1
 		return nil
 	})
 	return applied, err

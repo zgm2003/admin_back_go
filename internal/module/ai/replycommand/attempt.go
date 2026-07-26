@@ -246,6 +246,9 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 			PreparedRequestJSON:   prepared,
 			PreparedRequestSHA256: append([]byte(nil), preparedHash[:]...),
 			QuoteJSON:             quote,
+			UsageJSON:             `{"status":"unavailable"}`,
+			UsageStatus:           "unavailable",
+			DispatchState:         infraai.DispatchStateNotDispatched,
 			CreatedAt:             input.Now,
 			UpdatedAt:             input.Now,
 		}
@@ -529,7 +532,7 @@ func terminalAttemptState(state AttemptState) bool {
 
 func ambiguousAttemptState(state AttemptState) bool {
 	switch state {
-	case AttemptDispatched, AttemptSucceeded, AttemptOutcomeUnknown:
+	case AttemptDispatched, AttemptOutcomeUnknown:
 		return true
 	default:
 		return false

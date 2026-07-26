@@ -12,6 +12,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/aigateway"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -35,13 +36,22 @@ type RetryScheduler interface {
 	ScheduleRetry(context.Context, uint64, string, uint64, time.Time, time.Time, string, string) (bool, error)
 }
 
+type FinalizationRetryScheduler interface {
+	ScheduleFinalizationRetry(context.Context, uint64, string, uint64, time.Time, time.Time) (bool, error)
+}
+
 type ReplyExecutor interface {
 	ExecuteConversationReply(context.Context, aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error)
+}
+
+type ReplyFinalizer interface {
+	FinalizeConversationReply(context.Context, aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error)
 }
 
 type RunnerOptions struct {
 	Repository       RunnerRepository
 	Executor         ReplyExecutor
+	Finalizer        ReplyFinalizer
 	CancelSubscriber CancelSubscriber
 	Owner            string
 	LeaseTTL         time.Duration
@@ -52,6 +62,7 @@ type RunnerOptions struct {
 type Runner struct {
 	repository       RunnerRepository
 	executor         ReplyExecutor
+	finalizer        ReplyFinalizer
 	cancelSubscriber CancelSubscriber
 	owner            string
 	leaseTTL         time.Duration
@@ -76,7 +87,7 @@ func NewRunner(options RunnerOptions) *Runner {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Runner{repository: options.Repository, executor: options.Executor, cancelSubscriber: options.CancelSubscriber, owner: owner, leaseTTL: leaseTTL, now: now, logger: logger}
+	return &Runner{repository: options.Repository, executor: options.Executor, finalizer: options.Finalizer, cancelSubscriber: options.CancelSubscriber, owner: owner, leaseTTL: leaseTTL, now: now, logger: logger}
 }
 
 func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
@@ -141,8 +152,11 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 	if !initialRenewal.Alive {
 		return ErrLeaseLost
 	}
-	if initialRenewal.CancelRequested {
+	if initialRenewal.CancelRequested && r.finalizer == nil {
 		return r.finishCancellation(context.WithoutCancel(ctx), claim)
+	}
+	if finalized, finalizationErr := r.finalizationFence(context.WithoutCancel(ctx), claim, initialRenewal.CancelRequested); finalized || finalizationErr != nil {
+		return finalizationErr
 	}
 	stopRenew := make(chan struct{})
 	renewDone := make(chan struct{})
@@ -198,17 +212,22 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 	}()
 
 	result, executeErr := r.executor.ExecuteConversationReply(drainCtx, aichat.ConversationReplyInput{
-		CommandID:       command.ID,
-		LeaseOwner:      claim.Owner,
-		LeaseToken:      claim.FencingToken,
-		DeliveryContext: deliveryCtx,
-		ConversationID:  command.ConversationID,
-		UserID:          command.UserID,
-		UserMessageID:   command.UserMessageID,
-		RequestID:       command.RequestID,
+		CommandID:          command.ID,
+		LeaseOwner:         claim.Owner,
+		LeaseToken:         claim.FencingToken,
+		DeliveryContext:    deliveryCtx,
+		ConversationID:     command.ConversationID,
+		UserID:             command.UserID,
+		UserMessageID:      command.UserMessageID,
+		RequestID:          command.RequestID,
+		CommandAttempt:     command.AttemptCount,
+		CommandMaxAttempts: command.MaxAttempts,
 	})
 	close(stopRenew)
 	<-renewDone
+	if result != nil && result.Finalized {
+		return nil
+	}
 	if leaseLost.Load() {
 		if value := renewErr.Load(); value != nil {
 			return errors.Join(ErrLeaseLost, value.(error))
@@ -244,6 +263,10 @@ func (r *Runner) runClaim(ctx context.Context, claim *Claim) error {
 }
 
 func (r *Runner) finishCancellation(ctx context.Context, claim *Claim) error {
+	if r.finalizer != nil {
+		_, err := r.finalizationFence(ctx, claim, true)
+		return err
+	}
 	ok, err := r.repository.Transition(ctx, claim.Command.ID, claim.Owner, claim.FencingToken, StateRunning, StateCanceled, map[string]any{
 		"finished_at": r.now(),
 	})
@@ -256,8 +279,58 @@ func (r *Runner) finishCancellation(ctx context.Context, claim *Claim) error {
 	return nil
 }
 
+// finalizationFence runs after claim fencing but before any chat service work.
+// Only an explicit pending response permits a normal provider attempt.
+func (r *Runner) finalizationFence(ctx context.Context, claim *Claim, force bool) (bool, error) {
+	if r.finalizer == nil {
+		return false, nil
+	}
+	command := claim.Command
+	// A generic retry can be created before durable terminal evidence exists.
+	// Pending then means the original provider path must resume; explicit
+	// terminal markers and cancellation remain fail-closed.
+	force = force || (command.RequiresFinalizationOnly() && !command.IsGenericFinalizationRetry())
+	result, err := r.finalizer.FinalizeConversationReply(ctx, aichat.ConversationReplyInput{
+		CommandID: command.ID, LeaseOwner: claim.Owner, LeaseToken: claim.FencingToken,
+		ConversationID: command.ConversationID, UserID: command.UserID, UserMessageID: command.UserMessageID,
+		RequestID: command.RequestID, CommandAttempt: command.AttemptCount, CommandMaxAttempts: command.MaxAttempts,
+	})
+	if err == nil && result != nil && result.Finalized {
+		return true, nil
+	}
+	if errors.Is(err, aigateway.ErrFinalizationPending) && !force {
+		return false, nil
+	}
+	if err == nil {
+		err = ErrResultInvalid
+	}
+	retryErr := fmt.Errorf("%w: %v", aichat.ErrPaidFinalizationRetry, err)
+	return true, r.finishFailure(ctx, claim, retryErr)
+}
+
 func (r *Runner) finishFailure(ctx context.Context, claim *Claim, cause error) error {
 	command := claim.Command
+	if errors.Is(cause, aichat.ErrPaidFinalizationRetry) {
+		next := r.now().Add(retryBackoff(command.AttemptCount))
+		if scheduler, ok := r.repository.(FinalizationRetryScheduler); ok {
+			ok, err := scheduler.ScheduleFinalizationRetry(ctx, command.ID, claim.Owner, claim.FencingToken, r.now(), next)
+			if err != nil {
+				return errors.Join(cause, err)
+			}
+			if !ok {
+				return errors.Join(cause, ErrLeaseLost)
+			}
+			return cause
+		}
+		ok, err := r.repository.Transition(ctx, command.ID, claim.Owner, claim.FencingToken, StateRunning, StatePending, map[string]any{"next_attempt_at": next})
+		if err != nil {
+			return errors.Join(cause, err)
+		}
+		if !ok {
+			return errors.Join(cause, ErrLeaseLost)
+		}
+		return cause
+	}
 	if outcome, ok := infraai.ProviderOutcomeFromError(cause); ok && outcome == infraai.ProviderOutcomeUnknown {
 		ok, err := r.repository.Transition(ctx, command.ID, claim.Owner, claim.FencingToken, StateRunning, StateOutcomeUnknown, map[string]any{
 			"outcome_unknown_at": r.now(),

@@ -55,11 +55,12 @@ type ProviderAttempt struct {
 }
 
 type DispatchResult struct {
-	ProviderRequestID string
-	ResponseSHA256    [32]byte
-	DispatchState     string
-	TerminalState     string
-	Usage             infraai.UsageSnapshot
+	ProviderRequestID   string
+	ResponseSHA256      [32]byte
+	DispatchState       string
+	TerminalState       string
+	Usage               infraai.UsageSnapshot
+	ResultCandidateJSON *string
 }
 
 type RunSnapshot struct {

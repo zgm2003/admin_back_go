@@ -3,11 +3,13 @@ package replycommand
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/aigateway"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -153,6 +155,90 @@ func TestRunnerMovesAmbiguousProviderFailureToOutcomeUnknownWithoutRetry(t *test
 	}
 }
 
+func TestRunnerUsesFinalizerForPreDispatchCancellation(t *testing.T) {
+	now := time.Now()
+	repository := &fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 46, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "request-finalize", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
+		Owner:   "worker-a", FencingToken: 1,
+	}, renewal: Renewal{Alive: true, CancelRequested: true}}
+	finalizer := &fakeReplyFinalizer{result: &aichat.ConversationReplyResult{ConversationID: 3, Finalized: true}}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: &fakeReplyExecutor{}, Finalizer: finalizer, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("RunOnce worked=%v err=%v", worked, err)
+	}
+	if finalizer.calls != 1 || len(repository.transitions) != 1 {
+		t.Fatalf("finalizer calls=%d transitions=%+v", finalizer.calls, repository.transitions)
+	}
+}
+
+func TestRunnerFinalizationProbePendingAllowsNormalExecution(t *testing.T) {
+	now := time.Now()
+	repository := &fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 461, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "probe-pending", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
+		Owner:   "worker-a", FencingToken: 1,
+	}, renewal: Renewal{Alive: true}}
+	executor := &fakeReplyExecutor{result: &aichat.ConversationReplyResult{ConversationID: 3, AssistantMessageID: 22}}
+	finalizer := &fakeReplyFinalizer{err: fmt.Errorf("%w: no terminal evidence", aigateway.ErrFinalizationPending)}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Finalizer: finalizer, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || err != nil || finalizer.calls != 1 || executor.calls != 1 {
+		t.Fatalf("worked=%v err=%v finalizer=%d executor=%d", worked, err, finalizer.calls, executor.calls)
+	}
+}
+
+func TestRunnerFinalizationMarkerFencesExecutorAndSchedulesFinalizationRetry(t *testing.T) {
+	now := time.Now()
+	repository := &finalizationRetryRunnerRepository{fakeRunnerRepository: fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 462, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "finalization-only", State: StateClaimed, AttemptCount: 3, MaxAttempts: 3, LastErrorCode: ErrCodeFinalizationRetry, LastErrorMessage: FinalizationRetryMarker},
+		Owner:   "worker-a", FencingToken: 2,
+	}, renewal: Renewal{Alive: true}}}
+	executor := &fakeReplyExecutor{result: &aichat.ConversationReplyResult{ConversationID: 3, AssistantMessageID: 22}}
+	finalizer := &fakeReplyFinalizer{err: errors.New("settlement database unavailable")}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Finalizer: finalizer, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || !errors.Is(err, aichat.ErrPaidFinalizationRetry) {
+		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+	if finalizer.calls != 1 || executor.calls != 0 || repository.finalizationRetryID != 462 {
+		t.Fatalf("finalizer=%d executor=%d retry=%d", finalizer.calls, executor.calls, repository.finalizationRetryID)
+	}
+}
+
+func TestRunnerGenericFinalizationRetryPendingResumesExecutor(t *testing.T) {
+	now := time.Now()
+	repository := &finalizationRetryRunnerRepository{fakeRunnerRepository: fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 464, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "generic-pending", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3, LastErrorCode: ErrCodeFinalizationRetry, LastErrorMessage: FinalizationRetryMarker},
+		Owner:   "worker-a", FencingToken: 2,
+	}, renewal: Renewal{Alive: true}}}
+	executor := &fakeReplyExecutor{result: &aichat.ConversationReplyResult{ConversationID: 3, AssistantMessageID: 22}}
+	finalizer := &fakeReplyFinalizer{err: aigateway.ErrFinalizationPending}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Finalizer: finalizer, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || err != nil || executor.calls != 1 || repository.finalizationRetryID != 0 {
+		t.Fatalf("worked=%v err=%v executor=%d finalization_retry=%d", worked, err, executor.calls, repository.finalizationRetryID)
+	}
+}
+
+func TestRunnerCancellationFinalizerFailureSchedulesRetryImmediately(t *testing.T) {
+	now := time.Now()
+	repository := &finalizationRetryRunnerRepository{fakeRunnerRepository: fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 463, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "cancel-finalization", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
+		Owner:   "worker-a", FencingToken: 2,
+	}, renewal: Renewal{Alive: true, CancelRequested: true}}}
+	finalizer := &fakeReplyFinalizer{err: errors.New("settlement database unavailable")}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: &fakeReplyExecutor{}, Finalizer: finalizer, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || !errors.Is(err, aichat.ErrPaidFinalizationRetry) || finalizer.calls != 1 || repository.finalizationRetryID != 463 {
+		t.Fatalf("worked=%v err=%v finalizer=%d retry=%d", worked, err, finalizer.calls, repository.finalizationRetryID)
+	}
+}
+
 func TestRunnerSchedulesRetryWithDurableRunEvent(t *testing.T) {
 	now := time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
 	repository := &retryRunnerRepository{fakeRunnerRepository: fakeRunnerRepository{claim: &Claim{Command: Command{ID: 47, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "request-retry", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3}, Owner: "worker-a", FencingToken: 2}, renewal: Renewal{Alive: true}}}
@@ -167,6 +253,24 @@ func TestRunnerSchedulesRetryWithDurableRunEvent(t *testing.T) {
 	}
 	if len(repository.transitions) != 1 {
 		t.Fatalf("retry path fell back to ordinary transition: %+v", repository.transitions)
+	}
+}
+
+func TestRunnerSchedulesFinalizationRetryWithoutNormalFailureTransition(t *testing.T) {
+	now := time.Now()
+	repository := &finalizationRetryRunnerRepository{fakeRunnerRepository: fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 48, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "finalization-retry", State: StateClaimed, AttemptCount: 1, MaxAttempts: 3},
+		Owner:   "worker-a", FencingToken: 2,
+	}, renewal: Renewal{Alive: true}}}
+	executor := &fakeReplyExecutor{err: fmt.Errorf("%w: transaction unavailable", aichat.ErrPaidFinalizationRetry)}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: executor, Owner: "worker-a", LeaseTTL: time.Minute, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if !worked || !errors.Is(err, aichat.ErrPaidFinalizationRetry) {
+		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+	if repository.finalizationRetryID != 48 || repository.retryCode != "" || len(repository.transitions) != 1 {
+		t.Fatalf("retry id=%d code=%q transitions=%+v", repository.finalizationRetryID, repository.retryCode, repository.transitions)
 	}
 }
 
@@ -219,6 +323,17 @@ type retryRunnerRepository struct {
 	retryNext      time.Time
 }
 
+type finalizationRetryRunnerRepository struct {
+	fakeRunnerRepository
+	finalizationRetryID uint64
+	retryCode           string
+}
+
+func (r *finalizationRetryRunnerRepository) ScheduleFinalizationRetry(_ context.Context, commandID uint64, _ string, _ uint64, _ time.Time, _ time.Time) (bool, error) {
+	r.finalizationRetryID = commandID
+	return true, nil
+}
+
 func (r *retryRunnerRepository) ScheduleRetry(_ context.Context, commandID uint64, _ string, _ uint64, _ time.Time, next time.Time, code string, _ string) (bool, error) {
 	r.retryCommandID, r.retryNext, r.retryCode = commandID, next, code
 	return true, nil
@@ -269,6 +384,17 @@ type fakeReplyExecutor struct {
 	cancelCause                error
 	deliveryCause              error
 	drainCanceledBeforeRelease bool
+}
+
+type fakeReplyFinalizer struct {
+	result *aichat.ConversationReplyResult
+	err    error
+	calls  int
+}
+
+func (f *fakeReplyFinalizer) FinalizeConversationReply(context.Context, aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error) {
+	f.calls++
+	return f.result, f.err
 }
 
 func (f *fakeReplyExecutor) ExecuteConversationReply(ctx context.Context, input aichat.ConversationReplyInput) (*aichat.ConversationReplyResult, error) {

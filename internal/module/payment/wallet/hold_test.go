@@ -382,16 +382,22 @@ func TestCaptureHoldSuccess(t *testing.T) {
 	assertMockExpectations(t, mock)
 }
 
-func TestCaptureHoldRejectsZeroActualUnitsWithoutMutation(t *testing.T) {
+func TestCaptureHoldZeroActualUnitsClosesReservationWithoutLedger(t *testing.T) {
 	repo, mock, closeDB := newMockRepository(t)
 	defer closeDB()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
+	expectHoldWalletAndAggregate(mock, now, 100, 50, 50)
+	expectHoldRunLock(mock, now, 30, 0, HoldActive)
+	expectCaptureWalletUpdate(mock, 100, 20, 0, 1)
+	expectTerminalHoldUpdate(mock, 0, HoldCaptured, 1)
+	expectActiveHoldAggregate(mock, 20)
 	mock.ExpectRollback()
 
 	tx := repo.db.Begin()
 	wallet, ledger, err := repo.CaptureHoldInTx(context.Background(), tx, CaptureHoldInput{UserID: 7, RunID: 88, ActualUnits: 0, SourceSummary: "summary"})
-	if !errors.Is(err, ErrHoldInvalidInput) || wallet != nil || ledger != nil {
-		t.Fatalf("zero capture must fail before mutation, wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
+	if err != nil || wallet == nil || wallet.BalanceUnits != 100 || wallet.HeldUnits != 20 || wallet.TotalConsumeUnits != 0 || ledger != nil {
+		t.Fatalf("zero capture wallet=%#v ledger=%#v err=%v", wallet, ledger, err)
 	}
 	if err := tx.Rollback().Error; err != nil {
 		t.Fatalf("rollback: %v", err)
@@ -419,7 +425,7 @@ func TestCaptureHoldReplayReturnsOriginalLedgerWithoutSummaryRewrite(t *testing.
 	assertMockExpectations(t, mock)
 }
 
-func TestCaptureHoldReplayRejectsZeroCapturedUnits(t *testing.T) {
+func TestCaptureHoldReplayAcceptsZeroCapturedUnitsWithoutLedger(t *testing.T) {
 	repo, mock, closeDB := newMockRepository(t)
 	defer closeDB()
 	mock.ExpectBegin()
@@ -430,8 +436,8 @@ func TestCaptureHoldReplayRejectsZeroCapturedUnits(t *testing.T) {
 	hold := &Hold{ID: 9, WalletID: 1, UserID: 7, RunID: 88, CapturedUnits: 0, Status: HoldCaptured}
 	wallet := &Wallet{ID: 1, UserID: 7}
 	ledger, err := validateCapturedHoldFact(tx, hold, wallet, 7)
-	if !errors.Is(err, ErrHoldIntegrity) || ledger != nil {
-		t.Fatalf("zero-unit captured fact must fail closed, ledger=%#v err=%v", ledger, err)
+	if err != nil || ledger != nil {
+		t.Fatalf("zero-unit captured replay ledger=%#v err=%v", ledger, err)
 	}
 	if err := tx.Rollback().Error; err != nil {
 		t.Fatalf("rollback: %v", err)

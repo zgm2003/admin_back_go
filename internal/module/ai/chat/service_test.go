@@ -12,6 +12,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
@@ -161,6 +162,30 @@ type fakeProviderAttemptRecorder struct {
 	finished ProviderAttemptFinishInput
 }
 
+type fakePaidAttemptExecutor struct {
+	result *PaidChatAttemptResult
+	err    error
+}
+
+type sequencePaidAttemptExecutor struct {
+	results []*PaidChatAttemptResult
+	inputs  []PaidChatAttemptInput
+}
+
+func (f *sequencePaidAttemptExecutor) ExecutePaidChatAttempt(_ context.Context, input PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	f.inputs = append(f.inputs, input)
+	if len(f.results) == 0 {
+		return nil, errors.New("unexpected paid attempt")
+	}
+	result := f.results[0]
+	f.results = f.results[1:]
+	return result, nil
+}
+
+func (f fakePaidAttemptExecutor) ExecutePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	return f.result, f.err
+}
+
 func (f *fakeProviderAttemptRecorder) PrepareProviderAttempt(_ context.Context, input ProviderAttemptPrepareInput) (*ProviderAttemptRef, error) {
 	f.events = append(f.events, "prepared")
 	f.prepared = input
@@ -177,6 +202,22 @@ func (f *fakeProviderAttemptRecorder) FinishProviderAttempt(_ context.Context, i
 	f.events = append(f.events, "finished")
 	f.finished = input
 	return nil
+}
+
+func TestStreamChatWithAttemptReturnsPaidFinalization(t *testing.T) {
+	service := &Service{paidAttemptExecutor: fakePaidAttemptExecutor{result: &PaidChatAttemptResult{
+		ChatResult:         &infraai.ChatResult{Answer: "already finalized"},
+		Finalized:          true,
+		AssistantMessageID: 22,
+	}}}
+
+	result, err := service.streamChatWithAttempt(t.Context(), 100, ConversationReplyInput{CommandID: 41}, nil, infraai.ChatInput{}, nil)
+	if err != nil {
+		t.Fatalf("stream paid chat: %v", err)
+	}
+	if !result.Finalized || result.AssistantMessageID != 22 || result.ChatResult == nil || result.ChatResult.Answer != "already finalized" {
+		t.Fatalf("result=%+v", result)
+	}
 }
 
 type attemptCaptureEngine struct {
@@ -1197,6 +1238,49 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 	}
 	if recorder.completed.TotalTokens != 13 || recorder.completed.PromptTokens != 9 || recorder.completed.CompletionTokens != 4 {
 		t.Fatalf("tool round token usage must include both model requests: %#v", recorder.completed)
+	}
+}
+
+func TestExecuteConversationReplyRunsRecoveredToolCandidateAfterUsageValidation(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	identity := requestidentity.Input{
+		UserID: 7, Operation: "chat.reply", Modality: "chat", AgentID: 5, ModelID: "gpt-5.4",
+		NormalizedText: "查用户量", ConversationID: 3,
+		Options: requestidentity.GenerationOptions{MaxOutputTokens: 10},
+	}
+	fingerprint, err := requestidentity.Fingerprint(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationID, userMessageID := int64(3), int64(9)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}},
+		acceptedRun: &airun.Run{
+			ID: 100, UserID: 7, AgentID: 5, ProviderID: 2, ModelID: "gpt-5.4", RequestID: "rid",
+			ConversationID: &conversationID, UserMessageID: &userMessageID,
+			RequestFingerprint: fingerprint[:], RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable),
+			PricingSnapshotJSON: `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`,
+			Status:              enum.AIRunStatusRunning, BillingStatus: "pending", BillingReason: "pending",
+		},
+	}
+	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, []byte(`{"usage":"complete"}`), []infraai.UsageItem{{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered := &infraai.ChatResult{ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, Usage: usage, UsageStatus: infraai.UsageStatusReported, PromptTokens: 2, TotalTokens: 2}
+	continuation := &infraai.ChatResult{Answer: "当前用户量1015", UsageStatus: infraai.UsageStatusReported, Usage: usage, PromptTokens: 2, TotalTokens: 2}
+	paid := &sequencePaidAttemptExecutor{results: []*PaidChatAttemptResult{{ChatResult: recovered}, {ChatResult: continuation}}}
+	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
+	service := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, PaidAttemptExecutor: paid, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("unused")}, Secretbox: box, ToolRuntime: runtime})
+
+	result, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 1, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if err != nil || result == nil || result.AssistantMessageID != 22 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(runtime.executeInput) != 1 || len(paid.inputs) != 2 || len(paid.inputs[0].ChatInput.ToolOutputs) != 0 || len(paid.inputs[1].ChatInput.ToolCalls) != 1 || len(paid.inputs[1].ChatInput.ToolOutputs) != 1 {
+		t.Fatalf("tool executions=%+v paid inputs=%+v", runtime.executeInput, paid.inputs)
 	}
 }
 

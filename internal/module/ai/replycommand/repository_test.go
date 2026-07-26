@@ -110,6 +110,140 @@ func TestRenewExtendsLeaseAfterDurableCancellation(t *testing.T) {
 	}
 }
 
+func TestClaimFinalizationRetryAtMaxDoesNotIncrementProviderAttempts(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "request_id", "user_id", "conversation_id", "user_message_id", "state", "attempt_count", "max_attempts", "lease_token", "next_attempt_at", "last_error_code", "last_error_message",
+	}).AddRow(41, "finalization-retry", 7, 3, 9, StatePending, 3, 3, 8, now.Add(-time.Second), ErrCodeFinalizationRetry, FinalizationRetryMarker))
+	mock.ExpectQuery("SELECT .* FROM `ai_provider_attempts`").WillReturnRows(sqlmock.NewRows([]string{"id", "command_id", "attempt_no", "state"}).AddRow(90, 41, 3, AttemptFailed))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	if err != nil || claim == nil {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+	if claim.Command.AttemptCount != 3 || claim.Command.MaxAttempts != 3 || claim.FencingToken != 9 {
+		t.Fatalf("finalization-only claim consumed provider attempt: %+v", claim)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScheduleFinalizationRetryAddsStableMarkerWhenNoTriggerExists(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{"id", "state", "lease_owner", "lease_token", "last_error_code", "last_error_message"}).AddRow(41, StateRunning, "worker-a", 7, "", ""))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	ok, err := repository.ScheduleFinalizationRetry(context.Background(), 41, "worker-a", 7, now, now.Add(time.Second))
+	if err != nil || !ok {
+		t.Fatalf("scheduled=%v err=%v", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaimProviderFailureFinalizationMarkerAtMaxDoesNotIncrementProviderAttempts(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "request_id", "user_id", "conversation_id", "user_message_id", "state", "attempt_count", "max_attempts", "lease_token", "next_attempt_at", "last_error_code", "last_error_message",
+	}).AddRow(42, "provider-finalization", 7, 3, 9, StatePending, 3, 3, 8, now.Add(-time.Second), "ai.provider_failed", "provider_failed"))
+	mock.ExpectQuery("SELECT .* FROM `ai_provider_attempts`").WillReturnRows(sqlmock.NewRows([]string{"id", "command_id", "attempt_no", "state"}).AddRow(90, 42, 3, AttemptFailed))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	if err != nil || claim == nil || claim.Command.AttemptCount != 3 || claim.Command.LastErrorCode != "ai.provider_failed" || claim.Command.LastErrorMessage != "provider_failed" {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaimExpiredSucceededAttemptPreservesCandidateWithoutGenericMarker(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
+	expired := now.Add(-time.Second)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "request_id", "user_id", "conversation_id", "user_message_id", "state", "attempt_count", "max_attempts", "lease_token", "lease_expires_at", "next_attempt_at", "last_error_code", "last_error_message",
+	}).AddRow(43, "succeeded-finalization", 7, 3, 9, StateRunning, 3, 3, 8, expired, now.Add(-time.Second), "", ""))
+	candidate := `{"version":"ai_chat_result_v1","tool_calls":[{"id":"call-1","name":"lookup"}]}`
+	mock.ExpectQuery("SELECT .* FROM `ai_provider_attempts`").WillReturnRows(sqlmock.NewRows([]string{"id", "command_id", "attempt_no", "state", "usage_json", "result_candidate_json"}).AddRow(91, 43, 3, AttemptSucceeded, `{"status":"reported"}`, candidate))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	if err != nil || claim == nil || claim.Command.AttemptCount != 3 || claim.Command.LastErrorCode != "" || claim.Command.LastErrorMessage != "" {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaimPendingPreparedAttemptBelowMaxReusesProviderAttemptNumber(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "request_id", "user_id", "conversation_id", "user_message_id", "state", "attempt_count", "max_attempts", "lease_token", "next_attempt_at",
+	}).AddRow(45, "prepared-below-max", 7, 3, 9, StatePending, 1, 3, 8, now.Add(-time.Second)))
+	mock.ExpectQuery("SELECT .* FROM `ai_provider_attempts`").WillReturnRows(sqlmock.NewRows([]string{"id", "command_id", "attempt_no", "state"}).AddRow(93, 45, 1, AttemptPrepared))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	if err != nil || claim == nil || claim.Command.AttemptCount != 1 {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaimPendingPreparedAttemptAtMaxReusesProviderAttemptNumber(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "request_id", "user_id", "conversation_id", "user_message_id", "state", "attempt_count", "max_attempts", "lease_token", "next_attempt_at",
+	}).AddRow(44, "prepared-recovery", 7, 3, 9, StatePending, 3, 3, 8, now.Add(-time.Second)))
+	mock.ExpectQuery("SELECT .* FROM `ai_provider_attempts`").WillReturnRows(sqlmock.NewRows([]string{"id", "command_id", "attempt_no", "state"}).AddRow(92, 44, 3, AttemptPrepared))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	if err != nil || claim == nil || claim.Command.AttemptCount != 3 {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateReplyRollsBackFailuresAndReturnsOriginalDuplicate(t *testing.T) {
 	db := openReplyIntegrationDB(t)
 	fixture := createReplyFixture(t, db)

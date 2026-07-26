@@ -15,7 +15,9 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
@@ -31,38 +33,41 @@ var (
 	ErrAssistantPublicationRejected    = errors.New("assistant publication rejected by reply command lease")
 	ErrProviderAttemptRecorderMissing  = errors.New("provider attempt recorder is not configured")
 	ErrProviderAttemptInvalid          = errors.New("provider attempt identity is invalid")
+	ErrPaidFinalizationRetry           = errors.New("paid AI finalization must be retried")
 )
 
 type Dependencies struct {
-	Repository         Repository
-	AssistantPublisher AssistantPublisher
-	AttemptRecorder    ProviderAttemptRecorder
-	Publisher          infrarealtime.Publisher
-	EngineFactory      EngineFactory
-	Secretbox          secretbox.Box
-	ToolRuntime        ToolRuntime
-	KnowledgeRuntime   KnowledgeRuntime
-	RunRecorder        RunRecorder
-	TextTasks          TextTaskStore
-	RunStaleTimeout    time.Duration
-	Now                func() time.Time
-	Logger             *slog.Logger
+	Repository          Repository
+	AssistantPublisher  AssistantPublisher
+	AttemptRecorder     ProviderAttemptRecorder
+	PaidAttemptExecutor PaidChatAttemptExecutor
+	Publisher           infrarealtime.Publisher
+	EngineFactory       EngineFactory
+	Secretbox           secretbox.Box
+	ToolRuntime         ToolRuntime
+	KnowledgeRuntime    KnowledgeRuntime
+	RunRecorder         RunRecorder
+	TextTasks           TextTaskStore
+	RunStaleTimeout     time.Duration
+	Now                 func() time.Time
+	Logger              *slog.Logger
 }
 
 type Service struct {
-	repository         Repository
-	assistantPublisher AssistantPublisher
-	attemptRecorder    ProviderAttemptRecorder
-	publisher          infrarealtime.Publisher
-	engineFactory      EngineFactory
-	secretbox          secretbox.Box
-	toolRuntime        ToolRuntime
-	knowledgeRuntime   KnowledgeRuntime
-	runRecorder        RunRecorder
-	textTasks          TextTaskStore
-	runStaleTimeout    time.Duration
-	now                func() time.Time
-	logger             *slog.Logger
+	repository          Repository
+	assistantPublisher  AssistantPublisher
+	attemptRecorder     ProviderAttemptRecorder
+	paidAttemptExecutor PaidChatAttemptExecutor
+	publisher           infrarealtime.Publisher
+	engineFactory       EngineFactory
+	secretbox           secretbox.Box
+	toolRuntime         ToolRuntime
+	knowledgeRuntime    KnowledgeRuntime
+	runRecorder         RunRecorder
+	textTasks           TextTaskStore
+	runStaleTimeout     time.Duration
+	now                 func() time.Time
+	logger              *slog.Logger
 }
 
 func NewService(deps Dependencies) *Service {
@@ -78,7 +83,7 @@ func NewService(deps Dependencies) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textTasks: deps.TextTasks, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -212,23 +217,40 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		Content: userContent,
 		Inputs:  chatInputs(*agent, history, input.UserMessageID),
 	}
+	if paidReply && s.paidAttemptExecutor != nil {
+		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, userMessage)
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		input.RequestIdentity = identity
+	}
 	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
 	if appErr != nil {
+		if paidReply {
+			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+		}
 		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
 		return nil, appErr
 	}
 	chatInput.Tools = toolDefinitions(runtimeTools)
-	result, err := s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+	paidResult, err := s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+	if paidResult != nil && paidResult.Finalized {
+		return finalizedConversationReply(input, paidResult), nil
+	}
 	if err != nil {
 		msg := err.Error()
 		finishRun(statusFromError(ctx, err), msg, err)
 		return nil, err
 	}
+	result := paidResult.ChatResult
 	if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
 		return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
 	}
 	if toolCalls := resultToolCalls(result); len(toolCalls) > 0 {
 		if appErr := validateRunUsageStatus(result); appErr != nil {
+			if paidReply {
+				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+			}
 			msg := appErr.Message
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
 			return nil, appErr
@@ -236,6 +258,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		firstUsage := resultTokens(result)
 		outputs, toolErr := s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
 		if toolErr != nil {
+			if paidReply {
+				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+			}
 			msg := toolErr.Error()
 			finishRun(enum.AIRunStatusFailed, msg, toolErr)
 			return nil, toolErr
@@ -245,16 +270,23 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
-		result, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+		paidResult, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+		if paidResult != nil && paidResult.Finalized {
+			return finalizedConversationReply(input, paidResult), nil
+		}
 		if err != nil {
 			msg := err.Error()
 			finishRun(statusFromError(ctx, err), msg, err)
 			return nil, err
 		}
+		result = paidResult.ChatResult
 		if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
 			return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
 		}
 		if appErr := validateRunUsageStatus(result); appErr != nil {
+			if paidReply {
+				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+			}
 			msg := appErr.Message
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
 			return nil, appErr
@@ -263,6 +295,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		if len(resultToolCalls(result)) > 0 {
 			msg := "工具调用轮次超过MVP限制"
 			appErr := apperror.BadRequest(msg)
+			if paidReply {
+				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+			}
 			finishRun(enum.AIRunStatusFailed, msg, appErr)
 			return nil, appErr
 		}
@@ -279,6 +314,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 	}
 	if appErr := validateRunUsageStatus(result); appErr != nil {
+		if paidReply {
+			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+		}
 		msg := appErr.Message
 		finishRun(enum.AIRunStatusFailed, msg, appErr)
 		return nil, appErr
@@ -288,17 +326,26 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	if s.assistantPublisher == nil {
 		msg := "AI助手消息发布器未配置"
+		if paidReply {
+			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+		}
 		finishRun(enum.AIRunStatusFailed, msg, ErrAssistantPublisherNotConfigured)
 		return nil, ErrAssistantPublisherNotConfigured
 	}
 	assistantID, published, err := s.assistantPublisher.PublishAssistant(ctx, AssistantPublication{CommandID: input.CommandID, ConversationID: input.ConversationID, Owner: input.LeaseOwner, Token: input.LeaseToken, Content: answer, Now: s.now()})
 	if err != nil {
 		msg := "保存AI助手消息失败"
+		if paidReply {
+			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+		}
 		finishRun(enum.AIRunStatusFailed, msg, err)
 		return nil, err
 	}
 	if !published || assistantID <= 0 {
 		msg := "AI助手消息发布租约已失效"
+		if paidReply {
+			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
+		}
 		finishRun(enum.AIRunStatusCanceled, msg, ErrAssistantPublicationRejected)
 		return nil, ErrAssistantPublicationRejected
 	}
@@ -441,9 +488,64 @@ func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (
 	return &TextCompletionResponse{ID: fmt.Sprintf("text-completion-%d", s.now().UnixNano()), Object: "chat.completion", Content: answer}, nil
 }
 
-func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
+func finalizedConversationReply(input ConversationReplyInput, result *PaidChatAttemptResult) *ConversationReplyResult {
+	return &ConversationReplyResult{
+		ConversationID: input.ConversationID, AssistantMessageID: result.AssistantMessageID,
+		DeliveryStopped: deliveryStopped(input.DeliveryContext), Finalized: true,
+	}
+}
+
+func (s *Service) finalizePaidFailure(ctx context.Context, runID int64, input ConversationReplyInput, beforeDispatch bool) (*ConversationReplyResult, error) {
+	if s == nil || s.paidAttemptExecutor == nil || runID <= 0 || input.CommandID == 0 {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	finalizer, ok := s.paidAttemptExecutor.(PaidChatAttemptFailureFinalizer)
+	if !ok {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	finalizationInput := PaidChatAttemptInput{
+		RunID: runID, CommandID: input.CommandID, LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken,
+		RequestID: input.RequestID, DeliveryContext: input.DeliveryContext,
+		CommandAttempt: input.CommandAttempt, CommandMaxAttempts: input.CommandMaxAttempts,
+	}
+	var (
+		result *PaidChatAttemptResult
+		err    error
+	)
+	if beforeDispatch {
+		result, err = finalizer.FinalizePaidChatPreDispatchFailure(ctx, finalizationInput)
+	} else {
+		result, err = finalizer.FinalizePaidChatLocalFailure(ctx, finalizationInput)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || !result.Finalized {
+		return nil, ErrProviderAttemptInvalid
+	}
+	return finalizedConversationReply(input, result), nil
+}
+
+func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*PaidChatAttemptResult, error) {
 	if input.CommandID == 0 {
-		return engine.StreamChat(ctx, chatInput, sink)
+		result, err := engine.StreamChat(ctx, chatInput, sink)
+		return &PaidChatAttemptResult{ChatResult: result}, err
+	}
+	if s.paidAttemptExecutor != nil {
+		return s.paidAttemptExecutor.ExecutePaidChatAttempt(ctx, PaidChatAttemptInput{
+			RunID:              runID,
+			CommandID:          input.CommandID,
+			LeaseOwner:         input.LeaseOwner,
+			LeaseToken:         input.LeaseToken,
+			RequestID:          input.RequestID,
+			RequestIdentity:    input.RequestIdentity,
+			DeliveryContext:    input.DeliveryContext,
+			CommandAttempt:     input.CommandAttempt,
+			CommandMaxAttempts: input.CommandMaxAttempts,
+			Engine:             engine,
+			ChatInput:          chatInput,
+			Sink:               sink,
+		})
 	}
 	if s.attemptRecorder == nil {
 		return nil, ErrProviderAttemptRecorderMissing
@@ -540,7 +642,43 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 	if finishErr := s.attemptRecorder.FinishProviderAttempt(context.WithoutCancel(ctx), finish); finishErr != nil {
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, finish.ProviderRequestID, errors.Join(providerErr, finishErr))
 	}
-	return result, providerErr
+	return &PaidChatAttemptResult{ChatResult: result}, providerErr
+}
+
+// FinalizeConversationReply is the runner's pre-dispatch cancellation hook.
+// The durable paid executor derives the persisted trigger under settlement
+// locks, so this does not bypass billing or command finalization.
+func (s *Service) FinalizeConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
+	if input.CommandID == 0 || s == nil || s.paidAttemptExecutor == nil {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	finalizer, ok := s.paidAttemptExecutor.(PaidChatAttemptFinalizer)
+	if !ok {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	run, err := repo.AcceptedRunForReply(ctx, input.UserID, strings.TrimSpace(input.RequestID))
+	if err != nil {
+		return nil, err
+	}
+	if err := validateAcceptedReplyRun(run, input); err != nil {
+		return nil, err
+	}
+	result, err := finalizer.FinalizePaidChatAttempt(ctx, PaidChatAttemptInput{
+		RunID: run.ID, CommandID: input.CommandID, LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken,
+		RequestID: input.RequestID, DeliveryContext: input.DeliveryContext,
+		CommandAttempt: input.CommandAttempt, CommandMaxAttempts: input.CommandMaxAttempts,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || !result.Finalized {
+		return nil, ErrProviderAttemptInvalid
+	}
+	return finalizedConversationReply(input, result), nil
 }
 
 type chatResultCandidate struct {
@@ -558,7 +696,7 @@ func marshalChatResultCandidate(result *infraai.ChatResult) (*string, error) {
 		answer = "AI没有返回内容"
 	}
 	raw, err := json.Marshal(chatResultCandidate{
-		Version:   "ai_chat_result_v1",
+		Version:   chatResultCandidateVersion,
 		Answer:    answer,
 		ToolCalls: result.ToolCalls,
 	})
@@ -567,6 +705,13 @@ func marshalChatResultCandidate(result *infraai.ChatResult) (*string, error) {
 	}
 	value := string(raw)
 	return &value, nil
+}
+
+// MarshalChatResultCandidate serializes the immutable business-result
+// candidate stored beside a paid provider attempt. Runtime Gateway adapters
+// use this encoder without duplicating the chat result schema.
+func MarshalChatResultCandidate(result *infraai.ChatResult) (*string, error) {
+	return marshalChatResultCandidate(result)
 }
 
 func providerAttemptResponseHash(result *infraai.ChatResult) string {
@@ -825,6 +970,75 @@ func chatRunInputSnapshot(row MessageHistory) (string, *apperror.Error) {
 		return "", apperror.WrapKey(apperror.CodeInternal, 500, "ai.chat.input_snapshot_failed", nil, "生成AI运行输入快照失败", err)
 	}
 	return string(raw), nil
+}
+
+func paidReplyRequestIdentity(run *airun.Run, input ConversationReplyInput, message MessageHistory) (requestidentity.Input, error) {
+	if run == nil || len(run.RequestFingerprint) != 32 {
+		return requestidentity.Input{}, apperror.Internal("AI运行缺少可重放请求身份")
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(run.PricingSnapshotJSON)
+	if err != nil {
+		return requestidentity.Input{}, apperror.Internal("AI运行价格快照无效")
+	}
+	meta := metaForMessage([]MessageHistory{message}, message.ID)
+	options := requestidentity.GenerationOptions{
+		MaxOutputTokens: int64(snapshot.EffectiveMaxOutputTokens),
+		Extra:           map[string]string{},
+	}
+	if params, ok := meta["runtime_params"].(map[string]any); ok {
+		for key, raw := range params {
+			value, ok := numberFromAny(raw)
+			if !ok {
+				return requestidentity.Input{}, apperror.Internal("AI运行参数快照无效")
+			}
+			if key == "max_tokens" {
+				if int64(value) != options.MaxOutputTokens {
+					return requestidentity.Input{}, apperror.Internal("AI运行输出上限与价格快照不一致")
+				}
+				continue
+			}
+			options.Extra[key] = strconv.FormatFloat(value, 'f', -1, 64)
+		}
+	}
+	if len(options.Extra) == 0 {
+		options.Extra = nil
+	}
+	attachments := make([]requestidentity.AttachmentIdentity, 0)
+	if values, ok := meta["attachments"].([]any); ok {
+		attachments = make([]requestidentity.AttachmentIdentity, 0, len(values))
+		for _, raw := range values {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
+			}
+			url, ok := item["url"].(string)
+			if !ok || strings.TrimSpace(url) == "" {
+				return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
+			}
+			attachments = append(attachments, requestidentity.AttachmentIdentity{StorageProvider: "url", StorageKey: strings.TrimSpace(url)})
+		}
+	}
+	identity := requestidentity.Input{
+		UserID:         input.UserID,
+		Operation:      "chat.reply",
+		Modality:       "chat",
+		AgentID:        run.AgentID,
+		ModelID:        run.ModelID,
+		NormalizedText: message.Content,
+		Attachments:    attachments,
+		Options:        options,
+		ConversationID: input.ConversationID,
+	}
+	fingerprint, err := requestidentity.Fingerprint(identity)
+	if err != nil {
+		return requestidentity.Input{}, apperror.Internal("AI请求身份快照无效")
+	}
+	var persisted [32]byte
+	copy(persisted[:], run.RequestFingerprint)
+	if err := requestidentity.CompareForReplay(requestidentity.IdentityStatus(run.RequestIdentityStatus), persisted, fingerprint); err != nil {
+		return requestidentity.Input{}, apperror.Internal("AI请求身份与接受快照不一致")
+	}
+	return identity, nil
 }
 
 func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string]string {

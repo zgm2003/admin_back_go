@@ -1,6 +1,7 @@
 package replycommand
 
 import (
+	"strings"
 	"time"
 
 	"admin_back_go/internal/module/ai/requestidentity"
@@ -18,6 +19,40 @@ const (
 	StateOutcomeUnknown State = "outcome_unknown"
 	StateTimedOut       State = "timed_out"
 )
+
+const (
+	// ErrCodeFinalizationRetry marks a command that must settle persisted facts
+	// without constructing another provider request.
+	ErrCodeFinalizationRetry = "ai.finalization_retry"
+	FinalizationRetryMarker  = "finalization_retry"
+)
+
+func (command Command) IsGenericFinalizationRetry() bool {
+	return strings.TrimSpace(command.LastErrorCode) == ErrCodeFinalizationRetry &&
+		strings.TrimSpace(command.LastErrorMessage) == FinalizationRetryMarker
+}
+
+func (command Command) RequiresFinalizationOnly() bool {
+	if command.CancelRequestedAt != nil {
+		return true
+	}
+	code := strings.TrimSpace(command.LastErrorCode)
+	marker := strings.TrimSpace(command.LastErrorMessage)
+	switch code {
+	case ErrCodeFinalizationRetry:
+		return command.IsGenericFinalizationRetry()
+	case "ai.provider_failed":
+		return marker == "provider_failed"
+	case "ai.local_failed":
+		return marker == "local_failure"
+	case "ai.provider_pre_dispatch_failed":
+		return marker == "pre_dispatch_failed"
+	case "ai.billing.insufficient_balance":
+		return marker == "initial_insufficient" || marker == "continuation_topup_insufficient"
+	default:
+		return false
+	}
+}
 
 type Command struct {
 	ID                    uint64     `gorm:"column:id;primaryKey"`

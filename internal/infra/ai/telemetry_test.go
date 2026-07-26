@@ -48,6 +48,10 @@ func TestInstrumentEnginePreservesPreparedChatDispatch(t *testing.T) {
 	if delegate.key != "attempt-key" || string(delegate.body) != string(body) {
 		t.Fatalf("prepared dispatch body=%q key=%q", delegate.body, delegate.key)
 	}
+	capabilities, ok := wrapped.(CapabilityProvider)
+	if !ok || capabilities.Capabilities().SafeInputUpperBoundStrategy != SafeInputUpperBoundStrategyUTF8RequestBytesV1 {
+		t.Fatal("instrumented engine dropped prepared provider capability metadata")
+	}
 }
 
 func TestInstrumentedProviderModalitiesRecordOnlyBoundedMetadata(t *testing.T) {
@@ -126,6 +130,10 @@ type fakeTelemetryEngine struct{}
 type preparedTelemetryEngine struct {
 	body []byte
 	key  string
+}
+
+func (*preparedTelemetryEngine) Capabilities() CapabilityMetadata {
+	return CapabilityMetadata{SafeInputUpperBoundStrategy: SafeInputUpperBoundStrategyUTF8RequestBytesV1}
 }
 
 func (preparedTelemetryEngine) TestConnection(context.Context, TestConnectionInput) (*TestConnectionResult, error) {

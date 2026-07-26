@@ -23,6 +23,8 @@ const (
 	TriggerSuccess                       FinalizationTrigger = "success"
 	TriggerUserStop                      FinalizationTrigger = "user_stop"
 	TriggerUserStopBeforeDispatch        FinalizationTrigger = "before_dispatch"
+	TriggerPreDispatchFailed             FinalizationTrigger = "pre_dispatch_failed"
+	TriggerLocalFailure                  FinalizationTrigger = "local_failure"
 	TriggerInitialInsufficient           FinalizationTrigger = "initial_insufficient"
 	TriggerContinuationTopUpInsufficient FinalizationTrigger = "continuation_topup_insufficient"
 	TriggerProviderFailed                FinalizationTrigger = "provider_failed"
@@ -202,6 +204,13 @@ func (f *RunFinalizer) decide(ctx context.Context, facts FinalizationFacts) (Set
 			return SettlementDecision{}, ErrFinalizationPending
 		}
 		return releaseDecision(facts, "canceled", billing.BillingStatusReleased, billing.BillingReasonReleasedBeforeDispatch), nil
+	case TriggerPreDispatchFailed:
+		if hasDispatchedAttempt(facts.Attempts) {
+			return SettlementDecision{}, ErrFinalizationPending
+		}
+		return releaseDecision(facts, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedBeforeDispatch), nil
+	case TriggerLocalFailure:
+		return releaseDecision(facts, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedProviderFailed), nil
 	case TriggerUserStop:
 		if len(facts.Attempts) == 0 || !allSucceededOrStopped(facts) {
 			return unbilledDecision(facts, "canceled", SettlementCandidateDiscard), nil
@@ -336,10 +345,10 @@ func validateFinalizationFacts(runID int64, facts FinalizationFacts) error {
 	if runID <= 0 || facts.Run.RunID != runID || facts.Run.UserID <= 0 || facts.Charge.ID <= 0 || facts.Charge.RunID != runID || facts.Charge.UserID != facts.Run.UserID || facts.Charge.Status != billing.ChargeStatusOpen || facts.Charge.ActualUnits != 0 {
 		return errors.New("locked run, charge, and hold facts are inconsistent")
 	}
-	initialWithoutHold := facts.Trigger == TriggerInitialInsufficient && facts.Hold.ID == 0
-	if initialWithoutHold {
+	terminalWithoutHold := (facts.Trigger == TriggerInitialInsufficient || facts.Trigger == TriggerUserStopBeforeDispatch || facts.Trigger == TriggerPreDispatchFailed) && facts.Hold.ID == 0
+	if terminalWithoutHold {
 		if facts.Run.BillingStatus != billing.BillingStatusPending || facts.Run.BillingReason != billing.BillingReasonPending || facts.Charge.HeldUnits != 0 || facts.Charge.HeldAuditMax != 0 || facts.Hold != (FinalizationHold{}) {
-			return errors.New("initial insufficient finalization facts are inconsistent")
+			return errors.New("pre-reserve finalization facts are inconsistent")
 		}
 	} else {
 		if facts.Trigger == TriggerInitialInsufficient || facts.Run.BillingStatus != billing.BillingStatusHeld || facts.Run.BillingReason != billing.BillingReasonHeld || facts.Hold.ID <= 0 || facts.Hold.WalletID <= 0 || facts.Hold.RunID != runID || facts.Hold.UserID != facts.Run.UserID || facts.Hold.Status != billing.HoldStatusActive || facts.Hold.CapturedUnits != 0 || facts.Charge.HeldUnits < 0 || facts.Charge.HeldAuditMax < facts.Charge.HeldUnits || facts.Hold.HeldUnits < 0 || facts.Hold.HeldAuditMax < facts.Hold.HeldUnits || facts.Charge.HeldUnits != facts.Hold.HeldUnits || facts.Charge.HeldAuditMax != facts.Hold.HeldAuditMax {
@@ -405,7 +414,10 @@ func validateFinalizationAttempts(facts FinalizationFacts) error {
 		}
 	}
 	if facts.Trigger == TriggerInitialInsufficient && (len(facts.Attempts) != 0 || facts.CurrentAttemptID != 0 || candidatePresent || facts.StoppedAttemptID != 0) {
-		return errors.New("initial insufficient finalization cannot contain attempt facts")
+		return errors.New("pre-dispatch finalization cannot contain attempt facts")
+	}
+	if facts.Trigger == TriggerPreDispatchFailed && (candidatePresent || facts.StoppedAttemptID != 0) {
+		return errors.New("pre-dispatch failure cannot contain a result candidate")
 	}
 	return nil
 }
@@ -538,7 +550,7 @@ func hasLegacyChargeableAttempt(facts FinalizationFacts) bool {
 
 func validTrigger(trigger FinalizationTrigger) bool {
 	switch trigger {
-	case TriggerSuccess, TriggerUserStop, TriggerUserStopBeforeDispatch, TriggerInitialInsufficient, TriggerContinuationTopUpInsufficient, TriggerProviderFailed, TriggerOutcomeUnknown:
+	case TriggerSuccess, TriggerUserStop, TriggerUserStopBeforeDispatch, TriggerPreDispatchFailed, TriggerLocalFailure, TriggerInitialInsufficient, TriggerContinuationTopUpInsufficient, TriggerProviderFailed, TriggerOutcomeUnknown:
 		return true
 	default:
 		return false

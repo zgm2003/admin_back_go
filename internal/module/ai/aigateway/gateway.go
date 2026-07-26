@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -543,14 +544,20 @@ func validateTerminalOutcome(result DispatchResult) error {
 	if err := validateRawUsageEvidence(result.Usage); err != nil {
 		return err
 	}
+	if result.ResultCandidateJSON != nil {
+		candidate := strings.TrimSpace(*result.ResultCandidateJSON)
+		if candidate == "" || !json.Valid([]byte(candidate)) {
+			return gatewayError(ErrCodeInvalidOutcome, "result candidate must be valid non-empty JSON", 400)
+		}
+	}
 	hasResponseHash := result.ResponseSHA256 != ([32]byte{})
 	if hasResponseHash && result.DispatchState == infraai.DispatchStateNotDispatched {
 		return gatewayError(ErrCodeInvalidOutcome, "not-dispatched outcome cannot have response evidence", 400)
 	}
 	switch result.TerminalState {
 	case "succeeded":
-		if result.DispatchState != infraai.DispatchStateDispatched || !result.Usage.Complete() || strings.TrimSpace(result.ProviderRequestID) == "" || !hasResponseHash {
-			return gatewayError(ErrCodeInvalidOutcome, "succeeded outcome requires dispatched complete provider evidence", 400)
+		if result.DispatchState != infraai.DispatchStateDispatched || strings.TrimSpace(result.ProviderRequestID) == "" || !hasResponseHash {
+			return gatewayError(ErrCodeInvalidOutcome, "succeeded outcome requires dispatched provider response evidence", 400)
 		}
 	case "failed", "canceled":
 		if result.Usage.Status == "" {
@@ -606,7 +613,15 @@ func sameTerminalEvidence(left, right DispatchResult) bool {
 		left.ResponseSHA256 == right.ResponseSHA256 &&
 		left.DispatchState == right.DispatchState &&
 		left.TerminalState == right.TerminalState &&
+		sameOptionalString(left.ResultCandidateJSON, right.ResultCandidateJSON) &&
 		reflect.DeepEqual(left.Usage, right.Usage)
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func (g *Gateway) Finalize(ctx context.Context, request FinalizeRequest) error {

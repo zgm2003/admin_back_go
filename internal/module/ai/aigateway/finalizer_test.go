@@ -90,6 +90,9 @@ func finalizationFacts(trigger FinalizationTrigger, attempts ...FinalizationAtte
 		currentAttemptID = attempts[len(attempts)-1].ID
 		candidate = FinalizationCandidate{AttemptID: currentAttemptID, JSON: `{"answer":"candidate"}`}
 	}
+	if trigger == TriggerPreDispatchFailed {
+		candidate = FinalizationCandidate{}
+	}
 	facts := FinalizationFacts{
 		Run:              RunSnapshot{RunID: 44, UserID: 9, PricingSnapshotJSON: `{"catalog":"persisted"}`, BillingStatus: billing.BillingStatusHeld, BillingReason: billing.BillingReasonHeld, AgentID: 7, ModelID: "model-7", ModelDisplayName: "Model Seven"},
 		Charge:           FinalizationCharge{ID: 101, RunID: 44, UserID: 9, HeldUnits: 5, HeldAuditMax: 5, Status: billing.ChargeStatusOpen},
@@ -136,6 +139,9 @@ func TestRunFinalizerDecisionMatrix(t *testing.T) {
 		{"success", TriggerSuccess, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{ActualUnits: 3, Items: []billing.UsageChargeItem{pricedItem(1, 3)}}, nil, "success", billing.BillingStatusSettled, billing.BillingReasonSettledCompleteUsage, SettlementMoneyCapture, SettlementCandidatePublish, 1},
 		{"success incomplete", TriggerSuccess, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{}, ErrUsageIncomplete, "failed", billing.BillingStatusUnbilled, billing.BillingReasonUnbilledUsageIncomplete, SettlementMoneyRelease, SettlementCandidateDiscard, 1},
 		{"user stop before dispatch", TriggerUserStopBeforeDispatch, []FinalizationAttempt{{ID: 1, AttemptNo: 1, State: billing.AttemptStateCanceled, DispatchState: billing.DispatchStateNotDispatched, Usage: usableUsage()}}, SettlementQuote{}, nil, "canceled", billing.BillingStatusReleased, billing.BillingReasonReleasedBeforeDispatch, SettlementMoneyRelease, SettlementCandidateDiscard, 0},
+		{"pre dispatch failure", TriggerPreDispatchFailed, nil, SettlementQuote{}, nil, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedBeforeDispatch, SettlementMoneyRelease, SettlementCandidateDiscard, 0},
+		{"pre dispatch prepared recovery failure", TriggerPreDispatchFailed, []FinalizationAttempt{{ID: 1, AttemptNo: 1, State: billing.AttemptStateCanceled, DispatchState: billing.DispatchStateNotDispatched, Usage: usableUsage()}}, SettlementQuote{}, nil, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedBeforeDispatch, SettlementMoneyRelease, SettlementCandidateDiscard, 0},
+		{"local failure", TriggerLocalFailure, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{}, nil, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedProviderFailed, SettlementMoneyRelease, SettlementCandidateDiscard, 0},
 		{"user stop complete", TriggerUserStop, []FinalizationAttempt{succeededAttempt(1, 1), succeededAttempt(2, 2)}, SettlementQuote{ActualUnits: 3, Items: []billing.UsageChargeItem{pricedItem(1, 1), pricedItem(2, 2)}}, nil, "canceled", billing.BillingStatusSettled, billing.BillingReasonSettledCompleteUsage, SettlementMoneyCapture, SettlementCandidateDiscard, 1},
 		{"user stop incomplete", TriggerUserStop, []FinalizationAttempt{succeededAttempt(1, 1)}, SettlementQuote{}, ErrUsageIncomplete, "canceled", billing.BillingStatusUnbilled, billing.BillingReasonUnbilledUsageIncomplete, SettlementMoneyRelease, SettlementCandidateDiscard, 1},
 		{"provider failed", TriggerProviderFailed, []FinalizationAttempt{{ID: 1, AttemptNo: 1, State: billing.AttemptStateFailed, DispatchState: billing.DispatchStateDispatched, Usage: usableUsage()}}, SettlementQuote{}, nil, "failed", billing.BillingStatusReleased, billing.BillingReasonReleasedProviderFailed, SettlementMoneyRelease, SettlementCandidateDiscard, 0},

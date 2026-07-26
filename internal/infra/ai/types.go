@@ -33,6 +33,28 @@ const (
 	DispatchStateUnknown       = "unknown"
 )
 
+// SafeInputUpperBoundStrategyUTF8RequestBytesV1 is the conservative strategy
+// used by compatible chat transports. A provider request's UTF-8 byte length
+// plus the fixed framing allowance is an upper bound for the input token
+// count; the exact same function is used when quoting and when proving the
+// prepared request before dispatch.
+const SafeInputUpperBoundStrategyUTF8RequestBytesV1 = "utf8_request_bytes_plus_framing_v1"
+
+const safeInputUpperBoundFramingBytes int64 = 64
+
+// SafeInputUpperBoundFromRequest returns the deterministic input-token ceiling
+// for a serialized provider request. It intentionally over-reserves rather
+// than guessing a tokenizer or silently charging an unbounded request.
+func SafeInputUpperBoundFromRequest(body []byte) (int64, error) {
+	if len(body) == 0 {
+		return 0, errors.New("prepared request body is required")
+	}
+	if int64(len(body)) > int64(^uint64(0)>>1)-safeInputUpperBoundFramingBytes {
+		return 0, errors.New("prepared request body is too large")
+	}
+	return int64(len(body)) + safeInputUpperBoundFramingBytes, nil
+}
+
 // UsageItem is the provider-neutral, integer usage unit consumed by pricing.
 // Zero is valid only when the provider explicitly reports that item.
 type UsageItem struct {

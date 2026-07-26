@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestSafeInputUpperBoundFromRequestIsDeterministic(t *testing.T) {
+	body := []byte("{ \"model\": \"gpt-test\" }")
+	first, err := SafeInputUpperBoundFromRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := SafeInputUpperBoundFromRequest(append([]byte(nil), body...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || first <= int64(len(body)) {
+		t.Fatalf("bounds first=%d second=%d body=%d", first, second, len(body))
+	}
+	if _, err := SafeInputUpperBoundFromRequest(nil); err == nil {
+		t.Fatal("expected empty prepared request to fail")
+	}
+}
+
 func TestConnectionResultUsesDocumentedJSONNames(t *testing.T) {
 	payload, err := json.Marshal(TestConnectionResult{OK: true, Status: "ok", LatencyMs: 12, Message: "ready"})
 	if err != nil {

@@ -78,7 +78,8 @@ func (c *Client) Capabilities() infraai.CapabilityMetadata {
 			{Category: infraai.UsageCategoryCacheRead, Unit: "token"},
 			{Category: infraai.UsageCategoryCacheWrite, Unit: "token"},
 		},
-		SupportsIdempotencyHeader: true,
+		SafeInputUpperBoundStrategy: infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1,
+		SupportsIdempotencyHeader:   true,
 	}
 }
 

@@ -56,6 +56,17 @@ func (engine *instrumentedPreparedEngine) PrepareChat(ctx context.Context, input
 	return engine.prepared.PrepareChat(ctx, input)
 }
 
+func (engine *instrumentedPreparedEngine) Capabilities() CapabilityMetadata {
+	if engine == nil || engine.prepared == nil {
+		return CapabilityMetadata{}
+	}
+	provider, ok := engine.prepared.(CapabilityProvider)
+	if !ok {
+		return CapabilityMetadata{}
+	}
+	return provider.Capabilities()
+}
+
 func (engine *instrumentedPreparedEngine) StreamPreparedChat(ctx context.Context, input PreparedChatRequest, sink EventSink) (result *ChatResult, err error) {
 	startedAt := time.Now()
 	if sink != nil {
@@ -208,6 +219,7 @@ func providerRecorder(recorder telemetry.Recorder) telemetry.Recorder {
 var (
 	_ Engine             = (*instrumentedEngine)(nil)
 	_ PreparedChatEngine = (*instrumentedPreparedEngine)(nil)
+	_ CapabilityProvider = (*instrumentedPreparedEngine)(nil)
 	_ ImageEngine        = (*instrumentedImageEngine)(nil)
 	_ VideoEngine        = (*instrumentedVideoEngine)(nil)
 	_ AudioEngine        = (*instrumentedAudioEngine)(nil)

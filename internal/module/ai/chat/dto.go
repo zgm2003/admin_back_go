@@ -5,6 +5,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	aitool "admin_back_go/internal/module/ai/tool"
@@ -12,21 +13,25 @@ import (
 )
 
 type ConversationReplyInput struct {
-	CommandID       uint64
-	LeaseOwner      string
-	LeaseToken      uint64
-	DeliveryContext context.Context
-	ConversationID  int64
-	UserID          int64
-	AgentID         int64
-	UserMessageID   int64
-	RequestID       string
+	CommandID          uint64
+	LeaseOwner         string
+	LeaseToken         uint64
+	DeliveryContext    context.Context
+	ConversationID     int64
+	UserID             int64
+	AgentID            int64
+	UserMessageID      int64
+	RequestID          string
+	RequestIdentity    requestidentity.Input
+	CommandAttempt     uint
+	CommandMaxAttempts uint
 }
 
 type ConversationReplyResult struct {
 	ConversationID     int64
 	AssistantMessageID int64
 	DeliveryStopped    bool
+	Finalized          bool
 }
 
 type RunTimeoutInput struct {
@@ -148,6 +153,45 @@ type ProviderAttemptRecorder interface {
 	PrepareProviderAttempt(context.Context, ProviderAttemptPrepareInput) (*ProviderAttemptRef, error)
 	MarkProviderAttemptDispatched(context.Context, ProviderAttemptMarkInput) error
 	FinishProviderAttempt(context.Context, ProviderAttemptFinishInput) error
+}
+
+type PaidChatAttemptInput struct {
+	RunID              int64
+	CommandID          uint64
+	LeaseOwner         string
+	LeaseToken         uint64
+	RequestID          string
+	RequestIdentity    requestidentity.Input
+	DeliveryContext    context.Context
+	CommandAttempt     uint
+	CommandMaxAttempts uint
+	Engine             infraai.Engine
+	ChatInput          infraai.ChatInput
+	Sink               infraai.EventSink
+}
+
+// PaidChatAttemptResult distinguishes a durable settlement from a provider
+// result that still requires another tool or retry turn.
+type PaidChatAttemptResult struct {
+	ChatResult         *infraai.ChatResult
+	Finalized          bool
+	AssistantMessageID int64
+}
+
+// PaidChatAttemptExecutor owns the complete paid provider sequence. Its
+// implementation must quote and reserve before persisting prepared evidence,
+// then dispatch the exact persisted bytes through the process-local Gateway.
+type PaidChatAttemptExecutor interface {
+	ExecutePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
+}
+
+type PaidChatAttemptFinalizer interface {
+	FinalizePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
+}
+
+type PaidChatAttemptFailureFinalizer interface {
+	FinalizePaidChatPreDispatchFailure(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
+	FinalizePaidChatLocalFailure(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
 }
 
 type EngineConfig struct {

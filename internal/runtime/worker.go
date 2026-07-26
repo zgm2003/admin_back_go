@@ -272,21 +272,27 @@ func registerWorkerHandlers(
 		resources.DB,
 		replycommand.WithDurableEventSink(realtimeEventSink),
 	)
+	walletRepository := walletmodule.NewGormRepository(resources.DB)
+	paidChatExecutor := newPaidChatAttemptExecutor(resources.DB, walletRepository, replyRepository, realtimeEventSink)
+	if paidChatExecutor == nil {
+		return nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
+	}
 	aiChatService := aichat.NewService(aichat.Dependencies{
-		Repository:         aichat.NewGormRepository(resources.DB),
-		AssistantPublisher: replyAssistantPublisher{repository: replyRepository},
-		AttemptRecorder:    replyAttemptRecorder{repository: replyRepository},
-		Publisher:          realtimePublisher,
-		Secretbox:          providers.Secretbox,
-		EngineFactory:      providers.AIChatFactory,
-		RunRecorder:        aiRunRecorder,
-		TextTasks:          aiTextTasks,
-		RunStaleTimeout:    positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
-		Logger:             logger,
+		Repository:          aichat.NewGormRepository(resources.DB),
+		AssistantPublisher:  replyAssistantPublisher{repository: replyRepository},
+		PaidAttemptExecutor: paidChatExecutor,
+		Publisher:           realtimePublisher,
+		Secretbox:           providers.Secretbox,
+		EngineFactory:       providers.AIChatFactory,
+		RunRecorder:         aiRunRecorder,
+		TextTasks:           aiTextTasks,
+		RunStaleTimeout:     positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
+		Logger:              logger,
 	})
 	replyRunner := replycommand.NewRunner(replycommand.RunnerOptions{
 		Repository:       replyRepository,
 		Executor:         aiChatService,
+		Finalizer:        aiChatService,
 		CancelSubscriber: replycommand.NewRedisCancelSubscriber(resources.Redis),
 		Logger:           logger,
 	})
@@ -298,7 +304,6 @@ func registerWorkerHandlers(
 		ObjectWriter:  providers.ObjectWriter,
 		RunRecorder:   aiRunRecorder,
 	})
-	walletRepository := walletmodule.NewGormRepository(resources.DB)
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),
 		Gateway:      providers.PaymentGateway,
@@ -323,7 +328,7 @@ func registerWorkerHandlers(
 	if err := queueMux.RegisterRegistry(registry); err != nil {
 		return nil, nil, err
 	}
-	return replyRunner, replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository}), nil
+	return replyRunner, replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository, Finalizer: paidChatExecutor}), nil
 }
 
 func newWorkerRuntimeWithHooks(hooks workerHooks) *WorkerRuntime {

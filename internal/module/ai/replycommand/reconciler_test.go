@@ -5,60 +5,39 @@ import (
 	"testing"
 )
 
-type fakeOutcomeRepository struct {
-	work       *OutcomeUnknownWork
-	resolution ReconcileOutcomeInput
-}
+type fakeOutcomeRepository struct{ work *OutcomeUnknownWork }
 
 func (f *fakeOutcomeRepository) NextOutcomeUnknown(context.Context) (*OutcomeUnknownWork, error) {
 	return f.work, nil
 }
 
-func (f *fakeOutcomeRepository) ResolveOutcomeUnknown(_ context.Context, input ReconcileOutcomeInput) (bool, error) {
-	f.resolution = input
-	return true, nil
+type fakeOutcomeFinalizer struct {
+	commandID uint64
+	err       error
 }
 
-func TestReconcilerUsesLocalAssistantAndNeverResendsUnknownAttempt(t *testing.T) {
-	repository := &fakeOutcomeRepository{work: &OutcomeUnknownWork{CommandID: 41, AssistantMessageID: 22, ProviderRequestID: "provider-request-1"}}
-	reconciler := NewReconciler(ReconcilerOptions{Repository: repository})
+func (f *fakeOutcomeFinalizer) FinalizeOutcomeUnknown(_ context.Context, commandID uint64) error {
+	f.commandID = commandID
+	return f.err
+}
+
+func TestReconcilerFinalizesOutcomeUnknownViaFinalizer(t *testing.T) {
+	repository := &fakeOutcomeRepository{work: &OutcomeUnknownWork{CommandID: 44}}
+	finalizer := &fakeOutcomeFinalizer{}
+	reconciler := NewReconciler(ReconcilerOptions{Repository: repository, Finalizer: finalizer})
+
 	worked, err := reconciler.RunOnce(context.Background())
 	if err != nil || !worked {
 		t.Fatalf("worked=%v err=%v", worked, err)
 	}
-	if repository.resolution.CommandID != 41 || repository.resolution.State != StateSucceeded || repository.resolution.AssistantMessageID != 22 || repository.resolution.Content != "" {
-		t.Fatalf("resolution=%+v", repository.resolution)
+	if finalizer.commandID != 44 {
+		t.Fatalf("finalizer command=%d", finalizer.commandID)
 	}
 }
 
-func TestReconcilerFailsUnqueryableAcknowledgedAttemptWithoutRetry(t *testing.T) {
-	repository := &fakeOutcomeRepository{work: &OutcomeUnknownWork{CommandID: 42, ProviderRequestID: "provider-request-2"}}
-	reconciler := NewReconciler(ReconcilerOptions{Repository: repository})
-	worked, err := reconciler.RunOnce(context.Background())
-	if err != nil || !worked {
+func TestReconcilerRequiresFinalizer(t *testing.T) {
+	reconciler := NewReconciler(ReconcilerOptions{Repository: &fakeOutcomeRepository{}})
+	if worked, err := reconciler.RunOnce(context.Background()); worked || err != ErrReconcilerNotReady {
 		t.Fatalf("worked=%v err=%v", worked, err)
-	}
-	if repository.resolution.State != StateFailed || repository.resolution.ErrorCode != "ai.provider_outcome_unknown" {
-		t.Fatalf("resolution=%+v", repository.resolution)
-	}
-}
-
-type fakeProviderLookup struct {
-	result ProviderLookupResult
-}
-
-func (f fakeProviderLookup) Lookup(context.Context, string) (ProviderLookupResult, error) {
-	return f.result, nil
-}
-
-func TestReconcilerPersistsProviderLookupResult(t *testing.T) {
-	repository := &fakeOutcomeRepository{work: &OutcomeUnknownWork{CommandID: 43, ProviderRequestID: "provider-request-3"}}
-	reconciler := NewReconciler(ReconcilerOptions{Repository: repository, Lookup: fakeProviderLookup{result: ProviderLookupResult{Status: ProviderLookupFound, Content: "recovered answer"}}})
-	worked, err := reconciler.RunOnce(context.Background())
-	if err != nil || !worked {
-		t.Fatalf("worked=%v err=%v", worked, err)
-	}
-	if repository.resolution.State != StateSucceeded || repository.resolution.Content != "recovered answer" {
-		t.Fatalf("resolution=%+v", repository.resolution)
 	}
 }
