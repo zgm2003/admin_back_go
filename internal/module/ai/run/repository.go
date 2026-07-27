@@ -80,7 +80,7 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 			r.status, r.model_id, r.model_display_name,
 			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message,
 			r.pricing_snapshot_json, r.billing_status, r.billing_reason,
-			r.started_at, r.finished_at, r.created_at, r.updated_at`).
+			r.started_at, r.finished_at, r.liked_at, r.created_at, r.updated_at`).
 		Where("r.id = ?", id).
 		Scan(&row).Error
 	if err != nil {

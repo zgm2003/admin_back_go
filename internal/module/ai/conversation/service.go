@@ -41,9 +41,20 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI会话失败", err)
 	}
+	conversationIDs := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		conversationIDs = append(conversationIDs, row.Conversation.ID)
+	}
+	unreadCounts := make(map[int64]uint64)
+	if len(conversationIDs) > 0 {
+		unreadCounts, err = repo.UnreadCounts(ctx, conversationIDs)
+		if err != nil {
+			return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiconversation.unread_count_failed", nil, "查询AI会话未读数失败", err)
+		}
+	}
 	list := make([]ConversationItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, conversationItem(row))
+		list = append(list, conversationItem(row, unreadCounts[row.Conversation.ID]))
 	}
 	nextID := int64(0)
 	nextTime := ""
@@ -53,6 +64,34 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 		nextTime = formatTimePtr(last.LastMessageAt)
 	}
 	return &ListResponse{List: list, NextTime: nextTime, NextID: nextID, HasMore: hasMore}, nil
+}
+
+func (s *Service) AdvanceReadCursor(ctx context.Context, userID int64, conversationID int64, messageID int64) (*ReadCursorResponse, *apperror.Error) {
+	if userID <= 0 {
+		return nil, apperror.Unauthorized("Token无效或已过期")
+	}
+	if conversationID <= 0 {
+		return nil, apperror.BadRequest("无效的AI会话ID")
+	}
+	if messageID <= 0 {
+		return nil, apperror.BadRequestKey("aiconversation.read_cursor.message_id_invalid", nil, "无效的AI消息ID")
+	}
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	cursor, valid, err := repo.AdvanceReadCursor(ctx, conversationID, userID, messageID)
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiconversation.read_cursor.update_failed", nil, "更新AI会话已读位置失败", err)
+	}
+	if !valid {
+		return nil, apperror.NotFoundKey("aiconversation.read_cursor.message_invalid", nil, "AI消息不存在或不可用于已读位置")
+	}
+	counts, err := repo.UnreadCounts(ctx, []int64{conversationID})
+	if err != nil {
+		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiconversation.unread_count_failed", nil, "查询AI会话未读数失败", err)
+	}
+	return &ReadCursorResponse{ConversationID: conversationID, LastReadMessageID: cursor, UnreadCount: counts[conversationID]}, nil
 }
 
 func (s *Service) Detail(ctx context.Context, userID int64, id int64) (*ConversationDetail, *apperror.Error) {
@@ -161,9 +200,9 @@ func normalizeListQuery(query ListQuery) (ListQuery, *apperror.Error) {
 	return query, nil
 }
 
-func conversationItem(row ListRow) ConversationItem {
+func conversationItem(row ListRow, unreadCount uint64) ConversationItem {
 	conv := row.Conversation
-	return ConversationItem{ID: conv.ID, AgentID: conv.AgentID, AgentName: row.AgentName, Title: conv.Title, LastMessageAt: formatTimePtr(conv.LastMessageAt), UpdatedAt: formatTime(conv.UpdatedAt)}
+	return ConversationItem{ID: conv.ID, AgentID: conv.AgentID, AgentName: row.AgentName, Title: conv.Title, UnreadCount: unreadCount, LastMessageAt: formatTimePtr(conv.LastMessageAt), UpdatedAt: formatTime(conv.UpdatedAt)}
 }
 
 func trimTitle(value string) string {

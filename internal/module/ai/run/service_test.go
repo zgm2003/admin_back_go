@@ -153,6 +153,29 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	}
 }
 
+func TestDetailProjectsLikedFeedback(t *testing.T) {
+	now := time.Date(2026, 7, 27, 12, 1, 2, 0, time.UTC)
+	repository := &fakeRepository{run: &RunDetailRow{
+		ID: 44, LikedAt: &now,
+		BillingStatus: string(billing.BillingStatusUnbilled), BillingReason: string(billing.BillingReasonLegacyUnpriced),
+	}}
+	response, appErr := NewService(repository).Detail(context.Background(), 44)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if !response.Liked || response.LikedAt == nil || *response.LikedAt != "2026-07-27 12:01:02" {
+		t.Fatalf("liked detail projection missing: %#v", response)
+	}
+	repository.run.LikedAt = nil
+	response, appErr = NewService(repository).Detail(context.Background(), 44)
+	if appErr != nil {
+		t.Fatalf("unliked Detail returned error: %v", appErr)
+	}
+	if response.Liked || response.LikedAt != nil {
+		t.Fatalf("unliked detail projection must be false/null: %#v", response)
+	}
+}
+
 func TestDetailPublishesPaidBillingEvidenceFromRunSnapshot(t *testing.T) {
 	now := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{

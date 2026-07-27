@@ -1,1 +1,6 @@
 aiconversation.cursor.invalid: AI会话游标必须同时包含before_time和before_id
+aiconversation.unread_count_failed: 查询AI会话未读数失败
+aiconversation.read_cursor.message_id_invalid: 无效的AI消息ID
+aiconversation.read_cursor.message_invalid: AI消息不存在或不可用于已读位置
+aiconversation.read_cursor.update_failed: 更新AI会话已读位置失败
+aiconversation.read_cursor.request_invalid: AI会话已读位置参数错误

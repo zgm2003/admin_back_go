@@ -9,6 +9,7 @@ import (
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrRepositoryNotConfigured = errors.New("aiconversation repository not configured")
@@ -42,7 +43,7 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 		db = db.Where("(c.last_message_at < ? OR (c.last_message_at = ? AND c.id < ?))", *query.BeforeTime, *query.BeforeTime, query.BeforeID)
 	}
 	var flats []listRowFlat
-	err := db.Select("c.id, c.user_id, c.agent_id, c.title, c.last_message_at, c.is_del, c.created_at, c.updated_at, a.name as agent_name").
+	err := db.Select("c.id, c.user_id, c.agent_id, c.title, c.last_message_at, c.last_read_message_id, c.is_del, c.created_at, c.updated_at, a.name as agent_name").
 		Joins("LEFT JOIN ai_agents a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
 		Order("c.last_message_at DESC").
 		Order("c.id DESC").
@@ -62,6 +63,37 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 	return rows, hasMore, nil
 }
 
+func (r *GormRepository) UnreadCounts(ctx context.Context, conversationIDs []int64) (map[int64]uint64, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	counts := make(map[int64]uint64)
+	if len(conversationIDs) == 0 {
+		return counts, nil
+	}
+	var rows []struct {
+		ConversationID int64
+		UnreadCount    uint64
+	}
+	err := r.db.WithContext(ctx).Table("ai_messages m").
+		Select("m.conversation_id, COUNT(*) AS unread_count").
+		Joins("JOIN ai_conversations c ON c.id = m.conversation_id").
+		Where("m.conversation_id IN ?", conversationIDs).
+		Where("m.role = ?", enum.AIMessageRoleAssistant).
+		Where("m.is_del = ?", enum.CommonNo).
+		Where("m.id > c.last_read_message_id").
+		Where("c.is_del = ?", enum.CommonNo).
+		Group("m.conversation_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.ConversationID] = row.UnreadCount
+	}
+	return counts, nil
+}
+
 func (r *GormRepository) Get(ctx context.Context, id int64) (*Conversation, string, error) {
 	if r == nil || r.db == nil {
 		return nil, "", ErrRepositoryNotConfigured
@@ -71,7 +103,7 @@ func (r *GormRepository) Get(ctx context.Context, id int64) (*Conversation, stri
 	}
 	var flat listRowFlat
 	err := r.db.WithContext(ctx).Table("ai_conversations c").
-		Select("c.id, c.user_id, c.agent_id, c.title, c.last_message_at, c.is_del, c.created_at, c.updated_at, a.name as agent_name").
+		Select("c.id, c.user_id, c.agent_id, c.title, c.last_message_at, c.last_read_message_id, c.is_del, c.created_at, c.updated_at, a.name as agent_name").
 		Joins("LEFT JOIN ai_agents a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
 		Where("c.id = ?", id).
 		Where("c.is_del = ?", enum.CommonNo).
@@ -123,6 +155,57 @@ func (r *GormRepository) UpdateTitle(ctx context.Context, id int64, userID int64
 		Updates(map[string]any{"title": title, "updated_at": time.Now()}).Error
 }
 
+func (r *GormRepository) AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, bool, error) {
+	if r == nil || r.db == nil {
+		return 0, false, ErrRepositoryNotConfigured
+	}
+	var cursor int64
+	valid := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var conversation struct {
+			ID                int64
+			LastReadMessageID int64
+		}
+		err := tx.Table("ai_conversations").
+			Select("id, last_read_message_id").
+			Where("id = ? AND user_id = ? AND is_del = ?", conversationID, userID, enum.CommonNo).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Take(&conversation).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		var message struct{ ID int64 }
+		err = tx.Table("ai_messages").
+			Select("id").
+			Where("id = ? AND conversation_id = ? AND role = ? AND is_del = ?", messageID, conversationID, enum.AIMessageRoleAssistant, enum.CommonNo).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Take(&message).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if err := tx.Table("ai_conversations").
+			Where("id = ? AND user_id = ? AND is_del = ?", conversationID, userID, enum.CommonNo).
+			Update("last_read_message_id", gorm.Expr("GREATEST(last_read_message_id, ?)", messageID)).Error; err != nil {
+			return err
+		}
+		cursor = conversation.LastReadMessageID
+		if messageID > cursor {
+			cursor = messageID
+		}
+		valid = true
+		return nil
+	})
+	return cursor, valid, err
+}
+
 func (r *GormRepository) Delete(ctx context.Context, id int64, userID int64) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
@@ -140,22 +223,23 @@ func (r *GormRepository) Delete(ctx context.Context, id int64, userID int64) err
 }
 
 type listRowFlat struct {
-	ID            int64
-	UserID        int64
-	AgentID       int64
-	Title         string
-	LastMessageAt *time.Time
-	IsDel         int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	AgentName     string
+	ID                int64
+	UserID            int64
+	AgentID           int64
+	Title             string
+	LastMessageAt     *time.Time
+	LastReadMessageID int64
+	IsDel             int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	AgentName         string
 }
 
 func (f listRowFlat) toListRow() ListRow {
 	return ListRow{
 		Conversation: Conversation{
 			ID: f.ID, UserID: f.UserID, AgentID: f.AgentID, Title: f.Title,
-			LastMessageAt: f.LastMessageAt, IsDel: f.IsDel,
+			LastMessageAt: f.LastMessageAt, LastReadMessageID: f.LastReadMessageID, IsDel: f.IsDel,
 			CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
 		},
 		AgentName: f.AgentName,

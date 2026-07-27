@@ -2,3 +2,11 @@ ai.run.usage_status_missing: AI run usage status is missing
 ai.chat.user_message_empty: User message content is empty
 ai.chat.input_snapshot_failed: Failed to build AI run input snapshot
 airun.platform.invalid: Invalid AI run platform
+airun.feedback.unauthorized: The authentication token is invalid or expired
+airun.feedback.id_invalid: Invalid AI run ID
+airun.feedback.query_failed: Failed to query AI run feedback state
+airun.feedback.not_found: AI run was not found
+airun.feedback.unavailable: This AI run does not support feedback
+airun.feedback.update_failed: Failed to update AI run feedback
+airun.feedback.repository_missing: AI run feedback repository is not configured
+airun.feedback.request_invalid: Invalid AI run feedback request

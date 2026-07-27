@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"admin_back_go/internal/middleware"
 	airunmodule "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/response"
@@ -40,6 +41,25 @@ func (h *Handler) Detail(c *gin.Context) {
 		return
 	}
 	res, appErr := h.requireService().Detail(c.Request.Context(), id)
+	writeResult(c, res, appErr)
+}
+
+func (h *Handler) SetUserFeedback(c *gin.Context) {
+	identity := middleware.GetAuthIdentity(c)
+	if identity == nil || identity.UserID <= 0 {
+		response.Error(c, apperror.UnauthorizedKey("airun.feedback.unauthorized", nil, "Token无效或已过期"))
+		return
+	}
+	id, ok := routeID(c, "id", "无效的AI运行ID")
+	if !ok {
+		return
+	}
+	var req feedbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Liked == nil {
+		response.Error(c, apperror.BadRequestKey("airun.feedback.request_invalid", nil, "AI运行反馈参数错误"))
+		return
+	}
+	res, appErr := h.requireFeedbackService().SetUserFeedback(c.Request.Context(), identity.UserID, id, *req.Liked)
 	writeResult(c, res, appErr)
 }
 
@@ -85,6 +105,15 @@ func (h *Handler) requireService() airunmodule.HTTPService {
 		return nilHTTPService{}
 	}
 	return h.service
+}
+
+func (h *Handler) requireFeedbackService() airunmodule.FeedbackHTTPService {
+	if h != nil && h.service != nil {
+		if service, ok := h.service.(airunmodule.FeedbackHTTPService); ok {
+			return service
+		}
+	}
+	return nilHTTPService{}
 }
 
 func bindStatsList(c *gin.Context) (airunmodule.StatsListQuery, bool) {
@@ -134,5 +163,8 @@ func (nilHTTPService) StatsByAgent(ctx context.Context, query airunmodule.StatsL
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) StatsByUser(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByUserResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI运行服务未配置")
+}
+func (nilHTTPService) SetUserFeedback(ctx context.Context, userID int64, id int64, liked bool) (*airunmodule.FeedbackResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }

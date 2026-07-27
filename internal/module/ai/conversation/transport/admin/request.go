@@ -17,3 +17,7 @@ type createRequest struct {
 type updateRequest struct {
 	Title string `json:"title" binding:"required,max=100"`
 }
+
+type readCursorRequest struct {
+	MessageID int64 `json:"message_id" binding:"required,min=1"`
+}

@@ -25,6 +25,7 @@ type ConversationItem struct {
 	AgentID       int64  `json:"agent_id"`
 	AgentName     string `json:"agent_name"`
 	Title         string `json:"title"`
+	UnreadCount   uint64 `json:"unread_count"`
 	LastMessageAt string `json:"last_message_at"`
 	UpdatedAt     string `json:"updated_at"`
 }
@@ -59,12 +60,20 @@ type CreateResponse struct {
 	ID int64 `json:"id"`
 }
 
+type ReadCursorResponse struct {
+	ConversationID    int64  `json:"conversation_id"`
+	LastReadMessageID int64  `json:"last_read_message_id"`
+	UnreadCount       uint64 `json:"unread_count"`
+}
+
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ListRow, bool, error)
+	UnreadCounts(ctx context.Context, conversationIDs []int64) (map[int64]uint64, error)
 	Get(ctx context.Context, id int64) (*Conversation, string, error)
 	ActiveChatAgentExists(ctx context.Context, id int64) (bool, error)
 	Create(ctx context.Context, row Conversation) (int64, error)
 	UpdateTitle(ctx context.Context, id int64, userID int64, title string) error
+	AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, bool, error)
 	Delete(ctx context.Context, id int64, userID int64) error
 }
 
@@ -74,4 +83,8 @@ type HTTPService interface {
 	Create(ctx context.Context, userID int64, input CreateInput) (int64, *apperror.Error)
 	Update(ctx context.Context, userID int64, id int64, input UpdateInput) *apperror.Error
 	Delete(ctx context.Context, userID int64, id int64) *apperror.Error
+}
+
+type ReadCursorHTTPService interface {
+	AdvanceReadCursor(ctx context.Context, userID int64, conversationID int64, messageID int64) (*ReadCursorResponse, *apperror.Error)
 }

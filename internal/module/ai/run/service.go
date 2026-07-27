@@ -15,6 +15,7 @@ import (
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
 	sharedmoney "admin_back_go/internal/shared/money"
@@ -31,11 +32,38 @@ var knowledgeRetrievalStatusLabels = map[string]string{
 }
 
 type Service struct {
-	repository Repository
+	repository         Repository
+	feedbackRepository FeedbackRepository
+	clock              clock.Clock
 }
 
-func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+type Option func(*Service)
+
+func WithFeedbackRepository(repository FeedbackRepository) Option {
+	return func(service *Service) {
+		service.feedbackRepository = repository
+	}
+}
+
+func WithClock(value clock.Clock) Option {
+	return func(service *Service) {
+		if value != nil {
+			service.clock = value
+		}
+	}
+}
+
+func NewService(repository Repository, options ...Option) *Service {
+	service := &Service{repository: repository, clock: clock.SystemClock{}}
+	if feedbackRepository, ok := repository.(FeedbackRepository); ok {
+		service.feedbackRepository = feedbackRepository
+	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
@@ -564,6 +592,7 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		HeldAmount: billingView.held, ActualAmount: billingView.actual,
 		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
 		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
+		Liked: row.LikedAt != nil, LikedAt: formatOptionalTimePointer(row.LikedAt),
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
@@ -723,4 +752,12 @@ func formatOptionalTime(value *time.Time) string {
 		return ""
 	}
 	return formatTime(*value)
+}
+
+func formatOptionalTimePointer(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := formatTime(*value)
+	return &formatted
 }

@@ -44,6 +44,12 @@ func Register(router *gin.Engine, service aiconversationmodule.HTTPService, rout
 		Audit:  adminroute.NoAudit("self-service AI conversation state"),
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
+		Method: http.MethodPut,
+		Path:   "/api/admin/v1/ai-conversations/:id/read-cursor",
+		Access: adminroute.Authenticated(),
+		Audit:  adminroute.NoAudit("self-service AI conversation read state"),
+	}, handler.AdvanceReadCursor)
+	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
 		Path:   "/api/admin/v1/ai-conversations/:id",
 		Access: adminroute.Authenticated(),

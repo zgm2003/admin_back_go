@@ -9,22 +9,30 @@ import (
 )
 
 type fakeRepository struct {
-	rows         []ListRow
-	hasMore      bool
-	row          *Conversation
-	activeAgents map[int64]bool
-	listQuery    ListQuery
-	created      Conversation
-	deleteID     int64
-	deleteUserID int64
-	updateID     int64
-	updateUserID int64
-	updateTitle  string
+	rows                     []ListRow
+	hasMore                  bool
+	row                      *Conversation
+	activeAgents             map[int64]bool
+	visibleAssistantMessages map[int64]bool
+	unreadCounts             map[int64]uint64
+	listQuery                ListQuery
+	unreadCountQueries       [][]int64
+	created                  Conversation
+	deleteID                 int64
+	deleteUserID             int64
+	updateID                 int64
+	updateUserID             int64
+	updateTitle              string
+	cursorMessageIDs         []int64
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, bool, error) {
 	f.listQuery = query
 	return f.rows, f.hasMore, nil
+}
+func (f *fakeRepository) UnreadCounts(ctx context.Context, conversationIDs []int64) (map[int64]uint64, error) {
+	f.unreadCountQueries = append(f.unreadCountQueries, append([]int64(nil), conversationIDs...))
+	return f.unreadCounts, nil
 }
 func (f *fakeRepository) Get(ctx context.Context, id int64) (*Conversation, string, error) {
 	if f.row == nil {
@@ -52,9 +60,23 @@ func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) err
 	return nil
 }
 
+func (f *fakeRepository) AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, bool, error) {
+	f.cursorMessageIDs = append(f.cursorMessageIDs, messageID)
+	if f.row == nil || f.row.ID != conversationID || f.row.UserID != userID || !f.visibleAssistantMessages[messageID] {
+		return 0, false, nil
+	}
+	if messageID > f.row.LastReadMessageID {
+		f.row.LastReadMessageID = messageID
+	}
+	return f.row.LastReadMessageID, true, nil
+}
+
 func TestListUsesCursorLimitAndDoesNotExposeUserOrStatus(t *testing.T) {
 	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
-	repo := &fakeRepository{rows: []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AgentID: 3, Title: "hello", LastMessageAt: &now, IsDel: enum.CommonNo, UpdatedAt: now}, AgentName: "客服助手"}}}
+	repo := &fakeRepository{
+		rows:         []ListRow{{Conversation: Conversation{ID: 1, UserID: 7, AgentID: 3, Title: "hello", LastMessageAt: &now, IsDel: enum.CommonNo, UpdatedAt: now}, AgentName: "客服助手"}},
+		unreadCounts: map[int64]uint64{1: 2},
+	}
 	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{AgentID: ptrInt64(3), BeforeTime: &now, BeforeID: 20, Limit: 0})
 	if appErr != nil {
 		t.Fatalf("List returned error: %v", appErr)
@@ -62,8 +84,43 @@ func TestListUsesCursorLimitAndDoesNotExposeUserOrStatus(t *testing.T) {
 	if repo.listQuery.UserID != 7 || repo.listQuery.BeforeTime == nil || repo.listQuery.BeforeID != 20 || repo.listQuery.Limit != 20 || repo.listQuery.AgentID == nil || *repo.listQuery.AgentID != 3 {
 		t.Fatalf("unexpected normalized query: %#v", repo.listQuery)
 	}
-	if len(res.List) != 1 || res.List[0].AgentName != "客服助手" || res.List[0].LastMessageAt == "" || res.NextID != 0 || res.HasMore {
+	if len(res.List) != 1 || res.List[0].AgentName != "客服助手" || res.List[0].UnreadCount != 2 || res.List[0].LastMessageAt == "" || res.NextID != 0 || res.HasMore {
 		t.Fatalf("unexpected list response: %#v", res)
+	}
+	if len(repo.unreadCountQueries) != 1 || len(repo.unreadCountQueries[0]) != 1 || repo.unreadCountQueries[0][0] != 1 {
+		t.Fatalf("unread counts must use one page query, got %#v", repo.unreadCountQueries)
+	}
+}
+
+func TestListUnreadCountsTwoConversationsInOneQuery(t *testing.T) {
+	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{
+		rows: []ListRow{
+			{Conversation: Conversation{ID: 8, UserID: 7, LastMessageAt: &now}},
+			{Conversation: Conversation{ID: 6, UserID: 7, LastMessageAt: &now}},
+		},
+		unreadCounts: map[int64]uint64{8: 3},
+	}
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	if len(repo.unreadCountQueries) != 1 || len(repo.unreadCountQueries[0]) != 2 || repo.unreadCountQueries[0][0] != 8 || repo.unreadCountQueries[0][1] != 6 {
+		t.Fatalf("unread counts must be grouped for the current page: %#v", repo.unreadCountQueries)
+	}
+	if len(res.List) != 2 || res.List[0].UnreadCount != 3 || res.List[1].UnreadCount != 0 {
+		t.Fatalf("unexpected unread projections: %#v", res.List)
+	}
+}
+
+func TestListUnreadSkipsCountQueryForEmptyPage(t *testing.T) {
+	repo := &fakeRepository{}
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	if len(repo.unreadCountQueries) != 0 || len(res.List) != 0 {
+		t.Fatalf("empty page must not query unread counts: calls=%#v response=%#v", repo.unreadCountQueries, res)
 	}
 }
 
@@ -148,6 +205,78 @@ func TestDeleteRequiresOwnerAndSoftDeletesMessages(t *testing.T) {
 	}
 	if repo.deleteID != 3 || repo.deleteUserID != 7 {
 		t.Fatalf("unexpected delete call: id=%d user=%d", repo.deleteID, repo.deleteUserID)
+	}
+}
+
+func TestReadCursorAdvancesMonotonicallyAndReturnsFreshUnreadCount(t *testing.T) {
+	repo := &fakeRepository{
+		row:                      &Conversation{ID: 3, UserID: 7, LastReadMessageID: 4, IsDel: enum.CommonNo},
+		visibleAssistantMessages: map[int64]bool{9: true, 7: true},
+		unreadCounts:             map[int64]uint64{3: 2},
+	}
+	service := NewService(repo)
+
+	first, appErr := service.AdvanceReadCursor(context.Background(), 7, 3, 9)
+	if appErr != nil {
+		t.Fatalf("first cursor update returned error: %v", appErr)
+	}
+	repeated, appErr := service.AdvanceReadCursor(context.Background(), 7, 3, 9)
+	if appErr != nil {
+		t.Fatalf("repeated cursor update returned error: %v", appErr)
+	}
+	backward, appErr := service.AdvanceReadCursor(context.Background(), 7, 3, 7)
+	if appErr != nil {
+		t.Fatalf("backward cursor update returned error: %v", appErr)
+	}
+	for _, result := range []*ReadCursorResponse{first, repeated, backward} {
+		if result.ConversationID != 3 || result.LastReadMessageID != 9 || result.UnreadCount != 2 {
+			t.Fatalf("unexpected persisted cursor response: %#v", result)
+		}
+	}
+	if len(repo.cursorMessageIDs) != 3 || repo.cursorMessageIDs[0] != 9 || repo.cursorMessageIDs[1] != 9 || repo.cursorMessageIDs[2] != 7 {
+		t.Fatalf("unexpected cursor requests: %#v", repo.cursorMessageIDs)
+	}
+	if len(repo.unreadCountQueries) != 3 {
+		t.Fatalf("each cursor response must refresh unread count, calls=%#v", repo.unreadCountQueries)
+	}
+}
+
+func TestReadCursorRejectsForeignHiddenOrUserMessage(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		messageID int64
+	}{
+		{name: "foreign conversation", messageID: 11},
+		{name: "hidden assistant", messageID: 12},
+		{name: "user role", messageID: 13},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepository{
+				row:                      &Conversation{ID: 3, UserID: 7, IsDel: enum.CommonNo},
+				visibleAssistantMessages: map[int64]bool{},
+			}
+			_, appErr := NewService(repo).AdvanceReadCursor(context.Background(), 7, 3, test.messageID)
+			if appErr == nil || appErr.HTTPStatus != 404 || appErr.MessageID != "aiconversation.read_cursor.message_invalid" {
+				t.Fatalf("expected ownership-safe message rejection, got %#v", appErr)
+			}
+			if len(repo.unreadCountQueries) != 0 {
+				t.Fatalf("invalid cursor target queried unread counts: %#v", repo.unreadCountQueries)
+			}
+		})
+	}
+}
+
+func TestReadCursorRejectsConversationNotOwnedByCurrentUser(t *testing.T) {
+	repo := &fakeRepository{
+		row:                      &Conversation{ID: 3, UserID: 8, IsDel: enum.CommonNo},
+		visibleAssistantMessages: map[int64]bool{9: true},
+	}
+	_, appErr := NewService(repo).AdvanceReadCursor(context.Background(), 7, 3, 9)
+	if appErr == nil || appErr.HTTPStatus != 404 || appErr.MessageID != "aiconversation.read_cursor.message_invalid" {
+		t.Fatalf("expected ownership-safe conversation rejection, got %#v", appErr)
+	}
+	if len(repo.unreadCountQueries) != 0 {
+		t.Fatalf("ownership rejection queried unread counts: %#v", repo.unreadCountQueries)
 	}
 }
 

@@ -86,6 +86,24 @@ func (h *Handler) Update(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
+func (h *Handler) AdvanceReadCursor(c *gin.Context) {
+	identity, ok := authIdentity(c)
+	if !ok {
+		return
+	}
+	conversationID, ok := routeID(c, "id", "无效的AI会话ID")
+	if !ok {
+		return
+	}
+	var req readCursorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("aiconversation.read_cursor.request_invalid", nil, "AI会话已读位置参数错误"))
+		return
+	}
+	res, appErr := h.requireReadCursorService().AdvanceReadCursor(c.Request.Context(), identity.UserID, conversationID, req.MessageID)
+	writeResult(c, res, appErr)
+}
+
 func (h *Handler) Delete(c *gin.Context) {
 	identity, ok := authIdentity(c)
 	if !ok {
@@ -107,6 +125,15 @@ func (h *Handler) requireService() aiconversationmodule.HTTPService {
 		return nilHTTPService{}
 	}
 	return h.service
+}
+
+func (h *Handler) requireReadCursorService() aiconversationmodule.ReadCursorHTTPService {
+	if h != nil && h.service != nil {
+		if service, ok := h.service.(aiconversationmodule.ReadCursorHTTPService); ok {
+			return service
+		}
+	}
+	return nilHTTPService{}
 }
 
 func authIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {
@@ -148,6 +175,9 @@ func (nilHTTPService) Create(ctx context.Context, userID int64, input aiconversa
 }
 func (nilHTTPService) Update(ctx context.Context, userID int64, id int64, input aiconversationmodule.UpdateInput) *apperror.Error {
 	return apperror.Internal("AI会话服务未配置")
+}
+func (nilHTTPService) AdvanceReadCursor(ctx context.Context, userID int64, conversationID int64, messageID int64) (*aiconversationmodule.ReadCursorResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI会话服务未配置")
 }
 func (nilHTTPService) Delete(ctx context.Context, userID int64, id int64) *apperror.Error {
 	return apperror.Internal("AI会话服务未配置")

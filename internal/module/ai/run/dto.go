@@ -174,6 +174,8 @@ type DetailResponse struct {
 	Events              []EventItem              `json:"events"`
 	KnowledgeRetrievals []KnowledgeRetrievalItem `json:"knowledge_retrievals"`
 	ToolCalls           []ToolCallItem           `json:"tool_calls"`
+	Liked               bool                     `json:"liked"`
+	LikedAt             *string                  `json:"liked_at"`
 	StartedAt           string                   `json:"started_at"`
 	FinishedAt          string                   `json:"finished_at"`
 	CreatedAt           string                   `json:"created_at"`
@@ -336,6 +338,7 @@ type RunDetailRow struct {
 	PricingSnapshotJSON string
 	BillingStatus       string
 	BillingReason       string
+	LikedAt             *time.Time
 	UserMessage         *MessageSummary `gorm:"-"`
 	AssistantMessage    *MessageSummary `gorm:"-"`
 	StartedAt           *time.Time
@@ -492,4 +495,8 @@ type HTTPService interface {
 	StatsByDate(ctx context.Context, query StatsListQuery) (*StatsByDateResponse, *apperror.Error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) (*StatsByAgentResponse, *apperror.Error)
 	StatsByUser(ctx context.Context, query StatsListQuery) (*StatsByUserResponse, *apperror.Error)
+}
+
+type FeedbackHTTPService interface {
+	SetUserFeedback(ctx context.Context, userID int64, id int64, liked bool) (*FeedbackResponse, *apperror.Error)
 }

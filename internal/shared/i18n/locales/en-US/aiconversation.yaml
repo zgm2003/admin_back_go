@@ -1,1 +1,6 @@
 aiconversation.cursor.invalid: AI conversation cursor must include both before_time and before_id
+aiconversation.unread_count_failed: Failed to query AI conversation unread count
+aiconversation.read_cursor.message_id_invalid: Invalid AI message ID
+aiconversation.read_cursor.message_invalid: AI message was not found or cannot be used as a read cursor
+aiconversation.read_cursor.update_failed: Failed to update AI conversation read cursor
+aiconversation.read_cursor.request_invalid: Invalid AI conversation read cursor request
