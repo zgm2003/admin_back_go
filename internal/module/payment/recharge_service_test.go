@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,6 +11,56 @@ import (
 	gateway "admin_back_go/internal/infra/payment"
 	"admin_back_go/internal/shared/enum"
 )
+
+func TestRechargePageInitOmitsRecentAndDoesNotQueryRecentRecharges(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.RechargePageInit(context.Background(), 7)
+	if appErr != nil {
+		t.Fatalf("RechargePageInit error=%v", appErr)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal RechargePageInitResponse: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("decode RechargePageInitResponse: %v", err)
+	}
+	if _, exists := fields["recent"]; exists {
+		t.Fatalf("RechargePageInitResponse must not publish recent: %s", payload)
+	}
+	if repo.listRechargeCalls != 0 {
+		t.Fatalf("RechargePageInit must not query recharge history, calls=%d", repo.listRechargeCalls)
+	}
+}
+
+func TestListRechargesStillReturnsPaginatedRecordsAndFilters(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.order = &Order{ID: 21, OrderNo: "PAY202607270001", Status: orderStatusPaying, PayURL: "https://pay.example.test"}
+	repo.recharge = &Recharge{ID: 11, RechargeNo: "RCG202607270001", UserID: 7, PaymentOrderID: 21, PackageName: "50元", AmountCents: 5000, Status: rechargeStatusPaying, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.ListRecharges(context.Background(), RechargeListQuery{
+		UserID: 7, CurrentPage: 2, PageSize: 10, Keyword: "  RCG2026  ", Status: "  paying  ", DateStart: "2026-07-01", DateEnd: "2026-07-31",
+	})
+	if appErr != nil {
+		t.Fatalf("ListRecharges error=%v", appErr)
+	}
+	if len(result.List) != 1 || result.List[0].ID != 11 || result.List[0].PayURL != "https://pay.example.test" {
+		t.Fatalf("ListRecharges records changed: %#v", result.List)
+	}
+	if result.Page.CurrentPage != 2 || result.Page.PageSize != 10 || result.Page.Total != 1 {
+		t.Fatalf("ListRecharges page changed: %#v", result.Page)
+	}
+	if repo.listRechargeQuery.Keyword != "RCG2026" || repo.listRechargeQuery.Status != rechargeStatusPaying || repo.listRechargeQuery.DateStart != "2026-07-01" || repo.listRechargeQuery.DateEnd != "2026-07-31" {
+		t.Fatalf("ListRecharges filters changed: %#v", repo.listRechargeQuery)
+	}
+	if repo.listRechargeCalls != 1 {
+		t.Fatalf("ListRecharges must keep its independent query path, calls=%d", repo.listRechargeCalls)
+	}
+}
 
 func TestCreateRechargeChoosesLowestSortEnabledAlipayConfig(t *testing.T) {
 	repo := newFakeRechargeRepo()
@@ -317,6 +368,8 @@ type fakeRechargeRepo struct {
 	beforeFinalizePaidOrder   func(paidAt time.Time)
 	beforeUpdateOrderPaying   func()
 	beforeUpdateOrderFailed   func()
+	listRechargeQuery         RechargeListQuery
+	listRechargeCalls         int
 }
 
 func newFakeRechargeRepo() *fakeRechargeRepo {
@@ -503,16 +556,12 @@ func (r *fakeRechargeRepo) ListEnabledOrderConfigOptions(ctx context.Context) ([
 	return r.configs, nil
 }
 func (r *fakeRechargeRepo) ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error) {
+	r.listRechargeCalls++
+	r.listRechargeQuery = query
 	if r.recharge == nil {
 		return nil, 0, nil
 	}
 	return []RechargeWithOrder{r.withOrder()}, 1, nil
-}
-func (r *fakeRechargeRepo) ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error) {
-	if r.recharge == nil {
-		return nil, nil
-	}
-	return []RechargeWithOrder{r.withOrder()}, nil
 }
 func (r *fakeRechargeRepo) GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error) {
 	if r.recharge == nil || r.recharge.ID != id || r.recharge.UserID != userID {

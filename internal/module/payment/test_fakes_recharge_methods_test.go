@@ -20,9 +20,6 @@ func (r *fakeConfigRepo) GetWallet(ctx context.Context, userID int64) (*Wallet, 
 func (r *fakeConfigRepo) ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error) {
 	return nil, 0, nil
 }
-func (r *fakeConfigRepo) ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error) {
-	return nil, nil
-}
 func (r *fakeConfigRepo) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
 	return nil, nil
 }
@@ -58,9 +55,6 @@ func (r *fakeOrderRepo) GetWallet(ctx context.Context, userID int64) (*Wallet, e
 }
 func (r *fakeOrderRepo) ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error) {
 	return nil, 0, nil
-}
-func (r *fakeOrderRepo) ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error) {
-	return nil, nil
 }
 func (r *fakeOrderRepo) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
 	return nil, nil

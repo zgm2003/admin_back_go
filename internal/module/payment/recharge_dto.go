@@ -19,7 +19,6 @@ type RechargePageInitResponse struct {
 	Packages      []RechargePackageItem `json:"packages"`
 	PaymentMethod RechargePaymentMethod `json:"payment_method"`
 	Dict          RechargePageInitDict  `json:"dict"`
-	Recent        []RechargeListItem    `json:"recent"`
 }
 
 type RechargePageInitDict struct {

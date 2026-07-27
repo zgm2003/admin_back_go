@@ -14,8 +14,6 @@ import (
 	"admin_back_go/internal/shared/money"
 )
 
-const defaultRechargeRecentLimit = 5
-
 func (s *Service) RechargePageInit(ctx context.Context, userID int64) (*RechargePageInitResponse, *apperror.Error) {
 	if userID <= 0 {
 		return nil, apperror.Unauthorized("Token无效或已过期")
@@ -32,10 +30,6 @@ func (s *Service) RechargePageInit(ctx context.Context, userID int64) (*Recharge
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询充值套餐失败", err)
 	}
-	recent, err := repo.ListRecentRecharges(ctx, userID, defaultRechargeRecentLimit)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询最近充值记录失败", err)
-	}
 	payConfig, err := firstAvailableRechargeConfig(ctx, repo)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "查询可用支付配置失败", err)
@@ -49,7 +43,6 @@ func (s *Service) RechargePageInit(ctx context.Context, userID int64) (*Recharge
 		Packages:      rechargePackageItems(packages),
 		PaymentMethod: RechargePaymentMethod{Provider: providerAlipay, Label: providerText(providerAlipay), Enabled: len(packages) > 0 && payConfig != nil},
 		Dict:          RechargePageInitDict{StatusArr: rechargeStatusOptions()},
-		Recent:        rechargeListItems(recent),
 	}, nil
 }
 

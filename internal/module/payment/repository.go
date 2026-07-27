@@ -43,7 +43,6 @@ type Repository interface {
 	ListExpiredOpenOrders(ctx context.Context, now time.Time, limit int) ([]Order, error)
 	ListEnabledOrderConfigOptions(ctx context.Context) ([]Config, error)
 	ListRecharges(ctx context.Context, query RechargeListQuery) ([]RechargeWithOrder, int64, error)
-	ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error)
 	GetRecharge(ctx context.Context, userID int64, id int64) (*RechargeWithOrder, error)
 	GetRechargeByOrderID(ctx context.Context, orderID int64) (*Recharge, error)
 	CreateRechargeWithOrder(ctx context.Context, recharge Recharge, order Order) (RechargeWithOrder, error)

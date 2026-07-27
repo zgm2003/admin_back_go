@@ -90,22 +90,6 @@ func (r *GormRepository) ListRecharges(ctx context.Context, query RechargeListQu
 	return rows, total, err
 }
 
-func (r *GormRepository) ListRecentRecharges(ctx context.Context, userID int64, limit int) ([]RechargeWithOrder, error) {
-	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
-	}
-	if limit <= 0 || limit > 10 {
-		limit = 5
-	}
-	var rows []RechargeWithOrder
-	err := rechargeJoinQuery(r.db.WithContext(ctx)).
-		Where("r.user_id = ? AND r.is_del = ?", userID, enum.CommonNo).
-		Order("r.id desc").
-		Limit(limit).
-		Find(&rows).Error
-	return rows, err
-}
-
 func (r *GormRepository) ListUncreditedPaidRecharges(ctx context.Context, limit int) ([]RechargeWithOrder, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
