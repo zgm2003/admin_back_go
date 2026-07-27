@@ -165,7 +165,7 @@ func TestOpenAPIGeneratesFieldCompleteContractFromRuntimeModels(t *testing.T) {
 	operation := paths["/api/admin/v1/modeled"].(map[string]any)["post"].(map[string]any)
 	assertOperationResponseRef(t, operation, "200", "post_api_admin_v1_modeled_ResponseEnvelope")
 	assertOperationRequestBody(t, operation, "post_api_admin_v1_modeled_Request", true)
-	assertOperationParameters(t, operation, []string{"current_page", "keyword"}, []string{"current_page"}, false)
+	assertOperationParameters(t, operation, []string{"current_page", "keyword"}, []string{"current_page"}, nil)
 
 	rawComponents := document["components"].(map[string]any)["schemas"].(map[string]any)
 	components := make(map[string]map[string]any, len(rawComponents))
@@ -456,6 +456,28 @@ func TestPaymentAndWalletRoutesPublishRuntimeModelContracts(t *testing.T) {
 		if matched == 0 {
 			t.Fatalf("no operations matched %s", prefix)
 		}
+	}
+}
+
+func TestPaymentRechargePageInitOpenAPIOmitsRecent(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	const schemaName = "Go_internal_module_payment_RechargePageInitResponse_Output"
+	schema := document.Components.Schemas[schemaName]
+	if schema == nil || schema["additionalProperties"] != false {
+		t.Fatalf("%s is not a closed schema: %#v", schemaName, schema)
+	}
+	properties := schema["properties"].(map[string]any)
+	if _, exists := properties["recent"]; exists {
+		t.Fatalf("%s still publishes recent: %#v", schemaName, properties["recent"])
 	}
 }
 

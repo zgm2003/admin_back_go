@@ -55,6 +55,21 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/admin/v1/ai-conversations/:id/messages",
+      "operation_id": "delete_api_admin_v1_ai_conversations_id_messages",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "delete",
+        "title": "删除AI消息"
+      },
+      "success_status": 200
+    },
+    {
+      "method": "DELETE",
       "path": "/api/admin/v1/ai-knowledge-bases/:id",
       "operation_id": "delete_api_admin_v1_ai_knowledge_bases_id",
       "access": {
@@ -2352,6 +2367,37 @@
     },
     {
       "method": "POST",
+      "path": "/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations",
+      "operation_id": "post_api_admin_v1_ai_conversations_id_messages_message_id_regenerations",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "regenerate",
+        "title": "重新生成AI回复"
+      },
+      "success_status": 202
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions",
+      "operation_id": "post_api_admin_v1_ai_conversations_id_messages_message_id_revisions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "revise",
+        "title": "编辑AI消息",
+        "skip_request_payload": true
+      },
+      "success_status": 202
+    },
+    {
+      "method": "POST",
       "path": "/api/admin/v1/ai-conversations/:id/messages/cancel",
       "operation_id": "post_api_admin_v1_ai_conversations_id_messages_cancel",
       "access": {
@@ -3073,6 +3119,18 @@
     },
     {
       "method": "PUT",
+      "path": "/api/admin/v1/ai-conversations/:id/read-cursor",
+      "operation_id": "put_api_admin_v1_ai_conversations_id_read_cursor",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service AI conversation read state"
+      }
+    },
+    {
+      "method": "PUT",
       "path": "/api/admin/v1/ai-knowledge-bases/:id",
       "operation_id": "put_api_admin_v1_ai_knowledge_bases_id",
       "access": {
@@ -3129,6 +3187,18 @@
         "module": "ai_provider",
         "action": "update_models",
         "title": "编辑AI供应商模型"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-runs/:id/user-feedback",
+      "operation_id": "put_api_admin_v1_ai_runs_id_user_feedback",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service AI run feedback"
       }
     },
     {

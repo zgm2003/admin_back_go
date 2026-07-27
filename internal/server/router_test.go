@@ -51,6 +51,7 @@ import (
 	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/readiness"
+	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/telemetry"
@@ -3375,6 +3376,45 @@ func TestRouterAIRunReadsRequireAIRunListPermission(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAIConsumerRoutePolicyUsesAuthenticatedAccess(t *testing.T) {
+	dependencies := testDependencies{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}.grouped()
+	if _, err := NewRouter(dependencies); err != nil {
+		t.Fatalf("build router: %v", err)
+	}
+
+	definitions := make(map[string]adminroute.Definition)
+	for _, definition := range dependencies.Core.RouteRegistry.Definitions() {
+		definitions[definition.Method+" "+definition.Path] = definition
+	}
+	consumerRoutes := []string{
+		http.MethodPost + " /api/admin/v1/ai-conversations/:id/messages/:message_id/revisions",
+		http.MethodPost + " /api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations",
+		http.MethodDelete + " /api/admin/v1/ai-conversations/:id/messages",
+		http.MethodPut + " /api/admin/v1/ai-conversations/:id/read-cursor",
+		http.MethodPut + " /api/admin/v1/ai-runs/:id/user-feedback",
+	}
+	for _, key := range consumerRoutes {
+		definition, exists := definitions[key]
+		if !exists {
+			t.Fatalf("missing route policy %s", key)
+		}
+		if definition.Access.Kind != adminroute.AccessAuthenticated || definition.Access.PermissionCode != "" {
+			t.Fatalf("%s access=%#v", key, definition.Access)
+		}
+	}
+
+	for _, route := range aiRunReadRouteCases() {
+		key := http.MethodGet + " " + route.registeredPath
+		definition, exists := definitions[key]
+		if !exists {
+			t.Fatalf("missing management route policy %s", key)
+		}
+		if definition.Access.Kind != adminroute.AccessPermission || definition.Access.PermissionCode != "ai_run_list" {
+			t.Fatalf("%s access=%#v", key, definition.Access)
+		}
 	}
 }
 

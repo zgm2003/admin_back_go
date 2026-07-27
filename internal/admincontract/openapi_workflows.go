@@ -107,14 +107,27 @@ func buildWorkflowOperationContracts() map[workflowOperationKey]workflowOperatio
 		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages"): workflowContract("AIMessageSendSuccessEnvelope", requiredBody("AIMessageSendRequest"), nil, positiveID,
 			"trimmed content must be non-empty or attachments must contain at least one image"),
 		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages/cancel"): workflowContract("AIMessageCancelSuccessEnvelope", requiredBody("AIMessageCancelRequest"), nil, positiveID),
+		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions"): withPositivePathIDs(
+			workflowContract("AIMessageSendSuccessEnvelope", requiredBody("AIMessageRevisionRequest"), nil, noID,
+				"canonical replay key is the authenticated (user_id, request_id); conversation and source message belong to the request fingerprint"),
+			"id", "message_id",
+		),
+		workflowKey(http.MethodPost, "/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations"): withPositivePathIDs(
+			workflowContract("AIMessageSendSuccessEnvelope", requiredBody("AIMessageRegenerationRequest"), nil, noID,
+				"canonical replay key is the authenticated (user_id, request_id); conversation and source message belong to the request fingerprint"),
+			"id", "message_id",
+		),
+		workflowKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id/messages"): workflowContract("AIMessageDeleteSuccessEnvelope", requiredBody("AIMessageDeleteRequest"), nil, positiveID),
+		workflowKey(http.MethodPut, "/api/admin/v1/ai-conversations/:id/read-cursor"): workflowContract("AIConversationReadCursorSuccessEnvelope", requiredBody("AIConversationReadCursorRequest"), nil, positiveID),
 
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"):      workflowContract("AIRunPageInitSuccessEnvelope", nil, nil, noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):                workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):            workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats"):          workflowContract("AIRunStatsSuccessEnvelope", nil, aiRunStatsQueryParameters(false), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date"):  workflowContract("AIRunStatsByDateSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent"): workflowContract("AIRunStatsByAgentSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user"):  workflowContract("AIRunStatsByUserSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"):         workflowContract("AIRunPageInitSuccessEnvelope", nil, nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):                   workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):               workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats"):             workflowContract("AIRunStatsSuccessEnvelope", nil, aiRunStatsQueryParameters(false), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date"):     workflowContract("AIRunStatsByDateSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent"):    workflowContract("AIRunStatsByAgentSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user"):     workflowContract("AIRunStatsByUserSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
+		workflowKey(http.MethodPut, "/api/admin/v1/ai-runs/:id/user-feedback"): workflowContract("AIRunUserFeedbackSuccessEnvelope", requiredBody("AIRunUserFeedbackRequest"), nil, positiveID),
 	}
 }
 
@@ -131,6 +144,14 @@ func workflowContract(response string, request *workflowRequestBody, query []map
 	}
 	if positiveID {
 		contract.PathParameters = map[string]map[string]any{"id": positiveIntegerSchema()}
+	}
+	return contract
+}
+
+func withPositivePathIDs(contract workflowOperationContract, names ...string) workflowOperationContract {
+	contract.PathParameters = make(map[string]map[string]any, len(names))
+	for _, name := range names {
+		contract.PathParameters[name] = positiveIntegerSchema()
 	}
 	return contract
 }
