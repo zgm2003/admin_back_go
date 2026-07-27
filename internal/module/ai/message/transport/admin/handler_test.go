@@ -11,12 +11,20 @@ import (
 	"admin_back_go/internal/middleware"
 	aimessage "admin_back_go/internal/module/ai/message"
 	"admin_back_go/internal/module/ai/replycommand"
+	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"
 )
 
-type acceptedMessageService struct{}
+type acceptedMessageService struct {
+	revisionUserID     int64
+	revisionInput      aimessage.EditInput
+	regenerationUserID int64
+	regenerationInput  aimessage.RegenerateInput
+	deleteUserID       int64
+	deleteInput        aimessage.DeleteInput
+}
 
 func (acceptedMessageService) List(context.Context, int64, aimessage.ListQuery) (*aimessage.ListResponse, *apperror.Error) {
 	return &aimessage.ListResponse{}, nil
@@ -73,6 +81,21 @@ func (acceptedMessageService) Cancel(context.Context, int64, aimessage.CancelInp
 	return &aimessage.CancelResponse{ConversationID: 3, RequestID: "request-1", Status: "stopping"}, nil
 }
 
+func (s *acceptedMessageService) Revise(_ context.Context, userID int64, input aimessage.EditInput) (*aimessage.SendResponse, *apperror.Error) {
+	s.revisionUserID, s.revisionInput = userID, input
+	return &aimessage.SendResponse{ConversationID: input.ConversationID, UserMessageID: 71, CommandID: 81, RequestID: input.RequestID, State: replycommand.StatePending}, nil
+}
+
+func (s *acceptedMessageService) Regenerate(_ context.Context, userID int64, input aimessage.RegenerateInput) (*aimessage.SendResponse, *apperror.Error) {
+	s.regenerationUserID, s.regenerationInput = userID, input
+	return &aimessage.SendResponse{ConversationID: input.ConversationID, UserMessageID: 72, CommandID: 82, RequestID: input.RequestID, State: replycommand.StatePending}, nil
+}
+
+func (s *acceptedMessageService) DeleteMessages(_ context.Context, userID int64, input aimessage.DeleteInput) (*aimessage.DeleteResponse, *apperror.Error) {
+	s.deleteUserID, s.deleteInput = userID, input
+	return &aimessage.DeleteResponse{DeletedIDs: []int64{41, 63, 97}}, nil
+}
+
 func TestSendReturnsAcceptedDurableCommand(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -121,5 +144,87 @@ func TestCancelReturnsStoppingIntentInsteadOfTerminalState(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), `"status":"canceled"`) {
 		t.Fatalf("cancel intent response reported terminal state: %s", recorder.Body.String())
+	}
+}
+
+func TestRevisionAndRegenerationHandlersUseAuthenticatedOwnerAndPathSource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &acceptedMessageService{}
+	router := gin.New()
+	handler := NewHandler(service)
+	identity := func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+	}
+	router.POST("/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions", func(c *gin.Context) { identity(c); handler.Revise(c) })
+	router.POST("/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations", func(c *gin.Context) { identity(c); handler.Regenerate(c) })
+
+	revision := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/41/revisions", strings.NewReader(`{"content":"changed","request_id":"revision-1","user_id":999,"paired_message_id":999,"run_id":999,"attachments":[{"url":"https://evil.test/x"}]}`))
+	revision.Header.Set("Content-Type", "application/json")
+	revisionRecorder := httptest.NewRecorder()
+	router.ServeHTTP(revisionRecorder, revision)
+	if revisionRecorder.Code != http.StatusAccepted {
+		t.Fatalf("revision status=%d body=%s", revisionRecorder.Code, revisionRecorder.Body.String())
+	}
+	if service.revisionUserID != 7 || service.revisionInput.ConversationID != 3 || service.revisionInput.MessageID != 41 || service.revisionInput.Content != "changed" || service.revisionInput.RequestID != "revision-1" {
+		t.Fatalf("revision input=%+v owner=%d", service.revisionInput, service.revisionUserID)
+	}
+
+	regeneration := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/97/regenerations", strings.NewReader(`{"request_id":"regen-1","user_id":999,"paired_message_id":999,"run_id":999}`))
+	regeneration.Header.Set("Content-Type", "application/json")
+	regenerationRecorder := httptest.NewRecorder()
+	router.ServeHTTP(regenerationRecorder, regeneration)
+	if regenerationRecorder.Code != http.StatusAccepted {
+		t.Fatalf("regeneration status=%d body=%s", regenerationRecorder.Code, regenerationRecorder.Body.String())
+	}
+	if service.regenerationUserID != 7 || service.regenerationInput.ConversationID != 3 || service.regenerationInput.AssistantMessageID != 97 || service.regenerationInput.RequestID != "regen-1" {
+		t.Fatalf("regeneration input=%+v owner=%d", service.regenerationInput, service.regenerationUserID)
+	}
+}
+
+func TestDeleteMessagesHandlerReturnsExactSortedDeletedIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &acceptedMessageService{}
+	router := gin.New()
+	handler := NewHandler(service)
+	router.DELETE("/api/admin/v1/ai-conversations/:id/messages", func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+		handler.DeleteMessages(c)
+	})
+	request := httptest.NewRequest(http.MethodDelete, "/api/admin/v1/ai-conversations/3/messages", strings.NewReader(`{"ids":[97,41,63]}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"deleted_ids":[41,63,97]`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.deleteUserID != 7 || service.deleteInput.ConversationID != 3 || fmt.Sprint(service.deleteInput.IDs) != "[97 41 63]" {
+		t.Fatalf("delete input=%+v owner=%d", service.deleteInput, service.deleteUserID)
+	}
+}
+
+func TestHistoryRoutesPublishAuthenticatedExplicitOperationMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	registry := adminroute.NewRegistry()
+	Register(gin.New(), &acceptedMessageService{}, registry)
+	want := map[string]struct {
+		method, operation, action string
+		status                    int
+	}{
+		"/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions":     {http.MethodPost, "post_api_admin_v1_ai_conversations_id_messages_message_id_revisions", "revise", http.StatusAccepted},
+		"/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations": {http.MethodPost, "post_api_admin_v1_ai_conversations_id_messages_message_id_regenerations", "regenerate", http.StatusAccepted},
+		"/api/admin/v1/ai-conversations/:id/messages":                           {http.MethodDelete, "delete_api_admin_v1_ai_conversations_id_messages", "delete", http.StatusOK},
+	}
+	for _, definition := range registry.Definitions() {
+		expected, ok := want[definition.Path]
+		if !ok || definition.Method != expected.method {
+			continue
+		}
+		if definition.OperationID != expected.operation || definition.Access.Kind != adminroute.AccessAuthenticated || !definition.Audit.Enabled || definition.Audit.Module != "ai_message" || definition.Audit.Action != expected.action || definition.SuccessStatus != expected.status {
+			t.Fatalf("route metadata=%+v", definition)
+		}
+		delete(want, definition.Path)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing history routes: %v", want)
 	}
 }

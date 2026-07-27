@@ -1,0 +1,20 @@
+aimessage.service_missing: AI message service is not configured
+aimessage.conversation.id.invalid: Invalid AI conversation ID
+aimessage.message.id.invalid: Invalid AI message ID
+aimessage.message.not_found: AI message does not exist
+aimessage.request_id.invalid: request_id is required and must be at most 128 characters
+aimessage.request_id.conflict: request_id conflicts with the original request
+aimessage.revision.request.invalid: Invalid AI message revision request
+aimessage.revision.content.required: Revision text is required
+aimessage.revision.content.too_long: Revision text must be at most 20000 characters
+aimessage.revision.failed: Failed to revise AI message
+aimessage.regeneration.request.invalid: Invalid AI response regeneration request
+aimessage.regeneration.failed: Failed to regenerate AI response
+aimessage.delete.request.invalid: Invalid AI message deletion request
+aimessage.delete.ids.required: At least one message ID is required
+aimessage.delete.ids.invalid: Message IDs must be positive integers
+aimessage.delete.ids.duplicate: Message IDs must not contain duplicates
+aimessage.delete.failed: Failed to delete AI messages
+aimessage.history.active: An AI response is still active; stop it and wait for completion
+aimessage.history.accept.invalid: Invalid AI message history acceptance result
+aimessage.history.repository_missing: AI message history repository is not configured

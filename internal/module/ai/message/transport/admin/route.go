@@ -38,4 +38,35 @@ func Register(router *gin.Engine, service aimessagemodule.HTTPService, routeRegi
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("self-service AI run cancellation"),
 	}, handler.Cancel)
+	routes.Handle(adminroute.Definition{
+		Method:        http.MethodPost,
+		Path:          "/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions",
+		OperationID:   "post_api_admin_v1_ai_conversations_id_messages_message_id_revisions",
+		SuccessStatus: http.StatusAccepted,
+		Access:        adminroute.Authenticated(),
+		Audit: adminroute.AuditDecision{
+			Enabled: true, Module: "ai_message", Action: "revise", Title: "编辑AI消息",
+			SkipRequestPayload: true,
+		},
+	}, handler.Revise)
+	routes.Handle(adminroute.Definition{
+		Method:        http.MethodPost,
+		Path:          "/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations",
+		OperationID:   "post_api_admin_v1_ai_conversations_id_messages_message_id_regenerations",
+		SuccessStatus: http.StatusAccepted,
+		Access:        adminroute.Authenticated(),
+		Audit: adminroute.AuditDecision{
+			Enabled: true, Module: "ai_message", Action: "regenerate", Title: "重新生成AI回复",
+		},
+	}, handler.Regenerate)
+	routes.Handle(adminroute.Definition{
+		Method:        http.MethodDelete,
+		Path:          "/api/admin/v1/ai-conversations/:id/messages",
+		OperationID:   "delete_api_admin_v1_ai_conversations_id_messages",
+		SuccessStatus: http.StatusOK,
+		Access:        adminroute.Authenticated(),
+		Audit: adminroute.AuditDecision{
+			Enabled: true, Module: "ai_message", Action: "delete", Title: "删除AI消息",
+		},
+	}, handler.DeleteMessages)
 }

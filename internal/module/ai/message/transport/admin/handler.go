@@ -14,10 +14,12 @@ import (
 
 type Handler struct {
 	service aimessagemodule.HTTPService
+	history aimessagemodule.HistoryHTTPService
 }
 
 func NewHandler(service aimessagemodule.HTTPService) *Handler {
-	return &Handler{service: service}
+	history, _ := service.(aimessagemodule.HistoryHTTPService)
+	return &Handler{service: service, history: history}
 }
 
 func (h *Handler) List(c *gin.Context) {
@@ -74,11 +76,86 @@ func (h *Handler) Cancel(c *gin.Context) {
 	writeResult(c, res, appErr)
 }
 
+func (h *Handler) Revise(c *gin.Context) {
+	identity, ok := authIdentity(c)
+	if !ok {
+		return
+	}
+	conversationID, ok := routeID(c, "id", "无效的AI会话ID")
+	if !ok {
+		return
+	}
+	messageID, ok := routeID(c, "message_id", "无效的AI消息ID")
+	if !ok {
+		return
+	}
+	var req revisionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("aimessage.revision.request.invalid", nil, "AI消息编辑参数错误"))
+		return
+	}
+	res, appErr := h.requireHistoryService().Revise(c.Request.Context(), identity.UserID, aimessagemodule.EditInput{
+		ConversationID: conversationID, MessageID: messageID, Content: req.Content, RequestID: req.RequestID,
+	})
+	writeAcceptedResult(c, res, appErr)
+}
+
+func (h *Handler) Regenerate(c *gin.Context) {
+	identity, ok := authIdentity(c)
+	if !ok {
+		return
+	}
+	conversationID, ok := routeID(c, "id", "无效的AI会话ID")
+	if !ok {
+		return
+	}
+	messageID, ok := routeID(c, "message_id", "无效的AI消息ID")
+	if !ok {
+		return
+	}
+	var req regenerationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("aimessage.regeneration.request.invalid", nil, "AI回复重新生成参数错误"))
+		return
+	}
+	res, appErr := h.requireHistoryService().Regenerate(c.Request.Context(), identity.UserID, aimessagemodule.RegenerateInput{
+		ConversationID: conversationID, AssistantMessageID: messageID, RequestID: req.RequestID,
+	})
+	writeAcceptedResult(c, res, appErr)
+}
+
+func (h *Handler) DeleteMessages(c *gin.Context) {
+	identity, ok := authIdentity(c)
+	if !ok {
+		return
+	}
+	conversationID, ok := routeID(c, "id", "无效的AI会话ID")
+	if !ok {
+		return
+	}
+	var req deleteMessagesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperror.BadRequestKey("aimessage.delete.request.invalid", nil, "AI消息删除参数错误"))
+		return
+	}
+	res, appErr := h.requireHistoryService().DeleteMessages(c.Request.Context(), identity.UserID, aimessagemodule.DeleteInput{
+		ConversationID: conversationID, IDs: req.IDs,
+	})
+	writeResult(c, res, appErr)
+}
+
 func (h *Handler) requireService() aimessagemodule.HTTPService {
 	if h == nil || h.service == nil {
 		return nilHTTPService{}
 	}
 	return h.service
+}
+
+func (h *Handler) requireHistoryService() aimessagemodule.HistoryHTTPService {
+	if h == nil || h.history == nil {
+		return nilHistoryHTTPService{}
+	}
+	return h.history
 }
 
 func authIdentity(c *gin.Context) (*middleware.AuthIdentity, bool) {
@@ -117,6 +194,8 @@ func writeAcceptedResult(c *gin.Context, res any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
+type nilHistoryHTTPService struct{}
+
 func (nilHTTPService) List(ctx context.Context, userID int64, query aimessagemodule.ListQuery) (*aimessagemodule.ListResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI消息服务未配置")
 }
@@ -125,4 +204,16 @@ func (nilHTTPService) Send(ctx context.Context, userID int64, input aimessagemod
 }
 func (nilHTTPService) Cancel(ctx context.Context, userID int64, input aimessagemodule.CancelInput) (*aimessagemodule.CancelResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI消息服务未配置")
+}
+
+func (nilHistoryHTTPService) Revise(context.Context, int64, aimessagemodule.EditInput) (*aimessagemodule.SendResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("aimessage.service_missing", nil, "AI消息服务未配置")
+}
+
+func (nilHistoryHTTPService) Regenerate(context.Context, int64, aimessagemodule.RegenerateInput) (*aimessagemodule.SendResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("aimessage.service_missing", nil, "AI消息服务未配置")
+}
+
+func (nilHistoryHTTPService) DeleteMessages(context.Context, int64, aimessagemodule.DeleteInput) (*aimessagemodule.DeleteResponse, *apperror.Error) {
+	return nil, apperror.InternalKey("aimessage.service_missing", nil, "AI消息服务未配置")
 }

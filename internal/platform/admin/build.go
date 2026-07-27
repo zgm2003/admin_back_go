@@ -270,10 +270,15 @@ func Build(input BuildInput) (*BuildResult, error) {
 		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
 		Logger:           logger,
 	})
+	aiReplyRepository := replycommand.NewGormRepository(
+		resources.DB,
+		replycommand.WithDurableEventSink(realtimeEventSink),
+	)
 	aiMessageService := aimessage.NewService(
 		aimessage.NewGormRepository(
 			resources.DB,
-			replycommand.WithDurableEventSink(realtimeEventSink),
+			aiReplyRepository,
+			replycommand.NewHistoryParticipant(aiReplyRepository),
 		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
 		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),

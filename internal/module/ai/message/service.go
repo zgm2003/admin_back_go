@@ -27,6 +27,7 @@ const (
 
 type Service struct {
 	repository      Repository
+	history         HistoryRepository
 	replyWaker      ReplyWaker
 	cancelPublisher CancelPublisher
 }
@@ -41,8 +42,15 @@ func WithCancelPublisher(publisher CancelPublisher) Option {
 	return func(s *Service) { s.cancelPublisher = publisher }
 }
 
+func WithHistoryRepository(repository HistoryRepository) Option {
+	return func(s *Service) { s.history = repository }
+}
+
 func NewService(repository Repository, options ...Option) *Service {
 	service := &Service{repository: repository}
+	if history, ok := repository.(HistoryRepository); ok {
+		service.history = history
+	}
 	for _, option := range options {
 		if option != nil {
 			option(service)
@@ -366,7 +374,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	return query
 }
 
-func messageItem(row Message) MessageItem {
+func messageItem(row MessageProjection) MessageItem {
 	contentType := strings.TrimSpace(row.ContentType)
 	if contentType == "" {
 		contentType = "text"
@@ -375,7 +383,11 @@ func messageItem(row Message) MessageItem {
 	if row.MetaJSON != nil {
 		metaJSON = *row.MetaJSON
 	}
-	return MessageItem{ID: row.ID, Role: row.Role, ContentType: contentType, Content: row.Content, MetaJSON: decodeMetaJSON(metaJSON), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return MessageItem{
+		ID: row.ID, Role: row.Role, ContentType: contentType, Content: row.Content, MetaJSON: decodeMetaJSON(metaJSON),
+		PairedMessageID: row.PairedMessageID, RunID: row.RunID, Liked: row.Liked,
+		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+	}
 }
 
 func agentSupportsChat(raw string) bool {

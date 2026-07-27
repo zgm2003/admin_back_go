@@ -17,3 +17,16 @@ type sendRequest struct {
 type cancelRequest struct {
 	RequestID string `json:"request_id" binding:"required,max=128"`
 }
+
+type revisionRequest struct {
+	Content   string `json:"content" binding:"required,max=20000"`
+	RequestID string `json:"request_id" binding:"required,max=128"`
+}
+
+type regenerationRequest struct {
+	RequestID string `json:"request_id" binding:"required,max=128"`
+}
+
+type deleteMessagesRequest struct {
+	IDs []int64 `json:"ids" binding:"required,min=1,dive,gt=0"`
+}

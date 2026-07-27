@@ -98,9 +98,14 @@ func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
 		t.Fatalf("read admin composition: %v", err)
 	}
 	compact := strings.Join(strings.Fields(string(body)), " ")
-	want := "aimessage.NewGormRepository( resources.DB, replycommand.WithDurableEventSink(realtimeEventSink), )"
-	if !strings.Contains(compact, want) {
-		t.Fatal("Admin API cancellation must commit through the shared durable realtime sink")
+	for _, want := range []string{
+		"aiReplyRepository := replycommand.NewGormRepository( resources.DB, replycommand.WithDurableEventSink(realtimeEventSink), )",
+		"replycommand.NewHistoryParticipant(aiReplyRepository)",
+		"aimessage.NewGormRepository( resources.DB, aiReplyRepository,",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("Admin AI message composition missing %q", want)
+		}
 	}
 }
 

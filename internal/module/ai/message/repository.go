@@ -17,13 +17,15 @@ var ErrRepositoryNotConfigured = errors.New("aimessage repository not configured
 type GormRepository struct {
 	db      *gorm.DB
 	replies replycommand.Repository
+	history replycommand.HistoryTransactionParticipant
+	now     func() time.Time
 }
 
-func NewGormRepository(client *database.Client, replyOptions ...replycommand.RepositoryOption) *GormRepository {
+func NewGormRepository(client *database.Client, replies replycommand.Repository, history replycommand.HistoryTransactionParticipant) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm, replies: replycommand.NewGormRepository(client, replyOptions...)}
+	return &GormRepository{db: client.Gorm, replies: replies, history: history, now: time.Now}
 }
 
 func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {
@@ -76,7 +78,7 @@ func (r *GormRepository) AgentForConversation(ctx context.Context, conversationI
 	return &row, nil
 }
 
-func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Message, bool, error) {
+func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]MessageProjection, bool, error) {
 	if r == nil || r.db == nil {
 		return nil, false, ErrRepositoryNotConfigured
 	}
@@ -85,14 +87,21 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Message, 
 		limit = 20
 	}
 	db := r.db.WithContext(ctx).Table("ai_messages m").
-		Select("m.id, m.conversation_id, m.role, m.content_type, m.content, m.meta_json, m.is_del, m.created_at, m.updated_at").
+		Select(`m.id, m.conversation_id, m.role, m.content_type, m.content, m.meta_json,
+			m.reply_command_id, m.is_del, m.created_at, m.updated_at,
+			paired_messages.id AS paired_message_id, ai_runs.id AS run_id,
+			(ai_runs.id IS NOT NULL AND ai_runs.liked_at IS NOT NULL) AS liked`).
 		Joins("JOIN ai_conversations c ON c.id = m.conversation_id AND c.user_id = ? AND c.is_del = ?", query.UserID, enum.CommonNo).
+		Joins("LEFT JOIN ai_reply_commands user_commands ON user_commands.user_message_id = m.id AND m.role = ?", enum.AIMessageRoleUser).
+		Joins("LEFT JOIN ai_reply_commands assistant_commands ON assistant_commands.id = m.reply_command_id AND assistant_commands.assistant_message_id = m.id AND m.role = ?", enum.AIMessageRoleAssistant).
+		Joins("LEFT JOIN ai_messages paired_messages ON paired_messages.id = COALESCE(user_commands.assistant_message_id, assistant_commands.user_message_id) AND paired_messages.conversation_id = m.conversation_id AND paired_messages.is_del = ?", enum.CommonNo).
+		Joins("LEFT JOIN ai_runs ON ai_runs.user_id = assistant_commands.user_id AND ai_runs.request_id = assistant_commands.request_id AND ai_runs.assistant_message_id = m.id AND ai_runs.conversation_id = m.conversation_id AND m.role = ?", enum.AIMessageRoleAssistant).
 		Where("m.conversation_id = ?", query.ConversationID).
 		Where("m.is_del = ?", enum.CommonNo)
 	if query.BeforeID > 0 {
 		db = db.Where("m.id < ?", query.BeforeID)
 	}
-	var rows []Message
+	var rows []MessageProjection
 	err := db.Order("m.id DESC").Limit(limit + 1).Find(&rows).Error
 	if err != nil {
 		return nil, false, err

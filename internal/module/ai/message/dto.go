@@ -28,6 +28,27 @@ type CancelInput struct {
 	RequestID      string
 }
 
+type EditInput struct {
+	UserID         int64
+	ConversationID int64
+	MessageID      int64
+	Content        string
+	RequestID      string
+}
+
+type RegenerateInput struct {
+	UserID             int64
+	ConversationID     int64
+	AssistantMessageID int64
+	RequestID          string
+}
+
+type DeleteInput struct {
+	UserID         int64
+	ConversationID int64
+	IDs            []int64
+}
+
 type Attachment struct {
 	Type string `json:"type"`
 	URL  string `json:"url"`
@@ -44,13 +65,23 @@ type CancelPublisher interface {
 }
 
 type MessageItem struct {
-	ID          int64  `json:"id"`
-	Role        int    `json:"role"`
-	ContentType string `json:"content_type"`
-	Content     string `json:"content"`
-	MetaJSON    any    `json:"meta_json,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID              int64  `json:"id"`
+	Role            int    `json:"role"`
+	ContentType     string `json:"content_type"`
+	Content         string `json:"content"`
+	MetaJSON        any    `json:"meta_json,omitempty"`
+	PairedMessageID *int64 `json:"paired_message_id"`
+	RunID           *int64 `json:"run_id"`
+	Liked           bool   `json:"liked"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type MessageProjection struct {
+	Message
+	PairedMessageID *int64 `gorm:"column:paired_message_id"`
+	RunID           *int64 `gorm:"column:run_id"`
+	Liked           bool   `gorm:"column:liked"`
 }
 
 type ListResponse struct {
@@ -73,6 +104,15 @@ type CancelResponse struct {
 	Status         string `json:"status"`
 }
 
+type DeleteResponse struct {
+	DeletedIDs []int64 `json:"deleted_ids"`
+}
+
+type HistoryAccepted struct {
+	Reply    replycommand.CreateReplyResult
+	Replayed bool
+}
+
 type AgentRuntime struct {
 	AgentID              int64
 	ProviderID           int64
@@ -88,13 +128,25 @@ type AgentRuntime struct {
 type Repository interface {
 	Conversation(ctx context.Context, id int64) (*Conversation, error)
 	AgentForConversation(ctx context.Context, conversationID int64, userID int64) (*AgentRuntime, error)
-	List(ctx context.Context, query ListQuery) ([]Message, bool, error)
+	List(ctx context.Context, query ListQuery) ([]MessageProjection, bool, error)
 	CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error)
 	RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*replycommand.Command, error)
+}
+
+type HistoryRepository interface {
+	Revise(context.Context, EditInput) (HistoryAccepted, error)
+	Regenerate(context.Context, RegenerateInput) (HistoryAccepted, error)
+	DeleteMessages(context.Context, DeleteInput) ([]int64, error)
 }
 
 type HTTPService interface {
 	List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error)
 	Send(ctx context.Context, userID int64, input SendInput) (*SendResponse, *apperror.Error)
 	Cancel(ctx context.Context, userID int64, input CancelInput) (*CancelResponse, *apperror.Error)
+}
+
+type HistoryHTTPService interface {
+	Revise(ctx context.Context, userID int64, input EditInput) (*SendResponse, *apperror.Error)
+	Regenerate(ctx context.Context, userID int64, input RegenerateInput) (*SendResponse, *apperror.Error)
+	DeleteMessages(ctx context.Context, userID int64, input DeleteInput) (*DeleteResponse, *apperror.Error)
 }

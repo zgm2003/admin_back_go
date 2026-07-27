@@ -2,6 +2,7 @@ package aimessage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -10,12 +11,17 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type fakeRepository struct {
 	conversation         *Conversation
 	agent                *AgentRuntime
-	rows                 []Message
+	rows                 []MessageProjection
 	listQuery            ListQuery
 	replyInput           replycommand.CreateReplyInput
 	replyResult          replycommand.CreateReplyResult
@@ -43,7 +49,7 @@ func (f *fakeRepository) Conversation(ctx context.Context, id int64) (*Conversat
 func (f *fakeRepository) AgentForConversation(ctx context.Context, conversationID int64, userID int64) (*AgentRuntime, error) {
 	return f.agent, nil
 }
-func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Message, bool, error) {
+func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]MessageProjection, bool, error) {
 	f.listQuery = query
 	return f.rows, len(f.rows) > query.Limit, nil
 }
@@ -77,9 +83,9 @@ func (f *fakeCancelPublisher) PublishCancel(_ context.Context, commandID uint64)
 
 func TestListUsesMessageCursorAndReturnsChronologicalOrder(t *testing.T) {
 	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
-	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []Message{
-		{ID: 11, ConversationID: 3, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "second", CreatedAt: now, UpdatedAt: now},
-		{ID: 10, ConversationID: 3, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "first", CreatedAt: now, UpdatedAt: now},
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []MessageProjection{
+		{Message: Message{ID: 11, ConversationID: 3, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "second", CreatedAt: now, UpdatedAt: now}},
+		{Message: Message{ID: 10, ConversationID: 3, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "first", CreatedAt: now, UpdatedAt: now}},
 	}}
 	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{ConversationID: 3, BeforeID: 20})
 	if appErr != nil {
@@ -90,6 +96,83 @@ func TestListUsesMessageCursorAndReturnsChronologicalOrder(t *testing.T) {
 	}
 	if len(res.List) != 2 || res.List[0].ID != 10 || res.List[1].ID != 11 || res.List[0].ContentType != "text" {
 		t.Fatalf("unexpected response: %#v", res)
+	}
+}
+
+func TestListProjectsReplyCommandPairsRunAndLikedWithoutAdjacencyGuessing(t *testing.T) {
+	now := time.Date(2026, 7, 27, 10, 0, 0, 0, time.UTC)
+	userID, assistantID, runID := int64(41), int64(97), int64(501)
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []MessageProjection{
+		{Message: Message{ID: assistantID, ConversationID: 3, Role: enum.AIMessageRoleAssistant, Content: "answer", CreatedAt: now, UpdatedAt: now}, PairedMessageID: &userID, RunID: &runID, Liked: true},
+		{Message: Message{ID: 63, ConversationID: 3, Role: enum.AIMessageRoleAssistant, Content: "orphan", CreatedAt: now, UpdatedAt: now}},
+		{Message: Message{ID: userID, ConversationID: 3, Role: enum.AIMessageRoleUser, Content: "question", CreatedAt: now, UpdatedAt: now}, PairedMessageID: &assistantID},
+	}}
+
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{ConversationID: 3})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	if len(res.List) != 3 {
+		t.Fatalf("list length=%d", len(res.List))
+	}
+	user, orphan, assistant := res.List[0], res.List[1], res.List[2]
+	if user.ID != userID || user.PairedMessageID == nil || *user.PairedMessageID != assistantID || user.RunID != nil || user.Liked {
+		t.Fatalf("user projection=%+v", user)
+	}
+	if orphan.ID != 63 || orphan.PairedMessageID != nil || orphan.RunID != nil || orphan.Liked {
+		t.Fatalf("orphan projection=%+v", orphan)
+	}
+	if assistant.ID != assistantID || assistant.PairedMessageID == nil || *assistant.PairedMessageID != userID || assistant.RunID == nil || *assistant.RunID != runID || !assistant.Liked {
+		t.Fatalf("assistant projection=%+v", assistant)
+	}
+}
+
+func TestListProjectionUsesOneBoundedPageQueryAndCanonicalRunIdentity(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	repository := &GormRepository{db: db}
+
+	rows := sqlmock.NewRows([]string{
+		"id", "conversation_id", "role", "content_type", "content", "meta_json", "reply_command_id", "is_del", "created_at", "updated_at",
+		"paired_message_id", "run_id", "liked",
+	}).AddRow(97, 3, enum.AIMessageRoleAssistant, "text", "answer", nil, 12, enum.CommonNo, time.Now(), time.Now(), 41, 501, true).
+		AddRow(63, 3, enum.AIMessageRoleAssistant, "text", "orphan", nil, nil, enum.CommonNo, time.Now(), time.Now(), nil, nil, false).
+		AddRow(41, 3, enum.AIMessageRoleUser, "text", "question", nil, nil, enum.CommonNo, time.Now(), time.Now(), 97, nil, false)
+	mock.ExpectQuery("SELECT .*paired_message_id.*run_id.*liked.*FROM ai_messages.*ai_reply_commands.*paired_messages.*LEFT JOIN ai_runs ON ai_runs.user_id = assistant_commands.user_id AND ai_runs.request_id = assistant_commands.request_id AND ai_runs.assistant_message_id = m.id.*ORDER BY m.id DESC LIMIT \\?").
+		WithArgs(int64(7), enum.CommonNo, enum.AIMessageRoleUser, enum.AIMessageRoleAssistant, enum.CommonNo, enum.AIMessageRoleAssistant, int64(3), enum.CommonNo, 3).
+		WillReturnRows(rows)
+
+	projected, hasMore, err := repository.List(context.Background(), ListQuery{UserID: 7, ConversationID: 3, Limit: 2})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(projected) != 2 || !hasMore {
+		t.Fatalf("rows=%d hasMore=%v", len(projected), hasMore)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("page projection must use exactly one bounded query: %v", err)
+	}
+	mock.ExpectClose()
+}
+
+func newMessageMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatalf("gorm: %v", err)
+	}
+	return db, mock, func() {
+		if err := sqlDB.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
+			t.Fatalf("close db: %v", err)
+		}
 	}
 }
 
