@@ -363,6 +363,20 @@
       }
     },
     {
+      "operation_id": "delete_api_admin_v1_ai_conversations_id_messages",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-conversations/:id/messages",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "delete",
+        "title": "删除AI消息"
+      }
+    },
+    {
       "operation_id": "get_api_admin_v1_ai_conversations_id_messages",
       "method": "GET",
       "path": "/api/admin/v1/ai-conversations/:id/messages",
@@ -389,6 +403,35 @@
       }
     },
     {
+      "operation_id": "post_api_admin_v1_ai_conversations_id_messages_message_id_regenerations",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "regenerate",
+        "title": "重新生成AI回复"
+      }
+    },
+    {
+      "operation_id": "post_api_admin_v1_ai_conversations_id_messages_message_id_revisions",
+      "method": "POST",
+      "path": "/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_message",
+        "action": "revise",
+        "title": "编辑AI消息",
+        "skip_request_payload": true
+      }
+    },
+    {
       "operation_id": "post_api_admin_v1_ai_conversations_id_messages_cancel",
       "method": "POST",
       "path": "/api/admin/v1/ai-conversations/:id/messages/cancel",
@@ -398,6 +441,18 @@
       "audit": {
         "enabled": false,
         "reason": "self-service AI run cancellation"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_conversations_id_read_cursor",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-conversations/:id/read-cursor",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service AI conversation read state"
       }
     },
     {
@@ -817,6 +872,18 @@
       "audit": {
         "enabled": false,
         "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_runs_id_user_feedback",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-runs/:id/user-feedback",
+      "access": {
+        "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "self-service AI run feedback"
       }
     },
     {
